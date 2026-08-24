@@ -7462,26 +7462,46 @@ impl WorldGen {
 /// rule every other block below `IRefCounted`'s already follows.
 #[godot_api(secondary)]
 impl WorldGen {
-    /// Coarse grid cells spanned by one deep-zoom tile, along each axis
-    /// (`lod_bridge::TILE_CELLS`) — read this rather than hardcoding the
-    /// number in GDScript, so the viewport's own "which tile index does
-    /// this screen rect touch" arithmetic can never drift from what
-    /// [`Self::lod_synthesize_tile`] actually resolves a given index to.
-    /// `0` has no special meaning here (the constant is not tied to world
-    /// state), so this is safe to call before any `generate()`.
+    /// The pyramid level to draw at, for a camera showing `px_per_cell`
+    /// screen pixels per coarse grid cell — `pyramidLevelForZoom` (reference
+    /// line 10600) against this world's own width.
+    ///
+    /// Read this rather than reimplementing the rule in GDScript, so the
+    /// viewport's own "which tiles does this screen rect touch" arithmetic
+    /// can never drift from the level [`Self::lod_synthesize_tile`] would
+    /// actually resolve. `0` before any world, which is also the shallowest
+    /// real level, so a caller that asks too early gets a harmless answer.
     #[func]
-    fn lod_tile_cells(&self) -> i32 {
-        lod_bridge::TILE_CELLS as i32
+    fn lod_level_for_zoom(&self, px_per_cell: f64) -> i32 {
+        lod_bridge::level_for_zoom(px_per_cell, self.gw.max(0) as usize)
     }
 
-    /// One synthesized, coloured deep-zoom tile — what `viewport_host.gd`'s
-    /// deep-zoom compositor calls per visible tile once the camera's zoom
-    /// crosses the "more than roughly one screen pixel per grid cell"
-    /// threshold (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1).
-    /// `tile_x`/`tile_y` are tile-grid indices at `lod_tile_cells()`
-    /// coarse cells each (not pixels, not world km); `detail_level` selects
-    /// the output resolution tier (`lod_bridge::tile_px_for_level` — 256px
-    /// at `0`, doubling per level up to `lod_bridge::MAX_DETAIL_LEVEL`).
+    /// Tiles per axis at pyramid level `z` — `2^z`, clamped at
+    /// `lod_bridge::MAX_LEVEL`. Not tied to world state, so safe before any
+    /// `generate()`.
+    #[func]
+    fn lod_tiles_per_axis(&self, z: i32) -> i32 {
+        lod_bridge::tiles_per_axis(z) as i32
+    }
+
+    /// The deepest level [`Self::lod_level_for_zoom`] will ever return —
+    /// `lod_bridge::MAX_LEVEL`, the reference's own `state.lodMaxLevel`
+    /// rebased onto this port's smaller interactive tile.
+    #[func]
+    fn lod_max_level(&self) -> i32 {
+        lod_bridge::MAX_LEVEL
+    }
+
+    /// One synthesized deep-zoom tile — what `viewport_host.gd`'s deep-zoom
+    /// compositor calls per visible tile once the camera's zoom crosses the
+    /// "more than roughly one screen pixel per grid cell" threshold
+    /// (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1).
+    ///
+    /// `z`/`col`/`row` are the reference's own pyramid chunk address, the
+    /// same one the bake stores under: level `z` divides the map into
+    /// `2^z × 2^z` tiles of `lod_bridge::TILE_PX` pixels, so the *footprint*
+    /// shrinks with depth while the pixel cost does not. Call
+    /// [`Self::lod_level_for_zoom`] for `z` rather than deriving it.
     ///
     /// Reads height data from whichever `WorldSource` is live — a fresh
     /// `generate()`/`generate_sized()` or a loaded save both carry a
@@ -7496,14 +7516,14 @@ impl WorldGen {
     /// malformed source state `lod_bridge::synthesize_tile_rgba` itself
     /// guards against — see that function's own doc comment.
     #[func]
-    fn lod_synthesize_tile(&self, tile_x: i32, tile_y: i32, detail_level: i32) -> Option<Gd<ImageTexture>> {
+    fn lod_synthesize_tile(&self, z: i32, col: i32, row: i32) -> Option<Gd<ImageTexture>> {
         let field: &[f32] = match self.source.as_ref()? {
             WorldSource::Generated(ws) => &ws.field,
             WorldSource::Loaded(save) => &save.fields.heightmap,
         };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let (rgba, out_w, out_h) = lod_bridge::synthesize_tile_rgba(
-            field, gw, gh, tile_x, tile_y, detail_level, self.seed, self.sea_level,
+            field, gw, gh, z, col, row, self.seed, self.sea_level,
         )?;
         let packed = PackedByteArray::from(rgba);
         let image = Image::create_from_data(out_w as i32, out_h as i32, false, Format::RGBA8, &packed)?;

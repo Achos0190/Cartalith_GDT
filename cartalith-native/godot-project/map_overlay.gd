@@ -153,7 +153,8 @@ const LOD_DOT_OUTLINE_SC := 0.6
 ## pin at `zoom=1.0` vs. the same pin at `zoom=4.0` measured 4x the on-screen
 ## radius, not the same one). `_civ_zoom_k()` below is the missing term,
 ## using the reference's own clamp bounds (0.35-5.0) rather than this port's
-## own, wider `ViewportHost.ZOOM_MIN`/`ZOOM_MAX` (0.4-8.0) -- deliberately:
+## own, much wider `ViewportHost` zoom range (0.4 to `lodMaxZoom()`, which is
+## 160 on a default world) -- deliberately:
 ## the clamp exists purely so a pin never vanishes at extreme zoom-in nor
 ## dominates at extreme zoom-out, a readability bound with no reason to
 ## track wherever this port's own pan/zoom range happens to sit.
@@ -520,13 +521,21 @@ func _crisp_end() -> void:
 ##
 ## Re-derived here from this control's own geometry rather than pushed in from
 ## `reset_view()`: same formula, no second copy of the state to go stale on a
-## window resize, and no second file to edit. The `8.0` ceiling is
-## `ViewportHost.ZOOM_MAX`, which `reset_view()` clamps to as well.
+## window resize, and no second file to edit. The ceiling is the one
+## `reset_view()` clamps its own cover scale to -- `ViewportHost`'s zoom cap,
+## which stopped being a flat `8.0` on 2026-08-24 when it became the
+## reference's `lodMaxZoom()` (`max(64, ceil(kmW/5))`, never below 64). Only
+## the *floor* of that is used here rather than the live per-world value: a
+## cover scale is `max(w/rw, h/rh)` over a letterbox-fit rect and is a small
+## number by construction, so no real window can reach even 64 -- reaching for
+## the live cap would couple this file to a `ViewportHost` field for a bound
+## that never binds.
 func _lod_zoom_base() -> float:
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0 or rect.size.y <= 0.0 or size.x <= 0.0 or size.y <= 0.0:
 		return 1.0
-	return clampf(maxf(size.x / rect.size.x, size.y / rect.size.y), 1.0, 8.0)
+	return clampf(maxf(size.x / rect.size.x, size.y / rect.size.y),
+		1.0, ViewportHost.ZOOM_MAX_FLOOR)
 
 ## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
 ## `bridge.label_list()` are this data's only source, both already bound
@@ -1534,10 +1543,19 @@ func _notification(what: int) -> void:
 # **The reveal gate is deliberately NOT the reference's `_umLayoutAlpha`.**
 # That function crossfades pins into layouts across a 24 km → 10 km viewport
 # span, which works there because its LOD region window lets the camera reach
-# a few-km span. This port's camera clamps at `ViewportHost.ZOOM_MAX` (8.0),
-# so on a default 800 km world the closest reachable span is ~100 km and a
-# ported 24 km threshold would never once fire — a toggle that silently draws
-# nothing on the default world is worse than a different, stated rule. The
+# a few-km span. When this rule was written, this port's camera clamped at a
+# flat `ZOOM_MAX = 8.0`, so on a default 800 km world the closest reachable
+# span was ~100 km and a ported 24 km threshold would never once have fired —
+# a toggle that silently draws nothing on the default world is worse than a
+# different, stated rule.
+#
+# **That premise expired on 2026-08-24**: the cap is now `lodMaxZoom()` and the
+# same world reaches a 5 km span, so `_umLayoutAlpha`'s own thresholds are
+# live ground for the first time. Left as-is rather than swapped in the same
+# pass — the pixel rule below is not wrong, it is a different (and on a very
+# large world, still more useful) question, and switching the reveal gate is a
+# visible behaviour change that belongs with the rest of `_umLayoutAlpha`.
+# Recorded in `GUI_GAP_REGISTER.md` rather than left as a stale comment. The
 # gate here is the thing that actually matters for whether a town is worth
 # drawing at all: how many screen pixels its 1.7 km site box covers. A town
 # under `URBAN_MIN_BOX_PX` is a smudge and is skipped, and no layout is even

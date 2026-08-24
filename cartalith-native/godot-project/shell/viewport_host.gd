@@ -84,7 +84,33 @@ var _camera: Control    ## Hosts map_view/territory_view/province_view/overlay;
 	## (`_scale_label` etc.) stays a direct child of `self`, outside it, so it
 	## is never itself panned or zoomed.
 const ZOOM_MIN := 0.4
-const ZOOM_MAX := 8.0
+## `lodMaxZoom()` (reference 10672) -- **not** a constant, and the fix for the
+## owner's 2026-08-24 "LOD zooming doesn't seem to go that deep either".
+##
+## This file used to cap zoom at a flat `8.0`, which is the reference's cap on
+## `viewT.scale` (13381) and nothing else. But the reference *hands off* at
+## 2.2x: `enterLodFromView` (13953) pins `viewT.scale` back to 1 and gives the
+## camera to the tiled-LOD viewer, whose own zoom `_lodZoom` runs to
+## `lodMaxZoom()` -- and that function exists because of an owner report with
+## the same shape as this one. Its comment (v0.88) says so outright: *"highest
+## zoom stops at 20km, I'd like to drop down to 5km ... Scale the cap so a
+## real-world span of <=5km is always reachable, never less generous than the
+## old x64 for small/default maps."*
+##
+## So the reachable depth is a property of the **map's real width**, not a
+## screen-space constant. Measured before changing anything, on a default 800 km
+## world: this port stopped at `z8` = a **100 km** visible span, where the
+## reference reaches `z160` = **5 km**. Twenty times short, and visibly so --
+## the deepest view this port could reach was a smooth blur.
+##
+## `_zoom` here means exactly what `_lodZoom` means there (the map's full width
+## divided by the visible span), so the number ports directly.
+const ZOOM_MAX_FLOOR := 64.0    ## `Math.max(64, ...)` -- never less generous
+	## than the pre-v0.88 hardcoded x64 for small or default maps.
+const ZOOM_TARGET_SPAN_KM := 5.0   ## `(state.mapWidthKm||800)/5` -- the span
+	## the owner asked to be able to reach on any map size.
+var _zoom_max := ZOOM_MAX_FLOOR   ## `lodMaxZoom()` for the live world;
+	## recomputed in `refresh()`, floored until one exists.
 const ZOOM_WHEEL_STEP := 1.15   ## Multiplicative per wheel notch.
 var _zoom := 1.0
 var _panning := false
@@ -136,12 +162,6 @@ const LOD_PX_PER_CELL_THRESHOLD := 1.0
 ## with no zoom action at all. Both conditions must hold, as in the reference:
 ## px-per-cell says the detail is *resolvable*, this says it was *asked for*.
 const LOD_AUTO_ZOOM := 2.2
-## `detail_level` doubles the synthesized tile's own resolution once per
-## extra octave past the threshold (`lod_bridge::tile_px_for_level`,
-## 256/512/1024px) -- 2 matches that function's own `MAX_DETAIL_LEVEL`
-## clamp, so this file's idea of "how many tiers exist" cannot drift from
-## the Rust side's.
-const LOD_MAX_DETAIL_LEVEL := 2
 ## A real bound, not a cache: right at the threshold crossing is where the
 ## *most* tiles are visible at once (zooming in further shows fewer, larger
 ## ones), and synthesizing an unbounded burst in one call the instant a fast
@@ -181,46 +201,36 @@ var _lod_layer: Control   ## Child of `_camera`, drawn directly above
 	## debug raster, previews, vectors) -- it replaces the base raster at deep
 	## zoom rather than sitting on top of the stack. See its `_ready()`
 	## construction site for why that distinction is load-bearing.
-var _lod_tile_cells := 0   ## `EngineBridge.lod_tile_cells()`, fetched once
-	## (`0` before any world, or against a binary built before this
-	## milestone -- both make `_update_lod()` a no-op, degrading cleanly to
-	## Z1-only). Genuinely fetched only once, not once per world: `lod_
-	## bridge::TILE_CELLS` is a fixed Rust constant, never tied to which
-	## world is loaded (`WorldGen.lod_tile_cells()`'s own doc comment says so
-	## directly), so caching past the first successful fetch never goes
-	## stale.
-var _lod_tiles: Dictionary = {}   ## `"%d,%d" % [tx, ty]` -> the live
-	## `TextureRect` showing that tile, so a pan/zoom that doesn't touch a
-	## given tile's index leaves its node (and the Rust call that built it)
+var _lod_tiles: Dictionary = {}   ## `"%d,%d,%d" % [z, col, row]` -> the live
+	## `Sprite2D` showing that pyramid chunk, so a pan/zoom that doesn't
+	## touch a given chunk leaves its node (and the Rust call that built it)
 	## alone -- see `_update_lod()`'s own doc comment on why this is what
 	## keeps calling it once per mouse-motion sample affordable.
-var _lod_tile_detail: Dictionary = {}   ## Same keys as `_lod_tiles` -> the
-	## `detail_level` each was actually synthesized at. `_apply_lod_tiles`
-	## compares this against the detail level the *current* call wants and
-	## rebuilds a tile whose zoom has moved it into a different tier,
-	## instead of leaving a now-too-coarse (or needlessly-fine) texture
-	## stretched over its rect forever -- a key match on tile index alone
-	## would silently keep showing the old resolution once the index itself
-	## stops changing, the same "stops getting revisited once nothing about
-	## the viewport changes" shape as the dropped-tile bug this file's
-	## `MAX_LOD_TILES_PER_UPDATE` comment documents.
-var _lod_backlog: Dictionary = {}   ## `"%d,%d" % [tx, ty]` -> `Vector2i` --
-	## tiles the most recent `_update_lod()` wanted but couldn't fit inside
+	##
+	## The level is **in the key** since 2026-08-24, which retired a whole
+	## parallel `_lod_tile_detail` dictionary: at the old fixed 64-cell tile
+	## grid an index meant the same ground at every detail tier, so the tier
+	## had to be tracked beside it and compared; under the pyramid a chunk
+	## index only means anything *with* its level, and a level change makes
+	## every old key simply absent from `wanted`, which the reconciliation in
+	## `_apply_lod_tiles` already frees.
+var _lod_backlog: Dictionary = {}   ## `"%d,%d,%d"` -> `Vector3i(z, col, row)`
+	## -- chunks the most recent `_update_lod()` wanted but couldn't fit inside
 	## `MAX_LOD_TILES_PER_UPDATE`'s per-call synthesis budget. Replaced
 	## wholesale on every `_update_lod()` call (never merged), so a camera
 	## move that stops wanting a backlogged tile drops it for free the next
 	## time `_update_lod()` runs, rather than `_process()` wastefully
 	## building it anyway. See `MAX_LOD_TILES_PER_UPDATE`'s own doc comment
 	## for why this queue exists at all.
-var _lod_backlog_detail_level := 0   ## The geometry `_lod_backlog`'s entries
-var _lod_backlog_grid := Vector2i.ZERO   ## were computed against --
-var _lod_backlog_origin := Vector2.ZERO   ## `_process()` reuses it rather
-var _lod_backlog_size := Vector2.ZERO   ## than re-deriving it from the
-	## camera, since it is exactly what the `_update_lod()` call that filled
-	## the backlog already had on hand, and is guaranteed current: any camera
-	## motion that would invalidate it also calls `_update_lod()`, which
-	## replaces the whole backlog (and this geometry) before `_process()`
-	## next runs.
+var _lod_backlog_n := 0   ## Tiles per axis at the level `_lod_backlog`'s
+var _lod_backlog_grid := Vector2i.ZERO   ## entries belong to, and the geometry
+var _lod_backlog_origin := Vector2.ZERO   ## they were computed against --
+var _lod_backlog_size := Vector2.ZERO   ## `_process()` reuses it rather than
+	## re-deriving it from the camera, since it is exactly what the
+	## `_update_lod()` call that filled the backlog already had on hand, and is
+	## guaranteed current: any camera motion that would invalidate it also
+	## calls `_update_lod()`, which replaces the whole backlog (and this
+	## geometry) before `_process()` next runs.
 var _lod_active := false
 
 func setup(bridge: EngineBridge) -> void:
@@ -530,7 +540,7 @@ func _input(event: InputEvent) -> void:
 ## -- no pivot_offset needed, which sidesteps Control's own layout-vs-transform
 ## interactions around pivot entirely.
 func _zoom_at(screen_pt: Vector2, factor: float) -> void:
-	var new_zoom: float = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+	var new_zoom: float = clampf(_zoom * factor, ZOOM_MIN, _zoom_max)
 	if is_equal_approx(new_zoom, _zoom):
 		return
 	var local_pt := (screen_pt - _camera.position) / _zoom
@@ -538,6 +548,7 @@ func _zoom_at(screen_pt: Vector2, factor: float) -> void:
 	_zoom = new_zoom
 	_camera.scale = Vector2(_zoom, _zoom)
 	_update_zoom_readout()
+	_update_scale_bar()   ## `lodSpanKm()` -- see its own doc comment.
 	## `overlay`'s settlement pins are re-scaled to compensate for
 	## `_camera.scale` above (`map_overlay.gd`'s `_civ_zoom_k()`, see
 	## `PIN_SCALE_REF_PX`'s own doc comment for why) -- that compensation is
@@ -648,7 +659,7 @@ func reset_view() -> void:
 	var origin := Vector2.ZERO
 	var rect: Rect2 = overlay.displayed_rect()
 	if rect.size.x > 0.0 and rect.size.y > 0.0 and size.x > 0.0 and size.y > 0.0:
-		cover = clampf(maxf(size.x / rect.size.x, size.y / rect.size.y), 1.0, ZOOM_MAX)
+		cover = clampf(maxf(size.x / rect.size.x, size.y / rect.size.y), 1.0, _zoom_max)
 		origin = size * 0.5 - rect.get_center() * cover
 	_zoom = cover
 	_camera.scale = Vector2(_zoom, _zoom)
@@ -658,6 +669,7 @@ func reset_view() -> void:
 	## half a reset.
 	set_pan_mode(false)
 	_update_zoom_readout()
+	_update_scale_bar()   ## `lodSpanKm()` -- see its own doc comment.
 	overlay.set_camera_zoom(_zoom)   ## See `_zoom_at()`'s own comment on why this call exists.
 	## Every existing deep-zoom tile belongs to whatever world/size was live
 	## before this reset -- `refresh()` calls this on every new
@@ -887,8 +899,12 @@ func refresh() -> void:
 	overlay.set_map_width_km(_bridge.last_width_km)
 	tool_overlay.set_grid(g.x, g.y)
 	_width_km = _bridge.last_width_km
-	_update_scale_bar()
-	reset_view()   ## Also sets `_readout_label`'s text -- see its own doc.
+	## `lodMaxZoom()` -- see `ZOOM_MAX_FLOOR`'s own doc comment. Recomputed per
+	## world because it is a function of the map's real width in km, which is a
+	## generation parameter: an 800 km world reaches z160, a 4000 km one z800,
+	## and both land on the same 5 km closest span.
+	_zoom_max = maxf(ZOOM_MAX_FLOOR, ceilf(maxf(_width_km, 0.0) / ZOOM_TARGET_SPAN_KM))
+	reset_view()   ## Also sets `_readout_label`'s text and the scale bar.
 	## Belt-and-suspenders after the two lines above change `_scale_label`'s
 	## and `_readout_label`'s text (and so their minimum size): the fixed
 	## edge each already has should carry Godot's own grow-direction resize
@@ -1009,18 +1025,39 @@ func debug_opacity() -> float:
 func layers_button_rect() -> Rect2i:
 	return Rect2i(Vector2i(_layers_btn.global_position), Vector2i(_layers_btn.size))
 
+## `lodSpanKm()` (reference 10675) -- *"the real-world km currently spanned by
+## the LOD viewport (full map width when off/zoom=1) -- the single source of
+## truth for both the scale bar and any future 'current view width' readout"*,
+## which is `mapWidthKm / max(1, _lodZoom)` there and the same divide here.
+##
+## This used to print `_width_km` flat at every zoom, so the deepest view the
+## camera could reach still read "800 km across" -- the one readout that would
+## have told the owner how deep they actually were, saying the same thing at
+## z1 and at the cap. Called from `_zoom_at`/`reset_view` now, not only from
+## `refresh()`.
 func _update_scale_bar() -> void:
 	if _width_km <= 0.0:
 		_scale_label.text = ""
 		return
+	var span := _width_km / maxf(1.0, _zoom)
 	var gw := _bridge.grid_size().x
 	if gw <= 0:
-		_scale_label.text = "%.0f km across" % _width_km
+		_scale_label.text = "%s km across" % _fmt_km(span)
 		return
 	## Cells are square in km, so one quotient describes both axes.
 	var per_cell := _width_km / float(gw)
 	var cell_text := "%.2f" % per_cell if per_cell < 10.0 else "%.0f" % per_cell
-	_scale_label.text = "%.0f km across  ·  %s km / cell" % [_width_km, cell_text]
+	_scale_label.text = "%s km across  ·  %s km / cell" % [_fmt_km(span), cell_text]
+
+## Enough decimals to stay informative once the span is small -- the whole
+## point of showing it is that it changes, and `%.0f` would print "5 km" for
+## everything from 4.5 to 5.5 at the deepest zoom this camera now reaches.
+func _fmt_km(km: float) -> String:
+	if km >= 100.0:
+		return "%.0f" % km
+	if km >= 10.0:
+		return "%.1f" % km
+	return "%.2f" % km
 
 func _on_hovered(data: Variant, index: int) -> void:
 	settlement_hovered.emit(data, index)
@@ -1102,12 +1139,14 @@ func _fmt_thousands(v: float, decimals: int) -> String:
 ##
 ## Deliberately **not** debounced to "once per frame" or "only on pan-end":
 ## the real cost here is the Rust synthesis call, and that only happens for
-## a tile index this method has not already built a `TextureRect` for
-## (`_lod_tiles`, keyed by tile index) -- a pan or zoom that doesn't cross a
-## tile boundary (`_lod_tile_cells` grid cells, which at any zoom past the
-## threshold is already several hundred screen px) touches no new tiles and
-## makes no Rust call at all, so running this once per input event costs
-## only the screen<->grid geometry below, not a synthesis pass.
+## a chunk this method has not already built a `Sprite2D` for
+## (`_lod_tiles`, keyed by `(z, col, row)`) -- a pan or zoom that doesn't
+## cross a chunk boundary touches no new chunks and makes no Rust call at all,
+## so running this once per input event costs only the screen<->grid geometry
+## below, not a synthesis pass. That stays true at every depth, which is the
+## other half of what the pyramid buys: a chunk's *screen* size is roughly
+## `lod_bridge::TILE_PX` at any level, so the number on screen is bounded and
+## the cost of a viewful does not grow with zoom.
 ##
 ## Which tiles are "visible" is resolved with plain arithmetic here, in
 ## GDScript, rather than via `cartalith_spatial::QuadTree::query_region` --
@@ -1122,13 +1161,9 @@ func _update_lod() -> void:
 	if _bridge == null or not _bridge.has_world:
 		_set_lod_active(false)
 		return
-	if _lod_tile_cells <= 0:
-		_lod_tile_cells = _bridge.lod_tile_cells()
-	if _lod_tile_cells <= 0:
-		return   ## Binary built before this milestone -- stay Z1-only.
 
 	var g := _bridge.grid_size()
-	if g.x <= 0 or g.y <= 0 or size.x <= 0.0 or size.y <= 0.0:
+	if g.x <= 1 or g.y <= 1 or size.x <= 0.0 or size.y <= 0.0:
 		_set_lod_active(false)
 		return
 
@@ -1145,6 +1180,17 @@ func _update_lod() -> void:
 		return
 	var screen_px_per_cell := native_scale * _zoom
 	if screen_px_per_cell <= LOD_PX_PER_CELL_THRESHOLD or _zoom <= LOD_AUTO_ZOOM:
+		_set_lod_active(false)
+		return
+
+	## `pyramidLevelForZoom` against this world's own width, decided in Rust
+	## (`lod_bridge::level_for_zoom`) so this file cannot pick a level the
+	## synthesis would resolve differently. `<= 0` tiles per axis means a
+	## binary built before this milestone: stay Z1-only, exactly as the
+	## retired `lod_tile_cells() == 0` check did.
+	var z: int = _bridge.lod_level_for_zoom(screen_px_per_cell)
+	var n: int = _bridge.lod_tiles_per_axis(z)
+	if n <= 0:
 		_set_lod_active(false)
 		return
 
@@ -1170,40 +1216,36 @@ func _update_lod() -> void:
 		_set_lod_active(false)
 		return
 
-	var tx0 := int(floor(gx0 / _lod_tile_cells))
-	var ty0 := int(floor(gy0 / _lod_tile_cells))
-	var tx1 := int(floor(maxf(gx0, gx1 - 0.001) / _lod_tile_cells))
-	var ty1 := int(floor(maxf(gy0, gy1 - 0.001) / _lod_tile_cells))
+	## Which chunks of level `z` that rect touches. The pyramid splits the
+	## *sample* range `[0, gw-1]` into `n` steps (`pyramid_tile_bounds`), and
+	## a cell's sample coordinate is its texel centre, `cell - 0.5` in the
+	## `[0, gw]` span the rect above is written in -- hence the shift, which
+	## is a whole tile's worth at the deepest levels and cannot be dropped.
+	var step := _lod_step(g, n)
+	var c0 := clampi(int(floor((gx0 - 0.5) / step.x)), 0, n - 1)
+	var c1 := clampi(int(floor((gx1 - 0.5) / step.x)), 0, n - 1)
+	var r0 := clampi(int(floor((gy0 - 0.5) / step.y)), 0, n - 1)
+	var r1 := clampi(int(floor((gy1 - 0.5) / step.y)), 0, n - 1)
 
-	## One detail tier per doubling past the threshold, capped at
-	## `LOD_MAX_DETAIL_LEVEL` to match `lod_bridge::MAX_DETAIL_LEVEL` --
-	## `log(x)/log(2.0)` is GDScript's `log2`, since `log()` here is natural
-	## log.
-	var detail_level := clampi(
-		int(floor(log(screen_px_per_cell / LOD_PX_PER_CELL_THRESHOLD) / log(2.0))),
-		0, LOD_MAX_DETAIL_LEVEL)
-
-	var wanted: Dictionary = {}   ## key -> Vector2i tile index
-	for ty in range(ty0, ty1 + 1):
-		for tx in range(tx0, tx1 + 1):
-			wanted["%d,%d" % [tx, ty]] = Vector2i(tx, ty)
+	var wanted: Dictionary = {}   ## key -> Vector3i(z, col, row)
+	for row in range(r0, r1 + 1):
+		for col in range(c0, c1 + 1):
+			wanted["%d,%d,%d" % [z, col, row]] = Vector3i(z, col, row)
 
 	## Only the tiles this call would actually have to *synthesize* --
-	## already-built ones at the right detail level cost nothing but a
-	## reposition below, so they stay in `wanted` (and so never get freed)
-	## regardless of whether they'd have made the closest-`N` cut; only the
-	## genuinely-missing set below competes for the per-call budget.
-	## `_lod_tile_detail`'s own doc comment covers the "already built, wrong
-	## tier" half of "missing".
+	## already-built ones cost nothing but a reposition below, so they stay
+	## in `wanted` (and so never get freed) regardless of whether they'd have
+	## made the closest-`N` cut; only the genuinely-missing set below competes
+	## for the per-call budget.
 	var missing: Dictionary = {}
 	for key in wanted.keys():
-		if not _lod_tiles.has(key) or _lod_tile_detail.get(key, -1) != detail_level:
+		if not _lod_tiles.has(key):
 			missing[key] = wanted[key]
 
 	var build_keys: Dictionary = missing
 	var trimmed := false
 	if missing.size() > MAX_LOD_TILES_PER_UPDATE:
-		build_keys = _nearest_tiles(missing, Vector2((tx0 + tx1) * 0.5, (ty0 + ty1) * 0.5))
+		build_keys = _nearest_tiles(missing, Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5))
 		trimmed = true
 
 	## Whatever didn't make this call's budget -- replaces the previous
@@ -1216,142 +1258,170 @@ func _update_lod() -> void:
 		for key in missing.keys():
 			if not build_keys.has(key):
 				_lod_backlog[key] = missing[key]
-	_lod_backlog_detail_level = detail_level
+	_lod_backlog_n = n
 	_lod_backlog_grid = g
 	_lod_backlog_origin = displayed_origin
 	_lod_backlog_size = displayed_size
 	set_process(not _lod_backlog.is_empty())
 
-	_apply_lod_tiles(wanted, build_keys, detail_level, g, displayed_origin, displayed_size)
+	_apply_lod_tiles(wanted, build_keys, n, g, displayed_origin, displayed_size)
 	_set_lod_active(true)
 
-## Trims a candidate set (key -> `Vector2i` tile index -- `_update_lod()`'s
-## own `missing`) to `MAX_LOD_TILES_PER_UPDATE` entries closest to `centre`
-## (in tile-index space) -- see `MAX_LOD_TILES_PER_UPDATE`'s own doc comment
+## `pyramid_tile_bounds`' own step: the *sample* range `[0, gw-1] x [0, gh-1]`
+## divided `n` ways per axis. Stated once because four call sites need it and
+## the `- 1` is the whole reason adjacent chunks share an edge sample.
+func _lod_step(g: Vector2i, n: int) -> Vector2:
+	return Vector2(float(g.x - 1) / float(n), float(g.y - 1) / float(n))
+
+## Trims a candidate set (key -> `Vector3i` chunk id -- `_update_lod()`'s own
+## `missing`) to `MAX_LOD_TILES_PER_UPDATE` entries closest to `centre`
+## (in chunk-index space) -- see `MAX_LOD_TILES_PER_UPDATE`'s own doc comment
 ## for why this bound exists at all rather than synthesizing every candidate
 ## unconditionally.
 func _nearest_tiles(wanted: Dictionary, centre: Vector2) -> Dictionary:
 	var keys: Array = wanted.keys()
 	keys.sort_custom(func(a, b) -> bool:
-		var ai: Vector2i = wanted[a]
-		var bi: Vector2i = wanted[b]
-		return Vector2(ai).distance_squared_to(centre) < Vector2(bi).distance_squared_to(centre))
+		var ai: Vector3i = wanted[a]
+		var bi: Vector3i = wanted[b]
+		return Vector2(ai.y, ai.z).distance_squared_to(centre) \
+			< Vector2(bi.y, bi.z).distance_squared_to(centre))
 	var trimmed: Dictionary = {}
 	for i in range(MAX_LOD_TILES_PER_UPDATE):
 		trimmed[keys[i]] = wanted[keys[i]]
 	return trimmed
 
-## Reconciles `_lod_tiles` against `wanted` (key -> `Vector2i` tile index):
-## frees whatever is no longer wanted, repositions whatever already exists
-## at the right detail level (cheap, and correct after a resize -- see
-## `_update_lod`'s own native-space reasoning), rebuilds whatever exists at
-## the *wrong* detail level (`_lod_tile_detail`'s own doc comment), and only
-## calls `EngineBridge.lod_synthesize_tile` for a key in `build_keys` --
-## `_update_lod()`'s per-call budget subset of the keys actually missing.
-## Anything missing but NOT in `build_keys` is left alone here: it is
-## already queued in `_lod_backlog`, and `_process()` builds it shortly.
-func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, detail_level: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
+## Reconciles `_lod_tiles` against `wanted` (key -> `Vector3i` chunk id):
+## frees what is no longer visible, repositions what is, and only calls
+## `EngineBridge.lod_synthesize_tile` for a key in `build_keys` -- everything
+## else missing from `wanted` was already queued in `_lod_backlog` by
+## `_update_lod()`, and `_process()` builds it shortly.
+##
+## A tile at the wrong *level* needs no special handling since 2026-08-24:
+## the level is part of the key, so a level change leaves every old key out
+## of `wanted` and the free loop below collects them.
+func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, n: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
 	for key in _lod_tiles.keys().duplicate():
 		if not wanted.has(key):
-			(_lod_tiles[key] as TextureRect).queue_free()
+			(_lod_tiles[key] as Sprite2D).queue_free()
 			_lod_tiles.erase(key)
-			_lod_tile_detail.erase(key)
 
 	for key in wanted.keys():
-		var idx: Vector2i = wanted[key]
-
+		var idx: Vector3i = wanted[key]
 		if _lod_tiles.has(key):
-			if _lod_tile_detail.get(key, -1) == detail_level:
-				var rect = _lod_tile_rect(idx, g, displayed_origin, displayed_size)
-				if rect != null:
-					var existing := _lod_tiles[key] as TextureRect
-					existing.position = rect.position
-					existing.size = rect.size
-					## Cheap, and the one thing about an already-built tile
-					## that can go stale without its index or detail level
-					## moving: the shader samples `map_view`'s texture for
-					## colour, and a re-render (quality tier, appearance,
-					## a Sculpt commit) replaces that texture in place.
-					var mat := existing.material as ShaderMaterial
-					if mat != null:
-						mat.set_shader_parameter("base_tex", map_view.texture)
-				continue
-			## Detail level moved on since this tile was built (the camera
-			## zoomed further within the same tile index) -- free the stale
-			## texture and fall through to rebuild it at the tier the
-			## current zoom actually wants, subject to the same
-			## `build_keys` budget a brand-new tile is.
-			(_lod_tiles[key] as TextureRect).queue_free()
-			_lod_tiles.erase(key)
-			_lod_tile_detail.erase(key)
-
+			var existing := _lod_tiles[key] as Sprite2D
+			var rect = _lod_tile_rect(idx, existing.texture, n, g, displayed_origin, displayed_size)
+			if rect != null:
+				_place_lod_tile(existing, rect)
+			continue
 		if build_keys.has(key):
-			_build_lod_tile(key, idx, detail_level, g, displayed_origin, displayed_size)
-		## Else: over this call's synthesis budget -- already queued in
+			_build_lod_tile(key, idx, n, g, displayed_origin, displayed_size)
+		## else: outside this call's synthesis budget, already queued in
 		## `_lod_backlog` by `_update_lod()`, built by `_process()` shortly.
 
-## The screen rect one tile occupies, clipped exactly like `lod_bridge::
-## tile_bounds` on the Rust side -- both compute `min(TILE_CELLS, remaining)`
-## from the same `gw`/`gh`, so this can never disagree with what a tile
-## request actually returns (this file's own module-doc note on why that's
-## the one piece of tile-bounds arithmetic duplicated here at all). `null`
-## for a degenerate (fully-clipped) tile.
-func _lod_tile_rect(idx: Vector2i, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> Variant:
-	var origin_x := idx.x * _lod_tile_cells
-	var origin_y := idx.y * _lod_tile_cells
-	var tile_w := mini(_lod_tile_cells, g.x - origin_x)
-	var tile_h := mini(_lod_tile_cells, g.y - origin_y)
-	if tile_w <= 0 or tile_h <= 0:
+## The screen rect one chunk occupies, in `_camera`-local space.
+##
+## Not simply "the chunk's cell footprint mapped through the map rect": the
+## two grids use different conventions and at deep zoom the difference is
+## most of a screen. `amplify_region` maps output texel `ox` to sample
+## coordinate `b.x + ox/(tw-1) * b.w` -- endpoints inclusive, texel *centres*
+## on sample coordinates -- while the base raster's own texel `i` covers the
+## span `[i, i+1)` cells, so sample coordinate `c` sits at cell `c + 0.5`. A
+## sprite of width `W` puts its texel `j`'s centre at `(j+0.5)/tw * W`.
+## Solving those three for the rect that lands every tile texel centre on its
+## own ground gives the half-texel inset below; at the deepest level, where a
+## chunk covers half a cell, dropping it would offset the tile by more than
+## its own width.
+##
+## Adjacent chunks therefore overlap by exactly one texel, which is correct
+## and not a seam: the pyramid has them *share* that edge sample
+## (`pyramid_tile_bounds`, `w = (gw-1)/n`), so both draw the same value there.
+##
+## `null` (not a `Rect2`) for a degenerate texture, the same "no tile" answer
+## `_build_lod_tile` gives for a `null` synthesis result.
+func _lod_tile_rect(idx: Vector3i, tex: Texture2D, n: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> Variant:
+	if tex == null:
 		return null
-	return Rect2(
-		displayed_origin + Vector2(origin_x, origin_y) / Vector2(g.x, g.y) * displayed_size,
-		Vector2(tile_w, tile_h) / Vector2(g.x, g.y) * displayed_size)
+	var tw := tex.get_width()
+	var th := tex.get_height()
+	if tw < 2 or th < 2:
+		return null
+	if n <= 0:
+		return null
+	var step := _lod_step(g, n)
+	var b := Vector2(idx.y * step.x, idx.z * step.y)
+	## Cell-space span of the drawn rect: half a texel out from the first and
+	## last sample, and hence `tw/(tw-1)` of the chunk's own sample span.
+	var half := Vector2(0.5 * step.x / float(tw - 1), 0.5 * step.y / float(th - 1))
+	var c0 := b + Vector2(0.5, 0.5) - half
+	var span := Vector2(step.x * tw / float(tw - 1), step.y * th / float(th - 1))
+	var scale_v := displayed_size / Vector2(g)
+	return Rect2(displayed_origin + c0 * scale_v, span * scale_v)
 
-## Synthesizes one tile (`idx`, `detail_level`) and stores it under `key` in
-## `_lod_tiles`/`_lod_tile_detail`. Shared by `_apply_lod_tiles`'s own build
-## path and `_process()`'s backlog catch-up -- exactly the same work, called
-## from two different budgets (`MAX_LOD_TILES_PER_UPDATE` per input event,
-## or `MAX_LOD_TILES_PER_CATCHUP` per idle frame).
-func _build_lod_tile(key: String, idx: Vector2i, detail_level: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
-	var rect = _lod_tile_rect(idx, g, displayed_origin, displayed_size)
-	if rect == null:
-		return
-	var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, detail_level)
+## Puts one tile sprite over `rect`, which is in `_camera`-local space.
+##
+## **A `Sprite2D`, not the `TextureRect` this layer used until 2026-08-24**, and
+## the reason is the whole difference between deep zoom working and not.
+## `gui/common/snap_controls_to_pixels` is on by default and rounds a
+## `Control`'s position and size to whole *local* pixels -- and `_camera`'s
+## local pixel is `_zoom` screen pixels, so at the depths this camera now
+## reaches (z160: the map is 5.5 local px wide) a tile 1.74 local px across was
+## snapped to 1 or 2, i.e. 160 or 320 screen px instead of 278. Measured, not
+## guessed: a diff of the same frame with the layer shown and hidden came back
+## with 40 px vertical and 120 px horizontal bands that the layer changed not
+## at all, in a set of tiles whose own arithmetic covered the screen with a
+## one-pixel overlap. `Node2D` carries a float transform and is never snapped.
+## Nothing else about the tile changes: `Sprite2D` is a `CanvasItem` like the
+## `TextureRect` was, sits under the same `_lod_layer` `modulate` fade, takes
+## the same `texture_filter`, and hands the shader the same `UV`.
+##
+## The old code got away with it because a tile was then a fixed 64 coarse
+## cells -- several hundred local px at `ZOOM_MAX = 8` -- where one pixel of
+## snapping is invisible.
+func _place_lod_tile(sprite: Sprite2D, rect: Rect2) -> void:
+	var tex_size := sprite.texture.get_size()
+	sprite.position = rect.position
+	sprite.scale = rect.size / Vector2(maxf(tex_size.x, 1.0), maxf(tex_size.y, 1.0))
+
+## Synthesizes one chunk and adds its `Sprite2D` to `_lod_layer`, recording
+## it in `_lod_tiles`. Shared by `_apply_lod_tiles`'s own build loop and
+## `_process()`'s backlog drain, which reach it from two different budgets
+## (`MAX_LOD_TILES_PER_UPDATE` per input event, or
+## `MAX_LOD_TILES_PER_CATCHUP` per idle frame).
+func _build_lod_tile(key: String, idx: Vector3i, n: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
+	var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, idx.z)
 	if tex == null:
 		return
-	var tile_node := TextureRect.new()
+	## After synthesis, not before: the rect is derived from the texture's own
+	## texel count (`_lod_tile_rect`), which for a non-square map is not
+	## `TILE_PX` on both axes.
+	var rect = _lod_tile_rect(idx, tex, n, g, displayed_origin, displayed_size)
+	if rect == null:
+		return
+	var tile_node := Sprite2D.new()
 	tile_node.texture = tex
-	tile_node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tile_node.stretch_mode = TextureRect.STRETCH_SCALE
+	tile_node.centered = false
 	## `LINEAR`, not `_raster()`'s `NEAREST` -- the entire reason this
 	## milestone exists is to stop showing blocky single-cell squares at
 	## deep zoom, so the tile that replaces them must not reintroduce
 	## the same artifact at its own, finer texel size.
 	tile_node.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	tile_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tile_node.position = rect.position
-	tile_node.size = rect.size
+	_place_lod_tile(tile_node, rect)
 	## `tex` is a relief-detail shade ratio, not a picture (`lod_bridge.rs`,
 	## "What a tile actually contains"). The shader multiplies it into the
 	## base map's own colour, sampled from `map_view.texture` over this
 	## tile's footprint -- so a deep-zoom tile can no longer disagree with
 	## the map it sits on, which is what the pre-2026-08-23 hypsometric
-	## tile did at every pixel.
-	var origin_x := idx.x * _lod_tile_cells
-	var origin_y := idx.y * _lod_tile_cells
-	var tile_w := mini(_lod_tile_cells, g.x - origin_x)
-	var tile_h := mini(_lod_tile_cells, g.y - origin_y)
+	## tile did at every pixel. The UVs are the same rect in `[0,1]` map
+	## space, so the two agree by construction rather than by a second
+	## derivation.
 	var mat := ShaderMaterial.new()
 	mat.shader = LOD_TILE_SHADER
 	mat.set_shader_parameter("base_tex", map_view.texture)
-	mat.set_shader_parameter("base_uv0",
-		Vector2(float(origin_x) / g.x, float(origin_y) / g.y))
-	mat.set_shader_parameter("base_uv1",
-		Vector2(float(origin_x + tile_w) / g.x, float(origin_y + tile_h) / g.y))
+	mat.set_shader_parameter("base_uv0", (rect.position - displayed_origin) / displayed_size)
+	mat.set_shader_parameter("base_uv1", (rect.end - displayed_origin) / displayed_size)
 	tile_node.material = mat
 	_lod_layer.add_child(tile_node)
 	_lod_tiles[key] = tile_node
-	_lod_tile_detail[key] = detail_level
 
 ## Backlog catch-up (`_lod_backlog`'s own doc comment): drains up to
 ## `MAX_LOD_TILES_PER_CATCHUP` entries per frame, reusing the geometry the
@@ -1360,7 +1430,7 @@ func _build_lod_tile(key: String, idx: Vector2i, detail_level: int, g: Vector2i,
 ## fresh `_update_lod()` call first, which replaces the whole backlog (and
 ## this geometry) before `_process()` next runs. Disables its own per-frame
 ## processing the moment the backlog empties, so this costs nothing once
-## deep zoom has fully caught up.
+## everything wanted is on screen.
 func _process(_delta: float) -> void:
 	if _lod_backlog.is_empty():
 		set_process(false)
@@ -1369,31 +1439,28 @@ func _process(_delta: float) -> void:
 	for key in _lod_backlog.keys().duplicate():
 		if n >= MAX_LOD_TILES_PER_CATCHUP:
 			break
-		var idx: Vector2i = _lod_backlog[key]
+		var idx: Vector3i = _lod_backlog[key]
 		_lod_backlog.erase(key)
 		if not _lod_tiles.has(key):   ## Not already built by a call in between.
-			_build_lod_tile(key, idx, _lod_backlog_detail_level,
-				_lod_backlog_grid, _lod_backlog_origin, _lod_backlog_size)
+			_build_lod_tile(key, idx, _lod_backlog_n, _lod_backlog_grid,
+				_lod_backlog_origin, _lod_backlog_size)
 		n += 1
 	if _lod_backlog.is_empty():
 		set_process(false)
 
-## Frees every currently-displayed deep-zoom tile and clears the backlog.
-## Called on every world reset (`reset_view`, since a stale tile belongs to
-## whatever world/size was live before) and whenever `_set_lod_active(false)`
-## actually changes state (crossing back below the threshold).
+## Frees every live tile (they belong to whatever world/size was live before)
+## and whenever `_set_lod_active(false)` turns the layer off.
 func _clear_lod_tiles() -> void:
 	for key in _lod_tiles.keys():
-		(_lod_tiles[key] as TextureRect).queue_free()
+		(_lod_tiles[key] as Sprite2D).queue_free()
 	_lod_tiles.clear()
-	_lod_tile_detail.clear()
 	_lod_backlog.clear()
 	set_process(false)
 
 ## Fades `_lod_layer` in or out and frees its tiles on the way out. A no-op
 ## when `active` already matches `_lod_active` -- called from several
-## early-return paths in `_update_lod()` that would otherwise re-trigger the
-## tween on every single call while already below the threshold.
+## early-return paths in `_update_lod()`, most of which run on every camera
+## move.
 func _set_lod_active(active: bool) -> void:
 	if active == _lod_active:
 		return

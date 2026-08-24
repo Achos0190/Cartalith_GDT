@@ -46,7 +46,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
-| 16-22, 27-31 | Sections added after the contents table was written; see the `## ` headings directly. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
+| 16-22, 27-32 | Sections added after the contents table was written; see the `## ` headings directly. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
@@ -4686,3 +4686,124 @@ dock — no squeeze.
   `_todo` row with a documented reason; the units switch is the same gap
   `tool_bar.gd`'s Measure options already disclose), but they are the residue
   of four intended surfaces and are recorded here so the intent is not lost.
+
+## 32 · LZ-01 — deep zoom stopped twenty times short of the reference, and the tile it drew had run out of octaves (2026-08-24) — **FIXED**
+
+Owner report, verbatim: *"LOD zooming doesn't seem to go that deep either."*
+
+Measured before changing anything, on a default 800 km × 512×384 world in a
+1600×1000 window:
+
+| | before | reference | after |
+|---|---|---|---|
+| deepest camera zoom | **8.0×** | `lodMaxZoom()` = **160×** | **160×** |
+| closest visible span | **100 km** | **5 km** | **5.00 km** |
+| deepest tile resolution | 16 px per coarse cell | 256 px | 256 px |
+| procedural octaves at depth | **1, fixed** | `min(6, z − zBase)` | `min(6, z − zBase)` |
+| synthesis cost, one tile | 251 ms (1024²) | — | 12–34 ms (256²) |
+| tiles synthesised per viewful | 4, growing with depth | — | **24 at every depth** |
+| `_update_lod()` per camera move | — | — | 0.1–0.2 ms, no backlog |
+
+**Three separate ceilings, only the first of which is what it looked like.**
+
+### 1. `ZOOM_MAX = 8.0` was the wrong constant, copied from the wrong camera
+
+The reference caps `viewT.scale` at 8 (line 13381) — and this port took that
+number. But the reference *hands the camera off* at 2.2×: `enterLodFromView`
+(13953) pins `viewT.scale` back to 1 and gives zoom to the tiled-LOD viewer,
+whose own `_lodZoom` runs to `lodMaxZoom()` = `max(64, ceil(mapWidthKm/5))`
+(10672) — **160 on a default world**. That function exists because of an owner
+report with the same shape as this one; its v0.88 comment says so outright:
+*"highest zoom stops at 20km, I'd like to drop down to 5km … Scale the cap so a
+real-world span of ≤5km is always reachable."*
+
+So the reachable depth is a property of the map's real width, not a screen-space
+constant. `ViewportHost` now computes it per world in `refresh()`.
+
+### 2. The tile had a fixed footprint, so its resolution saturated
+
+`lod_bridge` addressed tiles on a fixed 64-coarse-cell grid and grew the *output*
+(256/512/1024 px) with a `detail_level` capped at 2 — a ceiling of 16 px per
+cell, which is exactly where `ZOOM_MAX = 8` had been set. Raising the cap alone
+would only have magnified a 16 px/cell tile.
+
+It is now a **pyramid** tile: level `z` divides the map into `2^z × 2^z` chunks
+of one fixed pixel size (`cartalith_spatial::pyramid`, `pyramid_tile_bounds`,
+`pyramid_level_for_zoom` — all already ported and golden-tested for the bake),
+so the *footprint* shrinks with depth while the cost per tile does not. That is
+also why the tile count per viewful is now flat at 24 from z3 to z9 instead of
+growing: it is bounded by screen area, not by zoom.
+
+### 3. The tile carried no progressive detail at all
+
+`synthesize_tile_rgba` called `amplify_region` alone — and the reference names
+that exact failure in `addZoomDetail`'s own header: *"amplifyRegion adds detail
+at a FIXED coarse-space frequency, so the fbm runs out of octaves at high zoom
+and the surface goes smooth ('details don't get more intricate')."* The
+synthesis is now `cartalith_engine::bake::pyramid_tile` verbatim —
+`refine_tile` **plus** `add_zoom_detail`'s `min(6, z − zBase)` progressively
+finer octaves — so a tile drawn on screen and a chunk baked into the atlas over
+the same ground are the same numbers, by construction.
+
+`z_base()` is shifted by `log2(1024 / TILE_PX)`: the reference's `zBase = 2` is
+quoted against its 1024 px `_lodTile`, and a 256 px tile reaches the same ground
+resolution two levels deeper, so using `2` unshifted would have added two octaves
+past what the tile can resolve — noise, not detail.
+
+### The three things the live driving found that reasoning had not
+
+- **The hillshade faded to nothing with depth.** `shade_tile` differences
+  *adjacent pixels* with a fixed `exag`, so the same ground slope shades
+  `1/px_per_cell` as hard once a tile spreads one cell over many pixels.
+  Measured on a dome fixture: 34% of mask pixels carried any shading at level 4,
+  3% at level 7 — deep zoom converged on a flat mask over a smooth blur *even
+  with the octaves in*. The exaggeration is now normalised by the tile's own
+  pixels-per-cell, which makes the ratio scale-invariant; the same fixture then
+  runs 2.44 → 3.36 → 4.31 → 5.49 in mean adjacent-pixel difference across four
+  levels instead of 0.30 → 0.03. This is a free parameter, not a reference
+  constant: the shade *ratio* is this port's own construct.
+- **`gui/common/snap_controls_to_pixels` destroys a deep-zoom `TextureRect`.**
+  It rounds a `Control`'s position and size to whole *local* pixels, and
+  `_camera`'s local pixel is `_zoom` screen pixels — at z160 the whole map is
+  5.5 local px wide, so a tile 1.74 local px across was snapped to 1 or 2, i.e.
+  160 or 320 screen px instead of 278. Diffing the same frame with the layer
+  shown and hidden came back with 40 px vertical and 120 px horizontal bands the
+  layer changed *not at all*, from a tile set whose own arithmetic covered the
+  screen with a one-pixel overlap. Tiles are `Sprite2D` now — `Node2D` carries a
+  float transform and is never snapped. The old code got away with it because a
+  64-cell tile at `ZOOM_MAX = 8` was several hundred local px.
+- **The scale bar was the one readout that would have told the owner how deep
+  they were, and it said the same thing at every zoom.** It printed the map's
+  full width flat, so the deepest reachable view still read *"800 km across"*.
+  It is `lodSpanKm()` now (reference 10675, whose own comment calls it *"the
+  single source of truth for both the scale bar and any future 'current view
+  width' readout"*), and reads **5.00 km across** at the cap.
+
+### What is genuinely a separate milestone, checked rather than assumed
+
+- **Reading the baked atlas at draw time is not the depth fix**, and wiring it
+  as built would have reintroduced a bug that was fixed the day before. A baked
+  chunk's PNG is `region_export::tile_png_bytes`, the **Relief** coloriser — the
+  hypsometric ramp the 2026-08-23 pass removed from this path precisely because
+  it disagrees with the biome map at every pixel ("a zoom action exposes the
+  underlying heightmap"). The reusable half is the chunk's *height* (`rg16`,
+  `cartalith_io::decode_chunk`), which has no `#[func]`. And the depths that
+  matter are past baking anyway: a depth-7 pyramid is 21 845 tiles, so the atlas
+  can only serve shallow levels — where live synthesis is now 12 ms. Real, but
+  an optimisation, not the ceiling.
+- **The colour at depth is still an interpolation of the coarse raster.** The
+  relief is now genuinely sub-cell; the *palette* is not, because
+  `renderBiomeTileRGBA` is unported (it needs temperature, rainfall, lithology
+  and flow at sub-cell resolution). Named in `lod_bridge.rs`'s own header since
+  2026-08-23 and unchanged by this pass.
+- **The frame at extreme zoom costs ~27 ms, and the LOD layer is not why.**
+  Measured at z160 with the layer visible, hidden, and at the reset view:
+  27.17 / 26.74 / 16.68 ms. The layer is worth 0.4 ms; the other ~10 ms is
+  whatever the base raster and `map_overlay` cost at 160× magnification, newly
+  reachable rather than newly slow. Not chased here.
+- **`_umLayoutAlpha`'s 24 km → 10 km crossfade is live ground for the first
+  time.** `map_overlay.gd`'s urban reveal gate is a pixel rule written against
+  the old ~100 km floor, with a comment stating that a ported 24 km threshold
+  "would never once fire". That premise expired with this change. The comment
+  now says so; the gate was deliberately not swapped in the same pass, because
+  it is a visible behaviour change belonging with the rest of `_umLayoutAlpha`.

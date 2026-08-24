@@ -24180,3 +24180,88 @@ untouched.
 **Files:** `cartalith-gpu/src/lib.rs`, `cartalith-gpu/src/multi.rs`,
 `cartalith-gpu/tests/multi_gpu.rs`, `cartalith-engine/src/lib.rs`,
 `cartalith-engine/examples/compute_config_bench.rs`.
+
+## Deep zoom stopped at 100 km and the tile it drew had run out of octaves (2026-08-24) — `GUI_GAP_REGISTER.md` §32
+
+Owner report: *"LOD zooming doesn't seem to go that deep either."* Measured
+before touching anything, on a default 800 km × 512×384 world at 1600×1000: the
+camera stopped at **z8, a 100 km visible span**, where the reference's own
+`lodMaxZoom()` reaches **z160, a 5 km span**. Twenty times short — and the
+deepest view this port could reach was a featureless blur.
+
+**Three ceilings, of which the cap was only the first.**
+
+1. **`ZOOM_MAX = 8.0` was copied off the wrong camera.** 8 is the reference's
+   cap on `viewT.scale` (13381), but the reference *hands off* at 2.2×:
+   `enterLodFromView` (13953) pins `viewT.scale` to 1 and gives zoom to the
+   tiled-LOD viewer, whose `_lodZoom` runs to
+   `lodMaxZoom() = max(64, ceil(mapWidthKm/5))` (10672) — a function that exists
+   because of an owner report with this exact shape, and whose v0.88 comment
+   reads *"highest zoom stops at 20km, I'd like to drop down to 5km."* The cap
+   is now that function, computed per world in `ViewportHost.refresh()`.
+2. **The tile's footprint was fixed, so its resolution saturated.**
+   `lod_bridge` tiled on a fixed 64-coarse-cell grid and grew the *output*
+   (256/512/1024 px) with a `detail_level` capped at 2 — 16 px per cell, which
+   is exactly where `ZOOM_MAX = 8` had been set to match. A tile is now a
+   **pyramid chunk** (`cartalith_spatial::pyramid`): level `z` splits the map
+   `2^z` ways per axis at one fixed pixel size, so the footprint shrinks with
+   depth and the cost per tile does not.
+3. **The tile carried no progressive detail at all.** It called
+   `amplify_region` alone — the failure the reference names in `addZoomDetail`'s
+   own header: *"amplifyRegion adds detail at a FIXED coarse-space frequency, so
+   the fbm runs out of octaves at high zoom and the surface goes smooth."*
+   Synthesis is now `cartalith_engine::bake::pyramid_tile` verbatim
+   (`refine_tile` + `add_zoom_detail`), so a tile on screen and a chunk in the
+   atlas over the same ground are the same numbers. `z_base()` is shifted by
+   `log2(1024/TILE_PX)` — the reference's `zBase = 2` is quoted against its
+   1024 px `_lodTile`, and an unshifted 2 on a 256 px tile would add two octaves
+   past what the tile can resolve.
+
+**Three things only live driving found.**
+
+- **The hillshade faded to nothing with depth even with the octaves in.**
+  `shade_tile` differences adjacent *pixels* at fixed `exag`, so one cell spread
+  over many pixels shades `1/px_per_cell` as hard: 34% of mask pixels carried
+  any shading at level 4, 3% at level 7. The exaggeration is now normalised by
+  the tile's own pixels-per-cell — a free parameter, since the shade *ratio* is
+  this port's construct and not a reference quantity. Same fixture, mean
+  adjacent-pixel difference across four levels: **0.30 → 0.20 → 0.096 → 0.031
+  becomes 2.44 → 3.36 → 4.31 → 5.49.**
+- **`gui/common/snap_controls_to_pixels` destroys a deep-zoom `TextureRect`.**
+  It rounds a `Control` to whole *local* pixels, and `_camera`'s local pixel is
+  `_zoom` screen pixels: at z160 the map is 5.5 local px wide, so a 1.74 px tile
+  snapped to 1 or 2 — 160 or 320 screen px instead of 278. A diff of the same
+  frame with the layer shown and hidden came back with 40 px and 120 px bands
+  the layer changed *not at all*, from a tile set whose own arithmetic covered
+  the screen with a one-pixel overlap. Tiles are `Sprite2D` now.
+- **The scale bar printed the map's full width at every zoom**, so the deepest
+  view still read "800 km across". It is `lodSpanKm()` now (10675, *"the single
+  source of truth for both the scale bar and any future 'current view width'
+  readout"*) and reads **5.00 km across** at the cap.
+
+**Verified, run rather than described.** 18 `lod_bridge` tests (5 new, including
+a regression test that measures the octaves' contribution against a no-octave
+baseline at four depths) and 335 `cartalith-godot` lib tests green; smoke test
+PASS; headless boot clean. Live at 1600×1000 on a real world: **z160, a 5.00 km
+span**, seamless — the LOD-on/off diff covers the whole map area with no bands.
+Cost is *flat with depth*: **24 tiles per viewful at every level from z3 to z9**,
+`_update_lod()` in 0.1–0.2 ms with no backlog, 12–34 ms per 256×192 tile against
+the old **251 ms** per 1024² one. Frame time at z160 is 27.2 ms with the layer
+visible and 26.7 ms hidden (16.7 ms at the reset view) — the layer is worth
+0.4 ms; the rest is the base raster and `map_overlay` at 160× magnification,
+newly reachable rather than newly slow.
+
+**Left open, checked rather than assumed.** Reading the baked atlas at draw time
+is *not* the depth fix and would have reintroduced the bug fixed the day before:
+a baked chunk's PNG is `region_export::tile_png_bytes`, the **Relief**
+coloriser, which is the ramp the 2026-08-23 pass removed from this path. Its
+reusable half is the chunk's height (`rg16`, `decode_chunk`), which has no
+`#[func]` — and a depth-7 pyramid is 21 845 tiles, so the atlas can only ever
+serve shallow levels, where synthesis is now 12 ms. Separately, the *colour* at
+depth is still an interpolation of the coarse raster; only `renderBiomeTileRGBA`
+fixes that, and it stays the named milestone it has been.
+
+**Files:** `cartalith-godot/src/lod_bridge.rs`, `cartalith-godot/src/lib.rs`
+(the three `#[func]`s only), `godot-project/shell/viewport_host.gd`,
+`godot-project/shell/engine_bridge.gd`, `godot-project/map_overlay.gd`
+(two stale `ZOOM_MAX` references).

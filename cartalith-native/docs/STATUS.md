@@ -5,7 +5,39 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **TO-01/TO-02/CV-20/MN-09/SH-15: the *tool*
+Last updated: 2026-08-24 (post **LZ-01: deep zoom stopped twenty times short of
+the reference, and the tile it drew had run out of octaves** — owner reported
+*"LOD zooming doesn't seem to go that deep either."* Measured first: the camera
+stopped at **z8, a 100 km span**, where the reference's own `lodMaxZoom()`
+(10672) reaches **z160, a 5 km span** — a function that exists there because of
+an owner report with this exact shape. **Three ceilings, not one.**
+`ZOOM_MAX = 8.0` was copied off the reference's `viewT.scale` cap, ignoring that
+it *hands off* to the tiled-LOD viewer at 2.2x; the tile had a fixed 64-cell
+footprint so its resolution saturated at 16 px/cell (exactly where the cap had
+been set to match); and it called `amplify_region` alone, which is the failure
+`addZoomDetail`'s own header names — *"the fbm runs out of octaves at high zoom
+and the surface goes smooth."* A tile is now a **pyramid chunk**
+(`pyramid_tile` verbatim: `refine_tile` + `add_zoom_detail`), so it is the same
+numbers a baked atlas chunk holds, its footprint shrinks with depth instead of
+its cost growing, and the cap is `lodMaxZoom()` per world. Live driving found
+three more: `shade_tile`'s fixed `exag` made the mask fade to nothing with depth
+even with the octaves in (now normalised by px-per-cell: mean adjacent-pixel
+difference across four levels goes **0.30 -> 0.03** to **2.44 -> 5.49**);
+`gui/common/snap_controls_to_pixels` rounds a `Control` to whole *local* pixels,
+which at z160 (the map is 5.5 local px wide) turned a 1.74 px tile into 160 or
+320 screen px and left 40/120 px dead bands — tiles are `Sprite2D` now; and the
+scale bar printed the map's full width at every zoom, so the deepest view read
+"800 km across" (it is `lodSpanKm()` now, and reads **5.00 km**). Verified live
+at 1600x1000: **z160, a 5.00 km span, seamless**, with cost *flat* in depth —
+**24 tiles per viewful from z3 to z9**, `_update_lod()` in 0.1-0.2 ms,
+12-34 ms per tile against the old 251 ms. 18 `lod_bridge` + 335 lib tests green,
+smoke test PASS, headless boot clean. **Left open, checked not assumed**:
+reading the baked atlas at draw time is *not* the depth fix and would
+reintroduce the 2026-08-23 "zoom exposes the heightmap" bug, because a baked
+chunk's PNG is the **Relief** coloriser; and the *colour* at depth is still an
+interpolation of the coarse raster until `renderBiomeTileRGBA` is ported —
+`GUI_GAP_REGISTER.md` §32)
+— previously, post **TO-01/TO-02/CV-20/MN-09/SH-15: the *tool*
 overlay had the map overlay's bug too, and four surfaces had stopped telling the
 truth** — owner reported *"plenty of minor discrepancies at the same time"*.
 Another pass with the method that keeps paying: read a `design/*.dc.html`

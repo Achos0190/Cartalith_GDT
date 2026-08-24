@@ -479,19 +479,28 @@ func color_texture() -> Texture2D:
 ## landed simply has no `lod_synthesize_tile`, and `ViewportHost`'s deep-zoom
 ## compositor degrades to "off" rather than erroring against it (`0`/`null`
 ## are both values that method already treats as "nothing to show").
-func lod_tile_cells() -> int:
-	if not _has("lod_tile_cells"):
+func lod_level_for_zoom(px_per_cell: float) -> int:
+	if not _has("lod_level_for_zoom"):
 		return 0
-	return world_gen.lod_tile_cells()
+	return world_gen.lod_level_for_zoom(px_per_cell)
 
-## One synthesized, coloured deep-zoom tile (`tile_x`/`tile_y` are tile-grid
-## indices at `lod_tile_cells()` coarse cells each, not pixels) -- `null`
-## for an out-of-range tile, before any world, or against a binary without
+## Tiles per axis at pyramid level `z` (`2^z`). `0` against a binary built
+## before this milestone, which `ViewportHost._update_lod()` reads as "stay
+## Z1-only" -- the same degrade-cleanly contract the retired
+## `lod_tile_cells()` had.
+func lod_tiles_per_axis(z: int) -> int:
+	if not _has("lod_tiles_per_axis"):
+		return 0
+	return world_gen.lod_tiles_per_axis(z)
+
+## One synthesized deep-zoom tile, addressed as the reference's own pyramid
+## chunk `(z, col, row)` -- the same address the bake stores under. `null`
+## for an out-of-range chunk, before any world, or against a binary without
 ## this milestone's `#[func]`s.
-func lod_synthesize_tile(tile_x: int, tile_y: int, detail_level: int) -> Texture2D:
+func lod_synthesize_tile(z: int, col: int, row: int) -> Texture2D:
 	if not _has("lod_synthesize_tile"):
 		return null
-	return world_gen.lod_synthesize_tile(tile_x, tile_y, detail_level)
+	return world_gen.lod_synthesize_tile(z, col, row)
 
 func territory_texture() -> Texture2D:
 	return world_gen.build_territory_texture()
@@ -523,7 +532,8 @@ func trade_balances() -> Array:
 ## and `parcel_cls`; there is still no `buildings` or `wall` key at all,
 ## because milestones 13 and 10 do not exist and an empty array would read as
 ## "this town has none". Empty against a binary built before this landed, the
-## same `has_method` guard `lod_tile_cells()` above uses for its own milestone.
+## same `has_method` guard `lod_level_for_zoom()` above uses for its own
+## milestone.
 func urban_layouts(indices: PackedInt32Array) -> Array:
 	if not _has("urban_layouts"):
 		return []
