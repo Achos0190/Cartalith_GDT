@@ -272,3 +272,110 @@ fn tier_names_round_trip_and_reject_junk() {
 fn recommendation_never_proposes_ultra() {
     assert_ne!(render::recommended_quality_tier(), QualityTier::Ultra);
 }
+
+// ---------------------------------------------------------------------------
+// The by-name tunable surface (`WorldGen::{get_appearance, set_appearance}`)
+// ---------------------------------------------------------------------------
+
+/// A key that reads back something other than what was written means the
+/// `tunables!` list has a key/field mismatch, and nothing else would catch it:
+/// a wrong field still compiles, still renders, and still returns "1 applied".
+#[test]
+fn every_tunable_round_trips() {
+    for (key, lo, hi, label) in TerrainAppearance::TUNABLE {
+        let mut a = TerrainAppearance::default();
+        let mid = (lo + hi) * 0.5;
+        assert!(a.set_tunable(key, mid), "{key} refused its own midpoint");
+        assert_eq!(a.tunable(key), Some(mid), "{key} ({label}) did not round-trip");
+    }
+    assert!(TerrainAppearance::default().tunable("potato").is_none());
+    assert!(!TerrainAppearance::default().set_tunable("potato", 1.0));
+}
+
+/// Two keys pointing at the same field would let one slider silently move
+/// another's row — the realistic failure mode of a copy-pasted macro line.
+#[test]
+fn no_two_tunables_alias_the_same_field() {
+    for (key, lo, hi, _) in TerrainAppearance::TUNABLE {
+        let base = TerrainAppearance::default();
+        let mut a = base.clone();
+        // Whichever end is further from the default, so the write is real.
+        let target = if (hi - base.tunable(key).unwrap()).abs()
+            > (base.tunable(key).unwrap() - lo).abs() { *hi } else { *lo };
+        a.set_tunable(key, target);
+        for (other, _, _, _) in TerrainAppearance::TUNABLE {
+            if other == key {
+                continue;
+            }
+            assert_eq!(
+                a.tunable(other),
+                base.tunable(other),
+                "writing {key} also moved {other}"
+            );
+        }
+    }
+}
+
+/// The panel builds its sliders from these ranges and `set_tunable` clamps to
+/// them, so a UI built from the table can never send a value the engine will
+/// silently alter. Both halves are asserted, since a `min > max` typo would
+/// make every write collapse to one value.
+#[test]
+fn tunable_ranges_clamp_and_are_ordered() {
+    for (key, lo, hi, _) in TerrainAppearance::TUNABLE {
+        assert!(lo < hi, "{key} has an empty or inverted range");
+        let mut a = TerrainAppearance::default();
+        a.set_tunable(key, hi + 1000.0);
+        assert_eq!(a.tunable(key), Some(*hi), "{key} did not clamp high");
+        a.set_tunable(key, lo - 1000.0);
+        assert_eq!(a.tunable(key), Some(*lo), "{key} did not clamp low");
+    }
+    let (key, lo, hi, _) = render::TUNABLE_LIGHTS;
+    assert!(lo < hi);
+    assert!(TerrainAppearance::default().tunable(key).is_none(),
+        "relief_lights is a usize and must stay out of the f64 table");
+}
+
+/// Every tunable has to be able to change the image, or it is a row that
+/// looks live and is not. Run at the *default* appearance, which is what a
+/// user actually starts from, and against the whole render rather than one
+/// stage, so a value that is real in isolation but swallowed downstream still
+/// fails here.
+///
+/// Three exemptions, all real and all stated rather than skipped silently:
+/// `splat_strength` is inert with no asset pack attached (the synthetic ctx
+/// attaches none, exactly as a pack-less session does); `hydro_wet_strength`'s
+/// tint is measured near-invisible at working resolution — a live binding over
+/// an engine stage that needs retuning (`GUI_GAP_REGISTER.md` CA-11), not a
+/// dead binding; and `border_width_frac` is composited by `lib.rs`'s texture
+/// loop rather than by `cell_color`, so it is asserted below through
+/// `border_cover` instead of through a pixel diff this harness cannot see.
+#[test]
+fn every_tunable_is_load_bearing() {
+    const EXEMPT: [&str; 3] = ["splat_strength", "hydro_wet_strength", "border_width_frac"];
+    let s = synth();
+    let base = render_serial(&s, &TerrainAppearance::default());
+    for (key, lo, hi, label) in TerrainAppearance::TUNABLE {
+        if EXEMPT.contains(key) {
+            continue;
+        }
+        let mut a = TerrainAppearance::default();
+        let cur = a.tunable(key).unwrap();
+        let target = if (hi - cur).abs() > (cur - lo).abs() { *hi } else { *lo };
+        a.set_tunable(key, target);
+        let m = moved(&base, &render_serial(&s, &a), 2);
+        assert!(m > 0.001, "{key} ({label}) at {target} moved {:.4}% of pixels", m * 100.0);
+    }
+    // And the one that is not an f64.
+    let a = TerrainAppearance { relief_lights: 1, ..TerrainAppearance::default() };
+    assert!(moved(&base, &render_serial(&s, &a), 2) > 0.001, "relief_lights moved nothing");
+
+    // The frame, through the stage that actually draws it.
+    let mut wide = TerrainAppearance::default();
+    wide.set_tunable("border_width_frac", 0.06);
+    let mut off = TerrainAppearance::default();
+    off.set_tunable("border_width_frac", 0.0);
+    assert!(render::border_cover(&wide, 1, 1, GW, GH) > render::border_cover(&off, 1, 1, GW, GH),
+        "border_width_frac does not reach border_cover");
+    assert_eq!(render::border_cover(&off, 1, 1, GW, GH), 0.0, "0 must remove the frame");
+}

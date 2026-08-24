@@ -493,10 +493,11 @@ func _on_workspace_changed(id: String) -> void:
 		right_dock_ctrl.leave_sculpt_context()
 	match id:
 		"world": _tool_options_generate()
-		## CARTO absorbed RENDER's one subject (terrain appearance, unbound)
-		## the same pass -- see the note appended below.
+		## CARTO absorbed RENDER's one subject (terrain appearance) the same
+		## pass; that subject is bound as of the map-coloration pass, so this
+		## caption no longer claims it is not.
 		"cartography": _tool_options_simple("CARTOGRAPHY · STYLE",
-			"presentation only — no control here marks a generation stage stale. Terrain appearance (formerly the RENDER domain) is real in render.rs but unbound to Godot; quality tier lives in Preferences.")
+			"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
 		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
 		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
 		## and §4.5's TOOLS block that arms them now exists in this dock

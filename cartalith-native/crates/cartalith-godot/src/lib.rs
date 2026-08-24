@@ -1480,6 +1480,23 @@ struct WorldGen {
     /// generation stage stale, so `set_npr()` + `build_color_texture()`
     /// re-renders the same world in a different style with no regeneration.
     npr: render::Npr,
+    /// User overrides over the quality tier's own appearance values
+    /// (`GUI_GAP_REGISTER.md` CA-01/RN-01, the reference's Cartography ▸ Map
+    /// view and Rendering-advanced blocks), keyed by
+    /// `render::TerrainAppearance::TUNABLE`.
+    ///
+    /// **An override map, not a `TerrainAppearance`.** The tier ladder and the
+    /// user's edits are two different authorities over the same struct, and
+    /// storing the merged result would mean switching quality tier silently
+    /// threw the user's sun azimuth away (or, worse, kept it and quietly
+    /// undid the tier). Holding only the deltas lets `appearance()` layer them
+    /// in one direction — tier first, user second — so both survive.
+    ///
+    /// Empty by default, so an untouched `WorldGen` renders exactly what it
+    /// rendered before this field existed. Purely presentation, on
+    /// `set_quality_tier`'s exact terms: nothing here touches the heightmap,
+    /// climate, hydrology, biomes, settlements, routes or the seed.
+    appearance_over: std::collections::HashMap<String, f64>,
     /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
@@ -1626,6 +1643,7 @@ impl IRefCounted for WorldGen {
             asset_pack: None,
             quality: QualityTier::Quality,
             npr: render::Npr::default(),
+            appearance_over: std::collections::HashMap::new(),
             sculpt: None,
             icons: None,
             civ_tools: None,
@@ -3097,10 +3115,115 @@ impl WorldGen {
     /// Painter panel owns, and a caller who could set it separately could set
     /// it to something the world is not. It only ever turns a contour
     /// interval in metres into a fraction of relief.
+    /// Layered in one direction, tier first and the user's own edits second,
+    /// for the reason `appearance_over`'s own doc gives.
     fn appearance(&self) -> TerrainAppearance {
         let mut npr = self.npr.clone();
         npr.peak_m = self.params.peak_m;
-        TerrainAppearance { npr, ..TerrainAppearance::for_tier(self.quality) }
+        let mut a = TerrainAppearance { npr, ..TerrainAppearance::for_tier(self.quality) };
+        for (key, value) in &self.appearance_over {
+            if key == render::TUNABLE_LIGHTS.0 {
+                a.relief_lights = value.round().max(1.0) as usize;
+            } else {
+                a.set_tunable(key, *value);
+            }
+        }
+        a
+    }
+
+    /// The appearance this `WorldGen` actually renders with, as a
+    /// `Dictionary` keyed exactly as `set_appearance` reads it — the **merged**
+    /// values (tier ladder plus the caller's own overrides), not the override
+    /// map, so a panel opens showing what is on screen rather than what the
+    /// caller last typed.
+    ///
+    /// `GUI_GAP_REGISTER.md` CA-01/CA-02/PR-09 and the reference's Cartography
+    /// ▸ Map view + Rendering-advanced blocks all wanted this one binding.
+    #[func]
+    fn get_appearance(&self) -> VarDictionary {
+        let a = self.appearance();
+        let mut d = VarDictionary::new();
+        for (key, _, _, _) in render::TerrainAppearance::TUNABLE {
+            if let Some(v) = a.tunable(key) {
+                d.set(*key, v);
+            }
+        }
+        d.set(render::TUNABLE_LIGHTS.0, a.relief_lights as i64);
+        d
+    }
+
+    /// The `(key, min, max, label)` table behind `get_appearance`, so a panel
+    /// can build itself from the engine's own ranges rather than a second copy
+    /// of them in GDScript. Returned as an `Array` of four-element `Array`s.
+    ///
+    /// This is the difference between a slider whose maximum is wrong and a
+    /// slider that cannot be wrong: `set_appearance` clamps to these same
+    /// numbers, so a UI built from this table can never send a value the
+    /// engine will silently alter.
+    #[func]
+    fn list_appearance_tunables(&self) -> VarArray {
+        let mut out = VarArray::new();
+        let mut push = |key: &str, lo: f64, hi: f64, label: &str| {
+            let mut row = VarArray::new();
+            row.push(&GString::from(key).to_variant());
+            row.push(&lo.to_variant());
+            row.push(&hi.to_variant());
+            row.push(&GString::from(label).to_variant());
+            out.push(&row.to_variant());
+        };
+        for (key, lo, hi, label) in render::TerrainAppearance::TUNABLE {
+            push(key, *lo, *hi, label);
+        }
+        let (key, lo, hi, label) = render::TUNABLE_LIGHTS;
+        push(key, lo, hi, label);
+        out
+    }
+
+    /// Set appearance values from a `Dictionary`, on `set_npr`'s exact
+    /// contract: **every key is optional**, values are clamped to the range
+    /// `list_appearance_tunables` publishes, and the return is the number of
+    /// recognised keys applied — so a GDScript caller can tell a typo (`0`)
+    /// from a real update without this method deciding what a typo means.
+    ///
+    /// **Presentation only.** This never touches the heightmap, climate,
+    /// hydrology, biomes, settlements, routes or the seed; call
+    /// `build_color_texture()` again to see it, with no regeneration.
+    ///
+    /// Overrides **survive a later `set_quality_tier`** — see
+    /// `appearance_over`'s own doc for why that is the deliberate behaviour
+    /// and not an oversight. `reset_appearance()` is how a caller gives the
+    /// tier its values back.
+    #[func]
+    fn set_appearance(&mut self, values: VarDictionary) -> i32 {
+        let mut applied = 0i32;
+        for (key, lo, hi, _) in render::TerrainAppearance::TUNABLE {
+            if let Some(v) = values.get(*key)
+                && let Ok(f) = v.try_to::<f64>()
+                && f.is_finite()
+            {
+                self.appearance_over.insert((*key).to_string(), f.clamp(*lo, *hi));
+                applied += 1;
+            }
+        }
+        let (lk, llo, lhi, _) = render::TUNABLE_LIGHTS;
+        if let Some(v) = values.get(lk)
+            && let Ok(f) = v.try_to::<f64>()
+            && f.is_finite()
+        {
+            self.appearance_over.insert(lk.to_string(), f.round().clamp(llo, lhi));
+            applied += 1;
+        }
+        applied
+    }
+
+    /// Drop the caller's overrides and hand every appearance value back to the
+    /// active quality tier. Returns how many were dropped, so a "Reset" button
+    /// can stay quiet when there was nothing to reset.
+    #[func]
+    fn reset_appearance(&mut self) -> i32 {
+        let n = self.appearance_over.len() as i32;
+        self.appearance_over.clear();
+        n
     }
 
     /// The reference's NPR block (`GUI_GAP_REGISTER.md` RN-01) as a

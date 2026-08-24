@@ -151,10 +151,13 @@ func _build() -> void:
 
 	var props := DccWidgets.category(self, "Layer properties", categories)
 	DccWidgets.note(DccWidgets.section(props, "Fill · light · opacity"),
-		"Spec §7's ramp picker, stop editor and lighting rig read and write "
-		+ "render.rs's TerrainAppearance, which is implemented and settable in "
-		+ "Rust but bound to no GDExtension method. Nothing here can be honest "
-		+ "until that binding lands (UNIFIED_TOOL_PLAN.md milestone F).")
+		"§7's lighting rig is live, in Map view and Rendering - advanced further "
+		+ "down this dock: render.rs's TerrainAppearance is bound now "
+		+ "(get_appearance / set_appearance). What is still missing here is the "
+		+ "FILL half -- the ramp picker and stop editor -- which needs an "
+		+ "elevation-keyed colour ramp the renderer does not have "
+		+ "(GUI_GAP_REGISTER.md CA-02), and per-layer opacity, which needs the "
+		+ "one baked raster to separate first (CA-04).")
 
 	var annot := DccWidgets.category(self, "Annotation", categories, true)
 	_build_icon_panel(annot)

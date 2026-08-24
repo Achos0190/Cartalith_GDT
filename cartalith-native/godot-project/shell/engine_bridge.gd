@@ -78,6 +78,10 @@ func _ready() -> void:
 		and _has("gpu_set_multi_mode")
 	npr_api = _has("set_npr") \
 		and _has("get_npr")
+	appearance_api = _has("get_appearance") \
+		and _has("set_appearance") \
+		and _has("list_appearance_tunables") \
+		and _has("reset_appearance")
 	measure_api = _has("measure_section") \
 		and _has("measure_area") \
 		and _has("measure_radius") \
@@ -560,6 +564,43 @@ func set_npr(values: Dictionary) -> int:
 	if not npr_api:
 		return 0
 	return world_gen.set_npr(values)
+
+
+# -- Terrain appearance (`GUI_GAP_REGISTER.md` CA-01/PR-09) --------------------
+#
+# The colour/relief half of the reference's Cartography ▸ Map view and
+# Rendering-advanced blocks. Same `has_method` degrade and the same
+# every-key-optional contract as the NPR pair above; `appearance_api` is what
+# the CARTO panel reads to decide whether to draw the rows at all.
+var appearance_api := false
+
+## The values the engine is **actually rendering with** -- the quality tier's
+## own, with any overrides already merged in. Not the override map.
+func appearance() -> Dictionary:
+	if not appearance_api:
+		return {}
+	return world_gen.get_appearance()
+
+## `[[key, min, max, label], ...]` -- the engine's own ranges, so a panel never
+## builds a slider that can send a value the engine will clamp.
+func appearance_tunables() -> Array:
+	if not appearance_api:
+		return []
+	return world_gen.list_appearance_tunables()
+
+## Send one or more changed keys; the rest keep their current value. Returns
+## how many the engine recognised (0 = a typo, not a silent no-op).
+func set_appearance(values: Dictionary) -> int:
+	if not appearance_api:
+		return 0
+	return world_gen.set_appearance(values)
+
+## Hand every appearance value back to the active quality tier. Returns how
+## many overrides were dropped.
+func reset_appearance() -> int:
+	if not appearance_api:
+		return 0
+	return world_gen.reset_appearance()
 
 
 # -- Multi-GPU (`DCC_SHELL_SPEC.md` §2.5, `GUI_GAP_REGISTER.md` PR-01/02/04/05)

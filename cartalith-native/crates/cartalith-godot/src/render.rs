@@ -866,6 +866,87 @@ impl TerrainAppearance {
     }
 }
 
+/// Declares the scalar fields a UI may read and write **by name**, together
+/// with the range each one is meaningful over, from a single list — so the
+/// name table, the reader and the writer cannot drift apart the way three
+/// hand-written matches would. `WorldGen::{get_appearance, set_appearance}`
+/// are the only callers; everything else keeps using the fields directly.
+///
+/// Why by name at all: the alternative is ~20 `#[func]` pairs, and the shell
+/// would then have to know which of them exist on the cdylib it happens to be
+/// running against. `set_npr` already established the "one dictionary, every
+/// key optional, returns the number applied" contract for exactly this, and a
+/// second mechanism for the same job would be one more thing to keep in sync.
+macro_rules! tunables {
+    ($($key:literal => $field:ident, $min:expr, $max:expr, $label:literal;)*) => {
+        #[allow(dead_code)]
+        impl TerrainAppearance {
+            /// Every tunable, as `(key, min, max, human label)`. The order is
+            /// the order a panel should show them in.
+            pub const TUNABLE: &'static [(&'static str, f64, f64, &'static str)] =
+                &[$(($key, $min, $max, $label)),*];
+
+            /// The current value of one tunable, or `None` for a key that is
+            /// not one — the caller decides what an unknown key means.
+            pub fn tunable(&self, key: &str) -> Option<f64> {
+                match key { $($key => Some(self.$field),)* _ => None }
+            }
+
+            /// Write one tunable, **clamped to its declared range**. Returns
+            /// `false` (and changes nothing) for an unknown key. Clamping is
+            /// not defensive politeness: several of these multiply straight
+            /// into a `1 - a` term, where a value past 1 inverts the image
+            /// rather than intensifying it — the same reasoning `set_npr`
+            /// already documents for the Painter intensities.
+            pub fn set_tunable(&mut self, key: &str, v: f64) -> bool {
+                match key { $($key => { self.$field = v.clamp($min, $max); true })* _ => false }
+            }
+        }
+    };
+}
+
+tunables! {
+    // -- Reference Cartography ▸ Map view (HTML lines 1706-1717) --
+    "exag"                  => exag,                  0.0,  12.0,  "Relief exaggeration";
+    "sun_az_deg"            => sun_az_deg,            0.0, 360.0,  "Sun azimuth";
+    "sun_alt_deg"           => sun_alt_deg,           5.0,  85.0,  "Sun elevation";
+    "bio_blend"             => bio_blend,             0.0,   1.0,  "Relief <-> biome";
+    // -- Relief rig (milestone 2; the reference has no counterpart) --
+    "relief_directionality" => relief_directionality, 0.0,   1.0,  "Directionality";
+    "relief_ambient"        => relief_ambient,        0.0,   1.0,  "Ambient floor";
+    "relief_gain"           => relief_gain,           0.0,   2.0,  "Light gain";
+    // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
+    "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
+    "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
+    // -- Reference Rendering-advanced ▸ Wetness (`wetnessR`) --
+    "hydro_wet_strength"    => hydro_wet_strength,    0.0,   1.0,  "Wetness";
+    // -- Reference Rendering-advanced ▸ Parchment (`parch`), plus the three
+    //    sheet parameters this port's own paper ground added on top of it --
+    "paper_strength"        => paper_strength,        0.0,   1.0,  "Parchment";
+    "paper_grain"           => paper_grain,           0.0,   0.2,  "Paper grain";
+    "paper_mottle"          => paper_mottle,          0.0,   0.2,  "Paper mottle";
+    "paper_wash"            => paper_wash,            0.0,   0.6,  "Paper wash";
+    "stipple_strength"      => stipple_strength,      0.0,   1.0,  "Forest stipple";
+    "border_width_frac"     => border_width_frac,     0.0,   0.06, "Plate border";
+    // -- Reference Rendering-advanced ▸ Geology materials (`geologyR`) --
+    "litho_strength"        => litho_strength,        0.0,   1.0,  "Geology tint";
+    "litho_exposure"        => litho_exposure,        0.0,   1.0,  "Bedrock exposure";
+    "local_contrast"        => local_contrast,        0.0,   1.0,  "Local contrast";
+    // -- Reference Paint brush ▸ Texture strength (`splat`) --
+    "splat_strength"        => splat_strength,        0.0,   1.0,  "Texture strength";
+}
+
+/// The one tunable that is not an `f64`: the number of hillshade light
+/// directions. Kept out of [`tunables!`] rather than stored as a float,
+/// because `1` is not "a small amount of multidirectional" — it takes
+/// `shade`'s dedicated single-light early return, which is what keeps
+/// [`TerrainAppearance::js_reference`] bit-identical to JS. A caller sets it
+/// through the same dictionary under the key below; `WorldGen` rounds.
+// Same reason `js_reference` and `border_cover` already carry this: the
+// golden-parity targets `#[path]`-include this file with no `lib.rs` to use it.
+#[allow(dead_code)]
+pub const TUNABLE_LIGHTS: (&str, f64, f64, &str) = ("relief_lights", 1.0, 12.0, "Light directions");
+
 fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }

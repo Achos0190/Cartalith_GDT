@@ -22404,3 +22404,133 @@ shortcut path on Android". `M` is bound to nothing on any platform — every
 accelerator in `menus.gd` carries Ctrl or Shift, and no bare `KEY_<letter>`
 exists anywhere in the shell. There is no desktop behaviour for an on-screen
 equivalent to mirror.
+
+## Cartography and map coloration: `TerrainAppearance` was bound to nothing (`GUI_GAP_REGISTER.md` CA-01 / PR-09 / RN-03, 2026-08-24)
+
+Owner question, third of the same kind this session: *"There also was a new
+section for cartography and map coloration. Can we check."* The two before it
+(touch navigation, terrain/biome painting) each found a real gap. So did this.
+
+**What the reference actually has.** `reference/Cartalith Gen1 v2.10.html`
+lines 1612-1783, `FUNCTION_INDEX.md` §0.7 — the Cartography tab has eight
+blocks, not one. Tools, Region names, Manual icons, Paint brush and the pack
+inspector were already built; the Painter (NPR) styles and the overlays came
+live in the NPR pass one day earlier. **Two blocks had no live control at all:**
+
+- **Map view** (1706-1717) — `modeSeg` (Biome / Relief / Height / Shade),
+  `bioBlend`, `exag`, `sun`, `shadeOnHypso`.
+- **Map style** (1719-1783) — `stylePresetSeg` (Default / Antique / Ink /
+  Watercolor / Print) with its `styleCustomNote`, and the eighteen-slider
+  **Rendering — advanced** accordion.
+
+**What the port had.** `render.rs`'s `TerrainAppearance` — 21 scalar fields
+plus 31 material palettes, all real, all driving every rendered pixel, all
+tier-tested — reachable through **no `#[func]` at all**. Three separate places
+in the shell said so honestly (`render_workspace.gd`'s "not built" note,
+`cartography_workspace.gd`'s Layer-properties note, and `app.gd`'s CARTO
+tool-options caption), and the register had been carrying it as CA-01 / PR-09 /
+RN-01 with the standing description *"the single largest cheap surface in the
+shell."* It was.
+
+**Bound by name, not by twenty `#[func]` pairs.**
+
+- `WorldGen::list_appearance_tunables()` publishes `(key, min, max, label)` for
+  21 scalars; `get_appearance()` returns the **merged, actually-rendering**
+  values; `set_appearance(Dictionary)` writes them on `set_npr`'s existing
+  contract — every key optional, clamped to the published range, returns the
+  count applied so a typo reads as `0` rather than as a silent no-op;
+  `reset_appearance()` hands them back to the quality tier.
+- One binding rather than twenty means the shell never has to know which
+  individual methods the cdylib it is running against happens to carry —
+  `EngineBridge.appearance_api` is one `has_method` gate, as `npr_api` already
+  was, and the panel builds itself from the engine's own ranges. A slider that
+  *cannot* offer a value the engine would clamp is a different thing from a
+  slider whose maximum merely happens to be right today.
+- The key-to-field table is a single `tunables!` list in `render.rs`, so the
+  name table, the reader and the writer cannot drift.
+- **Overrides layer over the tier, they do not replace it.** `WorldGen` holds
+  an override map, not a `TerrainAppearance`; `appearance()` applies
+  `for_tier(quality)` first and the user's edits second. Storing the merged
+  struct would have meant switching quality tier silently discarding the
+  user's sun azimuth — or, worse, keeping it and quietly undoing the tier.
+- `relief_lights` is deliberately **outside** the f64 table: `1` is not "a
+  small amount of multidirectional", it takes `shade`'s single-light early
+  return, which is what keeps `js_reference()` bit-identical to JS.
+
+**The panel** (`render_workspace.gd`, nested into CARTO), in the reference's
+own order: **Map view** (relief exaggeration · sun azimuth · sun elevation ·
+relief-to-biome) then **Map style** (the reference's own five presets as
+absolute bundles, plus its `Custom — controls edited since the last preset`
+note) then **Rendering — advanced** (Relief & light · The sheet · Materials,
+and Reset to quality tier) then the existing Painter styles and Water & light.
+
+**Three deliberate divergences from the reference, stated in the panel itself
+rather than left to be discovered:**
+
+1. **`modeSeg` is not rebuilt.** Base-mode switching is the Layers popover's
+   job here (§8.7's "arrived, better than specified" — 18 debug views), and a
+   second competing picker is worse than one good one.
+2. **The presets do not carry the reference's `parchment` numbers.** Its
+   parchment is off by default and Antique sets `0.6`; **this port's paper
+   ground is on at `0.85`** and is what `VISION.md` asks for, so importing the
+   reference's number would *reduce* the parchment on the very preset that
+   wanted more of it. Parchment is its own live slider instead, and the presets
+   leave it where the tier put it — which is also what keeps `Default`
+   reproducing this port's base look exactly rather than approximately.
+3. **Antique's `icons: true`** — the stylized mountain/hill/tree glyph layer —
+   is not ported at all, and the note says so.
+
+**Verified non-headlessly, on a real world, on the real GPU** (`_carto_shot.gd`,
+untracked; a real generate, then every published key driven one at a time and
+measured against the base raster):
+
+- **18 of 21 keys move the map**, from 3.8 % of pixels (`relief_lights` at 1)
+  to 97.5 % (`paper_strength` at 0). Restoring every one returns the
+  **byte-identical** base raster (`0.0000 %`).
+- `Default` reproduces the base look at **0.0000 %**; Antique 74.9 %, Ink
+  10.7 %, Watercolor 25.9 %, Print 74.6 %.
+- Driven **through the dock**, not through the bridge: a real `HSlider` moved
+  and `drag_ended` emitted reaches the engine (`bio_blend` to `0.0`,
+  `sun_az_deg` to `135`), the `Custom` note appears exactly then, and the
+  scaled rows round-trip their display maths (`border_width_frac` shows
+  `1.40 %` and writes `0.04` from `4.0`).
+- The **Reset button** restores the engine *and* the sliders showing it
+  (`sun=315.0 border=1.40 bio=0.90`, raster back to `0.0000 %`).
+- `--headless --path .` clean; `golden_parity_render` (2), `golden_parity_npr`
+  (5) and `appearance_tiers` (now 12) all pass — no shipped pixel moved.
+
+**Three new tests, one of which is the point.** Round-trip and range/clamp are
+cheap; `no_two_tunables_alias_the_same_field` catches the realistic macro typo
+(a copy-pasted line pointing two keys at one field still compiles, still
+renders, and still reports "1 applied"); and `every_tunable_is_load_bearing`
+re-renders the whole synthetic world per key and **fails a row that changes no
+pixel** — the mutation-testing convention applied to a control surface rather
+than to a constant table.
+
+**One real engine defect found by that measurement, registered not fixed —
+`GUI_GAP_REGISTER.md` CA-11.** `hydro_wet_strength` (the reference's Wetness)
+is bound correctly and renders nothing anyone can see, and it gets **worse with
+resolution**: driving `0` to `1` on the same world moves **0.208 %** of pixels
+at 512x384, **0.095 %** at 1024x768, and **0.000 %** at the app's own 2048x1311,
+where the worst per-channel delta is 4 levels. `build_hydro_wetness` gates on
+`smoothstep(0.55, 0.88, …)` of the log-flow *range* — a 1-D drainage network,
+whose area share shrinks as cells shrink — then blurs at `gw * 0.006`, diluting
+what survives. Milestone 3 was tuned at a small grid. Not fixed here because
+the default is `0.38` and a retune moves the shipped look, which is an owner
+call; the row's tooltip says so, and the load-bearing test exempts it by name
+with the reason attached rather than skipping it silently.
+
+**Two non-findings, checked rather than assumed.** `splat_strength` moves
+nothing because no asset pack is loaded — correct, and the tooltip says so.
+`relief_lights` moves nothing from 6 to 12 because the normalized weighted
+light sum has converged by then; from 6 to 1 it moves 3.81 %.
+
+**Still open after this, and none of it improvised into existence:** the
+elevation-keyed **colour ramp** with its stop editor (**CA-02** — `render.rs`
+holds colour as a 31-entry material palette, so this is a renderer change, not
+a binding), **saving a look** (**CA-08** — `TerrainAppearance` derives no
+`Serialize` and nothing writes appearance into the project file, so an edited
+style is per-session), and the ten reference Rendering-advanced sliders whose
+stages this port has never had at all: surface texture, sky view factor, ridge
+crests, ridged relief, slope rock, cast shadows, curvature shading, minor
+channels, season blend, and the three SDF layers.

@@ -5,7 +5,50 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Android Back destroyed unsaved worlds** —
+Last updated: 2026-08-24 (post **Cartography and map coloration: `TerrainAppearance`
+was bound to nothing** — `GUI_GAP_REGISTER.md` **CA-01**, **PR-09** and the
+colour/relief half of **RN-01** all **closed**, **CA-08** mostly closed, and new
+**CA-11** opened. Owner question, third of the same kind this session and the
+third to find something: the reference's Cartography tab (HTML 1612-1783,
+`FUNCTION_INDEX.md` §0.7) has **eight** blocks and two of them — **Map view**
+and **Map style** — had no live control at all, while `render.rs`'s
+`TerrainAppearance` sat there with **21 real scalar fields driving every
+rendered pixel and no `#[func]` anywhere**, which three separate places in the
+shell said honestly and which the register had carried as *"the single largest
+cheap surface in the shell."* Now bound **by name**, not as twenty method
+pairs: `list_appearance_tunables()` publishes `(key, min, max, label)`,
+`get_appearance`/`set_appearance`/`reset_appearance` read and write on
+`set_npr`'s existing every-key-optional contract, and the panel builds itself
+from the engine's own ranges so a slider cannot offer a value the engine would
+clamp. **Overrides layer over the quality tier rather than replacing it**, so
+changing tier does not silently discard the user's sun azimuth.
+`render_workspace.gd` now draws CARTO ▸ **Map view** · **Map style** (the
+reference's own five presets as absolute bundles, with its `Custom` note) ·
+**Rendering — advanced** (Relief & light · The sheet · Materials · Reset to
+quality tier). **Three deliberate divergences, all stated in the panel:**
+`modeSeg` is not rebuilt (the Layers popover owns base-mode switching); the
+presets do **not** import the reference's `parchment` numbers, because its
+parchment is off by default and this port's paper ground is on at `0.85`, so
+Antique's `0.6` would have *reduced* it; and Antique's stylized-glyph layer is
+unported. **Verified non-headlessly on a real world:** 18 of 21 keys move the
+raster (3.8 % to 97.5 %), restoring every one returns the **byte-identical**
+base, `Default` reproduces the base look at `0.0000 %`, and a real slider drag
+through the dock reaches the engine and flips the `Custom` note. **Three new
+tests**, of which the one that matters is `every_tunable_is_load_bearing` —
+it re-renders per key and **fails a row that changes no pixel**. **One real
+engine defect found by measuring rather than reading, registered not fixed
+(CA-11):** `hydro_wet_strength` is bound correctly and renders nothing visible,
+and it gets *worse* with resolution — `0 → 1` moves 0.208 % of pixels at
+512×384, 0.095 % at 1024×768 and **0.000 % at the app's own 2048×1311**,
+because `build_hydro_wetness` gates on the log-flow range of a 1-D drainage
+network whose area share shrinks as cells shrink. Not fixed because the default
+is `0.38` and a retune moves the shipped look — an owner call. **Two
+non-findings checked rather than assumed:** `splat_strength` is correctly inert
+with no asset pack, and `relief_lights` is live at 1 and merely converged by 12.
+**Still open:** the elevation-keyed colour ramp and stop editor (**CA-02**, a
+renderer change not a binding), saving a look (**CA-08**), and the ten
+Rendering-advanced sliders whose engine stages this port has never had) —
+previously, post **Android Back destroyed unsaved worlds** —
 `GUI_GAP_REGISTER.md` **BK-01**, and the first **observed user data loss** in
 this port: on the handset the hardware/gesture Back ended the process on a
 generated, never-saved world, and nothing recovered it — autosave only writes
