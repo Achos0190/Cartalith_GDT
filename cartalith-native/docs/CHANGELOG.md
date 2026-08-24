@@ -22290,3 +22290,117 @@ visibly crops rather than letterboxes, that the two zoom buttons step, and that
 **Still open, deliberately:** the pan clamp above, and **desktop still has no
 `reset_view()` caller** — the navpad is touch-only by design, and a View-menu
 entry is a menu-naming decision `GUI_GAP_REGISTER.md` §7's audit owns.
+
+## Android Back destroyed unsaved worlds (`GUI_GAP_REGISTER.md` BK-01, 2026-08-24)
+
+The first entry in this log recording **real, observed user data loss**. On the
+handset, the hardware/gesture Back button ended the process outright on a
+generated but never-saved world. Nothing recovered it: autosave only writes
+beside a project that has already been saved somewhere, and this one never had
+been.
+
+**Root cause — two faults, either sufficient on its own:**
+
+1. **The back chain's last step was a bare `get_tree().quit()`.**
+   `DccShell._notification()` had answered `NOTIFICATION_WM_GO_BACK_REQUEST`
+   since the phone-menu pass and correctly popped a sheet, then a menu level,
+   then an overlay. Past those it quit, at once. `SceneTree.quit()` does **not**
+   raise `NOTIFICATION_WM_CLOSE_REQUEST`, so the three-button unsaved-changes
+   prompt File ▸ Close project gained earlier in the same session could not have
+   intervened even in principle — it was never on the path.
+2. **`quit_on_go_back = false` was inside `if _phone:`.** The phone/tablet split
+   is decided by *aspect ratio*, so any Android device the shell reads as a
+   tablet kept the SceneTree default: back quits, with none of our code running
+   at all. A second, wider door onto the same outcome.
+
+**Fixed:**
+
+- `quit_on_go_back = false` for **every** layout mode. Inert on desktop, where
+  no windowing system sends the request.
+- `DccShell._notification()` is now a four-step chain, one press leaving exactly
+  one level, innermost first: **a dialog or popup window** → **a phone-menu
+  level** → **a phone overlay** → `_back_exhausted()`. The dialog step is new
+  and needed a tree walk (`_topmost_subwindow()`): a dialog is parented to
+  whichever `Control` opened it, `Viewport` exposes no subwindow list to
+  GDScript, and without it the phone menu ate a gesture aimed at a dialog
+  drawn over it.
+- `DccApp._back_exhausted()` — the overridable tail. An armed tool is a mode, so
+  back leaves it (Escape's own action); then, if a world exists, the **same**
+  prompt as Close project; only with no world does it quit.
+- `DccApp.confirm_unsaved_world()` — `close_project()` refactored into one
+  shared gate taking a continuation, rather than the back button growing a
+  second, subtly different prompt. It keeps the close-project rule that the
+  prompt appears *whenever a world exists*, not only when `bridge.world_dirty`
+  is set.
+
+**Navigation-model decision, recorded because the alternative was defensible:**
+prompt on the first press, **not** "press back again to exit". That pattern
+earns its place where the back stack is one level deep and a stray edge swipe is
+the only thing an unexpected press can be; here back already walks four real
+levels before it can reach the exit, and the hint has nowhere to draw on the
+phone composition, where the status bar is parked hidden as the phone menu's
+model. Where there is nothing to lose, back exits at once — the platform
+convention, and the only way out of a full-screen app.
+
+**A regression the fix introduced and the probe caught:**
+`GlobalTools._measure_escape()` deliberately clears the measured chain and
+leaves Measure **armed** — right for a pointer user. Back inheriting that made
+the gesture a permanent no-op: every press cleared an already-clear chain,
+`armed_tool` never reached `inspect`, and the app could not be exited at all
+while Measure was armed. `_escape_action(force_disarm)` now runs the handler's
+cleanup *and then* disarms for back, while Escape is unchanged.
+
+**Two measured phone-presentation traps, both silently producing 29 dp
+buttons** on the one dialog standing between a gesture and a destroyed world:
+
+- `DccShell.phone_fit()` walks `get_children()`, and `AcceptDialog` parents its
+  whole button bar as an **internal** child — so every stock OK/Cancel row in
+  this shell is outside every fit it performs. It has mattered little elsewhere
+  (a window's real controls are in its content child); here the buttons *are*
+  the dialog.
+- **`Window.popup()` clears `custom_minimum_size` on them.** Isolated in a
+  two-node scene: the value survives `content_scale_mode`/`_aspect`/`_factor`,
+  `min_size` and `max_size`, and reads `(0, 0)` the instant the window is shown.
+  The floor is therefore applied *after* the popup and re-applied from
+  `phone_insets_changed`, since a rotation re-pops the window.
+- A third on the way: `b.custom_minimum_size.y = 44` through an **untyped** loop
+  element writes to a temporary copy of the vector and is silently lost.
+
+**Verified — `_backnav_probe.gd` (committed), the real shell, a really generated
+world, the real notification:**
+
+- `393x852` (canvas reference), `540x1170` (half the OnePlus 6T, exercising
+  `content_scale_factor` 1.374) and `1600x1000` (desktop/tablet): all checks
+  pass in all three.
+- The chain proved step by step: menu level pops without exiting; a dialog
+  opened over an open menu closes first and leaves the menu standing; an armed
+  Measure disarms; the next press raises `Exit Cartalith` with **Save and
+  exit / Discard and exit / Cancel**, full-screen, borderless, content-scaled,
+  every answer ≥ 44 dp and the row inside the screen width; a further press
+  cancels it and does **not** stack a second.
+- Desktop regression checked in the same harness: File ▸ Close project keeps its
+  title bar, its `wrap_controls`, its three answers and a readable size, and
+  does not gain the phone's in-body title.
+- `--headless --path . --quit` clean.
+
+**Not verified on the device, and stated as such.** The handset was `offline` to
+`adb` throughout — `kill-server`, `start-server` and `reconnect offline` all
+failed; it needs a physical replug and re-authorisation. A desktop probe cannot
+prove that Android *delivers* the notification; everything downstream of
+delivery, which is where the data loss lived, is proven. Delivery itself was
+verified on this handset in the phone-menu pass, which is evidence for the
+mechanism but not for this change.
+
+**Registered, not fixed:** `GUI_GAP_REGISTER.md` **BK-02** — the desktop
+window's close box has no gate either (`NOTIFICATION_WM_CLOSE_REQUEST` is not
+intercepted and `auto_accept_quit` is at its default), the same data loss on
+Windows. Left alone deliberately: `auto_accept_quit = false` makes the app
+unquittable if the prompt ever fails to appear, which is a worse failure than
+the one it fixes, and nobody reported it. The shared gate takes a continuation,
+so wiring it is small when the owner wants it.
+
+**Closed as a non-finding:** **BK-03**, "`KEYCODE_M` does not reach Godot's
+shortcut path on Android". `M` is bound to nothing on any platform — every
+accelerator in `menus.gd` carries Ctrl or Shift, and no bare `KEY_<letter>`
+exists anywhere in the shell. There is no desktop behaviour for an on-screen
+equivalent to mirror.

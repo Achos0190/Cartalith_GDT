@@ -183,11 +183,18 @@ func _ready() -> void:
 	_compute_layout_mode()
 	_style_window_chrome()
 
+	## Hand the Android back gesture to `_notification()` below instead of
+	## letting the SceneTree quit on it -- there are levels to pop first
+	## (`design/Cartalith Android Phone.dc.html`, PHONE RULES / BACK), and past
+	## the last of them an unsaved world to protect.
+	##
+	## Set for EVERY layout mode, not only the phone. It was phone-only when
+	## first written, which left every Android device the aspect test classifies
+	## as a *tablet* taking the SceneTree default -- back quits, at once, with
+	## no prompt. `quit_on_go_back` is inert on desktop, where no windowing
+	## system ever sends the request, so there is nothing to guard it with.
+	get_tree().quit_on_go_back = false
 	if _phone:
-		## Hand the Android back gesture to `_notification()` below instead of
-		## letting the SceneTree quit on it -- the phone menu has levels to pop
-		## first (`design/Cartalith Android Phone.dc.html`, PHONE RULES / BACK).
-		get_tree().quit_on_go_back = false
 		_build_phone_shell()
 	else:
 		_build_desktop_shell()
@@ -2202,13 +2209,35 @@ func phone_present_popup(popup: PopupMenu, title: String, trail: String) -> bool
 	_phone_menu.open_sheet(popup, title, trail)
 	return true
 
-## Android's back gesture. `quit_on_go_back` is turned off in `_ready()` while
-## `_phone` is true so this can answer it: the canvas's BACK rule is "leaves a
-## sheet, then the L2 screen, then the viewport -- never the app". At the
-## viewport with nothing open the request falls through to a real quit, which is
-## the platform convention and the only way out of a full-screen app.
+## Android's back gesture -- the hardware `KEYCODE_BACK` and the edge swipe that
+## replaced it -- arriving as `NOTIFICATION_WM_GO_BACK_REQUEST` because
+## `_ready()` turned `quit_on_go_back` off. The canvas's BACK rule is "leaves a
+## sheet, then the L2 screen, then the viewport", and one press leaves exactly
+## ONE level, innermost first:
+##
+##   1. a dialog or popup window, wherever in the tree it is parented,
+##   2. a phone-menu level (L5 → L4 → L3 → L2 → closed),
+##   3. any other phone overlay -- drawer, panel picker, either dock sheet,
+##   4. `_back_exhausted()`, which `DccApp` overrides to disarm a live tool and,
+##      failing that, to put the SAME save/discard/cancel prompt File ▸ Close
+##      project uses in front of the exit.
+##
+## Step 4 is why this was reopened. The first version ended in a bare
+## `get_tree().quit()`, so a back gesture at the viewport with an unsaved
+## generated world in memory destroyed it with no prompt at all. That is not a
+## hypothetical: it happened to a tester on an OnePlus 6T, and the world was
+## gone. Nothing in this shell may end the process without going through the
+## same gate File ▸ Close project goes through.
 func _notification(what: int) -> void:
-	if what != NOTIFICATION_WM_GO_BACK_REQUEST or not _phone:
+	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
+		return
+	## Innermost first. An embedded dialog draws OVER the phone menu, so the
+	## menu must not eat the gesture while one is open. Hidden rather than
+	## freed: every dialog in this shell already frees itself from
+	## `visibility_changed`, and hiding is precisely what its Cancel does.
+	var top := _topmost_subwindow(get_tree().root)
+	if top != null:
+		top.hide()
 		return
 	if _phone_menu != null and _phone_menu.go_back():
 		return
@@ -2217,6 +2246,30 @@ func _notification(what: int) -> void:
 			or _left_sheet_open or _right_sheet_open:
 		_close_all_phone_overlays()
 		return
+	_back_exhausted()
+
+## The deepest visible `Window` under `root`, `root` itself excluded.
+##
+## Walked rather than read off a list, because a dialog is parented to whichever
+## `Control` opened it and not to the root -- `DccApp`'s own prompts are children
+## of `DccApp`, and `Viewport` exposes no subwindow list to GDScript. One walk
+## per back press is not a cost worth optimising.
+func _topmost_subwindow(node: Node) -> Window:
+	var found: Window = null
+	for child in node.get_children():
+		if child is Window and not (child as Window).visible:
+			continue  ## A hidden window's own children are unreachable too.
+		var deeper := _topmost_subwindow(child)
+		if deeper != null:
+			found = deeper
+		elif child is Window:
+			found = child
+	return found
+
+## What back does once there is nothing left to leave. `DccShell` on its own
+## holds no document, so quitting is correct here; `DccApp` overrides it to
+## guard unsaved work first.
+func _back_exhausted() -> void:
 	get_tree().quit()
 
 func _set_sheet_open(side: String, open: bool) -> void:

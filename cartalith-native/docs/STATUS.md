@@ -5,8 +5,47 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **The touch navpad, and what "100%" actually
-means** — `GUI_GAP_REGISTER.md` **SH-14** closed, **SH-03** narrowed. The other
+Last updated: 2026-08-24 (post **Android Back destroyed unsaved worlds** —
+`GUI_GAP_REGISTER.md` **BK-01**, and the first **observed user data loss** in
+this port: on the handset the hardware/gesture Back ended the process on a
+generated, never-saved world, and nothing recovered it — autosave only writes
+beside a project that has already been saved somewhere. **Two faults, either
+sufficient.** The back chain's last step was a bare `get_tree().quit()`, and
+`SceneTree.quit()` does **not** raise `NOTIFICATION_WM_CLOSE_REQUEST`, so the
+three-button unsaved-changes prompt built for File ▸ Close project earlier the
+same session was never on the path at all; and `quit_on_go_back = false` sat
+inside `if _phone:`, so every Android device the *aspect-ratio* split reads as a
+tablet took the SceneTree default and quit with none of our code running. Back
+is now **one press, one level, innermost first** — dialog or popup window (new,
+and it needs a tree walk: a dialog is parented to whichever `Control` opened it
+and `Viewport` exposes no subwindow list) → phone-menu level → phone overlay →
+armed tool → the **same** prompt as Close project, via one shared
+`confirm_unsaved_world()` rather than a second, subtly different one. **Decided:
+prompt on the first press, not "press back again to exit"** — that pattern is
+for a one-level back stack, and its hint has nowhere to draw on the phone
+composition where the status bar is parked hidden as the menu's model; with no
+world, back still exits at once. **A regression the probe caught:**
+`_measure_escape()` deliberately leaves Measure armed, so back inheriting
+Escape's action made the gesture a permanent no-op and the app unexitable with
+Measure armed — `_escape_action(force_disarm)` splits the two. **Two measured
+traps** on the prompt itself, both silently yielding 29 dp buttons:
+`phone_fit()` walks `get_children()` and `AcceptDialog` parents its button bar
+as an **internal** child, so every stock OK/Cancel row in this shell is outside
+every fit it performs; and **`Window.popup()` clears `custom_minimum_size`** on
+those buttons — isolated in a two-node scene, it survives every
+`content_scale_*`/`min_size`/`max_size` call and is gone the instant the window
+shows — so the floor is applied *after* the popup and re-applied on rotation.
+Verified with the committed `_backnav_probe.gd` against the real shell and a
+really generated world at `393x852`, `540x1170` and `1600x1000`, all passing,
+plus a desktop Close-project regression check. **On-device blocked, not
+skipped** — the handset was `offline` to `adb` all pass; delivery of the
+notification by Android is therefore the one link unproven here, and it was
+proven on this handset in the phone-menu pass. **Registered, not fixed:**
+**BK-02**, the desktop close box has no gate either — same data loss on Windows,
+left alone because `auto_accept_quit = false` risks an unquittable app.
+**Closed as a non-finding:** **BK-03**, `KEYCODE_M` on Android — `M` is bound to
+nothing on any platform) — previously, post **The touch navpad, and what "100%"
+actually means** — `GUI_GAP_REGISTER.md` **SH-14** closed, **SH-03** narrowed. The other
 half of the owner question `SH-13` answered the first half of, and both owner
 decisions on it were taken as given: **reset means cover, not fit**, and **the
 cluster gets designed in this shell's language first** rather than
@@ -1945,6 +1984,12 @@ authorised it after five register rows queued up behind it.
   long-empty `autosave` slot), Revert to last save, and Close project — whose
   prompt can finally offer **Save**, which is the whole reason it could not
   be built before. `GUI_GAP_REGISTER.md` **FI-01..FI-05 all closed**.
+- **The Close-project prompt is now the shell's one unsaved-work gate**
+  (`confirm_unsaved_world()`, 2026-08-24). Android's Back button reaches it
+  instead of ending the process — `GUI_GAP_REGISTER.md` **BK-01**, real
+  observed data loss, fixed. **Still open: `BK-02`** — the *desktop* window's
+  close box bypasses it exactly as Back did, because nothing intercepts
+  `NOTIFICATION_WM_CLOSE_REQUEST`. Registered with the reason it was left.
 
 **Verified three ways** (`CHANGELOG.md` has the detail): a re-write of a
 **real** HTML-app export checked against that fixture's independent value

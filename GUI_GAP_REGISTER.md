@@ -47,6 +47,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
 | 16-22 | Seven sections added after the contents table was written; see the `## ` headings directly. |
+| [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
 
 ---
@@ -3578,3 +3579,143 @@ it is current.** From now on that check is one `logcat`/console grep for
 `Cartalith: the loaded GDExtension has no`, and an empty result is the
 precondition for trusting anything else in a gap audit. Twelve entries above
 would have been filed as regressions on the strength of a screenshot.
+
+---
+
+## 25 · BK-01 — Android's Back button killed the process, unsaved world and all (2026-08-24) — **FIXED**
+
+**Class: not a disconnected control. A control that was connected to the wrong
+thing, and the wrong thing destroyed the user's work.** Found on the handset,
+not in a review: a tester pressed the hardware/gesture **Back** on a generated
+but never-saved world, the process ended, and the world was gone. There is no
+recovery path — autosave only writes beside a project that has already been
+saved somewhere (`DccApp._autosave_tick()`), and this one never had been.
+
+Severity: the highest in this register so far. Every other entry is a capability
+that is missing. This one is a capability that is present and *harmful*.
+
+### Root cause — two faults, either of which was sufficient
+
+1. **The terminal step of the back chain was a bare `get_tree().quit()`.**
+   `DccShell._notification()` already answered `NOTIFICATION_WM_GO_BACK_REQUEST`
+   and already popped a phone-menu level, then a sheet, then an overlay — that
+   was built with the phone menu (§15's resolution) and it worked. What it did
+   once those ran out was quit, immediately. `SceneTree.quit()` does **not**
+   raise `NOTIFICATION_WM_CLOSE_REQUEST`, so nothing downstream could have
+   intervened even in principle: the three-button unsaved-changes prompt that
+   File ▸ Close project had gained in the same session was simply never
+   consulted.
+2. **`quit_on_go_back = false` was set only when `_phone` was true.**
+   `DccShell._compute_layout_mode()` classifies by *aspect ratio*, so every
+   Android device the shell reads as a tablet — and a phone whose boot window is
+   reported landscape — kept the SceneTree default, where the back request quits
+   the app with no code of ours running at all. On those devices not even the
+   sheet/menu popping happened.
+
+Fault 1 is why the tester lost a world on a phone. Fault 2 is a second, wider
+door onto the same outcome that nobody had opened yet.
+
+### The navigation model, and why
+
+Back means **leave exactly one level**, innermost first. One press, one step,
+and only the last of them can end the app:
+
+| Press lands on | What back does |
+|---|---|
+| a dialog or popup window | hides it — found anywhere in the tree, since a dialog is parented to whichever `Control` opened it, not to the root |
+| a phone-menu level | `PhoneMenu.go_back()` — L5 → L4 → L3 → L2 → closed |
+| a drawer, panel picker or dock sheet | `_close_all_phone_overlays()` |
+| an armed tool | Escape's own action, then a real disarm |
+| nothing, and a world exists | the **same** save/discard/cancel prompt as File ▸ Close project |
+| nothing, and no world exists | quits |
+
+Two decisions in there are worth stating, because both had a defensible
+alternative:
+
+- **Prompt, not "press back again to exit."** The double-press-with-a-toast
+  pattern earns its place in an app whose back stack is one level deep, where a
+  stray edge swipe is the only thing an unexpected press can be. Here back
+  already walks four real levels before it can reach the exit at all, so a press
+  that arrives there is a considered one — and the pattern has nowhere to draw
+  its hint on the phone composition, where the status bar is parked hidden as
+  the phone menu's model (§15). The prompt is the guard where there is something
+  to lose; where there is not, back exits at once, which is the platform
+  convention and the only way out of a full-screen app.
+- **The tool step disarms unconditionally, unlike Escape.**
+  `GlobalTools._measure_escape()` deliberately clears the measured chain and
+  leaves Measure *armed*, which is right for a pointer user whose next action is
+  another measurement. Back inheriting that made the gesture a **permanent
+  no-op**: every press cleared an already-clear chain, `armed_tool` never
+  reached `inspect`, and the exit was unreachable for as long as Measure was
+  armed. Caught by the probe below, not by review.
+
+### The prompt is shared, not duplicated
+
+`DccApp.close_project()` and `DccApp._back_exhausted()` both call one
+`confirm_unsaved_world()`. It keeps the close-project rule that the prompt
+appears **whenever a world exists**, not only when `bridge.world_dirty` is set —
+see that flag's own doc comment for what it cannot see, and why the last moment
+before work is destroyed is the wrong one to under-report.
+
+### Two measured phone-presentation traps this uncovered
+
+The prompt is the only thing standing between a back gesture and a destroyed
+world, so it has to be legible and tappable on the device, not merely present.
+Both of these produced a silently 29 dp button row:
+
+1. **`DccShell.phone_fit()` structurally cannot reach it.** It walks
+   `get_children()`, and `AcceptDialog` parents its entire button bar as an
+   **internal** child. Every stock OK/Cancel row in this shell is therefore
+   outside every fit it performs. Elsewhere that has mattered little, because a
+   window's real controls live in its content child; here the three buttons
+   *are* the dialog.
+2. **`Window.popup()` clears `custom_minimum_size` on those buttons.** Isolated
+   in a two-node scene: the value survives `content_scale_mode`,
+   `content_scale_aspect`, `content_scale_factor`, `min_size` and `max_size`,
+   and reads `(0, 0)` the instant the window is shown. So the floor must be
+   applied *after* the popup, and re-applied on every re-popup — which is what a
+   rotation is, via `phone_window()`'s inset relay.
+
+   A third, smaller trap on the way: `b.custom_minimum_size.y = 44` through an
+   **untyped** loop element writes to a temporary copy of the vector and is
+   silently lost. Typed `for b: Button` and a whole-`Vector2` assignment fix it.
+
+### Verification
+
+`godot-project/_backnav_probe.gd` (committed, reusable) drives the real shell
+with a **really generated** world in memory and delivers the actual
+`NOTIFICATION_WM_GO_BACK_REQUEST`. All checks pass in three compositions:
+`393x852` (the canvas reference), `540x1170` (half the OnePlus 6T, exercising
+`content_scale_factor` 1.374 and confirming the 44 dp floor holds through it)
+and `1600x1000` (desktop/tablet, checked for regression of File ▸ Close project
+and for fault 2).
+
+**Not verified on the device.** The handset was `offline` to `adb` for this
+entire pass — `kill-server`, `start-server` and `reconnect offline` all failed;
+it needs a physical replug and re-authorisation. What a desktop probe cannot
+prove is that Android *delivers* the notification at all; everything downstream
+of delivery, which is where the data loss lived, is proven. Delivery itself was
+verified on this handset in the §15 pass ("System back popped sheet → screen →
+root without exiting, pid unchanged"), which is evidence for the mechanism but
+not for this change.
+
+### Two related findings, registered and NOT fixed
+
+- **BK-02 (A) — the desktop window's close box has no such gate.** Nothing in
+  the shell intercepts `NOTIFICATION_WM_CLOSE_REQUEST`, and `auto_accept_quit`
+  is at its default, so closing the window with the title bar's × on Windows
+  destroys an unsaved world exactly as the back button did on Android. Same
+  class, same severity, different platform. Left alone here deliberately:
+  `auto_accept_quit = false` makes the app unquittable if the prompt ever fails
+  to appear, which is a worse failure than the one it fixes, and it is a desktop
+  behaviour change nobody reported. `close_project()`'s gate is now shared and
+  takes a continuation, so wiring it is a small change when the owner wants it.
+- **BK-03 (D) — `KEYCODE_M` does not reach Godot's shortcut path on Android.**
+  Checked and closed as a non-finding: **`M` is bound to nothing, on any
+  platform.** Every accelerator in `menus.gd` carries a Ctrl or Shift modifier
+  (`Ctrl+N/O/S/W/Z`, `Shift+A/J/L/D`, `Ctrl+Shift+S/P`), and a search for a bare
+  `KEY_<letter>` across the whole shell returns nothing. There is no on-screen
+  equivalent to add because there is no desktop behaviour to mirror. Worth
+  re-testing only if a bare-letter accelerator is ever introduced — at which
+  point the phone needs a surface for it regardless, since handsets have no
+  keyboard.

@@ -149,13 +149,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed):
 		return
 	if event.keycode == KEY_ESCAPE:
-		if _escape_handlers.has(armed_tool):
-			_escape_handlers[armed_tool].call()
-		else:
-			var btn: BaseButton = tool_group.get_pressed_button()
-			if btn != null:
-				btn.button_pressed = false
-			arm_tool("inspect")
+		_escape_action()
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_BACKSPACE:
 		## Same text-field guard Delete needs below, and for the same reason:
@@ -176,6 +170,28 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				if ws.on_delete_key():
 					get_viewport().set_input_as_handled()
 					return
+
+## Escape's body, named because Android's back gesture means the same thing at
+## the point it runs out of surfaces to leave (`_back_exhausted()`), and a phone
+## has no Escape key to press.
+##
+## `force_disarm` is the one place the two diverge, and it is load-bearing.
+## `GlobalTools._measure_escape()` deliberately clears the chain and leaves
+## Measure **armed** -- correct for a pointer user, whose next action is
+## overwhelmingly another measurement. Back inheriting that would make the
+## gesture a no-op forever: every press would clear an already-clear chain,
+## `armed_tool` would never reach `inspect`, and the exit below would be
+## unreachable with Measure armed. A back press must always leave a level, so
+## it runs the handler's cleanup *and then* disarms.
+func _escape_action(force_disarm := false) -> void:
+	if _escape_handlers.has(armed_tool):
+		_escape_handlers[armed_tool].call()
+		if not force_disarm:
+			return
+	var btn: BaseButton = tool_group.get_pressed_button()
+	if btn != null:
+		btn.button_pressed = false
+	arm_tool("inspect")
 
 func _ready() -> void:
 	super._ready()
@@ -792,32 +808,122 @@ func revert_to_saved() -> void:
 		"Everything since the last save of %s is discarded." % current_project_path.get_file(),
 		"Revert", func(): _load_project(current_project_path))
 
-## File ▸ Close project. Prompts **whenever a world exists**, not only when
-## `bridge.world_dirty` is set -- see that flag's own doc comment for what it
-## cannot see, and why a close is the wrong moment to under-report.
+## File ▸ Close project.
 func close_project() -> void:
 	if not bridge.has_world:
 		return
+	confirm_unsaved_world("Close project", "Close it?", "Discard and close",
+		"Save and close", _close_world)
+
+## The unsaved-work gate. **The only prompt of its kind in the shell** -- File ▸
+## Close project and Android's back gesture at the end of its navigation
+## (`DccShell._back_exhausted()`, overridden below) both come here, rather than
+## the back button growing a second, subtly different one of its own.
+##
+## Prompts **whenever a world exists**, not only when `bridge.world_dirty` is
+## set -- see that flag's own doc comment for what it cannot see, and why the
+## last moment before work is destroyed is the wrong one to under-report.
+##
+## Three answers, because the third button is the whole reason this prompt could
+## not be built before there was a writer: with no Save to offer it would have
+## been "discard or cancel", which is not a choice.
+func confirm_unsaved_world(prompt_title: String, question: String,
+		discard_text: String, save_text: String, then: Callable) -> void:
 	var body := "This world has unsaved changes." if bridge.world_dirty \
 		else "Tool edits made since the last save are not tracked, so save if in doubt."
 	var dlg := ConfirmationDialog.new()
-	dlg.title = "Close project"
-	dlg.dialog_text = "%s\n\nClose it?" % body
-	dlg.ok_button_text = "Discard and close"
-	## The third button is the whole reason this prompt could not be built
-	## before: with no writer there was no "Save" to offer, only "discard or
-	## cancel", which is not a choice.
-	var save_btn := dlg.add_button("Save and close", true, "save")
+	dlg.title = prompt_title
+	## Phone treatment, and only on a phone: `DccWidgets.phone_window()` clears
+	## `wrap_controls` unconditionally, which is right for a window with a
+	## scrolling body and wrong for a text-sized prompt -- with it cleared and
+	## no size set, `popup_centered()` collapses the dialog onto its minimum and
+	## clips the question. A prompt nobody can read is not a fix, and a prompt
+	## whose buttons land at ~5 dp (the recorded "desktop pixels on a phone"
+	## bug class) is not one either -- which is what `phone_present()`'s
+	## content scale is here to prevent.
+	var phone := is_phone()
+	if phone:
+		DccWidgets.phone_window(dlg, self)
+	## `phone_window()` drops the title bar, so on a phone the title has to live
+	## in the body instead of vanishing with the decoration.
+	dlg.dialog_text = ("%s\n\n" % prompt_title if phone else "") \
+		+ "%s\n\n%s" % [body, question]
+	dlg.ok_button_text = discard_text
+	var save_btn := dlg.add_button(save_text, true, "save")
 	save_btn.pressed.connect(func():
 		dlg.hide()
 		if current_project_path == "":
-			save_project_as(func(): _close_world())
+			save_project_as(then)
 		else:
-			_write_project(current_project_path, func(): _close_world()))
-	dlg.confirmed.connect(_close_world)
+			_write_project(current_project_path, then))
+	dlg.confirmed.connect(then)
 	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
 	add_child(dlg)
-	dlg.popup_centered()
+	if not DccWidgets.phone_present(dlg, self):
+		dlg.popup_centered()
+	if phone:
+		## AFTER the popup, and re-applied on every rotation -- see
+		## `_floor_prompt_buttons()` for why neither is optional. The relay
+		## is guarded and self-releasing for the same reason
+		## `DccWidgets.phone_window()`'s is: this dialog frees itself on close,
+		## and a rotation afterwards would otherwise touch a freed object.
+		_floor_prompt_buttons(dlg, save_btn)
+		var refloor := func():
+			if is_instance_valid(dlg) and dlg.visible:
+				_floor_prompt_buttons(dlg, save_btn)
+		phone_insets_changed.connect(refloor)
+		dlg.tree_exiting.connect(func():
+			if phone_insets_changed.is_connected(refloor):
+				phone_insets_changed.disconnect(refloor))
+
+## Floor `ConfirmationDialog`'s three stock answers at §13's 44 dp tap minimum.
+##
+## `DccShell.phone_fit()` cannot do it: it walks `get_children()`, and
+## `AcceptDialog` parents its whole button bar as an **internal** child, so the
+## stock row is outside every fit this shell performs and measured 29 dp.
+## Everywhere else that has mattered little, because a window's real controls
+## live in its content child. Here the three buttons *are* the dialog, and one
+## of them destroys a world.
+##
+## Two measured traps, both of which silently produced 29 dp buttons on the way
+## to this working:
+##
+##   1. `b.custom_minimum_size.y = 44` through an **untyped** loop element
+##      writes to a temporary copy of the vector and is lost. Hence the typed
+##      `for b: Button` and the whole-`Vector2` assignment.
+##   2. **`Window.popup()` clears it.** Isolated in a two-node scene: the value
+##      survives `content_scale_*`, `min_size` and `max_size`, and is `(0, 0)`
+##      the instant the window is shown, because `AcceptDialog` re-lays its
+##      internal button bar on popup. So this must run AFTER the popup -- and
+##      again after every re-popup, which is what a rotation is.
+func _floor_prompt_buttons(dlg: ConfirmationDialog, extra: Button) -> void:
+	for b: Button in [dlg.get_ok_button(), dlg.get_cancel_button(), extra]:
+		b.custom_minimum_size = Vector2(0.0, DccTheme.PHONE_TAP_MIN)
+
+## Android's back gesture has run out of things to leave (`DccShell`'s chain).
+##
+## One level remains before the app itself: an armed tool is a *mode*, and
+## leaving a mode is exactly what back means -- so this does what Escape does,
+## including letting a multi-click tool commit through its own handler.
+##
+## Then the exit gate, and deliberately **not** a "press back again to exit"
+## timer. That pattern earns its place in an app whose back stack is one level
+## deep, where a stray edge swipe is the only thing it can be; here back already
+## walks four real levels (dialog, menu level, overlay, tool) before it can ever
+## reach this function, so a press that arrives here is a considered one. It
+## also has nowhere to draw its hint on the phone composition, where the status
+## bar is parked hidden as the phone menu's model. The prompt is the guard where
+## there is something to lose; where there is not, back exits at once, which is
+## the platform convention and the only way out of a full-screen app.
+func _back_exhausted() -> void:
+	if armed_tool != "inspect":
+		_escape_action(true)
+		return
+	if not bridge.has_world:
+		get_tree().quit()
+		return
+	confirm_unsaved_world("Exit Cartalith", "Exit the app?", "Discard and exit",
+		"Save and exit", func(): get_tree().quit())
 
 func _close_world() -> void:
 	bridge.close_world()
