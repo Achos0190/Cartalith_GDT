@@ -26592,3 +26592,137 @@ loudly rather than emitting a short, plausible golden.
 **One GDScript defect the parse check caught**: a `sort_custom` lambda body
 cannot wrap onto a second line. Three of them did; they are named `static
 func` comparators now rather than one unreadable long line each.
+
+## CV-23 — the influence field was already being computed, and thrown away on the last line (`GUI_GAP_REGISTER.md` §41, 2026-08-25)
+
+`GUI_GAP_REGISTER.md` §39 had sharpened this row rather than closed it, and its
+diagnosis held up in full: `assign_territory`'s local `best_effective` — the
+per-cell cost-distance to the winning capital divided by that capital's
+population weight — **is** the influence field CV-23 asks for, computed on
+every `generate()` since Phase 2 milestone 10 and dropped by the function's own
+`owner` return. A contested value is the runner-up beside it, not a second
+Dijkstra.
+
+**Built:**
+
+- `cartalith_civ::territory_sweep` — the one cost-distance Voronoi pass both
+  `assign_territory` and the new `territory_influence` share, so the two cannot
+  drift into disagreeing about who owns a cell. `want_rival` is a **memory**
+  switch, not a behaviour switch: with it `false` the loop body is
+  character-for-character what `assign_territory` ran before and allocates
+  exactly what it allocated, so **generation pays nothing** for a layer nobody
+  may open.
+- `cartalith_civ::TerritoryInfluence` / `territory_influence` — borders
+  (`owner`), claims (`rival`), influence (`best_effective`, kept) and
+  `contested` = `influence / rival_influence` in `0..=1`. The runner-up is
+  exact in one pass: `rival_effective >= best_effective` always holds, because
+  it is only ever written from the outgoing winner at a change of owning
+  faction (the incoming winner being strictly smaller) or from a candidate that
+  already lost — so the value dropped at a displacement is always `>=` the
+  value kept, and the kept one belongs to a faction that is by construction not
+  the new owner.
+- `WorldGen::civ_territory_influence()` (`#[func]`) — per-faction rows and
+  per-**pair** border rows, plus `transient_bytes`/`resident_bytes`. The pair
+  rows are the "claims" half the register asked for: they name *who* disputes
+  *whom*, which an owner grid alone cannot.
+- `sample_bridge::territory_influence` — the on-demand builder both the raster
+  and the `#[func]` go through, so the layer a user looks at and the numbers a
+  panel reports cannot come from two different sweeps (the `wildlife_regions`
+  rule, applied again).
+- **Layers ▸ Civilization ▸ Contested borders** — a real `LAYER_GROUPS` row
+  with a hint, a five-swatch legend and a per-world `layer_available` check
+  (settlements present *and* at least one capital, not merely "has a civ
+  layer": a capital-less world would draw a flat unowned wash reading as data).
+- **CIVIL ▸ Territories ▸ Borders & influence** — the numbers, behind a button,
+  because the computation costs something and refilling on every dock rebuild
+  would run one Dijkstra per capital on every place rename.
+
+**Two design decisions worth stating.**
+
+*No new hue.* Every colour the raster draws is a faction's own swatch
+(`CivData::faction_rgb`, identity colours included), dimmed to `0.26` in a
+secure interior and lifted by `0.26 + 0.74·t²`. An added highlight would have
+collided with `FACTION_RGB`'s Okabe-Ito orange and yellow, and would have said
+"contested" without saying *with whom*. Past `t = 0.88` — literally "the
+runner-up is within 12 % of the winner" — the cell alternates with the rival's
+swatch on a three-cell diagonal stripe, which is CA-17's claim hatching drawn
+in the analysis layer rather than in the map's territory wash.
+
+*The contested band is wider far from either capital, and that is the model.*
+One step in from a border the winner's distance is `d` and the rival's about
+`d + 2·step`, so the ratio is near `1` when `d` is large and well under `1`
+when the border runs close to a capital.
+
+**No golden parity, and that is correct here.** The reference has no
+algorithmic territory generation at all — `_civGenerateProvinces` partitions an
+already-painted raster and nothing computes one — so `assign_territory` was new
+design under `DECISIONS.md` §7a/§7b, and so is this. `reference/FUNCTION_INDEX.md`
+was checked: its only territory hits are `_jpClaimedAt` (a lookup) and the
+faction-roster editors. Verified by tests and by live measurement instead.
+
+**Verified:**
+
+- **Five new `cartalith-civ` lib tests** (401 in the crate at the time of writing; the baseline moved under a concurrent CV-25/CV-26 pass, so the delta is the honest number, not the total). They are
+  `influence_owner_matches_assign_territory` (four layouts: same-faction
+  displacement, cross-faction displacement, a third faction that never wins, an
+  unreachable half), `influence_rival_is_the_true_runner_up_faction` (against
+  the brute-force per-faction minimum over a ragged three-faction fixture),
+  `influence_is_low_at_a_capital_and_contest_peaks_at_the_frontier`
+  (strict monotonicity towards the frontier, `contested = 1.0` at the exact
+  tie), `influence_without_a_rival_is_zero_and_never_nan`, and
+  `influence_handles_two_capitals_on_one_cell` — the one input that would hand
+  `0/0` to a colour ramp as NaN.
+- `cartalith-godot` 343 lib tests green, including the two that police the
+  Layers table: `every_advertised_layer_draws_and_only_advertised_ones_do`
+  (the new row must produce a non-uniform, fully opaque raster) and
+  `available_matches_debug_raster` (the cheap `available` answer must equal the
+  expensive "did it draw?" answer, with and without a civ layer). The test
+  fixture gained two real capitals of two factions, placed at the first and
+  last land cell in scan order so the sweep genuinely meets in the middle.
+- `cargo check -p cartalith-godot` clean, `cargo clippy` clean on both touched
+  crates, headless boot clean.
+- **`_cv23_probe.gd` (temporary, untracked), run windowed** on the real world
+  §39 used — seed 483920, 384 × 288, 233 settlements, 6 factions, 35 ways.
+  **PASS, 0 failures.** 88,621 owned cells, **14,225 (16.05 %) on a frontier**,
+  mean contest 0.595, mean influence 43.6; all six factions hold ground;
+  **nine faction pairs actually meet**, mean contest 0.938-0.969, Veldmark ↔
+  Korrath longest at 4,412 cells and Aurelia ↔ Veldmark shortest at 60. Two
+  rebuilds agree cell-for-cell.
+- **Borders really read as contested, measured off the drawn pixels.** The
+  ramp is invertible, so the contested scalar was recovered back out of the
+  raster by dividing it by the Political-control raster: **mean t = 0.960 at a
+  border cell against 0.551 in an interior cell, 0.410 apart**, over 1,480
+  border and 78,934 interior cells. 2,461 frontier pixels carry the rival
+  faction's own colour.
+- **Memory, measured from Windows' own process counters** (Godot's monitors see
+  only Godot's allocator; every byte here is Rust's). 25 consecutive rebuilds at
+  384 × 288: `517.8 → 518.0 peak → 513.8 MB`, net **−4.0 MB** where retention
+  would have been +140 MB. At 1024 × 768 (786,432 cells, 510,600 owned, 59,717
+  frontier, **343 ms**, a 39.8 MB build) the process's own **peak** working set
+  does not move at all — `891.5 → 891.5 MB` — and resident comes back 127.5 MB
+  below where it started.
+
+**What `transient_bytes` actually reports**, itemised rather than flattered: 53
+bytes a cell — 4 for the rebuilt `build_travel_cost` field, 24 for the sweep,
+25 for one capital's `road_dijkstra` at a time including the heap's own
+`with_capacity(n)`. **41 of those 53 are what `assign_territory` already spends
+inside `generate()` on the same world**, so opening this layer costs 12 bytes a
+cell more than the world's own generation already paid, and holds none of it.
+`resident_bytes` is `0` and `CivData` gained no field. At the 8192² ceiling the
+same arithmetic is 3.3 GB transient against generation's own 2.6 GB for the
+same world's territory pass — both enormous, and the ceiling is theoretical for
+the whole civ pipeline rather than for this row.
+
+**The freed `cost` field, solved rather than dodged.** §39 recorded
+`compute_civilisation` building `build_travel_cost`'s output as a local and
+freeing it as the blocker on any recompute. It is rebuilt, not retained:
+`build_travel_cost` is a pure function of the height field and the sea level,
+both of which `FieldRefs` already borrows, so recovering it costs one parallel
+pass and zero resident bytes. Leaking a `gw × gh` f32 back into `CivData` to
+avoid that pass is exactly what `MEMORY_OPTIMIZATION_SCOPE.md` exists to
+prevent.
+
+**Still open, and narrowly:** historical occupation over time. The timeline
+records settlement snapshots per year, not a per-year ownership grid, so there
+is nothing to scrub territory against — timeline work, not territory work,
+exactly as §39 scoped it. The Territories ▸ Not built note now says only that.

@@ -6048,9 +6048,58 @@ pub fn assign_territory(
     gh: usize,
     world: bool,
 ) -> Vec<i32> {
+    territory_sweep(settlements, cost, gw, gh, world, false).owner
+}
+
+/// [`territory_sweep`]'s raw per-cell output, before it is turned into the
+/// public [`TerritoryInfluence`]. `rival_effective`/`rival` are empty
+/// unless the sweep was asked for them.
+struct TerritorySweep {
+    owner: Vec<i32>,
+    best_effective: Vec<f64>,
+    rival_effective: Vec<f64>,
+    rival: Vec<i32>,
+}
+
+/// The one cost-distance Voronoi sweep both [`assign_territory`] and
+/// [`territory_influence`] run — written once so the two cannot drift into
+/// disagreeing about who owns a cell.
+///
+/// **`want_rival` is a memory switch, not a behaviour switch.** With it
+/// `false` the loop body is character-for-character what `assign_territory`
+/// ran before this function existed, and allocates exactly what it
+/// allocated (`owner` + `best_effective`); the two extra grids the runner-up
+/// needs are `Vec::new()`. That matters because this is the *generation*
+/// path: at this port's 8192² ceiling an `f64` grid is 537 MB, so making
+/// every `generate()` carry two of them to serve a debug layer nobody may
+/// open would be exactly the uncosted retention `MEMORY_OPTIMIZATION_SCOPE.md`
+/// exists to prevent.
+///
+/// **Why the running runner-up is exact, in one pass.** The invariant is
+/// `rival_effective >= best_effective` at every cell after every capital:
+/// `rival_effective` is only ever written either from the *outgoing*
+/// `best_effective` at a change of owning faction (and the incoming
+/// `best_effective` is strictly smaller, by the branch's own test) or from
+/// an `effective` that already lost the `< *be` test. So when a capital of
+/// a new faction takes a cell, the value dropped (the old runner-up) is
+/// always `>=` the value kept (the old winner), and the old winner belongs
+/// to a faction that is by construction not the new owner's. Every
+/// already-seen non-owner candidate is therefore `>= ` the kept value, which
+/// makes the kept value the true minimum over non-owner factions — no
+/// second pass, and no per-cell list of every faction's distance.
+fn territory_sweep(
+    settlements: &[NamedSettlement],
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    want_rival: bool,
+) -> TerritorySweep {
     let n = gw * gh;
     let mut owner = vec![0i32; n];
     let mut best_effective = vec![f64::INFINITY; n];
+    let mut rival_effective = if want_rival { vec![f64::INFINITY; n] } else { Vec::new() };
+    let mut rival = if want_rival { vec![0i32; n] } else { Vec::new() };
     for s in settlements {
         if !s.placement.capital {
             continue;
@@ -6062,22 +6111,147 @@ pub fn assign_territory(
         // capitals in this order) -- but within one capital's own pass,
         // each cell's compare-and-maybe-update is independent of every
         // other cell, safe to parallelize.
-        owner
-            .par_iter_mut()
-            .zip(best_effective.par_iter_mut())
-            .enumerate()
-            .for_each(|(i, (o, be))| {
-                if dist[i].is_infinite() {
-                    return;
-                }
-                let effective = dist[i] as f64 / weight;
-                if effective < *be {
-                    *be = effective;
-                    *o = s.placement.faction;
-                }
-            });
+        if want_rival {
+            let fid = s.placement.faction;
+            owner
+                .par_iter_mut()
+                .zip(best_effective.par_iter_mut())
+                .zip(rival_effective.par_iter_mut().zip(rival.par_iter_mut()))
+                .enumerate()
+                .for_each(|(i, ((o, be), (re, rf)))| {
+                    if dist[i].is_infinite() {
+                        return;
+                    }
+                    let effective = dist[i] as f64 / weight;
+                    if effective < *be {
+                        // The outgoing winner becomes the runner-up, but
+                        // only when it was a *different* faction's and was
+                        // real: `*be` is `INFINITY` and `*o` is `0`
+                        // (Unclaimed) until some capital reaches this cell
+                        // at all, and recording that as a claim would make
+                        // every first-touched cell read as contested with
+                        // nobody.
+                        if fid != *o && be.is_finite() {
+                            *re = *be;
+                            *rf = *o;
+                        }
+                        *be = effective;
+                        *o = fid;
+                    } else if fid != *o && effective < *re {
+                        *re = effective;
+                        *rf = fid;
+                    }
+                });
+        } else {
+            owner
+                .par_iter_mut()
+                .zip(best_effective.par_iter_mut())
+                .enumerate()
+                .for_each(|(i, (o, be))| {
+                    if dist[i].is_infinite() {
+                        return;
+                    }
+                    let effective = dist[i] as f64 / weight;
+                    if effective < *be {
+                        *be = effective;
+                        *o = s.placement.faction;
+                    }
+                });
+        }
     }
-    owner
+    TerritorySweep { owner, best_effective, rival_effective, rival }
+}
+
+/// Territory as three separate quantities rather than one owner id
+/// (`GUI_GAP_REGISTER.md` **CV-23**: "borders, claims and influence as
+/// separate quantities"). Every field is `gw * gh` long and indexed the
+/// same way [`assign_territory`]'s output is.
+///
+/// **Not resident anywhere.** Sixteen bytes per cell just for these four
+/// fields is 1.07 GB at this port's 8192² ceiling — and the sweep that
+/// produces them peaks higher still (53 B/cell all told; the
+/// `civ_territory_influence` `#[func]` in `cartalith-godot` itemises it).
+/// So nothing holds one of these: it is built when a caller asks, read, and
+/// dropped — the same on-demand shape `cartalith-godot`'s
+/// `wildlife_regions` already uses, and the reason `CivData` keeps only
+/// `assign_territory`'s `i32` owner grid.
+#[derive(Debug, Clone)]
+pub struct TerritoryInfluence {
+    /// Exactly [`assign_territory`]'s output — the *border* quantity. `0`
+    /// is unowned (water, or unreachable from any capital).
+    pub owner: Vec<i32>,
+    /// The *claim* quantity: which other faction comes closest to taking
+    /// this cell, in effective cost-distance. `0` when no capital of any
+    /// other faction reaches the cell at all (an isolated landmass, or a
+    /// world with one faction), which is not the same as "contested with
+    /// Unclaimed" — nothing is.
+    pub rival: Vec<i32>,
+    /// The *influence* quantity, and the one this port already computed and
+    /// threw away: the winning capital's cost-distance to this cell divided
+    /// by its own [`territory_weight`]. Low near a big capital, high at the
+    /// far edge of its reach. `f32::INFINITY` where nothing reaches.
+    pub influence: Vec<f32>,
+    /// `influence / rival_influence`, in `0.0..=1.0`. `1.0` is a cell the
+    /// winner and the runner-up reach at exactly the same effective cost —
+    /// the frontier itself; `0.0` is an uncontested cell (a capital's own
+    /// site, unowned water, or land no rival faction can reach).
+    ///
+    /// **The contested band is naturally wider far from either capital, and
+    /// that is the model talking, not an artefact.** One step in from a
+    /// border the winner's distance is `d` and the rival's is about
+    /// `d + 2·step`, so the ratio is `d/(d+2·step)` — near `1` when `d` is
+    /// large and well under `1` when the border runs close to a capital. A
+    /// frontier between two distant centres genuinely is more evenly
+    /// balanced than one drawn at a capital's gate.
+    pub contested: Vec<f32>,
+}
+
+/// Builds [`TerritoryInfluence`] from the same inputs [`assign_territory`]
+/// takes, running the same single sweep (one `road_dijkstra` per capital)
+/// and keeping the runner-up it already had to compute past.
+///
+/// `owner` is guaranteed identical to `assign_territory`'s for the same
+/// arguments — they are one function (`territory_sweep`), and
+/// `influence_owner_matches_assign_territory` pins it.
+///
+/// No JS reference to golden-verify against: the reference has no
+/// algorithmic territory generation at all (see [`assign_territory`]'s own
+/// doc comment and `DECISIONS.md` §7b), so this is new design under §7a's
+/// principled-equivalence latitude, verified by the tests below.
+pub fn territory_influence(
+    settlements: &[NamedSettlement],
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+) -> TerritoryInfluence {
+    let sweep = territory_sweep(settlements, cost, gw, gh, world, true);
+    let TerritorySweep { owner, best_effective, rival_effective, rival } = sweep;
+    let influence: Vec<f32> = best_effective.iter().map(|&d| d as f32).collect();
+    // `be`/`re` are both non-negative and `re >= be` (see `territory_sweep`),
+    // so the only shapes reaching here are a finite ratio in `0..=1`,
+    // `INFINITY` in either slot, and the `0/0` two capitals of different
+    // factions standing on one cell would produce. `be` infinite means
+    // nothing reached the cell; `re` infinite means nobody contests it;
+    // both are `0.0`. `0/0` is a perfect tie, so `1.0`. Written as explicit
+    // tests rather than as a division that would hand `inf/inf` and `0/0`
+    // straight to the raster as NaN -- a NaN here would clamp to whatever
+    // the colour ramp's own comparison happened to do with it, which is the
+    // one thing this project's NaN rule exists to stop.
+    let contested: Vec<f32> = best_effective
+        .iter()
+        .zip(rival_effective.iter())
+        .map(|(&be, &re)| {
+            if !be.is_finite() || !re.is_finite() {
+                0.0
+            } else if re == 0.0 {
+                1.0
+            } else {
+                (be / re) as f32
+            }
+        })
+        .collect();
+    TerritoryInfluence { owner, rival, influence, contested }
 }
 
 /// A province: an auto-subdivided sub-region of one faction's territory,
@@ -15214,6 +15388,176 @@ mod tests {
             owner.iter().all(|&f| f == 0),
             "a non-capital settlement projects no territory of its own"
         );
+    }
+
+    // ---------------- CV-23: influence / claims / contested-ness ----------
+
+    /// The whole point of routing both through `territory_sweep`: the
+    /// influence pass must not be a second opinion about who owns a cell.
+    /// Run over layouts that exercise every branch of the runner-up update
+    /// -- a same-faction displacement, a cross-faction displacement, and a
+    /// third faction that never wins anything.
+    #[test]
+    fn influence_owner_matches_assign_territory() {
+        let cases: Vec<(Vec<NamedSettlement>, Vec<f32>, usize, usize)> = vec![
+            (
+                vec![named_capital(0, 0, 1, 15000), named_capital(4, 4, 2, 15000)],
+                vec![1.0f32; 25],
+                5,
+                5,
+            ),
+            // Two capitals of ONE faction plus a rival: the same-faction
+            // displacement branch (which must leave the runner-up alone).
+            (
+                vec![
+                    named_capital(0, 0, 1, 15000),
+                    named_capital(2, 0, 1, 40000),
+                    named_capital(10, 0, 2, 15000),
+                ],
+                vec![1.0f32; 11],
+                11,
+                1,
+            ),
+            // A third faction that is nearer than nobody: it must never
+                // become owner, and must be able to become the runner-up.
+            (
+                vec![
+                    named_capital(0, 0, 1, 90000),
+                    named_capital(5, 0, 2, 15000),
+                    named_capital(10, 0, 3, 15000),
+                ],
+                vec![1.0f32; 11],
+                11,
+                1,
+            ),
+            // Impassable cell: the unreached half must agree too.
+            (
+                vec![named_capital(0, 0, 1, 15000), named_capital(4, 0, 2, 15000)],
+                vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0],
+                5,
+                1,
+            ),
+        ];
+        for (k, (settlements, cost, gw, gh)) in cases.iter().enumerate() {
+            let plain = assign_territory(settlements, cost, *gw, *gh, false);
+            let inf = territory_influence(settlements, cost, *gw, *gh, false);
+            assert_eq!(inf.owner, plain, "case {k}: owner must be assign_territory's own");
+            assert_eq!(inf.influence.len(), gw * gh, "case {k}: influence is one per cell");
+            assert_eq!(inf.contested.len(), gw * gh, "case {k}: contested is one per cell");
+            assert_eq!(inf.rival.len(), gw * gh, "case {k}: rival is one per cell");
+        }
+    }
+
+    /// The runner-up is the true minimum over every faction that is not the
+    /// owner -- checked against the brute-force per-faction minimum, which
+    /// is the definition the one-pass invariant claims to reproduce.
+    #[test]
+    fn influence_rival_is_the_true_runner_up_faction() {
+        // Ragged cost so the distance field is not symmetric, and three
+        // factions with different weights so ties are not manufactured.
+        let (gw, gh) = (9usize, 7usize);
+        let cost: Vec<f32> = (0..gw * gh).map(|i| 1.0 + (i % 5) as f32 * 0.35).collect();
+        let settlements = vec![
+            named_capital(0, 0, 1, 30000),
+            named_capital(8, 0, 2, 15000),
+            named_capital(4, 6, 3, 9000),
+        ];
+        let inf = territory_influence(&settlements, &cost, gw, gh, false);
+
+        // Brute force: every capital's own effective distance field.
+        let mut eff: Vec<(i32, Vec<f64>)> = Vec::new();
+        for s in &settlements {
+            let (dist, _) = road_dijkstra(&cost, gw, gh, s.placement.x, s.placement.y, false);
+            let w = territory_weight(s.pop);
+            eff.push((s.placement.faction, dist.iter().map(|&d| d as f64 / w).collect()));
+        }
+        let mut checked_rival = 0;
+        for i in 0..gw * gh {
+            let owner = inf.owner[i];
+            if owner == 0 {
+                continue;
+            }
+            let mut want_f = 0i32;
+            let mut want_e = f64::INFINITY;
+            for (f, field) in &eff {
+                if *f == owner {
+                    continue;
+                }
+                if field[i] < want_e {
+                    want_e = field[i];
+                    want_f = *f;
+                }
+            }
+            assert_eq!(inf.rival[i], want_f, "runner-up faction at cell {i}");
+            if want_e.is_finite() {
+                let want_c = (inf.influence[i] as f64 / want_e) as f32;
+                assert!(
+                    (inf.contested[i] - want_c).abs() <= 1e-6,
+                    "contested at {i}: got {}, want {want_c}",
+                    inf.contested[i]
+                );
+                checked_rival += 1;
+            }
+        }
+        assert!(checked_rival > 30, "fixture must actually reach contested cells, reached {checked_rival}");
+    }
+
+    /// A capital's own cell is the least contested thing on the map, and a
+    /// cell on the frontier between two equal capitals is the most. Without
+    /// this the field could be uniformly anything and still pass the
+    /// agreement tests above.
+    #[test]
+    fn influence_is_low_at_a_capital_and_contest_peaks_at_the_frontier() {
+        let cost = vec![1.0f32; 11];
+        let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(10, 0, 2, 15000)];
+        let inf = territory_influence(&settlements, &cost, 11, 1, false);
+
+        assert_eq!(inf.influence[0], 0.0, "a capital's own cell is zero cost-distance from itself");
+        assert_eq!(inf.contested[0], 0.0, "and is the least contested cell there is");
+        assert_eq!(inf.rival[0], 2, "its runner-up is still the other faction");
+
+        // Equal weights, so the frontier sits between x=4 (faction 1's last)
+        // and x=6 (faction 2's first); x=5 is the tie.
+        assert_eq!(inf.owner[5], 1, "strictly-less-than means the first capital keeps the tie");
+        assert_eq!(inf.contested[5], 1.0, "an exact effective tie is a fully contested cell");
+        // Strictly monotone away from the capital, in both quantities.
+        for x in 0..5usize {
+            assert!(
+                inf.contested[x] < inf.contested[x + 1],
+                "contest must rise towards the frontier: {} at {x} vs {} at {}",
+                inf.contested[x],
+                inf.contested[x + 1],
+                x + 1
+            );
+            assert!(inf.influence[x] < inf.influence[x + 1], "influence cost must rise away from the capital");
+        }
+    }
+
+    /// One faction on the map contests nothing, and unreachable cells are
+    /// `0` in every quantity rather than an `inf/inf` NaN reaching a caller.
+    #[test]
+    fn influence_without_a_rival_is_zero_and_never_nan() {
+        let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
+        let settlements = vec![named_capital(0, 0, 1, 15000)];
+        let inf = territory_influence(&settlements, &cost, 5, 1, false);
+        assert!(inf.contested.iter().all(|c| *c == 0.0), "nobody to contest with");
+        assert!(inf.rival.iter().all(|r| *r == 0), "and so no runner-up faction");
+        assert!(inf.contested.iter().all(|c| !c.is_nan()), "no NaN in contested");
+        assert!(inf.influence.iter().all(|v| !v.is_nan()), "no NaN in influence");
+        assert!(inf.influence[3].is_infinite(), "an unreachable cell has no finite influence");
+        assert_eq!(inf.contested[3], 0.0, "and reads as uncontested, not as NaN");
+    }
+
+    /// Two capitals of different factions standing on the same cell is the
+    /// one input that would divide `0.0` by `0.0`.
+    #[test]
+    fn influence_handles_two_capitals_on_one_cell() {
+        let cost = vec![1.0f32; 9];
+        let settlements = vec![named_capital(1, 1, 1, 15000), named_capital(1, 1, 2, 15000)];
+        let inf = territory_influence(&settlements, &cost, 3, 3, false);
+        let i = 1 * 3 + 1;
+        assert!(!inf.contested[i].is_nan(), "0/0 must not reach a caller as NaN");
+        assert_eq!(inf.contested[i], 1.0, "a perfect tie is fully contested");
     }
 
     #[test]

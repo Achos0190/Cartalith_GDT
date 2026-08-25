@@ -9543,6 +9543,158 @@ impl WorldGen {
         d
     }
 
+    /// Borders, claims and influence as three separate quantities
+    /// (`GUI_GAP_REGISTER.md` **CV-23**), aggregated per faction and per
+    /// contested faction *pair*.
+    ///
+    /// **Built on demand, held nowhere** — the owner's own decision for this
+    /// row, and the same shape `wildlife_regions()` above already uses.
+    /// `transient_bytes` below reports the honest peak working set for *this*
+    /// world (53 bytes a cell, itemised at the literal), `resident_bytes` is
+    /// `0`, and nothing is added to `CivData`.
+    ///
+    /// The one input a recompute needs and `compute_civilisation` frees —
+    /// `build_travel_cost`'s cost field — is rebuilt from the height field
+    /// rather than retained; see `sample_bridge::territory_influence`.
+    ///
+    /// `{}` before any `generate()`, on a loaded save (no civilisation
+    /// layer), and on a world with no capital.
+    ///
+    /// Returned shape:
+    /// - `owned_cells`, `contested_cells` (at or above the frontier
+    ///   threshold), `mean_contested`, `mean_influence` — world totals over
+    ///   owned land only, since an unowned cell has no influence to average.
+    /// - `factions`: one row per faction that owns anything, with its own
+    ///   cell count, mean influence, mean contest and frontier cell count.
+    /// - `borders`: one row per *pair* of factions that actually meet, with
+    ///   how many frontier cells they contest and how evenly. This is the
+    ///   "claims" quantity the register asked for: it names who disputes
+    ///   whom, which the owner grid alone cannot.
+    /// - `frontier_threshold`, `transient_bytes`, `resident_bytes`.
+    #[func]
+    fn civ_territory_influence(&self) -> VarDictionary {
+        let Some(f) = self.sample_refs() else {
+            return VarDictionary::new();
+        };
+        let Some(inf) = sample_bridge::territory_influence(&f) else {
+            return VarDictionary::new();
+        };
+        let n = inf.owner.len();
+        let thr = sample_bridge::CONTEST_HATCH_T as f32;
+        let roster_len = self.civ.as_ref().map_or(0, |c| c.faction_roster.0.len());
+        // Per-faction accumulators, indexed by faction id (0 = Unclaimed,
+        // never counted). `+1` rather than `roster_len` alone so a
+        // settlement carrying a faction id past the roster's end -- which
+        // `civ_remove_faction` is careful to prevent, but which this
+        // function must not panic on either way -- is clamped rather than
+        // indexing out of bounds.
+        let slots = roster_len.max(1);
+        let mut cells = vec![0i64; slots];
+        let mut frontier = vec![0i64; slots];
+        let mut sum_inf = vec![0.0f64; slots];
+        let mut sum_con = vec![0.0f64; slots];
+        // Frontier cells per unordered faction pair, keyed `(min, max)` so
+        // A-contests-B and B-contests-A are one border, not two.
+        let mut pairs: std::collections::BTreeMap<(i32, i32), (i64, f64)> = Default::default();
+        let (mut owned, mut contested_cells) = (0i64, 0i64);
+        let (mut total_inf, mut total_con) = (0.0f64, 0.0f64);
+        for i in 0..n {
+            let o = inf.owner[i];
+            if o <= 0 {
+                continue;
+            }
+            let oi = (o as usize).min(slots - 1);
+            let c = inf.contested[i];
+            // `influence` is `INFINITY` only where nothing reached the cell,
+            // which is exactly `owner == 0` -- guarded anyway rather than
+            // trusting it, since an infinite term would poison the mean.
+            let v = inf.influence[i];
+            owned += 1;
+            cells[oi] += 1;
+            sum_con[oi] += c as f64;
+            total_con += c as f64;
+            if v.is_finite() {
+                sum_inf[oi] += v as f64;
+                total_inf += v as f64;
+            }
+            if c >= thr {
+                contested_cells += 1;
+                frontier[oi] += 1;
+                let r = inf.rival[i];
+                if r > 0 && r != o {
+                    let key = (o.min(r), o.max(r));
+                    let e = pairs.entry(key).or_insert((0, 0.0));
+                    e.0 += 1;
+                    e.1 += c as f64;
+                }
+            }
+        }
+        let name_of = |id: i32| -> String {
+            self.civ
+                .as_ref()
+                .and_then(|c| c.faction_roster.0.get(id.max(0) as usize))
+                .map_or_else(|| format!("Faction {id}"), |e| e.name.clone())
+        };
+        let factions: Array<VarDictionary> = (1..slots)
+            .filter(|&i| cells[i] > 0)
+            .map(|i| {
+                let k = cells[i] as f64;
+                dict! {
+                    "id" => i as i64,
+                    "name" => name_of(i as i32),
+                    "cells" => cells[i],
+                    "frontier_cells" => frontier[i],
+                    "mean_influence" => sum_inf[i] / k,
+                    "mean_contested" => sum_con[i] / k,
+                }
+            })
+            .collect();
+        let borders: Array<VarDictionary> = pairs
+            .iter()
+            .map(|(&(a, b), &(k, s))| {
+                dict! {
+                    "a" => a as i64,
+                    "b" => b as i64,
+                    "a_name" => name_of(a),
+                    "b_name" => name_of(b),
+                    "cells" => k,
+                    "mean_contested" => s / k as f64,
+                }
+            })
+            .collect();
+        let mut d = dict! {
+            "owned_cells" => owned,
+            "contested_cells" => contested_cells,
+            "mean_contested" => if owned == 0 { 0.0 } else { total_con / owned as f64 },
+            "mean_influence" => if owned == 0 { 0.0 } else { total_inf / owned as f64 },
+            "frontier_threshold" => sample_bridge::CONTEST_HATCH_T,
+            // What the on-demand field actually costs, counted honestly and
+            // at its *peak* rather than at its flattering subset. Per cell:
+            //
+            //   4   the rebuilt `build_travel_cost` f32
+            //  24   the sweep — `owner` i32, `best_effective` f64,
+            //       `rival_effective` f64, `rival` i32
+            //  25   one capital's `road_dijkstra` at a time — `dist` f32,
+            //       `prev` i32, `visited` bool, and the binary heap's own
+            //       `with_capacity(n)` f64 + usize pair
+            //  --
+            //  53   bytes per cell, every one of them freed before this
+            //       function returns.
+            //
+            // **41 of those 53 are what `assign_territory` already spends
+            // inside `generate()` on this same world** (the same cost field,
+            // the same `owner`/`best_effective`, the same Dijkstra) — so
+            // opening this layer costs 12 bytes a cell more than the world's
+            // own generation already paid, and holds none of it afterwards.
+            // Reported rather than asserted so a probe can measure it.
+            "transient_bytes" => (n * 53) as i64,
+            "resident_bytes" => 0i64,
+        };
+        d.set("factions", &factions);
+        d.set("borders", &borders);
+        d
+    }
+
     /// The frame this world's coordinates are in — `GUI_GAP_REGISTER.md`
     /// **WW-15**, and a correction to it.
     ///
@@ -9648,6 +9800,7 @@ impl WorldGen {
             shear_field: &ws.shear_field,
             water_bodies: self.civ.as_ref().map(|c| c.water_bodies.as_slice()),
             territory: self.civ.as_ref().map(|c| c.territory.as_slice()),
+            settlements: self.civ.as_ref().map(|c| c.settlements.as_slice()),
             faction_colors: self.civ.as_ref().map_or_else(Vec::new, |c| {
                 (0..c.faction_roster.0.len() as i32).map(|f| c.faction_rgb(f)).collect()
             }),

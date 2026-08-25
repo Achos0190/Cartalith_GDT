@@ -2035,6 +2035,20 @@ func wildlife_region_at(gx: float, gy: float) -> Dictionary:
 		return {}
 	return world_gen.wildlife_region_at(gx, gy)
 
+## Borders, claims and influence as three separate quantities
+## (`GUI_GAP_REGISTER.md` **CV-23**): per-faction cell counts, mean influence
+## and mean contest, plus one row per pair of factions that actually meet.
+##
+## **Computed on demand and held nowhere** -- the per-cell influence field
+## behind these numbers is built, read and dropped inside the call (the same
+## shape `wildlife_regions()` uses). The returned `transient_bytes` is what
+## that cost for this world. `{}` before any generate, on a loaded save, and
+## on a world with no capital.
+func civ_territory_influence() -> Dictionary:
+	if not _has("civ_territory_influence"):
+		return {}
+	return world_gen.civ_territory_influence()
+
 ## The coordinate frame this world's fields and its GeoJSON export are in
 ## (`GUI_GAP_REGISTER.md` WW-15). `{}` before any generate.
 func world_crs() -> Dictionary:

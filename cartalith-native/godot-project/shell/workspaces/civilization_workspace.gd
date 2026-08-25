@@ -144,9 +144,14 @@ var _territories_body: Control
 ## editor's overrides and the territory raster, and all three move under a
 ## place edit or a recompute. Both calls are one O(cells) aggregate pass and
 ## one O(cells) border pass -- the same cost class as `civ_faction_terrain_fits`,
-## which the roster window already pays on open.
+## which the roster window already pays on open, and unlike `_influence_body`
+## above they run no Dijkstra.
 var _military_body: Control
 var _relations_body: Control
+## CV-23's on-demand influence readout, inside `_territories_body`. Refilled
+## by `_analyse_influence()` only -- never by `_rebuild_readouts()`, which
+## would run one Dijkstra per capital on every place rename.
+var _influence_body: VBoxContainer
 ## SG-02's Recompute row. Held as fields because the handler is a coroutine
 ## that has to find both again after the blocking engine call, and because a
 ## GDScript lambda captures locals by value at creation time -- a
@@ -893,6 +898,8 @@ func _fill_territories(parent: Control) -> void:
 		"The Territory brush and its radius are in the TOOLS block at the top of "
 		+ "this dock; arming it puts the radius in the tool options bar.")
 
+	_build_influence(parent)
+
 	_fill_knowledge(parent, bridge.provinces())
 
 	var gaps := DccWidgets.section(parent, "Not built")
@@ -900,11 +907,85 @@ func _fill_territories(parent: Control) -> void:
 	clear_ter.disabled = true
 	clear_ter.tooltip_text = "CivData::territory is rebuilt wholesale by generate() and by civ_recompute(); there is no civ_clear_territory #[func], so there is no way to leave the claim map empty. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
 	DccWidgets.note(gaps,
-		"Borders, claims and influence as separate quantities, and historical "
-		+ "occupation over time (GUI_GAP_REGISTER.md CV-23). CivData::territory is "
-		+ "one plurality-owner-per-cell grid: there is no contested-claim value, no "
-		+ "influence field to gradient, and no per-year ownership record beyond the "
-		+ "timeline's own settlement snapshots.")
+		"Historical occupation over time (GUI_GAP_REGISTER.md CV-23's third "
+		+ "quantity). The timeline records settlement snapshots per year, not a "
+		+ "per-year ownership grid, so there is nothing to scrub territory against "
+		+ "-- timeline work rather than territory work. Borders, claims and "
+		+ "influence themselves are the section above.")
+
+## `GUI_GAP_REGISTER.md` **CV-23**: borders, claims and influence as three
+## separate quantities rather than one plurality-owner-per-cell grid.
+##
+## **Behind a button, and that is the design, not a shortcut.** The influence
+## field is not stored anywhere: `CivData` keeps only `assign_territory`'s
+## `i32` owner grid, because a per-cell influence field is 16 bytes a cell --
+## 1.07 GB at this port's 8192² ceiling, the same objection `civ_continents`
+## already records. So the engine rebuilds it on demand, reads it, and drops
+## it, exactly the way `wildlife_regions` works. Refilling this section on
+## every dock rebuild would run one Dijkstra per capital each time a place is
+## renamed; asking for it is the honest surface for a computation that costs
+## something.
+func _build_influence(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Borders & influence")
+	var run := DccWidgets.action(sec, "Analyse contested borders", _analyse_influence)
+	run.disabled = not bridge.has_world
+	run.tooltip_text = ("Rebuilds the cost-distance influence field the territory pass computes "
+		+ "and discards, and reports it three ways: how far each faction's capitals actually "
+		+ "reach (influence), which rival comes closest to every cell (claims), and which pairs "
+		+ "of factions genuinely meet and how evenly (borders). Nothing is retained -- the field "
+		+ "is dropped before the numbers come back, and the reading reports what it cost. "
+		+ "The map view of the same field is Layers ▸ Civilization ▸ Contested borders.")
+	_influence_body = VBoxContainer.new()
+	_influence_body.add_theme_constant_override("separation", 4)
+	_influence_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(_influence_body)
+	DccWidgets.note(_influence_body,
+		"Not run yet. The same field draws as a map layer under "
+		+ "Layers ▸ Civilization ▸ Contested borders.")
+
+func _analyse_influence() -> void:
+	if _influence_body == null or not is_instance_valid(_influence_body):
+		return
+	_clear_body(_influence_body)
+	var d := bridge.civ_territory_influence()
+	if d.is_empty():
+		DccWidgets.note(_influence_body,
+			"No territory to analyse: territory is projected from capitals, and this world "
+			+ "has none (or carries no civilisation layer at all, which is every loaded save).")
+		return
+	var owned := int(d.get("owned_cells", 0))
+	var frontier := int(d.get("contested_cells", 0))
+	var pct := (100.0 * float(frontier) / float(owned)) if owned > 0 else 0.0
+	var margin := int(round(100.0 * (1.0 - float(d.get("frontier_threshold", 0.88)))))
+	var head := "%s owned land cells; %s of them (%.1f%%) sit on a frontier -- a rival faction reaches them within %d%% of the owner's own effective cost-distance. Mean contest %.3f (0 = uncontested, 1 = evenly split)."
+	DccWidgets.note(_influence_body, head % [
+		FactionRosterWindow._thousands(owned), FactionRosterWindow._thousands(frontier), pct,
+		margin, float(d.get("mean_contested", 0.0))])
+
+	var by_f := DccWidgets.group(_influence_body, "Per faction")
+	for row in d.get("factions", []):
+		var r: Dictionary = row
+		DccWidgets.note(by_f, "%s -- %s cells, %s on a frontier; mean reach %.1f, mean contest %.3f"
+			% [String(r.get("name", "?")), FactionRosterWindow._thousands(int(r.get("cells", 0))),
+				FactionRosterWindow._thousands(int(r.get("frontier_cells", 0))),
+				float(r.get("mean_influence", 0.0)), float(r.get("mean_contested", 0.0))])
+
+	var borders: Array = d.get("borders", [])
+	var by_b := DccWidgets.group(_influence_body, "Contested borders")
+	if borders.is_empty():
+		DccWidgets.note(by_b,
+			"No two factions meet on this world: every frontier cell's nearest rival is too "
+			+ "far to count, or there is only one faction holding ground.")
+	else:
+		for row in borders:
+			var r: Dictionary = row
+			DccWidgets.note(by_b, "%s ↔ %s -- %s frontier cells, mean contest %.3f"
+				% [String(r.get("a_name", "?")), String(r.get("b_name", "?")),
+					FactionRosterWindow._thousands(int(r.get("cells", 0))),
+					float(r.get("mean_contested", 0.0))])
+
+	var foot := "Built on demand and dropped: %.1f MB of per-cell working set for this world, at its peak, held for the length of the call and retained nowhere. Four fifths of that is what generating this world's territory already spent."
+	DccWidgets.note(_influence_body, foot % (float(d.get("transient_bytes", 0)) / 1048576.0))
 
 func _build_settlements() -> void:
 	var cat := DccWidgets.category(self, "Settlements", categories)

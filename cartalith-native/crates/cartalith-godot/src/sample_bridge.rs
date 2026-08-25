@@ -175,6 +175,16 @@ pub struct FieldRefs<'a> {
     pub water_bodies: Option<&'a [u8]>,
     /// `CivData::territory` — same `None` condition as `water_bodies`.
     pub territory: Option<&'a [i32]>,
+    /// `CivData::settlements` — same `None` condition as `water_bodies`.
+    ///
+    /// Read by exactly one view, Contested borders (`GUI_GAP_REGISTER.md`
+    /// **CV-23**), which rebuilds `assign_territory`'s cost-distance sweep
+    /// on demand to recover the runner-up faction that generation computes
+    /// and discards. Every other Civilization row reads a raster
+    /// `compute_civilisation` already kept; this one needs the *capitals*,
+    /// because there is no per-cell influence field held anywhere and
+    /// (`territory_influence`'s own doc comment) deliberately so.
+    pub settlements: Option<&'a [cartalith_civ::NamedSettlement]>,
     /// One swatch per faction id, index 0 = Unclaimed and never drawn —
     /// `CivData::faction_rgb` for every id, so the Political-control field
     /// paints in the same colours the territory wash does, user identity
@@ -673,6 +683,11 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "build_wind_throw_field(): prevailing wind speed x closed-canopy density x slope exposure. Land only. Needs the civilisation layer's water bodies for the biome raster, so a loaded save cannot draw it.",
             ),
             ("control", "Political control", "assign_territory()'s owner per cell, in the faction swatch."),
+            (
+                "contested",
+                "Contested borders",
+                "territory_influence(): how evenly the owner and its nearest rival faction reach each cell, in effective cost-distance. Secure interiors keep a dim owner tint; frontiers glow amber. Built on demand from the capitals (nothing holds an influence grid) — the slowest Civilization view here, one Dijkstra per capital.",
+            ),
         ],
     ),
 ];
@@ -720,6 +735,11 @@ pub fn layer_available(f: &FieldRefs, id: &str) -> bool {
         "strahler" => f.stream_order.is_some(),
         "bclass" | "cterrain" | "windthrow" | "wildlife" => f.water_bodies.is_some(),
         "control" => f.territory.is_some(),
+        // Not `settlements.is_some()`: a world can carry a civilisation
+        // layer and still have no capital at all (`assign_territory`'s own
+        // "no capitals leaves everything unowned" case), and a view drawn
+        // from zero sources would be a flat unowned wash reading as data.
+        "contested" => f.settlements.is_some_and(|s| s.iter().any(|x| x.placement.capital)),
         other => LAYER_GROUPS.iter().any(|(_, items)| items.iter().any(|(k, _, _)| *k == other)),
     }
 }
@@ -970,6 +990,17 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
                 (c.0, c.1, c.2, format!("{k} {}", koppen_group_name(k)))
             })
             .collect(),
+        // Neutral greys, deliberately: the real swatches here are whatever
+        // this world's own factions are, so a fixed colour row would name a
+        // faction the legend cannot know. What the legend can say is the
+        // *ramp* -- the same colour, dim inside and full on the frontier.
+        "contested" => vec![
+            sw((153.0 * 0.26, 153.0 * 0.26, 153.0 * 0.26), "secure interior · owner's colour, dimmed"),
+            sw((153.0 * 0.63, 153.0 * 0.63, 153.0 * 0.63), "disputed · rival within ~40 %"),
+            sw((153.0, 153.0, 153.0), "frontier · the two reach it equally"),
+            sw((40.0, 42.0, 46.0), "unowned land"),
+            sw((18.0, 30.0, 48.0), "water"),
+        ],
         "wildlife" => vec![
             sw((50.0, 110.0, 50.0), "species-rich"),
             sw((168.0, 150.0, 96.0), "sparse fauna"),
@@ -990,6 +1021,43 @@ fn koppen_group_name(key: &str) -> &'static str {
         "Dfc" => "subarctic",
         _ => "tundra",
     }
+}
+
+/// Where the Contested-borders view starts drawing the rival's own colour
+/// into the owner's cells as a diagonal hatch. `0.88` is not a tuning
+/// constant fished for a look: `contested` is the ratio of the two
+/// factions' effective cost-distances, so `0.88` reads literally as "the
+/// runner-up is within 12 % of the winner here" — a frontier zone rather
+/// than a line, and the same shape a real border dispute has.
+pub(crate) const CONTEST_HATCH_T: f64 = 0.88;
+
+/// The Contested-borders ramp (`GUI_GAP_REGISTER.md` **CV-23**).
+///
+/// **No new hue is invented.** Every colour this returns is a faction's own
+/// swatch (`CivData::faction_rgb`, identity colours included), dimmed
+/// towards the interior and at full strength on the frontier — an added
+/// highlight colour would have collided with `FACTION_RGB`'s own Okabe-Ito
+/// orange and yellow, and would have said "contested" without saying *with
+/// whom*.
+///
+/// Past [`CONTEST_HATCH_T`] the cell alternates between the owner's colour
+/// and the runner-up's on a three-cell diagonal stripe, so a frontier reads
+/// as a two-colour weave naming both claimants — the "claim hatching" half
+/// of `GUI_GAP_REGISTER.md` CA-17, drawn in the analysis layer rather than
+/// in the map's territory wash. `rival` is `None` where nothing contests
+/// the cell, and the hatch simply does not appear.
+///
+/// The brightness curve is `t²`, not `t`: the linear ramp left half the
+/// map at a readable mid-grey and the frontier had nothing left to stand
+/// out against.
+fn contested_color(owner: (u8, u8, u8), rival: Option<(u8, u8, u8)>, t: f64, x: usize, y: usize) -> Rgb {
+    let t = t.clamp(0.0, 1.0);
+    let lift = 0.26 + 0.74 * t * t;
+    let base = match rival {
+        Some(r) if t >= CONTEST_HATCH_T && ((x + y) / 3) % 2 == 1 => r,
+        _ => owner,
+    };
+    (base.0 as f64 * lift, base.1 as f64 * lift, base.2 as f64 * lift)
 }
 
 fn push(out: &mut Vec<u8>, c: Rgb) {
@@ -1267,6 +1335,36 @@ fn water_fx_raster(f: &FieldRefs) -> Option<Vec<u8>> {
 /// Shared by the Wildlife debug view and by `WorldGen::wildlife_regions()`,
 /// the roster popup's own data source, so the raster a user clicks and the
 /// record they get back cannot come from two different segmentations.
+/// `cartalith_civ::territory_influence` over this world's capitals
+/// (`GUI_GAP_REGISTER.md` **CV-23**), built here and dropped by the caller.
+///
+/// **This is the on-demand half of CV-23, and where the two obstacles §39
+/// named are actually paid.** Nothing retains a per-cell influence grid —
+/// the same shape `wildlife_regions` above uses, for the same reason
+/// (`territory_influence`'s own doc comment prices it: 16 bytes per cell is
+/// 1.07 GB at the 8192² ceiling). And `build_travel_cost` — the field
+/// `compute_civilisation` builds as a local and frees, which §39 recorded
+/// as the blocker on any recompute — is simply rebuilt here: it is a pure
+/// function of the height field and sea level, both of which `FieldRefs`
+/// already borrows, so recovering it costs one parallel pass over the grid
+/// and no resident state at all.
+///
+/// `None` without a civilisation layer, and `None` on a world with no
+/// capital: `assign_territory` projects territory from capitals only, so a
+/// capital-less world would draw a flat unowned wash that reads as data.
+///
+/// Shared by the Contested-borders raster and by
+/// `WorldGen::civ_territory_influence()`, so the layer a user looks at and
+/// the numbers a panel reports cannot come from two different sweeps.
+pub fn territory_influence(f: &FieldRefs) -> Option<cartalith_civ::TerritoryInfluence> {
+    let settlements = f.settlements?;
+    if f.gw == 0 || f.gh == 0 || !settlements.iter().any(|s| s.placement.capital) {
+        return None;
+    }
+    let cost = cartalith_civ::build_travel_cost(f.field, f.gw, f.gh, f.sea_level);
+    Some(cartalith_civ::territory_influence(settlements, &cost, f.gw, f.gh, f.world))
+}
+
 pub fn wildlife_regions(f: &FieldRefs) -> Option<cartalith_civ::wildlife::Ecoregions> {
     let wb = f.water_bodies?;
     let sea = f.sea_level;
@@ -1616,6 +1714,20 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 } else {
                     push(&mut out, (40.0, 42.0, 46.0));
                 }
+            }
+        }
+        "contested" => {
+            let inf = territory_influence(f)?;
+            for i in 0..n {
+                let owner = inf.owner[i];
+                if owner <= 0 {
+                    push(&mut out, if is_water(i) { (18.0, 30.0, 48.0) } else { (40.0, 42.0, 46.0) });
+                    continue;
+                }
+                let c = f.faction_colors.get(owner as usize).copied().unwrap_or((128, 128, 128));
+                let rival = inf.rival[i];
+                let rc = if rival > 0 { f.faction_colors.get(rival as usize).copied() } else { None };
+                push(&mut out, contested_color(c, rc, inf.contested[i] as f64, i % f.gw, i / f.gw));
             }
         }
         // ---- The layer-visualization audit's seven additions (module doc). ----
@@ -2140,6 +2252,14 @@ mod tests {
         wb: Vec<u8>,
         terr: Vec<i32>,
         order: Vec<i16>,
+        /// Two capitals of two different factions, for the Contested-borders
+        /// view — the only row that reads settlements rather than a raster.
+        /// Placed at the first and last land cell in scan order (see
+        /// `owned`), which on this fixture's diagonal ramp are the two ends
+        /// of the one connected landmass, so the cost-distance sweep really
+        /// does meet somewhere in the middle rather than leaving one of them
+        /// unreachable.
+        caps: Vec<cartalith_civ::NamedSettlement>,
         gw: usize,
         gh: usize,
     }
@@ -2148,7 +2268,26 @@ mod tests {
         let n = gw * gh;
         let field: Vec<f32> = (0..n).map(|i| (((i % gw) + (i / gw)) as f32) / ((gw + gh) as f32)).collect();
         let wb: Vec<u8> = (0..n).map(|i| u8::from(field[i] < 0.42)).collect();
+        let land: Vec<usize> = (0..n).filter(|&i| field[i] >= 0.42).collect();
+        let cap = |i: usize, faction: i32, pop: u32| cartalith_civ::NamedSettlement {
+            tid: 0,
+            placement: cartalith_civ::SettlementPlacement {
+                x: i % gw,
+                y: i / gw,
+                suit: 0.5,
+                faction,
+                capital: true,
+                kind: cartalith_civ::SettlementKind::Capital,
+                coastal: false,
+            },
+            name: format!("Cap{faction}"),
+            pop,
+        };
+        // Unequal populations, so the frontier is not the symmetric
+        // midpoint a bug in the weighting would also produce.
+        let caps = vec![cap(land[0], 1, 15_000), cap(land[land.len() - 1], 2, 30_000)];
         Owned {
+            caps,
             temp: (0..n).map(|i| 30.0 - (i / gw) as f32 * 2.0).collect(),
             rain: (0..n).map(|i| ((i % gw) as f32 / gw as f32).clamp(0.0, 1.0)).collect(),
             flow: (0..n).map(|i| (i % 13) as f32 * 4.0).collect(),
@@ -2202,6 +2341,7 @@ mod tests {
             shear_field: &o.shear,
             water_bodies: if civ { Some(&o.wb) } else { None },
             territory: if civ { Some(&o.terr) } else { None },
+            settlements: if civ { Some(&o.caps) } else { None },
             // Index 0 = Unclaimed, then the six `FACTION_RGB` defaults --
             // what `CivData::faction_rgb` produces for a roster with no
             // identity colours set, which is every roster at rest.
@@ -2347,6 +2487,7 @@ mod tests {
             shear_field: &ones,
             water_bodies: None,
             territory: None,
+            settlements: None,
             faction_colors: Vec::new(),
             lat_n: 40.0,
             lat_s: -10.0,
@@ -2408,6 +2549,7 @@ mod tests {
             shear_field: &ones,
             water_bodies: None,
             territory: None,
+            settlements: None,
             faction_colors: Vec::new(),
             lat_n: 40.0,
             lat_s: -10.0,
@@ -2461,6 +2603,7 @@ mod tests {
             shear_field: &ones,
             water_bodies: None,
             territory: None,
+            settlements: None,
             faction_colors: Vec::new(),
             lat_n: 40.0,
             lat_s: -10.0,
@@ -2533,7 +2676,7 @@ mod tests {
     fn views_without_their_input_return_none() {
         let o = owned(12, 9);
         let no_civ = view(&o, false);
-        for id in ["bclass", "cterrain", "control", "windthrow"] {
+        for id in ["bclass", "cterrain", "control", "contested", "windthrow"] {
             assert!(debug_raster(&no_civ, id).is_none(), "{id} needs the civ layer");
         }
         // ...while the WorldState-only views still draw on the same world.
