@@ -154,6 +154,13 @@ pub fn amplify_region(
     // than over tiles is what lets the interactive deep-zoom path benefit
     // without the shell changing how it asks for a tile; `bake_tiles` already
     // goes wide one level up and simply nests.
+    //
+    // ponytail: ceiling is ~7x of the ~8.8x `PERFORMANCE_BENCHMARKS.md` §5.4
+    // measured, because a 48-tile burst pays this dispatch 48 times over where
+    // one tile-parallel dispatch would pay it once. Upgrade path if that last
+    // ~25% is ever wanted: a batch entry point on `WorldGen` taking the whole
+    // `build_keys` set, with `viewport_host.gd`'s per-tile loop calling it once
+    // -- `LOD_TILING_INTEGRATION_SCOPE.md`'s milestone, and a shell change.
     out.par_chunks_mut(out_w).enumerate().for_each(|(oy, out_row)| {
         let cy = if rh > 1.0 {
             ry + (oy as f64 / (out_h as f64 - 1.0)) * (rh - 1.0)
