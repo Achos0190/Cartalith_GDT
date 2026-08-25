@@ -61,8 +61,24 @@ static func load_into(bridge: EngineBridge) -> void:
 		push_warning("Cartalith: %s is not a JSON object; the vault links in it were not loaded." % PATH)
 		return
 	var doc: Dictionary = parsed
+	## The store is handed back to the engine **verbatim**, never re-serialised.
+	## `JSON.stringify()` here was the other half of the same defect
+	## `save_from()` documents: it floats every integer, so even a correctly
+	## written sidecar was corrupted again on the way in. Fixing only the writer
+	## would have left this one still failing.
 	var store = doc.get("store", null)
-	if store != null and not bridge.vault_restore_state(JSON.stringify(store)):
+	var store_json := ""
+	if typeof(store) == TYPE_STRING:
+		store_json = store
+	elif store != null:
+		## A sidecar written before 2026-08-25 holds a nested object whose
+		## integers are already `1.0` on disk. It is unrecoverable by any reader
+		## -- serde will refuse it however it is re-encoded -- so this branch
+		## exists to fail with the warning below rather than to succeed. One
+		## press rebuilds the index; the links themselves are re-attached by
+		## hand, which is the loss this fix stops recurring.
+		store_json = JSON.stringify(store)
+	if store_json != "" and not bridge.vault_restore_state(store_json):
 		push_warning("Cartalith: %s holds a link store this engine could not read; nothing was loaded." % PATH)
 		return
 	## The binding is re-established silently and only if the folder is still
@@ -119,14 +135,27 @@ static func save_from(bridge: EngineBridge) -> void:
 	var state := bridge.vault_state_json()
 	if state == "":
 		return
-	var parsed = JSON.parse_string(state)
-	if parsed == null:
+	## **Parsed for validation only. The parsed value must never be what gets
+	## written back.** Godot's `JSON` has one number type and it is `float`, so
+	## a round trip through `parse_string` -> `stringify` re-emits every integer
+	## with a decimal point: `entity_id` (`links.rs`, `i64`) came back out as
+	## `1.0` and `source_modified` (`u64`) as `1787605785.0`. serde refuses both,
+	## `vault_restore_state()` returned false, and `load_into()` discarded the
+	## whole store with the warning it prints on every boot -- silent loss of
+	## every link the user had made, in shipped, milestone-complete
+	## functionality. Nothing in Rust was wrong: the engine's own string
+	## restores cleanly, which is how this was bisected.
+	if JSON.parse_string(state) == null:
 		return
 	var info := bridge.vault_info()
+	## The engine's JSON goes in **as a string**, not as a nested object, so
+	## `stringify` escapes it rather than re-encoding the numbers inside it.
+	## `load_into()` hands that string straight back with no parse of its own.
+	## Still one portable JSON file, per the note on `PATH`.
 	var doc := {
 		"binding": String(info.get("root", "")),
 		"display_name": String(info.get("display_name", "")),
-		"store": parsed,
+		"store": state,
 	}
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f == null:
