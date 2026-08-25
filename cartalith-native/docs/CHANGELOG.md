@@ -28216,3 +28216,75 @@ measure the wrong thing) with `gui_embed_subwindows`, which is what brings a
 `PopupMenu` — a `Window`, not a `Control`, outside any `Control` walk — into the
 captured texture at all. Four sizes, zero script errors, every menu screenshotted
 before and after.
+
+## The memory rise, diagnosed on the handset — and the hi-DPI pass costs 1.4 MB of it (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §50 measured 1 033 MB peak / 818 MB steady against
+2026-08-20's 878 / 647 and said, honestly, that it had recorded the rise rather
+than explained it. The standing suspect was §47's hi-DPI pass, whose two fixes
+both multiply texture *area* by the square of the handset scale — ≈7.5× here and
+≈13.4× on the OnePlus 12 the blur was reported from. It is not the cause, and the
+number that says so is **1 428 KB**.
+
+Bisected rather than argued: **one** build carrying a runtime switch read off a
+file on the phone, so all four variants are the same binary. Font oversampling
+costs **1 152 KB** of `Gfx dev`, icon re-rasterisation **424 KB**, of which
+78.3 KiB is the glyph raster cache itself. The switch was proved live before any
+of that was believed — the same welcome-screen crop's max adjacent-pixel |ΔLum|
+falls 0.3020 → 0.1686 with the fixes off, §47's own discriminator moving the
+right way. Against a reported rise of 171 MB, §47 is **0.8 %** of it, and the two
+mitigations that were on the table — cap the factor at 2×, free atlases on modal
+close — would each recover a fraction of a megabyte. There is no trade to make;
+the blur fix stays exactly as it shipped.
+
+**Where the memory actually is** came from recording `dumpsys meminfo`'s
+*categories*, which no previous device pass had done, and from teaching the
+Performance window Godot's own render monitors. A generated world costs
+**290.8 MiB of vertex buffers and 87.89 MiB of textures**, across **311 237
+canvas objects in one frame** against 799 with no world. Twelve zoom-in notches
+take that to 500.9 MiB, 560 569 objects and 1 279 MB of PSS. **Buffers track the
+object count; textures do not** — texture memory moves 0.13 MiB across a zoom
+that adds 210 MiB of buffers, and the glyph cache does not move at all. The GPU
+cost of this app is canvas geometry, not pictures.
+
+What draws 311 237 objects is `map_overlay.gd`'s `_draw_dashed_polyline`, which
+emits **one antialiased `draw_line` per dash** over a way's whole length. Before
+`a13881d` (2026-08-24) a land way was a single flat `draw_polyline`; that commit
+gave every land way the reference's two-stroke dashed treatment *and* fixed the
+way-type filter that had been hiding two thirds of the network, and `f85c606`
+the same day turned town layouts on by default at one `draw_colored_polygon` per
+lot. Both landed four days after the baseline, and neither is a defect — one is
+the reference's own styling and the other answers an owner report directly. What
+they were not, until now, is budgeted. §50's dirty-session "544 MB in `Gfx dev`"
+was not a property of its clean run either: it is the zoom cost, reproduced here
+from a fresh generate in under a minute.
+
+**And the baseline it was all being compared against is retired.** No pass in the
+chain ever fixed the seed, and the New World dialog rerolls it on every open. Six
+clean runs of the identical procedure on the identical APK, one afternoon:
+**869 / 902 / 916 / 937 / 963 / 1 029 MB** steady — a 160 MB spread, the size of
+the whole "+26 %" it was being used to establish. A real level increase since
+2026-08-20 is likely, and the paragraph above names a mechanism for it, but the
+percentage is not a number this measurement can support. Every future Android
+memory figure states its seed.
+
+**Not a leak**, four ways: three same-seed regenerations at 927.2 / 927.3 /
+928.4 MB; six different-seed generations stepping once at gen 2 and then holding
+at 1 069–1 073; one run flat at 963 MB across ~480 consecutive samples over 95 s;
+and seven consecutive deep-zoom samples spanning 271 KB — 0.02 %, drifting down.
+
+One row fixed on the way through. §50 registered that the app's own Memory
+readout under-reports by about 4× on Android, and it does — `OS.get_static_
+memory_usage()` excludes both the Rust heap and everything in `Gfx dev`. It now
+sits beside video/texture/buffer memory, the glyph cache in bytes and the frame's
+draw-call and object counts, labelled as outside it, because on this platform no
+single number is the one that gets the app killed. `DccIcons.cache_stats()` is
+the new binding behind that: the one measurement that could have made the icon
+fix look expensive, on screen permanently instead of argued about.
+
+Two levers registered and deliberately not pulled, this pass being a diagnosis:
+collapse the dash loop into a single `draw_multiline` — the exact change
+`urban_layout_draw.gd` already made for roof ink, with its own comment recording
+the 577 ms-a-redraw payoff — and bound the overlay by zoom, which today nothing
+does. Full account in `GUI_GAP_REGISTER.md` §52 and
+`MEMORY_OPTIMIZATION_SCOPE.md`.

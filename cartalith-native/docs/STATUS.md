@@ -7802,3 +7802,51 @@ says" readout on the entity panels, and the *don't ask again* checkbox on
 `vault_window.gd`'s `_preview_dialog`, which is the single choke point all
 three write paths already go through. The `#[func]` list with argument and
 return shapes is in `docs/CHANGELOG.md`'s milestone-6 entry.
+
+## Android memory: diagnosed, and the baseline it was measured against retired (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §50 recorded **1 033 MB peak / 818 MB steady** on the
+OnePlus 6T against 2026-08-20's 878 / 647 — +18 % / +26 % — and said it had not
+diagnosed it. The owner asked for a cause before deciding what to do. Full
+account in **`GUI_GAP_REGISTER.md` §52**; budget ledger in
+**`MEMORY_OPTIMIZATION_SCOPE.md`**.
+
+**The hi-DPI pass (§47) is not the cause: it costs 1 428 KB.** Bisected on one
+build with a runtime switch, four cold boots — font oversampling **1 152 KB** of
+`Gfx dev`, icon re-rasterisation **424 KB**, glyph raster cache 245.4 KiB in
+total. 0.8 % of the rise it was suspected of. The switch was proved live first
+(welcome-screen max adjacent |ΔLum| 0.3020 → 0.1686 with the fixes off). **The
+blur fix stays exactly as shipped; there is no trade-off to offer.**
+
+**The cause is canvas geometry.** Recording `dumpsys meminfo`'s *categories* for
+the first time, plus Godot's own render monitors: a generated world costs
+**290.8 MiB of vertex buffers** against 87.89 MiB of textures, across **311 237
+canvas objects in one frame** (799 with no world). Twelve zoom notches take it to
+500.9 MiB / 560 569 objects / 1 279 MB PSS. `map_overlay.gd`'s
+`_draw_dashed_polyline` emits **one antialiased `draw_line` per dash**;
+`a13881d` (2026-08-24) made three of five land-way tiers dashed *and* fixed the
+filter that had been hiding two thirds of the network, and `f85c606` the same day
+turned town layouts on by default at one polygon per lot. Four days after the
+baseline, and neither is a defect.
+
+**878 / 647 was never comparable.** No pass fixed the seed. Six clean runs of the
+identical procedure on the identical APK: **869 / 902 / 916 / 937 / 963 /
+1 029 MB** — a 160 MB spread, the size of the whole reported regression. A real
+level increase since 2026-08-20 is likely; the percentage is not supportable.
+**Every future Android memory figure states its seed.**
+
+**Not a leak**, four ways — three same-seed regenerations flat at 927–928 MB; six
+different-seed generations plateauing at 1 069–1 073; one run flat at 963 MB over
+~480 consecutive samples; seven deep-zoom samples spanning 0.02 % and drifting
+down.
+
+**Fixed on the way through**: §50's registered "the app's own Memory row
+under-reports by about 4× on Android". `Preferences ▸ Memory ▸ Working set…` now
+shows Godot's video/texture/buffer memory, the glyph cache in bytes and the
+frame's draw-call and object counts beside `OS.get_static_memory_usage()`,
+labelled as outside it.
+
+**Next, when the owner wants the number moved** (registered, not done — this pass
+was a diagnosis): collapse `_draw_dashed_polyline` into a single
+`draw_multiline`, the change `urban_layout_draw.gd` already made for roof ink;
+and bound the overlay by zoom, which today nothing does.

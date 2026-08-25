@@ -103,6 +103,26 @@ func _rebuild() -> void:
 	## returning a figure proves nothing about whether it reaches a Label.
 	DccWidgets.note(mem, "Working set: %.2f GB (Godot's own OS.get_static_memory_usage()). No portable total-system-memory query exists to show it as \"of N GB\", per §2.5's own reading -- reported alone rather than paired with a guessed denominator." % used_gb)
 
+	## `GUI_GAP_REGISTER.md` §50 registered the one honest defect in the row
+	## above: on the handset it read **0.2 GB** while `dumpsys meminfo` reported
+	## **818 MB** of TOTAL PSS for the same process at the same moment. Neither
+	## the Rust allocations nor the GPU's own textures live inside Godot's
+	## static heap, so the figure on screen was never the figure that gets the
+	## app killed. These are the parts the renderer does know, reported beside
+	## it rather than instead of it -- and they are what the 2026-08-25 memory
+	## diagnosis measured the hi-DPI pass against.
+	DccWidgets.note(mem, "Video memory: %s -- textures %s, buffers %s (Godot's own render monitors; outside the working-set figure above)." % [
+		String.humanize_size(int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED))),
+		String.humanize_size(int(Performance.get_monitor(Performance.RENDER_TEXTURE_MEM_USED))),
+		String.humanize_size(int(Performance.get_monitor(Performance.RENDER_BUFFER_MEM_USED))),
+	])
+	var icons := DccIcons.cache_stats()
+	DccWidgets.note(mem, "Glyph raster cache: %d entries, %s. Last frame: %d draw calls over %d objects." % [
+		int(icons["entries"]), String.humanize_size(int(icons["bytes"])),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+		int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)),
+	])
+
 	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance -- no per-device enumeration exists in cartalith-gpu (GPU_LAYER_INTEGRATION_SCOPE.md).")
 
 	## PH-12: every row above is a fresh node, and a generate finishing while

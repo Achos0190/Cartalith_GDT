@@ -120,6 +120,22 @@ static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture
 	## same 12 px glyph is a 12-texel bitmap in a dock and a 44-texel one in a
 	## content-scaled window, and the two must not share a cache entry.
 
+## What the glyph cache actually holds, for the Performance window's Memory
+## group. HD-02's finer raster is the one hi-DPI cost that could plausibly have
+## been large, so it is reported rather than argued about: measured 2026-08-25
+## on the OnePlus 6T at `_phone_scale` 2.748, **389.4 KiB with a world up**,
+## against 500.9 MiB of canvas vertex buffers in the same frame. See
+## `MEMORY_OPTIMIZATION_SCOPE.md`'s hi-DPI section for the full bisection.
+static func cache_stats() -> Dictionary:
+	var bytes := 0
+	for k in _cache.keys():
+		var t := _cache[k] as ImageTexture
+		if t != null:
+			var im := t.get_image()
+			if im != null:
+				bytes += im.get_width() * im.get_height() * 4
+	return {"entries": _cache.size(), "bytes": bytes}
+
 ## Rasterise `name` and return a texture drawn in white, presenting at `px`.
 ## Tint it with `modulate` on whatever displays it -- never bake a colour in, or
 ## the light theme needs a second copy of every glyph.

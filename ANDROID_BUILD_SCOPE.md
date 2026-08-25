@@ -1493,6 +1493,23 @@ and one 2048 x 1311 generate from the welcome screen. **Peak 1 033 MB, steady
 `TOTAL PSS:` specifically; a bare `grep TOTAL` also matches the summary table
 row and will silently give you a different number.
 
+> **Superseded 2026-08-25 — do not quote the percentages.** Diagnosed the next
+> day at the owner's request (`GUI_GAP_REGISTER.md` §52,
+> `MEMORY_OPTIMIZATION_SCOPE.md`): **no pass in this chain ever fixed the seed**,
+> and the New World dialog rerolls it on every open. Six clean runs of the
+> identical procedure on the identical APK measured **869 / 902 / 916 / 937 /
+> 963 / 1 029 MB** steady — a 160 MB spread, i.e. the whole reported regression,
+> from seed alone. The 2026-08-20 figure was also sampled every ~2 s where this
+> one was sampled continuously, which matters for a transient peak. A real level
+> increase since 2026-08-20 is likely and §52 names its mechanism (canvas vertex
+> buffers: 290.8 MiB across 311 237 drawn objects, from the 2026-08-24 way-type
+> and town-layout commits), but **the percentages above are not supportable.**
+> Every future memory figure in this document states its seed.
+>
+> The **544 MB of `Gfx dev`** quoted below belongs to the *dirty* deep-zoom
+> sample, not to the 1 033 / 818 clean run — 12 zoom-in notches from a fresh
+> generate reach 556 MB of `Gfx dev` and 1 279 MB of PSS in under a minute.
+
 Generation itself: **25.1 s** cold and 24.8 / 25.8 s warm, read off the app's
 own `Pass` row in the MENU sheet rather than inferred. §4.1's "16-18 s" was
 explicitly a memory-trace inference, so the two are not comparable; this is the

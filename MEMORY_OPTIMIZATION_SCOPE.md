@@ -241,3 +241,124 @@ steady-state, subtract `undo_stats()["bytes"]` before comparing against the
 `river_mask` / `river_floor` (a `u8` mask plus a second `f32` field, +130 %
 per step). The reference does not snapshot them either. The consequence is
 recorded honestly in `undo.rs`'s module doc rather than paid for here.
+
+## The Android budget, measured by category for the first time (2026-08-25)
+
+Everything above this line is **Windows private bytes** and **CPU heap**. This
+section is the handset, and it says something the CPU-side work could not have
+found: on Android the largest single lever on this app's memory is neither the
+generation pipeline's field buffers nor the undo stack, but the **map overlay's
+canvas geometry**.
+
+Prompted by the owner after `GUI_GAP_REGISTER.md` §50 recorded 1 033 MB peak /
+818 MB steady against 2026-08-20's 878 / 647 and explicitly did not diagnose it.
+Full account, with the bisection and the harness, in **`GUI_GAP_REGISTER.md`
+§52**. Hardware: OnePlus 6T, Android 15, 1080 × 2340, `_phone_scale` 2.748,
+Adreno 630. Metric `dumpsys meminfo` `TOTAL PSS` plus its per-category rows —
+**no previous device pass recorded the categories, and recording them is what
+made the question answerable.**
+
+### The category split, which is the whole finding
+
+| | no world | one 2048 × 1311 world | + 12 zoom-in notches |
+|---|---:|---:|---:|
+| `TOTAL PSS` | 422 MB | 869–1 029 MB | 1 279 MB |
+| Native Heap | 247 MB | 503–553 MB | — |
+| `Gfx dev` | 9.4 MB | 195–338 MB | 556 MB |
+| `EGL mtrack` (framebuffers) | 59 MB | 59 MB | 59 MB |
+| `.so mmap` | 67 MB | 75 MB | — |
+| Godot's own **textures** | 26.98 MiB | 87.89 MiB | 88.02 MiB |
+| Godot's own **buffers** | 14.33 MiB | **290.8 MiB** | **500.9 MiB** |
+| canvas objects in frame | 799 | 311 237 | 560 569 |
+
+**The GPU cost is vertex buffers, not textures.** Buffers track the drawn-object
+count; textures move by 0.13 MiB across a zoom that adds 210 MiB of buffers.
+
+`map_overlay.gd`'s `_draw_dashed_polyline` emits **one antialiased `draw_line`
+per dash** over a way's whole length. `a13881d` (2026-08-24) gave every land way
+the reference's two-stroke treatment, dashed for three of five tiers, and in the
+same commit fixed the way-type filter that had been hiding two thirds of the
+network; `f85c606` (the same day) turned town layouts on by default at one
+`draw_colored_polygon` per lot. Neither is a defect — both are the reference's
+own behaviour, and one answers an owner report directly — but together they are
+the reason a generated world now costs 290–500 MiB of GPU buffers.
+
+**Nothing bounds it in zoom.** 556 MB of `Gfx dev` and 1 279 MB of PSS is twelve
+taps away from a fresh generate. §50's dirty-session figure of "544 MB in
+`Gfx dev`" was this, reproduced here in under a minute, and not a property of its
+clean run.
+
+### The hi-DPI pass costs 1.4 MB, and that closes the question it was raised for
+
+`GUI_GAP_REGISTER.md` §47's two fixes were the standing hypothesis. Bisected on
+one build with a runtime switch, four cold boots, `Gfx dev` at the welcome
+screen:
+
+| | `Gfx dev` | Godot textures | glyph raster cache |
+|---|---:|---:|---|
+| both on (shipping) | 9 696 KB | 26.98 MiB | 245.4 KiB |
+| font oversampling off | 8 544 KB | 25.11 MiB | 245.4 KiB |
+| icon magnify off | 9 272 KB | 26.22 MiB | 167.1 KiB |
+| both off | 8 268 KB | 25.01 MiB | 167.1 KiB |
+
+**Font oversampling 1 152 KB; icon re-rasterisation 424 KB; together 1 428 KB** —
+0.8 % of the rise it was suspected of causing, and 0.08 % of the buffers that
+actually carry it. The two mitigations that were on the table (cap the
+oversampling factor at 2×, free glyph atlases on modal close) would each recover
+a fraction of a megabyte. **There is no trade-off here to make.**
+
+### The baseline this document's Android numbers were being compared against is retired
+
+**No pass in the chain fixed the seed**, and the New World dialog rerolls it on
+every open. Six clean runs of the identical procedure on the identical APK, on
+one afternoon: **869 / 902 / 916 / 937 / 963 / 1 029 MB** steady. A 160 MB spread
+— the size of the entire "+26 %" it was being used to establish. Six different
+seeds inside one process: 916 / 1 069 / 1 069 / 1 073 / 1 073 / 1 072 MB.
+
+A real level increase since 2026-08-20 is likely (647 MB is well below the 869 MB
+floor above) and MEM-02 names a mechanism for it, but the *percentage* is not
+supportable. **Any future Android memory figure in this document or in
+`ANDROID_BUILD_SCOPE.md` must state its seed**, the same way every golden test
+states its fixture.
+
+### Not a leak — four independent checks
+
+- Three same-seed regenerations: 927.2 / 927.3 / 928.4 MB, and 928.4 MB twenty
+  seconds later.
+- Six different-seed generations in one process: one step at gen 2, then a
+  plateau — 1 069 / 1 069 / 1 073 / 1 073 / 1 072 MB.
+- One clean run held flat at 963 MB across ~480 consecutive samples over 95 s.
+- Deep zoom, seven consecutive samples 8 s apart: 1 310 079 → 1 309 808 KB, a
+  0.02 % spread drifting *down*.
+
+The 2026-08-16 "no persistent leak" finding at the top of this document holds on
+Android as well as on Windows.
+
+### The two levers, for whenever the owner wants the number moved
+
+Recorded here rather than acted on, because this pass's brief was diagnosis.
+
+1. **Collapse the dash loop into one `draw_multiline`.** `urban_layout_draw.gd`
+   already made exactly this change for roof ink and recorded the payoff in its
+   own comment (a 6-town sheet went from 577 ms a redraw). Applied to
+   `_draw_dashed_polyline` it turns thousands of primitives per way into one and
+   changes no colour, width or dash period. `draw_dashed_line()` per vertex pair
+   is *not* the answer and `_draw_sea_route_segment`'s comment already says why.
+2. **Bound the overlay by zoom.** Town layouts already reveal inside a km band;
+   dashed minor ways drop out at no zoom at all, which is why the object count is
+   unbounded in the direction a user most likes to travel.
+
+Neither is on this document's original CPU-heap subject, which is why they are
+registered rather than folded into "In scope" above: this is a **GPU** budget
+line, and the original "Out of scope" note that GPU buffers are "a different
+memory pool/lifecycle" is now the most important sentence in that list rather
+than a reason to look away.
+
+### Instrumentation kept
+
+`Preferences ▸ Memory ▸ Working set…` now reports Godot's own video/texture/
+buffer memory, the glyph raster cache in bytes, and the frame's draw-call and
+object counts, beside `OS.get_static_memory_usage()` and labelled as outside it.
+That closes `GUI_GAP_REGISTER.md` §50's registered "the app's own Memory row
+under-reports by about 4× on Android": the figure is still honest about its own
+source, but it is no longer the only figure on screen.

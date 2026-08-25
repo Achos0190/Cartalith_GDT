@@ -8428,3 +8428,219 @@ so a submenu opened at 3168 px tall comes back 1002 — assign `size` *after*
 `popup()`. And `about_to_popup` must be emitted by hand before reading a popup
 that rebuilds itself on open (Recent worlds, GPU devices, Open windows, the
 Preferences busy-lock), or the dump reads the previous session's rows.
+
+---
+
+## 52 · MEM-01…MEM-04 — the memory rise was measured, and the hi-DPI pass costs 1.4 MB of it (2026-08-25) — **CAUSE FOUND, ONE ROW FIXED, BASELINE RETIRED**
+
+§50 recorded **1 033 MB peak / 818 MB steady** against 2026-08-20's 878 / 647 —
++18 % and +26 % — and said outright that it had not diagnosed it. The owner
+asked for a diagnosis before deciding. The standing hypothesis was §47: both its
+fixes multiply texture *area* by the square of `_phone_scale`, which on this
+handset is 2.748 (≈7.5×) and on the OnePlus 12 would be 3.664 (≈13.4×).
+
+Hardware, again: **OnePlus 6T** (`ONEPLUS_A6013`, Android 15), 1080 × 2340,
+`_phone_scale` **2.748**, Adreno 630. Metric `adb shell dumpsys meminfo`
+`TOTAL PSS` — grep `TOTAL PSS:` specifically, per §50's own warning — plus the
+per-category rows, which no previous pass recorded and which are what made this
+answerable at all.
+
+### MEM-01 — the hi-DPI pass costs 1.4 MB, bisected · **PROVEN NEGATIVE**
+
+Not argued from the code: measured, on **one** build carrying a runtime switch
+read from a file on the handset, so all four variants are the same binary. Bit 1
+forces `DccIcons.get_icon`'s `magnify` to 1 (HD-02 off); bit 2 makes
+`DccWidgets.oversample()` a no-op (HD-01 off). Four cold boots, measured at the
+welcome screen — the exact modal §47 measured its own fix on — and again after
+*Continue without a world*, with the whole shell built:
+
+| variant | `Gfx dev` welcome | `Gfx dev` shell | Godot textures | glyph raster cache |
+|---|---:|---:|---:|---|
+| **both on (shipping)** | **9 696 KB** | **9 416 KB** | 26.98 MiB | 38 entries, **245.4 KiB** |
+| HD-01 on, HD-02 off | 9 272 KB | 9 028 KB | 26.22 MiB | 34 entries, 167.1 KiB |
+| HD-01 off, HD-02 on | 8 544 KB | 8 264 KB | 25.11 MiB | 38 entries, 245.4 KiB |
+| both off | 8 268 KB | 8 100 KB | 25.01 MiB | 34 entries, 167.1 KiB |
+
+- **HD-01, font oversampling: 1 152 KB** of `Gfx dev`, identical at both
+  measurement points, and 1.87 MiB by Godot's own texture monitor.
+- **HD-02, icon re-rasterisation: 424 KB** of `Gfx dev`, of which **78.3 KiB**
+  is the glyph raster cache itself (245.4 − 167.1) across four extra entries —
+  the same glyph held at two rasters, exactly as `_cache`'s key promises.
+- **Both together: 1 428 KB.** Against a reported rise of 155 MB peak and
+  171 MB steady, §47 is **0.8 %** of it.
+
+**The switch was live, proved rather than assumed.** The same crop of the
+welcome screen (the search-field placeholder row) measures max adjacent-pixel
+|ΔLum| **0.3020 with the fixes on and 0.1686 with them off** — the same
+discriminator §47 established, moving in the right direction by roughly the
+right factor. A build where the switch had silently done nothing would have
+measured identical, which is the failure mode §47 collected three of.
+
+**There is no exchange rate to offer the owner.** Capping oversampling at 2×
+would recover a fraction of 1.1 MB; freeing glyph atlases when a modal closes
+would recover a fraction of 389 KiB. Both were on the table and both are noise.
+
+### MEM-02 — the memory is in canvas vertex buffers, and they are drawn per dash · **CAUSE**
+
+`performance_window.gd` gained Godot's own render monitors (MEM-04 below), which
+is what turned this from a partition of `dumpsys` categories into an answer:
+
+| | no world | world up | after 12 zoom-in notches |
+|---|---:|---:|---:|
+| `TOTAL PSS` | 422 MB | 869–1 029 MB | **1 279 MB** |
+| Native Heap | 247 MB | 503–553 MB | — |
+| `Gfx dev` | 9.4 MB | 195–338 MB | **556 MB** |
+| Godot **textures** | 26.98 MiB | 87.89 MiB | 88.02 MiB |
+| Godot **buffers** | 14.33 MiB | **290.8 MiB** | **500.9 MiB** |
+| objects in frame | 799 | **311 237** | **560 569** |
+| draw calls | 90 | 855 | 932 |
+| glyph raster cache | 245.4 KiB | 389.4 KiB | 389.4 KiB |
+
+**Buffers track the object count and textures do not.** Zooming in multiplies
+drawn primitives 1.8× and buffers 1.7×, while texture memory moves by 0.13 MiB
+and the glyph cache does not move at all. The GPU cost of this app is **canvas
+geometry**, not pictures — and the glyph cache is **0.08 %** of the buffers it
+was suspected of dominating.
+
+What draws 311 237 objects. `map_overlay.gd`'s `_draw_dashed_polyline` emits
+**one antialiased `draw_line` per dash**, walking a way's whole length at
+`dash + gap`. Before `a13881d` (**2026-08-24**, §36 RD-02) a land way was a
+single flat `draw_polyline` — `draw_polyline(_stroke_points(...), ROAD_COLOR,
+width, true)`, one primitive, one colour, the whole function body.
+
+That commit gave every land way the reference's two-stroke treatment — a dark
+underlayer plus the type's colour, **dashed for three of the five tiers** — and
+in the same pass fixed the way-type filter that "could not see two thirds of the
+network." So the network drawn grew about threefold and each minor way went from
+one primitive to one per dash, on the same day. `f85c606` (**2026-08-24**) is
+the second half: town layouts **on by default**, one `draw_colored_polygon` per
+lot, revealed inside a km band — i.e. precisely when zoomed in, which is where
+560 569 objects and 500.9 MiB were measured.
+
+Both landed **four days after the 2026-08-20 baseline**, and neither is a defect:
+they are the reference's own way styling and the owner's own "I don't see the
+settlement rendered on the map itself." What they were not, until now, is
+budgeted.
+
+**§50's "544 MB in `Gfx dev`" belongs to its dirty sample, not its clean run.**
+That section reports 544 MB from a 25-minute session ending in deep zoom, in the
+same paragraph as the 1 033 / 818 clean figures, and the brief that followed read
+the two as one measurement. Reproduced deliberately here: 12 zoom-in notches from
+a fresh generate reach **556 MB of `Gfx dev` and 1 279 MB PSS in under a minute**.
+It is a zoom cost, and it is available on demand.
+
+### MEM-03 — 878 / 647 was never a comparable baseline · **RETIRED**
+
+**No pass in the chain fixed the seed**, and the New World dialog rerolls it on
+every open. Six independent clean runs today — same APK, same procedure (cold
+boot, one 2048 × 1311 generate from the welcome screen), same metric:
+
+| run | steady `TOTAL PSS` |
+|---|---:|
+| 1 | 869 MB |
+| 2 | 902 MB |
+| 3 | 916 MB |
+| 4 | 937 MB |
+| 5 | 963 MB |
+| 6 | 1 029 MB |
+
+**160 MB of spread on one build — the size of the entire reported regression.**
+Six *different* seeds inside one process, via `New seed` ▸ `Generate world`:
+916, 1 069, 1 069, 1 073, 1 073, 1 072 MB. A world with more settlements, more
+roads and more revealed town layouts genuinely costs more, because MEM-02 is
+what the memory *is*.
+
+Two further reasons the numbers are not comparable. The 2026-08-20 pass sampled
+**every ~2 s** and §50 sampled continuously, which is a real difference for a
+transient *peak* and no difference for a steady level. And §50's 818 MB is
+below every one of the six runs above, which is what a single sample of a lumpy
+settling curve looks like: the trace taken here still moved between 656 and
+963 MB between t+34 s and t+53 s after the tap, and only then went flat.
+
+**A real level increase since 2026-08-20 is likely — 647 MB is well under the
+869 MB floor measured here — but "+18 % / +26 %" is not a number this
+measurement can support, and the next pass should fix the seed before quoting
+one.** Recorded as the discipline this document already applies to line ranges
+and to golden output: state the fixture, or the result is not a result.
+
+### Leak or level · **LEVEL, four ways**
+
+- **Three same-seed regenerations**: 927.2 / 927.3 / 928.4 MB, and 928.4 MB
+  twenty seconds later.
+- **Six different-seed generations in one process**: steps once to a plateau at
+  gen 2 and holds — 1 069 / 1 069 / 1 073 / 1 073 / 1 072 MB.
+- **The clean run's own trace**: 963 MB across roughly 480 consecutive samples
+  over 95 s, flat to the kilobyte.
+- **Deep zoom, seven consecutive samples 8 s apart**: 1 310 079 → 1 309 808 KB.
+  A spread of **271 KB (0.02 %)**, drifting *down*.
+
+Nothing here grows without bound. This is not a bug; it is a budget.
+
+### MEM-04 — the Performance window's Memory row, which §50 registered as under-reporting 4× · **FIXED**
+
+§50: *"It read 0.2 GB while `dumpsys meminfo` reported 818 MB of TOTAL PSS for
+the same process at the same moment."* `OS.get_static_memory_usage()` is honestly
+named and genuinely excludes both the Rust allocations and everything in
+`Gfx dev`. It now sits beside two rows the renderer does know:
+
+- **Video memory: 378.7 MiB — textures 87.89 MiB, buffers 290.8 MiB.**
+- **Glyph raster cache: 65 entries, 389.4 KiB. Last frame: 855 draw calls over
+  311 237 objects.**
+
+Reported *beside* the working-set figure rather than instead of it, and labelled
+as outside it, because the honest reading is that no single number on this
+platform is the number that gets the app killed. `DccIcons.cache_stats()` is the
+new binding behind the second row — the one measurement that could have made
+HD-02 look expensive, now on screen permanently rather than argued about.
+
+### Registered, not fixed — the two levers that would actually move the number
+
+Stated as options with their real costs, per the brief, and deliberately not
+taken on a pass whose subject was diagnosis.
+
+- **The dash loop is one `draw_line` per dash.** `urban_layout_draw.gd` already
+  solved exactly this shape and wrote down why: *"Every roof's edges go into
+  **one** `draw_multiline` rather than a `draw_polyline` each: at a few thousand
+  lots the per-roof call was the single most expensive thing in this function (a
+  6-town sheet took 577 ms a redraw)."* The same collapse applied to
+  `_draw_dashed_polyline` — accumulate the dash segments into one
+  `PackedVector2Array` and issue a single `draw_multiline` — would turn thousands
+  of primitives per way into one, without touching a colour, a width or a dash
+  period. It cannot use `draw_dashed_line()` per vertex pair, and that function's
+  own comment already records why (a smoothed route's points are shorter than one
+  dash cycle, so the phase restarts and every segment renders solid).
+- **Nothing bounds the overlay by zoom.** Town layouts reveal inside a km band,
+  but dashed minor ways do not drop out at any zoom, and the object count is
+  therefore unbounded in the direction the owner most likes to travel. A
+  screen-length floor per way tier would cap it.
+
+### Also worth knowing
+
+- **PH-15 reproduced independently.** A 700 ms drag from (540, 1800) on the
+  MENU ▸ Preferences L3 sheet opened *Theme* as an L4 sheet instead of
+  scrolling — the same class §50 registered, at a duration §50 recorded as
+  working. A 1 500 ms drag from (540, 2250) scrolls cleanly. The threshold is
+  somewhere between, and it is a real touch defect rather than a flick-only one.
+- **DS-02's "no filled amber slab anywhere in the sweep" has an exception.** The
+  Layers ▸ *Data overlays* sheet draws the selected row (`No overlay (base map)`)
+  as a **filled** amber slab with dark text, not an outlined chip. That sheet was
+  not in §50's sweep, so this is a gap in the sweep rather than a contradiction
+  of it.
+- **Generation is 24.0 s** on this build, read off the app's own `Pass` row —
+  consistent with §50's 25.1 / 24.8 / 25.8 s and confirming that section's
+  reading that §4.1's "16-18 s" was never a comparable figure.
+- **`logcat` clean** across the verification boot: zero `SCRIPT ERROR`,
+  `USER ERROR`, `USER WARNING`, Rust panic or godot-rust complaint.
+- **`/sys/class/kgsl/kgsl-3d0/proc/<pid>/mem` does not exist on this device**, so
+  a per-allocation GPU dump is not available and `Gfx dev` is the finest
+  driver-side granularity there is. Godot's own monitors are what supply the
+  split; recorded so the next pass does not spend the same ten minutes.
+
+### Harness
+
+The runtime switch and its flag file are **reverted** — they were an experiment,
+not a proposal, and §47 stays exactly as it shipped. What is kept is
+`DccIcons.cache_stats()` and the two Performance-window rows, which are MEM-04's
+fix rather than measurement scaffolding. `project.godot` md5
+`ccba27c9280cf8373412e2ba87ed4054` before and after every Godot invocation this
+pass made; the `;` comment block survived each one.
