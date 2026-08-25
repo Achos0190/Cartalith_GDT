@@ -26285,4 +26285,147 @@ boot-check clean.
 
 Everything §37 registered as unbacked (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14,
 WW-15, VA-01, VA-02) is unchanged — all want design or engine work. ED-02 (an
-undo *history panel*) stays (C).
+undo *history panel*) stays (C). *(Superseded by the next entry, 2026-08-25:
+**nine of the fifteen closed**, four of them because the capability already
+existed.)*
+
+## §37's fifteen, worked — nine closed, four of them already built (2026-08-25)
+
+`GUI_GAP_REGISTER.md` **§39**, on the owner's instruction to implement §37's
+backable items. §37 registered fifteen v3 rows as "no backing capability".
+Every one was checked against the crates before anything was written, and
+**that check is the headline: four of the nine closed had working engine
+capability the whole time**, and the register's stated reason is factually
+wrong for CV-21, WW-14 and WW-15 — and, since §36 five days earlier, for
+CA-16 too.
+
+### Closed
+
+| ID | What it turned out to be |
+|---|---|
+| **WW-14** ecology | **Already built, both halves.** `build_npp` is the Miami model; `cartalith_civ::wildlife` is a fauna model with guild rosters and per-species populations. §37: *"no crate computes either, here or in the reference"* |
+| **CV-21** faction identity colour | **Already built.** `FactionEntry::color` existed and nothing read it. §37: *"stores no colour field"* |
+| **CA-19** biome colour table | **Already readable.** `debug_layers()`' `bclass` legend is that table, all fifteen classes |
+| **WW-15** CRS | **Already declared.** The GeoJSON writes `geojson::CRS_NOTE` in its own `note`; RFC 7946 deprecated the `crs` member |
+| **CA-16** way style | Reference port: `#civWayScaleR` + `#wayOpacityR` |
+| **CA-17** political display | Reference port: `#territoryOpacityR` |
+| **CA-18** zoom ladder (partly) | Reference port: `CIV_LOD_ROAD` |
+| **CV-22** faction vault notes | New — and exactly the one enum variant §37 estimated |
+| **VA-02** create from template | New |
+
+### Built
+
+**A new `npp` analysis field and `ecology_summary()`.** NPP was computed only
+*inside* `wildlife_regions`, as one of the ecoregion scorer's five inputs, and
+discarded; the ecoregion records with their species rosters were reachable
+only by clicking the map with the Wildlife view already open. WORLD ▸ Ecology
+is a live readout of both.
+
+**`CivData::faction_rgb`, one path for every surface that draws a faction.**
+`FactionEntry::color_override` (default `None`, so a world at rest is
+bit-identical) is now the source of truth for the territory wash, the
+Political-control analysis field and the roster banner. The "cannot disagree"
+was not hypothetical: the control field indexed `FACTION_RGB[(owner-1) % len]`
+while the wash used the no-wrap rule, so on a seven-faction world the field
+drew faction 7 in faction 1's colour and the map did not. The override is a
+*second* field rather than a write into `color`, because `color` is the
+*reference's* palette and this port renders in Okabe-Ito — one roster must not
+carry two rules.
+
+**Three reference display controls this port had as constants.**
+`territory_opacity` (was a hardcoded `82/255`), `_way_scale` and
+`_way_opacity`, all identity at their defaults. The way scale multiplies dash
+lengths too, because the reference writes one `rsc` into both. Plus
+`CIV_LOD_ROAD`, whose effect here is narrower than there and deliberately not
+widened: `ZOOM_MIN` is 0.4, so `road`'s 0.35 threshold is unreachable and only
+`track`/`ancient` drop out.
+
+**`EntityKind::Faction`** plus the export rows a faction can fill — Name,
+Entity type, Culture, Government, Religion, its capital's coordinates, member
+settlements, population, claimed area. `ALL` gained a sibling `EVERY`, because
+a faction has no position of its own and the three *place* kinds do.
+
+**`cartalith-vault`'s `template` module.** Templates come from the vault, not
+from the program: a `.md` with "template" in its path is a template, which is
+how the owner's own `design/vault-templates/` names its files. Creating a note
+is safe where editing one is not — an existing path is refused outright — so
+the body is the author's template copied verbatim with only the entity's name
+substituted; `[If applicable]` and `[Optional]` survive untouched, because
+those are instructions to the author.
+
+**`world_crs()`.** The frame is real and is two different frames: world mode
+is a plate carrée graticule over 90°N–90°S with `lat_n`/`lat_s` ignored;
+regional mode has real latitudes driving the climate model and no longitude
+model at all.
+
+### Verified
+
+`_gap37_probe` (temporary, untracked), **windowed**, on a real 384 × 288
+world, seed 483920 — 233 settlements, 6 factions, 35 ways. **PASS, 0
+failures**, everything measured:
+
+- **WW-14** mean NPP **801 g/m²/yr** over 88,629 land cells, peak **2590.7**;
+  **70 ecoregions, 235 species records**; the `npp` raster drew.
+- **CV-21** wash *and* control field both moved on an identity colour and both
+  returned on Reset; the picker wrote through the real window.
+- **CA-17** wash alpha `0.322 → 1.000 → 0.102`, monotone.
+- **CA-16** way opacity 0 moved **0.396 %** of screen pixels; width 2.5×
+  moved **0.929 %**.
+- **CA-18** the ladder's single `track` of 35 ways is visible in the frame
+  diff at 0.5× zoom.
+- **CV-22** four entity kinds; faction 1 offered 8 fields and produced a
+  636-character block; faction 0 and 999 both returned empty.
+- **VA-02** a real note written to a real folder from a real template,
+  byte-identical on disk, and the duplicate refused with the file unchanged.
+- **WW-15** regional, 55.0°→5.0°, **6.25 km/cell, 0.1742°/row**.
+
+`cartalith-godot` 343 lib tests plus its integration targets, one new roster
+test; `cartalith-vault` **41 → 48**, including one end-to-end against a real
+folder proving the created note is attachable by the ordinary path — and
+therefore a real note, not a special one. `cargo check -p cartalith-godot`
+clean; headless boot clean.
+
+### Files
+
+- `crates/cartalith-godot/src/sample_bridge.rs` — the `npp` layer, its ramp
+  and legend; `FieldRefs::faction_colors`; the `control` layer's wrap removed.
+- `crates/cartalith-godot/src/lib.rs` — `ecology_summary()`, `world_crs()`,
+  `CivData::faction_rgb`, `civ_set_faction_color`/`civ_clear_faction_color`/
+  `civ_has_faction_colors`, `set_territory_opacity` and its two readers,
+  `TERRITORY_ALPHA_DEFAULT`, `faction_rgb_default`.
+- `crates/cartalith-godot/src/civ_roster_bridge.rs` — `color_override`,
+  `set_color`, `any_color_override`, 1 test.
+- `crates/cartalith-godot/src/vault_bridge.rs` — the `Faction` arm of
+  `entity_values`, `vault_entity_kinds`, `vault_templates`,
+  `vault_suggested_path`, `vault_create_from_template`.
+- `crates/cartalith-vault/src/template.rs` — **new**, 5 tests.
+- `crates/cartalith-vault/src/links.rs`, `export.rs`, `lib.rs` —
+  `EntityKind::Faction`, `EVERY`/`F`/`PF`, `templates()`,
+  `create_from_template()`, `Error::AlreadyExists`, 2 tests.
+- `map_overlay.gd` — `WAY_LOD_MIN`, `_way_scale`/`_way_opacity`/`_way_lod`
+  and their setters, `_way_ink()`, the three segment drawers.
+- `shell/engine_bridge.gd` — 10 new wrappers.
+- `shell/faction_roster_window.gd` — the colour picker and `_head_banner`.
+- `shell/vault_window.gd` — *New note from a template*.
+- `shell/workspaces/world_workspace.gd` — Ecology and the coordinate frame,
+  both refilled on every generate/load.
+- `shell/workspaces/cartography_workspace.gd` — Way style, Territory tint,
+  and CA-18's corrected note.
+- `shell/workspaces/civilization_workspace.gd` — Identity colour, faction
+  Linked notes, the VA-02 note.
+- `shell/workspaces/render_workspace.gd`, `shell/menus.gd` — CA-19's and
+  VA-02's corrected disclosures.
+
+### Still open
+
+**CV-23, CV-24, CV-25, CV-26, IN-13, VA-01** — every one re-checked and
+sharpened in §39 rather than merely restated. The one worth carrying here:
+**CV-23's influence field is computed today and thrown away** —
+`assign_territory`'s `best_effective` is the per-cell cost-distance to the
+winning capital, and a contested value is one more array, not one more
+Dijkstra. What blocks it is memory (268 MB at the 8192² ceiling, so it has to
+be an on-demand recompute) and the fact that `compute_civilisation` frees the
+`cost` field that recompute would need. **CV-24, CV-25 and CV-26 want an
+owner decision, not wiring.** ED-02 stays (C) for the same reason. CA-18's
+declutter budget and CA-19's *writable* palette stay open with their costs
+now stated.

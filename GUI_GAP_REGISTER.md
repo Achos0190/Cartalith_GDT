@@ -5446,24 +5446,31 @@ working control, and none is silently omitted.
 
 | # | Row v3 asks for | Where it is disclosed | Why there is nothing behind it | Class |
 |---|---|---|---|---|
-| **CV-21** | Faction **identity colour** and emblem | CIVIL ▸ Factions ▸ Not built | `FactionRoster` stores no colour field, and `map_overlay.gd` derives a faction's tint from its *index*. v3's own CIVIL-owns-the-colour / CARTO-owns-the-paint split has neither half | (B) medium — one roster field plus one overlay lookup |
-| **CV-22** | Faction **history, notes, lore** (v3 marks these `vault`) | CIVIL ▸ Factions ▸ Not built | `cartalith-vault`'s `EntityKind` covers settlement, province and continent. A faction is not addressable there yet | (B) small — one enum variant plus one match arm; `MARKDOWN_VAULT_SCOPE.md` §3 anticipates it |
-| **CV-23** | Borders, claims and **influence** as separate quantities; historical occupation | CIVIL ▸ Territories ▸ Not built | `CivData::territory` is one plurality-owner-per-cell grid: no contested-claim value, no influence field, no per-year ownership record beyond the timeline's settlement snapshots | (B) large |
+| **CV-21** | Faction **identity colour** and emblem | CIVIL ▸ Factions ▸ Not built | `FactionRoster` stores no colour field, and `map_overlay.gd` derives a faction's tint from its *index*. v3's own CIVIL-owns-the-colour / CARTO-owns-the-paint split has neither half | **CLOSED 2026-08-25 (§39)** — and the reason above is wrong: the roster *did* store a colour field, and nothing read it |
+| **CV-22** | Faction **history, notes, lore** (v3 marks these `vault`) | CIVIL ▸ Factions ▸ Not built | `cartalith-vault`'s `EntityKind` covers settlement, province and continent. A faction is not addressable there yet | **CLOSED 2026-08-25 (§39)** — and the estimate was exact |
+| **CV-23** | Borders, claims and **influence** as separate quantities; historical occupation | CIVIL ▸ Territories ▸ Not built | `CivData::territory` is one plurality-owner-per-cell grid: no contested-claim value, no influence field, no per-year ownership record beyond the timeline's settlement snapshots | (B) large — **sharpened §39**: the influence field is computed today and discarded (`assign_territory`'s `best_effective`) |
 | **CV-24** | The year scrubber as **program scope** (v3: *"time is not a domain"*) | The timeline strip's own `Open Timeline` tooltip | Agreed in principle, and not moved. `dcc_shell.gd`'s reserved `timeline_bar` is one fixed-height `HBox` with no room for a year-pill list, an add-year field and three filter checkboxes; `TIMELINE_SCOPE.md` §4's standing instruction is to build a dedicated panel rather than guess the region. A shell-frame change, not a menu change | (C) — design first |
 | **CV-25** | **Military**: garrisons, defensive strength, fortification network, campaigns | CIVIL ▸ Military ▸ Not built (whole category) | `cartalith-civ` models none of them and neither does the reference. New design, not a port gap. What exists is per-settlement *defensibility*, a terrain heuristic, on the right dock | (C) |
 | **CV-26** | **Relationships**: diplomatic matrix, allies/rivals/subjects, treaties — and v3 Politics' vassalage/alliances/rivalries | CIVIL ▸ Relationships ▸ Not built (whole category), and CIVIL ▸ Politics ▸ Not built | There is no edge between two factions to hold a value, at any year, so a matrix would be a grid of blanks. The reference has none either. Absorbs the one-line gap the old Politics category disclosed | (C) |
-| **IN-13** | **Trade flows** as a routed quantity, imports/exports per settlement, route-cost field, trade-influence raster | CIVIL ▸ Trade ▸ Not built | `civ_resource_trade_balance` produces the hinterland surplus/deficit that *is* shown; nothing ties a trade relationship to the way that would carry it. `ECONOMY_SCOPE.md` holds the aggregation | (B) large |
-| **CA-16** | Per-class way **style**: colour, width, casing, dashes, route glow | CARTO ▸ Roads & routes ▸ Not built | `map_overlay.gd` draws every way from one hardcoded width-and-colour pair per type and takes no style argument; the reference's `#civWayScaleR` has no counterpart here. Visibility, which *is* wired, is the whole of what works | (B) medium |
-| **CA-17** | Territory tint opacity, border width/style, claim hatching, influence gradient + legend | CARTO ▸ Political display ▸ Not built | One fixed-alpha fill with a fixed border, and no style record keyed to a faction id for anything to write to. Blocked on CV-21 at the CIVIL end | (B) medium |
-| **CA-18** | **Zoom ladder** (what appears when) and the declutter budget | CARTO ▸ Visibility / zoom ▸ Not built | No per-layer zoom range exists anywhere in the shell; the one zoom-dependent behaviour is the urban-layout reveal band, which `map_overlay.gd` hardcodes. Label/icon collision is not resolved at all — overlapping annotation simply overlaps | (B) large |
-| **CA-19** | **Biome colour table** | CARTO ▸ Colours ▸ Colour grade note | `CART_BIOME_COLS` is a frozen reference table compiled into `cartalith-render` with no `#[func]` to read or rewrite an entry. The four field-influence weights beside it are live | (B) small |
-| **WW-14** | **Ecological productivity**, flora/fauna distribution | WORLD ▸ Ecology ▸ Not parameterised (whole category) | No crate computes either, here or in the reference. Vegetation density and soil *are* computed — derived off biome/climate/lithology with no dials — and are readable as analysis fields; the note points there | (C) |
-| **WW-15** | **Coordinate system · projection** | WORLD ▸ World data ▸ Read the fields | Every field is grid-space, the GeoJSON export writes a plain lon/lat-shaped frame with no CRS declared, and nothing reprojects. Units are km-only (PR-15) | (B) large |
-| **VA-01** | **Backlinks · unlinked mentions** | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Missing & orphan notes…* | Both need a reverse index over the whole vault. The provider deliberately opens only the files it is asked for, which is what keeps a large vault cheap to browse and is exactly what an unbounded scan would undo | (B) large |
-| **VA-02** | **Create notes from template**, path convention `Settlements/{name}.md` | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Create notes from template…* | `cartalith-vault` attaches to notes that already exist and refuses a heading that does not — deliberately (`MARKDOWN_VAULT_SCOPE.md` milestone 1's boundary). There is no note *creator* and no template registry, so the owner's own `design/vault-templates/` cannot be instantiated | (B) medium |
+| **IN-13** | **Trade flows** as a routed quantity, imports/exports per settlement, route-cost field, trade-influence raster | CIVIL ▸ Trade ▸ Not built | `civ_resource_trade_balance` produces the hinterland surplus/deficit that *is* shown; nothing ties a trade relationship to the way that would carry it. `ECONOMY_SCOPE.md` holds the aggregation | (B) large — **sharpened §39**: `TradeBalance` names *what*, never *who*; a flow needs a bipartite match plus a network flow |
+| **CA-16** | Per-class way **style**: colour, width, casing, dashes, route glow | CARTO ▸ Roads & routes ▸ Not built | `map_overlay.gd` draws every way from one hardcoded width-and-colour pair per type and takes no style argument; the reference's `#civWayScaleR` has no counterpart here. Visibility, which *is* wired, is the whole of what works | **CLOSED 2026-08-25 (§39)** — `#civWayScaleR`/`#wayOpacityR` ported; the reason above describes the file as it was *before* §36 |
+| **CA-17** | Territory tint opacity, border width/style, claim hatching, influence gradient + legend | CARTO ▸ Political display ▸ Not built | One fixed-alpha fill with a fixed border, and no style record keyed to a faction id for anything to write to. Blocked on CV-21 at the CIVIL end | **CLOSED 2026-08-25 (§39)** for tint opacity (`#territoryOpacityR`) and, via CV-21, identity colour; the rest is CV-23's data gap |
+| **CA-18** | **Zoom ladder** (what appears when) and the declutter budget | CARTO ▸ Visibility / zoom ▸ Not built | No per-layer zoom range exists anywhere in the shell; the one zoom-dependent behaviour is the urban-layout reveal band, which `map_overlay.gd` hardcodes. Label/icon collision is not resolved at all — overlapping annotation simply overlaps | **PARTLY CLOSED 2026-08-25 (§39)** — `CIV_LOD_ROAD` ported; the declutter budget and per-layer ranges stay open |
+| **CA-19** | **Biome colour table** | CARTO ▸ Colours ▸ Colour grade note | `CART_BIOME_COLS` is a frozen reference table compiled into `cartalith-render` with no `#[func]` to read or rewrite an entry. The four field-influence weights beside it are live | **CLOSED 2026-08-25 (§39)** for *reading* — `debug_layers()` has carried all fifteen classes as the Biomes legend all along. *Rewriting* is a separate, larger item |
+| **WW-14** | **Ecological productivity**, flora/fauna distribution | WORLD ▸ Ecology ▸ Not parameterised (whole category) | No crate computes either, here or in the reference. Vegetation density and soil *are* computed — derived off biome/climate/lithology with no dials — and are readable as analysis fields; the note points there | **CLOSED 2026-08-25 (§39)** — the reason above is wrong on **both** halves: `build_npp` and `cartalith_civ::wildlife` are both real and both golden-verified |
+| **WW-15** | **Coordinate system · projection** | WORLD ▸ World data ▸ Read the fields | Every field is grid-space, the GeoJSON export writes a plain lon/lat-shaped frame with no CRS declared, and nothing reprojects. Units are km-only (PR-15) | **CLOSED 2026-08-25 (§39)** for the frame — a CRS *is* declared, in the document's own `note`; `world_crs()` now reports it in-app. Reprojection stays open |
+| **VA-01** | **Backlinks · unlinked mentions** | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Missing & orphan notes…* | Both need a reverse index over the whole vault. The provider deliberately opens only the files it is asked for, which is what keeps a large vault cheap to browse and is exactly what an unbounded scan would undo | (B) large — **sharpened §39**: the open question is the *index*, not the scan |
+| **VA-02** | **Create notes from template**, path convention `Settlements/{name}.md` | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Create notes from template…* | `cartalith-vault` attaches to notes that already exist and refuses a heading that does not — deliberately (`MARKDOWN_VAULT_SCOPE.md` milestone 1's boundary). There is no note *creator* and no template registry, so the owner's own `design/vault-templates/` cannot be instantiated | **CLOSED 2026-08-25 (§39)** — the boundary quoted is about *editing*, and creating a file cannot destroy one |
 
 `VA-` is a new prefix: the vault's *gaps*, distinct from `KV-` in §35, which
 records what the vault subsystem **connected**.
+
+> **Nine of these fifteen closed on 2026-08-25 — see §39**, which also records
+> that **four of the nine had working engine capability the whole time** and
+> that the stated reason above is factually wrong for CV-21, WW-14, WW-15 and
+> (as of §36) CA-16. The table is left as written rather than rewritten in
+> place: the reasons are the record of what was believed, and §39 is the
+> record of what was true.
 
 ### What was wired to real capability, not disclosed
 
@@ -5709,8 +5716,12 @@ Six temporary, untracked probes (`_deadwire_probe`, `_pressall_probe`,
 ### Not fixed, and why
 
 - **CV-24 and the rest of §37's fifteen** are unchanged — all still want
-  design or engine work.
+  design or engine work. *(Superseded 2026-08-25: **nine of the fifteen
+  closed** in §39, four of them because the capability already existed. CV-24
+  itself is unchanged and still wants a design.)*
 - **ED-02** (an undo *history panel*) stays (C): no design exists.
+  *(Re-checked 2026-08-25, §39: still (C). `undo.rs` keeps a label per step,
+  so the data is there — §7.1 asks for a ledger, not a five-row list.)*
 - **The Data manager's five silent nav rows** — `Heightmaps`, `World Data`,
   `Assets` and the two Export rows carry no tooltip, but each opens a real
   pane that explains itself, so nothing is being hidden. Left alone rather
@@ -5718,3 +5729,272 @@ Six temporary, untracked probes (`_deadwire_probe`, `_pressall_probe`,
 - **§14.4's own status line is stale** and is corrected here rather than
   rewritten in place: **JP-VS-01 is closed**, by §27's `open_journey_planner()`
   → `select_domain("civilization")`. Its entry still reads "still open".
+
+## 39 · §37's fifteen, worked — nine closed, and four of those nine were already built (2026-08-25)
+
+The owner's instruction was to implement §37's backable items. §37 registered
+all fifteen as "no backing capability", and this session's standing lesson —
+that a capability the register calls missing has repeatedly turned out to
+exist and be unwired — was applied first: **every one of the fifteen was
+checked against the crates before anything was written.**
+
+That check is the finding. **Four of the nine closed had working engine
+capability already**, and one more had it in a form the register described
+inaccurately. Only two are new ports and two are genuinely new code.
+
+| # | Disposition | What was actually true |
+|---|---|---|
+| **WW-14** | **closed — was already built** | Both halves. `build_npp` is the Miami model, ported and golden-verified; `cartalith_civ::wildlife` is a fauna model with guild rosters and per-species populations. §37 said "no crate computes either, here or in the reference" |
+| **CV-21** | **closed — was already built** | `FactionEntry::color` existed and **nothing read it**. §37 said the roster "stores no colour field" |
+| **CA-19** | **closed — was already readable** | `debug_layers()` has always carried all fifteen `CART_BIOME_COLS` classes as the Biomes legend. §37 said there was "no `#[func]` to read or rewrite an entry"; *rewrite* is the real gap and it is not small |
+| **WW-15** | **closed — was already declared** | The GeoJSON writes `geojson::CRS_NOTE` in its own `note` property, quoted verbatim from the reference. §37 said the export has "no CRS declared" |
+| **CA-16** | **closed — reference port** | §37's stated reason (one hardcoded colour per type) had been fixed by §36 five days earlier. The real gap was `#civWayScaleR`/`#wayOpacityR` |
+| **CA-17** | **closed — reference port** | `#territoryOpacityR`. The rest of the row is CV-23's data gap, not a control gap |
+| **CA-18** | **partly closed — reference port** | `CIV_LOD_ROAD` is a real per-type zoom ladder and is now ported. The declutter budget and per-layer ranges stay open |
+| **CV-22** | **closed — new, and exactly the size §37 estimated** | One `EntityKind` variant, two match arms, plus export rows |
+| **VA-02** | **closed — new** | §37's reason was a boundary about *editing*, applied to *creating* |
+| CV-23 · CV-24 · CV-25 · CV-26 · IN-13 · VA-01 | **still open** | Sharpened below. Three want a design decision, three want real engine work |
+
+### The four that were already built, and why each was missed
+
+Worth separating, because the same mistake produced all four and it is
+cheap to avoid: **§37 was written during a large UI restructure and asked
+"does the dock have a control for this?", which is a different question from
+"does the engine have the quantity?"** Every one of these four answers no to
+the first and yes to the second.
+
+**WW-14** is the worst of them, because the register asserts a negative about
+the reference too. `cartalith_civ::build_npp` is the Miami model — the lower
+of a temperature and a precipitation ceiling, both capped at 3000 g/m²/yr —
+and it has been golden-verified since the wildlife port. It was computed
+**only inside `wildlife_regions`**, as one of the ecoregion scorer's five
+inputs, and thrown away. The fauna half is `cartalith_civ::wildlife`'s
+connected-component segmentation of the Cartalith biome grid, with a guild
+roster and a population estimate per species, reachable only by clicking the
+map while the Wildlife debug view happened to be open. Measured on the
+verification world: mean **801 g/m²/yr** over 88,629 land cells, peak
+**2590.7**, **70 ecoregions**, **235 species records**.
+
+**CV-21** is the sharpest illustration. `FactionEntry` has carried a `color`
+field since the roster bridge was written; the only thing that ever read it
+was a unit test. The renderers went to `lib.rs`'s `FACTION_RGB` by index
+instead — and *inconsistently*: `build_territory_texture` used
+`faction_rgb`'s no-wrap rule while the Political-control analysis field
+indexed `FACTION_RGB[(owner-1) % len]` directly, so on a seven-faction world
+the field drew faction 7 in faction 1's colour and the map did not. One
+`CivData::faction_rgb` is now the only path, so the two cannot disagree.
+
+The override is a **second** field rather than a write into `color`, and that
+is deliberate: `color` holds the *reference's* `CIV_FACTIONS` table, which
+this port does not render in (`FACTION_RGB` is Okabe-Ito, colourblind-safe, a
+divergence disclosed at both ends since it was made). Writing the override
+into `color` would have made the reference table the render palette for
+edited factions and not for unedited ones — two rules in one roster.
+`color_override: None` is exactly today's behaviour, so a world at rest is
+bit-identical.
+
+**CA-19**: `debug_layers()`' `bclass` entry carries `(r, g, b, label)` for all
+fifteen classes, which *is* the biome colour table, and `get_paint_palette`
+plus `paint_bridge::swatch_color` read the same constant. So CARTO ▸ Colours
+now points at that one legend rather than drawing a second copy — this shell
+has been bitten by two pickers over one thing before. What is genuinely
+missing is a **writable** palette, and that is not small: `render.rs` is
+`#[path]`-included standalone by five test targets so it cannot reach shared
+mutable state, `CART_BIOME_COLS` is what a painted biome cell blends toward
+in `land_color`'s hot loop, and `paint_blend.rs`'s goldens are written
+against the frozen values. Scope: a palette field on `RenderCtx` threaded to
+`land_color`, a runtime table on `WorldGen`, and re-baselined goldens.
+
+**WW-15**: RFC 7946 **deprecated** the `crs` member, so a `note` is the
+declaration a GeoJSON file gets to make, and this port has always made it —
+`CRS_NOTE`, quoted verbatim from the reference so a consumer learns the same
+thing from either implementation. What was missing was any way to read the
+frame *in the app*, and the frame is real and is **two different frames**:
+
+- **World mode** — the grid wraps in X and rows run 90°N to 90°S. A plate
+  carrée graticule over a whole planet; `climate.lat_n`/`lat_s` are ignored,
+  as the climate pipeline's own `lat_of(y)` says.
+- **Regional mode** — rows run `lat_n` to `lat_s` and X does not wrap, so
+  latitude is real and drives the climate model while longitude is not
+  modelled at all.
+
+`world_crs()` reports both, plus cell size, degrees per row and the export's
+own note. Measured on the verification world: regional, 55.0° to 5.0°, 384 ×
+288 cells over 2400 × 1800 km, **6.25 km per cell, 0.1742° per row**. What
+stays open is a **projection**: nothing reprojects, so the planar kilometres
+are not a projection of the latitudes beside them — which is precisely what
+the export's note already warns.
+
+### The two reference ports, and the one thing §36 had already fixed
+
+**CA-16.** §37's stated reason — *"`map_overlay.gd` draws every way with one
+hardcoded width-and-colour pair per type"* — describes the state **before**
+§36, five days earlier, which replaced the flat `ROAD_COLOR` with the
+reference's five two-stroke styles. The register row was written against a
+file that had already changed. What was genuinely absent is the reference's
+own two per-layer style controls: `#civWayScaleR` (line 1485), the third term
+of `rsc = max(1, GW/512) · _civZoomK() · _civWayScale()`, and `#wayOpacityR`
+(line 1491), its `globalAlpha`. Both are now real and both are the identity
+at their defaults, so the layer at rest is unchanged. The scale multiplies
+dash lengths too, because the reference writes one `rsc` into both
+(`setLineDash([1.8*rsc, 1.3*rsc])`) — a wider road gets a proportionally
+longer dash rather than a wide line chopped into the same fine ticks.
+
+Per-class colour, casing and dash pattern stay unbuilt, and the reason is now
+sharper than "no style argument": the five styles are *ported literals* whose
+whole job is to make a track read as a track, and making one editable means a
+style record keyed by way type for the overlay to read instead of its own
+`WAY_STYLE` constant.
+
+**CA-17.** `#territoryOpacityR` (line 1490), applied at 15440 as
+`Math.round(opacity * 255)`. This port had it as a hardcoded `82/255` in
+`build_territory_texture`. The default deliberately stays this port's own and
+not the reference's `130/255`: there is a hillshade, a splat and a colour
+grade under this wash that the reference's flat biome fill has not, and a
+heavier tint buries them. Measured: `0.322 → 1.000 → 0.102`, monotone.
+
+**CA-18, partly.** `CIV_LOD_ROAD` (line 15380, read by `_civWayLodMin` at
+15012) is a real per-type zoom ladder and is ported verbatim. Its effect here
+is narrower than there and is **deliberately not widened**: `ViewportHost`'s
+`ZOOM_MIN` is 0.4, so `road`'s 0.35 threshold is unreachable and only `track`
+and `ancient` ever drop out, between 0.4× and 0.7×. The two trunk tiers are
+`0` there, meaning "always", not "missing". A switch was added that the
+reference does not have, because a per-layer zoom range whose effect you
+cannot see is indistinguishable from a bug.
+
+### The two that are new
+
+**CV-22** cost exactly what §37 estimated: one `EntityKind::Faction` variant,
+one `as_str` arm, one `parse` arm — which is what `links.rs`'s own module doc
+reserved (*"adding a variant here plus a `key()` case is that whole change"*)
+— plus the export-registry rows a faction can fill. `ALL` gained a sibling
+`EVERY`, because a faction has no position of its own and the three *place*
+kinds do. §20's rule holds by construction: `entity_values` returns an empty
+map for faction 0 (Unclaimed) and for an id past the roster.
+
+The three vocabulary fields (Culture, Government, Religion) are exported
+deliberately. `ECONOMY_SCOPE.md` found nothing in either codebase simulates
+Government or Religion — which is precisely the argument for writing them
+into a note, where an author's own prose about them is the thing that carries
+meaning.
+
+**VA-02.** §37's reason was that `cartalith-vault` *"attaches to notes that
+already exist and refuses a heading that does not — deliberately"*. That
+boundary is about **editing**: §23 makes the machine block the only thing
+Cartalith rewrites unattended, because a tool that reshapes an author's prose
+is the failure the whole design is arranged against. Creating a file that was
+not there is a different act and a safe one — an existing path is refused
+outright, so it cannot destroy anything — and the body is the author's own
+template copied verbatim with nothing but the entity's name substituted.
+
+**Templates come from the vault, not from the program.** No registry, no
+bundled content: a `.md` with "template" in its path is a template, which is
+exactly how the owner's own `design/vault-templates/` names its files
+(`Settlement Template.md`, `Landmark template.md`, `Region Template/`).
+Compiling a template set into the binary would be Cartalith telling an author
+how to write their notes. `discover` filters the same bounded listing the
+file picker already walks — no second walk, still no file opened — and labels
+a nested template by its folder, because that corpus has two byte-identical
+`Landmark template.md` files and a picker showing both under one word offers
+the same thing twice.
+
+`fill_title` substitutes `{{…Name}}` and the literal `[Name]`, and leaves
+`[If applicable]`, `[Optional]` and every other bracketed prompt alone: those
+are instructions to the author, and answering them would be Cartalith
+answering a question it was not asked. Path convention is v3's
+`Settlements/{name}.md`, generalised per kind and editable in the field.
+
+### Still open, sharpened
+
+Each of these was checked against the crates too. What changed is not their
+status but what is known about them.
+
+- **CV-23 — borders, claims, influence.** Still (B) large, but **the influence
+  field is computed today and thrown away**: `assign_territory`'s
+  `best_effective` (`cartalith-civ/src/lib.rs:6040`) is the per-cell
+  cost-distance to the winning capital, divided by that capital's population
+  weight. A *contested* value is one more array — the runner-up from a
+  different faction — not one more Dijkstra. Two real obstacles, both now
+  named: retaining an `f32` per cell is **268 MB at this port's 8192²
+  ceiling**, the same objection `civ_continents` already records, so it has
+  to be an on-demand recompute like `wildlife_regions`; and that recompute
+  needs `build_travel_cost`'s `cost` field, which `compute_civilisation`
+  builds as a local and frees, keeping only per-settlement samples in
+  `explanations`. Historical occupation over time is separately absent and
+  is timeline work, not territory work.
+- **CV-24 — the year scrubber as program scope.** Unchanged and correctly (C).
+  `TIMELINE_SCOPE.md` §4's standing instruction is to build a dedicated panel
+  rather than guess the region, and `dcc_shell.gd`'s reserved `timeline_bar`
+  is one fixed-height `HBox`. A shell-frame change; **owner's to specify.**
+- **CV-25 — military.** Unchanged (C). Neither `cartalith-civ` nor the
+  reference models garrisons, fortification networks or campaigns. This is
+  feature design, not wiring, and improvising it would be inventing a game
+  system. What exists is per-settlement *defensibility*, a terrain heuristic,
+  on the right dock.
+- **CV-26 — relationships.** Unchanged (C), and for a structural reason worth
+  restating: there is no **edge** between two factions to hold a value, at any
+  year, so a diplomatic matrix would be a grid of blanks. The reference's own
+  inspector says "not yet implemented" here too. **Owner's to specify.**
+- **IN-13 — trade flows.** Still (B) large, and now precisely: `TradeBalance`
+  is `{exports, imports}` — a per-settlement verdict on which of the fifteen
+  resources a place has too much or too little of *against the world mean*.
+  It names **what**, never **who**. Turning it into a flow needs a
+  surplus-to-deficit match across settlements and then a routing of that match
+  over the way graph — a bipartite assignment plus a network flow, neither of
+  which exists in either codebase. `ECONOMY_SCOPE.md` holds the aggregation.
+- **VA-01 — backlinks and unlinked mentions.** Still (B) large, and the open
+  question is the **index, not the scan**: built on demand it stalls a large
+  vault, and persisted it is a second store to keep in step with a folder the
+  user edits outside Cartalith. The provider's deliberate "open only what you
+  are asked for" is what keeps browsing cheap, and an unbounded mention scan
+  is exactly what would undo it.
+
+### Also carried over from §38
+
+- **ED-02 (undo history panel)** — checked, **still (C)**, and the reason is
+  unchanged rather than merely restated: `undo.rs` keeps a `label` on every
+  step, so a list of the five is data the engine already holds and
+  `undo_stats()` reports only the *next* one. §7.1's own box says the panel
+  moved from "needs an engine" to "needs a design", and §7.1 asks for a
+  *ledger* with per-subsystem reversal — a strictly larger thing than a
+  five-row list. Building the five-row list would answer the register's easy
+  half and foreclose the design question. **Owner's to specify.**
+- **The Data manager's five silent nav rows** — checked again and **left alone
+  again**, agreeing with §38. Each opens a pane that names itself in its own
+  first line; a tooltip repeating the row's own label is filler, and this
+  register's whole standard is that a disclosure has to say something the user
+  could not already see.
+
+### Verification
+
+`_gap37_probe.gd` / `.tscn` (temporary, untracked), run **windowed** against a
+real 384 × 288 world, seed 483920 — 233 settlements, 6 factions, 35 ways.
+**PASS, 0 failures.** Every claim measured rather than reasoned about:
+
+| what | measured |
+|---|---|
+| WW-14 | mean NPP 801 g/m²/yr over 88,629 land cells, peak 2590.7; 70 ecoregions, 235 species records; the `npp` raster drew and both jump buttons set the view they name |
+| CV-21 | the territory wash and the Political-control field **both** moved on an identity colour and both returned on Reset; the picker wrote through the real window |
+| CA-17 | wash alpha 0.322 (default) → 1.000 → 0.102, monotone |
+| CA-16 | way opacity 0 moved **0.396 %** of screen pixels; width 2.5× moved **0.929 %** |
+| CA-18 | at 0.5× zoom the ladder's single `track` (of 35 ways) is visible in the frame diff |
+| CV-22 | four entity kinds; faction 1 offered 8 fields and produced a 636-character Cartalith block; faction 0 and faction 999 both returned empty |
+| VA-02 | a real note written to a real folder from a real template, byte-identical on disk, the author's `[If applicable]` intact, and the duplicate refused with the file unchanged |
+| WW-15 | regional frame, 55.0°→5.0°, 6.25 km/cell, 0.1742°/row, and the export's own note read back in-app |
+
+Plus `cargo test`: `cartalith-godot` 343 lib tests and its integration
+targets all green with one new roster test; `cartalith-vault` **41 → 48**,
+including one end-to-end against a real folder that proves the created note
+is attachable by the ordinary path — and therefore a real note and not a
+special one. `cargo check -p cartalith-godot` clean; headless boot clean.
+
+**One defect the parse check caught before any of it**, and the reason the
+shell's own conventions earn their keep: the first cut of CIVIL ▸ Factions
+added a second *Faction roster…* button to a category that already had one,
+which GDScript rejects outright as a redeclared local. Two openers onto one
+window is the shape this shell keeps having to undo, and this time the
+language refused it.
+
+**A note on the commits.** WW-15's engine and shell landed in `79396c2`
+alongside the other six display IDs; that commit's message does not name it,
+and this section is the record.
