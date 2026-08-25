@@ -99,6 +99,31 @@ func setup(a, b: EngineBridge) -> void:
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(_body)
 
+	## `GUI_GAP_REGISTER.md` **RF-02**. This window is built on `open_for()`, not
+	## at launch, so §23's sweep did not reach it -- but it is keyed to a
+	## settlement **index**, and a generate renumbers every index there is.
+	## Left open across one it went on showing the old world's place: measured
+	## `Sevjuniana` pop 19 332 at (142, 14) while the engine's settlement 0 was
+	## pop 19 774 at (208, 183), the form character-for-character identical.
+	## Every field here writes through `civ_edit_settlement(_index, …)`, so a
+	## commit from that pane would have written the previous world's name, kind
+	## and traits onto whatever now sits at the index -- PE-01's failure with a
+	## generate as the trigger.
+	##
+	## Rebuilt rather than closed, which is the shape three other windows in this
+	## shell already use for the same pair of signals (`city_viewer_window`,
+	## `world_data_window`, `performance_window` all `if visible: reload`).
+	## Closing would also be wrong for the ambiguous half of `world_loaded`:
+	## `load_asset_pack` and `as_apply_to_map` emit it without touching a single
+	## settlement.
+	##
+	## `_rebuild()` and not `open_for(_index)`: `open_for` commits the focused
+	## field first, and committing this form against the world that has just
+	## replaced the one it was typed for is the bug, not the fix. `_clear()`'s
+	## `_rebuilding` guard drops it instead.
+	bridge.generation_finished.connect(func(ok: bool): if ok and visible: _rebuild())
+	bridge.world_loaded.connect(func(): if visible: _rebuild())
+
 
 ## `_civOpenPlacePopup`: opens on the settlement at `index` into
 ## `get_settlements()`'s own array.

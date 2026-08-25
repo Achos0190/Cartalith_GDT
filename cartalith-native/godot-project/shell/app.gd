@@ -207,6 +207,29 @@ func _ready() -> void:
 	bridge.name = "EngineBridge"
 	add_child(bridge)
 
+	## `GUI_GAP_REGISTER.md` **RF-04**, and it is a signal-ORDER bug rather than
+	## a missing connection -- the first of those this register has had.
+	##
+	## `_refresh_world_dependent()` below already calls `TradeStore.clear()`, and
+	## `infrastructure_workspace.gd`'s own comment says the Flows body "refills
+	## from whatever `TradeStore` holds, which `app.gd` has just cleared on this
+	## same world change". It had not. Godot delivers a signal in connection
+	## order, `_register_workspaces()` runs at line 313 and `_wire_status()` at
+	## 333, so on every generate the INFRA refill read the **previous** world's
+	## match, redrew its flow count, its timing and its settlement names, and
+	## only then did the store get dropped -- with nothing left to re-run the
+	## fill. Measured: after regenerating under a live 624-flow match, CIVIL ▸
+	## Trade ▸ Flows still showed 624 while `TradeStore.last()` was empty, so the
+	## dock and its two fellow readers (the place editor's ledger, the way-load
+	## overlay) disagreed about whether a match existed at all.
+	##
+	## Connected here, before anything else subscribes to either signal, so the
+	## store is empty by the time any reader is asked to redraw. The call in
+	## `_refresh_world_dependent()` stays: it costs nothing and keeps that
+	## function's stated ownership of "the world changed identity" true.
+	bridge.generation_finished.connect(func(ok: bool): if ok: TradeStore.clear())
+	bridge.world_loaded.connect(func(): TradeStore.clear())
+
 	viewport = ViewportHost.new()
 	viewport_content.add_child(viewport)
 	viewport.setup(bridge)
@@ -872,8 +895,22 @@ func _load_project(path: String) -> void:
 	if bridge.load_save(path):
 		current_project_path = path
 		DccSettings.remember_project(path)
+		return
+	## `GUI_GAP_REGISTER.md` **FI-04**. "see console" names somewhere the person
+	## running an exported build cannot look, and it was the *only* thing said
+	## about the commonest failure by far: `File ▸ Recent worlds` remembers a
+	## path, not a file, so every row in it can outlive what it points at.
+	## Measured on all three rows of a real recent list, every one naming a save
+	## a previous session had since deleted -- the row attempted, failed and
+	## reported a reason that was true of none of them.
+	##
+	## The distinction is one `file_exists` and it is worth making, because the
+	## two have different answers: a missing file is the list's problem and a
+	## refused one is the save's.
+	if not FileAccess.file_exists(path):
+		set_status("hint", "%s is no longer on disk" % path.get_file(), "accent")
 	else:
-		set_status("hint", "load failed — see console", "accent")
+		set_status("hint", "could not open %s — the engine refused the save" % path.get_file(), "accent")
 
 ## `Data ▸ Recent worlds` submenu entries all call this (`menus.gd`'s
 ## `_on_recent_world`) -- the exact same load path `open_project_picker()`'s

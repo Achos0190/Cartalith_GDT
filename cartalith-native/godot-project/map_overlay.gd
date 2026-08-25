@@ -859,6 +859,18 @@ func set_way_lod(on: bool) -> void:
 ## small world hairline-thin and every way on a large one uniformly fat,
 ## because volume here is a population sum and populations are not comparable
 ## between worlds.
+## `GUI_GAP_REGISTER.md` **RF-05**. `set_trade_load` is the *single* funnel for
+## this data -- `infrastructure_workspace._match_trade_flows()` fills it and
+## `app._refresh_world_dependent()` empties it -- so it is the one place that
+## can tell the CARTO row whether there is anything to draw. Without this the
+## row was RF-01 exactly: built at launch, disabled because `has_trade_load()`
+## was false over an empty world, and never re-enabled by the match that made
+## it true, because the match happens in a different workspace. Measured: after
+## a real 624-flow match the toggle was still `disabled = true` while
+## `has_trade_load()` returned true, and forcing it on moved 0.60 % of the map's
+## pixels -- a working control that could not be reached.
+signal trade_load_changed(available: bool)
+
 func set_trade_load(loads: PackedFloat32Array) -> void:
 	_trade_load = loads
 	_trade_load_max = 0.0
@@ -866,6 +878,7 @@ func set_trade_load(loads: PackedFloat32Array) -> void:
 		if v > _trade_load_max:
 			_trade_load_max = v
 	queue_redraw()
+	trade_load_changed.emit(has_trade_load())
 
 func set_show_trade_load(on: bool) -> void:
 	_show_trade_load = on

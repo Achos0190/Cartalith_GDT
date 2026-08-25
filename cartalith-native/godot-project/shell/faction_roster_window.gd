@@ -179,6 +179,36 @@ func setup(a, b: EngineBridge) -> void:
 		DccWidgets.phone_head(outer, "Faction roster", "world politics")
 		_set_phone_list_open(true)
 
+	## `GUI_GAP_REGISTER.md` **RF-03**. §23 asked "what re-runs this, and on
+	## which signal?" of every panel built at launch; this window is built on
+	## `open()` instead, which is correct only if nothing can change while it is
+	## up. A world can. Left open across a generate the roster went on showing
+	## the previous world's factions -- measured Aurelia:27 / Veldmark:49 /
+	## Mirelle:57 against a live engine reading Aurelia:57 / Veldmark:27 /
+	## Mirelle:7 -- and every editable control in it writes by faction **id**,
+	## which the new world reuses. So a rename or a culture change committed
+	## from that stale pane lands on a different faction than the one on screen:
+	## FR-02's data-corruption mode with a generate as the trigger instead of a
+	## click.
+	bridge.generation_finished.connect(func(ok: bool): if ok and visible: _on_world_changed())
+	bridge.world_loaded.connect(func(): if visible: _on_world_changed())
+
+
+## Both cached fields are per-world and cached per `open()`, so both have to be
+## re-taken here rather than only rebuilding the panes over stale numbers.
+## `_selected` is reset because it is an id into a roster the new world has
+## replaced -- the same reason `civilization_workspace._on_world_changed()`
+## resets its own `_selected_index`.
+##
+## Nothing commits on the way out: `_rebuild()` goes through `_clear()`, whose
+## `_rebuilding` guard is exactly what stops a dying focused field writing its
+## text into the world that just replaced the one it was typed for (FR-02).
+func _on_world_changed() -> void:
+	_fits = bridge.civ_faction_terrain_fits()
+	_military = bridge.civ_military_summary()
+	_selected = 1
+	_rebuild()
+
 
 # -- Phone: the folded master pane -------------------------------------------
 
