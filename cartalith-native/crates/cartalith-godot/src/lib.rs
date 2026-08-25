@@ -8463,6 +8463,88 @@ impl WorldGen {
         d
     }
 
+    /// The **route-aware** default plan -- `_jpEnsurePlan(jn)` in full
+    /// (reference line 18256), which `jp_default_plan()` above is only the
+    /// first half of.
+    ///
+    /// `jp_default_plan()` returns `JpPlan::default()`, i.e. the reference's
+    /// `D` block with `jn.sea` false: Walking, Keelboat. That is route-blind,
+    /// and the reference is not: `_civCommitRoute` flags a committed route a
+    /// sea voyage when `_civPathWaterFrac(pts) >= 0.5` (the `mixed` cost grid
+    /// genuinely crosses open ocean when that is cheaper), which flips the
+    /// initial guess to Sea Faring/Cog; then `_jpEnsurePlan` runs
+    /// `jpAutoPickVessel` over the route's real derived stages exactly once,
+    /// which is the fix for the reference's own "a keelboat is auto-selected
+    /// crossing the ocean, which is then rejected as unsuitable".
+    ///
+    /// Same return shape as `jp_default_plan()`, so a party form seeds itself
+    /// from this one when a route is selected and from that one when none is.
+    /// Empty `Dictionary` before `generate()`, for an out-of-range index, or
+    /// for a route with under two points -- the caller falls back to
+    /// `jp_default_plan()`, which is the pre-existing behaviour.
+    #[func]
+    fn jp_plan_for_route(&self, route_index: i64) -> VarDictionary {
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            return VarDictionary::new();
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let Ok(i) = usize::try_from(route_index) else { return VarDictionary::new() };
+        let Some(route) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else {
+            return VarDictionary::new();
+        };
+        if gw == 0 || gh == 0 || route.pts.len() < 2 {
+            return VarDictionary::new();
+        }
+        let sea_journey = cartalith_civ::civ_path_water_frac(
+            &route.pts,
+            &ws.field,
+            Some(&civ.water_bodies),
+            gw,
+            gh,
+            self.sea_level as f32,
+        ) >= 0.5;
+        let jw = journey_bridge::JourneyWorld::build(
+            &ws.field,
+            &civ.water_bodies,
+            &ws.temperature,
+            &ws.rainfall,
+            gw,
+            gh,
+            self.world,
+            self.sea_level,
+            &civ.ways,
+            &civ.settlements,
+        );
+        let world = cartalith_civ::JpWorld {
+            gw,
+            gh,
+            world: self.world,
+            map_width_km: self.map_width_km,
+            sea_level: self.sea_level,
+            peak_m: self.params.peak_m,
+            field: &ws.field,
+            cart_biome: &jw.cart_biome,
+            cart_terrain: &jw.cart_terrain,
+            temp: &ws.temperature,
+            rain: &ws.rainfall,
+            flow_field: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
+            water_bodies: Some(&civ.water_bodies),
+            territory: Some(&civ.territory),
+            places: &jw.places,
+            road_cells: &jw.road_cells,
+            ocean_field: None,
+            wind_field: None,
+        };
+        let plan = cartalith_civ::jp_ensure_plan(&world, &route.pts, sea_journey);
+        let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));
+        let party: PackedStringArray =
+            journey_bridge::party_count_pairs(&plan.party).iter().map(|(k, _)| GString::from(*k)).collect();
+        d.set("party_fields", &party);
+        d.set("sea_journey", sea_journey);
+        d
+    }
+
     /// Plans one journey: `jp_plan` -> `jp_verdict` -> `jp_confidence`, over
     /// a route and a party/plan form.
     ///
@@ -8797,7 +8879,15 @@ impl WorldGen {
         let Some(route) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else {
             return fail("no committed route at that index -- see route_count()");
         };
-        let (pts, mode) = (route.pts.clone(), route.mode);
+        let pts = route.pts.clone();
+        let forced = force_mode.to_string();
+        let forced = (!forced.is_empty()).then_some(forced);
+        // The domain the re-route will actually solve under, NOT the route's
+        // own committed mode: `RouteInputs::build` only derives the biome
+        // raster and river orders for `Mixed`, so sizing it from the committed
+        // mode would hand a river re-route of a land-committed route a cost
+        // grid with no navigable-river discount in it at all.
+        let mode = cartalith_civ::jp_reroute_mode(&transport.to_string(), forced.as_deref());
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
         );
@@ -8818,8 +8908,6 @@ impl WorldGen {
             world: self.world,
             map_width_km: self.map_width_km,
         };
-        let forced = force_mode.to_string();
-        let forced = (!forced.is_empty()).then_some(forced);
         match cartalith_civ::jp_reroute_for_mode(&ctx, &pts, &transport.to_string(), forced.as_deref()) {
             Err(e) => fail(&e),
             Ok(r) => {
@@ -8831,6 +8919,11 @@ impl WorldGen {
                     route.brks = r.brks;
                     route.km = km;
                     route.unreachable_legs = 0;
+                    // The line really was re-solved under `mode`, so
+                    // `route_get`'s own "mode" -- which the Journeys list
+                    // prints -- must say so rather than keep naming the domain
+                    // the original commit used.
+                    route.mode = mode;
                 }
                 vdict! { "ok" => true, "error" => "", "km" => km, "points" => &points }
             }

@@ -492,9 +492,21 @@ func _rebuild_party_form() -> void:
 	_auto_obs.clear()
 
 	if _plan_values.is_empty():
-		for key in _default_plan.keys():
-			if key != "party_fields":
-				_plan_values[key] = _default_plan[key]
+		# `_jpEnsurePlan`, and only on a genuinely new plan -- which is the
+		# reference's own `isNewPlan` gate, so re-entering the form never
+		# overwrites a party the user has since edited. The route-aware
+		# defaults (Sea Faring for a route the `mixed` cost grid took mostly
+		# across open water, plus `jpAutoPickVessel`'s correction from the
+		# route's real stages) when a route is selected; the route-blind
+		# `jp_default_plan()` when none is, or on a binary without it.
+		var seed_plan: Dictionary = _default_plan
+		if _route_index >= 0:
+			var rp: Dictionary = bridge.jp_plan_for_route(_route_index)
+			if not rp.is_empty():
+				seed_plan = rp
+		for key in seed_plan.keys():
+			if key != "party_fields" and key != "sea_journey":
+				_plan_values[key] = seed_plan[key]
 
 	# The Travel Library is edited in its own window (⇧L), which can be open
 	# alongside this form, so the entry lists are re-read on every rebuild

@@ -28889,3 +28889,55 @@ behind the shell — `EngineBridge._has()` warns once per boot that
 exactly as designed. It wants a `cargo ndk -t arm64-v8a build --profile
 android-dev -p cartalith-godot` before the next device pass measures anything
 that saves.
+
+## 2026-08-26 — Route planner conformance: `_jpEnsurePlan` reaches the shell
+
+Owner: *"check the route planner option and if it still performs as the html —
+finding the optimal path and clipping to a route as soon as that method is
+cheaper and faster."* Full record in `JOURNEY_PLANNER_SCOPE.md`'s new
+"Route-planner conformance re-check" section.
+
+**The pathfinding itself was already right and stays untouched.**
+`civ_dijkstra_path` carries all three cost grids, the ×0.25 existing-way
+discount over land ways *and* sea lanes (with v1.53's `isFinite ? … : 1.0`
+branch), settlement gravity, wrap-aware smoothing with the mode-matched repair
+pass, and the `reachable` flag. `route_commit` and `jp_reroute` both feed it the
+generated network **plus** the manual ways, so "ride the existing route where
+that is cheaper" is live on both. Four golden tests pin it; the new probe
+re-solves the same endpoint pair and gets the identical 34-point polyline.
+
+**What was missing was the *planner's* half.** `jp_ensure_plan` — including the
+`jpAutoPickVessel` correction the reference added in v0.6 precisely to stop "a
+keelboat is auto-selected crossing the ocean, which is then rejected as
+unsuitable" — had been ported since milestone 5 and had **no production
+caller**. The shell seeded its party form from `jp_default_plan()`, which is
+`JpPlan::default()`: Walking, Keelboat, route-blind. Its missing input,
+`_civPathWaterFrac` (reference 21142), had never been ported at all.
+
+- `cartalith_civ::civ_path_water_frac` + `commit_route_water_fraction_decides_
+  the_sea_flag` (threshold, lake class, clamp/round of out-of-range points).
+- `WorldGen::jp_plan_for_route(route_index)` — `_jpEnsurePlan` in full, same
+  shape as `jp_default_plan()` plus `sea_journey`. Empty `Dictionary` on a stale
+  binary or bad index, so `journey_planner_view.gd` falls back rather than
+  breaks. The form seeds from it only while `_plan_values` is empty, which is
+  the reference's own `isNewPlan` gate.
+
+**One latent bug found alongside.** `jp_reroute` sized its `RouteInputs` from
+the route's *committed* mode while `jp_reroute_for_mode` solved under the
+domain the *transport* implies. `RouteInputs::build` derives the biome raster
+and river orders for `Mixed` only, so a river re-route of a route not itself
+committed mixed would have got a cost grid with no navigable-river discount in
+it — a silently worse path, not an error. Unreachable today because the shell
+hardcodes `route_begin("mixed")`, which is exactly why it would have rotted.
+Fixed via `jp_reroute_mode(transport, force_mode)`; a successful re-route now
+also rewrites `CommittedRoute::mode`, so `route_get`'s `"mode"` stops naming
+the domain the original commit used.
+
+`_routeplanner_probe.gd`, on the real GDExtension, seed 24601 at 96×64: 8
+settlements, a 34-point 615.3 km mixed route with no unreachable legs,
+byte-identical on a re-solve, `jp_plan_for_route` correcting Keelboat →
+**Fishing Vessel** from the route's own stages, `jp_compute` deriving 14
+stages, a land re-route between the two nearest settlements succeeding (and
+`route_get` reporting `mode=land` afterwards), and a sea re-route between the
+same two inland points refused with the reference's own message rather than
+faked. `cargo test --workspace`: **2 256 passed, 0 failed, 8 ignored.**

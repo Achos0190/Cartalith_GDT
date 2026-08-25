@@ -2014,6 +2014,17 @@ func jp_default_plan() -> Dictionary:
 		return {}
 	return world_gen.jp_default_plan()
 
+## `_jpEnsurePlan(jn)` in full for one committed route: the route-aware
+## defaults `jp_default_plan()` is only the route-blind half of. A route the
+## `mixed` cost grid took mostly across open water opens on Sea Faring, and the
+## vessel guess is corrected from the route's own derived stages
+## (`jpAutoPickVessel`). Empty Dictionary when the binary predates it or the
+## index has no route -- the caller falls back to `jp_default_plan()`.
+func jp_plan_for_route(route_index: int) -> Dictionary:
+	if not _has("jp_plan_for_route"):
+		return {}
+	return world_gen.jp_plan_for_route(route_index)
+
 func jp_compute(request: Dictionary) -> Dictionary:
 	if not _has("jp_compute"):
 		return {}

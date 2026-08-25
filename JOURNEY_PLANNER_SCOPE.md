@@ -1134,3 +1134,83 @@ engine's hours and says which of the two it is showing. Likewise
 `ShipStats::invalid_water` has no §3.3 field to come from, so a custom
 vessel is constrained by its mode and water rating only — the picker's own
 tooltip states that rather than leaving it to be discovered.
+
+## Route-planner conformance re-check, 2026-08-25
+
+Prompted by the owner: *"check the route planner option and if it still
+performs as the html — finding the optimal path and clipping to a route as
+soon as that method is cheaper and faster."*
+
+### What was already right
+
+`_civDijkstraPath` (reference 25957) is ported in full as
+`cartalith_civ::tools::civ_dijkstra_path`, and every part that makes a route a
+route is there with it: all three cost grids, the ×0.25
+`_CIV_EXISTING_WAY_DISCOUNT` over land ways *and* sea lanes with v1.53's
+`isFinite ? … : 1.0` branch, `_civApplySettlementGravity`, wrap-aware
+`_civSmoothPath` with the mode-matched terrain-validity repair, and the
+straight-line fallback plus the `reachable` flag that lets a caller tell the
+two apart. `civ_join_dijkstra_segs` chains it per waypoint pair; `route_commit`
+hands it `civ.ways` (the generated network) **plus** the manual ways, which is
+the port's substitute for the reference's `state.roads.edges` marking — so
+"clip onto an existing route where that is cheaper" is live on both the commit
+and the re-route path.
+
+Four golden tests in `golden_parity_civ_tools.rs` pin exactly this, against
+whole-`<script>`-block `vm` extraction rather than line slices:
+`case0_land_route_matches_civ_dijkstra_path`,
+`case0_settlement_gravity_bends_the_route`,
+`case0_existing_way_discount_pulls_the_route_onto_it` and
+`case0_mixed_route_crosses_the_ocean` (with land mode refusing the same pair,
+which is what makes it mean anything). Nothing in the path uses RNG; the probe
+below re-solves the same endpoint pair and gets the identical polyline.
+
+### The one real gap, and its fix
+
+**`_jpEnsurePlan`'s route-awareness never reached the shell.**
+`jp_ensure_plan` was ported with milestone 5 — including the second half that
+matters, `jpAutoPickVessel` correcting the crude guess from the route's real
+derived stages — and had **no production caller**, only tests. The shell seeded
+its party form from `jp_default_plan()`, which is `JpPlan::default()`: Walking,
+Keelboat, route-blind. So a Route the `mixed` grid took across open ocean
+*because that was cheaper* still opened on the land itinerary, which is
+precisely the failure the reference's own v0.6 comment says it fixed.
+
+The missing input was `_civPathWaterFrac` (reference 21142), never ported —
+`_civCommitRoute` thresholds it at `>= 0.5` to set `jn.sea`. Now:
+
+- `cartalith_civ::civ_path_water_frac`, both branches of the reference's
+  `wb ? wb[fi] !== 0 : field[fi] < sea` fallback, with
+  `commit_route_water_fraction_decides_the_sea_flag` covering the threshold,
+  the lake case, and the clamp/round of out-of-range coordinates.
+- `WorldGen::jp_plan_for_route(route_index)` — `_jpEnsurePlan(jn)` in full over
+  a committed route, same return shape as `jp_default_plan()` plus a
+  `sea_journey` key. Empty `Dictionary` on a stale binary or a bad index, so
+  `journey_planner_view.gd` falls back to the old behaviour rather than
+  breaking.
+- The party form seeds from it **only when `_plan_values` is empty**, which is
+  the reference's own `isNewPlan` gate — re-entering the form never overwrites
+  a party the user has since edited.
+
+### One latent bug found alongside it
+
+`jp_reroute` built its `RouteInputs` from the route's **committed** mode while
+`jp_reroute_for_mode` then solved under the domain the *transport* implies.
+`RouteInputs::build` derives the biome raster and river orders for `Mixed`
+only, so a river re-route of a route not itself committed mixed would have got
+a cost grid with no `_civNavigableRiverDiscount` in it at all — a silently
+worse path, not an error. Unreachable today (the shell hardcodes
+`route_begin("mixed")`), which is exactly why it would have rotted. Fixed by
+exposing `jp_reroute_mode(transport, force_mode)` and sizing the inputs from
+that. A successful re-route now also rewrites `CommittedRoute::mode`, so
+`route_get`'s `"mode"` — which the Journeys list prints — stops naming the
+domain the original commit used.
+
+### The probe
+
+`godot-project/_routeplanner_probe.gd`: generates a fixed-seed world, commits a
+route between the two furthest settlements, and asserts a solved path (more
+than two points, no unreachable legs), determinism across a re-solve,
+`jp_plan_for_route`'s transport agreeing with its own `sea_journey`, a real
+`jp_compute` with stages and a verdict, a land re-route succeeding and a sea
+re-route between inland endpoints being refused rather than faked.

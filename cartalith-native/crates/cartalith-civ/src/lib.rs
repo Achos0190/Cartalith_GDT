@@ -11926,6 +11926,27 @@ pub fn jp_mode_for_route(transport: &str) -> Option<&'static str> {
 /// `Err` carries the reference's own two refusal strings verbatim. The
 /// reference then assigns `jn.pts`/`jn.km`/`jn.brks`; here the caller owns
 /// the journey record, so the new path is returned instead of written.
+/// Which cost domain [`jp_reroute_for_mode`] will actually solve under, given
+/// the journey's transport and an optional `force_mode` override -- exposed
+/// separately because a caller has to *build* that domain's inputs (a `mixed`
+/// grid needs the biome raster and river orders; the other two do not) before
+/// it can hand over a [`tools::RouteContext`], and sizing them from the
+/// route's own committed mode instead would silently drop the navigable-river
+/// discount on any river re-route of a route that was not itself committed
+/// mixed.
+pub fn jp_reroute_mode(transport: &str, force_mode: Option<&str>) -> tools::RouteMode {
+    let domain = match force_mode {
+        Some("land") => None,
+        Some(m) => Some(m),
+        None => jp_mode_for_route(transport),
+    };
+    match domain {
+        Some("water") => tools::RouteMode::Water,
+        Some("mixed") => tools::RouteMode::Mixed,
+        _ => tools::RouteMode::Land,
+    }
+}
+
 pub fn jp_reroute_for_mode(
     ctx: &tools::RouteContext,
     pts: &[(f64, f64)],
@@ -11935,15 +11956,11 @@ pub fn jp_reroute_for_mode(
     if pts.len() < 2 {
         return Err("This route has no drawn path to re-route.".to_string());
     }
-    let domain = match force_mode {
-        Some("land") => None,
-        Some(m) => Some(m),
-        None => jp_mode_for_route(transport),
-    };
-    let (mode, label) = match domain {
-        Some("water") => (tools::RouteMode::Water, "sea"),
-        Some("mixed") => (tools::RouteMode::Mixed, "river"),
-        _ => (tools::RouteMode::Land, "land"),
+    let mode = jp_reroute_mode(transport, force_mode);
+    let label = match mode {
+        tools::RouteMode::Water => "sea",
+        tools::RouteMode::Mixed => "river",
+        tools::RouteMode::Land => "land",
     };
     let (s, e) = (pts[0], pts[pts.len() - 1]);
     let r = tools::civ_dijkstra_path(ctx, s.0, s.1, e.0, e.1, mode);
@@ -12058,6 +12075,43 @@ pub fn civ_passed_settlements(
     }
     let mut seen = std::collections::HashSet::new();
     order.into_iter().filter(|b| seen.insert(*b)).collect()
+}
+
+/// `_civPathWaterFrac` (reference line 21142, v0.73): what fraction of a
+/// committed route's own points stand on water. `_civCommitRoute` thresholds
+/// this at `>= 0.5` to set the journey's `sea` flag, which is the ONLY input
+/// [`jp_ensure_plan`]'s crude initial transport/vessel guess has -- a Route
+/// the `mixed` cost grid took across open ocean because that was genuinely
+/// cheaper must not then default to the land itinerary.
+///
+/// `water_bodies` when it exists (any non-zero class is water, ocean or lake
+/// alike), else `field < sea`, exactly the reference's own `wb ? wb[fi] !== 0
+/// : field[fi] < sea` fallback.
+pub fn civ_path_water_frac(
+    pts: &[(f64, f64)],
+    field: &[f32],
+    water_bodies: Option<&[u8]>,
+    gw: usize,
+    gh: usize,
+    sea: f32,
+) -> f64 {
+    if pts.is_empty() || gw == 0 || gh == 0 {
+        return 0.0;
+    }
+    let mut w = 0usize;
+    for &(px, py) in pts {
+        let x = (js_round(px) as i64).clamp(0, gw as i64 - 1) as usize;
+        let y = (js_round(py) as i64).clamp(0, gh as i64 - 1) as usize;
+        let fi = y * gw + x;
+        let wet = match water_bodies {
+            Some(wb) => wb.get(fi).is_some_and(|&c| c != 0),
+            None => field.get(fi).is_some_and(|&h| h < sea),
+        };
+        if wet {
+            w += 1;
+        }
+    }
+    w as f64 / pts.len() as f64
 }
 
 // ---- 5b: `_jpDeriveStages` -------------------------------------------------
@@ -19108,6 +19162,42 @@ mod tests {
                 "Dunmarch|town|21.0,13.0"
             ]
         );
+    }
+
+    /// The input `_jpEnsurePlan`'s `jn.sea` guess actually comes from --
+    /// `_civCommitRoute`'s `_civPathWaterFrac(pts) >= 0.5`. Both branches of
+    /// the reference's own `wb ? wb[fi] !== 0 : field[fi] < sea` fallback, and
+    /// the threshold itself, which is a `>=` on an exactly-half route.
+    #[test]
+    fn commit_route_water_fraction_decides_the_sea_flag() {
+        // 4x1: two ocean cells then two land cells.
+        let field = [0.10f32, 0.20, 0.80, 0.90];
+        let wb = [1u8, 1, 0, 0];
+        let all = [(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)];
+
+        assert_eq!(civ_path_water_frac(&all, &field, Some(&wb), 4, 1, 0.42), 0.5);
+        assert_eq!(civ_path_water_frac(&all, &field, None, 4, 1, 0.42), 0.5);
+        // A lake is water too -- any non-zero class, not just the ocean's.
+        let lake = [2u8, 2, 0, 0];
+        assert_eq!(civ_path_water_frac(&all, &field, Some(&lake), 4, 1, 0.42), 0.5);
+
+        assert_eq!(civ_path_water_frac(&all[..2], &field, Some(&wb), 4, 1, 0.42), 1.0);
+        assert_eq!(civ_path_water_frac(&all[2..], &field, Some(&wb), 4, 1, 0.42), 0.0);
+        assert_eq!(civ_path_water_frac(&[], &field, Some(&wb), 4, 1, 0.42), 0.0);
+
+        // Out-of-range and fractional coordinates clamp and round the way the
+        // reference's own `Math.min(GW-1, Math.max(0, Math.round(...)))` does:
+        // -5 -> cell 0 (ocean), 99 -> cell 3 (land), 1.5 -> 2 (land, JS rounds
+        // a .5 up), 0.5 -> 1 (ocean).
+        let odd = [(-5.0, 0.0), (99.0, 0.0), (1.5, 0.0), (0.5, 0.0)];
+        assert_eq!(civ_path_water_frac(&odd, &field, Some(&wb), 4, 1, 0.42), 0.5);
+
+        // And what the flag is for: the same route reads as a sea voyage.
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let pts = m5_pts();
+        assert_eq!(jp_ensure_plan(&world, &pts, true).transport, "Sea Faring");
+        assert_eq!(jp_ensure_plan(&world, &pts, false).transport, "Walking");
     }
 
     #[test]
