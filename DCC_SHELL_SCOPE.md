@@ -24,11 +24,24 @@
 >
 > | Conflict | Resolution under the rule |
 > |---|---|
-> | Phone geometry: `DCC Shell.dc.html` §13 (393 dp) vs `Cartalith Android Phone.dc.html` (412 dp) | **412 dp** — already ruled separately the same day, and the rule agrees |
-> | Phone bottom-nav **tab set**: the 412 canvas's five pre-v3 domains vs `Cartalith Menu Structure v3.dc.html` | **v3's domain set.** v3 is newer than the phone canvas. So the migration takes 412's *geometry* and v3's *content* — the one place the two authorities split |
-> | Tool options bar: `DCC shell 1920`'s one 34 px row vs `Cartalith Paint Toolbar.dc.html`'s two ruled 38 px rows | **Paint Toolbar** — it is the later artboard and draws a component `DCC shell 1920` does not |
-> | Dropdown check marks: canvas's typographic `●`/`○` vs Godot's stock radio icons | **The canvas.** No newer authority disagrees |
+> | Phone geometry: `DCC Shell.dc.html` §13 (393 dp) vs `Cartalith Android Phone.dc.html` (412 dp) | **412 dp** — already ruled separately the same day, and the rule agrees. **Migrated 2026-08-25**, see below |
+> | Phone bottom-nav **tab set**: the 412 canvas's five pre-v3 domains vs `Cartalith Menu Structure v3.dc.html` | **v3's domain set.** v3 is newer than the phone canvas. So the migration takes 412's *geometry* and v3's *content* — the one place the two authorities split. **Shipped** as `WORLD · CIVIL · CARTO · PANELS · MORE` in the canvas's glyph-over-caption treatment |
+> | Tool options bar: `DCC shell 1920`'s one 34 px row vs `Cartalith Paint Toolbar.dc.html`'s two ruled 38 px rows | **Paint Toolbar** — it is the later artboard and draws a component `DCC shell 1920` does not. **Shipped 2026-08-25**: measured 78 px, two 38 px rows with the rule between |
+> | Dropdown check marks: canvas's typographic `●`/`○` vs Godot's stock radio icons | **The canvas.** No newer authority disagrees. **Shipped 2026-08-25** — Godot draws that column from theme *icons*, so the marks are drawn as a filled disc and a hairline ring rather than set as type |
 > | Menus with no artboard at all (Edit, Window, Help, Preferences' bands, World Data's phone list) | Rule 2 — derive from the drawn menus, and disclose which |
+>
+> ### The 412 phone migration landed, 2026-08-25
+>
+> `DCC_SHELL_SPEC.md` §13's phone column is **superseded, not merely disagreed
+> with**, and now says so at the top of its own section. `DccTheme.PHONE_REF_
+> SHORT` is `412.0`; the status row is 28 dp on a solid ground (no keep-clear
+> reserve, no gradient scrim, no 108 dp centre lane), the app bar 56 dp, the
+> bottom nav 64 dp with a `14px` glyph over a `9.5px` caption, the gesture inset
+> 20 dp with a `112×4` handle, and the ☰ side drawer is deleted in favour of the
+> canvas's `02 Domain` full-screen drill. Verified at 1440×3168 and 1080×2400
+> and driven on the owner's OnePlus 6T. Full record, with before/after numbers
+> and the five surfaces that were *designed* rather than matched:
+> `GUI_GAP_REGISTER.md` §53.
 >
 > Recorded here rather than only in `GUI_GAP_REGISTER.md` §51 because it
 > resolves conflicts that have not happened yet, and because every future

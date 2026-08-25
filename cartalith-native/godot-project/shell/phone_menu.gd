@@ -108,7 +108,9 @@ var _stack: Array = []  ## of `_Step`; untyped because a typed `Array[_Step]`
 var _screen: PanelContainer
 var _screen_head_title: Label
 var _screen_head_trail: Label
+var _screen_head_meta: Label   ## The root's right-hand `ELDRA · 1.6 GB`.
 var _screen_back: Button
+var _screen_close: Button
 var _screen_scroll: ScrollContainer
 var _screen_body: VBoxContainer
 
@@ -145,6 +147,13 @@ func setup(shell: DccShell) -> void:
 	## not guessed: the first run of the capture harness drew the whole menu as
 	## a 181x57 box in the top-left corner.
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## **Always `IGNORE`, open or closed.** This node is full-rect and its
+	## children are inset (`apply_insets()`), so a `STOP` here -- which is what
+	## `open()` used to set -- made the *whole screen* pick, including the strip
+	## below the screen where the bottom nav lives. Found on the handset: with
+	## MORE open, tapping MORE again did nothing and tapping WORLD did nothing,
+	## because neither tap ever reached the bar. Blocking is the job of `_screen`
+	## and `_sheet_scrim`, which cover exactly the rect the menu occupies.
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = false
 
@@ -168,19 +177,34 @@ func _build_screen() -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", DccTheme.panel("bg"))
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	## Explicit, because this is what stops a tap on the menu reaching the map
+	## now that the node above it is `IGNORE` -- a `Container` defaults to `PASS`,
+	## which happens to block too, but relying on a default for a thing that
+	## matters is how the fault above got in.
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	panel.add_child(col)
 
-	## Canvas "02"/"03": ← 40 dp, title over a breadcrumb line, ⋮ on the right.
-	## The right-hand slot is a close here rather than the canvas's overflow
-	## dot-column: there is no third menu behind this menu to put there, and a
-	## decorative one would be the "connected affordance with nothing behind it"
-	## the gap register exists to catch.
+	## Two headers in one row, switched by level in `_render()`:
+	##
+	##   - **L2, the root** is canvas "07 More": `height:56px;padding:0 16px;
+	##     gap:12px`, a `500 12px Plex/.22em` title taking the full width and a
+	##     `10px Plex #6f7478` readout on the right (`ELDRA · 1.6 GB`). **No
+	##     back button and no close.** This screen used to carry a `✕` on each
+	##     side of its title -- two buttons for one action, which is what a
+	##     menu-by-menu walk against this canvas found first. The bottom nav is
+	##     visible beneath the menu, so tapping any tab (MORE included, which is
+	##     a toggle now) leaves; so does system back.
+	##   - **L3+** is canvas "02"/"03": `←` in a 40 dp cell, title over a
+	##     breadcrumb, and a slot on the right the canvas fills with `⋮`. That
+	##     `⋮` is a per-screen overflow this shell has nothing to put behind, so
+	##     the slot carries a close instead -- `←` leaves one level, `✕` leaves
+	##     the menu, and neither is decorative.
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", _ps(12))
-	head.custom_minimum_size.y = _pt(56)
+	head.custom_minimum_size.y = _pt(DccTheme.H_PHONE_APP_BAR)
 
 	_screen_back = _icon_button(DccIcons.SYMBOLS["collapse"], "Back", _go_back_pressed)
 	head.add_child(_screen_back)
@@ -190,16 +214,23 @@ func _build_screen() -> PanelContainer:
 	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	titles.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	titles.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_screen_head_title = DccTheme.mono_label("", "text_bright", _ps(12), 3, true)
-	_screen_head_trail = DccTheme.mono_label("", "text_faint", _ps(9), 1)
+	_screen_head_title = DccTheme.mono_label("", "text_bright", _ps(12), 2, true)
+	_screen_head_trail = DccTheme.mono_label("", "text_faint", _ps(10), 0)
 	titles.add_child(_screen_head_title)
 	titles.add_child(_screen_head_trail)
 	head.add_child(titles)
 
-	head.add_child(_icon_button(DccIcons.SYMBOLS["cross"], "Close menu", close))
+	## The root's right-hand readout, in the canvas's own position and type.
+	_screen_head_meta = DccTheme.mono_label("", "text_faint", _ps(10), 0)
+	_screen_head_meta.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_screen_head_meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	head.add_child(_screen_head_meta)
+
+	_screen_close = _icon_button(DccIcons.SYMBOLS["cross"], "Close menu", close)
+	head.add_child(_screen_close)
 
 	var hp := MarginContainer.new()
-	hp.add_theme_constant_override("margin_left", _ps(6))
+	hp.add_theme_constant_override("margin_left", _ps(16))
 	hp.add_theme_constant_override("margin_right", _ps(6))
 	hp.add_child(head)
 	col.add_child(hp)
@@ -332,10 +363,33 @@ func is_open() -> bool:
 func open() -> void:
 	_stack.clear()
 	## L1 is the bottom bar itself, so the first screen this file owns is L2.
-	_stack.append(_Step.new(null, "Menu", "Cartalith", 2))
+	## `MORE` is the canvas's own word for this screen and for the bar cell that
+	## opens it; it read `MENU` until the 412 migration.
+	_stack.append(_Step.new(null, "More", "", 2))
 	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
 	_render()
+
+## The canvas's `ELDRA · 1.6 GB` -- the world's name beside what it costs.
+## Read off the live status slots rather than stored: `top_world` is written as
+## `"ELDRA · <seed>"` by `app.gd`, so the name is its head, and `top_mem` is the
+## Performance window's own figure. Either half may be empty before a world
+## exists, and an empty readout is drawn as nothing rather than as `· `.
+func _root_meta() -> String:
+	var parts := PackedStringArray()
+	var world := _slot("top_world")
+	if world != "":
+		parts.append(world.split(" · ")[0])
+	var mem := _slot("top_mem")
+	if mem != "":
+		parts.append(mem)
+	return " · ".join(parts)
+
+## A status slot's text, with the shell's own em-dash placeholder read as
+## "nothing yet". Before a world exists `top_world` is `–`, and a header that
+## reads `–` is worse than one that reads nothing.
+func _slot(key: String) -> String:
+	var t := _shell.status_slot_text(key).strip_edges()
+	return "" if t == "" or t == "–" or t == "—" or t == "-" else t
 
 ## Present ONE arbitrary `PopupMenu` as an L4 sheet with nothing behind it but
 ## the veiled map -- the map context menu's phone form
@@ -358,12 +412,10 @@ func open_sheet(popup: PopupMenu, title: String, trail: String) -> void:
 	_stack.clear()
 	_stack.append(_Step.new(popup, title, trail, 4))
 	visible = true
-	mouse_filter = Control.MOUSE_FILTER_STOP
 	_render()
 
 func close() -> void:
 	visible = false
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stack.clear()
 
 ## Canvas BACK: "System back leaves a sheet, then the L2 screen, then the
@@ -420,11 +472,18 @@ func _render() -> void:
 
 	_screen.visible = screen_step != null
 	if screen_step != null:
+		var root: bool = screen_step.level == 2
 		_screen_head_title.text = screen_step.title.to_upper()
-		_screen_head_trail.text = screen_step.trail
-		_screen_back.text = DccIcons.SYMBOLS["cross"] if screen_step.level == 2 \
-			else DccIcons.SYMBOLS["collapse"]
-		_screen_back.tooltip_text = "Close menu" if screen_step.level == 2 else "Back"
+		_screen_head_trail.text = "" if root else screen_step.trail
+		_screen_head_trail.visible = not root
+		## Canvas "07 More": the root's header is a title and a readout, with no
+		## button on either side. Everything deeper is "02"/"03": `←` and a
+		## right-hand slot.
+		_screen_back.visible = not root
+		_screen_close.visible = not root
+		_screen_head_meta.visible = root
+		if root:
+			_screen_head_meta.text = _root_meta()
 		_fill(_screen_body, screen_step)
 		_screen_scroll.scroll_vertical = 0
 
@@ -638,7 +697,7 @@ func _row(title: String, subtitle: String, trail: Control, mark: Control,
 	row.add_theme_stylebox_override("panel", DccTheme.empty())
 	## Canvas TARGETS: "52 dp list rows". A row grows past it when its text
 	## wraps; it never shrinks below it.
-	row.custom_minimum_size.y = _pt(52)
+	row.custom_minimum_size.y = _pt(DccTheme.H_PHONE_ROW)
 	row.tooltip_text = subtitle
 	if on_press.is_valid():
 		row.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -672,7 +731,10 @@ func _row(title: String, subtitle: String, trail: Control, mark: Control,
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(t)
 	if subtitle.strip_edges() != "":
-		var s := DccTheme.mono_label(_shorten(subtitle), "text_faint", _ps(9), 0)
+		## `font:9.5px 'IBM Plex Mono';color:#5f6468` -- `text_ghost`, one step
+		## quieter than the `text_faint` this used, on every drill row the canvas
+		## draws a second line on.
+		var s := DccTheme.mono_label(_shorten(subtitle), "text_ghost", _ps(9.5), 0)
 		s.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		col.add_child(s)
 	line.add_child(col)
@@ -708,18 +770,29 @@ func _row_input(ev: InputEvent, row: PanelContainer, on_press: Callable) -> void
 	row.add_theme_stylebox_override("panel", DccTheme.empty())
 	on_press.call()
 
+## `padding:13px 16px 5px;font:9.5px 'IBM Plex Mono';letter-spacing:.2em;
+## color:#6f7478` -- the canvas's band on every one of its eight screens.
+##
+## **Built here rather than through `DccTheme.header()`**, which is a desktop
+## helper: its `FS_HEADER` is a raw 9, and the main viewport has no content
+## scale, so every band caption in this menu was drawing at 9 *physical* pixels
+## -- about half a millimetre on a 510 ppi panel, and legible in a capture only
+## if you already knew what it said. Measured at 1080x2400 before this pass:
+## STATUS / PROJECT / CONTENT / SYSTEM were four grey smudges.
 func _band(title: String) -> Control:
 	var wrap := MarginContainer.new()
 	wrap.add_theme_constant_override("margin_left", _ps(16))
 	wrap.add_theme_constant_override("margin_right", _ps(16))
-	wrap.add_theme_constant_override("margin_top", _ps(16))
-	wrap.add_theme_constant_override("margin_bottom", _ps(6))
+	wrap.add_theme_constant_override("margin_top", _ps(13))
+	wrap.add_theme_constant_override("margin_bottom", _ps(5))
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	## An unlabelled `add_separator()` has no caption to draw, so the band is the
-	## gap plus the hairline the list already puts between rows. Stated in this
-	## file's header as the one place the canvas is not fully met.
-	var l := DccTheme.header(title, "") if title.strip_edges() != "" \
-		else DccTheme.header("", "")
+	## gap plus the hairline the list already puts between rows. Every group in
+	## the drawn menus carries its canvas name as of `GUI_GAP_REGISTER.md` MN-14,
+	## which is what turned this file's stated shortfall into a caption.
+	## `.2em` of 9.5 px is 1.9, and `spacing_glyph` is whole pixels.
+	var l := DccTheme.mono_label(title.strip_edges().to_upper(), "text_faint",
+		_ps(9.5), 2, true)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	wrap.add_child(l)
 	return wrap

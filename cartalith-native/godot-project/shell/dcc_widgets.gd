@@ -34,13 +34,35 @@ static func category(parent: Control, title: String, group: Array,
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.custom_minimum_size.y = 30
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	btn.add_theme_font_override("font", DccTheme.mono(1))
 	btn.add_theme_color_override("font_color", DccTheme.c("text_bright"))
 	btn.add_theme_stylebox_override("normal", DccTheme.inset(12, 0, 12, 0))
 	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 	btn.add_theme_stylebox_override("pressed", DccTheme.inset(12, 0, 12, 0))
-	wrap.add_child(btn)
+
+	## **Phone only: the per-row control count.**
+	## `design/Cartalith Android Phone.dc.html`'s `02 Domain` screen puts a
+	## `10px 'IBM Plex Mono';color:#6f7478` number at the end of every category
+	## row -- "the count is the number of controls inside, so depth is legible
+	## before the tap" -- and no desktop or tablet artboard draws one, so the
+	## header stays a bare `Button` everywhere else and this costs those two
+	## compositions exactly one `size_flags` assignment.
+	var head: Control = btn
+	var count_label: Label = null
+	if DccTheme.is_phone():
+		var hbox := HBoxContainer.new()
+		hbox.add_theme_constant_override("separation", 4)
+		hbox.add_child(btn)
+		count_label = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY, 0)
+		count_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		var cpad := MarginContainer.new()
+		cpad.add_theme_constant_override("margin_right", 12)
+		cpad.add_child(count_label)
+		hbox.add_child(cpad)
+		head = hbox
+	wrap.add_child(head)
 
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 0)
@@ -53,7 +75,38 @@ static func category(parent: Control, title: String, group: Array,
 	group.append(entry)
 	btn.text = "%s  %s" % [DccIcons.SYMBOLS["caret"] if open else DccIcons.SYMBOLS["submenu"], title]
 	btn.pressed.connect(func(): _toggle_category(entry, group))
+	## Deferred because the body is empty right now: the caller fills it with the
+	## VBox this returns, synchronously, in the same call stack. `call_deferred`
+	## runs at the end of the frame's idle pass, by which time it is populated --
+	## and it works on a node that is not yet in the tree, which matters because a
+	## workspace builds its whole panel before `register_workspace()` attaches it.
+	if count_label != null:
+		_fill_category_count.bind(body, count_label).call_deferred()
 	return body
+
+## How many controls a category holds, for the phone drill row's count column.
+##
+## Counts *controls*, not nodes: a `SpinBox` and an `OptionButton` are each one
+## control made of several `BaseButton`s and a `LineEdit`, so the walk counts
+## them and stops rather than descending. Everything else that a finger can move
+## -- a slider, a checkbox, an action, a text field -- counts once.
+static func _fill_category_count(body: Node, label: Label) -> void:
+	if not is_instance_valid(body) or not is_instance_valid(label):
+		return
+	var n := _count_controls(body)
+	label.text = "%d" % n if n > 0 else ""
+
+static func _count_controls(node: Node) -> int:
+	var n := 0
+	for child in node.get_children():
+		if child is SpinBox or child is OptionButton:
+			n += 1
+			continue
+		if child is BaseButton or child is Range or child is LineEdit or child is TextEdit:
+			n += 1
+			continue
+		n += _count_controls(child)
+	return n
 
 static func _toggle_category(entry: Dictionary, group: Array) -> void:
 	var opening: bool = not (entry["body"] as Control).visible
@@ -420,6 +473,56 @@ static func style_popup(popup: PopupMenu) -> void:
 	sep.color = DccTheme.c("line_soft")
 	sep.thickness = 1
 	popup.add_theme_stylebox_override("separator", sep)
+	_style_popup_marks(popup, fs)
+
+## **The check column.** `GUI_GAP_REGISTER.md` §51 row 70: the canvas marks a
+## chosen row with a typographic `●` and an unchosen one with `○`
+## (`DccIcons.SYMBOLS["on"]`/`["off"]`, the same pair `phone_menu.gd` already
+## draws in its own rows), and the shell was leaving Godot's stock radio and
+## check icons -- a blue-tinted disc and a boxed tick from the engine's default
+## theme, which is the last stock artwork left in a shell whose palette is greys
+## plus one amber.
+##
+## Godot draws that column from four **theme icons**, so this is the one place
+## a typographic mark has to arrive as a texture. Drawn rather than rasterised
+## out of the font: a filled disc *is* `●` and a hairline ring *is* `○`, at the
+## exact ink the palette says, repainted on a theme switch because
+## `_recolor_subtree()` cannot reach inside a `Texture2D`.
+##
+## Sized to the item's own type (`fs`), so the marks scale with the tablet's
+## 14 px rows the same way the labels beside them do.
+static func _style_popup_marks(popup: PopupMenu, fs: int) -> void:
+	var px := maxi(6, int(round(fs * 0.62)))
+	var on := _round_dot(px, DccTheme.c("accent"))
+	var off := _round_ring(px, DccTheme.c("text_ghost"))
+	popup.add_theme_icon_override("radio_checked", on)
+	popup.add_theme_icon_override("radio_unchecked", off)
+	popup.add_theme_icon_override("checked", on)
+	popup.add_theme_icon_override("unchecked", off)
+	## The disabled pair exists too, and left alone it falls back to the stock
+	## artwork -- the same "one row in twenty still draws the engine's own icon"
+	## trap `style_popup()` itself was written to close.
+	var dim := _round_dot(px, DccTheme.c("text_ghost"))
+	popup.add_theme_icon_override("radio_checked_disabled", dim)
+	popup.add_theme_icon_override("radio_unchecked_disabled", off)
+	popup.add_theme_icon_override("checked_disabled", dim)
+	popup.add_theme_icon_override("unchecked_disabled", off)
+
+## `○` -- a hairline ring, the outlined twin of `_round_dot()`.
+static func _round_ring(px: int, color: Color) -> ImageTexture:
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	img.fill(Color(color.r, color.g, color.b, 0.0))
+	var c := (px - 1) * 0.5
+	var w: float = maxf(1.0, px / 9.0)  ## The stroke, ~1.2 px at 11 px type.
+	for y in px:
+		for x in px:
+			var d := Vector2(x - c, y - c).length()
+			## Coverage of a `w`-wide annulus whose outer edge is the disc rim.
+			var a: float = minf(clampf(c - d + 0.5, 0.0, 1.0),
+				clampf(d - (c - w) + 0.5, 0.0, 1.0))
+			if a > 0.0:
+				img.set_pixel(x, y, Color(color.r, color.g, color.b, a * color.a))
+	return ImageTexture.create_from_image(img)
 
 static func number(parent: Control, label_text: String, minimum: float, maximum: float,
 		step: float, value: float, on_change: Callable, tooltip: String = "") -> SpinBox:
@@ -454,11 +557,17 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 ## distinction the design does not make. What survives is the padding: a dock
 ## action is `4px 10px`, a modal's is `8px 18px`. Radius was 2 and is now 0
 ## per §11's "Radius 0 everywhere".
+## Marks an `action()` button so `DccShell.phone_fit()` can find it and swap the
+## desktop chip for the 412 canvas's 48 dp pill. The *primary* flag rides along
+## because the pill's two variants differ by fill, not by size.
+const ACTION_META := "dcc_action_primary"
+
 static func action(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
+	b.set_meta(ACTION_META, primary)
 	b.custom_minimum_size.y = 26
 	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	b.add_theme_font_override("font", DccTheme.mono(1))
@@ -809,6 +918,94 @@ static func set_mode_segment_on(b: Button, on: bool) -> void:
 	b.add_theme_color_override("font_color", DccTheme.c("bg"))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("bg"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("bg"))
+
+## The phone form of `action()`: `design/Cartalith Android Phone.dc.html`'s
+## `height:48px;border-radius:24px`, primary filled `#e0a34a` with `#141617`
+## type, secondary the same box outlined at `rgba(255,255,255,.16)`, both
+## `font:500 11px 'IBM Plex Mono';letter-spacing:.16em` in upper case.
+##
+## Called from `DccShell.phone_fit()` and nowhere else, so a desktop or tablet
+## build never sees a rounded button and the 141 call sites `GUI_GAP_REGISTER.md`
+## §48 (DS-02) cleared of accent fills stay cleared -- the fill here is the
+## phone canvas's own, on the phone only.
+##
+## `px` is `phone_fit()`'s unit: what one authored pixel is worth in this
+## subtree's space. Everything below is authored in 412 dp and multiplied by it.
+static func phone_pill(b: Button, unit: float) -> void:
+	var primary: bool = bool(b.get_meta(ACTION_META, false))
+	var h := int(round(DccTheme.H_PHONE_PILL * unit))
+	var r := int(round(DccTheme.H_PHONE_PILL * 0.5 * unit))
+	var pad_x := int(round(16.0 * unit))
+	b.custom_minimum_size.y = maxf(b.custom_minimum_size.y, float(h))
+	b.text = b.text.to_upper()
+	b.add_theme_font_override("font", DccTheme.mono(maxi(1, int(round(2.0 * unit))), true))
+	b.add_theme_font_size_override("font_size", maxi(1, int(round(11.0 * unit))))
+	var rest := DccTheme.pill(primary, r, pad_x, 0)
+	var lit := DccTheme.pill(primary, r, pad_x, 0)
+	if primary:
+		lit.bg_color = DccTheme.c("accent_hover")
+	else:
+		lit.bg_color = DccTheme.c("line_soft")
+	for sb_name in ["normal", "disabled"]:
+		b.add_theme_stylebox_override(sb_name, rest)
+	for sb_name in ["hover", "pressed"]:
+		b.add_theme_stylebox_override(sb_name, lit)
+	b.add_theme_stylebox_override("focus", DccTheme.empty())
+	## Reversed paper ink on the filled pill (`c("bg")`, not the literal
+	## `#141617`, so a theme switch repaints it -- the same choice
+	## `set_mode_segment_on()` made), and `#c8cbcd` on the outlined one.
+	var fg := DccTheme.c("bg") if primary else DccTheme.c("text")
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_hover_color", fg)
+	b.add_theme_color_override("font_pressed_color", fg)
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+
+## The phone form of a `slider()` track: `height:3px` with a `22x22` round
+## accent thumb in a `32px` row.
+##
+## The dock's slider deliberately has **no grabber** -- §11's "a 2 px rule, the
+## travelled part in accent, and no grabber", which is right for a pointer and
+## is what `_style_slider()` builds. The 412 phone canvas draws a thumb on every
+## slider it has, in the position the value is at, because a finger has no
+## cursor to tell it where the handle is. Rasterised as a circle rather than
+## taken from Godot's stock grabber, which is a fixed bitmap this shell cannot
+## recolour for the light palette -- the same reason `phone_menu.gd` builds its
+## switch out of two rounded styleboxes.
+static func phone_slider(s: HSlider, unit: float) -> void:
+	var thumb := maxi(4, int(round(DccTheme.PHONE_SLIDER_THUMB * unit)))
+	var track := maxi(1, int(round(DccTheme.PHONE_SLIDER_TRACK * unit)))
+	s.custom_minimum_size.y = maxf(s.custom_minimum_size.y,
+		float(maxi(thumb, int(round(DccTheme.PHONE_SLIDER_ROW * unit)))))
+	var bar := StyleBoxFlat.new()
+	bar.bg_color = DccTheme.c("line")
+	bar.content_margin_top = track / 2
+	bar.content_margin_bottom = track - track / 2
+	s.add_theme_stylebox_override("slider", bar)
+	var filled := StyleBoxFlat.new()
+	filled.bg_color = DccTheme.c("accent")
+	s.add_theme_stylebox_override("grabber_area", filled)
+	s.add_theme_stylebox_override("grabber_area_highlight", filled)
+	var tex := _round_dot(thumb, DccTheme.c("accent"))
+	s.add_theme_icon_override("grabber", tex)
+	s.add_theme_icon_override("grabber_highlight", tex)
+	s.add_theme_icon_override("grabber_disabled", _round_dot(thumb, DccTheme.c("text_ghost")))
+	s.add_theme_constant_override("center_grabber", 1)
+
+## A filled circle as an `ImageTexture`, drawn rather than loaded because this
+## shell ships no bitmaps and a theme switch has to be able to redraw it.
+## Antialiased by a one-pixel coverage ramp at the rim; anything cheaper reads
+## as a polygon at 22 dp on a 510 ppi panel.
+static func _round_dot(px: int, color: Color) -> ImageTexture:
+	var img := Image.create(px, px, false, Image.FORMAT_RGBA8)
+	img.fill(Color(color.r, color.g, color.b, 0.0))
+	var c := (px - 1) * 0.5
+	for y in px:
+		for x in px:
+			var d := Vector2(x - c, y - c).length()
+			var a: float = clampf(c - d + 0.5, 0.0, 1.0)
+			if a > 0.0:
+				img.set_pixel(x, y, Color(color.r, color.g, color.b, a * color.a))
+	return ImageTexture.create_from_image(img)
 
 ## An outlined text field -- the canvas's Tile size / World bounds /
 ## Destination wells and the Asset library's search.

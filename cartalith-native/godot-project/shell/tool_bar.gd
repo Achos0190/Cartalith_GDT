@@ -101,14 +101,30 @@ func rebuild() -> void:
 
 # -- Composition ---------------------------------------------------------------
 
+## **Two ruled 38 px rows, not two unruled ones inside a 34 px bar.**
+##
+## `GUI_GAP_REGISTER.md` §51 row 61 recorded this as an owner call, because the
+## two canvases disagree: `DCC shell 1920` draws the tool options bar as **one**
+## `height:34px` row, and `Cartalith Paint Toolbar.dc.html` draws **two**, each
+## `height:38px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10)`.
+## `DCC_SHELL_SCOPE.md`'s rule 1 settles it: the Paint Toolbar is the later
+## artboard and draws a component the other does not, so it wins. This built the
+## two rows already -- at 22 and 24-28 px, with a 4 px gap and no rule.
+##
+## The shell's bar keeps its own 34 px minimum, which is the *idle* row
+## `DCC shell 1920` draws and what `app.gd` fills when no tool is armed; the
+## two rows below push past it when a tool is.
+const BAR_ROW_H := 38
+
 func _build(row: HBoxContainer) -> void:
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 4)
+	col.add_theme_constant_override("separation", 0)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(col)
 
 	var tools := HBoxContainer.new()
 	tools.add_theme_constant_override("separation", 6)
+	tools.custom_minimum_size.y = BAR_ROW_H
 	col.add_child(tools)
 	_build_mode_buttons(tools)
 	tools.add_child(DccTheme.rule(true))
@@ -117,8 +133,17 @@ func _build(row: HBoxContainer) -> void:
 		"paint": _build_paint_tools(tools)
 		_: _build_measure_tools(tools)
 
+	## The canvas's `border-bottom` on the first row. Inset by the bar's own
+	## 14 px content margin rather than full-bleed -- `tool_options_row` is the
+	## one node `set_tool_options()` refills and it sits *inside* that margin, so
+	## a full-width rule would mean restructuring the bar around a component that
+	## four workspaces and `app.gd` all build into. Named because it is the one
+	## figure in this block that is not the canvas's.
+	col.add_child(DccTheme.rule())
+
 	var options := HBoxContainer.new()
 	options.add_theme_constant_override("separation", 8)
+	options.custom_minimum_size.y = BAR_ROW_H
 	col.add_child(options)
 	match mode:
 		"sculpt": _build_sculpt_options(options)

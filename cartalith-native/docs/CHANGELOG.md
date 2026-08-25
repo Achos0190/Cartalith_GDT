@@ -28288,3 +28288,88 @@ collapse the dash loop into a single `draw_multiline` — the exact change
 the 577 ms-a-redraw payoff — and bound the overlay by zoom, which today nothing
 does. Full account in `GUI_GAP_REGISTER.md` §52 and
 `MEMORY_OPTIMIZATION_SCOPE.md`.
+
+## The phone moves to 412 dp — the canvas the owner ruled for, built and driven (`GUI_GAP_REGISTER.md` §53, 2026-08-25)
+
+The owner ruled that the phone follows `design/Cartalith Android Phone.dc.html`
+at **412 dp**, superseding `DCC_SHELL_SPEC.md` §13 and the 393 dp `DCC shell
+android phone` artboard. §51 measured the whole delta and deliberately did not
+start the migration. This is that pass.
+
+**Nothing was broken going in**, and that is worth stating twice: `PHONE_REF_
+SHORT` was `393.0` and every shipped phone constant matched the 393 canvas
+coherently at both 1440x3168 and 1080x2400. This is a redesign, so a regression
+would have been a real cost rather than a wash, and every figure was measured
+before and after at both sizes.
+
+**The arithmetic does not cancel, which is the trap this pass had to avoid.**
+`_phone_scale` is `short_side / PHONE_REF_SHORT`, so moving the reference from
+393 to 412 *drops* it — 3.664 to 3.495 at 1440, 2.748 to 2.621 at 1080 — and
+every existing `_pscale()` result shrinks 4.6 %. The authored figures move
+independently and in both directions: the app bar goes up (52 to 56), the status
+row and the gesture inset come down hard (44 to 28, 26 to 20). So the constants
+were **re-authored against the canvas's own literal inline styles**, not
+converted. Measured after: status row 28.0 / 27.9 dp, app bar 56.1 / 56.1,
+bottom nav 64.4 / 64.5, gesture inset 20.0 / 19.8 — the canvas's 28 / 56 / 64 /
+20, at both device sizes. The map gains about 88 px of height at 1440.
+
+**The one place the two authorities split is resolved rather than copied.** The
+canvas's five bottom-nav tabs are the *pre-v3* domain set (`WORLD · GENERATE ·
+SIMULATE · MAP · MORE`); `Cartalith Menu Structure v3.dc.html` is newer and owns
+domain naming, and has three. `DCC_SHELL_SCOPE.md`'s rule 1 gives **412's
+geometry and v3's content**: `WORLD · CIVIL · CARTO · PANELS · MORE`, in the
+canvas's own `14px`-glyph-over-`9.5px`-caption treatment. The row was captions
+only before this. Three of the five glyphs already existed as drawn SVG —
+`domain_world` / `domain_civ` / `domain_carto`, authored to §12's rules for
+exactly these subjects; `nav_panels` and `nav_more` are new and are *designed
+rather than matched*, each tracing the canvas's own symbol at §12's stroke. This
+does not re-open the owner's "those icons don't exist", which was about the
+**desktop vertical rail**, whose artboard draws no icon element at all.
+
+**Three regions were deleted rather than resized.** The 96 dp gradient scrim
+(the canvas paints a solid ground), the 108 dp centre keep-clear lane in
+portrait, and the 300 dp ☰ side drawer — the canvas's `02 Domain` is a
+full-screen drill with a `←`, which is what this shell's left dock sheet already
+is, so `☰` opens that. Deleting the scrim also deleted the third recolour pass
+`rebuild_theme()` needed for it, because its colour lived inside a
+`GradientTexture2D` that neither theme walk could reach.
+
+**The defect this pass produced was found on glass and only on glass.** With the
+MORE screen open on the OnePlus 6T, tapping MORE again did nothing and tapping
+WORLD did nothing. `PhoneMenu` is a full-rect `Control` whose children are inset,
+and `open()` set the **node's own** `mouse_filter` to `STOP` — so the whole
+screen picked, including the strip where the bottom nav lives, and every tap on
+the bar was eaten by a transparent parent. The node is `IGNORE` always now
+(blocking is the job of `_screen` and `_sheet_scrim`, which cover exactly the
+menu's rect), and the menu's bottom inset includes the bar so it is visible as
+well as reachable — which is what the canvas's own model requires, since the bar
+is L1 of the disclosure tree and `07 More` is a tab destination, not a modal.
+The general rule: **an overlay that insets its children must not `STOP` on its
+own full-rect root.** Same shape as MN-13's `flat = true` — a property set on
+the wrong node, invisible until something is driven.
+
+Also landed: the overflow root is `MORE` with the canvas's `<world> · <memory>`
+readout and **no** close button, in place of the two `✕`s it carried on either
+side of its own title, with the MORE tab as a toggle; sheet actions are the
+canvas's 48 dp pills at `border-radius:24px` — `DccTheme.pill()` is the only
+rounded surface in this design system, and deliberately so, since §11's radius-0
+rule is about the desktop artboards and the phone canvas overrides it in all
+eight of its screens; sliders gained the 22 dp round thumb the canvas draws and
+the dock's own §11 slider deliberately has none of; the L2 drill rows carry the
+per-category control count the canvas puts on every one of them; and the phone
+menu's band captions, which had been drawing at 9 *physical* pixels because
+`DccTheme.header()` is a desktop helper, are legible.
+
+Two rows from §51 that are not phone work closed in the same pass, both by the
+same rule. The **tool options bar** is two ruled 38 px rows (`Cartalith Paint
+Toolbar.dc.html`, the later artboard) rather than one 34 px one — measured 78 px
+with the rule between, for all three modes. And **dropdown check marks** are the
+canvas's `●`/`○` rather than Godot's stock radio icons: that column is drawn
+from theme *icons*, so the marks arrive as a rasterised filled disc and hairline
+ring in palette ink, `_disabled` variants included.
+
+Verified with a `SubViewport`-hosted probe at 1440x3168 and 1080x2400, windowed,
+never headless; the menu conformance probe re-run at 1600x900 and 2560x1600
+clean; and **driven on the owner's OnePlus 6T**, where the tap fault above was
+found. No Rust changed. `project.godot`'s md5 held across every Godot
+invocation.

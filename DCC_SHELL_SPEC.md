@@ -975,24 +975,55 @@ both themes at 12 px before it ships.
 
 ## 13 · Touch behaviour
 
+> ### ⚠️ THE PHONE COLUMN BELOW IS SUPERSEDED — AND THE MIGRATION HAS LANDED
+>
+> **Owner ruling, 2026-08-25:** the phone follows
+> `design/Cartalith Android Phone.dc.html` at **412 dp**. This section's phone
+> figures were authored against the 393 dp `DCC shell android phone` artboard
+> and are no longer the target. `DCC_SHELL_SCOPE.md`'s "WHICH CANVAS WINS"
+> header carries the ruling and the five conflicts it settles.
+>
+> **The shell was migrated on 2026-08-25** and now measures 28/56/64/20 dp
+> against the 412 canvas at both 1440×3168 and 1080×2400, verified on the
+> owner's OnePlus 6T. `GUI_GAP_REGISTER.md` §53 is the record, with the
+> before/after numbers and the five things that were *designed* rather than
+> matched. What changed, item by item:
+>
+> | This section says | The 412 canvas says, and the shell now does |
+> |---|---|
+> | top 44 px keep-clear, 108 px centre lane, gradient scrim | **28 dp status row**, edge to edge, **solid ground** — no lane, no scrim. The lane survives in landscape only, which no canvas draws |
+> | app bar 52 px, `☰ / title+seed / ▤ / ⋯` | **56 dp**, `☰ / title+seed / ⌕ / ⋮` in 40 dp cells. `▤`/`⋯` are bottom-nav tabs; `⌕` and `⋮` have no destination in this build and are registered, not drawn |
+> | ☰ opens a domain **drawer** | there is no drawer — `☰` opens the left dock as the canvas's `02 Domain` full-screen drill |
+> | domain rail is a 44 px column | there is no rail — **a 64 dp five-tab bottom nav**, `14px` glyph over `9.5px` caption |
+> | bottom 26 px gesture inset | **20 dp**, handle `112×4` |
+>
+> **Everything below this box that is not about the phone still stands**: the
+> tablet paragraph, the 44 px floor, and the "reorganises rather than
+> truncates" principle are unchanged, and the 412 canvas's own TARGETS card
+> restates the floor in its own words.
+
 Tablet keeps full desktop parity — same regions, same menus, same disclosure
 depth, targets 44–52 px, docks 400 px.
 
 Phone reorganises rather than truncates:
 
 - Map draws edge-to-edge behind every inset.
-- Top 44 px is a keep-clear safe area: status glyphs only, in left and right
+- ~~Top 44 px is a keep-clear safe area: status glyphs only, in left and right
   pockets, with a 108 px centre lane reserved for a punch-hole or notch. Nothing
-  is centred there. A gradient scrim, not an opaque bar, carries legibility.
-- The app bar below it is the first row allowed to hold controls: ☰ (domain
+  is centred there. A gradient scrim, not an opaque bar, carries legibility.~~
+  **Superseded**: 28 dp status row on a solid ground, edge to edge.
+- ~~The app bar below it is the first row allowed to hold controls: ☰ (domain
   drawer), title + seed, ▤ (panels), ⋯ (overflow menu carrying the full menu
-  bar).
-- Domain rail is a 44 px column with each domain in a 44 px hit box.
+  bar).~~ **Superseded**: 56 dp; ▤ and ⋯ moved to the bottom nav.
+- ~~Domain rail is a 44 px column with each domain in a 44 px hit box.~~
+  **Superseded**: a 64 dp five-tab bottom nav, glyph over caption.
 - Tool options become a bottom sheet; docks become full-height sheets, one at a
   time; all five disclosure levels survive inside them.
-- Bottom 26 px is the gesture inset — no tappable target inside it. Timeline and
-  sheets stop above it.
+- ~~Bottom 26 px is the gesture inset~~ — **20 dp** — no tappable target inside
+  it. Timeline and sheets stop above it.
 - In landscape the cutout moves to a side edge; apply the same reserve
-  horizontally.
+  horizontally. *(Still the only guidance for landscape: all eight 412 screens
+  are portrait, so this is kept and derived under `DCC_SHELL_SCOPE.md`'s
+  rule 2.)*
 
 Minimum target 44 px, measured inside the safe area, with no exceptions.

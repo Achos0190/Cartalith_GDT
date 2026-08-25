@@ -8644,3 +8644,316 @@ not a proposal, and §47 stays exactly as it shipped. What is kept is
 fix rather than measurement scaffolding. `project.godot` md5
 `ccba27c9280cf8373412e2ba87ed4054` before and after every Godot invocation this
 pass made; the `;` comment block survived each one.
+
+---
+
+## 53 · PH-18…PH-27 — the 412 dp phone migration: the canvas the owner ruled for, built (2026-08-25) — **TEN LANDED, ONE BUG FOUND ON THE DEVICE, FOUR REGISTERED**
+
+§51 measured the whole delta between the shipped 393 dp phone and
+`design/Cartalith Android Phone.dc.html`, and deliberately did not start the
+migration. This is that pass.
+
+**Nothing was broken going in.** `DccTheme.PHONE_REF_SHORT` was `393.0` and
+every shipped phone constant matched the 393 canvas coherently at both 1440×3168
+and 1080×2400 — §51 measured that and said so. This is a redesign, so a
+regression here would be a real cost rather than a wash, and every figure below
+is given before *and* after at both sizes.
+
+### The arithmetic, first, because it does not cancel
+
+`_phone_scale` is `short_side / PHONE_REF_SHORT`. Moving the reference from 393
+to 412 **drops** it — 3.664 → **3.495** at 1440, 2.748 → **2.621** at 1080 — so
+every existing `_pscale()` result shrinks 4.6 %. The authored dp move
+independently and in both directions: the app bar goes *up* (52 → 56), the
+status row and gesture inset come *down* hard (44 → 28, 26 → 20). The two do not
+cancel, and the constants are therefore **re-authored against the 412 canvas's
+own literal inline styles**, not converted. Read them, not the prose about them:
+§51 records that mistake biting twice.
+
+### Measured, before and after, at both sizes
+
+Harness `_ph412_probe.gd`/`.tscn` (untracked, `SubViewport`-hosted for §47's
+reason). Physical pixels, with dp against the reference live at the time.
+
+| Region | 393 canvas @1440 | 412 canvas @1440 | 393 @1080 | 412 @1080 | Canvas asks |
+|---|---|---|---|---|---|
+| Status row | 161 px · 43.9 dp | **98 px · 28.0 dp** | 121 px · 44.0 dp | **73 px · 27.9 dp** | 28 |
+| App bar | 191 px · 52.1 dp | **196 px · 56.1 dp** | 143 px · 52.0 dp | **147 px · 56.1 dp** | 56 |
+| Bottom nav | 236 px · 64.4 dp | **225 px · 64.4 dp** | 177 px · 64.4 dp | **169 px · 64.5 dp** | 64 |
+| Gesture inset | 95 px · 25.9 dp | **70 px · 20.0 dp** | 71 px · 25.8 dp | **52 px · 19.8 dp** | 20 |
+| Sheet action | square chip, 26 px base | **168 px · 48.1 dp pill, r84** | square chip | **126 px · 48.1 dp pill, r63** | 48 dp, `border-radius:24px` |
+| Slider thumb | none at all | **77 px · 22.0 dp** | none | **58 px · 22.1 dp** | 22 |
+| Top scrim | 352 px gradient | **deleted** | 264 px | **deleted** | solid ground |
+| ☰ drawer | 300 dp side sheet | **deleted** | same | **deleted** | no drawer |
+
+Net: the map gains ~88 px of height at 1440 and ~66 px at 1080.
+
+### PH-18 · The constants · **LANDED**
+
+`PHONE_REF_SHORT` 393 → **412**. `H_PHONE_TOP_SAFE` 44 → **28**;
+`H_PHONE_APP_BAR` 52 → **56**; `H_PHONE_GESTURE` 26 → **20**.
+`H_PHONE_TOP_SCRIM` (96) and `W_PHONE_RAIL` (44, already unused) **deleted**.
+New, all read off the canvas: `H_PHONE_BOTTOM_NAV` 64, `W_PHONE_GESTURE_HANDLE`
+112, `H_PHONE_ROW` 52, `H_PHONE_PILL` 48, `PHONE_ICON_BOX` 40,
+`PHONE_SLIDER_ROW`/`_TRACK`/`_THUMB` 32/3/22. `PHONE_TAP_MIN` stays 44 — the
+canvas's own TARGETS card restates it, in 412 units.
+
+`W_PHONE_CUTOUT` (108) is **kept for landscape only** and disclosed: all eight
+412 screens are portrait, so landscape has no canvas at all and keeps §13's
+reserve under `DCC_SHELL_SCOPE.md`'s rule 2.
+
+### PH-19 · The bottom nav is glyph-over-caption, and it carries v3's domains · **LANDED**
+
+The one place the two authorities split, and it is resolved rather than copied.
+The canvas's five tabs are `WORLD · GENERATE · SIMULATE · MAP · MORE` — the
+**pre-v3** domain set. `Cartalith Menu Structure v3.dc.html` is newer and owns
+domain content and naming, and has three. Rule 1 gives **412's geometry and v3's
+content**: `WORLD · CIVIL · CARTO · PANELS · MORE`, in the canvas's own
+treatment — a `14px` glyph over a `9.5px/.1em` caption, `gap:4px`, active
+`#e0a34a` over a resting `#8d9296`.
+
+`MENU` is `MORE` now, which is the canvas's word for that destination.
+
+The row was **captions only** before this pass. Three of the five glyphs already
+existed as drawn SVG — `DccIcons`' `domain_world` / `domain_civ` /
+`domain_carto`, authored to §12's rules for these exact subjects. `nav_panels`
+and `nav_more` are new and are **designed rather than matched**, each tracing
+the canvas's own chosen symbol (▤, ⋯) at §12's 1.2 px stroke.
+
+**This does not re-open the owner's *"those icons don't exist."*** That ruling
+was about the **desktop vertical rail**, whose artboard draws vertical captions
+and no icon element at all. This artboard draws a glyph over every caption,
+explicitly, five times.
+
+The active tab has **no fill**: the canvas's lit cell is `color:#e0a34a` and
+nothing else, where the desktop rail's is `background:rgba(224,163,74,.08)`.
+The cell registers `"box": false` in `_domain_marks` so `_select_domain()`
+skips the slab for the bar and keeps it for the rail.
+
+`PANELS` and `MORE` are not domains and so never went through `_select_domain()`
+at all — the bar said WORLD while the MORE screen sat on top of it.
+`_refresh_phone_bar_lit()` lights them off live state instead.
+
+### PH-20 · The ☰ drawer is deleted; ☰ opens the `02 Domain` drill · **LANDED**
+
+The canvas has no drawer at any level: its `02 Domain` screen is a full-screen
+drill with a `←`, which is what this shell's full-height left dock sheet already
+is. `☰` opens that directly. The 300 dp side sheet listed the three domains with
+their subtitles — the same three destinations the bottom bar's first three cells
+now carry with a glyph each, and two differently-shaped lists of one destination
+is the duplication that canvas's own "More is a grouped list, not a duplicate
+menu bar" note rules out.
+
+`_build_phone_drawer()`, `_pick_drawer_domain()`, `_set_drawer_open()` and
+`_phone_drawer` are gone; the back chain and `_close_all_phone_overlays()` lost
+their branches for it.
+
+### PH-21 · `MORE` has one close button fewer than it had two of · **LANDED**
+
+§51 row 77: the overflow root was titled `MENU` + `Cartalith` and carried a `✕`
+on **each side of its own title**. The canvas's `07 More` header is a `500 12px
+Plex/.22em` title and a `10px Plex #6f7478` readout (`ELDRA · 1.6 GB`) — no back
+button and no close.
+
+Now: at L2 the header is title + `<world> · <memory>`, read off the live
+`top_world` / `top_mem` status slots with the shell's `–` placeholder treated as
+"nothing yet"; at L3 and deeper it is `←` and one `✕`. The canvas puts a `⋮`
+in that right-hand slot at L3, which would be a per-screen overflow this shell
+has nothing behind — `✕` is what goes there instead, and `←` leaves one level
+while `✕` leaves the menu, so neither is decorative.
+
+The **MORE tab is a toggle**, because that screen no longer carries a close of
+its own: tapping the lit tab again is how a bottom-nav destination is left.
+
+### PH-22 · The menu covered the bottom bar, so two taps in five did nothing · **FIXED — found on the handset, not in a probe**
+
+The genuine defect this pass produced, and it is the reason a desktop probe is
+necessary and not sufficient. With `MORE` open on the OnePlus 6T, tapping MORE
+again did nothing and tapping WORLD did nothing.
+
+`PhoneMenu` is a full-rect `Control` whose children are inset by
+`apply_insets()`, and `open()` set the **node's own** `mouse_filter` to `STOP`.
+So the whole screen picked — including the strip below the menu where the bottom
+nav lives. Every tap on the bar was eaten by a transparent parent.
+
+Two halves: the node is `MOUSE_FILTER_IGNORE` always (blocking is the job of
+`_screen` and `_sheet_scrim`, which cover exactly the rect the menu occupies,
+and `_screen` now says `STOP` explicitly rather than leaning on `Container`'s
+`PASS` default); and `_apply_phone_orientation()` includes the bar's height in
+the menu's bottom inset, so the bar is **visible** under the menu as well as
+reachable. That second half is what the canvas's model requires: the bar is L1
+of the disclosure tree, and `07 More` is a tab destination, not a modal.
+
+Recorded as a rule, because it generalises: **an overlay that insets its
+children must not `STOP` on its own full-rect root.** The same shape as MN-13's
+`flat = true` — a property set on the wrong node, invisible until something is
+driven.
+
+### PH-23 · The status row is a status row, on a solid ground · **LANDED**
+
+`height:28px;padding:0 16px;font:10px 'IBM Plex Mono';color:#8d9296`, both spans
+at that ink (the right one was `text_faint`, one step quiet, and both were
+11 px). §13's 44 dp keep-clear reserve, its 96 dp gradient scrim and its 108 dp
+centre lane are all gone: the canvas paints `background:#101112` under the whole
+top of the screen and the app bar carries only a `border-bottom`.
+
+One thing got simpler by deleting it. `rebuild_theme()` needed a third pass for
+the scrim, because its colour lived inside a `GradientTexture2D` — on no node
+and in no theme resource, so neither recolour walk could see it, and a light-
+palette capture once found a charcoal band over a light screen. The status row
+is a plain `panel` stylebox now and `_recolor_subtree()` reaches it like every
+other region.
+
+### PH-24 · Sheet buttons are 48 dp pills; sliders have a thumb at all · **LANDED**
+
+The canvas's action button is `height:48px;border-radius:24px`, primary filled
+`#e0a34a` with `#141617` type, secondary the same box outlined at
+`rgba(255,255,255,.16)`, both `500 11px Plex/.16em` upper case. The shell drew
+square outlined chips.
+
+`DccTheme.pill()` is **the only rounded surface in this design system**, and
+that is deliberate: §11's "radius 0 everywhere" is a rule about the desktop
+artboards, and the phone canvas overrides it in all eight of its screens. The
+reversed ink is `c("bg")` rather than the literal, so a theme switch repaints
+it — the same choice `set_mode_segment_on()` made for the desktop's one filled
+accent surface.
+
+Applied from `DccShell.phone_fit()` only, off a new `DccWidgets.ACTION_META`
+marker, so a desktop or tablet build never sees a rounded button and the 141
+call sites §48's DS-02 cleared of accent fills **stay cleared**.
+
+The slider is the more interesting one. `_style_slider()` removes the grabber
+outright — §11's "a 2 px rule, the travelled part in accent, and **no
+grabber**", which is right for a pointer. The phone canvas draws a `22×22` round
+accent thumb on every slider it has, in the position the value is at, because a
+finger has no cursor to find the handle with. `DccWidgets.phone_slider()` adds
+one, rasterised as an antialiased disc rather than taken from Godot's stock
+grabber bitmap — the same reason `phone_menu.gd` builds its switch out of two
+rounded styleboxes: a bitmap cannot be recoloured for the light palette.
+
+Measured 77 px at 1440 and 58 px at 1080, both 22.0 dp. The **row** stays 44 dp
+rather than the canvas's 32, because `phone_fit()`'s `PHONE_TAP_MIN` floor is
+higher and the canvas's own TARGETS card is what set that floor.
+
+### PH-25 · The L2 drill rows carry a control count · **LANDED**
+
+Canvas: `<span style="font:10px Plex;color:#6f7478">9</span>` at the end of
+every category row — "the count is the number of controls inside, so depth is
+legible before the tap". §51 row 44 recorded its absence.
+
+`DccWidgets.category()` grows a trailing count `Label` **on the phone only**,
+which needed a `DccTheme.is_phone()` beside the existing `is_touch()` — the
+factories are static and cannot reach the shell, and a tablet must not get this.
+The count is filled by a `call_deferred` from `category()` itself: the body is
+empty at that moment and the caller fills it synchronously in the same call
+stack, so the end of the frame's idle pass is the first correct moment, and it
+works on a node not yet in the tree (a workspace builds its whole panel before
+`register_workspace()` attaches it).
+
+It counts **controls, not nodes**: a `SpinBox` and an `OptionButton` are each
+one control made of several `BaseButton`s and a `LineEdit`, so the walk counts
+them and stops rather than descending. WORLD ▸ Generate reads `13`.
+
+### PH-26 · The phone menu's band captions were drawing at 9 *physical* pixels · **FIXED**
+
+Not on any list — found by reading a capture rather than the code.
+`phone_menu.gd::_band()` called `DccTheme.header()`, which is a desktop helper
+whose `FS_HEADER` is a raw 9. The main viewport has no content scale, so
+`STATUS` / `PROJECT` / `CONTENT` / `SYSTEM` were four grey smudges about half a
+millimetre tall on a 510 ppi panel. Built here now at the canvas's
+`9.5px Plex/.2em #6f7478` through `_ps()`, like every other figure in that file.
+
+Two more typographic corrections in the same file, both read off the canvas: a
+drill row's second line is `9.5px #5f6468` (`text_ghost`) where the shell used
+`text_faint` at 9, and the head's breadcrumb is `10px` untracked where it was
+`9px` at spacing 1.
+
+### PH-27 · A fourth dead stylebox, on the phone's most-tapped control · **FIXED**
+
+`_phone_bar_button()` — the app bar's ☰ — was `flat = true` with a `hover`
+override under it. MN-13's trap, fourth site. `flat = false` with an empty
+`normal`, plus the `pressed` box the other three sites got. The bottom-nav cells
+were built with the same fault and are fixed in the same stroke.
+
+### Two §51 rows that are not phone work, closed here
+
+**Row 61 · the tool options bar** — the owner call §51 left open. `DCC shell
+1920` draws one `height:34px` row; `Cartalith Paint Toolbar.dc.html` draws
+**two**, each `height:38px;padding:0 14px;border-bottom:1px solid
+rgba(255,255,255,.10)`. Rule 1 settles it: the Paint Toolbar is the later
+artboard and draws a component the other does not. `tool_bar.gd` already built
+two rows — at 22 and 24-28 px with a 4 px gap and no rule between. Measured
+after: **78 px, two 38 px rows, ruled**, for all three modes. The bar keeps its
+34 px minimum for the *idle* row `app.gd` fills when no tool is armed, which is
+what `DCC shell 1920` draws. One disclosed difference: the rule is inset by the
+bar's own 14 px content margin rather than full-bleed, because
+`tool_options_row` is the one node `set_tool_options()` refills and it sits
+inside that margin — full-bleed means restructuring a component four workspaces
+and `app.gd` all build into.
+
+**Row 70 · dropdown check marks** — the canvas marks a chosen row `●` and an
+unchosen one `○`; the shell was leaving Godot's stock radio and check icons, the
+last stock artwork in a shell whose palette is greys plus one amber. Godot draws
+that column from four **theme icons**, so this is the one place a typographic
+mark has to arrive as a texture: a filled disc *is* `●` and a hairline ring *is*
+`○`, drawn at the item's own type size in palette ink. The four `_disabled`
+variants are set too — left alone they fall back to the stock artwork, which is
+the same "one row in twenty still draws the engine's own icon" trap
+`style_popup()` exists to close.
+
+### Designed rather than matched — named, per the standing rule
+
+1. **`nav_panels` and `nav_more`.** The canvas's tab set predates v3, so it has
+   no glyph for either. Each traces its own chosen symbol at §12's stroke.
+2. **The L3 header's right-hand slot is a `✕`, not the canvas's `⋮`.** No
+   per-screen overflow exists to put behind a `⋮`.
+3. **The bottom bar stays visible under the phone menu.** The canvas's `07 More`
+   artboard draws no bar; the canvas's own model says the bar is L1 and that
+   screen is a tab destination, and with both `✕`s gone it is also the only
+   escape that is not system back.
+4. **`W_PHONE_CUTOUT` survives in landscape.** All eight 412 screens are
+   portrait.
+5. **The `STATUS` band on the More screen** is an addition — the canvas's `07
+   More` bands are PROJECT / ASSETS / VIEW. Kept: it carries the live readouts
+   §15 fault 2 rescued from the reparented desktop status bar, and the canvas's
+   own list carries `Performance · CPU 38 · GPU 71` as a row, which is the same
+   information one level down.
+
+### Registered, not fixed
+
+- **`⌕` and `⋮` are not built into the app bar.** The canvas draws both. `⌕`
+  has no destination — `menus.gd`'s Edit ▸ Find on map… is a `_todo()` row with
+  "no search index yet" as its reason — and a magnifier that opens a disabled
+  menu item is worse than no magnifier. `⋮` is a per-screen overflow with
+  nothing behind it. Both are three-line additions the moment they have a
+  destination.
+- **The bottom nav is `panel` (`#121314`), not the canvas's `#131516`**, and
+  the sheets are `raised` (`#17191a`), not `#151718`. Both deltas are 2/255 per
+  channel. Introducing two near-identical literals is the thing §48 spent a pass
+  removing eleven of.
+- **The tool options sheet is still resident, not summoned** (§51 rows 63/83).
+  Unchanged by this pass.
+- **A phone pill upper-cases its label once**, at `phone_fit()` time. A caller
+  that later reassigns `.text` gets a sentence-case label in a pill. No shipped
+  caller does; recorded because the failure would be silent.
+
+### Verification
+
+- `_ph412_probe.gd` / `.tscn`, `SubViewport`-hosted, at **1440×3168 and
+  1080×2400**, windowed, never headless. Every region measured in physical
+  pixels *and* dp against the live reference; screenshots of the viewport, the
+  MORE screen and the left dock sheet at both sizes.
+- `_toolbar412_shot.gd` / `.tscn` at 1600×900 for the two-row bar, all three
+  modes.
+- `_menuconf_probe.gd` re-run at 1600×900 and 2560×1600 (`--force-touch`): no
+  script error, no warning, and the `●`/`○` marks confirmed by capture.
+- **Driven on the owner's OnePlus 6T** (`9608b26b`, 1080×2340, `_phone_scale`
+  2.621 after the migration): boot, welcome dismissed, MORE opened and toggled
+  shut, WORLD selected, ☰ into the left dock drill, back. PH-22 was found this
+  way and only this way — the desktop probe measured the layout correctly and
+  never touched the bar. `adb logcat` clean.
+- Build: `--export-debug "Android"` against the existing
+  `target/aarch64-linux-android/android-dev/libcartalith_godot.so` (no Rust
+  changed this pass). `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054`
+  before and after every Godot invocation; the `;` comment block survived each
+  one. `export_presets.cfg` and `Cargo.toml` untouched.

@@ -113,6 +113,26 @@ const PATHS := {
 	"domain_infra": '<path d="M2 14 C5.6 10.4 4 6.4 8 2.4"/><path d="M14 14 C10.4 10.8 12 6.8 8.4 2.6"/><path d="M6 10 H10"/><path d="M5 13 H11"/>',
 	"domain_carto": '<path d="M1.6 4 L5.8 2.4 L10.2 4.6 L14.4 3 V12 L10.2 13.6 L5.8 11.4 L1.6 13 Z"/><path d="M5.8 2.4 V11.4"/><path d="M10.2 4.6 V13.6"/>',
 	"domain_render": '<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4 V3.2"/><path d="M8 12.8 V14.6"/><path d="M1.4 8 H3.2"/><path d="M12.8 8 H14.6"/><path d="M3.4 3.4 L4.6 4.6"/><path d="M11.4 11.4 L12.6 12.6"/>',
+
+	## ── The phone bottom nav's two non-domain cells ───────────────────────────
+	##
+	## `design/Cartalith Android Phone.dc.html` draws its five tabs as a `14px`
+	## Plex glyph over a `9.5px` caption -- ◈ ⌗ ◷ ▤ ⋯ -- and the three domain
+	## cells take `domain_world`/`domain_civ`/`domain_carto` above, which are
+	## this design system's own marks for those exact subjects. The remaining
+	## two cells are PANELS and MORE, which the canvas has no domain glyph for
+	## because its tab set predates the v3 domain model. **Designed, not
+	## matched** (`DCC_SHELL_SCOPE.md`'s rule 2): each traces the canvas's own
+	## chosen symbol -- ▤ for the docks, ⋯ for the overflow -- redrawn to §12's
+	## 16 x 16 / 1.2 px / round-cap rules so the row reads as one family rather
+	## than three drawings beside two pieces of type.
+	##
+	## Drawn rather than left as text for the reason `search`/`import` were:
+	## §12's "typographic symbols stay text" premise holds only for glyphs that
+	## exist in the chain, and `mono()`'s own note records 19 of the 24 entries
+	## in `SYMBOLS` missing from Plex Mono outright.
+	"nav_panels": '<rect x="1.8" y="3.2" width="12.4" height="9.6" rx="1"/><path d="M1.8 6.4 H14.2"/><path d="M1.8 9.6 H14.2"/>',
+	"nav_more": '<circle cx="3.6" cy="8" r="1.05" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="1.05" fill="#ffffff" stroke="none"/><circle cx="12.4" cy="8" r="1.05" fill="#ffffff" stroke="none"/>',
 }
 
 static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture

@@ -294,23 +294,64 @@ const TABLET := {
 ## converges rather than scaling.
 const W_DOCK_TABLET := 400
 
-## Phone geometry (§13, `design/…dc.html`'s "DCC shell android phone" and
-## "Phone inset rules" cards). Tablet reuses the desktop constants above
-## through `TOUCH_SCALE`; phone is a distinct composition with its own fixed
-## pixel budget, read directly off the 393×852 mockup rather than derived
-## from the desktop numbers, because none of the desktop regions survive
-## phone width unchanged.
-const PHONE_REF_SHORT := 393.0   ## The mockup's own short-side width -- the
-	## scale of "1 phone pixel" that every constant below is authored at.
+## Phone geometry -- **`design/Cartalith Android Phone.dc.html`, 412 dp**.
+##
+## Owner ruling, 2026-08-25: that eight-screen canvas is the phone authority.
+## `DCC_SHELL_SPEC.md` §13's phone column and the 393 dp `DCC shell android
+## phone` artboard are superseded, and every figure below was re-read off the
+## 412 canvas's own literal inline styles rather than rescaled from the 393 set.
+## `DCC_SHELL_SCOPE.md`'s "WHICH CANVAS WINS" header carries the ruling itself.
+##
+## **Changing `PHONE_REF_SHORT` alone would have been wrong.** `_phone_scale` is
+## `short_side / PHONE_REF_SHORT`, so 393 → 412 *drops* it (3.664 → 3.495 at
+## 1440, 2.748 → 2.621 at 1080) and shrinks every derived figure by 4.6 % --
+## while the authored dp below move independently, some up (the app bar) and
+## some hard down (the status row, the gesture inset). The two do not cancel;
+## the constants are re-authored, not converted.
+##
+## Tablet reuses the desktop constants above through `TOUCH_SCALE`; phone is a
+## distinct composition, because none of the desktop regions survive phone width
+## unchanged.
+const PHONE_REF_SHORT := 412.0   ## The canvas's own short-side width -- the
+	## scale of "1 phone dp" that every constant below is authored at.
 	## `DccShell._phone_scale` maps it onto the real device's short side.
-const H_PHONE_TOP_SAFE := 44     ## Keep-clear status row: glyphs only.
-const H_PHONE_TOP_SCRIM := 96    ## The gradient reaches past the safe area
-	## itself so the fade reads as atmosphere, not a hard edge at 44 px.
-const W_PHONE_CUTOUT := 108      ## Centre lane reserved for a notch/punch-hole.
-const H_PHONE_APP_BAR := 52      ## ☰ / title+seed / ▤ / ⋯.
-const W_PHONE_RAIL := 44         ## Domain rail column width == its hit height.
-const H_PHONE_GESTURE := 26      ## Bottom gesture inset -- no tappable target.
-const PHONE_TAP_MIN := 44        ## §13's floor, with no exceptions.
+## `height:28px;padding:0 16px;font:10px 'IBM Plex Mono';color:#8d9296`, clock
+## left and signal/battery right -- a *status row*, not the 44 dp keep-clear
+## reserve §13 reserved. The 412 canvas draws no gradient scrim over the map
+## either: the screen ground is solid above the app bar, which is why
+## `H_PHONE_TOP_SCRIM` is gone rather than merely resized.
+const H_PHONE_TOP_SAFE := 28
+## Landscape only, and the one phone figure with no canvas behind it -- all
+## eight 412 screens are portrait. Kept from §13 and derived under
+## `DCC_SHELL_SCOPE.md`'s rule 2: the portrait row's "left/right pockets with
+## nothing centred" rotated onto the side edge. Portrait reserves no centre
+## lane any more; the canvas's status row runs edge to edge.
+const W_PHONE_CUTOUT := 108
+const H_PHONE_APP_BAR := 56      ## `height:56px;gap:14px;padding:0 12px`,
+	## `border-bottom:1px rgba(255,255,255,.09)`. ☰ / title+seed / ⌕.
+## `height:64px;background:#131516;border-top:1px rgba(255,255,255,.09)`, five
+## equal cells, each a `14px` glyph over a `9.5px/.1em` caption with `gap:4px`.
+## `#131516` is one hair off `panel` (`#121314`) and is drawn with the token
+## rather than a second near-identical literal -- see `GUI_GAP_REGISTER.md` §48,
+## which exists because eleven such literals had accumulated.
+const H_PHONE_BOTTOM_NAV := 64
+const H_PHONE_GESTURE := 20      ## `height:20px`, handle `112x4` radius 2 at
+	## `rgba(255,255,255,.22)`.
+const W_PHONE_GESTURE_HANDLE := 112
+const PHONE_TAP_MIN := 44        ## The canvas's own TARGETS card: "44 dp icon
+	## buttons". Unchanged, and it is a *dp* figure in 412 units now.
+const H_PHONE_ROW := 52          ## TARGETS: "52 dp list rows".
+const H_PHONE_PILL := 48         ## TARGETS: "48 dp buttons". `border-radius:24px`
+	## -- the one place in this design system with a radius, and the reason
+	## `pill()` below exists beside §11's radius-0 rule.
+const PHONE_ICON_BOX := 40       ## The app bar's own glyph cell. A *layout* box,
+	## not a visible one (these buttons draw no background), so the hit target
+	## still floors at `PHONE_TAP_MIN` per the TARGETS card.
+## `height:32px` row, `height:3px` track, `22x22` round thumb -- the phone's
+## slider, which unlike the dock's radius-0 2 px rule has a grabber at all.
+const PHONE_SLIDER_ROW := 32
+const PHONE_SLIDER_TRACK := 3
+const PHONE_SLIDER_THUMB := 22
 
 # ── Active palette ───────────────────────────────────────────────────────────
 
@@ -340,6 +381,21 @@ static func set_touch(v: bool) -> void:
 
 static func is_touch() -> bool:
 	return _touch
+
+## The narrower question: is this the **phone** composition, not merely a touch
+## one? Published the same way and for the same reason as `_touch` -- the widget
+## factories are static and cannot reach the shell -- and needed separately
+## because the 412 canvas asks for things a tablet must not get. The L2 drill
+## row's control count is the first: the phone canvas puts one on every category
+## row ("the count is the number of controls inside, so depth is legible before
+## the tap"), and no desktop or tablet artboard draws one.
+static var _phone_mode := false
+
+static func set_phone(v: bool) -> void:
+	_phone_mode = v
+
+static func is_phone() -> bool:
+	return _phone_mode
 
 ## The reverse of `c()`. Given a colour some node already has (painted under
 ## `old_pal`, the palette that was active when it was built) and that same
@@ -400,6 +456,34 @@ static func outline(border_token: String = "line", bg_token: String = "",
 	sb.bg_color = c(bg_token) if bg_token != "" else Color(0, 0, 0, 0)
 	sb.border_color = c(border_token)
 	sb.set_border_width_all(width)
+	return sb
+
+## The 412 phone canvas's action button, and the **only** rounded surface in
+## this design system.
+##
+## §11's "radius 0 everywhere" is a rule about the *desktop* artboards, and
+## `design/Cartalith Android Phone.dc.html` overrides it in every one of its
+## eight screens: `flex:1;height:48px;border-radius:24px;background:#e0a34a;
+## color:#141617;font:500 11px 'IBM Plex Mono';letter-spacing:.16em` on the
+## primary, and the same box `border:1px solid rgba(255,255,255,.16)` with no
+## fill on the secondary. A fully-rounded 48 dp target is a phone convention the
+## desktop canvas never had to have an opinion about; taking radius 0 to the
+## phone would be applying a rule the newer canvas already answered.
+##
+## Reversed ink is `c("bg")` rather than the literal `#141617`, so a theme
+## switch repaints it -- the same choice `DccWidgets.set_mode_segment_on()`
+## made for the one filled accent surface on the desktop.
+static func pill(primary: bool, radius: int, pad_x: int, pad_y: int) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = c("accent") if primary else Color(0, 0, 0, 0)
+	if not primary:
+		sb.border_color = c("border")
+		sb.set_border_width_all(1)
+	sb.set_corner_radius_all(radius)
+	sb.content_margin_left = pad_x
+	sb.content_margin_right = pad_x
+	sb.content_margin_top = pad_y
+	sb.content_margin_bottom = pad_y
 	return sb
 
 static func flat(color: Color, radius: int = 0) -> StyleBoxFlat:

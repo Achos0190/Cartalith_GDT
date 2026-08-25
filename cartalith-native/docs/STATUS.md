@@ -23,6 +23,44 @@ session. Update it in the same commit as whatever changes its answer.
 > the order `PARITY_AUDIT.md` §22 recommends, and it is how pass 3 and pass 4
 > both found the drift they found.
 
+## The phone is 412 dp now — `DCC_SHELL_SPEC.md` §13's phone column is superseded, not disagreed with (2026-08-25)
+
+A **section, not another clause on the `Last updated:` line**, for the reason
+this file's own header block gives. Full record: `GUI_GAP_REGISTER.md` §53,
+`CHANGELOG.md`'s last entry, and the superseded-notice now at the top of
+`DCC_SHELL_SPEC.md` §13.
+
+Owner ruling: the phone follows `design/Cartalith Android Phone.dc.html` at
+**412 dp**. `DccTheme.PHONE_REF_SHORT` is `412.0`, the constants are
+**re-authored** against that canvas rather than converted (the reference change
+alone *shrinks* `_phone_scale` 4.6 %, and the authored dp move independently and
+in both directions — they do not cancel), and it is driven on the owner's
+OnePlus 6T.
+
+- **Measured after, at both sizes** (1440×3168 / 1080×2400): status row
+  **28.0 / 27.9 dp** (was 43.9 / 44.0), app bar **56.1 / 56.1** (was 52.1 /
+  52.0), bottom nav **64.4 / 64.5**, gesture inset **20.0 / 19.8** (was 25.9 /
+  25.8), sheet actions **48.1 dp pills at radius 24**, slider thumbs **22.0 dp**
+  where there was no thumb at all. The map gains ~88 px of height at 1440.
+- **The bottom nav takes 412's geometry and v3's content** — `WORLD · CIVIL ·
+  CARTO · PANELS · MORE` in the canvas's glyph-over-caption treatment, which is
+  the one place the two authorities split. `nav_panels` and `nav_more` are
+  **designed, not matched**; the three domain glyphs already existed.
+- **Three regions deleted, not resized**: the 96 dp gradient scrim, the 108 dp
+  portrait centre lane, and the 300 dp ☰ drawer (`☰` opens the left dock as the
+  canvas's `02 Domain` drill).
+- **One real defect, found on glass only.** `PhoneMenu`'s full-rect root was
+  `MOUSE_FILTER_STOP` while its children were inset, so every tap on the bottom
+  bar under an open menu was eaten by a transparent parent. Fixed, and worth a
+  rule: *an overlay that insets its children must not `STOP` on its own
+  full-rect root.*
+- **Two §51 desktop rows closed by the same "newer canvas wins" rule**: the tool
+  options bar is two ruled 38 px rows (measured 78 px), and dropdown check marks
+  are the canvas's `●`/`○`.
+- **Registered, not fixed**: `⌕` and `⋮` are not built into the app bar (neither
+  has a destination in this build); the tool options sheet is still resident
+  rather than summoned.
+
 ## Android device pass — §46/§47/§48 and the ponytail LOD work, on glass (2026-08-25)
 
 Deliberately a **section, not another clause on the `Last updated:` line** —
