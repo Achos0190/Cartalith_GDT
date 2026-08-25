@@ -45,13 +45,27 @@ const S: &[EntityKind] = &[EntityKind::Settlement];
 /// A faction does not, which is why it is not in here and `EVERY` exists.
 const ALL: &[EntityKind] = &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent];
 /// `GUI_GAP_REGISTER.md` **CV-22**: the two fields every addressable entity
-/// has, factions included.
-const EVERY: &[EntityKind] =
-    &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction];
+/// has, factions and cultures included.
+const EVERY: &[EntityKind] = &[
+    EntityKind::Settlement,
+    EntityKind::Province,
+    EntityKind::Continent,
+    EntityKind::Faction,
+    EntityKind::Culture,
+];
 const F: &[EntityKind] = &[EntityKind::Faction];
+/// `GUI_GAP_REGISTER.md` **CV-02**.
+const C: &[EntityKind] = &[EntityKind::Culture];
+/// Everything that resolves to a coordinate on the map. A faction does so
+/// through its capital; a **culture does not resolve to one at all** — it is
+/// a naming vocabulary several factions can share, so any point offered for
+/// it would be a fabrication.
+const PLACED: &[EntityKind] =
+    &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction];
 /// A named list of member settlements, and the population that follows from
-/// it — a province partitions a faction, so both aggregate the same way.
-const PF: &[EntityKind] = &[EntityKind::Province, EntityKind::Faction];
+/// it — a province partitions a faction, so both aggregate the same way, and
+/// a culture aggregates over the factions that speak it.
+const PF: &[EntityKind] = &[EntityKind::Province, EntityKind::Faction, EntityKind::Culture];
 
 /// The registry. Order here is the order in the UI and in the note, so it is
 /// §19's own group order.
@@ -65,16 +79,23 @@ pub const FIELDS: &[ExportField] = &[
     ExportField { key: "culture", group: "Identity", label: "Culture", kinds: F },
     ExportField { key: "government", group: "Identity", label: "Government", kinds: F },
     ExportField { key: "religion", group: "Identity", label: "Religion", kinds: F },
+    // A culture's own row. `terrain_affinity` is
+    // `CIV_CULTURE_TERRAIN_KEY`'s thematic pairing (highland->hills and the
+    // rest) and is absent for `common`/`imperial`, which `civ_culture_
+    // terrain_fit` deliberately gives no verdict rather than a fabricated
+    // one -- so those two are simply not offered the field.
+    ExportField { key: "factions", group: "Identity", label: "Factions", kinds: C },
+    ExportField { key: "terrain_affinity", group: "Geography", label: "Terrain affinity", kinds: C },
     // A faction's capital's position: it has no centroid of its own, and the
     // seat of power is the coordinate a note would want.
-    ExportField { key: "coordinates", group: "Geography", label: "Coordinates", kinds: EVERY },
+    ExportField { key: "coordinates", group: "Geography", label: "Coordinates", kinds: PLACED },
     ExportField { key: "elevation", group: "Geography", label: "Elevation", kinds: S },
     ExportField { key: "biome", group: "Geography", label: "Biome", kinds: S },
     ExportField { key: "region", group: "Geography", label: "Province", kinds: S },
     ExportField { key: "area", group: "Geography", label: "Area", kinds: &[EntityKind::Continent, EntityKind::Faction] },
     ExportField { key: "coastal", group: "Geography", label: "Coastal", kinds: S },
     ExportField { key: "settlement_type", group: "Settlement", label: "Settlement type", kinds: S },
-    ExportField { key: "population", group: "Settlement", label: "Population", kinds: &[EntityKind::Settlement, EntityKind::Province, EntityKind::Faction] },
+    ExportField { key: "population", group: "Settlement", label: "Population", kinds: &[EntityKind::Settlement, EntityKind::Province, EntityKind::Faction, EntityKind::Culture] },
     ExportField { key: "faction", group: "Settlement", label: "Faction", kinds: ALL },
     ExportField { key: "capital", group: "Settlement", label: "Capital", kinds: S },
     ExportField { key: "specialisation", group: "Settlement", label: "Economy", kinds: S },
@@ -174,6 +195,26 @@ mod tests {
         let some = offer(EntityKind::Settlement, &|k| k != "biome");
         assert!(some.iter().all(|f| f.key != "biome"));
         assert!(some.iter().any(|f| f.key == "population"));
+    }
+
+    /// CV-02's kind, checked from both sides: what a culture *can* have, and
+    /// what it definitely cannot. The second half is the one with a wrong
+    /// answer available — a culture is not a place and must never be offered
+    /// a coastline.
+    #[test]
+    fn a_culture_is_offered_its_own_fields_and_no_places_fields() {
+        let all = offer(EntityKind::Culture, &|_| true);
+        let keys: Vec<&str> = all.iter().map(|f| f.key).collect();
+        for want in ["name", "entity_type", "factions", "settlements", "population", "terrain_affinity"] {
+            assert!(keys.contains(&want), "a culture can have {want}: {keys:?}");
+        }
+        for never in ["coordinates", "elevation", "biome", "coastal", "settlement_type", "area", "faction"] {
+            assert!(!keys.contains(&never), "a culture is not a place: {never} was offered");
+        }
+        // `common` and `imperial` have no terrain theme, so the caller
+        // supplies no value and the field is not offered at all.
+        let identity = offer(EntityKind::Culture, &|k| k != "terrain_affinity");
+        assert!(identity.iter().all(|f| f.key != "terrain_affinity"));
     }
 
     #[test]

@@ -27701,3 +27701,86 @@ worth recording because it nearly became the headline finding: the probe's own
 teardown called `_set_overflow_open(false)` unconditionally, and
 `_close_all_phone_overlays()` hides both docks with no phone guard, so the first
 desktop run measured a shell that had no docks at all.
+
+## Markdown Vault milestone 6 — search, the note as data, culture, and "confirm always" (2026-08-25, engine half)
+
+`MARKDOWN_VAULT_SCOPE.md` milestone 6 carries the reasoning. The owner's
+direction was four requirements; two were already largely built, and finding
+that out first is the part worth recording.
+
+**What was already there.** *Culture was not unexposed*: `civ_culture_vocabulary()`
+had shipped the seven keys as a `#[func]`, `get_factions()` reports each
+faction's `culture`, and `civ_set_faction_field` validates and sets it — what
+was missing was a culture as an *addressable* thing. And *the copy already
+existed for prose*: `attach` has written a note's text into
+`KnowledgeLink::imported_text` and `LinkStore::to_json` has serialised it since
+milestone 1. What did not exist was a copy a program can read — a note saying
+`**Size / Population:** 8,420` left Cartalith holding a paragraph, not a
+population. So this is not the model inversion it was scoped as: the reference
+model is intact and the copy taken at attach time is now structured as well as
+textual.
+
+**Built:**
+
+- `EntityKind::Culture` — `CIV_CULTURES[id]`, seven compile-time rows,
+  addressed by 0-based index. The only entity id in this port that survives
+  both a regenerate and a save/load, because it is not generated. A test
+  asserts the table's length *and order*, since changing either silently
+  re-points every existing culture link.
+- `get_cultures()` — `GUI_GAP_REGISTER.md` CV-02's own "(B) wrapper", closing
+  the engine half of that row. Non-empty before any `generate()`.
+- `VaultSession::search` — names always (no file opened), content when the
+  backlink index has been built. The result carries `indexed`, because
+  *"nothing in the vault says this"* and *"I did not look"* are opposite
+  statements to put in front of a person.
+- `ImportedData` on every link — the note's YAML frontmatter (flat scalars
+  only; a nested map, a list, a comment, a colon-less line and a duplicated key
+  are each declined rather than half-parsed) and its `**Name:**` template lines
+  (minus any still holding the template's own `[bracketed prompt]`), kept as
+  **two maps** rather than merged, scoped to the whole document even for a
+  heading selection.
+- `WritePrefs` — three independent *don't ask again* flags, device-scoped.
+
+**Two decisions worth keeping.** *(1)* Every copied value is a **string**,
+including numbers. KV-04 the same day was Godot's `JSON` floating `entity_id`
+to `1.0`; the owner intends the new save format in the HTML app too, and JS has
+the same defect with a hard 2^53 ceiling. A map of strings cannot be corrupted
+by a layer that floats numbers — and `8,420`, `~8000` and `8420` are three
+different things a person wrote. *(2)* **"Always" suppresses the dialog, never
+the guard.** A caller with the preference set still calls `vault_preview_*`,
+because that is where `expect_hash` comes from, and simply does not display it.
+
+One hole closed on the way: `write_section` is the only write path that
+re-syncs a link's own hash, so it was the only one that could leave a stale
+copy under a **Connected** status. It now re-reads the copy from the document
+it just wrote.
+
+**The `#[func]` surface the UI pass must call** (all on `WorldGen`):
+
+| Method | Arguments | Returns |
+|---|---|---|
+| `vault_search` | `query: String, limit: int, max_reads: int` | `{ok, error, indexed: bool, scanned: int, truncated: bool, hits: [{rel, in_name: bool, excerpt}]}` |
+| `vault_file_data` | `rel: String` | `{ok, error, frontmatter: {String: String}, fields: {String: String}}` |
+| `vault_entity_data` | `kind: String, entity_id: int` | `[{rel, origin: "frontmatter"\|"field", key, value}]` |
+| `vault_link_data` | `link_id: String` | `{ok, error, frontmatter, fields}` |
+| `vault_write_prefs` | — | `{section: bool, block: bool, field_fill: bool}` |
+| `vault_set_write_pref` | `path: String, value: bool` | `bool` (false for a name nobody defined) |
+| `vault_prefs_json` | — | `String` — store **beside** the link store, never inside it |
+| `vault_restore_prefs` | `json: String` | `bool` |
+| `get_cultures` | — | `[{id, key, name, terrain_affinity, faction_count, factions, settlement_count, population}]` |
+
+`vault_entity_kinds()` now also returns `"culture"`, and every existing
+`kind`-taking method accepts it.
+
+**Verified:** twelve new tests, including the failure paths — a search with no
+matches, an un-built index reported as "did not look", a query too short to
+confirm, malformed frontmatter (unterminated block, colon-less line, indented
+line, duplicated key) that still attaches and copies nothing wrong, a note
+changed after the copy, and a section write that had to refresh the copy it
+invalidated. Workspace: 138 binaries, **2,204 → 2,216 passed**, 0 failed, 8
+ignored. No CPU-pipeline numeric behaviour touched.
+
+**Not built, and stated:** no panel draws any of it — the UI half is the next
+pass. The copy is never fed back into the engine (nothing sets a settlement's
+population from a note), because that would make the vault a second source of
+truth for world state, which §36 forbids outright.

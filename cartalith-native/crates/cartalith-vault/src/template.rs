@@ -83,6 +83,7 @@ pub fn suggested_path(kind: crate::EntityKind, name: &str) -> String {
         crate::EntityKind::Province => "Provinces",
         crate::EntityKind::Continent => "Continents",
         crate::EntityKind::Faction => "Factions",
+        crate::EntityKind::Culture => "Cultures",
     };
     format!("{folder}/{}.md", sanitise(name))
 }
@@ -184,6 +185,7 @@ mod tests {
         assert_eq!(suggested_path(EntityKind::Province, "Lower Vale"), "Provinces/Lower Vale.md");
         assert_eq!(suggested_path(EntityKind::Continent, "Vantharis"), "Continents/Vantharis.md");
         assert_eq!(suggested_path(EntityKind::Faction, "Draumr League"), "Factions/Draumr League.md");
+        assert_eq!(suggested_path(EntityKind::Culture, "Riverlands"), "Cultures/Riverlands.md");
     }
 
     #[test]

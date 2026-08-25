@@ -50,7 +50,7 @@ pub mod template;
 
 pub use backlinks::{Backlink, BacklinkIndex, LinkForm, RefreshStats, excerpt};
 pub use block::{BlockAction, BlockError};
-pub use links::{EntityKind, KnowledgeLink, LinkStatus, LinkStore, Selection, VaultRef};
+pub use links::{EntityKind, ImportedData, KnowledgeLink, LinkStatus, LinkStore, Selection, VaultRef};
 pub use markdown::{FieldFill, FieldOutcome, Section, SectionError};
 pub use provider::{FileMeta, FsVault, VaultError};
 pub use template::Template;
@@ -119,6 +119,127 @@ impl From<BlockError> for Error {
 /// often as "written".
 pub type FieldFillPreview = (String, String, Vec<(String, FieldOutcome)>);
 
+/// The bound on any single vault walk, shared by browsing, the backlink
+/// refresh and [`VaultSession::search`] so §31's "do not load the entire
+/// vault" is one number rather than three.
+pub const LIST_CAP: usize = 2000;
+
+// ---------------------------------------------------------------- searching
+
+/// One note a search matched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchHit {
+    pub rel: String,
+    /// The query is in this note's **path**. A certain match, found without
+    /// opening the file.
+    pub in_name: bool,
+    /// One line of context around the first occurrence in the body, or `""`
+    /// for a name-only hit.
+    pub excerpt: String,
+}
+
+/// What [`VaultSession::search`] found, and what it was able to look at.
+///
+/// `indexed` is the field a caller must not skip. Content search runs off the
+/// backlink index's word fingerprints, so with no index there is no content
+/// search — and *"nothing in the vault says this"* and *"I did not look"* are
+/// opposite statements to put in front of a person. The same distinction
+/// [`BacklinkIndex::is_built`] already forces on every other reader.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchResults {
+    pub hits: Vec<SearchHit>,
+    /// Whether the body of any note could be searched at all.
+    pub indexed: bool,
+    /// How many notes were actually opened. Zero for a pure name search.
+    pub scanned: usize,
+    /// `limit` or `max_reads` cut the answer short, so there may be more.
+    pub truncated: bool,
+}
+
+/// Which confirmation dialogs the user has said *"don't ask me again"* to.
+///
+/// The owner's 2026-08-25 direction: *"it's an explicit action with a prompt
+/// confirmation (the prompt should have an option to confirm always)"*.
+///
+/// ## What "always" may and may not skip
+///
+/// It suppresses **the dialog**, never the guard. Every write still takes an
+/// `expect_hash` obtained from a preview computed moments earlier, so a note
+/// edited between the two still refuses. Removing the prompt removes a
+/// keystroke; it cannot remove the thing that stops Cartalith overwriting
+/// somebody's evening's work. A caller with a preference set must therefore
+/// still call the preview — it is where the hash comes from — and simply not
+/// show it.
+///
+/// ## Three flags, not one
+///
+/// Replacing a section the user just typed, regenerating a machine-owned
+/// block, and writing into the author's own template lines are three
+/// different risks, and one switch that turned off all three would be a
+/// worse offer than three that are each obviously scoped. `always_field_fill`
+/// in particular sits against `MARKDOWN_VAULT_INTEGRATION.md`'s own header
+/// (*"offered and explicitly confirmed, never silent"*); it is honoured
+/// because the owner asked for it, and it is safe because
+/// [`FieldFill::OnlyIfEmpty`] still refuses an occupied field whether anyone
+/// is watching or not. The reconciliation is recorded in
+/// `MARKDOWN_VAULT_SCOPE.md` milestone 6 rather than left implicit.
+///
+/// ## Device state, not project data
+///
+/// Kept off [`LinkStore`] deliberately. The store is portable project data
+/// (§5) and one person's "stop asking me" must not travel into another
+/// person's copy of a project. This follows the split
+/// [`BacklinkIndex`] already established: its own JSON, its own file.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct WritePrefs {
+    /// Skip the confirmation on *Insert updated section into source*.
+    #[serde(default)]
+    pub always_section: bool,
+    /// Skip the confirmation on *Write Cartalith block*.
+    #[serde(default)]
+    pub always_block: bool,
+    /// Skip the confirmation on *Fill the note's own fields*.
+    #[serde(default)]
+    pub always_field_fill: bool,
+}
+
+impl WritePrefs {
+    /// The three names a UI passes: `"section"`, `"block"`, `"field_fill"`.
+    /// An unknown name is `false` and setting one returns `false`, never a
+    /// default — a typo must not silently disarm a confirmation.
+    pub fn get(&self, path: &str) -> bool {
+        match path {
+            "section" => self.always_section,
+            "block" => self.always_block,
+            "field_fill" => self.always_field_fill,
+            _ => false,
+        }
+    }
+
+    pub fn set(&mut self, path: &str, value: bool) -> bool {
+        match path {
+            "section" => self.always_section = value,
+            "block" => self.always_block = value,
+            "field_fill" => self.always_field_fill = value,
+            _ => return false,
+        }
+        true
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// An empty or blank document is the default (ask every time), which is
+    /// the safe direction to fail in.
+    pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
+        if s.trim().is_empty() {
+            return Ok(WritePrefs::default());
+        }
+        serde_json::from_str(s)
+    }
+}
+
 /// A project's links plus, when this device has one, the binding that makes
 /// them readable.
 ///
@@ -141,6 +262,9 @@ pub struct VaultSession {
     /// below distinguishes "not built" from "nothing found", because on
     /// screen those are opposite statements.
     pub backlinks: BacklinkIndex,
+    /// The user's *"don't ask me again"* choices. Device state — see
+    /// [`WritePrefs`] for why it is not in `store`.
+    pub prefs: WritePrefs,
 }
 
 impl Default for VaultSession {
@@ -151,7 +275,12 @@ impl Default for VaultSession {
 
 impl VaultSession {
     pub fn new() -> Self {
-        VaultSession { store: LinkStore::default(), binding: None, backlinks: BacklinkIndex::new() }
+        VaultSession {
+            store: LinkStore::default(),
+            binding: None,
+            backlinks: BacklinkIndex::new(),
+            prefs: WritePrefs::default(),
+        }
     }
 
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
@@ -159,6 +288,7 @@ impl VaultSession {
             store: LinkStore::from_json(s)?,
             binding: None,
             backlinks: BacklinkIndex::new(),
+            prefs: WritePrefs::default(),
         })
     }
 
@@ -316,6 +446,109 @@ impl VaultSession {
         out
     }
 
+    // ------------------------------------------------------------ searching
+
+    /// Find notes by name and, where the index allows it, by content.
+    ///
+    /// The owner's 2026-08-25 direction — *"Search for it in the vault"* —
+    /// and the piece milestone 1 genuinely did not have: browsing listed
+    /// every note, [`Self::headings`] listed one note's headings, and
+    /// [`Self::entity_mentions`] searched **for one entity's own name**.
+    /// Nothing let a person type a word.
+    ///
+    /// ## Two halves, and they are not equally certain
+    ///
+    /// 1. **Name.** A case-insensitive substring of the vault-relative path.
+    ///    Certain, and costs no file read at all — it filters the same
+    ///    bounded listing the file picker already uses.
+    /// 2. **Content.** Narrowed by the backlink index's word fingerprints to
+    ///    a handful of candidates, then confirmed by actually opening at most
+    ///    `max_reads` of them. False positives from the Bloom filter are
+    ///    dropped silently; false negatives are impossible, which is the
+    ///    property that makes this a search rather than a suggestion.
+    ///
+    /// Content search **requires the index**. With no index
+    /// [`SearchResults::indexed`] is `false` and the caller must say so
+    /// rather than report an empty result as an absence — the alternative is
+    /// opening every note in the vault on every keystroke, which is precisely
+    /// what §31 forbids and what the index exists to avoid.
+    ///
+    /// A query under three characters is name-only for the same reason
+    /// [`Self::entity_mentions`] declines one: every note would be a
+    /// candidate, so confirming would mean reading the whole vault.
+    ///
+    /// Name hits come first and each note appears once.
+    pub fn search(&self, query: &str, limit: usize, max_reads: usize) -> Result<SearchResults, Error> {
+        let files = self.list(LIST_CAP)?;
+        let q = query.trim();
+        let mut out = SearchResults { indexed: self.backlinks.is_built(), ..Default::default() };
+        if q.is_empty() || limit == 0 {
+            return Ok(out);
+        }
+        let needle = q.to_lowercase();
+
+        let mut named: Vec<String> = Vec::new();
+        for rel in files {
+            if rel.to_lowercase().contains(&needle) {
+                named.push(rel);
+            }
+        }
+        for rel in named.iter() {
+            if out.hits.len() >= limit {
+                out.truncated = true;
+                return Ok(out);
+            }
+            out.hits.push(SearchHit { rel: rel.clone(), in_name: true, excerpt: String::new() });
+        }
+
+        if !out.indexed || q.chars().count() < 3 {
+            return Ok(out);
+        }
+        for rel in self.backlinks.mention_candidates(q, &named) {
+            if out.hits.len() >= limit || out.scanned >= max_reads {
+                out.truncated = true;
+                break;
+            }
+            let Ok(text) = self.read(&rel) else { continue };
+            out.scanned += 1;
+            let Some(at) = text.to_lowercase().find(&needle) else { continue };
+            out.hits.push(SearchHit { rel, in_name: false, excerpt: excerpt(&text, at, needle.len()) });
+        }
+        Ok(out)
+    }
+
+    // -------------------------------------- the note's information, as data
+
+    /// One note's frontmatter and template fields, read now and stored
+    /// nowhere — what a search result or an attach dialog shows before
+    /// anything is committed to.
+    pub fn document_data(&self, rel: &str) -> Result<ImportedData, Error> {
+        Ok(ImportedData::from_document(&self.read(rel)?))
+    }
+
+    /// Everything this entity's linked notes said about it, as
+    /// `(relative_path, origin, key, value)`.
+    ///
+    /// **This is the owner's sentence, read back.** The user attached a note
+    /// to a settlement; its information was copied into Cartalith's JSON at
+    /// that moment; this is where it comes out. It reads the *copy*, never
+    /// the disk, so it answers with the vault disconnected — which is §27's
+    /// whole point and the reason copying was worth doing.
+    ///
+    /// Deliberately **not** deduplicated or merged across notes. Two notes on
+    /// one settlement may disagree about its population, and picking a winner
+    /// is a guess §32 forbids; `relative_path` is carried on every row so the
+    /// disagreement is visible and attributable instead.
+    pub fn entity_data(&self, kind: EntityKind, id: i64) -> Vec<(String, &'static str, String, String)> {
+        let mut out = Vec::new();
+        for l in self.store.links_for(kind, id) {
+            for (origin, key, value) in l.imported_data.rows() {
+                out.push((l.relative_path.clone(), origin, key.to_string(), value.to_string()));
+            }
+        }
+        out
+    }
+
     /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**),
     /// filtered out of the same bounded listing the file picker uses -- no
     /// second walk, and still no file opened.
@@ -370,6 +603,12 @@ impl VaultSession {
     /// The selection is validated before the link is created: attaching a
     /// section that does not exist, or whose title is duplicated in the file,
     /// fails here rather than becoming a link that can never be read.
+    ///
+    /// The note's **structured** information is copied at the same moment,
+    /// from the same bytes ([`ImportedData`]) — the owner's 2026-08-25
+    /// direction. It is scoped to the whole document even for a heading
+    /// selection, and its freshness is this link's own `source_hash`, so
+    /// there is one staleness idea here and not two.
     pub fn attach(
         &mut self,
         kind: EntityKind,
@@ -396,6 +635,7 @@ impl VaultSession {
             selection,
             source_modified: meta.modified,
             source_hash: provider::content_hash(&text),
+            imported_data: ImportedData::from_document(&text),
             imported_text: Some(imported),
             edited_text: None,
         }))
@@ -404,6 +644,12 @@ impl VaultSession {
     /// §14's "Reload source": re-reads the selection, replacing the imported
     /// text and dropping any local edit. Destructive to the *working copy*
     /// only, which is why the UI offers it beside "Keep current copy".
+    ///
+    /// **The one path that refreshes the copied [`ImportedData`]**, and
+    /// deliberately so: text, data and hash move together or not at all. A
+    /// refresh-the-data-only call would let the fields be current while the
+    /// prose was not, under a status that could only describe one of them.
+    /// It is also what fills the copy on a link made before 2026-08-25.
     pub fn reload(&mut self, link_id: &str) -> Result<(), Error> {
         let v = self.binding.as_ref().filter(|x| x.available()).ok_or(Error::NotBound)?;
         let l = self.store.get(link_id).ok_or_else(|| Error::NoSuchLink(link_id.into()))?;
@@ -414,8 +660,10 @@ impl VaultSession {
         };
         let meta = v.meta(&l.relative_path)?;
         let hash = provider::content_hash(&text);
+        let data = ImportedData::from_document(&text);
         let l = self.store.get_mut(link_id).expect("looked up above");
         l.imported_text = Some(imported);
+        l.imported_data = data;
         l.edited_text = None;
         l.source_modified = meta.modified;
         l.source_hash = hash;
@@ -476,7 +724,14 @@ impl VaultSession {
         v.write(&rel, &next)?;
         let meta = v.meta(&rel)?;
         let new_hash = provider::content_hash(&next);
+        // Re-read the copy from the document that was just written. This is
+        // the one write path that re-syncs the link's own hash, so it is the
+        // one path that could otherwise leave a *stale copy under a
+        // Connected status* — an edited section carrying a `**Population:**`
+        // line is exactly that case.
+        let new_data = ImportedData::from_document(&next);
         let l = self.store.get_mut(link_id).expect("looked up above");
+        l.imported_data = new_data;
         // A rename *inside the edited text* moves the link with it (§32
         // "heading renamed"). The alternative is a link that was valid a
         // second ago and is broken by the user's own successful write —
@@ -932,6 +1187,244 @@ rows
         assert_eq!(elsewhere.store.vaults[0].display_name, "Elaris");
         assert!(matches!(elsewhere.list(10), Err(Error::NotBound)));
         assert!(elsewhere.store.get(&id).unwrap().working_text().contains("Ashfall clans"), "cached text is still readable");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- the owner's 2026-08-25 direction, requirement by requirement ----
+
+    /// **Requirement 3.** A person types a word; the vault answers by name
+    /// and by content, and says which of the two it could actually do.
+    #[test]
+    fn search_finds_notes_by_name_and_by_content_and_says_when_it_could_not_look() {
+        let root = scratch("search");
+        std::fs::write(root.join("Locations/Kelvhold.md"), "# Kelvhold\n\nA hill fort.\n").unwrap();
+        std::fs::write(root.join("Customs.md"), "# Customs\n\nThe riverlands wed at the ford.\n").unwrap();
+        std::fs::write(root.join("Elsewhere.md"), "# Elsewhere\n\nNothing relevant whatsoever.\n").unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+
+        // Before the index exists, only names can be searched -- and that
+        // must be *reported*, or an empty answer reads as an absence.
+        let before = s.search("riverlands", 20, 20).unwrap();
+        assert!(!before.indexed, "no index, so the body of no note was read");
+        assert!(before.hits.is_empty());
+        assert_eq!(before.scanned, 0, "and nothing was opened to find that out");
+
+        // A name search works with no index at all, and opens nothing.
+        let by_name = s.search("nareth", 20, 20).unwrap();
+        assert_eq!(by_name.hits.len(), 1);
+        assert_eq!(by_name.hits[0].rel, "Locations/Nareth.md");
+        assert!(by_name.hits[0].in_name);
+        assert_eq!(by_name.scanned, 0, "a name hit costs no file read");
+
+        s.refresh_backlinks(500).unwrap();
+        let hit = s.search("riverlands", 20, 20).unwrap();
+        assert!(hit.indexed);
+        assert_eq!(hit.hits.len(), 1, "{:?}", hit.hits);
+        assert_eq!(hit.hits[0].rel, "Customs.md");
+        assert!(!hit.hits[0].in_name);
+        assert!(hit.hits[0].excerpt.to_lowercase().contains("riverlands"), "{:?}", hit.hits[0]);
+
+        // A note matching by name is not also listed as a content hit.
+        let both = s.search("kelvhold", 20, 20).unwrap();
+        assert_eq!(both.hits.len(), 1, "one note, one row: {:?}", both.hits);
+        assert!(both.hits[0].in_name);
+
+        // No matches is empty and not an error -- the failure path.
+        let none = s.search("zzzznotintheworld", 20, 20).unwrap();
+        assert!(none.hits.is_empty());
+        assert!(!none.truncated, "an honest empty answer is not a truncated one");
+        // An empty query is empty, not "everything".
+        assert!(s.search("   ", 20, 20).unwrap().hits.is_empty());
+        // Two characters is name-only: confirming it would mean reading the
+        // whole vault, which is what the index exists to avoid.
+        let short = s.search("ri", 20, 20).unwrap();
+        assert!(short.hits.iter().all(|h| h.in_name));
+        assert_eq!(short.scanned, 0);
+        // The cap is real.
+        let capped = s.search("md", 1, 20).unwrap();
+        assert!(capped.hits.len() <= 1);
+
+        // And with no vault bound at all it refuses rather than lying.
+        let elsewhere = VaultSession::from_json(&s.to_json()).unwrap();
+        assert!(matches!(elsewhere.search("x", 10, 10), Err(Error::NotBound)));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **Requirement 4.** Attaching a note copies its information into
+    /// Cartalith's own JSON, it survives the round trip, and it reads back
+    /// per entity with the vault disconnected.
+    #[test]
+    fn a_notes_information_is_copied_into_the_json_and_reads_back_without_the_vault() {
+        let root = scratch("copy");
+        std::fs::write(
+            root.join("Locations/Kelvhold.md"),
+            "---\ntype: hill fort\nculture: highland\n---\n\n# Kelvhold\n\n**Type:** Fort  \n**Ruling authority:** [Who?]\n\n## History\n\nOld.\n",
+        )
+        .unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), Some("Elaris")).unwrap();
+
+        // Read a file's data before committing to anything -- what a search
+        // result shows.
+        let peek = s.document_data("Locations/Kelvhold.md").unwrap();
+        assert_eq!(peek.frontmatter.get("culture").map(String::as_str), Some("highland"));
+
+        // Attaching *one section* still copies the whole document's data,
+        // because the fields live outside the section the user picked.
+        let id = s
+            .attach(EntityKind::Settlement, 42, "Kelvhold", "Locations/Kelvhold.md", Selection::Heading { value: "History".into() })
+            .unwrap();
+        let d = &s.store.get(&id).unwrap().imported_data;
+        assert_eq!(d.frontmatter.get("type").map(String::as_str), Some("hill fort"));
+        assert_eq!(d.fields.get("Type").map(String::as_str), Some("Fort"));
+        assert!(!d.fields.contains_key("Ruling authority"), "an unanswered prompt is not data");
+        assert_eq!(d.len(), 3);
+        // Two surfaces, kept apart: the same word means different things.
+        assert_ne!(d.frontmatter.get("type"), d.fields.get("Type"));
+
+        // It is in the JSON -- which is the owner's sentence, literally.
+        let json = s.to_json();
+        assert!(json.contains("\"imported_data\""), "{json}");
+        assert!(json.contains("hill fort"));
+
+        // And it reads back on a device that has never seen the folder.
+        let elsewhere = VaultSession::from_json(&json).unwrap();
+        assert!(!elsewhere.is_bound());
+        let rows = elsewhere.entity_data(EntityKind::Settlement, 42);
+        assert_eq!(rows.len(), 3, "{rows:?}");
+        assert!(rows.iter().all(|(rel, _, _, _)| rel == "Locations/Kelvhold.md"), "provenance is carried");
+        assert!(rows.iter().any(|(_, o, k, v)| *o == "frontmatter" && k == "culture" && v == "highland"));
+        assert!(rows.iter().any(|(_, o, k, v)| *o == "field" && k == "Type" && v == "Fort"));
+        assert!(elsewhere.entity_data(EntityKind::Settlement, 999).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The failure path the copy has to survive: a note whose frontmatter is
+    /// malformed must still attach, and must contribute nothing rather than
+    /// something wrong.
+    #[test]
+    fn a_note_with_malformed_frontmatter_still_attaches_and_copies_nothing_wrong() {
+        let root = scratch("malformed");
+        std::fs::write(
+            root.join("Locations/Broken.md"),
+            "---\ntype: town\nthis line has no colon\n  indented: value\ntype: city\n\n# Broken\n\nThe block above was never closed.\n",
+        )
+        .unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let id = s
+            .attach(EntityKind::Settlement, 1, "Broken", "Locations/Broken.md", Selection::WholeDocument)
+            .unwrap();
+        let d = &s.store.get(&id).unwrap().imported_data;
+        assert!(d.is_empty(), "an unterminated block is not frontmatter: {d:?}");
+        assert!(s.store.get(&id).unwrap().working_text().contains("never closed"), "the prose came through regardless");
+        assert_eq!(s.status(&id), LinkStatus::Connected, "a malformed note is not a broken link");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The copy tracks the link's own staleness and nothing else: a note that
+    /// changed reports Stale, the copy is still the old one until *Reload*,
+    /// and reload moves text, data and hash together.
+    #[test]
+    fn a_note_that_changed_after_the_copy_is_stale_until_reload_moves_both_halves() {
+        let root = scratch("copystale");
+        let note = "---\npopulation: 8420\n---\n\n# Nareth\n\n## History\n\nOld.\n";
+        std::fs::write(root.join("Locations/Nareth.md"), note).unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let id = s
+            .attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md", Selection::WholeDocument)
+            .unwrap();
+        assert_eq!(s.store.get(&id).unwrap().imported_data.frontmatter["population"], "8420");
+
+        std::fs::write(root.join("Locations/Nareth.md"), note.replace("8420", "9001")).unwrap();
+        assert_eq!(s.status(&id), LinkStatus::Stale, "one staleness idea, and it already covers the copy");
+        assert_eq!(
+            s.store.get(&id).unwrap().imported_data.frontmatter["population"], "8420",
+            "the copy is Cartalith's until the user asks for the new one"
+        );
+
+        s.reload(&id).unwrap();
+        assert_eq!(s.status(&id), LinkStatus::Connected);
+        assert_eq!(s.store.get(&id).unwrap().imported_data.frontmatter["population"], "9001");
+        assert!(s.store.get(&id).unwrap().working_text().contains("9001"), "text and data moved together");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Writing a section back re-syncs the link's hash, so it must re-sync
+    /// the copy too — otherwise a field edited inside that section leaves a
+    /// stale copy sitting under a Connected status.
+    #[test]
+    fn writing_a_section_back_refreshes_the_copy_it_just_invalidated() {
+        let root = scratch("copywrite");
+        std::fs::write(
+            root.join("Locations/Nareth.md"),
+            "# Nareth\n\n## Facts\n\n**Size / Population:** 8,420\n\n## Trade\n\nGrain.\n",
+        )
+        .unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let id = s
+            .attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md", Selection::Heading { value: "Facts".into() })
+            .unwrap();
+        assert_eq!(s.store.get(&id).unwrap().imported_data.fields["Size / Population"], "8,420");
+
+        s.set_working_text(&id, "## Facts\n\n**Size / Population:** 9,001\n").unwrap();
+        let (_, hash) = s.preview_section_write(&id).unwrap();
+        s.write_section(&id, &hash).unwrap();
+
+        assert_eq!(s.status(&id), LinkStatus::Connected);
+        assert_eq!(
+            s.store.get(&id).unwrap().imported_data.fields["Size / Population"], "9,001",
+            "no stale copy under a Connected status"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **Requirement 5's missing half.** The "always" preference is real
+    /// state, it round-trips, it is device state rather than project data,
+    /// and a name nobody defined does not quietly disarm a confirmation.
+    #[test]
+    fn the_confirm_always_preference_persists_and_never_travels_with_a_project() {
+        let root = scratch("prefs");
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), Some("Elaris")).unwrap();
+        s.attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md", Selection::WholeDocument).unwrap();
+
+        assert!(!s.prefs.get("section"), "every dialog is asked for by default");
+        assert!(s.prefs.set("section", true));
+        assert!(s.prefs.get("section"));
+        assert!(!s.prefs.get("block"), "one switch, one dialog");
+        assert!(!s.prefs.set("everything", true), "an undefined name changes nothing");
+        assert!(!s.prefs.get("everything"));
+
+        let round = WritePrefs::from_json(&s.prefs.to_json()).unwrap();
+        assert_eq!(round, s.prefs);
+        assert_eq!(WritePrefs::from_json("").unwrap(), WritePrefs::default(), "a blank file asks every time");
+        assert!(WritePrefs::from_json("{\"nonsense\"").is_err());
+
+        // It is not in the portable store, and does not come back with it.
+        let json = s.to_json();
+        assert!(!json.contains("always_section"), "prefs are device state: {json}");
+        assert!(!VaultSession::from_json(&json).unwrap().prefs.get("section"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **Requirement 2.** A culture is attachable, and its id is the only one
+    /// in this system that a regenerate cannot move.
+    #[test]
+    fn a_culture_is_an_addressable_entity_with_a_permanent_id() {
+        let root = scratch("culture");
+        std::fs::write(root.join("Riverlands.md"), "---\nkind: culture\n---\n\n# The Riverlands\n\nThey wed at the ford.\n").unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let id = s.attach(EntityKind::Culture, 4, "riverlands", "Riverlands.md", Selection::WholeDocument).unwrap();
+        assert_eq!(s.store.get(&id).unwrap().entity_key(), "culture:4");
+        assert_eq!(EntityKind::parse("culture"), Some(EntityKind::Culture));
+        assert_eq!(s.entity_data(EntityKind::Culture, 4).len(), 1);
+        // A culture is not a settlement, however alike the ids look.
+        assert!(s.store.links_for(EntityKind::Settlement, 4).is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 

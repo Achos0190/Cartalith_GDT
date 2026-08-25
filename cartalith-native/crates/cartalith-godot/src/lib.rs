@@ -10810,6 +10810,78 @@ impl WorldGen {
         cartalith_civ::CIV_CULTURES.iter().map(|c| GString::from(c.key)).collect()
     }
 
+    /// `GUI_GAP_REGISTER.md` **CV-02**, closed 2026-08-25: the seven cultures
+    /// as *rows*, not just as keys — `{id, key, name, terrain_affinity,
+    /// faction_count, factions, settlement_count, population}`.
+    ///
+    /// The register called this "(B) wrapper — a fuller `get_cultures()` is
+    /// one binding", and it is: every number below is a count over data
+    /// already here. What it adds over `civ_culture_vocabulary()` is the
+    /// **id** — the 0-based `CIV_CULTURES` index — which is what the Markdown
+    /// Vault addresses a culture by (`EntityKind::Culture`), and which is the
+    /// one entity id in this port that survives both a regenerate and a
+    /// save/load, because these seven rows are compile-time constants rather
+    /// than generated.
+    ///
+    /// Non-empty **before** any `generate()`: the seven cultures exist
+    /// without a world and only their aggregates need one, which come back
+    /// zero. That is deliberately unlike `get_factions()`, and it is the
+    /// honest answer rather than an inconsistency — nothing about the
+    /// Riverlands' name pool depends on a height field.
+    ///
+    /// `terrain_affinity` is `CIV_CULTURE_TERRAIN_KEY`'s thematic pairing and
+    /// is `""` for `common` and `imperial`, which `civ_culture_terrain_fit`
+    /// deliberately gives no verdict rather than a fabricated one.
+    #[func]
+    fn get_cultures(&self) -> Array<VarDictionary> {
+        cartalith_civ::CIV_CULTURES
+            .iter()
+            .enumerate()
+            .map(|(id, c)| {
+                let mut factions: Vec<&str> = Vec::new();
+                let mut settlement_count: i64 = 0;
+                let mut population: i64 = 0;
+                if let Some(civ) = self.civ.as_ref() {
+                    for (fid, e) in civ.faction_roster.0.iter().enumerate().skip(1) {
+                        if e.culture != c.key {
+                            continue;
+                        }
+                        factions.push(&e.name);
+                        for s in civ.settlements.iter().filter(|s| s.placement.faction == fid as i32) {
+                            settlement_count += 1;
+                            population += s.pop as i64;
+                        }
+                    }
+                }
+                let affinity = cartalith_civ::CIV_CULTURE_TERRAIN_KEY
+                    .iter()
+                    .find(|(k, _)| *k == c.key)
+                    .map(|(_, t)| *t)
+                    .unwrap_or("");
+                dict! {
+                    "id" => id as i64,
+                    "key" => c.key,
+                    // The reference's own table carries no display label for a
+                    // culture, so this is the key title-cased and nothing more
+                    // -- a second vocabulary to drift from is exactly what
+                    // `civ_culture_vocabulary`'s doc refuses to invent.
+                    "name" => {
+                        let mut ch = c.key.chars();
+                        match ch.next() {
+                            Some(f) => f.to_uppercase().collect::<String>() + ch.as_str(),
+                            None => String::new(),
+                        }
+                    },
+                    "terrain_affinity" => affinity,
+                    "faction_count" => factions.len() as i64,
+                    "factions" => factions.join(", "),
+                    "settlement_count" => settlement_count,
+                    "population" => population,
+                }
+            })
+            .collect()
+    }
+
     // ---- roster (CV-07 / MS-13) ----
 
     /// How many real, assignable factions exist right now (`1..=n`),

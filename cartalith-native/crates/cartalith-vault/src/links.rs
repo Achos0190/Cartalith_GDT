@@ -26,6 +26,8 @@
 //! | Settlement | `NamedSettlement::tid` | Stable across edits, renames and moves within a session. **Not** across save/load — civ is not saved — nor across a fresh `generate()`. |
 //! | Province | `Province::id` | Re-derived by every `civ_recompute()`; a province that gains or loses a seed settlement can change id. |
 //! | Continent | landmass component index | Re-derived from the height field; any terrain edit that merges or splits a landmass renumbers it. |
+//! | Faction | `faction_roster` row index | Stable while the roster is; `civ_remove_faction` renumbers the rows above the one removed. |
+//! | Culture | `CIV_CULTURES` index | **Stable absolutely.** Seven compile-time rows, the same seven in every world, so a culture link survives a regenerate and a save/load — the only kind here that does. |
 //!
 //! So every link also stores [`KnowledgeLink::entity_label`] — the entity's
 //! name at link time. It is not the key and nothing resolves by it; it exists
@@ -34,6 +36,7 @@
 //! rather than guessing" applied to identity rather than to content.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// The three entity kinds this port can genuinely address
 /// (`MARKDOWN_VAULT_SCOPE.md` milestone 0's verification).
@@ -58,6 +61,17 @@ pub enum EntityKind {
     /// A faction is `CivData::faction_roster`'s own row, addressed by its
     /// 1-based id exactly as a province is.
     Faction,
+    /// `GUI_GAP_REGISTER.md` **CV-02**, added 2026-08-25 for the owner's
+    /// *"the user can add cultural data … to the respective entity"*.
+    ///
+    /// A culture is `cartalith_civ::CIV_CULTURES[id]` — one of **seven**
+    /// compile-time rows (reference line 14607), addressed by its **0-based
+    /// index**. It is not generated, so unlike every other kind here its id
+    /// is not derived from a world: see the stability table in this module's
+    /// own doc, where it is the only row that survives a regenerate *and* a
+    /// save/load. That is a property worth having rather than an accident —
+    /// a person's essay on the Riverlands stays attached to the Riverlands.
+    Culture,
 }
 
 impl EntityKind {
@@ -67,6 +81,7 @@ impl EntityKind {
             EntityKind::Province => "province",
             EntityKind::Continent => "continent",
             EntityKind::Faction => "faction",
+            EntityKind::Culture => "culture",
         }
     }
 
@@ -76,6 +91,7 @@ impl EntityKind {
             "province" => Some(EntityKind::Province),
             "continent" => Some(EntityKind::Continent),
             "faction" => Some(EntityKind::Faction),
+            "culture" => Some(EntityKind::Culture),
             _ => None,
         }
     }
@@ -145,6 +161,111 @@ impl LinkStatus {
     }
 }
 
+/// The note's own **structured** information, copied into Cartalith's JSON.
+///
+/// ## Why this exists, and what changed
+///
+/// Milestone 1 already copied a note's *prose*: [`KnowledgeLink::imported_text`]
+/// holds what was read and [`LinkStore::to_json`] writes it out, so the
+/// design's §35 criterion 8 ("import text into Cartalith") has been satisfied
+/// since 2026-08-24. What it did **not** copy was anything a program can read.
+/// The owner's 2026-08-25 direction — *"the user can add cultural data or
+/// settlement data to the respective entity … The information then gets copied
+/// to a json"* — is about data, not paragraphs: a note that says
+/// `**Size / Population:** 8,420` should leave Cartalith holding
+/// `population = 8,420`, not a string containing that sentence.
+///
+/// So a link now carries two small maps taken from the same read, and
+/// `MARKDOWN_VAULT_SCOPE.md` milestone 6 records the reasoning.
+///
+/// ## Two maps, not one merged map
+///
+/// A note's YAML frontmatter and its `**Name:**` template lines are different
+/// authoring surfaces and can legitimately disagree — `type: town` in the
+/// frontmatter and `**Type:** City` in the body. Merging them needs a
+/// precedence rule nobody asked for, and picking one silently is exactly the
+/// guess §32 forbids. They are kept apart and the consumer decides.
+///
+/// ## Freshness is the link's, not its own
+///
+/// **There is deliberately no second staleness idea here.** This is captured
+/// in the same read as [`KnowledgeLink::imported_text`], from the same bytes,
+/// under the same [`KnowledgeLink::source_hash`] — so §27's existing
+/// vocabulary already answers "is this copy current": a link that reports
+/// [`LinkStatus::Stale`] has a stale copy, and *Reload source* refreshes both
+/// halves together. Adding a per-map timestamp would let the two disagree,
+/// which is a state the UI would then have to explain.
+///
+/// ## Scoped to the whole document, always
+///
+/// Even for a `Heading` selection. Frontmatter is document metadata by
+/// definition, and a settlement note's `**Population:**` line commonly lives
+/// under a `### General Info` heading the user did not attach. One rule,
+/// stated once, rather than a selection-dependent one that surprises.
+///
+/// ## Every value is a string, and that is a decision
+///
+/// `population: 8420` in a note's frontmatter is stored here as the **five
+/// characters** `"8420"`, never as a number. Two reasons, one of which this
+/// project has already paid for:
+///
+/// 1. **KV-04, 2026-08-25.** Godot's `JSON` has a single number type and it is
+///    `f64`, so a round trip floated `entity_id` to `1.0` and
+///    `source_modified` to `1787605785.0`; serde refused both and the shell
+///    discarded every link on every boot. The owner has since said the new
+///    save format will also be implemented in the HTML app, and JavaScript has
+///    exactly the same defect — every JSON number is a double, and an integer
+///    above 2^53 cannot round-trip at all. A map of strings cannot be
+///    corrupted by a layer that floats numbers, which is why this one is.
+/// 2. It is also simply **what the note said**. `8,420`, `~8000` and `8420`
+///    are three different things a person wrote, and parsing them into one
+///    number would be Cartalith deciding what the author meant. Whoever
+///    consumes a value decides how to read it; the copy preserves it.
+///
+/// The same rule is why [`KnowledgeLink::source_hash`] has always been hex
+/// text rather than a `u64`. It is the precedent, not a new idea.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportedData {
+    /// Flat scalar keys from the leading YAML block.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub frontmatter: BTreeMap<String, String>,
+    /// `**Name:** value` lines from the author's own template.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, String>,
+}
+
+impl ImportedData {
+    /// Everything readable as data in one document. Never fails: a note with
+    /// no frontmatter and no field lines yields an empty value, which is a
+    /// legitimate answer and not an error.
+    pub fn from_document(text: &str) -> Self {
+        ImportedData {
+            frontmatter: crate::markdown::frontmatter_fields(text).into_iter().collect(),
+            fields: crate::markdown::field_values(text).into_iter().collect(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frontmatter.is_empty() && self.fields.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.frontmatter.len() + self.fields.len()
+    }
+
+    /// `(origin, key, value)` rows in a stable order — frontmatter first,
+    /// then template fields. `origin` is `"frontmatter"` or `"field"`, and it
+    /// is carried rather than dropped because a consumer that cannot say
+    /// where a value came from cannot let a person correct it.
+    pub fn rows(&self) -> Vec<(&'static str, &str, &str)> {
+        self.frontmatter
+            .iter()
+            .map(|(k, v)| ("frontmatter", k.as_str(), v.as_str()))
+            .chain(self.fields.iter().map(|(k, v)| ("field", k.as_str(), v.as_str())))
+            .collect()
+    }
+}
+
 /// A vault as the *project* knows it — an id and a name, no path (§5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultRef {
@@ -191,6 +312,15 @@ pub struct KnowledgeLink {
     /// The Cartalith-side working copy, present only once it diverges (§15).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_text: Option<String>,
+    /// The note's structured information, copied into Cartalith's own JSON —
+    /// the owner's 2026-08-25 direction. Captured with `imported_text`, from
+    /// the same read, under the same `source_hash`. See [`ImportedData`].
+    ///
+    /// Empty for a link written by a build before 2026-08-25; *Reload source*
+    /// fills it. That is why it is `#[serde(default)]` rather than a
+    /// format-version bump — an old sidecar loads and simply has no data yet.
+    #[serde(default, skip_serializing_if = "ImportedData::is_empty")]
+    pub imported_data: ImportedData,
 }
 
 impl KnowledgeLink {
@@ -372,6 +502,7 @@ mod tests {
             source_hash: "aaaa".into(),
             imported_text: Some("## The Old Quarter\n\nNarrow streets.\n".into()),
             edited_text: None,
+            imported_data: ImportedData::default(),
         }
     }
 

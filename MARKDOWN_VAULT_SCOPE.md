@@ -106,7 +106,7 @@ resolved rather than left open.
 
 | Design | This port | Resolution |
 |---|---|---|
-| §3 entity scope includes **POIs** and **region labels** | Neither is a ported concept | Not built. `EntityKind` covers settlement/province/continent; §3's own "add a kind later without redesigning the storage model" requirement is met — a new variant plus one `match` arm is the whole change. |
+| §3 entity scope includes **POIs** and **region labels** | Neither is a ported concept | Not built. `EntityKind` covers settlement/province/continent, and **faction** (CV-22) and **culture** (CV-02) were both added on 2026-08-25 — §3's own "add a kind later without redesigning the storage model" requirement is therefore not a claim but a measured one: each was a variant, an `as_str` arm, a `parse` arm and an `entity_values` arm. |
 | §26 puts `knowledgeLinks` **inside the Cartalith project save** | `cartalith-io` writes the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in `user://markdown_vault.json` (`vault_store.gd`). A link written into a save would come back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible. |
 | §23 rule 2: *"user content outside the block is immutable"* | The owner's 2026-08-18 amendment adds field population into the author's own template | Both mechanisms exist and are separated by policy, not by hope: the delimited block is machine-owned and regenerated unattended; author-field population is `FieldFill::OnlyIfEmpty` by default, previewed, confirmed, and **reports "skipped, you had already filled it"** rather than overwriting. `markdown::fill_field` is the one place that can write outside the block, and it refuses an occupied field. This is the reconciliation the design's header asked whoever wrote this document to make. |
 | §11 offers `TextRange` and `MarkdownBlock` selections | — | Not built, and this is a correctness decision rather than a scope cut. A byte offset stops pointing at the right paragraph the moment the author edits the text above it, and a block reference (`^abc123`) is an Obsidian construct the owner's clarification put out of core. V1 ships the two selections §11 itself prioritises: whole document and heading section. |
@@ -128,6 +128,8 @@ resolved rather than left open.
 | `cartalith-vault::links` | `KnowledgeLink`, `LinkStore`, the six status states |
 | `cartalith-vault::provider` | `FsVault`: bounded listing, path containment, atomic writes |
 | `cartalith-vault::export` | The exportable-field registry and the block renderer |
+| `cartalith-vault::links::ImportedData` | Milestone 6: the note's information copied into Cartalith's own JSON |
+| `cartalith-vault::WritePrefs` | Milestone 6: the *confirm always* choices, device-scoped |
 | `cartalith-godot/src/vault_bridge.rs` | The `#[func]` surface, and turning a Cartalith entity into values |
 | `godot-project/shell/vault_window.gd` | The panel: connect, browse, attach, read/edit, preview, write |
 | `godot-project/shell/vault_store.gd` | `user://markdown_vault.json` |
@@ -152,6 +154,16 @@ Three entity kinds, three different strengths of id:
 | Settlement | `NamedSettlement::tid` | **Yes** | **Yes** (kept settlements keep their tid) | No | No — civ is not saved |
 | Province | `Province::id` | Yes | Only if the seed set is unchanged | No | No |
 | Continent | rank by area | Yes | Yes (terrain unchanged) | No | No |
+| Faction | roster row index | Yes | Yes | No | No |
+| Culture | `CIV_CULTURES` index | **Yes** | **Yes** | **Yes** | **Yes** |
+
+The last row is the exception that proves the rule: a culture's id is an index
+into a **compile-time** table of seven, identical in every world, so a culture
+link is the only one here that a regenerate and a save/load both leave intact.
+That is a consequence of cultures not being generated, not a design achievement
+— and the cost is stated with it: reorder `CIV_CULTURES` and every existing
+culture link silently re-points. A test asserts its length and order for that
+reason.
 
 Rather than pretend, every `KnowledgeLink` also stores `entity_label` — the
 entity's **name at link time**. Nothing resolves by it and it is never a
@@ -244,6 +256,190 @@ Storage Access Framework: a tree URI, a persisted permission grant, and a
 provider implementation beside `FsVault`. Cross-device vault identity (§35
 criterion 2) is designed for and unverified until this exists.
 
+### Milestone 6 — search, the note as data, culture, and "confirm always" · **engine half done, 2026-08-25**
+
+The owner's direction, verbatim:
+
+> *"Let's be certain if the user links a vault the user can add cultural data
+> or settlement data to the respective entity they want to add it to. Search
+> for it it in the vault etc. The information then gets copied to a json. When
+> the user ever wants to change this or add information to the markdown file
+> it's an explicit action with a prompt confirmation (the prompt should have an
+> option to confirm always)"*
+
+Four requirements. This pass is the **Rust half**: the engine, the
+`cartalith-vault` crate and the `#[func]` surface. The panel work — a search
+field, a culture picker, a "note says" readout and the *don't ask again*
+checkbox — is a separate pass.
+
+Still outside `DECISIONS.md` §7d's contract, for the reason §0 of this
+document already gives: nothing in `reference/Cartalith Gen1 v2.10.html` links
+anything to a Markdown corpus, so **there is no golden target for any of it**.
+What replaces golden parity is unchanged — round trip and non-destruction —
+and the CPU pipeline's numeric behaviour was not touched. Workspace: 138
+binaries, **2,204 → 2,216 passed**, 0 failed, 8 ignored.
+
+#### What was already there, and one finding that was wrong before it was built
+
+Checked against the code first, because this repository's most common defect
+is registering something as missing that already exists:
+
+| # | Requirement | What was actually there |
+|---|---|---|
+| 1 | Attach to the right entity | **Complete.** `EntityKind` already covered settlement/province/continent/faction and `attach` already validated the kind and the section at attach time. |
+| 2 | Cultural data | **Half there, and the missing half was not the half it looked like.** Culture was *not* unexposed: `civ_culture_vocabulary()` has shipped the seven keys as a `#[func]`, `get_factions()` reports each faction's `culture`, and `civ_set_faction_field` validates and sets it. What was missing was that a **culture was not addressable** — no `EntityKind`, so no note could be attached to one. |
+| 3 | Search the vault | **Genuinely absent.** Browsing listed files, `vault_file_headings` listed one file's headings, and `entity_mentions` searched for *one entity's own name*. Nothing let a person type a word. |
+| 4 | Copied into a JSON | **Half there, and this is the correction that matters most.** `attach` has copied a note's **prose** into `KnowledgeLink::imported_text` since milestone 1, and `LinkStore::to_json` writes it out — §35 criterion 8 was already ticked. What did not exist was a copy a *program* can read: a note saying `**Size / Population:** 8,420` left Cartalith holding a paragraph, not a population. |
+| 5 | Explicit confirmed write-back | **Complete except the option the owner asked for.** All three write paths preview first, confirm through a `ConfirmationDialog`, and carry an `expect_hash` from the preview so a file edited in between refuses. No "confirm always". |
+
+**This is not the model inversion it was scoped as.** The reference model is
+intact: a link still points at a file and the file is still the source of
+truth. What changed is that the copy taken at attach time is now *structured*
+as well as textual. Nothing was removed and no existing behaviour moved.
+
+#### What was built
+
+- **`EntityKind::Culture`** — a culture is `CIV_CULTURES[id]`, the seven
+  compile-time rows at reference line 14607, addressed by its **0-based
+  index**. `get_cultures()` is the binding `GUI_GAP_REGISTER.md` CV-02 asked
+  for ("a fuller `get_cultures()` is one binding"), and it is non-empty before
+  any `generate()` — the Riverlands' name pool does not depend on a height
+  field, and only its aggregates do.
+- **`VaultSession::search`** — names always, content when the backlink index
+  has been built.
+- **`ImportedData`** on every link — the note's YAML frontmatter and its
+  `**Name:**` template lines, captured in the same read as `imported_text`.
+- **`WritePrefs`** — three independent *don't ask again* flags.
+
+#### The five design questions, and how each was resolved
+
+**1. Where does the copied JSON live?** In `LinkStore`'s existing JSON, on the
+link it belongs to. That is deliberately **not** a new persistence path: it
+rides whatever carries the link store, so when the save-format restructure
+lands (milestone 3, unblocked by the owner's 2026-08-25 ruling that saving is
+strictly the new format) the copy moves with the links and needs no separate
+home. Nothing was parked in a private file and nothing was invented for the
+device sidecar to hold.
+
+**2. Every copied value is a string, and that is load-bearing.**
+`population: 8420` is stored as the five characters `"8420"`. Two reasons, one
+of them already paid for: **KV-04**, the same day, was Godot's `JSON` floating
+`entity_id` to `1.0` and `source_modified` to `1787605785.0` — serde refused
+both and every link was discarded on every boot. The owner intends the new save
+format to be implemented in the HTML app too, and JavaScript has exactly the
+same defect: every JSON number is a double and integers above 2^53 cannot round
+trip at all. A map of strings cannot be corrupted by a layer that floats
+numbers. It is also simply what the note said — `8,420`, `~8000` and `8420` are
+three different things a person wrote, and parsing them into one number would be
+Cartalith deciding what the author meant. `source_hash` has always been hex text
+rather than a `u64` for the same reason; this is the precedent, not a new idea.
+
+**3. What happens when the note changes after a copy?** Nothing new is
+invented. The copy is taken in the same read as `imported_text`, from the same
+bytes, under the same `source_hash` — so §27's existing vocabulary already
+answers it: a link that reports **Stale** has a stale copy, and *Reload source*
+moves text, data and hash together. There is deliberately **no**
+refresh-the-data-only call, because it would let the fields be current while
+the prose was not, under a status that could describe only one of them.
+
+One hole this closed on the way: `write_section` is the single write path that
+re-syncs a link's own hash, so it is the only one that could leave a stale copy
+sitting under a **Connected** status — an edited section carrying a
+`**Population:**` line is exactly that case. It now re-reads the copy from the
+document it just wrote, and a test is named after the hole.
+
+**4. What is copied?** The smallest thing that satisfies the owner's sentence:
+
+- the leading YAML block's **flat scalars only**. An indented line (a nested
+  map or a `- list` item), a `#` comment, a line with no colon and a key with
+  an empty value are skipped rather than half-parsed. A **duplicated key is
+  omitted entirely**, not resolved last-wins — the same refusal-to-guess
+  `find_section` applies to duplicate headings.
+- the author's `**Name:** value` lines, minus any still holding the template's
+  own `[bracketed prompt]`. Copying `[City / Town]` in as this settlement's
+  type would be importing the question as though it were the answer.
+- **as two maps, not one.** `type: town` in the frontmatter and `**Type:**
+  City` in the body are two authoring surfaces that can legitimately disagree;
+  merging them needs a precedence rule nobody asked for.
+- **whole-document scope, always**, even for a heading selection. Frontmatter
+  is document metadata by definition, and a settlement note's population line
+  commonly sits under a `### General Info` heading the user did not attach. One
+  rule rather than a selection-dependent one that surprises.
+- **not deduplicated across notes.** Two notes on one settlement may disagree,
+  and every row carries the path it came from so the disagreement is visible
+  and attributable instead of silently resolved.
+
+This is not a YAML parser and must not become one — that would drag a
+dependency and an error type into a crate whose entire contract is that it
+never rewrites what it does not understand.
+
+**5. What may "confirm always" skip?** The dialog, never the guard. A caller
+with the preference set still has to call the matching `vault_preview_*` —
+that is where `expect_hash` comes from — and simply not display it. A note
+edited between the preview and the write still refuses, whether or not anyone
+was asked. Three independent flags rather than one, because replacing a
+section, regenerating a machine-owned block and writing into the author's own
+template lines are three different risks.
+
+`always_field_fill` sits against `MARKDOWN_VAULT_INTEGRATION.md`'s own header
+(*"offered and explicitly confirmed, never silent"*). It is honoured because
+the owner asked for it and it is safe because `FieldFill::OnlyIfEmpty` still
+refuses an occupied field whether or not anyone is watching. Recorded here
+rather than left as a silent contradiction.
+
+The preferences are **device state**: kept off `LinkStore` because one
+person's "stop asking me" must not travel into another person's copy of a
+project (§5). Same split `BacklinkIndex` already makes — its own JSON, its own
+file.
+
+#### Verification
+
+Twelve new tests, each shaped to reach the code rather than to pass:
+
+- `search_finds_notes_by_name_and_by_content_and_says_when_it_could_not_look`
+  — including the failure paths: no matches, an empty query, a two-character
+  query, the cap, and **the un-built index, where an empty answer must be
+  reported as "did not look" rather than "nothing there"**.
+- `a_notes_information_is_copied_into_the_json_and_reads_back_without_the_vault`
+  — the owner's sentence end to end, including reading it back on a device that
+  has never seen the folder.
+- `a_note_with_malformed_frontmatter_still_attaches_and_copies_nothing_wrong`
+  — an unterminated block, a line with no colon, an indented line and a
+  duplicated key in one fixture; the note still attaches and the copy is empty.
+- `a_note_that_changed_after_the_copy_is_stale_until_reload_moves_both_halves`.
+- `writing_a_section_back_refreshes_the_copy_it_just_invalidated`.
+- `the_confirm_always_preference_persists_and_never_travels_with_a_project`.
+- `a_culture_is_an_addressable_entity_with_a_permanent_id` and
+  `a_culture_is_addressed_by_its_compile_time_index`, the second of which
+  **asserts `CIV_CULTURES`' length and order**: a culture link's id is an index
+  into a compile-time table, so changing that table silently re-points every
+  existing culture link in every user's sidecar.
+- `a_culture_is_offered_its_own_fields_and_no_places_fields` — from both sides,
+  because the wrong answer available here is offering a culture a coordinate.
+- `frontmatter_reads_flat_scalars_and_declines_everything_else`,
+  `malformed_frontmatter_yields_nothing_rather_than_a_wrong_answer`,
+  `field_values_import_answers_and_never_the_templates_own_questions`.
+
+#### Known limitations of this milestone
+
+1. **Content search needs the backlink index.** Names are always searchable;
+   bodies are not until *Refresh* has run once. The alternative is opening
+   every note on every keystroke, which §31 forbids outright.
+2. **A culture's id is a compile-time index**, so it is the *most* stable id in
+   this port — it survives a regenerate and a save/load, unlike every other
+   kind — but it moves if `CIV_CULTURES` is ever reordered. A test asserts the
+   order for exactly that reason.
+3. **A link made before 2026-08-25 has an empty copy** until *Reload source*
+   runs on it. Deliberately a `#[serde(default)]` rather than a format-version
+   bump: an old sidecar loads and simply has no data yet.
+4. **The copy is not fed back into the engine.** Cartalith holds what the note
+   said and shows it; nothing sets a settlement's population from a note. That
+   is a much larger question — it would make the vault a second source of truth
+   for world state, which §36 explicitly forbids ("neither side should silently
+   become the other") — and it is not what the owner asked for.
+5. **The UI half is not built**, and until it is, none of this is reachable by
+   a user. The `#[func]` list is in `cartalith-native/docs/CHANGELOG.md`.
+
 ### Milestone 5 — the conflict UI (§14's *Compare*) · **not started**
 
 `Reload source` and `Keep current copy` both ship; a diff view does not,
@@ -261,9 +457,9 @@ that cannot lose work, which is the right subset to ship first.
 | 3 | Browse Markdown files | **Done** |
 | 4 | Open a Markdown file | **Done** |
 | 5 | Attach a complete file to a settlement | **Done** |
-| 6 | Attach a specific section to a **POI** | **Not possible** — POI is not a ported concept. Sections attach to settlements, provinces and continents. |
+| 6 | Attach a specific section to a **POI** | **Not possible** — POI is not a ported concept. Sections attach to settlements, provinces, continents, factions and cultures. |
 | 7 | Attach a region document to a **region** | **Not possible as written** — no "region" entity. Provinces and continents are this port's nearest real equivalents and both are supported. |
-| 8 | Import text into Cartalith | **Done** |
+| 8 | Import text into Cartalith | **Done**, and since milestone 6 the note's **frontmatter and template fields** are imported as data too, not only as prose |
 | 9 | Edit the imported text locally | **Done** |
 | 10 | Detect a changed source by timestamp | **Done**, with a content hash outranking it |
 | 11 | Compare **or** reload changed source | **Reload done; Compare is milestone 5** |

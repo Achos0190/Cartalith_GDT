@@ -7689,3 +7689,49 @@ returns "This world is finalized: the baked atlas is the authoritative
 surface, so the heightfield is read-only. Un-finalize first.", Commit disables,
 and that exact sentence is present as a `Label` in the dock. Headless boot
 clean throughout.
+
+## Markdown Vault milestone 6 — search, the note as data, culture, "confirm always" (2026-08-25, **engine half only**)
+
+`MARKDOWN_VAULT_SCOPE.md` milestone 6. The owner's 2026-08-25 direction, four
+requirements. **Rust only this pass — no `.gd` file was touched and nothing is
+reachable by a user yet.**
+
+Two of the four were already largely built, and the corrections are the part
+worth carrying forward:
+
+- **Culture was never unexposed.** `civ_culture_vocabulary()` has shipped the
+  seven keys as a `#[func]`; `get_factions()` reports each faction's `culture`;
+  `civ_set_faction_field` validates and sets it. What was missing was a culture
+  as an *addressable entity*. `EntityKind::Culture` + `get_cultures()` now
+  close the engine half of `GUI_GAP_REGISTER.md` **CV-02**.
+- **The copy already existed, for prose.** `attach` has written a note's text
+  into `imported_text` and serialised it since milestone 1. What did not exist
+  was a copy a *program* can read. `ImportedData` (frontmatter + `**Name:**`
+  field lines, two maps, whole-document scope) is that, captured in the same
+  read under the same `source_hash` — **no second staleness idea**.
+
+Genuinely new: `VaultSession::search` (names always, content only when the
+backlink index has been built — the result says which, because "nothing there"
+and "did not look" are opposite statements) and `WritePrefs` (three *don't ask
+again* flags, device state, suppressing the **dialog** and never the
+`expect_hash` guard).
+
+**Every copied value is a string, deliberately** — KV-04 the same day was
+Godot's `JSON` floating `entity_id` to `1.0`, and the HTML app's coming
+implementation of the new save format has the same defect with a hard 2^53
+ceiling.
+
+**Persistence is a hand-off, not a new path**: the copy lives on the
+`KnowledgeLink` inside `LinkStore`'s existing JSON, so it travels with whatever
+carries the links when the save-format restructure lands (milestone 3). The
+preferences are the exception and are device state, in their own JSON beside
+the store.
+
+Workspace **138 binaries / 2 204 → 2 216 passing / 0 failing / 8 ignored**; no
+CPU-pipeline numeric behaviour touched.
+
+**Next:** the UI pass — a search field, a culture picker, a "what the note
+says" readout on the entity panels, and the *don't ask again* checkbox on
+`vault_window.gd`'s `_preview_dialog`, which is the single choke point all
+three write paths already go through. The `#[func]` list with argument and
+return shapes is in `docs/CHANGELOG.md`'s milestone-6 entry.

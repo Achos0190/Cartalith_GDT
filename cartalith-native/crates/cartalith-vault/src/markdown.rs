@@ -230,6 +230,101 @@ pub fn replace_section(text: &str, title: &str, replacement: &str) -> Result<Str
     Ok(out)
 }
 
+/// The flat `key: value` pairs of a document's YAML frontmatter, in document
+/// order.
+///
+/// §9 lists *"read frontmatter"* as a required V1 operation and milestone 1
+/// shipped only [`frontmatter_end`], which locates the block so nothing else
+/// mis-reads it. This reads it, for the owner's 2026-08-25 direction that a
+/// note's information be copied into Cartalith's own JSON.
+///
+/// **Narrow on purpose, and it must stay narrow.** This is not a YAML parser
+/// and adding one would drag a dependency and an error type into a crate
+/// whose whole contract is that it never rewrites what it does not
+/// understand. What it reads:
+///
+/// - a top-level `key: value` line, value trimmed and unquoted;
+/// - nothing else. An **indented** line (a nested mapping or a `- list`
+///   item), a `#` comment, a line with no colon, and a key with an empty
+///   value are all skipped rather than half-parsed. A list is skipped whole
+///   rather than flattened into a string that pretends to be a scalar.
+/// - a **duplicated** key is omitted entirely, not resolved last-wins — the
+///   same refusal-to-guess [`find_section`] applies to duplicate headings and
+///   [`fill_field`] to duplicate field names.
+///
+/// A document with no frontmatter, or with an unterminated `---` opener
+/// (which [`frontmatter_end`] correctly declines to treat as frontmatter),
+/// yields an empty vector rather than an error. Malformed input here must
+/// never be the thing that stops a note being attached.
+pub fn frontmatter_fields(text: &str) -> Vec<(String, String)> {
+    if frontmatter_end(text) == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut duplicated: Vec<String> = Vec::new();
+    for (i, line) in line_spans(text).enumerate() {
+        let raw = &text[line.clone()];
+        if i == 0 {
+            continue; // the opening `---`
+        }
+        let end_marker = raw.trim_end();
+        if end_marker == "---" || end_marker == "..." {
+            break;
+        }
+        // Indented: a nested mapping or a list item belonging to the key
+        // above. V1 keeps neither.
+        if raw.starts_with([' ', '\t']) {
+            continue;
+        }
+        let t = end_marker.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = t.split_once(':') else { continue };
+        let key = k.trim();
+        let value = unquote(v.trim());
+        if key.is_empty() || value.is_empty() {
+            continue;
+        }
+        if out.iter().any(|(existing, _)| existing == key) {
+            duplicated.push(key.to_string());
+            continue;
+        }
+        out.push((key.to_string(), value));
+    }
+    out.retain(|(k, _)| !duplicated.iter().any(|d| d == k));
+    out
+}
+
+/// Strip one matching pair of surrounding quotes, if there is one.
+fn unquote(s: &str) -> String {
+    for q in ['"', '\''] {
+        if s.len() >= 2 && s.starts_with(q) && s.ends_with(q) {
+            return s[1..s.len() - 1].to_string();
+        }
+    }
+    s.to_string()
+}
+
+/// The author's own `**Name:** value` lines as data — the read half of what
+/// [`fill_field`] writes.
+///
+/// Filtered to what is genuinely information:
+///
+/// - a **placeholder** ([`FieldLine::placeholder`]: empty, or still holding
+///   the template's own `[bracketed prompt]`) is not a value and is dropped.
+///   Copying `[City / Town]` into Cartalith as this settlement's type would
+///   be importing the question as though it were the answer.
+/// - a **duplicated** name is dropped, matching [`fill_field`]'s own refusal.
+pub fn field_values(text: &str) -> Vec<(String, String)> {
+    let all = fields(text);
+    all.iter()
+        .filter(|f| !f.placeholder)
+        .filter(|f| all.iter().filter(|o| o.name == f.name).count() == 1)
+        .map(|f| (f.name.clone(), f.value.clone()))
+        .collect()
+}
+
 // -- field population (owner's 2026-08-18 amendment to §23) -----------------
 
 /// One `**Name:**`-style field line in an author's own template, as byte
@@ -550,5 +645,61 @@ mod tests {
         let (out, o) = fill_field(doc, "A", "x", FieldFill::Overwrite);
         assert_eq!(o, FieldOutcome::NotFound);
         assert_eq!(out, doc);
+    }
+
+    // -- reading a note as data (owner's 2026-08-25 direction) -------------
+
+    #[test]
+    fn frontmatter_reads_flat_scalars_and_declines_everything_else() {
+        let doc = "---\ntitle: Nareth\ntype: \"River Town\"\nfounded: '812'\ntags:\n  - worldbuilding\n  - lore\nnested:\n  depth: 2\n# a comment\nnot a pair\nempty:\n---\n\n# Nareth\n";
+        let f = frontmatter_fields(doc);
+        assert_eq!(
+            f,
+            vec![
+                ("title".to_string(), "Nareth".to_string()),
+                ("type".to_string(), "River Town".to_string()),
+                ("founded".to_string(), "812".to_string()),
+            ],
+            "quotes stripped; list, nested map, comment, non-pair and empty value all declined: {f:?}"
+        );
+    }
+
+    /// The fixture is shaped to reach each refusal separately, per the
+    /// project's rule that a fixture must reach the code rather than merely
+    /// pass: an unterminated opener, a body that looks like frontmatter but
+    /// is not, and a duplicated key that must not resolve last-wins.
+    #[test]
+    fn malformed_frontmatter_yields_nothing_rather_than_a_wrong_answer() {
+        // Unterminated: `frontmatter_end` already says this is a horizontal
+        // rule, so nothing below it may be read as metadata.
+        let unterminated = "---\ntitle: Nareth\n\n# Nareth\n\nprose: not metadata\n";
+        assert_eq!(frontmatter_end(unterminated), 0);
+        assert!(frontmatter_fields(unterminated).is_empty());
+
+        // No frontmatter at all, but a colon in the first line of prose.
+        assert!(frontmatter_fields("# Nareth\n\nNote: a river town.\n").is_empty());
+
+        // A duplicated key is dropped outright, not resolved.
+        let dup = "---\ntype: town\nname: Nareth\ntype: city\n---\n\n# Nareth\n";
+        let f = frontmatter_fields(dup);
+        assert_eq!(f, vec![("name".to_string(), "Nareth".to_string())], "{f:?}");
+
+        // An empty frontmatter block is empty, not an error.
+        assert!(frontmatter_fields("---\n---\n\n# T\n").is_empty());
+        assert!(frontmatter_fields("").is_empty());
+    }
+
+    #[test]
+    fn field_values_import_answers_and_never_the_templates_own_questions() {
+        let v = field_values(TEMPLATE);
+        assert_eq!(
+            v,
+            vec![("Location".to_string(), "Riverbend".to_string())],
+            "the three unfilled fields are prompts, not data: {v:?}"
+        );
+        // A duplicated name is dropped, exactly as `fill_field` refuses it.
+        assert!(field_values("**A:** one\n**A:** two\n**B:** three\n")
+            .iter()
+            .all(|(k, _)| k == "B"));
     }
 }

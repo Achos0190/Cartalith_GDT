@@ -135,14 +135,191 @@ impl WorldGen {
     /// string this engine actually parses rather than a transcribed literal.
     ///
     /// `"faction"` joined the list on 2026-08-25 (`GUI_GAP_REGISTER.md`
-    /// **CV-22**). `"poi"` is deliberately absent and always will be while
-    /// this port has no point-of-interest entity (CV-01).
+    /// **CV-22**) and `"culture"` the same day (**CV-02**). `"poi"` is
+    /// deliberately absent and always will be while this port has no
+    /// point-of-interest entity (CV-01).
     #[func]
     fn vault_entity_kinds(&self) -> PackedStringArray {
-        [EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction]
-            .iter()
-            .map(|k| GString::from(k.as_str()))
+        [
+            EntityKind::Settlement,
+            EntityKind::Province,
+            EntityKind::Continent,
+            EntityKind::Faction,
+            EntityKind::Culture,
+        ]
+        .iter()
+        .map(|k| GString::from(k.as_str()))
+        .collect()
+    }
+
+    // -- searching (§9, the owner's 2026-08-25 direction) ------------------
+
+    /// Find notes by name and, where the backlink index allows it, by
+    /// content.
+    ///
+    /// `{ok, error, indexed, scanned, truncated, hits: [{rel, in_name,
+    /// excerpt}]}`.
+    ///
+    /// **`indexed` is not optional to read.** Content search runs off the
+    /// backlink index's word fingerprints; with no index only *names* were
+    /// searched, and a panel that reports that as "no results" is telling the
+    /// user their vault does not contain a word nobody looked for. When
+    /// `indexed` is false the right message offers **Refresh index**.
+    ///
+    /// `in_name` separates the certain half from the narrowed one: a name hit
+    /// cost no file read, a content hit was confirmed by opening the file.
+    /// `scanned` says how many were opened, and `truncated` that `limit` or
+    /// `max_reads` cut the answer short.
+    ///
+    /// A query under three characters is name-only, deliberately: confirming
+    /// a two-letter query would mean reading the whole vault, which is what
+    /// §31 forbids. Non-positive `limit`/`max_reads` use 50 and 40.
+    #[func]
+    fn vault_search(&self, query: GString, limit: i64, max_reads: i64) -> VarDictionary {
+        let limit = if limit > 0 { limit as usize } else { 50 };
+        let max_reads = if max_reads > 0 { max_reads as usize } else { 40 };
+        match self.vault.search(&query.to_string(), limit, max_reads) {
+            Ok(r) => {
+                let hits: Array<VarDictionary> = r
+                    .hits
+                    .iter()
+                    .map(|h| {
+                        vdict! {
+                            "rel" => h.rel.as_str(),
+                            "in_name" => h.in_name,
+                            "excerpt" => h.excerpt.as_str(),
+                        }
+                    })
+                    .collect();
+                let mut d = ok();
+                d.set("indexed", r.indexed);
+                d.set("scanned", r.scanned as i64);
+                d.set("truncated", r.truncated);
+                d.set("hits", &hits);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    // -- the note's information, copied into Cartalith's JSON --------------
+
+    /// One note's frontmatter and template fields, read from disk right now
+    /// and stored nowhere: `{ok, error, frontmatter: {…}, fields: {…}}`.
+    ///
+    /// What a search result or an attach dialog shows *before* the user
+    /// commits to anything. Two maps rather than one merged map, because
+    /// `type: town` in the frontmatter and `**Type:** City` in the body are
+    /// two authoring surfaces that can legitimately disagree, and picking a
+    /// winner is a guess.
+    #[func]
+    fn vault_file_data(&self, rel: GString) -> VarDictionary {
+        match self.vault.document_data(&rel.to_string()) {
+            Ok(data) => {
+                let mut d = ok();
+                d.set("frontmatter", &map_of(&data.frontmatter));
+                d.set("fields", &map_of(&data.fields));
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// The information Cartalith **holds** for this entity, copied out of the
+    /// notes attached to it: `[{rel, origin, key, value}]`, `origin` being
+    /// `"frontmatter"` or `"field"`.
+    ///
+    /// The owner's sentence read back: the user attached a note, its
+    /// information was copied into the JSON at that moment, and this is where
+    /// it comes out. It reads the **copy**, never the disk, so it still
+    /// answers with the vault disconnected — which is why copying was worth
+    /// doing at all (§27).
+    ///
+    /// Not deduplicated across notes. Two notes on one settlement may
+    /// disagree, and `rel` is on every row so the disagreement is visible and
+    /// attributable rather than silently resolved.
+    ///
+    /// Empty for a link made before 2026-08-25; *Reload source* fills it.
+    #[func]
+    fn vault_entity_data(&self, kind: GString, entity_id: i64) -> Array<VarDictionary> {
+        let Some(k) = kind_of(&kind) else { return Array::new() };
+        self.vault
+            .entity_data(k, entity_id)
+            .into_iter()
+            .map(|(rel, origin, key, value)| {
+                vdict! {
+                    "rel" => rel.as_str(),
+                    "origin" => origin,
+                    "key" => key.as_str(),
+                    "value" => value.as_str(),
+                }
+            })
             .collect()
+    }
+
+    /// One link's copied information, as two maps: `{ok, error, frontmatter,
+    /// fields}`. The per-link view of `vault_entity_data`, for the reader
+    /// panel that is already showing one note.
+    #[func]
+    fn vault_link_data(&self, link_id: GString) -> VarDictionary {
+        let Some(l) = self.vault.store.get(&link_id.to_string()) else {
+            return err(format!("no such link: {link_id}"));
+        };
+        let mut d = ok();
+        d.set("frontmatter", &map_of(&l.imported_data.frontmatter));
+        d.set("fields", &map_of(&l.imported_data.fields));
+        d
+    }
+
+    // -- "confirm always" (the owner's 2026-08-25 direction) ---------------
+
+    /// Which confirmations the user has switched off:
+    /// `{section, block, field_fill}`, all booleans.
+    ///
+    /// **These suppress the dialog, never the guard.** A caller with a
+    /// preference set must still call the matching `vault_preview_*` — that
+    /// is where `expect_hash` comes from — and simply not show it before
+    /// calling the write. A note edited between the preview and the write
+    /// still refuses, whether or not anyone was asked.
+    #[func]
+    fn vault_write_prefs(&self) -> VarDictionary {
+        let p = &self.vault.prefs;
+        vdict! {
+            "section" => p.always_section,
+            "block" => p.always_block,
+            "field_fill" => p.always_field_fill,
+        }
+    }
+
+    /// Sets one of them. `path` is `"section"`, `"block"` or `"field_fill"`;
+    /// anything else returns `false` and changes nothing, because a typo must
+    /// not quietly disarm a confirmation.
+    #[func]
+    fn vault_set_write_pref(&mut self, path: GString, value: bool) -> bool {
+        self.vault.prefs.set(&path.to_string(), value)
+    }
+
+    /// The preferences as JSON, for the shell to store **beside** the link
+    /// store rather than inside it — one person's "stop asking me" is device
+    /// state and must not travel into another person's copy of a project
+    /// (§5). Same split `vault_backlink_index_json` already makes.
+    #[func]
+    fn vault_prefs_json(&self) -> GString {
+        GString::from(self.vault.prefs.to_json().as_str())
+    }
+
+    /// Restores them. Malformed JSON returns `false` and leaves the
+    /// preferences at their defaults, which is *ask every time* — the safe
+    /// direction for a corrupt file to fail in.
+    #[func]
+    fn vault_restore_prefs(&mut self, json: GString) -> bool {
+        match cartalith_vault::WritePrefs::from_json(&json.to_string()) {
+            Ok(p) => {
+                self.vault.prefs = p;
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     // -- creating a note (§16/§17, `GUI_GAP_REGISTER.md` VA-02) ------------
@@ -679,6 +856,15 @@ fn status_rank(s: LinkStatus) -> u8 {
     }
 }
 
+/// A `BTreeMap` of copied note information as a Godot `Dictionary`.
+fn map_of(m: &BTreeMap<String, String>) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    for (k, v) in m {
+        d.set(k.as_str(), v.as_str());
+    }
+    d
+}
+
 fn fill_report(report: &[(String, FieldOutcome)]) -> Array<VarDictionary> {
     report
         .iter()
@@ -712,6 +898,52 @@ impl WorldGen {
     /// shows the link's stored `entity_label` and offers a re-bind.
     pub(crate) fn entity_values(&self, kind: EntityKind, entity_id: i64) -> BTreeMap<&'static str, String> {
         let mut out: BTreeMap<&'static str, String> = BTreeMap::new();
+
+        // A culture is answered **before** the `civ` guard below, and that is
+        // the point of it: `CIV_CULTURES` is seven compile-time rows, so a
+        // culture's name and terrain theme are real with no world generated
+        // and stay real across a regenerate. Only its aggregates need a world,
+        // and those are filled further down if there is one.
+        if kind == EntityKind::Culture {
+            let Some(c) = cartalith_civ::CIV_CULTURES.get(entity_id.max(0) as usize).filter(|_| entity_id >= 0)
+            else {
+                return out;
+            };
+            out.insert("entity_type", kind.as_str().to_string());
+            out.insert("name", capitalise(c.key));
+            // `common` and `imperial` are identity-flavoured rather than
+            // terrain-themed, and `civ_culture_terrain_fit` deliberately gives
+            // them no verdict rather than a fabricated one. So neither gets
+            // this field at all.
+            if let Some((_, terrain)) =
+                cartalith_civ::CIV_CULTURE_TERRAIN_KEY.iter().find(|(k, _)| *k == c.key)
+            {
+                out.insert("terrain_affinity", capitalise(terrain));
+            }
+            let Some(civ) = self.civ.as_ref() else { return out };
+            let mut factions: Vec<&str> = Vec::new();
+            let mut names: Vec<&str> = Vec::new();
+            let mut pop: i64 = 0;
+            for (fid, e) in civ.faction_roster.0.iter().enumerate().skip(1) {
+                if e.culture != c.key {
+                    continue;
+                }
+                factions.push(&e.name);
+                for s in civ.settlements.iter().filter(|s| s.placement.faction == fid as i32) {
+                    names.push(&s.name);
+                    pop += s.pop as i64;
+                }
+            }
+            if !factions.is_empty() {
+                out.insert("factions", factions.join(", "));
+            }
+            if !names.is_empty() {
+                out.insert("settlements", names.join(", "));
+                out.insert("population", thousands(pop));
+            }
+            return out;
+        }
+
         let Some(civ) = self.civ.as_ref() else { return out };
         let gw = self.gw.max(0) as usize;
         out.insert("entity_type", kind.as_str().to_string());
@@ -858,6 +1090,13 @@ impl WorldGen {
                     out.insert("coordinates", format!("{}, {}", cap.placement.x, cap.placement.y));
                 }
             }
+            // Answered above, before the `civ` guard, and unreachable here.
+            // An empty arm rather than an `unreachable!()`: this function is
+            // one `#[func]` away from the gdext boundary, where a panic takes
+            // the Godot process down with it
+            // (`cartalith-rust-conventions`). An impossible branch is not
+            // worth a way to crash.
+            EntityKind::Culture => {}
         }
         out
     }
@@ -961,5 +1200,36 @@ mod tests {
         assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
         assert_eq!(EntityKind::parse("Settlement"), None);
         assert_eq!(EntityKind::parse(""), None);
+    }
+
+    /// `GUI_GAP_REGISTER.md` **CV-02**: the kind the vault gained on
+    /// 2026-08-25, and the id it is addressed by.
+    ///
+    /// The assertion that matters is the second one. A culture's id is an
+    /// index into a **compile-time** table, so if that table ever changes
+    /// length or order every culture link in every user's sidecar silently
+    /// re-points at a different culture — the exact failure `entity_label`
+    /// exists to make visible and this test exists to make loud first.
+    #[test]
+    fn a_culture_is_addressed_by_its_compile_time_index() {
+        assert_eq!(EntityKind::parse("culture"), Some(EntityKind::Culture));
+        assert_eq!(EntityKind::Culture.as_str(), "culture");
+        assert_eq!(entity_key(EntityKind::Culture, 4), "culture:4");
+        assert_eq!(
+            cartalith_civ::CIV_CULTURES.len(),
+            7,
+            "a culture link's id is this table's index; changing its length re-points every existing link"
+        );
+        let keys: Vec<&str> = cartalith_civ::CIV_CULTURES.iter().map(|c| c.key).collect();
+        assert_eq!(
+            keys,
+            ["common", "imperial", "highland", "desert", "riverlands", "sylvan", "maritime"],
+            "and changing its order re-points them too"
+        );
+        // The two identity-flavoured cultures get no terrain verdict, which
+        // is why `terrain_affinity` is absent for them rather than blank.
+        for identity in ["common", "imperial"] {
+            assert!(cartalith_civ::CIV_CULTURE_TERRAIN_KEY.iter().all(|(k, _)| *k != identity));
+        }
     }
 }
