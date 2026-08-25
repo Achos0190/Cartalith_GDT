@@ -2026,10 +2026,13 @@ fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
 
-fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
-    let t = clamp01((x - a) / (b - a));
-    t * t * (3.0 - 2.0 * t)
-}
+// `smoothstep()` (reference line 7569). One implementation, in
+// `cartalith-jsmath`: this crate's own copy was the only one of four that
+// dropped the reference's `||1e-6` guard entirely, which is exactly the
+// divergence-by-copy `JS_SEMANTICS_AUDIT.md` §3.2/§3.3 already resolved for
+// `js_hypot` and `js_min`. Every call site here passes constant bounds, so
+// nothing moved.
+use cartalith_jsmath::smoothstep;
 
 /// `buildFloodField` (reference HTML line 5634): a flood-risk raster from
 /// topographic wetness index (TWI, Beven & Kirkby 1979: `ln(a/tanβ)`) +

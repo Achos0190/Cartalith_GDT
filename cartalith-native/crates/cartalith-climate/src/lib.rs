@@ -9,13 +9,10 @@ pub mod koppen;
 pub mod tides;
 pub mod windthrow;
 
-/// `smoothstep()` (reference HTML line 7569).
-fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
-    let denom = b - a;
-    let denom = if denom == 0.0 { 1e-6 } else { denom };
-    let t = ((x - a) / denom).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
+// `smoothstep()` (reference HTML line 7569). One implementation, in
+// `cartalith-jsmath` — this copy guarded a zero width but not a NaN one, and
+// the reference's `||` is JS truthiness, which is falsy for both.
+use cartalith_jsmath::smoothstep;
 
 /// This file's own Earth-default axial tilt (reference HTML line 5099) —
 /// `insolationContrastK` is normalized to `1.0` here so `equatorTemp`/

@@ -508,6 +508,47 @@ land on and beside decimal ties, which is the branch both bugs lived in), plus
 every named row from §2.2 and milestone 6's fabricated tie. Either bug would have
 been caught on the first run of that test.
 
+### 3.5 `smoothstep` — four ports, three answers → **resolved (2026-08-25, the `/ponytail` pass)**
+
+This sweep catalogued the helpers *it* went looking for, and `smoothstep` was
+not one of them — it is not a V8-vs-Rust divergence at all. It is the same
+*shape* of problem: one reference function (line 7569), ported independently
+into four crates, with three different answers for a degenerate band.
+
+The reference is `t = clamp01((x - a) / ((b - a) || 1e-6))`. The `||` is JS
+truthiness, so the `1e-6` substitutes for `0`, `-0` **and** `NaN`:
+
+| copy | zero width | `NaN` width |
+|---|---|---|
+| `-terrain::sculpt` | `1e-6` | `1e-6` |
+| `-climate`, `-godot::render` | `1e-6` | **NaN out** |
+| `-civ` | **`0/0` at the band** | **NaN out** |
+
+Only `cartalith-terrain::sculpt`'s carried the whole rule, and its own doc
+comment was the only one that stated it — the same pattern §3.2 found, where
+`cartalith-urban::geom::js_hypot` had a specification preamble and the three
+copies made from it did not.
+
+No live site reaches any of it: **every** call site in all four crates passes
+constant literal bounds (`smoothstep(0.18, 0.0, …)`, `smoothstep(1.0, -6.0, …)`,
+`smoothstep(w - 1.5, w, …)`), so `b - a` is a compile-time constant and never
+zero. That is exactly the position §3.2 and §3.3 were in, and the same reason it
+is safe to consolidate: no golden can move, and no copy is left that can
+silently lose the rule.
+
+**Resolved the way §3.2/§3.3 were**: one implementation,
+`cartalith-jsmath::smoothstep` — the correct one of the four — and the other
+three become `use` lines.
+`smoothstep_substitutes_1e_6_for_a_zero_or_nan_width_the_way_js_truthiness_does`
+pins both degenerate widths *and* asserts what each superseded form computed
+instead, so the rows above cannot quietly stop being true.
+`-terrain::sculpt`'s existing `smoothstep_substitutes_for_a_zero_width_band`
+now exercises the shared function through the re-export.
+
+`clamp01` and `lerp` are duplicated a similar number of times and were
+deliberately **not** moved: they are one-line wrappers over `f64::clamp` and a
+multiply-add, with no JS semantics to get wrong and so nothing to drift.
+
 ---
 
 ## 4. Every site reviewed, and the verdict on it

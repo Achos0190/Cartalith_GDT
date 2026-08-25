@@ -1577,12 +1577,10 @@ fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
 
-fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
-    let d = b - a;
-    let d = if d == 0.0 { 1e-6 } else { d };
-    let t = clamp01((x - a) / d);
-    t * t * (3.0 - 2.0 * t)
-}
+// `smoothstep()` (reference HTML line 7569). One implementation, in
+// `cartalith-jsmath` — this copy guarded a zero width but not a NaN one, and
+// the reference's `||` is JS truthiness, which is falsy for both.
+use cartalith_jsmath::smoothstep;
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t

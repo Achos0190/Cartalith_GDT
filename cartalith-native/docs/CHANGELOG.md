@@ -27553,3 +27553,52 @@ recomputed on every repaint in `build_color_texture` rather than retained, and
 its call site argues that holding a `gw × gh` field for the world's lifetime is
 the wrong trade at the 8192 ceiling. That argument was never costed: it is
 **0.78 ms at 2048²**. The trade is right; recorded so nobody re-litigates it.
+
+## `smoothstep`, the fourth copy-divergence — one implementation (`JS_SEMANTICS_AUDIT.md` §3.5, 2026-08-25)
+
+The same `/ponytail` pass, second batch: rung 2 of the ladder ("already in this
+codebase?"), applied to a function the semantics audit never looked at because
+it is not a V8-vs-Rust divergence. It is the same *shape* as the three the audit
+did resolve — one reference function (line 7569) ported independently into four
+crates, with **three different answers**. `t = clamp01((x-a)/((b-a)||1e-6))`:
+the `||` is JS truthiness, so the `1e-6` substitutes for `0`, `-0` **and**
+`NaN`. `cartalith-terrain::sculpt` had the whole rule and was the only copy
+whose doc comment stated it; `cartalith-climate` and `cartalith-godot::render`
+guarded `== 0.0` and let a NaN width through; `cartalith-civ` had no guard at
+all, so a zero-width band was a genuine `0/0` *at* the band.
+
+Consolidated into `cartalith-jsmath::smoothstep` — the correct one of the four —
+with the other three becoming `use` lines. Safe for §3.2's own reason: **every**
+call site in all four crates passes constant literal bounds, so `b - a` is a
+compile-time constant and never zero, and no golden can move. One new test pins
+both degenerate widths and asserts what each superseded form computed instead,
+so the divergence cannot silently come back. `clamp01` and `lerp` are duplicated
+a similar number of times and were deliberately left: one-line wrappers over
+`f64::clamp` and a multiply-add have no semantics to get wrong.
+
+Also removed: `cartalith-vault::export`'s `const SP`, dead since the field
+registry stopped using it and flagged by `rustc` itself.
+
+`cargo test --workspace --no-fail-fast`: 138 binaries, **2 204** passing (the
+new test), 8 ignored, 0 failing.
+
+**Left alone, and named rather than quietly skipped.** `cartalith-gpu` carries
+seven public functions with **zero callers anywhere in the workspace, tests
+included**: the four milestone-6 grid wrappers `warp_grid_gpu`,
+`heterogeneity_grid_gpu`, `gauss_blur_grid_gpu` and `assign_plates_grid_gpu`
+(each superseded by milestone 8's `_with` sibling), plus
+`flow_accumulation_gpu_with` (whose own doc comment tells callers to use
+something else), `gpu_resistance_grid_cpu` and `init_gpu_f64`. That is ~70 lines
+in a 123 000-line workspace and nothing at runtime, and
+`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 8 asserts of the first four that
+*"every existing milestone 1-6 test that calls them directly still exercises the
+exact same code path"* — which is no longer true, since nothing calls them. The
+stale assertion is worth more as a recorded finding than the deletion is as a
+diff; deleting an API another document says is exercised is the confident-wrong
+kind of small change. Recorded here for the owner rather than acted on.
+
+`slope_at` exists six times over. Three of the copies carry a written reason
+(`cartalith-civ` cannot depend on `cartalith-godot`, and `pack.rs` deliberately
+does not reach into the renderer's internals) and `render.rs`'s reads through
+`RenderCtx::h()` rather than a slice, so only two of the six could actually
+share. Left as they are.

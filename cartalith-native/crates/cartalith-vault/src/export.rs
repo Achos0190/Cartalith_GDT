@@ -41,7 +41,6 @@ pub struct ExportField {
 }
 
 const S: &[EntityKind] = &[EntityKind::Settlement];
-const SP: &[EntityKind] = &[EntityKind::Settlement, EntityKind::Province];
 /// The three *place* kinds — every one of these has a position on the map.
 /// A faction does not, which is why it is not in here and `EVERY` exists.
 const ALL: &[EntityKind] = &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent];

@@ -185,6 +185,34 @@ pub fn js_max(a: f64, b: f64) -> f64 {
     }
 }
 
+/// The reference's own `smoothstep(a, b, x)` (reference HTML line 7569):
+/// `t = clamp01((x - a) / ((b - a) || 1e-6)); return t*t*(3 - 2*t)`.
+///
+/// Not a V8-vs-Rust divergence like the rest of this crate, but the same
+/// *problem*: four independent ports of one reference function, with **three
+/// different answers** for a degenerate band. `||` is JS truthiness, so the
+/// `1e-6` substitutes for `0`, `-0` **and** `NaN` — and only
+/// `cartalith-terrain::sculpt`'s copy said so. `cartalith-climate`'s and
+/// `cartalith-godot::render`'s guarded `== 0.0` and let a NaN width through;
+/// `cartalith-civ`'s had no guard at all, so a zero-width band divided by zero
+/// there — which the clamp absorbs to `0`/`1` on either side but not *at* the
+/// band, where `0/0` is NaN and the reference's `1e-6` ramp is `0`. No live
+/// call site reaches any of that — every one of them passes
+/// constant literal bounds — which is exactly the position §3.2's `js_hypot`
+/// and §3.3's `js_min` were in when they were consolidated here, and the same
+/// reason it is safe to do: no golden can move, and there is no longer a copy
+/// that can silently lose the rule.
+///
+/// `cartalith-terrain::sculpt::cliff` genuinely reaches `b - a == 0`
+/// (`smoothstep(-transW, transW, sd)` with `transW == 0`), so the guard is not
+/// a defensive flourish.
+pub fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
+    let d = b - a;
+    let d = if d == 0.0 || d.is_nan() { 1e-6 } else { d };
+    let t = ((x - a) / d).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// `Math.round(x)`, with JS semantics — **ties go toward +infinity**, not away
 /// from zero.
 ///
@@ -982,6 +1010,41 @@ mod tests {
         assert!(js_truthy_num(1.0) && !js_truthy_num(0.0) && !js_truthy_num(-0.0) && !js_truthy_num(f64::NAN));
         assert_eq!(js_num_or_zero(f64::NAN), 0.0);
         assert_eq!(js_num_or_zero(-3.5), -3.5);
+    }
+
+    /// The `||1e-6` is JS truthiness, so it substitutes for a zero width, a
+    /// negative-zero width **and** a NaN width. Of the four copies this
+    /// function replaced, one had the whole rule, two had only the `== 0.0`
+    /// half, and one had no guard at all — so this asserts the degenerate
+    /// cases explicitly and asserts that the unguarded form really did produce
+    /// something else, which is what stops a future copy-paste losing it again.
+    #[test]
+    fn smoothstep_substitutes_1e_6_for_a_zero_or_nan_width_the_way_js_truthiness_does() {
+        // The ordinary band: endpoints pinned, midpoint at the cubic's centre.
+        assert_eq!(smoothstep(0.0, 1.0, -1.0), 0.0);
+        assert_eq!(smoothstep(0.0, 1.0, 2.0), 1.0);
+        assert_eq!(smoothstep(0.0, 1.0, 0.5), 0.5);
+        // Descending bands are legal and used (`smoothstep(1.0, -6.0, t)`).
+        assert_eq!(smoothstep(1.0, -6.0, 2.0), 0.0);
+        assert_eq!(smoothstep(1.0, -6.0, -7.0), 1.0);
+
+        // Zero width: `1e-6` makes it a near-step, not a division by zero.
+        assert_eq!(smoothstep(0.0, 0.0, 1.0), 1.0);
+        assert_eq!(smoothstep(0.0, 0.0, -1.0), 0.0);
+        // The one input where the no-guard-at-all copy really did differ:
+        // exactly *at* a zero-width band it computed `0/0`.
+        assert_eq!(smoothstep(0.0, 0.0, 0.0), 0.0);
+        assert!(((0.0f64 - 0.0) / (0.0 - 0.0)).is_nan(), "what the unguarded copy computed there");
+        // -0 width is falsy in JS too, and `-0.0 - 0.0 == -0.0`, which `== 0.0`
+        // does catch -- so this one the `== 0.0` copies also got right.
+        assert_eq!(smoothstep(0.0, -0.0, 1.0), 1.0);
+        // A NaN width is falsy in JS; the two `== 0.0` copies let it through
+        // and returned NaN. (Both endpoints NaN is NaN either way -- `x - a`
+        // poisons `t` before the width is ever consulted.)
+        assert_eq!(smoothstep(0.0, f64::NAN, 1.0), 1.0);
+        assert_eq!(smoothstep(0.0, f64::NAN, -1.0), 0.0);
+        assert!(((1.0 - 0.0) / (f64::NAN - 0.0)).is_nan(), "what the `== 0.0`-only copies computed there");
+        assert!(smoothstep(f64::NAN, f64::NAN, 1.0).is_nan(), "and NaN in really is NaN out");
     }
 
     /// The audit's third copy disagreement (§3.3), resolved.
