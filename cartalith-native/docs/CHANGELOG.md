@@ -27354,3 +27354,121 @@ monitor's work area and the shell then boots into tablet mode off the wrong size
 and `Window.popup(Rect2i)` clamps to the host monitor's usable rect rather than
 to the root viewport, which makes a correctly-filling phone window read as
 1440x1002 on a desktop box and has no counterpart on Android.
+
+## The blur on the OnePlus 12 was the font raster (`GUI_GAP_REGISTER.md` §47, 2026-08-25)
+
+The other half of the same device report: *"blurriness"*. The screens the pass
+above re-laid out were also, on this panel, soft — and the cause was neither the
+layout nor the map, but **type**.
+
+**Godot 4.7.1 does not oversample fonts for a `Window`'s own content scale, and
+its automatic oversampling says so if you ask it.** Every phone modal goes
+through `DccWidgets.phone_present()`, which puts a desktop-authored composition
+in a `CONTENT_SCALE_MODE_CANVAS_ITEMS` sub-Window at `content_scale_factor`
+3.664 so 12 px means 12 dp. Godot 4.5 introduced dynamic font oversampling and
+4.7.1 has it **on by default** — but inside such a window `Viewport
+.get_oversampling()` returns **1.0**. The font is rasterised at 12 texels and
+the canvas transform magnifies the bitmap.
+
+**Measured rather than argued, because "blurry" is an adjective.** The
+discriminator is the largest luminance step between horizontally adjacent
+pixels: a natively-rasterised glyph goes ground-to-ink in one pixel, and a
+bitmap magnified by *k* cannot produce a step steeper than about `1/k` of its
+own contrast. Two windows drawing the same physical glyph height — factor 3.664
+at font 12 measured **0.2667 with zero hard edges**, factor 1.000 at font 44
+measured **0.9843 with 722**. 0.2667 is 1/3.75; at factor 2.75 the same case
+reads 0.3569, which is 1/2.80. That is the magnification recovered out of the
+pixels, and it is why the fault was marginal on every 1080-wide handset this
+project had measured and visible on the first 1440-wide one.
+
+**`Viewport.oversampling` is not the lever.** Turning the boolean off changed
+nothing to four decimal places. `oversampling_override` is — and it carries two
+traps, both of which made the first cut of the fix measure exactly as if it were
+absent. It is **inert until the window is in the tree** (assigned in a
+constructor it reads back on the property and `get_oversampling()` ignores it),
+and **a resize clears it back to 1.0** — measured in isolation, it survives
+eleven frames, a `popup()` and a hide/show cycle, then reads 1.0 the frame after
+`size` is assigned, and reassigning `content_scale_factor` does not bring it
+back. That is the same trap `phone_present()` already carries, in a comment,
+for the `AcceptDialog` button bar. So `DccWidgets.oversample()` sets it and
+re-applies it from `size_changed`. Live on the welcome screen: **0.1827 →
+0.6126 and 0 → 104 hard edges** at 1440x3168, 0.6322 / 74 at 1080x2400 — 0.61
+rather than 0.98 because the shell's body text is `#c8cbcd` on `#17191a`, whose
+own ceiling is ~0.69. One call, no call site changed.
+
+**The icons had the same disease and it is worth 8 call sites, not 66.** The
+brief for this pass counted `DccIcons` hits; ~60 of them are `DccIcons.SYMBOLS`,
+which are typographic and drawn by the font — which is why the fix above, not
+this one, is where the complaint actually lived. `get_icon()` gains a `magnify`
+argument: rasterise at `px * magnify`, **present at `px`** through
+`ImageTexture.set_size_override`, cache on both. Default 1, so the main
+viewport — no content scale, and a finer raster would only be minified back
+through a 1.2 px hairline — is byte-identical.
+
+**Three shapes of that fix were wrong for a real call site before the fourth
+worked**, and all three are recorded at the function rather than deleted: a
+static device scale (wrong in the main viewport); re-rasterising from
+`phone_fit()`, which knows the number exactly but only reaches a subtree that
+exists when it runs — `open_project_dialog.gd` builds its tiles on `navigate()`,
+so the search glyph was fixed and the other three measurably were not; and
+`tree_entered`, which fires before `phone_present()` has set the factor. What
+works is asking the node at draw time — and the call is `get_screen_transform()`
+and **not** `get_global_transform_with_canvas()`, the one that reads like the
+right answer: measured side by side, `gtwc` scale (1.0, 1.0) against `screen`
+scale (3.664122, 3.664122). With the wrong one the fix is silently inert, which
+is exactly how it first measured. Glyph sharpness **0.27 → 1.00 texels per
+physical pixel**, at both resolutions, desktop unchanged.
+
+**A third defect the pass found on the way, and it is not blur.**
+`viewport_host.gd` lives in the main viewport, which has no content scale, so
+its constants are real device pixels — and `NAVPAD_HIT`'s own comment asserted
+the opposite ("the shipped phone's viewport is ~393 px"). It is false:
+`get_viewport_rect()` reports 1440x3168. The Layers button and the four navpad
+pills were **2.19 mm** on a 510 ppi panel against the ~7 mm a 44 dp floor asks
+for. Now **8.02 mm**, with the glyphs re-rasterised at 62 texels rather than a
+17 px bitmap stretched — routed through the existing `set_safe_insets()`
+dictionary so `app.gd`, which owns the one call site and belonged to another
+agent this session, was not touched.
+
+**`project.godot` has no `display/window/stretch` key and now says why.**
+Checked both ways on a 1440x3168 window rather than reasoned about: `disabled`
+(the shipped default) reports a 1440x3168 viewport and a 1.00 transform;
+`canvas_items` reports **1152x648** and 1.25. That would collapse `_phone_scale`
+to one constant 1.6489 on every device, multiply it a second time by a
+per-device stretch, and — because 1152x648 is landscape — make `_landscape`
+read true on a phone held in portrait, putting the entire §13 portrait
+composition out of reach. Written into the `[display]` comment block in
+semicolons, the one comment character that file's parser honours.
+
+**Two leads were proven negative, which is half the value of the pass.** A
+parallel sweep reported that `phone_present()` fills only 31 % of the screen and
+that the left dock does not scroll. Neither is a defect. `Window.popup(rect)`
+clamps componentwise to `DisplayServer.screen_get_usable_rect()` — **1680x1002**
+on this dev box, and 1002 is exactly the dialog height two independent harnesses
+reported. Established as a formula: 1440x900 passes unclamped, 1400x1100 comes
+back 1400x**1002**, 1440x3168 comes back 1440x**1002**. On a OnePlus 12 that
+usable rect *is* the screen, so nothing clamps; and in the real app at a
+phone-aspect viewport that fits the monitor the same code fills **100.0 %**. The
+scroll report came from a `ScrollContainer` whose `max_value` was 165 against a
+`page` of 2318 — `max_value` is content length, not overflow, so there was
+nothing to scroll. On one with real overflow the same gesture moves 439 px from
+6 of 7 points. The seventh was real, though, and small: a bare `Control` used as
+a spacer defaults to `MOUSE_FILTER_STOP` and swallowed the flick. **7 of 7** now,
+with an `HSlider` still deliberately excluded.
+
+**Verified windowed, 0 failures**, at 1440x3168 and 1080x2400 in real phone mode
+and at 1600x900 on the desktop composition, with before/after screenshots. The
+harness (`_hidpi_probe.gd`) drives the shell inside a **`SubViewport`**, because
+Windows clamps a real window to the desktop work area: `--resolution 1440x3168`
+came back 1440x1031 and the shell classified it as a *tablet*, so the entire run
+measured the wrong composition. It is also the first probe here to run at a
+phone scale above 1 — **every defect in this entry is arithmetically invisible at
+the 393 dp reference size all the earlier probes booted at.**
+
+**Registered, not fixed:** the base map raster is `TEXTURE_FILTER_NEAREST` while
+the frozen reference smooths — its four `imageSmoothingEnabled` calls are all in
+the asset library, so the map canvas takes the HTML default of `true`. Both
+directions bite on a phone (a 512-cell grid is magnified 2.8x, a 2048-cell one
+minified 1.42x with no mipmap), but the filter belongs to
+`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1, which `viewport_host.gd` already
+names as the thing that exists to close it.

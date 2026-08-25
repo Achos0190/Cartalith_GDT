@@ -7185,3 +7185,209 @@ One back press closes the Layers sheet (`DccShell::_notification`'s
   lives in a tooltip, which touch cannot reach. The two pointer-modifier hints
   beside it (`⇧-click ranges · Ctrl-click adds`) are dropped there; the drag
   itself is left alone rather than removed on a guess about touch drag.
+
+## 47 · HD-01…HD-04 — the OnePlus 12 pass: the blur was the font raster, and two of the four leads were negatives (2026-08-25) — **FOUR FIXED, TWO PROVEN NEGATIVE**
+
+The owner ran the Android build on a **OnePlus 12** (1440x3168, ~510 ppi) and
+reported *blurriness*. Every prior phone measurement in this repository was
+taken on a 1080-wide handset, where `DccShell._phone_scale` is **2.748**; on a
+OnePlus 12 it is **3.664**, so a defect that scales with that number is 33 %
+worse and crossed from marginal into visible.
+
+Everything below is measured on the framebuffer. The metric for "is this text
+rasterised or resampled" is the **maximum luminance step between horizontally
+adjacent pixels**: a natively-rasterised glyph goes ground-to-ink in one pixel,
+while a bitmap magnified by *k* cannot produce a step steeper than roughly
+`1/k` of its own contrast. It is a discriminator, not an impression, and it is
+why an adjective was not accepted as evidence anywhere in this section.
+
+### HD-01 — Godot 4.7.1 does not oversample fonts for a Window's own content scale · **FIXED**
+
+`DccWidgets.phone_present()` puts every phone modal in a
+`CONTENT_SCALE_MODE_CANVAS_ITEMS` sub-Window at `content_scale_factor` 3.664,
+so a 12 px label is authored in dp and magnified by the compositor. Godot 4.5
+introduced dynamic font oversampling and 4.7.1 has `Viewport.oversampling` **on
+by default** — but `Viewport.get_oversampling()` inside such a window returns
+**1.0**. The automatic value does not account for a Window's own content scale,
+so the font is rasterised at 12 texels and the canvas transform smears it.
+
+Measured on this exact build (`_edge_probe.gd`), two windows drawing the same
+physical glyph height:
+
+| case | max ΔLum | hard edges (>0.5) |
+|---|---|---|
+| factor 3.664 / font 12 | **0.2667** | **0** |
+| factor 1.000 / font 44 (control) | 0.9843 | 722 |
+| factor 3.664 / font 12, `oversampling = false` | 0.2667 | 0 |
+| factor 3.664 / font 12, `oversampling_override = 3.664` | **0.9804** | **518** |
+| factor 2.750 / font 12 | 0.3569 | 0 |
+| factor 2.750 / font 12, override 2.750 | 0.8431 | 375 |
+
+0.2667 is 1/3.75 and 0.3569 is 1/2.80 — the magnification, recovered out of the
+pixels. The boolean is **not** the lever: turning it off changed nothing to four
+decimal places. `oversampling_override` is.
+
+Two traps, both of which made the first cut of the fix measure exactly as if it
+were absent:
+
+1. **The property is inert until the window is in the tree.** Assigned in a
+   constructor it reads back on the property and `get_oversampling()` ignores
+   it.
+2. **A resize clears it, and the value it reverts to is 1.0.** Measured in
+   isolation: set on a content-scaled Window it survives eleven frames, a
+   `popup()` and a hide/show cycle, then reads back 1.0 the frame after `size`
+   is assigned — and reassigning `content_scale_factor` afterwards does not
+   bring it back. This is the same trap `phone_present()` already carries for
+   the `AcceptDialog` button bar. So `DccWidgets.oversample()` sets it *and*
+   re-applies it from `size_changed`.
+
+Live on the welcome screen at 1440x3168: **max ΔLum 0.1827 → 0.6126, hard edges
+0 → 104.** At 1080x2400: 0.6322 / 74. (0.61 rather than 0.98 because the shell's
+body text is `#c8cbcd` on `#17191a`, whose own maximum step is ~0.69 — this is
+the native ceiling, not a partial fix.) One call, in one function, covering
+every phone modal in the app with no call-site change. An embedded `PopupMenu`
+inherits its parent window's transform but not its font raster, so
+`phone_fit()`'s `OptionButton` branch routes its list through the same call.
+
+### HD-02 — SVG glyphs were rasterised at authored size and then magnified · **FIXED**
+
+`DccIcons.get_icon(name, px)` rasterised at exactly `px`, and inside a
+content-scaled window `px` is dp. Measured at 1440x3168: all four glyphs on the
+welcome screen at **0.27 texels per physical pixel** — 12 texels drawn at 44 px,
+30 at 110, 26 at 95.
+
+Corrected first, since the brief for this pass overstated it: there are **8**
+`DccIcons` raster call sites, not 66. The other ~60 hits are `DccIcons.SYMBOLS`,
+which are *text* and are drawn by the font — which is why HD-01, not this, is
+where the owner's complaint actually lived.
+
+`get_icon()` gains a `magnify` argument: rasterise at `px * magnify`, **present
+at `px`** via `ImageTexture.set_size_override`, cache keyed on both. Nothing a
+caller lays out moves, and `magnify` defaults to 1 so the main viewport — which
+has no content scale, and where a finer raster would only be minified back
+through a 1.2 px hairline — is byte-identical.
+
+Three shapes of the fix were tried and each was wrong for a real call site:
+
+- a static "device scale" set once by the shell — wrong in the main viewport;
+- re-rasterising from `DccShell.phone_fit()`, which knows the number exactly —
+  but only reaches a subtree that exists when it runs, and
+  `open_project_dialog.gd` builds its action tiles and its import tile on
+  `navigate()`, long after its one `phone_fit(self, 1.0)` call. **Measured: the
+  search glyph was fixed and the other three were not**;
+- re-rasterising on `tree_entered` — fires before `phone_present()` has set
+  `content_scale_factor` for every glyph built during `setup()`.
+
+What works is asking the node itself, at draw time. The call is
+`get_screen_transform()` and **not** `get_global_transform_with_canvas()`, which
+is the one that reads like the right answer: measured side by side on all four
+glyphs, `gtwc` scale is (1.0, 1.0) and `screen` scale is (3.664122, 3.664122) —
+a `CanvasLayer` transform is not a viewport's *final* transform, and a content
+scale lives in the latter. With the wrong one the fix is silently inert, which
+is exactly how it first measured.
+
+After: all four glyphs at **1.00–1.01** texels per pixel at 1440x3168 and at
+1080x2400, quantised to 1/16 so a float32 `content_scale_factor` cannot
+re-rasterise on every frame. Desktop unchanged (12/12, 30/30, 26/26, 15/15).
+
+### HD-03 — the viewport's floating chrome is 2.19 mm on a 510 ppi panel · **FIXED**
+
+`viewport_host.gd` lives in the **main** viewport, which has no content scale,
+so every constant in it is a real device pixel. `NAVPAD_HIT`'s own comment
+asserted the opposite — *"the shipped phone's viewport is ~393 px, where that
+scale is 1.0"* — and it is false: measured, `get_viewport_rect()` reports
+1080x2400 and 1440x3168 and `_phone_scale` reports 2.748 and 3.664. A raw 44 px
+pill is **2.83 mm** on a 395 ppi panel and **2.19 mm** on the OnePlus 12's,
+against roughly 7 mm for the 44 dp this shell floors every other target at. Not
+blurry, but the same complaint.
+
+The scale rides through the existing `set_safe_insets()` dictionary rather than
+a new setter, so `app.gd` — which owns the one call site, and belonged to
+another agent this session — is untouched. Glyphs are re-rasterised rather than
+stretched. Measured: layers button and navpad pills **44 → 161 px (2.19 →
+8.02 mm)** at 1440x3168 and **44 → 121 px (2.83 → 7.78 mm)** at 1080x2400, icons
+17 → 62 and 17 → 47 texels.
+
+### HD-04 — `[display]` has no stretch key, and that is required rather than an oversight · **DOCUMENTED**
+
+Checked rather than assumed, both modes side by side on a 1440x3168 window:
+
+| `stretch/mode` | `get_visible_rect` | final transform | `_phone_scale` would be |
+|---|---|---|---|
+| `disabled` (shipped, unset default) | 1440 x 3168 | 1.00 | 3.6641 |
+| `canvas_items` | 1152 x 648 | 1.25 | 1.6489 |
+
+`canvas_items` breaks the shell three ways at once: the viewport reports the
+project's reference size on *every* device, so `_phone_scale` collapses to one
+constant and stops tracking the handset; the stretch transform then multiplies
+that a second time, differently per device; and 1152x648 is **landscape**, so
+`DccShell._landscape` would read true on a phone held in portrait and the whole
+§13 portrait composition would be unreachable. Written into the `[display]`
+comment block, in semicolons, so the next person does not "fix" it.
+
+### PH-05 — one last hole in the touch-scroll fix · **FIXED**
+
+Re-run at `_phone_scale` 2.748 and 3.664 rather than at the 393 dp reference
+every earlier probe used. **6 of 8** points down the left sheet scrolled 329 px.
+One of the two that did not is an `HSlider`, which is deliberate and documented.
+The other is a **bare `Control`** — `DccTheme.spacer()` and the fixed-width gaps
+beside it — which defaults to `MOUSE_FILTER_STOP` and so ends the event walk on
+a node that exists only to take up room. `phone_fit()` now passes it through,
+matched on the exact class and skipped if anything is listening on `gui_input`.
+After: **7 of 8** at 1080x2400 and **7 of 7** at 1440x3168, the remainder being
+the slider.
+
+### Proven negatives — two leads that are not defects
+
+- **`phone_present()` fills the screen correctly; the 31 % fill is a dev-box
+  artefact.** `Window.popup(rect)` clamps its rect componentwise to
+  `DisplayServer.screen_get_usable_rect()`, which on this dev monitor is
+  **1680 x 1002** — and 1002 is exactly the dialog height two independent
+  harnesses reported. Established as a formula, not a guess: asked 1440x900 →
+  1440x900 (unclamped), asked 1400x1100 → 1400x**1002**, asked 393x852 →
+  unchanged, asked 1440x3168 → 1440x**1002**. `is_embedded()` is `true` in every
+  case, so embedding is not the discriminator. On a OnePlus 12 that usable rect
+  *is* 1440x3168 and nothing is clamped. Confirmed in the real app: at a
+  phone-aspect viewport that fits the monitor (440x950) the same code fills
+  **100.0 %**. Any probe that simulates a screen taller than the dev monitor
+  must re-assert `size` after `popup()` — the window is visible by then, so the
+  assignment raises the resize notification and sticks (measured: 1440x3168).
+- **The left dock sheet scrolls.** The report of "scroll by zero" came from a
+  sweep whose `ScrollContainer` had `max_value` 165.0 against a `page` of 2318 —
+  `max_value` is the content length, not the overflow, and 165 < 2318 means
+  there was **nothing to scroll**. Measured on a container with real overflow
+  (`max` 5409, `page` 2318) the same gesture moves 439 px from 6 of 7 points
+  before the PH-05 fix above and 7 of 7 after.
+
+### Registered, not fixed
+
+- **`RD-03` — the base map raster is `TEXTURE_FILTER_NEAREST` and the reference
+  smooths.** `viewport_host.gd:792` sets NEAREST on `map_view`; the LOD tiles
+  use LINEAR and say why. The frozen reference sets `imageSmoothingEnabled` in
+  exactly four places and **all four are the asset library** (the sprite-sheet
+  slicer and the item preview) — the map canvas never sets it at all, so it
+  takes the HTML default, which is `true`. The port therefore diverges from the
+  reference on the map's own filter. Both directions are visible on a phone: a
+  512-cell grid on a 1440-wide screen is *magnified* 2.8x, which is the
+  blockiness `docs/HANDOFF.md` already quotes the owner complaining about, and a
+  2048-cell grid is *minified* 1.42x with no mipmap, which aliases under a
+  pinch. Left alone deliberately: the filter belongs to
+  `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1, which `viewport_host.gd`'s own
+  header already names as the thing that exists to close it, and flipping it
+  would change every map screenshot in this repository on a pass whose subject
+  was UI chrome.
+
+### Harness
+
+`_hidpi_probe.gd` and `_edge_probe.gd` (new, untracked, like every other probe
+in `godot-project/`). The first drives the real shell inside a **`SubViewport`**
+rather than the real window, because Windows clamps a window to the desktop work
+area: `--resolution 1440x3168` came back as 1440x1031 and `DccShell` classified
+the result as a *tablet* (`phone_scale` 2.62, `_phone` false), so the whole run
+measured the wrong composition. A `SubViewport` has no such ceiling,
+`get_viewport_rect()` inside it reports its own size, and `gui_embed_subwindows`
+keeps the shell's dialogs rendering into the same texture. `--vp WxH` selects the
+device. It measures fonts, icon texels, tap sizes in millimetres and the scroll
+flick, and it is the first probe in this repository that runs at a phone scale
+above 1 — **this entire class of defect is arithmetically invisible at the 393 dp
+reference size every earlier probe booted at.**
