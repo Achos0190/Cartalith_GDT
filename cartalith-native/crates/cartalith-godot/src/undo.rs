@@ -391,3 +391,314 @@ mod tests {
         assert_eq!(u.restore(&mut f), None);
     }
 }
+
+// ============================================================== the ledger ==
+
+/// What kind of thing a [`LedgerEntry`] is, and therefore what can be done
+/// about it.
+///
+/// | Kind | What it means |
+/// |---|---|
+/// | [`EntryKind::HeightSnapshot`] | A pre-operation height field is held for it. Reverting is real. |
+/// | [`EntryKind::Recorded`] | It happened; no snapshot exists, and the row carries the reason. |
+/// | [`EntryKind::Floor`] | A generate or a load. History starts here; nothing before it survives. |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    /// A height snapshot was pushed for this entry, in the same call.
+    HeightSnapshot,
+    /// It happened and cannot be walked back. The `&'static str` is the
+    /// reason, shown on the row -- never "not implemented".
+    Recorded(&'static str),
+    /// A generate or a load: everything before it is gone.
+    Floor,
+}
+
+/// One row of the ledger.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LedgerEntry {
+    /// Monotonic, never reused within a session. What the shell passes back
+    /// to [`HistoryLedger::steps_to_revert_to`].
+    pub seq: u64,
+    /// `height`, `paint`, `civ`, `world` -- the icon column, and the field
+    /// per-subsystem reversal will key on when it lands.
+    pub subsystem: &'static str,
+    /// The operation, in the same words the Edit menu uses.
+    pub label: String,
+    /// What it touched. Free text, built by the call site, because only the
+    /// call site knows what the interesting extent is.
+    pub detail: String,
+    /// Milliseconds since the Unix epoch. `0` when the clock refused.
+    pub at_ms: u64,
+    pub kind: EntryKind,
+}
+
+/// How many rows are kept. Generous because a `Recorded` row is a label and
+/// a timestamp -- the memory that matters is [`HeightUndo`]'s, and that has
+/// its own byte budget.
+pub const MAX_LEDGER: usize = 200;
+
+/// The history **ledger** -- `GUI_GAP_REGISTER.md` **ED-02**,
+/// `DCC_SHELL_SPEC.md` section 7.1's proposals 1 and 3.
+///
+/// ## Why this is not a five-row list of [`HeightUndo`]'s labels
+///
+/// A previous pass declined to build that list, and the reason it gave is
+/// the design constraint here: 7.1 asks for a *ledger with per-subsystem
+/// reversal*, and shipping the flat list would have answered the easy half
+/// of ED-02 while foreclosing the hard one. The hard half is that this
+/// application has seven edit domains with three commit models, and a
+/// history panel that shows one of them is a history that lies by omission.
+///
+/// So the ledger **records every commit** and **reverses the ones it can**,
+/// and says per row which it is (see [`EntryKind`]). That is strictly more
+/// honest than the list, and it is the shape per-subsystem reversal drops
+/// into later: a `Recorded` row already knows its subsystem, so turning one
+/// on is a kind change rather than a redesign.
+///
+/// ## What makes a row reversible is [`HeightUndo`], not this type
+///
+/// The two are deliberately **not** cross-wired. A `HeightSnapshot` row is
+/// reversible exactly while its snapshot is still on the stack, and the
+/// stack evicts on its own byte budget -- so [`HistoryLedger::rows`] takes
+/// the live depth and marks the newest `depth` height rows reversible and
+/// every older one not. One source of truth for "is there a snapshot",
+/// asked at read time, rather than two structures that can disagree.
+///
+/// ## Linear, and only linear
+///
+/// Photoshop's non-linear history is a documented source of user confusion
+/// and this engine has no cheap way to re-apply a divergent branch over a
+/// regenerated world (7.1 proposal 3's own conclusion). Reverting to a row
+/// pops everything above it, and the row reverted to leaves with them -- the
+/// snapshot *is* the state before that operation, so once it is restored the
+/// operation is not part of the history any more.
+#[derive(Debug, Default)]
+pub struct HistoryLedger {
+    entries: VecDeque<LedgerEntry>,
+    next_seq: u64,
+}
+
+impl HistoryLedger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn now_ms() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+
+    /// Append one entry and return its `seq`.
+    ///
+    /// A [`EntryKind::Floor`] entry **clears everything before it** rather
+    /// than merely marking a boundary, because that is what actually
+    /// happens: `HeightUndo::clear` runs on every generate and load, so a row
+    /// above a floor could never be reverted to and drawing it would be an
+    /// offer the engine cannot keep.
+    pub fn record(
+        &mut self,
+        subsystem: &'static str,
+        label: impl Into<String>,
+        detail: impl Into<String>,
+        kind: EntryKind,
+    ) -> u64 {
+        if kind == EntryKind::Floor {
+            self.entries.clear();
+        }
+        self.next_seq += 1;
+        self.entries.push_back(LedgerEntry {
+            seq: self.next_seq,
+            subsystem,
+            label: label.into(),
+            detail: detail.into(),
+            at_ms: Self::now_ms(),
+            kind,
+        });
+        while self.entries.len() > MAX_LEDGER {
+            self.entries.pop_front();
+        }
+        self.next_seq
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Every row, oldest first, each paired with whether a snapshot is still
+    /// held for it.
+    ///
+    /// `height_depth` is [`HeightUndo::depth`]: the newest that many
+    /// `HeightSnapshot` rows are reversible and every older one is not,
+    /// because the stack evicts oldest-first. This is the only place the two
+    /// structures meet, and they meet at read time so they cannot drift.
+    pub fn rows(&self, height_depth: usize) -> Vec<(&LedgerEntry, bool)> {
+        let mut seen = 0usize;
+        let mut flags: Vec<bool> = Vec::with_capacity(self.entries.len());
+        for e in self.entries.iter().rev() {
+            let live = e.kind == EntryKind::HeightSnapshot && seen < height_depth;
+            if e.kind == EntryKind::HeightSnapshot {
+                seen += 1;
+            }
+            flags.push(live);
+        }
+        flags.reverse();
+        self.entries.iter().zip(flags).collect()
+    }
+
+    /// How many [`HeightUndo::restore`] calls it takes to get back to `seq`,
+    /// or `None` when that row is not a live snapshot.
+    ///
+    /// The count is *"this row plus every height snapshot above it"* -- the
+    /// linear rule stated as arithmetic. `Recorded` rows above it are not
+    /// counted because there is nothing to pop for them; they are dropped
+    /// from the ledger by [`Self::truncate_to`] all the same, since claiming
+    /// an operation is still in effect after the field under it was rolled
+    /// back would be the worse lie.
+    pub fn steps_to_revert_to(&self, seq: u64, height_depth: usize) -> Option<usize> {
+        let rows = self.rows(height_depth);
+        let idx = rows.iter().position(|(e, _)| e.seq == seq)?;
+        if !rows[idx].1 {
+            return None;
+        }
+        Some(rows[idx..].iter().filter(|(e, _)| e.kind == EntryKind::HeightSnapshot).count())
+    }
+
+    /// Drop `seq` and everything after it -- what a successful revert leaves
+    /// behind.
+    pub fn truncate_to(&mut self, seq: u64) {
+        while self.entries.back().is_some_and(|e| e.seq >= seq) {
+            self.entries.pop_back();
+        }
+    }
+
+    /// Drop the newest height row -- for the plain `Edit > Undo`, which pops
+    /// one snapshot without going through a row.
+    pub fn pop_newest_height(&mut self) {
+        if let Some(pos) = self.entries.iter().rposition(|e| e.kind == EntryKind::HeightSnapshot) {
+            self.entries.remove(pos);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
+
+#[cfg(test)]
+mod ledger_tests {
+    use super::*;
+
+    fn ledger() -> HistoryLedger {
+        let mut l = HistoryLedger::new();
+        l.record("world", "Generate world", "seed 1", EntryKind::Floor);
+        l.record("civ", "Settlement dropped", "Sedge Ford", EntryKind::Recorded("no snapshot"));
+        l.record("height", "Carve fjords", "512 sq", EntryKind::HeightSnapshot);
+        l.record("paint", "Paint commit", "412 cells", EntryKind::Recorded("no snapshot"));
+        l.record("height", "Sculpt commit", "512 sq", EntryKind::HeightSnapshot);
+        l
+    }
+
+    #[test]
+    fn a_floor_clears_everything_before_it() {
+        let mut l = ledger();
+        assert_eq!(l.len(), 5);
+        l.record("world", "Generate world", "seed 2", EntryKind::Floor);
+        assert_eq!(l.len(), 1, "a generate is a floor, not a divider");
+        assert_eq!(l.rows(0)[0].0.label, "Generate world");
+    }
+
+    /// The one place the two structures meet: with two snapshots on the
+    /// stack both height rows are live; with one, only the newer is.
+    #[test]
+    fn reversibility_follows_the_live_stack_depth() {
+        let l = ledger();
+        let live: Vec<bool> = l.rows(2).iter().map(|(_, b)| *b).collect();
+        assert_eq!(live, vec![false, false, true, false, true]);
+        let live1: Vec<bool> = l.rows(1).iter().map(|(_, b)| *b).collect();
+        assert_eq!(live1, vec![false, false, false, false, true], "an evicted row is not offered");
+        let live0: Vec<bool> = l.rows(0).iter().map(|(_, b)| *b).collect();
+        assert!(live0.iter().all(|b| !b), "an empty stack offers nothing");
+    }
+
+    #[test]
+    fn a_recorded_row_is_never_reversible_however_deep_the_stack() {
+        let l = ledger();
+        for depth in 0..6 {
+            for (e, live) in l.rows(depth) {
+                if e.kind != EntryKind::HeightSnapshot {
+                    assert!(!live, "{} was offered as reversible", e.label);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn reverting_counts_this_row_and_every_snapshot_above_it() {
+        let l = ledger();
+        let rows = l.rows(2);
+        let fjords = rows.iter().find(|(e, _)| e.label == "Carve fjords").unwrap().0.seq;
+        let sculpt = rows.iter().find(|(e, _)| e.label == "Sculpt commit").unwrap().0.seq;
+        assert_eq!(l.steps_to_revert_to(sculpt, 2), Some(1));
+        assert_eq!(l.steps_to_revert_to(fjords, 2), Some(2));
+        // with only one snapshot left, the older row is not an offer at all
+        assert_eq!(l.steps_to_revert_to(fjords, 1), None);
+        // and neither is a recorded row, ever
+        let paint = rows.iter().find(|(e, _)| e.label == "Paint commit").unwrap().0.seq;
+        assert_eq!(l.steps_to_revert_to(paint, 2), None);
+        assert_eq!(l.steps_to_revert_to(9999, 2), None, "an unknown seq is not a panic");
+    }
+
+    #[test]
+    fn a_revert_takes_everything_above_it_with_it() {
+        let mut l = ledger();
+        let seqs: Vec<u64> = l.rows(2).iter().map(|(e, _)| e.seq).collect();
+        l.truncate_to(seqs[2]);
+        let left: Vec<&str> = l.rows(0).iter().map(|(e, _)| e.label.as_str()).collect();
+        assert_eq!(left, vec!["Generate world", "Settlement dropped"]);
+    }
+
+    #[test]
+    fn a_plain_undo_removes_the_newest_snapshot_and_not_a_recorded_row() {
+        let mut l = ledger();
+        l.pop_newest_height();
+        let left: Vec<&str> = l.rows(0).iter().map(|(e, _)| e.label.as_str()).collect();
+        assert_eq!(
+            left,
+            vec!["Generate world", "Settlement dropped", "Carve fjords", "Paint commit"]
+        );
+        l.pop_newest_height();
+        let left2: Vec<&str> = l.rows(0).iter().map(|(e, _)| e.label.as_str()).collect();
+        assert_eq!(left2, vec!["Generate world", "Settlement dropped", "Paint commit"]);
+        // with no snapshots left it is a no-op, not a pop of something else
+        l.pop_newest_height();
+        assert_eq!(l.len(), 3);
+    }
+
+    #[test]
+    fn the_ledger_is_bounded_and_drops_the_oldest() {
+        let mut l = HistoryLedger::new();
+        for i in 0..(MAX_LEDGER + 20) {
+            l.record("civ", format!("op{i}"), "", EntryKind::Recorded("r"));
+        }
+        assert_eq!(l.len(), MAX_LEDGER);
+        assert_eq!(l.rows(0)[0].0.label, "op20", "the oldest twenty were dropped");
+    }
+
+    /// `seq` is what the shell round-trips, so it must never repeat within a
+    /// session -- including across a floor, which clears the rows but not the
+    /// counter.
+    #[test]
+    fn seq_never_repeats_across_a_floor() {
+        let mut l = HistoryLedger::new();
+        let a = l.record("height", "a", "", EntryKind::HeightSnapshot);
+        let b = l.record("world", "Generate", "", EntryKind::Floor);
+        let c = l.record("height", "c", "", EntryKind::HeightSnapshot);
+        assert!(a < b && b < c);
+    }
+}

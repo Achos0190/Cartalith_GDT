@@ -1931,6 +1931,10 @@ struct WorldGen {
     /// meaningless over a new one, and at a different resolution it is not
     /// even the right length.
     undo: undo::HeightUndo,
+    /// `GUI_GAP_REGISTER.md` **ED-02** — the history ledger over every
+    /// committed operation, not only the reversible ones. See
+    /// `undo::HistoryLedger` for why it records more than `undo` can revert.
+    ledger: undo::HistoryLedger,
     /// The live pipeline staleness graph (`cartalith_engine::staleness::
     /// pipeline_stage_graph`): height → hydrology → climate → civ, over the
     /// same tiling the Sculpt draft's `PassBuffer`/`DirtyTracker` pair uses,
@@ -2036,6 +2040,7 @@ impl IRefCounted for WorldGen {
             asset_library: asset_bridge::AssetLibrarySession::new(),
             territory_opacity: TERRITORY_ALPHA_DEFAULT,
             undo: undo::HeightUndo::new(),
+            ledger: undo::HistoryLedger::new(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
@@ -2230,6 +2235,16 @@ impl WorldGen {
         // grid cannot change size mid-session); this port's `generate_sized`
         // can, so it must. See `undo.rs`'s divergence list.
         self.undo.clear();
+        // ED-02: a generate is the ledger's **floor**, and clears it for the
+        // same reason `undo.clear()` above does -- nothing before it can be
+        // reverted to, so drawing it would be an offer the engine cannot
+        // keep.
+        self.ledger.record(
+            "world",
+            "Generate world",
+            format!("seed {} - {} x {}", self.seed, self.gw, self.gh),
+            undo::EntryKind::Floor,
+        );
         // The finalize lock is a statement about *this* world: "its atlas is
         // baked and its parameters are frozen". A new world has no atlas, so
         // it cannot be finalized, and carrying the flag across would lock a
@@ -3045,6 +3060,12 @@ impl WorldGen {
         // handler's `pushUndo()`). No step is spent on a call that changed
         // nothing.
         self.undo.push("Carve fjords", &ws.field);
+        self.ledger.record(
+            "height",
+            "Carve fjords",
+            format!("{} x {}", self.gw, self.gh),
+            undo::EntryKind::HeightSnapshot,
+        );
         ws.field = carved;
         let cells_masked = mask.iter().filter(|&&m| m > 0.0).count() as i64;
         // A coastal carve is not tile-local -- it can touch any coast on the
@@ -3480,6 +3501,13 @@ impl WorldGen {
         // *previous* world's height field, which is the wrong content and
         // possibly the wrong length over a loaded save.
         self.undo.clear();
+        // ED-02: a load is the ledger's other floor, for the same reason.
+        self.ledger.record(
+            "world",
+            "Open project",
+            format!("{} x {}", self.gw, self.gh),
+            undo::EntryKind::Floor,
+        );
         // The generation parameters this port wrote into the save
         // (`params::apply_saved_state`, `SAVEFILE_COMPAT.md`). A genuine
         // HTML-app export carries no such block and leaves every parameter
@@ -5513,6 +5541,12 @@ impl WorldGen {
         // — matching its step accounting is worth more than saving 16 MB on
         // an empty commit the UI already disables.
         self.undo.push("Sculpt commit", &ws.field);
+        self.ledger.record(
+            "height",
+            "Sculpt commit",
+            format!("{} x {}", self.gw, self.gh),
+            undo::EntryKind::HeightSnapshot,
+        );
         let summary = sculpt.commit(&mut ws.field, sea_level, &reason);
         // Keep WorldState's own optional river fields in sync with what the
         // Sculpt layer has now locked. `WaterState` (`sculpt.water`) is the
@@ -5902,7 +5936,23 @@ impl WorldGen {
     #[func]
     fn civ_territory_commit(&mut self) {
         let (Some(civ), Some(tools)) = (self.civ.as_mut(), self.civ_tools.as_mut()) else { return };
-        tools.commit(&mut civ.territory);
+        let committed = tools.commit(&mut civ.territory);
+        if !committed {
+            return;
+        }
+        // ED-02, recorded and not reversible. `civ_tools`' own Discard
+        // reverts an *uncommitted* draft; once a claim is baked into
+        // `CivData::territory` the pre-commit grid is gone, and holding a
+        // copy of it would be a second, unbudgeted undo stack beside the
+        // height one.
+        self.ledger.record(
+            "civ",
+            "Territory commit",
+            format!("{} cells claimed", civ.territory.iter().filter(|&&t| t > 0).count()),
+            undo::EntryKind::Recorded(
+                "the pre-commit claim grid is not retained; the Territory tool's own Discard reverts an uncommitted draft only",
+            ),
+        );
     }
 
     /// Drops the in-progress territory draft, touching nothing already
@@ -6267,6 +6317,23 @@ impl WorldGen {
         let tiles_marked: PackedInt32Array = tiles.into_iter().collect();
 
         let any_applied = biome.stamps_applied > 0 || terrain.stamps_applied > 0 || splat.stamps_applied > 0;
+        // ED-02, recorded and not reversible: `paint_discard` drops a draft,
+        // but a committed dab is merged into the accumulated layer and the
+        // pre-commit layer is not kept.
+        if any_applied {
+            self.ledger.record(
+                "paint",
+                "Paint commit",
+                format!(
+                    "{} stamps - {} tiles",
+                    biome.stamps_applied + terrain.stamps_applied + splat.stamps_applied,
+                    tiles_marked.len()
+                ),
+                undo::EntryKind::Recorded(
+                    "the pre-commit paint layer is not retained; Discard reverts an uncommitted draft only",
+                ),
+            );
+        }
         // Record it in the live graph too, as `PipelineStage::Civ`'s own
         // change, and run the same consumer the terrain commits run. This is
         // what makes the graph's answer to "what must re-run" honest rather
@@ -11276,9 +11343,105 @@ impl WorldGen {
             return GString::new();
         };
         match self.undo.restore(&mut ws.field) {
-            Some(label) => GString::from(&label),
+            Some(label) => {
+                // ED-02: the ledger's row for that operation goes with it.
+                self.ledger.pop_newest_height();
+                GString::from(&label)
+            }
             None => GString::new(),
         }
+    }
+
+    // -- the ledger (`GUI_GAP_REGISTER.md` ED-02) --------------------------
+
+    /// Every committed operation this session, oldest first — the rows
+    /// `Edit ▸ Undo history…` draws.
+    ///
+    /// One row per commit, **not** one row per reversible commit. Each
+    /// carries `{seq, subsystem, label, detail, at_ms, kind, reversible,
+    /// reason, steps}`:
+    ///
+    /// - `kind` is `"height"`, `"recorded"` or `"floor"`.
+    /// - `reversible` is whether a snapshot is *still held* for it — which is
+    ///   a property of the live stack, not of the row, because the stack
+    ///   evicts on its own byte budget. A height row that has been evicted
+    ///   reports `false` with a reason saying so.
+    /// - `reason` is why it cannot be reverted, and is empty when it can.
+    ///   Never "not implemented": every string names the specific thing that
+    ///   is not retained.
+    /// - `steps` is how many `undo_last()` calls reverting to it would take,
+    ///   `0` when it is not an offer.
+    ///
+    /// Empty before anything has been committed. Cheap enough for an
+    /// `about_to_popup`: it walks at most `undo::MAX_LEDGER` rows and reads
+    /// no field.
+    #[func]
+    fn undo_ledger(&self) -> Array<VarDictionary> {
+        let depth = self.undo.depth();
+        self.ledger
+            .rows(depth)
+            .into_iter()
+            .map(|(e, live)| {
+                let (kind, reason) = match e.kind {
+                    undo::EntryKind::HeightSnapshot if live => ("height", ""),
+                    undo::EntryKind::HeightSnapshot => (
+                        "height",
+                        "its snapshot was dropped to stay inside the undo memory budget",
+                    ),
+                    undo::EntryKind::Recorded(r) => ("recorded", r),
+                    undo::EntryKind::Floor => ("floor", "history starts here"),
+                };
+                dict! {
+                    "seq" => e.seq as i64,
+                    "subsystem" => e.subsystem,
+                    "label" => e.label.clone(),
+                    "detail" => e.detail.clone(),
+                    "at_ms" => e.at_ms as i64,
+                    "kind" => kind,
+                    "reversible" => live,
+                    "reason" => reason,
+                    "steps" => self.ledger.steps_to_revert_to(e.seq, depth).unwrap_or(0) as i64,
+                }
+            })
+            .collect()
+    }
+
+    /// Roll back to the state a ledger row recorded, popping every height
+    /// snapshot above it as well — Photoshop's linear history, which
+    /// `DCC_SHELL_SPEC.md` §7.1 chose deliberately over the non-linear kind.
+    ///
+    /// Returns the number of steps actually reverted; `0` when `seq` is
+    /// unknown, is not a height row, or no longer has a snapshot. A caller
+    /// that gets `0` should re-read [`Self::undo_ledger`] rather than assume
+    /// the row is still there.
+    ///
+    /// Reverting **drops the row and everything after it**, including
+    /// recorded-only rows: an operation whose height field has just been
+    /// rolled back out from under it is not still in effect, and leaving it
+    /// listed would be the worse lie.
+    ///
+    /// Re-render afterwards, exactly as after [`Self::undo_last`].
+    #[func]
+    fn undo_revert_to(&mut self, seq: i64) -> i64 {
+        if seq <= 0 {
+            return 0;
+        }
+        let seq = seq as u64;
+        let Some(steps) = self.ledger.steps_to_revert_to(seq, self.undo.depth()) else {
+            return 0;
+        };
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return 0 };
+        let mut done = 0i64;
+        for _ in 0..steps {
+            if self.undo.restore(&mut ws.field).is_none() {
+                break;
+            }
+            done += 1;
+        }
+        if done > 0 {
+            self.ledger.truncate_to(seq);
+        }
+        done
     }
 
     /// The reference's `#undoMem` readout (`updateUndoUI`), as data rather
@@ -11322,5 +11485,9 @@ impl WorldGen {
     #[func]
     fn clear_undo(&mut self) {
         self.undo.clear();
+        // The ledger's rows go with the snapshots. Leaving them would show a
+        // history of operations none of which could be reverted, which is
+        // worse than an empty panel: the panel would look like it works.
+        self.ledger.clear();
     }
 }
