@@ -191,6 +191,19 @@ const TILE_SIZES: Array[int] = [256, 512, 1024]
 # State
 # ---------------------------------------------------------------------------
 
+## Phone (§13) -- PH-07. Same shape and the same answer as
+## `asset_library_window.gd`: a 252 px routes rail beside a pane does not fit
+## 393 dp, so the two become panes behind a two-way switcher, and selecting a
+## route moves to the route. `DccWidgets.phone_window()`'s header carries the
+## general reasoning; what is specific here is that the pane body is rebuilt
+## per route, so the fit has to be re-run (`_phone_refit()`).
+var _phone := false
+var _phone_pane := ""
+var _phone_pane_buttons: Dictionary = {}
+var _phone_rail: Control
+var _phone_body: Control
+var _phone_title: Label
+
 var _host: DccApp
 var _bridge: EngineBridge
 
@@ -278,8 +291,15 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	wrap_controls = false
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(1024, 640)
+	## PH-07: rotation relay plus the "may I stack?" answer. Also re-asserts
+	## `wrap_controls = false`, which this window already set for its own reason
+	## above.
+	_phone = DccWidgets.phone_window(self, host)
 	_tx_dest = DccSettings.storage_root("exports").path_join("region-tiles.zip")
 	_build()
+	## `1.0`: `phone_present()` applies the scale once as `content_scale_factor`.
+	if _phone:
+		_host.phone_fit(self, 1.0)
 
 ## The canvas's own placement: the window occupies everything below the app menu
 ## bar, which is what "map hidden while open" means in a shell with no separate
@@ -296,6 +316,11 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 ## is already in the right space. The Asset library window carried the identical
 ## bug (same code, copied) and is fixed the same way.
 func _popup_full() -> void:
+	## PH-07: a phone fills the whole screen -- §13 relocates the app menu bar
+	## into the ⋯ overflow sheet, so there is nothing for this window to sit
+	## under and the 34 px reserved for it is 125 physical px of nothing.
+	if DccWidgets.phone_present(self, _host):
+		return
 	var vp: Vector2 = _host.get_viewport_rect().size if _host != null \
 		else Vector2(get_tree().root.get_visible_rect().size)
 	var top := DccTheme.H_MENU_BAR
@@ -339,39 +364,104 @@ func _build() -> void:
 	add_child(outer)
 
 	outer.add_child(_build_window_bar())
+	if _phone:
+		outer.add_child(_build_phone_switcher())
 
-	var main := HBoxContainer.new()
+	## PH-07: rail beside pane on a pointer, one at a time on a phone.
+	var main: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(main)
 
-	main.add_child(_build_rail())
-	main.add_child(_build_pane())
+	_phone_rail = _build_rail()
+	_phone_body = _build_pane()
+	main.add_child(_phone_rail)
+	main.add_child(_phone_body)
 
 	outer.add_child(_build_status_line())
+	if _phone:
+		_phone_title = DccWidgets.phone_head(outer, "Data manager",
+			"import · export · sources · validation")
+		_show_phone_pane("routes")
+
+## PH-07, `asset_library_window.gd`'s switcher with two segments instead of
+## three. See there for why this is a segmented row and not a `TabContainer`.
+func _build_phone_switcher() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	DccWidgets.pad(wrap, 8, 4, 8, 4).add_child(row)
+	for spec in [["routes", "ROUTES"], ["route", "ROUTE"]]:
+		var key := String(spec[0])
+		var b := Button.new()
+		b.text = String(spec[1])
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_override("font", DccTheme.mono(0))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+		b.pressed.connect(func(): _show_phone_pane(key))
+		row.add_child(b)
+		_phone_pane_buttons[key] = b
+	return wrap
+
+func _show_phone_pane(pane: String) -> void:
+	if not _phone:
+		return
+	_phone_pane = pane
+	_phone_rail.visible = pane == "routes"
+	_phone_body.visible = pane == "route"
+	for key in _phone_pane_buttons:
+		var b: Button = _phone_pane_buttons[key]
+		var on: bool = key == pane
+		b.add_theme_stylebox_override("normal",
+			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+
+## PH-07. The route pane is cleared and rebuilt on every `_select_route()`, so
+## its rows have never been through `setup()`'s one-shot fit. Idempotent by
+## meta-flag (`DccShell.phone_fit`), so re-walking the window only touches what
+## the rebuild just made.
+## Deferred, so it runs after the rebuild that triggered it has finished
+## rather than in the middle of it.
+func _phone_refit() -> void:
+	if _phone and _host != null:
+		_do_phone_refit.call_deferred()
+
+func _do_phone_refit() -> void:
+	if _phone and _host != null and is_instance_valid(self):
+		_host.phone_fit(self, 1.0)
 
 ## `⧉ DATA MANAGER · import · export · sources · validation … Close ✕` -- the
 ## canvas's own 34 px bar. Four areas, not the canvas's five: see the header.
 func _build_window_bar() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
-	wrap.custom_minimum_size.y = H_BAR
+	if not _phone:
+		wrap.custom_minimum_size.y = H_BAR
 	var pad := DccWidgets.pad(wrap, 16, 0, 16, 0)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pad.add_child(row)
 
-	var title_label := DccTheme.mono_label("⧉ DATA MANAGER", "accent", DccTheme.FS_SMALL, 1)
-	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title_label)
+	## PH-07: the title and its four-area subtitle are what `phone_head()` draws
+	## in place of the title bar this borderless window gave up, so repeating
+	## them here would be two headers -- and the subtitle's own disclosure lives
+	## in a tooltip, which a phone cannot reach anyway. The bar keeps the one
+	## thing that is not a caption: the way out.
+	if not _phone:
+		var title_label := DccTheme.mono_label("⧉ DATA MANAGER", "accent", DccTheme.FS_SMALL, 1)
+		title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(title_label)
 
-	var sub := DccTheme.mono_label("import · export · sources · validation",
-		"text_ghost", DccTheme.FS_SMALL)
-	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	sub.tooltip_text = "Four areas, not §9's five. The Conversion group (Coordinate Systems / Format Conversion / Data Transformation) was deleted on the owner's 2026-08-20 decision -- GUI_GAP_REGISTER.md §7.4 found no serious GIS application carries a top-level Conversion route, because reprojection belongs to the import or export step actually reading the file. The design canvas predates that decision and still shows it."
-	sub.mouse_filter = Control.MOUSE_FILTER_STOP
-	row.add_child(sub)
+		var sub := DccTheme.mono_label("import · export · sources · validation",
+			"text_ghost", DccTheme.FS_SMALL)
+		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		sub.tooltip_text = "Four areas, not §9's five. The Conversion group (Coordinate Systems / Format Conversion / Data Transformation) was deleted on the owner's 2026-08-20 decision -- GUI_GAP_REGISTER.md §7.4 found no serious GIS application carries a top-level Conversion route, because reprojection belongs to the import or export step actually reading the file. The design canvas predates that decision and still shows it."
+		sub.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.add_child(sub)
 
 	row.add_child(DccTheme.spacer())
 
@@ -384,7 +474,12 @@ func _build_window_bar() -> Control:
 
 func _build_rail() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = W_RAIL
+	## PH-07: 252 px is 64% of a phone's 393 dp, and this is a full-width pane
+	## there. The axis that has to expand changes with the axis it stacks on.
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		wrap.custom_minimum_size.x = W_RAIL
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -436,17 +531,34 @@ func _build_rail() -> Control:
 	## which before the first layout pass is zero. The Asset library rebuild
 	## recorded this trap after a 1 700 px-tall slicer; here it grew the whole
 	## window. The rail is `W_RAIL` wide with `RAIL_PAD_X` either side.
-	_foot_dest.custom_minimum_size.x = W_RAIL - RAIL_PAD_X * 2
+	_foot_dest.custom_minimum_size.x = _rail_text_w()
 	foot.add_child(_foot_dest)
 	## §9: "Foot: exports root and last run (`14:02 · 62 MB`)." Nothing persists
 	## a run history (DM-12), so this reports the runs of *this session* and says
 	## plainly when there are none, rather than inventing the canvas's timestamp.
 	_foot_last_run = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
 	_foot_last_run.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_foot_last_run.custom_minimum_size.x = W_RAIL - RAIL_PAD_X * 2
+	_foot_last_run.custom_minimum_size.x = _rail_text_w()
 	_foot_last_run.tooltip_text = "Session-scoped. No run history is persisted anywhere (DccSettings stores storage roots and window state only), so this resets when the app closes."
 	foot.add_child(_foot_last_run)
 	return wrap
+
+## The width an autowrapping label in the rail foot must be given -- the rail's
+## own text column. Fixed at `W_RAIL` on a pointer; on a phone the rail is the
+## full 393 dp pane, and giving those two labels 224 dp there would wrap them at
+## well under half the width they have.
+##
+## An autowrap `Label` with no minimum WIDTH reports a giant minimum HEIGHT (it
+## lays the text out at whatever width it has, which before the first pass is
+## zero), so the value matters in both directions -- see `_build_rail()`.
+func _rail_text_w() -> int:
+	if not _phone:
+		return W_RAIL - RAIL_PAD_X * 2
+	## `- 4`, not `- 0`: the rail's own `PanelContainer` draws a 1 px right
+	## border and the window rounds its content scale, so the naive
+	## `393 - 14 - 14` came out at a 394 dp minimum inside a 393 dp column --
+	## one pixel, and enough to widen the window past the screen.
+	return int(DccTheme.PHONE_REF_SHORT) - RAIL_PAD_X * 2 - 4
 
 ## The canvas's route row: `padding:5px 14px 5px 24px`, the short name, a quiet
 ## right-hand badge, and an accent `▸` on the selected row over an `accent_wash`
@@ -501,6 +613,8 @@ func _build_pane() -> Control:
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 0)
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL   ## PH-07, stacked
 
 	var band := DccWidgets.band(wrap, PANE_PAD_X, 14, H_BAND)
 	_pane_title = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 2, true)
@@ -534,16 +648,26 @@ func _build_pane() -> Control:
 func _build_status_line() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"top": 1}))
-	wrap.custom_minimum_size.y = H_STATUS
+	## PH-07: stacked and clipped on a phone, for the reason
+	## `asset_library_window.gd`'s status line records -- two unclipped `Label`s
+	## side by side report more minimum width than a 393 dp column has, and
+	## `phone_fit()`'s ellipsis pass reaches only `Button`s. The `Esc` hint goes
+	## with them: a phone has no Esc, and its way out is the Close chip above
+	## plus the Android back gesture.
+	wrap.custom_minimum_size.y = H_STATUS * 2 if _phone else H_STATUS
 	var pad := DccWidgets.pad(wrap, 16, 0, 16, 0)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 22)
+	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0 if _phone else 22)
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pad.add_child(row)
 	_status_left = DccTheme.mono_label("idle · no pass running", "text_faint", DccTheme.FS_TINY)
 	row.add_child(_status_left)
 	_status_mid = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
 	row.add_child(_status_mid)
+	if _phone:
+		_status_left.clip_text = true
+		_status_mid.clip_text = true
+		return wrap
 	row.add_child(DccTheme.spacer())
 	row.add_child(DccTheme.mono_label("Esc close window", "text_ghost", DccTheme.FS_TINY))
 	return wrap
@@ -743,6 +867,11 @@ func _select_route(id: String) -> void:
 	else:
 		_build_simple_pane(route)
 	_refresh_status()
+	## PH-07: picking a route in the ROUTES pane is a navigation whose whole
+	## result is the pane next door, so the switcher follows it; and the pane it
+	## just built is fresh nodes that have never been fitted.
+	_phone_refit()
+	_show_phone_pane("route")
 
 ## Every route §9 does not design a pane for: the canvas's own column-header
 ## grammar around whatever the route really is -- the live action, the routing
@@ -760,9 +889,17 @@ func _build_simple_pane(route: Dictionary) -> void:
 	_pane_body.add_child(lane)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	col.custom_minimum_size.x = 620
+	## PH-07: 620 dp of measure inside a 393 dp column widens the window past
+	## the screen. The reason for the number is "prose set across a 1 400 px
+	## pane is unreadable" -- a phone's column is already narrower than any
+	## measure this was protecting against, so it expands instead.
+	if _phone:
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		col.custom_minimum_size.x = 620
 	lane.add_child(col)
-	lane.add_child(DccTheme.spacer())
+	if not _phone:
+		lane.add_child(DccTheme.spacer())
 
 	match id:
 		"import_heightmap":
@@ -850,7 +987,11 @@ func _footer_note(text: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _build_world_data_pane() -> void:
-	var grid := HBoxContainer.new()
+	## PH-07: the canvas's two equal columns become one stacked column on a
+	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
+	## 393 dp and every `120px label · control` row inside them would overlap
+	## rather than clip.
+	var grid: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	grid.add_theme_constant_override("separation", COL_GAP)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_pane_body.add_child(grid)
@@ -1133,7 +1274,11 @@ func _record_wd_run(label: String, r: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func _build_tile_export_pane() -> void:
-	var grid := HBoxContainer.new()
+	## PH-07: the canvas's two equal columns become one stacked column on a
+	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
+	## 393 dp and every `120px label · control` row inside them would overlap
+	## rather than clip.
+	var grid: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	grid.add_theme_constant_override("separation", COL_GAP)
 	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_pane_body.add_child(grid)

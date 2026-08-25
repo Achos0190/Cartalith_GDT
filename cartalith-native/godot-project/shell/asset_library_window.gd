@@ -196,6 +196,7 @@ const H_STATUS := 26
 const H_TILE_ART := 76     ## default; the zoom slider drives it
 const TILE_GAP := 12
 const GRID_COLS := 6
+const PHONE_GRID_COLS := 2   ## PH-07; see `_build_slot_grid()`.
 const W_SLICER := 760
 ## The canvas's card is 760 × ~390. This port's settings column carries three
 ## rows the canvas does not (the reference's own chroma key + tolerance, and
@@ -204,6 +205,10 @@ const W_SLICER := 760
 const H_SLICER := 560
 const W_SLICER_SIDE := 274
 const H_SHEET_PREVIEW := 296
+## PH-07. Dp, on the same reasoning `city_viewer_window.gd`'s `PHONE_CANVAS_H`
+## records: enough to read a sprite sheet's grid at the fit scale, and under a
+## third of the screen so the settings column below opens on real controls.
+const PHONE_SHEET_PREVIEW := 240
 const W_INSP_LABEL := 70
 const SZ_VARIANT := 56
 const SZ_SWATCH := 20
@@ -727,6 +732,46 @@ var _slice_family_index := 0
 var _slice_overwrite := false
 
 # ---------------------------------------------------------------------------
+# Phone (§13) -- PH-07
+# ---------------------------------------------------------------------------
+#
+# This window is the one the owner named on the OnePlus 12 device pass
+# (2026-08-25): *"not all screens are optimised for a mobile phone, among
+# others the asset manager screen."* It had none of the shell's three-call
+# phone treatment (`DccWidgets.phone_window` / `phone_present` /
+# `DccShell.phone_fit`), so `_popup_full()` filled a 1440x3168 panel with a
+# composition authored at 1180x760 and drew every one of it at **native device
+# resolution**. Measured before the fix, at 1440x3168 (`_ph9_probe.gd`):
+# 59 tappable controls, all 59 under §13's floor (44 dp = 161 physical px at
+# this density), the smallest **13 px** -- about 0.65 mm on a 510 ppi panel.
+#
+# The content scale fixes the density. What it cannot fix is the composition:
+# the canvas's three columns are a 266 px rail, a flexible grid and a 330 px
+# inspector, and 266 + 330 = 596 of the 393 dp a phone has before the grid gets
+# a single pixel. `phone_window()` returns `is_phone` precisely so a caller can
+# answer that, and this window answers it the way §13 answers it for the docks
+# -- *"docks become full-height sheets, one at a time"*. The three columns
+# become three full-width panes behind a segmented switcher, and the switcher
+# follows the work rather than waiting to be pressed: picking a family moves to
+# SLOTS, focusing a slot moves to SLOT. A slot-less import that lands in
+# Unassigned imports does both, in that order, which is what it does on the
+# desktop composition too -- there all three panes are simply visible at once.
+#
+# The window bar is the other thing that does not survive 393 dp: a 340 px
+# search well plus six chips is ~880 px of minimum width, and a `BoxContainer`
+# handed more minimum than it has does not clip, it **overlaps**
+# (`open_project_dialog.gd`'s own finding). Phone splits it into a full-width
+# search row over an `HFlowContainer` of chips, which wraps instead.
+var _phone := false
+var _phone_pane := ""                  ## "families" | "slots" | "slot"
+var _phone_pane_buttons: Dictionary = {}
+var _phone_rail: Control
+var _phone_grid: Control
+var _phone_inspector: Control
+var _phone_title: Label
+var _slicer_phone := false
+
+# ---------------------------------------------------------------------------
 # The canvas's control vocabulary
 #
 # The `Asset library window 1920` screen draws exactly four kinds of control,
@@ -829,9 +874,26 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	wrap_controls = false
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(1024, 640)
+	## PH-07. Installs the rotation relay and reports whether the three columns
+	## have to stack; also re-asserts `wrap_controls = false`, which this file
+	## already set for its own reasons two lines up.
+	_phone = DccWidgets.phone_window(self, host)
+	## PH-07: two columns of ~168 dp each, so the canvas's 76 dp art band would
+	## letterbox every tile. 120 keeps it near square and is inside the zoom
+	## slider's own 56..132 range, so it is a starting point rather than a
+	## second set of bounds.
+	if _phone:
+		_cell_px = 120.0
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
 	_build()
 	_build_slicer_modal()
+	## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once as
+	## the window's `content_scale_factor`, and applying it again here would
+	## square it. Idempotent by meta-flag, so `_refresh_grid()`'s own re-fit
+	## below only ever touches the cells it just made.
+	if _phone:
+		_host.phone_fit(self, 1.0)
+		_host.phone_fit(_slicer, 1.0)
 	## Escape / the titlebar X path -- the explicit Close chip handles the click
 	## path, this handles the other two ways this dialog closes.
 	close_requested.connect(_close_slicer)
@@ -872,6 +934,12 @@ func _family_by_key(key: String) -> Dictionary:
 ## it. Found during the Data manager rebuild (2026-08-20); this file had the
 ## same line and the same bug.
 func _popup_full() -> void:
+	## PH-07: a phone fills the screen *including* the app menu bar's band --
+	## there is no desktop menu bar there to sit under (§13 relocates it into
+	## the ⋯ overflow sheet), and the 34 px reserved for one is 125 physical px
+	## of nothing at this density.
+	if DccWidgets.phone_present(self, _host):
+		return
 	var vp: Vector2 = _host.get_viewport_rect().size if _host != null \
 		else Vector2(get_tree().root.get_visible_rect().size)
 	var top := DccTheme.H_MENU_BAR
@@ -903,17 +971,83 @@ func _build() -> void:
 	add_child(outer)
 
 	outer.add_child(_build_window_bar())
+	if _phone:
+		outer.add_child(_build_phone_switcher())
 
-	var main := HBoxContainer.new()
+	## PH-07: three columns on a pointer, three panes one at a time on a phone.
+	## See the phone section at the top of this file for the arithmetic that
+	## leaves no third option.
+	var main: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(main)
 
-	main.add_child(_build_family_rail())
-	main.add_child(_build_slot_grid())
-	main.add_child(_build_inspector())
+	_phone_rail = _build_family_rail()
+	_phone_grid = _build_slot_grid()
+	_phone_inspector = _build_inspector()
+	main.add_child(_phone_rail)
+	main.add_child(_phone_grid)
+	main.add_child(_phone_inspector)
 
 	outer.add_child(_build_status_line())
+	if _phone:
+		## The header a borderless window draws in place of the title bar it
+		## gave up. Its subtitle tracks the pane, so `_show_phone_pane()` owns
+		## the text from here on.
+		_phone_title = DccWidgets.phone_head(outer, "Asset library", "families")
+		_show_phone_pane("families")
+
+## §13's *"docks become full-height sheets, one at a time"*, applied to a
+## window whose three columns are exactly that shape. A segmented row rather
+## than a `TabContainer`: the panes are already built and already own their own
+## headers/bands, and a `TabContainer` would reparent them and draw a second
+## one.
+func _build_phone_switcher() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	_pad(wrap, 8, 4, 8, 4).add_child(row)
+	for spec in [["families", "FAMILIES"], ["slots", "SLOTS"], ["slot", "SLOT"]]:
+		var key := String(spec[0])
+		var b := Button.new()
+		b.text = String(spec[1])
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_override("font", DccTheme.mono(0))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+		b.pressed.connect(func(): _show_phone_pane(key))
+		row.add_child(b)
+		_phone_pane_buttons[key] = b
+	return wrap
+
+## The switcher follows the work: `_select_family()`, `_select_collection()`
+## and `_select_unassigned()` all move to SLOTS, and focusing a slot moves to
+## SLOT. Calling it with the pane already showing is a no-op except for the
+## chip states, which is what makes it safe to call from every one of those.
+func _show_phone_pane(pane: String) -> void:
+	if not _phone:
+		return
+	_phone_pane = pane
+	_phone_rail.visible = pane == "families"
+	_phone_grid.visible = pane == "slots"
+	_phone_inspector.visible = pane == "slot"
+	for key in _phone_pane_buttons:
+		var b: Button = _phone_pane_buttons[key]
+		var on: bool = key == pane
+		b.add_theme_stylebox_override("normal",
+			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+	if _phone_title != null:
+		var trail: Label = _phone_title.get_parent().get_child(1) as Label
+		if trail != null:
+			var fam := _family_by_key(_current_family)
+			trail.text = {
+				"families": "%d families · collections" % FAMILIES.size(),
+				"slots": String(fam.get("title", "slots")) if not fam.is_empty() else "slots",
+				"slot": _focused_uid if _focused_uid != "" else "no slot selected",
+			}.get(pane, "")
 
 ## `⧉ ASSET LIBRARY · map hidden while open │ search · sort · slicer · select
 ## … Apply to map · Export pack .zip · Close ✕` -- the canvas's own order and
@@ -921,32 +1055,59 @@ func _build() -> void:
 func _build_window_bar() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
-	wrap.custom_minimum_size.y = H_BAR
+	if not _phone:
+		wrap.custom_minimum_size.y = H_BAR
 	var pad := _pad(wrap, 16, 0, 16, 0)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
-	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	pad.add_child(row)
+	## PH-07. One row of a 340 px search well plus six chips asks for ~880 px of
+	## minimum width; a phone has 393 dp, and a `BoxContainer` handed more
+	## minimum than it has **overlaps** rather than clipping. Two rows, the
+	## second an `HFlowContainer` so the chips wrap onto a third by themselves
+	## rather than by a count hard-coded here.
+	## `Container`, not `BoxContainer`: an `HFlowContainer` is a `Container`
+	## directly, not a box, so the two branches below have no closer common
+	## ancestor than this.
+	var row: Container
+	if _phone:
+		pad.add_theme_constant_override("margin_top", 6)
+		pad.add_theme_constant_override("margin_bottom", 6)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 6)
+		pad.add_child(col)
+		row = HFlowContainer.new()
+		row.add_theme_constant_override("h_separation", 6)
+		row.add_theme_constant_override("v_separation", 6)
+		var search_phone := LineEdit.new()
+		search_phone.placeholder_text = "Search name · type · tag · file…"
+		search_phone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_well(search_phone)
+		search_phone.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
+		col.add_child(search_phone)
+		col.add_child(row)
+	else:
+		row = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		pad.add_child(row)
 
-	var title_label := DccTheme.mono_label("⧉ ASSET LIBRARY", "accent", DccTheme.FS_SMALL, 1)
-	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title_label)
-	var sub := DccTheme.label("map hidden while open", "text_ghost", DccTheme.FS_SMALL)
-	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(sub)
+		var title_label := DccTheme.mono_label("⧉ ASSET LIBRARY", "accent", DccTheme.FS_SMALL, 1)
+		title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(title_label)
+		var sub := DccTheme.label("map hidden while open", "text_ghost", DccTheme.FS_SMALL)
+		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(sub)
 
-	var divider := ColorRect.new()
-	divider.color = DccTheme.c("line")
-	divider.custom_minimum_size = Vector2(1, 16)
-	divider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(divider)
+		var divider := ColorRect.new()
+		divider.color = DccTheme.c("line")
+		divider.custom_minimum_size = Vector2(1, 16)
+		divider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(divider)
 
-	var search := LineEdit.new()
-	search.placeholder_text = "Search name · type · category · tag · file…"
-	search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
-	_well(search)
-	search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
-	row.add_child(search)
+		var search := LineEdit.new()
+		search.placeholder_text = "Search name · type · category · tag · file…"
+		search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
+		_well(search)
+		search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
+		row.add_child(search)
 
 	## The canvas draws this as `Sort: slot order ⌄` -- a chip with a caret.
 	## An OptionButton *is* that once its stock slab is replaced, and it keeps
@@ -965,21 +1126,34 @@ func _build_window_bar() -> Control:
 	_sort_button.item_selected.connect(func(i: int): _sort_mode = i; _refresh_grid())
 	row.add_child(_sort_button)
 
-	_chip(row, "%s Sprite sheet…" % DccIcons.SYMBOLS["panels"], func(): _open_slicer())
+	## PH-07: the same four chips, named shorter. Each label is its own minimum
+	## width, and at 393 dp four full-length ones wrap onto three rows -- a
+	## quarter of the screen spent on a toolbar. The short forms are the design
+	## canvas's own vocabulary elsewhere (`Slice`, `Apply`, `.zip`), so this
+	## abbreviates rather than renaming anything.
+	_chip(row, ("%s Slicer…" if _phone else "%s Sprite sheet…") % DccIcons.SYMBOLS["panels"],
+		func(): _open_slicer())
 
 	_select_mode_btn = _chip(row, "", func(): _toggle_select_mode(), true)
 	_select_mode_btn.tooltip_text = "Batch selection driving Tag/Collect/Rename/Duplicate/Delete in the grid header."
 
-	row.add_child(DccTheme.spacer())
+	## An expanding spacer is what pushes the three right-hand chips to the far
+	## end of a row. An `HFlowContainer` has no far end -- it wraps -- so on a
+	## phone the spacer would simply be one more item taking a whole line.
+	if not _phone:
+		row.add_child(DccTheme.spacer())
 
-	_apply_btn = _chip(row, "Apply to map", func(): _on_apply_to_map(), false, 10, 4)
-	_export_btn = _chip(row, "Export pack .zip", func(): _on_export_pack(), true, 10, 4)
+	_apply_btn = _chip(row, "Apply" if _phone else "Apply to map",
+		func(): _on_apply_to_map(), false, 10, 4)
+	_export_btn = _chip(row, "Export .zip" if _phone else "Export pack .zip",
+		func(): _on_export_pack(), true, 10, 4)
 	## Visual sweep (2026-08-20) caught the slicer modal left stranded on top of
 	## the whole app -- `_slicer` is a child `Window` of this dialog, and a child
 	## `Window`'s visibility is independent of its parent's, so closing the
 	## library while the slicer was open used to leave it floating over every
 	## surface opened afterward. Closing this window always closes the slicer.
-	var close_chip := _chip(row, "Close %s" % DccIcons.SYMBOLS["cross"],
+	var close_chip := _chip(row, DccIcons.SYMBOLS["cross"] if _phone \
+			else "Close %s" % DccIcons.SYMBOLS["cross"],
 		func(): _close_slicer(); hide(), false, 10, 4)
 	close_chip.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 
@@ -994,7 +1168,12 @@ func _toggle_select_mode() -> void:
 
 func _build_family_rail() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = W_RAIL
+	## PH-07: a fixed 266 px column is 68% of a phone's 393 dp, and the pane it
+	## is one of three of is full width there anyway.
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		wrap.custom_minimum_size.x = W_RAIL
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -1191,6 +1370,7 @@ func _refresh_collections_rail() -> void:
 		return
 	for c in colls:
 		_collection_row(_collections_rail_body, String(c["name"]), (c["uids"] as PackedStringArray).size())
+	_phone_refit()   ## PH-07 -- see `_phone_refit()`.
 
 ## Same three-column grammar `_rail_row` draws for a family (code · name ·
 ## count), minus the code column -- collections have no engine-assigned code,
@@ -1312,6 +1492,7 @@ func _select_unassigned() -> void:
 	_refresh_grid()
 	_refresh_inspector()
 	_refresh_import_button()
+	_show_phone_pane("slots")   ## PH-07, as `_select_family()`.
 
 ## AS-12's unassigned-mode grid: entries are exactly the custom slots
 ## `_refresh_unassigned_count` counts, so the two can never disagree.
@@ -1356,6 +1537,7 @@ func _select_collection(coll_name: String) -> void:
 	_refresh_grid()
 	_refresh_inspector()
 	_refresh_import_button()
+	_show_phone_pane("slots")   ## PH-07, as `_select_family()`.
 
 func _highlight_collection_row(coll_name: String) -> void:
 	for k in _collection_buttons:
@@ -1506,6 +1688,12 @@ func _on_insp_fit_or_reset(fit: bool) -> void:
 func _build_slot_grid() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## PH-07: in the phone `VBoxContainer` the three panes stack, so the axis
+	## that has to expand is the vertical one -- without this the pane collapses
+	## to its own minimum (measured: a 12 px scroll viewport) and the grid is a
+	## scrollbar with nothing under it.
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -1516,15 +1704,36 @@ func _build_slot_grid() -> Control:
 	_grid_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid_header.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	band.add_child(_grid_header)
+	## PH-07: `TX · SPLAT CHANNELS · 0 OF 7 FILLED` is a `Label`, and
+	## `phone_fit()`'s ellipsis pass only reaches `Button`s -- so on a phone this
+	## one heading contributed its full natural width to a 393 dp column.
+	_grid_header.clip_text = _phone
 	_select_count_label = DccTheme.mono_label("0 SELECTED", "accent", DccTheme.FS_MICRO, 1, true)
 	_select_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	band.add_child(_select_count_label)
 	## The canvas folds the batch verbs into this band as quiet text rather
 	## than giving them a row of filled slabs of their own.
-	var verbs := HBoxContainer.new()
-	verbs.add_theme_constant_override("separation", 2)
-	verbs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	band.add_child(verbs)
+	##
+	## PH-07: five verbs plus the heading plus the count is a 544 dp row, and a
+	## `Window` cannot be narrower than its content's minimum -- measured, this
+	## one row alone was what pushed the whole window 151 dp wider than the
+	## screen and took `Apply to map` and the SLOT tab off the right edge with
+	## it. On a phone the verbs get their own wrapping row under the band; they
+	## are still the same five buttons, at the same 44 dp the tap floor gives
+	## them, and `_refresh_batch_buttons()` still greys them with no selection.
+	var verbs: Container
+	if _phone:
+		var verbs_flow := HFlowContainer.new()
+		verbs_flow.add_theme_constant_override("h_separation", 4)
+		verbs_flow.add_theme_constant_override("v_separation", 2)
+		_pad(col, 12, 0, 12, 4).add_child(verbs_flow)
+		verbs = verbs_flow
+	else:
+		var verbs_row := HBoxContainer.new()
+		verbs_row.add_theme_constant_override("separation", 2)
+		verbs_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		band.add_child(verbs_row)
+		verbs = verbs_row
 	_batch_buttons["tag"] = _text_button(verbs, "Tag…", func(): _on_batch_tag())
 	_batch_buttons["collect"] = _text_button(verbs, "Collect…", func(): _on_batch_collect())
 	_batch_buttons["rename"] = _text_button(verbs, "Rename…", func(): _on_batch_rename())
@@ -1539,7 +1748,11 @@ func _build_slot_grid() -> Control:
 	var grid_pad := _pad(scroll, 16, 16, 16, 16)
 	grid_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid = GridContainer.new()
-	_grid.columns = GRID_COLS
+	## PH-07: six columns across 393 dp is a 55 dp tile, smaller than the tap
+	## floor the tile itself has to clear -- and the caption strip under each
+	## one carries a two-letter code plus a slot name. Two columns keeps the
+	## default 76 dp art band square-ish and the caption readable.
+	_grid.columns = PHONE_GRID_COLS if _phone else GRID_COLS
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_grid.add_theme_constant_override("h_separation", TILE_GAP)
@@ -1563,9 +1776,16 @@ func _build_slot_grid() -> Control:
 		"text_faint", DccTheme.FS_TINY)
 	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row (as_batch_collect). Dropping a file from outside Godot to fill a slot stays unwired -- OS file drops reach Window.files_dropped, not a Control's _can_drop_data/_drop_data, so a slot cannot be that kind of drop target; use Import image… for that."
 	drop_hint.mouse_filter = Control.MOUSE_FILTER_STOP
-	foot.add_child(drop_hint)
-	foot.add_child(DccTheme.mono_label("⇧-click ranges · Ctrl-click adds",
-		"text_faint", DccTheme.FS_TINY))
+	## PH-07: both foot hints describe pointer modifiers. `⇧-click ranges ·
+	## Ctrl-click adds` has no touch equivalent at all, and the drop hint's
+	## tooltip -- which is where its real disclosure lives -- is unreachable
+	## without hover. Dropped on a phone rather than kept as two lines of prose
+	## about gestures the device cannot make; the zoom slider beside them is
+	## the only thing in this row a finger can use.
+	if not _phone:
+		foot.add_child(drop_hint)
+		foot.add_child(DccTheme.mono_label("⇧-click ranges · Ctrl-click adds",
+			"text_faint", DccTheme.FS_TINY))
 	foot.add_child(DccTheme.spacer())
 	var zoom_label := DccTheme.mono_label("zoom", "text_faint", DccTheme.FS_TINY)
 	zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -1587,10 +1807,15 @@ func _build_slot_grid() -> Control:
 func _build_status_line() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"top": 1}))
-	wrap.custom_minimum_size.y = H_STATUS
+	## PH-07: two lines rather than one clipped one. Side by side the pair asks
+	## for 401 dp of a 393 dp column, and clipping them both left the state half
+	## reading `(` -- the width went to whichever expanded, and neither of them
+	## is optional: one says whether the library is in sync, the other what pack
+	## it is and how full.
+	wrap.custom_minimum_size.y = H_STATUS * 2 if _phone else H_STATUS
 	var pad := _pad(wrap, 16, 0, 16, 0)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 22)
+	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	row.add_theme_constant_override("separation", 22 if not _phone else 0)
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pad.add_child(row)
 	_status_state = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
@@ -1599,10 +1824,21 @@ func _build_status_line() -> Control:
 	_status_pack = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
 	_status_pack.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_status_pack)
-	row.add_child(DccTheme.spacer())
-	var keys := DccTheme.mono_label("Esc close window", "text_faint", DccTheme.FS_TINY)
-	keys.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(keys)
+	## Clipped as well as stacked: `phone_fit()`'s ellipsis pass reaches only
+	## `Button`s, so a `Label` still reports its full natural width and a
+	## `Window` cannot be narrower than its content's minimum.
+	if _phone:
+		_status_state.clip_text = true
+		_status_pack.clip_text = true
+	else:
+		row.add_child(DccTheme.spacer())
+	## PH-07: a phone has no Esc. Its way out is the Close chip in the window
+	## bar and the Android back gesture (`DccShell::_notification`'s chain),
+	## neither of which this hint names.
+	if not _phone:
+		var keys := DccTheme.mono_label("Esc close window", "text_faint", DccTheme.FS_TINY)
+		keys.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(keys)
 	_refresh_status_line()
 	return wrap
 
@@ -1643,6 +1879,12 @@ func _select_family(key: String) -> void:
 	_refresh_grid()
 	_refresh_inspector()
 	_refresh_import_button()
+	## PH-07: picking a family in the FAMILIES pane is a navigation, not a
+	## setting -- its whole result is the grid, which on a phone is the next
+	## pane over. Also covers `open(family_key)`, so opening the window from
+	## `Assets ▸ Icon families ▸` lands on the slots that entry names rather
+	## than on the rail it was picked from.
+	_show_phone_pane("slots")
 
 func _humanize(id: String) -> String:
 	var parts := id.split("_")
@@ -1868,8 +2110,36 @@ func _on_cell_input(ev: InputEvent, uid: String) -> void:
 	_refresh_selection_visuals()
 	_refresh_inspector()
 	_refresh_import_button()
+	## PH-07: on the desktop composition the inspector is the column beside the
+	## grid and a tap on a tile fills it in place. On a phone it is the pane
+	## *behind* the grid, so the same tap has to move there or the tap appears
+	## to do nothing at all. Not while batch-selecting: there the tap means
+	## "add to the selection", and the verbs that act on it live in the grid's
+	## own header band.
+	if _phone and not _select_mode:
+		_show_phone_pane("slot")
+
+## PH-07. The grid, the collections rail and the inspector are all rebuilt from
+## fresh nodes on every refresh, and a node built after `setup()`'s one-shot
+## pass has never been through it. `DccShell.phone_fit()` is idempotent by
+## meta-flag, so re-walking the whole window costs one visit per already-sized
+## control and touches only what is new -- which is why this can be a blunt
+## "fit everything again" rather than three careful subtree calls that would
+## each have to know what their caller just replaced.
+## **Deferred**: the callers are rebuild functions with early returns in the
+## middle of them, so a direct call at the top would fit nodes about to be
+## freed and one at the bottom would be skipped on exactly the paths that
+## return early. One deferred pass runs after the rebuild, however it ended.
+func _phone_refit() -> void:
+	if _phone and _host != null:
+		_do_phone_refit.call_deferred()
+
+func _do_phone_refit() -> void:
+	if _phone and _host != null and is_instance_valid(self):
+		_host.phone_fit(self, 1.0)
 
 func _refresh_selection_visuals() -> void:
+	_phone_refit()
 	for uid in _cells:
 		var parts: Dictionary = _cells[uid]
 		var sel: bool = _selected.has(uid)
@@ -2061,7 +2331,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _build_inspector() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = W_INSPECTOR
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		wrap.custom_minimum_size.x = W_INSPECTOR
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg"))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -2301,6 +2574,7 @@ func _pick_preview_bg(index: int) -> void:
 func _refresh_inspector() -> void:
 	if _insp_detail == null:
 		return
+	_phone_refit()   ## PH-07 -- see `_phone_refit()`.
 	if _focused_uid == "":
 		_insp_head.text = "NO SLOT SELECTED"
 		_insp_empty.visible = true
@@ -2604,7 +2878,19 @@ func _build_slicer_modal() -> void:
 	## a ~24MB decoded raster outlives the modal that owns it.
 	_slicer.close_requested.connect(_close_slicer)
 	_slicer.canceled.connect(_close_slicer)
-	add_child(_slicer)
+	## PH-07: parented to the SHELL, not to this dialog. An embedded subwindow
+	## is laid out in its parent viewport's own 2D space, and on a phone this
+	## dialog's viewport is content-scaled by `phone_scale()` -- so a slicer
+	## sized to fill "the screen" from inside it would be sized in units 3.66x
+	## larger than the screen's. That is the same physical-pixels-vs-parent-
+	## space confusion `_popup_full()` records above, one level further in.
+	## Parenting it to the shell puts it in the same unscaled space every other
+	## phone window measures itself against, and costs nothing on the desktop:
+	## the two `_close_slicer` connections above plus the Close chip's own call
+	## are what keep it from outliving this window, not the parent link (see
+	## the 2026-08-20 stranded-modal note in `_build_window_bar()`).
+	(_host if _host != null else self).add_child(_slicer)
+	_slicer_phone = DccWidgets.phone_window(_slicer, _host)
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -2622,7 +2908,11 @@ func _build_slicer_modal() -> void:
 	_text_button(title_row, DccIcons.SYMBOLS["cross"], func(): _close_slicer())
 	outer.add_child(title_wrap)
 
-	var body := HBoxContainer.new()
+	## PH-07: the canvas's two columns are a flexible preview beside a fixed
+	## 274 px settings stack -- 70% of a phone's 393 dp before the preview gets
+	## anything. They stack, preview over settings, exactly as
+	## `city_viewer_window.gd` stacks its canvas over its info column.
+	var body: BoxContainer = VBoxContainer.new() if _slicer_phone else HBoxContainer.new()
 	body.add_theme_constant_override("separation", 0)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(body)
@@ -2636,8 +2926,12 @@ func _build_slicer_modal() -> void:
 	left_col.add_theme_constant_override("separation", 9)
 	left_pad.add_child(left_col)
 	_sheet_preview = SheetPreview.new()
+	## A fixed band under a scrolling settings column, for the same reason
+	## `city_viewer_window.gd` gives: "the leftover height" is not a well-defined
+	## quantity once the column below scrolls.
+	_sheet_preview.custom_minimum_size = Vector2(0,
+		PHONE_SHEET_PREVIEW if _slicer_phone else H_SHEET_PREVIEW)
 	_sheet_preview.owner_window = self
-	_sheet_preview.custom_minimum_size = Vector2(0, H_SHEET_PREVIEW)
 	_sheet_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_sheet_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_sheet_preview.tooltip_text = "Wheel to zoom · middle-drag to pan · click a cell to pick it (view only -- Slice still cuts the whole grid) · drag the dot to set Margin."
@@ -2656,12 +2950,27 @@ func _build_slicer_modal() -> void:
 
 	# -- right: settings ------------------------------------------------------
 	var right := PanelContainer.new()
-	right.custom_minimum_size.x = W_SLICER_SIDE
 	right.add_theme_stylebox_override("panel", DccTheme.panel("panel"))
-	var right_pad := _pad(right, 16, 16, 16, 16)
 	var side := VBoxContainer.new()
 	side.add_theme_constant_override("separation", 10)
-	right_pad.add_child(side)
+	if _slicer_phone:
+		## PH-07. Fourteen rows of `66px label · control` at §13's 44 dp floor is
+		## ~700 dp of column in a screen that has ~610 of them under the preview
+		## band. A desktop column that merely fits is a phone column that has to
+		## scroll; without this the Cancel/Slice foot -- the only way to run the
+		## thing -- is below the bottom edge with nothing to reach it.
+		right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var side_scroll := ScrollContainer.new()
+		side_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		side_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		right.add_child(side_scroll)
+		var side_pad := _pad(side_scroll, 16, 16, 16, 16)
+		side_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		side_pad.add_child(side)
+	else:
+		right.custom_minimum_size.x = W_SLICER_SIDE
+		_pad(right, 16, 16, 16, 16).add_child(side)
 	body.add_child(right)
 
 	## 128 is the engine's own ceiling (`clampInt(v,1,128)`, ported as
@@ -2859,6 +3168,9 @@ func _open_slicer() -> void:
 	if not visible:
 		_popup_full()
 	_refresh_slicer_target_controls()
+	if DccWidgets.phone_present(_slicer, _host):
+		_host.phone_fit(_slicer, 1.0)   ## PH-07; idempotent, so only new rows pay.
+		return
 	_slicer.popup_centered(Vector2i(W_SLICER, H_SLICER))
 
 ## Closing drops the engine-side sheet too -- a decoded 3072×2048 sheet is
