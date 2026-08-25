@@ -28,6 +28,10 @@ const ID_SHOW_ON_DISK := 19
 
 const ID_UNDO := 20
 const ID_REDO := 21
+## `GUI_GAP_REGISTER.md` **ED-02**. Its own id and not `ID_UNDO`'s: the panel
+## and the action are different things, and routing both through one id is the
+## shape this shell keeps having to undo.
+const ID_UNDO_HISTORY := 121
 const ID_PREF_UNDO_CLEAR := 22
 
 ## `Preferences ▸ Memory ▸ Undo history` (PR-11). Budgets, not step counts --
@@ -292,11 +296,19 @@ func _edit(p: PopupMenu) -> void:
 		"rather than moving a cursor through a history, so an undone step is gone. " +
 		"The Sculpt draft's own stamp history (right dock, while the Sculpt tool is active) " +
 		"does have a real Redo.")
-	_todo(p, "Undo history…",
-		"The stack is real (Edit ▸ Undo, up to 5 steps within a memory budget) but there is no " +
-		"panel over it: GUI_GAP_REGISTER.md §7.1 classifies ED-02 as a design gap, not an " +
-		"engine one -- what a history row should represent across seven undo domains has not " +
-		"been decided. Preferences ▸ Memory ▸ Undo history shows the live depth and cost.")
+	## `GUI_GAP_REGISTER.md` **ED-02**, built 2026-08-25 as the *ledger* §7.1
+	## asked for rather than the five-row list a previous pass declined to
+	## ship. It records every commit and reverses the ones it can, saying per
+	## row which is which.
+	_live(p, "Undo history…", ID_UNDO_HISTORY)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the history ledger in the right dock: every committed operation this "
+		+ "session, newest first, with the open Sculpt draft above them as its own "
+		+ "tier. A row marked ▲ still has a height snapshot and can be reverted to; "
+		+ "one marked · happened and cannot be walked back, and says exactly what is "
+		+ "not retained; ◼ is a generate or a load, where history starts. Reverting "
+		+ "is linear -- it discards everything after the row -- and asks first when "
+		+ "it would discard more than one step.")
 	p.add_separator()
 	_todo(p, "Cut", "Nothing is selectable for editing yet beyond settlements, which are read-only.")
 	_todo(p, "Copy", "Same.")
@@ -353,6 +365,7 @@ func _mb(bytes: int) -> String:
 func _on_edit(id: int) -> void:
 	match id:
 		ID_UNDO: _host.undo_last()
+		ID_UNDO_HISTORY: _host.open_undo_history()
 
 # -- §2.3 Assets --------------------------------------------------------------
 
@@ -630,13 +643,19 @@ func _build_vault_rows(p: PopupMenu) -> void:
 		+ "its path -- Cartalith ships none of its own, and copies yours verbatim "
 		+ "with only the entity's name substituted. It refuses an existing path "
 		+ "rather than overwriting a note. GUI_GAP_REGISTER.md VA-02.")
-	_todo(p, "Missing & orphan notes report…",
-		"Which entities have no note, and which notes point at no entity. Both halves "
-		+ "need a reverse index over the whole vault, and the index -- not the walk -- "
-		+ "is the open question: built on demand it stalls a large vault, and persisted "
-		+ "it is a second store to keep in step with the folder. The provider "
-		+ "deliberately opens only the files it is asked for, which is what keeps "
-		+ "browsing cheap. Same root cause as backlinks and unlinked mentions. "
+	## `GUI_GAP_REGISTER.md` **VA-01**, built 2026-08-25. The register's own
+	## framing -- an on-demand index that stalls versus a persistent one that
+	## goes stale -- was a false pair: a `stat` is not a read, so the index is
+	## persisted AND kept correct per file by `(modified, len)`.
+	_live(p, "Vault index ▸ Backlinks · missing & orphan notes…", ID_VAULT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the vault panel's Index section: build or refresh the reverse index, "
+		+ "then see which links point at a note that does not exist and which notes "
+		+ "nothing links to. Building reads every note once; a refresh re-opens only "
+		+ "the files whose size or modified time changed, so ten edits in Obsidian "
+		+ "cost ten reads and not the whole vault. Per note it keeps the links, the "
+		+ "Cartalith blocks and a 64-bit word fingerprint -- never the prose. Backlinks "
+		+ "and unlinked mentions for one entity are on that entity's own panel. "
 		+ "GUI_GAP_REGISTER.md VA-01.")
 
 # -- §2.5 Preferences ---------------------------------------------------------

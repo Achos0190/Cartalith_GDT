@@ -2049,6 +2049,30 @@ func civ_territory_influence() -> Dictionary:
 		return {}
 	return world_gen.civ_territory_influence()
 
+## Trade **flows** -- who supplies whom, over what water, along which way
+## (`GUI_GAP_REGISTER.md` **IN-13**).
+##
+## **Computed on demand and held nowhere**, the same contract
+## `civ_territory_influence()` above ships on: `cartalith_civ::trade` matches
+## every surplus against every deficit it can actually reach, routes what
+## lands on a road, and drops the whole thing before returning. `CivData`
+## gains no field and nothing is saved.
+##
+## Returns the *entire* answer in one dictionary -- world totals, per-good
+## rows, every flow, unmet needs, per-settlement navigability and per-way
+## load -- because three surfaces read it (the Trade category, the place
+## editor's ledger, the map's way-load overlay) and re-running a quarter-
+## second match per place-editor open would be the cost this design exists to
+## avoid. `TradeStore` is what keeps the result on the shell side, where it
+## can be dropped.
+##
+## `{}` before any generate, on a loaded save (no civilisation layer), and on
+## a world with no settlements.
+func civ_trade_flows() -> Dictionary:
+	if not _has("civ_trade_flows"):
+		return {}
+	return world_gen.civ_trade_flows()
+
 ## The coordinate frame this world's fields and its GeoJSON export are in
 ## (`GUI_GAP_REGISTER.md` WW-15). `{}` before any generate.
 func world_crs() -> Dictionary:
@@ -2571,6 +2595,88 @@ func vault_write_field_fill(rel: String, kind: String, entity_id: int, overwrite
 
 ## The link store as JSON. `VaultStore` (`vault_store.gd`) owns writing it to
 ## disk; this is only the engine's side of that.
+# -- Backlinks (`GUI_GAP_REGISTER.md` VA-01) ---------------------------------
+#
+# The index is built only when a person asks. Every wrapper here is a read
+# except `vault_refresh_backlinks`, which is the asking.
+
+## Bring the backlink index up to date, reading only the notes whose
+## `(modified, len)` moved. `{ok, seen, reread, dropped, unreadable, notes,
+## links, entities, bytes, refreshed_at}`, or `{ok:false, error}`.
+## Every committed operation this session, oldest first
+## (`GUI_GAP_REGISTER.md` **ED-02**). One row per commit, not one per
+## reversible commit: `kind` is `height`/`recorded`/`floor`, `reversible` says
+## whether a snapshot is *still* held for it, `reason` says why not, and
+## `steps` is how many undo steps reverting to it would take.
+func undo_ledger() -> Array:
+	if not _has("undo_ledger"):
+		return []
+	return world_gen.undo_ledger()
+
+## Roll back to a ledger row, popping every height snapshot above it as well.
+## Returns how many steps were reverted; `0` when the row is gone or was never
+## reversible, in which case the caller should re-read `undo_ledger()`.
+func undo_revert_to(seq: int) -> int:
+	if not _has("undo_revert_to"):
+		return 0
+	return world_gen.undo_revert_to(seq)
+
+
+func vault_refresh_backlinks(limit: int = 2000) -> Dictionary:
+	if not _has("vault_refresh_backlinks"):
+		return {"ok": false, "error": "this build predates the backlink index"}
+	return world_gen.vault_refresh_backlinks(limit)
+
+## Throw the index away so the next refresh re-reads everything.
+func vault_rebuild_backlinks() -> void:
+	if _has("vault_rebuild_backlinks"):
+		world_gen.vault_rebuild_backlinks()
+
+## `{built, notes, links, entities, broken, orphans, bytes, refreshed_at}`.
+## `built` is the one every reader must branch on: "no notes" and "nothing
+## indexed" are opposite statements on screen.
+func vault_backlink_stats() -> Dictionary:
+	if not _has("vault_backlink_stats"):
+		return {"built": false}
+	return world_gen.vault_backlink_stats()
+
+## Every note that references this entity -- `{rel, form, count}`, `form` one
+## of `wiki`, `markdown`, `block`. A `block` row is a note carrying this
+## entity's own Cartalith block, which finds the entity even when it has no
+## note of its own.
+func vault_entity_backlinks(kind: String, entity_id: int) -> Array:
+	if not _has("vault_entity_backlinks"):
+		return []
+	return world_gen.vault_entity_backlinks(kind, entity_id)
+
+## Notes that name this entity in prose and do not link to it --
+## `{rel, excerpt}`. A guess, and the panel draws it as one.
+func vault_entity_mentions(kind: String, entity_id: int, name: String, max_rows: int = 12) -> Array:
+	if not _has("vault_entity_mentions"):
+		return []
+	return world_gen.vault_entity_mentions(kind, entity_id, name, max_rows)
+
+## `{built, broken: [{source, target}], orphans: [rel]}` -- both halves of
+## Data ▸ Missing & orphan notes report…, from the one index.
+func vault_backlink_report(limit: int = 200) -> Dictionary:
+	if not _has("vault_backlink_report"):
+		return {"built": false, "broken": [], "orphans": PackedStringArray()}
+	return world_gen.vault_backlink_report(limit)
+
+## The index as JSON. `VaultStore` writes it beside the link store -- and
+## separately from it, because the store is portable project data and this is
+## a cache of somebody's folder.
+func vault_backlink_index_json() -> String:
+	if not _has("vault_backlink_index_json"):
+		return ""
+	return world_gen.vault_backlink_index_json()
+
+func vault_restore_backlink_index(json: String) -> bool:
+	if not _has("vault_restore_backlink_index"):
+		return false
+	return world_gen.vault_restore_backlink_index(json)
+
+
 func vault_state_json() -> String:
 	if not _has("vault_state_json"):
 		return ""

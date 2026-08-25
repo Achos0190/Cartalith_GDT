@@ -1271,15 +1271,24 @@ func _build_settlement_vault(parent: Control) -> void:
 		% ("%d found in this vault" % n_templates if n_templates > 0
 			else "none found yet -- a template is any .md with \"template\" in its path"))
 
-	var gaps := DccWidgets.section(parent, "Not built")
-	DccWidgets.note(gaps,
-		"Backlinks and unlinked mentions (GUI_GAP_REGISTER.md VA-01). Both need a "
-		+ "reverse index over the whole vault; the provider walks the folder "
-		+ "bounded and opens no file it was not asked for, which is what keeps a "
-		+ "large vault cheap and is exactly what a mention scan would undo. The "
-		+ "index itself is the design question, not the scan: an on-demand one "
-		+ "is a stall on a large vault, and a persistent one is a second store "
-		+ "to invalidate.")
+	## `GUI_GAP_REGISTER.md` **VA-01**, built 2026-08-25. What was a "Not
+	## built" note is now a live readout: the index answers both halves, and
+	## the per-entity rows are on the place editor beside the link that
+	## produced them.
+	var idx := bridge.vault_backlink_stats()
+	if bool(idx.get("built", false)):
+		DccWidgets.note(sec,
+			("Backlinks are indexed: %d notes, %d links, %d Cartalith blocks. A "
+			+ "settlement's own incoming references and unlinked mentions are on its "
+			+ "place editor, under Knowledge.") % [
+				int(idx.get("notes", 0)), int(idx.get("links", 0)),
+				int(idx.get("entities", 0))])
+	else:
+		DccWidgets.note(sec,
+			"Backlinks and unlinked mentions are not indexed for this vault yet "
+			+ "(GUI_GAP_REGISTER.md VA-01). Build the index once from the vault "
+			+ "panel above and a settlement's place editor shows what points at it; "
+			+ "after that a refresh only re-opens the notes that changed.")
 
 func _fill_population(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Totals")

@@ -136,6 +136,16 @@ var _roads_body: Control
 var _ports_body: Control
 var _trade_body: Control
 var _logistics_body: Control
+## `GUI_GAP_REGISTER.md` **IN-13**'s own body, deliberately NOT in
+## `rebuild_readouts()` above: a match costs a real computation, so a
+## generate clears it rather than silently re-running it. `TradeStore.clear()`
+## in `app.gd` is what empties it.
+var _flows_body: Control
+## The Match button, held because `_build_flows()` runs once -- from CIVIL's
+## `setup()`, before any world exists -- so nothing else would ever re-enable
+## it. This is `GUI_GAP_REGISTER.md` RF-01's exact shape, found again by the
+## probe pressing the real control rather than reading the source.
+var _flows_run: Button
 
 ## **Where this workspace's categories attach** (2026-08-24, `design/Cartalith
 ## Menu Structure v3.dc.html`).
@@ -197,6 +207,15 @@ func rebuild_readouts() -> void:
 	if _logistics_body != null and is_instance_valid(_logistics_body):
 		_clear_body(_logistics_body)
 		_fill_logistics(_logistics_body)
+	## IN-13's Flows body refills from whatever `TradeStore` holds, which
+	## `app.gd` has just cleared on this same world change -- so this puts the
+	## "not matched yet" note back rather than showing the previous world's
+	## numbers under the new world's name.
+	if _flows_run != null and is_instance_valid(_flows_run):
+		_flows_run.disabled = not bridge.has_world
+	if _flows_body != null and is_instance_valid(_flows_body):
+		_clear_body(_flows_body)
+		_fill_flows()
 	## A regenerate empties both hand-drawn stores, so both lists must go back
 	## to their "None yet" notes rather than keep the previous world's rows.
 	_refresh_manual_ways()
@@ -507,7 +526,13 @@ func build_travel_into(parent: Control) -> void:
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.tooltip_text = "Animals, mounts, vehicles, vessels and saved party set-ups -- the reference tables the planner draws its speeds and loads from."
 
-## v3 CIVIL ▸ TRADE.
+## v3 CIVIL ▸ TRADE. Four rows v3 asks for, all four now backed
+## (`GUI_GAP_REGISTER.md` **IN-13**, built 2026-08-25).
+##
+## The order is the disclosure ladder the design settled on: the world, then
+## the good, then the pair, then the place. `§ Balance` is the surplus/deficit
+## verdict that has always been here and says *what*; everything below it is
+## the match, and says *who*.
 func build_trade_into(parent: Control) -> void:
 	_dock_hosted = true
 	_trade_body = VBoxContainer.new()
@@ -516,13 +541,195 @@ func build_trade_into(parent: Control) -> void:
 	parent.add_child(_trade_body)
 	_fill_trade(_trade_body)
 
+	_build_flows(parent)
+
 	DccWidgets.note(DccWidgets.section(parent, "Not built"),
-		"Trade *flows* as a routed quantity, imports/exports per settlement as a "
-		+ "ledger, the route-cost field and a trade-influence raster "
-		+ "(GUI_GAP_REGISTER.md IN-13). civ_resource_trade_balance produces the "
-		+ "hinterland surplus/deficit above and nothing ties a relationship to the "
-		+ "way that would carry it -- ECONOMY_SCOPE.md holds the aggregation that "
-		+ "would.")
+		"Prices, tariffs, caravans as entities, and trade that changes over time "
+		+ "(GUI_GAP_REGISTER.md IN-13, narrowed to exactly these). The flows above "
+		+ "are a reading of the world as it stands; none of the four is derivable "
+		+ "from anything the civ layer holds, and each needs a decision about what "
+		+ "a currency is here before it could be anything but a fabricated number.")
+
+## `GUI_GAP_REGISTER.md` **IN-13** -- trade flows as a routed quantity.
+##
+## **Behind a button, and that is the design.** The match walks every
+## settlement pair against the way network and the coastline; refilling it on
+## every dock rebuild would re-run it each time somebody renames a place. Same
+## shape as CIVIL ▸ Territories ▸ Borders & influence, and for the same
+## reason.
+##
+## `TradeStore` holds the result for the place editor and the map overlay, so
+## one press answers all three surfaces; `app.gd` drops it on any world
+## change.
+func _build_flows(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Flows")
+	_flows_run = DccWidgets.action(sec, "Match trade flows", _match_trade_flows)
+	var run := _flows_run
+	run.disabled = not bridge.has_world
+	run.tooltip_text = ("Matches every settlement's surplus against every deficit it can "
+		+ "actually reach -- the reference's own food-shed machinery (_civFoodShed's supplier "
+		+ "enumeration, _civRoadConnected's union-find over the way network, _civGoodReach's "
+		+ "bulk-needs-water rule) run over all fifteen resources instead of one. Nothing is "
+		+ "retained in the engine: the match is built, read and dropped, and the reading "
+		+ "reports what it cost.")
+	_flows_body = VBoxContainer.new()
+	_flows_body.add_theme_constant_override("separation", 4)
+	_flows_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(_flows_body)
+	_fill_flows()
+
+func _fill_flows() -> void:
+	if _flows_body == null or not is_instance_valid(_flows_body):
+		return
+	var d := TradeStore.last()
+	if d.is_empty():
+		DccWidgets.note(_flows_body,
+			"Not matched yet. The match reads the settlement list, the way network and the "
+			+ "coastline; on a few hundred settlements it takes a fraction of a second and "
+			+ "keeps nothing afterwards. A settlement's own ledger (place editor ▸ Trade) and "
+			+ "the map's way-load overlay read the same match.")
+		return
+
+	var flows := int(d.get("flow_count", 0))
+	var importing := int(d.get("importing", 0))
+	var supplied := int(d.get("supplied", 0))
+	DccWidgets.note(_flows_body,
+		("%s flows over %d of 15 goods, in %d ms. %d of %d settlements that need something "
+		+ "get it; %d have a need nothing in reach can fill.") % [
+			FactionRosterWindow._thousands(flows), int(d.get("goods_moving", 0)),
+			int(d.get("elapsed_ms", 0)), supplied, importing,
+			max(0, importing - supplied)])
+	DccWidgets.note(_flows_body,
+		"Carried by land %d%% · river %d%% · sea %d%% -- by volume, not by count: one sea lane "
+		% [int(round(100.0 * float(d.get("land_share", 0.0)))),
+			int(round(100.0 * float(d.get("river_share", 0.0)))),
+			int(round(100.0 * float(d.get("sea_share", 0.0))))]
+		+ "moving a city's demand is not one flow's worth of trade.")
+
+	_fill_flows_goods(d)
+	_fill_flows_partners(d)
+	_fill_flows_unmet(d)
+	_fill_flows_ways(d)
+
+	DccWidgets.note(_flows_body,
+		("Built on demand and dropped: %.2f MB at its peak, held for the length of the call "
+		+ "and retained nowhere. CivData gained no field and nothing here is saved.")
+		% (float(d.get("transient_bytes", 0)) / 1048576.0))
+
+## § BY GOOD -- what moves, and how far it gets.
+func _fill_flows_goods(d: Dictionary) -> void:
+	var rows: Array = d.get("goods", [])
+	var g := DccWidgets.group(_flows_body, "By good")
+	if rows.is_empty():
+		DccWidgets.note(g,
+			"Nothing moves. Every settlement's surplus is a good no reachable settlement is "
+			+ "short of -- which is a real world, not an error.")
+		return
+	var sorted := rows.duplicate()
+	sorted.sort_custom(func(a, b): return float(a.get("volume", 0.0)) > float(b.get("volume", 0.0)))
+	for r in sorted:
+		var row: Dictionary = r
+		DccWidgets.note(g, "%s -- %d exporters → %d importers, %s carried, mostly %s (%s)" % [
+			String(row.get("name", "?")), int(row.get("exporters", 0)),
+			int(row.get("importers", 0)),
+			FactionRosterWindow._thousands(int(round(float(row.get("volume", 0.0))))),
+			String(row.get("dominant_mode", "land")),
+			"bulk" if bool(row.get("bulk", false)) else "luxury"])
+	DccWidgets.note(g,
+		"Reach is the reference's own rule: a luxury travels anywhere, a bulk good needs water "
+		+ "-- sea lane long, river regional, neither local. The same surplus is a regional "
+		+ "export from a river port and a purely local one from an inland hamlet.")
+
+## § PARTNERS -- who, specifically.
+func _fill_flows_partners(d: Dictionary) -> void:
+	var rows: Array = d.get("flows", [])
+	var g := DccWidgets.group(_flows_body, "Busiest partners")
+	if rows.is_empty():
+		DccWidgets.note(g, "No pair trades.")
+		return
+	var shown: int = min(12, rows.size())
+	for i in range(shown):
+		var row: Dictionary = rows[i]
+		var from_i := int(row.get("from", -1))
+		var b := DccWidgets.action(g, "%s → %s -- %s, %s, %s %d km" % [
+			String(row.get("from_name", "?")), String(row.get("to_name", "?")),
+			String(row.get("good", "?")),
+			FactionRosterWindow._thousands(int(round(float(row.get("volume", 0.0))))),
+			String(row.get("mode", "land")), int(round(float(row.get("distance_km", 0.0))))],
+			func():
+				if from_i >= 0:
+					app.right_dock_ctrl.on_settlement_selected(
+						bridge.settlements()[from_i], from_i))
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.tooltip_text = ("%s reach; %d%% of the exporter's scale survives the carriage. "
+			+ "Opens the exporter in the right dock.") % [
+				String(row.get("reach", "?")),
+				int(round(100.0 * float(row.get("deliverable", 0.0))))]
+	if rows.size() > shown:
+		DccWidgets.note(g, "%s more, biggest first."
+			% FactionRosterWindow._thousands(rows.size() - shown))
+	if int(d.get("flow_count", 0)) > rows.size():
+		DccWidgets.note(g,
+			"%s flows matched in total; the list is capped so a very large world cannot hand "
+			% FactionRosterWindow._thousands(int(d.get("flow_count", 0)))
+			+ "the shell a hundred-thousand-row array. Every total above counts all of them.")
+
+## § UNSUPPLIED -- a need, and nothing in reach.
+func _fill_flows_unmet(d: Dictionary) -> void:
+	var rows: Array = d.get("unmet", [])
+	if rows.is_empty():
+		return
+	var g := DccWidgets.group(_flows_body, "Needs nothing can reach")
+	var shown: int = min(10, rows.size())
+	for i in range(shown):
+		var row: Dictionary = rows[i]
+		var goods: PackedStringArray = row.get("goods", PackedStringArray())
+		DccWidgets.note(g, "%s -- %s (%s)" % [
+			String(row.get("name", "?")), ", ".join(goods),
+			"no exporter in reach" if bool(row.get("exporter_exists", false))
+				else "nobody in the world exports it"])
+	if rows.size() > shown:
+		DccWidgets.note(g, "%d more." % (rows.size() - shown))
+	DccWidgets.note(g,
+		"The reference's own distinction, generalised past food: an unmet need with no viable "
+		+ "supply is not an import relationship. It is a dependency the world cannot carry.")
+
+## § WAY LOAD -- what the network is actually carrying.
+func _fill_flows_ways(d: Dictionary) -> void:
+	var rows: Array = d.get("ways", [])
+	var g := DccWidgets.group(_flows_body, "Way load")
+	if rows.is_empty():
+		DccWidgets.note(g,
+			"No way carries anything: every matched flow is either short enough to need no road "
+			+ "at all (under 50 km, the reference's own local supply radius) or seaborne.")
+	else:
+		for r in rows:
+			var row: Dictionary = r
+			DccWidgets.note(g, "%s -- %s" % [
+				String(row.get("name", "?")),
+				FactionRosterWindow._thousands(int(round(float(row.get("load", 0.0)))))])
+		DccWidgets.note(g, "%d of %d ways carry nothing."
+			% [int(d.get("idle_ways", 0)), int(d.get("way_count", 0))])
+	DccWidgets.note(g,
+		"Drawn on the map as way thickness -- Cartography ▸ Roads & routes ▸ Trade load. Width "
+		+ "and not colour, because a way's colour is already its type.")
+
+func _match_trade_flows() -> void:
+	if _flows_body == null or not is_instance_valid(_flows_body):
+		return
+	var d := TradeStore.refresh(bridge)
+	_clear_body(_flows_body)
+	if d.is_empty():
+		DccWidgets.note(_flows_body,
+			"Nothing to match: this world carries no civilisation layer (which is every loaded "
+			+ "save) or has no settlements.")
+		return
+	_fill_flows()
+	## The map draws the same match as way thickness, so it is handed the
+	## per-way volumes here -- one owner of the computation, three readers of
+	## it (this dock, the place editor's ledger, and the overlay).
+	if app != null and app.viewport != null and app.viewport.overlay != null:
+		app.viewport.overlay.set_trade_load(d.get("way_load", PackedFloat32Array()))
 
 ## The Rivers category left CIVIL for WORLD ▸ Hydrology, which is where v3
 ## puts the river network. Its one honest finding travels with it -- CIVIL had

@@ -548,6 +548,14 @@ func refresh_staleness() -> void:
 ## was the disabled one. Found by `_bakeui_shot.gd` pressing the real button.
 func _refresh_world_dependent() -> void:
 	refresh_atlas_status()
+	## `GUI_GAP_REGISTER.md` **IN-13**. The trade match is keyed to settlement
+	## indices and way indices, both of which a new world renumbers, so a stale
+	## match is not merely out of date — it names the wrong places. Cleared
+	## here, in the one function that already owns "the world changed
+	## identity", rather than by each of its three readers.
+	TradeStore.clear()
+	if viewport != null and viewport.overlay != null:
+		viewport.overlay.set_trade_load(PackedFloat32Array())
 	for ws in _workspaces:
 		if ws.has_method("on_world_changed"):
 			ws.on_world_changed()
@@ -1395,6 +1403,18 @@ func undo_last() -> void:
 	set_status("pass", "undid %s" % label.to_lower(), "text_dim")
 	set_status("hint", "%d undo step%s left · flow, rivers and climate are not re-run" % [
 		int(stats.get("depth", 0)), "" if int(stats.get("depth", 0)) == 1 else "s"], "text_ghost")
+	## ED-02: the ledger lost a row, so the panel showing it is stale. A no-op
+	## unless History is the live context.
+	if right_dock_ctrl != null:
+		right_dock_ctrl.refresh_history()
+
+## `Edit ▸ Undo history…` (`GUI_GAP_REGISTER.md` **ED-02**). A right-dock
+## context, per `DCC_SHELL_SPEC.md` §7.1 proposal 3 -- selection-adjacent, and
+## the dock is already the context-driven surface. Not a window: a window for
+## a list that is read *against* the map would cover the map.
+func open_undo_history() -> void:
+	if right_dock_ctrl != null:
+		right_dock_ctrl.show_history()
 
 func show_project_on_disk() -> void:
 	if current_project_path == "":

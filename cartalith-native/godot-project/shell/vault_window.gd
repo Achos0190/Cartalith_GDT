@@ -59,6 +59,11 @@ var _pick_heading := ""
 ## The Cartalith-feedback checkbox set (§20), by export-field key.
 var _selected_fields := {}
 
+## The last index Refresh/Rebuild result, shown on the Index section until the
+## next one. A one-shot line, not a persistent state: the numbers above it are
+## the state.
+var _index_feedback := ""
+
 var _body: VBoxContainer
 var _phone := false
 var _phone_title: Label
@@ -521,6 +526,7 @@ func _preview_dialog(dialog_title: String, preview: String, note: String, on_con
 # -- Overview ---------------------------------------------------------------
 
 func _build_overview() -> void:
+	_build_index()
 	var sec := DccWidgets.section(_body, "All linked notes")
 	var links := bridge.vault_all_links()
 	if links.is_empty():
@@ -536,6 +542,91 @@ func _build_overview() -> void:
 			String(STATUS_TEXT.get(String(d.get("status", "")), ""))],
 			func(): open_for(kind, eid, label))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+
+# -- The backlink index (`GUI_GAP_REGISTER.md` VA-01) ------------------------
+
+## The index panel, and the answer to the register's own question about it.
+##
+## The register frames backlinks as a choice between an on-demand index that
+## stalls a large vault and a persistent one that goes stale behind a folder
+## the user edits elsewhere. It is a false pair: a `stat` is not a read, so
+## Refresh walks the listing, compares each note's `(modified, len)` against
+## what the index holds, and opens **only the files that moved**. Ten edits in
+## Obsidian cost ten reads.
+##
+## Everything on this panel is a number the engine measured on this vault --
+## no estimates, and no progress bar for a pass that is over before one could
+## draw.
+func _build_index() -> void:
+	var info := bridge.vault_info()
+	if not bool(info.get("bound", false)):
+		return
+	var sec := DccWidgets.section(_body, "Index")
+	var st := bridge.vault_backlink_stats()
+	if not bool(st.get("built", false)):
+		DccWidgets.note(sec,
+			"Not built. Building it reads every note in this vault once and keeps, per note, "
+			+ "its size and modified time, the links it points at, and a 64-bit word "
+			+ "fingerprint — never the prose. After that, a refresh only re-opens the files "
+			+ "that changed.")
+	else:
+		DccWidgets.note(sec, "%d notes · %d links · %d Cartalith blocks · %s" % [
+			int(st.get("notes", 0)), int(st.get("links", 0)), int(st.get("entities", 0)),
+			String.humanize_size(int(st.get("bytes", 0)))])
+		var broken := int(st.get("broken", 0))
+		var orphans := int(st.get("orphans", 0))
+		DccWidgets.note(sec, "%d links point at a note that does not exist · %d notes nothing links to"
+			% [broken, orphans])
+	if _index_feedback != "":
+		DccWidgets.note(sec, _index_feedback)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	var refresh := DccWidgets.action(row, "Refresh index", _refresh_index)
+	refresh.tooltip_text = "Stats every note and re-reads only the ones whose size or modified time changed. Safe to press whenever; on an untouched vault it opens nothing at all."
+	var rebuild := DccWidgets.action(row, "Rebuild", func():
+		bridge.vault_rebuild_backlinks()
+		_refresh_index())
+	rebuild.tooltip_text = "Throws the index away and reads every note again. Only needed if the index was written by an older build that parsed links differently."
+	_body.add_child(row)
+	if bool(st.get("built", false)):
+		_build_index_report()
+
+func _refresh_index() -> void:
+	var r := bridge.vault_refresh_backlinks(2000)
+	if bool(r.get("ok", false)):
+		VaultStore.save_index_from(bridge)
+		_index_feedback = "Index: %d notes seen, %d re-read, %d dropped%s." % [
+			int(r.get("seen", 0)), int(r.get("reread", 0)), int(r.get("dropped", 0)),
+			"" if int(r.get("unreadable", 0)) == 0
+				else ", %d unreadable" % int(r.get("unreadable", 0))]
+	else:
+		_index_feedback = "Index: %s" % String(r.get("error", "no vault connected"))
+	_rebuild()
+
+## `Data ▸ Missing & orphan notes report…`, which VA-01 has had disabled
+## waiting for exactly this index. One index answers both questions, so there
+## is one panel and not two walks.
+func _build_index_report() -> void:
+	var rep := bridge.vault_backlink_report(40)
+	var broken: Array = rep.get("broken", [])
+	var orphans: PackedStringArray = rep.get("orphans", PackedStringArray())
+	if broken.is_empty() and orphans.is_empty():
+		return
+	var g := DccWidgets.group(_body, "Missing & orphan notes", false)
+	if not broken.is_empty():
+		DccWidgets.note(g, "Links that point at no note:")
+		for b in broken:
+			var d: Dictionary = b
+			DccWidgets.note(g, "    %s → %s" % [String(d.get("source", "")), String(d.get("target", ""))])
+	if orphans.size() > 0:
+		DccWidgets.note(g, "Notes nothing links to:")
+		for o in orphans:
+			DccWidgets.note(g, "    %s" % o)
+	DccWidgets.note(g,
+		"Read-only, deliberately: Cartalith will not create a note to satisfy a broken link "
+		+ "or delete an orphan. Both are the author's to decide, and the vault's boundary is "
+		+ "that Cartalith never rewrites a note's body.")
 
 
 func _build_footer() -> void:

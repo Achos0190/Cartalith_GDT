@@ -287,7 +287,27 @@ impl WorldGen {
         d.set("unmet", &unmet);
         d.set("navigability", &navigability);
         d.set("ways", &ways);
-        let load: PackedFloat32Array = net.way_load.iter().map(|&v| v as f32).collect();
+        // **`get_roads()` order, not `civ.ways` order.** The overlay indexes
+        // this array by its own row, and `get_roads()` filters hidden ways out
+        // and appends the manual ones -- so a straight copy of `net.way_load`
+        // is off by however many ways are hidden, silently, from the first
+        // hidden way onward. Found by the probe asserting the two lengths
+        // match, which is why that assertion is worth making.
+        let mut load = PackedFloat32Array::new();
+        for (i, w) in civ.ways.iter().enumerate() {
+            if !w.hidden {
+                load.push(net.way_load.get(i).copied().unwrap_or(0.0) as f32);
+            }
+        }
+        // Manual ways carry no matched trade: they are not in the
+        // consolidation the match's union-find reads, so they have no load
+        // rather than a load of zero by accident. Padded so the array still
+        // lines up with `get_roads()`.
+        if let Some(infra) = self.infra.as_ref() {
+            for _ in infra.ways.iter().filter(|w| !w.hidden && !w.sea) {
+                load.push(0.0);
+            }
+        }
         d.set("way_load", &load);
         d
     }

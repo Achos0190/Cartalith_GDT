@@ -197,6 +197,7 @@ func _rebuild() -> void:
 	_build_identity(s)
 	_build_class_and_polity(s)
 	_build_economy(s, details)
+	_build_trade()
 	_build_traits(details)
 	_build_urban(details)
 	_build_history(details)
@@ -296,6 +297,88 @@ func _build_economy(s: Dictionary, details: Dictionary) -> void:
 		DccWidgets.choice(sec, "Economy", labels, maxi(0, keys.find(cur)),
 			func(i: int): _apply({"specialisation": keys[i]}),
 			"CIV_SPECIALISATIONS, the reference's own vocabulary. Stored on the settlement but NOT fed back into civ_faction_aggregates' sector output -- doing so would change already-golden economy numbers on a user edit. See GUI_GAP_REGISTER.md ED-03.")
+
+
+# -- Trade ------------------------------------------------------------------
+
+## `_civGoodReach`'s bulk branch, in the one sentence a reader needs: what a
+## settlement's own water lets its heavy goods actually reach. Keyed by
+## `cartalith_civ::trade::NavKind`'s own strings.
+const REACH_BY_WATER := {
+	"sea": "long -- bulk goods reach anywhere",
+	"river": "regional -- bulk goods reach the river's own network",
+	"stream": "local -- a headwater stream carries no cargo",
+	"none": "local -- bulk goods stop at 50 km",
+}
+
+## `GUI_GAP_REGISTER.md` **IN-13**'s per-settlement half: *"imports/exports
+## per settlement as a ledger"*.
+##
+## Here rather than in a second settlement list in the dock, because this
+## window is already where a settlement's own facts live — and because a
+## partner is a *name*, which only means something next to the place it
+## belongs to.
+##
+## Reads `TradeStore`, never the engine: the match is one computation shared
+## by three surfaces, and re-running it on every place-editor open is exactly
+## the cost `civ_trade_flows()`'s own doc comment explains this design avoids.
+## When no match has run the section says so and points at the one control
+## that runs it — a section that silently showed nothing would be
+## indistinguishable from a settlement that trades nothing.
+func _build_trade() -> void:
+	var sec := DccWidgets.section(_body, "Trade")
+	if not TradeStore.is_matched():
+		DccWidgets.note(sec,
+			"No trade match on this world yet. Civilization ▸ Trade ▸ Match trade flows "
+			+ "computes who supplies whom; it is derived on demand and held nowhere, so a "
+			+ "generate clears it.")
+		return
+
+	var led := TradeStore.ledger(_index)
+	var imports: Array = led.get("imports", [])
+	var exports: Array = led.get("exports", [])
+	var unmet := TradeStore.unmet_for(_index)
+
+	if imports.is_empty() and exports.is_empty() and unmet.is_empty():
+		DccWidgets.note(sec,
+			"No trade relationship. Its hinterland is close enough to the world mean on every "
+			+ "resource that nothing reads as a surplus or a shortage.")
+	if not imports.is_empty():
+		var g := DccWidgets.group(sec, "Imports")
+		for f in imports:
+			_trade_row(g, f, "from_name", "←")
+	if not exports.is_empty():
+		var g2 := DccWidgets.group(sec, "Exports")
+		for f in exports:
+			_trade_row(g2, f, "to_name", "→")
+	if not unmet.is_empty():
+		DccWidgets.note(sec,
+			"Needs %s and nothing in reach supplies it. That is a dependency the world cannot "
+			% ", ".join(unmet)
+			+ "carry, not an import relationship -- the reference's own distinction.")
+
+	var n := TradeStore.navigability(_index)
+	if not n.is_empty():
+		var kind := String(n.get("kind", "none"))
+		var reach := String(REACH_BY_WATER.get(kind, "local"))
+		DccWidgets.note(sec, "Water: %s (%s). Bulk reach is %s."
+			% [kind, String(n.get("basis", "?")), reach])
+
+func _trade_row(parent: Control, flow: Variant, name_key: String, arrow: String) -> void:
+	var f: Dictionary = flow
+	var partner := int(f.get("from" if name_key == "from_name" else "to", -1))
+	var b := DccWidgets.action(parent, "%s %s %s -- %s, %s %d km" % [
+		String(f.get("good", "?")), arrow, String(f.get(name_key, "?")),
+		FactionRosterWindow._thousands(int(round(float(f.get("volume", 0.0))))),
+		String(f.get("mode", "land")), int(round(float(f.get("distance_km", 0.0))))],
+		func():
+			if partner >= 0:
+				app.open_place_editor(partner))
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = ("%s reach; %d%% of the partner's scale survives the carriage. "
+		+ "Opens the partner's own place editor.") % [
+			String(f.get("reach", "?")),
+			int(round(100.0 * float(f.get("deliverable", 0.0))))]
 
 
 # -- Traits -----------------------------------------------------------------
@@ -409,6 +492,66 @@ func _build_knowledge(s: Dictionary) -> void:
 	open.tooltip_text = ("Links this settlement to a note in an external Markdown vault — any folder "
 		+ "of .md files, Obsidian's included, and nothing here requires Obsidian. Cartalith reads on "
 		+ "demand and writes only on an explicit, previewed action.")
+	_build_backlinks(sec, "settlement", tid, name)
+
+
+## `GUI_GAP_REGISTER.md` **VA-01**: what points *at* this entity, as opposed to
+## what it points at.
+##
+## Three states, kept apart because on screen they mean different things:
+##
+## - **not indexed** — say so and offer the one control that fixes it. An
+##   empty list here would read as "nothing references this place", which is a
+##   claim the shell has no basis for until the index exists.
+## - **backlinks** — exact references. A `block` row is a note carrying this
+##   entity's own Cartalith block, which finds it even when it has no note of
+##   its own; it is not a link and is labelled differently.
+## - **unlinked mentions** — a name in prose, and a *guess*. Visually
+##   subordinate, with the excerpt shown so the reader can judge it, because a
+##   place called Nareth and a person called Nareth read identically to a
+##   substring match.
+##
+## Static-shaped enough to live in the base window rather than in each caller:
+## the faction roster and the province rows call it with their own kind.
+func _build_backlinks(sec: Control, kind: String, entity_id: int, name: String) -> void:
+	var stats := bridge.vault_backlink_stats()
+	if not bool(stats.get("built", false)):
+		var note := DccWidgets.note(sec,
+			"Backlinks are not indexed for this vault yet. Building the index reads every "
+			+ "note once; after that a refresh only re-opens the files that changed.")
+		note.tooltip_text = "Data ▸ Vault index… builds it."
+		return
+
+	var back: Array = bridge.vault_entity_backlinks(kind, entity_id)
+	if back.is_empty():
+		DccWidgets.note(sec, "No note references this %s." % kind)
+	else:
+		var g := DccWidgets.group(sec, "Backlinks (%d)" % back.size())
+		for row in back:
+			var d: Dictionary = row
+			var rel := String(d.get("rel", ""))
+			var form := String(d.get("form", "wiki"))
+			var count := int(d.get("count", 1))
+			var b := DccWidgets.action(g, "%s%s" % [rel, "" if count < 2 else "  ×%d" % count],
+				func(): app.open_vault_overview())
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.tooltip_text = {
+				"wiki": "A [[wikilink]] in this note points here.",
+				"markdown": "A [markdown](link) in this note points here.",
+				"block": "This note carries a Cartalith block naming %s:%d directly, so the reference survives a rename of the note and of the %s." % [kind, entity_id, kind],
+			}.get(form, "") + " Opens the vault panel."
+
+	var mentions: Array = bridge.vault_entity_mentions(kind, entity_id, name, 8)
+	if mentions.is_empty():
+		return
+	var mg := DccWidgets.group(sec, "Unlinked mentions (%d)" % mentions.size(), false)
+	DccWidgets.note(mg,
+		"A guess: these notes contain the name and do not link here. Cartalith opened only "
+		+ "the files its index said could match, and it changed none of them.")
+	for row in mentions:
+		var d: Dictionary = row
+		DccWidgets.note(mg, "%s
+    %s" % [String(d.get("rel", "")), String(d.get("excerpt", ""))])
 
 
 # -- Actions ----------------------------------------------------------------

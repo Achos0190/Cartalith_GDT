@@ -38,6 +38,11 @@ const CTX_JOURNEY := "journey"
 ## rebuilt as a floating panel: §6 already says this dock's contents follow
 ## the selection, and a clicked ecoregion is a selection.
 const CTX_WILDLIFE := "wildlife"
+## `GUI_GAP_REGISTER.md` **ED-02** -- the history ledger. A right-dock context
+## and not a window, following `DCC_SHELL_SPEC.md` §7.1 proposal 3: it is
+## selection-adjacent (a row IS a selection) and this dock is already the
+## context-driven surface.
+const CTX_HISTORY := "history"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -286,6 +291,21 @@ func leave_sculpt_context() -> void:
 ## this one re-reads `view`'s own cached compute result, since a fresh
 ## `jp_compute()` per rebuild would be a wasted boundary crossing on every
 ## unrelated `right_dock.gd` refresh).
+## `Edit ▸ Undo history…` (`GUI_GAP_REGISTER.md` **ED-02**) -- claims this
+## dock for the ledger. No data of its own: `_build_history` reads
+## `bridge.undo_ledger()` fresh on every rebuild, the same shape
+## `show_sculpt_stack()` uses, because the answer changes on every commit and
+## a cached copy would be one more thing to invalidate.
+func show_history() -> void:
+	_context = CTX_HISTORY
+	_rebuild()
+
+## Called after any revert, so the rows and the budget both move. A no-op
+## unless History is the live context.
+func refresh_history() -> void:
+	if _context == CTX_HISTORY:
+		_rebuild()
+
 func show_journey(view: JourneyPlannerView) -> void:
 	_context = CTX_JOURNEY
 	_journey_view = view
@@ -318,7 +338,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
-	CTX_WILDLIFE: "Ecoregion",
+	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
 }
 
 func _rebuild() -> void:
@@ -389,6 +409,9 @@ func _dock_readout_text() -> String:
 			return ("%d species" % int(_wildlife_region.get("richness", 0))) if not _wildlife_region.is_empty() else "no ecoregion"
 		CTX_SCULPT:
 			return ("%d stamps" % bridge.sculpt_list_stamps().size()) if bridge.has_world else "no world"
+		CTX_HISTORY:
+			var st := bridge.undo_stats()
+			return "%d of %d reversible" % [int(st.get("depth", 0)), bridge.undo_ledger().size()]
 		CTX_JOURNEY:
 			if _journey_view == null:
 				return _sample_elev.text if _sample_elev != null else "—"
@@ -420,6 +443,8 @@ func _dispatch(body: Control) -> void:
 			_build_sculpt(body)
 		CTX_JOURNEY:
 			_build_journey(body)
+		CTX_HISTORY:
+			_build_history(body)
 		_:
 			_build_sample(body)
 
@@ -1118,6 +1143,142 @@ func _build_region(body: Control) -> void:
 ## one row per species with the reference's own `~4.5M` population wording
 ## (formatted engine-side by `wild_fmt_pop`, so this file does not carry a
 ## second copy of that formatter).
+# -- History ledger (`GUI_GAP_REGISTER.md` ED-02) ----------------------------
+
+## One glyph per `undo_ledger()` row kind. Shape carries the state and the
+## row's own text repeats it -- nothing here is distinguished by colour alone.
+const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼"}
+
+## The ledger, drawn in the two tiers `DCC_SHELL_SPEC.md` §7.1 proposal 2
+## names -- and which are this engine's own draft/commit seam rather than an
+## invented one.
+##
+## **Open draft** first, because it is what has not happened yet: an
+## uncommitted Sculpt stack is reversible in place, by its own tool, and is
+## deliberately not a row below. **Committed** after it, newest first, one row
+## per commit whether or not the commit can be walked back.
+##
+## Three glyphs, and the text says the same thing the glyph does -- a row is
+## never distinguished by colour alone:
+##
+## | | |
+## |---|---|
+## | `▲` | a height snapshot is held; "revert to here" is real |
+## | `·` | recorded only, and the row carries the specific reason |
+## | `◼` | a generate or a load: history starts here |
+##
+## Reading `bridge.undo_ledger()` fresh each rebuild is deliberate: the
+## reversible flag is a property of the live undo stack, which evicts on its
+## own byte budget, so a cached row would go stale silently.
+func _build_history(body: Control) -> void:
+	var rows: Array = bridge.undo_ledger()
+	var stats := bridge.undo_stats()
+
+	## The draft tier. `sculpt_list_stamps()` is the only draft this shell has
+	## that survives across a dock rebuild; Paint's and Territory's live in
+	## their own tool bodies with their own Discard.
+	var stamps: Array = bridge.sculpt_list_stamps() if bridge.has_world else []
+	if not stamps.is_empty():
+		var d := DccWidgets.section(body, "Open draft")
+		DccWidgets.note(d, "◐  Sculpt · %d stamp%s, uncommitted" % [
+			stamps.size(), "" if stamps.size() == 1 else "s"])
+		DccWidgets.note(d,
+			"A draft's steps are its own, reversible in place from the Sculpt panel, and "
+			+ "not entered below -- nothing has happened to the world yet.")
+
+	var sec := DccWidgets.section(body, "Committed")
+	if rows.is_empty():
+		DccWidgets.note(sec,
+			"Nothing committed this session. A generate, a load, a Sculpt or Paint "
+			+ "commit, a carve or a territory commit all enter here.")
+	else:
+		## Newest first, which is how every history panel reads and the
+		## opposite of the engine's own oldest-first order.
+		for i in range(rows.size() - 1, -1, -1):
+			_history_row(sec, rows[i])
+
+	var cost := DccWidgets.section(body, "Cost")
+	var bytes := int(stats.get("bytes", 0))
+	var budget := int(stats.get("budget_bytes", 1))
+	DccWidgets.note(cost, "Reversible: %s of %s · %d of %d steps" % [
+		String.humanize_size(bytes), String.humanize_size(budget),
+		int(stats.get("depth", 0)), int(stats.get("max_steps", 5))])
+	DccWidgets.note(cost,
+		"A recorded-only row costs nothing -- it is a label and a timestamp. Only a "
+		+ "height snapshot occupies the budget, which is Preferences ▸ Memory ▸ "
+		+ "Undo history.")
+
+func _history_row(parent: Control, entry: Variant) -> void:
+	var d: Dictionary = entry
+	var kind := String(d.get("kind", "recorded"))
+	var reversible := bool(d.get("reversible", false))
+	var glyph := String(HISTORY_GLYPH.get(kind, "·"))
+	var seq := int(d.get("seq", 0))
+	var steps := int(d.get("steps", 0))
+	var label := "%s  %s" % [glyph, String(d.get("label", "?"))]
+	if reversible:
+		var b := DccWidgets.action(parent, label, func(): _revert_history(seq, steps))
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.tooltip_text = ("%s · %s. Reverts the height field to the state before this "
+			+ "operation, discarding the %d step%s after it as well -- history here is "
+			+ "linear, so there is no branch to come back to.") % [
+				String(d.get("subsystem", "")), String(d.get("detail", "")),
+				steps - 1, "" if steps == 2 else "s"]
+	else:
+		var note := DccWidgets.note(parent, label)
+		note.tooltip_text = "%s · %s" % [String(d.get("subsystem", "")), String(d.get("detail", ""))]
+	var sub := String(d.get("detail", ""))
+	if not reversible and String(d.get("reason", "")) != "":
+		sub = "%s — %s" % [sub, String(d.get("reason", ""))] if sub != "" else String(d.get("reason", ""))
+	if sub != "":
+		DccWidgets.note(parent, "      %s" % sub)
+
+## Linear revert, confirmed when it discards more than the row itself --
+## `DCC_SHELL_SPEC.md` §7.1's own choice of Photoshop's linear history over
+## the non-linear kind, and the one place in this panel that destroys work.
+func _revert_history(seq: int, steps: int) -> void:
+	if steps > 1:
+		_confirm_revert(seq, steps)
+		return
+	_do_revert(seq)
+
+func _confirm_revert(seq: int, steps: int) -> void:
+	var dlg := ConfirmationDialog.new()
+	dlg.dialog_text = ("Revert to this state?
+
+%d committed operation%s after it will be "
+		+ "discarded. History here is linear -- there is no branch to come back to.") % [
+			steps - 1, "" if steps == 2 else "s"]
+	dlg.ok_button_text = "Revert"
+	dlg.confirmed.connect(func():
+		_do_revert(seq)
+		dlg.queue_free())
+	dlg.canceled.connect(func(): dlg.queue_free())
+	app.add_child(dlg)
+	dlg.popup_centered()
+
+func _do_revert(seq: int) -> void:
+	var done := bridge.undo_revert_to(seq)
+	if done <= 0:
+		app.set_status("hint",
+			"that step is no longer available — its snapshot was dropped to stay inside the undo budget",
+			"text_ghost")
+		_rebuild()
+		return
+	## The same repaint `app.undo_last()` does, and for the same reason: write
+	## `map_view.texture` directly rather than calling `ViewportHost.refresh()`,
+	## which would also reset the camera. Reverting should leave you looking at
+	## exactly where you were looking.
+	if app.viewport != null:
+		app.viewport.map_view.texture = bridge.color_texture()
+		app.viewport.set_preview_texture(null)
+	var stats: Dictionary = bridge.undo_stats()
+	app.set_status("pass", "reverted %d step%s" % [done, "" if done == 1 else "s"], "text_dim")
+	app.set_status("hint", "%d undo step%s left · flow, rivers and climate are not re-run" % [
+		int(stats.get("depth", 0)), "" if int(stats.get("depth", 0)) == 1 else "s"], "text_ghost")
+	_rebuild()
+
+
 func _build_wildlife(body: Control) -> void:
 	if _wildlife_region.is_empty():
 		_build_sample(body)

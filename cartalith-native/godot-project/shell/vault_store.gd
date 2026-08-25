@@ -35,6 +35,15 @@ class_name VaultStore
 
 const PATH := "user://markdown_vault.json"
 
+## `GUI_GAP_REGISTER.md` **VA-01**'s backlink index, in its **own** file.
+##
+## Deliberately not a key inside `PATH`. The link store there is portable
+## project data (§5) -- copy it to another machine and the links come with it.
+## This is a *cache of one folder on this device*, keyed to that folder's
+## `(modified, len)` values, and it is rebuilt in a single press if it is
+## lost. Mixing them would make the portable half unportable.
+const INDEX_PATH := "user://markdown_vault_index.json"
+
 
 ## Reads the sidecar and pushes it into the engine, re-binding the vault
 ## folder if this device still has it. Call once, after the bridge exists.
@@ -63,6 +72,43 @@ static func load_into(bridge: EngineBridge) -> void:
 	var binding := String(doc.get("binding", ""))
 	if binding != "" and DirAccess.dir_exists_absolute(binding):
 		bridge.vault_connect(binding, String(doc.get("display_name", "")))
+		## The index is only meaningful against a bound folder, so it is
+		## restored inside this branch and nowhere else. A refusal is silent:
+		## the panel already reports "not built", which is exactly the state a
+		## cache this engine could not read leaves us in, and a warning about
+		## a *cache* would be noise.
+		load_index_into(bridge)
+
+
+## Reads the saved backlink index, if there is one. Never an error: a missing
+## or unreadable index is "not built yet", which is a state the panel already
+## draws and one press fixes.
+static func load_index_into(bridge: EngineBridge) -> void:
+	if not FileAccess.file_exists(INDEX_PATH):
+		return
+	var f := FileAccess.open(INDEX_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text()
+	f.close()
+	if raw.strip_edges() == "":
+		return
+	bridge.vault_restore_backlink_index(raw)
+
+
+## Writes the backlink index. Called after a refresh or a rebuild, and not on
+## every vault mutation -- attaching a note does not change what links to
+## what.
+static func save_index_from(bridge: EngineBridge) -> void:
+	var json := bridge.vault_backlink_index_json()
+	if json == "":
+		return
+	var f := FileAccess.open(INDEX_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Cartalith: could not write %s (%s)" % [INDEX_PATH, error_string(FileAccess.get_open_error())])
+		return
+	f.store_string(json)
+	f.close()
 
 
 ## Writes the engine's current link store and this device's binding. Called

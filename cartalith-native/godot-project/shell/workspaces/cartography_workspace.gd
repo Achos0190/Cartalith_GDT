@@ -319,6 +319,25 @@ func _build_way_style(parent: Control) -> void:
 		func(on: bool): app.viewport.overlay.set_way_lod(on),
 		"CIV_LOD_ROAD, the reference's own per-type zoom ladder (GUI_GAP_REGISTER.md CA-18): tracks and ancient routes stop drawing below 0.7× zoom, where they are a 1 px scratch. Roads sit at 0.35× and this camera's floor is 0.4×, so they never drop; the two trunk tiers are always drawn.")
 
+	## `GUI_GAP_REGISTER.md` **IN-13**'s map surface. Here and not in the
+	## Layers popover: that popover is the one picker for *field rasters*
+	## (`set_debug_layer`), and trade load is not a field — it is a value on a
+	## way, drawn by the way layer this section already owns. Two pickers over
+	## one concept is the shape this shell keeps having to undo.
+	var load_sec := DccWidgets.section(parent, "Trade load")
+	var t := DccWidgets.toggle(load_sec, "Thicken ways by carried volume",
+		app.viewport.overlay.show_trade_load(),
+		func(on: bool): app.viewport.overlay.set_show_trade_load(on),
+		"Draws each way at up to 2.6x its normal width in proportion to the trade it carries, on its own colour -- width and not hue, because a way's colour is already its type. Relative to the busiest way on this world, since volume is a population sum and populations are not comparable between worlds.")
+	if not app.viewport.overlay.has_trade_load():
+		t.disabled = true
+		t.tooltip_text = ("No trade match has been run on this world. Civilization "
+			+ "▸ Trade ▸ Match trade flows produces the per-way volume this draws; it "
+			+ "is computed on demand and held nowhere, so a generate clears it.")
+	DccWidgets.note(load_sec,
+		"The numbers behind it -- which ways carry what, and which carry nothing -- "
+		+ "are in Civilization ▸ Trade ▸ Way load.")
+
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
 		"Per-class colour, casing, dash pattern and route glow "

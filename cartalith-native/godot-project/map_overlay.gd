@@ -522,6 +522,17 @@ var _hidden_way_types: Dictionary = {}
 ## they existed: `1.0` is the multiplicative identity in both cases.
 var _way_scale := 1.0
 var _way_opacity := 1.0
+## `GUI_GAP_REGISTER.md` **IN-13**'s map surface — per-way carried volume in
+## `_roads` order, its own maximum (so the reading is relative to this world),
+## and the switch. See `set_trade_load()`.
+var _trade_load: PackedFloat32Array = PackedFloat32Array()
+var _trade_load_max := 0.0
+var _show_trade_load := false
+## The busiest way draws at `1 + LOAD_WIDTH_GAIN` times its normal width.
+## `1.6` is chosen against `WAY_STYLE`'s own range: a `track` at 2.6× is still
+## thinner than an unloaded `highway`, so the layer re-ranks by traffic
+## without ever making a track look like a trunk road.
+const LOAD_WIDTH_GAIN := 1.6
 ## Whether `WAY_LOD_MIN`'s zoom ladder is applied (`GUI_GAP_REGISTER.md`
 ## CA-18). On, matching the reference, which has no switch for it at all --
 ## this one exists because a per-layer zoom range you cannot see the effect
@@ -832,6 +843,54 @@ func set_way_lod(on: bool) -> void:
 	_way_lod = on
 	queue_redraw()
 
+
+## Trade load per way, in `set_civ_data`'s own `roads` order
+## (`GUI_GAP_REGISTER.md` **IN-13**). Empty clears it.
+##
+## **Width, not hue, and that is the design.** Every faction swatch is
+## already spent on the territory wash and on contested borders, and a way's
+## own colour is its *type* (`WAY_STYLE`, RD-02) — a sixth colour ramp over
+## the same pixels would be unreadable and would break the one thing a way's
+## appearance currently tells you. So a busy way is drawn thicker in its own
+## colour: the road still reads as a road.
+##
+## The multiplier is `1 + LOAD_WIDTH_GAIN * (load / max_load)`, which is a
+## *relative* reading on purpose. An absolute scale would make every way on a
+## small world hairline-thin and every way on a large one uniformly fat,
+## because volume here is a population sum and populations are not comparable
+## between worlds.
+func set_trade_load(loads: PackedFloat32Array) -> void:
+	_trade_load = loads
+	_trade_load_max = 0.0
+	for v in loads:
+		if v > _trade_load_max:
+			_trade_load_max = v
+	queue_redraw()
+
+func set_show_trade_load(on: bool) -> void:
+	_show_trade_load = on
+	queue_redraw()
+
+func show_trade_load() -> bool:
+	return _show_trade_load
+
+## Whether a load reading exists to draw at all — the CARTO row disables
+## itself against this rather than offering a switch that does nothing.
+func has_trade_load() -> bool:
+	return _trade_load.size() > 0 and _trade_load_max > 0.0
+
+## Width multiplier for one way, `1.0` when the layer is off, when no match
+## has run, or when this way carries nothing.
+func _trade_width_k(way_index: int) -> float:
+	if not _show_trade_load or _trade_load_max <= 0.0:
+		return 1.0
+	if way_index < 0 or way_index >= _trade_load.size():
+		return 1.0
+	var v := _trade_load[way_index]
+	if v <= 0.0:
+		return 1.0
+	return 1.0 + LOAD_WIDTH_GAIN * (v / _trade_load_max)
+
 func way_lod() -> bool:
 	return _way_lod
 
@@ -1011,7 +1070,11 @@ func _draw() -> void:
 			_draw_sea_route_segment(points, start, points.size(), rect)
 
 	if _show_roads:
-		for way: Dictionary in _roads:
+		## Indexed, not `for way in _roads`: IN-13's trade load is keyed to a
+		## way's position in this same array (`get_roads()` order), so the
+		## index has to survive into the stroke.
+		for wi in _roads.size():
+			var way: Dictionary = _roads[wi]
 			var points: PackedVector2Array = way["points"]
 			if points.size() < 2:
 				continue
@@ -1022,6 +1085,7 @@ func _draw() -> void:
 			if _way_lod and _camera_zoom < float(WAY_LOD_MIN.get(way["way_type"], WAY_LOD_DEFAULT)):
 				continue
 			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
+			var load_k := _trade_width_k(wi)
 			var brks: PackedInt32Array = way["brks"]
 			# `brks` marks indices where this way's own path has a real gap
 			# (two disjoint consolidated runs sharing one `Way`) -- draw each
@@ -1029,9 +1093,9 @@ func _draw() -> void:
 			# through the gap.
 			var start2 := 0
 			for cut in brks:
-				_draw_way_segment(points, start2, cut, rect, style)
+				_draw_way_segment(points, start2, cut, rect, style, load_k)
 				start2 = cut
-			_draw_way_segment(points, start2, points.size(), rect, style)
+			_draw_way_segment(points, start2, points.size(), rect, style, load_k)
 
 	## Committed Route-tool routes, drawn after both network layers so a route
 	## that runs along an existing road is still visible on top of it. Shares
@@ -1396,8 +1460,14 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## tiers and solid for the two trunk ones. Same structure as
 ## `_draw_sea_route_segment` and `_draw_manual_route_segment` below, which
 ## always had it; only the land types were flat.
+## `load_k` is IN-13's trade-load width multiplier, `1.0` at rest — and
+## `1.0` is exact in IEEE-754, so with the layer off every stroke is
+## byte-identical to the version before it existed. It multiplies the two
+## **widths** and deliberately not the dash lengths: a dash pattern is what
+## identifies a way's type, and stretching it on a busy track would make the
+## track read as a different tier.
 func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
-		style: Dictionary) -> void:
+		style: Dictionary, load_k: float = 1.0) -> void:
 	if end - start < 2:
 		return
 	var k := _crisp_begin()
@@ -1406,13 +1476,15 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 	## `setLineDash([1.8*rsc, 1.3*rsc])`, one `rsc` for both widths and dashes,
 	## so a wider road gets a proportionally longer dash rather than a wide line
 	## chopped into the same fine ticks.
-	draw_polyline(screen_points, _way_ink(style["under"]), style["under_w"] * _way_scale, true)
+	draw_polyline(screen_points, _way_ink(style["under"]),
+		style["under_w"] * _way_scale * load_k, true)
 	var dash: float = style["dash"] * _way_scale
 	if dash > 0.0:
 		_draw_dashed_polyline(screen_points, _way_ink(style["over"]),
-			style["over_w"] * _way_scale, dash, style["gap"] * _way_scale)
+			style["over_w"] * _way_scale * load_k, dash, style["gap"] * _way_scale)
 	else:
-		draw_polyline(screen_points, _way_ink(style["over"]), style["over_w"] * _way_scale, true)
+		draw_polyline(screen_points, _way_ink(style["over"]),
+			style["over_w"] * _way_scale * load_k, true)
 	_crisp_end()
 
 
