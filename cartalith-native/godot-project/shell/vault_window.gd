@@ -49,6 +49,9 @@ var _entity_label := ""
 var _reader_link := ""
 var _reader_edit: TextEdit
 
+## The New-note-from-a-template picker's current template (VA-02).
+var _pick_template := ""
+
 ## The attach form's current pick.
 var _pick_file := ""
 var _pick_heading := ""
@@ -134,6 +137,7 @@ func _rebuild() -> void:
 	_build_connection(info)
 	if scoped:
 		if bool(info.get("bound", false)):
+			_build_create()
 			_build_attach()
 		_build_links()
 		if _reader_link != "":
@@ -180,6 +184,79 @@ func _browse_vault() -> void:
 			else:
 				store_changed.emit()
 			_rebuild())
+
+
+# -- Creating a note (§16/§17, `GUI_GAP_REGISTER.md` VA-02) -----------------
+
+## The one act in this window that puts a file in the vault that was not there
+## before, and the only one that needs no preview -- because it cannot destroy
+## anything. An existing path is refused outright by the engine.
+##
+## Registered as unbacked because "cartalith-vault attaches to notes that
+## already exist and refuses a heading that does not -- deliberately". That
+## boundary is about *editing*: the machine block is the only thing Cartalith
+## rewrites unattended (§23). Creating a file is a different act, and this one
+## copies the author's own template verbatim, substituting nothing but the
+## entity's name -- every `[If applicable]` and `[Optional]` prompt survives
+## for the author to answer.
+##
+## Templates come from the vault, not from this program. There is no registry
+## and no bundled content: a `.md` with "template" in its path is a template,
+## which is exactly how the owner's own `design/vault-templates/` names them.
+func _build_create() -> void:
+	var templates := bridge.vault_templates()
+	if templates.is_empty():
+		return
+	var sec := DccWidgets.group(_body, "New note from a template", false)
+	var labels: Array = []
+	var rels: Array = []
+	for t in templates:
+		var d: Dictionary = t
+		labels.append(String(d.get("label", "?")))
+		rels.append(String(d.get("rel", "")))
+	if _pick_template == "" or not rels.has(_pick_template):
+		_pick_template = String(rels[0])
+	DccWidgets.choice(sec, "Template", labels, maxi(0, rels.find(_pick_template)),
+		func(i: int): _pick_template = String(rels[i]),
+		"Every .md in this vault whose path contains \"template\". Cartalith ships none of its own -- your templates are yours.")
+
+	var suggested := bridge.vault_suggested_path(_kind, _entity_label)
+	var path_edit := LineEdit.new()
+	path_edit.text = suggested
+	path_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 24
+	row.tooltip_text = "Where the new note goes, relative to the vault folder. The suggestion follows the %s/{name}.md convention; edit it if your vault is arranged differently." % _kind.capitalize()
+	var lab := DccTheme.mono_label("Path", "text_dim", DccTheme.FS_SMALL, 0)
+	lab.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	row.add_child(lab)
+	row.add_child(path_edit)
+	sec.add_child(row)
+
+	var create := DccWidgets.action(sec, "Create %s" % suggested.get_file(), func():
+		var rel := path_edit.text.strip_edges()
+		if rel == "":
+			app.set_status("hint", "Give the new note a path.", "accent")
+			return
+		var r := bridge.vault_create_from_template(_pick_template, rel, _entity_label)
+		if not bool(r.get("ok", false)):
+			app.set_status("hint", "Create: %s" % String(r.get("error", "refused")), "accent")
+			_rebuild()
+			return
+		## Attach is a separate act with its own validation -- but the user
+		## asked for a note *for this entity*, so run it, and say if it fails
+		## rather than leaving an orphan note they cannot see.
+		var a := bridge.vault_attach(_kind, _entity_id, _entity_label, rel, "")
+		if bool(a.get("ok", false)):
+			_reader_link = String(a.get("link_id", ""))
+			store_changed.emit()
+			app.set_status("hint", "%s created from %s and linked to %s." % [rel, _pick_template, _entity_label], "text")
+		else:
+			app.set_status("hint", "%s created, but could not be linked: %s" % [rel, String(a.get("error", ""))], "accent")
+		_pick_file = rel
+		_rebuild())
+	create.tooltip_text = "Copies the template verbatim with %s substituted for its name placeholder, then links it to this entity. Refuses if that path already exists -- nothing is ever overwritten." % _entity_label
 
 
 # -- Attaching (§11, §12, §13) ---------------------------------------------

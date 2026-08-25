@@ -53,6 +53,11 @@ pub enum EntityKind {
     Settlement,
     Province,
     Continent,
+    /// `GUI_GAP_REGISTER.md` **CV-22**, added 2026-08-25 — and the proof of
+    /// the paragraph above: one variant, one `as_str` arm, one `parse` arm.
+    /// A faction is `CivData::faction_roster`'s own row, addressed by its
+    /// 1-based id exactly as a province is.
+    Faction,
 }
 
 impl EntityKind {
@@ -61,6 +66,7 @@ impl EntityKind {
             EntityKind::Settlement => "settlement",
             EntityKind::Province => "province",
             EntityKind::Continent => "continent",
+            EntityKind::Faction => "faction",
         }
     }
 
@@ -69,6 +75,7 @@ impl EntityKind {
             "settlement" => Some(EntityKind::Settlement),
             "province" => Some(EntityKind::Province),
             "continent" => Some(EntityKind::Continent),
+            "faction" => Some(EntityKind::Faction),
             _ => None,
         }
     }

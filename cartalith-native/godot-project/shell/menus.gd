@@ -621,18 +621,23 @@ func _build_vault_rows(p: PopupMenu) -> void:
 		+ "than a global setting: the field-fill picker chooses which derived keys go "
 		+ "in, fills only empty ones by default, previews every write, and refuses if "
 		+ "the note changed since the preview. Cartalith never rewrites a note's body.")
-	_todo(p, "Create notes from template…",
-		"cartalith-vault attaches to notes that already exist and refuses a heading that "
-		+ "does not -- deliberately (MARKDOWN_VAULT_SCOPE.md milestone 1's boundary). "
-		+ "There is no note creator and no template registry, so nothing can write "
-		+ "Settlements/{name}.md from the owner's Settlement/Landmark/Region templates "
-		+ "(design/vault-templates/) or from anything else. GUI_GAP_REGISTER.md VA-02.")
+	_live(p, "Create a note from a template…", ID_VAULT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Opens the same vault panel: pick any entity's Linked notes and its "
+		+ "New note from a template block writes Settlements/{name}.md (or the "
+		+ "matching folder for a province, continent or faction) from one of your "
+		+ "own templates. A template is any .md in the vault with \"template\" in "
+		+ "its path -- Cartalith ships none of its own, and copies yours verbatim "
+		+ "with only the entity's name substituted. It refuses an existing path "
+		+ "rather than overwriting a note. GUI_GAP_REGISTER.md VA-02.")
 	_todo(p, "Missing & orphan notes report…",
 		"Which entities have no note, and which notes point at no entity. Both halves "
-		+ "need a walk of the whole vault; the provider deliberately opens only the "
-		+ "files it is asked for, which is what keeps a large vault cheap to browse and "
-		+ "is exactly what an unbounded scan would undo. Same root cause as backlinks "
-		+ "and unlinked mentions. GUI_GAP_REGISTER.md VA-01.")
+		+ "need a reverse index over the whole vault, and the index -- not the walk -- "
+		+ "is the open question: built on demand it stalls a large vault, and persisted "
+		+ "it is a second store to keep in step with the folder. The provider "
+		+ "deliberately opens only the files it is asked for, which is what keeps "
+		+ "browsing cheap. Same root cause as backlinks and unlinked mentions. "
+		+ "GUI_GAP_REGISTER.md VA-01.")
 
 # -- §2.5 Preferences ---------------------------------------------------------
 

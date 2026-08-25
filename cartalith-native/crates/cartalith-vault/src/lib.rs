@@ -45,11 +45,13 @@ pub mod export;
 pub mod links;
 pub mod markdown;
 pub mod provider;
+pub mod template;
 
 pub use block::{BlockAction, BlockError};
 pub use links::{EntityKind, KnowledgeLink, LinkStatus, LinkStore, Selection, VaultRef};
 pub use markdown::{FieldFill, FieldOutcome, Section, SectionError};
 pub use provider::{FileMeta, FsVault, VaultError};
+pub use template::Template;
 
 /// Why an operation refused. Every variant maps to something §32 requires be
 /// handled explicitly, and none of them has a destructive fallback.
@@ -66,6 +68,10 @@ pub enum Error {
     SourceChanged { expected: String, actual: String },
     /// The link has no imported or edited text to write back.
     NothingToWrite,
+    /// `create_from_template` will not write over a note that already
+    /// exists (`GUI_GAP_REGISTER.md` VA-02). Creating a file is safe
+    /// precisely because it cannot destroy one.
+    AlreadyExists(String),
 }
 
 impl std::fmt::Display for Error {
@@ -81,6 +87,7 @@ impl std::fmt::Display for Error {
                 "the source file changed since this preview was taken; re-open it and check before writing"
             ),
             Error::NothingToWrite => write!(f, "nothing has been imported for this link yet"),
+            Error::AlreadyExists(p) => write!(f, "\"{p}\" already exists -- attach to it instead of creating it"),
         }
     }
 }
@@ -190,6 +197,35 @@ impl VaultSession {
 
     pub fn read(&self, rel: &str) -> Result<String, Error> {
         Ok(self.bound()?.read(rel)?)
+    }
+
+    /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**),
+    /// filtered out of the same bounded listing the file picker uses -- no
+    /// second walk, and still no file opened.
+    pub fn templates(&self, limit: usize) -> Result<Vec<template::Template>, Error> {
+        Ok(template::discover(&self.list(limit)?))
+    }
+
+    /// Creates `rel` from the template at `template_rel`, with `name`
+    /// substituted for the template's own name placeholders and **nothing
+    /// else touched** (`template::fill_title`).
+    ///
+    /// Refuses rather than overwrites: an existing `rel` is
+    /// [`Error::AlreadyExists`], because the one thing that makes creating a
+    /// note safe -- unlike editing one -- is that it cannot destroy an
+    /// author's work. Returns the text written, so the caller can show it.
+    ///
+    /// Deliberately does **not** attach the new note. Attaching is a
+    /// separate, already-previewed act with its own validation, and folding
+    /// it in here would make one button do two writes.
+    pub fn create_from_template(&self, template_rel: &str, rel: &str, name: &str) -> Result<String, Error> {
+        let v = self.bound()?;
+        if v.exists(rel) {
+            return Err(Error::AlreadyExists(rel.to_string()));
+        }
+        let body = template::fill_title(&v.read(template_rel)?, name);
+        v.write(rel, &body)?;
+        Ok(body)
     }
 
     /// The heading titles in one file, for the attach dialog's section list.
@@ -442,6 +478,67 @@ mod tests {
         std::fs::create_dir_all(p.join("Locations")).unwrap();
         std::fs::write(p.join("Locations/Nareth.md"), HAND).unwrap();
         p
+    }
+
+    /// `GUI_GAP_REGISTER.md` **VA-02**, end to end against a real folder:
+    /// a template is found, a note is created from it at v3's own path, the
+    /// author's prompts survive, an existing note is refused, and the new
+    /// note is attachable by the ordinary path -- which is the proof that
+    /// this creates a *real* note rather than a special one.
+    #[test]
+    fn a_note_is_created_from_a_template_and_never_over_one() {
+        let root = scratch("template");
+        std::fs::write(
+            root.join("Settlement Template.md"),
+            "## Settlement Profile: [Name]
+
+**Former Names:** [If applicable]
+
+### History
+
+[Key events.]
+",
+        )
+        .unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+
+        let ts = s.templates(100).unwrap();
+        assert_eq!(ts.len(), 1, "the hand-authored note is not a template");
+        assert_eq!(ts[0].rel, "Settlement Template.md");
+
+        let rel = template::suggested_path(EntityKind::Settlement, "Kel Var");
+        assert_eq!(rel, "Settlements/Kel Var.md");
+        let body = s.create_from_template(&ts[0].rel, &rel, "Kel Var").unwrap();
+        assert!(body.starts_with("## Settlement Profile: Kel Var"));
+        assert!(body.contains("[If applicable]"), "the author's own prompt is untouched");
+        assert_eq!(s.read(&rel).unwrap(), body, "what was returned is what is on disk");
+
+        // Refused, not overwritten -- and the file is byte-identical after.
+        assert!(matches!(s.create_from_template(&ts[0].rel, &rel, "Someone Else"), Err(Error::AlreadyExists(_))));
+        assert_eq!(s.read(&rel).unwrap(), body);
+        // The template itself is untouched too.
+        assert!(s.read("Settlement Template.md").unwrap().contains("[Name]"));
+
+        // An ordinary attach works on it, heading and all.
+        let id = s
+            .attach(EntityKind::Settlement, 7, "Kel Var", &rel, Selection::Heading { value: "History".into() })
+            .unwrap();
+        assert_eq!(s.status(&id), LinkStatus::Connected);
+        assert!(s.store.get(&id).unwrap().working_text().contains("[Key events.]"));
+
+        // And a faction, the kind CV-22 added, goes to its own folder.
+        let frel = template::suggested_path(EntityKind::Faction, "Draumr League");
+        s.create_from_template(&ts[0].rel, &frel, "Draumr League").unwrap();
+        assert!(s.read(&frel).unwrap().contains("Draumr League"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn creating_a_note_needs_a_bound_vault() {
+        let s = VaultSession::new();
+        assert!(matches!(s.create_from_template("T.md", "Settlements/X.md", "X"), Err(Error::NotBound)));
+        assert!(matches!(s.templates(10), Err(Error::NotBound)));
     }
 
     #[test]

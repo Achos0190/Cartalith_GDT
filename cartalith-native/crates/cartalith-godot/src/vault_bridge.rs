@@ -130,13 +130,74 @@ impl WorldGen {
         GString::from(self.vault.read(&rel.to_string()).unwrap_or_default().as_str())
     }
 
+    /// Every entity kind this build can address in a vault, in the order the
+    /// docks list them (`cartalith_vault::EntityKind`) — so GDScript passes a
+    /// string this engine actually parses rather than a transcribed literal.
+    ///
+    /// `"faction"` joined the list on 2026-08-25 (`GUI_GAP_REGISTER.md`
+    /// **CV-22**). `"poi"` is deliberately absent and always will be while
+    /// this port has no point-of-interest entity (CV-01).
+    #[func]
+    fn vault_entity_kinds(&self) -> PackedStringArray {
+        [EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction]
+            .iter()
+            .map(|k| GString::from(k.as_str()))
+            .collect()
+    }
+
+    // -- creating a note (§16/§17, `GUI_GAP_REGISTER.md` VA-02) ------------
+
+    /// The templates in the bound vault, `{rel, label}` each, or an empty
+    /// `Array` when no vault is connected.
+    ///
+    /// A template is a `.md` file with "template" in its path — the way the
+    /// owner's own corpus names them (`design/vault-templates/`), and the
+    /// only convention that needs no registry compiled into the binary. See
+    /// `cartalith_vault::template`'s module doc for why that matters.
+    #[func]
+    fn vault_templates(&self) -> Array<VarDictionary> {
+        self.vault
+            .templates(2000)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| vdict! { "rel" => t.rel.as_str(), "label" => t.label.as_str() })
+            .collect()
+    }
+
+    /// Where a new note for this entity goes — v3's `Settlements/{name}.md`
+    /// convention, generalised to every kind `vault_entity_kinds` lists.
+    /// The caller may edit it; this is a suggestion, not a rule.
+    #[func]
+    fn vault_suggested_path(&self, kind: GString, name: GString) -> GString {
+        let Some(k) = kind_of(&kind) else { return GString::new() };
+        GString::from(cartalith_vault::template::suggested_path(k, &name.to_string()).as_str())
+    }
+
+    /// Creates `rel` from `template_rel`, substituting `name` for the
+    /// template's own name placeholders and touching nothing else.
+    ///
+    /// `{ok, path, text}` or `{ok: false, error}`. **Refuses an existing
+    /// path** rather than overwriting it — the one thing that makes creating
+    /// a note safe, where editing one needs a preview and a hash.
+    ///
+    /// Does not attach: attaching is its own validated act, and one button
+    /// doing two writes is how a "create" quietly becomes an "overwrite".
+    #[func]
+    fn vault_create_from_template(&mut self, template_rel: GString, rel: GString, name: GString) -> VarDictionary {
+        match self.vault.create_from_template(&template_rel.to_string(), &rel.to_string(), &name.to_string()) {
+            Ok(text) => vdict! { "ok" => true, "path" => &rel, "text" => text.as_str() },
+            Err(e) => err(e.to_string()),
+        }
+    }
+
     // -- links (§11, §12, §13) ---------------------------------------------
 
     /// Attaches an entity to a document, or to one heading section of it.
     ///
-    /// `kind` is `"settlement"`/`"province"`/`"continent"`; `entity_id` is
-    /// that kind's own id (a settlement's `tid`, a province's `id`, a
-    /// continent's rank — see `get_continents()` on what that means).
+    /// `kind` is one of [`Self::vault_entity_kinds`]; `entity_id` is that
+    /// kind's own id (a settlement's `tid`, a province's `id`, a faction's
+    /// 1-based roster index, a continent's rank — see `get_continents()` on
+    /// what that last one means).
     /// An empty `heading` attaches the whole document.
     ///
     /// Fails rather than creating a link that can never be read: a heading
@@ -586,8 +647,63 @@ impl WorldGen {
                     out.insert("area", format!("{} cells", thousands(c.cells as i64)));
                 }
             }
+            // `GUI_GAP_REGISTER.md` **CV-22**. A faction is `faction_roster`'s
+            // own row, addressed by its 1-based id. Everything below is real
+            // roster or real aggregate -- the three vocabulary fields
+            // (culture/government/religion) are author-set values this port
+            // stores and validates, and `ECONOMY_SCOPE.md`'s finding that
+            // *nothing simulates* them is exactly why they belong in a note
+            // rather than only in a dropdown.
+            EntityKind::Faction => {
+                if entity_id < 1 || entity_id as usize >= civ.faction_roster.0.len() {
+                    out.clear();
+                    return out;
+                }
+                let fid = entity_id as i32;
+                let e = &civ.faction_roster.0[entity_id as usize];
+                out.insert("name", e.name.clone());
+                out.insert("culture", capitalise(&e.culture));
+                out.insert("government", self.vocab_label(&cartalith_civ::roster::CIV_GOVERNMENTS, &e.government));
+                if e.religion != "none" {
+                    out.insert("religion", self.vocab_label(&cartalith_civ::roster::CIV_RELIGIONS, &e.religion));
+                }
+                let mut names: Vec<&str> = Vec::new();
+                let mut pop: i64 = 0;
+                for s in &civ.settlements {
+                    if s.placement.faction == fid {
+                        names.push(&s.name);
+                        pop += s.pop as i64;
+                    }
+                }
+                if !names.is_empty() {
+                    out.insert("settlements", names.join(", "));
+                    out.insert("population", thousands(pop));
+                }
+                let cells = civ.territory.iter().filter(|&&t| t == fid).count();
+                let km = self.cell_km_side();
+                if cells > 0 {
+                    out.insert(
+                        "area",
+                        if km > 0.0 {
+                            format!("{} km²", thousands((cells as f64 * km * km).round() as i64))
+                        } else {
+                            format!("{} cells", thousands(cells as i64))
+                        },
+                    );
+                }
+                if let Some(cap) = civ.settlements.iter().find(|s| s.placement.faction == fid && s.placement.capital) {
+                    out.insert("coordinates", format!("{}, {}", cap.placement.x, cap.placement.y));
+                }
+            }
         }
         out
+    }
+
+    /// One `(key, label)` vocabulary row's display label, falling back to the
+    /// stored key. Used only by the Faction arm above, whose three vocabulary
+    /// fields store keys and must not export them raw.
+    fn vocab_label(&self, vocab: &[(&str, &str)], key: &str) -> String {
+        vocab.iter().find(|(k, _)| *k == key).map(|(_, l)| (*l).to_string()).unwrap_or_else(|| capitalise(key))
     }
 
     /// A faction's roster name, falling back to its number. `0` is

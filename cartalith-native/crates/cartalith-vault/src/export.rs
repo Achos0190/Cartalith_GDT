@@ -42,28 +42,47 @@ pub struct ExportField {
 
 const S: &[EntityKind] = &[EntityKind::Settlement];
 const SP: &[EntityKind] = &[EntityKind::Settlement, EntityKind::Province];
+/// The three *place* kinds — every one of these has a position on the map.
+/// A faction does not, which is why it is not in here and `EVERY` exists.
 const ALL: &[EntityKind] = &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent];
+/// `GUI_GAP_REGISTER.md` **CV-22**: the two fields every addressable entity
+/// has, factions included.
+const EVERY: &[EntityKind] =
+    &[EntityKind::Settlement, EntityKind::Province, EntityKind::Continent, EntityKind::Faction];
+const F: &[EntityKind] = &[EntityKind::Faction];
+/// A named list of member settlements, and the population that follows from
+/// it — a province partitions a faction, so both aggregate the same way.
+const PF: &[EntityKind] = &[EntityKind::Province, EntityKind::Faction];
 
 /// The registry. Order here is the order in the UI and in the note, so it is
 /// §19's own group order.
 pub const FIELDS: &[ExportField] = &[
-    ExportField { key: "name", group: "Identity", label: "Name", kinds: ALL },
-    ExportField { key: "entity_type", group: "Identity", label: "Entity type", kinds: ALL },
-    ExportField { key: "coordinates", group: "Geography", label: "Coordinates", kinds: ALL },
+    ExportField { key: "name", group: "Identity", label: "Name", kinds: EVERY },
+    ExportField { key: "entity_type", group: "Identity", label: "Entity type", kinds: EVERY },
+    // A faction's own three roster vocabularies (CV-22). `ECONOMY_SCOPE.md`
+    // found none of them drives anything in either codebase -- which is the
+    // argument for exporting them into a note, where an author's own prose
+    // about their government is the thing that *does* carry meaning.
+    ExportField { key: "culture", group: "Identity", label: "Culture", kinds: F },
+    ExportField { key: "government", group: "Identity", label: "Government", kinds: F },
+    ExportField { key: "religion", group: "Identity", label: "Religion", kinds: F },
+    // A faction's capital's position: it has no centroid of its own, and the
+    // seat of power is the coordinate a note would want.
+    ExportField { key: "coordinates", group: "Geography", label: "Coordinates", kinds: EVERY },
     ExportField { key: "elevation", group: "Geography", label: "Elevation", kinds: S },
     ExportField { key: "biome", group: "Geography", label: "Biome", kinds: S },
     ExportField { key: "region", group: "Geography", label: "Province", kinds: S },
-    ExportField { key: "area", group: "Geography", label: "Area", kinds: &[EntityKind::Continent] },
+    ExportField { key: "area", group: "Geography", label: "Area", kinds: &[EntityKind::Continent, EntityKind::Faction] },
     ExportField { key: "coastal", group: "Geography", label: "Coastal", kinds: S },
     ExportField { key: "settlement_type", group: "Settlement", label: "Settlement type", kinds: S },
-    ExportField { key: "population", group: "Settlement", label: "Population", kinds: SP },
+    ExportField { key: "population", group: "Settlement", label: "Population", kinds: &[EntityKind::Settlement, EntityKind::Province, EntityKind::Faction] },
     ExportField { key: "faction", group: "Settlement", label: "Faction", kinds: ALL },
     ExportField { key: "capital", group: "Settlement", label: "Capital", kinds: S },
     ExportField { key: "specialisation", group: "Settlement", label: "Economy", kinds: S },
     ExportField { key: "exports", group: "Infrastructure", label: "Exports", kinds: S },
     ExportField { key: "imports", group: "Infrastructure", label: "Imports", kinds: S },
     ExportField { key: "river_order", group: "Infrastructure", label: "River order", kinds: S },
-    ExportField { key: "settlements", group: "Infrastructure", label: "Settlements", kinds: &[EntityKind::Province] },
+    ExportField { key: "settlements", group: "Infrastructure", label: "Settlements", kinds: PF },
 ];
 
 // There is deliberately no `continent` field for a settlement or a province,
