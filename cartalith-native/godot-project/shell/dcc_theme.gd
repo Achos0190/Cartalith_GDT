@@ -20,13 +20,26 @@ const DARK := {
 	"raised": Color("#17191a"),      ## Menus, popovers, modals -- anything floating.
 	"sunken": Color("#101112"),      ## Input wells and list bodies.
 	"line": Color(1, 1, 1, 0.10),    ## The hairline every region is separated by.
-	"line_soft": Color(1, 1, 1, 0.06),
+	"line_soft": Color(1, 1, 1, 0.07),
+	## §11's third rule weight, distinct from `line` and absent here until
+	## 2026-08-25. The canvas outlines every *control* -- chip, action button,
+	## input well, modal footer button -- at .16 and separates every *region*
+	## at .10. Drawing both at .10 is why the shell's chips read as suggestions
+	## rather than as edges.
+	"border": Color(1, 1, 1, 0.16),
 	"text": Color("#c8cbcd"),        ## Body text.
 	"text_bright": Color("#e8ebec"), ## Headers, active rows, the wordmark.
+	## §11's "Ink secondary", missing from this file until 2026-08-25 and the
+	## most-used ink in the canvas after body text: 76 occurrences in
+	## `DCC shell 1920` alone. It is the colour of a *menu bar item* and of a
+	## *parameter row's label* -- the two highest-traffic labels in the shell,
+	## both of which were being drawn in `text_dim`, one step too quiet.
+	"text_secondary": Color("#a9adb0"),
 	"text_dim": Color("#8d9296"),    ## Secondary values.
 	"text_faint": Color("#6f7478"),  ## Units, hints, the status bar's quiet half.
 	"text_ghost": Color("#5f6468"),  ## Disabled.
 	"accent": Color("#e0a34a"),
+	"accent_hover": Color("#f0bd72"), ## §11's own row, never added here before.
 	"accent_dim": Color("#a4650f"),
 	"accent_wash": Color("#e0a34a14"), ## 8% -- the active menu/tool background.
 	"stale": Color("#b9a878"),       ## "downstream is stale" marks.
@@ -44,20 +57,30 @@ const DARK := {
 	"water": Color("#7d9dae"),
 }
 
+## Re-read off `DCC shell 1920 light` 2026-08-25 rather than off §11's table.
+## Four values were wrong and one was inverted: the canvas's *ground* is
+## `#f4f2ee` and its *floating* surfaces are `#fbfaf7`, where this file had the
+## ground at `#fbfaf7` and floated onto pure white -- so light mode raised a
+## menu onto a surface brighter than anything the design draws, over a ground
+## a shade too bright to sit under it. `#ffffff` appears nowhere in either
+## light canvas.
 const LIGHT := {
-	"bg": Color("#fbfaf7"),
+	"bg": Color("#f4f2ee"),
 	"panel": Color("#f2f0ec"),
 	"panel_alt": Color("#eeece7"),
-	"raised": Color("#ffffff"),
+	"raised": Color("#fbfaf7"),
 	"sunken": Color("#e7e5e0"),
-	"line": Color(0, 0, 0, 0.12),
-	"line_soft": Color(0, 0, 0, 0.07),
+	"line": Color(0, 0, 0, 0.14),
+	"line_soft": Color(0, 0, 0, 0.08),
+	"border": Color(0, 0, 0, 0.20),
 	"text": Color("#23241f"),
 	"text_bright": Color("#111210"),
+	"text_secondary": Color("#3d3f39"),
 	"text_dim": Color("#6b6f6a"),
-	"text_faint": Color("#7c807a"),
+	"text_faint": Color("#8d9088"),
 	"text_ghost": Color("#9a9d95"),
 	"accent": Color("#a4650f"),
+	"accent_hover": Color("#8a5309"),
 	"accent_dim": Color("#7a6a4a"),
 	"accent_wash": Color("#a4650f1a"),
 	"stale": Color("#7a6a4a"),
@@ -95,7 +118,17 @@ const LIGHT := {
 const FONT_MONO := preload("res://fonts/IBMPlexMono-Regular.ttf")
 const FONT_MONO_MED := preload("res://fonts/IBMPlexMono-Medium.ttf")
 
+## The wordmark, and only the wordmark: `font:500 12px 'IBM Plex Mono'` with
+## `.26em` in every artboard that draws it. Menu *titles* are not this -- see
+## `FS_MENU_ITEM`.
 const FS_MENU := 12
+## Menu bar titles and menu item labels. The canvas sets these in the prose
+## face at `11.5px`, not in Plex: 76 spans of `font-size:11.5px` across
+## `DCC shell 1920`, none of them monospaced. Godot font sizes are integers and
+## the canvas's other prose size is 11, so 11 it is. Until 2026-08-25 the whole
+## menu system was drawn in mono at 12, which is most of why the top of the
+## shell did not read like the reference.
+const FS_MENU_ITEM := 11
 const FS_BODY := 12
 const FS_SMALL := 11
 const FS_TINY := 10
@@ -158,9 +191,31 @@ const W_RIGHT_DOCK := 300
 const W_RIGHT_DOCK_MIN := 260
 const W_RIGHT_DOCK_MAX := 460
 
-## Touch scale (§13). The shell multiplies the heights above by this and
-## enforces a 44 px floor on every hit box when the platform is not pointer-first.
-const TOUCH_SCALE := 1.53  ## 34 -> 52, 26 -> 40, matching the tablet column.
+## Touch scale (§13) -- the fallback for any figure the table below does not
+## name. It is a fallback and not the rule, because §1's tablet column is not a
+## single multiplier and never was: 34 -> 52 is x1.53, but 26 -> 36 is x1.38,
+## 40 -> 48 is x1.20 and 29 -> 34 is x1.17. Applying 1.53-with-a-44-floor to
+## all of them (which is what happened until 2026-08-25) gives a 61 px rail
+## where the canvas draws 48, and a 44 px status bar where it draws 36 -- the
+## floor firing on chrome that is not tappable and has no business being
+## floored.
+const TOUCH_SCALE := 1.53
+## §1's tablet column, verified figure-by-figure against
+## `design/Cartalith DCC Shell.dc.html`'s own `DCC shell tablet 2560`
+## artboard: `height:52px` twice (menu bar, tool options), `width:48px` (rail),
+## `height:34px` (rail head), `height:88px` (timeline), `height:36px` (status),
+## `width:400px` (right dock). Keyed by the desktop figure, which is unique per
+## region here.
+const TABLET := {
+	34: 52,   ## Menu bar, tool options bar, dock header.
+	29: 34,   ## The rail's own head cell.
+	26: 36,   ## Status bar.
+	40: 48,   ## Domain rail width.
+	70: 88,   ## Timeline.
+}
+## Tablet dock width. §1: "400 px" for both, so the desktop 372/300 pair
+## converges rather than scaling.
+const W_DOCK_TABLET := 400
 
 ## Phone geometry (§13, `design/…dc.html`'s "DCC shell android phone" and
 ## "Phone inset rules" cards). Tablet reuses the desktop constants above

@@ -1100,7 +1100,7 @@ func _build_brush_globals(parent: Control) -> void:
 	dice.custom_minimum_size = Vector2(22, 22)
 	dice.tooltip_text = "Randomise the seed the next stroke will capture."
 	dice.add_theme_stylebox_override("normal", DccTheme.empty())
-	dice.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft"), 2))
+	dice.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 	dice.pressed.connect(_on_sculpt_seed_dice)
 	seed_row.add_child(dice)
 

@@ -198,7 +198,13 @@ static func advanced(parent: Control, title: String = "advanced") -> VBoxContain
 # -- Rows ---------------------------------------------------------------------
 
 const ROW_LABEL_W := 132
-const ROW_VALUE_W := 56
+## `width:44px;text-align:right` on the canvas's value column. 56 was 27 % wide
+## and stole the slack the label needed.
+const ROW_VALUE_W := 44
+## `width:78px;height:2px` -- the canvas's parameter track, fixed for every row
+## in every dock. The tool options bar draws the same control at 70 px; 78 is
+## the dock figure and this constant only serves dock rows.
+const TRACK_W := 78
 
 
 ## §11: "no fills on panels; regions are separated by hairlines only. Radius 0
@@ -227,7 +233,13 @@ static func _row(parent: Control, label_text: String, tooltip: String) -> HBoxCo
 	row.add_theme_constant_override("separation", 8)
 	row.custom_minimum_size.y = 24
 	row.tooltip_text = tooltip
-	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL, 0)
+	## `font-family:'Helvetica Neue';font-size:11px;color:#a9adb0` on every
+	## parameter row in the canvas's left dock -- prose, not Plex, and one ink
+	## step brighter than `text_dim`. Only the *value* on the right is Plex.
+	## This row is the single most repeated thing in the shell, so drawing its
+	## label in mono put a monospaced texture across every dock in the app that
+	## the reference does not have anywhere.
+	var l := DccTheme.label(label_text, "text_secondary", DccTheme.FS_SMALL)
 	l.custom_minimum_size.x = ROW_LABEL_W
 	l.clip_text = true
 	row.add_child(l)
@@ -256,11 +268,18 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 	s.max_value = maximum
 	s.step = step
 	s.value = value
-	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## `width:78px;height:2px` -- a fixed track, not an expanding one. The
+	## canvas gives the *label* the slack and keeps every track in a dock the
+	## same length, so the five steering dials read as one column of bars. An
+	## expanding track measured 128 px here at a 372 px dock and grew with the
+	## dock, which is why long parameter names ("Enable continental shelves")
+	## were clipping while the bar beside them had room to spare.
+	s.size_flags_horizontal = Control.SIZE_SHRINK_END
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	s.custom_minimum_size.y = 14
+	s.custom_minimum_size = Vector2(TRACK_W, 14)
 	s.focus_mode = Control.FOCUS_NONE
 	_style_slider(s)
+	row.add_child(DccTheme.spacer())
 	row.add_child(s)
 	var readout := DccTheme.mono_label("", "text", DccTheme.FS_SMALL, 0)
 	readout.custom_minimum_size.x = ROW_VALUE_W
@@ -319,6 +338,24 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 
 ## The action a group commits with. §4 and §7 both put it *inside* the group it
 ## belongs to, never floating at the panel foot.
+## An action: "Run stage 04", "commit pass", "Apply", "New seed".
+##
+## **Outlined, never filled** -- corrected 2026-08-25 against the canvas rather
+## than against this file's own previous belief. `modal_button()` below used to
+## justify itself by saying a dock action "draws a filled accent slab, which is
+## the left dock's own run-this-pass affordance"; a search of
+## `design/Cartalith DCC Shell.dc.html` for `background:#e0a34a` returns
+## exactly one non-slider hit in the whole 1920-wide document, and it is a
+## *selected layer row* in the layers popover, not a button. Every action in
+## every artboard is the same chip:
+##
+##   padding:4px 10px; border:1px solid #e0a34a; color:#e0a34a   (primary)
+##   padding:4px 10px; border:1px solid rgba(255,255,255,.16)    (secondary)
+##
+## So the distinction this helper drew against `modal_button()` was a
+## distinction the design does not make. What survives is the padding: a dock
+## action is `4px 10px`, a modal's is `8px 18px`. Radius was 2 and is now 0
+## per §11's "Radius 0 everywhere".
 static func action(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
@@ -327,15 +364,26 @@ static func action(parent: Control, text: String, on_press: Callable,
 	b.custom_minimum_size.y = 26
 	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	b.add_theme_font_override("font", DccTheme.mono(1))
-	if primary:
-		b.add_theme_color_override("font_color", DccTheme.c("bg"))
-		b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("accent"), 2))
-		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent").lightened(0.1), 2))
-		b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_dim"), 2))
-	else:
-		b.add_theme_color_override("font_color", DccTheme.c("text"))
-		b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken"), 2))
-		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("raised"), 2))
+	var edge := "accent" if primary else "border"
+	b.add_theme_color_override("font_color",
+		DccTheme.c("accent") if primary else DccTheme.c("text"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c(
+		"accent_hover" if primary else "text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var rest := DccTheme.outline(edge)
+	rest.content_margin_left = 10
+	rest.content_margin_right = 10
+	rest.content_margin_top = 4
+	rest.content_margin_bottom = 4
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("disabled", rest)
+	var lit := DccTheme.outline(edge, "accent_wash" if primary else "line_soft")
+	lit.content_margin_left = 10
+	lit.content_margin_right = 10
+	lit.content_margin_top = 4
+	lit.content_margin_bottom = 4
+	b.add_theme_stylebox_override("hover", lit)
+	b.add_theme_stylebox_override("pressed", lit)
 	b.pressed.connect(on_press)
 	parent.add_child(b)
 	return b
@@ -344,12 +392,12 @@ static func action(parent: Control, text: String, on_press: Callable,
 ## selected" / "Use this folder" on the two file-dialog screens in
 ## `design/Cartalith DCC Shell.dc.html`.
 ##
-## Deliberately not `action(primary: true)`: that draws a filled accent slab,
-## which is the left dock's own "run this pass" affordance. Both modal screens
-## draw their primary as `border:1px solid #e0a34a` with accent *text* on the
-## modal ground -- an outline, one weight quieter, because a dialog's primary
-## is a confirmation and not a computation. Keeping the two distinct is the
-## point; unifying them would flatten a distinction the design makes twice.
+## The same outline `action()` now draws, at the modal's own larger padding:
+## `padding:8px 18px;border:1px solid #e0a34a;color:#e0a34a;font-size:12px` on
+## "Open selected", `rgba(255,255,255,.16)` on "Cancel". The paragraph that
+## used to sit here claimed a dock action was a filled accent slab and that
+## keeping the two apart was the point -- see `action()` above for why that was
+## wrong about the canvas. The two are the same chip at two sizes.
 static func modal_button(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
@@ -357,7 +405,7 @@ static func modal_button(parent: Control, text: String, on_press: Callable,
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(0, 30)
 	b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
-	var token := "accent" if primary else "line"
+	var token := "accent" if primary else "border"
 	var fg := "accent" if primary else "text"
 	b.add_theme_color_override("font_color", DccTheme.c(fg))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
@@ -410,8 +458,9 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 	b.icon = DccIcons.get_icon(glyph, 15)
 	b.expand_icon = false
 	b.add_theme_stylebox_override("normal", DccTheme.empty())
-	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft"), 2))
-	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash"), 2))
+	## Radius 0 per §11, like everything else. Was 2.
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
 	b.add_theme_color_override("icon_normal_color", DccTheme.c("text_dim"))
 	b.add_theme_color_override("icon_hover_color", DccTheme.c("text_bright"))
 	b.add_theme_color_override("icon_pressed_color", DccTheme.c("accent"))
@@ -586,7 +635,12 @@ static func chip(parent: Control, text: String, on_press: Callable,
 	b.focus_mode = Control.FOCUS_NONE
 	b.add_theme_font_override("font", DccTheme.mono(0))
 	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	var token := "accent" if accent else "line"
+	## `.16`, the control edge -- not `line` (`.10`), which is the *region*
+	## hairline. The header block above quotes the canvas correctly
+	## (`border:1px solid rgba(255,255,255,.16)`) and then the code used the
+	## wrong token, so every chip in every window was drawn 6 points fainter
+	## than the design and read as an outline that wasn't quite there.
+	var token := "accent" if accent else "border"
 	b.add_theme_color_override("font_color", DccTheme.c("accent") if accent else DccTheme.c("text"))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
@@ -615,7 +669,7 @@ static func segment(parent: Control, text: String, on_press: Callable) -> Button
 ## scheme among three impossible ones) would otherwise be painted exactly like
 ## the impossible ones.
 static func set_segment_on(b: Button, on: bool) -> void:
-	var token := "accent" if on else "line"
+	var token := "accent" if on else "border"
 	var fg := DccTheme.c("accent") if on else DccTheme.c("text_dim")
 	for sb_name in ["normal", "pressed", "disabled"]:
 		b.add_theme_stylebox_override(sb_name, box(token, "", 8, 3))
@@ -626,7 +680,7 @@ static func set_segment_on(b: Button, on: bool) -> void:
 ## An outlined text field -- the canvas's Tile size / World bounds /
 ## Destination wells and the Asset library's search.
 static func well(le: Control, px: int = 9, py: int = 4, accent: bool = false) -> void:
-	var token := "accent" if accent else "line"
+	var token := "accent" if accent else "border"
 	le.add_theme_stylebox_override("normal", box(token, "", px, py))
 	le.add_theme_stylebox_override("focus", box("accent", "", px, py))
 	le.add_theme_stylebox_override("read_only", box("line_soft", "", px, py))
@@ -772,7 +826,16 @@ static func phone_present(dlg: Window, host) -> bool:
 	## treat, so it goes rather than cropping the fill.
 	dlg.min_size = Vector2i.ZERO
 	dlg.max_size = Vector2i.ZERO
-	dlg.popup(Rect2i(Vector2i.ZERO, Vector2i(screen)))
+	## §13: "Bottom 26 px is the gesture inset -- no tappable target inside it.
+	## Timeline and sheets stop above it." A window filling the whole screen put
+	## its `AcceptDialog` OK button -- which on four of these windows is the only
+	## way out -- squarely in it: measured 846 dp on an 864.6 dp screen, where
+	## the inset begins at 838.6. Stopping the window above the inset is what
+	## the canvas draws (the map keeps bleeding under it) and costs nothing but
+	## the 26 dp the system was going to take anyway.
+	var gesture := int(round(DccTheme.H_PHONE_GESTURE * host.phone_scale()))
+	dlg.popup(Rect2i(Vector2i.ZERO,
+		Vector2i(int(screen.x), maxi(1, int(screen.y) - gesture))))
 	## `AcceptDialog` parents its whole button bar as an **internal** child, so
 	## `DccShell.phone_fit()` -- which walks `get_children()` -- has never once
 	## reached it. Measured 29 dp on every window whose only way out is that
@@ -874,10 +937,18 @@ static func _reoversample(w: Window) -> void:
 static func phone_head(parent: Control, title: String, subtitle: String) -> Label:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
-	wrap.custom_minimum_size.y = 56
+	## 44 dp of keep-clear above the 56 dp bar. §13, verbatim: "Top 44 px is a
+	## keep-clear safe area: status glyphs only… Nothing is centred there." A
+	## full-bleed phone window starts at y = 0, so until 2026-08-25 every one of
+	## these headers put its title **20 dp up inside the punch-hole lane** --
+	## measured on the OnePlus 12 capture, `ASSET LIBRARY` with its cap height
+	## at 20 dp and `WORLD DATA` at 28. `DccShell` reserves this for its own app
+	## bar and no window ever did.
+	wrap.custom_minimum_size.y = DccTheme.H_PHONE_TOP_SAFE + 56
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", 16)
 	m.add_theme_constant_override("margin_right", 16)
+	m.add_theme_constant_override("margin_top", DccTheme.H_PHONE_TOP_SAFE)
 	wrap.add_child(m)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 2)

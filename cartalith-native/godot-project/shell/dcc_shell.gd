@@ -242,6 +242,13 @@ func _scaled(px: int) -> int:
 	## that phone relocates into the ⋯ overflow sheet unmodified.
 	if not _touch:
 		return px
+	## `DccTheme.TABLET` first: §1's tablet column is a table of exact figures,
+	## not a multiplier, and the multiplier-plus-floor this used to be got two
+	## of the five wrong in opposite directions. The 44 px floor still applies
+	## to anything the table does not name, because an unnamed figure is a
+	## control rather than a region.
+	if DccTheme.TABLET.has(px):
+		return int(DccTheme.TABLET[px])
 	return maxi(44, int(round(px * DccTheme.TOUCH_SCALE)))
 
 # -- §13 Phone layout mode ------------------------------------------------
@@ -256,6 +263,12 @@ func _compute_layout_mode() -> void:
 	_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX
 	_landscape = size.x > size.y
 	_phone_scale = maxf(1.0, short_side / DccTheme.PHONE_REF_SHORT)
+	## §1's tablet column widens BOTH docks to 400 px, "so two-column readouts
+	## survive the larger type" (`UI_SHELL_DESIGN.md`). Neither dock had ever
+	## been told that: tablet ran the desktop 372/300 pair.
+	if _touch and not _phone:
+		_left_width = float(DccTheme.W_DOCK_TABLET)
+		_right_width = float(DccTheme.W_DOCK_TABLET)
 
 func _on_window_resized() -> void:
 	if not _phone:
@@ -292,8 +305,14 @@ func _build_menu_bar() -> Control:
 	bar.add_child(pad)
 
 	var wordmark := DccTheme.mono_label("CARTALITH", "text_bright", DccTheme.FS_MENU, 3, true)
-	wordmark.custom_minimum_size.x = 150
 	row.add_child(wordmark)
+	## `margin-right:22px` on the canvas's own wordmark, and nothing else --
+	## the reserved 150 px this used to claim opened a 74 px hole between
+	## CARTALITH and File where the canvas has 22 px, which is the first thing
+	## the eye lands on and the first thing that read as "not the design".
+	var wordmark_gap := Control.new()
+	wordmark_gap.custom_minimum_size.x = 22
+	row.add_child(wordmark_gap)
 
 	menu_bar_row = HBoxContainer.new()
 	menu_bar_row.add_theme_constant_override("separation", 0)
@@ -320,9 +339,13 @@ func add_menu(title: String, on_built: Callable) -> MenuButton:
 	mb.text = title
 	mb.flat = true
 	mb.focus_mode = Control.FOCUS_NONE
-	mb.add_theme_font_size_override("font_size", DccTheme.FS_MENU)
-	mb.add_theme_font_override("font", DccTheme.mono(0))
-	mb.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	## Prose face, not Plex -- `<span style="padding:9px 11px">File</span>` sits
+	## inside a `font-size:11.5px;color:#a9adb0` run in the canvas, with no
+	## font-family of its own, so it inherits `'Helvetica Neue'` from the
+	## artboard root. No font override here at all is how a Control keeps
+	## `dark_theme.tres`'s `default_font` (Fira Sans).
+	mb.add_theme_font_size_override("font_size", DccTheme.FS_MENU_ITEM)
+	mb.add_theme_color_override("font_color", DccTheme.c("text_secondary"))
 	mb.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
 	mb.add_theme_stylebox_override("normal", DccTheme.inset(11, 9, 11, 9))
 	mb.add_theme_stylebox_override("hover", DccTheme.inset(11, 9, 11, 9))
@@ -333,15 +356,54 @@ func add_menu(title: String, on_built: Callable) -> MenuButton:
 	on_built.call(popup)
 	return mb
 
+## The canvas's own menu panel, read off `DCC shell 1920`'s open Assets menu:
+##
+##   background:#121314; border:1px solid rgba(255,255,255,.14);
+##   box-shadow:0 14px 34px rgba(0,0,0,.55); padding:5px 0
+##
+## Three of those four were missing. The panel used `raised` (`#17191a`, which
+## is the *viewport wash's* centre stop in §11 and is not a menu surface
+## anywhere in the design), the border was the region hairline at .10 rather
+## than the control edge at .16, and there was no shadow at all -- so a menu
+## separated itself from the bar behind it by four levels of grey and nothing
+## else. The shadow is most of what makes a floating surface read as floating.
 func style_popup(popup: PopupMenu) -> void:
-	popup.add_theme_stylebox_override("panel", DccTheme.panel("raised",
-		{"left": 1, "right": 1, "top": 1, "bottom": 1}))
+	var panel := DccTheme.panel("panel",
+		{"left": 1, "right": 1, "top": 1, "bottom": 1})
+	panel.border_color = DccTheme.c("border")
+	panel.shadow_color = Color(0, 0, 0, 0.55) if DccTheme.is_dark() \
+		else Color(0.137, 0.141, 0.122, 0.16)
+	panel.shadow_size = 34
+	panel.shadow_offset = Vector2(0, 14)
+	panel.content_margin_top = 5
+	panel.content_margin_bottom = 5
+	popup.add_theme_stylebox_override("panel", panel)
 	popup.add_theme_color_override("font_color", DccTheme.c("text"))
 	popup.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
 	popup.add_theme_color_override("font_accelerator_color", DccTheme.c("text_faint"))
-	popup.add_theme_font_size_override("font_size", DccTheme.FS_MENU)
-	popup.add_theme_font_override("font", DccTheme.mono(0))
+	## Item labels are prose (`font-size:11.5px`); only the shortcut column is
+	## Plex, and `PopupMenu` draws that column from the same font, so this
+	## follows the label rather than the shortcut.
+	popup.add_theme_font_size_override("font_size", DccTheme.FS_MENU_ITEM)
 	popup.add_theme_constant_override("v_separation", 7)
+	## The highlighted item. Godot's stock `hover` box is a blue selection bar,
+	## which is what a real menu capture showed 2026-08-25 -- the one saturated
+	## colour anywhere in a shell whose entire palette is greys plus one amber.
+	## The canvas's own hovered row is `background:rgba(224,163,74,.10);
+	## color:#e8ebec` (and `rgba(164,101,15,.10)` / `#111210` in light), which
+	## is `accent_wash` with no rule -- the same wash the menu bar's open title
+	## and every active dock row already use.
+	popup.add_theme_stylebox_override("hover",
+		DccTheme.flat(DccTheme.c("accent_wash")))
+	popup.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	popup.add_theme_color_override("font_separator_color", DccTheme.c("text_faint"))
+	## `height:1px;background:rgba(255,255,255,.09);margin:5px 0` on the
+	## canvas's own menu rules. `StyleBoxLine`, not `StyleBoxFlat`: a Flat box
+	## in the `separator` slot fills the separator's whole reserved band.
+	var sep := StyleBoxLine.new()
+	sep.color = DccTheme.c("line_soft")
+	sep.thickness = 1
+	popup.add_theme_stylebox_override("separator", sep)
 
 # -- PR-13/PR-14 Theme rebuild --------------------------------------------------
 #
@@ -384,7 +446,7 @@ const _THEME_COLOR_OVERRIDES := [
 ]
 const _THEME_STYLEBOX_OVERRIDES := [
 	"disabled", "focus", "grabber_area", "grabber_area_highlight", "hover", "normal",
-	"panel", "pressed", "read_only", "slider",
+	"panel", "pressed", "read_only", "separator", "slider",
 ]
 
 ## Called by `menus.gd` immediately after `DccTheme.apply_theme()`, passing
@@ -510,6 +572,54 @@ func _style_window_chrome() -> void:
 	for box in ["embedded_border", "embedded_unfocused_border"]:
 		th.set_stylebox(box, "Window", DccTheme.panel("raised",
 			{"left": 1, "right": 1, "top": 1, "bottom": 1}))
+	## `AcceptDialog` draws its *own* `panel` on top of the Window border, and
+	## nothing here had ever set it -- so Performance, Gen info, World data and
+	## the footer band of every modal came up on Godot's stock `#404040` grey,
+	## sampled off the framebuffer 2026-08-25. `#404040` is not a token in
+	## either palette and is 20 steps brighter than anything the canvas draws.
+	## `AcceptDialog` inherits `PanelContainer`'s type only for *some* boxes,
+	## which is why the shell's own `PanelContainer` styling never reached it.
+	var dlg := DccTheme.panel("panel",
+		{"left": 1, "right": 1, "top": 1, "bottom": 1})
+	dlg.border_color = DccTheme.c("border")
+	dlg.content_margin_left = 0
+	dlg.content_margin_right = 0
+	dlg.content_margin_top = 0
+	dlg.content_margin_bottom = 0
+	th.set_stylebox("panel", "AcceptDialog", dlg)
+	th.set_stylebox("panel", "PopupPanel", dlg)
+
+	## Tabs. `TabContainer` draws its strip from an internal `TabBar` that no
+	## walk in this file reaches, so World data, Travel library, the Asset
+	## library and the Data manager were all showing Godot's stock tab chrome:
+	## a raised grey pill with a white top rule on the selected tab. The
+	## design's own two-way switch -- the left dock's `GENERATION PIPELINE |
+	## SCULPT` header -- is `background:rgba(224,163,74,.10)` with
+	## `border-bottom:1px solid #e0a34a` when on and nothing at all when off,
+	## which is `active_row()`, the same shape the menu bar and every active
+	## dock row already use. Set on both type names because a bare `TabBar`
+	## does not inherit `TabContainer`'s.
+	for type_name in ["TabContainer", "TabBar"]:
+		var on := DccTheme.active_row(true)
+		on.content_margin_left = 14
+		on.content_margin_right = 14
+		on.content_margin_top = 7
+		on.content_margin_bottom = 7
+		th.set_stylebox("tab_selected", type_name, on)
+		var off := DccTheme.flat(Color(0, 0, 0, 0))
+		off.content_margin_left = 14
+		off.content_margin_right = 14
+		off.content_margin_top = 7
+		off.content_margin_bottom = 7
+		th.set_stylebox("tab_unselected", type_name, off)
+		th.set_stylebox("tab_hovered", type_name,
+			DccTheme.flat(DccTheme.c("line_soft")))
+		th.set_stylebox("tab_focus", type_name, DccTheme.empty())
+		th.set_color("font_selected_color", type_name, DccTheme.c("accent"))
+		th.set_color("font_unselected_color", type_name, DccTheme.c("text_dim"))
+		th.set_color("font_hovered_color", type_name, DccTheme.c("text_bright"))
+	th.set_stylebox("panel", "TabContainer", DccTheme.panel("panel", {"top": 1}))
+	th.set_stylebox("tabbar_background", "TabContainer", DccTheme.empty())
 	_bulk_theme_edit(th)
 
 ## `DccTheme.remap()` first, then the supplementary table below for the
@@ -573,6 +683,14 @@ func _recolor_subtree(node: Node, old_pal: Dictionary) -> void:
 				var sb: StyleBox = node.get_theme_stylebox(name)
 				if sb is StyleBoxFlat:
 					_recolor_stylebox(sb, old_pal)
+				elif sb is StyleBoxLine:
+					## The menu separator (`style_popup()`), the one non-Flat
+					## box the shell authors. Silently skipped before it
+					## existed, which would have left a dark hairline across a
+					## light menu.
+					var lc = DccTheme.remap((sb as StyleBoxLine).color, old_pal)
+					if lc != null:
+						(sb as StyleBoxLine).color = lc
 	if node is ColorRect:
 		var nc = DccTheme.remap((node as ColorRect).color, old_pal)
 		if nc != null:
@@ -1091,8 +1209,14 @@ func _build_rail() -> Control:
 		## by the owner directly, after an earlier revision added icons anyway:
 		## "those icons don't exist." Removed rather than hidden behind a flag --
 		## an addition the design does not specify does not get to linger.
+		## `font:10px 'IBM Plex Mono'; letter-spacing:.12em; color:#5f6468`,
+		## regular weight -- the rail block's own inline style, verbatim. This
+		## was 9 px at `spacing 2` (≈.22em) in Medium, which is a size down, a
+		## tracking up and a weight up all at once: three small errors
+		## compounding on the one piece of chrome that is always on screen.
+		## `spacing` is whole pixels, so .12em at 10 px is 1.
 		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
-			"text_faint", DccTheme.FS_MICRO, 2, true)
+			"text_ghost", DccTheme.FS_TINY, 1, false)
 		vlabel.rotation = -PI / 2.0
 		var text_size := vlabel.get_minimum_size()
 		var label_x: float = round(w * 0.5 - text_size.y * 0.5)
@@ -1132,8 +1256,12 @@ func _select_domain(id: String) -> void:
 			DccTheme.active_row(false) if on else DccTheme.empty())
 		var marks: Dictionary = _domain_marks.get(key, {})
 		if marks.has("label"):
+			## `text_ghost` (`#5f6468`) is the rail's own resting ink in the
+			## canvas -- see `_build_rail()`. Restoring to `text_faint` here
+			## meant the rail brightened by one step the first time a domain
+			## was ever selected and never went back.
 			(marks["label"] as Label).add_theme_color_override("font_color",
-				DccTheme.c("accent") if on else DccTheme.c("text_faint"))
+				DccTheme.c("accent") if on else DccTheme.c("text_ghost"))
 	for key in _workspace_panels:
 		(_workspace_panels[key] as Control).visible = key == id
 	for d in DOMAINS:
@@ -1216,7 +1344,12 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 		left_dock.add_child(body_row)
 
 	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = _ptap(44) if as_sheet else 26
+	## 34 px, not 26: the canvas gives both dock headers `height:34px` -- the
+	## same band the menu bar and the tool options bar get, so the three
+	## horizontal rules across the top of the shell line up as one rhythm.
+	## 26 is `H_STATUS`, borrowed here by mistake, and it left the dock title
+	## sitting 4 px proud of the tool options bar beside it.
+	head.custom_minimum_size.y = _ptap(44) if as_sheet else _scaled(34)
 	left_dock_title = DccTheme.header("WORLD", "")
 	head.add_child(left_dock_title)
 	head.add_child(DccTheme.spacer())
@@ -1278,7 +1411,12 @@ func _build_right_dock(as_sheet: bool = false) -> Control:
 	## pattern `left_dock_title` already follows for the domain name.
 	right_dock_title = DccTheme.header("SAMPLE", "")
 	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = _ptap(44) if as_sheet else 26
+	## 34 px, not 26: the canvas gives both dock headers `height:34px` -- the
+	## same band the menu bar and the tool options bar get, so the three
+	## horizontal rules across the top of the shell line up as one rhythm.
+	## 26 is `H_STATUS`, borrowed here by mistake, and it left the dock title
+	## sitting 4 px proud of the tool options bar beside it.
+	head.custom_minimum_size.y = _ptap(44) if as_sheet else _scaled(34)
 	if as_sheet:
 		head.add_child(right_dock_title)
 		head.add_child(DccTheme.spacer())
@@ -1475,12 +1613,17 @@ func _build_status_bar() -> Control:
 	pad.add_child(status_row)
 	bar.add_child(pad)
 
+	## `font:10.5px 'IBM Plex Mono'; color:#6f7478` on the canvas's status bar,
+	## in both themes and on both the desktop and tablet artboards -- the whole
+	## bar is Plex, including the modifier hints on the right, which were the
+	## one thing here already drawn a shade quieter than everything else. Set
+	## in the prose face at 11 until 2026-08-25.
 	for slot in ["pass", "stale", "autosave", "atlas"]:
-		var l := DccTheme.label("", "text_faint", DccTheme.FS_SMALL)
+		var l := DccTheme.mono_label("", "text_faint", DccTheme.FS_SMALL, 0)
 		_status_labels[slot] = l
 		status_row.add_child(l)
 	status_row.add_child(DccTheme.spacer())
-	var hint := DccTheme.label("", "text_ghost", DccTheme.FS_SMALL)
+	var hint := DccTheme.mono_label("", "text_faint", DccTheme.FS_SMALL, 0)
 	_status_labels["hint"] = hint
 	status_row.add_child(hint)
 	return bar

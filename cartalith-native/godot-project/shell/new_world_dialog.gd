@@ -247,7 +247,7 @@ func _build(body: VBoxContainer) -> void:
 
 func _build_derived_panel(parent: Control) -> void:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 2))
+	panel.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken")))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 16)

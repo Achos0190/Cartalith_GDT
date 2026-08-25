@@ -380,7 +380,7 @@ func _rebuild_list() -> void:
 			String(d.get("name", "?")), int(d.get("settlement_count", 0)),
 			_thousands(int(d.get("population", 0)))]
 		if fid == _selected:
-			b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken"), 3))
+			b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken")))
 		b.pressed.connect(func():
 			## FR-02: flush the inspector's pending edit against the faction it
 			## was typed for, before `_selected` moves. These list rows are

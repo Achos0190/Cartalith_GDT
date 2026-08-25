@@ -430,9 +430,9 @@ func _build_traits(details: Dictionary) -> void:
 		b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 		b.add_theme_color_override("font_color", DccTheme.c("bg") if is_on else DccTheme.c("text_dim"))
 		b.add_theme_stylebox_override("normal",
-			DccTheme.flat(DccTheme.c("accent") if is_on else DccTheme.c("sunken"), 3))
+			DccTheme.flat(DccTheme.c("accent") if is_on else DccTheme.c("sunken")))
 		b.add_theme_stylebox_override("hover",
-			DccTheme.flat(DccTheme.c("accent").lightened(0.1) if is_on else DccTheme.c("raised"), 3))
+			DccTheme.flat(DccTheme.c("accent").lightened(0.1) if is_on else DccTheme.c("raised")))
 		b.pressed.connect(func():
 			bridge.civ_settlement_toggle_trait(_index, key)
 			_rebuild())

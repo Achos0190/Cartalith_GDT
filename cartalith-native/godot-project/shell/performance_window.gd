@@ -97,7 +97,11 @@ func _rebuild() -> void:
 
 	var mem := DccWidgets.section(_body, "Memory")
 	var used_gb := OS.get_static_memory_usage() / 1073741824.0
-	DccWidgets.note(mem, "Working set: %.2f GB (Godot's own OS.get_static_memory_usage()). No portable total-system-memory query exists to show it as \"of N GB\", per §2.5's own reading -- reported alone rather than paired with a guessed denominator.")
+	## The `%` operator was missing, so this window has been shipping the
+	## literal string `%.2f` where the number goes -- caught by screenshot in
+	## the 2026-08-25 conformance sweep, not by any test, because a `#[func]`
+	## returning a figure proves nothing about whether it reaches a Label.
+	DccWidgets.note(mem, "Working set: %.2f GB (Godot's own OS.get_static_memory_usage()). No portable total-system-memory query exists to show it as \"of N GB\", per §2.5's own reading -- reported alone rather than paired with a guessed denominator." % used_gb)
 
 	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance -- no per-device enumeration exists in cartalith-gpu (GPU_LAYER_INTEGRATION_SCOPE.md).")
 

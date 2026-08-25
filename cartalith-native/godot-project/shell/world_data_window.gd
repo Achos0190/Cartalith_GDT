@@ -68,13 +68,14 @@ func _cap_note(body: VBoxContainer, built: int, total: int) -> void:
 		return
 	body.add_child(DccTheme.rule())
 	DccWidgets.note(body, "Showing %d of %d. Filter by name above to narrow, or:" % [built, total])
-	var more := Button.new()
-	more.text = "Show %d more" % mini(PHONE_ROW_CAP, total - built)
+	## Through `DccWidgets.action()` rather than a bare `Button`: a raw Button
+	## draws Godot's stock rounded grey pill, which is not a shape this design
+	## has anywhere. Caught by screenshot 2026-08-25.
+	var more := DccWidgets.action(body,
+		"Show %d more" % mini(PHONE_ROW_CAP, total - built), func():
+			_row_cap += PHONE_ROW_CAP
+			_rebuild())
 	more.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	more.pressed.connect(func():
-		_row_cap += PHONE_ROW_CAP
-		_rebuild())
-	body.add_child(more)
 
 func setup(b: EngineBridge) -> void:
 	bridge = b
@@ -132,6 +133,11 @@ func _build_tab(label_text: String) -> VBoxContainer:
 	scroll.name = label_text
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var pad := MarginContainer.new()
+	## Without this the whole table sizes to its own minimum inside the
+	## `ScrollContainer` and stops at about 54 % of the width -- measured
+	## 774 px of 1440 on the phone capture, with every row rule ending in mid
+	## air. `body` had the flag; the margin between it and the scroll did not.
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for side in ["left", "top", "right", "bottom"]:
 		pad.add_theme_constant_override("margin_" + side, 12)
 	scroll.add_child(pad)
@@ -142,19 +148,54 @@ func _build_tab(label_text: String) -> VBoxContainer:
 	_tabs.add_child(scroll)
 	return body
 
+## `20655` -> `20 655`. A thin-space group, because the phone row's whole point
+## is that a number is read rather than parsed, and 240 populations in a column
+## of unbroken digits is the thing that makes a list look like a dump.
+static func _thousands(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	for i in s.length():
+		if i > 0 and (s.length() - i) % 3 == 0:
+			out += " "
+		out += s[i]
+	return ("-" if n < 0 else "") + out
+
 func _clear(body: VBoxContainer) -> void:
 	for c in body.get_children():
 		body.remove_child(c)
 		c.queue_free()
 
-## PH-12's two-line phone row. The name gets its own full-width line and the
-## remaining columns share the one under it, so a six-column settlement row is
-## five ~70 dp cells instead of six ~55 dp ones, with the name -- the column
-## every filter and every lookup is keyed on -- unclipped.
+## **Phone list row, replacing PH-12's wrapped table (2026-08-25).**
 ##
-## `_row()` and `_header_row()` build the SAME two-line shape, which is what
-## keeps the header over its own cells; a header that stayed one line would sit
-## over nothing.
+## PH-12 kept all six columns and broke them over two lines. It measured well
+## -- nothing clipped, nothing under the tap floor -- and it still read as a
+## spreadsheet someone had folded in half: a bare `Class Population Faction
+## Coastal Capital` band under a column header that no longer sat over any
+## column, and five unlabelled values a reader had to count along to decode.
+##
+## There is **no canvas for this window**, on phone or anywhere else, so the
+## replacement is derived rather than matched -- from the one phone list the
+## design does draw, `design/Cartalith Android Phone.dc.html` screen
+## `03 Category`, whose row is, verbatim:
+##
+##   display:flex; align-items:center; min-height:52px; padding:0 16px;
+##   gap:12px; border-top:1px solid rgba(255,255,255,.06)
+##     <span style="flex:1">Droplet hydraulic
+##       <span style="display:block;font:9.5px 'IBM Plex Mono';color:#5f6468">
+##         4 dials · last run 12 s ago</span></span>
+##     <span style="color:#5f6468">›</span>
+##
+## So: a prose primary line, one Plex secondary line at 9.5 px in `#5f6468`
+## carrying everything else as `·`-joined prose, a 52 dp minimum, a 16 dp
+## gutter and a `.06` rule above. The five remaining settlement columns become
+## that secondary line, each carrying its own word rather than its position
+## ("capital · coastal" instead of a `yes` in the fifth slot). The chevron is
+## the one thing deliberately NOT copied: it promises a drill-down these rows
+## do not have, and drawing an affordance that does nothing is the failure
+## this whole pass exists to find.
+##
+## The column header is dropped on phone with the columns -- see
+## `_header_row()`.
 func _cells(cols: Array, from: int, header: bool) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -172,31 +213,57 @@ func _cells(cols: Array, from: int, header: bool) -> HBoxContainer:
 		row.add_child(l)
 	return row
 
-func _row(body: VBoxContainer, cols: Array, tooltip: String = "") -> void:
-	if not (_phone and cols.size() > 3):
-		var flat := _cells(cols, 0, false)
-		flat.tooltip_text = tooltip
-		body.add_child(flat)
-		return
-	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 0)
-	stack.tooltip_text = tooltip
-	var name_l := DccTheme.mono_label(String(cols[0]), "text_bright", DccTheme.FS_SMALL)
-	name_l.clip_text = true
-	stack.add_child(name_l)
-	stack.add_child(_cells(cols, 1, false))
-	body.add_child(stack)
+## The `·`-joined secondary line. `subtitle` is passed in already worded by the
+## caller, because only the caller knows that a `Capital` column's `yes` means
+## the word "capital" and its `no` means the word is simply absent.
+func _phone_row(body: VBoxContainer, primary: String, subtitle: String,
+		tooltip: String) -> void:
+	var rule := ColorRect.new()
+	rule.color = DccTheme.c("line_soft")
+	rule.custom_minimum_size.y = 1
+	body.add_child(rule)
 
-func _header_row(body: VBoxContainer, cols: Array) -> void:
-	if not (_phone and cols.size() > 3):
-		body.add_child(_cells(cols, 0, true))
-		body.add_child(DccTheme.rule())
-		return
 	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 0)
-	stack.add_child(DccTheme.mono_label(String(cols[0]), "text_faint", DccTheme.FS_MICRO, 1, true))
-	stack.add_child(_cells(cols, 1, true))
-	body.add_child(stack)
+	stack.add_theme_constant_override("separation", 2)
+	stack.tooltip_text = tooltip
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## `min-height:52px` with `padding:0 16px` -- 52 dp of row and no vertical
+	## padding at all, so the gutter is horizontal only. The tap floor plus 8
+	## is exactly the canvas's 52.
+	stack.custom_minimum_size.y = DccTheme.PHONE_TAP_MIN + 8
+	var name_l := DccTheme.label(primary, "text", DccTheme.FS_BODY)
+	name_l.clip_text = true
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.add_child(name_l)
+	var sub := DccTheme.mono_label(subtitle, "text_ghost", DccTheme.FS_MICRO)
+	sub.clip_text = true
+	sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stack.add_child(sub)
+
+	var pad := MarginContainer.new()
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_child(stack)
+	body.add_child(pad)
+
+func _row(body: VBoxContainer, cols: Array, tooltip: String = "",
+		subtitle: String = "") -> void:
+	if _phone:
+		_phone_row(body, String(cols[0]),
+			subtitle if subtitle != "" else " · ".join(cols.slice(1)), tooltip)
+		return
+	var flat := _cells(cols, 0, false)
+	flat.tooltip_text = tooltip
+	body.add_child(flat)
+
+## Desktop keeps its column header. Phone drops it: `_row()` no longer draws
+## columns there, so a header would label a table that isn't on screen -- which
+## is exactly what the previous phone treatment did.
+func _header_row(body: VBoxContainer, cols: Array) -> void:
+	if _phone:
+		return
+	body.add_child(_cells(cols, 0, true))
 	body.add_child(DccTheme.rule())
 
 func _rebuild() -> void:
@@ -235,9 +302,24 @@ func _rebuild_settlements() -> void:
 		if _capped(shown):
 			continue
 		built += 1
+		## The phone subtitle words its own columns. `Coastal: yes` and
+		## `Capital: yes` are table cells; "coastal" and "capital" are facts,
+		## and a fact that is false is simply not stated -- which is how the
+		## canvas's own summary lines read ("4 dials · last run 12 s ago",
+		## "dynamic lithology on"), and it drops two thirds of the noise.
+		var facts := PackedStringArray([
+			String(d.get("kind", "?")).to_lower(),
+			"pop %s" % _thousands(int(d.get("population", 0))),
+			"faction %d" % int(d.get("faction", 0)),
+		])
+		if d.get("coastal", false):
+			facts.append("coastal")
+		if d.get("capital", false):
+			facts.append("capital")
 		_row(body, [name, String(d.get("kind", "?")).capitalize(), str(int(d.get("population", 0))),
 			str(int(d.get("faction", 0))), "yes" if d.get("coastal", false) else "no",
-			"yes" if d.get("capital", false) else "no"])
+			"yes" if d.get("capital", false) else "no"],
+			"", " · ".join(facts))
 	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\"." % _filter if _filter != "" else "No settlements.")
@@ -271,7 +353,10 @@ func _rebuild_provinces() -> void:
 		var cap_name := "—"
 		if cap_idx >= 0 and cap_idx < settlements.size():
 			cap_name = String((settlements[cap_idx] as Dictionary).get("name", "—"))
-		_row(body, [name, str(int(d.get("faction", 0))), cap_name])
+		var psub := "faction %d" % int(d.get("faction", 0))
+		if cap_name != "—":
+			psub += " · capital %s" % cap_name
+		_row(body, [name, str(int(d.get("faction", 0))), cap_name], "", psub)
 	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No province matches \"%s\"." % _filter if _filter != "" else "No provinces.")
@@ -313,7 +398,13 @@ func _rebuild_trade() -> void:
 		if _capped(shown):
 			continue
 		built += 1
-		_row(body, [name, ", ".join(ex) if ex.size() > 0 else "—", ", ".join(im) if im.size() > 0 else "—"])
+		var tparts := PackedStringArray()
+		if ex.size() > 0:
+			tparts.append("exports " + ", ".join(ex))
+		if im.size() > 0:
+			tparts.append("imports " + ", ".join(im))
+		_row(body, [name, ", ".join(ex) if ex.size() > 0 else "—",
+			", ".join(im) if im.size() > 0 else "—"], "", " · ".join(tparts))
 	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\" with a trade relationship." % _filter if _filter != "" else "No settlement carries a trade relationship.")

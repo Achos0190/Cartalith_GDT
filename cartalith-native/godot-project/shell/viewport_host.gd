@@ -922,7 +922,12 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
 ## control, so an accent pill would drag its own glyph to accent with it.
 func _navpad_paint(b: Button, fill: Color, ink: Color) -> void:
 	var pill := StyleBoxFlat.new()
-	pill.bg_color = fill
+	## `background:rgba(20,22,23,.92)` on every floating map control in
+	## `design/Cartalith Android Phone.dc.html` -- a scrim the map shows
+	## through, not an opaque disc. Painted fully opaque until 2026-08-25,
+	## which over a bright desert or an ice cap read as four black holes
+	## punched in the terrain rather than as chrome sitting on top of it.
+	pill.bg_color = Color(fill, 0.92)
 	pill.set_corner_radius_all(NAVPAD_HIT / 2)
 	## A hairline, because unlike every other button in this shell these float
 	## over the *map*: `panel` against dark terrain reads as a shape, against
