@@ -449,6 +449,15 @@ fn manpower_dict(
         "mobilization_pool" => m.mobilization_pool,
         "standing_share" => m.standing_share,
         "emergency_share" => m.emergency_share,
+        // -- the era band's denominator (owner ruling, 2026-08-25). The
+        //    bands are shares of the citizen/free body, not of the total, so
+        //    that body is surfaced beside the verdict rather than being an
+        //    invisible divisor: a reader must be able to see what the
+        //    percentage is a percentage OF.
+        "citizen_population" => m.citizen_population,
+        "citizen_fraction" => d.citizen_fraction,
+        "standing_citizen_share" => m.standing_citizen_share,
+        "emergency_citizen_share" => m.emergency_citizen_share,
         "concentration_ratio" => m.concentration_ratio,
         // -- the five variables, plus the two they are built from
         "food_surplus_per_farmer" => d.food_surplus_per_farmer,

@@ -6510,7 +6510,7 @@ separates three genuinely different situations:
 
 | Chip | Means | Which |
 |---|---|---|
-| needs a decision | nothing is missing from the engine; somebody has to say what the feature *is* | CV-25 (garrisons, campaigns, combat — narrowed again by §43, which built the manpower half the owner specified), CV-26 (treaties, vassalage, change over time), WW-15 (reprojection) |
+| needs a decision | nothing is missing from the engine; somebody has to say what the feature *is* | CV-25 (garrisons, campaigns, combat — narrowed again by §43, which built the manpower half the owner specified; §44 settled that model's one open question, the era bands' denominator), CV-26 (treaties, vassalage, change over time), WW-15 (reprojection) |
 | blocked on | the design is clear and waits on named work elsewhere | CV-23 (historical occupation — timeline work), CA-18 (declutter budget — CA-04's separable layer stack) |
 | costs a re-baseline | buildable today, and doing it moves golden expectations `DECISIONS.md` §7a protects | CA-19 (a *writable* biome table) |
 
@@ -6666,7 +6666,7 @@ and the standing shares land at Imperial Rome's own ratio.
    bands may be shares of a citizen or free population** — the specification's
    own Republican Rome citation says "17-29 % of its *citizen* population" —
    in which case the live figures land inside them. One owner decision changes
-   every verdict and nothing else.
+   every verdict and nothing else. **→ Ruled and built the same day; see §44.**
 2. Standing shares agree with the specification's *example* and not its
    *table*, in the same direction and for the same reason.
 3. `ecological_factor` saturates for five of six factions on a real world:
@@ -6691,3 +6691,81 @@ settlement holds which part of a standing army is a placement rule nothing
 implies), campaigns, unit movement and combat. Still `needs a decision`, still
 disclosed in the category, and the shell probe asserts the disclosure is there
 rather than trusting it.
+
+
+## 44 · CV-25 — the owner answered §43's open question: the era bands are shares of the citizen population (2026-08-25) — **STILL NARROWED**
+
+§43's finding 1 was a question back rather than an answer, and the owner has
+answered it: **the era table's percentages are shares of the citizen / free
+population, not of the total.** The evidence is inside the owner's own
+specification — its Republican Rome figure is stated as *"17-29 % of its
+**citizen** population"*, the one place the specification names a denominator
+at all.
+
+`MILITARY_MANPOWER_SCOPE.md` §1a carries the ruling (as an annotation, because
+that document reproduces the specification verbatim and does not edit it), §2.6
+the derivation, §3.2a the re-measured verdicts.
+
+### What the denominator is, and what grounds it
+
+Nothing in `cartalith-civ` distinguished a citizen, free or full-status subset
+of population — grepped before inventing one, which this session has now been
+repaid for **eight** times. `FactionEntry::culture` was checked too and turns
+out to be `CIV_CULTURES`, name-syllable pools with no social content.
+
+So it is derived from what does exist:
+`clamp(CITIZEN_SHARE[government] + 0.68 × urbanisation, 0.20, 0.98)`.
+
+Government is the driver on the merits and not merely by availability: the two
+cases the specification cites sit on either side of exactly this distinction —
+a republic's citizen body is a much larger share of its polity than a
+pre-Caracalla empire's, which is what makes Hopkins' 17-29 % and Rome's
+0.21-0.56 % consistent with one table. Shares run `chiefdom` 0.90 → `monarchy`
+0.55 → `republic` 0.50 → `city_state` 0.45 → `oligarchy` 0.40 → `empire` 0.30,
+each grounded in §2.6's table (Domesday, Attica c. 431 BC, Polybius' 225 BC
+census). The modernisation term is **derived rather than chosen** — legal
+servitude is an agrarian institution, and `0.68 = CITIZEN_CEILING −
+min(CITIZEN_SHARE)` is what makes every government converge on universal civic
+status at industrial labour ratios; a test pins the identity.
+
+### The calibration did not move, and that is asserted rather than claimed
+
+The four outputs are calibrated on the specification's own worked examples and
+were **not** recalibrated: `the_citizen_ruling_moves_no_headcount` pins Kingdom
+A and B to the figures §43 published, and the live probe pins that total
+population does not move when only the government does and that every levy
+restores exactly when the roster is put back. Only the two verdicts changed
+basis.
+
+### What the verdicts read now
+
+On the 233-settlement world, **five of six factions read `within` on both
+bands** where all six previously read `below` on standing. Draumr League is
+still `below` on standing at 0.09 %, honestly — its `ecological_factor` is
+0.428, which is finding 3, not a denominator problem, and no denominator was
+going to move an 87-strong standing army into a band.
+
+On a sparser 33-settlement world with one government per faction (the
+denominator has to be *differentiated* to prove anything, and a default roster
+is all-`monarchy`), the citizen fraction spreads **0.378 … 0.978**, mobilization
+reads `within` for five of six, and standing reads `within` only for the
+narrowest citizen body. That residual is §43's finding 2 — the model's standing
+armies sit at Imperial Rome's ratio, which the table's standing column never
+agreed with — and it is reported rather than tuned, because correcting it would
+mean recalibrating outputs validated against the worked example.
+
+### On screen
+
+The denominator is **surfaced, not invisible** — a band verdict whose divisor a
+reader cannot see is a number they cannot argue with. CIVIL ▸ Military gains a
+*Who the bands are measured against* group: one line per faction with the
+citizen headcount, its share of the total, both citizen-based shares with their
+verdicts and the era, and a tooltip quoting what the same two figures would
+read against total population, so the previous basis stays legible rather than
+being deleted. The Faction Roster's Military block names the citizen population
+and the government that conferred it on the line above its verdict. The
+category's closing note now states the ruling instead of warning that `below`
+should be expected.
+
+CV-25's row is otherwise unchanged: still `needs a decision`, still open on
+per-settlement garrisons, campaigns, unit movement and combat.

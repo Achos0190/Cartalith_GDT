@@ -75,6 +75,53 @@
 //! which at a 95 % agricultural labour ratio is almost nothing, while
 //! [`Manpower::emergency_mobilization`] is demographic and stays large.
 //!
+//! ## Whose population is the era band a share of? (owner ruling, 2026-08-25)
+//!
+//! The first build of this module reported [`Manpower::era_band`] against
+//! **total** population and found that the verdicts read `below` persistently
+//! — recorded as finding 1 of `MILITARY_MANPOWER_SCOPE.md` §3.3, together
+//! with the observation that the specification's era table disagrees with its
+//! own worked example *and* with its own cited Imperial Rome figure, in one
+//! consistent direction.
+//!
+//! **The owner has ruled that the table's percentages are shares of the
+//! citizen / free population, not of the total.** The evidence is inside the
+//! specification: its Republican Rome figure is stated as *"17-29 % of its
+//! **citizen** population"* (Hopkins' reconstruction), and under that reading
+//! Imperial Rome's ~250 000 regulars over 45-120 million stops being a factor
+//! of two to five under a 1 % classical floor.
+//!
+//! So this module derives a [`Manpower::citizen_population`] and compares the
+//! bands against **that**:
+//!
+//! ```text
+//! citizen_fraction   = clamp(CITIZEN_SHARE[government]
+//!                            + CITIZEN_MODERNISATION × urbanisation,
+//!                            CITIZEN_FLOOR, CITIZEN_CEILING)
+//! citizen_population = total_population × citizen_fraction
+//! ```
+//!
+//! Two things about that, both deliberate:
+//!
+//! **The four outputs do not move.** Standing, field, emergency and the
+//! duration curve are calibrated on the specification's own worked examples
+//! and validated against them; the citizen fraction is a *denominator for the
+//! verdict* and enters nothing else. `MILITARY_MANPOWER_SCOPE.md`'s Kingdom A
+//! and B tables are unchanged by this pass, and a unit test pins that they
+//! are.
+//!
+//! **It is derived from the government, which was already the fiscal driver,
+//! plus how agrarian the society is.** Nothing in this crate distinguished a
+//! citizen, free or full-status subset of population before this — grepped
+//! before inventing one, the standing rule this repo has now been repaid for
+//! eight times. [`crate::roster::FactionEntry`]-adjacent fields were checked
+//! too: `culture` is [`crate::CIV_CULTURES`], which is name-syllable pools
+//! and nothing else, and `religion` carries no social structure. Government
+//! is what is actually there, and it is the right driver anyway — a citizen
+//! body under a republic is a very different share of its polity than under a
+//! slave-holding empire, which is precisely the distinction Hopkins' figure
+//! and the Imperial Rome figure sit on either side of.
+//!
 //! ## Nothing here is stored
 //!
 //! Derived and recomputed, like [`crate::civ_faction_aggregates`],
@@ -212,9 +259,110 @@ pub fn government_extraction(key: &str) -> f64 {
         .map_or(0.15, |&(_, v)| v)
 }
 
+/// The share of the total population that holds **full civic status** — the
+/// citizen or free body — before [`CITIZEN_MODERNISATION`] is added, keyed by
+/// [`crate::roster::CIV_GOVERNMENTS`].
+///
+/// **This is [`ERA_BANDS`]' denominator and nothing else.** It does not enter
+/// any of the four headcounts, which are calibrated on
+/// `MILITARY_MANPOWER_SCOPE.md`'s worked examples and are untouched by it.
+/// See [`Manpower::citizen_population`] for the owner's ruling that put it
+/// here, and this module's *"whose population is the band a share of"*
+/// section for the grounding of each row.
+///
+/// Ordering, and where each figure comes from:
+///
+/// - **Kin-based polities** (`none`, `chiefdom`, `tribal_confederacy`,
+///   0.88-0.90) barely distinguish status at all: the owner's own caution
+///   that a warrior band's fighters *are* its hunters and parents is the same
+///   observation from the other side. Their military figures are naturally
+///   quoted against the whole population, so this denominator hardly moves
+///   them — which is the correct behaviour, not a missing effect.
+/// - **`monarchy` / `theocracy` (0.55)** — a servile or half-free substrate
+///   under free peasants, burghers and gentry. Domesday England counts about
+///   10 % slaves and two-thirds villeins and bordars against roughly a
+///   seventh free sokemen, and the militarily-relevant free body sits between
+///   those two readings.
+/// - **`republic` (0.50)** — Rome's own case, and the one the owner's ruling
+///   turns on. Polybius' 225 BC figures give a citizen body of order a
+///   million *with families* against an Italian population of some four
+///   million including allies and slaves; the citizen half of that against
+///   the polity Rome actually administered is about half.
+/// - **`city_state` (0.45)** — Athens c. 431 BC: roughly 150 000 citizens
+///   with families against 80-100 000 slaves and 25-50 000 metics with
+///   theirs. Intensively slave-holding at a small scale.
+/// - **`oligarchy` (0.40)** — enfranchisement narrows by definition. Sparta's
+///   Spartiates against the helots is the extreme case and is far lower than
+///   this; Venice's patriciate over a free populace is far higher. 0.40 is
+///   between them and is the least-grounded row in this table.
+/// - **`empire` (0.30)** — conquered subjects and large slave populations
+///   stand outside the citizen body. Pre-Caracalla Roman citizens are usually
+///   put at a fifth to a third of the empire, and this is the row that makes
+///   the specification's own Imperial Rome figure stop being anomalous.
+///
+/// Unknown keys read as `chiefdom`, the same fallback
+/// [`government_extraction`] takes and for the *opposite* reason: there, the
+/// conservative direction is to deny an unclassifiable state an imperial
+/// treasury; here, a **high** citizen fraction is the conservative one,
+/// because it makes a share of that body *smaller* and so cannot flatter a
+/// faction into its band.
+pub const CITIZEN_SHARE: [(&str, f64); 9] = [
+    ("none", 0.90),
+    ("chiefdom", 0.90),
+    ("tribal_confederacy", 0.88),
+    ("monarchy", 0.55),
+    ("theocracy", 0.55),
+    ("oligarchy", 0.40),
+    ("republic", 0.50),
+    ("city_state", 0.45),
+    ("empire", 0.30),
+];
+
+/// [`CITIZEN_SHARE`]'s lookup, with its stated fallback.
+pub fn citizen_share(key: &str) -> f64 {
+    CITIZEN_SHARE.iter().find(|&&(k, _)| k == key).map_or(0.90, |&(_, v)| v)
+}
+
+/// How much the citizen/free share widens as a society stops being agrarian,
+/// applied to the same normalised urbanisation
+/// [`MilitaryDrivers::state_capacity`] uses.
+///
+/// Legal servitude is an agrarian institution: chattel slavery, serfdom and
+/// villeinage are all ways of binding labour to land, and they disappear —
+/// everywhere, and within roughly a century of each other — as the
+/// agricultural labour ratio collapses. A society where a seventh of the
+/// population farms has essentially universal civic status; one where
+/// nineteen twentieths do has whatever its government imposes. So the
+/// denominator is not a constant per government: it is a government's floor
+/// plus what modernisation adds.
+///
+/// **The value is derived rather than chosen**, from a single statement: *at
+/// full industrialisation, civic status is universal whatever the government
+/// is called*. That fixes it at `CITIZEN_CEILING − min(CITIZEN_SHARE)` =
+/// `0.98 − 0.30` = `0.68`, so that even an `empire` reaches
+/// [`CITIZEN_CEILING`] once its urbanisation term is 1, and every government
+/// above it has already been clamped there. A unit test pins the identity, so
+/// editing [`CITIZEN_SHARE`]'s lowest row without editing this fails loudly.
+///
+/// That also keeps the model's own [`ERA_BANDS`] internally consistent at the
+/// top of the table: the industrial rows quote mobilization at 30-50 %, which
+/// is only reachable at all against a denominator close to the whole
+/// population.
+pub const CITIZEN_MODERNISATION: f64 = 0.68;
+/// The band denominator's floor — no polity is modelled as drawing its
+/// soldiers from under a fifth of itself, whatever its government.
+pub const CITIZEN_FLOOR: f64 = 0.20;
+/// The band denominator's ceiling. Not `1.0`: children, the aged and the
+/// infirm are never part of any "free population" a military figure was
+/// quoted against, and the residue is what that costs.
+pub const CITIZEN_CEILING: f64 = 0.98;
+
 /// One row of the era table in `MILITARY_MANPOWER_SCOPE.md`: a name, the
 /// sustainable standing-army band and the wartime-mobilization band, both as
-/// shares of total population.
+/// shares of the **citizen / free** population
+/// ([`Manpower::citizen_population`]) — the owner's 2026-08-25 ruling on
+/// which denominator the supplied table meant, and the reading its own
+/// *"17-29 % of its citizen population"* citation states outright.
 ///
 /// **These are modelling ranges, not historical laws** — the owner's own
 /// words, and the reason [`Manpower::era_verdict`] reports "above" or
@@ -377,6 +525,15 @@ pub struct MilitaryDrivers {
     /// **This is the geography term**, and it is why two factions on the
     /// same ag-tech row do not get the same answer.
     pub ecological_factor: f64,
+    /// `0..1` — the share of the population holding full civic status, from
+    /// [`CITIZEN_SHARE`] and [`CITIZEN_MODERNISATION`].
+    ///
+    /// **Not a sixth variable.** It drives no headcount; its only consumer
+    /// is [`Manpower::citizen_population`], which is the denominator the
+    /// [`ERA_BANDS`] verdicts are read against per the owner's 2026-08-25
+    /// ruling. Carried here rather than computed at the point of use so the
+    /// one place that mixes governments with urbanisation stays one place.
+    pub citizen_fraction: f64,
 }
 
 /// One rung of [`Manpower::force_ladder`]: the largest force sustainable for
@@ -406,6 +563,21 @@ pub struct Manpower {
     pub total_population: f64,
     /// `total_population × agricultural_labour_ratio`.
     pub farming_population: f64,
+    /// `total_population × `[`MilitaryDrivers::citizen_fraction`] — the
+    /// citizen or free body, and **the denominator [`Manpower::era_band`]'s
+    /// two verdicts are read against**.
+    ///
+    /// The owner's 2026-08-25 ruling on an ambiguity in the supplied
+    /// specification: its era table's percentages are shares of this, not of
+    /// [`Manpower::total_population`], as its own *"17-29 % of its citizen
+    /// population"* citation says outright. See this module's own
+    /// *"Whose population is the era band a share of?"* section.
+    ///
+    /// **Nothing else reads it.** The four outputs are calibrated on the
+    /// specification's worked examples against total population and are
+    /// unchanged by this; so is the war-duration curve, whose two anchors
+    /// are stated as shares of a whole population.
+    pub citizen_population: f64,
     /// `total_population × MILITARY_AGE_FRACTION`.
     pub mobilization_pool: f64,
     /// Output 1: continuously maintained under arms.
@@ -433,14 +605,27 @@ pub struct Manpower {
     /// The era this faction's five variables put it in. **Derived, never an
     /// input.**
     pub era_band: EraBand,
-    /// `standing_army / total_population`.
+    /// `standing_army / total_population`. Reported for scale; it is **not**
+    /// what the verdict reads — see
+    /// [`standing_citizen_share`](Self::standing_citizen_share).
     pub standing_share: f64,
-    /// `emergency_mobilization / total_population`.
+    /// `emergency_mobilization / total_population`. See
+    /// [`standing_share`](Self::standing_share).
     pub emergency_share: f64,
-    /// `"within"`, `"above"` or `"below"` — where `standing_share` falls
-    /// against [`EraBand::standing`].
+    /// `standing_army / citizen_population` — **the figure
+    /// [`era_standing_verdict`](Self::era_standing_verdict) compares**.
+    pub standing_citizen_share: f64,
+    /// `emergency_mobilization / citizen_population` — **the figure
+    /// [`era_mobilization_verdict`](Self::era_mobilization_verdict)
+    /// compares**.
+    pub emergency_citizen_share: f64,
+    /// `"within"`, `"above"` or `"below"` — where
+    /// [`standing_citizen_share`](Self::standing_citizen_share) falls against
+    /// [`EraBand::standing`].
     pub era_standing_verdict: &'static str,
-    /// The same for `emergency_share` against [`EraBand::mobilization`].
+    /// The same for
+    /// [`emergency_citizen_share`](Self::emergency_citizen_share) against
+    /// [`EraBand::mobilization`].
     pub era_mobilization_verdict: &'static str,
 }
 
@@ -676,6 +861,16 @@ pub fn military_drivers(input: &ManpowerInput) -> MilitaryDrivers {
         sea_share: sea,
         state_capacity,
         ecological_factor: ecological,
+        // The era-band denominator, and nothing else. A government's floor,
+        // widened by how far the society has left agriculture behind — see
+        // CITIZEN_MODERNISATION for why those are the two terms.
+        citizen_fraction: js_max(
+            CITIZEN_FLOOR,
+            js_min(
+                CITIZEN_CEILING,
+                citizen_share(input.government) + CITIZEN_MODERNISATION * urban_norm,
+            ),
+        ),
     }
 }
 
@@ -747,10 +942,20 @@ pub fn civ_military_manpower(input: &ManpowerInput) -> Manpower {
     let standing_share = share(standing);
     let emergency_share = share(emergency);
 
+    // ---- The era band's denominator (owner ruling, 2026-08-25).
+    //
+    // The four outputs above are already final; this changes none of them.
+    // It only decides what the table's percentages are percentages OF.
+    let citizen_pop = total_pop * d.citizen_fraction;
+    let citizen_share_of = |n: f64| if citizen_pop > 0.0 { n / citizen_pop } else { 0.0 };
+    let standing_citizen_share = citizen_share_of(standing);
+    let emergency_citizen_share = citizen_share_of(emergency);
+
     Manpower {
         drivers: d,
         total_population: total_pop,
         farming_population: farming,
+        citizen_population: citizen_pop,
         mobilization_pool: pool,
         standing_army: standing,
         professional_core,
@@ -763,8 +968,10 @@ pub fn civ_military_manpower(input: &ManpowerInput) -> Manpower {
         era_band: era,
         standing_share,
         emergency_share,
-        era_standing_verdict: band_verdict(standing_share, era.standing),
-        era_mobilization_verdict: band_verdict(emergency_share, era.mobilization),
+        standing_citizen_share,
+        emergency_citizen_share,
+        era_standing_verdict: band_verdict(standing_citizen_share, era.standing),
+        era_mobilization_verdict: band_verdict(emergency_citizen_share, era.mobilization),
     }
 }
 
@@ -1042,6 +1249,149 @@ mod tests {
         assert_eq!(band_verdict(0.005, (0.005, 0.02)), "within");
     }
 
+    // ---- The owner's 2026-08-25 ruling: the bands are shares of the
+    //      citizen / free population, not of the total.
+
+    /// The ruling changed a **denominator**, and this is the test that says
+    /// so. Every headcount is pinned to the figure
+    /// `MILITARY_MANPOWER_SCOPE.md` §3.1 published *before* the citizen
+    /// population existed, so a future edit to [`CITIZEN_SHARE`] or
+    /// [`CITIZEN_MODERNISATION`] that leaked into an output fails here rather
+    /// than silently recalibrating a validated model.
+    #[test]
+    fn the_citizen_ruling_moves_no_headcount() {
+        for (input, standing, levy, field) in [
+            (kingdom_a(), 5_846.0, 41_221.0, 15_870.0),
+            (kingdom_b(), 19_067.0, 98_889.0, 47_368.0),
+        ] {
+            let m = civ_military_manpower(&input);
+            assert!((m.standing_army - standing).abs() < 1.0, "standing {}", m.standing_army);
+            assert!(
+                (m.emergency_mobilization - levy).abs() < 1.0,
+                "levy {}",
+                m.emergency_mobilization
+            );
+            assert!((m.field_army - field).abs() < 1.0, "field {}", m.field_army);
+            // And the duration curve, whose anchors are stated as shares of a
+            // whole population, is likewise on the total and not the citizen
+            // body.
+            assert!((m.standing_share - m.standing_army / m.total_population).abs() < 1e-12);
+            for r in m.force_ladder {
+                assert!((r.share - r.force / m.total_population).abs() < 1e-12);
+            }
+        }
+    }
+
+    /// What the ruling was *for*: both worked examples land inside both
+    /// bands against the citizen body, where the first build read one of
+    /// them `below`.
+    #[test]
+    fn the_citizen_ruling_lands_the_worked_examples_inside_their_bands() {
+        for input in [kingdom_a(), kingdom_b()] {
+            let m = civ_military_manpower(&input);
+            assert!(m.citizen_population < m.total_population);
+            assert!(
+                (m.citizen_population - m.total_population * m.drivers.citizen_fraction).abs()
+                    < 1e-6
+            );
+            assert!(m.standing_citizen_share > m.standing_share);
+            assert!(m.emergency_citizen_share > m.emergency_share);
+            assert_eq!(m.era_standing_verdict, "within", "{}", m.era_band.name);
+            assert_eq!(m.era_mobilization_verdict, "within", "{}", m.era_band.name);
+            // The verdict reads the citizen share and not the total one.
+            assert_eq!(
+                m.era_standing_verdict,
+                band_verdict(m.standing_citizen_share, m.era_band.standing)
+            );
+            assert_eq!(
+                m.era_mobilization_verdict,
+                band_verdict(m.emergency_citizen_share, m.era_band.mobilization)
+            );
+        }
+    }
+
+    /// The denominator must actually be differentiated by government, or the
+    /// ruling amounts to dividing everything by one constant — which would
+    /// have been the arbitrary fraction it exists to avoid. Everything but
+    /// the government key is held fixed.
+    #[test]
+    fn citizen_fraction_is_driven_by_government() {
+        let at = |gov: &'static str| {
+            civ_military_manpower(&ManpowerInput { government: gov, ..kingdom_a() })
+                .drivers
+                .citizen_fraction
+        };
+        // Kin-based polity, hardly any status distinction at all -> a
+        // slave-holding empire, where the citizen body is a minority.
+        assert!(at("chiefdom") > at("monarchy"));
+        assert!(at("monarchy") > at("republic"));
+        assert!(at("republic") > at("city_state"));
+        assert!(at("city_state") > at("oligarchy"));
+        assert!(at("oligarchy") > at("empire"));
+        // A real spread, not six values within a rounding error.
+        assert!(at("chiefdom") - at("empire") > 0.4);
+    }
+
+    /// Legal servitude is an agrarian institution: hold the government fixed
+    /// and the citizen body widens as farming shrinks, converging near
+    /// [`CITIZEN_CEILING`] for every government at industrial labour ratios.
+    #[test]
+    fn citizen_fraction_widens_as_the_society_leaves_agriculture() {
+        let at = |f: f64, gov: &'static str| {
+            civ_military_manpower(&ManpowerInput {
+                farmers_per_urbanite: f,
+                government: gov,
+                ..kingdom_a()
+            })
+            .drivers
+            .citizen_fraction
+        };
+        // Strictly rising across the four agrarian rows, then flat once the
+        // ceiling binds -- which is the shape the claim actually makes.
+        let mut prev = 0.0;
+        for f in [19.0, 9.0, 4.0, 1.0] {
+            let c = at(f, "monarchy");
+            assert!(c > prev, "f={f} gave {c}, not above {prev}");
+            prev = c;
+        }
+        for f in [0.45, 0.15] {
+            assert!(at(f, "monarchy") >= prev);
+        }
+        // At the industrial row the government stops mattering entirely --
+        // CITIZEN_MODERNISATION is derived from exactly that statement, and
+        // this is the identity it is derived from. Editing CITIZEN_SHARE's
+        // lowest row without editing CITIZEN_MODERNISATION fails here.
+        let lowest = CITIZEN_SHARE.iter().map(|&(_, v)| v).fold(f64::INFINITY, f64::min);
+        assert!((CITIZEN_MODERNISATION - (CITIZEN_CEILING - lowest)).abs() < 1e-12);
+        for (gov, _) in CITIZEN_SHARE {
+            assert!(
+                (at(0.15, gov) - CITIZEN_CEILING).abs() < 1e-12,
+                "{gov} does not converge at the industrial row: {}",
+                at(0.15, gov)
+            );
+        }
+        // And at subsistence a kin-based polity's band denominator is nearly
+        // the whole population -- the owner's warrior-society caution, seen
+        // from the denominator's side.
+        assert!(at(19.0, "chiefdom") > 0.90);
+    }
+
+    #[test]
+    fn citizen_share_table_is_the_roster_vocabulary_and_falls_back_safely() {
+        for (k, _) in crate::roster::CIV_GOVERNMENTS {
+            assert!(CITIZEN_SHARE.iter().any(|&(g, _)| g == k), "{k} has no citizen share");
+        }
+        assert_eq!(CITIZEN_SHARE.len(), crate::roster::CIV_GOVERNMENTS.len());
+        for (k, v) in CITIZEN_SHARE {
+            assert!((CITIZEN_FLOOR..=CITIZEN_CEILING).contains(&v), "{k} = {v}");
+        }
+        // The fallback is the *high* end here, the opposite direction to
+        // `government_extraction`'s and for the reason CITIZEN_SHARE's doc
+        // gives: a large denominator cannot flatter a faction into its band.
+        assert_eq!(citizen_share("not-a-government"), citizen_share("chiefdom"));
+        assert!(citizen_share("chiefdom") > citizen_share("empire"));
+    }
+
     #[test]
     fn government_table_is_the_roster_vocabulary_and_falls_back_safely() {
         for (k, _) in crate::roster::CIV_GOVERNMENTS {
@@ -1097,7 +1447,11 @@ mod tests {
             assert_eq!(m.emergency_mobilization, 0.0);
             assert_eq!(m.field_army, 0.0);
             assert_eq!(m.concentration_ratio, 0.0);
+            assert_eq!(m.citizen_population, 0.0);
             assert!(m.standing_share.is_finite() && m.emergency_share.is_finite());
+            assert!(
+                m.standing_citizen_share.is_finite() && m.emergency_citizen_share.is_finite()
+            );
             for r in m.force_ladder {
                 assert!(r.force.is_finite() && r.share.is_finite());
             }
@@ -1126,6 +1480,11 @@ mod tests {
                     assert!((0.0..=1.0).contains(&d.professionalization));
                     assert!((0.03..=0.95).contains(&d.state_capacity));
                     assert!((0.25..=2.0).contains(&d.ecological_factor));
+                    assert!(
+                        (CITIZEN_FLOOR..=CITIZEN_CEILING).contains(&d.citizen_fraction),
+                        "citizen fraction {} out of range",
+                        d.citizen_fraction
+                    );
                     assert!(
                         (EXTRACTION_FLOOR..=EXTRACTION_CEILING)
                             .contains(&d.fiscal_extraction_efficiency)

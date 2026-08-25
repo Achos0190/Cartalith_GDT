@@ -1714,25 +1714,35 @@ static func _head(v: float) -> String:
 ## The band is quoted with the verdict rather than instead of it, so a faction
 ## outside its era's range reads as a finding about that faction and not as a
 ## bug in the table.
+##
+## The era percentages are shares of the CITIZEN / FREE population and are
+## labelled as such, so the citizen figure is quoted on its own line first
+## (owner ruling, 2026-08-25). A band verdict whose denominator is invisible
+## is a number a reader cannot argue with, which is the one thing this whole
+## section is built not to be.
 static func _manpower_tooltip(m: Dictionary) -> String:
 	return ("Total population %s (%s in farming, %s of military age).\n"
+		+ "Citizen / free population %s — %.0f%% of the total, and the "
+		+ "denominator the era bands are read against.\n"
 		+ "Professional core %s of the standing army.\n"
 		+ "A field army stays out %d days; a full levy %d.\n"
-		+ "Era: %s — %s. Standing %.2f%% (band %.1f-%.1f%%, %s); "
+		+ "Era: %s — %s. Standing %.2f%% of citizens (band %.1f-%.1f%%, %s); "
 		+ "mobilization %.1f%% (band %.0f-%.0f%%, %s).\n"
 		+ "Open this faction in the right dock.") % [
 		_head(float(m.get("total_population", 0.0))),
 		_head(float(m.get("farming_population", 0.0))),
 		_head(float(m.get("mobilization_pool", 0.0))),
+		_head(float(m.get("citizen_population", 0.0))),
+		100.0 * float(m.get("citizen_fraction", 0.0)),
 		_head(float(m.get("professional_core", 0.0))),
 		int(round(float(m.get("field_duration_days", 0.0)))),
 		int(round(float(m.get("emergency_duration_days", 0.0)))),
 		String(m.get("era", "?")), String(m.get("era_constraint", "")),
-		100.0 * float(m.get("standing_share", 0.0)),
+		100.0 * float(m.get("standing_citizen_share", 0.0)),
 		100.0 * float(m.get("era_standing_lo", 0.0)),
 		100.0 * float(m.get("era_standing_hi", 0.0)),
 		String(m.get("era_standing_verdict", "?")),
-		100.0 * float(m.get("emergency_share", 0.0)),
+		100.0 * float(m.get("emergency_citizen_share", 0.0)),
 		100.0 * float(m.get("era_mobilization_lo", 0.0)),
 		100.0 * float(m.get("era_mobilization_hi", 0.0)),
 		String(m.get("era_mobilization_verdict", "?"))]
@@ -1816,6 +1826,48 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 			float(m.get("state_capacity", 0.0)), float(m.get("ecological_factor", 0.0))]
 		n.mouse_filter = Control.MOUSE_FILTER_PASS
 
+	## The era band's denominator, on screen rather than buried in a tooltip
+	## (owner ruling, 2026-08-25). Before this, a "below" verdict was a
+	## percentage of an invisible divisor; now the divisor is a headcount a
+	## reader can disagree with, next to the government that produced it.
+	var civ := DccWidgets.group(sec, "Who the bands are measured against", false)
+	DccWidgets.note(civ,
+		"The era percentages are shares of the CITIZEN / FREE population, not "
+		+ "of the total -- the specification's own Republican Rome figure is "
+		+ "quoted as \"17-29 % of its citizen population\". That body is a "
+		+ "government's own share (a kin-based chiefdom counts nearly everyone; "
+		+ "a slave-holding empire counts a minority), widened as a society "
+		+ "leaves agriculture behind, since serfdom and slavery are agrarian "
+		+ "institutions. It sets no headcount above -- only what they are a "
+		+ "percentage of.")
+	for r in rows:
+		var d: Dictionary = r
+		var m: Dictionary = d.get("manpower", {})
+		if m.is_empty():
+			continue
+		var n := DccWidgets.note(civ, "%s -- citizens %s of %s (%.0f%%) · standing %.2f%% %s · mobilization %.1f%% %s · %s" % [
+			String(d.get("name", "?")),
+			_head(float(m.get("citizen_population", 0.0))),
+			_head(float(m.get("total_population", 0.0))),
+			100.0 * float(m.get("citizen_fraction", 0.0)),
+			100.0 * float(m.get("standing_citizen_share", 0.0)),
+			String(m.get("era_standing_verdict", "?")),
+			100.0 * float(m.get("emergency_citizen_share", 0.0)),
+			String(m.get("era_mobilization_verdict", "?")),
+			String(m.get("era", "?"))])
+		n.tooltip_text = ("Government %s. Bands: standing %.1f-%.1f%%, "
+			+ "mobilization %.0f-%.0f%%. Against TOTAL population the same two "
+			+ "figures would read %.2f%% and %.1f%%, which is the reading the "
+			+ "first build of this model used.") % [
+			String(m.get("government", "?")).replace("_", " "),
+			100.0 * float(m.get("era_standing_lo", 0.0)),
+			100.0 * float(m.get("era_standing_hi", 0.0)),
+			100.0 * float(m.get("era_mobilization_lo", 0.0)),
+			100.0 * float(m.get("era_mobilization_hi", 0.0)),
+			100.0 * float(m.get("standing_share", 0.0)),
+			100.0 * float(m.get("emergency_share", 0.0))]
+		n.mouse_filter = Control.MOUSE_FILTER_PASS
+
 	## The owner's own modelling caution, and the reason it is a number rather
 	## than a warning string: ancient army figures are massively exaggerated
 	## (Xerxes' invasion is described in millions and reconstructs to ~70 000
@@ -1833,18 +1885,19 @@ func _fill_manpower(parent: Control, factions: Array) -> void:
 		+ "it can raise. A host reported above its own field-army figure could "
 		+ "not have been supplied in one place, whatever the source says.")
 
-	## Said on screen rather than only in the scope document, because a row of
-	## "below" verdicts otherwise reads as a defect. It is not: the era table
-	## and the worked example that calibrated this model disagree with each
-	## other, and so does the table with its own cited Imperial Rome figure.
+	## Said on screen rather than only in the scope document, because the
+	## denominator the bands are read against is a modelling decision and not
+	## an implementation detail -- it moves every verdict on this screen.
 	DccWidgets.note(sec,
-		"Era bands (in each row's tooltip) are a sanity check and never a "
-		+ "driver — the era is derived from the five variables, not chosen. "
-		+ "Expect \"below\" often: the bands are shares of TOTAL population, "
-		+ "while the ancient figures behind them are usually quoted against a "
-		+ "citizen or free population, and Imperial Rome's own ~250 000 "
-		+ "regulars over 45–120 million is itself under the classical band's "
-		+ "1 % floor. Reported, never clamped.")
+		"Era bands are a sanity check and never a driver — the era is derived "
+		+ "from the five variables, not chosen, and nothing is clamped into "
+		+ "range. They are shares of the citizen / free population (owner "
+		+ "ruling, 2026-08-25), which is the reading the specification's own "
+		+ "Republican Rome citation states outright and the one that stops its "
+		+ "own Imperial Rome figure — ~250 000 regulars over 45–120 million — "
+		+ "sitting under the classical band's 1 % floor. The four headcounts "
+		+ "above are calibrated on the specification's worked examples and are "
+		+ "unaffected by it.")
 
 
 ## v3 CIVIL ▸ RELATIONSHIPS (`GUI_GAP_REGISTER.md` **CV-26**, built 2026-08-25).

@@ -26982,3 +26982,131 @@ and `cargo clippy -p cartalith-civ` clean.
 per-*faction* headcounts are real; which settlement holds which part of a
 standing army is a placement rule nothing implies), campaigns, unit movement,
 combat, and change over time.
+
+## The era bands' denominator — the owner ruled, and it is the citizen population (`MILITARY_MANPOWER_SCOPE.md` §1a, `GUI_GAP_REGISTER.md` §44, 2026-08-25)
+
+The previous entry's finding 1 was a question back to the owner rather than an
+answer: the manpower model's era-band verdicts read `below` persistently,
+because the supplied specification's era table, its worked example and its own
+cited Imperial Rome figure disagree in one consistent direction. A
+reconciliation was offered and not implemented.
+
+**The owner has ruled: the table's percentages are shares of the citizen /
+free population, not of the total.** The evidence is inside the specification —
+its Republican Rome figure is stated as *"17-29 % of its **citizen**
+population"* (Hopkins), the one place it names a denominator at all. Under that
+reading Imperial Rome's ~250 000 regulars over 45-120 million stops being a
+factor of two to five under a 1 % classical floor.
+
+`MILITARY_MANPOWER_SCOPE.md` carries the specification **verbatim**, so the
+ruling is recorded as a clearly-marked annotation (§1a) rather than an edit to
+the owner's text, with the derivation at §2.6.
+
+### The denominator, and what grounds it
+
+**Grepped before inventing one.** Nothing in `cartalith-civ` distinguished a
+citizen, free or full-status subset of population — `citizen`, `free`, `serf`,
+`slave`, `caste`, `social`, `status` return nothing but unrelated prose.
+`FactionEntry::culture` was checked too and is `CIV_CULTURES`: name-syllable
+pools, no social content. This is the eighth time this session that checking
+first was the right move, in both directions.
+
+So it is derived from what exists:
+
+```
+citizen_fraction   = clamp(CITIZEN_SHARE[government] + 0.68 × urbanisation, 0.20, 0.98)
+citizen_population = total_population × citizen_fraction
+```
+
+Government is the driver **on the merits**, not merely by availability: the two
+cases the specification cites sit on either side of exactly this distinction. A
+republic's citizen body is a much larger share of its polity than a
+pre-Caracalla empire's, which is what makes Hopkins' 17-29 % and Rome's
+0.21-0.56 % consistent with one table. `chiefdom` 0.90 → `monarchy`/`theocracy`
+0.55 → `republic` 0.50 → `city_state` 0.45 → `oligarchy` 0.40 → `empire` 0.30,
+each grounded (Domesday's slaves/villeins/sokemen, Attica c. 431 BC's citizens
+against slaves and metics, Polybius' 225 BC census against Italy's population),
+with `oligarchy` disclosed as the least-grounded row. Unknown keys fall back to
+`chiefdom` — the same fallback `government_extraction` takes and for the
+**opposite** reason: a *high* citizen fraction is the conservative one here,
+because it makes a share of that body smaller and so cannot flatter a faction
+into its band.
+
+**`CITIZEN_MODERNISATION = 0.68` is derived rather than chosen.** Legal
+servitude is an agrarian institution — chattel slavery, serfdom and villeinage
+all bind labour to land and all disappear as the agricultural labour ratio
+collapses — so the value follows from one statement: *at full
+industrialisation, civic status is universal whatever the government is
+called.* That is `CITIZEN_CEILING − min(CITIZEN_SHARE)` = `0.98 − 0.30`, and a
+test pins the identity so editing the lowest row without editing this fails.
+It also makes the owner's own table self-consistent at the top: its industrial
+rows quote 30-50 % mobilization, only reachable against a denominator close to
+the whole population.
+
+### The four outputs did not move, and that is asserted
+
+Standing, field, emergency and the war-duration curve are calibrated on the
+specification's worked examples and were **not** recalibrated. The duration
+anchors ("10 % for 30 days, 2 % for a year") are stated as shares of a whole
+population and stay that way, as does the force ladder's `share`. Era
+*assignment* is untouched — `era_for` still reads the five variables. Only the
+two verdicts changed basis.
+
+`the_citizen_ruling_moves_no_headcount` pins every Kingdom A and B figure to
+the value published before the citizen population existed, and the live probe
+pins that total population does not move when only the government does and that
+every levy restores exactly when the roster is put back.
+
+**Re-validated:** Kingdom A **5 846 / 41 221 / 15 870**, Kingdom B **19 067 /
+98 889 / 47 368** — unchanged to the unit. Their verdicts now read
+`within`/`within` on both, where A's mobilization previously read `below` its
+5 % floor. A's citizen body is 745 500 (74.6 %, monarchy) at 0.784 % standing
+and 5.53 % mobilization; B's is 651 900 (65.2 %, empire) at 2.925 % and
+15.17 %.
+
+### What the verdicts read on real worlds
+
+On the 233-settlement six-faction world, **five of six read `within` on both
+bands** where all six read `below` on standing before:
+
+| faction | citizens / total | standing | mobilization |
+|---|---|---|---|
+| Veldmark | 215 862 / 343 620 | 0.70 % within | 9.4 % within |
+| Korrath | 198 078 / 315 310 | 0.70 % within | 8.7 % within |
+| Aurelia | 144 737 / 230 400 | 0.72 % within | 9.4 % within |
+| Sythe Dominion | 138 958 / 221 200 | 0.69 % within | 8.4 % within |
+| Mirelle | 129 516 / 206 170 | 0.68 % within | 8.1 % within |
+| Draumr League | 97 962 / 155 940 | 0.09 % **below** | 8.2 % within |
+
+Draumr League is honestly still below, for a reason the model already
+discloses: its `ecological_factor` is 0.428, so its land feeds well under half
+the people on it. That is the previous entry's finding 3, not a denominator
+problem — no denominator was going to move an 87-strong standing army into a
+band.
+
+A default roster is all-`monarchy`, so the engine probe also assigns one
+government per faction (33 settlements, 1200 km) to prove the denominator
+*discriminates*: the citizen fraction spreads **0.378 … 0.978**, mobilization
+reads `within` for five of six, and standing `within` only for the oligarchy —
+the narrowest citizen body of the set. **The residual is reported, not tuned**:
+this model's standing armies sit at Imperial Rome's ratio, which the table's
+standing column never agreed with, and correcting *that* would mean
+recalibrating outputs validated against the worked example.
+
+### Surfaced, not an invisible divisor
+
+A band verdict whose denominator a reader cannot see is a number they cannot
+argue with. CIVIL ▸ Military gains a **Who the bands are measured against**
+group — per faction: citizen headcount, its share of the total, both
+citizen-based shares with verdicts, the era — with a tooltip quoting what the
+same two figures read against total population, so the previous basis stays
+legible rather than deleted. The Faction Roster's Military block names the
+citizen population and the government that conferred it on the line above its
+verdict. The category's closing note states the ruling instead of warning that
+`below` should be expected.
+
+**Verified:** `cargo test -p cartalith-civ` **435 → 440** (5 new), 
+`cartalith-godot` 351, `cargo check -p cartalith-godot` clean, `cargo clippy -p
+cartalith-civ` clean, headless script load clean, and the shell probe PASS both
+windowed and headless on the 233-settlement world. `CivData` gained no field;
+`resident_bytes` still 0.

@@ -623,12 +623,23 @@ func _build_military_block() -> void:
 		_thousands(int(round(float(m.get("mobilization_pool", 0.0))))),
 		int(round(float(m.get("field_duration_days", 0.0)))),
 		int(round(float(m.get("emergency_duration_days", 0.0))))])
-	DccWidgets.note(sec, "Reads as a %s (%s). Standing %.2f%% of population — %s that era's %.1f–%.1f%% band; mobilization %.1f%% — %s its %.0f–%.0f%%." % [
+	## The era bands are shares of the CITIZEN / FREE population, not of the
+	## total (owner ruling, 2026-08-25 -- the supplied specification's own
+	## Republican Rome figure is quoted as "17-29 % of its citizen
+	## population"). So that body is named on the line above the verdict
+	## rather than being an invisible divisor: a reader has to be able to see
+	## what the percentage is a percentage of, and how the government produced
+	## it.
+	DccWidgets.note(sec, "Citizen / free population %s — %.0f%% of the total, the share a %s confers. This is what the era bands below are measured against, not the whole population." % [
+		_thousands(int(round(float(m.get("citizen_population", 0.0))))),
+		100.0 * float(m.get("citizen_fraction", 0.0)),
+		String(m.get("government", "?")).replace("_", " ")])
+	DccWidgets.note(sec, "Reads as a %s (%s). Standing %.2f%% of citizens — %s that era's %.1f–%.1f%% band; mobilization %.1f%% — %s its %.0f–%.0f%%." % [
 		String(m.get("era", "?")), String(m.get("era_constraint", "")),
-		100.0 * float(m.get("standing_share", 0.0)),
+		100.0 * float(m.get("standing_citizen_share", 0.0)),
 		String(m.get("era_standing_verdict", "?")),
 		100.0 * float(m.get("era_standing_lo", 0.0)), 100.0 * float(m.get("era_standing_hi", 0.0)),
-		100.0 * float(m.get("emergency_share", 0.0)),
+		100.0 * float(m.get("emergency_citizen_share", 0.0)),
 		String(m.get("era_mobilization_verdict", "?")),
 		100.0 * float(m.get("era_mobilization_lo", 0.0)),
 		100.0 * float(m.get("era_mobilization_hi", 0.0))])
