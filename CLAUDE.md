@@ -84,6 +84,7 @@ starting work — not this file, which is a map rather than a state.
 | `GENERATION_PARAMETERS.md` | every exposed generation parameter and its API |
 | `MARKDOWN_VAULT_SCOPE.md` | the Markdown Vault: the entity audit that found continents did not exist, and milestones 0-1 |
 | `STORY_PLANNING_SCOPE.md` | settlement timelines, the conflict overlay and the Journey entity — one subsystem over the Timeline's year cursor; carries the owner's three 2026-08-25 forks |
+| `EXPORT_SCOPE.md` | 16K/32K single-image export — **shelved 2026-08-25 by the owner**, findings only. Records that the reference's own bake draws terrain and nothing else, the four measured gaps in today's export, the render-once decision that would have to be reversed, a banded renderer that was prototyped and measured byte-identical before being reverted, and the codec survey (WebP eliminated at 16 383 px, JPEG XL at its AGPL encoder) |
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
