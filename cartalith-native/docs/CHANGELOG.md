@@ -26868,3 +26868,117 @@ with nothing to re-enable it — `GUI_GAP_REGISTER.md` **RF-01** again.
 **Still open, and disclosed on screen:** prices, tariffs, caravans as
 entities, and trade that changes over time. None is derivable from anything
 the civ layer holds, and each needs a decision about what a currency is here.
+
+## CV-25's other half — military manpower, on an owner-supplied specification (2026-08-25)
+
+`MILITARY_MANPOWER_SCOPE.md` (new) · `GUI_GAP_REGISTER.md` §43 ·
+`ECONOMY_SCOPE.md`'s own tail section.
+
+§40 built CV-25 as a minimal military model and closed its manpower half with
+*"a headcount would be a fabricated number wearing a real one's clothes"*.
+That was right about the evidence available then and wrong as a permanent
+verdict: a headcount is fabricated when nothing implies it, and the owner has
+now supplied five variables and two derivation chains that do. This builds
+them.
+
+**The reference has nothing this time, and that is checked rather than
+assumed.** §40's headline was that the register's stated reason was wrong —
+the reference models fortification three times over. This one grepped the same
+way and found the opposite: `manpower`, `mobiliz`, `levy`, `conscript` and
+`militia` return **two hits in the whole frozen snapshot**, both
+`JP_COST_TOLL_PER_BORDER`'s comment using "levy" to mean a toll, and
+`FUNCTION_INDEX.md` returns zero. So no golden fixture and none fabricated —
+14 unit tests and two live probes instead.
+
+**Built:** `cartalith_civ::manpower` — one pure module, derived and recomputed,
+stored nowhere. `CivData` gained no field and the save format is untouched;
+`resident_bytes` is 0 and the only pass over the grid is one `O(cells)` sweep
+of `civ.territory` shared with the land-capacity sum, so the working set does
+not move measurably.
+
+**Four outputs, not one "military size" statistic**, because they diverge
+radically — Imperial Rome kept ~250 000 regulars over 45-120 million people
+while Republican Rome mobilised 17-29 % of its citizen body in one war:
+
+- **standing army** — fiscal. `non-agricultural population × ecological factor
+  × extraction / SOLDIER_UPKEEP`, plus a `professional_core` split off it.
+- **field army** — logistical. `emergency × (0.34 + 0.20 · logistics)`.
+- **emergency mobilization** — demographic. `pool × levy_reach`, pool being
+  25 % of total population.
+- **maximum war duration**, as a four-rung force ladder at 30 / 90 / 180 / 365
+  days from a curve **fitted through the owner's own two anchors** (*"10 % for
+  30 days, 2 % for a multi-year war"*), so those two points are the only thing
+  to argue with. The same curve inverted gives the ladder.
+
+**Five variables, and technology is deliberately not the driver.** The
+agricultural labour ratio comes from ag-tech; everything else comes from
+government, road connectivity to the capital, way tiers per unit territory,
+navigable water, sea access, and how well the faction's own territory feeds
+the people on it. Proved live rather than asserted: with every faction forced
+onto identical institutions, standing armies still spread 199 … 1 435 and
+logistics 0.415 … 0.841.
+
+**Two more inert tables got their first consumer**, the §40 pattern twice
+over. `AG_TECH_LEVELS`' own doc said `farmers_per_urbanite` was *"as inert as
+Government/Religion are in the reference"* and `CIV_GOVERNMENTS`' said *"no
+simulation reads or writes this, and nothing in this port does either"*.
+`traditionalAgrarian → improvedAgrarian` now moves a standing army **1 435 →
+2 615**; `chiefdom → empire` moves it **948 → 1 841**. Both roster tooltips
+said they reached nothing and now say what they reach.
+
+**`power.military` is kept exactly as it is**, and the decision is recorded in
+three places because it is the one somebody would undo. It is a golden-verified
+port of the reference's own formula; rewriting it to derive from a model the
+reference does not have would break parity to gain nothing, and it answers a
+different question (relative 0-100 against the other factions on this map)
+from the headcounts (absolute). Reported side by side, each labelled.
+
+**Verified.** Both worked examples reproduced: Kingdom A **5 846 / 41 221 /
+15 870** against a stated ~5 000 / ~40 000 / 15 000-20 000, Kingdom B
+**19 067 / 98 889 / 47 368** against ~20 000 / 100 000+ / 40 000-60 000. Every
+figure in range; the worst is A's standing army at +17 %, left rather than
+tuned. Three things fall out that the specification does not state and so
+cannot have been fitted to: A's full levy sustains **77 days** (the feudal
+~2-month obligation), B's 90- and 180-day rungs bracket its own stated field
+army, and the standing shares land at Imperial Rome's ratio. Live on a real
+233-settlement six-faction world (seed 483920), windowed **and** headless,
+**PASS**: standing 87 … 1 509, field 3 444 … 9 305, levy 8 009 … 20 262, with
+standing < field < levy holding for every faction, the ladder decreasing
+everywhere, pool-capped at 30 days and fiscally capped at 365. `cartalith-civ`
+**421 → 435** tests, `cartalith-godot` 351, `cargo check -p cartalith-godot`
+and `cargo clippy -p cartalith-civ` clean.
+
+**Four findings, one of them a question back to the owner.**
+
+1. **The specification's era table and its worked example disagree with each
+   other**, and the table disagrees with its own Imperial Rome figure —
+   Kingdom A's stated 40 000 levy is 4 % of population, below the 5-15 % band
+   of every pre-modern era listed, and Rome's 250 000 over 45-120 million is
+   0.21-0.56 % against a classical floor of 1 %. Calibrated on the worked
+   example, with the band reported as the sanity check the specification asks
+   for and never enforced. **Reconciliation offered rather than implemented:
+   the bands may be shares of a citizen or free population** — the
+   specification's own Republican Rome citation says "17-29 % of its *citizen*
+   population" — in which case the live figures land inside them. One owner
+   decision changes every verdict and nothing else in the model.
+2. The standing shares agree with the specification's *example* and not its
+   *table*, in the same direction and for the same reason.
+3. **`ecological_factor` saturates on real worlds**: five of six factions'
+   territory sustains at least twice the population the settlement layer puts
+   on it, which is `civ_agrarian_regional_total`'s own long-standing "Land
+   sustains ≈ N vs. settled" divergence, quantified per faction for the first
+   time. Geography therefore does its real work at the low end — Draumr
+   League's 87-strong standing army against Veldmark's 1 509 on otherwise
+   identical institutions.
+4. **The road-density reference was wrong on the first try, and measuring is
+   what found it.** Anchoring on the Roman empire's ~16 km of road per
+   1 000 km² made roads a dead term (0.03-0.23, contributing ≤0.10 of
+   logistics), because this port's way network is *inter-settlement trunk
+   roads only* — no lanes, tracks or streets — and is not comparable to a road
+   inventory. Recalibrated against what the network produces, roads spread
+   0.11-0.91.
+
+**Still open, and disclosed on screen:** per-settlement garrisons (the
+per-*faction* headcounts are real; which settlement holds which part of a
+standing army is a placement rule nothing implies), campaigns, unit movement,
+combat, and change over time.

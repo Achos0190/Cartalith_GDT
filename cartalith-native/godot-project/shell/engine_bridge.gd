@@ -1626,6 +1626,15 @@ func civ_faction_terrain_fits() -> Array:
 ## "settlements": [...]}` -- per-faction military power and fortification
 ## counts, and every settlement's wall spec and defensive strength. One
 ## on-demand aggregate pass, so a modal-open call, not a per-frame one.
+##
+## Each faction row also carries a nested `"manpower"` dictionary
+## (`MILITARY_MANPOWER_SCOPE.md`): the four headcounts (standing army,
+## sustainable field army, emergency mobilization, and a four-rung
+## force/duration ladder), the populations behind them, the five variables
+## that drove them, and the derived era band with its verdict. Nested rather
+## than flattened because `military` beside it is a *relative* 0-100
+## heuristic and these are absolute headcounts -- reading one for the other
+## is the mistake worth making structurally hard.
 func civ_military_summary() -> Dictionary:
 	if not _has("civ_military_summary"):
 		return {}

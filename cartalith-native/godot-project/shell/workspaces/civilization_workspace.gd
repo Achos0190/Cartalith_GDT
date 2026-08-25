@@ -1632,6 +1632,8 @@ func _fill_military(parent: Control) -> void:
 				int(d.get("walled_stone", 0)), int(d.get("walled_palisade", 0)),
 				int(d.get("walled_ditch", 0))]
 
+	_fill_manpower(parent, factions)
+
 	var forts := DccWidgets.section(parent, "Fortifications")
 	if places.is_empty():
 		DccWidgets.note(forts, "No settlements -- generate a world first.")
@@ -1670,13 +1672,180 @@ func _fill_military(parent: Control) -> void:
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Garrisons · campaigns · unit movement · combat  ·  needs a decision\n"
-		+ "None is derivable from anything above it: a headcount would be a "
-		+ "fabricated number wearing a real one's clothes, and the reference has "
-		+ "none of them either (GUI_GAP_REGISTER.md CV-25, narrowed to exactly "
-		+ "these). A feature to specify, not a gap to wire.\n"
-		+ "Per-faction military power and per-settlement fortification are real "
-		+ "and golden-verified: the two sections above.")
+		"Per-settlement garrisons · campaigns · unit movement · combat  ·  needs a decision\n"
+		+ "The per-FACTION headcounts above are real and derived (Manpower). What "
+		+ "is still absent is allocating them: which settlement holds which part "
+		+ "of a standing army is a placement rule nothing here implies, and a "
+		+ "campaign needs a clock, a map objective and an opposed force — none of "
+		+ "which exists. The reference has none of it either. A feature to "
+		+ "specify, not a gap to wire (GUI_GAP_REGISTER.md CV-25).\n"
+		+ "Also absent by design: change over time. Every number in this category "
+		+ "is a reading of the world as it stands.")
+
+## The manpower half of CIVIL ▸ MILITARY (`MILITARY_MANPOWER_SCOPE.md`, built
+## 2026-08-25 on the owner's own supplied specification).
+##
+## **Four outputs, not one "military size" statistic**, because they diverge
+## radically: Imperial Rome kept ~250 000 regulars over perhaps 45-120 million
+## people, while Republican Rome temporarily mobilised 17-29 % of its citizen
+## body in the Second Punic War. A single number cannot say both.
+##
+## The five variables are shown beside the four outputs on purpose. This model
+## has **no reference implementation to check against** -- the frozen snapshot
+## has no army-size code at any line -- so the only defensible presentation is
+## one that shows its working and lets the reader disagree with a driver
+## rather than with a headcount.
+##
+## The era row is a **sanity band, never a driver**: it is derived from the
+## five variables and reported with "within"/"above"/"below" rather than
+## clamping anything. The owner's own words: *"these are modelling ranges, not
+## historical laws."*
+static func _by_standing(x, y) -> bool:
+	return float(((x as Dictionary).get("manpower", {}) as Dictionary).get("standing_army", 0.0)) > float(((y as Dictionary).get("manpower", {}) as Dictionary).get("standing_army", 0.0))
+
+## `1 240` rather than `1240.0` everywhere below -- these are headcounts, and
+## a decimal point on a headcount reads as precision the model does not have.
+static func _head(v: float) -> String:
+	return FactionRosterWindow._thousands(int(round(v)))
+
+## Everything one faction's row cannot fit: the populations the four outputs
+## are drawn from, the two durations, and the era band with its verdict.
+##
+## The band is quoted with the verdict rather than instead of it, so a faction
+## outside its era's range reads as a finding about that faction and not as a
+## bug in the table.
+static func _manpower_tooltip(m: Dictionary) -> String:
+	return ("Total population %s (%s in farming, %s of military age).\n"
+		+ "Professional core %s of the standing army.\n"
+		+ "A field army stays out %d days; a full levy %d.\n"
+		+ "Era: %s — %s. Standing %.2f%% (band %.1f-%.1f%%, %s); "
+		+ "mobilization %.1f%% (band %.0f-%.0f%%, %s).\n"
+		+ "Open this faction in the right dock.") % [
+		_head(float(m.get("total_population", 0.0))),
+		_head(float(m.get("farming_population", 0.0))),
+		_head(float(m.get("mobilization_pool", 0.0))),
+		_head(float(m.get("professional_core", 0.0))),
+		int(round(float(m.get("field_duration_days", 0.0)))),
+		int(round(float(m.get("emergency_duration_days", 0.0)))),
+		String(m.get("era", "?")), String(m.get("era_constraint", "")),
+		100.0 * float(m.get("standing_share", 0.0)),
+		100.0 * float(m.get("era_standing_lo", 0.0)),
+		100.0 * float(m.get("era_standing_hi", 0.0)),
+		String(m.get("era_standing_verdict", "?")),
+		100.0 * float(m.get("emergency_share", 0.0)),
+		100.0 * float(m.get("era_mobilization_lo", 0.0)),
+		100.0 * float(m.get("era_mobilization_hi", 0.0)),
+		String(m.get("era_mobilization_verdict", "?"))]
+
+func _fill_manpower(parent: Control, factions: Array) -> void:
+	var sec := DccWidgets.section(parent, "Manpower")
+	if factions.is_empty():
+		DccWidgets.note(sec, "No factions -- generate a world first.")
+		return
+
+	DccWidgets.note(sec,
+		"Agricultural technology does not set army size. It sets surplus, "
+		+ "labour requirements, transport, the taxation base and administrative "
+		+ "capacity, and manpower is supported out of those -- so this reports "
+		+ "four separate figures that can differ radically for one population, "
+		+ "and the five variables behind them.")
+
+	var rows := factions.duplicate()
+	rows.sort_custom(_by_standing)
+
+	var list := DccWidgets.group(sec, "Standing · field · emergency")
+	for r in rows:
+		var d: Dictionary = r
+		var m: Dictionary = d.get("manpower", {})
+		if m.is_empty():
+			continue
+		var f := int(d.get("faction", 0))
+		var b := DccWidgets.action(list, "%s -- standing %s · field %s · levy %s" % [
+			String(d.get("name", "?")), _head(float(m.get("standing_army", 0.0))),
+			_head(float(m.get("field_army", 0.0))),
+			_head(float(m.get("emergency_mobilization", 0.0)))],
+			func(): app.right_dock_ctrl.show_faction(f))
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.tooltip_text = _manpower_tooltip(m)
+
+	## Closed by default: it is the model's most informative output and also
+	## its densest, and the three headcounts above are what a first read wants.
+	var dur := DccWidgets.group(sec, "How long each can stay out", false)
+	DccWidgets.note(dur,
+		"The largest force sustainable for a given campaign length. 30 days is "
+		+ "feasible, 90 difficult, 180 severe disruption, and a year needs a "
+		+ "substantially different fiscal system -- a feudal obligation typically "
+		+ "expired at about two months. A figure marked ⌈pool⌉ is capped by how "
+		+ "many can be raised at all rather than by how long they can be fed.")
+	for r in rows:
+		var d: Dictionary = r
+		var m: Dictionary = d.get("manpower", {})
+		var ladder: Array = m.get("force_ladder", [])
+		if ladder.size() < 4:
+			continue
+		var parts := PackedStringArray()
+		for e in ladder:
+			var l: Dictionary = e
+			parts.append("%dd %s%s" % [int(l.get("days", 0)), _head(float(l.get("force", 0.0))),
+				" ⌈pool⌉" if bool(l.get("capped_by_pool", false)) else ""])
+		DccWidgets.note(dur, "%s -- %s" % [String(d.get("name", "?")), " · ".join(parts)])
+
+	var drv := DccWidgets.group(sec, "What drives it", false)
+	DccWidgets.note(drv,
+		"Five interacting variables. Technology is deliberately not one of "
+		+ "them: it enters only through the agricultural labour ratio, which is "
+		+ "why two factions on the same ag-tech row with different governments, "
+		+ "roads and land get different answers.")
+	for r in rows:
+		var d: Dictionary = r
+		var m: Dictionary = d.get("manpower", {})
+		if m.is_empty():
+			continue
+		var n := DccWidgets.note(drv, "%s -- farming %.0f%% · surplus/farmer %.2f · extraction %.1f%% · professional %.0f%% · logistics %.2f" % [
+			String(d.get("name", "?")),
+			100.0 * float(m.get("agricultural_labour_ratio", 0.0)),
+			float(m.get("food_surplus_per_farmer", 0.0)),
+			100.0 * float(m.get("fiscal_extraction_efficiency", 0.0)),
+			100.0 * float(m.get("professionalization", 0.0)),
+			float(m.get("logistics_capacity", 0.0))])
+		n.tooltip_text = ("Ag-tech %s · government %s. State capacity %.2f, the "
+			+ "term both extraction and professionalisation scale from. Ecological "
+			+ "factor %.2f -- how well this faction's own territory feeds the "
+			+ "people on it, and the reason geography moves the answer at all.") % [
+			String(m.get("ag_tech", "?")), String(m.get("government", "?")),
+			float(m.get("state_capacity", 0.0)), float(m.get("ecological_factor", 0.0))]
+		n.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	## The owner's own modelling caution, and the reason it is a number rather
+	## than a warning string: ancient army figures are massively exaggerated
+	## (Xerxes' invasion is described in millions and reconstructs to ~70 000
+	## infantry and 9 000 cavalry), so the honest check is what could have been
+	## fed in one place, not what a chronicle claims.
+	var worst := 1.0
+	for r in rows:
+		var m: Dictionary = (r as Dictionary).get("manpower", {})
+		var c := float(m.get("concentration_ratio", 1.0))
+		if c > 0.0 and c < worst:
+			worst = c
+	DccWidgets.note(sec,
+		"Plausibility: no faction here can concentrate more than %.0f%% of what "
+		% [100.0 * worst]
+		+ "it can raise. A host reported above its own field-army figure could "
+		+ "not have been supplied in one place, whatever the source says.")
+
+	## Said on screen rather than only in the scope document, because a row of
+	## "below" verdicts otherwise reads as a defect. It is not: the era table
+	## and the worked example that calibrated this model disagree with each
+	## other, and so does the table with its own cited Imperial Rome figure.
+	DccWidgets.note(sec,
+		"Era bands (in each row's tooltip) are a sanity check and never a "
+		+ "driver — the era is derived from the five variables, not chosen. "
+		+ "Expect \"below\" often: the bands are shares of TOTAL population, "
+		+ "while the ancient figures behind them are usually quoted against a "
+		+ "citizen or free population, and Imperial Rome's own ~250 000 "
+		+ "regulars over 45–120 million is itself under the classical band's "
+		+ "1 % floor. Reported, never clamped.")
+
 
 ## v3 CIVIL ▸ RELATIONSHIPS (`GUI_GAP_REGISTER.md` **CV-26**, built 2026-08-25).
 ##

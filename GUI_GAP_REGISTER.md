@@ -6510,7 +6510,7 @@ separates three genuinely different situations:
 
 | Chip | Means | Which |
 |---|---|---|
-| needs a decision | nothing is missing from the engine; somebody has to say what the feature *is* | CV-25 (garrisons, campaigns, combat), CV-26 (treaties, vassalage, change over time), WW-15 (reprojection) |
+| needs a decision | nothing is missing from the engine; somebody has to say what the feature *is* | CV-25 (garrisons, campaigns, combat — narrowed again by §43, which built the manpower half the owner specified), CV-26 (treaties, vassalage, change over time), WW-15 (reprojection) |
 | blocked on | the design is clear and waits on named work elsewhere | CV-23 (historical occupation — timeline work), CA-18 (declutter budget — CA-04's separable layer stack) |
 | costs a re-baseline | buildable today, and doing it moves golden expectations `DECISIONS.md` §7a protects | CA-19 (a *writable* biome table) |
 
@@ -6592,3 +6592,102 @@ remainder is stated on screen for the first time: **prices, tariffs, caravans
 as entities, and trade that changes over time**, none of which is derivable
 from anything the civ layer holds and each of which needs a decision about
 what a currency is here.
+
+## 43 · CV-25's other half — the manpower model, on an owner-supplied specification (2026-08-25) — **STILL NARROWED**
+
+§40 built CV-25 as a minimal military model and found, as its headline, that
+the register's reason for calling it a design was wrong: the reference **does**
+model fortification, three times over, and `power.military` was already ported.
+The owner has now supplied a detailed, researched specification for the half
+§40 could not derive — **how many people a polity can actually put and keep
+under arms** — and it supersedes §40's implicit answer, which was "none, a
+headcount would be a fabricated number wearing a real one's clothes".
+
+That sentence was right about the *evidence available at the time* and wrong as
+a permanent verdict. A headcount is fabricated when nothing implies it. With
+five stated variables and two derivation chains, it is derived.
+
+`MILITARY_MANPOWER_SCOPE.md` is the durable home: it carries the owner's
+specification **verbatim**, the derivation of every constant, and the
+verification. What follows is only what the register itself needs.
+
+### The split, and what stays
+
+| | disposition |
+|---|---|
+| `_umWallSpec` / `_umInferWalls` / `_civPlaceDefensibility` | **unchanged.** Fortification is a separate axis — how hard a place is to take, not how many people can be raised. Ports, golden-verified, untouched by this pass. |
+| `_civFactionAggregates` → `power.military` | **unchanged, deliberately.** A golden-verified port of the reference's own formula. Rewriting it to derive from a model the reference does not have would break parity to gain nothing; and it answers a different question (*this faction against the others on this map*, relative 0-100) from the headcounts (*how many people*, absolute). Reported side by side, each labelled. |
+| manpower | **new** — `cartalith_civ::manpower`, four outputs from five variables. |
+
+### The reference really has nothing this time
+
+Unlike §40, which found three implementations by grepping, this one found
+none. `manpower`, `mobiliz`, `levy`, `conscript` and `militia` return **two
+hits in the whole frozen snapshot**, both `JP_COST_TOLL_PER_BORDER`'s comment
+using "levy" to mean a *toll*; `FUNCTION_INDEX.md` returns zero. So there is no
+golden fixture and none is fabricated — 14 unit tests and two live probes
+instead.
+
+### Two more inert tables got their first consumer
+
+The §40 pattern, twice over. `roster::AG_TECH_LEVELS`' own module doc said
+`farmers_per_urbanite` was *"presently as inert as Government/Religion are in
+the reference"*; `roster::CIV_GOVERNMENTS`' said *"no simulation reads or
+writes this, and nothing in this port does either"*. Both are read now, and
+both are proved live on a real world rather than asserted: `traditionalAgrarian
+→ improvedAgrarian` moves a faction's standing army **1 435 → 2 615**, and
+`chiefdom → empire` moves it **948 → 1 841**. Their two roster tooltips said so
+in as many words and now say what they do instead.
+
+### The four outputs, on a real 233-settlement world
+
+Standing 87 … 1 509 · field 3 444 … 9 305 · levy 8 009 … 20 262 across six
+factions, with a four-rung force/duration ladder each. **The worked examples
+in the specification are reproduced**: Kingdom A at 5 846 / 41 221 / 15 870
+against a stated ~5 000 / ~40 000 / 15 000-20 000, Kingdom B at 19 067 /
+98 889 / 47 368 against ~20 000 / 100 000+ / 40 000-60 000. Every figure in
+range; the worst is A's standing army at +17 %, left there rather than tuned.
+
+Three things fall out that the specification does not state and so cannot have
+been fitted: Kingdom A's full levy sustains **77 days** (the feudal ~2-month
+obligation), Kingdom B's 90- and 180-day rungs are 59 455 and 38 045 (which
+brackets its stated field army — a field army *is* a campaign-season force),
+and the standing shares land at Imperial Rome's own ratio.
+
+### Four findings, and one is a question for the owner
+
+1. **The specification's era table and its worked example disagree**, and the
+   table disagrees with its own Imperial Rome figure — Kingdom A's stated
+   40 000 levy is 4 % of population, below the 5-15 % band of every pre-modern
+   era listed; Rome's 250 000 over 45-120 million is 0.21-0.56 %, under the
+   classical row's 1 % floor by two to five times. Calibrated on the worked
+   example, with the band reported as the sanity check the specification asks
+   for. **A plausible reconciliation, offered rather than implemented: the
+   bands may be shares of a citizen or free population** — the specification's
+   own Republican Rome citation says "17-29 % of its *citizen* population" —
+   in which case the live figures land inside them. One owner decision changes
+   every verdict and nothing else.
+2. Standing shares agree with the specification's *example* and not its
+   *table*, in the same direction and for the same reason.
+3. `ecological_factor` saturates for five of six factions on a real world:
+   generated territory sustains at least twice the population the model puts
+   on it, the same divergence `civ_agrarian_regional_total`'s own readout has
+   always shown. Geography therefore discriminates mainly at the low end,
+   where it does real work — Draumr League's 87-strong standing army against
+   Veldmark's 1 509 on otherwise identical institutions.
+4. **The road-density reference was wrong on the first try and measuring found
+   it.** Anchoring on the Roman empire's ~16 km/1 000 km² made roads a dead
+   term; this port's way network is inter-settlement trunk roads only, with no
+   lanes or streets, so it is not comparable to a road inventory. Recalibrated
+   against what the network actually produces, roads spread 0.11-0.91 instead
+   of 0.03-0.23.
+
+### CV-25 stays narrowed, and the note on screen changed
+
+The old note said *"garrisons · campaigns · unit movement · combat"*. Two of
+those four words were doing different jobs, and the row now separates them:
+**per-settlement garrisons** (the per-*faction* headcounts are real; which
+settlement holds which part of a standing army is a placement rule nothing
+implies), campaigns, unit movement and combat. Still `needs a decision`, still
+disclosed in the category, and the shell probe asserts the disclosure is there
+rather than trusting it.

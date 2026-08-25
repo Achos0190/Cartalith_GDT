@@ -482,3 +482,42 @@ both killed.
 Not wired to any caller (`compute_civilisation()` untouched, no `#[func]`,
 no GDScript) — per this project's standing "don't wire in what nothing calls"
 rule and the owner's UI hold.
+
+## Military manpower: the economy layer's first real consumer (2026-08-25)
+
+Not an economy milestone, but it extends this document's territory and belongs
+recorded here rather than only in the register. `MILITARY_MANPOWER_SCOPE.md`
+carries the owner's specification verbatim and the full derivation; this is
+what it means for the economy work.
+
+**It is the first thing that reads the food chain end to end.** Everything
+this document built or listed as future scope — `civ_current_agrarian_density`
+and its "Land sustains ≈ N" integral, `civ_faction_aggregates`' per-faction
+population and territory, `civ_catchment_pop`'s tier tables, IN-13's
+`RoadComponents` and `place_navigability` — is now read by one model that
+turns them into four headcounts. Before this, the food half of the layer fed
+settlement sizing and nothing else.
+
+**And it closes the `farmersPerUrbanite` gap this document's own successor
+opened.** `roster.rs`' module doc recorded that `AG_TECH_LEVELS` was ported
+with no consumer, because *"`_civFoodShed`/`foodSurplusRatio` — the only two
+functions that read them — are not ported"*. `_civFoodShed` **is** ported now
+(IN-13, `cartalith_civ::trade`), and `farmersPerUrbanite` has a consumer for a
+different reason: it is the agricultural labour ratio, which is the variable
+the whole manpower model turns on. `CIV_GOVERNMENTS` got its first consumer in
+either codebase at the same time.
+
+**One real number this pass produced that the economy layer should note.** On
+a real 233-settlement world, five of six factions' territory sustains **at
+least twice** the population the settlement layer puts on it — the manpower
+model's `ecological_factor` hits its `2.0` ceiling for all five. That is the
+same divergence `civ_agrarian_regional_total`'s own readout has always shown
+between "Land sustains ≈ N" and the settled total, quantified per faction for
+the first time. Whether generated worlds should be more densely populated
+relative to their carrying capacity is a real question for whoever revisits
+`civ_settlement_population`'s surplus fractions, and it is older than this
+pass.
+
+**Still unstarted from the list above**: `_civPlaceSmelting`, `_civSaltAccess`,
+and `_civFactionAggregates`' resource- and density-fed half as a *surfaced*
+readout (the aggregate itself is ported and now has three callers).

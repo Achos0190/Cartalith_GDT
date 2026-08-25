@@ -70,6 +70,7 @@ starting work — not this file, which is a map rather than a state.
 | `PHASE2_SCOPE.md` | the civilisation layer, 17 milestones |
 | `JOURNEY_PLANNER_SCOPE.md` | Phase 2's largest sub-phase; engine-complete |
 | `ECONOMY_SCOPE.md` | faction/settlement economy aggregation |
+| `MILITARY_MANPOWER_SCOPE.md` | standing/field/emergency armies and war duration, from five variables — carries the owner's supplied specification **verbatim**, since the reference has no model to check it against |
 | `ASSET_LIBRARY_SCOPE.md` | Phase 4, complete |
 | `URBAN_MORPHOLOGY_SCOPE.md` | Phase 5, in progress; the largest unported subsystem |
 | `TERRAIN_APPEARANCE_SCOPE.md` | Phase 3's 2D fidelity milestones |

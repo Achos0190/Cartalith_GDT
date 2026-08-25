@@ -43,6 +43,10 @@ var _list_body: VBoxContainer
 var _inspector_body: VBoxContainer
 var _overview: Label
 var _fits: Array = []         ## `civ_faction_terrain_fits()`, cached per open.
+## `civ_military_summary()`, cached per open for the same reason `_fits` is:
+## one call carries `power.military`, the fortification counts and the whole
+## of `cartalith_civ::manpower`'s answer for every faction at once.
+var _military: Dictionary = {}
 
 ## Phone (§13). The window's own treatment is
 ## `DccWidgets.phone_window()`'s; what is specific to *this* window is that
@@ -235,6 +239,10 @@ func open() -> void:
 	## O(cells) and rebuilds a biome raster and an ocean-distance field --
 	## see `civ_faction_terrain_fits`' own Rust doc comment.
 	_fits = bridge.civ_faction_terrain_fits()
+	## Cached on the same schedule and for the same reason: one call rebuilds
+	## the biome/lithology/resource passes `civ_faction_aggregates` needs, and
+	## every faction's row comes out of that one answer.
+	_military = bridge.civ_military_summary()
 	_rebuild()
 	## Reopens on the master, the way a phone list screen does -- picking up
 	## mid-inspector on a faction chosen in a previous session would hide the
@@ -392,7 +400,8 @@ func _rebuild_inspector() -> void:
 	var sec := DccWidgets.section(_inspector_body, "Identity")
 	_colour_row(sec, d)
 	_vocab_choice(sec, "Government", bridge.civ_government_vocabulary(),
-		String(d.get("government", "monarchy")), "government")
+		String(d.get("government", "monarchy")), "government",
+		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (Military, below).")
 	_culture_choice(sec, String(d.get("culture", "common")))
 	_vocab_choice(sec, "Religion", bridge.civ_religion_vocabulary(),
 		String(d.get("religion", "none")), "religion")
@@ -400,6 +409,7 @@ func _rebuild_inspector() -> void:
 
 	_build_terrain_fit()
 	_build_overview_block(d)
+	_build_military_block()
 	_build_settlement_sublist()
 	_build_gaps()
 	## Both panes are rebuilt from scratch here and in `_rebuild_list()`, so the
@@ -466,7 +476,8 @@ func _repaint_banners(c: Color) -> void:
 		(_phone_bar_banner as FactionBanner).configure(_selected, c, 22)
 
 
-func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: String, key: String) -> void:
+func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: String,
+		key: String, tip: String = "") -> void:
 	if vocab.is_empty():
 		return
 	var keys: Array = []
@@ -476,7 +487,7 @@ func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: S
 		keys.append(String(d.get("key", "")))
 		labels.append(String(d.get("label", "?")))
 	DccWidgets.choice(parent, label_text, labels, maxi(0, keys.find(current)),
-		func(i: int): _set_field(key, keys[i]))
+		func(i: int): _set_field(key, keys[i]), tip)
 
 
 ## Cultures come back as bare keys -- the reference's own `CIV_CULTURES`
@@ -509,7 +520,7 @@ func _ag_tech_choice(parent: Control, current: String) -> void:
 			hint = String(d.get("hint", ""))
 	DccWidgets.choice(parent, "Ag. technology", labels, maxi(0, keys.find(current)),
 		func(i: int): _set_field("ag_tech", keys[i]),
-		"Stored and validated, but consumed by nothing here: its only readers in the reference are _civFoodShed/foodSurplusRatio, neither of which is ported. Recorded rather than hidden.")
+		"Live since 2026-08-25: farmersPerUrbanite is the agricultural labour ratio the manpower model runs on (Military, below), so changing this moves this faction's standing army, field army, emergency levy and war duration. It is deliberately NOT the driver — it enters as one of five variables, and government, roads, water and the land itself move the answer as much.")
 	if hint != "":
 		DccWidgets.note(parent, hint)
 
@@ -568,6 +579,69 @@ func _build_overview_block(d: Dictionary) -> void:
 			hide())
 
 
+# -- Military (`GUI_GAP_REGISTER.md` CV-25 / `MILITARY_MANPOWER_SCOPE.md`) --
+#
+# This is the block the roster's own "Not built" note used to disclaim. The
+# reference's Power breakdown had no reader anywhere in this port until CV-25
+# landed, and its manpower half had no model in either codebase until this
+# pass built one.
+#
+# **The two numbers here answer different questions and are labelled as such.**
+# `power.military` is the reference's own 0-100 heuristic -- a comparison
+# against the other factions on THIS map, explicitly derived and never
+# presented as simulated. The four headcounts are absolute and have no
+# reference at all. Neither is a rescaling of the other, and presenting one as
+# the other would be the easiest wrong thing to do here.
+
+func _military_row(faction_id: int) -> Dictionary:
+	for r in (_military.get("factions", []) as Array):
+		if int((r as Dictionary).get("faction", -1)) == faction_id:
+			return r
+	return {}
+
+func _build_military_block() -> void:
+	var row := _military_row(_selected)
+	if row.is_empty():
+		return
+	var sec := DccWidgets.section(_inspector_body, "Military")
+	DccWidgets.note(sec, "Power: %d/100 relative to the other factions   ·   %d of %d settlements fortified (%d stone, %d palisade, %d ditch)" % [
+		int(round(float(row.get("military", 0.0)))), int(row.get("fortified_count", 0)),
+		int(row.get("settlement_count", 0)), int(row.get("walled_stone", 0)),
+		int(row.get("walled_palisade", 0)), int(row.get("walled_ditch", 0))])
+
+	var m: Dictionary = row.get("manpower", {})
+	if m.is_empty():
+		return
+	DccWidgets.note(sec, "Standing army %s (professional core %s)   ·   sustainable field army %s   ·   emergency levy %s" % [
+		_thousands(int(round(float(m.get("standing_army", 0.0))))),
+		_thousands(int(round(float(m.get("professional_core", 0.0))))),
+		_thousands(int(round(float(m.get("field_army", 0.0))))),
+		_thousands(int(round(float(m.get("emergency_mobilization", 0.0)))))])
+	DccWidgets.note(sec, "Out of a total population of %s (%.0f%% in farming), of whom %s are of military age. A field army stays out %d days; a full levy %d." % [
+		_thousands(int(round(float(m.get("total_population", 0.0))))),
+		100.0 * float(m.get("agricultural_labour_ratio", 0.0)),
+		_thousands(int(round(float(m.get("mobilization_pool", 0.0))))),
+		int(round(float(m.get("field_duration_days", 0.0)))),
+		int(round(float(m.get("emergency_duration_days", 0.0))))])
+	DccWidgets.note(sec, "Reads as a %s (%s). Standing %.2f%% of population — %s that era's %.1f–%.1f%% band; mobilization %.1f%% — %s its %.0f–%.0f%%." % [
+		String(m.get("era", "?")), String(m.get("era_constraint", "")),
+		100.0 * float(m.get("standing_share", 0.0)),
+		String(m.get("era_standing_verdict", "?")),
+		100.0 * float(m.get("era_standing_lo", 0.0)), 100.0 * float(m.get("era_standing_hi", 0.0)),
+		100.0 * float(m.get("emergency_share", 0.0)),
+		String(m.get("era_mobilization_verdict", "?")),
+		100.0 * float(m.get("era_mobilization_lo", 0.0)),
+		100.0 * float(m.get("era_mobilization_hi", 0.0))])
+	## Closes the modal on the way, the same shape `_build_settlement_sublist`
+	## already uses -- leaving a roster window open over the category it just
+	## navigated to would hide the thing it sent the reader to look at.
+	var go := DccWidgets.action(sec, "Full breakdown → Civilization ▸ Military",
+		func():
+			hide()
+			app.select_domain_category("civilization", "Military"))
+	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+
 # -- Settlement sublist (`_civRenderFactionSettlementSublist`) --------------
 
 func _build_settlement_sublist() -> void:
@@ -599,14 +673,15 @@ func _build_settlement_sublist() -> void:
 func _build_gaps() -> void:
 	var sec := DccWidgets.section(_inspector_body, "Not built")
 	DccWidgets.note(sec,
-		"The reference's Power breakdown (military/economic/political/cultural/religious) and its "
-		+ "Economy block (food production and surplus, tax income, trade income, primary exports "
-		+ "and imports, strategic resources, craft share) both read _civFactionAggregates' "
-		+ "resource- and density-fed half. compute_civilisation frees the 15 resource rasters "
-		+ "after trade balances and retains no population-density field, so surfacing those is a "
-		+ "memory decision (MEMORY_OPTIMIZATION_SCOPE.md) plus an ECONOMY_SCOPE.md milestone, not "
-		+ "a widget. Diplomatic relations has no model in either codebase -- the reference's own "
-		+ "inspector says \"not yet implemented\" there too.")
+		"The Power breakdown's four remaining axes (economic, political, cultural, religious) "
+		+ "and the Economy block (food production and surplus, tax income, trade income, primary "
+		+ "exports and imports, strategic resources, craft share). The military axis and the "
+		+ "manpower model above are live; these read the same _civFactionAggregates pass and are "
+		+ "a widget away rather than a model away -- see Civilization ▸ Economy and ▸ Trade for "
+		+ "the parts that already have their own category.\n"
+		+ "Diplomatic relations exists now (Civilization ▸ Relationships, CV-26): a derived, "
+		+ "recomputed value per faction pair. What is still absent there is anything that ACTS "
+		+ "-- treaties, vassalage, war declarations, change over time.")
 
 
 # -- Roster mutation --------------------------------------------------------
