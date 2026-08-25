@@ -30,13 +30,41 @@ class_name PerformanceWindow
 var bridge: EngineBridge
 var _body: VBoxContainer
 
+## Phone (§13) -- PH-07. This window had none of the shell's phone treatment, so
+## it opened as a 560x420 desktop card in the middle of a 1440x3168 panel with
+## its only way out -- `AcceptDialog`'s own OK button -- measured at 29 dp.
+## Nothing here needs stacking: it is one column of prose. What it needs is the
+## content scale, the tap floor, and somewhere for six autowrapping notes to
+## scroll once they are set to a 393 dp measure instead of a 560 px one.
+var _phone := false
+
 func setup(b: EngineBridge) -> void:
 	bridge = b
 	title = "Performance"
 	size = Vector2i(560, 420)
+	ok_button_text = "Close"
+	## `get_parent()` is the shell: `app.gd` adds this window to itself and then
+	## calls `setup()`. Asked for that way rather than added to the signature,
+	## because the parent is already the right object at every call site.
+	_phone = DccWidgets.phone_window(self, get_parent())
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", 4)
-	add_child(_body)
+	if _phone:
+		## The head sits OUTSIDE the scroll, not inside `_body`: `_rebuild()`
+		## clears every child of `_body` on each refresh, and a header parented
+		## there would be destroyed by the first one.
+		var outer := VBoxContainer.new()
+		outer.add_theme_constant_override("separation", 0)
+		add_child(outer)
+		DccWidgets.phone_head(outer, "Performance", "gpu · quality · memory")
+		var scroll := ScrollContainer.new()
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		outer.add_child(scroll)
+		_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(_body)
+	else:
+		add_child(_body)
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _rebuild())
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
 	_rebuild()
@@ -73,6 +101,17 @@ func _rebuild() -> void:
 
 	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance -- no per-device enumeration exists in cartalith-gpu (GPU_LAYER_INTEGRATION_SCOPE.md).")
 
+	## PH-07: every row above is a fresh node, and a generate finishing while
+	## this window is open rebuilds them behind the one-shot fit `open()` did.
+	## Idempotent by meta-flag, so this only touches what was just made.
+	if _phone and get_parent() != null and get_parent().has_method("phone_fit"):
+		get_parent().phone_fit(self, 1.0)
+
 func open() -> void:
 	_rebuild()
+	if DccWidgets.phone_present(self, get_parent()):
+		## `1.0`: the scale is already applied once as `content_scale_factor`.
+		## After every `_rebuild()`, because that replaces the whole body.
+		get_parent().phone_fit(self, 1.0)
+		return
 	popup_centered()

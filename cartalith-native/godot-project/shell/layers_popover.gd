@@ -75,20 +75,62 @@ const HOTKEY_ACTIONS: Array[String] = [
 ]
 var _hotkey_ids: Array = []   ## index 0-7 -> the row id badged with that digit.
 
+## Phone (§13) -- PH-07, and this one had to be checked before it was built:
+## a popover may simply be the wrong control on a handset, and §13's phone
+## composition routes several desktop affordances into the ⋯ overflow sheet
+## instead. **It is reachable, by three routes**: the map's own Layers button
+## (`viewport.layers_button_pressed`, `app.gd`), Cartography ▸ *Data overlays…*
+## (`cartography_workspace.gd`) and the Render section's own entry
+## (`render_workspace.gd`). So it needs real work, and the parallel device
+## sweep measured what that means: **40 of 52 tappable controls under §13's
+## floor**, rows at 22 dp and the opacity slider at 14.
+##
+## It becomes a full-screen sheet rather than a scaled-down popover. A popover
+## is a pointer idiom -- it is anchored to the control that opened it and
+## dismissed by clicking away from it, and a phone has neither a stable anchor
+## (the Layers button moves with the safe insets) nor a reliable "away". §13's
+## own answer for a panel on a phone is a sheet, so that is what this is.
+##
+## `DccWidgets.phone_window()` takes an `AcceptDialog` and this is a
+## `PopupPanel`, so only the two halves that apply are used: `phone_present()`
+## (which takes any `Window`) for the fill and the content scale, and a
+## `phone_head()` with an explicit Close, because a sheet that covers the
+## screen has no "outside" left to tap.
+var _phone := false
+var _close_row: Control
+
 func setup(b: EngineBridge, h: ViewportHost) -> void:
 	bridge = b
 	host = h
 	_register_hotkeys()
 	add_theme_stylebox_override("panel",
 		DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1}))
+	var shell: Node = get_parent()
+	_phone = shell != null and shell.has_method("is_phone") and shell.is_phone()
+	if _phone:
+		## The half of `phone_window()` that applies to a `Popup`: with
+		## `wrap_controls` on, the window grows to its content's minimum on every
+		## `child_controls_changed()` and only ever grows, which fights a fill.
+		## `phone_window()` itself is not callable here -- it takes an
+		## `AcceptDialog`, for the `ok_button_text` and the borderless title bar
+		## a popup does not have in the first place.
+		wrap_controls = false
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
-	outer.custom_minimum_size = Vector2(228, 0)
+	if not _phone:
+		outer.custom_minimum_size = Vector2(228, 0)
 	add_child(outer)
+	if _phone:
+		DccWidgets.phone_head(outer, "Data overlays", "one field view at a time")
 
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(228, 420)
+	## PH-07: 228x420 is a popover's authored size. As a full-screen sheet the
+	## width comes from the screen and the height from what is left under the
+	## header, and a 420 dp FLOOR under a legend, a slider and a note would push
+	## the foot off the bottom of a 393x852 reference screen.
+	if not _phone:
+		scroll.custom_minimum_size = Vector2(228, 420)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(scroll)
@@ -96,9 +138,20 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 0)
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_list)
-
-	outer.add_child(DccTheme.rule())
+	## PH-07: on a phone the foot goes INSIDE the scroll, under the list, rather
+	## than being a fixed band below it. On a pointer the foot is a legend, a
+	## slider and a two-line note -- small enough to keep pinned. At 393 dp the
+	## same note is six lines, and pinned it pushed itself off the bottom edge
+	## where no scroll could reach it (measured: the last two lines of the
+	## Cartography cross-reference clipped at the screen edge).
+	var scroll_body: Control = _list
+	if _phone:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 0)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(_list)
+		scroll_body = col
+	scroll.add_child(scroll_body)
 
 	var foot := VBoxContainer.new()
 	foot.add_theme_constant_override("separation", 2)
@@ -108,7 +161,12 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 	pad.add_theme_constant_override("margin_top", 6)
 	pad.add_theme_constant_override("margin_bottom", 8)
 	pad.add_child(foot)
-	outer.add_child(pad)
+	if _phone:
+		scroll_body.add_child(DccTheme.rule())
+		scroll_body.add_child(pad)
+	else:
+		outer.add_child(DccTheme.rule())
+		outer.add_child(pad)
 
 	_legend = VBoxContainer.new()
 	_legend.add_theme_constant_override("separation", 1)
@@ -119,6 +177,19 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 		func(v: float): host.set_debug_opacity(v / 100.0),
 		"Blends the active field raster over the base map, so terrain reads " +
 		"through it. The reference's own #dbgOpacity.")
+
+	## PH-07: a full-screen sheet has no "outside" to tap, so the way out has to
+	## be inside it. (Android back also closes it -- `DccShell::_notification`
+	## hides the topmost subwindow first, and this is one -- but a visible
+	## control is not optional for a gesture that has no on-screen affordance.)
+	if _phone:
+		var close := Button.new()
+		close.text = "Close"
+		close.focus_mode = Control.FOCUS_NONE
+		close.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		close.pressed.connect(func(): hide())
+		foot.add_child(close)
+		_close_row = close
 
 	DccWidgets.note(foot,
 		"Settlement, road, sea-route and town-layout visibility live in " +
@@ -165,8 +236,25 @@ func _attach_flow_fx() -> void:
 ## corner offset -- the button moves with `set_safe_insets()` on phone.
 func open() -> void:
 	rebuild()
+	## PH-07. `phone_present()` takes any `Window`, not only an `AcceptDialog`,
+	## so a `PopupPanel` gets the identical fill and content scale every other
+	## phone surface gets. Returns false on desktop and tablet, where the
+	## anchored popover below is exactly right.
+	if DccWidgets.phone_present(self, get_parent()):
+		_phone_fit()
+		return
 	var r := host.layers_button_rect()
 	popup(Rect2i(Vector2i(r.position.x, r.position.y + r.size.y + 4), Vector2i(228, 0)))
+
+## `1.0`: `phone_present()` applies the scale once as `content_scale_factor`.
+## Re-run after every `rebuild()`, because the rows are all fresh nodes; it is
+## idempotent by meta-flag, so only the new ones are touched.
+func _phone_fit() -> void:
+	if not _phone:
+		return
+	var shell: Node = get_parent()
+	if shell != null and shell.has_method("phone_fit"):
+		shell.phone_fit(self, 1.0)
 
 func rebuild() -> void:
 	for child in _list.get_children():
@@ -199,6 +287,7 @@ func rebuild() -> void:
 				row_i += 1
 			_rows[String(item["id"])] = _row(body, item, current, hotkey)
 	_refresh_legend(_legend_for(current, groups))
+	_phone_fit()   ## PH-07 -- every row above is a fresh node.
 
 func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) -> Button:
 	var id := String(item["id"])

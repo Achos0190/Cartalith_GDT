@@ -31,21 +31,73 @@ var _provinces_body: VBoxContainer
 var _trade_body: VBoxContainer
 var _sort_by_pop := true   ## Settlements tab only.
 
+## Phone (§13) -- PH-07. Nothing here is a two-column composition, so the fault
+## was purely density: a 760x620 desktop card drawn at native resolution inside
+## a 1440x3168 panel, 20 px table rows (about 1 mm on a 510 ppi screen) and a
+## 29 dp OK button for a way out.
+##
+## The one thing a content scale does not answer is the **six-column** table.
+## Six `clip_text` columns across 393 dp is ~55 dp each -- wide enough for
+## "Popul…" and nothing else. `_row()`/`_header_row()` therefore lay a row out
+## on two lines there, name over the rest, which keeps every column rather than
+## dropping the ones that fit worst.
+##
+## The other half is **how many rows** get built at all. Measured on a
+## generated world (parallel phone sweep, 2026-08-25): the settlements tab is
+## **1 470 individual `Label` nodes** across 240 rows, and the only way through
+## them is an ~8 px scrollbar. Two lines per row would have made that 1 700.
+## A phone therefore builds `PHONE_ROW_CAP` rows and says how many it left,
+## with a button that reveals another page -- the same shape a mobile list
+## takes everywhere, and honest about what it is not showing rather than
+## silently truncating. The filter field above it is the real answer for a
+## specific settlement, and the note says so.
+var _phone := false
+const PHONE_ROW_CAP := 50
+var _row_cap := PHONE_ROW_CAP
+
+## Returns true when this row must not be built. Call once per row that has
+## already passed the name filter, so the cap counts *matching* rows -- capping
+## before the filter would hide the very row a search was for.
+func _capped(shown: int) -> bool:
+	return _phone and shown > _row_cap
+
+## The "…and N more" foot a capped table ends with. `total` is how many rows
+## passed the filter, `built` how many were drawn.
+func _cap_note(body: VBoxContainer, built: int, total: int) -> void:
+	if not _phone or total <= built:
+		return
+	body.add_child(DccTheme.rule())
+	DccWidgets.note(body, "Showing %d of %d. Filter by name above to narrow, or:" % [built, total])
+	var more := Button.new()
+	more.text = "Show %d more" % mini(PHONE_ROW_CAP, total - built)
+	more.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	more.pressed.connect(func():
+		_row_cap += PHONE_ROW_CAP
+		_rebuild())
+	body.add_child(more)
+
 func setup(b: EngineBridge) -> void:
 	bridge = b
 	title = "World data"
 	size = Vector2i(760, 620)
 	min_size = Vector2i(560, 400)
+	ok_button_text = "Close"
+	_phone = DccWidgets.phone_window(self, get_parent())
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 6)
 	add_child(outer)
+	if _phone:
+		DccWidgets.phone_head(outer, "World data", "settlements · provinces · economy")
 
 	var filter_row := HBoxContainer.new()
 	filter_row.add_theme_constant_override("separation", 8)
 	var search := LineEdit.new()
 	search.placeholder_text = "filter by name"
-	search.custom_minimum_size.x = 220
+	if _phone:
+		search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		search.custom_minimum_size.x = 220
 	search.text_changed.connect(func(t: String): _filter = t.to_lower(); _rebuild())
 	filter_row.add_child(search)
 	outer.add_child(filter_row)
@@ -54,6 +106,19 @@ func setup(b: EngineBridge) -> void:
 	_tabs = TabContainer.new()
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(_tabs)
+	## PH-07: a `TabContainer`'s tab strip is drawn by an INTERNAL `TabBar`, so
+	## `DccShell.phone_fit()` -- which walks `get_children()` -- never reaches
+	## it, exactly as it never reaches `AcceptDialog`'s button bar. A tab has no
+	## height property either; its height is the font plus the stylebox's own
+	## vertical content margins, so those are the knob. Measured stock: 26 dp,
+	## for the control that switches between the three tables.
+	if _phone:
+		for state in ["tab_selected", "tab_unselected", "tab_hovered", "tab_focus"]:
+			var sb: StyleBox = _tabs.get_theme_stylebox(state, "TabContainer").duplicate()
+			var pad: float = maxf(0.0, (DccTheme.PHONE_TAP_MIN - DccTheme.FS_BODY) * 0.5)
+			sb.content_margin_top = pad
+			sb.content_margin_bottom = pad
+			_tabs.add_theme_stylebox_override(state, sb)
 
 	_settlements_body = _build_tab("Settlements")
 	_provinces_body = _build_tab("Provinces")
@@ -82,34 +147,67 @@ func _clear(body: VBoxContainer) -> void:
 		body.remove_child(c)
 		c.queue_free()
 
-func _row(body: VBoxContainer, cols: Array, tooltip: String = "") -> void:
+## PH-07's two-line phone row. The name gets its own full-width line and the
+## remaining columns share the one under it, so a six-column settlement row is
+## five ~70 dp cells instead of six ~55 dp ones, with the name -- the column
+## every filter and every lookup is keyed on -- unclipped.
+##
+## `_row()` and `_header_row()` build the SAME two-line shape, which is what
+## keeps the header over its own cells; a header that stayed one line would sit
+## over nothing.
+func _cells(cols: Array, from: int, header: bool) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	row.custom_minimum_size.y = 20
-	row.tooltip_text = tooltip
-	for i in cols.size():
-		var l := DccTheme.mono_label(String(cols[i]), "text_dim" if i == 0 else "text", DccTheme.FS_SMALL)
-		l.clip_text = true
+	if not header:
+		row.custom_minimum_size.y = 20
+	for i in range(from, cols.size()):
+		var l: Label
+		if header:
+			l = DccTheme.mono_label(String(cols[i]), "text_faint", DccTheme.FS_MICRO, 1, true)
+		else:
+			l = DccTheme.mono_label(String(cols[i]), "text_dim" if i == 0 else "text", DccTheme.FS_SMALL)
+			l.clip_text = true
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		l.size_flags_stretch_ratio = 2.0 if i == 0 else 1.0
 		row.add_child(l)
-	body.add_child(row)
+	return row
+
+func _row(body: VBoxContainer, cols: Array, tooltip: String = "") -> void:
+	if not (_phone and cols.size() > 3):
+		var flat := _cells(cols, 0, false)
+		flat.tooltip_text = tooltip
+		body.add_child(flat)
+		return
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 0)
+	stack.tooltip_text = tooltip
+	var name_l := DccTheme.mono_label(String(cols[0]), "text_bright", DccTheme.FS_SMALL)
+	name_l.clip_text = true
+	stack.add_child(name_l)
+	stack.add_child(_cells(cols, 1, false))
+	body.add_child(stack)
 
 func _header_row(body: VBoxContainer, cols: Array) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	for i in cols.size():
-		var l := DccTheme.mono_label(String(cols[i]), "text_faint", DccTheme.FS_MICRO, 1, true)
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		l.size_flags_stretch_ratio = 2.0 if i == 0 else 1.0
-		row.add_child(l)
-	body.add_child(row)
+	if not (_phone and cols.size() > 3):
+		body.add_child(_cells(cols, 0, true))
+		body.add_child(DccTheme.rule())
+		return
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 0)
+	stack.add_child(DccTheme.mono_label(String(cols[0]), "text_faint", DccTheme.FS_MICRO, 1, true))
+	stack.add_child(_cells(cols, 1, true))
+	body.add_child(stack)
 	body.add_child(DccTheme.rule())
 
 func _rebuild() -> void:
 	_rebuild_settlements()
 	_rebuild_provinces()
 	_rebuild_trade()
+	## PH-07: every row above is a fresh node, and this runs on a filter
+	## keystroke, on Show-more, and on a generate finishing. Idempotent by
+	## meta-flag (`DccShell.phone_fit`), so it only touches what was just made.
+	if _phone and get_parent() != null and get_parent().has_method("phone_fit"):
+		get_parent().phone_fit(self, 1.0)
 
 func _rebuild_settlements() -> void:
 	var body := _settlements_body
@@ -127,15 +225,20 @@ func _rebuild_settlements() -> void:
 	body.add_child(head)
 	_header_row(body, ["Name", "Class", "Population", "Faction", "Coastal", "Capital"])
 	var shown := 0
+	var built := 0
 	for r in rows:
 		var d: Dictionary = r
 		var name := String(d.get("name", "?"))
 		if _filter != "" and name.to_lower().find(_filter) < 0:
 			continue
 		shown += 1
+		if _capped(shown):
+			continue
+		built += 1
 		_row(body, [name, String(d.get("kind", "?")).capitalize(), str(int(d.get("population", 0))),
 			str(int(d.get("faction", 0))), "yes" if d.get("coastal", false) else "no",
 			"yes" if d.get("capital", false) else "no"])
+	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\"." % _filter if _filter != "" else "No settlements.")
 
@@ -154,17 +257,22 @@ func _rebuild_provinces() -> void:
 	body.add_child(head)
 	_header_row(body, ["Name", "Faction", "Capital settlement"])
 	var shown := 0
+	var built := 0
 	for p in provinces:
 		var d: Dictionary = p
 		var name := String(d.get("name", "?"))
 		if _filter != "" and name.to_lower().find(_filter) < 0:
 			continue
 		shown += 1
+		if _capped(shown):
+			continue
+		built += 1
 		var cap_idx := int(d.get("capital_settlement_index", -1))
 		var cap_name := "—"
 		if cap_idx >= 0 and cap_idx < settlements.size():
 			cap_name = String((settlements[cap_idx] as Dictionary).get("name", "—"))
 		_row(body, [name, str(int(d.get("faction", 0))), cap_name])
+	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No province matches \"%s\"." % _filter if _filter != "" else "No provinces.")
 
@@ -190,6 +298,7 @@ func _rebuild_trade() -> void:
 	body.add_child(DccTheme.rule())
 	_header_row(body, ["Settlement", "Exports", "Imports"])
 	var shown := 0
+	var built := 0
 	for i in mini(settlements.size(), balances.size()):
 		var s: Dictionary = settlements[i]
 		var name := String(s.get("name", "?"))
@@ -201,7 +310,11 @@ func _rebuild_trade() -> void:
 		if ex.is_empty() and im.is_empty():
 			continue
 		shown += 1
+		if _capped(shown):
+			continue
+		built += 1
 		_row(body, [name, ", ".join(ex) if ex.size() > 0 else "—", ", ".join(im) if im.size() > 0 else "—"])
+	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\" with a trade relationship." % _filter if _filter != "" else "No settlement carries a trade relationship.")
 
@@ -212,10 +325,15 @@ func _rebuild_trade() -> void:
 ## the window opens. Mirrors `DataManagerWindow.open(group)`'s own "scope to
 ## X, empty picks the default" shape.
 func open(tab: String = "") -> void:
+	## PH-07: the cap is a per-visit state, not a preference. Opening the window
+	## again starts at one page, the same way a re-opened list does everywhere.
+	_row_cap = PHONE_ROW_CAP
 	_rebuild()
 	if tab != "":
 		for i in _tabs.get_tab_count():
 			if _tabs.get_tab_title(i) == tab:
 				_tabs.current_tab = i
 				break
+	if DccWidgets.phone_present(self, get_parent()):
+		return
 	popup_centered()
