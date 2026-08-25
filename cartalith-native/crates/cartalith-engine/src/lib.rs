@@ -1864,7 +1864,38 @@ mod tests {
         let b = generate_terrain(&p);
 
         // Determinism: same seed, same use_gpu path, same result -- twice.
-        assert_eq!(a.field, b.field, "GPU-path generation must be deterministic for a fixed seed");
+        //
+        // Held to `DECISIONS.md` §7a's bar for GPU paths -- *principled
+        // equivalence*, not bit-identity -- on the owner's decision of
+        // 2026-08-25. This was an `assert_eq!` over the whole field, and it
+        // failed **intermittently**: roughly 2 of 6 full-workspace runs and 0
+        // of 6 in isolation, two runs of one seed differing by about one ulp
+        // of `f32`. That is the GPU scheduling its own reductions in a
+        // different order between dispatches, which §7a already says this
+        // project does not chase; the assertion simply predated the rule.
+        //
+        // 1e-6 on a field normalised to [0,1] is about eight ulps -- tight
+        // enough that genuine non-determinism (a different seed reaching the
+        // noise, a stage silently falling back on one run and not the other)
+        // still fails, and the worst deviation is reported so a regression
+        // says how far it drifted rather than merely that it did.
+        const GPU_DETERMINISM_TOL: f32 = 1e-6;
+        assert_eq!(
+            a.field.len(),
+            b.field.len(),
+            "GPU-path generation must produce the same field length for a fixed seed"
+        );
+        let worst = a
+            .field
+            .iter()
+            .zip(b.field.iter())
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0f32, f32::max);
+        assert!(
+            worst <= GPU_DETERMINISM_TOL,
+            "GPU-path generation must be deterministic for a fixed seed: \
+             worst element deviation {worst:e} exceeds {GPU_DETERMINISM_TOL:e}"
+        );
         assert_eq!(a.gpu_stages_used, b.gpu_stages_used, "which stages ran on GPU must itself be deterministic");
 
         // Statistical sanity: real terrain, not garbage, whichever path
