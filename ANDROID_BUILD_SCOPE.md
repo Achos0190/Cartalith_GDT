@@ -1416,3 +1416,138 @@ of a matched shell/engine pair.
   drags, at three x positions). Not investigated — it is the phone-cosmetics
   territory, and it is recorded here only because it is what blocked reaching
   the § TOOLS row where Measure is armed.
+
+---
+
+# Device pass — §46, §47, §48 and the ponytail LOD work, none of which had run on glass (2026-08-25)
+
+Four substantial passes landed on 2026-08-25 (`beb4866` → `ead417f`) and the
+APK on the handset was from **09:19 that morning**, predating all four. This
+pass exists to close that gap. Full findings are `GUI_GAP_REGISTER.md` §50;
+this section records only the Android specifics, because they are the reusable
+part.
+
+Hardware: **OnePlus 6T** (`ONEPLUS_A6013`, LineageOS 22.2 / Android 15),
+1080 x 2340, physical density 450 with an override of 314, `_phone_scale`
+**2.748**, Adreno 630 / OpenGL ES 3.2. **401.6 ppi = 15.81 px/mm** — the
+number every millimetre in §50 is divided by, computed from the panel's own
+6.41 in diagonal rather than from the density override, which does not
+describe the glass.
+
+## Build and install
+
+```
+cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot   # 33 s
+Godot_v4.7.1-stable_win64_console.exe --headless --export-debug "Android" \
+    builds/android/Cartalith.apk                                        # from godot-project/
+adb install -r builds/android/Cartalith.apk
+```
+
+- **`.so` 171,644,632 bytes**, sha256 `fc49dca5…b4b8cc35`, and the copy inside
+  the APK verified byte-identical — the 2026-08-24 staleness audit's own
+  method, run again rather than assumed.
+- `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` **before and after
+  every one of the seven Godot invocations this pass made.** The `;` comment
+  block survived each time. It now carries the load-bearing explanation of why
+  `stretch/mode` must stay unset (HD-04); losing it would be a real regression,
+  so it was checked every time and not just once.
+- `export_presets.cfg` and `Cargo.toml` untouched, per the owner's standing
+  instruction. The ~100 `_*_probe` / `_*_shot` development files still ship
+  inside the APK and the release profile is still unstripped; both are recorded
+  elsewhere and both are the owner's call.
+- The launcher activity is
+  `org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher`, **not**
+  `.GodotApp` — `am start` on the latter throws. Resolve it with
+  `cmd package resolve-activity --brief` rather than guessing.
+
+## Measuring frame time on this app
+
+`dumpsys gfxinfo <pkg>` is **useless here** and it is worth knowing why before
+spending time on it: Godot renders into its own `SurfaceView`, not through
+HWUI, so once the splash is gone `Total frames rendered` sticks at 0 and every
+percentile reads `4950ms`. The 48 frames it does report are the splash.
+
+What works is SurfaceFlinger's own present timestamps:
+
+```
+adb shell dumpsys SurfaceFlinger --list | grep -i cartalith
+adb shell "dumpsys SurfaceFlinger --latency 'a8bd915 SurfaceView[org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher](BLAST)#1386'"
+```
+
+The first line of the dump is the refresh period in ns; every following line is
+`desired  present  ready`. Take column 2, sort, de-duplicate, difference. The
+buffer holds ~128 frames, so run the gesture and dump **immediately** after. Do
+not filter out large gaps before looking at them — the interesting number here
+was a single 117 ms frame in an otherwise flat 16.7 ms run.
+
+Results, for the record: deep-zoom panning **median 16.7 / p99 16.8 / max
+16.9 ms, zero frames over one vsync**; a zoom notch **median 16.7 / p99 100.1 /
+max 117.0**, 4 frames over 33 ms. Against `PERFORMANCE_BENCHMARKS.md` §5's
+pre-parallelisation 1.3-1.8 s frozen frame on one notch.
+
+## Memory, same metric as the three previous passes
+
+`dumpsys meminfo <pkg>`, `TOTAL PSS`, sampled continuously through a cold boot
+and one 2048 x 1311 generate from the welcome screen. **Peak 1 033 MB, steady
+818 MB**, against 2026-08-20's 878 / 647 — **+18 % and +26 %**. Grep for
+`TOTAL PSS:` specifically; a bare `grep TOTAL` also matches the summary table
+row and will silently give you a different number.
+
+Generation itself: **25.1 s** cold and 24.8 / 25.8 s warm, read off the app's
+own `Pass` row in the MENU sheet rather than inferred. §4.1's "16-18 s" was
+explicitly a memory-trace inference, so the two are not comparable; this is the
+first instrumented figure.
+
+## What was driven, and how
+
+Everything through `adb shell input tap` / `swipe`, read back with
+`adb exec-out screencap -p`. **Every claim about physical size in §50 is a
+pixel measurement out of a screenshot divided by 15.81 px/mm**, never an
+impression — and twice this pass a rendered screenshot *appeared* to show a
+control (§48's phantom top `Close`) that a per-row brightness scan proved was
+not in the pixels at all. Scan before believing a picture.
+
+| Path | Result |
+|---|---|
+| Welcome ▸ Create a new world ▸ Create | world generated on the handset, 2048 x 1311 |
+| Map ▸ Layers pill ▸ full-screen sheet ▸ scroll ▸ Close | all four work; sheet Close 118 px, clear of the gesture inset |
+| MENU ▸ Data ▸ World data tables… | three tabs, two-line rows, scrolls, Close reachable |
+| MENU ▸ Data ▸ Journey planner… | **blank centre panel** — §50 PH-16 |
+| MENU ▸ Data ▸ Travel library… | four tab groups, entry list, `+` tofu (§50 PH-17) |
+| MENU ▸ Data ▸ Import ▸ Data manager | ROUTES / ROUTE switcher, Run foot, Close |
+| MENU ▸ Assets ▸ Asset library | FAMILIES / SLOTS / SLOT switcher, 2-up slot grid |
+| MENU ▸ Help ▸ Credits, Generation info | both full-screen, both scroll |
+| MENU ▸ Preferences ▸ Working set… | Performance window |
+| Navpad ▸ zoom ×8, pan tool, drag, Fit | LOD tiles resolve; **a bare drag does not pan** until the hand tool is armed |
+
+`adb shell input tap` is a **zero-area synthetic pointer**. It proves the
+interaction model and nothing about fingers, which is why every size claim here
+is a millimetre off the framebuffer instead. The one finding that genuinely
+came from gesture behaviour rather than geometry — §50 PH-15, a 250 ms flick
+activating the row it starts on — was reproduced three times from the same
+coordinate before it was written down.
+
+## Landscape, again
+
+Still unreachable over `adb`: `project.godot` sets `SCREEN_SENSOR`, which
+follows the accelerometer and overrides `settings put system user_rotation`.
+Every measurement in §50 is portrait, and anything landscape-dependent is
+marked inferred there rather than observed.
+
+## Still owed from the 2026-08-24 pass
+
+That pass asked the next one to confirm, **first**, that `push_warning` reaches
+Android's `logcat`, before a silent log is trusted as evidence of a matched
+shell/engine pair. **This pass did not do it either.** The `logcat` was clean
+across a cold boot, three generates and the whole sweep — but that rests on the
+same argument the previous pass correctly called *"an argument, not a
+measurement"*. It is one probe build with a deliberate boot-time warning.
+
+## Device state left behind
+
+The fixed build is installed and running, with a generated world on screen.
+Nothing was pushed to `/data/local/tmp/`, no properties or settings were
+changed, no root was attempted, and no other app was foregrounded. The
+notification shade was opened once by a stray `keyevent 82` at the start and
+closed with `cmd statusbar collapse`; `KEYCODE_BACK` was never sent, per the
+third pass's warning that it kills the process and the generated world with it.

@@ -159,14 +159,35 @@ static func mono(spacing: int = 0, medium: bool = false) -> Font:
 		fv.spacing_glyph = spacing
 	## §12 asserts the text symbols "are typographic, inherit type metrics, and
 	## need no drawing". That premise does not hold for Plex Mono, which is
-	## missing seven of them -- checked against the font's own cmap, not
-	## assumed: ✕ (2715), ● (25CF), ○ (25CB), ▾ (25BE), ▸ (25B8), ▶ (25B6) and
-	## ＋ (FF0B). ✓, →, §, ‹, ›, ↶, ↷, ·, • and × are all present.
+	## missing most of them. The count in this comment used to read "seven" and
+	## was stale by more than a factor of two -- re-parsed from the shipped
+	## `IBMPlexMono-Regular.ttf` cmap on 2026-08-25, **19 of the 24 entries in
+	## `DccIcons.SYMBOLS` have no glyph**: ▸ ▾ ⌄ ● ○ ☑ ☐ ✕ ⌫ ▶ ⏸ ☰ ▤ ⋯ 🔒 ⛔ ⚠ ⚡
+	## and (until this pass) ＋. `FiraSans-Regular.ttf` is worse, missing ✓ ↶ ↷
+	## as well. Only ‹ › § · • × ✓ are native. Recount before quoting this.
 	##
-	## A fallback keeps the missing seven rendering in the system face rather
+	## A fallback keeps the missing ones rendering in the system face rather
 	## than as tofu. They lose Plex's metrics, which is the cost of §12's
 	## premise being wrong; drawing them instead would be the alternative, and
 	## is recorded in DCC_SHELL_SPEC.md's header as a question for the design.
+	##
+	## **The three names below are all desktop faces and none of them exists on
+	## Android, and that turned out not to matter.** Checked on a OnePlus 6T
+	## (LineageOS 22.2 / Android 15) rather than reasoned about: `▸ ✕ ● ○ ☰ ▤`
+	## and the rest all rasterise correctly there, because
+	## `SystemFont.allow_system_fallback` defaults to `true` and Godot's Android
+	## backend walks `/system/fonts` on its own when no listed name resolves. So
+	## the list being Windows-only is a cosmetic wart, not the bug it looks
+	## like -- recorded because the next reader will otherwise "fix" it.
+	##
+	## Exactly **one** codepoint had no glyph anywhere on that handset:
+	## `DccIcons.SYMBOLS["add"]` was `＋` U+FF0B, a *fullwidth* plus, which lives
+	## in the CJK compatibility block and is therefore carried by Noto Sans CJK
+	## rather than by any of the Noto Symbols faces a non-CJK build installs. It
+	## drew as a `FF 0B` tofu box in the Travel Library's ENTRIES header. It is
+	## an ASCII `+` now: Plex Mono has that natively, so it needs no fallback at
+	## all and loses no metrics -- the one glyph in the table that could be
+	## fixed rather than fallen back.
 	var sys := SystemFont.new()
 	sys.font_names = PackedStringArray(["Segoe UI Symbol", "Segoe UI", "DejaVu Sans"])
 	fv.fallbacks = [sys]

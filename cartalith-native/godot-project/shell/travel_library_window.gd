@@ -427,7 +427,7 @@ func _build_rail() -> Control:
 	head_row.add_child(_rail_header)
 	head_row.add_child(DccTheme.spacer())
 	var add_btn := Button.new()
-	add_btn.text = "＋"
+	add_btn.text = "+"
 	add_btn.tooltip_text = "New blank definition…"
 	add_btn.flat = true
 	add_btn.focus_mode = Control.FOCUS_NONE
@@ -641,7 +641,7 @@ func _refresh_inspector() -> void:
 		c.queue_free()
 
 	if _current_id == "":
-		DccWidgets.note(_inspector_body, "Select an entry, or ＋ New blank definition…")
+		DccWidgets.note(_inspector_body, "Select an entry, or + New blank definition…")
 		return
 
 	_entry = _bridge.tl_get(_current_kind, _current_id)

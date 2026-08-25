@@ -7822,3 +7822,262 @@ bridge, the deep-zoom map layer and the City Viewer.
 overlay really would have nothing to draw. This is a **stale reason on a
 correct verdict**, the §4 S1-S5 shape exactly: fix the sentence, leave the
 control alone.
+
+---
+
+## 50 · PH-13…PH-17 — the four passes that had never run on a phone, driven on one (2026-08-25) — **THREE FIXED, SIX REGISTERED, ELEVEN PROVEN**
+
+§46 (nine phone windows), §47 (the hi-DPI pass), §48 (the design-conformance
+sweep) and the `/ponytail` LOD parallelisation all landed inside one day and
+**not one of them had touched real hardware.** The APK installed on the owner's
+OnePlus 6T was from 09:19 that morning and predated every one.
+
+Hardware: **OnePlus 6T** (`ONEPLUS_A6013`, LineageOS 22.2 / Android 15),
+1080 x 2340, `DccShell._phone_scale` **2.748**, Adreno 630 on OpenGL ES 3.2.
+The panel is 6.41 in diagonal, so **401.6 ppi = 15.81 px/mm**, and every
+millimetre below is a screenshot measurement divided by that number rather than
+an adjective.
+
+**The scale limit, stated first rather than buried.** The owner reported the
+blur on a **OnePlus 12** at `_phone_scale` **3.664**. This handset is 2.748.
+Everything below confirms the §47 fixes *in kind*; **none of it confirms them at
+the scale he actually saw**, and a defect that scales with that number is 33 %
+worse there. Nothing in this section closes the OnePlus 12 report.
+
+### Ranked: what is actually broken on the device
+
+**PH-16 · The Journey Planner's centre panel is 1 434 px of nothing.** —
+**REGISTERED, NOT FIXED.** CIVIL ▸ Data ▸ *Journey planner…* on the handset
+draws a uniform `panel` `#121314` field from y = 265 to y = 1 699 — **61 % of
+the screen, 91 mm** — in which **not one pixel exceeds RGB(23, 23, 23)**
+(scanned every fifth row, full width). The only journey content anywhere on
+screen is a two-line `§ ROUTE TOTALS / No committed route selected.` strip
+*below* that field, and the tool-options row's `JOURNEY PLANNER · journey ·
+(no committed route)`. There is no route-map frame, no `PROFILE · STAGE
+SELECTOR` header, no stage matrix and no inspector — none of the composition
+§46 describes as *"both stack"*.
+
+It is not a "no route yet" empty state. `_build()` draws a `PanelContainer` per
+row with a bottom rule, and at `_pp(236)` / `_pp(150)` those rules would land at
+y = 917 and y = 1 329; neither is on the framebuffer. And `_show()` sets
+`app.viewport.visible = false`, so **the map is gone too** — the phone user gets
+a black rectangle and no way to tell what happened.
+
+Not chased here, deliberately, for the reason this document already wrote down
+after the press-and-hold hunt: *"Diagnose there; confirm on the handset."* Each
+device iteration is an export, an `adb install` and a re-navigation, and
+`print()` from GDScript still does not reach `logcat` on this build.
+`_ph9_probe.gd` at `--vp 1080x2400 --force-touch`, dumping the rects of
+`_center_panel` / `col` / `map_row_pad`, is the two-minute answer; the handset
+is the confirmation.
+
+**PH-13 · The 44 dp floor on the dialog Close button produced a *clipped*
+button, not a bigger one.** — **FIXED.** §46's fix five raised
+`get_ok_button().custom_minimum_size` after `popup()`, because `popup()` clears
+it. It does survive — but `AcceptDialog` had already seated its button bar for
+the stock 29 dp button, so the taller one grew **downwards out of the window**,
+where the subwindow clips it.
+
+| Window | Close/OK visible height | after |
+|---|---|---|
+| World data | 84 px = **5.31 mm** | 131 px = **8.29 mm** |
+| Gen info | 84 px | 131 px |
+| Performance | 84 px | 131 px |
+| Credits | 84 px | 131 px |
+| New World (Cancel + Create) | 78 px | 124 px |
+
+The clip was **proved, not inferred**: the glyph sat at y = 2 245, the centre of
+the *full* 121 px box, against a window whose own bottom border is 2 266-2 268.
+A merely-short button would have centred its glyph at 2 226.
+
+**Three ways of asking the engine to re-lay were tried on the handset and all
+three measured the same**, which is the part worth keeping:
+
+| attempt | result |
+|---|---|
+| `Window.child_controls_changed()` | 82 px — defers to `_update_window_size()`, which with `wrap_controls` off finds the size unchanged and raises nothing |
+| `size` assigned immediately after the floor | 84 px — `custom_minimum_size` queues `update_minimum_size()`, so a same-call relay is told the *stock* size |
+| the same assignment via `set_deferred()` | 84 px — queue order was the wrong theory too |
+
+So the bar is seated **once**, by `popup()`, and nothing `phone_present()` can
+reach makes it happen twice. `DccWidgets._floor_dialog_bar()` therefore does the
+arithmetic itself: `hbox.size.y` still holds the stock height at that moment —
+**the staleness is the input, not the obstacle** — so the shortfall is
+`PHONE_TAP_MIN - hbox.size.y`, the bar moves up by it, and the content child
+shrinks by the same amount so the two cannot overlap. Idempotent, and
+self-healing if a future engine version does relay.
+
+**A fourth build was needed after that**, because seating the 44 dp button
+exactly where the 29 dp one ended still measured as clipped (2 144-2 268 against
+a window border at 2 266-2 268): **`AcceptDialog` gives its bar no bottom margin
+at all**, so the button's border and the window's border were the same two
+pixels. A 12 dp foot — `category()`'s own `DccTheme.inset(12, 0, 12, 0)`, not a
+number chosen to flatter a screenshot — is what makes it read as a button.
+
+**PH-14 · The Layers button grew its hit rect and kept its old paint.** —
+**FIXED.** HD-03 grew it from 44 to 121 px and re-rasterised its glyph, and on
+glass it still looked like a clipped 2 mm icon. Two independent causes:
+
+1. `Button.icon_alignment` defaults to **`LEFT`**, so the 36 px glyph sat in the
+   top-left *corner* of the 121 px box — measured at x 2-37, y 307-342 — with
+   84 px of its own target empty beside it. Because `phone_content_insets()`
+   returns `left = 0` in portrait (deliberately; the map is edge-to-edge), that
+   corner is the panel edge.
+2. `flat = true` **suppresses the background stylebox entirely** — the exact
+   trap `_navpad_button()`'s own comment records paying for once already
+   (*"the first cut was flat, and the pills were invisible over the terrain with
+   only their glyphs showing"*). So `text_dim` grey drew straight onto whatever
+   biome was under the corner. Over this world's coastal scrub, with a
+   settlement pin behind it, it was unreadable.
+
+Now the same 92 %-alpha scrim pill the navpad uses, at the same radius, glyph
+centred, with `NAVPAD_EDGE` (the canvas's own `right:14px`) as a floor on the
+left inset so the disc is not tangent to the panel edge. Touch only — desktop's
+26 px flat glyph is untouched.
+
+**PH-15 · A scroll flick on a phone menu sheet activates the row it starts
+on.** — **REGISTERED, NOT FIXED.** Three identical 250 ms upward flicks from
+(540, 1 335) on the MENU ▸ Preferences L3 sheet: the third opened *Working set…*
+(the Performance window) instead of scrolling. The same class had already opened
+*Theme* as an L4 sheet during an earlier two-flick scroll. The sheet **does**
+scroll — a 700 ms drag from the same point moves it cleanly — so this is a
+drag-threshold / press-cancel question inside the sheet's own row buttons, not
+PH-05 again. It is the most likely single source of the owner's *"doesn't listen
+well to touch input"*, and it wants the desktop harness rather than a guess.
+
+**PH-17 · `DccIcons.SYMBOLS["add"]` drew as a tofu box.** — **FIXED.** It was
+`＋` **U+FF0B**, a *fullwidth* plus, which lives in the CJK compatibility block
+and is therefore carried by Noto Sans CJK rather than by any of the Noto Symbols
+faces a non-CJK Android build installs. It rendered as a literal `FF 0B`
+missing-glyph box in the Travel Library's ENTRIES header, and would have in
+`DccWidgets.advanced()`'s L5 sigil and two Asset Library strings. It is an ASCII
+`+` now — Plex Mono has that natively, so it needs no fallback at all and loses
+no metrics.
+
+Re-parsed from the shipped cmaps while there: `dcc_theme.gd`'s claim that Plex
+Mono is *"missing seven"* of §12's symbols was stale by more than a factor of
+two — **19 of the 24 entries in `DccIcons.SYMBOLS` have no glyph** in
+`IBMPlexMono-Regular.ttf`, and `FiraSans-Regular.ttf` is worse. Corrected in
+place.
+
+### Registered, not fixed
+
+- **Labels clip without an ellipsis.** World data ▸ Economy rows end
+  `…silver, clay, buildst` — a hard cut at the panel edge with no affordance.
+  §46 records that `phone_fit()`'s ellipsis pass reaches only `Button`s; this is
+  the `Label` half of the same hole, now visible in shipped content rather than
+  theoretical.
+- **DS-12's summary line prints the class twice.** `capital · pop 20 708 ·
+  faction 4 · capital` — the first token is the settlement class and the last is
+  the capital flag. DS-12's own worked example is `capital · pop 20 655 ·
+  faction 3 · coastal`, i.e. the flag should drop when it merely repeats the
+  class.
+- **The navpad's first pill keeps a hover tint after a tap.** Measured
+  (58, 60, 61) against (18, 19, 20) on the other three, persisting indefinitely.
+  There is no hover on a touchscreen; Android leaves the emulated pointer where
+  the finger last was.
+- **The pane switcher's focused state is stock Godot.** The Data manager's
+  `ROUTES` chip draws a rounded raised grey pill once tapped, against `ROUTE`'s
+  correct `active_row()` amber wash — DS-07 restyled the selected state and not
+  the focused one, and DS-14's "radius 0 everywhere" does not reach it either.
+  Invisible on desktop, permanent on touch.
+- **The MENU sheet's L2 header carries two `×`** — one top-left, where the L3
+  sheet correctly draws a `‹` back chevron, and one top-right. Both close.
+- **The app's own Memory row under-reports by about 4x on Android.** It read
+  **0.2 GB** while `dumpsys meminfo` reported **818 MB** of TOTAL PSS for the
+  same process at the same moment. `performance_window.gd` names its source
+  honestly (`OS.get_static_memory_usage()`), but on this platform the Rust
+  allocations and the 544 MB of `Gfx dev` are both outside it, so the number on
+  screen is not the number that gets the app killed.
+
+### Memory, like for like
+
+Cold boot, one 2048 x 1311 generate from the welcome screen, `TOTAL PSS` sampled
+continuously — the same metric the three previous device passes used:
+
+| Run | Peak | Steady |
+|---|---|---|
+| 2026-08-18 | 874 MB | ~510 MB |
+| 2026-08-20 | 878 MB | 647 MB |
+| **this pass** | **1 033 MB** | **818 MB** |
+
+**+18 % peak and +26 % steady since 2026-08-20**, on a handset with 8 GB. Not
+diagnosed here; recorded because the previous pass's headline was "peak is flat"
+and that is no longer true. A separate, *dirtier* sample after ~25 minutes of
+driving every window plus a deep-zoom session reached **1.82 GB** peak /
+1.28 GB steady with **544 MB of it in `Gfx dev`** — the LOD tile textures —
+which is the obvious first place to look.
+
+### Proven negatives — eleven things that are genuinely fine
+
+Recorded at length because this project's own rule is that a proven negative
+stops the next pass re-walking the ground.
+
+- **§48's "second `Close` at the top of every full-bleed phone window" does not
+  exist on the handset.** That section registered it from a `SubViewport`-hosted
+  capture, suspected a harness artefact, and asked for ten minutes on the next
+  Android pass. Rows 0-160 of World data, Gen info and the credits sheet are
+  **uniform `panel` `#121314`**: maximum channel sum **57** across the full
+  width, against **703** where real text is. It is an artefact. §48's suspicion
+  was right.
+- **Deep-zoom panning is a locked 60 Hz.** 125 SurfaceFlinger present timestamps
+  across four continuous pan drags at a 5.7 km span: **median 16.7 ms, p99 16.8,
+  max 16.9, zero frames over one vsync** (idle in the same session: max 17.2).
+  The `/ponytail` row-parallel `amplify_region` / `add_zoom_detail` /
+  `shade_tile` holds up on an Adreno 630.
+- **A zoom notch costs at most a 117 ms hitch.** 125 frames across four zoom-in
+  taps: median 16.7, p99 **100.1**, max **117.0**, 8 frames over 16.8 ms and 4
+  over 33. Against `PERFORMANCE_BENCHMARKS.md` §5's pre-parallelisation
+  **1.3-1.8 second frozen frame on one wheel notch**. Visible, and no longer a
+  stall.
+- **HD-03's growth is real on glass.** Navpad pills measure **117 px =
+  7.40 mm** at 401.6 ppi, against 44 px = 2.78 mm before — and DS-13's 92 %
+  scrim is live, terrain reading through at (102, 104, 104) over bright sand and
+  (24, 29, 30) over dark water.
+- **Every screen in the sweep is crisply rasterised** at `_phone_scale` 2.748 —
+  HD-01's `oversampling_override` is doing its job. **Not confirmed at 3.664**,
+  per the notice at the top of this section.
+- **PH-05's touch scroll works everywhere it was checked**: the Layers sheet,
+  the world-data list, the credits body and the preferences sheet all scroll by
+  flick.
+- **DS-02 holds on glass.** No filled amber slab anywhere in the sweep; every
+  action is an outlined amber chip — welcome, New World, Asset Library, Layers,
+  all four dialogs.
+- **PH-12 fix five is live**: the credits body renders its full attribution (it
+  was 0 characters before §46).
+- **§48's `performance_window` `%.2f` literal is gone**: the window reads
+  *"Working set: 0.21 GB"*.
+- **The font fallback list being desktop-only is not the bug it looks like.**
+  `DccTheme.mono()` names `Segoe UI Symbol` / `Segoe UI` / `DejaVu Sans`, none of
+  which exists on Android — and `▸ ✕ ☰ ● ○ ▤` all rasterise correctly anyway,
+  because `SystemFont.allow_system_fallback` defaults to `true` and Godot's
+  Android backend walks `/system/fonts` on its own. Exactly one codepoint had no
+  glyph anywhere (PH-17). Recorded so the next reader does not "fix" the list.
+- **`logcat` is clean**: zero `SCRIPT ERROR`, `USER ERROR`, `USER WARNING`, Rust
+  panic or `Cartalith: the loaded GDExtension has no …` across a cold boot,
+  three full generates and the whole window sweep, on a `.so` and an APK
+  sha256-verified against each other.
+
+### Two things this pass could not do, said plainly
+
+- **Landscape was never observed.** `project.godot` sets `SCREEN_SENSOR`, which
+  follows the accelerometer and overrides `settings put system user_rotation`;
+  the phone cannot be rotated over `adb`. Every measurement here is portrait.
+- **The positive control the 2026-08-24 pass asked for is still missing.** It
+  wanted proof that `push_warning` reaches Android's `logcat` before a silent
+  log is trusted as evidence of a matched shell/engine pair. No such control was
+  built here either, so the clean `logcat` above rests on the same argument that
+  pass called *"an argument, not a measurement"*.
+
+### Also worth knowing
+
+- **The map does not pan by a bare drag** — the hand tool has to be armed first
+  (measured: 0 changed pixels before, 26 585 sampled changes after). Not called
+  a defect: the phone canvas's `01 Viewport` gives pan its own floating control,
+  so this is the design — but it is the first thing a finger tries.
+- **Generation timing.** 2048 x 1311 on this handset, read off the app's own
+  `Pass` row: **25.1 s** cold, **24.8 s** and **25.8 s** warm.
+  `ANDROID_BUILD_SCOPE.md` §4.1's "roughly 16-18 s" is **not** a comparable
+  number — that section says outright it was *"inferred from the shape of the
+  memory trace rather than an instrumented timer"*. This is the instrumented
+  one; treat it as the new baseline rather than as a regression against the old.

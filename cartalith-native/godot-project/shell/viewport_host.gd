@@ -765,6 +765,38 @@ func _apply_touch_scale(scale: float) -> void:
 	var hit := maxi(DccTheme.PHONE_TAP_MIN, int(round(44.0 * scale)))
 	_layers_btn.custom_minimum_size = Vector2(hit, hit)
 	_layers_btn.icon = DccIcons.get_icon("layers", maxi(1, int(round(15.0 * scale))))
+	## **The hit rect grew and the paint did not, and on a real handset that is
+	## the difference between a control and a smudge.** Two things were wrong
+	## together, both found on a OnePlus 6T rather than in a harness:
+	##
+	## 1. `Button.icon_alignment` defaults to `LEFT`, so the glyph sat in the
+	##    top-left *corner* of a 121 px box positioned at the map's own left
+	##    edge (`DccShell.phone_content_insets()` returns `left = 0` in
+	##    portrait, deliberately -- the map is edge-to-edge). Measured: the
+	##    36 px glyph occupied x 2-37, y 307-342, i.e. flush against the panel
+	##    edge with the remaining 84 px of its own target empty to the right.
+	##    It reads as a clipped icon, which is what it was reported as.
+	## 2. `flat = true` **suppresses the background stylebox entirely** -- the
+	##    exact trap `_navpad_button()`'s own comment below records paying for
+	##    once already ("the first cut was flat, and the pills were invisible
+	##    over the terrain with only their glyphs showing"). The Layers button
+	##    still had it, so `text_dim` grey drew straight onto whatever biome
+	##    happened to be under the top-left corner; over this world's coastal
+	##    scrub, with a settlement pin behind it, it was unreadable.
+	##
+	## Fixed together and only on touch, so the desktop 26 px flat glyph in the
+	## dock-framed viewport is byte-identical: the same 92 %-alpha scrim pill
+	## the navpad already uses, at the same radius, with the glyph centred in
+	## it. `modulate` goes back to white because `_navpad_paint()` tints through
+	## `icon_*_color` -- leaving both would multiply the tint twice.
+	_layers_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_layers_btn.flat = false
+	_layers_btn.modulate = Color.WHITE
+	_navpad_paint(_layers_btn, DccTheme.c("panel"), DccTheme.c("text"))
+	for state in ["normal", "hover", "pressed"]:
+		var lsb: StyleBox = _layers_btn.get_theme_stylebox(state)
+		if lsb is StyleBoxFlat:
+			(lsb as StyleBoxFlat).set_corner_radius_all(int(hit / 2.0))
 	if _navpad == null:
 		return
 	_navpad.add_theme_constant_override("separation",
@@ -819,7 +851,19 @@ func _apply_safe_insets() -> void:
 	_coords_label.offset_top = -b - coords_size.y
 	_coords_label.offset_bottom = -b
 
-	_layers_btn.position = Vector2(l, t)
+	## `NAVPAD_EDGE` as a floor here for the same reason the navpad takes it
+	## below: in portrait `DccShell.phone_content_insets()` returns `left = 0`
+	## deliberately (the map is edge-to-edge behind the chrome), and with the
+	## button now painting a real 121 px pill rather than a bare glyph, a left
+	## offset of 0 makes that pill *tangent to the panel edge*. Measured on the
+	## handset after the paint fix: the disc ran x 0-121 with the screen at 0.
+	## The navpad's `right:14px` is the canvas's own value for exactly this
+	## relationship, and this is the same relationship on the other side.
+	## Gated on `_touch` rather than applied unconditionally the way the navpad
+	## applies it, because on desktop `l` is 10 and the floor would move a glyph
+	## §46 and §48 both measured -- and there it is a flat 26 px flat button with
+	## no pill to sit tangent to anything.
+	_layers_btn.position = Vector2(maxf(l, float(NAVPAD_EDGE)) if _touch else l, t)
 
 	## The navpad rides the same insets, so it clears the app bar, the bottom
 	## bar, the timeline and the gesture strip without a second set of

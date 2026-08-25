@@ -222,7 +222,7 @@ static func _refit_glyph(t: TextureRect, name: String, px: int) -> void:
 const SYMBOLS := {
 	"submenu": "\u25B8", "collapse": "\u2039", "expand": "\u203A", "caret": "\u25BE",
 	"chevron": "\u2304", "on": "\u25CF", "off": "\u25CB", "checked": "\u2611",
-	"unchecked": "\u2610", "tick": "\u2713", "cross": "\u2715", "add": "\uFF0B",
+	"unchecked": "\u2610", "tick": "\u2713", "cross": "\u2715", "add": "+",
 	"delete": "\u232B", "undo": "\u21B6", "redo": "\u21B7", "play": "\u25B6",
 	"pause": "\u23F8", "drawer": "\u2630", "panels": "\u25A4", "overflow": "\u22EF",
 	"locked": "\U0001F512",

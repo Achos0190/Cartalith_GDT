@@ -193,7 +193,7 @@ static func group(parent: Control, title: String, open: bool = true,
 ## Expert dials, closed by default. If a value in here has to be changed for a
 ## normal result, the default above it is wrong -- fix the default instead.
 static func advanced(parent: Control, title: String = "advanced") -> VBoxContainer:
-	return group(parent, title, false, "＋")
+	return group(parent, title, false, "+")
 
 # -- Rows ---------------------------------------------------------------------
 
@@ -834,34 +834,122 @@ static func phone_present(dlg: Window, host) -> bool:
 	## the canvas draws (the map keeps bleeding under it) and costs nothing but
 	## the 26 dp the system was going to take anyway.
 	var gesture := int(round(DccTheme.H_PHONE_GESTURE * host.phone_scale()))
-	dlg.popup(Rect2i(Vector2i.ZERO,
-		Vector2i(int(screen.x), maxi(1, int(screen.y) - gesture))))
+	var target := Vector2i(int(screen.x), maxi(1, int(screen.y) - gesture))
+	## One pixel short on purpose -- `_floor_dialog_bar()` below restores it, and
+	## that restore is the only thing that makes `AcceptDialog` re-lay its button
+	## bar. See that function for the measurement.
+	dlg.popup(Rect2i(Vector2i.ZERO, target - Vector2i(0, 1)))
 	## `AcceptDialog` parents its whole button bar as an **internal** child, so
 	## `DccShell.phone_fit()` -- which walks `get_children()` -- has never once
 	## reached it. Measured 29 dp on every window whose only way out is that
 	## button (`gen_info_dialog.gd`, `performance_window.gd`,
 	## `world_data_window.gd`, the credits sheet), which is two thirds of §13's
-	## floor on the one control that closes the window.
-	##
-	## `app.gd::_floor_prompt_buttons()` found this first for the quit prompt
-	## and records the two traps it costs, both of which apply here verbatim:
-	## an **untyped** loop element writes to a temporary copy of the vector and
-	## is lost, and **`Window.popup()` clears the value**, because the bar is
-	## re-laid on show. So this runs after the `popup()` above, not before --
-	## and again on every rotation, since the relay re-enters here.
+	## floor on the one control that closes the window. Flooring it, and then
+	## seating the bar that holds it, is `_floor_dialog_bar()` below -- it runs
+	## after the `popup()` and not before, because **`Window.popup()` clears
+	## `custom_minimum_size`** when it re-lays that bar on show.
+	_floor_dialog_bar(dlg, target)
+	oversample(dlg)
+	return true
+
+## **Flooring the button bar and *seating* it are two different jobs, and only
+## the first was done.** `AcceptDialog::_update_child_rects()` puts the bar at
+## `size.y - buttons_minsize.height - margin` and takes that minimum from the
+## layout pass in progress -- the one `popup()` just ran, with the stock 29 dp
+## buttons still in place. Raising `custom_minimum_size` afterwards therefore
+## grows each button **downwards from a position computed for the old height**,
+## through the window's bottom edge, where the subwindow clips it.
+##
+## Measured on a OnePlus 6T (1080 x 2340, `phone_scale` 2.748) -- the real
+## handset, not a `SubViewport` harness: the amber Close border on World data,
+## Gen info, Performance and the credits sheet all ran y 2185-2268 against a
+## window ending at 2269. **84 px of the 121 px the floor asks for: 5.31 mm of
+## 7.65.** The glyph sat at 2245, the centre of the *full* 121 px box, which is
+## what proved it was clipped rather than merely short. New World's
+## Cancel/Create pair was the same defect at 78 px.
+##
+## `Window.child_controls_changed()` does **not** fix it, and that was tried on
+## the device first: it defers to `Window::_update_window_size()`, which with
+## `wrap_controls` off (which `phone_window()` sets, deliberately) finds the
+## size unchanged and raises no notification, so `AcceptDialog` never re-lays.
+## Measured after that attempt: still 82 px.
+##
+## **Three ways of asking `AcceptDialog` to re-lay were tried on the handset and
+## all three measured identically**, which is what moved this from "find the
+## right API" to "do the arithmetic here":
+##
+## - `Window.child_controls_changed()` -> 82 px. It defers to
+##   `Window::_update_window_size()`, which with `wrap_controls` off (which
+##   `phone_window()` sets, deliberately) finds the size unchanged and raises
+##   nothing.
+## - `size` assigned immediately after the floor -> 84 px.
+##   `Control.custom_minimum_size` does not publish synchronously, it queues
+##   `update_minimum_size()`, so a same-call relay is still told the stock size.
+## - the same assignment via `set_deferred()` -> 84 px again. Queue order was the
+##   wrong theory too.
+##
+## So the bar is seated **once**, by `popup()`, and nothing this function can
+## reach makes it happen a second time. Fine: the geometry is fully known at this
+## point and does not need the engine's help. `hbox.size.y` still holds the stock
+## height here -- that staleness is the input, not the obstacle -- so the
+## shortfall is `PHONE_TAP_MIN - hbox.size.y`, the bar moves up by it, and the
+## content child above shrinks by the same amount so the two do not overlap.
+##
+## Everything is in the window's own content-scale units, which is why the
+## 44 in `PHONE_TAP_MIN` can be compared with `hbox.size.y` directly.
+## `ad.get_children()` skips internal children, so `bg_panel` and the button bar
+## itself are not in that loop; the content child is the only thing it touches.
+##
+## Idempotent, and self-healing if a future engine version does relay: a second
+## call finds `hbox.size.y` already at or above the floor and returns.
+##
+## Measured on a OnePlus 6T (1080 x 2340, `phone_scale` 2.748) -- the real
+## handset, not a `SubViewport` harness. Before: the amber Close border on World
+## data, Gen info, Performance and the credits sheet all ran y 2185-2268 against
+## a window ending at 2269, **84 px of the 121 px the floor asks for, 5.31 mm of
+## 7.65**, with the glyph at 2245 -- the centre of the *full* 121 px box, which
+## is what proved it was clipped rather than merely short. New World's
+## Cancel/Create pair was the same defect at 78 px.
+static func _floor_dialog_bar(dlg: Window, target: Vector2i) -> void:
+	dlg.size = target
+	if not (dlg is AcceptDialog):
+		return
+	var ad := dlg as AcceptDialog
 	## `get_cancel_button()` is `ConfirmationDialog`'s, not `AcceptDialog`'s --
 	## asked for by name rather than assumed, so a plain `AcceptDialog` does not
 	## take a "method not found" here.
-	if dlg is AcceptDialog:
-		var ad := dlg as AcceptDialog
-		var bar: Array[Button] = [ad.get_ok_button()]
-		if ad.has_method("get_cancel_button"):
-			bar.append(ad.call("get_cancel_button"))
-		for b: Button in bar:
-			if b != null and b.visible:
-				b.custom_minimum_size = Vector2(0.0, DccTheme.PHONE_TAP_MIN)
-	oversample(dlg)
-	return true
+	var bar: Array[Button] = [ad.get_ok_button()]
+	if ad.has_method("get_cancel_button"):
+		bar.append(ad.call("get_cancel_button"))
+	## An **untyped** loop element writes to a temporary copy of the vector and
+	## is lost -- `app.gd::_floor_prompt_buttons()`'s first trap, which applies
+	## here verbatim.
+	for b: Button in bar:
+		if b != null and b.visible:
+			b.custom_minimum_size = Vector2(0.0, DccTheme.PHONE_TAP_MIN)
+	var ok: Button = ad.get_ok_button()
+	if ok == null or ok.get_parent() == null:
+		return
+	var hbox := ok.get_parent() as Control
+	if hbox == null:
+		return
+	var short := float(DccTheme.PHONE_TAP_MIN) - hbox.size.y
+	if short <= 0.5:
+		return
+	## **Plus a foot, because the bar had none.** Seating the 44 dp button
+	## exactly where the 29 dp one ended still measured as clipped on the
+	## handset (2144-2268 against a window whose own bottom border is 2266-2268):
+	## `AcceptDialog` gives the bar no bottom margin at all, so the button's
+	## border and the window's border were the same two pixels. 12 dp is the
+	## shell's own standard inset -- `category()`'s `DccTheme.inset(12, 0, 12, 0)`
+	## -- rather than a number chosen to make this screenshot look right.
+	short += 12.0
+	hbox.position.y -= short
+	hbox.size.y = float(DccTheme.PHONE_TAP_MIN)
+	for child in ad.get_children():
+		var c := child as Control
+		if c != null and c != hbox and c.visible:
+			c.size.y = maxf(1.0, c.size.y - short)
 
 ## **A content scale does not scale the font raster, and this engine does not
 ## work it out on its own** (`GUI_GAP_REGISTER.md` HD-01). Everything above maps

@@ -2663,7 +2663,7 @@ func _refresh_inspector() -> void:
 	_insp_reset_btn.disabled = item_count == 0
 
 	_insp_replace_btn.disabled = item_count == 0
-	_insp_replace_btn.tooltip_text = "Nothing to replace yet -- use ＋ Variant to add the first image." \
+	_insp_replace_btn.tooltip_text = "Nothing to replace yet -- use + Variant to add the first image." \
 		if item_count == 0 else "Import a PNG and drop the slot's current first variant."
 
 	# -- anchor (AS-15) -------------------------------------------------------
@@ -2689,7 +2689,7 @@ func _refresh_inspector() -> void:
 
 	# -- disclosure note ------------------------------------------------------
 	if item_count == 0:
-		_insp_note.text = "No art stored yet — ＋ Variant, or Import image… in the rail foot, lands one here."
+		_insp_note.text = "No art stored yet — + Variant, or Import image… in the rail foot, lands one here."
 	elif item_count > 1:
 		_insp_note.text = "%d variants stored; the renderer picks one by weight (AS-14). The preview shows variant %d." % [
 			item_count, _preview_index + 1]
