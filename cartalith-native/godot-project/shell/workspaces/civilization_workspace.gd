@@ -1940,22 +1940,33 @@ func _fill_relationships(parent: Control) -> void:
 		for r in rows:
 			var d: Dictionary = r
 			var a := int(d.get("a", 0))
+			## `GUI_GAP_REGISTER.md` **RL-01**: the second id. This row names a
+			## pair, so the dock is told both parties -- without it the callback
+			## was `show_faction(a)` alone, which meant a row claiming a pair
+			## opened one side of it and two consecutive rows sharing that side
+			## were a press with no visible effect anywhere (5 of 15 rows on a
+			## real six-faction world). `_build_faction_relations` draws the
+			## marked pair.
+			var other := int(d.get("b", 0))
 			var b := DccWidgets.action(list, "%s ↔ %s -- %s (%+d)" % [
 				String(d.get("a_name", "?")), String(d.get("b_name", "?")),
 				String(d.get("stance", "neutral")),
 				int(round(100.0 * float(d.get("value", 0.0))))],
-				func(): app.right_dock_ctrl.show_faction(a))
+				func(): app.right_dock_ctrl.show_faction(a, other))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = ("Border %d cells (%d%% of the widest on this map) · "
 				+ "culture %+d · faith %+d · trade %+d · rivalry %d%%. "
-				+ "Opens %s in the right dock.") % [
+				## RL-01: this used to read "Opens %s in the right dock" with
+				## `a_name`, which was true and was the defect -- the row names
+				## a pair. It opens both now, and says so.
+				+ "Opens %s in the right dock, with %s marked among its relations.") % [
 				int(d.get("border_cells", 0)),
 				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
 				int(round(30.0 * float(d.get("culture_term", 0.0)))),
 				int(round(20.0 * float(d.get("religion_term", 0.0)))),
 				int(round(25.0 * float(d.get("trade_term", 0.0)))),
 				int(round(100.0 * float(d.get("rivalry_term", 0.0)))),
-				String(d.get("a_name", "?"))]
+				String(d.get("a_name", "?")), String(d.get("b_name", "?"))]
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,

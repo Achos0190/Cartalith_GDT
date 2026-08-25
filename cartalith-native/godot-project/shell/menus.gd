@@ -528,6 +528,13 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_ap_build_popup.set_item_accelerator(_ap_build_popup.item_count - 1, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
 	_ap_build_popup.id_pressed.connect(_on_assets)
 
+	## `GUI_GAP_REGISTER.md` **MN-10**. Every *child* popup above connects its
+	## own `id_pressed`; this one never did, and `Pack metadata…` is the one
+	## live item this popup owns directly -- so the row was enabled, carried an
+	## id, had a written handler branch (`_on_assets`' `ID_AP_PACK_META`), and
+	## could not reach it. A submenu's `id_pressed` does not bubble to its
+	## parent in Godot 4: each `PopupMenu` emits only for its own items.
+	ap.id_pressed.connect(_on_assets)
 	ap.about_to_popup.connect(_refresh_asset_pack_stats)
 
 func _refresh_asset_pack_stats() -> void:

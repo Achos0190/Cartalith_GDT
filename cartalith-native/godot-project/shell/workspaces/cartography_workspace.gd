@@ -164,6 +164,13 @@ var _icon_scale := 1.0
 var _icon_rotation := 0.0
 var _icon_jitter := 0.0
 var _icon_list_body: VBoxContainer
+## `DCC_SHELL_SPEC.md` §4.5.5 asks for both list panels "with counts and
+## Clear-all". The count was never drawn and the button was live at zero, so
+## the one control in each panel that acts on the whole list invited a press
+## that could not do anything -- `GUI_GAP_REGISTER.md` **CA-20**. Held here so
+## `_rebuild_icon_panel()`/`_rebuild_label_panel()`, which already run on every
+## place, delete, clear and world change, own its state.
+var _icon_clear_btn: Button
 
 # -- Icon tool resize-handle drag state (CA-05) -- mirrors the Label tool's
 # `_label_drag_*` fields one handle down; see `IconDragMode`'s own doc
@@ -186,6 +193,10 @@ var _label_drag_grab_angle := 0.0
 var _label_drag_side := 0.0
 var _label_list_body: VBoxContainer
 var _label_edit_body: VBoxContainer
+## See `_icon_clear_btn` -- **CA-20**, the same finding one panel down.
+var _label_clear_btn: Button
+## `GUI_GAP_REGISTER.md` **RF-05** -- see `_refresh_trade_load_row()`.
+var _trade_load_toggle: CheckBox
 
 ## The former RENDER domain, nested into this dock -- see this file's own
 ## class doc and `RenderWorkspace`'s own class doc for the mechanism.
@@ -325,15 +336,19 @@ func _build_way_style(parent: Control) -> void:
 	## way, drawn by the way layer this section already owns. Two pickers over
 	## one concept is the shape this shell keeps having to undo.
 	var load_sec := DccWidgets.section(parent, "Trade load")
-	var t := DccWidgets.toggle(load_sec, "Thicken ways by carried volume",
+	_trade_load_toggle = DccWidgets.toggle(load_sec, "Thicken ways by carried volume",
 		app.viewport.overlay.show_trade_load(),
 		func(on: bool): app.viewport.overlay.set_show_trade_load(on),
 		"Draws each way at up to 2.6x its normal width in proportion to the trade it carries, on its own colour -- width and not hue, because a way's colour is already its type. Relative to the busiest way on this world, since volume is a population sum and populations are not comparable between worlds.")
-	if not app.viewport.overlay.has_trade_load():
-		t.disabled = true
-		t.tooltip_text = ("No trade match has been run on this world. Civilization "
-			+ "▸ Trade ▸ Match trade flows produces the per-way volume this draws; it "
-			+ "is computed on demand and held nowhere, so a generate clears it.")
+	## `GUI_GAP_REGISTER.md` **RF-05**. This category is built once, at launch,
+	## against an engine with no world in it -- so the row was born disabled and
+	## the match that makes it valid (CIVIL ▸ Trade ▸ Match trade flows, a
+	## different workspace) had no way to say so. Driven from the overlay's own
+	## `set_trade_load`, which is the single funnel both the match and the
+	## world-change clear already pass through, so the row cannot disagree with
+	## the data it draws in either direction.
+	app.viewport.overlay.trade_load_changed.connect(_refresh_trade_load_row)
+	_refresh_trade_load_row(app.viewport.overlay.has_trade_load())
 	DccWidgets.note(load_sec,
 		"The numbers behind it -- which ways carry what, and which carry nothing -- "
 		+ "are in Civilization ▸ Trade ▸ Way load.")
@@ -530,6 +545,26 @@ func _on_any_tool_armed(id: String) -> void:
 				_show_style_tool_options()
 
 
+## `GUI_GAP_REGISTER.md` **RF-05**: the row follows the data, in both
+## directions. Enabled the moment a match produces per-way volumes; disabled
+## again, with the reason back on it, the moment a world change drops them --
+## and the switch itself is turned off, because leaving it *on* over an empty
+## reading would be a live toggle that draws nothing.
+func _refresh_trade_load_row(available: bool) -> void:
+	if _trade_load_toggle == null or not is_instance_valid(_trade_load_toggle):
+		return
+	_trade_load_toggle.disabled = not available
+	if available:
+		_trade_load_toggle.tooltip_text = ""
+	else:
+		if _trade_load_toggle.button_pressed:
+			_trade_load_toggle.button_pressed = false
+			app.viewport.overlay.set_show_trade_load(false)
+		_trade_load_toggle.tooltip_text = ("No trade match has been run on this world. "
+			+ "Civilization ▸ Trade ▸ Match trade flows produces the per-way volume this "
+			+ "draws; it is computed on demand and held nowhere, so a generate clears it.")
+
+
 func _on_world_changed() -> void:
 	app.viewport.tool_overlay.set_handles([])
 	_label_drag_mode = DragMode.NONE
@@ -677,7 +712,7 @@ func _build_icon_panel(parent: Control) -> void:
 	_icon_list_body = VBoxContainer.new()
 	_icon_list_body.add_theme_constant_override("separation", 2)
 	sec.add_child(_icon_list_body)
-	DccWidgets.action(sec, "Clear all icons", func():
+	_icon_clear_btn = DccWidgets.action(sec, "Clear all icons", func():
 		bridge.icon_clear_all()
 		app.viewport.refresh_annotations()
 		_rebuild_icon_panel())
@@ -689,6 +724,25 @@ func _build_icon_panel(parent: Control) -> void:
 		+ "re-place to change family/slot.")
 
 
+## `GUI_GAP_REGISTER.md` **CA-20**: `DCC_SHELL_SPEC.md` §4.5.5 asks for "counts
+## and Clear-all", and both panels shipped the Clear-all without the count and
+## without gating it, so the button was live over an empty list -- a press that
+## could not change anything, which is the same class of defect as a dead
+## binding even though the binding here is real. The count goes on the button
+## because it is the button's own subject, and the disabled state carries its
+## reason the way every other disclosed gap in this shell does.
+##
+## Deliberately **not** gated on `bridge.has_world`: a label or icon can only
+## exist over a world, so the list count already answers that, and a second
+## condition would just be able to disagree with the first.
+static func _set_clear_state(btn: Button, noun: String, n: int, why: String) -> void:
+	if btn == null or not is_instance_valid(btn):
+		return
+	btn.text = "Clear all %s" % noun if n == 0 else "Clear all %s (%d)" % [noun, n]
+	btn.disabled = n == 0
+	btn.tooltip_text = why if n == 0 else "Removes all %d placed %s. Not undoable." % [n, noun]
+
+
 func _rebuild_icon_panel() -> void:
 	if _icon_list_body == null:
 		return
@@ -696,6 +750,9 @@ func _rebuild_icon_panel() -> void:
 		_icon_list_body.remove_child(child)
 		child.queue_free()
 	var list: Array = bridge.icon_list()
+	_set_clear_state(_icon_clear_btn, "icons", list.size(),
+		"No icons placed yet -- arm the Icon tool above and click the map. "
+		+ "There is nothing to clear.")
 	if list.is_empty():
 		_icon_list_body.add_child(DccTheme.label("none placed", "text_ghost", DccTheme.FS_MICRO))
 	for entry in list:
@@ -950,7 +1007,7 @@ func _build_label_panel(parent: Control) -> void:
 	_label_list_body = VBoxContainer.new()
 	_label_list_body.add_theme_constant_override("separation", 2)
 	sec.add_child(_label_list_body)
-	DccWidgets.action(sec, "Clear all labels", func():
+	_label_clear_btn = DccWidgets.action(sec, "Clear all labels", func():
 		bridge.label_clear_all()
 		app.viewport.refresh_annotations()
 		app.viewport.tool_overlay.set_handles([])
@@ -968,6 +1025,9 @@ func _rebuild_label_panel() -> void:
 		_label_list_body.remove_child(child)
 		child.queue_free()
 	var list: Array = bridge.label_list()
+	_set_clear_state(_label_clear_btn, "labels", list.size(),
+		"No region labels placed yet -- arm Label (L) in TOOLS above and click "
+		+ "empty ground. There is nothing to clear.")
 	if list.is_empty():
 		## An empty state that says how to leave it, the same way Logistics'
 		## own "No committed routes yet -- draw one with the Route tool above"

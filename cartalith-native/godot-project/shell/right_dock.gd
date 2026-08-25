@@ -124,6 +124,9 @@ var _settlement_index := -1
 var _route_entry: Dictionary = {}
 var _route_kind := ""      ## "road" | "sea"
 var _faction_id := -1
+## The other party of the pair the reader asked for, or -1 when the faction was
+## opened on its own (a Factions-list row, a map click). See `show_faction`.
+var _faction_pair := -1
 var _measure_result: Dictionary = {}
 var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
 var _region_result: Dictionary = {}
@@ -218,9 +221,19 @@ func show_route(entry: Dictionary, kind: String) -> void:
 	_rebuild()
 
 ## Called by `civilization_workspace.gd` when a faction row is clicked.
-func show_faction(faction_id: int) -> void:
+##
+## `pair_with` is `GUI_GAP_REGISTER.md` **RL-01**. CIVIL ▸ Relationships lists
+## one row per *pair* (`Aurelia ↔ Korrath — wary (−22)`) and every row called
+## `show_faction(a)` — so a row claiming a pair opened one side of it, and any
+## two consecutive rows sharing that side were a press with **no visible effect
+## at all**: measured 5 of 15 rows dead on a real six-faction world. Naming the
+## other party here does both halves of the fix. The dock draws the pair the
+## row actually named, and pressing a different row always changes something,
+## because the marked pair is part of what is drawn.
+func show_faction(faction_id: int, pair_with: int = -1) -> void:
 	_context = CTX_FACTION
 	_faction_id = faction_id
+	_faction_pair = pair_with
 	_rebuild()
 
 ## Called by `GlobalTools` on every point added to (or cleared from) the
@@ -831,6 +844,47 @@ func _build_faction(body: Control) -> void:
 		"cartalith-civ computes a has_religion flag internally " +
 		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +
 		"it and there is no get_faction_aggregates() binding.", false)
+	_build_faction_relations(body)
+
+## `GUI_GAP_REGISTER.md` **RL-01**. Every relation this faction is a party to,
+## with the pair the reader actually clicked marked. `civ_faction_relations()`
+## is symmetric and derived per call (§40) — it is the same read
+## `civilization_workspace.gd`'s own Relationships list makes, filtered here to
+## one faction rather than restated, so the two cannot disagree about a value.
+##
+## Reads from the *other* side's point of view deliberately: this panel is
+## already headed by one faction, so each row names who it is a relation *with*.
+func _build_faction_relations(body: Control) -> void:
+	var pairs: Array = bridge.civ_faction_relations()
+	var mine: Array[Dictionary] = []
+	for p in pairs:
+		var d: Dictionary = p
+		if int(d.get("a", -1)) == _faction_id or int(d.get("b", -1)) == _faction_id:
+			mine.append(d)
+	var sec := DccWidgets.section(body, "Relations")
+	if mine.is_empty():
+		DccWidgets.note(sec,
+			"No other faction to stand with or against. A relation needs two "
+			+ "parties; add one in the faction roster.")
+		return
+	mine.sort_custom(func(x, y): return float(x.get("value", 0.0)) > float(y.get("value", 0.0)))
+	for d in mine:
+		var other := int(d.get("b", -1)) if int(d.get("a", -1)) == _faction_id else int(d.get("a", -1))
+		var other_name := String(d.get("b_name", "?")) if int(d.get("a", -1)) == _faction_id \
+			else String(d.get("a_name", "?"))
+		var marked := other == _faction_pair
+		_field(sec, ("▸ %s" % other_name) if marked else other_name,
+			"%s (%+d)" % [String(d.get("stance", "neutral")),
+				int(round(100.0 * float(d.get("value", 0.0))))],
+			"Border %d cells (%d%% of the widest on this map) · culture %+d · "
+			% [int(d.get("border_cells", 0)),
+				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
+				int(round(30.0 * float(d.get("culture_term", 0.0))))]
+			+ "faith %+d · trade %+d · rivalry %d%%."
+			% [int(round(20.0 * float(d.get("religion_term", 0.0)))),
+				int(round(25.0 * float(d.get("trade_term", 0.0)))),
+				int(round(100.0 * float(d.get("rivalry_term", 0.0))))],
+			true)
 
 ## Colour swatch + hex -- the same 11×11 `ColorRect` legend `layers_popover
 ## .gd`'s `_refresh_legend` already uses for a faction/layer colour, just
