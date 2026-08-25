@@ -414,3 +414,67 @@ whether such additions are welcome, only whether the specific proposal meets
 the three bars above. Raised via `PARITY_AUDIT.md` pass 2 (§13, finding F3),
 which found this decision existed only in conversation with no durable
 record — recorded here so it has one.
+
+## 7h. The save format is a tree, and it is no longer the reference's (owner decision, 2026-08-25)
+
+Two owner statements, in order, both verbatim.
+
+The requirement:
+
+> "The save zip should have all project files and the folder structure should
+> be a clean and clear tree without semantic overlap (not atlas and cartography
+> and both storing map tiles)"
+
+The compatibility ruling, given after this port raised that a tree is a
+deliberate divergence from the reference's `exportZip()` and asked whether both
+layouts should be written:
+
+> "Agreed, importing and reading should work from the old and new format, and
+> saving/exporting should strictly be the new format. (document this properly
+> as I'd like to upgrade the html version to include some of the new
+> functionality."
+
+**What is decided.** Readers accept both the flat legacy layout and the new
+tree. Writers produce only the tree. `SAVEFILE_COMPAT.md` is rewritten as a
+normative, implementation-neutral **specification** rather than an
+observational note, because the owner intends to implement it in the HTML app —
+so its audience is a second implementer working in JavaScript who cannot read
+this workspace's Rust.
+
+**Why this is recorded here.** `CLAUDE.md`'s standing rule is not to deviate
+from the reference silently, and this is the largest deviation the port has
+made in a format the reference defined. Before the ruling it was a judgment
+call this port would have had to justify; after it, it is settled, and the
+distinction matters to whoever re-reads this in six months wondering whether it
+is revisitable. It is not, absent a new owner decision.
+
+**What it costs, disclosed.** A project saved by this port can no longer be
+opened by an unmodified pre-upgrade `Cartalith Gen1` build. The earlier
+"judgment call, disclosed" in `SAVEFILE_COMPAT.md` — writing the whole
+parameter block under the reference's own nested names so that a save
+round-tripped through the HTML app — was worth its cost while it was nearly
+free. It stopped being free the moment it collided with the owner's structural
+requirement: keeping it would have meant writing every raster twice, once at
+the root for the reference and once under `rasters/` for the tree, which is
+*literally* the duplication the first quote forbids. The flat writer survives
+as an explicitly-labelled interoperability **export**, not as a save path
+(`SAVEFILE_COMPAT.md` §1.1).
+
+**Relationship to §7d.** This is §7d applied to file handling, which §7d's own
+closing paragraph names as one of the areas it governs: the reference's flat
+archive was shaped by a single-file browser app that had one concept to store,
+the behavioural contract ("a project survives save and reload") is preserved
+and enlarged, and the implementation is free to differ. The §7d test — "would a
+user of the HTML app find this feature present and its result equivalent or
+better?" — is answered by the format now carrying the civilisation layer,
+history and annotations that the flat one dropped on the floor.
+
+**One constraint the format took on from this decision, worth naming.** A
+second implementation in JavaScript makes JSON's single number type a format
+hazard rather than a language quirk: integers above 2^53 are unrepresentable
+there. `SAVEFILE_COMPAT.md` §14.1 therefore *constrains the format* — every id,
+index, count and year must fit the safe-integer range — rather than warning
+implementers about it. §14.2 additionally requires readers to accept `1.0`
+where an integer is specified, which is the durable form of the fix for
+`GUI_GAP_REGISTER.md` KV-04, where exactly this class of bug silently discarded
+every knowledge link a user had ever made.

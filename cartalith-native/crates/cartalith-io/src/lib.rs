@@ -9,6 +9,7 @@
 
 pub mod atlas;
 pub mod gzip;
+pub mod project;
 pub mod save;
 pub mod tiles;
 
@@ -18,6 +19,15 @@ pub use atlas::{
     AtlasManifest, AtlasMeta, AtlasStore, ATLAS_KIND, ATLAS_MANIFEST,
 };
 pub use gzip::{gunzip_bytes, gzip_bytes};
+// `project::manifest_json` is deliberately NOT re-exported here: `tiles`
+// already owns that name at the crate root and two `manifest_json`s in one
+// namespace is the kind of collision this format exists to avoid. Call it
+// as `project::manifest_json`.
+pub use project::{
+    coerce_integral_floats, read_project, write_project, Element, Layout, ProjectData, ProjectWrite, Raster,
+    RasterSlot, CORE_RASTERS, DEFAULT_README, DOCUMENT_SLOTS, HISTORY_TERRITORY_PREFIX, PROJECT_FORMAT,
+    PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS,
+};
 pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};
 pub use tiles::{
     build_tile_manifest, js_num, json_string, manifest_json, pack_height16, unpack_height16, CoarseBounds, TileManifest,
@@ -85,6 +95,18 @@ pub enum LoadError {
     MissingEntry(&'static str),
     Json(serde_json::Error),
     MissingField(&'static str),
+    /// `project.json` exists but its `format` is not this format's
+    /// (`SAVEFILE_COMPAT.md` §4). Carries whatever it said — empty when the
+    /// member was absent entirely. Refused rather than guessed: §4 makes
+    /// that entry's *presence* the layout test, so an unrelated file of the
+    /// same name must not be read as a world.
+    NotAProject(String),
+    /// A raster's byte length disagrees with the grid the manifest
+    /// declares. A raster entry carries no length of its own, so this is
+    /// the only place a truncated world can be caught (`SAVEFILE_COMPAT.md`
+    /// §8). Only fatal for the heightmap; every other raster is skipped
+    /// with a warning (§6.4).
+    RasterLength(String),
 }
 
 impl std::fmt::Display for LoadError {
@@ -95,6 +117,13 @@ impl std::fmt::Display for LoadError {
             LoadError::MissingEntry(name) => write!(f, "missing zip entry: {name}"),
             LoadError::Json(e) => write!(f, "params.json parse error: {e}"),
             LoadError::MissingField(name) => write!(f, "params.json missing field: {name}"),
+            LoadError::NotAProject(found) if found.is_empty() => {
+                write!(f, "project.json has no \"format\" member; this is not a Cartalith project")
+            }
+            LoadError::NotAProject(found) => {
+                write!(f, "project.json says format \"{found}\"; this is not a Cartalith project")
+            }
+            LoadError::RasterLength(message) => write!(f, "{message}"),
         }
     }
 }
@@ -152,10 +181,25 @@ fn json_bool(v: &serde_json::Value, path: &[&str]) -> Option<bool> {
 /// always carries more than this reader wants (biome/lithology rasters,
 /// civ data, a baked atlas, `map.png`, a README), and that's normal, not
 /// corruption (`SAVEFILE_COMPAT.md`'s own explicit instruction).
+///
+/// **Reads both layouts** (`SAVEFILE_COMPAT.md` §1, owner decision
+/// 2026-08-25): a flat legacy archive, and the tree a
+/// [`project::write_project`] writes. It returns only the terrain half of a
+/// tree archive — the entities, history and annotations need
+/// [`project::read_project`] — so every caller that only ever wanted a
+/// world keeps working unchanged against either.
 pub fn load_save<R: Read + std::io::Seek>(reader: R) -> Result<SaveData, LoadError> {
-    let mut archive = zip::ZipArchive::new(reader)?;
+    project::read_project(reader).map(|p| p.save)
+}
 
-    let params_bytes = read_entry(&mut archive, "params.json")?;
+/// The flat legacy layout's reader (`SAVEFILE_COMPAT.md` §15), over an
+/// already-opened archive. Split out of [`load_save`] so
+/// [`project::read_project`] can dispatch to it after §4's layout test
+/// without opening the archive twice.
+pub(crate) fn load_from_archive(
+    archive: &mut zip::ZipArchive<impl Read + std::io::Seek>,
+) -> Result<SaveData, LoadError> {
+    let params_bytes = read_entry(archive, "params.json")?;
     let params_json: serde_json::Value = serde_json::from_slice(&params_bytes).map_err(LoadError::Json)?;
 
     let gw = json_num(&params_json, &["GW"]).ok_or(LoadError::MissingField("GW"))? as usize;
@@ -166,12 +210,12 @@ pub fn load_save<R: Read + std::io::Seek>(reader: R) -> Result<SaveData, LoadErr
     let sea_level = json_num(&params_json, &["state", "seaLevel"]).ok_or(LoadError::MissingField("state.seaLevel"))?;
     let world = json_bool(&params_json, &["state", "world"]).unwrap_or(false);
 
-    let heightmap = read_f32_entries(&read_entry(&mut archive, "heightmap.f32")?);
-    let temperature = read_f32_entries(&read_entry(&mut archive, "temperature.f32")?);
-    let rainfall = read_f32_entries(&read_entry(&mut archive, "rainfall.f32")?);
-    let volcanic_field = read_f32_entries(&read_entry(&mut archive, "volcanic_field.f32")?);
-    let impact_field = read_f32_entries(&read_entry(&mut archive, "impact_field.f32")?);
-    let strahler_order = read_entry(&mut archive, "strahler_order.bin")?;
+    let heightmap = read_f32_entries(&read_entry(archive, "heightmap.f32")?);
+    let temperature = read_f32_entries(&read_entry(archive, "temperature.f32")?);
+    let rainfall = read_f32_entries(&read_entry(archive, "rainfall.f32")?);
+    let volcanic_field = read_f32_entries(&read_entry(archive, "volcanic_field.f32")?);
+    let impact_field = read_f32_entries(&read_entry(archive, "impact_field.f32")?);
+    let strahler_order = read_entry(archive, "strahler_order.bin")?;
 
     Ok(SaveData {
         params: SaveParams { gw, gh, seed, map_width_km, sea_level, world },

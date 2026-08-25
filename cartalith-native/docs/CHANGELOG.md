@@ -27784,3 +27784,354 @@ ignored. No CPU-pipeline numeric behaviour touched.
 pass. The copy is never fed back into the engine (nothing sets a settlement's
 population from a note), because that would make the vault a second source of
 truth for world state, which §36 forbids outright.
+
+---
+
+## The save format becomes a project format — a documented tree, and a specification a second implementation can be written from (2026-08-25)
+
+Owner direction, two statements the same day, both verbatim in
+`DECISIONS.md` §7h:
+
+> "The save zip should have all project files and the folder structure should
+> be a clean and clear tree without semantic overlap (not atlas and cartography
+> and both storing map tiles)"
+
+> "Agreed, importing and reading should work from the old and new format, and
+> saving/exporting should strictly be the new format. (document this properly
+> as I'd like to upgrade the html version to include some of the new
+> functionality."
+
+**There was no tree to clean up.** The archive was flat: seven entries at the
+root, mirroring the reference's own `exportZip()`. The instruction was
+therefore a constraint on a structure that did not exist yet, not a
+reorganisation of one that did — and the other half of it, *"all project
+files"*, was the larger gap. Settlements, factions, territory, roads, labels,
+icons, recorded history and vault links were all real, live data that no save
+had ever carried.
+
+### The tree, and the rule that decides every boundary
+
+```
+project.json      manifest, version marker, the grid every raster is measured against
+params.json       the generation parameters, in two views (this port's, and the reference's)
+rasters/          one value per grid cell -- flat, extension names the element type
+entities/         discrete, id-bearing things: settlements, factions, ways, provinces, continents
+history/          recorded past years: timeline.json plus one territory raster per year
+annotations/      labels, icons, the selected region -- marks on the sheet
+library/          setting-level definitions that outlive any one world   (reserved)
+drafts/           uncommitted paint and sculpt edits                     (reserved)
+appearance.json   how the map is drawn
+vault.json        links out to an external Markdown vault
+preview.png       a thumbnail; not map data
+README.md         for a human who opened the archive in a zip tool
+```
+
+The organising rule is **group by what the data is, not by which subsystem
+produced it** — the test for any future payload, and the answer to the owner's
+own example. `water_bodies` is hydrology output consumed by the civ pass;
+`territory` is civ output the renderer treats as cartography; a producer-based
+split forces an arbitrary answer for both, which is exactly how `atlas/` and
+`cartography/` each end up holding tiles. `rasters/` is deliberately flat for
+the same reason.
+
+Four boundary decisions worth naming:
+
+- **`entities/ways.json` is the one home for every linear route** — generated
+  roads, sea lanes, hand-drawn ways and hand-drawn routes, four arrays in one
+  document. They are different Rust types and the same concept, and a reader
+  asking for "every way" must not have to know which tool drew each one.
+- **`history/` separates past from present.** A recorded year holds the same
+  *shapes* `entities/` and `rasters/` hold; filing them together would mean two
+  settlements with one id meaning different things at different times. Each
+  year's territory raster is a binary entry (`history/territory/<year>.i32`),
+  not a JSON array: at 512² the JSON form is ~600 kB of text per year, and at
+  4096² it is tens of megabytes that no browser will parse.
+- **There is no `atlas/`, no `cartography/` and no `tiles/`.** The tile pyramid
+  is not in the archive at all. It is derived from `rasters/`, it is orders of
+  magnitude larger than what it was derived from, and an archive holding both
+  an edited heightmap and a pyramid baked before the edit is internally
+  inconsistent in a way a reader cannot cheaply detect. It is a *cache*, and it
+  already lives outside the project keyed by world — the owner's example
+  resolved by deleting the concept rather than by picking a winner.
+- **A settlement's placement is flattened, and its "why here?" explanation is
+  not stored.** The explanation is a diagnostic over suitability rasters the
+  archive deliberately does not carry; synthesising one from what is stored
+  would be inventing a reason rather than recalling it.
+
+### `SAVEFILE_COMPAT.md` is now a normative specification, not a field note
+
+The owner intends to implement this format in the HTML app, so the document's
+audience is a second implementer working in JavaScript who cannot read this
+workspace's Rust. It was rewritten accordingly: every entry's exact path,
+encoding, byte order, element type, index formula, required-or-optional status
+and what a reader must do when it is absent; an unambiguous layout test; MUST
+versus MAY throughout; and a section stating the minimum to write a valid
+archive (two entries) and the minimum to read one without data loss. No Rust
+type name appears outside the one explicitly non-normative section.
+
+**Two rules in it are load-bearing and both came from this repository's own
+scars.**
+
+*§14.1 — the 2^53 rule.* JSON has one number type and in JavaScript it is a
+double. Rather than warn implementers, the **format is constrained**: every id,
+index, count, year, population and seed must lie inside the safe-integer range,
+a writer must fail rather than emit one outside it, and there are no
+string-encoded integers anywhere. A constraint survives a second
+implementation; a warning does not.
+
+*§14.2 — the KV-04 rule.* A reader **must** accept `1.0` where an integer is
+specified. This is registered as `GUI_GAP_REGISTER.md` §49 KV-04 and cost this
+project every knowledge link every user had ever made, silently, on each
+launch, for the whole shipped life of the feature — because a component
+re-parsed correct JSON through a layer with only one number type and a strict
+parser on the other side refused the result. It is implemented **once,
+centrally**, as a coercion pass over every parsed document before any schema
+sees it (`coerce_integral_floats`), because per-field tolerance is per-field
+remembering.
+
+### What was built
+
+- **`crates/cartalith-io/src/project.rs`** — the reader and writer. Owns the
+  container, the **slot registry**, the raster encoding, the layout test and
+  §14's number handling; owns **no schema** for any document, the same boundary
+  the crate already draws for `params.json`. A document reaches the archive as
+  JSON text against a registered slot name, and `write_project` **refuses an
+  unregistered slot** — that refusal is what makes "one concept, one home" a
+  property of the code rather than of good intentions.
+- **`load_save` now reads both layouts** and dispatches on §4's test (the
+  presence of `project.json`). Every existing caller that only ever wanted a
+  world keeps working unchanged against either.
+- **`crates/cartalith-godot/src/project_bridge.rs`** — the schemas, and the
+  Godot surface. Every document goes through a DTO rather than a `derive` on
+  the live type, deliberately: the specification's member names are chosen for
+  a JavaScript reader (`points`, `length_km`, `class`, `wrap_x`), not for this
+  one (`pts`, `km`, `way_type`, `world`), and deriving would publish this
+  port's private vocabulary as the format. It also keeps `serde` out of
+  `cartalith-civ`, a golden-tested crate with no other reason to carry it.
+- **`lib.rs` was touched in exactly one place**: `mod project_bridge;`. Two
+  other agents are editing that file today.
+
+### The blocker this lifts
+
+`WorldGen::project_open` rebuilds the civilisation layer from the archive, so
+`get_settlements()`, `get_ways()`, the faction roster, territory, provinces,
+continents and the timeline are **all real for a loaded project** — with their
+stable `tid`s intact, which is the fact everything downstream turns on.
+
+That closes the named blocker under `MARKDOWN_VAULT_SCOPE.md` milestone 3
+(project-scoped links: a link in a save no longer comes back pointing at a
+settlement that does not exist), `GUI_GAP_REGISTER.md` JP-06/JP-08 and MEA-07,
+and `STORY_PLANNING_SCOPE.md` **SP-1**, whose persistent `Journey` entity now
+has a specified home (`entities/journeys.json`, §9.6, shape published so the
+two implementations do not diverge when it lands).
+
+It does **not** make a loaded project regenerable. Every path needing the
+tectonic substrate still pattern-matches a freshly generated world; that was
+already true and is unchanged. The distinction is between *recalling* the civ
+layer, which the archive now carries, and *recomputing* it, which needs rasters
+the format deliberately does not store.
+
+### The `#[func]` surface the UI pass must call (all on `WorldGen`)
+
+| Method | Arguments | Returns |
+|---|---|---|
+| `project_save` | `path: String` | `{ok, error, bytes, entries}` |
+| `project_save_with_documents` | `path: String, extra_documents: Dictionary` | same — the channel for project state GDScript owns |
+| `project_open` | `path: String` | `{ok, error, layout, format_version, warnings, foreign_entries, documents, restored}` |
+| `project_document_slots` | — | `PackedStringArray` — every slot the format defines |
+| `project_engine_owned_slots` | — | `PackedStringArray` — the subset a caller must **not** supply |
+| `project_format_version` | — | `int` |
+
+`extra_documents` maps a slot name to that document's JSON **text**, not a
+`Dictionary` — deliberately, because a `Dictionary` would have to travel
+through Godot's JSON, which types every number as a float and is precisely the
+KV-04 path.
+
+**The shell's Save command must be repointed from `save_project` to
+`project_save`.** `save_project` is unchanged and still writes the flat layout;
+it is now the explicitly-labelled **interoperability export** for handing a
+file to an unmodified pre-upgrade HTML build, and it is lossy by construction —
+it can carry no settlement, no label, no recorded year and no vault link. Until
+the repoint, the shipped Save button writes a file without the project layer.
+
+### Verified
+
+38 new tests across three targets, weighted toward the ways this format can be
+silently wrong rather than loudly broken: write → read → compare for every
+payload; **the empty case and the "world with no civ layer" case, and the
+distinction between "no civ layer" and "an empty one"**; a flat legacy archive
+still reading, including the real HTML-app golden fixture; an unknown entry
+ignored *and censused*; a damaged optional document costing only itself; a
+truncated raster refused rather than believed; an unregistered slot refused; a
+second copy of a core raster refused; an out-of-range polyline break dropped; a
+province pointing at no settlement dropped; an unrecognised tier or road class
+costing nothing; every vocabulary mapping asserted as an exact inverse; a
+stored `next_id` lower than the ids beside it raised; the timeline sorted and
+deduplicated with each year keeping its own raster; every id asserted inside
+`Number.MAX_SAFE_INTEGER`; and a real generated world round-tripping through
+the tree and **regenerating bit-for-bit** from the split-then-rejoined
+parameter block.
+
+Workspace: **139 binaries, 2,254 tests, 2,253 passed, 8 ignored** (from 138 /
+2,216 — one new test binary, thirty-eight new tests). No CPU-pipeline numeric
+behaviour touched. The one failure seen across the runs was
+`generate_terrain_gpu_path_is_deterministic_and_valid`, the known intermittent
+GPU test that is an open owner decision and untouched by this work; it passed
+on the immediately preceding full run of the same tree.
+
+### Not built, and stated
+
+- **No panel draws any of it.** The UI half is the next pass, and the repoint
+  above is the first thing in it.
+- **`library/` and `drafts/` are reserved, not written.** The asset and travel
+  libraries carry binary art whose embedding is its own design question;
+  the paint and sculpt editors can only be constructed over a live generated
+  world, so a persisted draft would open with nothing able to commit it.
+- **`preview.png` has a slot and no producer.** The writer accepts one; nothing
+  supplies one yet.
+- **Foreign entries are reported, not preserved.** §6.2 asks a writing reader
+  to re-emit what it did not understand or refuse to overwrite; this build does
+  neither — it returns their names so a Save command can warn first. Disclosed
+  in `SAVEFILE_COMPAT.md` §17 rather than left to be discovered.
+
+## Four passes met a phone, and three of them had a defect the harness could not see (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §50, `ANDROID_BUILD_SCOPE.md`'s fifth device pass.
+
+§46 gave nine windows a phone treatment, §47 fixed the hi-DPI blur, §48 swept
+the shell against the design canvases and the `/ponytail` pass parallelised LOD
+tile synthesis — **all four inside one day, and none of them on hardware.** The
+APK on the owner's OnePlus 6T was from 09:19 that morning and predated every
+one. This is that gap closed: a fresh `android-dev` `.so` (171,644,632 bytes,
+sha256-verified against the copy inside the APK), a debug export, and the whole
+shell driven by `adb` on a **OnePlus 6T** at `_phone_scale` 2.748,
+**401.6 ppi = 15.81 px/mm**.
+
+**Said before anything else, because it is the honest boundary of this pass:**
+the owner saw the blur on a **OnePlus 12** at `_phone_scale` **3.664**. This
+handset is **2.748**. Everything below confirms the §47 work *in kind* and none
+of it confirms it at the scale he actually reported.
+
+**Three fixed.**
+
+**The 44 dp floor on the dialog Close button had been producing a clipped
+button, not a bigger one.** §46 raised `get_ok_button().custom_minimum_size`
+after `popup()` — correctly, since `popup()` clears it — but `AcceptDialog` had
+already seated its button bar for the stock 29 dp button, so the taller one grew
+*downwards out of the window*, where the subwindow clips it. World data, Gen
+info, Performance and the credits sheet all showed **84 px of the 121 px the
+floor asks for: 5.31 mm of 7.65**, and New World's Cancel/Create pair 78 px. It
+was proved rather than inferred — the glyph sat at y = 2 245, the centre of the
+*full* box, against a window whose bottom border is 2 266-2 268. **Three ways of
+asking the engine to re-lay were tried on the handset and all three measured the
+same**: `child_controls_changed()` (82 px; it defers to `_update_window_size()`,
+which with `wrap_controls` off finds the size unchanged and raises nothing),
+`size` assigned immediately (84 px; `custom_minimum_size` queues
+`update_minimum_size()`, so a same-call relay is told the stock size), and the
+same assignment via `set_deferred()` (84 px again — queue order was the wrong
+theory too). The bar is seated **once**, by `popup()`, and nothing
+`phone_present()` can reach makes it happen twice, so
+`DccWidgets._floor_dialog_bar()` does the arithmetic itself: `hbox.size.y` still
+holds the stock height at that moment — **the staleness is the input, not the
+obstacle** — the bar moves up by the shortfall and the content child shrinks by
+the same amount. A fourth build was still needed after that, because seating the
+44 dp button exactly where the 29 dp one ended *still* measured as clipped:
+`AcceptDialog` gives its bar no bottom margin at all, so the button's border and
+the window's border were the same two pixels. Now **131 px = 8.29 mm** on all
+four dialogs and 124 px on New World, with a 12 dp foot taken from
+`category()`'s own inset rather than chosen to flatter a screenshot.
+
+**The Layers button grew its hit rect and kept its old paint.** HD-03 took it
+from 44 to 121 px and re-rasterised its glyph, and on glass it still read as a
+clipped 2 mm icon, colliding with a settlement pin. Two independent causes:
+`Button.icon_alignment` defaults to **`LEFT`**, so the 36 px glyph sat in the
+top-left *corner* of the 121 px box (measured x 2-37, y 307-342) with 84 px of
+its own target empty beside it — and because `phone_content_insets()` returns
+`left = 0` in portrait, deliberately, that corner is the panel edge. And
+`flat = true` **suppresses the background stylebox entirely**, which is the exact
+trap `_navpad_button()`'s own comment records paying for once already (*"the
+first cut was flat, and the pills were invisible over the terrain with only their
+glyphs showing"*). It now takes the navpad's own 92 %-alpha scrim pill at the
+same radius with the glyph centred, and `NAVPAD_EDGE` as a floor on the left
+inset so the disc is not tangent to the screen. Touch only; desktop's 26 px flat
+glyph is byte-identical.
+
+**One codepoint had no glyph anywhere on the handset.**
+`DccIcons.SYMBOLS["add"]` was `＋` **U+FF0B**, a *fullwidth* plus — CJK
+compatibility block, carried by Noto Sans CJK and by none of the Noto Symbols
+faces a non-CJK Android build installs. It drew as a literal `FF 0B` tofu box in
+the Travel Library's ENTRIES header. ASCII `+` now: Plex Mono has it natively, so
+it needs no fallback and loses no metrics. **The desktop-only fallback list is
+not the bug it looks like**, and that is the more useful half: `DccTheme.mono()`
+names `Segoe UI Symbol` / `Segoe UI` / `DejaVu Sans`, none of which exists on
+Android, and `▸ ✕ ☰ ● ○ ▤` all rasterise correctly anyway because
+`SystemFont.allow_system_fallback` defaults to `true` and Godot's Android backend
+walks `/system/fonts` on its own. While there, the comment claiming Plex Mono is
+"missing seven" of §12's symbols was found stale by more than a factor of two —
+**19 of the 24 entries have no glyph** — and corrected.
+
+**Six registered, ranked, with the measurement.** The worst is **the Journey
+Planner's centre panel, which on a phone is 1 434 px of nothing**: a uniform
+`panel` `#121314` field over **61 % of the screen, 91 mm**, in which no pixel
+exceeds RGB(23, 23, 23), with the only journey content a two-line `§ ROUTE
+TOTALS` strip below it — and `_show()` hides the map, so the user gets a black
+rectangle. Not a "no route yet" state: the row rules `_build()` draws would land
+at y = 917 and 1 329 and neither is on the framebuffer. Left for the
+`--force-touch` desktop harness, which is this project's own documented order
+(*"Diagnose there; confirm on the handset"*). Then: **a 250 ms scroll flick on a
+phone menu sheet activates the row it starts on** (reproduced three times from
+one coordinate; a 700 ms drag scrolls the same sheet cleanly, so it is a
+press-cancel threshold and not PH-05 again — and it is the most likely single
+source of the owner's *"doesn't listen well to touch input"*); labels clipping
+without an ellipsis where §46 only ever floored `Button`s; DS-12's summary line
+printing the settlement class twice; a navpad pill keeping a hover tint after a
+tap, on a device with no hover; the pane switcher's focused state still drawing
+stock Godot's rounded raised pill; and **the app's own Memory row under-reporting
+by about 4x** (0.2 GB on screen against 818 MB of TOTAL PSS at the same moment —
+`OS.get_static_memory_usage()` sees neither the Rust allocations nor 544 MB of
+`Gfx dev`).
+
+**Eleven proven negatives, because they stop the next pass re-walking the
+ground.** **§48's "second `Close` at the top of every full-bleed phone window"
+does not exist on the handset** — that section suspected a `SubViewport`
+artefact and asked for ten minutes here; rows 0-160 of three separate windows
+are uniform panel, maximum channel sum **57** against **703** where real text is.
+Its suspicion was right. **Deep-zoom panning is a locked 60 Hz**: 125
+SurfaceFlinger present timestamps across four continuous pan drags at a 5.7 km
+span, median **16.7 ms**, p99 16.8, max 16.9, **zero frames over one vsync** —
+the `/ponytail` row-parallel `amplify_region`/`add_zoom_detail`/`shade_tile`
+holds up on an Adreno 630. **A zoom notch costs at most a 117 ms hitch** (p99
+100.1, 4 frames over 33 ms), against `PERFORMANCE_BENCHMARKS.md` §5's
+pre-parallelisation **1.3-1.8 second frozen frame on one notch**. HD-03's navpad
+pills measure **117 px = 7.40 mm** against 2.78 mm before, with DS-13's 92 %
+scrim genuinely letting terrain through. Every screen swept is crisply
+rasterised at 2.748. Touch scroll works on all four surfaces checked. DS-02
+holds — no filled amber slab anywhere. The credits body renders (it was 0
+characters before §46) and `performance_window`'s `%.2f` literal is gone. And
+`logcat` is clean: zero `SCRIPT ERROR`, `USER ERROR`, `USER WARNING`, Rust panic
+or stale-binding warning across a cold boot, three generates and the whole sweep.
+
+**Memory is up materially and is recorded rather than diagnosed.** Like for like
+— cold boot, one 2048 x 1311 generate, `TOTAL PSS` — **peak 1 033 MB and steady
+818 MB**, against 2026-08-20's 878 / 647: **+18 % and +26 %**, on a pass whose
+predecessor's headline was "peak is flat". A dirtier sample after twenty-five
+minutes of driving every window plus a deep-zoom session reached **1.82 GB**
+peak with **544 MB in `Gfx dev`**, which is where to look first. Generation
+itself is **25.1 s** cold and 24.8 / 25.8 s warm, read off the app's own `Pass`
+row; §4.1's "16-18 s" says outright that it was inferred from the shape of a
+memory trace rather than timed, so this is the first instrumented figure and not
+a regression against it.
+
+**Two things this pass could not do, said plainly.** Landscape was never
+observed — `project.godot` sets `SCREEN_SENSOR`, which follows the accelerometer
+and overrides `settings put system user_rotation`, and the phone cannot be
+rotated over `adb`. And the positive control the 2026-08-24 pass asked for —
+proof that `push_warning` actually reaches Android's `logcat` — was **not** built
+here either, so the clean log above still rests on what that pass correctly
+called *"an argument, not a measurement"*.
+
+Also worth knowing for the next `adb` session: **`dumpsys gfxinfo` is useless on
+this app** (Godot renders into its own `SurfaceView`, not HWUI, so frame counts
+stick at 0 once the splash is gone) — use `dumpsys SurfaceFlinger --latency` and
+difference column 2. `project.godot`'s md5 was checked before and after **all
+seven** Godot invocations and its `;` comment block survived every one.

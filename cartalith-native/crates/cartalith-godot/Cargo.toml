@@ -90,3 +90,11 @@ cartalith-vault = { path = "../cartalith-vault" }
 # `cartalith-gpu`'s `_with` GPU flow/weather entry points to measure the
 # CPU-vs-GPU comparison the scope asks for -- now a regular dependency
 # above (see its comment there), so it is no longer listed here.
+# `tests/project_round_trip.rs` asserts the project archive's own entry
+# names, order and per-entry byte sizes -- the contract a second
+# implementation of `SAVEFILE_COMPAT.md` is written against, so it is
+# checked against the real container rather than against the reader that
+# shares the writer's code. `cartalith-io` (a dependency above) has
+# declared the same version since the MVP; this only makes it visible to
+# this crate's test targets.
+zip = { version = "8.6.0", features = ["deflate"] }

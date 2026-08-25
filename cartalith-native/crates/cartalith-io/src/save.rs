@@ -1,4 +1,18 @@
-//! Writing a save (`SAVEFILE_COMPAT.md`).
+//! The **interoperability export** — the flat legacy layout
+//! (`SAVEFILE_COMPAT.md` §15), written for one purpose only: handing a file
+//! to an unmodified pre-upgrade `Cartalith Gen1` build.
+//!
+//! **This is no longer the save path.** Owner decision 2026-08-25
+//! (`DECISIONS.md` §7h): readers accept both layouts, writers produce only
+//! the tree, and the tree's writer is [`crate::project::write_project`].
+//! What survives here is §1.1's labelled export, which is lossy by
+//! construction — it can carry no settlement, no faction, no label, no
+//! recorded year and no vault link, because the flat layout has nowhere to
+//! put them.
+//!
+//! Everything below this line predates that decision and describes the flat
+//! layout as it was when it was the only one. It is still accurate about
+//! that layout; it is no longer accurate about what "saving" means.
 //!
 //! The read side ([`crate::load_save`]) has existed since the MVP; this is
 //! its mirror, and the thing `GUI_GAP_REGISTER.md` FI-01 (Save project),
@@ -76,6 +90,25 @@ pub enum SaveError {
     /// A field's length disagrees with `gw*gh`. Carries the entry name and
     /// both lengths, because "which of the six" is the whole diagnostic.
     FieldLength { entry: &'static str, expected: usize, got: usize },
+    /// [`crate::project::write_project`] was handed a payload for a path
+    /// the tree does not define (`SAVEFILE_COMPAT.md` §5), or a second copy
+    /// of a raster `fields` already owns.
+    ///
+    /// A hard error rather than a silent pass-through, and that refusal is
+    /// the whole point of the slot registry: an invented entry name is how
+    /// one concept ends up with two homes.
+    UnknownSlot(String),
+    /// A registered raster's length disagrees with `gw*gh`. Same diagnostic
+    /// as `FieldLength`, for a `String` path rather than one of the six.
+    RasterLength { entry: String, expected: usize, got: usize },
+    /// A raster was handed to a slot of a different element type — an
+    /// `f32` for `rasters/territory.i32`. Caught here because the extension
+    /// is what tells a reader the element width, so a mismatch produces an
+    /// entry no reader can decode.
+    RasterElement { entry: String, expected: crate::project::Element, got: crate::project::Element },
+    /// A document's text is not valid JSON. Refused at write time so an
+    /// archive never carries a document its own reader will have to skip.
+    DocumentJson { entry: String, message: String },
 }
 
 impl std::fmt::Display for SaveError {
@@ -86,6 +119,16 @@ impl std::fmt::Display for SaveError {
             SaveError::FieldLength { entry, expected, got } => {
                 write!(f, "{entry}: expected {expected} values for this grid, got {got}")
             }
+            SaveError::UnknownSlot(path) => {
+                write!(f, "{path}: not a slot the project format defines (SAVEFILE_COMPAT.md section 5)")
+            }
+            SaveError::RasterLength { entry, expected, got } => {
+                write!(f, "{entry}: expected {expected} values for this grid, got {got}")
+            }
+            SaveError::RasterElement { entry, expected, got } => {
+                write!(f, "{entry}: slot holds {} values, got {}", expected.ext(), got.ext())
+            }
+            SaveError::DocumentJson { entry, message } => write!(f, "{entry}: not valid JSON ({message})"),
         }
     }
 }

@@ -34,6 +34,7 @@ mod measure_bridge;
 mod pack;
 mod paint_bridge;
 mod params;
+mod project_bridge;
 mod render;
 mod sample_bridge;
 mod sculpt_bridge;
