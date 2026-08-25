@@ -28836,12 +28836,21 @@ forget to be bumped. It is the GDScript twin of `EngineBridge._has()`, which the
 silence; that guard speaks for the native half of the pair and nothing spoke for
 the script half.
 
-Verified three ways: **determinate** (two headless runs of one tree, `cc30740ce765`
-both), **sensitive** (one appended comment line in `shell/right_dock.gd` moves it
-`dcb61a49afd8` → `d1e90bc7c590`), and **it reaches the handset** (`756b59e30bc1`
-in `logcat` from a real cold start of the export). Editor and export digests of
-one tree differ on purpose — an export ships `.gdc` + `.gd.remap` where the
-editor has `.gd` + `.uid`, and those are different builds.
+Verified three ways: **determinate** (two headless runs of one tree,
+`cc30740ce765` both), **sensitive** (one appended comment line in
+`shell/right_dock.gd` moves it `dcb61a49afd8` → `d1e90bc7c590` in the editor),
+and **it reaches the handset** (`756b59e30bc1` in `logcat` from a real cold
+start of the export). Editor and export digests of one tree differ on purpose —
+an export ships `.gdc` + `.gd.remap` where the editor has `.gd` + `.uid`, and
+those are different builds.
+
+**In an export it fingerprints behaviour rather than source**, which the export
+itself disclosed by refusing to move: `script_export_mode=2` compiles scripts to
+binary tokens, so a comment-only edit leaves `assets/shell/right_dock.gdc`
+byte-identical (`a8ee3535…`) while a one-line code change moves it
+(`ed7b699f…`). Two APKs differing only in prose carry one id. Right granularity
+for "is this the same build?", wrong one for "is this the same commit?" — for
+that, hash the APK.
 
 It identifies the build that is *running*, not that the installed APK is the one
 just exported. `adb shell sha256sum $(adb shell pm path …)` against the exported

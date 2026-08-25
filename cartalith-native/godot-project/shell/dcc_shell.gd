@@ -184,6 +184,15 @@ var _right_dock_scroll: ScrollContainer
 ## a feature: those genuinely are different builds of the same tree, and the two
 ## must never be mistaken for each other in a measurement log.
 ##
+## And in an export it is a *behaviour* fingerprint rather than a source one,
+## because what it hashes there is the compiled token stream. Measured, not
+## assumed: appending one comment line to `shell/right_dock.gd` and re-exporting
+## leaves `assets/shell/right_dock.gdc` **byte-identical** (`a8ee3535...`), while
+## a one-line code change moves it (`ed7b699f...`). So two APKs differing only in
+## comments carry the same id -- which is the right granularity for "is this the
+## same build?" asked of a measurement, and the wrong one for "is this the same
+## commit?". For the latter, hash the APK.
+##
 ## It does not, and cannot, prove the *installed APK* is the one just built --
 ## only `sha256` against `adb shell pm path` does that. See §56's harness note.
 static func build_id() -> String:

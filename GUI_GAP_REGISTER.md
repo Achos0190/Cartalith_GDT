@@ -9372,13 +9372,25 @@ Verified three ways rather than argued:
 - **Determinate**: two consecutive headless runs of the same tree →
   `cc30740ce765` both times.
 - **Sensitive**: appending one comment line to `shell/right_dock.gd` in an
-  otherwise untouched snapshot moved it `dcb61a49afd8` → `d1e90bc7c590`.
+  otherwise untouched snapshot moved it `dcb61a49afd8` → `d1e90bc7c590` —
+  in the editor, where the digest is over `.gd` source.
 - **Reaches the handset**: `756b59e30bc1` in `logcat` from a real cold start
   of the exported APK.
 
 The export and editor digests of the same tree differ on purpose — an export
 ships `.gdc` + `.gd.remap` where the editor has `.gd` + `.uid`. Those genuinely
 are different builds, and a measurement log must never conflate them.
+
+**In an export it is a *behaviour* fingerprint, not a source one**, and that
+was measured rather than assumed once the first export refused to move.
+Re-exporting after appending one comment line to `shell/right_dock.gd` leaves
+`assets/shell/right_dock.gdc` **byte-identical** — `a8ee35357f4aa4a04cd5f8f39fd323ef`
+before and after — while a one-line *code* change moves it to
+`ed7b699f2580372cc9e26404b2f8f84c`. `script_export_mode=2` compiles scripts to
+binary tokens, so comments and whitespace are simply not in the shipped file.
+Two APKs differing only in prose therefore carry the same id. That is the right
+granularity for "is this the same build?" asked of a measurement and the wrong
+one for "is this the same commit?"; for the second question, hash the APK.
 
 **What it does not do**, stated because the gap is the interesting half: it
 identifies the build that is *running*, not that the APK installed is the one
