@@ -218,7 +218,7 @@ Data ▸ Import, asset packs under Assets*.
 |---|---|---|
 | Undo | ⌘Z | Global undo. Depth from Preferences ▸ Memory ▸ Undo history (default 5). Replaces `#undoBtn` / `#undoMem`. |
 | Redo | ⌘⇧Z | — |
-| Undo history… | — | Panel listing the stack; clicking an entry rolls back to it. |
+| Undo history… | — | Panel listing the stack; clicking an entry rolls back to it. **Built 2026-08-25 (`GUI_GAP_REGISTER.md` §42) and wider than this line**: it lists every *commit*, not only the reversible ones, because this application has seven edit domains and a panel showing one of them reads as a history of all seven. A row is `▲` (a height snapshot is held — clicking it rolls back to it, as this line says), `·` (recorded, with the specific reason nothing is retained for it) or `◼` (a generate or a load, where history starts). It is a right-dock context rather than a floating panel, per §7.1 proposal 3. |
 | Cut / Copy / Paste | ⌘X ⌘C ⌘V | Operate on the current selection (labels, icons, places, stamps). |
 | Delete | ⌫ | Deletes the selection; never deletes a generation stage. |
 | Select all / Deselect | ⌘A ⌘D | Scoped to the active layer. |
@@ -330,7 +330,7 @@ implementation.
 | | Tile size · LOD levels | 256/512/1024; levels 0–8 (`#lodMaxLevel`). |
 | | Atlas cache | Size cap in GB + Clear (`#lodBakeBtn`, `#lodClearAtlasBtn`). |
 | | Chunk debug overlay | `off · grid · colours` (`#lodDbgSeg`) + tile borders. |
-| Memory | Undo history | Steps, 1–50, default 5. |
+| Memory | Undo history | Steps, 1–50, default 5. **Superseded**: the shipped control is a byte *budget*, not a step count, for the reason register `PR-11` gives — one `f32` height field is 256 MB at this port's 8192² ceiling, so a flat depth would commit to 1.25 GB of undo buffer on the largest world the UI offers. The reference's own `MAX_UNDO` is **5**, not 50, and binds as the second bound. |
 | | Working set | Read-only, `1.6 GB of 12 GB`. |
 | | Clear caches… | Confirmation; clears atlas + field caches, never project data. |
 | Application | Storage locations… | Same modal as File. |

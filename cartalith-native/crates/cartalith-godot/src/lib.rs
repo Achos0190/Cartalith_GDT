@@ -2239,10 +2239,15 @@ impl WorldGen {
         // same reason `undo.clear()` above does -- nothing before it can be
         // reverted to, so drawing it would be an offer the engine cannot
         // keep.
+        // `seed` is the argument, not `self.seed`: this runs a few lines
+        // before the field is assigned, and reading the field here reported
+        // `seed 0` on screen against a status bar saying 483920. Caught by
+        // the windowed probe's own screenshot, which is the only place the
+        // two are visible together.
         self.ledger.record(
             "world",
             "Generate world",
-            format!("seed {} - {} x {}", self.seed, self.gw, self.gh),
+            format!("seed {} - {} x {}", seed, self.gw, self.gh),
             undo::EntryKind::Floor,
         );
         // The finalize lock is a statement about *this* world: "its atlas is

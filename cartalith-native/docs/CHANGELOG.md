@@ -26726,3 +26726,145 @@ prevent.
 records settlement snapshots per year, not a per-year ownership grid, so there
 is nothing to scrub territory against — timeline work, not territory work,
 exactly as §39 scoped it. The Territories ▸ Not built note now says only that.
+
+## IN-13, VA-01, ED-02 — the last three open register items, designed and built (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §42. Owner instruction, two parts: design proper menus
+for the remaining open items with `ui-ux-pro-max` and `design`, then build the
+three that are buildable against those designs.
+
+**The design** is a five-artboard canvas in v3's own visual language — the
+same tokens, the same category/section structure, the same disclosure depth —
+covering CIVIL ▸ Trade at its real 372 px dock width, the trade surfaces on
+the map and in the place editor, the vault index and its per-entity backlinks,
+the undo ledger at the right dock's 284 px, and a consistent **anatomy for a
+"Not built" row** that the six narrowed remainders (CV-23, CV-25, CV-26,
+CA-18, CA-19, WW-15) now share: the noun named exactly, the blocker named
+specifically, and what does exist instead — plus a state chip separating
+*needs a decision* from *blocked on* from *costs a re-baseline*.
+
+### IN-13 — the reference already had a bipartite match routed over the ways
+
+The register's sharpening said *"a bipartite assignment plus a network flow,
+neither of which exists in either codebase"*. Wrong on its second half, and
+the sixth item this session whose stated reason was:
+
+- `_civFoodShed` (24050) enumerates **every other settlement** as a candidate
+  supplier — the bipartite match.
+- `_civFoodConnected` (24044) filters them through `_civRoadComponents`
+  (24076), a **union-find over the way network's own endpoints** — the tie to
+  the way that carries it.
+
+The reference runs that machinery for one good, `food`, and separately wrote
+`_civGoodReach` (24442) to classify the reach of twenty-two goods — then used
+it only for display. `cartalith_civ::trade` is five ports and one new step:
+run the match over the fifteen `CIV_RESOURCE_KEYS` `TradeBalance` already
+judges, gated by that reach rule.
+
+Ported literally, with their reference lines at each function: `_civGoodReach`,
+`_civFoodMode` (23997), `_civFoodDeliverable` (24004), `_civFoodConnected`,
+`_civRoadComponents`, `_civPlaceNavigability` (24361) branches (a) and (b),
+and the constants — 160/880/8000 km doubling, 220/1600/9000 km reach,
+`FOOD_LOCAL_RADIUS_KM` 50, `FOOD_SUPPLIER_SHARE` 0.6.
+
+**The one invented rule, stated at the function**: demand is the importer's
+population — the only per-settlement scale this port holds that is not itself
+derived from trade — split across reachable exporters in proportion to
+`_civFoodDeliverable` and capped per flow at `SUPPLIER_SHARE × the supplier's
+own population`, which is that constant's own sentence applied where the
+sentence is about.
+
+**Two divergences, recorded rather than silent**: road connectivity reads
+`Way::a_idx`/`b_idx` instead of re-deriving them with the reference's endpoint
+snap (this port stores what the snap recovers), and `_civPlaceNavigability`'s
+distance-field branch (c) is not ported because `_umSiteProfile`'s distance
+locals are not exposed here — branch (b) sweeps the same `um_water_reach_km`
+radius that (c) thresholds against.
+
+Nothing is stored: `trade_flows` allocates, answers and drops, the way
+`territory_influence` and `wildlife` do. `WorldGen::civ_trade_flows()` returns
+the whole answer once and `trade_store.gd` holds it on the shell side, where
+`app.gd` drops it on every world change. Three surfaces share the one
+computation: **CIVIL ▸ Trade** (world → good → pair, the ladder the design
+settled on), the **place editor's** per-settlement ledger naming each partner,
+and **CARTO ▸ Roads & routes ▸ Trade load**, which thickens each way by
+carried volume on the way's own colour. Width and not hue, because a way's
+colour is already its type; in Roads & routes and not the Layers popover,
+because that popover is the one picker for field rasters and this is a value
+on a way.
+
+### VA-01 — a stat is not a read
+
+The register poses the index as a choice between one that stalls a large vault
+and one that goes stale. `FsVault::meta` already returns `(modified, len)`
+without opening the file — §14's own change-detection basis — so
+`cartalith_vault::backlinks` is persisted **and** correct: built only when
+asked, invalidated per file, and a refresh over an untouched vault opens
+nothing at all.
+
+Per note it stores the `(modified, len)`, the outgoing link targets, the
+entity keys of any Cartalith blocks, and a 64-bit word fingerprint — **never
+the prose**, asserted by serialising a record and searching it for its own
+words. `mention_candidates` uses that fingerprint to narrow the vault before
+one file is opened; false positives cost one read and false negatives are
+impossible, which is the property the tests pin.
+
+An entity finds its incoming notes three ways, and the third is what an index
+of note-to-note links alone would miss: every note carrying
+`entity="settlement:42"` **directly**, which finds the entity even when it has
+no note of its own. `broken_links()`/`orphans()` fall out of the same index,
+which is what `Data ▸ Missing & orphan notes report…` had been disabled
+waiting for.
+
+The index is saved in its own file, not inside the link store: §5's store is
+portable project data and this is a cache of one folder on this device.
+
+### ED-02 — the ledger, not the five-row list
+
+§39 recorded that a previous pass declined the flat list because it would
+answer the easy half and foreclose the design. `undo::HistoryLedger` is what
+that was protecting: it **records every commit** and **reverses the ones it
+can**, per row — `▲` a held height snapshot, `·` recorded with the specific
+reason nothing is retained, `◼` a floor.
+
+The ledger and `HeightUndo` are deliberately not cross-wired: `rows()` takes
+the live stack depth and marks the newest that many height rows reversible, so
+one source of truth answers "is there a snapshot" at read time and the two
+cannot drift. Linear only, per §7.1's own conclusion.
+
+`Edit ▸ Undo history…` opens it as a right-dock context (proposal 3's own
+recommendation) in two tiers: the open Sculpt draft above, reversible in place
+by its own tool, then the commits newest first.
+
+**Verified windowed**, `_in13_probe.gd` against a real 384 × 288 world, seed
+483920 — 233 settlements, 6 factions, 35 ways. **PASS, 0 failures.** 624 flows
+in 1 ms at 0.18 MB transient and `resident_bytes` 0; volumes 0.38–1 276.80 and
+distances 106–2 409 km (differentiated, not uniform); every one of the 624
+checked against independently-restated constants for mode, reach cliff, decay
+curve and supplier cap; two matches agreeing row for row; 20 consecutive
+matches moving the working set +5.0 MB. Trade load ON moves 0.3342 % of screen
+pixels and OFF returns 0.0000 %. The vault index: 5 notes read on the first
+build, **0** on a refresh over an untouched folder, **exactly 1** after one
+edit; backlinks exactly the wiki and markdown references (the wiki one counted
+twice from one note) and not the prose mention; the prose mention found with
+its excerpt and nothing else. The ledger: a generate leaving exactly one floor
+row, a territory commit frozen with its reason on screen, a revert to the
+older of two height rows taking 2 steps and leaving no height row behind, and
+the same revert refused the second time.
+
+`cartalith-civ` 401 → 421 tests, `cartalith-vault` 48 → 65, `cartalith-godot`
+343 → 351. `cargo check -p cartalith-godot` clean; headless import clean with
+`project.godot` diffed and unchanged.
+
+**Three defects only the live run could find.** `way_load` was emitted in
+`CivData::ways` order while the overlay indexes `get_roads()` order — which
+filters hidden ways and appends manual ones — so it handed the shell 60
+entries for 35 rows, silently misaligned. The Generate-world floor row read
+`seed 0` against a status bar reading `483920`, because it recorded before
+`self.seed` was assigned; only a screenshot shows the two together. And the
+Match button was built once from CIVIL's `setup()`, before any world exists,
+with nothing to re-enable it — `GUI_GAP_REGISTER.md` **RF-01** again.
+
+**Still open, and disclosed on screen:** prices, tariffs, caravans as
+entities, and trade that changes over time. None is derivable from anything
+the civ layer holds, and each needs a decision about what a currency is here.

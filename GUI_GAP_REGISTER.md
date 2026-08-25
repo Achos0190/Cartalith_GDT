@@ -317,7 +317,7 @@ classification with the design cited.
 | # | UI label | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | ED-01 | Undo / Redo | 172-173 | no undo stack; generation one-shot, sculpt has no Godot binding | **Undo: CLOSED 2026-08-23.** Global heightmap undo is live — `Edit ▸ Undo` (Ctrl+Z), `undo.rs` + five `#[func]`s, pushed by `sculpt_commit` and `carve_fjords`, exactly the reference's own `pushUndo` call sites minus the eight erosion passes this port does not run. The row shows the operation name and depth. **Redo stays disabled and always will**: the reference has no global redo either — `undoLast()` *pops* the snapshot rather than moving a cursor, so an undone step is gone. The Sculpt draft's own Redo (right dock) is a different, real thing. | §2.2 | ~~(B) large~~ → **done**. The scope this row assumed (a general command/diff framework) was not what the reference does: 3 functions, a `Float32Array.slice()` and a 5-deep stack. See §7.1's revised entry |
-| ED-02 | Undo history… | 174 | same | **still open, and now for a sharper reason** — the *stack* is real (`undo_stats()` reports depth, bytes, budget and the next label); what does not exist is a panel over it. Tooltip updated 2026-08-23 to say exactly that. The live depth/cost readout landed in `Preferences ▸ Memory ▸ Undo history` instead (PR-11), which is where the reference's own `#undoMem` sat | §2.2 names it in one line; **no panel design exists** | **(C)** → §7.1 |
+| ED-02 | Undo history… | 174 | same | **still open, and now for a sharper reason** — the *stack* is real (`undo_stats()` reports depth, bytes, budget and the next label); what does not exist is a panel over it. Tooltip updated 2026-08-23 to say exactly that. The live depth/cost readout landed in `Preferences ▸ Memory ▸ Undo history` instead (PR-11), which is where the reference's own `#undoMem` sat | §2.2 names it in one line; **no panel design exists** | **CLOSED 2026-08-25 (§42)** — built as the *ledger* §7.1 asked for, not the five-row list. `undo::HistoryLedger` records **every** commit and reverses the ones it can, per row: a height snapshot (`▲`, revertible), a recorded-only commit (`·`, with the specific reason nothing is retained), or a floor (`◼`, a generate or a load). Reversibility is read from the live stack depth rather than stored, so the two cannot drift. `Edit ▸ Undo history…` opens it as a right-dock context, per proposal 3 |
 | ED-03 | Cut / Copy / Paste / Delete | 176-179 | nothing selectable beyond settlements, which are read-only | **CLOSED (Delete and edit) 2026-08-23** — see §18: the place-edit popup (`place_editor_window.gd`), the right-click context menu (`map_overlay.gd`'s `map_right_clicked` → `civilization_workspace.gd`) and the `KEY_DELETE` handler (`app.gd`) all exist now; §18.3 lists the four residual sub-gaps (ED-03a..d). Cut/Copy/Paste specifically remain open — no clipboard model exists for any entity. The correction below is what this row said before that: **corrected 2026-08-23** (`PARITY_AUDIT.md` C3/§3.2/§5 item 3) — this was mischaracterized as a clipboard/selection gap. The real finding: `civ_drop_settlement` **creates** a settlement and nothing **edits, moves or deletes** one — there is no place-edit popup (the reference's `placeEditPopup`/`_civPopulatePlaceEditor` has no port, name/kind/faction/pop/specialisation/traits/history/walls-override/delete all absent), no right-click context-menu handler on the map (`_civCtxShow`'s six operations have no counterpart — `PopupMenu` appears only in `menus.gd`/`dcc_shell.gd`, never on `MOUSE_BUTTON_RIGHT` over the viewport), and no `KEY_DELETE` handler anywhere under `godot-project/` (grep confirms). Labels, icons and sculpt stamps genuinely are selectable and deletable through their own panels, which is why the *original* framing looked plausible — but a user who drops a settlement by mistake, or wants to rename/relocate/remove one, has no path to do so at all, not merely a missing uniform selection model. | §2.2 | (B) large — a place-edit popup, a map context menu and a Delete-key handler are three separate missing pieces, not one selection abstraction |
 | ED-04 | Select all / Deselect | 181-182 | same | same | §2.2 | (B) large — same model |
 | ED-05 | Find on map… | 184 | no search index; settlement search lives in the Data manager | yes | §2.2 gives one line; **no search UI design** | **(C)** → §7.2 |
@@ -1020,16 +1020,26 @@ Sources are linked so the research is checkable rather than asserted.
 >
 > - **Proposal 2's draft/commit tiering** — accurate and unchanged. What
 >   shipped is the *commit* tier only, for the two commits that write height.
-> - **Proposal 3's panel** — still (C), still undesigned, still ED-02. The
->   engine now has the data a panel would read (`undo_stats()`), which moves
->   the panel from "needs an engine" to "needs a design".
+> - **Proposal 3's panel** — **built 2026-08-25, see §42.** It is the ledger
+>   proposal 1 asks for rather than the flat list, and it took proposal 3's
+>   own two recommendations: a right-dock context, not a window, and
+>   Photoshop's linear default with no non-linear history. Where it goes
+>   further than this section is the honest half — the ledger records
+>   commits it *cannot* reverse as well, each carrying the specific reason
+>   nothing is retained for it, so a history panel over one reversible
+>   subsystem does not read as a history of the whole application. Proposal
+>   1's per-subsystem reversal is still unbuilt; what changed is that turning
+>   one on is now a row's kind changing rather than a redesign.
 > - **Proposal 4's Preferences row** — shipped, and it kept this section's own
 >   advice to show live memory cost. It diverged on the control's *unit*: a
 >   budget in MB rather than a depth in steps, for the reason PR-11's row
 >   gives. The reference's cap of 30 named here is wrong — `MAX_UNDO` is 5,
 >   which is also what the shipped label says.
 > - **Proposal 5's Adjust Last Operation** — untouched, still (A), still the
->   cheapest remaining win in this section.
+>   cheapest remaining win in this section. §42 did not take it: it is a
+>   status-bar chip over generation *parameters*, which is a different
+>   surface from the commit ledger and would have been scope creep on an
+>   already-large batch.
 >
 > One correction to a *source* rather than to this section:
 > `reference/FUNCTION_INDEX.md` line 61 describes the reference's undo as
@@ -5452,14 +5462,14 @@ working control, and none is silently omitted.
 | **CV-24** | The year scrubber as **program scope** (v3: *"time is not a domain"*) | The timeline strip's own `Open Timeline` tooltip | Agreed in principle, and not moved. `dcc_shell.gd`'s reserved `timeline_bar` is one fixed-height `HBox` with no room for a year-pill list, an add-year field and three filter checkboxes; `TIMELINE_SCOPE.md` §4's standing instruction is to build a dedicated panel rather than guess the region. A shell-frame change, not a menu change | (C) — design first |
 | **CV-25** | **Military**: garrisons, defensive strength, fortification network, campaigns | CIVIL ▸ Military ▸ Not built (whole category) | `cartalith-civ` models none of them and neither does the reference. New design, not a port gap. What exists is per-settlement *defensibility*, a terrain heuristic, on the right dock | **NARROWED 2026-08-25 (§40)** — and the reason above is wrong: the reference has `_umWallSpec`/`_umInferWalls` (22109) and `_civPlaceDefensibility` (23802), and `power.military` was already ported. Now built, golden-verified. Open: **garrison headcounts, campaigns, unit movement, combat** — and only those |
 | **CV-26** | **Relationships**: diplomatic matrix, allies/rivals/subjects, treaties — and v3 Politics' vassalage/alliances/rivalries | CIVIL ▸ Relationships ▸ Not built (whole category), and CIVIL ▸ Politics ▸ Not built | There is no edge between two factions to hold a value, at any year, so a matrix would be a grid of blanks. The reference has none either. Absorbs the one-line gap the old Politics category disclosed | **NARROWED 2026-08-25 (§40)** — the reason above was right, and the edge now exists (`cartalith_civ::relations`): one derived, recomputed value per faction pair, shown as a ranked list. Open: **diplomacy actions, treaties, vassalage, and change over time** |
-| **IN-13** | **Trade flows** as a routed quantity, imports/exports per settlement, route-cost field, trade-influence raster | CIVIL ▸ Trade ▸ Not built | `civ_resource_trade_balance` produces the hinterland surplus/deficit that *is* shown; nothing ties a trade relationship to the way that would carry it. `ECONOMY_SCOPE.md` holds the aggregation | (B) large — **sharpened §39**: `TradeBalance` names *what*, never *who*; a flow needs a bipartite match plus a network flow |
+| **IN-13** | **Trade flows** as a routed quantity, imports/exports per settlement, route-cost field, trade-influence raster | CIVIL ▸ Trade ▸ Not built | `civ_resource_trade_balance` produces the hinterland surplus/deficit that *is* shown; nothing ties a trade relationship to the way that would carry it. `ECONOMY_SCOPE.md` holds the aggregation | **CLOSED 2026-08-25 (§42)** — and the sharpening was wrong on its second half: `_civFoodShed` **is** a bipartite supplier match and `_civRoadConnected` **is** a union-find over the way network. `cartalith_civ::trade` runs the reference's own machinery over all fifteen resources. Open, and disclosed on screen: prices, tariffs, caravans as entities, trade over time |
 | **CA-16** | Per-class way **style**: colour, width, casing, dashes, route glow | CARTO ▸ Roads & routes ▸ Not built | `map_overlay.gd` draws every way from one hardcoded width-and-colour pair per type and takes no style argument; the reference's `#civWayScaleR` has no counterpart here. Visibility, which *is* wired, is the whole of what works | **CLOSED 2026-08-25 (§39)** — `#civWayScaleR`/`#wayOpacityR` ported; the reason above describes the file as it was *before* §36 |
 | **CA-17** | Territory tint opacity, border width/style, claim hatching, influence gradient + legend | CARTO ▸ Political display ▸ Not built | One fixed-alpha fill with a fixed border, and no style record keyed to a faction id for anything to write to. Blocked on CV-21 at the CIVIL end | **CLOSED 2026-08-25 (§39)** for tint opacity (`#territoryOpacityR`) and, via CV-21, identity colour; the rest is CV-23's data gap |
 | **CA-18** | **Zoom ladder** (what appears when) and the declutter budget | CARTO ▸ Visibility / zoom ▸ Not built | No per-layer zoom range exists anywhere in the shell; the one zoom-dependent behaviour is the urban-layout reveal band, which `map_overlay.gd` hardcodes. Label/icon collision is not resolved at all — overlapping annotation simply overlaps | **PARTLY CLOSED 2026-08-25 (§39)** — `CIV_LOD_ROAD` ported; the declutter budget and per-layer ranges stay open |
 | **CA-19** | **Biome colour table** | CARTO ▸ Colours ▸ Colour grade note | `CART_BIOME_COLS` is a frozen reference table compiled into `cartalith-render` with no `#[func]` to read or rewrite an entry. The four field-influence weights beside it are live | **CLOSED 2026-08-25 (§39)** for *reading* — `debug_layers()` has carried all fifteen classes as the Biomes legend all along. *Rewriting* is a separate, larger item |
 | **WW-14** | **Ecological productivity**, flora/fauna distribution | WORLD ▸ Ecology ▸ Not parameterised (whole category) | No crate computes either, here or in the reference. Vegetation density and soil *are* computed — derived off biome/climate/lithology with no dials — and are readable as analysis fields; the note points there | **CLOSED 2026-08-25 (§39)** — the reason above is wrong on **both** halves: `build_npp` and `cartalith_civ::wildlife` are both real and both golden-verified |
 | **WW-15** | **Coordinate system · projection** | WORLD ▸ World data ▸ Read the fields | Every field is grid-space, the GeoJSON export writes a plain lon/lat-shaped frame with no CRS declared, and nothing reprojects. Units are km-only (PR-15) | **CLOSED 2026-08-25 (§39)** for the frame — a CRS *is* declared, in the document's own `note`; `world_crs()` now reports it in-app. Reprojection stays open |
-| **VA-01** | **Backlinks · unlinked mentions** | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Missing & orphan notes…* | Both need a reverse index over the whole vault. The provider deliberately opens only the files it is asked for, which is what keeps a large vault cheap to browse and is exactly what an unbounded scan would undo | (B) large — **sharpened §39**: the open question is the *index*, not the scan |
+| **VA-01** | **Backlinks · unlinked mentions** | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Missing & orphan notes…* | Both need a reverse index over the whole vault. The provider deliberately opens only the files it is asked for, which is what keeps a large vault cheap to browse and is exactly what an unbounded scan would undo | **CLOSED 2026-08-25 (§42)** — the choice the sharpening poses is a false pair: a `stat` is not a read, so the index is persisted **and** kept correct per file by `(modified, len)`. Mentions are filtered by a 64-bit word fingerprint that stores no prose, so only candidate files are opened |
 | **VA-02** | **Create notes from template**, path convention `Settlements/{name}.md` | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Create notes from template…* | `cartalith-vault` attaches to notes that already exist and refuses a heading that does not — deliberately (`MARKDOWN_VAULT_SCOPE.md` milestone 1's boundary). There is no note *creator* and no template registry, so the owner's own `design/vault-templates/` cannot be instantiated | **CLOSED 2026-08-25 (§39)** — the boundary quoted is about *editing*, and creating a file cannot destroy one |
 
 `VA-` is a new prefix: the vault's *gaps*, distinct from `KV-` in §35, which
@@ -5959,12 +5969,29 @@ status but what is known about them.
   surplus-to-deficit match across settlements and then a routing of that match
   over the way graph — a bipartite assignment plus a network flow, neither of
   which exists in either codebase. `ECONOMY_SCOPE.md` holds the aggregation.
+
+  > **Closed by §42 (2026-08-25), and the last sentence is wrong.** Both
+  > exist in the reference: `_civFoodShed` (24050) enumerates every other
+  > settlement as a candidate supplier, and `_civFoodConnected` (24044)
+  > filters them through `_civRoadComponents` (24076), a union-find over the
+  > way network's own endpoints. The reference runs that match for one good
+  > and wrote `_civGoodReach` to classify twenty-two; §42 runs it for the
+  > fifteen `TradeBalance` ranges over, and invents one rule — the
+  > allocation — which is stated at the function.
 - **VA-01 — backlinks and unlinked mentions.** Still (B) large, and the open
   question is the **index, not the scan**: built on demand it stalls a large
   vault, and persisted it is a second store to keep in step with a folder the
   user edits outside Cartalith. The provider's deliberate "open only what you
   are asked for" is what keeps browsing cheap, and an unbounded mention scan
   is exactly what would undo it.
+
+  > **Closed by §42 (2026-08-25).** The question was the right one and the
+  > two options it offers are a false pair: `FsVault::meta` returns
+  > `(modified, len)` **without opening the file**, so the index is
+  > persisted *and* kept correct per file, and a refresh over an untouched
+  > vault opens nothing at all. The mention scan stays bounded by a 64-bit
+  > word fingerprint per note — eight bytes, no prose — which narrows the
+  > vault to candidates before a single file is read.
 
 ### Also carried over from §38
 
@@ -5976,6 +6003,13 @@ status but what is known about them.
   *ledger* with per-subsystem reversal — a strictly larger thing than a
   five-row list. Building the five-row list would answer the register's easy
   half and foreclose the design question. **Owner's to specify.**
+
+  > **Built by §42 (2026-08-25).** The judgement held up and this is the
+  > thing it was protecting: the ledger records every commit and reverses
+  > the ones it can, so the five-row list is a subset of it rather than a
+  > substitute for it. Per-subsystem *reversal* is still unbuilt — what
+  > changed is that a `Recorded` row already knows its subsystem, so
+  > turning one on is a kind change rather than a redesign.
 - **The Data manager's five silent nav rows** — checked again and **left alone
   again**, agreeing with §38. Each opens a pane that names itself in its own
   first line; a tooltip repeating the row's own label is filler, and this
@@ -6301,3 +6335,260 @@ Stated plainly rather than hidden behind the flattering measurement: at the
 `generate()`. Both are enormous, and the ceiling is theoretical for the whole
 civ pipeline, not for this row in particular. What this row adds is 12 bytes
 a cell, freed, on a layer the user has to open.
+
+## 42 · IN-13, VA-01, ED-02 — the last three open items, designed and built (2026-08-25) — **CLOSED**
+
+The owner's instruction was two-part: *"use /ui-ux-pro-max in combination with
+your /design skill to create a proper menu for the missing items"*, then build
+IN-13, VA-01 and ED-02 against those designs. §37's fifteen were down to three
+genuinely open rows plus the narrowed remainders of CV-23, CV-25, CV-26,
+CA-18, CA-19 and WW-15, all of which still showed as disabled controls and
+bare notes rather than as designed surfaces.
+
+The design is a five-artboard canvas in v3's own visual language — same
+tokens, same category/section structure, same disclosure depth — covering the
+three surfaces being built plus a consistent **anatomy for a "Not built"
+row**, which is what the six narrowed remainders now share.
+
+### IN-13 — the register's reason was wrong, for the sixth time this session
+
+§39 sharpened IN-13 to *"a flow needs a bipartite match plus a network flow,
+neither of which exists in either codebase."* The second half is false, and
+the frozen reference says so in three functions:
+
+| Reference | Line | What it is |
+|---|---|---|
+| `_civFoodShed` | 24050 | enumerates **every other settlement** as a candidate supplier — the bipartite match |
+| `_civFoodConnected` | 24044 | filters candidates through `_civRoadConnected` … |
+| `_civRoadComponents` | 24076 | … which is a **union-find over the way network's own endpoints** — the tie to the way that carries it |
+
+Plus `_civFoodMode` (23997), `_civFoodDeliverable` (24004) and `_civGoodReach`
+(24442), which decide per pair and per good whether the relationship is
+possible at all and how much of it survives the distance. The reference runs
+all of it for **one good**, `food`, and then — this is the part worth
+recording — wrote `_civGoodReach` explicitly to classify *"the reach a given
+good can achieve from this settlement"* across a bulk/luxury vocabulary of
+twenty-two goods, and never used it for anything but display.
+
+So `cartalith_civ::trade` is **five ports and one new step**: run the
+reference's own match over the fifteen `CIV_RESOURCE_KEYS` that `TradeBalance`
+already produces a verdict on, gated by the reach rule the reference wrote for
+exactly that purpose. Constants ported literally: 160/880/8000 km doubling,
+220/1600/9000 km reach cliff, the 50 km local supply radius, the 0.6 supplier
+share.
+
+**The one rule that is not a port**, stated at the function rather than
+buried: a settlement's demand for a good is its **population** — the only
+per-settlement scale this port holds that is not itself derived from trade
+(`_civPlaceProsperity` reads `tradeVolume`, so using that would be circular).
+It is split across reachable exporters in proportion to `_civFoodDeliverable`,
+and each flow is capped at `SUPPLIER_SHARE × the supplier's own population`,
+which is that constant's own sentence — *"one consumer never draws a
+supplier's whole surplus"* — applied where the sentence is about. Demand the
+cap leaves uncovered is not carried and does not reappear on another supplier.
+
+**Two divergences, both in the module doc rather than silent.** Road
+connectivity reads `Way::a_idx`/`Way::b_idx` instead of re-deriving them with
+the reference's `nearest()` endpoint snap at `max(2, GW/50)` — this port's
+consolidation tail already records which two settlements a way joins, so the
+snap would re-derive something stored. And `_civPlaceNavigability` is ported
+at branches (a) and (b) only: branch (c) reads `_umSiteProfile`'s
+`coastDistKm`/`riverDistKm`/`riverOrder`, which here are locals inside the
+layout builder's water context. It costs almost nothing — (b)'s
+`um_site_kind_from_terrain` sweeps the *same* `um_water_reach_km` radius that
+(c) thresholds against, and the reference's own comments call the site kind
+"authoritative" over the traced polylines on both the coast and the river
+branch.
+
+**Nothing is stored.** `trade_flows` allocates, answers and drops, the way
+`territory_influence` and `wildlife` do. `CivData` gained no field and the
+save format is untouched. The shell holds the one result in `trade_store.gd`
+so the dock, the place editor's ledger and the map overlay share one
+computation; `app.gd` drops it on every world change, in the same function
+that already re-runs every workspace's `on_world_changed()`.
+
+**Three surfaces, and why the map one is not in the Layers popover.** CIVIL ▸
+Trade carries the four rows v3 asks for in the disclosure ladder the design
+settled on — world, good, pair, place. The place editor carries the
+per-settlement ledger, because a partner is a *name* and only means something
+next to the place it belongs to. The map draws way **thickness**, in CARTO ▸
+Roads & routes: the Layers popover is the one picker for *field rasters*
+(`set_debug_layer`), and trade load is a value on a way, drawn by the way
+layer that section already owns. Width and not hue, because every faction
+swatch is already spent on the territory wash and on contested borders, and a
+way's colour is already its type (RD-02).
+
+### VA-01 — the index is the question, and a stat is not a read
+
+The register poses it as a choice between two bad options: *"built on demand
+it stalls a large vault, and persisted it is a second store to keep in step
+with a folder the user edits outside Cartalith."*
+
+It is a false pair. `FsVault::meta` already returns `(modified, len)` **without
+opening the file** — that is §14's own change-detection basis, and reusing it
+makes the index persisted *and* correct:
+
+| | |
+|---|---|
+| stored | per note: `(modified, len)`, its outgoing link targets, the entity keys of any Cartalith blocks in it, and a 64-bit word fingerprint. **Never the prose.** |
+| built | only when a person presses Refresh. The first build reads every note once and says so first. |
+| invalidated | per file, by `(modified, len)`. Ten edits in Obsidian cost ten reads. |
+| never | a watcher, a background thread, or a scan nobody asked for. |
+
+**Unlinked mentions without storing anyone's prose.** A mention appears to
+need the text; it does not need the text *stored*. `NoteRecord::word_bits` is
+a Bloom filter over the note's word tokens — eight bytes a note, from which no
+word can be read back (asserted, by serialising a record and searching it for
+its own words). `mention_candidates` returns the notes that *could* contain
+every token of a name; the session then opens **only those** and confirms with
+a real search. False positives cost one read; **false negatives are
+impossible**, which is the property that matters and the one the tests pin.
+
+**An entity finds its incoming notes by three routes**, and the third is the
+one an index of note-to-note links alone would miss: its own linked notes'
+reverse map, the notes that link to them — and every note carrying
+`entity="settlement:42"` **directly**, which finds the entity even when it has
+no note of its own, because a province's note can describe a place nobody has
+written a page for.
+
+`broken_links()`/`orphans()` fall out of the same index, which is exactly what
+`Data ▸ Missing & orphan notes report…` has been disabled waiting for. One
+index, one panel, not two walks — and that row is live now.
+
+The index is saved in **its own file** (`user://markdown_vault_index.json`),
+not as a key inside the link store: §5's store is portable project data, and
+this is a cache of one folder on this device that is rebuilt in a single press
+if it is lost.
+
+### ED-02 — a ledger, which is what §7.1 asked for
+
+§39 recorded that a previous pass *"deliberately declined to build a flat
+five-row list because that would answer the register's easy half and foreclose
+the design question."* That judgement held up, and this is the thing it was
+protecting.
+
+`undo::HistoryLedger` **records every commit and reverses the ones it can**,
+saying per row which it is:
+
+| Kind | Glyph | Meaning |
+|---|---|---|
+| `HeightSnapshot` | `▲` | a pre-operation height field is held; reverting is real |
+| `Recorded` | `·` | it happened; no snapshot exists, and the row carries the **specific** reason |
+| `Floor` | `◼` | a generate or a load; history starts here |
+
+**The two structures are deliberately not cross-wired.** A height row is
+reversible exactly while its snapshot is on the stack, and the stack evicts on
+its own byte budget — so `rows()` takes the live `HeightUndo::depth()` and
+marks the newest that many height rows live. One source of truth for *"is
+there a snapshot"*, asked at read time, so the two cannot drift; an evicted
+row reports `false` with a reason naming the budget.
+
+Linear only, per §7.1's own conclusion: reverting to a row pops every snapshot
+above it and the row leaves with them, because the snapshot **is** the state
+before that operation. Recorded rows above it go too — an operation whose
+height field has just been rolled back out from under it is not still in
+effect, and leaving it listed would be the worse lie.
+
+Call sites: `sculpt_commit` and `carve_fjords` record a snapshot beside their
+existing `undo.push`; `paint_commit` and `civ_territory_commit` record with
+the reason (*"the pre-commit layer is not retained; Discard reverts an
+uncommitted draft only"*); `generate` and `load_save` record a floor, which
+clears the rows for the same reason `undo.clear()` already runs there.
+
+The panel is a **right-dock context**, per §7.1 proposal 3 — selection-adjacent,
+and a window for a list read *against* the map would cover the map. Two tiers,
+which are this engine's own draft/commit seam: the open Sculpt draft above,
+reversible in place by its own tool and deliberately not a row; then the
+commits, newest first.
+
+### The six narrowed remainders, and the anatomy they now share
+
+Not rewritten — they were already honest. What the design added is a
+consistent three-part anatomy (**the noun, named exactly** · **the blocker,
+named specifically** · **what does exist instead**) and a state chip that
+separates three genuinely different situations:
+
+| Chip | Means | Which |
+|---|---|---|
+| needs a decision | nothing is missing from the engine; somebody has to say what the feature *is* | CV-25 (garrisons, campaigns, combat), CV-26 (treaties, vassalage, change over time), WW-15 (reprojection) |
+| blocked on | the design is clear and waits on named work elsewhere | CV-23 (historical occupation — timeline work), CA-18 (declutter budget — CA-04's separable layer stack) |
+| costs a re-baseline | buildable today, and doing it moves golden expectations `DECISIONS.md` §7a protects | CA-19 (a *writable* biome table) |
+
+A fourth state is deliberately absent: *coming soon*. Nothing here has a date.
+
+### Verification
+
+`_in13_probe.gd` / `.tscn` (temporary, untracked), run **windowed** against a
+real 384 × 288 world, seed 483920 — 233 settlements, 6 factions, 35 ways.
+**PASS, 0 failures.** Every claim measured rather than reasoned about.
+
+**IN-13, the match itself**
+
+| what | measured |
+|---|---|
+| the match | **624 flows** over 7 of the 15 goods in **1 ms**, 0.18 MB transient, `resident_bytes` **0** |
+| differentiation | volume 0.38 to 1 276.80; distance 106.3 to 2 408.6 km — not all-zero and not all-identical |
+| water access | 51 settlements sea, 169 river, 13 landlocked — the navigability port discriminates |
+| modes | 549 river flows, 75 sea, **0 land**, and that is the model talking: at 6.25 km/cell the nearest pair is 106 km apart, past the 50 km local radius a landlocked bulk exporter is held to |
+| every flow | mode consistent with **both** ends' water, inside its mode's reach cliff, `deliverable` matching `2^(-d/D)` to 1e-6, volume inside the supplier cap, and no `local`-reach flow past 50 km — checked on all 624 against constants the probe restates independently |
+| unmet | **30 settlements** carry a need nothing in reach can fill, named with the goods |
+| way load | 13 of 35 ways carry something, busiest 18 278 |
+| determinism | two matches agree **row for row** across 624 rows |
+| memory | 20 consecutive matches move the process working set **+5.0 MB** — nothing accumulates |
+
+**IN-13, the three surfaces**
+
+| what | measured |
+|---|---|
+| the dock | the unmatched state disclosed; the real button pressed; By good, Busiest partners, Needs nothing can reach, Way load and the cost footnote all on screen afterwards |
+| the ledger | the place editor names partner `Andkrunbrakridge`, that is settlement #8's **real** name, and #8's own ledger lists this settlement back as a customer |
+| the map | Trade load ON moves **0.3342 %** of screen pixels; OFF returns **0.0000 %** — byte-identical to before the layer existed |
+
+**VA-01**
+
+| what | measured |
+|---|---|
+| nothing until asked | an unbuilt index returns no rows at all |
+| first build | 5 notes seen, **5 re-read** |
+| the whole claim | a refresh over an untouched vault re-reads **0**; one edited file costs **exactly 1** |
+| backlinks | exactly `Factions/Veldmark.md` (wiki, count **2** from one note) and `People/Aldis.md` (markdown) — the settlement's own note is not a backlink to itself, and the prose mention is not counted as one |
+| mentions | exactly `Journal/Thaw.md`, with an excerpt containing the hit |
+| the report | 1 broken link, 4 orphans, from the same index |
+| the panel | Index, Refresh index, Rebuild and Missing & orphan notes all really on screen |
+
+**ED-02**
+
+| what | measured |
+|---|---|
+| the floor | a generate leaves exactly **one** row, kind `floor` |
+| the mix | after a territory commit and two carves: `floor / recorded (frozen) / height / height` |
+| the reason | the frozen row's reason is **on screen**, not only in the dictionary |
+| linear revert | reverting to the *older* height row takes **2** steps, depth 2 → 0, and no height row survives it |
+| refusal | reverting to that row again returns 0 — refused, not half-applied |
+| the panel | History, Committed, Cost and the live `Reversible:` budget all drawn |
+
+Plus `cargo test`: `cartalith-civ` **401 → 421** (20 new in `trade`),
+`cartalith-vault` **48 → 65**, `cartalith-godot` **343 → 351** (8 new ledger
+tests). `cargo check -p cartalith-godot` clean; headless boot and import
+clean, with `project.godot` diffed afterwards and unchanged.
+
+**One defect only the windowed run could find, and one only the screenshot
+could.** `way_load` was emitted in `CivData::ways` order while
+`map_overlay.gd` indexes `get_roads()` order — which filters hidden ways and
+appends manual ones — so on this world it handed the shell **60 entries for 35
+rows**, silently misaligned from the first hidden way onward. And the
+Generate-world floor row read `seed 0` against a status bar reading `483920`,
+because it recorded before `self.seed` was assigned; the two are only visible
+together in a screenshot. A third is an old shape: the Match button was built
+once from CIVIL's `setup()`, before any world exists, and nothing re-enabled
+it — `GUI_GAP_REGISTER.md` **RF-01** again, found the same way, by pressing
+the real control instead of reading the source.
+
+### What stays open
+
+Nothing new. The six narrowed remainders above are unchanged in substance —
+this pass gave them a consistent surface, not a capability — and IN-13's own
+remainder is stated on screen for the first time: **prices, tariffs, caravans
+as entities, and trade that changes over time**, none of which is derivable
+from anything the civ layer holds and each of which needs a decision about
+what a currency is here.
