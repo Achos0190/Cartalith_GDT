@@ -1491,25 +1491,74 @@ func open_journey_planner() -> void:
 ## building the body first and attaching the script last. The attribution it
 ## carries is a standing obligation (`PROVENANCE.md`), not decoration, which is
 ## why this is the one Help item that is fully live.
+## **The body was empty, and the reason is the order of the last four lines.**
+## `_ready()` fires when a node ENTERS THE TREE, and `add_child(dlg)` is what
+## puts it there -- so by the time `set_script()` attached `credits.gd`, that
+## script's `_ready()` had already missed its only chance to run. Attaching a
+## script to a node already inside the tree does not re-run it. The window
+## therefore opened with a correctly built, correctly named, entirely blank
+## `RichTextLabel` (parallel phone sweep, 2026-08-25, and true on the desktop
+## build just as much -- this was never a phone bug).
+##
+## Fixed by attaching the script BEFORE the node enters the tree, which also
+## means `owner`/`unique_name_in_owner` -- the two lines `%CreditsText` needs --
+## have to be set before that. The comment this replaces had the dependency
+## exactly backwards: the body has to exist before the script runs, which it
+## does either way, because both are built here and neither needs the tree.
+##
+## Held in `_credits_dialog` rather than dropped on the floor: a second Help ▸
+## Credits used to build a second dialog and leave the first one parented
+## forever, and nothing in this file could close either.
+var _credits_dialog: AcceptDialog = null
+
 func open_credits() -> void:
+	if is_instance_valid(_credits_dialog):
+		_present_credits()
+		return
 	var dlg := AcceptDialog.new()
 	dlg.title = "Credits & academic principles"
 	dlg.size = Vector2i(720, 640)
+	dlg.ok_button_text = "Close"
+	## PH-07. A phone gets the shared treatment: borderless, a content-scaled
+	## fill and the tap floor. The two authored minimums go with the desktop
+	## branch -- 680x560 and a 660 px measure inside a 393 dp column would widen
+	## the window past the screen, and a `Window` cannot be narrower than its
+	## content's minimum. `phone_window()` also turns `wrap_controls` off, which
+	## a `fit_content` `RichTextLabel` of this length badly needed.
+	var phone := DccWidgets.phone_window(dlg, self)
+
 	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(680, 560)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var text := RichTextLabel.new()
 	text.name = "CreditsText"
 	text.bbcode_enabled = true
 	text.fit_content = true
-	text.custom_minimum_size.x = 660
 	text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(text)
-	dlg.add_child(scroll)
-	add_child(dlg)
+	if phone:
+		var outer := VBoxContainer.new()
+		outer.add_theme_constant_override("separation", 0)
+		DccWidgets.phone_head(outer, "Credits", "attribution & academic principles")
+		outer.add_child(scroll)
+		dlg.add_child(outer)
+	else:
+		scroll.custom_minimum_size = Vector2(680, 560)
+		text.custom_minimum_size.x = 660
+		dlg.add_child(scroll)
 	text.owner = dlg
 	text.unique_name_in_owner = true
 	dlg.set_script(load("res://credits.gd"))
-	dlg.popup_centered()
+	_credits_dialog = dlg
+	add_child(dlg)
+	if phone:
+		phone_fit(dlg, 1.0)
+	_present_credits()
+
+func _present_credits() -> void:
+	if DccWidgets.phone_present(_credits_dialog, self):
+		return
+	_credits_dialog.popup_centered()
 
 func open_about() -> void:
 	var d := AcceptDialog.new()

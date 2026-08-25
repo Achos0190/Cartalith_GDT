@@ -254,6 +254,7 @@ func _show() -> void:
 	_tool_options_journey()
 	app.right_dock_ctrl.show_journey(self)
 	_compute()
+	_phone_refit()
 
 func _hide() -> void:
 	_left_panel.visible = false
@@ -944,6 +945,7 @@ func _apply_result() -> void:
 	_rebuild_matrix(plan)
 	_rebuild_timeline_band(plan)
 	_refresh_auto_labels()
+	_phone_refit()   ## PH-07: five of those six rebuilt from fresh nodes.
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
 
@@ -1077,7 +1079,55 @@ func _timeline_legend_item(parent: Control, token: String, label_text: String) -
 
 # ============================================================ Center panel ====
 
+## Phone (§13) -- PH-07.
+##
+## Journey is the one screen in this pass that is **not** a `Window`: it swaps
+## the whole domain region in place (this file's own header). Half of it is
+## therefore already covered -- `_left_panel` hangs off `app.left_dock_body`,
+## and `DccShell::_on_phone_node_added()` phone-fits every dock descendant; the
+## results panel goes through `right_dock.gd`, same thing. What is NOT covered
+## is this centre panel: it is parented to `app.viewport_content`, which the
+## dock walker deliberately does not touch, so every one of its constants was
+## drawn at native device resolution.
+##
+## And unlike a `Window`, it has no `content_scale_factor` to lean on -- there
+## is no sub-viewport here, so an authored pixel in the main viewport really is
+## one physical pixel. That is why `phone_fit()` is called with
+## `app.phone_scale()` rather than the `1.0` every window in this pass uses:
+## the compositor has applied nothing, so the walk has to apply everything.
+##
+## Two compositions do not survive the scale and are answered here instead:
+## the route map's 196 dp totals column beside it, and the 642 dp stage matrix
+## beside the stage inspector. Both stack.
+var _phone := false
+
+## One authored pixel, in this panel's own space. `DccShell._pscale()` is the
+## same arithmetic for the shell's own chrome; repeated here rather than reached
+## into because that one is private and this file is not a `DccShell`.
+func _pp(px: int) -> int:
+	if not _phone:
+		return px
+	return maxi(1, int(round(px * app.phone_scale())))
+
+## PH-07: `app.viewport_content` is outside `DccShell._on_phone_node_added()`'s
+## dock walk, so nothing fits this subtree unless this file asks. Every one of
+## the centre panel's regions -- totals, profile, stops, inspector, matrix -- is
+## cleared and rebuilt on each `_compute()`, so the ask is deferred and repeated
+## rather than one-shot; `phone_fit()` is idempotent by meta-flag, so a repeat
+## costs one visit per already-sized control.
+##
+## `app.phone_scale()`, not `1.0`: there is no content-scaled sub-viewport here.
+## See `_build_center_panel()`'s own header.
+func _phone_refit() -> void:
+	if _phone and _center_panel != null:
+		_do_phone_refit.call_deferred()
+
+func _do_phone_refit() -> void:
+	if _phone and is_instance_valid(_center_panel):
+		app.phone_fit(_center_panel, app.phone_scale())
+
 func _build_center_panel() -> void:
+	_phone = app != null and app.has_method("is_phone") and app.is_phone()
 	_center_panel = Control.new()
 	_center_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	app.viewport_content.add_child(_center_panel)
@@ -1096,11 +1146,15 @@ func _build_center_panel() -> void:
 	_center_panel.add_child(col)
 
 	# -- Route map row (236px) --------------------------------------------------
-	var map_row := HBoxContainer.new()
-	map_row.custom_minimum_size.y = 236
+	## PH-07: every fixed height in this panel is in *authored* pixels and there
+	## is no content scale here, so each one is multiplied by `phone_scale()` to
+	## keep its physical size -- 236 authored px would be 236 physical px, about
+	## 12 mm of a 165 mm screen, for the panel's principal view.
+	var map_row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	map_row.custom_minimum_size.y = _pp(236)
 	map_row.add_theme_constant_override("separation", 0)
 	var map_row_pad := PanelContainer.new()
-	map_row_pad.custom_minimum_size.y = 236
+	map_row_pad.custom_minimum_size.y = _pp(236)
 	map_row_pad.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	map_row_pad.add_child(map_row)
 	col.add_child(map_row_pad)
@@ -1108,10 +1162,15 @@ func _build_center_panel() -> void:
 	_route_map = _RouteMapView.new()
 	_route_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_route_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if _phone:
+		## Stacked, the map needs a height of its own or the totals column takes
+		## the row; 60% of the band, so the numbers under it still read.
+		_route_map.custom_minimum_size.y = _pp(150)
 	map_row.add_child(_route_map)
 
 	var totals_panel := PanelContainer.new()
-	totals_panel.custom_minimum_size.x = 196
+	if not _phone:
+		totals_panel.custom_minimum_size.x = 196
 	totals_panel.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"left": 1}))
 	map_row.add_child(totals_panel)
 	var totals_col := VBoxContainer.new()
@@ -1128,14 +1187,14 @@ func _build_center_panel() -> void:
 
 	# -- Terrain profile row (150px) --------------------------------------------
 	var profile_wrap := PanelContainer.new()
-	profile_wrap.custom_minimum_size.y = 150
+	profile_wrap.custom_minimum_size.y = _pp(150)
 	profile_wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	col.add_child(profile_wrap)
 	var profile_col := VBoxContainer.new()
 	profile_col.add_theme_constant_override("separation", 0)
 	profile_wrap.add_child(profile_col)
 	var profile_head := HBoxContainer.new()
-	profile_head.custom_minimum_size.y = 22
+	profile_head.custom_minimum_size.y = _pp(22)
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 12)
 	head_pad.add_child(profile_head)
@@ -1152,7 +1211,7 @@ func _build_center_panel() -> void:
 
 	# -- Stops strip (32px) ------------------------------------------------------
 	var stops_wrap := PanelContainer.new()
-	stops_wrap.custom_minimum_size.y = 32
+	stops_wrap.custom_minimum_size.y = _pp(32)
 	stops_wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	col.add_child(stops_wrap)
 	var stops_outer := HBoxContainer.new()
@@ -1192,7 +1251,11 @@ func _build_center_panel() -> void:
 	stops_outer.add_child(_stops_note)
 
 	# -- Lower area: inspector + matrix -------------------------------------------
-	var lower := HBoxContainer.new()
+	## PH-07: the stage inspector beside a 642 dp stage matrix is 642 physical px
+	## of a 1440 px screen for one of two panes, at authored type. Stacked, the
+	## matrix keeps its own horizontal scroll (it is genuinely wide) and the
+	## inspector gets the full width.
+	var lower: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	lower.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	lower.add_theme_constant_override("separation", 0)
 	col.add_child(lower)
@@ -1210,7 +1273,10 @@ func _build_center_panel() -> void:
 	inspector_scroll.add_child(_inspector_body)
 
 	var matrix_wrap := PanelContainer.new()
-	matrix_wrap.custom_minimum_size.x = 642
+	if _phone:
+		matrix_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		matrix_wrap.custom_minimum_size.x = 642
 	lower.add_child(matrix_wrap)
 	var matrix_scroll := ScrollContainer.new()
 	matrix_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
