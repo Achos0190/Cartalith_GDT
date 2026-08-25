@@ -16,6 +16,12 @@ use rayon::prelude::*;
 
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
+/// `MILITARY_MANPOWER_SCOPE.md` — what a polity can put and keep under
+/// arms: standing army, field army, emergency mobilization and maximum war
+/// duration, from five interacting variables. CV-25's *other* half, and the
+/// one with no reference implementation at all: unlike [`military`] below,
+/// the frozen snapshot has no army-size model at any line.
+pub mod manpower;
 /// `GUI_GAP_REGISTER.md` CV-25 — the reference's fortification ladder
 /// (`_umWallSpec`/`_umInferWalls`) and per-settlement defensive strength
 /// (`_civPlaceDefensibility`). A port, not a design; see its module doc for
