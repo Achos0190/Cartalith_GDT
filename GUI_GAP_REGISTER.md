@@ -8936,6 +8936,18 @@ the same "one row in twenty still draws the engine's own icon" trap
 - **A phone pill upper-cases its label once**, at `phone_fit()` time. A caller
   that later reassigns `.text` gets a sentence-case label in a pill. No shipped
   caller does; recorded because the failure would be silent.
+- **Every pill is 48 dp, including the one the canvas draws at 46.** The canvas
+  disagrees with itself by 2 dp: `02 Domain`'s `GENERATE WORLD` is
+  `height:46px;border-radius:23px` while `04 L4 sheet`'s primary and
+  `08 Inspector`'s are `48px`/`24px`, and its own PHONE RULES card settles it —
+  "48 dp buttons". One figure, from the card, rather than a per-screen table
+  for a 2 dp difference.
+- **The desktop vertical domain rail was already gone**, despite §51 rows 39
+  and 75 listing "44 dp column" as a live divergence. `W_PHONE_RAIL` had no
+  reader anywhere in the project and the bottom bar had already replaced the
+  rail; the probe confirms no such region exists at either size. Those two rows
+  were stale when they were written, which is the argument for re-measuring a
+  measured list before acting on it.
 
 ### Verification
 
