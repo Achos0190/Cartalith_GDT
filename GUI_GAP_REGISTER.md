@@ -9090,3 +9090,139 @@ taken.
 - `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
   Godot invocation; the `;` comment block survived each one.
   `export_presets.cfg` and `Cargo.toml` untouched, and no Rust changed.
+
+
+## 55 · FX-01…FX-03 — the flow overlay never saw the camera, so zooming in emptied it (2026-08-25) — **THREE FIXED**
+
+The owner, on the shipped Wind and Ocean-currents views:
+
+> "from the ocean and windcurrent visualisation it doesn't scale with zoom so.
+> It doesn't show finer patterns. And also can we make the tip be an arrow head
+> instead of a square pixel."
+
+Three faults, one cause. `shell/wind_fx_layer.gd` is a grandchild of
+`ViewportHost._camera`, and pan/zoom is that node's `position`/`scale`. So every
+coordinate the layer computes is magnified by a transform it never reads, and
+until now nothing in the file compensated for it in any of the three ways it
+had to.
+
+### The obvious suspect was innocent
+
+Nearest-neighbour field sampling is what usually produces this complaint —
+every particle in a cell moves identically and the streaks stair-step. Checked
+first: `_sample()` and `_wet_at()` have both been **bilinear** since the layer
+landed, and `flowfx_channel_round_trips_the_flow_vectors` keeps the decode
+honest against `sample_bridge.rs`'s encode. There was no stair-stepping to
+remove. What was missing was particles to sample the field *with*.
+
+### FX-01 — the particle set is seeded per grid, not per screen · **FIXED**
+
+`_spawn` picked `rand * _fw`, `rand * _fh` over the **whole grid**, and the
+count is a constant (260 wind / 200 ocean, the reference's own). Zooming in
+therefore magnified a fixed scattering: the same streaks, further apart, over a
+smaller slice of field. Measured on a 512×384 world in a 1600×1000 viewport,
+particles whose head lands inside the map area:
+
+| zoom | wind, before | wind, after | ocean, before | ocean, after |
+|---|---|---|---|---|
+| 1 (fit) | 260 / 260 | 260 | 200 / 200 | 200 |
+| 2 | 95 | **204** | 47 | **163** |
+| 4 | 18 | **209** | 7 | **144** |
+| 8 | **4** | **208** | 2 | **133** |
+| 16 | **1** | **195** | 1 | **93** |
+
+Four streaks. That is what "doesn't show finer patterns" was: not a coarse
+field, an empty one.
+
+The fix is to make the *seeding region* the visible slice rather than the whole
+grid — `_update_view()` projects the host's rect back through
+`get_global_transform().affine_inverse()` into grid cells, grows it 8 % so
+streaks drift in and out rather than popping at the window edge, and both
+`_spawn` and `_step`'s retire test work against that. The count never changes,
+so what was a grid-space density becomes a screen-space one. **At the fit view
+the slice is the whole grid and the behaviour is byte-for-byte what it was** —
+the reference's constants are untouched, and the 260 / 200 columns above agree
+to the particle. Zoomed in, the same 260 streaks resolve 1/256th of the area,
+which is the finer pattern.
+
+It is also cheaper in the only place it matters: nothing advects a particle
+sixteen screens away any more.
+
+The ocean column falls off at 16× because that seed's centre is partly land and
+the reference's own 30-try wet-rejection loop correctly declines to spawn
+there. Left as the reference has it; a zoomed-in all-land bay burns 7 800
+four-byte reads a frame and draws nothing, which is both correct and free.
+
+### FX-02 — the hairline is one *cell* wide, and a cell magnifies · **FIXED**
+
+`width = maxf(1.0, sx)` matches the reference exactly: it strokes `lineWidth =
+1` into a `GW × GH` backing canvas that CSS stretches, so its hairline is one
+cell, not one pixel. The reference has no camera transform, so that is the end
+of it there. Here the same number is multiplied by `_camera.scale`, and one
+cell at 8× is a ribbon eight cells thick.
+
+Divided by the camera scale now, which pins the on-screen width to whatever it
+renders as at the fit view, at every zoom. A departure from the literal formula
+under `DECISIONS.md` §7d, recorded because it is one: the reference's *intent*
+was a hairline, and reproducing its arithmetic stopped reproducing its intent
+the moment a camera was put in front of it.
+
+### FX-03 — the tip · **FIXED, and batched**
+
+`draw_multiline`'s segments have butt caps, so a trail ended in a flat stub —
+which at the fit view is a pixel and at 8× is the "square pixel" the owner
+named. The ocean view at 8× drew **two fat squares on an otherwise empty map**,
+which is FX-01 and FX-03 in one frame.
+
+Arrowheads now, at `k == 0` only (the head is the only depth that *is* a head),
+oriented along the last segment and sized in screen pixels divided back out by
+the camera scale, so they hold one visual weight at every zoom.
+
+**One call for all of them.** A `draw_colored_polygon` per particle would be
+260 more canvas commands a frame, which is precisely §52/§54's finding on
+`map_overlay.gd`'s dashed polylines — 311 237 objects in a frame, 751 MiB of
+buffers — being unwound in a concurrent session as this landed.
+`RenderingServer.canvas_item_add_triangle_array` takes the whole batch as loose
+triangles (an empty index array is legal as long as the vertex count divides by
+three) with a single-entry colour array applied to every vertex, so there is no
+per-vertex `PackedColorArray` either. Measured as on-minus-off at a fixed zoom,
+so the deep-zoom tiler's own tens of thousands of objects cancel:
+
+| | wind, before | wind, after | ocean, before | ocean, after |
+|---|---|---|---|---|
+| objects the layer adds | +3 113 | **+3 056** | +2 391 | **+2 374** |
+| draw calls the layer adds | +2 | **+3** | +2 | **+3** |
+
+**Zero objects and one draw call**, for 260 arrowheads. The ~3 100 is
+`draw_multiline`'s own segments (260 × 12 trail depths) and is unchanged — worth
+knowing on its own, since it means Godot's objects-in-frame counts primitives
+rather than commands, and the twelve grouped calls were never twelve objects.
+
+### `water_anim_layer.gd` shares neither fault
+
+Checked, not assumed. It has no particles, so no line ends and no square tip;
+and its noise lattice is already in *cell* space with `F = 0.22` cycles per
+cell, so it magnifies with the map exactly as the reference's `putImageData`
+does. There is no finer structure to reveal — `flow_tex` is one direction per
+cell and `filter_nearest` deliberately, so making the ripples finer would be
+inventing detail rather than showing it. Untouched.
+
+### Harness
+
+`_flowzoom_probe.gd` / `.tscn`, non-headless in a 1600×1000 `SubViewport`
+(`_hidpi_probe.gd`'s idiom — a real window is clamped to the 1680×1002 work
+area, and a headless boot produces no pixels to judge). Generates seed 483920
+at 512×384, then for each of `wind` and `ocean` at zooms 1 / 2 / 4 / 8 / 16
+reports on-screen particles, objects and draw calls attributable to the layer,
+frame-to-frame motion, and writes a full frame plus a 3× centre crop. Run
+against committed `HEAD` and against the fix from the same probe, into
+`before/` and `after/`.
+
+Measuring the layer's cost against a single global baseline does not work and
+the probe records why: the deep-zoom tiler swaps 30 000 objects in and out on
+its own as the camera moves, so the cost is taken as debug-view-on minus
+debug-view-off at one fixed zoom.
+
+`project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+Godot invocation. No Rust changed; no `.tscn`, `export_presets.cfg` or
+`Cargo.toml` touched.

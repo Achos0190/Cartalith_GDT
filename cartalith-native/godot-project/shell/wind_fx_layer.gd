@@ -38,6 +38,32 @@ class_name WindFxLayer
 ## retained target at all: `_draw()` is a handful of `draw_multiline` calls
 ## over plain arrays, and the whole thing costs literally nothing when off.
 ##
+## ## The camera transform, and what it cost (2026-08-25)
+##
+## The owner: *"from the ocean and windcurrent visualisation it doesn't scale
+## with zoom so. It doesn't show finer patterns. And also can we make the tip
+## be an arrow head instead of a square pixel."* Three separate faults, all of
+## them downstream of one fact this file originally treated as free -- that
+## `ViewportHost._camera` magnifies everything `_draw()` emits, and nothing
+## here compensated:
+##
+## 1. **Density.** Particles were seeded across the whole grid and the count
+##    was fixed, so on a 512x384 world at eight times zoom the layer put
+##    **4 of 260** streaks on screen, and at sixteen, one. Seeding into the
+##    *visible* slice instead ([method _update_view]) holds it at 195-208.
+## 2. **Width.** `maxf(1.0, sx)` is the reference's one-cell hairline, and one
+##    cell magnified eight times is a ribbon. Divided by the camera scale now
+##    (`DECISIONS.md` §7d), which is the reference's intent rather than its
+##    arithmetic -- see `_draw()`.
+## 3. **The tip.** `draw_multiline`'s butt caps left a flat stub, which at deep
+##    zoom is the "square pixel": the ocean view at eight times zoom drew two
+##    fat squares on an otherwise empty map. Arrowheads now, all of them in one
+##    batched triangle array -- see the call at the end of `_draw()`.
+##
+## Field *sampling* was never part of it, though it is the obvious suspect:
+## `_sample()` has been bilinear since this layer landed, so there was no
+## stair-stepping to remove. What was missing was particles to sample with.
+##
 ## ## Nothing runs while the layer is off
 ##
 ## `_process()` is one `debug_view()` read; if it is not `wind`/`ocean` the
@@ -73,6 +99,17 @@ const CUR_COLOR := Color(127.0 / 255.0, 232.0 / 255.0, 255.0 / 255.0, 0.8)
 ## 12-bit packing encodes each flow component against.
 const FLOWFX_SCALE := 8.0
 
+## Spawn margin around the visible slice, as a fraction of its larger side, so
+## streaks drift in and out of frame instead of popping at the window edge.
+## The margin scales with the slice, so on-screen density is unaffected by it.
+const VIS_MARGIN := 0.08
+
+## Arrowhead at the head of every live trail, in *screen* pixels -- divided
+## back out by the camera scale below so it is the same visual weight at every
+## zoom, the same treatment the streak width gets.
+const HEAD_LEN := 7.0
+const HEAD_WIDE := 4.5
+
 var _bridge: EngineBridge
 var _host: ViewportHost
 
@@ -92,6 +129,12 @@ var _life := PackedInt32Array()
 var _hist := PackedVector2Array()   ## `TRAIL + 1` slots per particle, used as a ring.
 var _hlen := PackedInt32Array()     ## Valid trailing segments, reset to 0 on respawn so a streak never jumps the map.
 var _slot := 0                      ## Ring head, shared: every particle advances in lockstep.
+
+## Screen geometry, refreshed once per frame by [method _update_view] and read
+## by both `_step()` (which seeds and retires against `_vis`) and `_draw()`.
+var _rect := Rect2()   ## The map's displayed rect, in this control's own unscaled coordinates.
+var _zoom := 1.0       ## `ViewportHost._zoom`, read off the accumulated canvas transform.
+var _vis := Rect2()    ## The slice of the grid actually on screen, in cells, plus [constant VIS_MARGIN].
 
 var _rng := RandomNumberGenerator.new()
 
@@ -127,8 +170,58 @@ func _process(_delta: float) -> void:
 			_refused = kind
 			_stop()
 			return
+	if not _update_view():
+		return
 	_step()
 	queue_redraw()
+
+## Where the map is on screen, and how much of the grid that leaves visible.
+##
+## `displayed_rect()` is a *letterbox fit* and never changes with zoom: pan and
+## zoom are `ViewportHost._camera`'s `position`/`scale`, and this node is a
+## grandchild of that camera, so the whole of `_draw()` is magnified by a
+## transform it never sees. That is the entire mechanism behind the owner's
+## "it doesn't scale with zoom ... doesn't show finer patterns" (2026-08-25):
+## the particle set is fixed and seeded across the *whole* grid, so zooming in
+## magnifies a thinner and thinner scattering of the same streaks -- fewer per
+## screen, sampling the field more coarsely, which is the opposite of what
+## zooming in is for. (The field read itself was never the problem; `_sample()`
+## has been bilinear since the layer landed.)
+##
+## The fix is to make the *seeding region* the visible slice rather than the
+## whole grid, so the particle count is a screen-space density instead of a
+## grid-space one. At the fit view the slice is the whole grid and nothing
+## changes at all -- the reference's own behaviour there, constant for
+## constant. Zoomed in, the same 260 streaks resolve a smaller region, which is
+## the finer pattern; it also stops advecting particles nobody can see, which
+## is what pays for holding the density up.
+##
+## Reading the camera scale off `get_global_transform()` rather than asking
+## `ViewportHost` for it keeps this node's only dependency on its parent the
+## one public `displayed_rect()` it already had.
+func _update_view() -> bool:
+	var parent := get_parent()
+	if parent == null or not parent.has_method("displayed_rect"):
+		return false
+	_rect = parent.displayed_rect()
+	if _rect.size.x <= 0.0 or _rect.size.y <= 0.0:
+		return false
+	var xf := get_global_transform()
+	_zoom = maxf(xf.get_scale().x, 0.0001)
+	var grid := Rect2(0.0, 0.0, float(_fw), float(_fh))
+	## The map area, not the whole window -- the docks own the rest of it.
+	var screen: Rect2 = (_host as Control).get_global_rect() if _host is Control else get_viewport_rect()
+	var local := xf.affine_inverse() * screen
+	var cells := Vector2(float(_fw), float(_fh))
+	var v := Rect2((local.position - _rect.position) / _rect.size * cells,
+		local.size / _rect.size * cells)
+	v = v.grow(maxf(v.size.x, v.size.y) * VIS_MARGIN)
+	_vis = v.intersection(grid)
+	## Panned clean off the map: keep the whole grid rather than seed into a
+	## degenerate rect.
+	if _vis.size.x <= 0.0 or _vis.size.y <= 0.0:
+		_vis = grid
+	return true
 
 func _stop() -> void:
 	_kind = ""
@@ -166,6 +259,9 @@ func _start(kind: String) -> bool:
 	_hlen.resize(n)
 	_hist.resize(n * (TRAIL + 1))
 	_slot = 0
+	## Before the first `_spawn`, not after: seeding reads `_vis`.
+	_vis = Rect2(0.0, 0.0, float(_fw), float(_fh))
+	_update_view()
 	for i in range(n):
 		_spawn(i, _slot)
 	return true
@@ -174,13 +270,22 @@ func _start(kind: String) -> bool:
 ## spawner's 30-try rejection loop is the reference's verbatim -- a world
 ## that is nearly all land simply places the particle anyway on the 30th try,
 ## and the next `_step()` respawns it.
+##
+## The one departure is the *region*: `_vis` rather than the whole grid, which
+## is what holds the on-screen density constant under zoom. See
+## [method _update_view]. At the fit view the two are identical.
+##
+## ponytail: zoomed hard into an all-land bay, the ocean loop burns its 30 wet
+## tests per particle every frame and never succeeds. That is 7 800 four-byte
+## reads a frame, measurably nothing, and the streaks are correctly absent --
+## worth a real fallback only if a profile ever says so.
 func _spawn(i: int, slot: int) -> void:
 	var wet_only := _kind == "ocean"
 	var x := 0.0
 	var y := 0.0
 	for _try in range(30):
-		x = _rng.randf() * float(_fw)
-		y = _rng.randf() * float(_fh)
+		x = _vis.position.x + _rng.randf() * _vis.size.x
+		y = _vis.position.y + _rng.randf() * _vis.size.y
 		if not wet_only or _wet_at(x, y):
 			break
 	_px[i] = x
@@ -200,7 +305,10 @@ func _step() -> void:
 		var x := _px[i] + _sample(_px[i], _py[i], 0) * ADVECT
 		var y := _py[i] + _sample(_px[i], _py[i], 1) * ADVECT
 		_age[i] += 1
-		var gone := x < 0.0 or x > float(_fw) or y < 0.0 or y > float(_fh) \
+		## Leaving the *visible* slice, not the grid -- the counterpart of
+		## `_spawn`'s region, and what keeps a particle that drifts off screen
+		## from being animated forever where nobody can see it.
+		var gone := not _vis.has_point(Vector2(x, y)) \
 			or _age[i] > _life[i] or (wet_only and not _wet_at(x, y))
 		if gone:
 			_spawn(i, next)
@@ -268,28 +376,44 @@ func _wet_at(x: float, y: float) -> bool:
 ## displayed rect. Taking that rect from `map_overlay.gd`'s public
 ## `displayed_rect()` -- this node's own parent -- rather than recomputing the
 ## letterbox fit is the same "let the shared thing carry it" idiom the
-## reference notes at line 2123, and means pan/zoom needs no code here at all.
+## reference notes at line 2123. Cached into `_rect` by [method _update_view]
+## once a frame rather than fetched here, because that function needs the same
+## rect to work out which slice of the grid is on screen.
+##
+## Pan and zoom still need no *placement* code here -- `ViewportHost._camera`'s
+## transform does that -- but they are no longer free: see [method _update_view]
+## for what the camera scale costs a fixed particle set, and `width` below for
+## what it costs a hairline.
 func _draw() -> void:
-	if _kind == "" or _fw <= 0:
+	if _kind == "" or _fw <= 0 or _rect.size.x <= 0.0 or _rect.size.y <= 0.0:
 		return
-	var parent := get_parent()
-	if parent == null or not parent.has_method("displayed_rect"):
-		return
-	var rect: Rect2 = parent.displayed_rect()
-	if rect.size.x <= 0.0 or rect.size.y <= 0.0:
-		return
-	var sx := rect.size.x / float(_fw)
-	var sy := rect.size.y / float(_fh)
-	var origin := rect.position
+	var sx := _rect.size.x / float(_fw)
+	var sy := _rect.size.y / float(_fh)
+	var origin := _rect.position
 	## The reference strokes `lineWidth = 1` into a `GW x GH` backing canvas
-	## that CSS then stretches over the map, so its hairline is one *cell*
-	## wide on screen, not one pixel -- matched here rather than hardcoding 1.
-	var width := maxf(1.0, sx)
+	## that CSS then stretches over the map, so its hairline is one *cell* wide
+	## on screen, not one pixel -- matched here rather than hardcoding 1.
+	##
+	## Dividing by the camera scale is a deliberate departure from that literal
+	## formula, under `DECISIONS.md` §7d: the reference has no camera transform
+	## at all, and here everything `_draw()` emits is magnified by one. Left
+	## alone, the reference's *intent* -- a hairline -- became a ribbon eight
+	## cells thick at eight times zoom, which is half of what the owner was
+	## looking at when he reported the layer not scaling. The width is now
+	## pinned to whatever it renders as at the fit view, at every zoom, which
+	## is the intent rather than the arithmetic.
+	var width := maxf(1.0, sx) / _zoom
 	var base := WIND_COLOR if _kind == "wind" else CUR_COLOR
 	var n := _px.size()
 	var stride := TRAIL + 1
 	var pts := PackedVector2Array()
 	pts.resize(n * 2)
+	## Arrowheads, accumulated across the `k == 0` pass and issued as one
+	## triangle array below -- see that call for why it is not one polygon per
+	## particle.
+	var tri := PackedVector2Array()
+	tri.resize(n * 3)
+	var t := 0
 	for k in range(TRAIL):
 		var head := (_slot - k + stride) % stride
 		var tail := (head - 1 + stride) % stride
@@ -299,12 +423,49 @@ func _draw() -> void:
 				continue
 			var a: Vector2 = _hist[i * stride + tail]
 			var b: Vector2 = _hist[i * stride + head]
-			pts[w] = origin + Vector2(a.x * sx, a.y * sy)
-			pts[w + 1] = origin + Vector2(b.x * sx, b.y * sy)
+			var pa := origin + Vector2(a.x * sx, a.y * sy)
+			var pb := origin + Vector2(b.x * sx, b.y * sy)
+			pts[w] = pa
+			pts[w + 1] = pb
 			w += 2
+			if k == 0:
+				var d := pb - pa
+				var dl := d.length()
+				## A particle that has not moved this tick has no bearing to
+				## point an arrow along; it gets one next frame.
+				if dl > 0.0001:
+					d /= dl
+					var side := Vector2(-d.y, d.x) * (HEAD_WIDE * 0.5 / _zoom)
+					var back := pb - d * (HEAD_LEN / _zoom)
+					tri[t] = pb
+					tri[t + 1] = back + side
+					tri[t + 2] = back - side
+					t += 3
 		if w == 0:
 			continue
 		var seg := pts.slice(0, w)
 		var c := base
 		c.a = base.a * pow(FADE, float(k))
 		draw_multiline(seg, c, width)
+	## The owner's second request (2026-08-25): "can we make the tip be an arrow
+	## head instead of a square pixel" -- `draw_multiline`'s segments have butt
+	## caps, so a trail ended in a flat stub.
+	##
+	## **One call for every head in the field, not one per head.** A
+	## `draw_colored_polygon` per particle would be 260 more canvas commands a
+	## frame, which is precisely the mistake `map_overlay.gd`'s
+	## `_draw_dashed_polyline` made and is being unwound from as this lands
+	## (311 237 objects in a frame, 290 -> 501 MB of GPU buffers, because
+	## buffer memory tracks object count). `canvas_item_add_triangle_array`
+	## takes the whole batch as loose triangles -- an empty index array is
+	## legal as long as the vertex count divides by three -- so the arrowheads
+	## cost exactly **one** object, the same as one of the twelve
+	## `draw_multiline` calls above. A single-entry colour array is applied to
+	## every vertex, so there is no per-vertex `PackedColorArray` either.
+	##
+	## Issued after the loop so the heads sit over the trails, and only for
+	## `k == 0`, since that is the only depth that *is* a head.
+	if t > 0:
+		RenderingServer.canvas_item_add_triangle_array(
+			get_canvas_item(), PackedInt32Array(), tri.slice(0, t),
+			PackedColorArray([base]))

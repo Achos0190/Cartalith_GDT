@@ -28610,3 +28610,76 @@ counters, both on Godot 4.7.1 GL Compatibility; three real device installs.
 `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
 Godot invocation. No Rust changed; `export_presets.cfg` and `Cargo.toml`
 untouched.
+
+## Flow overlay — the streaks never saw the camera (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §55, FX-01…FX-03. The owner, on the shipped Wind and
+Ocean-currents views: *"from the ocean and windcurrent visualisation it doesn't
+scale with zoom so. It doesn't show finer patterns. And also can we make the tip
+be an arrow head instead of a square pixel."*
+
+Three faults, one cause. `shell/wind_fx_layer.gd` is a grandchild of
+`ViewportHost._camera`, and pan/zoom is that node's `position`/`scale` — so
+every coordinate the layer computes is magnified by a transform it never reads,
+and nothing in the file compensated for it.
+
+**The obvious suspect was innocent.** Nearest-neighbour field sampling is what
+usually produces this complaint. `_sample()` and `_wet_at()` have both been
+bilinear since the layer landed. There was no stair-stepping to remove; what
+was missing was particles to sample the field with.
+
+**Seeded per grid, not per screen.** `_spawn` picked over the whole grid and the
+count is a constant (260 wind / 200 ocean, the reference's own), so zooming in
+magnified a fixed scattering. On a 512×384 world in a 1600×1000 viewport,
+particles whose head lands on the map:
+
+| zoom | wind, before → after | ocean, before → after |
+|---|---|---|
+| 1 (fit) | 260 → 260 | 200 → 200 |
+| 2 | 95 → **204** | 47 → **163** |
+| 4 | 18 → **209** | 7 → **144** |
+| 8 | **4** → **208** | 2 → **133** |
+| 16 | **1** → **195** | 1 → **93** |
+
+Four streaks. "Doesn't show finer patterns" was not a coarse field, it was an
+empty one. `_update_view()` now projects the host's rect back through
+`get_global_transform().affine_inverse()` into grid cells and both `_spawn` and
+`_step`'s retire test work against that slice, so a grid-space density becomes a
+screen-space one at a constant count. **At the fit view the slice is the whole
+grid and nothing changes at all** — the reference's constants are untouched and
+the 260 / 200 rows agree to the particle.
+
+**The hairline.** `maxf(1.0, sx)` is the reference's one-*cell* stroke, correct
+for a `GW × GH` backing canvas that CSS stretches and wrong the moment a camera
+multiplies it: one cell at 8× is a ribbon eight cells thick. Divided by the
+camera scale now, pinning the on-screen width to what it renders at the fit
+view. A `DECISIONS.md` §7d departure, recorded as one — the reference's intent
+was a hairline, and reproducing its arithmetic stopped reproducing its intent.
+
+**The tip, batched.** `draw_multiline`'s butt caps left a flat stub; at 8× the
+ocean view drew two fat squares on an otherwise empty map. Arrowheads now, at
+`k == 0` only, oriented along the last segment and sized in screen pixels
+divided back out by the camera scale. **One call for all of them** — a
+`draw_colored_polygon` per particle is exactly the mistake §52/§54 measured on
+`map_overlay.gd`'s dashed polylines (311 237 objects in a frame, 751 MiB of
+buffers), being unwound in a concurrent session as this landed.
+`RenderingServer.canvas_item_add_triangle_array` takes the whole batch as loose
+triangles with a single-entry colour array, so the cost of 260 arrowheads is
+**zero objects and one draw call**: the layer adds +3 056 objects and +3 draw
+calls where it added +3 113 and +2 before. The ~3 100 is `draw_multiline`'s own
+segments (260 × 12 depths) and is unchanged — which incidentally shows Godot's
+objects-in-frame counts primitives rather than commands, so the twelve grouped
+calls were never twelve objects.
+
+`water_anim_layer.gd` shares neither fault and is untouched: no particles, so no
+tip, and its noise lattice is already in cell space, with one direction per cell
+in a deliberately `filter_nearest` texture — finer ripples would be invented
+detail, not revealed detail.
+
+Verified: `_flowzoom_probe`, non-headless in a 1600×1000 `SubViewport`
+(`_hidpi_probe.gd`'s idiom), run against committed `HEAD` and against the fix,
+two views × five zooms, full frames and 3× centre crops both ways. The layer's
+cost is taken as view-on minus view-off at one fixed zoom, because the deep-zoom
+tiler swaps 30 000 objects in and out on its own as the camera moves.
+`project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+Godot invocation. No Rust changed.
