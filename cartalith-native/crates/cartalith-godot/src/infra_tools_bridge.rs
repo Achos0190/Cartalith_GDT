@@ -422,6 +422,11 @@ pub struct RouteInputs {
     pub water_bodies: Vec<u8>,
     pub biome: Option<Vec<u8>>,
     pub river_order: Option<Vec<i16>>,
+    /// `build_route_corridors`' field — `DECISIONS.md` §7i. Built for every
+    /// land-capable mode (`Land` and `Mixed`; `Water` has no slope term for
+    /// it to relieve), and only when the world is big enough for the
+    /// detector's own `gw/64` search radius to mean anything.
+    pub corridors: Option<Vec<f32>>,
 }
 
 impl RouteInputs {
@@ -444,7 +449,25 @@ impl RouteInputs {
         } else {
             (None, None)
         };
-        RouteInputs { water_bodies: wb.classification, biome, river_order }
+        // `DECISIONS.md` §7i. Land and mixed both have a slope term; water
+        // does not. `gw >= 128` keeps the detector off worlds where its own
+        // `max(2, gw/64)` reach collapses to two cells and it would be
+        // measuring noise rather than a range — the small fixtures this
+        // crate's own unit tests use are all below it.
+        let corridors = (mode != RouteMode::Water && gw >= 128).then(|| {
+            let slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
+            cartalith_civ::build_route_corridors(
+                &ws.field,
+                &slope,
+                Some(&ws.flow_discharge),
+                gw,
+                gh,
+                sea_level,
+                world,
+                cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km),
+            )
+        });
+        RouteInputs { water_bodies: wb.classification, biome, river_order, corridors }
     }
 }
 
@@ -572,7 +595,7 @@ mod tests {
     }
 
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
-        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, world: false, map_width_km: 240.0 }
+        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0 }
     }
 
     #[test]
@@ -819,9 +842,13 @@ mod tests {
         // `lib.rs`'s own commit paths (no cheap WorldState fixture exists
         // at this crate boundary) -- this instead pins the cheap, pure part
         // of the contract: the `Option` shape callers rely on.
-        let inputs_land = RouteInputs { water_bodies: vec![0; 4], biome: None, river_order: None };
+        let inputs_land = RouteInputs { water_bodies: vec![0; 4], biome: None, river_order: None, corridors: None };
         assert!(inputs_land.biome.is_none() && inputs_land.river_order.is_none());
-        let inputs_mixed = RouteInputs { water_bodies: vec![0; 4], biome: Some(vec![1; 4]), river_order: Some(vec![0; 4]) };
+        let inputs_mixed = RouteInputs { water_bodies: vec![0; 4], biome: Some(vec![1; 4]), river_order: Some(vec![0; 4]), corridors: Some(vec![0.0; 4]) };
         assert!(inputs_mixed.biome.is_some() && inputs_mixed.river_order.is_some());
+        // `corridors` is the one field that is NOT mixed-gated -- land mode
+        // needs it too (DECISIONS.md 7i), and only `Water` and a world under
+        // 128 cells wide suppress it.
+        assert!(inputs_mixed.corridors.is_some());
     }
 }

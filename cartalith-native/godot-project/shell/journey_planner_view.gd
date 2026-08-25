@@ -150,6 +150,10 @@ var _layovers: Dictionary = {}          ## stop key (String) -> int days
 var _selected_stage := 0
 var _isolated_stage := -1               ## -1 = no isolation
 var _carriage_auto := true              ## Sent as `jp_compute`'s own `auto_carriage` (JP-01).
+## Sent as `jp_compute`'s `auto_stage` (`DECISIONS.md` §7j). Off by default:
+## it rewrites per-stage overrides, and a planner that silently re-tacks the
+## train the first time a route is opened would be doing it behind the user.
+var _stage_auto := false
 
 ## JP-07. The ⇧-drag spine trim, as two fractions of the route's arc length.
 ## `Vector2(0, 1)` is the whole route and is not sent at all, so an untrimmed
@@ -558,6 +562,18 @@ func _rebuild_party_form() -> void:
 	if _carriage_auto:
 		DccWidgets.note(carriage, _auto_carriage_note())
 
+	# JP-10 / DECISIONS.md 7j: per-stage auto-pick. Separate from the
+	# Auto/Manual pair above because it answers a different question -- that
+	# one sizes ONE train for the whole route, this one re-tacks it stage by
+	# stage where the ground rewards it.
+	DccWidgets.toggle(carriage, "Re-pack per stage where it pays", _stage_auto,
+		func(nv: bool):
+			_stage_auto = nv
+			_compute(),
+		"jp_auto_stage_picks: measures each land stage's own best species, vehicle and land mode against that stage's terrain, and applies the swap when it beats the current setup by more than 10% -- or when it turns an impassable stage passable, where no percentage applies. Scales with group size and cargo, because every candidate is measured through the same jp_calc_land the stage itself uses. Never picks a mode the party lacks the animals for, and never overrules a per-stage field you set by hand.")
+	if _stage_auto:
+		DccWidgets.note(carriage, _stage_picks_note())
+
 	_choice_field(carriage, "Transport", "transport", _options.get("transport", PackedStringArray()), false, true)
 	var transport := String(_plan_values.get("transport", "Walking"))
 	if transport == "Mounted Rider":
@@ -598,6 +614,34 @@ func _rebuild_party_form() -> void:
 ## JP-01. `jpAutoPickTransport`'s own outcome, in prose -- the reference's
 ## `auto.hint`. Every number here is the picker's own return
 ## (`jp_auto_transport_dict`), not a re-derivation in GDScript.
+## What the per-stage picker actually changed, in the party form's own words.
+## Every number here is `jp_compute`'s `stage_picks` -- nothing is recomputed
+## on this side.
+func _stage_picks_note() -> String:
+	if not bool(_last_result.get("ok", false)):
+		return "Compute a route to see what each stage would rather be carried by."
+	var picks: Array = _last_result.get("stage_picks", [])
+	if picks.is_empty():
+		return "No stage is better off re-packed: every land stage is already within 10% of the best species, vehicle and mode available to this party on its own ground."
+	var lines: Array[String] = []
+	for p in picks:
+		var d: Dictionary = p
+		var changed: Array[String] = []
+		if String(d.get("species", "")) != "":
+			changed.append(String(d["species"]))
+		if String(d.get("vehicle", "")) != "":
+			changed.append(String(d["vehicle"]))
+		if String(d.get("transport", "")) != "":
+			changed.append(String(d["transport"]))
+		var head := "Stage %d (%s): %s" % [int(d.get("stage", 0)) + 1, d.get("terrain", "?"), " + ".join(changed)]
+		if bool(d.get("unblocks", false)):
+			lines.append("%s -- was impassable, now %.0f km/day. %s" % [head, float(d.get("daily_km_after", 0.0)), d.get("reason", "")])
+		else:
+			lines.append("%s -- %.0f -> %.0f km/day (+%.0f%%). %s" % [
+				head, float(d.get("daily_km_before", 0.0)), float(d.get("daily_km_after", 0.0)),
+				float(d.get("gain_pct", 0.0)), d.get("reason", "")])
+	return "\n".join(lines)
+
 func _auto_carriage_note() -> String:
 	var auto: Dictionary = _last_result.get("auto", {})
 	if auto.is_empty():
@@ -899,6 +943,8 @@ func _compute() -> void:
 	var request: Dictionary = {"route": _route_index, "plan": _plan_values.duplicate(true)}
 	if _carriage_auto:
 		request["auto_carriage"] = true
+	if _stage_auto:
+		request["auto_stage"] = true
 	if _trim.x > 0.0 or _trim.y < 1.0:
 		request["trim"] = _trim
 	if not _animal_entries.is_empty():

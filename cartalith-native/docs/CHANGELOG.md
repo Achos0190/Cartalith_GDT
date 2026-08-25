@@ -28941,3 +28941,109 @@ stages, a land re-route between the two nearest settlements succeeding (and
 `route_get` reporting `mode=land` afterwards), and a sea re-route between the
 same two inland points refused with the reference's own message rather than
 faked. `cargo test --workspace`: **2 256 passed, 0 failed, 8 ignored.**
+
+## 2026-08-26 (2) — Pass-aware routes, and per-stage auto-pick that applies
+
+Two owner requests in one pass. Both are deliberate divergences from the
+reference and both are recorded properly: `DECISIONS.md` §7i and §7j carry the
+full reasoning, this entry carries what happened.
+
+### §7i — routes now use the reference's corridor detector
+
+*"Routes should be terrain aware. A steep cliff or mountain or any other
+feature would probably always have a most passable point and humans have a
+tendency to use those points naturally."*
+
+**The first attempt was wrong and the measurement caught it.**
+`_civEnhancedTravelCost` has a mountain-pass test (a cell whose immediate
+neighbours along one axis are both `0.018` higher; slope penalty ×0.40) and the
+manual Route/Way grids have never seen it — only the auto road builder has.
+Wiring it in was two lines and was done first. It then fired on **20 cells out
+of 12 288** on a noise fixture, and reached **zero of four** long crossings on a
+real 512×384 world. It is a one-cell test and generated terrain is smooth at
+one-cell scale; a real col between two summits does not look like that. The
+change would have shipped, read correctly in review, and done nothing.
+
+**Replaced with `buildRouteCorridors`** (reference line 5903) — the reference's
+own answer at a scale that exists: `gw/64` cells out along four axes, the
+**minimum** of the two flanking maxima ("one steep flank is a hillside; two is
+a pass"), knee at `0.45`. Already ported, already golden-covered through
+settlement suitability, and offered to nothing that routes. `RouteContext::
+corridors` carries it; `civ_pass_relief` turns it into `1 - 0.60 × corridor` on
+the land cell's **slope term only** — `0.40` at full strength, which is
+`_civEnhancedTravelCost`'s own factor, so the magnitude is the reference's and
+only the detector changed. A pass is cheaper to climb, never cheaper than flat
+ground.
+
+Measured on the shipped path (`pass_relief_measure.rs`, seed 24601 at 512×384,
+169 558 land cells): 30.8% of land carries some corridor value, **mean 0.064**
+(a 4% slope discount on the average cell), **1.02%** above half strength (30–60%
+off, where the pinch points are), and **2 of 4** long crossings changed route.
+The test asserts loose bounds around those, so a later terrain retune that
+kills the field or broadens it fails there instead of being noticed by eye.
+
+`None` is the reference exactly, and **every golden fixture passes `None`** —
+the 16 `golden_parity_civ_tools` cases still mean "matches v2.10". Suppressed
+for water mode and for worlds under 128 cells wide, where the detector's own
+`max(2, gw/64)` reach collapses to two cells.
+
+### §7j — the Journey Planner applies its per-stage suggestions
+
+*"Per stage should auto pick either according to terrain or animals/carriage.
+Basically it should always pick from technically best and available per stage.
+(and scale to group and cargo size)."*
+
+`_jpBestLandTransportForStage` (v1.53) and `_jpBestPackageForStage` (v1.66)
+were both ported with tests in milestones 2/6 and **neither had a production
+caller** — the eleventh instance of that pattern this port has found. Their
+reference contract is *"measure, never silently apply"*: `_jpRenderResults`
+shows "⚡ faster mode available" past a +10% margin and leaves the swap to the
+user. `jp_auto_stage_picks` applies them, behind `jp_compute`'s `auto_stage`
+key and a party-form toggle that is **off by default**.
+
+**Two things the picker got wrong first, both caught by measuring rather than
+reasoning, both now gated by `jp_stage_mode_available`:**
+
+1. On the m5 fixture it produced four picks, all *"switch to Mounted Rider"*,
+   +39% each — because `jp_capacity_ex`'s v1.83 branch issues
+   `group_size - declared` mounts to a Mounted Rider party. In the reference a
+   human typed that into the form and it *was* a declaration. Here it silently
+   issued a twelve-person caravan ten horses it does not own and left the cargo
+   on the road.
+2. Gated on that, it then found *"switch to Walking"* on every paved-road stage
+   of a real route, +42% each, taking the journey 131.2 → 120.7 days — because
+   Walking is 4.0 km/h against a Baggage Train's 2.6 and the capacity model
+   still counts the mules. A cart does not go on anybody's back. Walking is now
+   available only to a party with no animals and no vehicles, which is exactly
+   what `jp_auto_pick_transport` itself means by the word.
+
+The other rules: the reference's **+10% margin is kept**; a **blocked** stage is
+*not* skipped and the margin does not apply to it (there is no percentage
+between "cannot cross" and "can cross", and a cart-blocked desert crossing is
+the owner scenario v1.66 was written for); a **hand-set per-stage field always
+wins**; and application is **all-or-nothing** — the picks are measured against
+the first plan's stages, so if the replan derives a different stage count,
+nothing is applied.
+
+Scaling to group and cargo is inherited, not re-implemented: every candidate
+goes through the same `jp_calc_land` against the stage's own effective plan,
+which already carries group size, cargo, supply days and animal counts.
+
+### Verification
+
+`cargo test --workspace`: **2 259 passed, 0 failed, 8 ignored**.
+`auto_stage_picks_only_emit_measured_improvements_and_apply_as_overrides` pins
+the owner's own scenario end to end — a mule-and-cart train on Deep Sand comes
+back **blocked**, the pick is **camel + travois**, all ten pack animals re-tack
+(the reference's `packAnimals` is the sum over species, not the current one's
+count), and applying it through the ordinary `stage_overrides` cascade
+reproduces the promised km/day to 1e-9.
+
+`_routeplanner_probe.gd` on the real GDExtension, two worlds: a temperate
+256×192 and a hot one. Both report **0 picks**, correctly and consistently
+(`total_days` identical with the feature off and on) — the existing-way
+discount pulls a route between settlements onto Paved Road, where a mule with
+carts already is the right train. That is the honest shape of this feature: it
+earns its keep on wild ground and on desert transitions, not on the road
+network, and the probe now says so in its own output rather than leaving a
+zero to be misread as a failure.

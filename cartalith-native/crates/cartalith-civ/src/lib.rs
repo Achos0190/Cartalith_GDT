@@ -14077,6 +14077,242 @@ pub fn jp_best_package_for_stage(st: &JpStage, eff: &JpPlan) -> Option<JpPackage
     })
 }
 
+/// The margin a per-stage swap has to beat before it is worth making:
+/// **+10%** daily km, the reference's own advisory gate (line 20040,
+/// `(bestT.dailyKm/r.dailyKm-1)>0.10`), *"so a 1% numerical wobble never nags
+/// the user"*. Kept identical when the swap is applied rather than merely
+/// shown -- the reason for the gate is the same either way, and a party that
+/// re-tacks its whole train for a 2% gain is not modelling anything real.
+pub const JP_STAGE_PICK_MARGIN: f64 = 0.10;
+
+/// Whether `plan`'s party could actually *travel* one stage as `mode`, with
+/// the animals it already owns.
+///
+/// **This port's own rule, and it has to exist.** `jp_calc_land` deliberately
+/// does not ask: `jp_capacity_ex`'s v1.83 branch conjures `group_size - declared`
+/// mounts for a Mounted Rider party, because in the reference a human typed
+/// "Mounted Rider" into the form and that *is* the declaration. An auto-picker
+/// has no such declaration behind it, so without this gate
+/// [`jp_auto_stage_picks`] would "discover" that a twelve-person, 900 kg
+/// merchant caravan travels 39% faster as riders -- by silently issuing it ten
+/// horses it does not have and leaving the cargo on the road. That was the
+/// first thing this function's own test caught.
+///
+/// * `Walking` -- only with **no** animals and **no** vehicles. Walking is
+///   `jp_auto_pick_transport`'s own name for "the party carries its own load",
+///   and that picker zeroes every animal and vehicle when it chooses it. It is
+///   4.0 km/h against a Baggage Train's 2.6, so without this half of the gate
+///   the picker finds a free 42% on every road stage by declaring a
+///   twelve-person train with eight mules and two carts to be "walking" --
+///   measured on a real route before this line existed. A cart does not go on
+///   anybody's back.
+/// * `Mounted Rider` -- only with at least one declared mount per traveller,
+///   of the species [`JpPlan::resolve_mount`] would use.
+/// * `Baggage Train` -- only with at least one declared pack animal.
+pub fn jp_stage_mode_available(mode: &str, plan: &JpPlan) -> bool {
+    match mode {
+        "Walking" => {
+            plan.party.donkey + plan.party.mule + plan.party.camel + plan.party.horse == 0
+                && plan.party.vehicles() == 0
+        }
+        "Mounted Rider" => {
+            let mk = plan.resolve_mount();
+            let owned = match mk {
+                "donkey" => plan.party.donkey,
+                "mule" => plan.party.mule,
+                "camel" => plan.party.camel,
+                _ => plan.party.horse,
+            };
+            owned >= plan.party.group_size.max(1)
+        }
+        "Baggage Train" => {
+            plan.party.donkey + plan.party.mule + plan.party.camel + plan.party.horse > 0
+        }
+        // Not a land mode at all -- `jp_best_land_transport_for_stage` only
+        // ever offers the three above, so this is unreachable in practice and
+        // refusing is the safe answer if that ever changes.
+        _ => false,
+    }
+}
+
+/// One stage's auto-pick, as [`jp_auto_stage_picks`] produces it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpStagePick {
+    /// Index into the journey's own `stages`/`results`.
+    pub stage: usize,
+    pub terrain: String,
+    pub biome: String,
+    pub daily_km_before: f64,
+    pub daily_km_after: f64,
+    /// Fractional improvement, e.g. `0.23` for +23%. Always above
+    /// [`JP_STAGE_PICK_MARGIN`], or the pick would not have been emitted --
+    /// **unless `unblocks`**, where there is no baseline to take a percentage
+    /// of and this is `0.0`.
+    pub gain: f64,
+    /// This stage was **blocked** before the pick and is passable after it.
+    /// The margin does not apply to such a pick: going from "cannot cross" to
+    /// "can cross" is not a percentage.
+    pub unblocks: bool,
+    /// The land mode to switch this stage to, when that is part of the pick.
+    pub transport: Option<&'static str>,
+    /// The pack species to switch to, when that is part of the pick.
+    pub species: Option<&'static str>,
+    /// `"travois"` or `"carts"`, when a vehicle swap is part of the pick.
+    pub vehicle: Option<&'static str>,
+    /// Why, in the vocabulary the party form uses -- `jp_best_animal_for_
+    /// context`'s own reason for a species swap, else the terrain that forced
+    /// a vehicle or mode change.
+    pub reason: String,
+}
+
+impl JpStagePick {
+    /// The pick as the per-stage override map's own value, ready to merge into
+    /// [`JpPlan::stage_overrides`].
+    pub fn to_override(&self, eff: &JpPlan) -> JpStageOverride {
+        let mut ov = JpStageOverride { transport: self.transport.map(str::to_string), ..Default::default() };
+        if let Some(sp) = self.species {
+            let pack = eff.party.donkey + eff.party.mule + eff.party.camel + eff.party.horse;
+            ov.donkey = Some(if sp == "donkey" { pack } else { 0 });
+            ov.mule = Some(if sp == "mule" { pack } else { 0 });
+            ov.camel = Some(if sp == "camel" { pack } else { 0 });
+            ov.horse = Some(if sp == "horse" { pack } else { 0 });
+        }
+        if let Some(v) = self.vehicle {
+            let total = eff.party.vehicles().max(1);
+            ov.carts = Some(if v == "carts" { total } else { 0 });
+            ov.wagons = Some(0);
+            ov.travois = Some(if v == "travois" { total } else { 0 });
+            ov.sleds = Some(0);
+        }
+        ov
+    }
+}
+
+/// Per-stage auto-pick: for every land stage of an already-planned journey,
+/// the best *available* combination of pack species, vehicle and land mode for
+/// **that stage's own ground**, measured rather than assumed.
+///
+/// **A deliberate divergence from `Cartalith Gen1 v2.10.html`,
+/// owner-requested 2026-08-26** ("per stage should auto pick either according
+/// to terrain or animals/carriage... it should always pick from technically
+/// best and available per stage, and scale to group and cargo size"), recorded
+/// in `DECISIONS.md` §7j. The reference computes exactly these two
+/// suggestions in `_jpRenderResults` (lines 20039/20044) and its contract is
+/// *"measure, never silently apply"* -- it renders "⚡ faster mode available"
+/// and leaves the swap to the user. This applies them, behind an explicit
+/// opt-in the caller has to ask for, and keeps the reference's own +10%
+/// margin so the result is a decision a traveller would actually make.
+///
+/// **Scaling to group and cargo is inherited, not re-implemented.** Every
+/// candidate is measured through `jp_calc_land` against the stage's own
+/// *effective* plan, which already carries `group_size`, `cargo_kg`,
+/// `supply_days` and the party's animal counts -- so a twelve-person caravan
+/// and a lone courier get different answers from the same terrain without this
+/// function knowing anything about either. Animal *counts* are preserved, not
+/// resized: sizing a train from cargo is `jp_auto_pick_transport`'s job for the
+/// whole route, and the reference is explicit that the per-stage picker
+/// "never decides whether a vehicle should exist at all or sizes one from
+/// cargo".
+///
+/// Order within a stage is package first, then mode measured *against the
+/// re-packed party* -- the two axes interact (a camel that unlocks a terrain
+/// can change which mode is fastest on it), so measuring them independently
+/// and adding the gains would overcount.
+///
+/// Water stages are skipped: `jp_plan_full` already auto-substitutes a vessel
+/// on an infeasible water leg (`jp_auto_stage_vessel`), and a speed-only nudge
+/// on top of that would double up with a mechanism that already exists -- the
+/// reference's own reason for gating its advisories to land.
+///
+/// Blocked stages are skipped too. A blocked stage has no `daily_km` to
+/// improve on, and its own quick-fixes (`jp_verdict`'s `fix`) are a different,
+/// user-facing mechanism.
+pub fn jp_auto_stage_picks(journey: &JpJourneyPlan, wildlife_forage_mod: f64) -> Vec<JpStagePick> {
+    let mut picks = Vec::new();
+    for (i, r) in journey.results.iter().enumerate() {
+        if r.cat != "land" {
+            continue;
+        }
+        // A land stage the party cannot cross at all is not skipped -- it is
+        // the single most valuable place to act. `_jpBestPackageForStage`
+        // exists precisely to propose travois where wheels are illegal, which
+        // is the owner's own v1.66 scenario, and that stage reports *blocked*,
+        // not slow. There is simply no baseline to take a percentage of, so
+        // the margin does not apply and `unblocks` says why.
+        let (before, blocked) = match &r.calc {
+            Ok(JpLegCalc::Land(cur)) if cur.daily_km > 0.0 => (cur.daily_km, false),
+            Ok(_) => continue,
+            Err(_) => (0.0, true),
+        };
+        let Some(ds) = journey.stages.get(i) else { continue };
+        let st = ds.to_stage(wildlife_forage_mod);
+
+        // 1. Species / vehicle, on this stage's own terrain and biome.
+        let mut cand = r.eff.clone();
+        let (mut species, mut vehicle, mut reason) = (None, None, String::new());
+        if let Some(fix) = jp_best_package_for_stage(&st, &r.eff)
+            && let Ok(pr) = jp_calc_land(&st, &fix.candidate)
+            && pr.daily_km > before
+        {
+            cand = fix.candidate.clone();
+            species = fix.species_fix;
+            vehicle = fix.vehicle_fix;
+            reason = fix.best_species.reason.clone();
+        }
+
+        // 2. Land mode, measured against the party as step 1 left it.
+        //
+        // `jp_best_land_transport_for_stage` is the reference's own function
+        // and stays exactly as ported -- it measures all three modes. The
+        // availability gate is applied HERE, on its answer, because the
+        // reference only ever displayed that answer.
+        let mut transport = None;
+        let cur_km = jp_calc_land(&st, &cand).map(|c| c.daily_km).unwrap_or(0.0);
+        if let Some((mode, km)) = jp_best_land_transport_for_stage(&st, &cand)
+            && mode != cand.transport
+            && km > cur_km
+            && jp_stage_mode_available(mode, &cand)
+        {
+            transport = Some(mode);
+            cand.transport = mode.to_string();
+        }
+
+        if transport.is_none() && species.is_none() && vehicle.is_none() {
+            continue;
+        }
+        let Ok(after) = jp_calc_land(&st, &cand) else { continue };
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(after.daily_km > 0.0) {
+            continue;
+        }
+        let gain = if blocked { 0.0 } else { after.daily_km / before - 1.0 };
+        if !blocked && gain <= JP_STAGE_PICK_MARGIN {
+            continue;
+        }
+        if reason.is_empty() {
+            reason = if vehicle.is_some() {
+                format!("{} does not take wheels", st.terrain)
+            } else {
+                format!("faster over {}", st.terrain)
+            };
+        }
+        picks.push(JpStagePick {
+            stage: i,
+            terrain: ds.terrain.clone(),
+            biome: ds.biome.clone(),
+            daily_km_before: before,
+            daily_km_after: after.daily_km,
+            gain,
+            transport,
+            species,
+            vehicle,
+            unblocks: blocked,
+            reason,
+        });
+    }
+    picks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -19227,6 +19463,130 @@ mod tests {
         assert_eq!(jp_auto_pick_vessel(&[]), None);
     }
 
+    /// `DECISIONS.md` §7j. Every pick must be a *measured* improvement over
+    /// the margin, must be applicable as a real per-stage override, and must
+    /// scale with the party rather than being a fixed table.
+    #[test]
+    fn auto_stage_picks_only_emit_measured_improvements_and_apply_as_overrides() {
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let pts = m5_pts();
+        let layovers = JpLayovers::new();
+        let base = m5_plan();
+        let j = jp_plan(&world, &pts, &base, &layovers, &|_, _| 1.0).expect("a planned journey");
+
+        let picks = jp_auto_stage_picks(&j, 1.0);
+        // This route is boreal taiga and mountain highland, where a mule with
+        // carts already IS the right answer -- so an empty list here is the
+        // correct result, not a broken one, and the loop below is a
+        // conditional invariant check. The owner's own scenario is asserted
+        // separately at the end, where non-emptiness is the point.
+        for p in &picks {
+            // Land only, never a water leg or a blocked one.
+            assert_eq!(j.results[p.stage].cat, "land", "stage {} is not land", p.stage);
+            assert!(j.results[p.stage].blocked().is_none());
+            // Past the margin, and the "after" really is what it claims.
+            if p.unblocks {
+                assert_eq!(p.daily_km_before, 0.0, "an unblocking pick has no baseline: {p:?}");
+            } else {
+                assert!(p.gain > JP_STAGE_PICK_MARGIN, "{p:?} is inside the margin");
+            }
+            assert!(p.daily_km_after > p.daily_km_before, "{p:?}");
+            assert!(p.transport.is_some() || p.species.is_some() || p.vehicle.is_some(), "an empty pick: {p:?}");
+            assert!(!p.reason.is_empty());
+
+            // Applying the pick as an override reproduces the promised number
+            // through the ordinary per-stage cascade -- i.e. this is a real
+            // override, not a private side channel.
+            let mut with = base.clone();
+            with.stage_overrides.insert(p.stage, p.to_override(&j.results[p.stage].eff));
+            let eff = jp_effective_stage_plan(&with, with.stage_overrides.get(&p.stage));
+            let st = j.stages[p.stage].to_stage(1.0);
+            let got = jp_calc_land(&st, &eff).expect("the picked plan is not blocked");
+            assert!(
+                (got.daily_km - p.daily_km_after).abs() < 1e-9,
+                "stage {}: override gives {} km/day, the pick promised {}",
+                p.stage,
+                got.daily_km,
+                p.daily_km_after
+            );
+        }
+
+        // Scaling, not a fixed table: the same route with a lone unladen
+        // walker cannot produce a species or vehicle pick, because there is no
+        // pack train to re-tack.
+        let solo = JpPlan {
+            party: JpParty { group_size: 1, cargo_kg: 5.0, ..JpParty::default() },
+            transport: "Walking".to_string(),
+            ..base.clone()
+        };
+        let js = jp_plan(&world, &pts, &solo, &layovers, &|_, _| 1.0).expect("a planned journey");
+        for p in jp_auto_stage_picks(&js, 1.0) {
+            assert!(p.species.is_none() && p.vehicle.is_none(), "a lone walker has no train to re-pack: {p:?}");
+        }
+
+        // And the whole thing is a no-op on a journey with no land stages.
+        let empty = JpJourneyPlan { stages: Vec::new(), results: Vec::new(), ..j.clone() };
+        assert!(jp_auto_stage_picks(&empty, 1.0).is_empty());
+
+        // The owner's own scenario, and the reason v1.66 exists at all:
+        // *"at the desert transitions they will exchange their mule and cart
+        // for camels with travois"*. Same party, one stage of deep sand.
+        let mut ds = j.stages[0].clone();
+        ds.cat = "land".to_string();
+        ds.biome = "Hot Desert".to_string();
+        ds.terrain = "Deep Sand".to_string();
+        ds.km = 200.0;
+        let st = ds.to_stage(1.0);
+        // With two carts in the train this stage does not come back slow --
+        // it comes back BLOCKED ("Wheeled vehicles cannot traverse Deep
+        // Sand"), which is exactly the case a picker that skipped blocked
+        // stages would have been useless for.
+        let calc = jp_calc_land(&st, &base);
+        assert!(calc.is_err(), "the fixture must be the blocked case: {calc:?}");
+        let res = JpLegResult { cat: "land".to_string(), km: ds.km, calc: calc.map(|c| JpLegCalc::Land(Box::new(c))), eff: base.clone() };
+        let sand = JpJourneyPlan { stages: vec![ds], results: vec![res], ..j };
+        let picks = jp_auto_stage_picks(&sand, 1.0);
+        assert_eq!(picks.len(), 1, "deep sand must produce exactly one pick: {picks:?}");
+        let p = &picks[0];
+        assert_eq!(p.species, Some("camel"), "{p:?}");
+        assert_eq!(p.vehicle, Some("travois"), "wheels are blocked on deep sand: {p:?}");
+        assert!(p.unblocks, "the pick turns an impassable stage into a passable one: {p:?}");
+        assert!(p.daily_km_after > 0.0, "{p:?}");
+
+        // The mode axis stays shut here, which is the availability gate doing
+        // its job: this party owns 8 mules and 2 horses for 12 people, so
+        // "Mounted Rider" is not something it can actually do, however fast
+        // `jp_best_land_transport_for_stage` measures it to be.
+        assert_eq!(p.transport, None, "{p:?}");
+        assert!(!jp_stage_mode_available("Mounted Rider", &base), "2 horses do not mount 12 people");
+        assert!(jp_stage_mode_available("Baggage Train", &base));
+        assert!(!jp_stage_mode_available("Walking", &base), "a train with 8 mules and 2 carts is not 'walking'");
+        let unladen = JpPlan { party: JpParty { group_size: 3, cargo_kg: 20.0, ..JpParty::default() }, transport: "Walking".to_string(), ..base.clone() };
+        assert!(jp_stage_mode_available("Walking", &unladen));
+        assert!(!jp_stage_mode_available("Baggage Train", &unladen), "no animals, no train");
+        let mounted = JpPlan {
+            party: JpParty { group_size: 4, horse: 4, ..JpParty::default() },
+            mount_animal: Some("horse".to_string()),
+            ..base.clone()
+        };
+        assert!(jp_stage_mode_available("Mounted Rider", &mounted), "four riders, four horses");
+
+        // And the sand pick applies as a real override too: the same
+        // stage_overrides cascade the manual per-stage editor writes into.
+        let mut with = base.clone();
+        with.stage_overrides.insert(0, p.to_override(&sand.results[0].eff));
+        let eff = jp_effective_stage_plan(&with, with.stage_overrides.get(&0));
+        // The reference's own `packAnimals` is the SUM over all four species,
+        // so the whole train re-tacks: 8 mules + 2 horses -> 10 camels, not
+        // 8 camels and 2 stragglers.
+        assert_eq!(eff.party.camel, 10);
+        assert_eq!((eff.party.mule, eff.party.horse, eff.party.carts, eff.party.wagons), (0, 0, 0, 0));
+        assert_eq!(eff.party.travois, 2, "the two carts become two travois");
+        let got = jp_calc_land(&sand.stages[0].to_stage(1.0), &eff).expect("passable once the wheels are gone");
+        assert!((got.daily_km - p.daily_km_after).abs() < 1e-9, "{} vs {}", got.daily_km, p.daily_km_after);
+    }
+
     #[test]
     fn m5_effective_stage_plan_is_a_plain_cascade_with_a_per_species_animal_merge() {
         let plan = m5_plan();
@@ -21234,6 +21594,7 @@ mod tests {
             sea: 0.42,
             world: false,
             map_width_km: 80.0,
+            corridors: None,
         };
         let pts = vec![(1.0, 1.0), (6.0, 4.0)];
 

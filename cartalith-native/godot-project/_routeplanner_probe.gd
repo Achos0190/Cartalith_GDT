@@ -22,7 +22,7 @@ func _init() -> void:
 			return
 
 	wg.set_params({"tect.plates": 9, "climate.lat_n": 62.0})
-	wg.generate_sized(24601, 640.0, 96, 64)
+	wg.generate_sized(24601, 2560.0, 256, 192)   ## >= 128 wide, so DECISIONS.md 7i corridors are live
 	wg.recompute_civilisation()
 	var places: Array = wg.get_settlements()
 	print("  settlements: ", places.size())
@@ -153,5 +153,135 @@ func _init() -> void:
 			print("  FAIL: 'sea route' accepted as a two-point straight line")
 			fails += 1
 
+	# DECISIONS.md 7j: per-stage auto-pick. Off and on over the same route, so
+	# the difference is the feature and nothing else.
+	# A laden merchant caravan, not the default lone walker: the per-stage
+	# picker re-tacks a pack train, and a party without one has nothing to
+	# re-tack (which is itself asserted in the Rust tests).
+	var caravan: Dictionary = plan.duplicate(true)
+	caravan["transport"] = "Baggage Train"
+	caravan["group_size"] = 12
+	caravan["cargo_kg"] = 900.0
+	caravan["mule"] = 8
+	caravan["horse"] = 2
+	caravan["carts"] = 2
+	var off: Dictionary = wg.jp_compute({"route": idx, "plan": caravan})
+	var on: Dictionary = wg.jp_compute({"route": idx, "plan": caravan, "auto_stage": true})
+	if not bool(on.get("ok", false)):
+		print("  FAIL: auto_stage -> ", on.get("error", "?"))
+		fails += 1
+	else:
+		var picks: Array = on.get("stage_picks", [])
+		print("  auto_stage: %d pick(s)" % picks.size())
+		for p in picks:
+			var d: Dictionary = p
+			print("    stage %d %s: %s%s%s -- %.1f -> %.1f km/day%s (%s)" % [
+				int(d["stage"]) + 1, d["terrain"],
+				d["species"], (" +" + String(d["vehicle"])) if String(d["vehicle"]) != "" else "",
+				(" +" + String(d["transport"])) if String(d["transport"]) != "" else "",
+				float(d["daily_km_before"]), float(d["daily_km_after"]),
+				" [unblocks]" if bool(d["unblocks"]) else " (+%.0f%%)" % float(d["gain_pct"]),
+				d["reason"]])
+			# Every pick must be a real improvement, and never an empty one.
+			if float(d["daily_km_after"]) <= float(d["daily_km_before"]):
+				print("      FAIL: not an improvement")
+				fails += 1
+			if String(d["species"]) == "" and String(d["vehicle"]) == "" and String(d["transport"]) == "":
+				print("      FAIL: an empty pick")
+				fails += 1
+		# The whole journey must be no worse for it. `total_days` is -1 when
+		# blocked, so compare on the blocked flag first.
+		var d_off: float = float((off.get("plan", {}) as Dictionary).get("total_days", -1.0))
+		var d_on: float = float((on.get("plan", {}) as Dictionary).get("total_days", -1.0))
+		print("  total days: %.1f -> %.1f" % [d_off, d_on])
+		if picks.is_empty():
+			if d_off != d_on:
+				print("  FAIL: no picks, yet the plan changed")
+				fails += 1
+		elif d_off > 0.0 and d_on > 0.0 and d_on > d_off + 1e-6:
+			print("  FAIL: re-packing made the journey SLOWER (%.3f -> %.3f days)" % [d_off, d_on])
+			fails += 1
+
+	# A second, hot world, so the per-stage picker has terrain that actually
+	# rewards a different animal. The temperate world above correctly produces
+	# no picks -- a mule with carts already IS the right train for paved road
+	# and temperate forest -- which proves the gate but not the mechanism.
+	fails += _hot_world_stage_picks()
+
 	print("route-planner probe: ", "PASS" if fails == 0 else "%d FAILURE(S)" % fails)
 	quit(1 if fails > 0 else 0)
+
+func _hot_world_stage_picks() -> int:
+	var fails := 0
+	var wg: WorldGen = WorldGen.new()
+	wg.set_params({"tect.plates": 9, "climate.lat_n": 34.0, "climate.lat_s": 2.0, "climate.rain_k": 0.45})
+	wg.generate_sized(777, 2560.0, 256, 192)
+	wg.recompute_civilisation()
+	var places: Array = wg.get_settlements()
+	print("  [hot world] settlements: ", places.size())
+	if places.size() < 2:
+		print("  [hot world] FAIL: no settlements")
+		return 1
+
+	var a: Dictionary = places[0]
+	var b: Dictionary = places[0]
+	var best := -1.0
+	for p in places:
+		var d: float = abs(float(p["x"]) - float(a["x"])) + abs(float(p["y"]) - float(a["y"]))
+		if d > best:
+			best = d
+			b = p
+	wg.route_begin("mixed")
+	wg.route_append_stop(float(a["x"]), float(a["y"]))
+	wg.route_append_stop(float(b["x"]), float(b["y"]))
+	var idx: int = wg.route_commit()
+	if idx < 0:
+		print("  [hot world] FAIL: route_commit refused")
+		return 1
+
+	var caravan: Dictionary = wg.jp_plan_for_route(idx)
+	caravan["transport"] = "Baggage Train"
+	caravan["group_size"] = 12
+	caravan["cargo_kg"] = 900.0
+	caravan["mule"] = 8
+	caravan["horse"] = 2
+	caravan["carts"] = 2
+	var off: Dictionary = wg.jp_compute({"route": idx, "plan": caravan})
+	var on: Dictionary = wg.jp_compute({"route": idx, "plan": caravan, "auto_stage": true})
+	if not bool(on.get("ok", false)):
+		print("  [hot world] FAIL: auto_stage -> ", on.get("error", "?"))
+		return 1
+	var picks: Array = on.get("stage_picks", [])
+	var terrains: Array = []
+	for s in (off.get("plan", {}) as Dictionary).get("stages", []):
+		terrains.append((s as Dictionary).get("terrain", "?"))
+	print("  [hot world] %d stages over %s" % [terrains.size(), ", ".join(PackedStringArray(terrains))])
+	print("  [hot world] auto_stage: %d pick(s)" % picks.size())
+	if picks.is_empty():
+		print("    (expected on a road-connected route: the existing-way discount pulls the")
+		print("     line onto Paved Road, where a mule with carts already is the best train.")
+		print("     The firing case -- deep sand, camel + travois, unblocking a cart-blocked")
+		print("     stage -- is pinned in cartalith-civ's own test, which can build that")
+		print("     stage directly instead of hoping a generated world contains one.)")
+	for p in picks:
+		var d: Dictionary = p
+		print("    stage %d %s / %s: %s%s%s -- %.1f -> %.1f km/day%s (%s)" % [
+			int(d["stage"]) + 1, d["terrain"], d["biome"],
+			d["species"], (" +" + String(d["vehicle"])) if String(d["vehicle"]) != "" else "",
+			(" +" + String(d["transport"])) if String(d["transport"]) != "" else "",
+			float(d["daily_km_before"]), float(d["daily_km_after"]),
+			" [unblocks]" if bool(d["unblocks"]) else " (+%.0f%%)" % float(d["gain_pct"]),
+			d["reason"]])
+		if String(d["transport"]) != "" and String(d["transport"]) == "Walking":
+			print("      FAIL: a laden train cannot 'walk' -- the availability gate leaked")
+			fails += 1
+	var d_off: float = float((off.get("plan", {}) as Dictionary).get("total_days", -1.0))
+	var d_on: float = float((on.get("plan", {}) as Dictionary).get("total_days", -1.0))
+	print("  [hot world] total days: %.1f -> %.1f" % [d_off, d_on])
+	if picks.is_empty() and d_off != d_on:
+		print("  [hot world] FAIL: no picks, yet the plan changed")
+		fails += 1
+	if not picks.is_empty() and d_off > 0.0 and d_on > 0.0 and d_on > d_off + 1e-6:
+		print("  [hot world] FAIL: re-packing made the journey slower")
+		fails += 1
+	return fails

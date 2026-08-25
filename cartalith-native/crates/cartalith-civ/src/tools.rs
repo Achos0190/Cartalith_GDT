@@ -367,7 +367,27 @@ pub struct RouteContext<'a> {
     pub sea: f64,
     pub world: bool,
     pub map_width_km: f64,
+    /// [`crate::build_route_corridors`]' full-resolution output: `0`
+    /// almost everywhere, rising to `1` at a genuine pinch point — cheap
+    /// ground with expensive flanks on **both** sides, measured `gw/64`
+    /// cells out along four axes.
+    ///
+    /// **A deliberate divergence from `Cartalith Gen1 v2.10.html`,
+    /// owner-requested 2026-08-26** ("routes should be terrain aware. A
+    /// steep cliff or mountain or any other feature would probably always
+    /// have a most passable point and humans have a tendency to use those
+    /// points naturally"), recorded in `DECISIONS.md` §7i.
+    ///
+    /// `None` is byte-for-byte the reference, which is what every golden
+    /// fixture passes and why those tests keep meaning "matches v2.10".
+    pub corridors: Option<&'a [f32]>,
 }
+
+/// How much of a land cell's *slope* penalty a full-strength corridor
+/// removes. `1 - 0.60 = 0.40` at `corridor == 1`, which is exactly
+/// `_civEnhancedTravelCost`'s own mountain-pass factor (reference line
+/// 20988) — the magnitude is the reference's, only the detector is stronger.
+const PASS_SLOPE_RELIEF: f64 = 0.60;
 
 /// `_CIV_EXISTING_WAY_DISCOUNT` (reference line 21751): "ride the existing
 /// infrastructure" -- a cell on an existing way costs x0.25, so a route
@@ -468,6 +488,41 @@ struct CostGrid {
     sc: f64,
 }
 
+/// Multiplier on the *slope term* of a land cell's cost, from the corridor
+/// field at that cell: `1.0` where there is no corridor, `0.40` at a
+/// full-strength pass, linear between.
+///
+/// **Why the corridor field and not `_civEnhancedTravelCost`'s own
+/// `ewPass`/`nsPass` test.** That test was tried first, being the obvious
+/// candidate: it is already in this port, it is already golden-tested, and
+/// applying it to the route grids would have been a two-line change. It was
+/// then *measured on real generated terrain* — and it fired on **20 cells
+/// out of 12 288** on a noise fixture and reached **zero of four** long
+/// crossings on a real 512×384 world. It is a one-cell test: a cell whose
+/// immediate left and right neighbours are both `0.018` higher. Generated
+/// terrain is smooth at one-cell scale, so a real mountain pass — hundreds
+/// of metres of col between two summits — does not look like that at all.
+/// Shipping it would have satisfied the diff and not the request.
+///
+/// `buildRouteCorridors` (reference line 5903) is the reference's *own*
+/// answer to the same question at a scale that exists: it looks `gw/64`
+/// cells out along four axes, takes the **minimum** of the two flanking
+/// maxima ("one steep flank is a hillside; two is a pass"), and passes it
+/// through a knee at `0.45` so the field is near-zero almost everywhere and
+/// spikes only at genuine pinch points. The reference computes it for
+/// settlement placement and never offers it to a router. That is the whole
+/// divergence: the same field, read by the thing it describes.
+///
+/// The relief multiplies only `slopeK*sl^2`, never the `1 +` baseline — so a
+/// pass is cheaper to *climb*, never cheaper than flat ground, which is what
+/// stops a chain of cols out-competing a valley floor.
+fn civ_pass_relief(corridors: Option<&[f32]>, fi: usize) -> f64 {
+    match corridors.and_then(|c| c.get(fi)) {
+        Some(&c) if c > 0.0 => 1.0 - PASS_SLOPE_RELIEF * (c as f64).clamp(0.0, 1.0),
+        _ => 1.0,
+    }
+}
+
 /// `_civLandCostGrid` (reference line 21035): slope cost with ALL water
 /// impassable -- the sea via `build_travel_cost`, above-sea lakes via the
 /// water-body overlay (a bare `field < sea` check misses those).
@@ -480,6 +535,16 @@ fn civ_land_cost_grid(ctx: &RouteContext) -> CostGrid {
             let fy = ((y as f64 / g.sc) as usize).min(ctx.gh - 1);
             if ctx.water_bodies[fy * ctx.gw + fx] != 0 {
                 cost[y * g.rw + x] = f32::INFINITY;
+                continue;
+            }
+            // `build_travel_cost` wrote exactly `1 + 50*sl^2`, so the slope
+            // term is recoverable as `c - 1` and the relief applies to that
+            // alone -- identical arithmetic to computing it inline, without
+            // a second slope pass.
+            let relief = civ_pass_relief(ctx.corridors, fy * ctx.gw + fx);
+            let i = y * g.rw + x;
+            if relief < 1.0 && cost[i].is_finite() {
+                cost[i] = (1.0 + (cost[i] as f64 - 1.0) * relief).max(0.05) as f32;
             }
         }
     }
@@ -537,7 +602,10 @@ fn civ_mixed_cost_grid(ctx: &RouteContext) -> CostGrid {
             let yt = if y > 0 { g.dfld[i - rw] as f64 } else { d_i };
             let yb = if y < rh - 1 { g.dfld[i + rw] as f64 } else { d_i };
             let sl = ((xr - xl) * 0.5).hypot((yb - yt) * 0.5);
-            let mut c = 1.0 + 50.0 * sl * sl;
+            // The pass relief multiplies the slope term only, and lands
+            // BEFORE biome friction and the river discount -- the order
+            // `_civEnhancedTravelCost` itself uses.
+            let mut c = 1.0 + 50.0 * sl * sl * civ_pass_relief(ctx.corridors, fi);
             if let Some(b) = ctx.biome {
                 c *= civ_biome_friction(b[fi]);
             }
@@ -1094,7 +1162,80 @@ mod tests {
     }
 
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], places: &'a [NamedSettlement], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
-        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways, gw: 24, gh: 16, sea: 0.42, world: false, map_width_km: 240.0 }
+        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0 }
+    }
+
+    /// `DECISIONS.md` §7i, the discrimination test: the relief scales with
+    /// the corridor field, applies to the slope term only, never takes a
+    /// cell below the flat-ground baseline, and reaches both land-capable
+    /// cost grids while leaving the water grid alone.
+    ///
+    /// The corridor field is supplied directly rather than run through
+    /// `build_route_corridors` -- that function has its own tests and its own
+    /// golden coverage through settlement suitability; what is under test
+    /// here is the *router's* use of its output, and a hand-written field
+    /// makes "0.0 changes nothing, 1.0 gives exactly the reference's 0.40"
+    /// checkable rather than incidental.
+    #[test]
+    fn pass_relief_scales_with_the_corridor_field_and_touches_nothing_else() {
+        let (gw, gh) = (24usize, 16usize);
+        // A flat shelf (x < 6) that then climbs steadily eastward. The climb
+        // is the point: the relief multiplies the SLOPE term, so a cell with
+        // no slope has nothing to relieve -- which is exactly why the notch
+        // in a perfectly symmetric synthetic ridge is the one cell this term
+        // cannot help, and why the fixture is a ramp rather than a notch.
+        let mut field = vec![0.50f32; gw * gh];
+        for y in 0..gh {
+            for x in 6..gw {
+                field[y * gw + x] = 0.50 + 0.02 * (x - 6) as f32;
+            }
+        }
+        let wb = vec![0u8; gw * gh];
+
+        let mut corr = vec![0.0f32; gw * gh];
+        corr[8 * gw + 12] = 1.0;  // a full-strength pass
+        corr[7 * gw + 12] = 0.5;  // half strength, one cell north
+        let plain = RouteContext { field: &field, water_bodies: &wb, biome: None, river_order: None, places: &[], ways: &[], gw, gh, sea: 0.42, corridors: None, world: false, map_width_km: 240.0 };
+        let aware = RouteContext { corridors: Some(&corr), ..plain };
+
+        // gw <= 384, so the routing grid is 1:1 and indices map directly.
+        let g = civ_routing_grid(&field, gw, gh);
+        assert_eq!((g.rw, g.sc), (gw, 1.0));
+        // `notch`/`half` carry corridor values; `wall` is the same slope with
+        // no corridor; `flat` is the shelf, where the slope term is zero.
+        let (notch, half, wall, flat) = (8 * gw + 12, 7 * gw + 12, 3 * gw + 12, 3 * gw + 2);
+
+        // The relief curve itself, at its three defining points.
+        assert_eq!(civ_pass_relief(Some(&corr), notch), 0.40, "a full corridor is the reference's own pass factor");
+        assert_eq!(civ_pass_relief(Some(&corr), half), 0.70, "and it is linear in corridor strength");
+        assert_eq!(civ_pass_relief(Some(&corr), wall), 1.0, "no corridor, no relief");
+        assert_eq!(civ_pass_relief(None, notch), 1.0, "no corridor field at all is the reference exactly");
+        assert_eq!(civ_pass_relief(Some(&corr), 9_999_999), 1.0, "an out-of-range index is not a panic");
+
+        // Land grid: relieved where the corridor is, untouched elsewhere,
+        // and never below flat ground.
+        let (a, b) = (civ_land_cost_grid(&plain), civ_land_cost_grid(&aware));
+        assert!(b.cost[notch] < a.cost[notch], "the pass must get cheaper: {} -> {}", a.cost[notch], b.cost[notch]);
+        assert!(b.cost[notch] >= a.cost[flat], "but never below flat ground: {} vs {}", b.cost[notch], a.cost[flat]);
+        assert_eq!(b.cost[wall], a.cost[wall]);
+        assert_eq!(b.cost[flat], a.cost[flat]);
+        // The recovered-slope-term arithmetic is exactly the inline form.
+        assert_eq!(b.cost[notch], (1.0f64 + (a.cost[notch] as f64 - 1.0) * 0.40).max(0.05) as f32);
+        assert_eq!(b.cost[half], (1.0f64 + (a.cost[half] as f64 - 1.0) * 0.70).max(0.05) as f32);
+
+        // Mixed grid: the same, through the other code path.
+        let (a, b) = (civ_mixed_cost_grid(&plain), civ_mixed_cost_grid(&aware));
+        assert!(b.cost[notch] < a.cost[notch]);
+        assert_eq!(b.cost[wall], a.cost[wall]);
+        assert_eq!(b.cost[flat], a.cost[flat]);
+
+        // Water grid: a flat 1.0 on water with land impassable -- there is no
+        // slope term to relieve, and none is relieved.
+        let sea_field = vec![0.10f32; gw * gh];
+        let sea_wb = vec![1u8; gw * gh];
+        let wp = RouteContext { field: &sea_field, water_bodies: &sea_wb, ..plain };
+        let wa = RouteContext { field: &sea_field, water_bodies: &sea_wb, ..aware };
+        assert_eq!(civ_water_cost_grid(&wp).cost, civ_water_cost_grid(&wa).cost);
     }
 
     #[test]

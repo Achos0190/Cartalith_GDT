@@ -6566,6 +6566,10 @@ impl WorldGen {
             sea: self.sea_level,
             world: self.world,
             map_width_km: self.map_width_km,
+            // DECISIONS.md 7i: the Route/Way tools get the pass detection
+            // the reference computes and then offers only to its settlement
+            // placer.
+            corridors: inputs.corridors.as_deref(),
         };
         let Some(infra) = self.infra.as_mut() else { return -1 };
         match infra.way_commit(&ctx) {
@@ -6645,6 +6649,10 @@ impl WorldGen {
             sea: self.sea_level,
             world: self.world,
             map_width_km: self.map_width_km,
+            // DECISIONS.md 7i: the Route/Way tools get the pass detection
+            // the reference computes and then offers only to its settlement
+            // placer.
+            corridors: inputs.corridors.as_deref(),
         };
         let Some(infra) = self.infra.as_mut() else { return -1 };
         match infra.route_commit(&ctx) {
@@ -8565,6 +8573,14 @@ impl WorldGen {
     ///   from the shared plan.
     /// * `layovers` (Dictionary) -- `{stop_key: days}`, keyed by the `key`
     ///   each entry of the returned `stops` array carries.
+    /// * `auto_stage` (bool) -- per-stage auto-pick (`DECISIONS.md` §7j). Runs
+    ///   `jp_auto_stage_picks` over the derived stages, merges the winning
+    ///   picks into `stage_overrides` (the user's own fields win) and replans.
+    ///   The picks come back in `stage_picks`, one Dictionary each, so the
+    ///   party form can show what was changed and why. All-or-nothing: if the
+    ///   replan derives a different number of stages, nothing is applied and
+    ///   `stage_picks` is empty, rather than overrides landing on the wrong
+    ///   stages. Costs a second `jp_plan_full` when it fires.
     /// * `animal_entries` (Dictionary) -- `{species_key: entry_id}`, the
     ///   Travel Library definition occupying each of the four built-in
     ///   party-form species slots (`donkey`/`mule`/`camel`/`horse`). Naming a
@@ -8721,6 +8737,7 @@ impl WorldGen {
                     | "layovers"
                     | "animal_entries"
                     | "auto_carriage"
+                    | "auto_stage"
                     | "trim"
             ) {
                 rejected.push(&GString::from(&key));
@@ -8814,17 +8831,46 @@ impl WorldGen {
             auto.set("plan", &jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan)));
         }
 
-        let Some(journey) = cartalith_civ::jp_plan_full(
-            &world,
-            &pts,
-            &plan,
-            &layovers,
-            &|_, _| 1.0,
-            Some(&resolver),
-            Some(&vessel_resolver),
-        ) else {
+        let run = |p: &cartalith_civ::JpPlan| {
+            cartalith_civ::jp_plan_full(&world, &pts, p, &layovers, &|_, _| 1.0, Some(&resolver), Some(&vessel_resolver))
+        };
+        let Some(mut journey) = run(&plan) else {
             return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
         };
+
+        // ---- per-stage auto pick (DECISIONS.md 7j) ----
+        //
+        // Two passes by necessity, not by preference: the picks are measured
+        // against the stages the FIRST plan derived, so the journey has to
+        // exist before they can be chosen, and the plan has to be recomputed
+        // once they are applied. Stage indices survive that second pass
+        // because `jp_derive_stages` reads the route and the shared plan, not
+        // the per-stage overrides -- asserted below rather than assumed, and a
+        // mismatch discards the picks instead of writing them onto the wrong
+        // stages.
+        let mut stage_picks = VarArray::new();
+        if request.get("auto_stage").and_then(|v| v.try_to::<bool>().ok()) == Some(true) {
+            let picks = cartalith_civ::jp_auto_stage_picks(&journey, 1.0);
+            if !picks.is_empty() {
+                let mut with = plan.clone();
+                for p in &picks {
+                    // A user's own override on that stage wins -- `auto_stage`
+                    // fills gaps, it does not overrule a hand-set field.
+                    let base = with.stage_overrides.get(&p.stage).cloned().unwrap_or_default();
+                    with.stage_overrides.insert(p.stage, jp_merge_stage_override(base, p.to_override(&journey.results[p.stage].eff)));
+                }
+                if let Some(j2) = run(&with)
+                    && j2.stages.len() == journey.stages.len()
+                {
+                    plan = with;
+                    journey = j2;
+                    for p in &picks {
+                        stage_picks.push(&jp_stage_pick_dict(p));
+                    }
+                }
+            }
+        }
+
         let v = cartalith_civ::jp_verdict(&journey);
         let reasons: PackedStringArray = v.reasons.iter().map(GString::from).collect();
         let verdict = vdict! {
@@ -8852,6 +8898,7 @@ impl WorldGen {
             "verdict" => &verdict,
             "confidence" => &confidence,
             "cost" => &cost,
+            "stage_picks" => &stage_picks,
             "auto" => &auto,
         }
     }
@@ -8907,6 +8954,10 @@ impl WorldGen {
             sea: self.sea_level,
             world: self.world,
             map_width_km: self.map_width_km,
+            // DECISIONS.md 7i: the Route/Way tools get the pass detection
+            // the reference computes and then offers only to its settlement
+            // placer.
+            corridors: inputs.corridors.as_deref(),
         };
         match cartalith_civ::jp_reroute_for_mode(&ctx, &pts, &transport.to_string(), forced.as_deref()) {
             Err(e) => fail(&e),
@@ -8957,6 +9008,62 @@ fn jp_cost_dict(c: &cartalith_civ::JourneyCost) -> VarDictionary {
 /// [`cartalith_civ::JpAutoTransport`] flattened -- `jpAutoPickTransport`'s
 /// own `{ok, hint, promoted, warn}` return, with the reference's *prose*
 /// hint left to GDScript and its inputs carried instead.
+/// One [`cartalith_civ::JpStagePick`], flattened for `jp_compute`'s
+/// `stage_picks` array. `gain_pct` is `-1` when `unblocks` -- the same
+/// "-1 is absent" convention `stops_needed`/`total_days` already use, and
+/// there genuinely is no percentage between "impassable" and "passable".
+fn jp_stage_pick_dict(p: &cartalith_civ::JpStagePick) -> VarDictionary {
+    vdict! {
+        "stage" => p.stage as i64,
+        "terrain" => p.terrain.as_str(),
+        "biome" => p.biome.as_str(),
+        "daily_km_before" => p.daily_km_before,
+        "daily_km_after" => p.daily_km_after,
+        "gain_pct" => if p.unblocks { -1.0 } else { p.gain * 100.0 },
+        "unblocks" => p.unblocks,
+        "transport" => p.transport.unwrap_or(""),
+        "species" => p.species.unwrap_or(""),
+        "vehicle" => p.vehicle.unwrap_or(""),
+        "reason" => p.reason.as_str(),
+    }
+}
+
+/// `over` layered on `base`, field by field -- `base` wins wherever it has a
+/// value, because `base` is the user's own per-stage override and `auto_stage`
+/// fills gaps rather than overruling a hand-set field.
+fn jp_merge_stage_override(
+    base: cartalith_civ::JpStageOverride,
+    over: cartalith_civ::JpStageOverride,
+) -> cartalith_civ::JpStageOverride {
+    cartalith_civ::JpStageOverride {
+        transport: base.transport.or(over.transport),
+        mount_animal: base.mount_animal.or(over.mount_animal),
+        vessel: base.vessel.or(over.vessel),
+        hours: base.hours.or(over.hours),
+        pace: base.pace.or(over.pace),
+        season: base.season.or(over.season),
+        supply_days: base.supply_days.or(over.supply_days),
+        carry_food: base.carry_food.or(over.carry_food),
+        grazing: base.grazing.or(over.grazing),
+        foraging: base.foraging.or(over.foraging),
+        desert_water: base.desert_water.or(over.desert_water),
+        weather_override: base.weather_override.or(over.weather_override),
+        seasonal_closures: base.seasonal_closures.or(over.seasonal_closures),
+        route_cond: base.route_cond.or(over.route_cond),
+        infra: base.infra.or(over.infra),
+        group_size: base.group_size.or(over.group_size),
+        cargo_kg: base.cargo_kg.or(over.cargo_kg),
+        donkey: base.donkey.or(over.donkey),
+        mule: base.mule.or(over.mule),
+        camel: base.camel.or(over.camel),
+        horse: base.horse.or(over.horse),
+        carts: base.carts.or(over.carts),
+        wagons: base.wagons.or(over.wagons),
+        sleds: base.sleds.or(over.sleds),
+        travois: base.travois.or(over.travois),
+    }
+}
+
 fn jp_auto_transport_dict(a: &cartalith_civ::JpAutoTransport) -> VarDictionary {
     use cartalith_civ::JpAutoTransport as A;
     let mut d = match a {
