@@ -27456,6 +27456,15 @@ nothing to scroll. On one with real overflow the same gesture moves 439 px from
 a spacer defaults to `MOUSE_FILTER_STOP` and swallowed the flick. **7 of 7** now,
 with an `HSlider` still deliberately excluded.
 
+One item was carried over from the concurrent pass's own register section and
+closed here because this file owns the answer: `_close_all_phone_overlays()`
+lists five `Control`s, and the Layers popover is a `PopupPanel` — a `Window`, so
+no Control walk ever reached it and the sheet could sit open behind a drawer.
+Matched on `Popup` rather than `Window`, because a popover is transient while an
+`AcceptDialog` is a modal the user is inside; and with `owned = false`, since
+these are built in code and the default would have returned an empty list and
+made it a fourth silently-inert fix.
+
 **Verified windowed, 0 failures**, at 1440x3168 and 1080x2400 in real phone mode
 and at 1600x900 on the desktop composition, with before/after screenshots. The
 harness (`_hidpi_probe.gd`) drives the shell inside a **`SubViewport`**, because

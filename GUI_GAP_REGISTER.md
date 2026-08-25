@@ -7337,6 +7337,27 @@ matched on the exact class and skipped if anything is listening on `gui_input`.
 After: **7 of 8** at 1080x2400 and **7 of 7** at 1440x3168, the remainder being
 the slider.
 
+### §46's one carried-over item — a `Popup` is a `Window`, not a `Control` · **FIXED**
+
+Picked up from §46's "Not fixed, and why", where the concurrent phone pass
+registered it rather than editing `dcc_shell.gd` mid-flight: with the Layers
+sheet up, `_set_drawer_open(true)` left **both** visible.
+`_close_all_phone_overlays()` lists the drawer, the panel picker, the phone menu
+and both dock sheets — all `Control`s — and `LayersPopover` is a `PopupPanel`,
+so no Control walk has ever reached it.
+
+Matched on `Popup` and deliberately **not** `Window`: a popover is transient and
+going somewhere else is what dismisses it, while an `AcceptDialog` is a modal the
+user is inside, and closing one out from under them would trade a cosmetic
+overlap for lost input. `PopupMenu` is caught by the same test and should be.
+`find_children(..., owned = false)` because these are built in code and have no
+scene owner — the default `owned = true` returns an empty list, which would have
+made this another silently-inert fix of the kind HD-02 already collected three
+of.
+
+Verified: popover open → `true`, then drawer opened → popover `false` and drawer
+`true`.
+
 ### Proven negatives — two leads that are not defects
 
 - **`phone_present()` fills the screen correctly; the 31 % fill is a dev-box
