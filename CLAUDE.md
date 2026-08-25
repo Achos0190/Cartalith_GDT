@@ -111,6 +111,12 @@ Recorded here because they are cheap to state and expensive to rediscover; each
 came from a real failure, and every one is detailed in the scope document that
 found it.
 
+- **When two design canvases disagree, the newer one wins; where none exists,
+  derive from the DCC canvases' own vocabulary.** Owner ruling, 2026-08-25 —
+  the full statement, and the five conflicts it already settles, are at the top
+  of `DCC_SHELL_SCOPE.md`. An owner decision is newer than any canvas: `Data ▸
+  Conversion` is still drawn in the canvas and was removed by decision on
+  2026-08-20, so the canvas is the stale party there, not the shell.
 - **Verify a scope document's line ranges against the real reference before
   slicing.** Four consecutive urban milestones found theirs wrong — twice at
   both ends. A start that is too *late* does not fail to parse; it silently

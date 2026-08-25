@@ -1,5 +1,39 @@
 # DCC shell: supersedes GUI_SHELL_SCOPE.md's target, real milestone plan
 
+> ## 📐 WHICH CANVAS WINS (owner, 2026-08-25) — read this before resolving any design conflict
+>
+> Owner's words, verbatim: *"In essence always follow the newer design or use
+> the design principles from the DCC versions to fill in gaps."*
+>
+> Two rules, in order:
+>
+> 1. **The newer canvas wins.** Where two artboards disagree, the later one is
+>    authoritative — not the more detailed one, not the one a scope document
+>    happens to cite, and not the one already implemented.
+> 2. **Where no canvas exists, derive from the DCC canvases' own vocabulary.**
+>    Fill the gap by extending what they establish; do not invent a treatment,
+>    and do not copy one in from outside this design system. Say in the pass's
+>    write-up which surfaces were *designed* rather than *matched*.
+>
+> A third rule follows from the first and is worth stating because it has
+> already caught a pass out: **an owner decision is newer than any canvas.**
+> `Data ▸ Conversion` is still drawn in the canvas and was removed by owner
+> decision on 2026-08-20; the canvas is stale there, and the shell is right.
+>
+> ### What this settles, as of 2026-08-25
+>
+> | Conflict | Resolution under the rule |
+> |---|---|
+> | Phone geometry: `DCC Shell.dc.html` §13 (393 dp) vs `Cartalith Android Phone.dc.html` (412 dp) | **412 dp** — already ruled separately the same day, and the rule agrees |
+> | Phone bottom-nav **tab set**: the 412 canvas's five pre-v3 domains vs `Cartalith Menu Structure v3.dc.html` | **v3's domain set.** v3 is newer than the phone canvas. So the migration takes 412's *geometry* and v3's *content* — the one place the two authorities split |
+> | Tool options bar: `DCC shell 1920`'s one 34 px row vs `Cartalith Paint Toolbar.dc.html`'s two ruled 38 px rows | **Paint Toolbar** — it is the later artboard and draws a component `DCC shell 1920` does not |
+> | Dropdown check marks: canvas's typographic `●`/`○` vs Godot's stock radio icons | **The canvas.** No newer authority disagrees |
+> | Menus with no artboard at all (Edit, Window, Help, Preferences' bands, World Data's phone list) | Rule 2 — derive from the drawn menus, and disclose which |
+>
+> Recorded here rather than only in `GUI_GAP_REGISTER.md` §51 because it
+> resolves conflicts that have not happened yet, and because every future
+> design pass needs it before it starts rather than after it has guessed.
+
 > ## ✅ THE HOLD IS LIFTED — BUILD IT (owner, 2026-08-18, later same day)
 >
 > Owner's words, verbatim: *"Replace the current GUI and replace it in full by
