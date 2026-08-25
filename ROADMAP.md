@@ -41,9 +41,13 @@ screen** and a **licence check** over the crates pulled in (`PROVENANCE.md`).
 **Status: done** — `PHASE2_SCOPE.md` carries the milestone record. The
 Journey Planner advice below proved right and was followed: it became its own
 sub-phase (`JOURNEY_PLANNER_SCOPE.md`, six milestones) and is engine-complete
-at 65 of the reference's 74 `jp*` functions — 6 UI-only, 2 JS idioms with no
-Rust function to write, 1 blocked on a Route-tool pathfinder since ported.
-Economy aggregation (`ECONOMY_SCOPE.md`) closed the last piece.
+at **66** of the reference's 74 `jp*` functions — 6 UI-only, 2 JS idioms with
+no Rust function to write, **nothing blocked**. Economy aggregation
+(`ECONOMY_SCOPE.md`) closed the last piece. *Corrected 2026-08-25
+(`PARITY_AUDIT.md` pass 3, F3): this line still read "65 … 1 blocked on a
+Route-tool pathfinder since ported" — pass 2's F10 fixed that same claim in
+`README.md` and not here. `JOURNEY_PLANNER_SCOPE.md` §"the count reaches 66
+of 74" and `cartalith_civ::jp_reroute_for_mode` are the authority.*
 
 Block 2: factions, settlements, territory, roads, provinces, economy. A new
 `cartalith-civ` crate depending on `cartalith-engine`'s terrain without modifying
@@ -99,12 +103,15 @@ plugs into. Confirm before starting.
 
 ## Phase 5 — Urban morphology
 
-**Status: in progress** — milestones 1-7 done (2026-08-18) and wired end to end
-as milestone 17a (2026-08-23); 8-17 open. Figures mirrored from
-`cartalith-native/docs/STATUS.md`'s own Phase 5 section, which is the
-authority. *Status line added 2026-08-24 by a roadmap-coverage audit — this
-file's own preamble promises every phase one, and Phase 5 was the only section
-without it.*
+**Status: in progress** — milestones 1-7 done (2026-08-18), wired end to end
+as milestone 17a (2026-08-23), then **8a (the plaza) and 12 (blocks and
+parcels) done out of order on 2026-08-24**. Open: 8, 9, 10, 11, 13, 14, 15,
+16 and the rest of 17. Figures mirrored from `URBAN_MORPHOLOGY_SCOPE.md`'s own
+milestone headings, which are the authority. *Status line added 2026-08-24 by
+a roadmap-coverage audit — this file's own preamble promises every phase one,
+and Phase 5 was the only section without it. **Corrected 2026-08-25**
+(`PARITY_AUDIT.md` pass 3, F2): it still read "8-17 open" a day after
+milestones 8a and 12 shipped.*
 
 Block 4, procedural city layouts. Already a self-contained DOM-free engine in the
 JS codebase, which suggests it ports cleanly into `cartalith-urban`, depending on

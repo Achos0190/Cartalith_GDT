@@ -1,9 +1,11 @@
 # Parity audit — the port's progress claims against the legacy checklist and the real code
 
 > **Passes so far.** [Pass 1 — 2026-08-23](#1--summary) (§1-§8) ·
-> [Pass 2 — 2026-08-24](#pass-2--2026-08-24) (§9-§13). Each pass keeps its own
-> findings, dated; nothing from an earlier pass is rewritten, so the two read
-> as a trail rather than a snapshot.
+> [Pass 2 — 2026-08-24](#pass-2--2026-08-24) (§9-§14) ·
+> [Pass 3 — 2026-08-25](#pass-3--2026-08-25) (§15-§21). Each pass keeps its own
+> findings, dated; nothing from an earlier pass is rewritten, so the three read
+> as a trail rather than a snapshot. **Pass 3 carries the standing "what is
+> actually left" list** — [§20](#20--what-is-actually-left).
 
 **Pass 1, 2026-08-23.** First cross-reference of this repository's own
 progress/status documents against (a) `reference/FUNCTION_INDEX.md` as rewritten
@@ -736,3 +738,447 @@ judgment call.
    pass 1's fourteen undisclosed surfaces closed, and *also* found the master
    inventory stale again within a day. Both facts are the same fact — the port
    is moving faster than its summary tables, and only a periodic sweep notices.
+
+---
+
+# Pass 3 — 2026-08-25
+
+**The re-run §14.5 asked for.** Eighty-two commits landed between pass 2
+(`3d167eb`) and `10f7c9c` — the v3 left-rail restructure, the Markdown vault
+subsystem, IN-13 trade flows, VA-01 vault backlinks, ED-02 the undo ledger,
+CV-23 contested-borders influence, CV-25/CV-26 military and faction relations,
+a four-output military manpower model, and a long run of rendering and
+conformance fixes. Well past the "batch of three or more milestones" trigger,
+and more than twice pass 2's batch.
+
+**This pass was run against a specific instruction**, and it is the right one:
+*do not trust a register entry's stated reason.* The session that produced this
+batch found **seven** items registered as "no backing capability" that were
+already built. So every item reported below as outstanding was checked against
+the real crates and against `reference/FUNCTION_INDEX.md` before being written
+down, and the ones whose engine half already exists are sorted separately —
+they are a different and much cheaper kind of work.
+
+**Same rules as passes 1 and 2.** Findings only. Purely mechanical staleness
+was fixed and every fix is disclosed in §21; genuine judgment calls are
+reported for the owner, not resolved.
+
+---
+
+## 15 · Summary
+
+### What landed, and what was checked
+
+| Input | Size |
+|---|---|
+| Commits reviewed | **82** (`git log 3d167eb..HEAD`) |
+| New crate | `cartalith-vault` — the sixteenth, and the only one that is not engine work |
+| New engine/bridge modules | `civ/{trade,military,manpower,relations,territory_influence}.rs` · `civ_continents` · `godot/{civ_trade_bridge,civ_military_bridge,vault_bridge,bake_bridge,export_raster,undo}.rs` · `engine/bake.rs` · `urban/{plaza,blocks}` |
+| Progress documents re-read | `STATUS.md` · `GUI_GAP_REGISTER.md` (**6 771** lines, up from 3 028) · `FUNCTIONAL_CONTRACT.md` · `ROADMAP.md` · `README.md` · `CLAUDE.md` · `DECISIONS.md` · `URBAN_MORPHOLOGY_SCOPE.md` · `JOURNEY_PLANNER_SCOPE.md` · `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` |
+| Register sections added since pass 2 | **§23-§44** — twenty-two, against pass 2's seven |
+
+### Build and test state at audit time
+
+Run against `10f7c9c`, from `cartalith-native/`:
+
+- `cargo check --workspace --all-targets` — **clean, exit 0.** No warnings
+  surfaced. The two `dead_code` warnings in `cartalith-gpu` that passes 1 and
+  2 both recorded as pre-existing no longer appear.
+- `cargo test --workspace --no-fail-fast` — **138 test binaries, 2 203 passed,
+  8 ignored.** The suite count matches the last recorded full run exactly.
+- **One test fails intermittently. See F1** — it is the only red anywhere in
+  this pass, and it is not a stale-document finding.
+- Working tree: **clean of tracked changes.** Untracked are the vendored
+  `ui-ux-pro-max` skill and **152 verification-harness files**. See F8.
+
+**Growth since pass 2**, measured not quoted:
+
+| Metric | Pass 1 | Pass 2 | Pass 3 |
+|---|---:|---:|---:|
+| `#[func]` bindings in `cartalith-godot` | 205 | 294 | **402** |
+| Crates | 15 | 15 | **16** |
+| GDScript files under `godot-project/shell/` | 24 | — | **43** |
+| `GUI_GAP_REGISTER.md` lines / sections | 2 027 / 15 | 3 028 / 22 | **6 771 / 44** |
+| Distinct gap IDs, by the register's own method | ~123 claimed | 215 recounted | **260** |
+| `cartalith-urban` Rust lines (incl. tests) | — | — | **18 568** |
+| `STATUS.md` size | 4 489 lines | — | **7 499 lines / 689 KB** |
+
+### The headline: the anti-pattern is being caught faster than it is created
+
+Pass 1 found fourteen undisclosed surfaces; pass 2 found twelve of them built.
+This pass found something better: **the batch caught its own instances.**
+Register §39 checked all fifteen of §37's new IDs against the crates before
+writing code and found **four already built** (WW-14 ecology productivity,
+CV-21 faction colour, CA-19 the biome legend, WW-15 the CRS declaration), and
+§40/§42/§43 found four more (the reference military model, IN-13's bipartite
+match and union-find, and two inert tables). That is the discipline working.
+
+**What this pass adds is that the same anti-pattern has migrated into the
+narrative documents.** Every one of §16's five findings is a *document* that
+describes as missing something the code has. The register is now the
+best-maintained document in the repository by a wide margin; the summary
+tables that no feature commit is obliged to touch are where the drift lives —
+which is precisely pass 2's §14.1 prediction, holding for the third pass
+running.
+
+### Findings, in priority order
+
+| # | Finding | Severity |
+|---|---|---|
+| **F1** | **`generate_terrain_gpu_path_is_deterministic_and_valid` fails intermittently** — 2 of 6 full-workspace runs, 0 of 6 in isolation. The two runs differ by ~1 ulp of `f32`, and the assertion is `assert_eq!` on the whole field. This is the only failing thing in the port, and it may be **testing a bar the owner has already relaxed** | **highest** — reported, needs a decision |
+| **F2** | **Urban morphology milestones 8a and 12 shipped on 2026-08-24 and three documents still said "milestones 1-7 done, 8-17 open"** — `ROADMAP.md`, `README.md` and `FUNCTIONAL_CONTRACT.md`, the last of which named **blocks/parcels** in its absent-entirely list a day after milestone 12 built it | **high** — **fixed mechanically, §21** |
+| **F3** | **Pass 2's F10 recurring in the document pass 2 did not fix.** `ROADMAP.md` Phase 2 still read *"65 of the reference's 74 `jp*` functions … 1 blocked on a Route-tool pathfinder since ported"*. Same shape as pass 2's own F1: a correction applied to `README.md` and not to `ROADMAP.md`'s copy of the identical sentence | medium — **fixed mechanically, §21** |
+| **F4** | **`FUNCTIONAL_CONTRACT.md` has gone stale for the third consecutive pass**, and one entry was **stale on the day pass 2 wrote it**: pass 2 corrected the SG-03 row as a "judgment call" on 2026-08-24, and SG-03 closed on 2026-08-24. Also wrong: the persistent atlas/bake bullet, and ambient occlusion listed as an unscoped absent toggle while shipping with two live sliders | **high** — **fixed mechanically, §21** |
+| **F5** | **Three register rows in §6 state a reason the engine has since falsified** — RD-01 (defensibility), RD-02 (settlement↔route association) and RD-07 (state religion). All three are "already built, just unwired", the exact class §39 exists to catch, sitting in the oldest part of the register where §37-§44's re-checks never reached | **high** — reported (register is concurrent territory) |
+| **F6** | **The register's §3 headline count is stale again** — 215 against **260** by the section's own disclosed method, its prefix list omits **five** prefixes now in use (`MR`, `TO`, `MN`, `VA`, `KV`), and it says *"six `### PH-0N ·` entries"* where there are **eleven**. Pass 1 rec #2, pass 2 F7, pass 3 F6 | medium — reported |
+| **F7** | **`STATUS.md` has stopped being a quicklist.** 7 499 lines / **689 KB** — 41 % of `CHANGELOG.md`'s size — while its own first line reads *"A living checklist, not a narrative"* and `CLAUDE.md` calls it the authoritative status and sends every session to it before anything else. A single "Last updated" entry now runs to ~2 KB of prose | medium — structural, reported |
+| **F8** | **Pass 2 rec #4 unactioned, and the drift is 6.5× worse.** Pass 2 found 11 untracked `_*_shot`/`_*_probe` harnesses; there are now **72 `.gd` + 71 `.tscn` + 9 `.png`**, cited by name as evidence throughout `CHANGELOG.md` and the register, and absent from a fresh clone | medium |
+| **F9** | **`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §4 has gone further wrong, not less.** Pass 2's F3 is half-closed (Q5 now has `DECISIONS.md` §7g ✅); Q1 and Q2 still read as unanswered authorisation requests though both are built (`DECISIONS.md` §7f; `flow_sort_desc`). Pass 2's F4 is unactioned **and Q3's text now carries three wrong sentences**, not one | medium |
+| **F10** | **Pass 1 §5 item 11 / pass 2 F5 is now three passes old**: the layer hotkeys `1–8` are still disclosed only against `DCC_SHELL_SPEC.md` §10, never against the reference's own `LAYER_HOTKEYS` (`0 B T F S W R`). `grep` finds `LAYER_HOTKEYS` nowhere in the register or the spec | low, but it is the last unmade §7d decision from pass 1's list |
+
+**Closed since pass 2, verified rather than assumed:** pass 2's F6
+(`STATUS.md`'s second stale-checkbox cluster — 7 unchecked boxes remain, none
+of them the named ones), F8 (`DccWidgets.note()`'s 240 px floor — registered
+as **SH-12** *and fixed*, 240 → 190, including the left-dock/workspace half
+pass 2 flagged as unaudited), and F3's Q5 half (`DECISIONS.md` §7g now
+exists). **Pass 1's C1 has not regressed**: `CLAUDE.md`, `README.md` and
+`ROADMAP.md` all now state the hold as lifted, and `CLAUDE.md`'s crate count
+reads 16.
+
+---
+
+## 16 · The already-built sweep — five documents describing capability that exists
+
+The instruction this pass was given. Each row below was checked against the
+crates, not against the document that claims it.
+
+### F5a · RD-01 — Settlement ▸ Defensibility
+
+**The row says** (`GUI_GAP_REGISTER.md` §6): *"(B) small — the reference itself
+treats it as a UI-only categorical."* **The shell says**
+(`right_dock.gd:597-600`), drawing a literal `—`:
+
+> `explain_settlement()`'s suitability terms have no defensibility axis --
+> gentle_slope/terrain_form are the closest inputs but the engine doesn't
+> label either one defensibility.
+
+**What is true.** `cartalith_civ::civ_place_defensibility`
+(`cartalith-civ/src/military.rs:166`) is a golden-verified port of the
+reference's own `_civPlaceDefensibility` (reference line 23802), landed by
+register §40. `civ_military_bridge.rs:168` computes it per place and `:599`
+exposes it by name; `civilization_workspace.gd:1595` already **sorts walled
+places by it**. The dock note is correct about `explain_settlement` and wrong
+about the engine — it names the one function that does not carry the axis, in
+a build where another one does.
+
+**Real remaining scope:** point the field at `civ_military_summary()` instead
+of `explain_settlement()`. Not a port.
+
+### F5b · RD-02 — Settlement ▸ Routes
+
+**The row says:** *"(B) small — needs a settlement↔way association the engine
+does not model."* **The shell says:** *"Roads and sea routes carry no
+settlement index … nothing associates a route with this settlement."*
+
+**What is true.** IN-13 built exactly that association.
+`cartalith-civ/src/trade.rs`'s `WayRouter` (`:550-639`) runs a real Dijkstra
+over the way graph and caches `prev_way` **per source settlement**, then walks
+it back edge by edge in `accumulate()`; `TradeFlow` carries `from` and `to` as
+settlement indices, and `way_load` is per way in `get_roads()` order. The
+association is computed for every one of the verification world's 624 flows —
+and then aggregated away into a scalar per way.
+
+**Real remaining scope:** retain or re-walk the already-cached path; the
+per-source cache makes the second walk nearly free. That is a much smaller
+item than "the engine does not model it", which is what the row currently
+tells a future session.
+
+### F5c · RD-07 — Faction ▸ State religion
+
+**The row says:** *"(B) wrapper — `civ_faction_aggregates` is golden-verified
+and unexposed."*
+
+**What is true.** `civ_faction_aggregates` is **exposed** — it is called
+inside a live `#[func]` at `cartalith-godot/src/lib.rs:10987` (the Faction
+Roster's "Territory fit" panel) and again at `civ_military_bridge.rs:262`.
+More than that, the religion input is **already fed from the roster** in both
+places (`faction_has_religion: Some(&has_religion)`, `lib.rs:10983` and
+`civ_military_bridge.rs:254`), and `religious` is a real computed power axis
+that feeds `overall` (`cartalith-civ/src/lib.rs:2917-2937`).
+
+**Real remaining scope:** surface one field the O(cells) pass already
+computes. The row's "wrapper" class is right; its reason is not, and the
+reason is what makes it look like a binding still has to be written.
+
+### F5d · `FUNCTIONAL_CONTRACT.md` — three absent-list entries that are built
+
+| Entry | What is true |
+|---|---|
+| *"Dial/slider-triggered live re-tuning (SG-03): a moved parameter still marks nothing stale"* | **SG-03 closed 2026-08-24**, the same day pass 2 wrote this bullet. `set_params`' own doc comment reads *"**Marks the staleness graph** (`GUI_GAP_REGISTER.md` SG-03) for the 25 keys that have a live-apply path"*, and the register's §21 SG-03 row reads CLOSED |
+| *"Persistent LOD tile atlas/cache, and the bake/finalize-lock: nothing persists it to disk yet"* | `cartalith_engine::bake`'s `AtlasStore` writes chunks under a real disk root with a manifest, and imports an atlas back out of a zip (`atlasImportEntries`, reference 10910). `bake_bridge.rs` carries `BakeState::root` and the finalize lock. Three commits: `e0dfa44`, `948e15a`, `3689d7b` |
+| *"AO/SVF/shadow toggles … presentation-only, unscoped"* | **Ambient occlusion is `render.rs`'s milestone 2 and ships**, with two live sliders in `render_workspace.gd` (`ao_strength`, `ao_radius_frac`) whose tooltip calls one *"the reference's own Ambient occlusion slider"*. SVF/cast-shadow and SDF genuinely remain on `render.rs`'s own excluded list; AO does not |
+
+### F5e · Three documents on urban morphology
+
+`URBAN_MORPHOLOGY_SCOPE.md`'s own milestone headings record **milestone 12
+(blocks and parcels) done 2026-08-24** and **milestone 8a (the plaza) done
+2026-08-24** — the latter is commit `5ea486c`, *"The town has a market square,
+because buildPlaza is ported"*. `ROADMAP.md`, `README.md` and
+`FUNCTIONAL_CONTRACT.md` all still said "1-7 done, 8-17 open", and
+`FUNCTIONAL_CONTRACT.md`'s absent list named **blocks/parcels** among the
+things not built.
+
+---
+
+## 17 · `ROADMAP.md` phase by phase, verified against code
+
+| Phase | Documented | Verified | Verdict |
+|---|---|---|---|
+| **0** — Walking skeleton | done | — | **done** |
+| **1** — Terrain MVP | done | — | **done** |
+| **2** — Civilisation layer | done, "65 of 74, 1 blocked" | `cartalith_civ::jp_reroute_for_mode` exists (`lib.rs:11897`); `JOURNEY_PLANNER_SCOPE.md` §1069 records 66 of 74 | **done** — the count was stale, **F3** |
+| **3** — Rendering and 3D | partial; "the 3D drape is not started" | No 3D anywhere: `PR-06` (AA/anisotropy) and `PR-08` (3D viewport defaults) are both open and both gated on it; `DECISIONS.md` §4 defers it | **accurate.** The 2D half is far past "milestones 1-6" now (NPR block, colour grade, bake/atlas, deep zoom); the 3D half is **deliberately deferred**, not merely unstarted |
+| **4** — Asset Library | done | — | **done** |
+| **5** — Urban morphology | "1-7 done; 8-17 open" | 1-7, 17a, **8a**, **12** done; 15 of 20 `_um*` ported | **started-and-incomplete**, and further along than documented — **F2** |
+
+**Nothing in `ROADMAP.md` is genuinely unstarted except the 3D drape**, and
+that is an owner decision with its own `DECISIONS.md` section rather than a
+gap. The "Not a phase: LOD and large worlds" section has been overtaken —
+deep-zoom tiling, the quadtree base, the persistent atlas and a measured
+performance comparison all exist; the section still reads *"Revisit when a
+concrete need appears rather than building it speculatively."* That is a
+**judgment call about whether the section should be retired**, and it is
+reported rather than edited.
+
+---
+
+## 18 · The register's open and narrowed entries — spot-checked, not taken on trust
+
+**§37-§44's own re-checks hold.** Every closure claim spot-checked here was
+real: `civ_place_defensibility` and `um_wall_spec`/`um_infer_walls` (§40),
+`trade.rs`'s union-find `RoadComponents` and bipartite match (§42),
+`territory_influence` (§41), `build_npp` and `wildlife` (§39), `civ_continents`
+(§35). The batch's headline claim — that four of §37's fifteen were already
+built — is accurate, and so is the sharper one, that §37's *stated reason* was
+factually wrong for CV-21, WW-14, WW-15 and CA-16.
+
+**The six narrowed remainders' blockers were checked and are real and current:**
+
+| ID | Chip | Blocker verified |
+|---|---|---|
+| **CV-23** | blocked on | Historical occupation is timeline work; `territory_influence` computes the present-year field on demand and retains nothing. Real |
+| **CV-24** | needs a decision | `dcc_shell.gd`'s `timeline_bar` is a single `Control` from `_build_timeline()` with a fixed-height contribution (`:2407`). A shell-frame change, correctly classified (C) |
+| **CV-25** | needs a decision | Per-settlement garrisons, campaigns, unit movement, combat. **In flux — `MILITARY_MANPOWER_SCOPE.md` is a concurrent agent's territory and was not audited here** |
+| **CV-26** | needs a decision | Treaties, vassalage, change over time. `relations` exists as one derived value per faction pair; there is no year axis on it. Real |
+| **CA-18** | blocked on | `grep` for label collision / declutter budget across the whole shell and `cartalith-godot`: **zero hits.** Real |
+| **CA-19** | costs a re-baseline | `CART_BIOME_COLS` is a compile-time `const` in `render.rs`, and `paint_bridge.rs:851` asserts exact RGB values against it. Making it writable really would move golden expectations `DECISIONS.md` §7a protects. **The most precisely-stated blocker in the register** |
+
+**Other still-open §6 rows verified as genuinely absent** — no engine half,
+reason accurate: **CV-01** the POI tool (`civ_tools_bridge.rs:26` states it in
+the module doc: *"Territory only — no `civ_drop_poi`, no fabricated POI record
+type"*) · **GeoJSON import** (`DM-03`; zero hits for any import path, and it
+was explicitly out of scope when export was built) · **JP-06/JP-08** journey
+persistence (`cartalith-io/src/save.rs` names them in its header and writes no
+journey entry) · **PR-03** CPU worker threads (no `ThreadPoolBuilder` call
+anywhere in the workspace) · **FI-06** project name field (no
+`project_name`/`world_name` on `WorldGen` or `SaveData`) · **RD-05/IN-01**
+rivers-as-entities — `trace_river_polylines` and `split_river_polylines` are
+real and golden-verified, but a polyline has no id, name or catchment, so the
+row's framing is **correct**. That last one is worth naming explicitly: it is
+the one place in this pass where a "but the polylines exist" argument looked
+like it would falsify a reason and did not.
+
+---
+
+## 19 · Cross-document contradictions
+
+**Resolved by this pass, mechanically** — F2, F3, F4. See §21.
+
+**Reported, not resolved:**
+
+1. **The register's §3 counts (F6).** Pass 1 asked, pass 2 recounted to 215
+   and disclosed a reproducible method, and the method now yields **260**
+   (249 table-row IDs + 11 `### PH-` headings). §3's own prefix list is
+   missing `MR`, `TO`, `MN`, `VA` and `KV`, all in use, and its "six `PH-0N`
+   entries" is eleven. **The arithmetic half is mechanical and the A/B/C/D
+   split is not**, which is why pass 2 declined; this pass also declines, for
+   a second reason — `GUI_GAP_REGISTER.md` is a concurrent agent's territory
+   this session, and this repository's own history of git-index sweeps
+   (pass 2 §10, six incidents in one batch) makes an unnecessary edit to a
+   shared 6 771-line file a poor trade for one corrected number.
+
+2. **`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §4 (F9).** Q1 and Q2 read
+   as open authorisation requests; both are built (`DECISIONS.md` §7f;
+   `cartalith_hydrology::flow_sort_desc`, tested element-identical to the
+   comparison sort it replaced). Q3's resolution text now carries **three**
+   wrong sentences where pass 2 found one:
+   - *"the future wiring is tracked as `GUI_GAP_REGISTER.md` MS-06"* — MS-06
+     is *Auto-populate world*; the rows are SG-01…SG-03 (pass 2's F4, still
+     unactioned);
+   - *"**No UI was built**; the hold stands"* — the hold was lifted the same
+     day it was called, and SG-01/SG-03's UI was subsequently built;
+   - *"`param_set` is deliberately still unwired"* — **SG-03 closed
+     2026-08-24**; `set_params` marks the graph.
+
+   Pass 2's standing reason for not editing this document holds and is
+   repeated here: *a third party restating an owner decision is how a
+   decision loses its provenance.* It is the research author's to write.
+
+3. **`ROADMAP.md`'s "Not a phase: LOD and large worlds"** now describes as
+   speculative a subsystem that shipped (§17). Retiring or rewriting the
+   section is a judgment call about the document's shape, not a staleness fix.
+
+4. **`STATUS.md`'s purpose (F7).** Not a contradiction between documents but
+   between a document and itself: `CLAUDE.md` says *"Authoritative status is
+   `cartalith-native/docs/STATUS.md`. Read it before starting work"*, and the
+   file is 689 KB. A session that follows that instruction literally spends
+   its budget on exactly the thing the quicklist was created to prevent.
+
+---
+
+## 20 · What is actually left
+
+The owner-actionable list, sorted by kind. Everything here was verified
+against the crates during this pass.
+
+### Needs an owner decision
+
+| Item | The decision |
+|---|---|
+| **F1 — the flaky GPU determinism test** | `generate_terrain_gpu_path_is_deterministic_and_valid` asserts `assert_eq!` on the whole `f32` field across two GPU runs. It fails ~1 run in 3 under full-workspace parallel load, by ~1 ulp. The owner has already ruled that **GPU paths are held to principled equivalence, not bit-identity** (`DECISIONS.md` §7a's GPU door). Is bit-identity still the right bar *for determinism between two runs of the same path*, or should the assertion become a tolerance? Answering it either fixes the test or promotes the flake to a real bug |
+| **CV-25** — per-settlement garrisons, campaigns, unit movement, combat | *In flux; a concurrent agent holds it* |
+| **CV-26** — treaties, vassalage, diplomatic change over time | What a treaty *is* here, and whether relations get a year axis |
+| **WW-15** — reprojection | The CRS is declared; nothing reprojects. Needs a target projection before it is scopeable |
+| **CA-19** — a *writable* biome colour table | Buildable today; **costs a golden re-baseline** `DECISIONS.md` §7a protects |
+| **IN-13's remainder** — prices, tariffs, caravans as entities, trade over time | Each needs a decision about what a currency is in this world. Already stated on screen |
+| **F10** — layer hotkeys `1–8` vs the reference's `0 B T F S W R` | A §7d-shaped decision, unmade for three passes |
+| **CA-12** — the Icon tool is inert until an asset pack is imported, and none ships | Registered as "(B) small, but an owner call — not taken here" |
+
+### Already built, just unwired — the cheapest work available
+
+| Item | What exists | What is missing |
+|---|---|---|
+| **RD-01** Settlement ▸ Defensibility | `civ_place_defensibility`, golden-verified; exposed via `civ_military_summary()`; already sorted on in `civilization_workspace.gd` | One dock field pointed at the right binding |
+| **RD-02** Settlement ▸ Routes | `WayRouter`'s per-source Dijkstra + `prev_way` cache; `TradeFlow.from`/`.to` | Retain or re-walk the cached path instead of aggregating it into `way_load` |
+| **RD-07** Faction ▸ State religion | `civ_faction_aggregates` live in two `#[func]`s; `faction_has_religion` already fed from the roster; `religious` a real power axis | One surfaced field |
+| **CV-02** Culture ▸ Profiles | `civ_default_culture` already called inside `get_factions()` | One `get_cultures()` binding |
+| **F8** the harnesses | 72 `.gd` + 71 `.tscn` drivers exist and work | `git add` — they are cited as evidence and a fresh clone has none |
+
+### Real work, small
+
+`FI-06` project name field · `CV-05` territory "respect coastlines" ·
+`JP-10`/`JP-11` foraging offset and load speed penalty · `IN-03` per-waypoint
+way/route undo · `WW-06` paint hardness/softness · `WW-08` min stream order ·
+`CA-06` label letter-spacing and anchor · `PR-03` CPU worker threads (one
+`ThreadPoolBuilder` call; the *default* is owner policy) · `CV-01` the POI
+tool (one `civ_drop_poi` mirroring `civ_drop_settlement`; the `poi` asset
+family already carries the 10-slot vocabulary) · `SH-06`'s `→` draft-stamp
+suffix.
+
+### Real work, large
+
+| Item | Honest current scope |
+|---|---|
+| **Urban morphology, milestones 8, 9, 10, 11, 13, 14, 15, 16** | **~42 of block 4's 92 functions**, plus 5 of the 20 `_um*` adapter functions (`_umHarbourScale`, `_umPt`, `_umSiteProfile`, `_umOreBearing`, `_umCacheKey`). Milestone 10 (fortification, 9 fns / ~407 lines) is the largest single one; milestone 16 (`generate` + `hashModel`) is the payoff, because it unlocks a **whole-subsystem golden** the reference wrote for exactly that purpose. **Scope estimate, revised honestly:** the original "~3,860 lines" counts *JS*. Milestones 1-7 + 8a + 12 produced **18 568 lines of Rust with tests** for roughly half the function count, so the remainder is plausibly of the same order again — not a phase-sized push, and the scope document has said so since 2026-08-18 |
+| **The 3D drape** | Genuinely not started, and **deliberately deferred** (`DECISIONS.md` §4). `PR-06` and `PR-08` are both gated behind it. Phase 3's other half has run far ahead of this entry |
+| **ED-03/ED-04** cut/copy/paste/select-all | No clipboard model for any entity. Three separate pieces, not one selection abstraction |
+| **RD-05 / IN-01** rivers as entities | Rivers are a per-cell network; polylines exist but carry no id, name or catchment. Reason verified accurate |
+| **CA-03 / CA-04 / RD-10** layer compositing | Needs the single colour pass to become separable outputs — an architecture change `GUI_FEATURE_PARITY_SCOPE.md` Category 3 already recommended |
+| **GeoJSON import** (`DM-03`) | Absent, and explicitly out of scope when export was built |
+| **CV-24** the year scrubber as program scope | A shell-frame change; `TIMELINE_SCOPE.md` §4's standing instruction is to design the panel first rather than guess the region |
+
+### Deliberately deferred
+
+3D drape (`DECISIONS.md` §4) · store distribution (§6) · a WASM target (§2) ·
+an Obsidian plugin (owner: *"a wish, deferred outright"*) · POIs and "regions"
+as vault entity kinds (owner-excluded; recorded as unsatisfiable rather than
+faked) · `compute_civilisation`'s crate move (owner 2026-08-24: *"not a
+priority right now"*) · `WW-10`, `WW-11`, `CV-06`, `CV-09`, `IN-04`, `RD-04`,
+`RD-12`, `AS-14`, `AS-15`, `CA-10`, `SH-02`, `SH-04`, `SH-08` — all class (D),
+engine truth or owner decision, not gaps · `DM-07`/`DM-08`/`DM-09`, resolved
+by deletion (owner, 2026-08-20).
+
+---
+
+## 21 · Edits made by this pass
+
+**Seven, all purely mechanical, all disclosed.** Each aligns a stale statement
+with a fact already recorded elsewhere in the repository or provable from the
+code; none resolves a judgment call.
+
+1. **`ROADMAP.md` Phase 2** — *"65 of the reference's 74 `jp*` functions …
+   1 blocked"* → **66, nothing blocked**, per `JOURNEY_PLANNER_SCOPE.md`
+   §"the count reaches 66 of 74" and `cartalith_civ::jp_reroute_for_mode`
+   existing at `lib.rs:11897`. This is pass 2's F10, fixed in `README.md`
+   then and missed here — the same one-of-two-copies failure as pass 2's F1.
+2. **`ROADMAP.md` Phase 5** — *"8-17 open"* → milestones **8a and 12 done
+   2026-08-24**, the open list enumerated, and the authority repointed from
+   `STATUS.md` to `URBAN_MORPHOLOGY_SCOPE.md`'s own milestone headings, which
+   is where the fact actually lives.
+3. **`README.md` Phase 5 row** — same correction.
+4. **`FUNCTIONAL_CONTRACT.md` urban capability row** — same correction.
+5. **`FUNCTIONAL_CONTRACT.md` absent-entirely list, urban bullet** — rewritten
+   to the real remainder (~42 block-4 functions + 5 `_um*`), and
+   **blocks/parcels removed from the absent list**, since milestone 12 built
+   it the day before that bullet was written.
+6. **`FUNCTIONAL_CONTRACT.md`, three more entries** — SG-03 struck (closed
+   2026-08-24; `set_params`' own doc comment names it); the persistent
+   atlas/bake bullet struck (`cartalith_engine::bake::AtlasStore` writes to
+   disk); ambient occlusion removed from the AO/SVF/shadow/SDF bullet (it
+   ships, with two live sliders). The coverage table's matching rows for live
+   tuning and for the tile pyramid were corrected with them.
+7. **This file's header** — pass 3 added to the nav block, and pass 2's range
+   corrected from §9-§13 to §9-§14.
+
+**Deliberately not edited, reported instead:**
+
+- **`GUI_GAP_REGISTER.md` §3's counts (F6)** and **RD-01/RD-02/RD-07's stale
+  reasons (F5)**. Two reasons, both standing: the A/B/C/D split is a
+  classification pass rather than an arithmetic one (pass 2's own reasoning),
+  **and the register is a concurrent agent's territory this session**. Every
+  fact needed to make all four edits is in §16 and §19 above.
+- **`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §4 (F9).** Pass 2's reason
+  holds verbatim: the owner decisions are the research author's to record.
+- **`STATUS.md` (F7).** Its size is a structural problem, and shrinking it is
+  an editorial decision about what a quicklist is for — not a staleness fix.
+- **`ROADMAP.md`'s "Not a phase: LOD and large worlds"** — retiring a section
+  is a judgment call.
+- **F1**, the flaky test. Changing an assertion's bar is exactly the kind of
+  deviation `CLAUDE.md` says to raise rather than make quietly.
+- **Anything under `MILITARY_MANPOWER_SCOPE.md`, `cartalith-civ/src/
+  manpower.rs` or the CIVIL ▸ Military surfaces** — a concurrent agent held
+  them for the whole of this pass. Register §43/§44 were read for context and
+  are reported as *in flux*, not audited.
+
+---
+
+## 22 · What a fourth pass should do differently
+
+1. **Start from `git log`, then the register's newest sections, then the
+   summary tables — in that order.** This pass did, and it is why §16 exists:
+   the register had already self-corrected, and the drift had all migrated to
+   the documents no feature commit is obliged to touch. Pass 2's §14.1
+   recommendation is now three-for-three and should be a standing rule rather
+   than a recommendation.
+2. **Give `FUNCTIONAL_CONTRACT.md` an owning register ID per row, or demote
+   it.** Pass 2 proposed this and it was not done; the document has now gone
+   stale three passes running, and once *on the day it was corrected*. It is
+   the only document in this repository with that record.
+3. **Sweep §6 of the register the way §39 swept §37.** F5 found three rows
+   whose reason the engine has falsified, all of them in the register's oldest
+   section, which §37-§44's re-checks never reached. §6 has ~150 rows and has
+   not been re-checked against the crates since it was written. **That sweep
+   is the single highest-value thing a fourth pass can do**, and §39 has
+   already proved the method works.
+4. **Decide F1 before it trains people to ignore a red test.** An
+   intermittently-failing test, in a repository whose own discipline note
+   reads *"a stale binary reports a healthy N passed"*, is corrosive out of
+   all proportion to its size.
+5. **Commit the harnesses (F8), or write down that they are deliberately
+   ephemeral.** Asked by pass 1 §4, asked again by pass 2 rec #4, and the
+   count has gone 11 → 152. One of the two answers is right; neither of them
+   is "keep citing files a clone does not have."
+6. **Walk Part 0 control-by-control.** Pass 1 recommended it, pass 2 did not
+   do it, pass 3 did not do it. Three passes old. It is the one input that
+   would find gaps the register has never registered at all — which is the
+   only category none of these three passes can rule out.

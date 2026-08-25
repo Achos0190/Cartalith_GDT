@@ -16,7 +16,7 @@ code is the Cargo workspace in `cartalith-native/`.
 | 2 — Civilisation layer | **Done** — 17 milestones; the Journey Planner sub-phase is engine-complete (**66** of the reference's 74 `jp*` functions; 6 UI-only, 2 JS idioms, **nothing blocked** — `_jpRerouteForMode` was ported 2026-08-23, `JOURNEY_PLANNER_SCOPE.md` §"the count reaches 66 of 74") |
 | 3 — Rendering and 3D | **Partial** — terrain appearance milestones 1-6 done; the 3D drape (`DECISIONS.md` §4) not started |
 | 4 — Asset Library | **Done**, all seven milestones |
-| 5 — Urban morphology | **In progress** — milestones 1-7 plus 17a (the adapter and its first consumer, 2026-08-23) of ~17; the largest single unported subsystem (~3,860 lines) |
+| 5 — Urban morphology | **In progress** — milestones 1-7 plus 17a (the adapter and its first consumer, 2026-08-23), plus **8a (plaza) and 12 (blocks and parcels), both 2026-08-24**, of ~17; still the largest single unported subsystem (*corrected 2026-08-25, `PARITY_AUDIT.md` pass 3, F2*) |
 
 Cross-cutting work, none of it a numbered phase: GPU compute (9 milestones,
 including a redesigned parallel flow accumulation), CPU multithreading (3),

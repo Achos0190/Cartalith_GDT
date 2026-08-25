@@ -575,13 +575,13 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 |---|---|---|
 | World generation | Done | Port as-is |
 | Terrain editing (Sculpt) | **Built** (corrected 2026-08-23) | Port behavior, modernize storage |
-| Hydrology/climate/ecology live tuning | **Partial** — edit-triggered recompute real (`recompute_stale`); dial/slider tuning still absent (SG-03) (corrected 2026-08-24, judgment call) | Open design question (dial case only) |
+| Hydrology/climate/ecology live tuning | **Done at both tiers** — edit-triggered recompute real (`recompute_stale`), and a moved dial marks the stage it affects (**SG-03 closed 2026-08-24**, `set_params` → `params::invalidates()`) (corrected 2026-08-24; *dial half corrected 2026-08-25, `PARITY_AUDIT.md` pass 3, F4 — the 2026-08-24 correction was stale on the day it was written*) | Port as-is, done |
 | Civilisation | Done, incl. Timeline/collapse (corrected 2026-08-23) | Port as-is (territory: modernized by necessity) |
 | Journey Planner | **6/6 milestones, engine-complete; 5 of 6 individually-registered gaps closed, 1 partly** (corrected 2026-08-24) | Port as-is |
 | Map rendering (default + atlas) | Done, improved | Already modernized |
 | Map rendering (NPR toggles) | **Built and live** (corrected 2026-08-24) | Port as-is, done |
 | Map rendering (geology/AO-SVF-shadow/SDF toggles) | Absent | Port as-is |
-| Tile pyramid / LOD / region export | **LOD tiling live; region export wired** (corrected 2026-08-23) | Modernize (Mapbox-style quadtree); atlas/cache still open |
+| Tile pyramid / LOD / region export | **LOD tiling live; region export wired** (corrected 2026-08-23); **persistent atlas + bake + finalize lock also live** (corrected 2026-08-25, `PARITY_AUDIT.md` pass 3, F4) | Modernize (Mapbox-style quadtree); slippy-map addressing is the remainder |
 | Labels/annotation (rule-driven) | Done | Port as-is |
 | Labels/annotation (manual tools) | **Built**, incl. biome/terrain paint (corrected 2026-08-23) | Port as-is |
 | Asset library (data layer) | Done, Phase 4 complete | Port as-is |
@@ -596,7 +596,7 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Theme | Done, incl. light + follow-system | Already modernized (minor) |
 | Credits | Done | Port as-is |
 | Undo | **Done at both tiers** — draft-scoped and global (corrected 2026-08-24) | Draft: new implementation, necessarily. Global: close behavioral port |
-| Urban morphology | **Milestones 1-7 of ~17 done, and now wired end to end** — adapter, bridge, deep-zoom map layer and City Viewer; what draws is a street skeleton, not a city (added and updated 2026-08-23) | Port as-is |
+| Urban morphology | **Milestones 1-7, 17a, 8a and 12 of ~17 done, and wired end to end** — adapter, bridge, deep-zoom map layer and City Viewer; the plaza and blocks/parcels landed 2026-08-24; what draws is a street skeleton with a market square, not a city (added and updated 2026-08-23; **8a/12 added 2026-08-25**, `PARITY_AUDIT.md` pass 3, F2) | Port as-is |
 
 ## Honest absent-entirely list, with real size
 
@@ -608,21 +608,33 @@ settlement/place editing plus the map's right-click context menu, all
 verified against real code rather than the audit's own list). What is
 genuinely still absent, as of this correction:
 
-- **Urban morphology, milestones 8-17**: radial streets/plaza/waterway,
-  water infrastructure, fortification, graph cleanup, blocks/parcels,
-  districts/buildings, amenities, hinterland/decay/details/metrics,
-  `generate()`/`hashModel` — ~45 of block 4's 92 functions. Milestones 1-7
-  are done **and wired** as of the later pass the same day (adapter, bridge,
-  map layer, City Viewer); 13 of the 28 adapter functions are ported, and the
-  other 15 are either milestone-8+-only, not applicable to typed Rust, or
-  explicitly out of scope for every milestone. By far the largest item on
-  this list — see capability 13 above.
+- **Urban morphology, milestones 8, 9, 10, 11, 13, 14, 15, 16 and the rest of
+  17**: radial (Venus) streets and the waterway (2 fns), water infrastructure
+  (4), fortification (9, ~407 lines — the largest single milestone),
+  graph-cleanup passes (6), districts/buildings (7), amenities (5),
+  hinterland/decay/details/metrics (7), `generate()`/`hashModel` (2) — **~42
+  of block 4's 92 functions**, plus 5 of the 20 `_um*` adapter functions
+  (`_umHarbourScale`, `_umPt`, `_umSiteProfile`, `_umOreBearing`,
+  `_umCacheKey`). Milestones 1-7 are done **and wired** (adapter, bridge, map
+  layer, City Viewer), and **8a (the plaza) and 12 (blocks and parcels) landed
+  2026-08-24**; 15 of the 20 adapter functions are ported. By far the largest
+  item on this list — see capability 13 above. *Corrected 2026-08-25
+  (`PARITY_AUDIT.md` pass 3, F2): this bullet read "milestones 8-17 … ~45
+  functions" and named **blocks/parcels** as absent a day after milestone 12
+  shipped.*
 - **GeoJSON import**: absent. (GeoJSON *export* is no longer on this list —
   it went live end to end on 2026-08-24; see capability 9.)
-- **Geology microtexture toggle, AO/SVF/shadow toggles, SDF tinting**:
-  presentation-only, no engine dependency, unscoped. **Revised 2026-08-24**
+- **Geology microtexture, SVF/cast-shadow fields, SDF tinting**:
+  presentation-only, no engine dependency, unscoped — the three still on
+  `render.rs`'s own "Deliberately excludes" list. **Revised 2026-08-24**
   — NPR Painter styles and contour intervals are removed from this bullet;
-  both are built and live (see capability 6).
+  both are built and live (see capability 6). **Revised again 2026-08-25**
+  (`PARITY_AUDIT.md` pass 3, F4): **ambient occlusion left this bullet too.**
+  It is `render.rs`'s milestone 2, shipping, with two live sliders in
+  `render_workspace.gd` (`ao_strength`, `ao_radius_frac`) whose own tooltip
+  calls one *"the reference's own Ambient occlusion slider"*. Geological
+  material *exposure* (milestone 5) also ships; what stays absent is the
+  geology **microtexture**/dune-ripple layer specifically.
 - **Journey save/registry across sessions (JP-06/JP-08), partly**: a
   journey names and reloads within a session; nothing persists to disk yet
   — `save_project` has no channel for shell-owned project state. **Revised
@@ -630,13 +642,23 @@ genuinely still absent, as of this correction:
   (`jpAutoPickTransport`/`_jpRerouteForMode`, `jp_journey_cost`'s caller, the
   calculation-trace window, ⇧-drag spine trim, the vessel sailing
   window/resolver) are all closed; only this one remains, and only partly.
-- **Persistent LOD tile atlas/cache, and the bake/finalize-lock**: tile
-  synthesis itself is live; nothing persists it to disk yet.
-- **Dial/slider-triggered live re-tuning (SG-03)**: a moved parameter still
-  marks nothing stale; only a committed edit does (`recompute_stale` — see
-  capability 3's judgment call above). **Revised 2026-08-24** — replaces this
-  list's prior blanket "Hydrology/climate/ecology live re-tuning" entry,
-  since the edit-triggered half of that claim is no longer accurate.
+- ~~**Persistent LOD tile atlas/cache, and the bake/finalize-lock**: tile
+  synthesis itself is live; nothing persists it to disk yet.~~ **No longer
+  absent — removed 2026-08-25** (`PARITY_AUDIT.md` pass 3, F4).
+  `cartalith_engine::bake`'s `AtlasStore` writes chunks under a real disk
+  root with a manifest, and reads an atlas back out of a zip archive
+  (`atlasImportEntries`); `cartalith-godot/src/bake_bridge.rs` carries the
+  finalize lock and `BakeState::root`/`atlas_set_root`. Landed across
+  `e0dfa44` (engine), `948e15a` (shell) and `3689d7b` (actually driven).
+- ~~**Dial/slider-triggered live re-tuning (SG-03)**: a moved parameter still
+  marks nothing stale.~~ **No longer absent — removed 2026-08-25**
+  (`PARITY_AUDIT.md` pass 3, F4). **SG-03 closed 2026-08-24**, the same day
+  pass 2 wrote this bullet: `set_params`/`reset_params` mark the staleness
+  graph from `params::invalidates()` for the 25 keys with a live-apply path
+  (`lib.rs`'s `set_params` doc comment names SG-03 explicitly), and
+  `GUI_GAP_REGISTER.md` §21's SG-03 row reads **CLOSED 2026-08-24**. The
+  register's own note that *the shipped World dock supersedes every mark it
+  makes* bounds what it is worth today, and is the honest remainder.
 
 ## Top three modernize-over-port recommendations
 
