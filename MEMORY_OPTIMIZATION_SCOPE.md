@@ -362,3 +362,422 @@ object counts, beside `OS.get_static_memory_usage()` and labelled as outside it.
 That closes `GUI_GAP_REGISTER.md` §50's registered "the app's own Memory row
 under-reports by about 4× on Android": the figure is still honest about its own
 source, but it is no longer the only figure on screen.
+
+## The generation peak, measured field by field (2026-08-25, second pass)
+
+Everything above this line measured the *app*: Windows private bytes, or
+Android `TOTAL PSS`. This section measures the **pipeline**, inside the Rust
+process, with a `#[global_allocator]` wrapper — because the question the owner
+actually asked ("not keeping LOD tiles and most of the information in RAM —
+use a folder on the harddrive") turned out to have only one live third, and it
+is this one.
+
+**The other two thirds were already answered.** LOD tiles are *already* on
+disk: `cartalith-engine/src/bake.rs` writes a persistent store namespaced by
+`world_key`, skips already-baked chunks, resumes partial bakes and has
+export/import entries. And today's steady-state Android memory is not stored
+data at all but per-frame canvas geometry — §52 above, and a separate pass owns
+the `draw_multiline` collapse.
+
+### Method, and the one rule this pass inherited
+
+`GUI_GAP_REGISTER.md` §52 retired the previous Android baseline because no pass
+had fixed the seed and six clean runs of one build spanned 869–1 029 MB. So
+**every figure below states its seed**, and the pipeline turns out to be the
+one part of this app where that does not matter — see "the seed does not move
+the pipeline" below, which is itself a finding about where §52's 160 MB of
+spread lives.
+
+Two throwaway probes, both named `_peakaudit_*` per this pass's brief, both in
+`cartalith-native/crates/cartalith-civ/examples/`:
+
+- **`_peakaudit_peak.rs`** — a tracking `GlobalAlloc` (live bytes, per-stage
+  high-water, run high-water), a 2 ms sampler thread for the inside of
+  `generate_terrain` (which this pass was forbidden to edit), a byte-exact
+  census of every `WorldState` field, and `compute_civilisation` reproduced
+  call for call at its shipping defaults. It lives in `cartalith-civ` because
+  that is the **only** crate that can reach both halves: it depends on
+  `cartalith-engine` (so `generate_terrain` is callable) and it *is* the civ
+  layer. `cartalith-godot` is a `cdylib` and cannot host an example at all.
+- **`_peakaudit_block.rs`** — the costing probe for one proposed change (R3).
+
+Cross-compiled for `aarch64-linux-android` with the toolchain
+`ANDROID_BUILD_SCOPE.md` already documents and run **directly on the owner's
+OnePlus 6T** (`9608b26b`, Android 15, 7.82 GB RAM) out of `/data/local/tmp`,
+so the numbers are the handset's own allocator rather than a desktop
+extrapolation. `/proc/self/status`' `VmHWM` is read alongside.
+
+**Windows and the handset agree to 0.15 %** (619.13 vs 618.28 MiB at
+2048 × 1311), and on the handset the OS's real RSS high-water — **616.90 MiB** —
+is within 0.23 % of the allocator's requested peak. There is no meaningful
+allocator overhead to argue about at this scale, and a desktop measurement of
+this pipeline transfers to the phone unchanged.
+
+### 1 · What is actually resident at peak
+
+**The peak is 618.28 MiB at 2048 × 1311 (2 684 928 cells), and it is inside
+`build_resource_potentials`** — not, as this document's 2026-08-16 pass
+supposed, at `build_settlement_suitability`. The whole civ phase is a plateau
+between 490 and 543 MiB with four spikes on top of it.
+
+Per-stage ceilings, OnePlus 6T, seed 483920 (`live` = what is alive when the
+stage returns; `ceiling` = the heap's high-water *during* it):
+
+| stage | live after | ceiling | t |
+|---|---:|---:|---:|
+| `generate_terrain` (whole) | 210.02 | **335.49** | 18.67 s |
+| `build_water_bodies` | 222.82 | 268.35 | +0.89 s |
+| `build_carrying_capacity` | 268.91 | 268.91 | |
+| **`build_resource_potentials`** | 422.54 | **618.28** | +0.47 s |
+| `build_route_corridors` | 443.03 | 453.27 | |
+| `build_landmass_quality` | 463.51 | 467.51 | |
+| `build_coast_sdf` | 473.75 | **550.57** | +2.77 s |
+| `fresh_river_order` | 489.12 | 522.53 | |
+| `build_settlement_suitability` | 499.36 | 499.36 | |
+| `civ_hierarchical_network_topology` | 499.57 | **559.83** | +1.13 s |
+| `civ_world_mean_resources` | 509.82 | 525.82 | |
+| *(the 2026-08-16 fix frees 61.45 MiB here)* | 448.36 | | |
+| `assign_territory` | 458.61 | **543.10** | +3.33 s |
+| `civ_consolidate_and_smooth_ways` | 468.93 | 469.31 | |
+| **resident when `compute_civilisation` returns** | **243.39** | | |
+
+`WorldState` itself is **209.96 MiB — 82.0 bytes per cell across 23 fields**:
+
+| field | type | MiB | field | type | MiB |
+|---|---|---:|---|---|---:|
+| `field` | f32 | 10.24 | `shear_field` | f32 | 10.24 |
+| `plate_id` | **usize** | **20.48** | `volcanic_field` | f32 | 10.24 |
+| `boundary_mask` | u8 | 2.56 | `impact_field` | f32 | 10.24 |
+| `stress_field` | f32 | 10.24 | `temperature` | f32 | 10.24 |
+| `flexure_field` | f32 | 10.24 | `rainfall` | f32 | 10.24 |
+| `age_field` | f32 | 10.24 | `flow_area` | f32 | 10.24 |
+| `heterogeneity_field` | f32 | 10.24 | `flow_discharge` | f32 | 10.24 |
+| `resistance_field` | f32 | 10.24 | `channels.recv` | i32 | 10.24 |
+| `crust_field` | f32 | 10.24 | `channels.chan` | u8 | 2.56 |
+| `boundary_type` | u8 | 2.56 | `channels.slope` | f32 | 10.24 |
+| `stream_order` | i16 | 5.12 | `river_mask` | u8 | 2.56 |
+| `river_floor` | f32 | 10.24 | | | |
+
+The civ side adds **268.86 MiB (105.0 B/cell)** alive simultaneously at the
+`SuitabilityCtx` point, of which the fifteen `ResourcePotentials` grids are
+**153.63 MiB**:
+
+`wb.classification` 2.56 · `wb.fill_level` 10.24 · `biome` 2.56 ·
+`soil_slope` 10.24 · `lithology` 2.56 · `soil` 10.24 · `water_access` 10.24 ·
+`carrying_cap` 10.24 · **`resources` (15 × f32) 153.63** · `raw_slope` 10.24 ·
+`corridors` 10.24 · `landmass.quality` 10.24 · `coast_sdf` 10.24 ·
+`flood` 10.24 · `river_order` 5.12.
+
+Census total at that point **478.82 MiB**, against an allocator reading of
+489.12 MiB — the 10.30 MiB gap is per-settlement and per-way structure, not a
+missing grid. **The census is complete.**
+
+### 2 · Transient vs. surviving
+
+| | at 2048 × 1311 |
+|---|---:|
+| survives generation (`WorldState` + `CivData`) | **243.39 MiB** (95.1 B/cell) |
+| transient, freed before `compute_civilisation` returns | 374.89 MiB |
+| **peak** | **618.28 MiB** (241.5 B/cell) |
+
+`CivData`'s own grids are only `territory` (i32, 10.24), `provinces` (i32,
+10.24) and `water_bodies` (u8, 2.56); everything else it holds is per-
+settlement or per-way. **The retained cost is `WorldState`, six to one.**
+
+### 3 · Does it scale as predicted? — yes, exactly linearly above 1024
+
+Measured at four sizes rather than extrapolated from one, which is what this
+pass was asked to establish:
+
+| grid | cells | peak MiB | B/cell | resident MiB | B/cell |
+|---|---:|---:|---:|---:|---:|
+| 512 × 328 | 167 936 | 90.31 | 564 | 15.31 | 95.6 |
+| 1024 × 655 | 670 720 | 185.32 \* | 290 | 60.94 \* | 95.3 |
+| **2048 × 1311** | 2 684 928 | **618.28** | **241.5** | **243.39** | 95.1 |
+| 4096 × 2622 | 10 739 712 | 2 470.63 | 241.2 | 973.20 | 95.0 |
+
+\* Windows only; every other row was measured on the handset.
+
+**4× the cells is 3.998× the peak.** Nothing here is super-linear — and the
+*inflation* at small grids is real and worth knowing:
+`civ_hierarchical_network_topology`'s transient is ~60 MiB **independent of
+grid size** (its routing grid is capped at `min(gw, 384)` and the settlement
+count barely moves), so it dominates at 512 and is noise at 4096.
+
+At 241.3 B/cell peak and 95.0 B/cell resident, the rest of
+`RESOLUTION_PRESETS` costs:
+
+| preset | cells | peak | resident |
+|---|---:|---:|---:|
+| 4096 × 2621 | 10 735 616 | 2.41 GiB | 0.95 GiB |
+| **8192 × 5243** | 42 950 656 | **9.65 GiB** | **3.80 GiB** |
+| 2048² (square) | 4 194 304 | 0.94 GiB | 0.37 GiB |
+| 4096² (square) | 16 777 216 | 3.77 GiB | 1.48 GiB |
+| **8192² (square)** | 67 108 864 | **15.08 GiB** | **5.94 GiB** |
+
+**4096 × 2622 completes on the handset as a bare process** (2 470.63 MiB
+allocator, 2 319.07 MiB `VmHWM`, ~150 s) and would not survive inside the app
+with Godot's own ~420 MB beneath it on a device reporting 2.38 GB available.
+8192 is not reachable on any phone and is marginal on a 16 GB desktop.
+
+### 4 · The seed does not move the pipeline — and that relocates §52's 160 MB
+
+Three seeds, same build, same grid, on the handset:
+
+| seed | peak | resident |
+|---|---:|---:|
+| 483920 | 618.19 MiB | 243.39 MiB |
+| 12345 | 614.49 MiB | 243.39 MiB |
+| 999001 | 618.34 MiB | 243.39 MiB |
+
+**3.85 MiB of spread on the peak (0.6 %), and none at all on the resident
+figure.** `GUI_GAP_REGISTER.md` §52 measured 160 MB of seed-to-seed spread on
+the app's `TOTAL PSS`. None of it is the generation pipeline. It is all
+downstream geometry — which is exactly what §52's MEM-02 concluded from the
+other side, now confirmed by elimination rather than by inference.
+
+### 5 · What the app's own peak is made of
+
+Reconstructing §50's measured figure from these parts: **422 MB** no-world
+`TOTAL PSS` (§52) **+ 618 MiB** pipeline heap = **1 040 MB**, against §50's
+measured **1 033 MB** peak. **0.7 %.** The generation peak is ~60 % of the
+app's peak PSS and is now accounted for to the megabyte.
+
+**And on every generate after the first it is nearly twice that, because the
+previous world is still alive.** `WorldGen::generate_sized` calls
+`generate_terrain(&p)` and only *then* calls `absorb()`, which is where
+`self.source`/`self.civ`/`self.sculpt`/`self.paint`/`self.civ_tools` are
+replaced. So the whole of the previous world is held for the whole of the new
+generation. Measured on the handset with the previous `WorldState` alone
+retained:
+
+| | ceiling |
+|---|---:|
+| generate #1 | 335.49 MiB |
+| generate #2, previous `WorldState` held | **545.45 MiB** |
+
+**+209.96 MiB, exactly one `WorldState`.** In the real app it is worse: the
+previous `CivData` (23.04 MiB of grids) and `absorb`'s own clones —
+`river_mask` 2.56 + `river_floor` 10.24 into `SculptEditor`, `territory` 10.24
+into `CivTools`, `water_bodies` 2.56 into `PaintEditor`, ≥25.6 MiB — are held
+too. **Generate #2's Rust heap peaks at ≈ 887 MiB against generate #1's 618.**
+
+This is the "transient double-peak … run 2's peak was ~207 MB higher than run
+1's" that the 2026-08-16 pass put in **Out of scope** as "plausibly just
+old/new `WorldState` briefly co-existing". It is exactly that, it is not brief,
+and it now has a number.
+
+### 6 · Ranked, costed list
+
+Ordered by megabytes bought per unit of risk. Every "MiB saved" is at
+2048 × 1311 unless stated; every "ms" was measured on the handset.
+
+**R1 · Free the previous world before generating the next.** — **269 MiB on
+every generate but the first · 0 ms · `cartalith-godot`**
+
+`generate_sized`/`generate` set `self.source = None`, `self.civ = None` and the
+seven per-world editors to `None` (and `self.undo.clear()`, which `absorb`
+already does) **before** the `generate_terrain` call rather than after it.
+*What breaks:* a generate that fails leaves no world where today it leaves the
+stale one. `generate_terrain` returns no `Result` and a panic across the gdext
+boundary ends the process (`cartalith-rust-conventions`), so there is no
+recoverable failure path being protected. `absorb` replaces every one of these
+unconditionally, so nothing reads them in between. **The largest single number
+in this document, and it is a reordering.**
+
+**R2 · Delete four dead resident grids.** — **40.96 MiB off peak *and*
+resident, permanently · 0 ms · `cartalith-engine`, `cartalith-hydrology`**
+
+Each has exactly one reader, inside `generate_terrain`, and none anywhere else
+in the workspace — grepped field by field across `cartalith-godot`,
+`cartalith-civ`, `cartalith-io` and the `.gd` shell:
+
+| field | its one reader | MiB |
+|---|---|---:|
+| `WorldState::flexure_field` | `compute_height` (`lib.rs:933`) | 10.24 |
+| `WorldState::heterogeneity_field` | `compute_height` (`lib.rs:934`) | 10.24 |
+| `WorldState::flow_area` | `apply_climate_moisture_correctors` (`lib.rs:1085`) | 10.24 |
+| `ChannelResult::slope` | **nobody, anywhere** | 10.24 |
+
+None is in `sample_bridge::FieldRefs` (which names thirteen of the others).
+None is written to a save. `import.rs`'s own comment and `staleness.rs`'s doc
+both say `flow_area` feeds "the drainage-area debug view" — **it does not
+exist**: the Drainage row in the right dock reads `flow_discharge`.
+`impact_field` looks like a fifth candidate and is not: the save writer clones
+it. *What breaks:* `center.rs` rotates three of them, `import.rs` constructs
+them, three engine tests assert their length. All mechanical. **16.8 % of the
+resident set and 6.6 % of the peak, for a deletion.**
+
+**R3 · Block `build_resource_potentials`' `per_cell` buffer.** — **153.63 MiB
+off the highest spike · +38–50 ms · `cartalith-civ`**
+
+```rust
+let per_cell: Vec<[f32; 15]> = (0..n).into_par_iter().map(|i| { … }).collect();
+```
+
+60 bytes per cell, allocated in full *on top of* the fifteen output `Vec`s that
+were allocated just above it, purely because "rayon can't zip 15 output slices
+as cleanly as one" — the function's own comment says so. Running the same
+`par_iter` in fixed blocks into one reused buffer and scattering per block
+turns 153.63 MiB into 3.75 MiB (a 65 536-cell block) or 15.0 MiB (262 144).
+*Cost, measured:* `_peakaudit_block.rs` over the same 2 684 928 cells on the
+handset — monolithic 292–303 ms, blocked **330–353 ms at a 256 K or 512 K
+block** (65 K is worse: 485–556 ms, too many dispatches). **+38–50 ms**, which
+is +6–8 % of that stage's real 470 ms and **+0.15 % of a 30 s generate**.
+*Parity:* every cell is independent and the scatter is unchanged, so no float
+operation is reordered and no golden can move; the probe asserts the two forms
+produce identical output. **This is also the change that scales worst if not
+made: 60 B/cell is 2 458 MiB of transient at 8192 × 5243.**
+
+**R4 · `plate_id: Vec<usize>` → `Vec<u16>`.** — **15.36 MiB off peak and
+resident · 0 ms**
+
+`build_plates` clamps the plate count to `4..=40`. Eight bytes a cell to hold a
+number below 41 is 20.48 MiB where 5.12 would do. `sample_bridge` already casts
+it to `i64` on read; `plates[pid]` needs an `as usize`.
+
+**R5 · `jfa_dist`'s three scratch grids.** — **32.2 MiB off the
+`build_coast_sdf` spike · 0 ms, probably faster**
+
+`sx: Vec<i64>` + `sy: Vec<i64>` + `d2: Vec<f64>` = 24 B/cell for coordinates
+that fit in `i32` at every grid this port offers and squared distances that are
+**exact integers below 2³¹** even at 8192². `i32`/`i32`/`u32` is 12 B/cell and
+**bit-identical**: the `dd < d2[i]` comparison is exact in both forms, and the
+final `d2[i].sqrt() as f32` is unchanged. Halves the memory traffic of a
+sequential pass that costs 2.77 s on the handset.
+
+**R6 · The two `with_capacity(n)` heaps.** — **42.96 MiB off `assign_territory`,
+32.2 MiB off `build_water_bodies` · 0 ms · low value on Android**
+
+`DijkstraHeap::with_capacity(n)` reserves `Vec<f64>` + `Vec<usize>` = 16 B/cell
+and `MinHeap::with_capacity(n)` reserves `Vec<f32>` + `Vec<usize>` = 12 B/cell
+for heaps whose live size is bounded by the frontier, not by the grid. **Ranked
+low deliberately**: on Linux/Android an untouched reservation is address space
+rather than resident pages, which is exactly why the handset's `VmHWM` at
+4096 × 2622 (2 319 MiB) sits *below* the allocator's requested peak
+(2 470 MiB). This one is worth more on Windows than on the platform that
+prompted the audit, and saying so is the honest ranking.
+
+**R7 · `road_dijkstra`'s discarded `prev`.** — **10.24 MiB · 0 ms**
+
+`territory_sweep` writes `let (dist, _prev) = road_dijkstra(…)`. The `Vec<i32>`
+is built and thrown away, once per capital. A `want_prev` flag of the same
+shape `territory_sweep`'s own `want_rival` already uses.
+
+**R8 · Chunk `civ_hierarchical_network_topology`'s parallel Dijkstras.** —
+**~45 MiB · grid-independent**
+
+Every settlement's `road_dijkstra` over the routing grid is collected in
+parallel and all forty results are held at once. Chunking to eight at a time
+costs a little parallelism and saves most of it. Worth ~7 % at 2048 × 1311 and
+**nothing at all at 8192**, because it does not scale with the grid — which is
+also why it is last.
+
+**What the eight of them buy, together.** R2 + R4 lower the whole plateau by
+56.32 MiB; each spike fix then lowers one ceiling until the next one binds, and
+the peak walks down as follows:
+
+| after | binding stage | peak |
+|---|---|---:|
+| *today* | `build_resource_potentials` | **618.28 MiB** |
+| R2 + R4 | `build_resource_potentials` | 561.96 |
+| + R3 | `civ_hierarchical_network_topology` | 503.51 |
+| + R8 | `build_coast_sdf` | 494.25 |
+| + R5 | `assign_territory` | 486.78 |
+| + R6 + R7 | `civ_world_mean_resources` | **469.56** |
+
+**618.28 → 469.56 MiB, −24.1 %** — and R1 on top of that, which does not lower
+generate #1 at all and removes 269 MiB from every generate after it.
+
+### 7 · What is *not* a candidate, and why
+
+This is the half of the answer the brief asked for explicitly, and it is the
+larger half.
+
+- **Nothing else qualifies for the `wildlife_regions` / `territory_influence`
+  treatment.** That pattern — compute on demand, retain nothing — was applied
+  twice, case by case, and this pass audited the rest. **There is no third
+  case.** Every one of the nineteen `WorldState` fields that survives R2 has a
+  real post-generation reader, and thirteen of them are named in
+  `sample_bridge::FieldRefs`, which is read *at an arbitrary cell on hover* —
+  the exact case this document already rules out ("a field read on every
+  repaint is not a candidate"). `CivData`'s three grids are each read by the
+  map overlay on every redraw. `build_lithology` was measured at 0.78 ms and is
+  already correctly left recomputed. The on-demand well is dry.
+
+- **Quantising the fifteen resource grids to `u8` is not free and must not be
+  done.** They are all `[0, 1]` potentials, so 1/255 looks like a costless
+  −115.2 MiB. It is not: `build_settlement_suitability`'s mineral term reads
+  nine of them and settlement placement is a **discrete argmax** over the
+  result, so quantisation moves *where towns are* and takes every
+  `cartalith-civ` golden with it. The same objection kills
+  `best_effective: Vec<f64>` → `f32` in `territory_sweep` (`owner` is an argmin
+  over it) and `road_dijkstra`'s `dist`.
+
+- **Dropping the six unused resource fields earlier is a worse trade than it
+  looks.** They cost 61.45 MiB held from `build_resource_potentials` to just
+  after the trade balances, and the `ECONOMY_SCOPE.md` wiring genuinely needs
+  the full fifteen-key vocabulary there. Recomputing them at that point means a
+  second `build_resource_potentials` — **470 ms on the handset** — to save
+  61 MiB that R3 already reaches more cheaply.
+
+- **Streaming a pipeline field from disk buys nothing here, and this is the
+  direct answer to the owner's question.** `bake.rs`'s on-disk store is the
+  right shape for *tiles*, which are read sparsely, at one zoom level, near the
+  camera. Every field in the census above is read by a whole-grid stage that
+  touches every cell exactly once: there is no locality to exploit, so a round
+  trip costs the field's full size in I/O both ways — 10.24 MiB out and
+  10.24 MiB back per field on this handset's storage — to save 10.24 MiB of RAM
+  for the duration of one stage. **Where the input is still resident,
+  recomputing is cheaper than either.** This codebase has now found that three
+  times.
+
+### 8 · Verified vs. supported: is the generation peak the binding constraint?
+
+**At 2048 × 1311 it is the binding constraint on whether a generate completes,
+and it is not the binding constraint on whether a session survives.**
+
+- **Bounded and predictable.** The peak moves 0.6 % across seeds, 0.0 % across
+  worlds at a fixed cell count, and exactly linearly with cell count. It has a
+  closed-form budget: **241.5 bytes per cell**, falling to ~176 B/cell if
+  R2–R8 are taken.
+- **Unbounded and unpredictable.** §52 measured `Gfx dev` at 556 MB and
+  `TOTAL PSS` at 1 279 MB **twelve zoom notches from a fresh generate**, with
+  nothing in the overlay bounding it. That is the session risk, it is already
+  registered above with its two levers, and it is not this section's subject.
+- **Above 2048 × 1311 the pipeline is decisively binding.**
+  `RESOLUTION_PRESETS` offers 4096 and 8192 on a handset where the first needs
+  2.41 GiB of heap under a ~420 MB Godot process on 2.38 GB available, and the
+  second needs 9.65 GiB on a 7.82 GB device. The 2026-08-16 pass deferred
+  "resolution-range policy" to the owner as a product decision. **It now has
+  numbers**: on Android, 2048 × 1311 is the last preset that fits, and 1024 is
+  the last one that fits comfortably.
+
+**What "supported" would take, in order.** R1 and R2 are free and remove
+269 MiB from the common case and 40.96 MiB from every case; R3 is +40 ms and is
+the one change whose absence gets worse with every resolution step. Together
+they put a first generate at ~465 MiB and a second at the same figure rather
+than 887 — an app peak of roughly **890 MB rather than 1 040 (first generate)
+or 1 310 (subsequent)**. Beyond that the honest finding is that **the plateau
+is the algorithm**: at the `SuitabilityCtx` point 478.82 MiB of named, live,
+individually-justified fields are all genuinely required by
+`build_settlement_suitability` and what follows it, and after R2 + R4 that
+census is 422.5 MiB. **The remaining peak is irreducible without changing what
+the civilisation pass computes**, and no amount of moving it to a folder on the
+hard drive changes that, because every byte of it is read.
+
+### Probes kept
+
+`cartalith-native/crates/cartalith-civ/examples/_peakaudit_peak.rs` and
+`_peakaudit_block.rs`. Neither is called by anything, neither is a test, and
+both are named for deletion.
+
+```text
+cargo run --release -p cartalith-civ --example _peakaudit_peak -- <gw> <gh> [seed]
+cargo run --release -p cartalith-civ --example _peakaudit_peak -- trace <gw> <gh> [seed]
+PEAKAUDIT_REGEN=1 …                      # §5's two-generation measurement
+cargo ndk -t arm64-v8a build --release -p cartalith-civ --example _peakaudit_peak
+```
+
+**No `.rs` or `.gd` file outside these two was touched by this pass**, and no
+`export_presets.cfg` or `Cargo.toml`.

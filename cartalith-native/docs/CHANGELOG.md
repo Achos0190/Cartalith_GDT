@@ -28373,3 +28373,86 @@ never headless; the menu conformance probe re-run at 1600x900 and 2560x1600
 clean; and **driven on the owner's OnePlus 6T**, where the tap fault above was
 found. No Rust changed. `project.godot`'s md5 held across every Godot
 invocation.
+
+## The generation peak, audited on the handset — 618 MiB, 241.5 bytes a cell (2026-08-25)
+
+**Audit only. No `.rs` and no `.gd` file outside two throwaway probes was
+touched, no production code changed.** Full account:
+`MEMORY_OPTIMIZATION_SCOPE.md`, "The generation peak, measured field by field";
+summary on `STATUS.md`'s own known-open entry, which stops being a question.
+
+The owner asked about *"not keeping LOD tiles and most of the information in
+RAM — use a folder on the harddrive."* Two thirds of it were already answered:
+LOD tiles are **already** on disk (`bake.rs`'s persistent `world_key` store),
+and today's steady-state Android memory is canvas geometry, not stored data
+(`GUI_GAP_REGISTER.md` §52). The remaining third — the generation peak — is
+what this pass measured.
+
+**Instrumented rather than inferred.** A `#[global_allocator]` wrapper in an
+*example* target — `cartalith-civ/examples/_peakaudit_peak.rs`, which is the
+only place in the workspace that can reach both halves of the pipeline, since
+`cartalith-civ` depends on `cartalith-engine` and `cartalith-godot` is a
+`cdylib` that cannot host an example. Cross-compiled for
+`aarch64-linux-android` and run **on the owner's OnePlus 6T** out of
+`/data/local/tmp`, with `/proc/self/status`' `VmHWM` read alongside. Windows
+and the handset agree to **0.15 %**, and the phone's real RSS high-water
+(616.90 MiB) is within **0.23 %** of the allocator's requested peak — so the
+desktop measurement of this pipeline transfers unchanged, which no previous
+pass could say.
+
+**The peak is 618.28 MiB at 2048 × 1311, and it is inside
+`build_resource_potentials`** — not `build_settlement_suitability`, where the
+2026-08-16 pass placed it. `WorldState` is **82.0 bytes a cell across 23
+fields** (209.96 MiB); the civ layer adds **105.0 B/cell** at the
+`SuitabilityCtx` point, of which the fifteen `ResourcePotentials` grids are
+153.63 MiB. The census (478.82 MiB) matches the allocator (489.12 MiB) with a
+10.30 MiB residue that is per-settlement structure, not a missing grid.
+
+**It scales exactly linearly and the seed does not move it.** Measured at four
+sizes: 564 / 290 / **241.5** / 241.2 bytes a cell at 512×328, 1024×655,
+2048×1311, 4096×2622 — 4× the cells is 3.998× the peak, and the inflation at
+small grids is `civ_hierarchical_network_topology`'s ~60 MiB transient, which
+is grid-*independent*. Three seeds at 2048×1311: **618.19 / 614.49 / 618.34
+MiB**, and a resident figure identical to the hundredth of a mebibyte. §52
+measured 160 MB of seed spread on the app; **none of it is generation**.
+
+**422 MB no-world PSS + 618 MiB = 1 040 MB against §50's measured 1 033 MB
+peak (0.7 %).** The pipeline is ~60 % of the app's peak and is now accounted
+for to the megabyte.
+
+**The 2026-08-16 "double peak" is explained and is not brief.**
+`generate_sized` calls `generate_terrain` while `self.source`/`self.civ` still
+hold the previous world; `absorb()` replaces them only afterwards. Measured on
+the handset with the previous `WorldState` alone retained: generate #1 peaks at
+335.49 MiB, generate #2 at **545.45 MiB — exactly one `WorldState` more**. With
+the previous `CivData` and `absorb`'s own clones it is ≈269 MiB, so a second
+generate peaks at ≈887 MiB against a first generate's 618.
+
+**Eight options, ranked and costed**, of which three matter: free the previous
+world first (**269 MiB, 0 ms, a reordering**); delete four dead resident grids
+— `flexure_field`, `heterogeneity_field`, `flow_area`, `ChannelResult::slope`,
+each with exactly one reader inside `generate_terrain` and none anywhere else
+(**40.96 MiB off peak *and* resident, 0 ms, a deletion**); and block
+`build_resource_potentials`' `per_cell: Vec<[f32; 15]>`, 60 B/cell of scratch
+on top of its own output (**153.63 MiB for a measured +38–50 ms**, +0.15 % of a
+30 s generate, parity-safe by construction and asserted identical by the second
+probe). All eight together: **618.28 → 469.56 MiB, −24.1 %.**
+
+**And a proven negative, which is half the result.** Past that plateau the peak
+is **irreducible without changing what the civilisation pass computes**. There
+is no third case for the `wildlife_regions` / `territory_influence` on-demand
+pattern — every surviving `WorldState` field has a real post-generation reader
+and thirteen are in `sample_bridge::FieldRefs`, read at an arbitrary cell on
+hover. Quantising the resource grids to `u8` would save 115.2 MiB and move
+where towns are, because placement is a discrete argmax over them. **And
+streaming a pipeline field from disk buys nothing**: every field is read by a
+whole-grid stage that touches every cell exactly once, so there is no locality
+to trade for, and where the input is still resident recomputing is cheaper than
+either — the third time this codebase has found that.
+
+Also settled, with numbers the 2026-08-16 pass explicitly deferred to the
+owner: `RESOLUTION_PRESETS`' **4096 needs 2.41 GiB of heap and 8192 needs
+9.65 GiB**. 4096 × 2622 does complete on the handset as a bare process
+(2 470.63 MiB, `VmHWM` 2 319.07 MiB, ~150 s) and would not survive under
+Godot's own ~420 MB on a device reporting 2.38 GB available. **On Android,
+2048 × 1311 is the last preset that fits.**
