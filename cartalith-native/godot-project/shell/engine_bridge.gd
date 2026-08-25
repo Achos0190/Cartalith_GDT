@@ -1622,6 +1622,23 @@ func civ_faction_terrain_fits() -> Array:
 		return []
 	return world_gen.civ_faction_terrain_fits()
 
+## CIVIL ▸ Military (`GUI_GAP_REGISTER.md` CV-25). `{"factions": [...],
+## "settlements": [...]}` -- per-faction military power and fortification
+## counts, and every settlement's wall spec and defensive strength. One
+## on-demand aggregate pass, so a modal-open call, not a per-frame one.
+func civ_military_summary() -> Dictionary:
+	if not _has("civ_military_summary"):
+		return {}
+	return world_gen.civ_military_summary()
+
+## CIVIL ▸ Relationships (`GUI_GAP_REGISTER.md` CV-26). One row per
+## unordered faction pair, with the four terms beside the verdict. Derived
+## and recomputed on every call; nothing here is stored or saved.
+func civ_faction_relations() -> Array:
+	if not _has("civ_faction_relations"):
+		return []
+	return world_gen.civ_faction_relations()
+
 func civ_agrarian_regional_total() -> Dictionary:
 	if not _has("civ_agrarian_regional_total"):
 		return {}

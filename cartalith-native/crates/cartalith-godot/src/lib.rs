@@ -19,6 +19,7 @@ use godot::prelude::*;
 
 mod asset_bridge;
 mod bake_bridge;
+mod civ_military_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;
 mod export_raster;
@@ -10799,10 +10800,13 @@ impl WorldGen {
     /// from another across a delete.
     ///
     /// `age`/`walls` report `-1` for the reference's own "auto" state
-    /// (`umAge == null` / `umWalls == null`), not a fabricated inferred
-    /// value — this port has not ported `_umInferAge`/`_umInferWalls`
-    /// (urban morphology, milestones 8-17), so there is nothing honest to
-    /// infer with. Empty `Dictionary` for an out-of-range index.
+    /// (`umAge == null` / `umWalls == null`), not the inferred value —
+    /// which is what an editor field needs, since "auto" and "happens to
+    /// currently infer stone" are different states to show. The inferred
+    /// answers themselves are real now (`cartalith_civ::military`'s
+    /// `um_infer_age`/`um_infer_walls`) and are what
+    /// [`Self::civ_military_summary`] reports. Empty `Dictionary` for an
+    /// out-of-range index.
     #[func]
     fn civ_settlement_details(&self, index: i64) -> VarDictionary {
         let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };

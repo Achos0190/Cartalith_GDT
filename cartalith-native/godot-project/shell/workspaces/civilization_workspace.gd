@@ -139,6 +139,14 @@ var _population_body: Control
 var _economy_body: Control
 var _factions_body: Control
 var _territories_body: Control
+## CV-25's and CV-26's category bodies. Both refill on `_rebuild_readouts()`
+## like the four above: their inputs are the settlement roster, the place
+## editor's overrides and the territory raster, and all three move under a
+## place edit or a recompute. Both calls are one O(cells) aggregate pass and
+## one O(cells) border pass -- the same cost class as `civ_faction_terrain_fits`,
+## which the roster window already pays on open.
+var _military_body: Control
+var _relations_body: Control
 ## SG-02's Recompute row. Held as fields because the handler is a coroutine
 ## that has to find both again after the blocking engine call, and because a
 ## GDScript lambda captures locals by value at creation time -- a
@@ -286,6 +294,12 @@ func _rebuild_readouts() -> void:
 	if _territories_body != null and is_instance_valid(_territories_body):
 		_clear_body(_territories_body)
 		_fill_territories(_territories_body)
+	if _military_body != null and is_instance_valid(_military_body):
+		_clear_body(_military_body)
+		_fill_military(_military_body)
+	if _relations_body != null and is_instance_valid(_relations_body):
+		_clear_body(_relations_body)
+		_fill_relationships(_relations_body)
 
 ## `remove_child` before `queue_free` on purpose: `queue_free` defers to the
 ## end of the frame, so a child left parented is still in `get_children()`
@@ -1455,27 +1469,184 @@ func _build_poi() -> void:
 		func(): app.select_domain_category("cartography", "Assets & landmarks"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
-## v3 CIVIL ▸ MILITARY. Nothing behind it anywhere: no garrison, no
-## fortification and no campaign exists in `cartalith-civ` or in the reference.
+## v3 CIVIL ▸ MILITARY (`GUI_GAP_REGISTER.md` **CV-25**, built 2026-08-25).
+##
+## **The register's own reason for calling this new design was wrong**, in the
+## way §37 has now been wrong four times: it said the reference models no
+## garrisons or fortifications. It models both halves of what this category
+## shows. `_umWallSpec`/`_umInferWalls` (reference 22109-22136) are a real
+## four-rung fortification ladder, `_civPlaceDefensibility` (23802) is a real
+## per-settlement defensive strength, and `_civFactionAggregates`'
+## `power.military` -- already ported -- is a real per-faction readout. All
+## three are ports now (`cartalith_civ::military`, golden-verified).
+##
+## The port had also been feeding that military axis a constant zero for its
+## `0.35 * fortifiedFraction` term, because `FactionPlace::fortified` had no
+## producer. It has one now, so these numbers are *closer* to the reference
+## than the ones any other caller has been getting.
+##
+## What is still genuinely absent, and stays absent: garrison headcounts,
+## campaigns, unit movement, combat. None is derivable from anything here and
+## the reference has none either -- see the section's own note.
 func _build_military() -> void:
-	var cat := DccWidgets.category(self, "Military", categories)
-	DccWidgets.note(DccWidgets.section(cat, "Not built"),
-		"Garrisons, defensive strength, a fortification network and military "
-		+ "campaigns (GUI_GAP_REGISTER.md CV-25). cartalith-civ models none of "
-		+ "them and neither does the reference -- this is new design, not a port "
-		+ "gap. What does exist is defensibility, a per-settlement terrain "
-		+ "heuristic, on the right dock's Settlement context.")
+	_military_body = DccWidgets.category(self, "Military", categories)
+	_fill_military(_military_body)
 
-## v3 CIVIL ▸ RELATIONSHIPS. The diplomatic matrix the old Politics category
-## disclosed as a one-line gap, given the category v3 gives it.
+## The three `sort_custom` comparators CV-25/CV-26 need, as named statics
+## rather than inline lambdas: a GDScript lambda body cannot wrap onto a
+## second line, and one written as a long single line is unreadable.
+static func _by_military(x, y) -> bool:
+	return float((x as Dictionary).get("military", 0.0)) > float((y as Dictionary).get("military", 0.0))
+
+static func _by_defensibility(x, y) -> bool:
+	return float((x as Dictionary).get("defensibility", 0.0)) > float((y as Dictionary).get("defensibility", 0.0))
+
+static func _by_relation_value(x, y) -> bool:
+	return float((x as Dictionary).get("value", 0.0)) > float((y as Dictionary).get("value", 0.0))
+
+func _fill_military(parent: Control) -> void:
+	var data: Dictionary = bridge.civ_military_summary()
+	var factions: Array = data.get("factions", [])
+	var places: Array = data.get("settlements", [])
+
+	var strength := DccWidgets.section(parent, "Faction strength")
+	if factions.is_empty():
+		DccWidgets.note(strength, "No factions -- generate a world first.")
+	else:
+		DccWidgets.note(strength,
+			"_civFactionAggregates' military axis: 45% relative population, 35% "
+			+ "the share of this faction's settlements that are fortified, 20% its "
+			+ "capital's tier. The reference's own words for the whole power "
+			+ "breakdown are \"explicitly derived/heuristic, never presented as "
+			+ "simulated\", and that holds here.")
+		## Descending by military power: the readout's whole job is to let
+		## two factions be compared, and a roster-index order buries that.
+		var rows := factions.duplicate()
+		rows.sort_custom(_by_military)
+		var list := DccWidgets.group(strength, "By military power")
+		for r in rows:
+			var d: Dictionary = r
+			var f := int(d.get("faction", 0))
+			var b := DccWidgets.action(list, "%s -- %d/100 · %d of %d fortified" % [
+				String(d.get("name", "?")), int(round(float(d.get("military", 0.0)))),
+				int(d.get("fortified_count", 0)), int(d.get("settlement_count", 0))],
+				func(): app.right_dock_ctrl.show_faction(f))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.tooltip_text = ("Capital %s · overall power %d/100 · walls: %d stone, "
+				+ "%d palisade, %d ditch. Open this faction in the right dock.") % [
+				String(d.get("capital", "—")), int(round(float(d.get("overall", 0.0)))),
+				int(d.get("walled_stone", 0)), int(d.get("walled_palisade", 0)),
+				int(d.get("walled_ditch", 0))]
+
+	var forts := DccWidgets.section(parent, "Fortifications")
+	if places.is_empty():
+		DccWidgets.note(forts, "No settlements -- generate a world first.")
+	else:
+		DccWidgets.note(forts,
+			"_umWallSpec's ladder -- none · ditch · palisade · stone -- from tier, "
+			+ "function, threat (the fortified trait), wealth, age and command of "
+			+ "the ground. Defensive strength blends the terrain's own ruggedness "
+			+ "with whether the place is walled. The place editor's Walls, Age, "
+			+ "Traits and Specialisation overrides all feed this; before today "
+			+ "Walls and Age reached nothing at all.")
+		var walled: Array = []
+		for p in places:
+			if bool((p as Dictionary).get("walled", false)):
+				walled.append(p)
+		walled.sort_custom(_by_defensibility)
+		DccWidgets.note(forts, "%d of %d settlements are fortified." % [walled.size(), places.size()])
+		var list := DccWidgets.group(forts, "Strongest places", walled.size() <= 12)
+		## `civ_military_summary`'s `index` is into `bridge.settlements()`, so
+		## a row pins the settlement through the same call `_settlement_row`
+		## uses rather than a second selection path.
+		var roster := bridge.settlements()
+		for p in walled:
+			var d: Dictionary = p
+			var idx := int(d.get("index", -1))
+			var b := DccWidgets.action(list, "%s -- %s wall · defence %d%%" % [
+				String(d.get("name", "?")), String(d.get("wall_spec", "none")),
+				int(round(100.0 * float(d.get("defensibility", 0.0))))],
+				func():
+					if idx >= 0 and idx < roster.size():
+						_selected_index = idx
+						app.right_dock_ctrl.on_settlement_selected(roster[idx], idx))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.tooltip_text = "%s · population %d · faction %d. Pin it in the right dock." % [
+				String(d.get("kind", "")).capitalize(), int(d.get("pop", 0)), int(d.get("faction", 0))]
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"Garrison headcounts, campaigns, unit movement and combat "
+		+ "(GUI_GAP_REGISTER.md CV-25, narrowed to exactly these). The reference "
+		+ "has none of them either, and none is derivable from anything above -- "
+		+ "a headcount would be a fabricated number wearing a real one's clothes. "
+		+ "They are a feature to specify, not a gap to wire.")
+
+## v3 CIVIL ▸ RELATIONSHIPS (`GUI_GAP_REGISTER.md` **CV-26**, built 2026-08-25).
+##
+## The register's structural objection was the right one and it is what this
+## builds: *there was no edge between two factions to hold a value*. There is
+## one now (`cartalith_civ::relations`) -- **derived and recomputed**, the same
+## shape as the aggregates and the wildlife regions, never stored, never
+## saved, never changing on its own.
+##
+## Unlike Military above, this one has no reference implementation: the frozen
+## snapshot's only hits for diplomacy, alliance, vassal or treaty are prose.
+## So it is deliberately the smallest defensible thing -- four symmetric terms
+## over quantities the civ layer already computes, each reported beside the
+## verdict so the reader can disagree with it.
+##
+## Diplomacy actions, treaties, vassalage and change over time are **out of
+## scope by design**, not by omission; the section's own note says so.
 func _build_relationships() -> void:
-	var cat := DccWidgets.category(self, "Relationships", categories)
-	DccWidgets.note(DccWidgets.section(cat, "Not built"),
-		"A diplomatic relations matrix, allies/rivals/subjects, and treaties "
-		+ "(GUI_GAP_REGISTER.md CV-26). cartalith-civ models no inter-faction "
-		+ "relation of any kind -- there is no edge between two factions to hold a "
-		+ "value, so a matrix would be a grid of blanks. The reference has none "
-		+ "either. Vassalage and alliances under v3's Politics are the same gap.")
+	_relations_body = DccWidgets.category(self, "Relationships", categories)
+	_fill_relationships(_relations_body)
+
+func _fill_relationships(parent: Control) -> void:
+	var pairs: Array = bridge.civ_faction_relations()
+
+	var sec := DccWidgets.section(parent, "Standing")
+	if pairs.is_empty():
+		DccWidgets.note(sec,
+			"Fewer than two factions -- generate a world, or add a faction in the "
+			+ "roster window. A relation needs two parties.")
+	else:
+		DccWidgets.note(sec,
+			"Derived, not simulated: shared culture (+30), shared or opposed faith "
+			+ "(±20), how much of what each side lacks the other exports (+25), and "
+			+ "friction along a shared border, weighted by how evenly matched the "
+			+ "two are (−55). Recomputed on every open; nothing here is stored.")
+		var rows := pairs.duplicate()
+		rows.sort_custom(_by_relation_value)
+		var list := DccWidgets.group(sec, "Every pair")
+		for r in rows:
+			var d: Dictionary = r
+			var a := int(d.get("a", 0))
+			var b := DccWidgets.action(list, "%s ↔ %s -- %s (%+d)" % [
+				String(d.get("a_name", "?")), String(d.get("b_name", "?")),
+				String(d.get("stance", "neutral")),
+				int(round(100.0 * float(d.get("value", 0.0))))],
+				func(): app.right_dock_ctrl.show_faction(a))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.tooltip_text = ("Border %d cells (%d%% of the widest on this map) · "
+				+ "culture %+d · faith %+d · trade %+d · rivalry %d%%. "
+				+ "Opens %s in the right dock.") % [
+				int(d.get("border_cells", 0)),
+				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
+				int(round(30.0 * float(d.get("culture_term", 0.0)))),
+				int(round(20.0 * float(d.get("religion_term", 0.0)))),
+				int(round(25.0 * float(d.get("trade_term", 0.0)))),
+				int(round(100.0 * float(d.get("rivalry_term", 0.0)))),
+				String(d.get("a_name", "?"))]
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"Diplomacy actions, treaties, vassalage, and relations that change over "
+		+ "time (GUI_GAP_REGISTER.md CV-26, narrowed to exactly these). Every one "
+		+ "needs a decision this port should not make on its own -- who acts, on "
+		+ "what clock, and what a treaty does to the map. The value above is a "
+		+ "reading of the world as it stands, and stops there. Vassalage and "
+		+ "alliances under v3's Politics are the same open question.")
 
 ## A fresh generate/loaded save invalidates any in-flight playback and the
 ## last simulation's own readout -- same reasoning `right_dock.gd`'s

@@ -46,7 +46,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
-| 16-22, 27-38 | Sections added after the contents table was written; see the `## ` headings directly. **§38 is the 2026-08-25 conformance sweep** — FR-02 (selecting a faction silently *renamed* it), PE-01 (the place editor's name re-roll was a no-op on its first press), both one defect: a field that commits on `focus_exited`, torn down while focused. It also closes SH-11 (32.59 px of zoom-pivot drift, measured) and WW-13, and cleans up six pointers §37 left aimed at retired categories plus one disclosure that had lost its only caller. **§37 is the left-rail menu structure v3 pass** — what WORLD/CIVIL/CARTO became, the fifteen new IDs (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14, WW-15, VA-01, VA-02) and what was wired rather than disclosed. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
+| 16-22, 27-38 | Sections added after the contents table was written; see the `## ` headings directly. **§40 narrows CV-25 and CV-26** — the military half turned out to be three unrecognised ports plus a dead `0.35` coefficient in an already-ported formula; the relations half needed a faction-to-faction edge that genuinely did not exist. **§38 is the 2026-08-25 conformance sweep** — FR-02 (selecting a faction silently *renamed* it), PE-01 (the place editor's name re-roll was a no-op on its first press), both one defect: a field that commits on `focus_exited`, torn down while focused. It also closes SH-11 (32.59 px of zoom-pivot drift, measured) and WW-13, and cleans up six pointers §37 left aimed at retired categories plus one disclosure that had lost its only caller. **§37 is the left-rail menu structure v3 pass** — what WORLD/CIVIL/CARTO became, the fifteen new IDs (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14, WW-15, VA-01, VA-02) and what was wired rather than disclosed. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
@@ -5450,8 +5450,8 @@ working control, and none is silently omitted.
 | **CV-22** | Faction **history, notes, lore** (v3 marks these `vault`) | CIVIL ▸ Factions ▸ Not built | `cartalith-vault`'s `EntityKind` covers settlement, province and continent. A faction is not addressable there yet | **CLOSED 2026-08-25 (§39)** — and the estimate was exact |
 | **CV-23** | Borders, claims and **influence** as separate quantities; historical occupation | CIVIL ▸ Territories ▸ Not built | `CivData::territory` is one plurality-owner-per-cell grid: no contested-claim value, no influence field, no per-year ownership record beyond the timeline's settlement snapshots | (B) large — **sharpened §39**: the influence field is computed today and discarded (`assign_territory`'s `best_effective`) |
 | **CV-24** | The year scrubber as **program scope** (v3: *"time is not a domain"*) | The timeline strip's own `Open Timeline` tooltip | Agreed in principle, and not moved. `dcc_shell.gd`'s reserved `timeline_bar` is one fixed-height `HBox` with no room for a year-pill list, an add-year field and three filter checkboxes; `TIMELINE_SCOPE.md` §4's standing instruction is to build a dedicated panel rather than guess the region. A shell-frame change, not a menu change | (C) — design first |
-| **CV-25** | **Military**: garrisons, defensive strength, fortification network, campaigns | CIVIL ▸ Military ▸ Not built (whole category) | `cartalith-civ` models none of them and neither does the reference. New design, not a port gap. What exists is per-settlement *defensibility*, a terrain heuristic, on the right dock | (C) |
-| **CV-26** | **Relationships**: diplomatic matrix, allies/rivals/subjects, treaties — and v3 Politics' vassalage/alliances/rivalries | CIVIL ▸ Relationships ▸ Not built (whole category), and CIVIL ▸ Politics ▸ Not built | There is no edge between two factions to hold a value, at any year, so a matrix would be a grid of blanks. The reference has none either. Absorbs the one-line gap the old Politics category disclosed | (C) |
+| **CV-25** | **Military**: garrisons, defensive strength, fortification network, campaigns | CIVIL ▸ Military ▸ Not built (whole category) | `cartalith-civ` models none of them and neither does the reference. New design, not a port gap. What exists is per-settlement *defensibility*, a terrain heuristic, on the right dock | **NARROWED 2026-08-25 (§40)** — and the reason above is wrong: the reference has `_umWallSpec`/`_umInferWalls` (22109) and `_civPlaceDefensibility` (23802), and `power.military` was already ported. Now built, golden-verified. Open: **garrison headcounts, campaigns, unit movement, combat** — and only those |
+| **CV-26** | **Relationships**: diplomatic matrix, allies/rivals/subjects, treaties — and v3 Politics' vassalage/alliances/rivalries | CIVIL ▸ Relationships ▸ Not built (whole category), and CIVIL ▸ Politics ▸ Not built | There is no edge between two factions to hold a value, at any year, so a matrix would be a grid of blanks. The reference has none either. Absorbs the one-line gap the old Politics category disclosed | **NARROWED 2026-08-25 (§40)** — the reason above was right, and the edge now exists (`cartalith_civ::relations`): one derived, recomputed value per faction pair, shown as a ranked list. Open: **diplomacy actions, treaties, vassalage, and change over time** |
 | **IN-13** | **Trade flows** as a routed quantity, imports/exports per settlement, route-cost field, trade-influence raster | CIVIL ▸ Trade ▸ Not built | `civ_resource_trade_balance` produces the hinterland surplus/deficit that *is* shown; nothing ties a trade relationship to the way that would carry it. `ECONOMY_SCOPE.md` holds the aggregation | (B) large — **sharpened §39**: `TradeBalance` names *what*, never *who*; a flow needs a bipartite match plus a network flow |
 | **CA-16** | Per-class way **style**: colour, width, casing, dashes, route glow | CARTO ▸ Roads & routes ▸ Not built | `map_overlay.gd` draws every way from one hardcoded width-and-colour pair per type and takes no style argument; the reference's `#civWayScaleR` has no counterpart here. Visibility, which *is* wired, is the whole of what works | **CLOSED 2026-08-25 (§39)** — `#civWayScaleR`/`#wayOpacityR` ported; the reason above describes the file as it was *before* §36 |
 | **CA-17** | Territory tint opacity, border width/style, claim hatching, influence gradient + legend | CARTO ▸ Political display ▸ Not built | One fixed-alpha fill with a fixed border, and no style record keyed to a faction id for anything to write to. Blocked on CV-21 at the CIVIL end | **CLOSED 2026-08-25 (§39)** for tint opacity (`#territoryOpacityR`) and, via CV-21, identity colour; the rest is CV-23's data gap |
@@ -5931,10 +5931,19 @@ status but what is known about them.
   feature design, not wiring, and improvising it would be inventing a game
   system. What exists is per-settlement *defensibility*, a terrain heuristic,
   on the right dock.
+  > **Superseded by §40 (2026-08-25).** The second sentence is wrong. The
+  > reference models the fortification half twice over — `_umWallSpec` /
+  > `_umInferWalls` at 22109 and `_civPlaceDefensibility` at 23802 — and this
+  > port had already ported the per-faction half (`power.military`) without
+  > noticing it was one. The *campaign* half is the only part that was ever
+  > absent.
 - **CV-26 — relationships.** Unchanged (C), and for a structural reason worth
   restating: there is no **edge** between two factions to hold a value, at any
   year, so a diplomatic matrix would be a grid of blanks. The reference's own
   inspector says "not yet implemented" here too. **Owner's to specify.**
+  > **Narrowed by §40 (2026-08-25).** This diagnosis was right, and it is
+  > what §40 built: the edge exists now. What stayed out is the half that
+  > really does need specifying — actions, treaties, and change over time.
 - **IN-13 — trade flows.** Still (B) large, and now precisely: `TradeBalance`
   is `{exports, imports}` — a per-settlement verdict on which of the fifteen
   resources a place has too much or too little of *against the world mean*.
@@ -5998,3 +6007,158 @@ language refused it.
 **A note on the commits.** WW-15's engine and shell landed in `79396c2`
 alongside the other six display IDs; that commit's message does not name it,
 and this section is the record.
+
+## 40 · CV-25, CV-26 — the military half was a port nobody had recognised, and the relations half needed an edge that did not exist (2026-08-25) — **NARROWED**
+
+Owner's decision on the two §37 IDs that were parked pending design: *"build a
+minimal version now"*. Both are built. Neither is closed, because in each case
+a real, separable feature remains — and both categories say so on screen, in
+the same words this section does.
+
+The two turned out to be completely different jobs, and the difference is the
+finding worth keeping.
+
+### CV-25 was a port, and the register's reason for calling it a design was wrong
+
+§37 recorded: *"`cartalith-civ` models none of them and neither does the
+reference."* The second half is wrong, and this is the **fifth** §37 entry to
+be wrong in exactly that direction. Grepping the frozen snapshot for
+`military`, `garrison`, `war` and `fortif` found three real implementations
+and one already-ported fourth:
+
+| reference | line | what it is | status before today |
+|---|---|---|---|
+| `_umWallSpec` | 22109 | the `none · ditch · palisade · stone` ladder, from tier + function + threat + wealth + age + command of ground | **not ported** — `urban_adapter.rs`'s own table said "skipped: the whole fortification pipeline is milestone 10" |
+| `_umInferWalls` | 22134 | its boolean view | **not ported**, same note |
+| `_civPlaceDefensibility` | 23802 | per-settlement defensive strength `0..1` | **not ported** |
+| `_civFactionAggregates` → `power.military` | 23716 | `0.45·normPop + 0.35·fortifiedFraction + 0.20·capitalTierNorm` | **already ported**, golden-verified, and with no reader |
+
+So the "new design" was three small ports and a category to put them in.
+
+**And the port had a live defect the ports themselves exposed.**
+`FactionPlace::from_settlement` hard-wires `fortified: false`, because
+`cartalith-civ` is stateless and the `umWalls` override lives at the boundary
+in `place_extras`. Every caller of `civ_faction_aggregates` in this workspace
+has therefore been feeding the military axis a **constant zero** for its
+`0.35 · fortifiedFraction` term — a third of the formula, dead. The new
+bridge composes the place rows itself (`um_infer_walls` per settlement, then
+`FactionPlace { fortified, ..from_settlement(s) }`), which is exactly what the
+reference's own aggregate pass does. Measured on seed 483920: de-walling one
+faction's five settlements moves its military power **89.00 → 61.00**. That
+term is reaching the formula now, and was not before.
+
+It also gives `umWalls` and `umAge` their first consumer anywhere.
+`civ_roster_bridge.rs`'s module doc has said outright, since ED-03 landed,
+that an edited `umWalls`/`umAge` *"reaches nothing"*. It reaches this.
+
+**What stays open, and only this:** garrison **headcounts**, campaigns, unit
+movement, combat. The reference has none of them either, and none is derivable
+from anything above — a headcount would be a fabricated number wearing a real
+one's clothes.
+
+### CV-26 was genuinely new, and the register's structural objection was the right one
+
+§37/§39's diagnosis — *"there is no edge between two factions to hold a value,
+so a matrix would be a grid of blanks"* — was correct, and it is what got
+built: the edge, and nothing else. `cartalith_civ::relations` produces one
+**symmetric** value per unordered faction pair, **derived and recomputed**
+like the aggregates and the wildlife regions, stored nowhere and saved nowhere.
+
+Four terms, each symmetric by construction, each reported beside the verdict
+so the reader can disagree with it:
+
+| term | weight | source |
+|---|---|---|
+| shared culture | `+0.30` | `civFactionCulture` |
+| shared / opposed faith | `±0.20` | `civFactionReligion`; `none` on either side is silence, not division |
+| trade complement | `+0.25` | the aggregate's own `imports`/`exports` |
+| border friction | `−0.55` | shared-border cells × `(0.35 + 0.65 · rivalry)` |
+
+Two of those deserve their reasoning stated rather than assumed.
+
+**Friction is border × rivalry, not border.** A long border with a weak
+neighbour is a frontier, not a rivalry; `rivalry` is high only when *both*
+sides are strong **and** evenly matched, which is the configuration that makes
+ground contested. And the border is measured against **the widest border on
+this map**, not an absolute cell count — the same relative-not-absolute
+discipline the reference's own v1.30/v1.32/v1.37 trade-balance fixes settled
+on.
+
+**A good nobody supplies is discounted.** The trade term's denominator counts
+only imports that *some* faction on the map exports. This is not a
+convenience: a deficit nobody can fill is a shared shortage, not a
+relationship — the reference's own v1.33 finding, in its own words, that a
+food deficit is not automatically an import *"when there is no direct trade
+that could sustain [it]"* (line 24500). It matters concretely here, because
+this port retains no `currentPopulationDensity()` equivalent (`CivData::dens`
+is `civ_current_agrarian_density`, a **different field**, and substituting it
+would silently move `foodProductionCapacity` off the reference's number). With
+the food half of the balance absent, `food` lands in every faction's imports
+and nobody's exports; without this rule it would have diluted every pair's
+trade term toward zero.
+
+**What stays open:** diplomacy actions, treaties, vassalage, and relations
+that change over time. Each needs a decision this port should not make alone —
+who acts, on what clock, and what a treaty does to the map. The value is a
+reading of the world as it stands and stops there.
+
+### Verification
+
+Two temporary, untracked harnesses, both run against a real world, seed
+483920.
+
+`_military_probe.gd` (engine level, 384 × 288, 33 settlements, 6 factions) —
+**PASS**:
+
+| what | measured |
+|---|---|
+| military power differentiated | 45.43 … 89.00 across six factions, not all-equal and not all-zero |
+| the ladder is a ladder | 12 stone · 2 ditch · 19 none; defensibility 0.000 … 0.988 |
+| `fortifiedFraction` reaches `power.military` | de-walling faction 1's five settlements: **89.00 → 61.00** |
+| every pair, symmetric | 15 pairs for 6 factions; `get(a,b) == get(b,a)` |
+| border friction is live | widest shared border 250 cells; values −0.168 … +0.125 |
+| trade term is live | 0.00 … 0.67 across pairs, once the aggregate is given real resource rasters |
+| culture and faith are wired, not dead | setting two factions to one culture and one faith moved their value **+0.125 → +0.625** (exactly the documented `+0.30 +0.20`); switching one to a different faith moved it back to `+0.225` with `religion_term −1.0` |
+
+`_mildock_shot.gd` (shell level, the real `app.tscn`, 233 settlements, 6
+factions) — **PASS, windowed and headless**. Both categories render real rows:
+
+```
+Veldmark -- 66/100 · 7 of 49 fortified
+Korrath  -- 59/100 · 2 of 33 fortified
+...
+15 of 233 settlements are fortified.
+Garnstokgrimfornward -- ditch wall · defence 99%
+Tibtibmarcoctcastra  -- stone wall · defence 97%
+...
+Korrath ↔ Sythe Dominion -- friendly (+20)
+Veldmark ↔ Korrath       -- wary (-34)
+```
+
+and both of the old "Not built" disclosures are gone while both **narrowed**
+gaps are still stated on screen — the probe asserts all four, because closing
+a register entry by deleting its honest note is the failure mode this document
+exists to catch.
+
+Plus `cargo test`: `cartalith-civ` **401** lib tests (11 new in `relations`,
+9 in `military`) and a new `golden_parity_military.rs` (3 tests);
+`cartalith-godot` 343 lib tests and every integration target green.
+`cargo check -p cartalith-godot` clean.
+
+**Two boundary assertions failed on the first extraction, and both were real
+range errors** — `CLAUDE.md`'s "verify the line ranges before slicing" rule
+earning its keep for the sixth time. The `_umWallSpec` slice started at 22105,
+inside the v1.17 provenance comment rather than at the `function` line
+(22109). And the four-rung assertion was written as four `return 'x';`
+statements, which the reference does not contain: `palisade` reaches its caller
+only through the ternaries `pop>=1200?'stone':'palisade'` and
+`rank>=1?'palisade':'ditch'`. Both failed loudly instead of emitting a short,
+plausible golden.
+
+**One equivalent mutant, recorded rather than chased.** `terrainD>0.9` and
+`terrainD>=0.9` are the same function: `1 − 4·|r − 0.35|` never evaluates to
+exactly `0.9` for any `f64` `r` in the neighbourhood — the reachable results
+step from `0.9000000000000001` straight to `0.8999999999999999`. The *constant*
+is what carries the meaning, and `commanding_village_digs_in` pins it from both
+sides instead. Mutating `0.9 → 0.8` fails; mutating `1200 → 1100`,
+`260 → 250`, `0.6 → 0.65` and `rank>=3 → rank>=4` all fail too.

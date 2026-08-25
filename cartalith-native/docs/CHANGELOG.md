@@ -26429,3 +26429,166 @@ be an on-demand recompute) and the fact that `compute_civilisation` frees the
 owner decision, not wiring.** ED-02 stays (C) for the same reason. CA-18's
 declutter budget and CA-19's *writable* palette stay open with their costs
 now stated.
+
+## CV-25 and CV-26 — one was a port nobody had recognised, the other needed an edge that did not exist (`GUI_GAP_REGISTER.md` §40, 2026-08-25)
+
+Owner's decision on the two §37 IDs parked pending design: *"build a minimal
+version now"*. Both built, **neither closed** — each keeps a real, separable
+feature open, and each category says so on screen.
+
+### CV-25 (Military) — three ports, and a coefficient that had been dead
+
+`GUI_GAP_REGISTER.md` §37 said *"`cartalith-civ` models none of them and
+neither does the reference."* The second half is wrong, and this is the fifth
+§37 entry wrong in that direction. The frozen snapshot has:
+
+- **`_umWallSpec`** (22109) — the `none · ditch · palisade · stone` ladder,
+  derived from tier + function + threat (the `fortified` trait) + wealth +
+  age + command of ground.
+- **`_umInferWalls`** (22134) — its boolean view.
+- **`_civPlaceDefensibility`** (23802) — per-settlement defensive strength
+  `0..1`: `0.6 · terrainRuggednessD(r) + 0.4 if walled`.
+
+and a fourth, `_civFactionAggregates`' `power.military`
+(`0.45·normPop + 0.35·fortifiedFraction + 0.20·capitalTierNorm`), was
+**already ported and golden-verified** — with no reader.
+
+**Built:**
+
+- `cartalith-civ::military` — `um_wall_spec`, `um_infer_walls`,
+  `civ_place_defensibility`, `civ_relative_elevation`. `terrain_ruggedness_d`
+  went `pub`, because the reference calls it a *shared* primitive and this is
+  its second and third caller. `urban_adapter.rs`'s provenance table row for
+  the two `_um*` functions changed from **skipped** to **ported, and not
+  here**, with the reason: their first real consumer is the aggregate's
+  `fortifiedFraction`, not the layout adapter.
+- `cartalith-godot::civ_military_bridge` — a `#[godot_api(secondary)]` block
+  (the `geojson_bridge.rs` / `export_raster.rs` precedent) with
+  `civ_military_summary()` and `civ_faction_relations()`. No `unwrap`/`expect`
+  anywhere in the file; every absent-world path returns an empty value,
+  because a panic here unwinds through a GDExtension callback.
+- CIVIL ▸ Military: *Faction strength* ranked by military power (with the
+  three-way wall breakdown and the capital in the tooltip), *Fortifications*
+  ranked by defensive strength, and a *Not built* section naming exactly what
+  is still absent.
+
+**The defect the ports exposed.** `FactionPlace::from_settlement` hard-wires
+`fortified: false` — `cartalith-civ` is stateless and the `umWalls` override
+lives at the boundary in `place_extras` — so **every** caller of
+`civ_faction_aggregates` in this workspace had been feeding the military axis
+a constant zero for its `0.35 · fortifiedFraction` term. A third of the
+formula, dead. The new bridge composes the place rows itself, which is what
+the reference's own aggregate pass does (`if(_umInferWalls(p))
+b.fortifiedCount++`). Measured: de-walling one faction's five settlements
+moves its military power **89.00 → 61.00**.
+
+`civ_faction_terrain_fits` is deliberately **left alone** rather than
+perturbed: its output is the terrain mix, nothing in it reads `power`, and it
+has golden numbers.
+
+This also gives `umWalls` and `umAge` their first consumer anywhere.
+`civ_roster_bridge.rs`'s module doc has said since ED-03 that an edited
+`umWalls`/`umAge` *"reaches nothing"* — it reaches this, and that doc is now
+corrected.
+
+**Still open, and only this:** garrison headcounts, campaigns, unit movement,
+combat.
+
+### CV-26 (Relationships) — the edge, and nothing else
+
+No reference implementation exists: the snapshot's only hits for `diplomacy`,
+`alliance`, `vassal`, `treaty` or `rivalry` are prose. §37/§39's structural
+objection was the right one — *"there is no edge between two factions to hold
+a value"* — and creating that edge is the whole of what was built.
+
+`cartalith-civ::relations::civ_faction_relations` returns one **symmetric**
+value per unordered faction pair, **derived and recomputed** like
+`civ_faction_aggregates` and `wildlife_regions` — stored nowhere, saved
+nowhere, changing on nothing's clock. Four terms, each symmetric by
+construction and each reported beside the verdict:
+
+| term | weight | source |
+|---|---|---|
+| shared culture | `+0.30` | `civFactionCulture` |
+| shared / opposed faith | `±0.20` | `civFactionReligion`; `none` on either side is silence, not division |
+| trade complement | `+0.25` | the aggregate's `imports` / `exports` |
+| border friction | `−0.55` | shared-border cells × `(0.35 + 0.65 · rivalry)` |
+
+Three decisions worth stating:
+
+1. **Friction is border × rivalry, not border.** A long border with a weak
+   neighbour is a frontier, not a rivalry. `rivalry` is high only when both
+   sides are strong *and* evenly matched.
+2. **The border is relative to the widest border on this map**, not an
+   absolute cell count — the same discipline the reference's own v1.30/v1.32/
+   v1.37 trade-balance fixes settled on after absolute margins proved
+   unreachable on some worlds.
+3. **A good nobody supplies is discounted** from the trade term's
+   denominator. That is the reference's own v1.33 finding — a deficit no route
+   can cover is not an import relationship (line 24500) — and it matters here
+   concretely: this port retains no `currentPopulationDensity()` equivalent
+   (`CivData::dens` is `civ_current_agrarian_density`, a *different field*,
+   and substituting it would silently move `foodProductionCapacity` off the
+   reference's number), so `food` sits in every faction's imports and nobody's
+   exports. Without the rule it would have diluted every pair toward zero.
+
+The bridge **does** rebuild the resource rasters on demand (biome →
+lithology → potentials, at `scarcity=true, scarcity_legacy=false`, the
+production defaults), because the trade term reads the aggregate's
+import/export lists and `compute_civilisation` frees those rasters. Same
+on-demand shape `civ_faction_terrain_fits` already uses, same modal-open cost
+class.
+
+**NaN policy, stated because it changes an answer.** The aggregate can
+legitimately produce a `NaN` power axis and propagates it on purpose. A `NaN`
+reaching a stance comparison would fall through every branch to `"hostile"` —
+the loudest answer from the least information — so a non-finite value is
+collapsed to `0.0`/`"neutral"` at the one place a number becomes a claim about
+two polities.
+
+**Still open:** diplomacy actions, treaties, vassalage, and change over time.
+
+### Verified
+
+- **`cargo test -p cartalith-civ`**: 401 lib tests (9 new in `military`, 11 in
+  `relations`) plus a new `tests/golden_parity_military.rs` (3 tests) —
+  Node `vm.runInContext` over six reference slices, with boundary and
+  shape assertions ahead of the goldens. All green.
+- **`cargo test -p cartalith-godot`**: 343 lib tests and every integration
+  target green. `cargo check -p cartalith-godot` clean.
+- **Mutation-tested**: `1200 → 1100`, `260 → 250`, `0.6 → 0.65`,
+  `rank>=3 → rank>=4` and `0.9 → 0.8` all fail. `terrainD>0.9 → >=0.9`
+  survives and is an **equivalent mutant** — `1 − 4·|r − 0.35|` never
+  evaluates to exactly `0.9` for any `f64` `r` in the neighbourhood (the
+  reachable results step from `0.9000000000000001` to `0.8999999999999999`).
+  Recorded in the test rather than chased; the constant is pinned from both
+  sides instead.
+- **`_military_probe.gd`** (temporary, untracked; 384 × 288, seed 483920, 33
+  settlements, 6 factions) — **PASS**. Military power 45.43 … 89.00, not
+  all-equal and not all-zero; 12 stone / 2 ditch / 19 none; defensibility
+  0.000 … 0.988; 15 pairs for 6 factions; widest shared border 250 cells;
+  trade term 0.00 … 0.67; and — because a fresh world seeds distinct cultures
+  and no religion — an explicit proof that those two terms are wired rather
+  than dead: giving two factions one culture and one faith moved their value
+  **+0.125 → +0.625**, exactly `+0.30 +0.20`, and an opposing faith moved it
+  back to `+0.225`.
+- **`_mildock_shot.gd`** (temporary, untracked; the real `app.tscn`, 233
+  settlements) — **PASS windowed *and* headless**. Both categories render real
+  rows (`Veldmark -- 66/100 · 7 of 49 fortified`,
+  `Garnstokgrimfornward -- ditch wall · defence 99%`,
+  `Veldmark ↔ Korrath -- wary (-34)`), both old *Not built* disclosures are
+  gone, and **both narrowed gaps are still disclosed** — the probe asserts all
+  four, because closing a register entry by deleting its honest note is the
+  failure mode that document exists to catch.
+
+**Two boundary assertions failed on the first extraction and both were real.**
+The `_umWallSpec` slice started at 22105, inside the v1.17 provenance comment
+rather than at the `function` line (22109). And the four-rung assertion was
+written as four `return 'x';` statements, which the reference does not
+contain — `palisade` reaches its caller only through the ternaries
+`pop>=1200?'stone':'palisade'` and `rank>=1?'palisade':'ditch'`. Both failed
+loudly rather than emitting a short, plausible golden.
+
+**One GDScript defect the parse check caught**: a `sort_custom` lambda body
+cannot wrap onto a second line. Three of them did; they are named `static
+func` comparators now rather than one unreadable long line each.

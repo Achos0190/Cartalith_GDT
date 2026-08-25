@@ -16,6 +16,15 @@ use rayon::prelude::*;
 
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
+/// `GUI_GAP_REGISTER.md` CV-25 — the reference's fortification ladder
+/// (`_umWallSpec`/`_umInferWalls`) and per-settlement defensive strength
+/// (`_civPlaceDefensibility`). A port, not a design; see its module doc for
+/// why the register said otherwise.
+pub mod military;
+/// `GUI_GAP_REGISTER.md` CV-26 — the faction-to-faction edge, derived and
+/// recomputed. The one thing here with no reference implementation to port;
+/// its module doc states the four terms and what is deliberately absent.
+pub mod relations;
 /// `TIMELINE_SCOPE.md` milestone 1 -- the `_civSettlementPopulation`
 /// dependency chain, the shared tier tables, and the stable-id (`tid`)
 /// helpers `NamedSettlement`/`Way` carry.
@@ -2047,7 +2056,11 @@ pub fn build_flood_field(
 /// `_civTerrainRuggednessD` (reference HTML line 6318): mild upland
 /// (`r≈0.35`, elevation as a `[0,1]` fraction of the land band above sea
 /// level) scores highest, falling off on both sides.
-fn terrain_ruggedness_d(r: f64) -> f64 {
+/// Public because [`crate::military`] is the reference's own second and
+/// third caller of this exact primitive (`_umWallSpec`'s commanding-village
+/// rung and `_civPlaceDefensibility`'s terrain term), and the reference
+/// calls it a *shared* primitive rather than copying it.
+pub fn terrain_ruggedness_d(r: f64) -> f64 {
     (1.0 - 4.0 * (r - 0.35).abs()).max(0.0)
 }
 

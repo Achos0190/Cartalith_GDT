@@ -27,7 +27,7 @@
 //! | `_umWaterCtx` | **ported** — `WaterCtx` is a milestone-5 `build_site` input |
 //! | `_umTerrainCtx` | **ported** — `TerrainCtx` likewise |
 //! | `_umPlaceContext` | **ported, minus four fields** — see below |
-//! | `_umWallSpec`, `_umInferWalls` | **skipped**: the whole fortification pipeline is milestone 10. `walls` is passed `false` — with no `WallBuilder` in existence, a wall spec would be a value nothing can build or draw |
+//! | `_umWallSpec`, `_umInferWalls` | **ported, and not here**: they live in [`crate::military`], because their first real consumer is `_civFactionAggregates`' `fortifiedFraction` (`GUI_GAP_REGISTER.md` CV-25), not this adapter. `grow`'s own `walls` input is still passed `false` — the wall *builder* is milestone 10 and a spec is still a value nothing can draw; what changed is that the spec now has a reader |
 //! | `_umHarbourScale` | **skipped**: consumed only by `buildHarbour`, milestone 9 |
 //! | `_umSiteProfile` | **skipped**: its consumers are the wall spec (m10), harbour/bridge validity (m9), economic districts (m13) and the Settlement Inspector — none of which exist |
 //! | `_umOreBearing` | **skipped**: feeds `economy.oreBearing`, read only by milestones 13/15; and this port's settlements carry no `specialisation`, so `economy` is `None` regardless (the gap `URBAN_MORPHOLOGY_SCOPE.md` milestone 17 already predicted) |
