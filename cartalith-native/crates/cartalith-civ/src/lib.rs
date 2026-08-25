@@ -33,6 +33,12 @@ pub mod relations;
 pub mod roster;
 pub mod timeline;
 pub mod tools;
+/// `GUI_GAP_REGISTER.md` **IN-13** -- trade *flows*: which settlement
+/// supplies which, over what water, along which way. Five of its six pieces
+/// are ports of the reference's own food-shed machinery, which already does
+/// exactly this for one good; see the module doc for the line numbers and
+/// for the one step that is new.
+pub mod trade;
 /// `TRAVEL_LIBRARY_SPEC.md` -- the Travel Library data model, validation,
 /// stock content and the `jp_capacity_ex`/`jp_calc_land_ex`/`jp_plan_ex`
 /// resolver-building functions. See that module's own doc comment for the

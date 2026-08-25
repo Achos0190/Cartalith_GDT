@@ -22,6 +22,7 @@ mod bake_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;
+mod civ_trade_bridge;
 mod export_raster;
 mod geojson_bridge;
 mod icon_bridge;
