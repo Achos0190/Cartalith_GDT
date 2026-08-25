@@ -144,6 +144,14 @@ const CATEGORIES: Array = [
 
 var _sculpt_body: VBoxContainer
 var _paint_body: VBoxContainer
+## ECOLOGY's whole body (`GUI_GAP_REGISTER.md` WW-14). Refilled wholesale on
+## every generate/load for the same reason the two above are: every number in
+## it is this world's.
+var _ecology_body: VBoxContainer
+## WORLD DATA's coordinate-system readout (`GUI_GAP_REGISTER.md` WW-15).
+## Refilled on every generate/load: the frame is this world's, and before the
+## first one there is no frame at all.
+var _crs_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
 
 ## §5.1's Finalize foot (`GUI_GAP_REGISTER.md` WW-01). `_bake_depth` defaults
@@ -227,6 +235,14 @@ func _build() -> void:
 	_paint_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_paint_body.visible = false
 
+	_ecology_body = VBoxContainer.new()
+	_ecology_body.add_theme_constant_override("separation", 0)
+	_ecology_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	_crs_body = VBoxContainer.new()
+	_crs_body.add_theme_constant_override("separation", 0)
+	_crs_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
 	_build_categories()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
@@ -252,11 +268,15 @@ func _on_generation_finished(_ok: bool) -> void:
 	_refresh_stage_states()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
+	_fill_ecology(_ecology_body)
+	_build_crs(_crs_body)
 
 func _on_world_loaded() -> void:
 	_refresh_stage_states()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
+	_fill_ecology(_ecology_body)
+	_build_crs(_crs_body)
 
 # -- v3's nine categories ------------------------------------------------------
 
@@ -380,23 +400,110 @@ func _build_geology_foot(parent: Control) -> void:
 		func(): app.open_data_manager("Import"))
 	infer.tooltip_text = "The reference's #inferTectBtn. Runs as part of the heightmap import (cartalith_engine::import::infer_tectonics) -- there is no separate #[func] to re-run it over an already-imported surface, so this opens the import that performs it."
 
-## v3 names ECOLOGY as its own category. The engine has no ecology parameters
-## at all -- vegetation and soil are *derived* rasters, readable as analysis
-## fields and settable by nothing -- so this carries prose and a pointer to the
-## one place they can actually be seen, rather than a row of dead sliders.
+## v3 names ECOLOGY as its own category, and `GUI_GAP_REGISTER.md` **WW-14**
+## registered it as having nothing behind it -- "ecological productivity and
+## flora/fauna distribution do not exist in this port or in the reference: no
+## crate computes either".
+##
+## **Both halves of that were wrong**, and this category is the correction.
+## Productivity is `cartalith_civ::build_npp`, the Miami model, ported and
+## golden-verified; fauna distribution is `cartalith_civ::wildlife`'s ecoregion
+## segmentation with per-guild rosters and per-species population estimates,
+## likewise. What was actually missing was any way to *reach* them from here:
+## NPP was computed only inside `wildlife_regions` and discarded, and the
+## ecoregion records were reachable only by clicking the map while the Wildlife
+## debug view happened to be open.
+##
+## So this is a readout, not a parameter panel -- the engine genuinely has no
+## ecology *dials*, which is the part of the old note that was true and is kept.
 func _build_ecology(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Not parameterised")
-	DccWidgets.note(sec,
+	parent.add_child(_ecology_body)
+	_fill_ecology(_ecology_body)
+
+## Refilled on every generate/load, the same wholesale-rebuild discipline
+## `_build_sculpt`/`_build_paint` use: every number here is this world's.
+func _fill_ecology(parent: Control) -> void:
+	for c in parent.get_children():
+		c.queue_free()
+		parent.remove_child(c)
+
+	var eco := bridge.ecology_summary()
+	var sec := DccWidgets.section(parent, "Productivity")
+	if eco.is_empty():
+		DccWidgets.note(sec,
+			"No world yet. Net primary productivity, ecoregions and their fauna are "
+			+ "all derived from a generated world's climate and biome fields.")
+	else:
+		DccWidgets.note(sec,
+			("Net primary productivity averages %d g/m²/yr over %s land cells, "
+			+ "peaking at %d. That is the Miami model -- the lower of a "
+			+ "temperature and a precipitation ceiling, both capped at 3000 -- and "
+			+ "it is the same field the wildlife scorer reads.")
+			% [int(round(float(eco.get("npp_mean", 0.0)))),
+				_thousands(int(eco.get("land_cells", 0))),
+				int(round(float(eco.get("npp_max", 0.0))))])
+	var npp := DccWidgets.action(sec, "Show productivity on the map",
+		func():
+			app.viewport.set_debug_layer("npp")
+			app.set_status("hint", "Analysis field: Net primary productivity (g/m²/yr).", "text"))
+	npp.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	npp.tooltip_text = "build_npp(): 0-3000 g/m²/yr of dry matter, land only. One of the Layers popover's analysis fields -- this is a shortcut onto that one picker, not a second copy of it."
+
+	var fauna := DccWidgets.section(parent, "Fauna")
+	var regions: Array = eco.get("regions", [])
+	if regions.is_empty():
+		DccWidgets.note(fauna,
+			"No ecoregions. The segmentation runs over the Cartalith biome grid, "
+			+ "which needs the civilisation layer's water bodies -- so a loaded "
+			+ ".zip save has productivity but no fauna, the same condition the "
+			+ "Wildlife and Biomes analysis fields already report.")
+	else:
+		DccWidgets.note(fauna,
+			("%d ecoregions carrying %d species records between them. Each is a "
+			+ "connected component of one biome class, scored on productivity, "
+			+ "terrain ruggedness, water access and latitude, then given a guild "
+			+ "roster with a population estimate per species.")
+			% [int(eco.get("region_count", 0)), int(eco.get("species_total", 0))])
+		for r: Dictionary in regions:
+			DccWidgets.note(fauna,
+				"%s — %s km², %d species, NPP %d" % [
+					String(r.get("biome_name", "?")),
+					_thousands(int(round(float(r.get("area_km2", 0.0))))),
+					int(r.get("richness", 0)),
+					int(round(float(r.get("npp", 0.0))))])
+		DccWidgets.note(fauna,
+			"The eight largest by area. Open the Wildlife field and click a region "
+			+ "marker for its full guild roster.")
+	var wild := DccWidgets.action(fauna, "Show fauna on the map",
+		func():
+			app.viewport.set_debug_layer("wildlife")
+			app.set_status("hint", "Analysis field: Wildlife -- click a region marker for its roster.", "text"))
+	wild.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	wild.tooltip_text = "current_wildlife(): ecoregions coloured by species richness. Clicking a marker fills the right dock with that region's guilds and per-species population estimates."
+
+	var sec2 := DccWidgets.section(parent, "Not parameterised")
+	DccWidgets.note(sec2,
 		"Vegetation density and soil are computed off the finished biome, climate "
-		+ "and lithology fields with no dials of their own in cartalith-engine. "
-		+ "Both are readable as analysis fields -- Cartography ▸ Visibility / zoom "
-		+ "▸ Data overlays.")
-	DccWidgets.note(sec,
-		"Ecological productivity and flora/fauna distribution (v3, GUI_GAP_"
-		+ "REGISTER.md WW-14) do not exist in this port or in the reference: no "
-		+ "crate computes either, so there is nothing to expose. The wildlife "
-		+ "ecoregion view is the closest thing that does exist, and it is a "
-		+ "classification of the biome field rather than a population model.")
+		+ "and lithology fields with no dials of their own in cartalith-engine, "
+		+ "and neither has productivity: the Miami model's only tunable is "
+		+ "state.climate.maxRainMm, which this port pins at the reference's own "
+		+ "3000 default. Everything above is derived, not set.")
+	DccWidgets.note(sec2,
+		"Still missing (GUI_GAP_REGISTER.md WW-14): *flora* distribution as a "
+		+ "species-level counterpart to the fauna rosters. The wildlife tables are "
+		+ "animals only -- there is no plant-species vocabulary anywhere in "
+		+ "cartalith-civ or in the reference, and biome class is as fine as the "
+		+ "vegetation answer gets.")
+
+## `1234567` -> `1,234,567`. Local rather than a `DccWidgets` addition: the two
+## call sites are both in this file's Ecology readout.
+func _thousands(v: int) -> String:
+	var s := str(absi(v))
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.substr(s.length() - 3) + out
+		s = s.substr(0, s.length() - 3)
+	return ("-" if v < 0 else "") + s + out
 
 ## v3 WORLD DATA's foot: the field browser and the GeoJSON export, both of
 ## which already exist as program windows.
@@ -409,11 +516,59 @@ func _build_world_data_foot(parent: Control) -> void:
 		func(): app.open_data_manager("Export"))
 	geo.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	geo.tooltip_text = "The reference's #exportGeoBtn. Data ▸ Export ▸ GIS writes coastlines, rivers, settlements, ways and territory as one FeatureCollection."
+	parent.add_child(_crs_body)
+	_build_crs(_crs_body)
+
+## v3 WORLD DATA ▸ `Coordinate system · projection` — `GUI_GAP_REGISTER.md`
+## **WW-15**, and a correction to it.
+##
+## The register said the export "writes a plain lon/lat-shaped frame with no
+## CRS declared". It has always declared one, in the document's own `note`
+## property (`geojson::CRS_NOTE`, quoted verbatim from the reference) — RFC
+## 7946 deprecated the `crs` member, so a note is the declaration a GeoJSON
+## file gets to make. What was missing is any way to read the frame *here*.
+##
+## And the frame is real, and it is two different ones depending on world
+## mode, which is the part worth stating: the climate pipeline runs on real
+## latitudes either way.
+func _build_crs(parent: Control) -> void:
+	for c in parent.get_children():
+		c.queue_free()
+		parent.remove_child(c)
+	var sec := DccWidgets.section(parent, "Coordinate system")
+	var crs := bridge.world_crs()
+	if crs.is_empty():
+		DccWidgets.note(sec, "No world yet.")
+	else:
+		DccWidgets.note(sec,
+			("%s. Origin is the north-west cell; X runs east, Y runs south, and "
+			+ "the GeoJSON export flips Y so north is up there.")
+			% String(crs.get("frame", "?")).capitalize())
+		DccWidgets.note(sec,
+			("%d × %d cells over %.0f × %.0f km, so one cell is %.3f km on a side. "
+			+ "Rows run %.1f° to %.1f° — %.4f° of latitude per row, which is what "
+			+ "the climate model integrates over.")
+			% [int(crs.get("grid_w", 0)), int(crs.get("grid_h", 0)),
+				float(crs.get("map_width_km", 0.0)), float(crs.get("map_height_km", 0.0)),
+				float(crs.get("cell_km", 0.0)),
+				float(crs.get("lat_n", 0.0)), float(crs.get("lat_s", 0.0)),
+				float(crs.get("deg_per_row", 0.0))])
+		if bool(crs.get("world", false)):
+			DccWidgets.note(sec,
+				"World mode, so the latitudes are the planet's own 90°N–90°S and "
+				+ "the Climate stage's own lat_n / lat_s are ignored. Longitude "
+				+ "is not modelled: the X axis is kilometres, and it wraps.")
+		else:
+			DccWidgets.note(sec,
+				"Regional mode. Latitude is real and drives the climate model; "
+				+ "longitude is not modelled at all, and X does not wrap.")
+		DccWidgets.note(sec, "Export declares: \"%s\"" % String(crs.get("export_note", "")))
 	DccWidgets.note(sec,
-		"Coordinate system and projection (v3, GUI_GAP_REGISTER.md WW-15) are not "
-		+ "modelled: every field is grid-space, the export writes a plain "
-		+ "lon/lat-shaped frame with no CRS declared, and nothing reprojects. "
-		+ "Units are km-only -- the reference's km/mi toggle is not ported "
+		"Not built (GUI_GAP_REGISTER.md WW-15): a **projection**. Nothing "
+		+ "reprojects, so the planar kilometres are not a projection of the "
+		+ "latitudes beside them and a GIS reading them as WGS84 degrees is "
+		+ "misreading the file — which is exactly what the export's own note "
+		+ "says. Units are km-only; the reference's km/mi toggle is not ported "
 		+ "(PR-15).")
 
 ## §5.1's dock foot — `GUI_GAP_REGISTER.md` **WW-01**, built 2026-08-24.

@@ -296,6 +296,27 @@ const TIMELINE_MAX_YEARS: usize = 2000;
 /// rather than scattering it per-method.
 #[allow(dead_code)]
 impl CivData {
+    /// **The** swatch for faction `f` (`1`-based) — the roster's own
+    /// identity colour when the user has set one, and
+    /// [`faction_rgb_default`]'s palette rule when they have not
+    /// (`GUI_GAP_REGISTER.md` **CV-21**).
+    ///
+    /// One function so the three surfaces that draw a faction — the
+    /// territory wash, the Political-control analysis field, and
+    /// `get_factions`' swatch for the roster and the banner — cannot
+    /// disagree. That "cannot disagree" is not hypothetical: before this,
+    /// the Political-control field indexed `FACTION_RGB` with its own
+    /// `% len()` wrap while the wash used `faction_rgb`'s no-wrap rule, so
+    /// on a seven-faction world the field drew faction 7 in faction 1's
+    /// colour and the map did not.
+    fn faction_rgb(&self, f: i32) -> (u8, u8, u8) {
+        self.faction_roster
+            .0
+            .get(f.max(0) as usize)
+            .and_then(|e| e.color_override)
+            .unwrap_or_else(|| faction_rgb_default(f))
+    }
+
     /// `civGotoYear` (reference lines 20615-20617, minus `_civBuildTimelineUI()`
     /// -- UI wiring is milestone 6's job). Sets the active-year cursor and
     /// restores `territory` from that year's recorded snapshot
@@ -625,6 +646,14 @@ const CONTINENT_MIN_CELLS: usize = 64;
 /// overlay actually renders in, rather than inventing a second palette that
 /// could silently drift from this one.
 const FACTION_RGB: [(u8, u8, u8); 6] = [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (213, 94, 0)];
+
+/// The territory wash's default alpha — `82/255`, ~0.32, low enough for
+/// terrain and biome colour to read through. This port's own value and not
+/// the reference's `130/255`: the renderer under the wash here is doing more
+/// work (hillshade, splat, grade, NPR) than the reference's flat biome fill,
+/// and a heavier wash buries it. `GUI_GAP_REGISTER.md` CA-17 made it a
+/// slider; this is where that slider starts.
+const TERRITORY_ALPHA_DEFAULT: f64 = 82.0 / 255.0;
 
 /// The three opt-in civ-layer passes the reference gates behind its own
 /// auto-populate checkboxes/dropdown, carried together rather than as three
@@ -1875,6 +1904,17 @@ struct WorldGen {
     /// the *setting*, not one generation's output, so it survives a
     /// re-generate and is real even before the first `generate()` call.
     asset_library: asset_bridge::AssetLibrarySession,
+    /// `state.viz.territoryOpacity` — the territory wash's own alpha, `0..1`
+    /// (`GUI_GAP_REGISTER.md` **CA-17**, the reference's `#territoryOpacityR`).
+    ///
+    /// A **display** setting, not generation output: like `travel_library`
+    /// and `asset_library` above it is not `Option` and survives `absorb()`,
+    /// because how heavily territory is washed over the map is a choice about
+    /// the sheet rather than something the terrain pipeline produced.
+    /// [`TERRITORY_ALPHA_DEFAULT`] is this port's own long-standing 82/255,
+    /// so at rest `build_territory_texture` is byte-identical to what it drew
+    /// before this field existed.
+    territory_opacity: f64,
     /// The reference's global heightmap undo stack (`pushUndo`/`undoLast`,
     /// `PARITY_AUDIT.md` §3.1, register `ED-01`/`PR-11`) — a bounded ring of
     /// pre-operation `field` snapshots. See `undo.rs` for what the reference
@@ -1992,6 +2032,7 @@ impl IRefCounted for WorldGen {
             infra: None,
             travel_library: travel_bridge::TravelLibrary::new(),
             asset_library: asset_bridge::AssetLibrarySession::new(),
+            territory_opacity: TERRITORY_ALPHA_DEFAULT,
             undo: undo::HeightUndo::new(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
@@ -4375,7 +4416,15 @@ impl WorldGen {
         let civ = self.civ.as_ref()?;
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        const ALPHA: u8 = 82; // ~0.32, low enough for terrain/biome colour to read through
+        // `state.viz.territoryOpacity` (`#territoryOpacityR`, reference line
+        // 1490; applied at 15440 as `Math.round(opacity * 255)`) --
+        // `GUI_GAP_REGISTER.md` **CA-17**. The reference's own default is
+        // `130/255`; this port's is `TERRITORY_ALPHA_DEFAULT`'s 82/255,
+        // which is where this constant has always been and is deliberately
+        // not moved to the reference's -- a heavier wash than this one hides
+        // the biome underneath it, and the terrain renderer here is doing
+        // more work under the wash than the reference's is.
+        let alpha = (self.territory_opacity.clamp(0.0, 1.0) * 255.0).round() as u8;
 
         // Same plate-frame rule the river tint follows: this wash is drawn
         // over the finished raster, and a faction whose territory reaches
@@ -4387,8 +4436,8 @@ impl WorldGen {
         for (i, &f) in civ.territory.iter().enumerate() {
             let cover = render::border_cover(&appearance, i % gw, i / gw, gw, gh);
             if f > 0 && cover < 1.0 {
-                let (r, g, b) = faction_rgb(f);
-                bytes.extend_from_slice(&[r, g, b, (ALPHA as f64 * (1.0 - cover)) as u8]);
+                let (r, g, b) = civ.faction_rgb(f);
+                bytes.extend_from_slice(&[r, g, b, (alpha as f64 * (1.0 - cover)) as u8]);
             } else {
                 bytes.extend_from_slice(&[0, 0, 0, 0]);
             }
@@ -5930,7 +5979,7 @@ impl WorldGen {
                     .sum();
                 let claimed_cells = civ.territory.iter().filter(|&&t| t == f).count();
                 let e = &civ.faction_roster.0[f as usize];
-                let (r, g, b) = faction_rgb(f);
+                let (r, g, b) = civ.faction_rgb(f);
                 dict! {
                     "id" => f,
                     "name" => e.name.as_str(),
@@ -5941,6 +5990,11 @@ impl WorldGen {
                     "color_r" => r as i64,
                     "color_g" => g as i64,
                     "color_b" => b as i64,
+                    // Whether `color_*` above is the user's own identity
+                    // colour rather than the palette rule's
+                    // (`GUI_GAP_REGISTER.md` CV-21) -- what a *Reset* row
+                    // enables on.
+                    "color_custom" => e.color_override.is_some(),
                     "settlement_count" => settlement_count as i64,
                     "population" => population as i64,
                     "claimed_cells" => claimed_cells as i64,
@@ -5950,16 +6004,22 @@ impl WorldGen {
     }
 }
 
-/// The swatch for faction `f` (`1`-based): [`FACTION_RGB`]'s hand-picked
-/// six for the base roster, `cartalith_civ::roster::civ_faction_color`'s
-/// golden-angle rotation for anything `civ_add_faction` appended past them.
+/// The **default** swatch for faction `f` (`1`-based): [`FACTION_RGB`]'s
+/// hand-picked six for the base roster,
+/// `cartalith_civ::roster::civ_faction_color`'s golden-angle rotation for
+/// anything `civ_add_faction` appended past them.
 ///
 /// That split is the reference's own (line 14565: `_civFactionColor`
 /// "deterministically colours any index beyond the hand-picked base palette
 /// so appended factions stay visually distinct without needing a colour
 /// picker"). It replaces a `% FACTION_RGB.len()` wrap that would have given
 /// faction 7 faction 1's exact colour.
-fn faction_rgb(f: i32) -> (u8, u8, u8) {
+///
+/// **Every renderer must go through [`CivData::faction_rgb`] rather than
+/// this**, which is the same function with the roster's own user override
+/// (`GUI_GAP_REGISTER.md` CV-21) consulted first. This one is the fallback
+/// underneath it, and is called directly only where no roster is in hand.
+fn faction_rgb_default(f: i32) -> (u8, u8, u8) {
     let i = (f - 1).max(0) as usize;
     match FACTION_RGB.get(i) {
         Some(&c) => c,
@@ -9400,6 +9460,143 @@ impl WorldGen {
         }
     }
 
+    /// The world's ecology in one record — `GUI_GAP_REGISTER.md` **WW-14**.
+    ///
+    /// v3 asks WORLD for an Ecology category, and §37 registered it as
+    /// having nothing behind it ("no crate computes either, here or in the
+    /// reference"). **That was wrong on both halves.** Ecological
+    /// productivity is `cartalith_civ::build_npp`, the Miami model, ported
+    /// and golden-verified; fauna distribution is
+    /// `cartalith_civ::wildlife`'s ecoregion segmentation with its guild
+    /// rosters and per-species population estimates, likewise. Both existed
+    /// and neither was reachable from the WORLD rail: NPP was computed only
+    /// *inside* `wildlife_regions` and thrown away, and the ecoregion
+    /// records were reachable only by clicking the map while the Wildlife
+    /// debug view happened to be open.
+    ///
+    /// This is a summary, not a second copy of that data: the per-region
+    /// detail stays `wildlife_region_at`'s, so the dock and the map cannot
+    /// disagree about the same world. Empty `Dictionary` when the
+    /// civilisation layer's water bodies are missing (a loaded save), the
+    /// same condition the Wildlife and Biomes views already report.
+    ///
+    /// `npp_mean` is over **land only** — averaging a sea of zeroes in
+    /// would make the number a function of the sea level rather than of the
+    /// ecology.
+    #[func]
+    fn ecology_summary(&self) -> VarDictionary {
+        let Some(f) = self.sample_refs() else {
+            return VarDictionary::new();
+        };
+        let npp = cartalith_civ::build_npp(f.temperature, f.rainfall, f.field, f.sea_level, 3000.0);
+        let sea = f.sea_level;
+        let mut land = 0usize;
+        let mut sum = 0f64;
+        let mut max = 0f64;
+        for (i, &v) in npp.iter().enumerate() {
+            if (f.field[i] as f64) < sea {
+                continue;
+            }
+            land += 1;
+            sum += v as f64;
+            if (v as f64) > max {
+                max = v as f64;
+            }
+        }
+        let mut d = dict! {
+            "npp_mean" => if land == 0 { 0.0 } else { sum / land as f64 },
+            "npp_max" => max,
+            "land_cells" => land as i64,
+        };
+        let Some(eco) = sample_bridge::wildlife_regions(&f) else {
+            // NPP needs nothing but climate, so it is still real here; the
+            // ecoregions are what a loaded save cannot have.
+            d.set("regions", &Array::<VarDictionary>::new());
+            d.set("region_count", 0i64);
+            d.set("species_total", 0i64);
+            return d;
+        };
+        let mut regions: Vec<&cartalith_civ::wildlife::Ecoregion> = eco.regions.iter().collect();
+        regions.sort_by(|a, b| b.cells.cmp(&a.cells));
+        let species_total: usize =
+            eco.regions.iter().map(|r| r.guilds.iter().map(|g| g.species.len()).sum::<usize>()).sum();
+        let rows: Array<VarDictionary> = regions
+            .iter()
+            .take(8)
+            .map(|r| {
+                dict! {
+                    "id" => r.id as i64,
+                    "biome_name" => cartalith_civ::CART_BIOMES[(r.biome as usize).saturating_sub(1).min(cartalith_civ::CART_BIOMES.len() - 1)],
+                    "area_km2" => r.area_km2,
+                    "richness" => r.richness as i64,
+                    "npp" => r.nppn * 3000.0,
+                    "summary" => r.summary.clone(),
+                    "cx" => r.cx as i64,
+                    "cy" => r.cy as i64,
+                }
+            })
+            .collect();
+        d.set("regions", &rows);
+        d.set("region_count", eco.regions.len() as i64);
+        d.set("species_total", species_total as i64);
+        d
+    }
+
+    /// The frame this world's coordinates are in — `GUI_GAP_REGISTER.md`
+    /// **WW-15**, and a correction to it.
+    ///
+    /// The register recorded that "the export writes a plain lon/lat-shaped
+    /// frame with no CRS declared". It has always declared one, in the
+    /// document's own `note` property (`cartalith_engine::geojson::CRS_NOTE`,
+    /// quoted verbatim from the reference so a consumer learns the same thing
+    /// from either implementation). RFC 7946 deprecated the `crs` member
+    /// outright, so a `note` is the declaration a GeoJSON file gets to make.
+    ///
+    /// What *was* missing is any way to read the frame **in the app**, which
+    /// is what this is. The frame is real and it is two different ones:
+    ///
+    /// - **World mode** (`world = true`): the grid wraps in X and the rows
+    ///   run 90°N to 90°S. That is a plate carrée / equirectangular graticule
+    ///   over a whole planet, and `climate.lat_n`/`lat_s` are ignored — the
+    ///   climate pipeline's own `lat_of(y)` says so.
+    /// - **Regional mode**: rows run `climate.lat_n` to `climate.lat_s` and X
+    ///   does not wrap, so latitude is real (the climate model uses it) while
+    ///   longitude is not modelled at all — the X axis is planar kilometres
+    ///   at the map's own scale.
+    ///
+    /// What is still absent, and what CRS work would mean, is a *projection*:
+    /// nothing reprojects, so the local planar km are not a map projection of
+    /// the latitudes beside them, and a consumer that reads them as WGS84
+    /// degrees is misreading the file.
+    #[func]
+    fn world_crs(&self) -> VarDictionary {
+        let (gw, gh) = (self.gw.max(0), self.gh.max(0));
+        if gw == 0 || gh == 0 {
+            return VarDictionary::new();
+        }
+        let world = self.params.world;
+        let cell_km = if self.map_width_km > 0.0 { self.map_width_km / gw as f64 } else { 0.0 };
+        vdict! {
+            "world" => world,
+            "frame" => if world { "equirectangular graticule (plate carrée), X wraps" } else { "local planar, X does not wrap" },
+            "lat_n" => if world { 90.0 } else { self.params.climate.lat_n },
+            "lat_s" => if world { -90.0 } else { self.params.climate.lat_s },
+            "grid_w" => gw as i64,
+            "grid_h" => gh as i64,
+            "map_width_km" => self.map_width_km,
+            "map_height_km" => cell_km * gh as f64,
+            "cell_km" => cell_km,
+            "deg_per_row" => if gh > 1 {
+                (if world { 180.0 } else { (self.params.climate.lat_n - self.params.climate.lat_s).abs() }) / (gh - 1) as f64
+            } else { 0.0 },
+            // The exact string the GeoJSON document carries, read from the
+            // engine rather than transcribed, so the dock and the file cannot
+            // drift apart.
+            "export_note" => cartalith_engine::geojson::CRS_NOTE,
+            "units" => "km",
+        }
+    }
+
     #[func]
     fn build_debug_texture(&self, view: GString) -> Option<Gd<ImageTexture>> {
         let f = self.sample_refs()?;
@@ -9450,6 +9647,9 @@ impl WorldGen {
             shear_field: &ws.shear_field,
             water_bodies: self.civ.as_ref().map(|c| c.water_bodies.as_slice()),
             territory: self.civ.as_ref().map(|c| c.territory.as_slice()),
+            faction_colors: self.civ.as_ref().map_or_else(Vec::new, |c| {
+                (0..c.faction_roster.0.len() as i32).map(|f| c.faction_rgb(f)).collect()
+            }),
             // The Wind/Ocean-currents debug views' own inputs (layer-
             // visualization audit, `sample_bridge.rs`'s module doc) --
             // `self.params` is only meaningful for a `Generated` source,
@@ -10433,6 +10633,74 @@ impl WorldGen {
             return false;
         }
         civ.faction_roster.set_field(faction as usize, &key.to_string(), &value.to_string())
+    }
+
+    /// `state.viz.territoryOpacity` — how heavily the territory wash is laid
+    /// over the map, `0..1` (`GUI_GAP_REGISTER.md` **CA-17**, the reference's
+    /// `#territoryOpacityR`). A **negative** value restores the default
+    /// ([`TERRITORY_ALPHA_DEFAULT`]), which is how the dock's Reset row
+    /// spells itself without a second binding.
+    ///
+    /// Takes effect on the next `build_territory_texture()`; nothing is
+    /// invalidated here, the same contract every other display setting has.
+    #[func]
+    fn set_territory_opacity(&mut self, a: f64) {
+        self.territory_opacity = if a < 0.0 { TERRITORY_ALPHA_DEFAULT } else { a.clamp(0.0, 1.0) };
+    }
+
+    #[func]
+    fn territory_opacity(&self) -> f64 {
+        self.territory_opacity
+    }
+
+    /// The default the dock's Reset row returns to, so it can label itself
+    /// with the number rather than transcribing it.
+    #[func]
+    fn territory_opacity_default(&self) -> f64 {
+        TERRITORY_ALPHA_DEFAULT
+    }
+
+    /// Sets faction `faction`'s **identity colour** —
+    /// `GUI_GAP_REGISTER.md` **CV-21**, and v3's "CIVIL owns the colour,
+    /// CARTO owns the paint" split at the CIVIL end.
+    ///
+    /// Every renderer that draws a faction reads this: the territory wash
+    /// (`build_territory_texture`), the Political-control analysis field,
+    /// and the roster/banner swatch `get_factions` reports. Returns `false`
+    /// and changes nothing for an unknown faction and for faction `0`
+    /// ("Unclaimed", which nothing renders).
+    ///
+    /// The caller is expected to re-ask for the territory texture
+    /// afterwards; nothing is invalidated here, the same contract every
+    /// other roster edit already has.
+    #[func]
+    fn civ_set_faction_color(&mut self, faction: i64, r: i64, g: i64, b: i64) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        if faction < 0 {
+            return false;
+        }
+        let c = |v: i64| v.clamp(0, 255) as u8;
+        civ.faction_roster.set_color(faction as usize, Some((c(r), c(g), c(b))))
+    }
+
+    /// Clears faction `faction`'s identity colour, returning it to the
+    /// palette rule (`faction_rgb_default`). `false` for an unknown faction
+    /// or for `0`, exactly as [`Self::civ_set_faction_color`].
+    #[func]
+    fn civ_clear_faction_color(&mut self, faction: i64) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        if faction < 0 {
+            return false;
+        }
+        civ.faction_roster.set_color(faction as usize, None)
+    }
+
+    /// Whether any faction carries a user identity colour — what a
+    /// *Reset all* control gates on, without the caller walking
+    /// `get_factions`.
+    #[func]
+    fn civ_has_faction_colors(&self) -> bool {
+        self.civ.as_ref().is_some_and(|c| c.faction_roster.any_color_override())
     }
 
     /// `_civCultureTerrainFit` (`cartalith_civ::civ_culture_terrain_fit`,

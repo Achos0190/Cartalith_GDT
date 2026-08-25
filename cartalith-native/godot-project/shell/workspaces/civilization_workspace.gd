@@ -238,6 +238,12 @@ func _on_roster_changed() -> void:
 	## Unclaimed, so the territory raster is stale too -- same direct write
 	## `_commit_territory` uses, without `refresh()`'s camera reset.
 	app.viewport.territory_view.texture = bridge.territory_texture()
+	## The Political-control analysis field draws in the same swatches
+	## (`GUI_GAP_REGISTER.md` CV-21), so an identity-colour edit leaves it
+	## stale too. Re-asking for whatever view is up is free for every other
+	## one, and this signal fires at the rate a roster is edited.
+	if app.viewport.debug_view() == "control":
+		app.viewport.set_debug_layer("control")
 	_on_civ_edited()
 
 ## Rebuilds every category whose content depends on world data, scoped the way
@@ -788,21 +794,58 @@ func _fill_factions(parent: Control) -> void:
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = "Open this faction in the right dock."
 
+	## `GUI_GAP_REGISTER.md` **CV-21**, built 2026-08-25. The register's
+	## reason ("FactionRoster stores no colour field") was wrong -- it stored
+	## one and nothing read it. It is the render palette now.
+	var identity := DccWidgets.section(parent, "Identity colour")
+	DccWidgets.note(identity,
+		"Each faction's own colour, set in the roster window and drawn by "
+		+ "everything that draws a faction: the territory wash, the Political "
+		+ "control analysis field, and its banner. Unset, it takes the "
+		+ "colourblind-safe palette's colour for that index. The picker is the "
+		+ "first row of the roster window's Identity block, beside the banner it "
+		+ "repaints live.")
+	## No second *Faction roster…* button: this category already has one
+	## above, and two openers onto one window is the shape this shell keeps
+	## having to undo.
+	var paint_btn := DccWidgets.action(identity, "How heavily it paints → Cartography ▸ Political display",
+		func(): app.select_domain_category("cartography", "Political display"))
+	paint_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	paint_btn.tooltip_text = "v3's own split: which colour a faction *is* belongs here, how heavily the wash is laid on belongs to CARTO."
+
+	## `GUI_GAP_REGISTER.md` **CV-22**, built 2026-08-25. The register's own
+	## estimate was right to the line: one `EntityKind` variant, one `as_str`
+	## arm, one `parse` arm, plus the export registry rows a faction can fill.
+	var notes := DccWidgets.section(parent, "Linked notes")
+	DccWidgets.note(notes,
+		"A faction's history, notes and lore live in an external Markdown vault "
+		+ "(any folder of .md files), the same as a settlement's, a province's "
+		+ "and a continent's. Cartalith reads on demand and writes only on an "
+		+ "explicit, previewed action.")
+	## The roster, not the province index above: a faction with no province
+	## yet is still a faction, and still has a history worth writing down.
+	var roster_rows := bridge.get_factions()
+	if roster_rows.is_empty():
+		DccWidgets.note(notes, "No factions — generate a world first.")
+	else:
+		for f in roster_rows:
+			var fd: Dictionary = f
+			_knowledge_row(notes, "faction", int(fd.get("id", 0)), String(fd.get("name", "?")),
+				"%d settlements · %s" % [int(fd.get("settlement_count", 0)),
+					String(fd.get("culture", "")).capitalize()])
+		DccWidgets.note(notes,
+			"Cartalith can fill Name, Culture, Government, Religion, its capital's "
+			+ "coordinates, member settlements, total population and claimed area "
+			+ "into its own block in that note. The three vocabulary fields drive "
+			+ "nothing in the engine (ECONOMY_SCOPE.md) — which is exactly why "
+			+ "they are worth writing where an author's prose about them is.")
+
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Identity colour and emblem (GUI_GAP_REGISTER.md CV-21). The roster "
-		+ "window draws a procedural banner per faction, but FactionRoster stores "
-		+ "no colour field and map_overlay.gd derives a faction's tint from its "
-		+ "index -- so a colour set here would paint nothing, and v3's own "
-		+ "CIVIL-owns-the-colour / CARTO-owns-the-paint split has neither half.")
-	DccWidgets.note(gaps,
-		"History, notes and lore per faction (v3 marks these vault; "
-		+ "GUI_GAP_REGISTER.md CV-22). "
-		+ "cartalith-vault's EntityKind covers settlement, province and continent "
-		+ "-- a faction is not an addressable entity there yet "
-		+ "(MARKDOWN_VAULT_SCOPE.md §3's own \"add a kind later\" note is the "
-		+ "change, one enum variant plus one match arm). Linked notes for "
-		+ "provinces and continents are live under Territories.")
+		"A faction **emblem** (GUI_GAP_REGISTER.md CV-21). The banner is "
+		+ "procedural -- a port of _civFactionBannerCanvas' own composition, "
+		+ "driven by the faction id and its colour -- and there is no image slot, "
+		+ "no charge vocabulary and no asset-library binding for an authored one.")
 
 ## v3 CIVIL ▸ TERRITORIES: recompute, provinces, the territory brush, and the
 ## linked notes for the two entity kinds a territory is made of.
@@ -1121,21 +1164,27 @@ func _build_settlement_vault(parent: Control) -> void:
 		+ "click a settlement above, then ✎. The link is keyed to the "
 		+ "settlement's tid, so it survives a rename and a recompute.")
 
+	## `GUI_GAP_REGISTER.md` **VA-02**, built 2026-08-25.
+	var n_templates := bridge.vault_templates().size()
+	DccWidgets.note(sec,
+		("A settlement with no note yet can be created from one of your own "
+		+ "templates, in the vault panel: %s. Cartalith copies the template "
+		+ "verbatim with the settlement's name substituted, at "
+		+ "Settlements/{name}.md, and refuses if that path already exists -- it "
+		+ "never overwrites a note. Author-field population is separate and "
+		+ "previewed: OnlyIfEmpty by default, reporting what it skipped.")
+		% ("%d found in this vault" % n_templates if n_templates > 0
+			else "none found yet -- a template is any .md with \"template\" in its path"))
+
 	var gaps := DccWidgets.section(parent, "Not built")
-	DccWidgets.note(gaps,
-		"Create-from-template and a path convention (Settlements/{name}.md; "
-		+ "GUI_GAP_REGISTER.md VA-02): "
-		+ "cartalith-vault attaches to notes that already exist and refuses a "
-		+ "heading that does not, deliberately -- it has no note *creator* and no "
-		+ "template registry (MARKDOWN_VAULT_SCOPE.md milestone 1's boundary). "
-		+ "Frontmatter/author-field population IS built and lives in the vault "
-		+ "panel: OnlyIfEmpty by default, previewed, and it reports what it "
-		+ "skipped rather than overwriting.")
 	DccWidgets.note(gaps,
 		"Backlinks and unlinked mentions (GUI_GAP_REGISTER.md VA-01). Both need a "
 		+ "reverse index over the whole vault; the provider walks the folder "
 		+ "bounded and opens no file it was not asked for, which is what keeps a "
-		+ "large vault cheap and is exactly what a mention scan would undo.")
+		+ "large vault cheap and is exactly what a mention scan would undo. The "
+		+ "index itself is the design question, not the scan: an on-demand one "
+		+ "is a stall on a large vault, and a persistent one is a second store "
+		+ "to invalidate.")
 
 func _fill_population(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Totals")

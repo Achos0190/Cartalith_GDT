@@ -70,6 +70,21 @@ pub struct FactionEntry {
     /// them — the reference's own rule, so an appended faction stays
     /// visually distinct without a colour picker.
     pub color: (u8, u8, u8),
+    /// The user's own identity colour for this faction, or `None` for
+    /// "whatever the palette rule gives it" — `GUI_GAP_REGISTER.md`
+    /// **CV-21**, and v3's CIVIL-owns-the-colour half.
+    ///
+    /// **Why this is a second field rather than a write into [`color`]
+    /// above.** `color` is the *reference's* table, and this port does not
+    /// render in it: `lib.rs`'s `FACTION_RGB` (Okabe-Ito, colourblind-safe)
+    /// is what territory and the political-control field actually draw,
+    /// a divergence that predates this module and is disclosed at both
+    /// ends. Overwriting `color` would silently make the reference table
+    /// the render palette for edited factions and not for unedited ones —
+    /// two rules in one roster. So the override is its own field, the
+    /// render rule is untouched at rest, and `None` is exactly today's
+    /// behaviour.
+    pub color_override: Option<(u8, u8, u8)>,
 }
 
 impl FactionEntry {
@@ -87,6 +102,7 @@ impl FactionEntry {
             government: if i == 0 { "none" } else { "monarchy" }.to_string(),
             ag_tech: "traditionalAgrarian".to_string(),
             color,
+            color_override: None,
         }
     }
 }
@@ -201,6 +217,29 @@ impl FactionRoster {
             _ => return false,
         }
         true
+    }
+
+    /// Sets (`Some`) or clears (`None`) faction `fid`'s identity colour —
+    /// `GUI_GAP_REGISTER.md` **CV-21**. Returns `false`, changing nothing,
+    /// for an unknown faction and for index 0: "Unclaimed" is not a faction
+    /// and nothing renders it, so a colour for it would be a control with no
+    /// output.
+    pub fn set_color(&mut self, fid: usize, color: Option<(u8, u8, u8)>) -> bool {
+        if fid == 0 {
+            return false;
+        }
+        let Some(entry) = self.0.get_mut(fid) else {
+            return false;
+        };
+        entry.color_override = color;
+        true
+    }
+
+    /// Whether any faction carries a user colour. The renderer's own cheap
+    /// "is this world still on the default palette?" question, and what the
+    /// dock's *Reset all* row gates on.
+    pub fn any_color_override(&self) -> bool {
+        self.0.iter().any(|e| e.color_override.is_some())
     }
 
     /// `civFactionReligion[f] !== 'none'` per faction — the one roster field
@@ -346,6 +385,31 @@ mod tests {
         // Culture follows `_civDefaultCulture(i)` == CIV_CULTURES[i % 7].
         assert_eq!(r.0[0].culture, "common");
         assert_eq!(r.0[1].culture, "imperial");
+    }
+
+    /// `GUI_GAP_REGISTER.md` **CV-21**. The two things worth pinning are
+    /// that a fresh roster is *empty* of overrides (so the render palette is
+    /// bit-identical to what it was before this field existed) and that
+    /// Unclaimed refuses one.
+    #[test]
+    fn an_identity_colour_is_opt_in_and_reversible() {
+        let mut r = FactionRoster::seeded(6);
+        assert!(!r.any_color_override(), "a fresh roster renders on the palette rule, unchanged");
+        assert!(r.0.iter().all(|e| e.color_override.is_none()));
+
+        assert!(r.set_color(2, Some((10, 20, 30))));
+        assert_eq!(r.0[2].color_override, Some((10, 20, 30)));
+        assert!(r.any_color_override());
+        // The reference table underneath is untouched -- it is not the
+        // render palette and this does not make it one.
+        assert_eq!(r.0[2].color, CIV_FACTION_BASE[2].1);
+
+        assert!(r.set_color(2, None), "clearing is the same call");
+        assert!(!r.any_color_override());
+
+        assert!(!r.set_color(0, Some((1, 2, 3))), "Unclaimed is not a faction");
+        assert_eq!(r.0[0].color_override, None);
+        assert!(!r.set_color(99, Some((1, 2, 3))), "unknown faction");
     }
 
     #[test]

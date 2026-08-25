@@ -57,6 +57,9 @@ var _phone_list_pane: Control
 var _phone_list_bar: PanelContainer
 var _phone_bar_name: Label
 var _phone_bar_banner: Control
+## The inspector head's own banner, held so the colour picker can repaint it
+## live without rebuilding the inspector under the open picker (CV-21).
+var _head_banner: FactionBanner
 
 ## Emitted whenever the roster changes in a way that moves map data (a
 ## removed faction reverts settlements and territory to Unclaimed).
@@ -370,9 +373,9 @@ func _rebuild_inspector() -> void:
 
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
-	var banner := FactionBanner.new()
-	banner.configure(_selected, _color_of(d), 48)
-	head.add_child(banner)
+	_head_banner = FactionBanner.new()
+	_head_banner.configure(_selected, _color_of(d), 48)
+	head.add_child(_head_banner)
 	var name_edit := LineEdit.new()
 	name_edit.text = String(d.get("name", ""))
 	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -387,6 +390,7 @@ func _rebuild_inspector() -> void:
 	_inspector_body.add_child(head)
 
 	var sec := DccWidgets.section(_inspector_body, "Identity")
+	_colour_row(sec, d)
 	_vocab_choice(sec, "Government", bridge.civ_government_vocabulary(),
 		String(d.get("government", "monarchy")), "government")
 	_culture_choice(sec, String(d.get("culture", "common")))
@@ -403,6 +407,63 @@ func _rebuild_inspector() -> void:
 	## `DccShell.phone_fit`.
 	if _phone:
 		app.phone_fit(self, 1.0)
+
+
+## The faction's identity colour — `GUI_GAP_REGISTER.md` **CV-21**, and v3's
+## "CIVIL owns the colour, CARTO owns the paint" split at the CIVIL end.
+##
+## Registered as unbacked during the v3 pass, on the reading that
+## "`FactionRoster` stores no colour field". It stored one already; what it
+## had no way to do was let anyone *set* it, and nothing read it — the
+## renderers went to `FACTION_RGB` by index. `civ_set_faction_color` writes
+## the override and the three surfaces that draw a faction (territory wash,
+## Political-control field, this banner) all read `CivData::faction_rgb`.
+##
+## `color_changed` rather than `popup_closed`: the map updates while the
+## wheel is dragged, which is the whole point of a colour picker over a map.
+func _colour_row(parent: Control, d: Dictionary) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 24
+	row.tooltip_text = "The colour this faction is drawn in: its territory wash on the map, the Political control analysis field, and its banner here. Unset, it takes the palette's own colour for this index."
+	var l := DccTheme.mono_label("Colour", "text_dim", DccTheme.FS_SMALL, 0)
+	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+
+	var picker := ColorPickerButton.new()
+	picker.custom_minimum_size = Vector2(64, 20)
+	picker.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	picker.color = _color_of(d)
+	picker.edit_alpha = false
+	## Live, not on close: `roster_changed` repaints the territory wash, so
+	## dragging the wheel drags the map's colour with it.
+	picker.color_changed.connect(func(c: Color):
+		if _rebuilding:
+			return
+		if bridge.civ_set_faction_color(_selected, c):
+			_repaint_banners(c)
+			roster_changed.emit())
+	row.add_child(picker)
+
+	var reset := DccWidgets.text_button(row, "Reset", func():
+		if bridge.civ_clear_faction_color(_selected):
+			roster_changed.emit()
+			_rebuild())
+	reset.disabled = not bool(d.get("color_custom", false))
+	reset.tooltip_text = ("Back to the palette colour for faction %d." % _selected) if not reset.disabled \
+		else "Already on the palette colour — nothing to reset."
+	parent.add_child(row)
+
+
+## The two banners on screen for the selected faction (the inspector head and,
+## on phone, the bar) repainted in place. Rebuilding the whole inspector on
+## every wheel movement would tear the picker down mid-drag.
+func _repaint_banners(c: Color) -> void:
+	if _head_banner != null and is_instance_valid(_head_banner):
+		_head_banner.configure(_selected, c, 48)
+	if _phone_bar_banner != null and is_instance_valid(_phone_bar_banner):
+		(_phone_bar_banner as FactionBanner).configure(_selected, c, 22)
 
 
 func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: String, key: String) -> void:

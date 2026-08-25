@@ -475,11 +475,30 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			+ "print. Every weight in Grade field influence is inert while every "
 			+ "slider above it sits at rest. Reset to quality tier, under Terrain "
 			+ "appearance, hands these back too: it is one appearance record.")
+		## `GUI_GAP_REGISTER.md` **CA-19**, corrected 2026-08-25: the table has
+		## been *readable* all along -- `debug_layers()` carries all fifteen
+		## classes, name and swatch, as the Biomes field's own legend, and the
+		## paint palette reads the same constant. What it is not is *writable*.
+		var n := 0
+		for g in bridge.debug_layers():
+			for it in (g as Dictionary).get("items", []):
+				if String((it as Dictionary).get("id", "")) == "bclass":
+					n = ((it as Dictionary).get("legend", []) as Array).size()
+		var see := DccWidgets.action(body,
+			"Biome colour table (%d classes) → Layers ▸ Biomes" % n,
+			func():
+				app.viewport.set_debug_layer("bclass")
+				app.layers_popover.open())
+		see.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		see.tooltip_text = "CART_BIOME_COLS, the reference's own fifteen-class table, rendered as the Biomes field's legend -- one picker, not a second copy of the list."
 		DccWidgets.note(body,
-			"v3's biome colour table is not bound: `CART_BIOME_COLS` is a frozen "
-			+ "reference table compiled into `cartalith-render`, with no #[func] to "
-			+ "read or rewrite an entry (GUI_GAP_REGISTER.md CA-19). The four field "
-			+ "weights above are the influence half of that category and are live.")
+			"That table is read-only (GUI_GAP_REGISTER.md CA-19). It is a frozen "
+			+ "reference constant compiled into render.rs, which five test targets "
+			+ "include standalone, and it is what a painted biome cell blends "
+			+ "toward -- so a rewritable palette is a field threaded through "
+			+ "RenderCtx and re-baselined golden expectations, not a picker. The "
+			+ "four field weights above are the influence half of v3's category "
+			+ "and are live.")
 
 ## One row, with the engine's range and this file's own step/unit/scale.
 func _appearance_slider(parent: Control, key: String) -> void:

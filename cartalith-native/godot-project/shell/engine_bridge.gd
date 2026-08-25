@@ -511,6 +511,24 @@ func lod_synthesize_tile(z: int, col: int, row: int) -> Texture2D:
 func territory_texture() -> Texture2D:
 	return world_gen.build_territory_texture()
 
+## `state.viz.territoryOpacity` -- how heavily the territory wash is laid over
+## the map (`GUI_GAP_REGISTER.md` CA-17). Takes effect on the next
+## `territory_texture()`; the caller repaints.
+func set_territory_opacity(a: float) -> void:
+	if not _has("set_territory_opacity"):
+		return
+	world_gen.set_territory_opacity(a)
+
+func territory_opacity() -> float:
+	if not _has("territory_opacity"):
+		return 82.0 / 255.0
+	return world_gen.territory_opacity()
+
+func territory_opacity_default() -> float:
+	if not _has("territory_opacity_default"):
+		return 82.0 / 255.0
+	return world_gen.territory_opacity_default()
+
 func province_boundary_texture() -> Texture2D:
 	return world_gen.build_province_boundary_texture()
 
@@ -1573,6 +1591,32 @@ func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
 		return false
 	return world_gen.civ_set_faction_field(faction, key, value)
 
+## A faction's **identity colour** (`GUI_GAP_REGISTER.md` CV-21). Read back
+## as `get_factions()`' `color_r/g/b`, with `color_custom` saying whether it
+## is this or the palette rule. Every faction renderer -- the territory wash,
+## the Political-control analysis field, the roster banner -- draws from it.
+##
+## Refused for faction 0 (Unclaimed, which nothing renders). The caller
+## refreshes the map; nothing here invalidates a texture, the same contract
+## every other roster edit has.
+func civ_set_faction_color(faction: int, c: Color) -> bool:
+	if not _has("civ_set_faction_color"):
+		return false
+	return world_gen.civ_set_faction_color(faction,
+		int(round(c.r * 255.0)), int(round(c.g * 255.0)), int(round(c.b * 255.0)))
+
+## Back to the palette rule for this faction. See `civ_set_faction_color`.
+func civ_clear_faction_color(faction: int) -> bool:
+	if not _has("civ_clear_faction_color"):
+		return false
+	return world_gen.civ_clear_faction_color(faction)
+
+## Whether any faction carries a user identity colour.
+func civ_has_faction_colors() -> bool:
+	if not _has("civ_has_faction_colors"):
+		return false
+	return world_gen.civ_has_faction_colors()
+
 func civ_faction_terrain_fits() -> Array:
 	if not _has("civ_faction_terrain_fits"):
 		return []
@@ -1974,6 +2018,26 @@ func wildlife_region_at(gx: float, gy: float) -> Dictionary:
 		return {}
 	return world_gen.wildlife_region_at(gx, gy)
 
+## The coordinate frame this world's fields and its GeoJSON export are in
+## (`GUI_GAP_REGISTER.md` WW-15). `{}` before any generate.
+func world_crs() -> Dictionary:
+	if not _has("world_crs"):
+		return {}
+	return world_gen.world_crs()
+
+## The world's ecology in one record -- `GUI_GAP_REGISTER.md` **WW-14**:
+## land-only mean/max net primary productivity (Miami model, g/m²/yr) plus
+## the wildlife ecoregion segmentation's own count, species total and its
+## eight largest regions. `{}` before any generate.
+##
+## `regions` is empty (and `region_count` 0) with the NPP figures still real
+## on a loaded save: productivity needs climate only, ecoregions need the
+## civilisation layer's water bodies.
+func ecology_summary() -> Dictionary:
+	if not _has("ecology_summary"):
+		return {}
+	return world_gen.ecology_summary()
+
 
 # timeline_bridge.rs
 #
@@ -2348,6 +2412,29 @@ func vault_list_files(limit: int = 2000) -> PackedStringArray:
 		return PackedStringArray()
 	return world_gen.vault_list_files(limit)
 
+## The templates in the connected vault (`GUI_GAP_REGISTER.md` VA-02), each
+## `{rel, label}`. A `.md` with "template" in its path -- Cartalith ships
+## none of its own.
+func vault_templates() -> Array:
+	if not _has("vault_templates"):
+		return []
+	return world_gen.vault_templates()
+
+## Where a new note for this entity goes -- v3's `Settlements/{name}.md`
+## convention, generalised to every kind. A suggestion, not a rule.
+func vault_suggested_path(kind: String, name: String) -> String:
+	if not _has("vault_suggested_path"):
+		return ""
+	return world_gen.vault_suggested_path(kind, name)
+
+## Creates a note from a template, substituting `name` for the template's own
+## name placeholder and nothing else. Refuses an existing path; never
+## overwrites. `{ok, path, text}` or `{ok: false, error}`.
+func vault_create_from_template(template_rel: String, rel: String, name: String) -> Dictionary:
+	if not _has("vault_create_from_template"):
+		return {"ok": false, "error": "this engine build has no note creator"}
+	return world_gen.vault_create_from_template(template_rel, rel, name)
+
 func vault_file_headings(rel: String) -> Array:
 	if not _has("vault_file_headings"):
 		return []
@@ -2407,6 +2494,14 @@ func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_section"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_write_section(link_id, expect_hash)
+
+## Every entity kind this build can address in a vault. `faction` joined
+## `settlement`/`province`/`continent` on 2026-08-25 (`GUI_GAP_REGISTER.md`
+## CV-22).
+func vault_entity_kinds() -> PackedStringArray:
+	if not _has("vault_entity_kinds"):
+		return PackedStringArray(["settlement", "province", "continent"])
+	return world_gen.vault_entity_kinds()
 
 func vault_export_fields(kind: String, entity_id: int) -> Array:
 	if not _has("vault_export_fields"):

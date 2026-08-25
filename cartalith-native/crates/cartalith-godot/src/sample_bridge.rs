@@ -175,6 +175,17 @@ pub struct FieldRefs<'a> {
     pub water_bodies: Option<&'a [u8]>,
     /// `CivData::territory` — same `None` condition as `water_bodies`.
     pub territory: Option<&'a [i32]>,
+    /// One swatch per faction id, index 0 = Unclaimed and never drawn —
+    /// `CivData::faction_rgb` for every id, so the Political-control field
+    /// paints in the same colours the territory wash does, user identity
+    /// colours (`GUI_GAP_REGISTER.md` CV-21) included.
+    ///
+    /// **The one owned field in this borrow struct**, and deliberately so:
+    /// the roster is a handful of rows, not a grid, and the colour rule
+    /// lives on `CivData` (which this module cannot see) rather than in a
+    /// slice something already holds. Empty when there is no civilisation
+    /// layer, which is the same condition `territory` is `None` under.
+    pub faction_colors: Vec<(u8, u8, u8)>,
     /// `state.climate`/`state.planet` (`cartalith_engine::ClimateInputParams`/
     /// `PlanetParams`) — needed only by the Wind/Ocean-currents debug views
     /// below, which recompute a coarse wind/current field on demand rather
@@ -609,6 +620,11 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "build_landform_field(): the reference's own R5 morphometric classification -- cliff, mesa, cirque, dune, badlands, floodplain, first-match-wins, LANDFORM_COLS.",
             ),
             ("soil", "Soil fertility", "Pale to rich green. Land only."),
+            (
+                "npp",
+                "Net primary productivity",
+                "build_npp(): the Miami model's temperature/precipitation minimum, 0-3000 g/m2/yr of dry matter. Bare rock through closed canopy. Land only, and the same field the Wildlife view's ecoregions are scored on.",
+            ),
             ("water", "Water access", "build_water_access(): dry tan near nothing, blue near rivers/coast."),
             (
                 "slope",
@@ -747,6 +763,20 @@ pub fn div_color(v: f64) -> Rgb {
     }
 }
 
+/// The Net-primary-productivity ramp, `t` normalised against the Miami
+/// model's own 3000 g/m2/yr ceiling.
+///
+/// A new view, so a new ramp, and it is deliberately *not* the Soil or
+/// Carrying-capacity green: those two are unitless 0-1 suitability scores
+/// and this is an absolute mass flux, so reading one for the other would be
+/// a real misreading. Bare sand through olive scrub to closed-canopy green,
+/// which is what the number physically means.
+pub fn npp_color(t: f64) -> Rgb {
+    const STOPS: [Rgb; 4] =
+        [(198.0, 186.0, 150.0), (176.0, 172.0, 96.0), (96.0, 148.0, 62.0), (14.0, 78.0, 40.0)];
+    ramp(&STOPS, t)
+}
+
 /// `hsl` (reference HTML line 8339).
 pub fn hsl(h: f64, s: f64, l: f64) -> Rgb {
     if s == 0.0 {
@@ -872,6 +902,14 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
             .map(|(k, c)| (c.0, c.1, c.2, LITH_NAMES[k].to_string()))
             .collect(),
         "soil" => vec![sw((100.0, 190.0, 90.0), "fertile"), sw((85.0, 130.0, 70.0), "moderate"), sw((70.0, 70.0, 50.0), "poor")],
+        // The Miami model's own ceiling is 3000 g/m2/yr, so the top swatch
+        // is captioned with the number rather than a vague "high" -- this
+        // is an absolute field, not a normalised one.
+        "npp" => vec![
+            sw(npp_color(0.0), "0 (desert / ice)"),
+            sw(npp_color(0.5), "~1500"),
+            sw(npp_color(1.0), "3000 g/m2/yr (closed canopy)"),
+        ],
         "bclass" => CART_BIOME_COLS
             .iter()
             .enumerate()
@@ -1503,6 +1541,27 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 }
             }
         }
+        // `GUI_GAP_REGISTER.md` **WW-14**: v3 asks WORLD for "ecological
+        // productivity", and the register recorded that no crate computes
+        // it. That was wrong -- `cartalith_civ::build_npp` is the Miami
+        // model and has been golden-verified since the wildlife port; it was
+        // simply only ever computed *inside* `wildlife_regions`, as one of
+        // the ecoregion scorer's five inputs, and never drawn on its own.
+        //
+        // `max_rain_mm` is `3000.0`, the same literal `wildlife_regions`
+        // passes and for the same stated reason: `state.climate.maxRainMm`'s
+        // own default, until a knob for it exists. The two must agree, or
+        // this view and the Wildlife view would be scoring different worlds.
+        "npp" => {
+            let npp = cartalith_civ::build_npp(f.temperature, f.rainfall, f.field, sea, 3000.0);
+            for (i, &v) in npp.iter().enumerate().take(n) {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 64.0));
+                } else {
+                    push(&mut out, npp_color(v as f64 / 3000.0));
+                }
+            }
+        }
         "slope" => {
             let cell_m = f.cell_m();
             let denom = if (1.0 - sea) == 0.0 { 1e-6 } else { 1.0 - sea };
@@ -1541,7 +1600,16 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
             for i in 0..n {
                 let owner = t.get(i).copied().unwrap_or(0);
                 if owner > 0 {
-                    let c = crate::FACTION_RGB[((owner - 1) as usize) % crate::FACTION_RGB.len()];
+                    // `faction_colors` is the roster's own table (CV-21).
+                    // The `% FACTION_RGB.len()` wrap this replaced gave
+                    // faction 7 faction 1's exact colour here while the
+                    // territory wash, which never wrapped, drew it
+                    // differently -- one world, two palettes.
+                    let c = f
+                        .faction_colors
+                        .get(owner as usize)
+                        .copied()
+                        .unwrap_or((128, 128, 128));
                     push(&mut out, u8c(c));
                 } else if is_water(i) {
                     push(&mut out, (18.0, 30.0, 48.0));
@@ -2134,6 +2202,16 @@ mod tests {
             shear_field: &o.shear,
             water_bodies: if civ { Some(&o.wb) } else { None },
             territory: if civ { Some(&o.terr) } else { None },
+            // Index 0 = Unclaimed, then the six `FACTION_RGB` defaults --
+            // what `CivData::faction_rgb` produces for a roster with no
+            // identity colours set, which is every roster at rest.
+            faction_colors: if civ {
+                let mut v = vec![(60u8, 60u8, 60u8)];
+                v.extend_from_slice(&crate::FACTION_RGB);
+                v
+            } else {
+                Vec::new()
+            },
             lat_n: 40.0,
             lat_s: -10.0,
             equator_temp: 28.0,
@@ -2269,6 +2347,7 @@ mod tests {
             shear_field: &ones,
             water_bodies: None,
             territory: None,
+            faction_colors: Vec::new(),
             lat_n: 40.0,
             lat_s: -10.0,
             equator_temp: 28.0,
@@ -2329,6 +2408,7 @@ mod tests {
             shear_field: &ones,
             water_bodies: None,
             territory: None,
+            faction_colors: Vec::new(),
             lat_n: 40.0,
             lat_s: -10.0,
             equator_temp: 28.0,
@@ -2381,6 +2461,7 @@ mod tests {
             shear_field: &ones,
             water_bodies: None,
             territory: None,
+            faction_colors: Vec::new(),
             lat_n: 40.0,
             lat_s: -10.0,
             equator_temp: 28.0,

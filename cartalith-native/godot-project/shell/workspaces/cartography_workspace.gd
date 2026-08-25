@@ -297,14 +297,36 @@ func _build_way_style(parent: Control) -> void:
 	DccWidgets.action(types, "Draw and edit ways → Civilization ▸ Routes & ways",
 		func(): app.select_domain_category("civilization", "Routes & ways")).alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+	## `GUI_GAP_REGISTER.md` **CA-16**, the reference's own two per-layer way
+	## style controls (`#civWayScaleR` line 1485, `#wayOpacityR` line 1491).
+	## Registered as unbacked on the reading that "map_overlay.gd draws every
+	## way with one hardcoded width-and-colour pair per type" -- by then §36 had
+	## already replaced that flat pair with the reference's five two-stroke
+	## styles, and what was genuinely missing was the user multiplier those two
+	## sliders are. Both are now the third term of the reference's own `rsc`
+	## and its `globalAlpha`.
+	var style := DccWidgets.section(parent, "Way style")
+	DccWidgets.slider(style, "Line width", 0.2, 2.5, 0.05,
+		app.viewport.overlay.way_scale(), "×",
+		func(v: float): app.viewport.overlay.set_way_scale(v),
+		"state.viz.civWayScale -- the user multiplier on every way, sea lane, route and journey line width, and on every dash length with it. The per-type colour, casing and dash pattern underneath are the reference's own five styles and are not editable: they are what makes a track read as a track.")
+	DccWidgets.slider(style, "Opacity", 0.0, 1.0, 0.01,
+		app.viewport.overlay.way_opacity(), "",
+		func(v: float): app.viewport.overlay.set_way_opacity(v),
+		"state.viz.wayOpacity -- one alpha multiplier over the whole way layer, on top of each stroke's own authored alpha. 0 is a hidden layer, which the Ways & routes switch under Layers already is.")
+	DccWidgets.toggle(style, "Drop minor ways when zoomed out",
+		app.viewport.overlay.way_lod(),
+		func(on: bool): app.viewport.overlay.set_way_lod(on),
+		"CIV_LOD_ROAD, the reference's own per-type zoom ladder (GUI_GAP_REGISTER.md CA-18): tracks and ancient routes stop drawing below 0.7× zoom, where they are a 1 px scratch. Roads sit at 0.35× and this camera's floor is 0.4×, so they never drop; the two trunk tiers are always drawn.")
+
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Per-class colour, line width, casing, dashes and route glow "
-		+ "(GUI_GAP_REGISTER.md CA-16). map_overlay.gd draws every way with one "
-		+ "hardcoded width-and-colour pair per type and takes no style argument, "
-		+ "and the reference's own #civWayScaleR width slider has no counterpart "
-		+ "on this side -- so a width control would move nothing. Visibility, "
-		+ "above, is the whole of what is wired.")
+		"Per-class colour, casing, dash pattern and route glow "
+		+ "(GUI_GAP_REGISTER.md CA-16). Width and opacity above are the two "
+		+ "controls the reference ships and they act on the whole layer; the "
+		+ "five per-type styles under them are ported literals (§36), and making "
+		+ "one editable means a style record keyed by way type for the overlay "
+		+ "to read instead of its own WAY_STYLE constant.")
 
 
 ## Layer surfaces the reference had, or the design asks for, that this shell
@@ -355,15 +377,39 @@ func _build_political_display(parent: Control) -> void:
 		func(): app.select_domain_category("civilization", "Territories"))
 	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
+	## `GUI_GAP_REGISTER.md` **CA-17**, the CARTO half of v3's split: CIVIL
+	## owns *which* colour a faction is, this owns *how heavily* it is laid on.
+	## The reference's own `#territoryOpacityR` (line 1490), which this port had
+	## as a hardcoded 82/255 in `build_territory_texture`.
+	var tint := DccWidgets.section(parent, "Territory tint")
+	var op := DccWidgets.slider(tint, "Fill opacity", 0.0, 1.0, 0.01,
+		bridge.territory_opacity(), "",
+		func(v: float):
+			bridge.set_territory_opacity(v)
+			app.viewport.territory_view.texture = bridge.territory_texture(),
+		"state.viz.territoryOpacity. This port starts at %.2f rather than the reference's 0.51: there is a hillshade, a splat and a colour grade under this wash that the reference's flat biome fill does not have, and a heavier tint buries them." % bridge.territory_opacity_default())
+	var reset := DccWidgets.text_button(tint, "Reset to %.2f" % bridge.territory_opacity_default(),
+		func():
+			bridge.set_territory_opacity(-1.0)
+			## Drive the slider rather than rebuild the category: `value` fires
+			## `value_changed`, which re-applies the same number and repaints,
+			## so the control and the map cannot disagree about what Reset did.
+			(op["slider"] as HSlider).value = bridge.territory_opacity_default())
+	reset.tooltip_text = "Back to this port's own default fill opacity."
+	var colour := DccWidgets.action(tint, "Faction identity colours → Civilization ▸ Factions",
+		func(): app.select_domain_category("civilization", "Factions"))
+	colour.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	colour.tooltip_text = "v3's own rule for this category: which colour a faction *is* belongs to CIVIL, how heavily it is painted belongs here. The roster's colour picker writes the identity colour this wash draws in."
+
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Tint opacity, border line width and style, claim hatching, the influence "
-		+ "gradient and its legend (GUI_GAP_REGISTER.md CA-17). map_overlay.gd "
-		+ "draws territory as one fixed-alpha fill with a fixed border and derives "
-		+ "each faction's colour from its index; there is no style record keyed to "
-		+ "a faction id for any of it to write to. The Faction roster's identity "
-		+ "colour, which v3 makes CIVIL's to own, has no renderer consumer yet "
-		+ "either.")
+		"Border line width and style, claim hatching, and the influence gradient "
+		+ "with its legend (GUI_GAP_REGISTER.md CA-17). All three rest on data "
+		+ "that does not exist rather than on a missing control: CivData::"
+		+ "territory is one plurality owner per cell, with no contested-claim "
+		+ "value and no influence field for a gradient to ramp (CV-23). Fill "
+		+ "opacity and identity colour, above, are the two that had a real "
+		+ "quantity behind them.")
 
 
 ## v3 CARTO ▸ VISIBILITY / ZOOM. Its `§ Data overlays` band is the reference's
@@ -394,13 +440,17 @@ func _build_visibility(parent: Control) -> void:
 	var open := DccWidgets.action(sec, "Data overlays…", func(): app.layers_popover.open(), true)
 	open.tooltip_text = "The map canvas's Layers popover -- the one picker for every analysis field, anchored under the viewport's own Layers button. Hotkeys 1-8 select the first eight available views."
 
-	var gaps := DccWidgets.section(parent, "Not built")
+	var gaps := DccWidgets.section(parent, "Partly built")
 	DccWidgets.note(gaps,
-		"The zoom ladder and the declutter budget (GUI_GAP_REGISTER.md CA-18). "
-		+ "Nothing in this shell carries a per-layer zoom range: the one "
-		+ "zoom-dependent behaviour that exists is the urban-layout reveal band, "
-		+ "which map_overlay.gd hardcodes, and label/icon collision is not "
-		+ "resolved at all -- overlapping annotation simply overlaps.")
+		"The zoom ladder exists for the two layers the reference ships one for: "
+		+ "ways drop by type below their CIV_LOD_ROAD threshold (Roads & routes "
+		+ "▸ Way style), and a town's drawn layout crossfades in over a 24-10 km "
+		+ "span. Neither is a *user* range, and the other fourteen layers v3 "
+		+ "lists have none at all (GUI_GAP_REGISTER.md CA-18) -- a per-layer "
+		+ "zoom range needs the separable layer stack CA-04 is blocked on.")
+	DccWidgets.note(gaps,
+		"The declutter budget is not built: label and icon collision is not "
+		+ "resolved anywhere -- overlapping annotation simply overlaps.")
 	DccWidgets.note(gaps,
 		"Population density, political control as a *choropleth*, and trade "
 		+ "influence: control is a real debug view above; the other two have no "

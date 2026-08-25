@@ -266,6 +266,30 @@ const WAY_STYLE := {
 ## branch rather than being skipped (line 15531's comment says so outright,
 ## `// road (default)`).
 const WAY_STYLE_DEFAULT := "road"
+
+## `CIV_LOD_ROAD` (reference HTML line 15380, read by `_civWayLodMin` at 15012):
+## the camera zoom below which a way of this type is not drawn at all --
+## `GUI_GAP_REGISTER.md` **CA-18**'s zoom ladder, for the one layer the
+## reference actually ships one for.
+##
+## Registered as unbacked ("no per-layer zoom range exists anywhere in the
+## shell"), and for the layers v3 lists that is still true. For *ways* the
+## reference has a real table, and this is it, ported verbatim. Its effect
+## here is narrower than there and deliberately not widened: `ViewportHost`'s
+## `ZOOM_MIN` is **0.4**, so `road`'s 0.35 threshold is unreachable and only
+## `track` and `ancient` ever drop out -- between 0.4 and 0.7, which is the
+## zoomed-right-out view where a minor track is a 1 px scratch anyway. The two
+## trunk tiers are `0` there, meaning "always", not "missing".
+##
+## `sea-lane` is `0` in the reference too and is drawn from a different getter
+## here, so it never reaches this lookup; kept in the table so the table is
+## the reference's table.
+const WAY_LOD_MIN := {
+	"highway": 0.0, "regional": 0.0, "road": 0.35, "track": 0.7,
+	"ancient": 0.7, "sea-lane": 0.0,
+}
+## `_civWayLodMin`'s own fallback for a type not in the table above.
+const WAY_LOD_DEFAULT := 0.35
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
@@ -492,6 +516,17 @@ var _show_sea_routes := true
 ## not make a place unselectable.
 var _hidden_settlement_kinds: Dictionary = {}
 var _hidden_way_types: Dictionary = {}
+## `state.viz.civWayScale` / `state.viz.wayOpacity` (`GUI_GAP_REGISTER.md`
+## CA-16) -- see `set_way_scale()` / `set_way_opacity()`. Both at the
+## reference's own default, where the layer draws exactly as it did before
+## they existed: `1.0` is the multiplicative identity in both cases.
+var _way_scale := 1.0
+var _way_opacity := 1.0
+## Whether `WAY_LOD_MIN`'s zoom ladder is applied (`GUI_GAP_REGISTER.md`
+## CA-18). On, matching the reference, which has no switch for it at all --
+## this one exists because a per-layer zoom range you cannot see the effect
+## of is indistinguishable from a bug.
+var _way_lod := true
 ## Plate-frame width as a fraction of the terrain texture's own width
 ## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
 ## renderer draws no frame, which makes every use of it below an exact no-op.
@@ -756,6 +791,51 @@ func set_way_type_visible(way_type: String, shown: bool) -> void:
 	queue_redraw()
 
 
+## `state.viz.civWayScale` (`#civWayScaleR`, reference line 1485) -- the user's
+## own multiplier on every way, journey and route line width and on every dash
+## length, `GUI_GAP_REGISTER.md` **CA-16**.
+##
+## The register recorded that "the reference's `#civWayScaleR` has no
+## counterpart here -- so a width control would move nothing". This is that
+## counterpart. It is the third term of the reference's own
+## `rsc = max(1, GW/512) * _civZoomK() * _civWayScale()`; the first two are
+## already in `_draw_way_segment`'s own doc comment (and the first is
+## deliberately not taken, for the reason recorded there).
+##
+## The reference's slider is 0.20-2.50 in 0.05 steps; clamped to the same range
+## here, because 0 is a hidden layer (which `set_show_roads` already is) and
+## past 2.5 a highway is wider than a town.
+func set_way_scale(k: float) -> void:
+	_way_scale = clampf(k, 0.2, 2.5)
+	queue_redraw()
+
+func way_scale() -> float:
+	return _way_scale
+
+
+## `state.viz.wayOpacity` (`#wayOpacityR`, reference line 1491): one alpha
+## multiplier over the whole way/journey/route layer, on top of each stroke's
+## own authored alpha. The reference applies it as `globalAlpha` around each
+## way's two strokes (line 15510); with no canvas-item alpha to set per stroke
+## here, it multiplies each `Color`'s `a` instead, which is the same result for
+## strokes that do not overlap themselves.
+func set_way_opacity(a: float) -> void:
+	_way_opacity = clampf(a, 0.0, 1.0)
+	queue_redraw()
+
+func way_opacity() -> float:
+	return _way_opacity
+
+
+## Whether the LOD ladder is applied at all (`GUI_GAP_REGISTER.md` CA-18).
+func set_way_lod(on: bool) -> void:
+	_way_lod = on
+	queue_redraw()
+
+func way_lod() -> bool:
+	return _way_lod
+
+
 ## Reproduces `%MapView`'s own `STRETCH_KEEP_ASPECT_CENTERED` fit math so
 ## grid-cell coordinates map onto the same pixels the terrain texture
 ## actually occupies (this control's `size` is identical to `%MapView`'s,
@@ -936,6 +1016,10 @@ func _draw() -> void:
 			if points.size() < 2:
 				continue
 			if _hidden_way_types.has(way["way_type"]):
+				continue
+			## `_civWayLodMin` (reference 15012) + `if(zoom<lodMin) return`
+			## (15501) -- CA-18's ladder. See `WAY_LOD_MIN`.
+			if _way_lod and _camera_zoom < float(WAY_LOD_MIN.get(way["way_type"], WAY_LOD_DEFAULT)):
 				continue
 			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
 			var brks: PackedInt32Array = way["brks"]
@@ -1318,13 +1402,27 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 		return
 	var k := _crisp_begin()
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	draw_polyline(screen_points, style["under"], style["under_w"], true)
-	var dash: float = style["dash"]
+	## `_civWayScale` scales the dash lengths too -- the reference writes
+	## `setLineDash([1.8*rsc, 1.3*rsc])`, one `rsc` for both widths and dashes,
+	## so a wider road gets a proportionally longer dash rather than a wide line
+	## chopped into the same fine ticks.
+	draw_polyline(screen_points, _way_ink(style["under"]), style["under_w"] * _way_scale, true)
+	var dash: float = style["dash"] * _way_scale
 	if dash > 0.0:
-		_draw_dashed_polyline(screen_points, style["over"], style["over_w"], dash, style["gap"])
+		_draw_dashed_polyline(screen_points, _way_ink(style["over"]),
+			style["over_w"] * _way_scale, dash, style["gap"] * _way_scale)
 	else:
-		draw_polyline(screen_points, style["over"], style["over_w"], true)
+		draw_polyline(screen_points, _way_ink(style["over"]), style["over_w"] * _way_scale, true)
 	_crisp_end()
+
+
+## One stroke colour with the layer's own opacity multiplier folded in
+## (`state.viz.wayOpacity`, `GUI_GAP_REGISTER.md` CA-16). Identity at the
+## default `1.0`, so the layer is byte-identical at rest.
+func _way_ink(c: Color) -> Color:
+	if _way_opacity >= 1.0:
+		return c
+	return Color(c.r, c.g, c.b, c.a * _way_opacity)
 
 
 ## Sea lane, reference's own two-pass style (reference HTML line ~15511):
@@ -1342,9 +1440,11 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	draw_polyline(screen_points, SEA_ROUTE_UNDERLAY, SEA_ROUTE_UNDERLAY_WIDTH, true)
-	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH,
-		SEA_ROUTE_DASH_LENGTH, SEA_ROUTE_DASH_GAP)
+	draw_polyline(screen_points, _way_ink(SEA_ROUTE_UNDERLAY),
+		SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
+	_draw_dashed_polyline(screen_points, _way_ink(SEA_ROUTE_DASH_COLOR),
+		SEA_ROUTE_DASH_WIDTH * _way_scale,
+		SEA_ROUTE_DASH_LENGTH * _way_scale, SEA_ROUTE_DASH_GAP * _way_scale)
 	_crisp_end()
 
 
@@ -1360,12 +1460,12 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	draw_polyline(screen_points, MANUAL_ROUTE_UNDERLAY,
-		MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH, true)
+	draw_polyline(screen_points, _way_ink(MANUAL_ROUTE_UNDERLAY),
+		(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale, true)
 	_draw_dashed_polyline(screen_points,
-		MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR,
-		MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH,
-		MANUAL_ROUTE_DASH, MANUAL_ROUTE_GAP)
+		_way_ink(MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR),
+		(MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH) * _way_scale,
+		MANUAL_ROUTE_DASH * _way_scale, MANUAL_ROUTE_GAP * _way_scale)
 	_crisp_end()
 
 

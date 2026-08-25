@@ -722,6 +722,7 @@ mod tests {
             shear_field: &w.zeros_f,
             water_bodies: Some(&w.water),
             territory: None,
+            faction_colors: Vec::new(),
             lat_n: 60.0,
             lat_s: -60.0,
             equator_temp: 28.0,
