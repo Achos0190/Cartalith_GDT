@@ -40,6 +40,7 @@
 //! constructs a user has written are preserved as opaque bytes, which is §10's
 //! actual requirement.
 
+pub mod backlinks;
 pub mod block;
 pub mod export;
 pub mod links;
@@ -47,6 +48,7 @@ pub mod markdown;
 pub mod provider;
 pub mod template;
 
+pub use backlinks::{Backlink, BacklinkIndex, LinkForm, RefreshStats, excerpt};
 pub use block::{BlockAction, BlockError};
 pub use links::{EntityKind, KnowledgeLink, LinkStatus, LinkStore, Selection, VaultRef};
 pub use markdown::{FieldFill, FieldOutcome, Section, SectionError};
@@ -129,6 +131,16 @@ pub type FieldFillPreview = (String, String, Vec<(String, FieldOutcome)>);
 pub struct VaultSession {
     pub store: LinkStore,
     binding: Option<FsVault>,
+    /// `GUI_GAP_REGISTER.md` **VA-01**'s reverse index. Built only when asked
+    /// for, invalidated per file by `(modified, len)`, and persisted beside
+    /// the link store rather than inside it -- see
+    /// [`backlinks`](crate::backlinks)' module doc for why that is not the
+    /// "second store to keep in step" the register warned about.
+    ///
+    /// Empty until [`VaultSession::refresh_backlinks`] runs. Every reader
+    /// below distinguishes "not built" from "nothing found", because on
+    /// screen those are opposite statements.
+    pub backlinks: BacklinkIndex,
 }
 
 impl Default for VaultSession {
@@ -139,11 +151,15 @@ impl Default for VaultSession {
 
 impl VaultSession {
     pub fn new() -> Self {
-        VaultSession { store: LinkStore::default(), binding: None }
+        VaultSession { store: LinkStore::default(), binding: None, backlinks: BacklinkIndex::new() }
     }
 
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
-        Ok(VaultSession { store: LinkStore::from_json(s)?, binding: None })
+        Ok(VaultSession {
+            store: LinkStore::from_json(s)?,
+            binding: None,
+            backlinks: BacklinkIndex::new(),
+        })
     }
 
     pub fn to_json(&self) -> String {
@@ -197,6 +213,107 @@ impl VaultSession {
 
     pub fn read(&self, rel: &str) -> Result<String, Error> {
         Ok(self.bound()?.read(rel)?)
+    }
+
+    // ---------------------------------------------------- backlinks (VA-01)
+
+    /// Bring the backlink index up to date, reading only the notes whose
+    /// `(modified, len)` moved since the last refresh.
+    ///
+    /// The only thing that ever writes the index. There is no watcher and no
+    /// background pass — a person presses **Refresh**, and this is what that
+    /// does.
+    pub fn refresh_backlinks(&mut self, limit: usize) -> Result<RefreshStats, Error> {
+        let vault = self.binding.as_ref().filter(|v| v.available()).ok_or(Error::NotBound)?;
+        Ok(self.backlinks.refresh(vault, limit)?)
+    }
+
+    /// Throw the index away so the next refresh re-reads everything —
+    /// **Rebuild**.
+    pub fn rebuild_backlinks(&mut self) {
+        self.backlinks.clear();
+    }
+
+    /// Every note that references this entity, by either route.
+    ///
+    /// Two routes, and the second is the one a note-to-note index alone would
+    /// miss:
+    ///
+    /// 1. the entity's **own** linked notes (from [`LinkStore`]) are looked
+    ///    up in the reverse index, giving every note that links to them;
+    /// 2. every note carrying a `CARTALITH:BEGIN entity="settlement:42"`
+    ///    block for this entity — which finds it even when the entity has no
+    ///    note of its own, because a province's note can describe a
+    ///    settlement nobody has written a page for.
+    ///
+    /// Returns `(relative_path, form, count)` with `form` `None` for an
+    /// entity-block reference, which is not a link and should not be drawn as
+    /// one. Sorted by path, deduplicated.
+    pub fn entity_backlinks(
+        &self,
+        kind: EntityKind,
+        id: i64,
+    ) -> Vec<(String, Option<LinkForm>, usize)> {
+        let mut by_path: std::collections::BTreeMap<String, (Option<LinkForm>, usize)> =
+            Default::default();
+        for l in self.store.links_for(kind, id) {
+            for b in self.backlinks.backlinks_to(&l.relative_path) {
+                let e = by_path.entry(b.source).or_insert((Some(b.form), 0));
+                e.1 += b.count;
+                if e.0.is_none() {
+                    e.0 = Some(b.form);
+                }
+            }
+        }
+        for rel in self.backlinks.notes_referencing_entity(&links::entity_key(kind, id)) {
+            by_path.entry(rel).or_insert((None, 1));
+        }
+        // The entity's own note is not a backlink to itself.
+        for l in self.store.links_for(kind, id) {
+            by_path.remove(&l.relative_path);
+        }
+        by_path.into_iter().map(|(k, (f, c))| (k, f, c)).collect()
+    }
+
+    /// Notes that name `name` in prose and do not link to this entity.
+    ///
+    /// The index narrows the vault to a handful of **candidates** by word
+    /// fingerprint; this then opens only those and confirms with a real
+    /// case-insensitive search, returning one excerpt per hit. A candidate
+    /// that does not really contain the name is dropped silently — that is
+    /// the Bloom filter's expected false positive and the reason the read
+    /// exists.
+    ///
+    /// `max` bounds the reads, so even a name that filters badly cannot open
+    /// the whole vault. Returns `(relative_path, excerpt)`.
+    pub fn entity_mentions(
+        &self,
+        kind: EntityKind,
+        id: i64,
+        name: &str,
+        max: usize,
+    ) -> Vec<(String, String)> {
+        if name.trim().len() < 3 || !self.backlinks.is_built() {
+            return Vec::new();
+        }
+        // Everything already linked is excluded before any file is opened.
+        let mut exclude: Vec<String> =
+            self.store.links_for(kind, id).into_iter().map(|l| l.relative_path.clone()).collect();
+        for (rel, _, _) in self.entity_backlinks(kind, id) {
+            exclude.push(rel);
+        }
+        let needle = name.to_lowercase();
+        let mut out = Vec::new();
+        for rel in self.backlinks.mention_candidates(name, &exclude) {
+            if out.len() >= max {
+                break;
+            }
+            let Ok(text) = self.read(&rel) else { continue };
+            let hay = text.to_lowercase();
+            let Some(at) = hay.find(&needle) else { continue };
+            out.push((rel, excerpt(&text, at, needle.len())));
+        }
+        out
     }
 
     /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**),
@@ -478,6 +595,80 @@ mod tests {
         std::fs::create_dir_all(p.join("Locations")).unwrap();
         std::fs::write(p.join("Locations/Nareth.md"), HAND).unwrap();
         p
+    }
+
+    /// `GUI_GAP_REGISTER.md` **VA-01**, end to end against a real folder:
+    /// a settlement's note gains a backlink from a note that links to it, a
+    /// backlink from a note that carries its *entity block* and nothing else,
+    /// and an unlinked mention from a note that names it in prose -- with the
+    /// three kept apart, because on screen they mean different things.
+    #[test]
+    fn an_entity_finds_its_incoming_notes_by_link_by_block_and_by_mention() {
+        let root = scratch("backlinks");
+        std::fs::write(root.join("Chronicle.md"), "The lords of [[Nareth]] held the ford.
+").unwrap();
+        std::fs::write(
+            root.join("Province.md"),
+            format!(
+                "# Vale
+
+{} entity=\"settlement:42\" version=\"1\" -->
+rows
+{}
+",
+                block::BEGIN_PREFIX,
+                block::END_MARKER
+            ),
+        )
+        .unwrap();
+        std::fs::write(root.join("Journal.md"), "Rode to Nareth before the thaw and slept badly.
+")
+            .unwrap();
+        std::fs::write(root.join("Elsewhere.md"), "Nothing to do with any of it.
+").unwrap();
+
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+        let link_id = s
+            .attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md",
+                Selection::WholeDocument)
+            .unwrap();
+        assert!(!link_id.is_empty());
+
+        // Nothing is built until somebody asks.
+        assert!(!s.backlinks.is_built());
+        assert!(s.entity_backlinks(EntityKind::Settlement, 42).is_empty());
+        assert!(s.entity_mentions(EntityKind::Settlement, 42, "Nareth", 8).is_empty());
+
+        let stats = s.refresh_backlinks(500).unwrap();
+        assert_eq!(stats.seen, 5, "five notes in the folder");
+        assert_eq!(stats.reread, 5, "a first build reads them all");
+
+        let back = s.entity_backlinks(EntityKind::Settlement, 42);
+        let paths: Vec<&str> = back.iter().map(|(p, _, _)| p.as_str()).collect();
+        assert!(paths.contains(&"Chronicle.md"), "the wikilink is a backlink: {paths:?}");
+        assert!(paths.contains(&"Province.md"), "the entity block is a backlink: {paths:?}");
+        assert!(!paths.contains(&"Locations/Nareth.md"), "a note is not a backlink to itself");
+        assert!(!paths.contains(&"Journal.md"), "a bare mention is not a backlink");
+        // and the two are distinguishable: a block reference carries no form
+        let chron = back.iter().find(|(p, _, _)| p == "Chronicle.md").unwrap();
+        assert_eq!(chron.1, Some(LinkForm::Wiki));
+        let prov = back.iter().find(|(p, _, _)| p == "Province.md").unwrap();
+        assert_eq!(prov.1, None, "an entity block is not a link and must not be drawn as one");
+
+        let mentions = s.entity_mentions(EntityKind::Settlement, 42, "Nareth", 8);
+        let mpaths: Vec<&str> = mentions.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(mpaths, vec!["Journal.md"], "only the unlinked prose mention");
+        assert!(
+            mentions[0].1.contains("Nareth"),
+            "the excerpt must show the hit: {:?}",
+            mentions[0].1
+        );
+
+        // A second refresh over an untouched folder opens nothing.
+        assert_eq!(s.refresh_backlinks(500).unwrap().reread, 0);
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// `GUI_GAP_REGISTER.md` **VA-02**, end to end against a real folder:

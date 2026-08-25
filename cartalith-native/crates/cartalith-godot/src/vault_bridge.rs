@@ -462,6 +462,169 @@ impl WorldGen {
         }
     }
 
+    // -- backlinks (`GUI_GAP_REGISTER.md` VA-01) ---------------------------
+
+    /// Bring the backlink index up to date and report what it cost.
+    ///
+    /// **This is the only thing that ever scans.** There is no watcher and no
+    /// background pass: a person presses Refresh, and only the notes whose
+    /// `(modified, len)` moved are opened. A first build reads everything
+    /// once, which the panel says before it starts.
+    ///
+    /// `{ok, seen, reread, dropped, unreadable, notes, links, entities,
+    /// bytes, refreshed_at}`, or `{ok:false, error}` with no vault bound.
+    #[func]
+    fn vault_refresh_backlinks(&mut self, limit: i64) -> VarDictionary {
+        let limit = if limit > 0 { limit as usize } else { 2000 };
+        match self.vault.refresh_backlinks(limit) {
+            Ok(s) => {
+                let mut d = vdict! {
+                    "ok" => true,
+                    "seen" => s.seen as i64,
+                    "reread" => s.reread as i64,
+                    "dropped" => s.dropped as i64,
+                    "unreadable" => s.unreadable as i64,
+                };
+                d.set("notes", self.vault.backlinks.note_count() as i64);
+                d.set("links", self.vault.backlinks.link_count() as i64);
+                d.set("entities", self.vault.backlinks.entity_block_count() as i64);
+                d.set("bytes", self.vault.backlinks.approx_bytes() as i64);
+                d.set("refreshed_at", self.vault.backlinks.refreshed_at as i64);
+                d
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// Throw the index away, so the next refresh re-reads every note —
+    /// **Rebuild**, and the only remedy for an index a previous build wrote
+    /// with a different parser.
+    #[func]
+    fn vault_rebuild_backlinks(&mut self) {
+        self.vault.rebuild_backlinks();
+    }
+
+    /// What the index currently knows, for the panel header: `{built, notes,
+    /// links, entities, broken, orphans, bytes, refreshed_at}`.
+    ///
+    /// `built` is the field every reader has to branch on: an index that has
+    /// never been built reports zero notes, and *"no notes"* and *"nothing
+    /// indexed"* are opposite statements on screen.
+    #[func]
+    fn vault_backlink_stats(&self) -> VarDictionary {
+        let b = &self.vault.backlinks;
+        vdict! {
+            "built" => b.is_built(),
+            "notes" => b.note_count() as i64,
+            "links" => b.link_count() as i64,
+            "entities" => b.entity_block_count() as i64,
+            "broken" => b.broken_links().len() as i64,
+            "orphans" => b.orphans().len() as i64,
+            "bytes" => b.approx_bytes() as i64,
+            "refreshed_at" => b.refreshed_at as i64,
+        }
+    }
+
+    /// Every note that references this entity — `{rel, form, count}`, where
+    /// `form` is `"wiki"`, `"markdown"` or `"block"`.
+    ///
+    /// `"block"` is the row a note-to-note index alone would miss: a note
+    /// carrying `entity="settlement:42"` references the settlement directly,
+    /// so it is found even when that settlement has no note of its own.
+    #[func]
+    fn vault_entity_backlinks(&self, kind: GString, entity_id: i64) -> Array<VarDictionary> {
+        let Some(k) = kind_of(&kind) else { return Array::new() };
+        self.vault
+            .entity_backlinks(k, entity_id)
+            .into_iter()
+            .map(|(rel, form, count)| {
+                vdict! {
+                    "rel" => rel.as_str(),
+                    "form" => match form {
+                        Some(cartalith_vault::LinkForm::Wiki) => "wiki",
+                        Some(cartalith_vault::LinkForm::Markdown) => "markdown",
+                        None => "block",
+                    },
+                    "count" => count as i64,
+                }
+            })
+            .collect()
+    }
+
+    /// Notes that name this entity in prose and do not link to it —
+    /// `{rel, excerpt}`.
+    ///
+    /// **A guess, and drawn as one.** The index narrows the vault to
+    /// candidates by word fingerprint and only those files are opened; a
+    /// candidate that turns out not to contain the name is dropped. `max`
+    /// bounds the reads so even a name that filters badly cannot open the
+    /// whole vault. Empty when the index has not been built, when the name is
+    /// under three characters, or when there is genuinely nothing.
+    #[func]
+    fn vault_entity_mentions(
+        &self,
+        kind: GString,
+        entity_id: i64,
+        name: GString,
+        max: i64,
+    ) -> Array<VarDictionary> {
+        let Some(k) = kind_of(&kind) else { return Array::new() };
+        let max = if max > 0 { max as usize } else { 12 };
+        self.vault
+            .entity_mentions(k, entity_id, &name.to_string(), max)
+            .into_iter()
+            .map(|(rel, excerpt)| vdict! { "rel" => rel.as_str(), "excerpt" => excerpt.as_str() })
+            .collect()
+    }
+
+    /// Links that resolve to no note in this vault, and notes nothing links
+    /// to — the two halves of `Data ▸ Missing & orphan notes report…`, from
+    /// the one index rather than from a second walk.
+    ///
+    /// `{broken: [{source, target}], orphans: [rel]}`, both capped at `limit`
+    /// rows with the full counts in `vault_backlink_stats`.
+    #[func]
+    fn vault_backlink_report(&self, limit: i64) -> VarDictionary {
+        let limit = if limit > 0 { limit as usize } else { 200 };
+        let b = &self.vault.backlinks;
+        let broken: Array<VarDictionary> = b
+            .broken_links()
+            .into_iter()
+            .take(limit)
+            .map(|(s, t)| vdict! { "source" => s.as_str(), "target" => t.as_str() })
+            .collect();
+        let orphans: PackedStringArray =
+            b.orphans().into_iter().take(limit).map(|r| GString::from(r.as_str())).collect();
+        let mut d = vdict! { "built" => b.is_built() };
+        d.set("broken", &broken);
+        d.set("orphans", &orphans);
+        d
+    }
+
+    /// The backlink index as JSON, for the shell to write beside the link
+    /// store. Separate from `vault_state_json` on purpose: the link store is
+    /// **portable project data** (§5) and this is a *cache of somebody's
+    /// folder*, which does not travel with a project and is rebuilt in one
+    /// press if it is lost.
+    #[func]
+    fn vault_backlink_index_json(&self) -> GString {
+        GString::from(self.vault.backlinks.to_json().as_str())
+    }
+
+    /// Restore a saved index. Malformed JSON returns `false` and leaves the
+    /// in-memory index alone — a corrupt cache must never be the thing that
+    /// loses the links.
+    #[func]
+    fn vault_restore_backlink_index(&mut self, json: GString) -> bool {
+        match cartalith_vault::BacklinkIndex::from_json(&json.to_string()) {
+            Ok(idx) => {
+                self.vault.backlinks = idx;
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     // -- persistence (§25, §26) --------------------------------------------
 
     /// The whole link store as JSON, for the shell to write to disk.
