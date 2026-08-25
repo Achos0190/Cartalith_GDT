@@ -155,6 +155,30 @@ non-hyphenated numbering convention and are **not** counted here — they are
 each their own small, separately-headlined table, not part of the 123/215
 catalogue this section has always described.
 
+**Re-recounted 2026-08-25 (audit pass 4): 300 distinct gap IDs.** The 215
+above went stale the same way 123 did, and for the same reason — §37-§48
+added eleven more sections and the prefix list this section maintains by
+hand did not move with them. Two mechanical figures, both reproducible:
+
+- **249** distinct IDs as *markdown table rows* — pass 2's own method,
+  re-run unchanged. (`PARITY_AUDIT.md` pass 3 §19 point 1 reached the same
+  249 independently, so this is two agreeing derivations, not one.)
+- **300** distinct IDs *anywhere in the document*, matching the bare token
+  `<PREFIX>-<NN>` and discarding non-ID matches. The gap between the two is
+  the families that are written as **headings rather than rows** and are
+  therefore invisible to the row grep: `PH-01`…`PH-12` (§22, §46), `DS-01`…
+  `DS-14` (§48), `HD-01`…`HD-04` (§47), plus `BK`, `RF`, `SB`, `LZ`, `MT`,
+  `PE`, `RL` and `VS`.
+
+Thirty-nine prefixes are in use. **Fifteen** of them the list above does
+not name: `BK`, `DS`, `HD`, `KV`, `LZ`, `MN`, `MR`, `MT`, `PE`, `RF`,
+`RL`, `SB`, `TO`, `VA`, `VS` — and its "six `### PH-0N` entries" is twelve.
+
+**The A/B/C/D split below is still not re-derived**, for the reason pass 2
+and pass 3 both gave and this pass repeats: recovering each row's dropped
+class letter is a judgment per row, not arithmetic. Only the total is
+corrected here.
+
 The original framing still holds — a group of identically-blocked sibling
 controls (the ten Edit-menu items, the five erosion Run buttons) is one
 entry, so the raw count of individually disabled controls is higher than
@@ -7671,3 +7695,130 @@ called `app._set_overflow_open(false)` unconditionally, and
 `_close_all_phone_overlays()` sets `left_dock.visible = false` with **no phone
 guard** — so the first desktop run measured a shell with no docks at all, and
 very nearly reported that as the finding.
+
+---
+
+## 49 · KV-04, WW-16 — two things the shipped app says that a real boot disproves (2026-08-25 audit pass 4) — **REGISTERED, NOT FIXED**
+
+Audit pass 4 booted the real shell windowed (`_audit4_probe.gd`, the
+`SubViewport` idiom §47 established) rather than reading about it. Two findings
+neither the register nor `STATUS.md` had, both of the second failure kind this
+repository keeps producing — *a document or a disclosure asserting something
+that the code contradicts*. Both are **code** changes, so they are registered
+here for the owner and deliberately not made by an audit pass.
+
+### KV-04 · The Markdown Vault's link store has never survived a restart
+
+**Severity: this is data loss in shipped, milestone-complete functionality.**
+Every link a user attaches is silently discarded on the next launch.
+
+The boot printed it unprompted:
+
+> `WARNING: Cartalith: user://markdown_vault.json holds a link store this
+> engine could not read; nothing was loaded.` — `vault_store.gd:66`
+
+**The mechanism, isolated to one line.** `VaultStore.save_from`
+(`godot-project/shell/vault_store.gd:118-135`) is the **only** writer of the
+sidecar, and it does not write the engine's JSON — it re-parses it:
+
+```
+var state := bridge.vault_state_json()     # correct JSON, from Rust
+var parsed = JSON.parse_string(state)      # every number becomes a float
+... f.store_string(JSON.stringify(doc, "  "))
+```
+
+Godot's `JSON` types every number as `float`, so `KnowledgeLink::entity_id`
+(`crates/cartalith-vault/src/links.rs:175`, `i64`) is written back as `1.0` and
+`source_modified` (`:183`, `u64`) as `1787605785.0`. `serde_json` refuses both,
+`LinkStore::from_json` errors, `vault_restore_state`
+(`crates/cartalith-godot/src/vault_bridge.rs:640`) returns `false`, and
+`load_into` warns and returns — which is the *correct* behaviour for a corrupt
+sidecar and exactly the wrong outcome for one this app wrote itself.
+
+**Proved by bisection, not inferred** (`_audit4_vault.gd`, four cases against
+the real sidecar this machine had on disk):
+
+| Case | Restores? |
+|---|---|
+| A — `vault_state_json()` handed straight back to `vault_restore_state()` | **true** |
+| B — the shipped sidecar exactly as `save_from` wrote it | **false** |
+| C — B with every `entity_id` coerced back to `int` | **false** |
+| D — C with `source_modified` and `version` coerced too | **true** |
+
+So the round trip fails on **two** integer fields, not one, and the engine's own
+output is fine. **The fix is to stop re-parsing**: keep `state` as a string and
+splice it into the document, or restore through the untouched string. `A` is the
+proof that nothing on the Rust side needs to change.
+
+Note what this defeats: `vault_restore_state`'s own doc comment says *"a corrupt
+sidecar must not take the links that are in memory with it"* — a good rule that
+here guarantees the links are lost quietly instead of loudly.
+
+### WW-16 · The five erosion Run buttons say the kernels do not exist. Four of them run inside `generate()`
+
+`world_workspace.gd:795-800` builds, for each of *Droplet hydraulic*,
+*Hillslope diffuse*, *Velocity (momentum)*, *Glacial* and *Coastal*:
+
+- a note reading *"Not ported -- a separate manual pass in the reference with
+  no cartalith-engine equivalent."*
+- a disabled button whose tooltip reads *"No cartalith-engine implementation
+  exists for this pass."*
+
+and `:87`'s stage-06 `gap` string says the same thing a third time.
+
+**All three statements are false, and the file contradicts itself twenty lines
+apart** — the loop at `:790-793` immediately above builds live parameter rows
+from the `erosion` param group, which is the wiring for these very passes:
+
+| Control | Kernel | Called from |
+|---|---|---|
+| Hillslope diffuse | `cartalith-erosion/src/passes.rs:103` | `cartalith-engine/src/lib.rs:1387` |
+| Velocity (momentum) | `passes.rs:245` | `lib.rs:1342` |
+| Glacial | `passes.rs:514` | `lib.rs:1346` |
+| Coastal | `passes.rs:710` | `lib.rs:1370` |
+| Droplet hydraulic | `cartalith-erosion/src/lib.rs:126` | golden-tested; **no engine caller** — "ported, not wired", still not "does not exist" |
+
+All are bit-exact ports with golden fixtures, landed 2026-08-23 — and **this
+register recorded it at the time**: §19 is titled *"The manual erosion passes:
+kernels ported, wired as generation parameters"*, and §19.2 closes with
+
+> *"(a) is **not** foreclosed and is now cheap: the kernels and the run path
+> both exist, so a run button would be a `#[func]` over the same code. It was
+> not built in this pass because UI work is on hold (`CLAUDE.md`)."*
+
+**That stated blocker was already void when it was written.** The UI hold was
+lifted 2026-08-18 (`DCC_SHELL_SCOPE.md`; `CLAUDE.md`'s own copy of the notice
+was not corrected until 2026-08-23); §19 is dated 2026-08-23. So the reason
+five controls have stayed dead for two days is a hold that had been lifted for
+five.
+
+**Class: (A)** — designed, engine-ready, no Rust model missing. The work is one
+`#[func]` per pass over `ErosionPassParams`' existing kernel calls plus the
+`erodeFinish`/`eroFinish`/`veloFinish` re-derivation the reference does, and
+three strings deleted. `WorldGen::carve_fjords()` — live, in the *same group*,
+built the same way — is the shape to copy.
+
+**Minimum honest action, if the buttons stay disabled:** the three strings must
+stop claiming the implementation does not exist. Saying *"the kernel is ported
+and runs as a generation parameter; there is no `#[func]` to run it on its own
+against a finished field"* is both true and the register's own §4 convention.
+
+### CV-12's disclosure is stale in both of its clauses
+
+`civilization_workspace.gd:1200` (*Settlement diagnostics overlay*) says:
+
+> *"cartalith-urban milestones 8-17 are unported **and the crate has no
+> consumer at all**"*
+
+Neither half survives a grep. **Milestones 1-7, 8a, 12 and 17a are ported**
+(`URBAN_MORPHOLOGY_SCOPE.md`; `PARITY_AUDIT.md` pass 3 §17 — 8a and 12 landed
+2026-08-24, the day before this text was last touched), and the crate has a
+real consumer: `crates/cartalith-civ/Cargo.toml:22` depends on it and
+`crates/cartalith-civ/src/urban_adapter.rs:98` imports from it, feeding the
+bridge, the deep-zoom map layer and the City Viewer.
+
+**The conclusion still holds** — `_umWallSpec`, `_umSiteProfile` and
+`_umModelCache` are genuinely among the five unported `_um*` adapters, so the
+overlay really would have nothing to draw. This is a **stale reason on a
+correct verdict**, the §4 S1-S5 shape exactly: fix the sentence, leave the
+control alone.

@@ -777,6 +777,17 @@ stage, since the caller already handled that failure mode once by holding
 a `GpuDevice`). The original standalone `init_gpu_X()`/`X_grid_gpu()`
 functions are completely untouched — every existing milestone 1-6 test
 that calls them directly still exercises the exact same code path.
+**Stale as of 2026-08-25: nothing calls them any more.** The `/ponytail`
+pass grepped the whole workspace, tests included, and found
+`warp_grid_gpu`, `heterogeneity_grid_gpu`, `gauss_blur_grid_gpu` and
+`assign_plates_grid_gpu` with **zero callers** — the milestone-1-6 tests
+were themselves migrated to the `_with` siblings, so the sentence above
+became untrue without anyone editing it. Re-verified independently by the
+2026-08-25 audit pass: seven `cartalith-gpu` public functions have no
+caller anywhere (those four, plus `flow_accumulation_gpu_with`,
+`gpu_resistance_grid_cpu` and `init_gpu_f64`). ~70 lines, nothing at
+runtime. **Deleting them is an owner call**, not a documentation fix —
+`CHANGELOG.md`'s ponytail entry says why it declined to.
 `REUSED_STAGE_MAX_STORAGE_BUFFERS = 8` (JFA's own bind-group size, the
 largest of the four reused kernels) sizes the shared device's limits up
 front, since `wgpu` limits can't be raised after device creation —
