@@ -9086,7 +9086,10 @@ taken.
   and full-screen sheets, worth 799 vs 944 objects and 9.5 vs 15.1 MB of
   `Gfx dev` at the welcome screen. Both A and C runs above came up in the same
   variant (9.5 / 9.7 MB) and are comparable; noted because the next pass will
-  meet it too.
+  meet it too. **Answered in §56, and it is not a boot race**: the two
+  "variants" are `c9bb82e` and §53's 412 dp migration, installed over each other
+  under one package name by two agents on one handset. This pass's own reading
+  was right — A and C really were the same build — and its numbers stand.
 - `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
   Godot invocation; the `;` comment block survived each one.
   `export_presets.cfg` and `Cargo.toml` untouched, and no Rust changed.
@@ -9226,3 +9229,243 @@ debug-view-off at one fixed zoom.
 `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
 Godot invocation. No Rust changed; no `.tscn`, `export_presets.cfg` or
 `Cargo.toml` touched.
+
+---
+
+## 56 · BI-01 — §54's "the chrome is not stable across boots" is two different builds on one handset, and the boot it blamed is deterministic (2026-08-25) — **NEGATIVE, ONE FIX**
+
+§54's harness note recorded, in passing and while measuring something else:
+
+> The shell's chrome is **not stable across boots** — one run of the same APK
+> came up with an icon tab bar and docked L3 panels, another with text labels
+> and full-screen sheets, worth 799 vs 944 objects and 9.5 vs 15.1 MB of
+> `Gfx dev` at the welcome screen.
+
+It matters more than its size suggests, because every device measurement this
+project has taken assumes a stable baseline, and §54 itself could only say that
+its own two runs "came up in the same variant" — a coincidence it had no way to
+check. So it was handed on with a hypothesis: `_compute_layout_mode()` decides
+`_phone` once, at `_ready()`, off a window size Android may not have finalised,
+and the aspect test `short/long < 0.6` would latch *tablet* on a momentarily
+square-ish surface.
+
+**The hypothesis is wrong, and the answer is worse than a race.** The two
+variants are two different builds of the shell, installed over each other on the
+same handset by two agents working the same evening.
+
+### The boot, measured — there is nothing provisional about it
+
+A probe build from committed `HEAD` (`51b3230`) logs `get_viewport_rect().size`,
+`DisplayServer.window_get_size()`, `screen_get_size()`,
+`is_touchscreen_available()`, `OS.has_feature("mobile")` and the computed
+`_touch` / `_phone` / `_landscape` / `_phone_scale` at four points inside
+`_ready()` — on entry, after the touch decision, after `_compute_layout_mode()`,
+and after the composition is built — then on **every** `root.size_changed` and
+from `_process` on every frame the viewport size changes, for the first 900
+frames.
+
+**OnePlus 6T (`9608b26b`), Android 15, 1080 × 2340, 52 instrumented cold
+starts** (`am force-stop`, `logcat -c`, `am start`, 7–14 s):
+
+| | |
+|---|---|
+| Viewport size at the first sample inside `_ready()` | **1080 × 2340, all 52** |
+| `root.size_changed` emissions, whole corpus | **0** |
+| `_phone` / `_landscape` / `_phone_scale` | `true` / `false` / `2.6214`, all 52 |
+| Frames on which the viewport size changed | none, in 900 frames a run |
+
+There is no sequence of sizes to report. There is one size, and the shell reads
+the real one before it decides anything. `OnGodotSetupCompleted` — which is what
+runs `_ready()` — arrives ≈3.0 s into the process on this handset, long after
+the surface and its insets have settled, and `OnGodotMainLoopStarted` follows
+it. The window is final before the decision, not during it.
+
+Three of the 52 were run with `accelerometer_rotation=0` and
+`user_rotation=1` (the system forced to landscape); the activity still came up
+`1080 × 2340`, because `window/handheld/orientation=6` asks for
+`SCREEN_SENSOR` and the sensor, not the setting, answers. Recorded because it
+means **`--force-rotate` over `adb` is not a way to reach `_landscape` on this
+device** — the same wall the 2026-08-20 pass hit from the other side
+(`ANDROID_BUILD_SCOPE.md`, "Portrait was not reachable over `adb`").
+
+And the aspect test cannot flip here even in principle: `_phone` needs `_touch`,
+which is fixed for the life of the process, and `min/max` is rotation-invariant
+— 1080/2340 is 0.4615 held either way, nowhere near the 0.6 threshold.
+
+### The chrome, measured — it is perfectly stable, and then it is not
+
+The same probe prints a chrome fingerprint six seconds after the shell is up:
+`Performance.OBJECT_COUNT`, `RENDER_TOTAL_OBJECTS_IN_FRAME`,
+`RENDER_VIDEO_MEM_USED`, the scene-tree node count, the phone flags, the L1 bar's
+child count and every label in it, both dock sheets' visibility, and
+`DccIcons.cache_stats()`. Twenty runs of `HEAD`, plus `dumpsys meminfo` on ten of
+them:
+
+```
+objects=11061  render_objs=456  nodes=3454  phone=true  pscale=2.6214
+bartext=MORE|PANELS|CARTO|CIVIL|WORLD    Gfx dev 14796–15016 kB
+```
+
+**Identical to the digit on every run** — `objects`, `render_objs`, `nodes` and
+the bar's own contents never moved once. `Gfx dev` spans 1.5 % and `TOTAL PSS`
+0.5 %, which is driver noise on a 450 MB process.
+
+Then the same probe was built from `c9bb82e` — the commit immediately before
+§53's 412 dp phone migration (`5600c60`) — and installed:
+
+| welcome screen, OnePlus 6T | `c9bb82e` (pre-412) | `51b3230` (`HEAD`) | §54 reported |
+|---|---:|---:|---|
+| `Gfx dev` | **9 452 / 9 636 / 9 500 kB** | **14 796 – 15 016 kB** | **9.5 vs 15.1 MB** |
+| `OBJECT_COUNT` | 10 804 | 11 061 | — |
+| scene-tree nodes | 3 370 | 3 454 | — |
+| L1 bottom bar | **text labels**, `WORLD CIVIL CARTO PANELS MENU` | **icon tab bar**, `MORE` for `MENU`, pill buttons | "icon tab bar" vs "text labels" |
+
+§54's two numbers reproduce to the decimal, on demand, from two commits. They
+are not two boots. They are `c9bb82e` and `5600c60`. (§54's prose pairs the two
+clauses in opposite order — the icon bar is the *heavier* variant, not the
+lighter — which is the only thing in that note that has to be corrected as
+written rather than as meant.)
+
+### Why it happened, and it is not really a shell bug
+
+§54's own harness note already contains the answer without naming it:
+
+> The working tree could not be used: a concurrent session was mid-edit on
+> `shell/dcc_shell.gd` and the first snapshot captured it in a state that would
+> not parse.
+
+That concurrent session was **§53's 412 dp migration**, and it was not committed
+until `5600c60` at **21:38** — after every APK in `builds/android/` had already
+been exported: `Cartalith-mem.apk` 20:28, `Cartalith.apk` 20:49,
+`Cartalith-dashA.apk` 21:09, `Cartalith-ph412.apk` 21:27. The first three are
+§54's, taken from a committed `HEAD` that was still pre-412; the fourth is the
+§53 agent's own, carrying the migration eleven minutes before it was a commit.
+Two agents were exporting to
+`builds/android/` and installing to the **same package name**
+(`org.cartalith.walkingskeleton`) on the **same handset**, one from committed
+`HEAD` (pre-412) and one from its own working tree (the 412 migration). An
+`adb install -r` from either replaces the other. "The same APK" was two APKs,
+and nothing in the running application said which one it was.
+
+### BI-01, fixed — `DccShell.build_id()`
+
+The shell now prints one line before it does anything else:
+
+```
+Cartalith shell build 756b59e30bc1
+```
+
+It is an MD5 over every file the project ships under `res://shell/`, plus
+`res://map_overlay.gd` by name, hashed with their paths in sorted order and
+truncated to 12 hex. No version constant, so there is nothing to forget to
+bump; it changes when the shipped scripts change, which is the exact question
+that was unanswerable.
+
+**This is the GDScript twin of `EngineBridge._has()`**, which the 2026-08-24
+pass added after a `.so` ran 21 commits behind its own shell in silence
+(`ANDROID_BUILD_SCOPE.md`). That guard speaks for the native half of the pair.
+Nothing spoke for the script half, and the cost of that was this register
+carrying a startup race that does not exist.
+
+Verified three ways rather than argued:
+
+- **Determinate**: two consecutive headless runs of the same tree →
+  `cc30740ce765` both times.
+- **Sensitive**: appending one comment line to `shell/right_dock.gd` in an
+  otherwise untouched snapshot moved it `dcb61a49afd8` → `d1e90bc7c590`.
+- **Reaches the handset**: `756b59e30bc1` in `logcat` from a real cold start
+  of the exported APK.
+
+The export and editor digests of the same tree differ on purpose — an export
+ships `.gdc` + `.gd.remap` where the editor has `.gd` + `.uid`. Those genuinely
+are different builds, and a measurement log must never conflate them.
+
+**What it does not do**, stated because the gap is the interesting half: it
+identifies the build that is *running*, not that the APK installed is the one
+just exported. The check that closes that loop is two commands and is now the
+rule for any device pass that compares two builds:
+
+```
+adb shell sha256sum $(adb shell pm path org.cartalith.walkingskeleton | sed 's/package://')
+sha256sum builds/android/<the file you just exported>
+```
+
+Run against this pass's own build: `36b71ff0…e4ec0dc1`, both sides.
+
+### `_on_window_resized()`'s asymmetry — audited, deliberately unchanged
+
+The referral flagged the early return —
+
+```gdscript
+func _on_window_resized() -> void:
+	if not _phone:
+		return
+```
+
+— as possibly the bug itself: a shell that latched tablet by mistake can never
+correct itself. It is not the bug, and hoisting `_compute_layout_mode()` above
+the guard is the wrong fix twice over. There is nothing to correct (the 52 cold
+starts above; `_touch` is fixed and the aspect is rotation-invariant), and
+**recomputing for tablets would break something real**: the tablet branch of
+`_compute_layout_mode()` assigns `_left_width`/`_right_width`, so running it on
+every resize would reset a tablet user's dragged dock widths (WI-04) to
+`W_DOCK_TABLET` on every rotation. Both reasons are now written into the
+function's own doc comment, where the next reader meets them before re-deriving
+them.
+
+The desktop `--resolution WxH` clamping this was compared to is a different
+fault with the same shape: there the window really is a different size than was
+asked for, and it is that size before `_ready()` runs — so the decision point is
+already correct there too, and what is wrong is the harness's expectation, not
+the shell's timing.
+
+### What this does to past measurements
+
+**No number in this register is retracted, and one is now positively
+defensible.**
+
+- **§54's own headline stands.** Its A and C runs came up at 9.5 / 9.7 MB —
+  the pre-412 pair — and both of its APKs were snapshotted from committed
+  `HEAD`, which was pre-412 for the whole window in which they were built
+  (`c9bb82e` 20:19 → `ba5d351` 20:32 → `d40acb3` 20:57; the migration lands at
+  `5600c60` 21:38).
+  Same build, same chrome, comparable. It was right to say so and right to
+  doubt it.
+- **The exposure is real but narrow.** It is confined to 2026-08-25 evening,
+  to the handset, and to the interval between §53's migration entering the
+  working tree and `5600c60` being committed — the only window in which two
+  agents' builds of *materially different shells* could overwrite each other
+  under one package name. §52's memory pass (earlier, single build) and §50's
+  and §53's own device passes each measured one build against itself, which is
+  the shape that survives this.
+- **The real cost was diagnostic, not numeric.** An agent spent a paragraph of
+  a register recording a phantom, and a second pass spent an evening
+  disproving it. `build_id()` is what makes that unrepeatable.
+
+Registered, not fixed: nothing here. BI-01 is closed by the stamp.
+
+### Harness
+
+- **Built from committed `HEAD` (`51b3230`), not the working tree**, per §54's
+  own rule: `git archive HEAD cartalith-native/godot-project` into a scratch
+  tree, an NTFS junction back to the real `cartalith-native/target/` so
+  `cartalith.gdextension`'s `res://../target/...` still resolves, then
+  `--import` and `--export-debug "Android"` there. The fix build layers the one
+  edited file on top of that same snapshot. The pre-412 comparison build is the
+  same recipe at `c9bb82e`.
+- `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+  Godot invocation, in the real tree and in both snapshots; the `;` comment
+  block survived each one. `export_presets.cfg` and `Cargo.toml` untouched, no
+  Rust changed, and `shell/wind_fx_layer.gd` / `shell/water_anim_layer.gd` were
+  not opened.
+- Device state: `accelerometer_rotation` was set to 0 and `user_rotation` to 1
+  for three runs and **both restored** (1 / 0). The handset is left with
+  `Cartalith-buildid.apk` installed — the fix build, from `HEAD` plus
+  `dcc_shell.gd` — rather than with a probe.
+- Noticed in passing, not this pass's to fix: the `android-dev`
+  `libcartalith_godot.so` currently in `target/` is behind the shell.
+  `EngineBridge._has()` speaks, exactly as designed —
+  `WorldGen.project_save()` missing, once, at every boot of every APK built
+  this evening. It is the 2026-08-24 guard doing its job, and it wants a
+  `cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot`
+  before the next device pass measures anything that saves.

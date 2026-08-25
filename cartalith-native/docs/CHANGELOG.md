@@ -28787,3 +28787,96 @@ handset numbers are the pipeline's own allocator, run out of
 `/data/local/tmp`; R1's Godot-side hunk was not exercised inside a running
 Godot process, and the case for it is the reasoning above rather than a
 screenshot.
+
+## The chrome that was "not stable across boots" was two builds on one phone (`GUI_GAP_REGISTER.md` §56, 2026-08-25)
+
+§54 noticed, while measuring something else, that the same APK came up with two
+different shells on the OnePlus 6T — an icon tab bar one boot, text labels the
+next, worth 9.5 versus 15.1 MB of `Gfx dev` at the welcome screen. It could not
+say why, and it was right to flag it: two boots differing by 5.6 MB *before a
+world exists* would put every device measurement this project has taken in
+doubt.
+
+**The boot is not the problem, and it was measured rather than reasoned about.**
+A probe build from committed `HEAD` (`51b3230`) logs the viewport, window,
+screen, touch and aspect at four points inside `DccShell._ready()`, then on
+every `root.size_changed` and on every frame the viewport size moves, for 900
+frames. **52 instrumented cold starts** on the handset: `get_viewport_rect()`
+reports the real **1080 × 2340 at the first sample, all 52**, `_phone` /
+`_landscape` / `_phone_scale` come out `true` / `false` / `2.6214` every time,
+and **`root.size_changed` never fires at all** — not once in the whole corpus.
+There is no sequence of sizes to race against on this device; `_ready()` runs
+≈3.0 s into the process, long after the surface and its insets have settled. Nor
+can the aspect test flip in principle here: `_phone` needs `_touch`, which is
+fixed for the process, and `min/max` is rotation-invariant.
+
+The chrome is just as stable. A fingerprint six seconds after boot — object
+count, render objects in frame, scene-tree nodes, the phone flags, the L1 bar's
+own labels, both dock sheets, the glyph cache — is **identical to the digit
+across twenty runs**, and `Gfx dev` spans 1.5 %.
+
+**The two "variants" are two commits.** Building the same probe from `c9bb82e`,
+the commit immediately before §53's 412 dp phone migration, reproduces §54's
+lower number on demand: **9 452 / 9 636 / 9 500 kB of `Gfx dev` against `HEAD`'s
+14 796 – 15 016**, with a text-label bottom bar (`WORLD CIVIL CARTO PANELS
+MENU`) where `HEAD` draws the icon tab bar. 9.5 and 15.1 are `c9bb82e` and
+`5600c60`. §54's own harness note contains the cause without naming it: the
+concurrent session it records as mid-edit on `shell/dcc_shell.gd` was §53's
+migration, which was not committed until 21:38 — after every APK in
+`builds/android/` had been exported. Two agents were installing to the **same
+package name on the same handset**, one from committed `HEAD` and one from its
+own working tree, and `adb install -r` from either replaces the other.
+
+**Built**: `DccShell.build_id()`, and one line printed before the shell does
+anything else — `Cartalith shell build 756b59e30bc1`. An MD5 over every file the
+project ships under `res://shell/` plus `res://map_overlay.gd`, paths and
+contents, sorted, truncated to 12 hex. No version constant, so nothing can
+forget to be bumped. It is the GDScript twin of `EngineBridge._has()`, which the
+2026-08-24 pass added after a `.so` ran 21 commits behind its own shell in
+silence; that guard speaks for the native half of the pair and nothing spoke for
+the script half.
+
+Verified three ways: **determinate** (two headless runs of one tree, `cc30740ce765`
+both), **sensitive** (one appended comment line in `shell/right_dock.gd` moves it
+`dcb61a49afd8` → `d1e90bc7c590`), and **it reaches the handset** (`756b59e30bc1`
+in `logcat` from a real cold start of the export). Editor and export digests of
+one tree differ on purpose — an export ships `.gdc` + `.gd.remap` where the
+editor has `.gd` + `.uid`, and those are different builds.
+
+It identifies the build that is *running*, not that the installed APK is the one
+just exported. `adb shell sha256sum $(adb shell pm path …)` against the exported
+file is what closes that, and it is now the rule for a device pass comparing two
+builds; run against this pass's own APK it matched, `36b71ff0…e4ec0dc1`.
+
+**Audited and deliberately not changed**: `_on_window_resized()`'s
+`if not _phone: return`. The referral flagged it as the bug — a shell that
+latched tablet could never correct itself — and it is not, twice over. There is
+nothing to correct (the 52 cold starts above), and hoisting
+`_compute_layout_mode()` above the guard would **reset a tablet user's dragged
+dock widths (WI-04) to `W_DOCK_TABLET` on every rotation**, because that is what
+the tablet branch of that function assigns. Both reasons are now in the
+function's own doc comment.
+
+**No number in the register is retracted.** §54's A and C runs came up at
+9.5 / 9.7 MB — the pre-412 pair — and both of its APKs were taken from a
+committed `HEAD` that was pre-412 for the whole window in which they were built,
+so they were comparable and its headline stands. The exposure is one evening,
+one handset, and the interval between §53's migration entering a working tree
+and being committed. The cost was diagnostic, not numeric: a register carried a
+startup race that does not exist, and an evening went into disproving it.
+
+Built from committed `HEAD` throughout, never the working tree — `git archive`
+into a scratch tree with a junction back to `cartalith-native/target/` so
+`cartalith.gdextension`'s `res://../target/...` resolves, the one edited file
+layered on top. `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before
+and after every Godot invocation, in the real tree and both snapshots.
+`export_presets.cfg` and `Cargo.toml` untouched, no Rust changed,
+`shell/wind_fx_layer.gd` and `shell/water_anim_layer.gd` not opened. Device
+rotation settings were changed for three runs and restored.
+
+Noticed in passing: the `android-dev` `libcartalith_godot.so` in `target/` is
+behind the shell — `EngineBridge._has()` warns once per boot that
+`WorldGen.project_save()` is missing, which is the 2026-08-24 guard working
+exactly as designed. It wants a `cargo ndk -t arm64-v8a build --profile
+android-dev -p cartalith-godot` before the next device pass measures anything
+that saves.

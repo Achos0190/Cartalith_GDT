@@ -154,9 +154,64 @@ var _right_sheet_open := false
 var _left_dock_scroll: ScrollContainer
 var _right_dock_scroll: ScrollContainer
 
+# -- Build identity ------------------------------------------------------------
+
+## One line in the boot log saying **which build this is**, and it exists
+## because a device pass could not answer that question and drew the wrong
+## conclusion from not being able to (`GUI_GAP_REGISTER.md` §56).
+##
+## The shell-side twin of `EngineBridge._has()`, which the 2026-08-24 pass added
+## after a `.so` ran 21 commits behind its own shell in silence
+## (`ANDROID_BUILD_SCOPE.md`). That guard speaks for the *native* half of the
+## pair; nothing spoke for the GDScript half, so two APKs built forty minutes
+## apart across a UI migration were indistinguishable on the handset except by
+## looking at them -- and §54 recorded that difference as "the shell's chrome is
+## not stable across boots", a startup race that does not exist.
+##
+## Hashes every file the project ships under `res://shell/`, name and content,
+## in sorted order. Deliberately the whole directory rather than this one file:
+## the two APKs §54 compared differed in `map_overlay.gd` alone in one pair and
+## in `dcc_shell.gd` in the other, and a digest that only covers its own source
+## would have missed the first. `map_overlay.gd` itself sits at the project root
+## and is folded in by name for the same reason.
+##
+## Costs a few hundred KB of MD5 at boot, once, and cannot rot: there is no
+## version constant for anyone to forget to bump. It changes when the shipped
+## scripts change, which is exactly the question "is this the same build?"
+##
+## The digest is **not** comparable between an editor run and an export -- an
+## export ships `.gdc` + `.gd.remap` where the editor has `.gd` + `.uid`. That is
+## a feature: those genuinely are different builds of the same tree, and the two
+## must never be mistaken for each other in a measurement log.
+##
+## It does not, and cannot, prove the *installed APK* is the one just built --
+## only `sha256` against `adb shell pm path` does that. See §56's harness note.
+static func build_id() -> String:
+	var files: Array[String] = ["res://map_overlay.gd", "res://map_overlay.gdc"]
+	var stack: Array[String] = ["res://shell"]
+	while not stack.is_empty():
+		var dir: String = stack.pop_back()
+		for d in DirAccess.get_directories_at(dir):
+			stack.append(dir.path_join(d))
+		for f in DirAccess.get_files_at(dir):
+			files.append(dir.path_join(f))
+	files.sort()
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_MD5)
+	for f in files:
+		## `get_md5()` returns "" for a path that is not there, which is the
+		## normal case for two of the three root entries above -- folding the
+		## empty string in under its own name keeps the digest defined either way.
+		ctx.update((f + ":" + FileAccess.get_md5(f)).to_utf8_buffer())
+	return ctx.finish().hex_encode().substr(0, 12)
+
 # -- Build --------------------------------------------------------------------
 
 func _ready() -> void:
+	## Before anything else, so it is the first Cartalith line in `logcat` and
+	## survives a boot that fails after it. See `build_id()` above for why a
+	## device pass needs it.
+	print("Cartalith shell build ", build_id())
 	## `--force-touch`: a testing-only override, same pattern as `_shot.gd`'s
 	## own `--generate` flag. Real touch hardware is never present in this
 	## dev/CI environment, so without it the phone/tablet composition below is
@@ -278,6 +333,21 @@ func _compute_layout_mode() -> void:
 		_left_width = float(DccTheme.W_DOCK_TABLET)
 		_right_width = float(DccTheme.W_DOCK_TABLET)
 
+## **The early return is deliberate, and it was audited rather than assumed**
+## (`GUI_GAP_REGISTER.md` §56). It reads as an asymmetry -- a shell that latched
+## tablet by mistake can never correct itself -- and the obvious fix, hoisting
+## `_compute_layout_mode()` above the guard, is the wrong one twice over:
+##
+## - There is nothing to correct. `_phone` needs `_touch`, which is fixed for
+##   the life of the process, and the aspect it tests is `min/max`, which a
+##   rotation cannot change. Measured on the OnePlus 6T over 52 cold starts:
+##   `get_viewport_rect()` reports the real 1080 x 2340 at the first sample
+##   inside `_ready()` and `root.size_changed` never fires at all. There is no
+##   provisional size for the decision to race against on this handset.
+## - Recomputing for tablets would *break* something real. The tablet branch of
+##   `_compute_layout_mode()` assigns `_left_width`/`_right_width`, so running
+##   it on every resize would reset a tablet user's dragged dock widths (WI-04)
+##   to `W_DOCK_TABLET` on every rotation.
 func _on_window_resized() -> void:
 	if not _phone:
 		return  ## Tablet/desktop windows resizing is not this shell's concern.
