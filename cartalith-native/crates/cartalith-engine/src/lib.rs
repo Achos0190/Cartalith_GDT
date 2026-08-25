@@ -565,6 +565,19 @@ impl WorldParams {
 /// when it ran, or right after the pre-carve `computeFlow(true)`/
 /// `refreshClimate()` when it didn't — either way, the same fields
 /// `generate()` itself leaves as current.
+///
+/// # Four grids that used to be here and are not
+///
+/// `flexure_field`, `heterogeneity_field`, `flow_area` and
+/// `ChannelResult::slope` were retained on this struct and read by nothing
+/// outside `generate_terrain` — 40.96 MiB a world at 2048 × 1311, resident
+/// for the whole session and carried through every civilisation stage on
+/// top of it. Each is still **computed**, still feeds the stage that needs
+/// it (`compute_height` for the first two, the moisture correctors for
+/// `flow_area`, the channel threshold for `slope`), and is dropped where
+/// its last reader finishes. See `MEMORY_OPTIMIZATION_SCOPE.md` R2 for the
+/// evidence each was dead, including which golden assertions went with
+/// them and why that was judged safe.
 pub struct WorldState {
     /// The sea level actually used for this generation — equal to
     /// `p.sea_level` unless `world_structure.enabled` re-anchored it
@@ -576,9 +589,7 @@ pub struct WorldState {
     pub plate_id: Vec<usize>,
     pub boundary_mask: Vec<u8>,
     pub stress_field: Vec<f32>,
-    pub flexure_field: Vec<f32>,
     pub age_field: Vec<f32>,
-    pub heterogeneity_field: Vec<f32>,
     pub resistance_field: Vec<f32>,
     /// `plateCrust()` (reference HTML line 3083): raw, unblurred per-cell
     /// plate base (`<0` = oceanic crust). Already computed internally as
@@ -600,8 +611,11 @@ pub struct WorldState {
     pub impact_field: Vec<f32>,
     pub temperature: Vec<f32>,
     pub rainfall: Vec<f32>,
-    pub flow_area: Vec<f32>,
     pub flow_discharge: Vec<f32>,
+    /// **`ChannelResult::slope` is released before this is stored** and is
+    /// an empty `Vec` here — see `generate_terrain`'s own note at the point
+    /// it drops it (`MEMORY_OPTIMIZATION_SCOPE.md` R2). `recv` and `chan`
+    /// are the two arrays every consumer in this workspace actually reads.
     pub channels: Option<ChannelResult>,
     pub stream_order: Option<Vec<i16>>,
     pub river_mask: Option<Vec<u8>>,
@@ -1197,7 +1211,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         };
 
         // (2) vector network -> distance-field channel carve + lock
-        let ch = build_channels(&field, &flow_for_network, gw, gh, sea_level, world, p.river_density, p.map_width_km);
+        let mut ch = build_channels(&field, &flow_for_network, gw, gh, sea_level, world, p.river_density, p.map_width_km);
+        // `MEMORY_OPTIMIZATION_SCOPE.md` R2: `ChannelResult::slope` has no
+        // reader anywhere in this workspace -- `strahler_from_receivers` and
+        // `trace_river_polylines` below take `recv`/`chan` only, and the
+        // slope-area test that produced it already consumed it inside
+        // `build_channels`. Released here rather than deleted from
+        // `build_channels` itself, because `golden_parity_river.rs` asserts
+        // it cell for cell against the JS reference and that check is worth
+        // more than the transient it costs for the length of one call.
+        // 10.24 MiB a world at 2048x1311, off the resident set for good.
+        ch.slope = Vec::new();
         let order = strahler_from_receivers(&ch.recv, &flow_for_network, &ch.chan);
         let polys = trace_river_polylines(&order, &ch.recv, gw, gh, 1);
 
@@ -1523,9 +1547,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         plate_id,
         boundary_mask: stress.boundary_mask,
         stress_field: stress.stress_field,
-        flexure_field,
         age_field,
-        heterogeneity_field,
         resistance_field,
         crust_field: base_raw,
         boundary_type: stress.boundary_type,
@@ -1534,7 +1556,6 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         impact_field,
         temperature,
         rainfall,
-        flow_area,
         flow_discharge,
         channels,
         stream_order,
@@ -1728,7 +1749,6 @@ mod tests {
             assert_eq!(skipped.field, faithful.field, "field ({label})");
             assert_eq!(skipped.temperature, faithful.temperature, "temperature ({label})");
             assert_eq!(skipped.rainfall, faithful.rainfall, "rainfall ({label})");
-            assert_eq!(skipped.flow_area, faithful.flow_area, "flow_area ({label})");
             assert_eq!(skipped.flow_discharge, faithful.flow_discharge, "flow_discharge ({label})");
             assert_eq!(skipped.river_mask, faithful.river_mask, "river_mask ({label})");
             assert_eq!(skipped.river_floor, faithful.river_floor, "river_floor ({label})");
@@ -1935,8 +1955,10 @@ mod tests {
         let b = generate_terrain(&p_cpu);
 
         assert_eq!(a.field.len(), b.field.len());
-        assert_eq!(a.heterogeneity_field.len(), b.heterogeneity_field.len());
-        assert_eq!(a.flexure_field.len(), b.flexure_field.len());
+        // `heterogeneity_field`/`flexure_field` were checked here until R2
+        // stopped retaining them; `field` is downstream of both (they are
+        // two of `compute_height`'s inputs), so a GPU path that produced a
+        // wrongly-shaped one still cannot pass this.
         assert_eq!(a.plate_id.len(), b.plate_id.len());
         assert!(b.gpu_stages_used.is_empty(), "CPU path (use_gpu=false) must never report GPU stages used");
     }

@@ -193,10 +193,11 @@ pub struct RecomputeReport {
 ///   (`flow_discharge`), not the vector channel network, and neither does the
 ///   reference's post-edit tail. `sculpt_commit`'s own re-clamp step is what
 ///   keeps locked channels honest across an edit.
-/// - **`flow_area`.** The `use_rain = false` accumulation, whose only
-///   consumer is the first moisture-corrector pass inside `generate_terrain`
-///   itself. Recomputing it would cost a second full `compute_flow` for a
-///   field nothing downstream reads.
+///
+/// `flow_area` used to be listed here as a third. It is no longer retained
+/// at all (`MEMORY_OPTIMIZATION_SCOPE.md` R2) — the reasoning that put it in
+/// this list, "its only consumer is the first moisture-corrector pass inside
+/// `generate_terrain` itself", is precisely why it is now a local there.
 ///
 /// Returns an empty report — running nothing — when the world's fields do not
 /// match `p.gw * p.gh`. A dimension mismatch means the graph and the state
@@ -397,21 +398,20 @@ mod tests {
 
     #[test]
     fn it_recomputes_only_what_it_claims_and_leaves_the_rest_bit_identical() {
-        // The other half of "not everything": the carve-time river network
-        // and `flow_area` are documented as *not* re-derived, so they must
-        // come back bit-identical, not merely close.
+        // The other half of "not everything": the carve-time river network is
+        // documented as *not* re-derived, so it must come back bit-identical,
+        // not merely close.
         let (p, mut ws, _) = edited_world();
         // `ChannelResult` is neither `Clone` nor `Debug`; its two topology
         // arrays are what a comparison would be about anyway.
         let net = ws.channels.as_ref().map(|c| (c.recv.clone(), c.chan.clone()));
-        let (order, mask, area) = (ws.stream_order.clone(), ws.river_mask.clone(), ws.flow_area.clone());
+        let (order, mask) = (ws.stream_order.clone(), ws.river_mask.clone());
         let mut g = pipeline_stage_graph(1);
         g.mark_changed(PipelineStage::Height.id(), 0, "sculpt");
         recompute_stale(&mut g, &p, &mut ws);
         assert_eq!(ws.channels.as_ref().map(|c| (c.recv.clone(), c.chan.clone())), net);
         assert_eq!(ws.stream_order, order);
         assert_eq!(ws.river_mask, mask);
-        assert_eq!(ws.flow_area, area);
     }
 
     #[test]

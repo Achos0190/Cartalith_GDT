@@ -864,3 +864,168 @@ four zooms × four pans — **16 of 16 frames byte-identical**.
 **Still open**: one long way crossing the window keeps a bounding box that covers
 it, so its whole run is still walked and dashed. Per-segment culling would fix
 that and is a bigger change; registered in `GUI_GAP_REGISTER.md` §54, not taken.
+
+## R1, R2 and R3 landed: 618.81 → 518.92 MiB, −16.1 % (2026-08-25, same day)
+
+The audit above deliberately wrote no production code. This section records
+what shipped against what it predicted, and the two places where the audit was
+wrong.
+
+**Measured, Windows, 2048 × 1311, seed 483920, the same probe both ways:**
+
+| | peak | resident after `compute_civilisation` | `WorldState` |
+|---|---:|---:|---:|
+| before | **618.81 MiB** | 243.45 MiB | 209.96 MiB (82.0 B/cell) |
+| after | **518.92 MiB** | 202.48 MiB | 169.00 MiB (66.0 B/cell) |
+| | **−99.89, −16.1 %** | −40.97 | −40.96 |
+
+**On the OnePlus 6T (`9608b26b`), the same build cross-compiled and run out of
+`/data/local/tmp`: 518.86 MiB**, against the audit's 618.28 — desktop and
+handset now agree to **0.01 %**, tighter than the 0.15 % the audit found. The
+handset's `VmHWM` is 480.69 MiB. The binding stage moved from
+`build_resource_potentials` (618.81) to `civ_hierarchical_network_topology`
+(518.92), exactly as §6's walk-down table said it would.
+
+**Predicted vs. landed.** §6's table gives 469.56 MiB, and that figure is for
+**all eight** changes. Three of them alone were always going to stop one rung
+higher: R2 lowers the whole plateau by 40.96, R3 takes 138.63 off the
+`build_resource_potentials` spike, and the next ceiling then binds. Working
+that arithmetic through before measuring gave 518.87 MiB; the measurement is
+518.92 on Windows and 518.86 on the handset. **The model is right to about
+60 KiB.** R4–R8 are still on the table and would take it the rest of the way.
+
+### Where the audit was wrong
+
+**1 · None of the four grids was dead to the test suite.** §6's R2 says
+`ChannelResult::slope` is read by "nobody, anywhere" and that the other three
+have "exactly one reader … and none anywhere else in the workspace". That grep
+covered production code and missed the goldens. All four are asserted cell for
+cell against the JS reference:
+
+| field | asserted in |
+|---|---|
+| `flexure_field` | `golden_parity_pipeline.rs`, both cases |
+| `heterogeneity_field` | `golden_parity_pipeline.rs`, both cases |
+| `flow_area` | `golden_parity_pipeline.rs`, both cases |
+| `ChannelResult::slope` | `golden_parity_river.rs`, all three cases |
+
+This is the failure mode `CLAUDE.md`'s own working rules name — "a deletion is
+the one error that cannot be caught by a test that never existed" — arriving
+from the other side: the tests existed and the audit did not look at them. It
+changed what landed.
+
+- **`ChannelResult::slope` was not deleted.** `build_channels` still computes
+  and returns it, so all three golden assertions stand; `generate_terrain`
+  releases it with one line before storing the result. Same 10.24 MiB off the
+  resident set and off the plateau, no coverage lost. Deleting the field would
+  have bought nothing extra — the transient it costs lives inside
+  `generate_terrain`, ~180 MiB below the peak.
+- **The other three were deleted, and six golden assertions went with them.**
+  Judged safe field by field, and the reasoning is recorded in the test's own
+  doc comment rather than only here. Each has a *dedicated* golden test of its
+  own against the same reference (`cartalith-terrain`'s
+  `golden_parity_flex_hetero_resist.rs`, `cartalith-hydrology`'s
+  `golden_parity_flow.rs`), so the value is still pinned. What
+  `golden_parity_pipeline.rs` added was *wiring*, and for `flexure_field` and
+  `heterogeneity_field` the wiring survives transitively: both are inputs to
+  `compute_height`, whose output `field` is asserted in the same test, and
+  every input they are handed (`boundary_mask`, `stress_field`, `age_field`)
+  is asserted there too. **`flow_area` is a real loss** — it is downstream of
+  the asserted `field` and this test stops before its consumer, so
+  "`generate_terrain` calls `computeFlow(false)` at this exact point" now
+  rests on the flow golden plus the code. That is the whole price, stated
+  plainly.
+
+**2 · R1 had a second call site.** §6 names `generate_sized`/`generate`.
+`generate_world_structure_sized` is an independent `generate_terrain` +
+`absorb` pair — it does not delegate to `generate_sized`, and
+`engine_bridge.gd`'s own comment ("this must be the ONE call site") is about
+the GDScript side, not the Rust one. Fixing only the first would have left
+every archetype generate — which is what the New World dialog's shape control
+drives — still holding the previous world. Both call sites now release first.
+
+### Is R1 safe on a failed generate?
+
+**Yes, and the shell already had the honest failure path.** Established four
+ways rather than argued:
+
+- **The one modelled refusal never reaches it.** `engine_bridge.gd`'s
+  `generate()` checks the VRAM budget (`Fallback when VRAM full ▸ Fail with
+  error`) and returns **before** starting the worker thread. Its own comment
+  says why the check lives there: "`generate_terrain` returns a world, not a
+  `Result`".
+- **The Rust-side refusals return before the release.** The finalize lock in
+  both functions, and the unknown-archetype check in the second, sit above the
+  `release_world()` call. A refused generate keeps its world, exactly as
+  before.
+- **After the release the only exit is `absorb`.** `generate_terrain` has no
+  `Result`. Its real failures are a panic — which `cartalith-rust-conventions`
+  treats as ending the process, taking the stale world with it either way —
+  and an allocation failure, which aborts, and which this reordering makes
+  *less* likely, since holding the old world was 269 MiB of the reason the new
+  one might not fit.
+- **Nothing can observe the gap.** The generate runs on a `Thread` and gdext
+  holds the whole `WorldGen` mutably borrowed for its duration, so no
+  `#[func]` reached from the main thread can bind it meanwhile — the property
+  the shell's own `generating` guard already depends on. And if a panic were
+  caught, `_finish`'s existing `not ok or world_gen.get_width() <= 0` branch
+  reports "generate failed — see console" over a shell whose accessors all
+  answer honestly with no world, which is what `close_world()` relies on too.
+
+`release_world()` clears exactly the set `absorb` writes unconditionally —
+`source`, `civ`, the six per-world editors and the undo stack — checked field
+by field. It is deliberately **not** called from `import_heightmap` or
+`load_save`: those two genuinely can fail recoverably, and both already
+promise to leave the previous world untouched.
+
+### R3's real cost
+
+`_peakaudit_block` predicted +38–50 ms on the handset from a synthetic
+15-sine kernel. **The real stage measured 460 ms on the handset against the
+audit's 470 ms baseline** — the branchy geology dominates the dispatch
+overhead by enough that the change is free inside run-to-run noise. On Windows
+the same probe reads +2 to +5 ms. The block is 262 144 cells (15.0 MiB), so R3
+buys 138.63 MiB rather than the full 153.63 the ranked list credits it with;
+the walk-down still lands where predicted, because a lower stage binds first
+either way.
+
+### Verification
+
+- **`cargo test --workspace --no-fail-fast`: 139 binaries / 2 255 passed /
+  0 failed / 8 ignored, before and after, unchanged.** (The brief for this
+  pass quoted 2 254; the baseline measured on the day is 2 255, and this pass
+  added no test.) Six assertions were removed from inside two existing tests,
+  which is why the count does not move.
+- **Byte-for-byte, not "the tests pass".** A third probe,
+  `_peakaudit_hash.rs`, fingerprints every surviving `WorldState` field, all
+  fifteen resource grids, the suitability field and the settlement placement
+  list — the discrete argmax §7 warns about — with FNV over raw
+  `to_ne_bytes`. Run at 512 × 328 and 1024 × 655 before and after:
+  **identical, every line.**
+- **Two consecutive generates**, R1's own case: `PEAKAUDIT_REGEN=1` on the
+  hash probe asserts generate #2 is bit-identical to generate #1 whether the
+  first world is still held or has been dropped, on Windows and on the
+  handset. `generate_terrain` is a pure function of `WorldParams`; this is the
+  check rather than the claim.
+- **The measurement R1 removes**, on the handset: with the previous
+  `WorldState` held, generate #2's terrain phase peaks at **504.47 MiB**
+  against generate #1's 335.48 — +169.0 MiB, exactly one post-R2
+  `WorldState`. Plus the previous `CivData` and `absorb`'s clones in the real
+  app, which the probe cannot hold.
+- **Clippy on the two touched engine crates: 85 warnings before, 85 after.**
+- **Not done: an in-app pass on the handset.** The figures above are the
+  handset's own allocator, which is the measurement that matters and the one
+  the audit established transfers. R1's Godot-side hunk was not exercised
+  inside a running Godot process — the case for it is the four points above,
+  not a screenshot.
+
+### Probes kept (updated)
+
+Now three, all in `cartalith-native/crates/cartalith-civ/examples/`, none
+called by anything, none a test, all named for deletion:
+`_peakaudit_peak.rs`, `_peakaudit_block.rs`, `_peakaudit_hash.rs`.
+
+```text
+cargo run --release -p cartalith-civ --example _peakaudit_hash -- <gw> <gh> [seed]
+PEAKAUDIT_REGEN=1 ...                    # the two-generate identity check
+```

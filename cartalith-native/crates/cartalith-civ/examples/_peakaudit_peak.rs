@@ -192,9 +192,7 @@ fn main() {
     row("plate_id usize", ws.plate_id.len() * std::mem::size_of::<usize>(), &mut resident);
     row("boundary_mask u8", ws.boundary_mask.len(), &mut resident);
     row("stress_field f32", ws.stress_field.len() * 4, &mut resident);
-    row("flexure_field f32", ws.flexure_field.len() * 4, &mut resident);
     row("age_field f32", ws.age_field.len() * 4, &mut resident);
-    row("heterogeneity f32", ws.heterogeneity_field.len() * 4, &mut resident);
     row("resistance_field f32", ws.resistance_field.len() * 4, &mut resident);
     row("crust_field f32", ws.crust_field.len() * 4, &mut resident);
     row("boundary_type u8", ws.boundary_type.len(), &mut resident);
@@ -203,11 +201,11 @@ fn main() {
     row("impact_field f32", ws.impact_field.len() * 4, &mut resident);
     row("temperature f32", ws.temperature.len() * 4, &mut resident);
     row("rainfall f32", ws.rainfall.len() * 4, &mut resident);
-    row("flow_area f32", ws.flow_area.len() * 4, &mut resident);
     row("flow_discharge f32", ws.flow_discharge.len() * 4, &mut resident);
     if let Some(c) = ws.channels.as_ref() {
         row("channels.recv i32", c.recv.len() * 4, &mut resident);
         row("channels.chan u8", c.chan.len(), &mut resident);
+        // `channels.slope` was a fourth row here until R2 released it.
         row("channels.slope f32", c.slope.len() * 4, &mut resident);
     }
     if let Some(o) = ws.stream_order.as_ref() {

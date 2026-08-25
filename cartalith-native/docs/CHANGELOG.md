@@ -28683,3 +28683,107 @@ cost is taken as view-on minus view-off at one fixed zoom, because the deep-zoom
 tiler swaps 30 000 objects in and out on its own as the camera moves.
 `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
 Godot invocation. No Rust changed.
+
+## The generation peak's top three, landed — 618.81 MiB becomes 518.92 (2026-08-25)
+
+The audit two entries above ranked eight changes and wrote no production code.
+The first three are in. **618.81 → 518.92 MiB on Windows and 618.28 → 518.86
+on the OnePlus 6T**, at 2048 × 1311, seed 483920, the same probe both ways —
+a 16.1 % cut, and desktop and handset now agree to 0.01 %. `WorldState` is
+209.96 → 169.00 MiB, 82.0 → 66.0 bytes a cell.
+
+**R1 — free the previous world before generating the next.** `generate_sized`
+ran `generate_terrain` while `self.source`/`self.civ` still owned the previous
+world and only then called `absorb`, so every generate after the first paid
+for two worlds at once. A new `release_world()` drops `source`, `civ`, the six
+per-world editors and the undo stack first; it clears exactly the set `absorb`
+writes unconditionally. Measured on the handset with the old ordering:
+generate #2 peaks at 504.47 MiB against generate #1's 335.48, **+169.0 MiB,
+exactly one `WorldState`** — and more in the app, where the previous `CivData`
+and `absorb`'s clones are held too.
+
+**The audit named one call site and there were two.**
+`generate_world_structure_sized` is an independent `generate_terrain` +
+`absorb` pair rather than a wrapper over `generate_sized`, so fixing only the
+one the audit named would have left every archetype generate — the New World
+dialog's own shape control — still holding the old world. Both release now.
+
+**And a generate that fails now leaves no world where it used to leave the
+stale one, which is the honest state and not a regression.** The one modelled
+refusal, the VRAM budget's `Fail with error`, returns in
+`engine_bridge.gd` before the worker thread even starts. The two Rust-side
+refusals — the finalize lock, an unknown archetype name — return above the
+release. Past that point `generate_terrain` has no `Result` and the only exit
+is `absorb`: a panic ends the process at the gdext boundary, taking the stale
+world with it either way, and an allocation failure aborts — which this
+reordering makes *less* likely, since holding the old world was 269 MiB of the
+reason the new one might not fit. Nothing can observe the gap in between,
+because the generate runs on a `Thread` with the whole `WorldGen` mutably
+borrowed, which is the property the shell's `generating` guard already rests
+on. `import_heightmap` and `load_save` are deliberately untouched: those two
+can fail recoverably, and both promise to leave the previous world alone.
+
+**R2 — four resident grids that nothing outside `generate_terrain` read.**
+`flexure_field`, `heterogeneity_field`, `flow_area` and `ChannelResult::slope`,
+40.96 MiB off the resident set and off the whole civilisation plateau above
+it. Each is still computed and still feeds the stage that needs it; none is
+retained. `import.rs` gets faster as well as smaller — it was running a whole
+extra `compute_flow`, a `compute_flexure` and a `compute_heterogeneity` purely
+to fill fields nobody read, and its own comment naming `build_water_access` as
+`flow_area`'s consumer was wrong twice over (that function takes
+`flow_discharge`, and the "drainage-area debug view" it also named does not
+exist — the right dock's Drainage row reads `flow_discharge` too).
+
+**The audit called all four dead and all four were asserted against the JS
+reference.** Its grep covered production code and missed the goldens:
+`flexure_field`, `heterogeneity_field` and `flow_area` are checked cell for
+cell in `golden_parity_pipeline.rs`, and `ChannelResult::slope` in all three
+cases of `golden_parity_river.rs`. This is `CLAUDE.md`'s own "a deletion is
+the one error that cannot be caught by a test that never existed", arriving
+from the other side, and it changed what landed. **`slope` was not deleted at
+all** — `build_channels` still returns it, so its three assertions stand, and
+`generate_terrain` releases it with one line before storing the result, which
+is the same 10.24 MiB for no coverage. The other three went, and six
+assertions with them, each judged individually: all three have a dedicated
+golden test of their own in `cartalith-terrain`/`cartalith-hydrology` that
+still pins the value, and the *wiring* the pipeline test added survives
+transitively for two of them (both are `compute_height` inputs and its output
+`field` is asserted in the same test, as is every input they are handed).
+`flow_area` is a real, stated loss of one wiring assertion.
+`MEMORY_OPTIMIZATION_SCOPE.md` carries the field-by-field reasoning; so does
+the test's own doc comment, where the next reader will actually meet it.
+
+**R3 — `build_resource_potentials`' scratch, blocked.** Its
+`Vec<[f32; 15]>` was 60 bytes a cell over the whole grid — 153.63 MiB, on top
+of the fifteen output `Vec`s allocated immediately above it, and the single
+largest transient in the pipeline. The same `par_iter` now runs in 262 144-cell
+blocks into one reused 15.0 MiB buffer, scattering per block. The kernel is
+byte-identical; only its wrapper moved. **The costing probe predicted +38–50 ms
+on the handset and the real stage came in at 460 ms against a 470 ms baseline**
+— the branchy geology dominates the dispatch by enough that it is free inside
+run-to-run noise. On Windows it reads +2 to +5 ms.
+
+The binding stage is now `civ_hierarchical_network_topology` at 518.9 rather
+than `build_resource_potentials` at 618.8, exactly where the audit's walk-down
+table put it. Its own headline of 469.56 MiB is the figure for all eight
+changes, not these three; working the arithmetic for R1–R3 alone before
+measuring gave 518.87, against a measured 518.92 and 518.86. **The model is
+right to about 60 KiB**, and R4–R8 remain on the table.
+
+Verified: `cargo test --workspace --no-fail-fast` — **139 binaries, 2 255
+passed, 0 failed, 8 ignored, unchanged before and after** (six assertions came
+out of two existing tests, so the count does not move). Tests passing is not
+the proof, though: a third throwaway probe, `_peakaudit_hash.rs`, fingerprints
+every surviving `WorldState` field, all fifteen resource grids, the
+suitability field and the settlement placement list — the discrete argmax the
+audit warns quantisation would move — with FNV over raw `to_ne_bytes`, and at
+512 × 328 and 1024 × 655 the before and after dumps are **identical line for
+line**. `PEAKAUDIT_REGEN=1` on the same probe asserts two consecutive
+generates are bit-identical whether the first world is held or dropped, on
+Windows and on the handset, which is R1's own case. Clippy on the two touched
+engine crates: 85 warnings before, 85 after. No `.gd` file, no
+`export_presets.cfg`, no `Cargo.toml`, and nothing in `cartalith-io`. The
+handset numbers are the pipeline's own allocator, run out of
+`/data/local/tmp`; R1's Godot-side hunk was not exercised inside a running
+Godot process, and the case for it is the reasoning above rather than a
+screenshot.

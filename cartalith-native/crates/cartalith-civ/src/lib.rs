@@ -1274,201 +1274,230 @@ pub fn build_resource_potentials(
         1.0
     };
 
-    // 15 outputs written per cell, no cross-cell dependency (`silver`/`clay`'s
-    // kaolin bonus read this SAME index's just-written value only) -- computed
-    // in parallel into one `[f32; 15]` per cell (rayon can't zip 15 output
-    // slices as cleanly as one), then scattered into the 15 named `Vec`s below
-    // in a single cheap sequential pass (plain data movement, negligible next
-    // to the branchy math above).
-    let per_cell: Vec<[f32; 15]> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let li = lith[i];
-            let ai = age[i] as f64;
-            let ri = rain[i] as f64;
-            let sh = shear_field.map(|s| (s[i] as f64).abs()).unwrap_or(0.0);
-            let bt = boundary_type.map(|b| b[i]).unwrap_or(0);
-            let r = ((field[i] as f64 - sea) / denom).max(0.0);
+    // 15 outputs written per cell, computed in parallel into one `[f32; 15]`
+    // per cell (rayon can't zip 15 output slices as cleanly as one), then
+    // scattered into the 15 named `Vec`s in a cheap sequential pass (plain
+    // data movement, negligible next to the branchy math above).
+    //
+    // Run in fixed blocks into ONE reused buffer rather than collecting the
+    // whole grid at once. That intermediate was 60 bytes a cell on top of the
+    // fifteen output `Vec`s allocated just above -- 153.63 MiB at 2048x1311,
+    // the single largest transient anywhere in the pipeline and the stage the
+    // whole generation peak sat on (`MEMORY_OPTIMIZATION_SCOPE.md` R3). At
+    // this block size the buffer is 15.0 MiB and never grows.
+    //
+    // **Parity-safe by construction, not by measurement.** Every cell is
+    // independent (`silver`/`clay`'s kaolin bonus reads this SAME index's
+    // just-written value only), the kernel is unchanged, and the scatter is
+    // the same assignment at the same index -- no float operation is
+    // reordered and no reduction crosses a block edge. Verified: at
+    // 512x328 and 1024x655 every one of the fifteen output grids, the
+    // suitability field derived from nine of them and the settlement list
+    // that is a discrete argmax over that are all bit-identical to the
+    // monolithic form.
+    //
+    // *Cost.* A synthetic dispatch probe predicted +38-50 ms on the handset;
+    // the real stage came in at 460 ms there against a 470 ms baseline, so
+    // the branchy geology dominates the dispatch and the change is free
+    // inside run-to-run noise. 65 536-cell blocks were measured and are
+    // worse (too many dispatches); 256 K and 512 K are the flat part.
+    const RESOURCE_BLOCK: usize = 1 << 18; // 262 144 cells
+    let mut per_cell: Vec<[f32; 15]> = Vec::with_capacity(RESOURCE_BLOCK.min(n));
+    let mut block_start = 0usize;
+    while block_start < n {
+        let block_end = (block_start + RESOURCE_BLOCK).min(n);
+        (block_start..block_end)
+            .into_par_iter()
+            .map(|i| {
+                let li = lith[i];
+                let ai = age[i] as f64;
+                let ri = rain[i] as f64;
+                let sh = shear_field.map(|s| (s[i] as f64).abs()).unwrap_or(0.0);
+                let bt = boundary_type.map(|b| b[i]).unwrap_or(0);
+                let r = ((field[i] as f64 - sea) / denom).max(0.0);
 
-            // copper: Gaussian decay from subduction/arc boundary, amplified in andesite/basalt.
-            let cu_mult = match li {
-                2 => 1.0,
-                1 => 0.8,
-                _ => 0.55,
-            };
-            let copper_v = ((-(cu_dist[i] as f64) / cu_lam).exp() * cu_mult).min(1.0) as f32;
+                // copper: Gaussian decay from subduction/arc boundary, amplified in andesite/basalt.
+                let cu_mult = match li {
+                    2 => 1.0,
+                    1 => 0.8,
+                    _ => 0.55,
+                };
+                let copper_v = ((-(cu_dist[i] as f64) / cu_lam).exp() * cu_mult).min(1.0) as f32;
 
-            // tin: pegmatite Sn in old granites, skarn in metamorphic.
-            let tin_v = (if li == 0 && ai > age_old {
-                0.70
-            } else if li == 6 {
-                0.45
-            } else if li == 0 {
-                0.30
-            } else {
-                0.0
-            }) as f32;
-
-            // iron: BIF in old shields, bog iron in wet shale lowlands.
-            let iron_v = (if li == 0 && ai > age_old && bt == 0 {
-                0.65
-            } else if li == 5 && ri > 0.55 && r < 0.25 {
-                0.55
-            } else if li == 3 {
-                0.20
-            } else {
-                0.0
-            }) as f32;
-
-            // gold: orogenic Au from transform faults + quartz veins in sheared granites.
-            let gold_v = (if bt == 5 {
-                (0.65 + 0.35 * sh).min(1.0)
-            } else if sh > 0.25 && li == 0 {
-                (0.20 + sh).min(0.55)
-            } else if li == 0 && ai > age_old {
-                0.12
-            } else {
-                0.0
-            }) as f32;
-
-            // salt: evaporite basins, arid lowlands in limestone/sandstone.
-            let mut salt_v = 0f32;
-            if r < 0.25 && ri < 0.22 {
-                salt_v = (if li == 3 || li == 4 {
-                    (0.50 + 0.40 * (0.22 - ri) / 0.22).min(0.90)
-                } else if r < 0.12 && ri < 0.12 {
-                    0.40
+                // tin: pegmatite Sn in old granites, skarn in metamorphic.
+                let tin_v = (if li == 0 && ai > age_old {
+                    0.70
+                } else if li == 6 {
+                    0.45
+                } else if li == 0 {
+                    0.30
                 } else {
                     0.0
                 }) as f32;
-            }
 
-            // timber: closed-canopy biomes (boreal/conifer/tempForest/tempRain/tropWet).
-            let mut timber_v = 0f32;
-            if let Some(b) = biome {
-                let bv = b[i];
-                if bv == 3 || bv == 4 || bv == 5 || bv == 6 || bv == 12 {
-                    timber_v = (0.40 + 0.60 * (ri * 1.5).min(1.0)).min(1.0) as f32;
+                // iron: BIF in old shields, bog iron in wet shale lowlands.
+                let iron_v = (if li == 0 && ai > age_old && bt == 0 {
+                    0.65
+                } else if li == 5 && ri > 0.55 && r < 0.25 {
+                    0.55
+                } else if li == 3 {
+                    0.20
+                } else {
+                    0.0
+                }) as f32;
+
+                // gold: orogenic Au from transform faults + quartz veins in sheared granites.
+                let gold_v = (if bt == 5 {
+                    (0.65 + 0.35 * sh).min(1.0)
+                } else if sh > 0.25 && li == 0 {
+                    (0.20 + sh).min(0.55)
+                } else if li == 0 && ai > age_old {
+                    0.12
+                } else {
+                    0.0
+                }) as f32;
+
+                // salt: evaporite basins, arid lowlands in limestone/sandstone.
+                let mut salt_v = 0f32;
+                if r < 0.25 && ri < 0.22 {
+                    salt_v = (if li == 3 || li == 4 {
+                        (0.50 + 0.40 * (0.22 - ri) / 0.22).min(0.90)
+                    } else if r < 0.12 && ri < 0.12 {
+                        0.40
+                    } else {
+                        0.0
+                    }) as f32;
                 }
-            }
 
-            let vv = volcanic.map(|v| v[i] as f64).unwrap_or(0.0);
-
-            // lead (galena): hydrothermal veins in limestone, needs a shear/boundary driver.
-            let lead_v = (if li == 3 {
-                (0.25 + 0.55 * (sh * 2.2).min(1.0) + if bt != 0 { 0.20 } else { 0.0 }).min(1.0)
-            } else if li == 6 && sh > 0.30 {
-                0.25
-            } else {
-                0.0
-            }) as f32;
-
-            // silver: byproduct of argentiferous galena -- lead's terrain, scaled down.
-            let silver_v = if lead_v > 0.0 {
-                lead_v as f64 * 0.55
-            } else {
-                0.0
-            } as f32;
-
-            // clay: riverine/floodplain/lake-margin, near-universal on lowlands with real drainage.
-            let mut clay_v = 0f32;
-            {
-                let wet = flow
-                    .map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0))
-                    .unwrap_or(0.0);
-                if r < 0.35 {
-                    let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0)
-                        - if li == 0 { 0.25 } else { 0.0 };
-                    clay_v = v.clamp(0.0, 1.0) as f32;
+                // timber: closed-canopy biomes (boreal/conifer/tempForest/tempRain/tropWet).
+                let mut timber_v = 0f32;
+                if let Some(b) = biome {
+                    let bv = b[i];
+                    if bv == 3 || bv == 4 || bv == 5 || bv == 6 || bv == 12 {
+                        timber_v = (0.40 + 0.60 * (ri * 1.5).min(1.0)).min(1.0) as f32;
+                    }
                 }
-            }
-            // kaolin: weathered-granite tail of the same clay signal, folded in as a bonus.
-            if li == 0 && ri > 0.5 && clay_v > 0.0 {
-                clay_v = ((clay_v as f64) + 0.20).min(1.0) as f32;
-            }
 
-            // building stone: limestone (workable+mortar), granite/basalt (durable, hard).
-            let buildstone_v: f32 = match li {
-                3 => 0.85,
-                0 | 1 => 0.70,
-                4 => 0.45,
-                6 => 0.40,
-                _ => 0.15,
-            };
+                let vv = volcanic.map(|v| v[i] as f64).unwrap_or(0.0);
 
-            // flint/chert: nodules in limestone, no hydrothermal requirement (unlike lead).
-            let flint_v: f32 = if li == 3 { 0.60 } else { 0.0 };
+                // lead (galena): hydrothermal veins in limestone, needs a shear/boundary driver.
+                let lead_v = (if li == 3 {
+                    (0.25 + 0.55 * (sh * 2.2).min(1.0) + if bt != 0 { 0.20 } else { 0.0 }).min(1.0)
+                } else if li == 6 && sh > 0.30 {
+                    0.25
+                } else {
+                    0.0
+                }) as f32;
 
-            // obsidian: volcanic glass, young silica-rich volcanism (andesite arc).
-            let obsidian_v = (if vv > 0.45 && (li == 2 || li == 1) {
-                (0.35 + 0.65 * vv).min(1.0)
-            } else if li == 2 && bt == 3 {
-                0.30
-            } else {
-                0.0
-            }) as f32;
+                // silver: byproduct of argentiferous galena -- lead's terrain, scaled down.
+                let silver_v = if lead_v > 0.0 {
+                    lead_v as f64 * 0.55
+                } else {
+                    0.0
+                } as f32;
 
-            // gemstones: pegmatite veins in old granite, metamorphic contact zones.
-            let gems_v = (if li == 0 && ai > age_old {
-                (0.30 + 0.50 * (sh * 2.0).min(1.0)).min(1.0)
-            } else if li == 6 {
-                (0.20 + 0.55 * (sh * 2.5).min(1.0)).min(1.0)
-            } else {
-                0.0
-            }) as f32;
+                // clay: riverine/floodplain/lake-margin, near-universal on lowlands with real drainage.
+                let mut clay_v = 0f32;
+                {
+                    let wet = flow
+                        .map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0))
+                        .unwrap_or(0.0);
+                    if r < 0.35 {
+                        let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0)
+                            - if li == 0 { 0.25 } else { 0.0 };
+                        clay_v = v.clamp(0.0, 1.0) as f32;
+                    }
+                }
+                // kaolin: weathered-granite tail of the same clay signal, folded in as a bonus.
+                if li == 0 && ri > 0.5 && clay_v > 0.0 {
+                    clay_v = ((clay_v as f64) + 0.20).min(1.0) as f32;
+                }
 
-            // sulfur: volcanic/hot-spring/fumarole zones.
-            let sulfur_v = if vv > 0.35 {
-                (0.25 + 0.75 * vv).min(1.0)
-            } else {
-                0.0
-            } as f32;
+                // building stone: limestone (workable+mortar), granite/basalt (durable, hard).
+                let buildstone_v: f32 = match li {
+                    3 => 0.85,
+                    0 | 1 => 0.70,
+                    4 => 0.45,
+                    6 => 0.40,
+                    _ => 0.15,
+                };
 
-            // alum: volcanic OR sedimentary evaporite route (shares salt's arid-evaporite logic).
-            let alum_v = (if vv > 0.30 {
-                (0.20 + 0.60 * vv).min(1.0)
-            } else if r < 0.25 && ri < 0.30 && (li == 4 || li == 5) {
-                0.45
-            } else {
-                0.0
-            }) as f32;
+                // flint/chert: nodules in limestone, no hydrothermal requirement (unlike lead).
+                let flint_v: f32 = if li == 3 { 0.60 } else { 0.0 };
 
-            [
-                copper_v,
-                tin_v,
-                iron_v,
-                gold_v,
-                salt_v,
-                timber_v,
-                lead_v,
-                silver_v,
-                clay_v,
-                buildstone_v,
-                flint_v,
-                obsidian_v,
-                gems_v,
-                sulfur_v,
-                alum_v,
-            ]
-        })
-        .collect();
+                // obsidian: volcanic glass, young silica-rich volcanism (andesite arc).
+                let obsidian_v = (if vv > 0.45 && (li == 2 || li == 1) {
+                    (0.35 + 0.65 * vv).min(1.0)
+                } else if li == 2 && bt == 3 {
+                    0.30
+                } else {
+                    0.0
+                }) as f32;
 
-    for (i, c) in per_cell.iter().enumerate() {
-        copper[i] = c[0];
-        tin[i] = c[1];
-        iron[i] = c[2];
-        gold[i] = c[3];
-        salt[i] = c[4];
-        timber[i] = c[5];
-        lead[i] = c[6];
-        silver[i] = c[7];
-        clay[i] = c[8];
-        buildstone[i] = c[9];
-        flint[i] = c[10];
-        obsidian[i] = c[11];
-        gems[i] = c[12];
-        sulfur[i] = c[13];
-        alum[i] = c[14];
+                // gemstones: pegmatite veins in old granite, metamorphic contact zones.
+                let gems_v = (if li == 0 && ai > age_old {
+                    (0.30 + 0.50 * (sh * 2.0).min(1.0)).min(1.0)
+                } else if li == 6 {
+                    (0.20 + 0.55 * (sh * 2.5).min(1.0)).min(1.0)
+                } else {
+                    0.0
+                }) as f32;
+
+                // sulfur: volcanic/hot-spring/fumarole zones.
+                let sulfur_v = if vv > 0.35 {
+                    (0.25 + 0.75 * vv).min(1.0)
+                } else {
+                    0.0
+                } as f32;
+
+                // alum: volcanic OR sedimentary evaporite route (shares salt's arid-evaporite logic).
+                let alum_v = (if vv > 0.30 {
+                    (0.20 + 0.60 * vv).min(1.0)
+                } else if r < 0.25 && ri < 0.30 && (li == 4 || li == 5) {
+                    0.45
+                } else {
+                    0.0
+                }) as f32;
+
+                [
+                    copper_v,
+                    tin_v,
+                    iron_v,
+                    gold_v,
+                    salt_v,
+                    timber_v,
+                    lead_v,
+                    silver_v,
+                    clay_v,
+                    buildstone_v,
+                    flint_v,
+                    obsidian_v,
+                    gems_v,
+                    sulfur_v,
+                    alum_v,
+                ]
+            })
+            .collect_into_vec(&mut per_cell);
+
+        for (j, c) in per_cell.iter().enumerate() {
+            let i = block_start + j;
+            copper[i] = c[0];
+            tin[i] = c[1];
+            iron[i] = c[2];
+            gold[i] = c[3];
+            salt[i] = c[4];
+            timber[i] = c[5];
+            lead[i] = c[6];
+            silver[i] = c[7];
+            clay[i] = c[8];
+            buildstone[i] = c[9];
+            flint[i] = c[10];
+            obsidian[i] = c[11];
+            gems[i] = c[12];
+            sulfur[i] = c[13];
+            alum[i] = c[14];
+        }
+        block_start = block_end;
     }
 
     // Scarcity cut, applied AFTER geology so it can only remove deposits,

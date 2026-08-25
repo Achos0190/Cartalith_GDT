@@ -2154,6 +2154,62 @@ impl WorldGen {
         self.stages.mark_changed_tiles(stage.id(), 0..n, reason);
     }
 
+    /// Drops the world this instance is holding, **before** the next one is
+    /// generated rather than after.
+    ///
+    /// `generate_sized` used to run `generate_terrain` while `self.source`
+    /// and `self.civ` still owned the previous world, and only then call
+    /// `absorb` to replace them. So every generate after the first paid for
+    /// two worlds at once: measured at +209.96 MiB for the `WorldState`
+    /// alone, and ~269 MiB in the real app once the previous `CivData` and
+    /// `absorb`'s own clones (`river_mask`/`river_floor` into `SculptEditor`,
+    /// `territory` into `CivTools`, `water_bodies` into `PaintEditor`) are
+    /// counted. `MEMORY_OPTIMIZATION_SCOPE.md` R1 has the measurement; it is
+    /// the largest single number in that document and it is a reordering.
+    ///
+    /// **On a failed generate this leaves no world, where the old ordering
+    /// left the stale one.** That is the honest state rather than a
+    /// regression: `generate_terrain` returns a `WorldState`, not a
+    /// `Result` — it has no recoverable failure path to protect. The
+    /// failures it can actually have are a panic (which
+    /// `cartalith-rust-conventions` treats as ending the process at the
+    /// gdext boundary, taking the stale world with it either way) and an
+    /// allocation failure, which aborts — and which this very reordering
+    /// makes *less* likely, since holding the old world was 269 MiB of the
+    /// reason the new one might not fit. If a panic is caught, every
+    /// accessor on `WorldGen` already answers honestly with no world
+    /// (the same property `engine_bridge.gd`'s `close_world()` relies on),
+    /// so the shell reads "no world" rather than a freed handle.
+    ///
+    /// Everything cleared here is set unconditionally by [`absorb`], and
+    /// **nothing can observe the gap between the two**: `engine_bridge.gd`
+    /// runs the generate on a `Thread`, and gdext holds the whole `WorldGen`
+    /// mutably borrowed for that call's duration, so no `#[func]` reached
+    /// from the main thread can bind it meanwhile (the shell's own
+    /// `generating` guard, and the reason it exists — see that file's
+    /// 2026-08-23 crash-report note).
+    ///
+    /// Called from `generate_sized` and `generate_world_structure_sized`,
+    /// the two paths that generate a world from parameters, and from each
+    /// only *after* every refusal that returns without generating (the
+    /// finalize lock; an unknown archetype name). Deliberately **not**
+    /// called from `import_heightmap` or `load_save`: those two really can
+    /// fail recoverably — a file that will not read or decode — and both
+    /// already promise to leave the previous world untouched when they do.
+    fn release_world(&mut self) {
+        self.source = None;
+        self.civ = None;
+        self.sculpt = None;
+        self.icons = None;
+        self.civ_tools = None;
+        self.paint = None;
+        self.labels = None;
+        self.infra = None;
+        // Snapshots of the previous world's height field, which `absorb`
+        // clears anyway and which are meaningless over the next world.
+        self.undo.clear();
+    }
+
     /// Stores a finished generation: the effective sea level, the render
     /// inputs `render.rs` needs, the civ layer, and which stages actually ran
     /// on GPU.
@@ -2881,6 +2937,9 @@ impl WorldGen {
         }
         let (gw, gh) = (grid_w.max(4) as usize, grid_h.max(4) as usize);
         let p = self.call_params(seed, width_km, gw, gh);
+        // The finalize refusal above is this function's only exit that is
+        // not `absorb`, and it has already returned. See [`release_world`].
+        self.release_world();
         let ws = generate_terrain(&p);
         self.absorb(ws, &p, seed);
     }
@@ -3373,6 +3432,10 @@ impl WorldGen {
         // path -- see the `params` field's own doc comment.
         p.world_structure = world_structure;
 
+        // Both of this function's refusals -- the finalize lock and an
+        // unknown archetype name -- have already returned above, so from
+        // here the only exit is `absorb`. See [`release_world`].
+        self.release_world();
         let ws = generate_terrain(&p);
         self.absorb(ws, &p, seed);
         true

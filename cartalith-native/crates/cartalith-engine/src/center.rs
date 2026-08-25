@@ -39,8 +39,8 @@ pub struct CenterResult {
 ///
 /// Every **positional raster** on `WorldState` is shifted, which is a
 /// larger set than the reference's own list only because this port retains
-/// a larger set (`crust_field`, `boundary_type`, `shear_field`,
-/// `flow_area`, `stream_order` have no retained counterpart in the
+/// a larger set (`crust_field`, `boundary_type`, `shear_field` and
+/// `stream_order` have no retained counterpart in the
 /// reference, which recomputes or nulls them). The reference's own
 /// `warpX`/`warpY`/`geoidField`/`tideField`/`koppenField`/`orogenyField`
 /// and its four seasonal fields have no equivalent here at all.
@@ -73,9 +73,7 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     for a in [
         &mut ws.field,
         &mut ws.stress_field,
-        &mut ws.flexure_field,
         &mut ws.age_field,
-        &mut ws.heterogeneity_field,
         &mut ws.resistance_field,
         &mut ws.crust_field,
         &mut ws.shear_field,
@@ -83,7 +81,6 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
         &mut ws.impact_field,
         &mut ws.temperature,
         &mut ws.rainfall,
-        &mut ws.flow_area,
         &mut ws.flow_discharge,
     ] {
         shift_grid_x(a.as_mut_slice(), gw, gh, o);
