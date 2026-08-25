@@ -8969,3 +8969,124 @@ the same "one row in twenty still draws the engine's own icon" trap
   changed this pass). `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054`
   before and after every Godot invocation; the `;` comment block survived each
   one. `export_presets.cfg` and `Cargo.toml` untouched.
+
+## 54 · MEM-02's two levers, both measured — the batching buys nothing and the culling is 370× (2026-08-25) — **ONE FIXED, ONE RETIRED**
+
+§52 diagnosed the memory and, because its brief was diagnosis, registered two
+levers rather than pulling them. This pass pulled both and measured both. One is
+a no-op. The other is the largest single number this shell has moved.
+
+Hardware and metric are §52's: **OnePlus 6T**, Android 15, 1080 × 2340, Adreno
+630, `dumpsys meminfo` `TOTAL PSS` and its per-category rows, plus the render
+monitors §52's MEM-04 put in `Preferences ▸ Memory ▸ Working set…`.
+
+**The seed is 123456 and it was typed into the dialog on every run**, per
+MEM-03's ruling that a memory figure without its fixture is not a figure. Both
+builds report `generated · 26.3 s` at 2048 × 1311, which is the fixture
+agreeing with itself.
+
+### MEM-05 — `draw_multiline` instead of one `draw_line` per dash · **RETIRED, PROVEN NO-OP**
+
+§52's first lever, and the more attractive of the two: `urban_layout_draw.gd`
+had already made this exact collapse for roof ink and its own comment records
+the payoff (*"a 6-town sheet took 577 ms a redraw"*). Built, shipped to the
+handset, measured against a baseline APK differing in **one file**:
+
+| seed 123456 | per-dash `draw_line` | one `draw_multiline` |
+|---|---:|---:|
+| objects, world up | 87 198 | 87 177 |
+| buffers, world up | 93.04 MiB | 93.16 MiB |
+| objects, +12 zoom notches | 857 965 | 857 944 |
+| buffers, +12 zoom notches | 751.0 MiB | 751.2 MiB |
+| `Gfx dev`, +12 zoom notches | 825.2 MB | 832.2 MB |
+
+Nothing moved. Reproduced on the desktop, where the two forms can be run in one
+process: **336 186 objects and 308 draw calls, both arms, to the digit.** Redraw
+wall time over 200 redraws, three alternating pairs: 20.69/20.82, 19.09/19.03,
+18.39/18.54 ms — inside the noise.
+
+**Why**, and it is worth writing down because the reasoning that made this lever
+look good is the reasoning that was wrong: 308 draw calls for 336 186 objects
+means **Godot's canvas renderer already batches** adjacent same-material
+primitives. The collapse was a *command-count* optimisation against a renderer
+that had already done it. And an antialiased thick line expands to the same
+triangles whichever call submits it, so the vertex buffers — which is what the
+memory *is* — never depended on the call count at all. `urban_layout_draw.gd`'s
+577 ms was CPU time spent per `draw_polyline` **call** from GDScript at a few
+thousand calls; a dash walk already runs inside one function and pays no such
+per-call crossing.
+
+The change **was** safe — `_dashbatch_probe` compared the two forms byte for
+byte across every dashed pattern this file draws, at `set_way_scale()`'s 0.2 /
+1.0 / 2.5 and at camera zoom 1 and 4: **108 of 108 frames identical**. It was
+simply not worth anything, so it was reverted rather than shipped, and the probe
+is kept as the reason not to try again.
+
+### MEM-06 — nothing bounded the overlay by zoom, and nothing had to disappear to fix it · **FIXED**
+
+§52's second lever was framed as a design question — *what should drop out at
+what zoom* — and it turned out not to be one. **The camera is an ancestor
+transform** (`_crisp_begin()`'s own doc comment says so), so `map_overlay.gd`
+had no way of knowing how far off screen a way was: every way in the world was
+projected, dashed and uploaded on every redraw, at every zoom, and the viewport
+discarded the ones outside it afterwards.
+
+`_run_offscreen()` asks the question the file could not: `get_global_transform_
+with_canvas().affine_inverse() * get_viewport_rect()` is the visible slice of
+this control's own local space, and a run whose bounding box misses it is
+skipped. Applied to all three linear layers — ways, sea lanes, committed routes.
+
+| seed 123456 | before | after | |
+|---|---:|---:|---:|
+| objects, world up | 87 198 | **43 788** | −50 % |
+| buffers, world up | 93.04 MiB | **45.43 MiB** | −51 % |
+| draw calls, world up | 787 | 586 | |
+| `Gfx dev`, world up | 149.3 MB | **104.9 MB** | −30 % |
+| `TOTAL PSS`, world up | 845.3 MB | **807.7 MB** | −4.4 % |
+| objects, +12 zoom notches | 857 965 | **2 320** | **−99.7 %** |
+| buffers, +12 zoom notches | 751.0 MiB | **42.79 MiB** | −94 % |
+| `Gfx dev`, +12 zoom notches | 825.2 MB | **103.2 MB** | **−87.5 %** |
+| `TOTAL PSS`, +12 zoom notches | 1 593.8 MB | **806.8 MB** | −49 % |
+
+**The zoom column is the finding.** Before, twelve taps cost 676 MB of `Gfx dev`
+over the default view. After, they cost **nothing measurable** — 104.9 MB at the
+default view, 103.2 MB twelve notches in. §52's *"nothing bounds it in zoom"* is
+no longer true, and the bound is not a rule about what disappears: nothing
+disappears.
+
+Read the 2 320 honestly: at twelve notches this seed's camera sits over open
+sea, so almost nothing is genuinely on screen — and the old code drew the entire
+network anyway. For a like-for-like over land, take the default view's 87 198 →
+43 788, and the desktop harness at a network covering the whole canvas:
+**2 592 846 → 807 765 objects at zoom 8** (−69 %), 1 303 380 → 445 632 at zoom 4,
+658 386 → 337 716 at zoom 2.
+
+**It moves no pixel, and that is checked rather than argued.** `_cull_probe`
+renders the shipping script beside a subclass of it whose only difference is
+that `_visible_local_rect()` returns everything — the same file with culling off
+— through a real `Node2D` camera ancestor at **four zooms × four pans, 16 of 16
+frames byte-identical**.
+
+**What it does not fix**: one long way crossing the window still has a bounding
+box covering it, so its whole run is still walked and dashed. That is why the
+object count still rises with zoom on the desktop harness rather than going flat.
+Per-segment culling would fix it and is a bigger change; registered here, not
+taken.
+
+### Harness
+
+- Two APKs from **one frozen snapshot of `HEAD`**, differing in
+  `map_overlay.gd` alone. The working tree could not be used: a concurrent
+  session was mid-edit on `shell/dcc_shell.gd` and the first snapshot captured
+  it in a state that would not parse (`Could not resolve class "DccShell"` on
+  the handset). Taking the snapshot from committed `HEAD` and layering the one
+  file under test on top is the discipline this note exists to record.
+- The shell's chrome is **not stable across boots** — one run of the same APK
+  came up with an icon tab bar and docked L3 panels, another with text labels
+  and full-screen sheets, worth 799 vs 944 objects and 9.5 vs 15.1 MB of
+  `Gfx dev` at the welcome screen. Both A and C runs above came up in the same
+  variant (9.5 / 9.7 MB) and are comparable; noted because the next pass will
+  meet it too.
+- `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+  Godot invocation; the `;` comment block survived each one.
+  `export_presets.cfg` and `Cargo.toml` untouched, and no Rust changed.

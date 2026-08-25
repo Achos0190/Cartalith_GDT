@@ -1054,6 +1054,9 @@ func _draw() -> void:
 	if rect.size.x <= 0.0:
 		return
 	var interior := _interior_rect(rect)
+	## Once per frame, not once per way: the camera cannot move inside one
+	## `_draw()`. See `_run_offscreen()`.
+	_visible_local = _visible_local_rect()
 
 	# Linear features (roads, sea lanes) are *clipped* at the neatline: a
 	# road that runs off the plate genuinely continues past the sheet edge,
@@ -1432,6 +1435,56 @@ func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
 
 
+## The slice of this control's own local space that is actually on screen this
+## frame, recomputed once per `_draw()` and read by `_run_offscreen()` below.
+##
+## Not a Rect2 constant and not `interior`: the camera is an **ancestor**
+## transform (see `_crisp_begin()`), so at zoom 8 this control's local rect is
+## eight times the window and only a window-sized slice of it is visible.
+## `get_global_transform_with_canvas()` is the transform that knows that, and
+## inverting it maps the viewport's own rect back into local coordinates.
+var _visible_local := Rect2()
+
+
+func _visible_local_rect() -> Rect2:
+	var xf := get_global_transform_with_canvas()
+	## A degenerate transform (a zero-scaled ancestor, a control not yet in a
+	## viewport) has no meaningful inverse. Answer "everything is visible" --
+	## culling is an optimisation and must fail towards drawing.
+	if is_zero_approx(xf.determinant()):
+		return Rect2(-1e9, -1e9, 2e9, 2e9)
+	return (xf.affine_inverse() * get_viewport_rect()).abs()
+
+
+## Is this whole run outside the window, and therefore free to skip?
+##
+## **The camera is an ancestor transform, so nothing above this function ever
+## knew how far off screen a way was.** Every way in the world was walked,
+## dashed and uploaded on every redraw, at every zoom, however far outside the
+## window it lay; the viewport threw the result away afterwards. That is what
+## made the drawn-object count unbounded in zoom (`MEMORY_OPTIMIZATION_SCOPE.md`
+## 2026-08-25: 87 k objects at the opening view, 858 k twelve zoom notches in,
+## and 93 MiB of GPU vertex buffers becoming 751 MiB with it).
+##
+## `pts` are screen px (`_stroke_points`), so the local rect is scaled by the
+## same `k` before the test, and grown by half the widest stroke plus a pixel so
+## an antialiased edge can never be clipped by this rather than by the viewport.
+## A bounding box, not the polyline: it over-draws a diagonal way whose box
+## clips the corner, which is the safe direction to be wrong in.
+##
+## **It moves no pixel by construction** -- what it skips is outside the
+## viewport, which discarded it anyway. Verified rather than asserted:
+## `_cullframe_probe` compares whole frames against the pre-cull script.
+func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
+	if pts.is_empty():
+		return true
+	var box := Rect2(pts[0], Vector2.ZERO)
+	for p in pts:
+		box = box.expand(p)
+	return not Rect2(_visible_local.position * k, _visible_local.size * k) \
+		.grow(pad + 1.0).intersects(box)
+
+
 ## Every linear layer's own points, in **screen** pixels ready for a
 ## `_crisp_begin()` block: `_point_to_screen` gives this control's local space,
 ## and `* k` is the last step into the space the stroke must be built in. One
@@ -1485,6 +1538,9 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 		return
 	var k := _crisp_begin()
 	var screen_points := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(screen_points, k, style["under_w"] * _way_scale * load_k * 0.5):
+		_crisp_end()
+		return
 	## `_civWayScale` scales the dash lengths too -- the reference writes
 	## `setLineDash([1.8*rsc, 1.3*rsc])`, one `rsc` for both widths and dashes,
 	## so a wider road gets a proportionally longer dash rather than a wide line
@@ -1525,6 +1581,9 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(screen_points, k, SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5):
+		_crisp_end()
+		return
 	draw_polyline(screen_points, _way_ink(SEA_ROUTE_UNDERLAY),
 		SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
 	_draw_dashed_polyline(screen_points, _way_ink(SEA_ROUTE_DASH_COLOR),
@@ -1545,6 +1604,10 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(screen_points, k,
+			(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale * 0.5):
+		_crisp_end()
+		return
 	draw_polyline(screen_points, _way_ink(MANUAL_ROUTE_UNDERLAY),
 		(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale, true)
 	_draw_dashed_polyline(screen_points,

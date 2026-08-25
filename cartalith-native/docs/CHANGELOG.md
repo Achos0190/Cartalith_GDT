@@ -28548,3 +28548,65 @@ owner: `RESOLUTION_PRESETS`' **4096 needs 2.41 GiB of heap and 8192 needs
 (2 470.63 MiB, `VmHWM` 2 319.07 MiB, ~150 s) and would not survive under
 Godot's own ~420 MB on a device reporting 2.38 GB available. **On Android,
 2048 × 1311 is the last preset that fits.**
+
+## The map overlay drew the whole world at every zoom — 825 MB of `Gfx dev` becomes 103 (`GUI_GAP_REGISTER.md` §54, 2026-08-25)
+
+`MEMORY_OPTIMIZATION_SCOPE.md`'s Android diagnosis registered two levers and, its
+brief being diagnosis, pulled neither. Both pulled here, on the OnePlus 6T,
+**seed 123456 typed into the dialog on every run** — the fixture MEM-03 demanded
+after six clean runs of one APK spanned 160 MB on seed alone. Two APKs from one
+frozen snapshot of `HEAD` differing in `map_overlay.gd` alone; both report
+`generated · 26.3 s` at 2048 × 1311.
+
+**Fixed — `_run_offscreen()`.** The camera is an *ancestor* transform, so this
+file never knew how far off screen a way was: every way in the world was
+projected, dashed and uploaded on every redraw at every zoom, and the viewport
+discarded the ones outside it afterwards. Inverting
+`get_global_transform_with_canvas()` against `get_viewport_rect()` gives the
+visible slice of local space; a run whose bounding box misses it is skipped, for
+ways, sea lanes and committed routes alike.
+
+| seed 123456 | before | after |
+|---|---:|---:|
+| objects / buffers, world up | 87 198 · 93.04 MiB | **43 788 · 45.43 MiB** |
+| `Gfx dev` / PSS, world up | 149.3 · 845.3 MB | **104.9 · 807.7 MB** |
+| objects / buffers, +12 zoom notches | 857 965 · 751.0 MiB | **2 320 · 42.79 MiB** |
+| `Gfx dev` / PSS, +12 zoom notches | 825.2 · 1 593.8 MB | **103.2 · 806.8 MB** |
+
+Twelve zoom notches used to cost 676 MB of `Gfx dev` over the default view; they
+now cost nothing measurable (104.9 → 103.2 MB). The 2 320 is honest but flattered
+by that seed's camera sitting over open sea at full zoom — the old code drew the
+entire network there anyway. Like-for-like over land is the default view's
+87 198 → 43 788, and the desktop harness over a canvas-filling network is
+2 592 846 → 807 765 objects at zoom 8.
+
+**No pixel moves**, and it is checked: `_cull_probe` renders the shipping script
+beside a subclass of it whose only difference is that `_visible_local_rect()`
+returns everything, through a real `Node2D` camera ancestor at four zooms × four
+pans — 16 of 16 frames byte-identical.
+
+**Retired — collapsing the dash loop into one `draw_multiline`.** The more
+attractive lever on paper, since `urban_layout_draw.gd` had made exactly that
+change for roof ink at a recorded 577 ms a redraw. Built, shipped to the handset
+and measured: **87 177 objects against 87 198, 93.16 MiB against 93.04, 857 944
+against 857 965.** Nothing. Reproduced on the desktop where both forms run in one
+process — 336 186 objects and 308 draw calls, both arms, to the digit — and
+redraw wall time inside the noise over 200 redraws.
+
+308 draw calls for 336 186 objects is the whole explanation: Godot's canvas
+renderer already batches adjacent same-material primitives, so the collapse was a
+command-count optimisation against a renderer that had already done it, and an
+antialiased thick line expands to the same triangles whichever call submits it.
+The change was verified pixel-identical first (`_dashbatch_probe`, 108 of 108
+frames) and then **reverted rather than shipped**. Both probes are kept: one as
+the check behind the fix, one as the reason not to try the other again.
+
+**Still open**: one long way crossing the window keeps a bounding box that covers
+it, so its whole run is still walked. Per-segment culling would fix that and is a
+bigger change.
+
+Verified: `_cull_probe` 16/16, `_dashbatch_probe` 108/108 plus identical
+counters, both on Godot 4.7.1 GL Compatibility; three real device installs.
+`project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+Godot invocation. No Rust changed; `export_presets.cfg` and `Cargo.toml`
+untouched.

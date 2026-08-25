@@ -336,6 +336,10 @@ Android as well as on Windows.
 
 ### The two levers, for whenever the owner wants the number moved
 
+> **Both pulled and both measured the same day — see the section below.** The
+> first buys nothing and is retired; the second is `_run_offscreen()` and took
+> `Gfx dev` at twelve zoom notches from 825 MB to 103 MB.
+
 Recorded here rather than acted on, because this pass's brief was diagnosis.
 
 1. **Collapse the dash loop into one `draw_multiline`.** `urban_layout_draw.gd`
@@ -781,3 +785,82 @@ cargo ndk -t arm64-v8a build --release -p cartalith-civ --example _peakaudit_pea
 
 **No `.rs` or `.gd` file outside these two was touched by this pass**, and no
 `export_presets.cfg` or `Cargo.toml`.
+
+## The overlay's zoom cost, bounded — and the batching lever retired (2026-08-25)
+
+The section above registered two levers and pulled neither. Both were pulled
+here, on the same handset, with **the seed fixed at 123456** — the discipline
+MEM-03 above demanded and the first time this document's Android figures have
+had one. Two APKs from one frozen snapshot of `HEAD`, differing in
+`map_overlay.gd` alone; both report `generated · 26.3 s` at 2048 × 1311. Full
+account, including why the working tree could not be used as the baseline, in
+**`GUI_GAP_REGISTER.md` §54**.
+
+### Lever 1, `draw_multiline` for the dash loop: **a measured no-op**
+
+| seed 123456 | per-dash `draw_line` | one `draw_multiline` |
+|---|---:|---:|
+| objects, world up | 87 198 | 87 177 |
+| buffers, world up | 93.04 MiB | 93.16 MiB |
+| objects, +12 zoom notches | 857 965 | 857 944 |
+| buffers, +12 zoom notches | 751.0 MiB | 751.2 MiB |
+
+Reproduced on the desktop, where both forms run in one process: **336 186
+objects and 308 draw calls, both arms, to the digit**; redraw wall time inside
+the noise over 200 redraws.
+
+**308 draw calls for 336 186 objects is the whole explanation.** Godot's canvas
+renderer already batches adjacent same-material primitives, so the collapse was
+a command-count optimisation against a renderer that had already done it — and
+an antialiased thick line expands to the same triangles whichever call submits
+it, so the vertex buffers never depended on the call count. The comparison with
+`urban_layout_draw.gd`'s 577 ms does not hold: that was per-call GDScript→engine
+crossing at a few thousand `draw_polyline` calls, which a dash walk inside one
+function never pays.
+
+The change was verified pixel-identical first (`_dashbatch_probe`, 108 of 108
+frames byte-identical) and then **reverted rather than shipped**, because a
+diff that buys nothing is worse than no diff. The probe is kept as the reason
+not to try it again.
+
+### Lever 2, bounding the overlay by zoom: **`_run_offscreen()`, and nothing disappears**
+
+It was registered as a design question — what drops out at what zoom — and it
+was not one. **The camera is an ancestor transform**, so `map_overlay.gd` never
+knew how far off screen a way was: every way in the world was projected, dashed
+and uploaded on every redraw at every zoom, and the viewport threw away the ones
+outside it. `_run_offscreen()` inverts `get_global_transform_with_canvas()` to
+get the visible slice of local space and skips a run whose bounding box misses
+it, for ways, sea lanes and committed routes alike.
+
+| seed 123456 | before | after | |
+|---|---:|---:|---:|
+| objects, world up | 87 198 | **43 788** | −50 % |
+| buffers, world up | 93.04 MiB | **45.43 MiB** | −51 % |
+| `Gfx dev`, world up | 149.3 MB | **104.9 MB** | −30 % |
+| `TOTAL PSS`, world up | 845.3 MB | **807.7 MB** | −4.4 % |
+| objects, +12 zoom notches | 857 965 | **2 320** | **−99.7 %** |
+| buffers, +12 zoom notches | 751.0 MiB | **42.79 MiB** | −94 % |
+| `Gfx dev`, +12 zoom notches | 825.2 MB | **103.2 MB** | **−87.5 %** |
+| `TOTAL PSS`, +12 zoom notches | 1 593.8 MB | **806.8 MB** | −49 % |
+
+**Twelve zoom notches used to cost 676 MB of `Gfx dev`; they now cost nothing
+measurable** — 104.9 MB at the default view against 103.2 MB twelve notches in.
+The line above this section, *"Nothing bounds it in zoom. 556 MB of `Gfx dev`
+and 1 279 MB of PSS is twelve taps away from a fresh generate"*, is the sentence
+this closes.
+
+Read the 2 320 honestly: at twelve notches this seed's camera sits over open sea,
+so little is genuinely on screen — and the old code drew the whole network
+anyway. The like-for-like over land is the default view's 87 198 → 43 788, and
+the desktop harness over a canvas-filling network: **2 592 846 → 807 765 objects
+at zoom 8**, 1 303 380 → 445 632 at zoom 4.
+
+**No pixel moves**, checked rather than argued: `_cull_probe` renders the
+shipping script beside a subclass whose only difference is that
+`_visible_local_rect()` returns everything, through a real camera ancestor at
+four zooms × four pans — **16 of 16 frames byte-identical**.
+
+**Still open**: one long way crossing the window keeps a bounding box that covers
+it, so its whole run is still walked and dashed. Per-segment culling would fix
+that and is a bigger change; registered in `GUI_GAP_REGISTER.md` §54, not taken.

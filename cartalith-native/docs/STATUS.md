@@ -23,6 +23,38 @@ session. Update it in the same commit as whatever changes its answer.
 > the order `PARITY_AUDIT.md` §22 recommends, and it is how pass 3 and pass 4
 > both found the drift they found.
 
+## The map overlay is bounded in zoom now — `Gfx dev` 825 MB → 103 (2026-08-25)
+
+A **section, not another clause on the `Last updated:` line**, per this file's
+own header block. Full record: `GUI_GAP_REGISTER.md` §54,
+`MEMORY_OPTIMIZATION_SCOPE.md`'s last section, `CHANGELOG.md`'s last entry.
+
+`MEMORY_OPTIMIZATION_SCOPE.md`'s Android diagnosis registered two levers and
+pulled neither. Both pulled and measured on the OnePlus 6T, **seed 123456 typed
+into the dialog on every run**, two APKs from one frozen snapshot of `HEAD`
+differing in `map_overlay.gd` alone.
+
+- **Fixed — `map_overlay.gd`'s `_run_offscreen()`.** The camera is an *ancestor*
+  transform, so the file never knew how far off screen a way was: the whole
+  network was projected, dashed and uploaded on every redraw at every zoom.
+  World up **87 198 → 43 788 objects, 93.04 → 45.43 MiB of buffers, `Gfx dev`
+  149.3 → 104.9 MB**. Twelve zoom notches: **857 965 → 2 320 objects, 751.0 →
+  42.79 MiB, `Gfx dev` 825.2 → 103.2 MB, PSS 1 593.8 → 806.8 MB.** Twelve
+  notches used to cost 676 MB of `Gfx dev`; they now cost nothing measurable.
+  **No pixel moves** — `_cull_probe`, 16 of 16 frames byte-identical against the
+  same script with culling off.
+- **Retired — collapsing the dash loop into one `draw_multiline`.** Built,
+  shipped, measured: 87 177 objects against 87 198. **Nothing.** Godot's canvas
+  renderer already batches (308 draw calls for 336 186 objects), and the memory
+  is the geometry, not the call count. Reverted rather than shipped;
+  `_dashbatch_probe` is kept as the reason not to try again.
+- **Still open**: a single long way crossing the window keeps a covering
+  bounding box, so its run is still walked in full. Per-segment culling would
+  fix it.
+- **Also worth knowing**: the shell's chrome is not stable across boots — one
+  run came up with an icon tab bar and docked L3 panels, another with text
+  labels and full-screen sheets, worth 799 vs 944 objects at the welcome screen.
+
 ## The phone is 412 dp now — `DCC_SHELL_SPEC.md` §13's phone column is superseded, not disagreed with (2026-08-25)
 
 A **section, not another clause on the `Last updated:` line**, for the reason
