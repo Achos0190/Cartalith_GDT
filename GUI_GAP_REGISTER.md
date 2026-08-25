@@ -46,6 +46,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
+| [45](#45--mn-10-rl-01-ca-20-rf-02rf-05-fi-04--the-is-every-control-wired-sweep-2026-08-25--seven-fixed) | **The "is every control wired" sweep (2026-08-25)** — the owner's question asked of every control surface, by driving it. Seven fixed: a menu item whose handler nothing could reach (**MN-10**), a pair row that opened one side and was a visible no-op on 5 of 15 rows (**RL-01**), two Clear-alls live over an empty list (**CA-20**), the place editor and the faction roster left showing the *previous* world after a generate while still writing by index (**RF-02/RF-03**, both destructive), the first signal-**ordering** bug this register has had (**RF-04**), RF-01's fifth recurrence on a control that worked perfectly (**RF-05**), and copy pointing at a console the user has no access to (**FI-04**). Also carries the **negative results** — 89 surfaces across three worlds, 110 ranges and 11 option buttons, 148 menu items and all 35 Layers entries measured in pixels — so the next pass does not re-walk them. |
 | 16-22, 27-38 | Sections added after the contents table was written; see the `## ` headings directly. **§40 narrows CV-25 and CV-26** — the military half turned out to be three unrecognised ports plus a dead `0.35` coefficient in an already-ported formula; the relations half needed a faction-to-faction edge that genuinely did not exist. **§38 is the 2026-08-25 conformance sweep** — FR-02 (selecting a faction silently *renamed* it), PE-01 (the place editor's name re-roll was a no-op on its first press), both one defect: a field that commits on `focus_exited`, torn down while focused. It also closes SH-11 (32.59 px of zoom-pivot drift, measured) and WW-13, and cleans up six pointers §37 left aimed at retired categories plus one disclosure that had lost its only caller. **§37 is the left-rail menu structure v3 pass** — what WORLD/CIVIL/CARTO became, the fifteen new IDs (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14, WW-15, VA-01, VA-02) and what was wired rather than disclosed. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
@@ -6769,3 +6770,219 @@ should be expected.
 
 CV-25's row is otherwise unchanged: still `needs a decision`, still open on
 per-settlement garrisons, campaigns, unit movement and combat.
+
+## 45 · MN-10, RL-01, CA-20, RF-02…RF-05, FI-04 — the "is every control wired" sweep (2026-08-25) — **SEVEN FIXED**
+
+The owner asked for confirmation that every GUI control does what it claims,
+reaches real capability, and does not silently do nothing. This section is that
+sweep, and it is deliberately as much a record of what was driven and found
+**clean** as of what was found broken — a surface walked and cleared is worth
+recording so the next pass does not re-walk it.
+
+Nothing here was found by reading. Every finding below came out of the live app.
+
+### What was driven, and how much of it
+
+Four of the six probes are new control classes no sweep in this repository had
+covered before.
+
+| Probe | What it covers | Never covered before |
+|---|---|---|
+| `_rf01_probe.gd` | 89 surfaces fingerprinted at **no world → world A → world B** | the whole RF-01 question, systematically |
+| `_railpress_probe.gd` | every enabled button in all **33 rail categories**, the right dock in **7 contexts**, **11 tool-options rows**, the section strip, the menu bar | `_pressall_probe.gd` only ever pressed buttons in *windows* |
+| `_valuectl_probe.gd` | **11 OptionButtons and 110 Ranges**, each moved to a different value and put back | **nothing had ever changed a value control and asked what happened** — both existing sweeps skip `OptionButton` by name |
+| `_menuwire_probe.gd` | 148 menu items across 23 popups, with `about_to_popup` fired first | menu gating computed on popup was read cold, producing four false positives |
+| `_winstale_probe.gd` | every window **left open across a generate** | §23 asked "what re-runs this?" of panels built at launch, never of windows built on `open()` |
+| `_newsurf_probe.gd` | the newest surfaces end to end, plus all **35 Layers entries measured in pixels** | — |
+
+Three of those probes were wrong on their first run, and each fault is worth
+keeping because it is a way this class of sweep silently covers nothing:
+
+1. **A jump button leaves a different workspace on screen.** The rails are full
+   of `→ Cartography ▸ Political display` rows; one press and every later
+   category reads `is_visible_in_tree() == false`. The first run "passed" twelve
+   of CIVIL's fourteen categories by finding no controls in them at all.
+2. **`emit_signal("pressed")` on a toggle changes no state and fires no
+   `toggled`.** Every `DccWidgets.toggle` in the shell — 30-odd checkboxes —
+   read as dead until the probe drove `button_pressed` instead.
+3. **A menu never popped has not been asked its own gating question.** Half this
+   shell's menus compute `disabled` in `about_to_popup`.
+
+### MN-10 — a menu item with a written handler and no way to reach it
+
+`Assets ▸ Asset pack ▸ Pack metadata… (name / author / license)` was enabled,
+carried an id, and had a handler branch (`_on_assets`' `ID_AP_PACK_META`) that
+nothing could ever reach: the `AssetPack` popup's **`id_pressed` was never
+connected**. Its three child submenus each connect their own (`APEdit`,
+`APBatch`, `APBuild`), which is exactly what made the omission invisible to the
+eye — the submenu below it worked, so the group looked wired.
+
+A submenu's `id_pressed` does **not** bubble to its parent in Godot 4; each
+`PopupMenu` emits only for its own items. One line. Verified: connections
+**0 → 1**, and the row now takes the Asset Library window from hidden to shown.
+
+**The general check this adds**, and the reason `_menuwire_probe.gd` exists: for
+every popup, if `id_pressed` has no connection, list its live items. That one
+question would have caught this the day it was written.
+
+### RL-01 — a row that named a pair, opened one side, and often did nothing at all
+
+CIVIL ▸ Relationships lists one row per faction pair (`Aurelia ↔ Korrath —
+wary (−22)`). Every row called `show_faction(a)` — the **left-hand** faction —
+so a row claiming a pair opened one party of it, and any run of rows sharing
+that party was a press with **no visible effect anywhere**.
+
+Measured on the 233-settlement six-faction world: **5 of 15 rows dead** —
+Korrath ↔ Draumr League, Veldmark ↔ Mirelle, Veldmark ↔ Draumr League,
+Aurelia ↔ Sythe Dominion, Aurelia ↔ Korrath. The tooltip was honest about it
+(*"Opens Aurelia in the right dock"*), which is what kept it looking deliberate.
+
+Both halves are fixed together, without a new dock context: `show_faction` takes
+the other party, and the faction panel gains a **Relations** section built from
+the same `civ_faction_relations()` read the list itself makes — so the two
+cannot disagree about a value — with the clicked pair marked `▸`. The tooltip
+now says what it does. Verified: **all 15 rows move the dock**, and the dock
+draws `▸ Sythe Dominion` among Korrath's relations.
+
+### CA-20 — two Clear-all buttons live over an empty list
+
+`DCC_SHELL_SPEC.md` §4.5.5 asks for both annotation panels *"with counts and
+Clear-all"*. The count was never drawn, and the button was enabled at zero — a
+press that could not change anything, with no tooltip to say why. The count now
+sits on the button (its own subject), the button is disabled at zero with a
+stated reason, and its state is owned by the `_rebuild_*_panel()` calls that
+already run on every place, delete, clear and world change.
+
+Verified: empty → `Clear all labels`, disabled, a 110-character reason; two real
+labels → `Clear all labels (2)`, live; press → engine list **0** and dead again.
+
+### RF-02 / RF-03 — §23's question, asked of windows this time
+
+§23 asked *"what re-runs this, and on which signal?"* of every panel built at
+launch. It never asked it of the windows, because those are built on `open()` —
+which is correct only if nothing can change while they are up. A world can.
+
+Both of the ones keyed to an identity a generate renumbers were stale, and both
+are **destructive** rather than merely out of date, because every editable
+control in them writes by that identity.
+
+- **RF-02, the place editor.** Left open across a generate it showed
+  `Sevjuniana` pop **19 332** at (142, 14) while the engine's settlement 0 was
+  pop **19 774** at (208, 183) — the form character-for-character identical.
+  Every field writes `civ_edit_settlement(_index, …)`, so a commit would have
+  written the previous world's name, kind and traits onto whatever now sat at
+  the index. PE-01's failure with a generate as the trigger instead of a click.
+- **RF-03, the faction roster.** Aurelia:27 / Veldmark:49 / Mirelle:57 on screen
+  against a live engine reading Aurelia:57 / Veldmark:27 / Mirelle:7 — plus two
+  cached per-world fields (`_fits`, `_military`) taken at `open()` and never
+  re-taken. FR-02's failure, same trigger.
+
+The name RNG is seeded the same way in every world, so settlement 0 and faction
+0 come out with the *same name* on both seeds — a name comparison proves nothing
+here, and the first cut of the probe passed on exactly that. Population,
+coordinates and settlement counts are what discriminate.
+
+Both now subscribe to `generation_finished` and `world_loaded` and rebuild when
+visible — the shape three windows in this shell already use (`city_viewer`,
+`world_data`, `performance`). **Rebuilt and not closed**, deliberately: half of
+`world_loaded`'s emitters (`load_asset_pack`, `as_apply_to_map`) do not touch a
+single settlement, so closing would be wrong for them. And through `_rebuild()`
+rather than `open_for()`, because `open_for` commits the focused field first and
+committing this form against the world that has just replaced the one it was
+typed for is the bug, not the fix — `_clear()`'s `_rebuilding` guard drops it.
+
+### RF-04 — the first signal-*ordering* bug this register has had
+
+`infrastructure_workspace.gd`'s own comment said the Flows body *"refills from
+whatever `TradeStore` holds, which `app.gd` has just cleared on this same world
+change"*. It had not. Godot delivers a signal in **connection order**;
+`app._register_workspaces()` runs at line 313 and `_wire_status()` at line 333,
+so on every generate the INFRA refill read the **previous** world's match, redrew
+its flow count, its timing and its settlement names — and only then did
+`_refresh_world_dependent()` drop the store, with nothing left to re-run the fill.
+
+Measured: after regenerating under a live **624-flow** match, CIVIL ▸ Trade ▸
+Flows still reported 624 while `TradeStore.last()` was empty, so the dock and its
+two fellow readers (the place editor's per-partner ledger, the way-load overlay)
+disagreed about whether a match existed at all.
+
+Fixed by connecting the clear immediately after the bridge is constructed, before
+anything else subscribes to either signal. The call in `_refresh_world_dependent()`
+stays — it costs nothing and keeps that function's stated ownership true.
+Verified: the body goes back to *"Not matched yet"* where it did not.
+
+**The lesson, and it is new:** a comment asserting that another handler has
+already run is a claim about connection order, and connection order is decided
+by `_ready()`'s call sequence in a different file. Two correct handlers can still
+be wrong together.
+
+### RF-05 — RF-01 exactly, on a control that worked perfectly
+
+**CARTO ▸ Roads & routes ▸ Trade load** disables itself when
+`overlay.has_trade_load()` is false. That category is built once, at launch,
+against an engine with no world — so the row was born disabled, and the match
+that makes it valid runs in a **different workspace** with nothing to say so.
+
+Measured: after a real 624-flow match, `disabled = true` while `has_trade_load()`
+returned `true`. Forcing it on moved **0.6028 %** of the map's pixels and off
+returned **0.0000 %** — a fully working control with no reachable route to it.
+The fifth recurrence of RF-01, and the second on a control gated at build time
+against data that arrives later.
+
+Fixed at the funnel rather than at the caller: `map_overlay.set_trade_load()` is
+the single path both the match and the world-change clear already pass through,
+so it emits `trade_load_changed(available)` and CARTO follows it **in both
+directions** — turning the switch off, not merely greying it, when the reading
+goes away, because a live toggle over an empty reading is the same lie the other
+way round.
+
+### FI-04 — copy that named a place the user cannot look
+
+`File ▸ Recent worlds` remembers a **path**, not a file, so every row in it can
+outlive what it points at. All three rows of a real recent list named saves a
+previous session had since deleted, and the only thing said about it was
+*"load failed — see console"* — which is true of neither, and names somewhere an
+exported build has no access to. The distinction costs one `file_exists` and the
+two halves have different owners: a missing file is the list's problem, a refused
+one is the save's. Now reads `<name> is no longer on disk`.
+
+### Driven and found clean — the negative results
+
+Recorded so the next pass does not re-walk them.
+
+- **RF-01 across three worlds, 89 surfaces.** All 33 rail categories, the right
+  dock, the Layers popover, 11 tool-options rows, the section strip and 23 menu
+  popups, fingerprinted with no world, then with world A, then with a different
+  world B. **Not one surface kept an empty state across a generate.** §23's
+  eleven sections and §37's fifteen are all still refreshing.
+- **Value controls: 11 OptionButtons and 110 Ranges, zero dead.** Every one
+  moved something. This is the class that had never been driven at all.
+- **Buttons in the rails and dock: only the findings above.** The one remaining
+  no-op is the `SCULPT` mode chip, which rebuilds the row it lives in.
+- **The menu bar:** 148 items, 41 pressed. `APBuild ▸ Apply to map` and
+  `Assets ▸ Apply library to map` are the same action reached two ways and set
+  the same status, which is a confirmation and not a defect.
+  `GpuDevices ▸ Rescan devices…` re-queries and refills a submenu read on popup —
+  idempotent on a stable machine, real capability, no visible change.
+- **The Layers popover, in pixels.** 35 entries; 34 repaint the map and
+  **all 34 hash differently** — no two layers draw the same frame. RD-02's class
+  is clean here.
+- **Windows across a generate:** City viewer and World data rebuild. Performance,
+  Travel library, Vault, Data manager, Asset library and the Layers popover render
+  identically and correctly so — none of them shows anything keyed to world
+  identity.
+- **The newest surfaces:** the trade match runs in 166 ms for 624 flows over 61
+  importing and 31 supplied settlements; the ED-02 ledger's floor row names the
+  live seed; CIVIL ▸ Territories ▸ *Analyse contested borders* is live and
+  *Clear territory* is correctly disabled.
+
+### Not fixed, and why
+
+- **`Window ▸ Open windows ▸ "No windows open"`** is disabled with no tooltip.
+  It is an **empty-state caption**, not a capability claim — the same shape as
+  the asset-pack submenu's three disabled stat rows — and the honesty convention
+  is about controls that claim something. Registered here rather than given a
+  tooltip that would read as a disclosure of a gap that does not exist.
+- **A recent-worlds row whose file has vanished stays in the list.** FI-04 makes
+  it say so; whether the row should then be greyed, removed, or offer to forget
+  itself is a product decision, not wiring.

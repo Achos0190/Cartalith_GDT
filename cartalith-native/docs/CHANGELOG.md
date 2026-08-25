@@ -27110,3 +27110,127 @@ verdict. The category's closing note states the ruling instead of warning that
 cartalith-civ` clean, headless script load clean, and the shell probe PASS both
 windowed and headless on the 233-settlement world. `CivData` gained no field;
 `resident_bytes` still 0.
+
+## The "is every control wired" sweep — seven defects, and the surfaces that were clean (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §45. The owner asked for confirmation that every GUI
+control does what it claims, reaches real capability, and does not silently do
+nothing. Nothing below was found by reading; every one came out of driving the
+live app.
+
+### The class no sweep had ever driven
+
+`_deadwire_probe.gd` reads connection lists. `_pressall_probe.gd` presses
+buttons in *windows*. Neither had ever **changed a value** on an `OptionButton`,
+an `HSlider` or a `SpinBox` and asked whether anything happened — and both skip
+`OptionButton` by name. That is most of WORLD's rail and all of CARTO's.
+
+So: **11 option buttons and 110 ranges**, each moved to the far end of its range,
+snapshotted against the whole app plus the viewport's own state, and put back.
+**Zero dead.** Also new: every enabled button in all **33 rail categories**, the
+right dock in **7 contexts**, **11 tool-options rows** and the section strip —
+`_pressall` had never reached any of them.
+
+### RF-01, four more times, and one of them is a signal *order*
+
+§23 asked *"what re-runs this, and on which signal?"* of every panel built at
+launch. It never asked it of a **window**, because those are built on `open()` —
+correct only if nothing can change while they are up. A world can.
+
+**RF-02 / RF-03** are the two windows keyed to an identity a generate renumbers,
+and both are destructive rather than merely stale, because every field in them
+writes by that identity. The place editor left open across a generate showed
+`Sevjuniana` pop **19 332** at (142, 14) while the engine's settlement 0 was pop
+**19 774** at (208, 183) — the form character-for-character identical, so a
+commit would have written the previous world's name, kind and traits onto the
+new world's place. The faction roster showed Aurelia:27 / Veldmark:49 /
+Mirelle:57 against a live Aurelia:57 / Veldmark:27 / Mirelle:7, with two cached
+per-world fields taken at `open()` and never re-taken. Both now rebuild on
+`generation_finished`/`world_loaded` when visible — the shape `city_viewer`,
+`world_data` and `performance` already use. **Rebuilt and not closed**: half of
+`world_loaded`'s emitters (`load_asset_pack`, `as_apply_to_map`) do not touch a
+single settlement. And through `_rebuild()` rather than `open_for()`, whose
+focused-field commit against the world that just replaced the one it was typed
+for *is* the bug.
+
+The name RNG is seeded the same way in every world, so settlement 0 and faction
+0 come out with the **same name** on both seeds. The first cut of the probe
+compared names and passed. Population, coordinates and counts discriminate.
+
+**RF-04 is the first signal-ordering bug this register has had.**
+`infrastructure_workspace.gd`'s own comment claimed the Flows body *"refills
+from whatever `TradeStore` holds, which `app.gd` has just cleared on this same
+world change"*. It had not: Godot delivers a signal in **connection order**, and
+`_register_workspaces()` runs at `app.gd:313` while `_wire_status()` runs at 333.
+So on every generate the INFRA refill read the **previous** world's match and
+redrew its flow count, its timing and its settlement names — and only then was
+the store dropped, with nothing left to re-run the fill. Measured: after
+regenerating under a live **624-flow** match, CIVIL ▸ Trade ▸ Flows still
+reported 624 while `TradeStore.last()` was empty, so the dock and its two fellow
+readers disagreed about whether a match existed at all. The clear is now the
+first thing connected to either signal. *Two correct handlers can still be wrong
+together.*
+
+**RF-05 is RF-01 exactly, on a control that worked perfectly.** CARTO ▸ Roads &
+routes ▸ Trade load disables itself when `has_trade_load()` is false; the
+category is built once at launch over an empty world, and the match that makes
+it valid runs in a different workspace. After a real 624-flow match it was still
+`disabled = true` while `has_trade_load()` returned true — forced on it moved
+**0.6028 %** of the map's pixels and off returned **0.0000 %**. Fixed at the
+funnel: `map_overlay.set_trade_load()` is the single path both the match and the
+world-change clear pass through, so it emits `trade_load_changed(available)` and
+CARTO follows it **in both directions**, turning the switch off rather than
+merely greying it when the reading goes away.
+
+### Three controls that did nothing, and one piece of copy
+
+**MN-10** — `Assets ▸ Asset pack ▸ Pack metadata…` was enabled, carried an id,
+and had a handler branch written for it that nothing could reach: the
+`AssetPack` popup's `id_pressed` was never connected. Its three child submenus
+each connect their own, which is exactly what made it invisible — the submenu
+below it worked. A submenu's `id_pressed` does not bubble to its parent in Godot
+4. One line.
+
+**RL-01** — CIVIL ▸ Relationships lists one row per faction *pair* and every row
+called `show_faction(a)`, opening the left-hand party. Any run of rows sharing
+that party was a press with **no visible effect anywhere**: measured **5 of 15
+rows dead** on the 233-settlement six-faction world. The right dock now takes
+both parties and draws a **Relations** section from the same
+`civ_faction_relations()` read the list itself makes — so the two cannot
+disagree about a value — with the clicked pair marked `▸`. All 15 rows move the
+dock now.
+
+**CA-20** — `Clear all labels` / `Clear all icons` were live over an empty list,
+with neither the count `DCC_SHELL_SPEC.md` §4.5.5 asks for nor a stated reason.
+Both carry the count and go dead at zero now.
+
+**FI-04** — *"load failed — see console"* named somewhere an exported build has
+no access to, and was the only thing said about the commonest cause: `File ▸
+Recent worlds` remembers a **path**, not a file. All three rows of a real recent
+list named saves a previous session had since deleted. One `file_exists`
+separates the list's problem from the save's.
+
+### Driven and found clean, and that is the other half of the answer
+
+- **89 surfaces fingerprinted at no world → world A → world B** — 33 rail
+  categories, the right dock, the Layers popover, 11 tool-options rows, the
+  section strip, 23 menu popups. **Not one kept an empty state across a
+  generate.** §23's eleven sections and §37's fifteen all still refresh.
+- **148 menu items across 23 popups**, with `about_to_popup` fired first (half
+  this shell's menus compute their gating there, and reading them cold produced
+  four false positives). 41 pressed; the only dead one was MN-10.
+- **The Layers popover measured in pixels**: 35 entries, 34 repaint the map and
+  **all 34 hash differently** — no two layers draw the same frame, which is
+  RD-02's failure mode and it is clean.
+- **Windows across a generate**: City viewer and World data rebuild;
+  Performance, Travel library, Vault, Data manager, Asset library and the Layers
+  popover render identically and correctly so.
+
+### Verified
+
+`cargo check -p cartalith-godot` clean (no Rust touched). Headless script-load
+check clean; the headless lifecycle harness **PASS** (save / save-as / revert /
+close / reopen / autosave, 19 assertions). Windowed, on a real 233-settlement
+six-faction world: `_wiredfix_probe` **PASS/0**, `_winstale_probe` **PASS/0**,
+`_newsurf_probe` **PASS/0**, `_rf01_probe` **0 failures**, `_menuwire_probe`
+down to its one registered non-gap.
