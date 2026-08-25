@@ -529,12 +529,30 @@ comment was the only one that stated it — the same pattern §3.2 found, where
 `cartalith-urban::geom::js_hypot` had a specification preamble and the three
 copies made from it did not.
 
-No live site reaches any of it: **every** call site in all four crates passes
-constant literal bounds (`smoothstep(0.18, 0.0, …)`, `smoothstep(1.0, -6.0, …)`,
-`smoothstep(w - 1.5, w, …)`), so `b - a` is a compile-time constant and never
-zero. That is exactly the position §3.2 and §3.3 were in, and the same reason it
-is safe to consolidate: no golden can move, and no copy is left that can
-silently lose the rule.
+No live site reaches any of it — but **not** for the reason first written here,
+which was that every call site in all four crates passes constant literal
+bounds. That is false, and the example originally given for it
+(`smoothstep(w - 1.5, w, …)`, `-godot::render:3564`) disproves it: `w` is a
+variable. What is constant there is the *width*, 1.5, which is a different
+claim and the one that actually matters.
+
+Corrected, the argument splits by crate and is stronger for it:
+
+- The three crates that **gain** the rule — `-climate`, `-godot::render`,
+  `-civ` — reach it from bounds that are literals or derived from `const`s
+  (`smoothstep(0.18, 0.0, …)`, `smoothstep(1.0, -6.0, …)`, and
+  `render:1847`'s `WET_AREA_LO.ln()`/`WET_AREA_HI.ln()`). `b - a` is fixed at
+  compile time and non-zero, so none of them can observe the change.
+- Every call site whose width is **genuinely variable** is in
+  `-terrain::sculpt` — `smoothstep(-trans_w, trans_w, …)` at `:1417`,
+  `(floor_frac, 1.0, …)` at `:1432`, `(hw, r, …)` at `:1463`,
+  `(hw * 0.5, hw, …)` at `:1467`. Those are precisely the sites that already
+  carried the whole rule, because the consolidated implementation *is*
+  `sculpt`'s. Their behaviour is unchanged by construction.
+
+So the four crates divide cleanly into "cannot reach the degenerate case" and
+"already handled it", which is why no golden can move and no copy is left that
+can silently lose the rule. Same outcome as §3.2 and §3.3; sounder footing.
 
 **Resolved the way §3.2/§3.3 were**: one implementation,
 `cartalith-jsmath::smoothstep` — the correct one of the four — and the other
