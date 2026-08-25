@@ -566,6 +566,20 @@ restructuring the sequential civ stages to reduce their share, is a real,
 larger scoping question -- explicitly out of scope for this investigation
 per its own brief (no unilateral redesign of the GPU/CPU branching).
 
+**Resolved 2026-08-25 (the `/ponytail` pass)**: the incidental finding below
+was taken, and re-measured on the way — **417 ms at 2048²**, 95 ms at 1024²,
+22 ms at 512², so the "~440 ms" recorded here was right. `CivData::water_bodies`
+already holds exactly that array, so `absorb()` reads it rather than
+recomputing it, and the `CivData` literal's own `.clone()` of it went too.
+The same pass found a second instance of the identical shape one function up:
+`compute_civilisation` called `build_slope_field` **twice** with the identical
+four arguments over an immutable `ws.field` (`soil_slope` and `slope_n` are the
+same array, bit for bit) — 2.65 ms at 2048². And it claimed the LOD tile
+headroom `PERFORMANCE_BENCHMARKS.md` §5.4 had measured, by row-parallelising
+`amplify_region`/`add_zoom_detail`/`shade_tile` — a sixth crate for this scope
+document's list, on exactly the `output[i] = f(input, i)` bar milestones 1-3
+used: 16–42 ms per tile → 2.82–5.97 ms, see §5.5 there.
+
 **One incidental, unrelated inefficiency found and recorded, not fixed**:
 `WorldGen::absorb()` (`cartalith-godot/src/lib.rs`) calls
 `cartalith_civ::build_water_bodies` a **second** time, purely to seed

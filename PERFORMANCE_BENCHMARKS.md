@@ -26,13 +26,15 @@ how the app feels turns out not to be the compute configuration at all.
    make here — the same choice wins both. (§3, §7)
 2. **Generation is not the smoothness problem.** It already runs on a worker
    `Thread`; the UI never blocks on it. (§7)
-3. **LOD tile synthesis is the smoothness problem**, and it is *invariant*
-   under every compute configuration and every world size: **16–42 ms per
-   256 px tile**, single-threaded, on the Godot main thread. The shell's own
-   budgets turn that into a **1.28–1.81 s** single-frame stall per input event
-   and **135–230 ms per frame** while a backlog drains. (§5)
-4. That last one has **8.8× of measured headroom** sitting unused, and the fix
-   is not architectural. (§5.4)
+3. **LOD tile synthesis was the smoothness problem** — *fixed 2026-08-25, see
+   §5.5.* It was invariant under every compute configuration and every world
+   size: **16–42 ms per 256 px tile**, single-threaded, on the Godot main
+   thread, which the shell's own budgets turned into a **1.28–1.81 s**
+   single-frame stall per input event and **135–230 ms per frame** while a
+   backlog drained. (§5)
+4. That last one had **8.8× of measured headroom** sitting unused, and the fix
+   was not architectural. **Claimed**: 2.82–5.97 ms per tile, a **0.25 s**
+   burst, 0 % of tiles over a 60 Hz frame at any level. (§5.4, §5.5)
 
 ---
 
@@ -373,6 +375,42 @@ would land the 48-tile update near **0.15 s** rather than 1.8 s. Neither is
 done here: this pass was scoped to measure, and redesigning the tile path is a
 `LOD_TILING_INTEGRATION_SCOPE.md` milestone, not a benchmark's call to make.
 
+### 5.5 Claimed (2026-08-25, the `/ponytail` pass) — a level below where §5.4 proposed
+
+§5.4 measured the headroom over the **burst**, which is `viewport_host.gd`'s
+call loop and therefore a shell change. It is claimable one level down instead,
+entirely inside the engine, with the shell asking for a tile exactly the way it
+does today: `amplify_region` and `add_zoom_detail`
+(`cartalith-terrain/src/amplify.rs`) and `shade_tile` (`tile_render.rs`) are the
+*entirety* of a tile's cost, and all three are `output[i] = f(frozen input, i)`
+— `CPU_MULTITHREADING_SCOPE.md`'s own bar, the shape milestones 1-3
+parallelised across five other crates. Row-parallel via `par_chunks_mut`,
+per-pixel arithmetic untouched and unreordered, so the output is **bit-identical**
+and the goldens pass at exact equality rather than a new tolerance.
+
+Re-run of §5.2 and §5.3, same command, same machine, same seed:
+
+| z | per tile | 48-tile burst | 6-tile catch-up | over 16.7 ms |
+|---|---|---|---|---|
+| 4 | 15.94 → **2.82 ms** | | | 2 % → **0 %** |
+| 6 | 27.55 → **4.25 ms** | 1 314.4 → **196.6 ms** | 164.0 → **25.9 ms** | 100 % → **0 %** |
+| 7 | 32.16 → **4.62 ms** | | | 100 % → **0 %** |
+| 8 | 36.71 → **5.27 ms** | 1 768.6 → **252.4 ms** | 220.1 → **31.2 ms** | 100 % → **0 %** |
+| 9 | 41.54 → **5.97 ms** | | | 100 % → **0 %** |
+
+5.7–7.0× per tile and **6.7–7.0× on the burst** — close to §5.4's 7.9–8.8×
+ceiling, which is what one should expect, since the same 16 threads are doing
+the same total work either way. Peak working set 498 → 492 MB. **§5.2's finding
+3 is now false in the best way**: one tile fits inside a 60 Hz frame at every
+level, including the deepest this port has.
+
+Batching the burst on top is still worth roughly the remaining ~4× (the
+per-dispatch overhead 48 separate row-parallel calls pay that one tile-parallel
+call would not), and stays where §5.4 put it: a
+`LOD_TILING_INTEGRATION_SCOPE.md` milestone, needing the shell. So is the
+redundant plain pass — still 24–34 % of every tile, still inherent to the
+encoding.
+
 ---
 
 ## 6. Async and hybrid offloading — what is real, and what is not
@@ -615,7 +653,16 @@ Explicitly **not** recommended:
   default for any parity-sensitive work. But it is the slowest and has the
   worst frame-time tail under concurrency.
 
-### 10.2 The thing that will actually change how the app feels
+### 10.2 The thing that will actually change how the app feels — **done, 2026-08-25**
+
+> **Claimed.** §5.5 has the after-numbers: 2.82–5.97 ms per tile, a 0.25 s
+> burst, 0 % of tiles over a 60 Hz frame at every level. The recommendation
+> below is kept verbatim because its *diagnosis* was right and worth preserving;
+> only its framing — "get it off the main thread" — turned out to be one option
+> among two, and the cheaper one was to make the tile itself 7× faster where it
+> already runs. `MAX_LOD_TILES_PER_UPDATE = 48` is still the number nobody
+> measured before choosing, but at 2.82–5.97 ms per tile it now buys a 0.25 s
+> burst rather than a 1.8 s one.
 
 **Get LOD tile synthesis off the Godot main thread.** Every number in §5 says
 the same thing: a 1.3–1.8 second stall on a single wheel notch, 4–7 fps while a
