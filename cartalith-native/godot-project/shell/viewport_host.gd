@@ -62,6 +62,13 @@ var _width_km := 0.0
 ## so a flat 10 px would land this node's own chrome under the app bar/rail/
 ## tool sheet instead of in the visible gap between them.
 var _safe_insets := {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
+## The last scale `_apply_touch_scale()` applied, so a re-inset on rotation --
+## which does not change it -- does no work. See that function for HD-03.
+var _touch_scale := 1.0
+## The navpad glyph's name, kept for the same reason `DccWidgets
+## .TOOL_GLYPH_META` keeps a tool's: an `ImageTexture` in hand cannot be grown
+## without resampling it.
+const NAVPAD_GLYPH_META := "dcc_navpad_glyph"
 
 ## §13's 44 px floor applies here too -- this button is real, on-screen, and
 ## tappable on phone, not workspace/dock content this file is exempt from
@@ -733,7 +740,47 @@ func set_style_readout(name: String) -> void:
 ## call this, so `_safe_insets` stays at its flat 10 px default there.
 func set_safe_insets(insets: Dictionary) -> void:
 	_safe_insets = insets
+	_apply_touch_scale(float(insets.get("scale", 1.0)))
 	_apply_safe_insets()
+
+## HD-03. This node lives in the MAIN viewport, which has no content scale
+## (`project.godot`'s `[display]` block records why that is deliberate), so
+## every constant in this file is a real device pixel. `NAVPAD_HIT`'s own
+## comment asserted the opposite -- "the shipped phone's viewport is ~393 px,
+## where that scale is 1.0" -- and it is simply wrong: measured on the real
+## composition, `get_viewport_rect()` reports 1080 x 2400 and 1440 x 3168 and
+## `DccShell._phone_scale` reports 2.748 and 3.664. A raw 44 px pill is
+## therefore 2.83 mm on a 395 ppi panel and **2.19 mm** on the OnePlus 12's
+## 510 ppi one, against roughly 7 mm for the 44 dp this shell floors every
+## other target at. Not blurry, but the same "unpolished" complaint.
+##
+## The glyphs are re-rasterised rather than stretched, for the reason
+## `DccIcons`' own header gives: growing a 17 px bitmap to 62 px is the smear
+## this whole pass exists to remove.
+func _apply_touch_scale(scale: float) -> void:
+	scale = maxf(1.0, scale)
+	if is_equal_approx(scale, _touch_scale) or _layers_btn == null or not _touch:
+		return
+	_touch_scale = scale
+	var hit := maxi(DccTheme.PHONE_TAP_MIN, int(round(44.0 * scale)))
+	_layers_btn.custom_minimum_size = Vector2(hit, hit)
+	_layers_btn.icon = DccIcons.get_icon("layers", maxi(1, int(round(15.0 * scale))))
+	if _navpad == null:
+		return
+	_navpad.add_theme_constant_override("separation",
+		maxi(1, int(round(NAVPAD_GAP * scale))))
+	for child in _navpad.get_children():
+		if not (child is Button) or not child.has_meta(NAVPAD_GLYPH_META):
+			continue
+		var b := child as Button
+		b.custom_minimum_size = Vector2(hit, hit)
+		b.icon = DccIcons.get_icon(String(b.get_meta(NAVPAD_GLYPH_META)),
+			maxi(1, int(round(17.0 * scale))))
+		for state in ["normal", "hover", "pressed"]:
+			var sb: StyleBox = b.get_theme_stylebox(state)
+			if sb is StyleBoxFlat:
+				(sb as StyleBoxFlat).set_corner_radius_all(int(hit / 2.0))
+	_navpad.reset_size()
 
 ## Sets offsets directly rather than `.position` -- found by screenshot that
 ## `.position` doesn't hold up here: it's computed against the control's
@@ -859,6 +906,7 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
 	## nowhere. Caught by screenshot -- the first cut was flat, and the pills
 	## were invisible over the terrain with only their glyphs showing.
 	b.focus_mode = Control.FOCUS_NONE
+	b.set_meta(NAVPAD_GLYPH_META, glyph)
 	b.icon = DccIcons.get_icon(glyph, 17)
 	## Icon-only, so the tooltip is the only accessible name it has.
 	b.tooltip_text = tip

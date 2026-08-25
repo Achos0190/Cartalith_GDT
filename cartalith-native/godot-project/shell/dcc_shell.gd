@@ -772,6 +772,23 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			if (ctl is BoxContainer or ctl is MarginContainer) \
 					and ctl.mouse_filter == Control.MOUSE_FILTER_STOP:
 				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+			## PH-05's last hole, found by re-running the flick sweep at
+			## `_phone_scale` 2.748 rather than at the 393 dp reference every earlier
+			## probe used: 6 of 8 points down the left sheet scrolled 329 px and two
+			## did not. One is an `HSlider`, which is deliberate and is explained
+			## below. The other is a **bare `Control`** -- `DccTheme.spacer()` and the
+			## fixed-width gaps beside it -- which defaults to `MOUSE_FILTER_STOP` and
+			## so ends the event walk on a node that exists only to take up room.
+			##
+			## Matched on the exact class rather than `is Control`, because every
+			## control in this shell is one; and skipped if anything is listening on
+			## `gui_input`, since a plain `Control` with a handler (a scrim, a drag
+			## handle) is picking on purpose. A spacer with neither has nothing to
+			## consume the event it is currently swallowing.
+			if ctl.get_class() == "Control" and ctl.get_script() == null \
+					and ctl.mouse_filter == Control.MOUSE_FILTER_STOP \
+					and ctl.get_signal_connection_list("gui_input").is_empty():
+				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
 			## PH-05, the other half of the same sentence -- and the half that was
 			## actually load-bearing. A `Container` already defaults to `PASS`
 			## (measured, 4.7.1: `MOUSE_FILTER_PASS`, not the `Control` default the
@@ -861,7 +878,38 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 				if unit != 1.0:
 					pop.add_theme_font_size_override("font_size",
 						maxi(1, int(round(pop.get_theme_font_size("font_size") * unit))))
+				## HD-01's other half. An embedded sub-window is drawn inside its
+				## parent's canvas, so this list inherits the parent window's
+				## content scale -- which is the whole reason the `unit != 1.0`
+				## branch above exists -- but not the parent's font raster, which
+				## is per-`Viewport`. So in the content-scaled case (`unit` 1.0,
+				## magnify 3.664) the list's own rows smear exactly as the window
+				## behind them did. In a dock the magnify is 1 and the branch
+				## above already rasterised the font at its real size, so nothing
+				## is set and nothing changes.
+				DccWidgets.oversample(pop, _phone_magnify(unit))
 		phone_fit(child, unit, wide)
+
+## What one unit of `phone_fit()`'s own space is worth in physical pixels.
+##
+## The two spaces `phone_fit()` serves reach the same place by different routes:
+## a dock lays out in real pixels and `unit` is `_phone_scale`, a content-scaled
+## window lays out in dp and `unit` is 1.0 while the compositor supplies the
+## rest. Their product is `_phone_scale` in both, which is why one expression
+## covers both and why a caller never has to know which one it is in. Exactly
+## 1.0 in a dock (`_phone_scale / _phone_scale` is exact in IEEE-754), so the
+## dock path is byte-identical to what it did before this existed.
+##
+## Gated on `_phone` and not only on the callers being phone-only, because
+## `_compute_layout_mode()` computes `_phone_scale` for **every** composition --
+## a 1920 x 1080 desktop reads 2.75 -- and a `phone_fit()` call that ever
+## reached a pointer build would otherwise quietly rasterise every glyph at
+## nearly three times its size and minify it back down, which is worse than the
+## fault this closes rather than merely wasteful.
+func _phone_magnify(unit: float) -> float:
+	if not _phone:
+		return 1.0
+	return _phone_scale / maxf(0.0001, unit)
 
 ## The phone half of a §4.5 tool button: a real glyph, a visible box, and the
 ## name the tooltip can no longer deliver. See the call site in `phone_fit()`
@@ -869,12 +917,17 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 func _phone_fit_tool_button(b: Button, unit: float) -> void:
 	## Re-rasterised from the SVG at the size it will actually be drawn at,
 	## which is why `dcc_widgets.gd` stashes the glyph's *name*: `DccIcons`
-	## caches per `name@px`, so the 15 px texture already in hand cannot be
-	## grown without resampling it. 0.42 of the box leaves the caption room and
-	## keeps the icon off the border.
+	## caches per (name, drawn, raster), so the 15 px texture already in hand
+	## cannot be grown without resampling it. 0.42 of the box leaves the caption
+	## room and keeps the icon off the border.
+	##
+	## `_phone_magnify(unit)` is HD-02's half: `box` is in this subtree's own
+	## space, so in a dock it is already physical and the magnify is exactly 1
+	## (this call is unchanged there), while in a content-scaled window it is dp
+	## and the raster has to be 3.664x finer than the number beside it.
 	var box := maxf(b.custom_minimum_size.x, b.custom_minimum_size.y)
 	b.icon = DccIcons.get_icon(String(b.get_meta(DccWidgets.TOOL_GLYPH_META)),
-		maxi(1, int(round(box * 0.42))))
+		maxi(1, int(round(box * 0.42))), _phone_magnify(unit))
 	## The desktop button is invisible at rest on purpose -- a palette of eight
 	## empty squares reads as one strip, and hover picks one out. Touch has no
 	## hover, so at rest is the only state there is, and an unbounded mark is
@@ -2176,6 +2229,25 @@ func _close_all_phone_overlays() -> void:
 		right_dock.visible = false
 	_left_sheet_open = false
 	_right_sheet_open = false
+	## `GUI_GAP_REGISTER.md` §46, raised by the concurrent phone pass and picked
+	## up here because this is the function that owns the answer. Every entry
+	## above is a `Control`; the Layers popover is a `PopupPanel`, which is a
+	## `Window`, and no Control walk has ever reached it. Measured by that pass:
+	## with the Layers sheet up, `_set_drawer_open(true)` left **both** visible.
+	##
+	## `Popup` and deliberately not `Window`. A popover is transient -- going
+	## somewhere else is what dismisses it -- while an `AcceptDialog` is a modal
+	## the user is currently inside, and closing one out from under them would
+	## trade a cosmetic overlap for lost input. `PopupMenu` is caught by the same
+	## test, which is right for the same reason.
+	##
+	## `owned = false`: these are built in code and have no scene owner, so the
+	## default `owned = true` would return an empty list and this would be
+	## another silently-inert fix.
+	for node in find_children("", "Popup", true, false):
+		var pop := node as Popup
+		if pop != null and pop.visible:
+			pop.hide()
 
 func _set_drawer_open(open: bool) -> void:
 	_close_all_phone_overlays()
@@ -2375,7 +2447,7 @@ func _apply_phone_orientation() -> void:
 ## it too).
 func phone_content_insets() -> Dictionary:
 	if not _phone:
-		return {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
+		return {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0, "scale": 1.0}
 	## No left reserve in portrait any more: the domain rail that used to float
 	## there is the bottom bar now, so the map has the full width back and only
 	## the landscape safe area still eats into it.
@@ -2385,7 +2457,18 @@ func phone_content_insets() -> Dictionary:
 	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
 	if not _landscape:
 		top += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
-	return {"left": left, "top": top, "right": 0.0, "bottom": _phone_bottom_reserve()}
+	## `scale` rides along because it is the one number `ViewportHost` needs and
+	## has no other route to (`GUI_GAP_REGISTER.md` HD-03). Its floating chrome
+	## -- the Layers button and the four navpad pills -- is authored at a raw
+	## 44 px, on a premise `NAVPAD_HIT`'s own comment states outright and which
+	## is false: the main viewport is NOT content-scaled, so the shipped
+	## handset's viewport is its full pixel width, not 393. Measured, 44 px
+	## comes to 2.83 mm on a 1080/395 ppi panel and **2.19 mm** on the
+	## OnePlus 12's 1440/510, against the ~7 mm a 44 dp floor is asking for.
+	## Passing it through the existing dictionary rather than adding a setter
+	## keeps `app.gd` -- which owns the one call site -- out of it.
+	return {"left": left, "top": top, "right": 0.0,
+		"bottom": _phone_bottom_reserve(), "scale": _phone_scale}
 
 ## The tool sheet's real height depends on whatever `tool_options_row`
 ## currently holds -- domain content this frame doesn't own -- so this reads

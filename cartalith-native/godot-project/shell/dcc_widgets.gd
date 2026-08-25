@@ -773,7 +773,99 @@ static func phone_present(dlg: Window, host) -> bool:
 	dlg.min_size = Vector2i.ZERO
 	dlg.max_size = Vector2i.ZERO
 	dlg.popup(Rect2i(Vector2i.ZERO, Vector2i(screen)))
+	## `AcceptDialog` parents its whole button bar as an **internal** child, so
+	## `DccShell.phone_fit()` -- which walks `get_children()` -- has never once
+	## reached it. Measured 29 dp on every window whose only way out is that
+	## button (`gen_info_dialog.gd`, `performance_window.gd`,
+	## `world_data_window.gd`, the credits sheet), which is two thirds of §13's
+	## floor on the one control that closes the window.
+	##
+	## `app.gd::_floor_prompt_buttons()` found this first for the quit prompt
+	## and records the two traps it costs, both of which apply here verbatim:
+	## an **untyped** loop element writes to a temporary copy of the vector and
+	## is lost, and **`Window.popup()` clears the value**, because the bar is
+	## re-laid on show. So this runs after the `popup()` above, not before --
+	## and again on every rotation, since the relay re-enters here.
+	## `get_cancel_button()` is `ConfirmationDialog`'s, not `AcceptDialog`'s --
+	## asked for by name rather than assumed, so a plain `AcceptDialog` does not
+	## take a "method not found" here.
+	if dlg is AcceptDialog:
+		var ad := dlg as AcceptDialog
+		var bar: Array[Button] = [ad.get_ok_button()]
+		if ad.has_method("get_cancel_button"):
+			bar.append(ad.call("get_cancel_button"))
+		for b: Button in bar:
+			if b != null and b.visible:
+				b.custom_minimum_size = Vector2(0.0, DccTheme.PHONE_TAP_MIN)
+	oversample(dlg)
 	return true
+
+## **A content scale does not scale the font raster, and this engine does not
+## work it out on its own** (`GUI_GAP_REGISTER.md` HD-01). Everything above maps
+## a desktop-authored composition onto 393 dp and lets the compositor do the
+## rest -- true of geometry, false of type. Godot 4.5 introduced dynamic font
+## oversampling and 4.7.1 has it on by default, but `Viewport.get_oversampling()`
+## inside a `CONTENT_SCALE_MODE_CANVAS_ITEMS` sub-Window whose
+## `content_scale_factor` is 3.664 returns **1.0**: the automatic value does not
+## account for a Window's own content scale, so a 12 dp label is rasterised at
+## 12 texels and the canvas transform magnifies that bitmap.
+##
+## Measured on this exact build rather than inferred from a version number, two
+## windows drawing the same physical glyph height:
+##   factor 3.664 / font 12 -> max adjacent-pixel |dLum| 0.2667, 0 hard edges
+##   factor 1.000 / font 44 -> max 0.9843, 722 hard edges
+## 0.2667 is 1/3.75: a resampled bitmap cannot produce a step steeper than its
+## own magnification allows, which is what makes this a measurement rather than
+## an impression. Turning `Viewport.oversampling` **off** changed nothing (the
+## same 0.2667 to four places), so the boolean is not the lever.
+## `oversampling_override` is -- with it the same window measures 0.9804 and 518
+## hard edges, the native control's own numbers.
+##
+## **It has to be set once the window is in the tree.** Assigned in a
+## constructor the property reads back the value and `get_oversampling()`
+## ignores it; that was the first cut of this fix and it measured exactly as if
+## absent. Hence a call at the end of `phone_present()`, after `popup()`, rather
+## than beside `content_scale_factor` above -- and re-applied on every present,
+## since a rotation re-enters that path.
+##
+## Read off the window rather than recomputed where it can be:
+## `content_scale_factor` is a float32 property, so 1440/393 stores as
+## 3.66412210464478 and not the 3.66412213740458 that was assigned, and the two
+## must not disagree by that last ulp. `scale` is for the callers that have no
+## such property to read -- an embedded `PopupMenu` is drawn inside its parent
+## window's canvas and so inherits the parent's content scale without ever
+## carrying it, and its own `content_scale_factor` reads a flat 1.0.
+##
+## **A resize clears it, and the value it reverts to is 1.0.** Measured, in
+## isolation: set on a content-scaled `Window` the override survives eleven
+## frames, a `popup()` and a hide/show cycle unchanged, and then reads back 1.0
+## the frame after `size` is assigned -- reassigning `content_scale_factor`
+## afterwards does not bring it back. That is the same trap the `AcceptDialog`
+## button bar above already carries ("`Window.popup()` clears the value, because
+## the bar is re-laid on show"), and it is why the first cut of this measured
+## exactly as if it were absent: `phone_present()` sets it, and one of the
+## layout passes that follow a fill-the-screen popup silently drops it. So it is
+## re-applied from `size_changed` as well as set here, guarded by a meta flag
+## because this is a `static` function with no owning instance for Godot to
+## auto-disconnect -- the connection belongs to the window and dies with it, and
+## the handler re-checks `is_instance_valid` regardless.
+const _OVERSAMPLE_META := "_dcc_oversample"
+
+static func oversample(w: Window, scale: float = 0.0) -> void:
+	if w == null:
+		return
+	if scale <= 0.0:
+		scale = w.content_scale_factor
+	if scale <= 1.0:
+		return
+	w.set_meta(_OVERSAMPLE_META, scale)
+	w.oversampling_override = scale
+	if not w.size_changed.is_connected(_reoversample):
+		w.size_changed.connect(_reoversample.bind(w))
+
+static func _reoversample(w: Window) -> void:
+	if is_instance_valid(w) and w.has_meta(_OVERSAMPLE_META):
+		w.oversampling_override = float(w.get_meta(_OVERSAMPLE_META))
 
 ## The header a borderless phone window draws in place of the title bar it
 ## gave up: the canvas's 56 dp app-bar row, in dp because the window that

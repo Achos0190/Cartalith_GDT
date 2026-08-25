@@ -14,6 +14,27 @@ class_name DccIcons
 ## the display size rather than scaling a larger bitmap is what keeps a 1.2 px
 ## hairline from turning into a grey smear, so `get()` takes the size and
 ## caches per (name, size).
+##
+## **`px` is the size the glyph is *drawn* at, not the size it is *rasterised*
+## at, and on a phone those differ** (`GUI_GAP_REGISTER.md` HD-02). A window
+## presented by `DccWidgets.phone_present()` sets `content_scale_factor` to the
+## handset's own scale and lays its content out in 393 dp; a 12 px glyph in it
+## is 12 *dp* and reaches the panel as 44 physical pixels on a 1440-wide
+## device. Rasterising 12 texels and letting the canvas transform blow them up
+## is exactly the "grey smear" the paragraph above exists to prevent -- it was
+## simply invisible while every phone measured was 1080 wide, where the same
+## fault is 2.75x rather than 3.66x.
+##
+## So `get_icon()` takes a second number: `magnify`, what this glyph will be
+## multiplied by between the layout that sizes it and the pixels that show it.
+## The texture is rasterised at `px * magnify` and **presents** at `px` (via
+## `ImageTexture.set_size_override`), so nothing a caller lays out moves and no
+## call site has to change. `magnify` defaults to 1 -- the unscaled main
+## viewport, where a caller already sizes in real pixels and a larger raster
+## would only be minified back down through a 1.2 px hairline. `rect()` below
+## works the real number out for itself, from the canvas transform at draw
+## time; `DccShell._phone_fit_tool_button()` passes its own, because a `Button`
+## icon is not a node and has no transform to ask.
 
 const STROKE := 'fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"'
 
@@ -94,13 +115,23 @@ const PATHS := {
 	"domain_render": '<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4 V3.2"/><path d="M8 12.8 V14.6"/><path d="M1.4 8 H3.2"/><path d="M12.8 8 H14.6"/><path d="M3.4 3.4 L4.6 4.6"/><path d="M11.4 11.4 L12.6 12.6"/>',
 }
 
-static var _cache: Dictionary = {}  ## "name@size" -> ImageTexture
+static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture
+	## Keyed on the *rasterisation* size as well as the drawn one, because the
+	## same 12 px glyph is a 12-texel bitmap in a dock and a 44-texel one in a
+	## content-scaled window, and the two must not share a cache entry.
 
-## Rasterise `name` at `px` and return a texture drawn in white. Tint it with
-## `modulate` on whatever displays it -- never bake a colour in, or the light
-## theme needs a second copy of every glyph.
-static func get_icon(name: String, px: int = 12) -> Texture2D:
-	var key := "%s@%d" % [name, px]
+## Rasterise `name` and return a texture drawn in white, presenting at `px`.
+## Tint it with `modulate` on whatever displays it -- never bake a colour in, or
+## the light theme needs a second copy of every glyph.
+##
+## `magnify` is what the drawing surface will scale this glyph by before it
+## reaches a physical pixel: 1 in the main viewport (which has no content
+## scale), the handset scale inside a `phone_present()`ed window. See the file
+## header. It never changes the size the glyph *reports*, so it can be raised
+## on an existing call site without moving any layout.
+static func get_icon(name: String, px: int = 12, magnify: float = 1.0) -> Texture2D:
+	var raster := maxi(1, int(round(float(px) * maxf(1.0, magnify))))
+	var key := "%s@%d@%d" % [name, px, raster]
 	if _cache.has(key):
 		return _cache[key]
 	if not PATHS.has(name):
@@ -110,16 +141,58 @@ static func get_icon(name: String, px: int = 12) -> Texture2D:
 	var img := Image.new()
 	# The rasteriser's `scale` is relative to the declared 16 px box, so this
 	# renders natively at the display size rather than resampling.
-	var err := img.load_svg_from_string(svg, float(px) / 16.0)
+	var err := img.load_svg_from_string(svg, float(raster) / 16.0)
 	if err != OK:
 		push_error("DccIcons: '%s' failed to rasterise (%d)" % [name, err])
 		return null
 	var tex := ImageTexture.create_from_image(img)
+	## The half that keeps 66 call sites untouched: `get_width()`/`get_height()`
+	## -- which is what a `TextureRect`, a `Button` icon and every other consumer
+	## lays out against -- report `px`, while the pixels behind them are the
+	## finer raster. Godot draws an `ImageTexture` into `get_size()`, so the
+	## downscale-on-draw is exactly cancelled by the surface's own magnification.
+	if raster != px:
+		tex.set_size_override(Vector2i(px, px))
 	_cache[key] = tex
 	return tex
 
+## The applied magnification, so `_refit_glyph()` below is a no-op on every
+## draw after the one that settled it. Also the marker that says "this
+## TextureRect is a `DccIcons` glyph", which nothing else needs today and the
+## next phone pass will.
+const ICON_META := "dcc_icon_magnify"
+
 ## A TextureRect sized to the glyph and tinted to a theme token, ready to drop
 ## into a row.
+##
+## **The magnification is read off the canvas transform at draw time, not
+## passed in** (`GUI_GAP_REGISTER.md` HD-02). Three earlier shapes of this fix
+## were tried and each was wrong for a real call site:
+##
+##   - a static "device scale" set once by the shell -- wrong in the main
+##     viewport, which has no content scale, where it would rasterise 3.664x
+##     too fine and then minify a 1.2 px hairline back down with no mipmap;
+##   - re-rasterising from `DccShell.phone_fit()`, which knows the number
+##     exactly -- but only reaches a subtree that exists when it runs, and the
+##     open-project dialog builds its action tiles and its import tile on
+##     `navigate()`, long after its one `phone_fit(self, 1.0)` call. Measured:
+##     the search glyph was fixed and the other three were not;
+##   - re-rasterising on `tree_entered`, which fires before `phone_present()`
+##     has set `content_scale_factor` for every glyph built during `setup()`.
+##
+## `get_screen_transform()` is the call, and **not**
+## `get_global_transform_with_canvas()`, which is the one that reads like the
+## right answer: a `CanvasLayer` transform is not a viewport's *final*
+## transform, and a content scale lives in the latter. Measured side by side on
+## all four glyphs of the welcome screen at 1440x3168 -- `gtwc` scale (1.0,
+## 1.0), `screen` scale (3.664122, 3.664122). With the wrong one the fix is
+## silently inert, which is exactly how it first measured.
+##
+## It composes the viewport's final transform with the node's own, so it is the
+## true answer for any surface -- dock, content-scaled window, embedded popup --
+## with no host reference, no call-site change and nothing to keep in sync.
+## Assigning `texture` from inside `draw` queues one more redraw; the meta guard
+## makes the next one a comparison and stops there.
 static func rect(name: String, px: int = 12, token: String = "text_dim") -> TextureRect:
 	var t := TextureRect.new()
 	t.texture = get_icon(name, px)
@@ -127,7 +200,22 @@ static func rect(name: String, px: int = 12, token: String = "text_dim") -> Text
 	t.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	t.modulate = DccTheme.c(token)
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	t.set_meta(ICON_META, 1.0)
+	t.draw.connect(_refit_glyph.bind(t, name, px))
 	return t
+
+## Quantised to 1/16, so a transform that jitters in the last decimal (a
+## float32 `content_scale_factor` is 3.66412210464478, not 3.66412213740458)
+## cannot re-rasterise and re-cache a glyph on every frame.
+static func _refit_glyph(t: TextureRect, name: String, px: int) -> void:
+	var mag: float = maxf(1.0, t.get_screen_transform().get_scale().x)
+	mag = round(mag * 16.0) / 16.0
+	if is_equal_approx(float(t.get_meta(ICON_META, 1.0)), mag):
+		return
+	t.set_meta(ICON_META, mag)
+	var tex := get_icon(name, px, mag)
+	if tex != null:
+		t.texture = tex
 
 ## Text symbols stay text (§12): they are typographic, inherit type metrics and
 ## need no drawing. Listed here so nobody is tempted to draw them.
