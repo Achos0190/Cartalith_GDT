@@ -708,11 +708,25 @@ pub fn manifest_json(project: &ProjectWrite<'_>) -> serde_json::Value {
 
 // =============================== reading ===============================
 
+/// `None` means **the entry is not in the archive**, and nothing else.
+///
+/// Every other failure is `Some(Err(..))`, because the two are not the same
+/// thing and the call sites above treat them differently: an absent optional
+/// raster is normal, an unreadable one is a hole in the user's project. The
+/// case that forced the distinction is a **compression method this build
+/// cannot decode** (`SAVEFILE_COMPAT.md` §3.3) — `zip` reports it at
+/// `by_name` time, and swallowing it with `.ok()?` reported an intact entry
+/// as one that was never written. A re-save would then have dropped it in
+/// silence, which is §6.2's failure mode and KV-04's shape all over again.
 fn read_entry_bytes(
     archive: &mut zip::ZipArchive<impl Read + Seek>,
     name: &str,
 ) -> Option<Result<Vec<u8>, std::io::Error>> {
-    let mut entry = archive.by_name(name).ok()?;
+    let mut entry = match archive.by_name(name) {
+        Ok(entry) => entry,
+        Err(zip::result::ZipError::FileNotFound) => return None,
+        Err(e) => return Some(Err(std::io::Error::other(e.to_string()))),
+    };
     let mut buf = Vec::with_capacity(entry.size() as usize);
     Some(entry.read_to_end(&mut buf).map(|_| buf))
 }
@@ -834,6 +848,11 @@ fn read_tree(
         };
         let bytes = match bytes {
             Ok(b) => b,
+            // Present but unreadable. Fatal only for the terrain, exactly as
+            // a wrong *length* is (§6.4) -- a heightmap this build cannot
+            // decode is not a world, and reporting it as "missing" would
+            // blame the wrong thing.
+            Err(e) if slot.path == CORE_RASTERS[0] => return Err(LoadError::Io(e)),
             Err(e) => {
                 warnings.push(format!("{}: skipped ({e})", slot.path));
                 continue;
@@ -1279,6 +1298,76 @@ mod tests {
             back.warnings[0].contains("annotations/labels.json"),
             "{:?}",
             back.warnings
+        );
+    }
+
+    /// Rewrites one entry's compression-method field, in both the local
+    /// header and the central directory. Done by hand because the `zip`
+    /// crate refuses to *write* a method it cannot also compress with, so
+    /// there is no other way to build an archive this build cannot decode.
+    fn set_compression_method(buf: &[u8], target: &str, method: u16) -> Vec<u8> {
+        let mut out = buf.to_vec();
+        let name = target.as_bytes();
+        let mut patched = 0;
+        // (signature, name-length offset, name offset, method offset)
+        for (sig, nlen_at, name_at, method_at) in [
+            (b"PK\x03\x04", 26usize, 30usize, 8usize),
+            (b"PK\x01\x02", 28, 46, 10),
+        ] {
+            for p in 0..out.len().saturating_sub(name_at) {
+                if &out[p..p + 4] != sig {
+                    continue;
+                }
+                let nlen = u16::from_le_bytes([out[p + nlen_at], out[p + nlen_at + 1]]) as usize;
+                if p + name_at + nlen <= out.len() && &out[p + name_at..p + name_at + nlen] == name
+                {
+                    out[p + method_at..p + method_at + 2].copy_from_slice(&method.to_le_bytes());
+                    patched += 1;
+                }
+            }
+        }
+        assert_eq!(
+            patched, 2,
+            "expected a local header and a central entry for {target}"
+        );
+        out
+    }
+
+    #[test]
+    fn an_undecodable_entry_is_reported_and_never_looks_absent() {
+        // `SAVEFILE_COMPAT.md` §3.3: an entry compressed with a method the
+        // reader has no decoder for is intact and unreadable, which is not
+        // the same thing as absent. Reporting it as absent would let the
+        // next save drop a real payload in silence -- §6.2's failure mode.
+        //
+        // Method 1 (Shrink), not 93 (Zstandard): `zip` is pulled in with
+        // its default features, so this build *can* decode zstd, bzip2,
+        // LZMA, XZ, PPMd and Deflate64 (see §17). The methods it cannot
+        // decode are the legacy PKZIP ones, so the test uses one of those.
+        let (params, fields) = sample(4, 4);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.raster("rasters/territory.i32", Raster::I32(vec![3; 16]));
+        let buf = write_to_vec(&p);
+
+        let odd = set_compression_method(&buf, "rasters/territory.i32", 1);
+        let back = read_project(Cursor::new(&odd)).expect("one odd entry must not cost the world");
+        assert!(back.raster("rasters/territory.i32").is_none());
+        assert_eq!(back.warnings.len(), 1, "{:?}", back.warnings);
+        assert!(
+            back.warnings[0].contains("rasters/territory.i32") && back.warnings[0].contains('1'),
+            "the warning must name the entry and the method: {:?}",
+            back.warnings
+        );
+
+        // The terrain is the one entry whose undecodability is fatal -- and
+        // it is reported as unreadable, not as missing, so the user is told
+        // what is actually wrong.
+        let odd = set_compression_method(&buf, "rasters/heightmap.f32", 1);
+        let err =
+            read_project(Cursor::new(&odd)).expect_err("an undecodable heightmap is not a world");
+        assert!(
+            matches!(&err, LoadError::Io(e) if e.to_string().contains("compression method")),
+            "{err}"
         );
     }
 

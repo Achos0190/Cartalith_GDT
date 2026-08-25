@@ -28374,6 +28374,98 @@ clean; and **driven on the owner's OnePlus 6T**, where the tap fault above was
 found. No Rust changed. `project.godot`'s md5 held across every Godot
 invocation.
 
+## The save's compression, measured — the codec was never the lever (2026-08-25)
+
+Owner question, verbatim: *"Same for the save file, we're using zip as it is
+compatible with the html but what other compression codec could the dedicated
+application use to compress information (and note the html does not have to
+support it it can be dedicated to an app version)"*.
+
+Asked four hours after `DECISIONS.md` §7h ruled the other way on a related
+point — the save format was rewritten as a **specification a JavaScript
+implementation gets written from**, expressly so the HTML app can be upgraded
+to it. A container a browser cannot open would break that, so the two were
+reconciled rather than traded off. **Nothing about the written format
+changed.**
+
+**Measured first, on real worlds.** Three sizes (512², 2048×1311, 4096²) from
+`generate_terrain(seed 24601)`, written as the entries `SAVEFILE_COMPAT.md` §5
+defines, every archive round-tripped and compared byte for byte before its size
+was believed. Full table in `SAVEFILE_COMPAT.md` §18.1; the three findings:
+
+1. **Changing the codec changes almost nothing.** deflate → Zstandard moves the
+   archive by **under 3 %** at every size and level short of 19 (152.7 → 151.8
+   MiB at 4096²). Deflate level 9 and Zopfli confirm the ceiling from the other
+   side — Zopfli buys 1.2 % over shuffle+deflate at 4096², for 54× the write
+   time.
+   Both codecs are LZ77 plus entropy coding, and an IEEE-754 grid's low
+   mantissa bytes are near-random to either.
+2. **Rearranging the bytes first does change it** — a byte-plane shuffle is
+   **−27 % / −33 % / −36 %** at the three sizes with deflate unchanged, and it
+   makes the *write faster* (3.04 s → 1.92 s at 4096²) because there are fewer
+   literals left to encode.
+3. **Zstandard's real gain is time, not size**: 3.04 s → 0.44 s write, 0.43 s →
+   0.18 s read at 4096².
+
+Per entry, the whole difference lives in `heightmap`, `temperature` and
+`rainfall`. Every JSON document in a 4096² archive together is under 5 KiB.
+
+**The reconciliation that was tried and does not work.** ZIP standardised
+Zstandard as method 93 (APPNOTE 6.3.8, not 6.3.7 — method 20 was the earlier,
+deprecated id), so a zstd entry sits inside a still-valid ZIP, and the tempting
+move is per-entry choice: deflate for `project.json` so any browser can at
+least read the manifest, zstd for the rasters. **Both known JavaScript readers
+fail the whole archive, eagerly, at open time, on the first unknown method** —
+the reference's own `unzipAny` throws `unsupported zip method N for <name>`
+inside its central-directory loop, and JSZip throws `Corrupted zip :
+compression N unknown` from `readLocalPart`, which `loadAsync` runs for every
+entry before any content is requested. The manifest never survives. Combined
+with finding 1, method 93 is now refused outright rather than made conditional.
+
+**Shipped:**
+
+- **`SAVEFILE_COMPAT.md` §3.3** (new, normative): a writer MUST use only method
+  0 and method 8; a reader MUST support both and MAY support more; and **an
+  entry whose method the reader cannot decode is intact and unreadable, which
+  is not the same thing as absent** — §6.4 then decides (fatal for
+  `project.json` and `rasters/heightmap.f32`, skipped-and-reported otherwise,
+  naming the method). A reader whose zip library refuses the whole archive is
+  also conforming.
+- **`SAVEFILE_COMPAT.md` §18** (new, non-normative): the measurement, the
+  JSZip/`unzipAny` finding, and the two levers held back as owner decisions.
+- **One real read-path defect, found by writing §3.3 down.** `project.rs`'s
+  `read_entry_bytes` did `archive.by_name(name).ok()?`, which collapsed *every*
+  `zip` error into `None` — the same value that means "not in the archive".
+  An entry compressed with a method this build could not decode therefore
+  reported as **absent**, so an optional raster was skipped in silence and
+  `read_project` would have let the next save drop an intact payload without
+  telling anyone (§6.2's exact failure mode, and KV-04's shape). `None` now
+  means `FileNotFound` and nothing else; every other error is `Some(Err(..))`
+  and reaches the warning list. An undecodable heightmap is fatal as
+  `LoadError::Io` carrying the method, rather than the misleading
+  `MissingEntry`.
+- **`SAVEFILE_COMPAT.md` §17**: disclosed that this build decodes far more
+  methods than the format uses (`zip` is taken with default features, so
+  Zstandard, bzip2, LZMA, XZ, PPMd and Deflate64 decoders are all compiled in),
+  and that this is incidental rather than a promise.
+
+**Verified:** `an_undecodable_entry_is_reported_and_never_looks_absent` builds
+an archive by hand-patching one entry's compression-method field in both the
+local header and the central directory — the `zip` crate refuses to *write* a
+method it cannot also compress with, so there is no other way to make one. It
+uses method 1 (Shrink), because 93 is decodable here. Mutation-checked:
+restoring the `.ok()?` collapse makes it fail. Workspace **140 binaries /
+2 260 passed / 0 failed / 8 ignored**, before and after.
+
+**Held back for the owner, not decided here.** The byte-plane shuffle is the
+only measured win worth having and it keeps method 8, so every zip reader still
+opens the container — but it ends §8's promise that a raster is a bare
+little-endian dump a `Float32Array` view can sit straight on, and a reader that
+ignored the marker would read plausible-looking noise rather than fail.
+Quantising the heightmap to `u16` with a scale and offset is larger still and
+is **lossy**, which `PARITY_TESTING.md` and `DECISIONS.md` §7a do not permit
+this port to trade away on its own. Both are costed in §18.4.
+
 ## The generation peak, audited on the handset — 618 MiB, 241.5 bytes a cell (2026-08-25)
 
 **Audit only. No `.rs` and no `.gd` file outside two throwaway probes was

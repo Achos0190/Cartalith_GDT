@@ -7888,3 +7888,36 @@ labelled as outside it.
 was a diagnosis): collapse `_draw_dashed_polyline` into a single
 `draw_multiline`, the change `urban_layout_draw.gd` already made for roof ink;
 and bound the overlay by zoom, which today nothing does.
+
+## Save compression: measured and left alone — the codec was never the lever (2026-08-25)
+
+A section rather than another clause on `Last updated:`, per this file's own
+header block. Full record: `CHANGELOG.md`'s last entry and
+`SAVEFILE_COMPAT.md` §3.3 / §18.
+
+Owner asked what codec a dedicated app could use now that the HTML no longer
+has to read the container. Measured on real worlds at 512², 2048×1311 and
+4096², every archive round-tripped byte for byte:
+
+- **Codec swap buys under 3 %.** deflate → zstd is 152.7 → 151.8 MiB at 4096².
+  Deflate level 9 and Zopfli confirm the ceiling (Zopfli: 1.2 % better than
+  shuffle+deflate for 54× the write time).
+- **A byte-plane shuffle buys 27-36 %**, keeps method 8, and writes *faster*.
+  It is the only real lever, and it is **held for an owner decision** — it ends
+  §8's bare-dump promise and a reader ignoring the marker would read noise, not
+  fail.
+- **Zstd's gain is time**: 3.04 s → 0.44 s write at 4096².
+- **Per-entry method mixing does not work.** Both JavaScript readers (the
+  reference's own `unzipAny`, and JSZip) reject the *whole archive* eagerly on
+  the first unknown method, so keeping `project.json` on deflate buys a browser
+  nothing. Method 93 is refused outright by §3.3.
+
+**Done:** §3.3 (normative: writers 0/8 only; an undecodable entry is *not* an
+absent one), §18 (the measurement), and the read-path defect that finding it
+exposed — `read_entry_bytes` collapsed every `zip` error into "absent", so an
+undecodable optional raster was skipped in silence and would have been dropped
+by the next save.
+
+**Open, owner-actionable:** the shuffle (needs a `format_version` bump and a
+fail-loud marker), and quantising rasters to `u16` (lossy — `PARITY_TESTING.md`
+and `DECISIONS.md` §7a bar it without a ruling). Both costed in §18.4.

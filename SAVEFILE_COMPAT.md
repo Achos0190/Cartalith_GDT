@@ -18,6 +18,9 @@ note about what the HTML app's `exportZip()` happened to produce.
 - **§15** — the legacy flat layout, read-only.
 - **§16** — what is deliberately not stored, and why.
 - **§17** — notes specific to this port's own implementation (non-normative).
+- **§18** — why the container is deflate, measured. Non-normative, but it is
+  the reason §3.3 says what it says, and it carries two levers that are open
+  owner decisions rather than settled ones.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used in the
 RFC 2119 sense.
@@ -89,7 +92,7 @@ custom.
 | Property | Requirement |
 |---|---|
 | Signatures | Standard: local header `PK\x03\x04`, central directory `PK\x01\x02`, end of central directory `PK\x05\x06` |
-| Compression | Method **0 (store)** or method **8 (deflate)** only. Writers SHOULD use deflate. Readers MUST support both. |
+| Compression | Method **0 (store)** or method **8 (deflate)** only. Writers SHOULD use deflate. Readers MUST support both. See §3.3. |
 | Checksums | Standard CRC-32 per entry |
 | Encryption | MUST NOT be used |
 | Entry names | UTF-8, forward slashes as separators, no leading `/`, no `.` or `..` segments, no backslashes |
@@ -118,6 +121,35 @@ Build the archive fully (in memory, or in a temporary file beside the target)
 and move it into place only once it is complete. A save that fails must leave
 the previous save intact. This is the one behaviour a save command cannot get
 wrong.
+
+### 3.3 Compression methods, and the one a reader cannot decode
+
+**A writer MUST use only method 0 (store) and method 8 (deflate).** No other
+method may appear in a conforming archive — in particular not method 93
+(Zstandard, standardised by APPNOTE 6.3.8), nor 12 (bzip2), 14 (LZMA) or 95
+(XZ). All four are legal PKZIP; none of them is decodable in a browser
+without shipping a decoder alongside the page. §18 records what was measured
+before this rule was written, and why the obvious workaround — deflate for the
+small documents, something denser for the big rasters — does not work.
+
+**A reader MUST support method 0 and method 8. Nothing more is required.** A
+reader MAY support more; because no conforming writer emits more, supporting
+more changes nothing about the format and is never a substitute for the rule
+above.
+
+**An entry whose compression method the reader cannot decode is intact and
+unreadable, which is not the same thing as absent. A reader MUST NOT conflate
+the two.** Having distinguished them, §6.4 decides the rest: refuse the
+archive when the entry is `project.json` or `rasters/heightmap.f32`, and
+otherwise skip it and report it, naming both the entry and the method number
+so the user can be told what is actually wrong.
+
+A reader whose zip library refuses the whole archive the moment it meets an
+unknown method is **also conforming** — both known JavaScript readers do
+exactly that (§18), and the archive was invalid anyway. What is not conforming
+is reporting the entry as one that was never written: §6.2's obligation turns
+on exactly that distinction, because an entry reported as absent is an entry
+the next save drops without telling anyone.
 
 ---
 
@@ -1054,6 +1086,14 @@ be discarded by clicking elsewhere is stored.
   change to be persisted.
 - `strahler_order` is 8-bit in the archive and wider in memory; it saturates at
   255 on the way out, matching the reference exporter's own `o > 255 ? 255 : o`.
+- **This build decodes far more compression methods than the format uses.**
+  The `zip` crate is taken with its default features, which bring in
+  Zstandard (93), bzip2 (12), LZMA (14), XZ (95), PPMd (98) and Deflate64 (9)
+  decoders. That is incidental, not a promise: §3.3 is what a second
+  implementation must satisfy, and this port still writes only method 8 (and
+  method 0 for `preview.png`, which is already-compressed PNG). The methods
+  it genuinely cannot decode are the legacy PKZIP ones (1-6), which is why
+  §3.3's own round-trip test uses method 1.
 - Round-trip coverage lives in `crates/cartalith-io/src/project.rs`'s own test
   module, `crates/cartalith-godot/src/project_bridge.rs`'s, and
   `crates/cartalith-godot/tests/project_round_trip.rs`.
@@ -1068,3 +1108,101 @@ state today; retaining the bytes is real work through every layer between the
 reader and the save button, and no implementation writes a foreign entry yet.
 When the HTML app starts writing payloads this port does not model, closing
 this is the first thing that has to happen.
+
+---
+
+## 18. Why the container is deflate — measured, 2026-08-25
+
+**Non-normative.** This section is the evidence behind §3.3, and it exists
+because the question it answers ("a dedicated application does not need the
+browser's codec — so what should it use?") has a counter-intuitive answer that
+is expensive to re-derive and easy to get wrong from first principles.
+
+### 18.1 What was measured
+
+Three real generated worlds (seed 24601, no civilisation layer), written as
+the entries §5 and §8 define, each archive round-tripped and compared byte for
+byte before its size was recorded. "shuffle" is an HDF5/Blosc-style byte-plane
+transform applied to the 4-byte rasters before compression — all the byte-0s,
+then all the byte-1s, and so on — which is lossless and exactly reversible.
+
+Whole-archive size:
+
+| Variant | 512² | 2048×1311 | 4096² | write @4096² | read @4096² |
+|---|---|---|---|---|---|
+| stored (raw payload) | 5.3 MiB | 53.8 MiB | 336.0 MiB | 0.09 s | 0.03 s |
+| **deflate — what is written today** | **2.3 MiB** | **24.9 MiB** | **152.7 MiB** | **3.04 s** | **0.43 s** |
+| deflate, level 9 | 2.3 MiB | 24.5 MiB | 148.7 MiB | 4.17 s | 0.54 s |
+| zstd, level 3 | 2.3 MiB | 24.8 MiB | 151.8 MiB | 0.44 s | 0.18 s |
+| zstd, level 9 | 2.3 MiB | 24.6 MiB | 148.4 MiB | 1.59 s | 0.21 s |
+| shuffle + deflate | 1.7 MiB | 16.7 MiB | 97.2 MiB | 1.92 s | 0.34 s |
+| shuffle + zstd, level 3 | 1.7 MiB | 16.5 MiB | 95.4 MiB | 0.52 s | 0.24 s |
+| shuffle + zstd, level 9 | 1.7 MiB | 15.6 MiB | 85.2 MiB | 1.57 s | 0.25 s |
+| shuffle + zstd, level 19 | 1.7 MiB | 14.9 MiB | 79.4 MiB | 19.82 s | 0.29 s |
+
+Per entry at 4096², against today's deflate, the whole difference is in three
+files: `heightmap.f32` 53.6 → 33.9 MiB, `temperature.f32` 54.5 → 34.6 MiB and
+`rainfall.f32` 42.2 → 26.7 MiB under the shuffle. `volcanic_field` and
+`impact_field` are already near-empty (1.6 MiB and 0.7 MiB), `strahler_order`
+is 28 KiB, and every JSON document in the archive together is under 5 KiB.
+**Any change that does not move the three float grids is optimising nothing.**
+
+### 18.2 Three findings
+
+1. **Changing the codec changes almost nothing.** Deflate → Zstandard moves
+   the archive by under 3% at every size and every level short of 19. Both are
+   LZ77 plus entropy coding, and the low mantissa bytes of an IEEE-754 grid
+   are close to random to either of them. Deflate at level 9 and Zopfli (a
+   much slower deflate encoder: 1.2% better than shuffle+deflate at 4096², for
+   54× the write time) confirm the same ceiling from the other direction.
+2. **Rearranging the bytes before compressing does change it**, by 27% at
+   512², 33% at 2048×1311 and 36% at 4096² — with deflate, unchanged. It also
+   makes the *write faster* (3.04 s → 1.92 s at 4096²), because there are far
+   fewer literals left to encode.
+3. **Zstandard's real gain is time, not size**: 3.04 s → 0.44 s to write and
+   0.43 s → 0.18 s to read, at 4096². If saving a large world ever feels slow,
+   that is the lever — and it is a lever with a compatibility price, below.
+
+### 18.3 Why per-entry method mixing does not rescue Zstandard
+
+The tempting reconciliation is to keep `project.json` and `params.json` on
+deflate — so that any reader, browser included, can at least open the manifest
+and say what the file is — and use method 93 only for the big rasters a
+browser was never going to want. **It does not work.** Both known JavaScript
+readers reject the *whole archive*, eagerly, at open time, on the first entry
+whose method they do not know:
+
+- The reference app's own `unzipAny` walks the central directory and does
+  `else throw new Error('unsupported zip method '+method+' for '+name)` inside
+  that loop, before any entry's data is returned to the caller.
+- JSZip throws `Corrupted zip : compression <n> unknown (inner file : <name>)`
+  from `readLocalPart`, which runs for every entry during `loadAsync` —
+  not lazily when the entry's content is requested.
+
+So a single method-93 entry costs the browser the manifest too, and the
+graceful-degradation story the mixing idea depends on never happens. Combined
+with finding 1 — under 3% for the whole exercise — method 93 is refused
+outright by §3.3 rather than made conditional.
+
+### 18.4 Two levers that are owner decisions, not this document's
+
+**The byte-plane shuffle.** It is the only measured change worth having, it
+keeps method 8 so every zip reader still opens the container, and it is about
+ten lines in either language. What it costs is §8's promise that a raster
+entry is a bare little-endian dump a JavaScript reader can put a typed-array
+view straight onto. That promise would have to be replaced by a
+`format_version` bump and an explicit marker — and the hazard is that a reader
+which ignored the marker would not fail, it would read *plausible-looking
+noise*, which is the one failure mode this format is built to avoid. Making it
+fail loudly instead would mean distinct entry names, and §8's rule that the
+extension names the element type has no room for a second axis. Not adopted
+here; it needs an owner decision, and it is worth putting to one.
+
+**Quantisation.** Storing the heightmap as `u16` with a scale and an offset,
+GeoTIFF-style, halves the payload before compression and compresses far better
+than f32 afterwards — the largest available win by some distance. It is
+**lossy**. `PARITY_TESTING.md` and `DECISIONS.md` §7a make bit-exact raster
+values a property this port tests against the reference engine, and a save
+that returns a different float than it was given would break that on the load
+path as well as the save path. Costed and deliberately not built; moving that
+bar is an owner decision.
