@@ -27234,3 +27234,123 @@ close / reopen / autosave, 19 assertions). Windowed, on a real 233-settlement
 six-faction world: `_wiredfix_probe` **PASS/0**, `_winstale_probe` **PASS/0**,
 `_newsurf_probe` **PASS/0**, `_rf01_probe` **0 failures**, `_menuwire_probe`
 down to its one registered non-gap.
+
+## Nine screens the phone pass never reached (`GUI_GAP_REGISTER.md` PH-12, 2026-08-25)
+
+The owner ran the Android build on a OnePlus 12 — 1440x3168, about 510 ppi, so
+the shell's phone scale is 1440/393 = 3.664, a third again higher than the 1080
+short side every prior phone measurement in this project was taken at. He named
+one screen and described the rest: *"not all screens are optimised for a mobile
+phone, among others the asset manager screen. Plus the layout is impractical and
+doesn't listen well to touch input and isn't intuitive."*
+
+What was wrong is not that those screens were badly adapted. They were not
+adapted at all. This shell has had a working four-call phone pattern since PH-06
+— `phone_window()` at setup, `phone_present()` on open, `phone_fit()` after the
+body is built, `phone_head()` for the header a borderless window draws in place
+of its title bar — and nine `Window`-derived scripts called none of it. Zero
+occurrences of any of the four, in any of them. So each one opened as its
+desktop composition drawn at the device's native resolution, which on a 510 ppi
+panel makes a 24 px `dcc_widgets` row about 1.2 mm of glass. Measured in a real
+windowed run at 1440x3168 with the force-touch path: the asset library's 59
+tappable controls were all 59 under section 13's 44 dp floor, the smallest 13
+physical pixels; the data manager's route rows 22; the layers popover 40 of 52,
+its opacity slider 14; the travel library's animal rows 26.
+
+The content scale answers density and the fit walk answers tap size. Neither
+answers composition, and that is the half worth writing down. The asset library's
+design canvas is a 266 px family rail, a slot grid and a 330 px inspector — the
+rail and the inspector alone are 596 of the 393 dp a phone has before the grid
+gets a pixel. Section 13 already says what a dock does on a phone: it becomes a
+full-height sheet, one at a time. So the three columns became three panes behind
+a segmented switcher, and the switcher follows the work rather than waiting to be
+pressed — picking a family moves to SLOTS, tapping a slot moves to SLOT, which is
+what the desktop layout does implicitly by having all three visible at once. The
+data manager and the travel library are the same shape with two panes. The
+sprite-sheet slicer stacks its preview over a settings column that now scrolls.
+The journey planner's centre panel — the one screen here that is not a Window at
+all, and therefore has no content scale to lean on — stacks its route totals
+under its map and its stage matrix under its inspector, and is fitted with the
+phone scale rather than 1.0, because in the main viewport the compositor has
+applied nothing.
+
+Two screens needed an argument rather than a stack.
+
+World data is a spreadsheet, and dropping a spreadsheet on a phone is not a
+scaling problem. Six clip_text columns across 393 dp is 55 dp each, wide enough
+for "Popul…" and nothing else, and the settlements tab was building roughly 1 470
+individual Label nodes for 240 rows reachable through an 8 px scrollbar. A row
+now lays out on two lines, name over the remaining columns, so every column
+survives instead of the ones that fit worst being dropped; the header builds the
+identical two-line shape, which is what keeps it over its own cells. And the
+table stops at 50 rows with a "showing 50 of 240" foot and a button for the next
+page, because the filter field above it is the real answer to "find this
+settlement" and seventeen hundred nodes to scroll past is not.
+
+The layers popover had to be checked before it was built, because a popover may
+simply be the wrong control on a handset and section 13 routes several desktop
+affordances into the overflow sheet instead. It is reachable on a phone, by three
+separate routes, so it needed real work — and it became a full-screen sheet
+rather than a shrunken popover. A popover is a pointer idiom: anchored to the
+control that opened it, dismissed by clicking away from it. A phone has neither a
+stable anchor, since the Layers button moves with the safe insets, nor a reliable
+"away". Which is also why it grew an explicit Close, a sheet that covers the
+screen having no outside left to tap, and why its foot moved inside the scroll:
+the six-line Cartography cross-reference note, pinned below a 393 dp list, pushed
+its own last two lines off the bottom edge where no scroll could reach them.
+
+Five things came out of measuring rather than looking, and each is a blind spot
+the next pass would otherwise re-discover. `AcceptDialog` parents its whole
+button bar as an internal child, so `phone_fit()` — which walks `get_children()`
+— has never once reached it; on four of these windows that button is the only way
+out, and it measured 29 dp. It is floored in `phone_present()` now, after the
+popup rather than before, because `Window.popup()` clears `custom_minimum_size`
+when it re-lays that bar — the same trap `_floor_prompt_buttons()` recorded for
+the quit prompt. `TabContainer`'s tab strip is an internal `TabBar` with the same
+blind spot and no height property at all, so its height has to be bought through
+the stylebox's vertical content margins. `phone_fit()`'s ellipsis pass reaches
+only Buttons, so an unclipped Label still reports its full natural width — and a
+Window cannot be narrower than its content's minimum, so three separate label
+rows each widened a whole window past the screen on their own, one of them by
+exactly one pixel because of a panel's 1 px border. An embedded subwindow is laid
+out in its parent viewport's 2D space, so the slicer modal, being a child of a
+window content-scaled by 3.664, would have been sized in units 3.66 times larger
+than the screen it was asked to fill; it is parented to the shell now.
+
+And the credits window's body was empty. Not on a phone — everywhere, and for as
+long as `open_credits()` has looked the way it did. `_ready()` fires when a node
+enters the tree, and `add_child(dlg)` is what puts it there, so by the time
+`set_script()` attached `credits.gd` that script's `_ready()` had already missed
+its only chance to run; attaching a script to a node already inside the tree does
+not re-run it. The window opened with a correctly built, correctly named,
+entirely blank RichTextLabel, and the attribution `PROVENANCE.md` calls a
+standing obligation was reaching nobody. It measures 4 420 characters now where
+it measured 0.
+
+**Verified.** `_ph9_probe.gd`, driven windowed at 1440x3168 (scale 3.664) and
+1080x2400 (scale 2.748), `--force-touch --nowelcome`, on a generated world. Per
+window: content scale factor, size against the screen, every tappable's height
+against the floor, every control's combined minimum width against *the window's
+own 393 dp column* rather than the screen's 1440 px — comparing dp against
+physical px finds nothing and misses this entire class of fault — and whether
+each body actually scrolls. All nine screens plus the slicer: content scale
+3.664, **zero** tappables under the floor out of 42/20/18/18/41/1/2/0/0, **zero**
+controls whose minimum width exceeds the column, every pane scrolling.
+Identical at 1080x2400, so no regression at the size every prior pass used.
+Desktop re-measured and unchanged: 1440x1002 under the menu bar for the two
+full-bleed windows, 1180x780 / 760x620 / 560x480 / 560x420 for the dialogs,
+760x560 for the slicer, 230x600 for the anchored popover, six-column asset grid,
+three columns side by side.
+
+**Still open.** The layers sheet and a phone overlay can be open at once —
+`_close_all_phone_overlays()` knows about the drawer, the panel picker, the phone
+menu and both dock sheets, and nothing about subwindows. The one-line fix belongs
+in `dcc_shell.gd`, which a concurrent agent held during this pass; committing
+that file would have carried their in-flight work with it, so it is registered
+rather than done. One back press already closes the sheet first, so the state is
+reachable but not a trap. Two probe artifacts are recorded in the register so the
+next pass does not chase them: `--resolution` is silently clamped to the dev
+monitor's work area and the shell then boots into tablet mode off the wrong size,
+and `Window.popup(Rect2i)` clamps to the host monitor's usable rect rather than
+to the root viewport, which makes a correctly-filling phone window read as
+1440x1002 on a desktop box and has no counterpart on Android.

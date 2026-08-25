@@ -1519,7 +1519,7 @@ func open_credits() -> void:
 	dlg.title = "Credits & academic principles"
 	dlg.size = Vector2i(720, 640)
 	dlg.ok_button_text = "Close"
-	## PH-07. A phone gets the shared treatment: borderless, a content-scaled
+	## PH-12. A phone gets the shared treatment: borderless, a content-scaled
 	## fill and the tap floor. The two authored minimums go with the desktop
 	## branch -- 680x560 and a 660 px measure inside a 393 dp column would widen
 	## the window past the screen, and a `Window` cannot be narrower than its

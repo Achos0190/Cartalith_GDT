@@ -191,7 +191,7 @@ const TILE_SIZES: Array[int] = [256, 512, 1024]
 # State
 # ---------------------------------------------------------------------------
 
-## Phone (§13) -- PH-07. Same shape and the same answer as
+## Phone (§13) -- PH-12. Same shape and the same answer as
 ## `asset_library_window.gd`: a 252 px routes rail beside a pane does not fit
 ## 393 dp, so the two become panes behind a two-way switcher, and selecting a
 ## route moves to the route. `DccWidgets.phone_window()`'s header carries the
@@ -291,7 +291,7 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	wrap_controls = false
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(1024, 640)
-	## PH-07: rotation relay plus the "may I stack?" answer. Also re-asserts
+	## PH-12: rotation relay plus the "may I stack?" answer. Also re-asserts
 	## `wrap_controls = false`, which this window already set for its own reason
 	## above.
 	_phone = DccWidgets.phone_window(self, host)
@@ -316,7 +316,7 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 ## is already in the right space. The Asset library window carried the identical
 ## bug (same code, copied) and is fixed the same way.
 func _popup_full() -> void:
-	## PH-07: a phone fills the whole screen -- §13 relocates the app menu bar
+	## PH-12: a phone fills the whole screen -- §13 relocates the app menu bar
 	## into the ⋯ overflow sheet, so there is nothing for this window to sit
 	## under and the 34 px reserved for it is 125 physical px of nothing.
 	if DccWidgets.phone_present(self, _host):
@@ -367,7 +367,7 @@ func _build() -> void:
 	if _phone:
 		outer.add_child(_build_phone_switcher())
 
-	## PH-07: rail beside pane on a pointer, one at a time on a phone.
+	## PH-12: rail beside pane on a pointer, one at a time on a phone.
 	var main: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -384,7 +384,7 @@ func _build() -> void:
 			"import · export · sources · validation")
 		_show_phone_pane("routes")
 
-## PH-07, `asset_library_window.gd`'s switcher with two segments instead of
+## PH-12, `asset_library_window.gd`'s switcher with two segments instead of
 ## three. See there for why this is a segmented row and not a `TabContainer`.
 func _build_phone_switcher() -> Control:
 	var wrap := PanelContainer.new()
@@ -419,7 +419,7 @@ func _show_phone_pane(pane: String) -> void:
 		b.add_theme_color_override("font_color",
 			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
 
-## PH-07. The route pane is cleared and rebuilt on every `_select_route()`, so
+## PH-12. The route pane is cleared and rebuilt on every `_select_route()`, so
 ## its rows have never been through `setup()`'s one-shot fit. Idempotent by
 ## meta-flag (`DccShell.phone_fit`), so re-walking the window only touches what
 ## the rebuild just made.
@@ -446,7 +446,7 @@ func _build_window_bar() -> Control:
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pad.add_child(row)
 
-	## PH-07: the title and its four-area subtitle are what `phone_head()` draws
+	## PH-12: the title and its four-area subtitle are what `phone_head()` draws
 	## in place of the title bar this borderless window gave up, so repeating
 	## them here would be two headers -- and the subtitle's own disclosure lives
 	## in a tooltip, which a phone cannot reach anyway. The bar keeps the one
@@ -474,7 +474,7 @@ func _build_window_bar() -> Control:
 
 func _build_rail() -> Control:
 	var wrap := PanelContainer.new()
-	## PH-07: 252 px is 64% of a phone's 393 dp, and this is a full-width pane
+	## PH-12: 252 px is 64% of a phone's 393 dp, and this is a full-width pane
 	## there. The axis that has to expand changes with the axis it stacks on.
 	if _phone:
 		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -614,7 +614,7 @@ func _build_pane() -> Control:
 	wrap.add_theme_constant_override("separation", 0)
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if _phone:
-		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL   ## PH-07, stacked
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL   ## PH-12, stacked
 
 	var band := DccWidgets.band(wrap, PANE_PAD_X, 14, H_BAND)
 	_pane_title = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 2, true)
@@ -648,7 +648,7 @@ func _build_pane() -> Control:
 func _build_status_line() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"top": 1}))
-	## PH-07: stacked and clipped on a phone, for the reason
+	## PH-12: stacked and clipped on a phone, for the reason
 	## `asset_library_window.gd`'s status line records -- two unclipped `Label`s
 	## side by side report more minimum width than a 393 dp column has, and
 	## `phone_fit()`'s ellipsis pass reaches only `Button`s. The `Esc` hint goes
@@ -867,7 +867,7 @@ func _select_route(id: String) -> void:
 	else:
 		_build_simple_pane(route)
 	_refresh_status()
-	## PH-07: picking a route in the ROUTES pane is a navigation whose whole
+	## PH-12: picking a route in the ROUTES pane is a navigation whose whole
 	## result is the pane next door, so the switcher follows it; and the pane it
 	## just built is fresh nodes that have never been fitted.
 	_phone_refit()
@@ -889,7 +889,7 @@ func _build_simple_pane(route: Dictionary) -> void:
 	_pane_body.add_child(lane)
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	## PH-07: 620 dp of measure inside a 393 dp column widens the window past
+	## PH-12: 620 dp of measure inside a 393 dp column widens the window past
 	## the screen. The reason for the number is "prose set across a 1 400 px
 	## pane is unreadable" -- a phone's column is already narrower than any
 	## measure this was protecting against, so it expands instead.
@@ -987,7 +987,7 @@ func _footer_note(text: String) -> void:
 # ---------------------------------------------------------------------------
 
 func _build_world_data_pane() -> void:
-	## PH-07: the canvas's two equal columns become one stacked column on a
+	## PH-12: the canvas's two equal columns become one stacked column on a
 	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
 	## 393 dp and every `120px label · control` row inside them would overlap
 	## rather than clip.
@@ -1274,7 +1274,7 @@ func _record_wd_run(label: String, r: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func _build_tile_export_pane() -> void:
-	## PH-07: the canvas's two equal columns become one stacked column on a
+	## PH-12: the canvas's two equal columns become one stacked column on a
 	## phone -- `COL_GAP` apart, both `EXPAND_FILL`, they would each get half of
 	## 393 dp and every `120px label · control` row inside them would overlap
 	## rather than clip.

@@ -6986,3 +6986,202 @@ Recorded so the next pass does not re-walk them.
 - **A recent-worlds row whose file has vanished stays in the list.** FI-04 makes
   it say so; whether the row should then be greyed, removed, or offer to forget
   itself is a product decision, not wiring.
+
+---
+
+## 46 · PH-12 — nine screens that never had a phone pass at all (2026-08-25) — **FIXED**
+
+The owner ran the Android build on a **OnePlus 12** — 1440x3168, ~510 ppi, so
+`DccShell._phone_scale` is `1440 / 393 = 3.664`. Every prior phone measurement
+in this project was taken at a 1080 short side (scale 2.75), and none of them
+was taken on any of the screens below. His words:
+
+> *"not all screens are optimised for a mobile phone, among others the asset
+> manager screen. Plus the layout is impractical and doesn't listen well to
+> touch input and isn't intuitive."*
+
+### The fault
+
+The shell has a working, four-call phone pattern, written across PH-03 to
+PH-11 and documented in `dcc_widgets.gd`'s own header:
+`DccWidgets.phone_window()` at setup, `DccWidgets.phone_present()` on open,
+`DccShell.phone_fit(self, 1.0)` after the body is built, and
+`DccWidgets.phone_head()` for the header a borderless window draws in place of
+its title bar.
+
+**Nine `Window`-derived scripts called none of it — zero occurrences of any of
+the four.** They are not degraded on a phone; they are simply the desktop
+composition, drawn at the device's native resolution, which on a 510 ppi panel
+means a 24 px `dcc_widgets` row is about 1.2 mm of glass.
+
+Measured in a real windowed run at 1440x3168 with the force-touch path
+(`_ph9_probe.gd`), before the fix. "Under floor" is §13's 44 dp minimum, which
+at this scale is 161 physical px:
+
+| Screen | Window | Tappables under floor | Smallest |
+|---|---|---|---|
+| `asset_library_window.gd` | 1440x1002 @ y=34, scale 1.0 | **59 of 59** | **13 px** |
+| `data_manager_window.gd` | 1440x1002 @ y=34, scale 1.0 | 16 of 16 | 22 px |
+| `travel_library_window.gd` | 1180x841 centred | 17 of 17 | 26 px |
+| `layers_popover.gd` | 230x600 anchored | 40 of 40 | 14 px |
+| `world_data_window.gd` | 760x620 centred | 1 of 1 | 29 px |
+| `gen_info_dialog.gd` | 560x513 centred | 1 of 2 | 29 px |
+| `performance_window.gd` | 560x437 centred | — (its only control is internal) | — |
+| `credits.gd` / `app.gd::open_credits()` | 720x640 centred | — (same) | — |
+| `journey_planner_view.gd` (centre panel) | not a `Window` | — | — |
+
+A parallel sweep on a generated world adds the numbers the empty state hides:
+the world-data settlements table is **1 470 individual `Label` nodes** across
+240 rows at font size 9, reachable only through an ~8 px scrollbar; the data
+manager's body labels are 39 of 69 under 11 px.
+
+### What a content scale fixes, and what it does not
+
+`phone_present()` maps the whole desktop-authored composition onto the
+mockup's own 393 dp reference. That answers density, and `phone_fit()` answers
+tap size. Neither answers **composition**, which is exactly why
+`phone_window()` returns `is_phone`:
+
+- **Asset library**: a 266 px family rail + a slot grid + a 330 px inspector.
+  The rail and the inspector alone are 596 of the 393 dp available. → three
+  panes behind a segmented switcher, one at a time (§13's own *"docks become
+  full-height sheets, one at a time"*), with the switcher following the work:
+  pick a family → SLOTS, tap a slot → SLOT.
+- **Data manager**: 252 px rail + pane → two panes, same switcher.
+- **Travel library**: 286 px rail + inspector → two panes, switched by the tab
+  strip it already has plus a `‹ Entries` chip.
+- **Slicer modal**: a flexible preview beside a fixed 274 px settings stack →
+  stacked, with the settings column scrolling.
+- **Journey planner centre panel**: a 196 dp totals column beside the route
+  map, and a 642 dp stage matrix beside the stage inspector → both stack.
+- **Layers popover**: not a composition problem — a **control-type** problem.
+  See below.
+- **World data**: not a composition problem either. Six columns across 393 dp
+  is ~55 dp each. → two-line rows, name over the rest, and a 50-row page with
+  a *"showing 50 of 240"* foot.
+
+### Five things only measurement found
+
+1. **`AcceptDialog`'s button bar is an internal child.** `phone_fit()` walks
+   `get_children()`, so it has *never* reached the OK button — the only way
+   out of `gen_info`, `performance`, `world_data` and the credits sheet.
+   Measured 29 dp. Floored in `phone_present()` instead, **after** the
+   `popup()`, because `Window.popup()` clears `custom_minimum_size` when it
+   re-lays that bar (the trap `app.gd::_floor_prompt_buttons()` recorded for
+   the quit prompt, hit again here).
+2. **`TabContainer`'s tab strip is an internal `TabBar`** — same blind spot,
+   same consequence. A tab has no height property; its height is the font plus
+   the stylebox's vertical content margins, so those are the knob. 26 dp stock.
+3. **`phone_fit()`'s ellipsis pass reaches only `Button`s.** A `Label` still
+   reports its full natural width, and *a `Window` cannot be narrower than its
+   content's minimum* (the PH-04 hazard). Three separate `Label` rows each
+   widened a window past the screen on their own: the asset grid's header band
+   with five batch verbs beside it (544 dp), its status line's two labels side
+   by side (401 dp), and the data manager rail's autowrap foot at **394 dp** —
+   one pixel over, because of the panel's own 1 px border.
+4. **An embedded subwindow is laid out in its parent viewport's 2D space.**
+   The slicer modal was a child of the asset library window, whose viewport is
+   content-scaled by 3.664 on a phone — so a slicer sized to "fill the screen"
+   from inside it would have been sized in units 3.66x larger than the screen.
+   Reparented to the shell. This is the same physical-pixels-versus-parent-
+   space confusion `_popup_full()` already records, one level further in.
+5. **The credits body was empty, on every platform.** Not a phone bug at all,
+   found while giving that window the phone treatment. `_ready()` fires when a
+   node enters the tree, and `add_child(dlg)` is what put it there — so by the
+   time `set_script()` attached `credits.gd`, its `_ready()` had already missed
+   its only chance to run. Attaching a script to a node already in the tree
+   does not re-run it. Measured: **0 characters** in the `RichTextLabel`, now
+   4 420. The attribution `PROVENANCE.md` calls a standing obligation had been
+   reaching nobody.
+
+### The Layers popover: checked before it was built
+
+A popover may simply be the wrong control on a handset, and §13 routes several
+desktop affordances into the ⋯ overflow sheet instead — so the first question
+was whether this one is reachable on a phone at all. **It is, by three
+routes**: the map's own Layers button (`viewport.layers_button_pressed`),
+Cartography ▸ *Data overlays…* (`cartography_workspace.gd`), and the Render
+section's own entry (`render_workspace.gd`).
+
+So it needed real work, and it became a **full-screen sheet**, not a scaled
+popover. A popover is a pointer idiom: anchored to the control that opened it,
+dismissed by clicking away from it. A phone has neither a stable anchor (the
+Layers button moves with the safe insets) nor a reliable "away". That is also
+why it grew an explicit Close — a sheet that covers the screen has no outside
+left to tap — and why its foot moved *inside* the scroll: the six-line
+Cartography cross-reference note, pinned below a 393 dp list, pushed its own
+last two lines off the bottom edge where no scroll could reach them.
+
+`DccWidgets.phone_window()` takes an `AcceptDialog` and this is a
+`PopupPanel`, so only the halves that apply were used: `phone_present()`
+(which takes any `Window`), a `phone_head()`, and `wrap_controls = false` by
+hand.
+
+### Verified
+
+`_ph9_probe.gd` / `_ph9_probe.tscn`, driven at **1440x3168** (scale 3.664) and
+**1080x2400** (scale 2.748), `--force-touch --nowelcome`, on a generated world.
+Per window: `content_scale_factor`, `size` against the screen, every
+tappable's height against the floor, every control's combined minimum width
+against the **window's own 393 dp column** (not against the screen's 1440 px —
+comparing dp against physical px finds nothing and misses this whole class),
+and whether each body actually scrolls. Screenshots of all ten surfaces.
+
+| Screen | tappables | under floor | min.x > 393 dp | scale |
+|---|---|---|---|---|
+| Asset library | 42 | **0** | **0** | 3.664 |
+| Sprite-sheet slicer | 20 | 0 | 0 | 3.664 |
+| Data manager | 18 | 0 | 0 | 3.664 |
+| Travel library | 18 | 0 | 0 | 3.664 |
+| Layers sheet | 41 | 0 | 0 | 3.664 |
+| World data | 1 | 0 | 0 | 3.664 |
+| Gen info | 2 | 0 | 0 | 3.664 |
+| Performance | 0 | 0 | 0 | 3.664 |
+| Credits | 0 | 0 | 0 | 3.664 |
+
+Identical at 1080x2400 (column 393.0 dp, scale 2.748) — **no regression at the
+size every prior pass used**. Desktop unchanged and re-measured: 1440x1002
+under the menu bar for the two full-bleed windows, 1180x780 / 760x620 /
+560x480 / 560x420 for the dialogs, 760x560 for the slicer, 230x600 for the
+anchored popover, six-column asset grid, three columns side by side.
+
+One back press closes the Layers sheet (`DccShell::_notification`'s
+`_topmost_subwindow` reaches it, because it is a subwindow).
+
+### Two probe artifacts, recorded so the next pass does not chase them
+
+- **`--resolution 1440x3168` is silently clamped** to the dev monitor's work
+  area, and `_compute_layout_mode()` then decides *tablet* off the boot size,
+  so the whole run measures the wrong composition. Assign `get_window().size`
+  at runtime **before** instantiating `app.tscn`.
+- **`Window.popup(Rect2i)` clamps to `get_usable_parent_rect()`**, which for a
+  subwindow on a desktop host resolves to
+  `DisplayServer.screen_get_usable_rect()` — 1680x1002 here, **not** the
+  1440x3168 root viewport the probe set up. A window that correctly asks to
+  fill the screen is therefore reported at 1440x1002 on this box: the width is
+  real, the height is a desktop artifact with no counterpart on Android, where
+  there is one OS window and every subwindow is embedded in it. `is_embedded()`
+  returns `true` in both cases, so that is not the discriminator. The probe
+  re-asserts `size` after the popup — which *does* raise the resize
+  notification, because the window is visible by then — and measures the
+  result.
+
+### Not fixed, and why
+
+- **The Layers sheet and a phone overlay can be open at the same time.**
+  Measured: with the sheet up, `_set_drawer_open(true)` leaves both visible.
+  `DccShell._close_all_phone_overlays()` lists the drawer, the panel picker,
+  the phone menu and both dock sheets, and does not know about subwindows. The
+  one-line fix belongs in `dcc_shell.gd`, which a concurrent agent was editing
+  during this pass; committing that file would have carried their in-flight
+  work with it. Registered rather than done. Severity is low: one back press
+  already closes the sheet first, so the state is reachable but not a trap.
+- **The asset library's phone window bar is four rows tall** (search, plus
+  three wrapped chip rows), about 24% of the screen. Every action stays
+  reachable and the chips wrap by themselves rather than by a count fixed in
+  code, so this is a proportion question, not a defect — but it is the obvious
+  candidate if that screen is revisited.
+- **Drag-a-tile-onto-a-Collection** is kept on a phone but its disclosure
+  lives in a tooltip, which touch cannot reach. The two pointer-modifier hints
+  beside it (`⇧-click ranges · Ctrl-click adds`) are dropped there; the drag
+  itself is left alone rather than removed on a guess about touch drag.

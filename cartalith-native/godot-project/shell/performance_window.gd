@@ -30,7 +30,7 @@ class_name PerformanceWindow
 var bridge: EngineBridge
 var _body: VBoxContainer
 
-## Phone (§13) -- PH-07. This window had none of the shell's phone treatment, so
+## Phone (§13) -- PH-12. This window had none of the shell's phone treatment, so
 ## it opened as a 560x420 desktop card in the middle of a 1440x3168 panel with
 ## its only way out -- `AcceptDialog`'s own OK button -- measured at 29 dp.
 ## Nothing here needs stacking: it is one column of prose. What it needs is the
@@ -101,7 +101,7 @@ func _rebuild() -> void:
 
 	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance -- no per-device enumeration exists in cartalith-gpu (GPU_LAYER_INTEGRATION_SCOPE.md).")
 
-	## PH-07: every row above is a fresh node, and a generate finishing while
+	## PH-12: every row above is a fresh node, and a generate finishing while
 	## this window is open rebuilds them behind the one-shot fit `open()` did.
 	## Idempotent by meta-flag, so this only touches what was just made.
 	if _phone and get_parent() != null and get_parent().has_method("phone_fit"):

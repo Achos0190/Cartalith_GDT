@@ -24,7 +24,7 @@ var _bridge: EngineBridge
 var _app: Node
 var _text: TextEdit
 
-## Phone (§13) -- PH-07. One column of text, so nothing stacks; what was missing
+## Phone (§13) -- PH-12. One column of text, so nothing stacks; what was missing
 ## was the content scale (this opened as a 560x480 desktop card inside a
 ## 1440x3168 panel), the tap floor on Copy to clipboard, and a way out bigger
 ## than `AcceptDialog`'s stock 29 dp OK button.
@@ -50,7 +50,7 @@ func setup(app: Node, bridge: EngineBridge) -> void:
 	_text = TextEdit.new()
 	_text.editable = false
 	_text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	## PH-07: 360 authored px is 360 dp of an 864 dp phone screen and reads as a
+	## PH-12: 360 authored px is 360 dp of an 864 dp phone screen and reads as a
 	## sensible band there too -- but it must not be a FLOOR under a header, a
 	## hint and a button, or the four together exceed the screen. `EXPAND_FILL`
 	## already gives it every pixel the others do not want.

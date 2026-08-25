@@ -75,7 +75,7 @@ const HOTKEY_ACTIONS: Array[String] = [
 ]
 var _hotkey_ids: Array = []   ## index 0-7 -> the row id badged with that digit.
 
-## Phone (§13) -- PH-07, and this one had to be checked before it was built:
+## Phone (§13) -- PH-12, and this one had to be checked before it was built:
 ## a popover may simply be the wrong control on a handset, and §13's phone
 ## composition routes several desktop affordances into the ⋯ overflow sheet
 ## instead. **It is reachable, by three routes**: the map's own Layers button
@@ -125,7 +125,7 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 		DccWidgets.phone_head(outer, "Data overlays", "one field view at a time")
 
 	var scroll := ScrollContainer.new()
-	## PH-07: 228x420 is a popover's authored size. As a full-screen sheet the
+	## PH-12: 228x420 is a popover's authored size. As a full-screen sheet the
 	## width comes from the screen and the height from what is left under the
 	## header, and a 420 dp FLOOR under a legend, a slider and a note would push
 	## the foot off the bottom of a 393x852 reference screen.
@@ -138,7 +138,7 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 0)
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## PH-07: on a phone the foot goes INSIDE the scroll, under the list, rather
+	## PH-12: on a phone the foot goes INSIDE the scroll, under the list, rather
 	## than being a fixed band below it. On a pointer the foot is a legend, a
 	## slider and a two-line note -- small enough to keep pinned. At 393 dp the
 	## same note is six lines, and pinned it pushed itself off the bottom edge
@@ -178,7 +178,7 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 		"Blends the active field raster over the base map, so terrain reads " +
 		"through it. The reference's own #dbgOpacity.")
 
-	## PH-07: a full-screen sheet has no "outside" to tap, so the way out has to
+	## PH-12: a full-screen sheet has no "outside" to tap, so the way out has to
 	## be inside it. (Android back also closes it -- `DccShell::_notification`
 	## hides the topmost subwindow first, and this is one -- but a visible
 	## control is not optional for a gesture that has no on-screen affordance.)
@@ -236,7 +236,7 @@ func _attach_flow_fx() -> void:
 ## corner offset -- the button moves with `set_safe_insets()` on phone.
 func open() -> void:
 	rebuild()
-	## PH-07. `phone_present()` takes any `Window`, not only an `AcceptDialog`,
+	## PH-12. `phone_present()` takes any `Window`, not only an `AcceptDialog`,
 	## so a `PopupPanel` gets the identical fill and content scale every other
 	## phone surface gets. Returns false on desktop and tablet, where the
 	## anchored popover below is exactly right.
@@ -287,7 +287,7 @@ func rebuild() -> void:
 				row_i += 1
 			_rows[String(item["id"])] = _row(body, item, current, hotkey)
 	_refresh_legend(_legend_for(current, groups))
-	_phone_fit()   ## PH-07 -- every row above is a fresh node.
+	_phone_fit()   ## PH-12 -- every row above is a fresh node.
 
 func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) -> Button:
 	var id := String(item["id"])

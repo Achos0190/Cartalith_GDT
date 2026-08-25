@@ -187,12 +187,12 @@ var _rail_body: VBoxContainer
 var _rail_header: Label
 var _inspector_body: VBoxContainer
 var _status_label: Label
-var _rail_wrap: Control        ## PH-07: held so the phone pane switch can hide it
+var _rail_wrap: Control        ## PH-12: held so the phone pane switch can hide it
 var _inspector_wrap: Control
 var _phone_title: Label
-var _head_row: HBoxContainer    ## PH-07: the bar Reset moves into on a phone
+var _head_row: HBoxContainer    ## PH-12: the bar Reset moves into on a phone
 
-## Phone (§13) -- PH-07. Measured before the fix (parallel device sweep,
+## Phone (§13) -- PH-12. Measured before the fix (parallel device sweep,
 ## 2026-08-25, 1440x3168): **17 of 29 tappable controls under the 44 dp floor**
 ## -- every animal/vehicle rail row at 26 physical px, the category tabs at 29
 ## -- inside a 1180x780 desktop card drawn at native resolution.
@@ -231,7 +231,7 @@ func open(kind: String = "") -> void:
 		_refresh_inspector()
 	_show_phone_entry(false)
 
-## PH-07's two-pane switch. The rail is the list, the inspector is the entry;
+## PH-12's two-pane switch. The rail is the list, the inspector is the entry;
 ## on a phone exactly one is visible, and the tab strip above them stays put,
 ## so switching category from inside an entry lands back on the list -- which
 ## is what `_select_kind()` already does to the selection anyway.
@@ -244,7 +244,7 @@ func _show_phone_entry(on: bool) -> void:
 	if _phone_back_btn != null:
 		_phone_back_btn.visible = on
 
-## PH-07: the rail rows and the whole inspector are rebuilt on every refresh, so
+## PH-12: the rail rows and the whole inspector are rebuilt on every refresh, so
 ## the one-shot fit in `setup()` never sees them. Idempotent by meta-flag.
 ##
 ## **Deferred**, and that is the whole point of the indirection: the callers are
@@ -279,7 +279,7 @@ func _build() -> void:
 	head_pad.add_theme_constant_override("margin_bottom", 6)
 	head_pad.add_child(head_row)
 	outer.add_child(head_pad)
-	## PH-07: the title, the menu path and the "definitions only" caption are
+	## PH-12: the title, the menu path and the "definitions only" caption are
 	## three captions in one row that already has to hold a Close button. On a
 	## phone `phone_head()` carries the first and third below, so the bar keeps
 	## the two controls -- Back (into the entry list) and Close.
@@ -333,7 +333,7 @@ func _build() -> void:
 	_refresh_inspector()
 
 func _build_tab_strip() -> Control:
-	## PH-07: six category tabs plus `Reset tab to stock…` is ~700 dp of
+	## PH-12: six category tabs plus `Reset tab to stock…` is ~700 dp of
 	## minimum width, and a `BoxContainer` handed more minimum than it has
 	## overlaps rather than clipping. An `HFlowContainer` wraps instead, and the
 	## number of rows follows the labels rather than a count fixed here.
@@ -370,7 +370,7 @@ func _build_tab_strip() -> Control:
 		_draft.clear()
 		_refresh_rail()
 		_refresh_inspector())
-	## PH-07: `Reset tab to stock…` is a destructive action, and in a WRAPPING
+	## PH-12: `Reset tab to stock…` is a destructive action, and in a WRAPPING
 	## tab strip it lands mid-flow between two category chips -- it reads as a
 	## sixth tab and sits a thumb-width from the fifth. On a phone it goes up to
 	## the head row instead, beside Close, where the window's other two
@@ -407,7 +407,7 @@ func _refresh_tab_labels() -> void:
 
 func _build_rail() -> Control:
 	var wrap := PanelContainer.new()
-	## PH-07: 286 px is 73% of a phone's 393 dp; stacked, it is the whole pane.
+	## PH-12: 286 px is 73% of a phone's 393 dp; stacked, it is the whole pane.
 	if _phone:
 		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	else:
@@ -500,7 +500,7 @@ func _build_inspector() -> Control:
 # ---------------------------------------------------------------------------
 
 func _refresh_rail() -> void:
-	_phone_refit()   ## PH-07: every rail row below is a fresh node.
+	_phone_refit()   ## PH-12: every rail row below is a fresh node.
 	_refresh_tab_labels()
 	for c in _rail_body.get_children():
 		_rail_body.remove_child(c)
@@ -574,7 +574,7 @@ func _select_entry(id: String) -> void:
 	_current_id = id
 	_refresh_rail()
 	_refresh_inspector()
-	## PH-07: on the desktop composition the inspector is the column beside the
+	## PH-12: on the desktop composition the inspector is the column beside the
 	## list and a tap fills it in place; stacked, it is the pane behind, so the
 	## same tap has to move there or it looks like nothing happened.
 	_show_phone_entry(true)
@@ -635,7 +635,7 @@ func _val(key: String, default):
 	return default
 
 func _refresh_inspector() -> void:
-	_phone_refit()   ## PH-07: this rebuilds the whole pane from fresh nodes.
+	_phone_refit()   ## PH-12: this rebuilds the whole pane from fresh nodes.
 	for c in _inspector_body.get_children():
 		_inspector_body.remove_child(c)
 		c.queue_free()

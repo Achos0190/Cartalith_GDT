@@ -31,7 +31,7 @@ var _provinces_body: VBoxContainer
 var _trade_body: VBoxContainer
 var _sort_by_pop := true   ## Settlements tab only.
 
-## Phone (§13) -- PH-07. Nothing here is a two-column composition, so the fault
+## Phone (§13) -- PH-12. Nothing here is a two-column composition, so the fault
 ## was purely density: a 760x620 desktop card drawn at native resolution inside
 ## a 1440x3168 panel, 20 px table rows (about 1 mm on a 510 ppi screen) and a
 ## 29 dp OK button for a way out.
@@ -106,7 +106,7 @@ func setup(b: EngineBridge) -> void:
 	_tabs = TabContainer.new()
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(_tabs)
-	## PH-07: a `TabContainer`'s tab strip is drawn by an INTERNAL `TabBar`, so
+	## PH-12: a `TabContainer`'s tab strip is drawn by an INTERNAL `TabBar`, so
 	## `DccShell.phone_fit()` -- which walks `get_children()` -- never reaches
 	## it, exactly as it never reaches `AcceptDialog`'s button bar. A tab has no
 	## height property either; its height is the font plus the stylebox's own
@@ -147,7 +147,7 @@ func _clear(body: VBoxContainer) -> void:
 		body.remove_child(c)
 		c.queue_free()
 
-## PH-07's two-line phone row. The name gets its own full-width line and the
+## PH-12's two-line phone row. The name gets its own full-width line and the
 ## remaining columns share the one under it, so a six-column settlement row is
 ## five ~70 dp cells instead of six ~55 dp ones, with the name -- the column
 ## every filter and every lookup is keyed on -- unclipped.
@@ -203,7 +203,7 @@ func _rebuild() -> void:
 	_rebuild_settlements()
 	_rebuild_provinces()
 	_rebuild_trade()
-	## PH-07: every row above is a fresh node, and this runs on a filter
+	## PH-12: every row above is a fresh node, and this runs on a filter
 	## keystroke, on Show-more, and on a generate finishing. Idempotent by
 	## meta-flag (`DccShell.phone_fit`), so it only touches what was just made.
 	if _phone and get_parent() != null and get_parent().has_method("phone_fit"):
@@ -325,7 +325,7 @@ func _rebuild_trade() -> void:
 ## the window opens. Mirrors `DataManagerWindow.open(group)`'s own "scope to
 ## X, empty picks the default" shape.
 func open(tab: String = "") -> void:
-	## PH-07: the cap is a per-visit state, not a preference. Opening the window
+	## PH-12: the cap is a per-visit state, not a preference. Opening the window
 	## again starts at one page, the same way a re-opened list does everywhere.
 	_row_cap = PHONE_ROW_CAP
 	_rebuild()

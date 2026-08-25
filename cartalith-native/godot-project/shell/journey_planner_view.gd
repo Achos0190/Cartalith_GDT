@@ -945,7 +945,7 @@ func _apply_result() -> void:
 	_rebuild_matrix(plan)
 	_rebuild_timeline_band(plan)
 	_refresh_auto_labels()
-	_phone_refit()   ## PH-07: five of those six rebuilt from fresh nodes.
+	_phone_refit()   ## PH-12: five of those six rebuilt from fresh nodes.
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
 
@@ -1079,7 +1079,7 @@ func _timeline_legend_item(parent: Control, token: String, label_text: String) -
 
 # ============================================================ Center panel ====
 
-## Phone (§13) -- PH-07.
+## Phone (§13) -- PH-12.
 ##
 ## Journey is the one screen in this pass that is **not** a `Window`: it swaps
 ## the whole domain region in place (this file's own header). Half of it is
@@ -1109,7 +1109,7 @@ func _pp(px: int) -> int:
 		return px
 	return maxi(1, int(round(px * app.phone_scale())))
 
-## PH-07: `app.viewport_content` is outside `DccShell._on_phone_node_added()`'s
+## PH-12: `app.viewport_content` is outside `DccShell._on_phone_node_added()`'s
 ## dock walk, so nothing fits this subtree unless this file asks. Every one of
 ## the centre panel's regions -- totals, profile, stops, inspector, matrix -- is
 ## cleared and rebuilt on each `_compute()`, so the ask is deferred and repeated
@@ -1146,7 +1146,7 @@ func _build_center_panel() -> void:
 	_center_panel.add_child(col)
 
 	# -- Route map row (236px) --------------------------------------------------
-	## PH-07: every fixed height in this panel is in *authored* pixels and there
+	## PH-12: every fixed height in this panel is in *authored* pixels and there
 	## is no content scale here, so each one is multiplied by `phone_scale()` to
 	## keep its physical size -- 236 authored px would be 236 physical px, about
 	## 12 mm of a 165 mm screen, for the panel's principal view.
@@ -1251,7 +1251,7 @@ func _build_center_panel() -> void:
 	stops_outer.add_child(_stops_note)
 
 	# -- Lower area: inspector + matrix -------------------------------------------
-	## PH-07: the stage inspector beside a 642 dp stage matrix is 642 physical px
+	## PH-12: the stage inspector beside a 642 dp stage matrix is 642 physical px
 	## of a 1440 px screen for one of two panes, at authored type. Stacked, the
 	## matrix keeps its own horizontal scroll (it is genuinely wide) and the
 	## inspector gets the full width.
