@@ -27481,3 +27481,75 @@ directions bite on a phone (a 512-cell grid is magnified 2.8x, a 2048-cell one
 minified 1.42x with no mipmap), but the filter belongs to
 `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1, which `viewport_host.gd` already
 names as the thing that exists to close it.
+
+## The optimisation pass: three duplicate computations and the LOD stall (`/ponytail`, 2026-08-25)
+
+On the owner's own instruction — *"use /ponytail to check if all code is
+optimised"* — over `cartalith-native/crates/**` only, the GDScript shell being
+another session's. Ponytail's ladder applied to code that already exists rather
+than to code about to be written, so the whole pass is **deletion and reuse**:
+no new module, no new abstraction, no new dependency, and **not one line of new
+arithmetic**. Every number below is measured on this 16-logical-core machine,
+release build, and the workspace suite is the same **138 binaries / 2 203
+passing / 8 ignored / 0 failing** before and after, unmodified.
+
+**LOD tile synthesis was single-threaded inside one tile, and that was the whole
+stall.** `PERFORMANCE_BENCHMARKS.md` §5 measured the problem exactly and left it
+open: 16–42 ms for one 256 px tile, 100 % of tiles over a 60 Hz frame from z = 6
+on, a **1.3–1.8 second frozen frame** on one wheel notch past the deep-zoom
+threshold, and 4–7 fps while the backlog drains. §5.4 then measured **7.9–8.8×
+of Rayon headroom** — but proposed claiming it by dispatching the *48-tile burst*
+across threads, which is a change to `viewport_host.gd`'s call loop and so needs
+the shell. It is claimable one level down instead, entirely inside the engine
+and with the shell asking for a tile exactly the way it does today:
+`amplify_region` (`cartalith-terrain/src/amplify.rs`), `add_zoom_detail` (same
+file) and `shade_tile` (`tile_render.rs`) are the entirety of a tile's cost, and
+all three are `output[i] = f(frozen input, i)` — `CPU_MULTITHREADING_SCOPE.md`'s
+own bar, the same shape milestones 1–3 parallelised across five other crates.
+Row-parallel via `par_chunks_mut`, arithmetic per pixel untouched and unreordered,
+so the result is **bit-identical** and the goldens pass at exact equality rather
+than a new tolerance. `compute_config_bench tiles cpu 2048 12`, before → after:
+
+| z | per tile | 48-tile `_update_lod()` burst | 6-tile `_process()` catch-up |
+|---|---|---|---|
+| 4 | 15.94 → **2.82 ms** | | |
+| 6 | 27.55 → **4.25 ms** | 1 314.4 → **196.6 ms** | 164.0 → **25.9 ms** |
+| 7 | 32.16 → **4.62 ms** | | |
+| 8 | 36.71 → **5.27 ms** | 1 768.6 → **252.4 ms** | 220.1 → **31.2 ms** |
+| 9 | 41.54 → **5.97 ms** | | |
+
+5.7–7.0× per tile, **6.7–7.0× on the burst**, and the "over 16.7 ms" column goes
+from **100 % to 0 % at every level** — one tile now fits inside a 60 Hz frame at
+the deepest zoom this port has, which is the budget §5's closing section said
+nobody was denominating in. The 1.8 s stall becomes 0.25 s. Peak working set
+498 → 492 MB. Because the win is *per tile* rather than *per burst*, it needs no
+change to `viewport_host.gd` at all; batching the burst on top would still be
+worth roughly the remaining 4× and is left where it belongs, as
+`LOD_TILING_INTEGRATION_SCOPE.md`'s milestone. `bake_tiles` already goes wide
+over tiles one level up and simply nests — Rayon handles that, and the bake
+goldens are unmoved.
+
+**`build_water_bodies` ran twice on every generate — 417 ms of it.**
+`CPU_MULTITHREADING_SCOPE.md`'s 2026-08-19 investigation found this, measured it
+at ~440 ms and deliberately left it (*"not open a second unrelated change while
+investigating a specific report"*). Re-measured here at **417 ms at 2048²**,
+95 ms at 1024², 22 ms at 512² — a fully sequential priority-flood plus flood
+fill, one of the few genuinely un-parallelisable stages, and ~7 % of a whole
+generate. The call's own comment justified itself on the ground that
+`compute_civilisation` *"never retains it past its own local scope"*, which
+stopped being true when `CivData::water_bodies` was added to hold exactly that
+array; the `PaintEditor` now reads it instead of recomputing it. The `.clone()`
+the `CivData` literal made of the same array went too — `wb` is dead after it
+(0.3 ms, cosmetic beside the recompute, but it is a `gw × gh` allocation).
+
+**`build_slope_field` ran twice inside `compute_civilisation`**, with the
+identical four arguments over an immutable `ws.field` — `soil_slope` and
+`slope_n` are the same array, bit for bit. 2.65 ms at 2048². The reference names
+its two slope reads separately and the port had followed it into computing them
+separately; one line.
+
+**Left alone, with the number rather than an opinion.** `build_lithology` is
+recomputed on every repaint in `build_color_texture` rather than retained, and
+its call site argues that holding a `gw × gh` field for the world's lifetime is
+the wrong trade at the 8192 ceiling. That argument was never costed: it is
+**0.78 ms at 2048²**. The trade is right; recorded so nobody re-litigates it.

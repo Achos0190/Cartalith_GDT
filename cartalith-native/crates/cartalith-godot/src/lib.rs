@@ -816,8 +816,12 @@ fn compute_civilisation(
         flow_thresh,
     };
 
-    let slope_n = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
-    let suit = cartalith_civ::build_settlement_suitability(&soil, &water_access, &carrying_cap, &ws.field, &slope_n, gw, gh, sea_level, Some(&ctx));
+    // The reference names its own two slope reads separately (`currentSoil`'s
+    // `slopeN` and the suitability pass's), and this port had followed it into
+    // calling `build_slope_field` twice with the identical four arguments over
+    // an immutable `ws.field` -- 2.65 ms of the same answer at 2048x2048.
+    // `soil_slope` above IS that answer, bit for bit.
+    let suit = cartalith_civ::build_settlement_suitability(&soil, &water_access, &carrying_cap, &ws.field, &soil_slope, gw, gh, sea_level, Some(&ctx));
     // SG-02: which kept settlements are road-network nodes, as indices back
     // into the kept list. Villages are excluded (see `CivData::village_tids`),
     // so this is not the identity map and `topology`'s edge endpoints have to
@@ -1127,7 +1131,7 @@ fn compute_civilisation(
                     &water_access,
                     &carrying_cap,
                     &ws.field,
-                    &slope_n,
+                    &soil_slope,
                     gw,
                     gh,
                     sea_level,
@@ -1264,7 +1268,7 @@ fn compute_civilisation(
         continents,
         trade_balances,
         explanations,
-        water_bodies: wb.classification.clone(),
+        water_bodies: wb.classification,
         next_tid,
         timeline: Vec::new(),
         year: 0,
@@ -2199,12 +2203,19 @@ impl WorldGen {
         ));
         // Milestone F, WORLD group: a fresh Paint editor over this world.
         // The land-only gate (`paint_bridge::PaintEditor`'s own module doc)
-        // needs this world's water-body classification -- `compute_civilisation`
-        // above already computed exactly this (`wb.classification`) but never
-        // retains it past its own local scope, so this is a second, cheap
-        // call to the same pure function, not a new algorithm.
-        let wb = cartalith_civ::build_water_bodies(&ws.field, p.gw, p.gh, ws.sea_level, p.world, Some(&ws.rainfall));
-        self.paint = Some(paint_bridge::PaintEditor::new(p.gw, p.gh, std::sync::Arc::from(wb.classification)));
+        // needs this world's water-body classification. This used to call
+        // `build_water_bodies` a second time, on the reasoning that
+        // `compute_civilisation` "never retains it past its own local scope" --
+        // which stopped being true the moment `CivData::water_bodies` was added
+        // to hold exactly that array. The second call was **not** cheap:
+        // measured **417 ms at 2048x2048** (95 ms at 1024, 22 ms at 512), a
+        // fully sequential priority-flood plus flood fill, ~7 % of a whole
+        // generate -- `CPU_MULTITHREADING_SCOPE.md`'s 2026-08-19 investigation
+        // found and recorded it and deliberately left it for a later pass.
+        // `self.civ` is set unconditionally a few lines above, so this reads
+        // the same world's own answer rather than recomputing it.
+        let wb_class = &self.civ.as_ref().expect("just set above").water_bodies;
+        self.paint = Some(paint_bridge::PaintEditor::new(p.gw, p.gh, std::sync::Arc::from(wb_class.as_slice())));
         // Milestone F, CARTO group: a fresh, empty Label bridge over this
         // world -- same reasoning `self.icons` above already follows (grid
         // coordinates from a previous generation are meaningless here).

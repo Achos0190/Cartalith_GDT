@@ -41,6 +41,7 @@
 //! pinned by a golden case so nobody later "fixes" the port into disagreeing.
 
 use cartalith_spatial::FloatRegion;
+use rayon::prelude::*;
 
 use crate::sculpt::js_hypot;
 
@@ -145,13 +146,21 @@ pub fn amplify_region(
     );
     let FloatRegion { x: rx, y: ry, w: rw, h: rh } = *region;
     let mut out = vec![0.0f32; out_w * out_h];
-    for oy in 0..out_h {
+    // Row-parallel (`CPU_MULTITHREADING_SCOPE.md`'s own `output[i] = f(input, i)`
+    // bar): every output pixel is a pure function of the frozen `src` and its
+    // own `(ox, oy)`, so the arithmetic per pixel is untouched and unreordered
+    // and the result is bit-identical to the sequential form -- the goldens
+    // pass at exact equality, not a new tolerance. Parallelising *here* rather
+    // than over tiles is what lets the interactive deep-zoom path benefit
+    // without the shell changing how it asks for a tile; `bake_tiles` already
+    // goes wide one level up and simply nests.
+    out.par_chunks_mut(out_w).enumerate().for_each(|(oy, out_row)| {
         let cy = if rh > 1.0 {
             ry + (oy as f64 / (out_h as f64 - 1.0)) * (rh - 1.0)
         } else {
             ry
         };
-        for ox in 0..out_w {
+        for (ox, o) in out_row.iter_mut().enumerate() {
             let cx = if rw > 1.0 {
                 rx + (ox as f64 / (out_w as f64 - 1.0)) * (rw - 1.0)
             } else {
@@ -183,9 +192,9 @@ pub fn amplify_region(
             // expression exactly, NaN included: NaN fails both comparisons and
             // falls through unchanged, which is what makes the `out_w == 1`
             // case observable at all.
-            out[oy * out_w + ox] = v.clamp(0.0, 1.0) as f32;
+            *o = v.clamp(0.0, 1.0) as f32;
         }
-    }
+    });
     out
 }
 
@@ -279,11 +288,14 @@ pub fn add_zoom_detail(
     let base_freq = opts.detail_freq;
     let base_amp = opts.detail_amp;
     let zk = opts.zoom_detail_k;
-    for oy in 0..h {
+    // Row-parallel for the same reason [`amplify_region`] is: each pixel reads
+    // only its own `data[i]` and the frozen `coarse`, and writes only `data[i]`.
+    // This is the term that grows with depth (up to 6 extra fbm octaves per
+    // pixel), so it is most of a deep tile's cost.
+    data[..w * h].par_chunks_mut(w).enumerate().for_each(|(oy, row)| {
         let cy = b.y + if h > 1 { oy as f64 / (h as f64 - 1.0) * b.h } else { 0.0 };
-        for ox in 0..w {
-            let i = oy * w + ox;
-            let base = data[i] as f64;
+        for (ox, cell) in row.iter_mut().enumerate() {
+            let base = *cell as f64;
             if base < sea {
                 continue;
             }
@@ -304,9 +316,9 @@ pub fn add_zoom_detail(
             }
             // The reference writes back unclamped -- `data[i]=base+sum*relief`,
             // no `[0,1]` clamp, unlike `amplifyRegion`'s. Ported as written.
-            data[i] = (base + sum * relief) as f32;
+            *cell = (base + sum * relief) as f32;
         }
-    }
+    });
 }
 
 #[cfg(test)]

@@ -54,6 +54,7 @@
 //! semantics, not a choice.
 
 use crate::amplify::{js_max, js_min};
+use rayon::prelude::*;
 
 /// `SEA` (reference 8330): the bathymetric ramp, deepest first.
 pub const SEA: [[f64; 3]; 3] = [[10.0, 28.0, 46.0], [26.0, 86.0, 140.0], [70.0, 140.0, 196.0]];
@@ -251,11 +252,15 @@ pub fn shade_tile(tile: &[f32], w: usize, h: usize, sea: f64, sun_az_deg: f64, e
     let az = sun_az_deg * std::f64::consts::PI / 180.0;
     let alt = SUN_ALT_DEG * std::f64::consts::PI / 180.0;
     let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
-    for y in 0..h {
+    // Row-parallel: a fixed 4-neighbour stencil read of the frozen `tile`, one
+    // write per output pixel, no reduction -- bit-identical to the sequential
+    // form and the same `output[i] = f(input, i)` bar `CPU_MULTITHREADING_
+    // SCOPE.md` applied to every other per-cell pass in this workspace. Two of
+    // these run per synthesised LOD tile (`lod_bridge::synthesize_tile_rgba`).
+    out.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
         let ro = y * w;
-        for x in 0..w {
-            let i = ro + x;
-            let v = tile[i] as f64;
+        for (x, o) in out_row.iter_mut().enumerate() {
+            let v = tile[ro + x] as f64;
             let l = edge_l(tile, w, x, ro);
             let r = edge_r(tile, w, x, ro);
             let u = edge_u(tile, w, h, x, y);
@@ -266,9 +271,9 @@ pub fn shade_tile(tile: &[f32], w: usize, h: usize, sea: f64, sun_az_deg: f64, e
             ny *= il;
             nz *= il;
             let sh = js_max(0.0, nx * lx + ny * ly + nz * lz);
-            out[i] = if v < sea { 0.75 + 0.25 * sh } else { 0.4 + 0.6 * sh };
+            *o = if v < sea { 0.75 + 0.25 * sh } else { 0.4 + 0.6 * sh };
         }
-    }
+    });
     out
 }
 
