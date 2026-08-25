@@ -563,13 +563,17 @@ func _build_crs(parent: Control) -> void:
 				"Regional mode. Latitude is real and drives the climate model; "
 				+ "longitude is not modelled at all, and X does not wrap.")
 		DccWidgets.note(sec, "Export declares: \"%s\"" % String(crs.get("export_note", "")))
+	## `GUI_GAP_REGISTER.md` §42's Not-built anatomy.
 	DccWidgets.note(sec,
-		"Not built (GUI_GAP_REGISTER.md WW-15): a **projection**. Nothing "
-		+ "reprojects, so the planar kilometres are not a projection of the "
-		+ "latitudes beside them and a GIS reading them as WGS84 degrees is "
-		+ "misreading the file — which is exactly what the export's own note "
-		+ "says. Units are km-only; the reference's km/mi toggle is not ported "
-		+ "(PR-15).")
+		"Reprojection  ·  needs a decision\n"
+		+ "Every field is grid space and nothing reprojects, so the planar "
+		+ "kilometres are not a projection of the latitudes beside them, and a GIS "
+		+ "reading them as WGS84 degrees is misreading the file. Which projection "
+		+ "a fictional world should claim is an authoring decision, not a defect "
+		+ "(GUI_GAP_REGISTER.md WW-15). Units are km-only; the reference's km/mi "
+		+ "toggle is not ported (PR-15).\n"
+		+ "The frame itself is declared and honest -- the export's own note says "
+		+ "exactly this, and Coordinate system above reads it back in-app.")
 
 ## §5.1's dock foot — `GUI_GAP_REGISTER.md` **WW-01**, built 2026-08-24.
 ##

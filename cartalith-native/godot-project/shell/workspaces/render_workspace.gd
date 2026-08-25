@@ -492,7 +492,9 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 		see.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		see.tooltip_text = "CART_BIOME_COLS, the reference's own fifteen-class table, rendered as the Biomes field's legend -- one picker, not a second copy of the list."
 		DccWidgets.note(body,
-			"That table is read-only (GUI_GAP_REGISTER.md CA-19). It is a frozen "
+			"A writable biome table  ·  costs a re-baseline\n"
+			+ "All fifteen classes are readable today; making one writable is what "
+			+ "is not built (GUI_GAP_REGISTER.md CA-19). It is a frozen "
 			+ "reference constant compiled into render.rs, which five test targets "
 			+ "include standalone, and it is what a painted biome cell blends "
 			+ "toward -- so a rewritable palette is a field threaded through "

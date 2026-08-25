@@ -906,12 +906,16 @@ func _fill_territories(parent: Control) -> void:
 	var clear_ter := DccWidgets.action(gaps, "Clear territory", func(): pass)
 	clear_ter.disabled = true
 	clear_ter.tooltip_text = "CivData::territory is rebuilt wholesale by generate() and by civ_recompute(); there is no civ_clear_territory #[func], so there is no way to leave the claim map empty. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
+	## `GUI_GAP_REGISTER.md` §42's Not-built anatomy: the noun, the blocker
+	## named specifically, and what does exist instead.
 	DccWidgets.note(gaps,
-		"Historical occupation over time (GUI_GAP_REGISTER.md CV-23's third "
-		+ "quantity). The timeline records settlement snapshots per year, not a "
-		+ "per-year ownership grid, so there is nothing to scrub territory against "
-		+ "-- timeline work rather than territory work. Borders, claims and "
-		+ "influence themselves are the section above.")
+		"Historical occupation over time  ·  blocked on the timeline\n"
+		+ "The timeline records a settlement snapshot per year, not a per-year "
+		+ "ownership grid, so there is nothing to scrub a border against. That is "
+		+ "timeline work rather than territory work (GUI_GAP_REGISTER.md CV-23's "
+		+ "third quantity).\n"
+		+ "Borders, claims and influence at the present year are built: "
+		+ "Borders & influence, above.")
 
 ## `GUI_GAP_REGISTER.md` **CV-23**: borders, claims and influence as three
 ## separate quantities rather than one plurality-owner-per-cell grid.
@@ -1666,11 +1670,13 @@ func _fill_military(parent: Control) -> void:
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Garrison headcounts, campaigns, unit movement and combat "
-		+ "(GUI_GAP_REGISTER.md CV-25, narrowed to exactly these). The reference "
-		+ "has none of them either, and none is derivable from anything above -- "
-		+ "a headcount would be a fabricated number wearing a real one's clothes. "
-		+ "They are a feature to specify, not a gap to wire.")
+		"Garrisons · campaigns · unit movement · combat  ·  needs a decision\n"
+		+ "None is derivable from anything above it: a headcount would be a "
+		+ "fabricated number wearing a real one's clothes, and the reference has "
+		+ "none of them either (GUI_GAP_REGISTER.md CV-25, narrowed to exactly "
+		+ "these). A feature to specify, not a gap to wire.\n"
+		+ "Per-faction military power and per-settlement fortification are real "
+		+ "and golden-verified: the two sections above.")
 
 ## v3 CIVIL ▸ RELATIONSHIPS (`GUI_GAP_REGISTER.md` **CV-26**, built 2026-08-25).
 ##
@@ -1731,12 +1737,13 @@ func _fill_relationships(parent: Control) -> void:
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Diplomacy actions, treaties, vassalage, and relations that change over "
-		+ "time (GUI_GAP_REGISTER.md CV-26, narrowed to exactly these). Every one "
-		+ "needs a decision this port should not make on its own -- who acts, on "
-		+ "what clock, and what a treaty does to the map. The value above is a "
-		+ "reading of the world as it stands, and stops there. Vassalage and "
-		+ "alliances under v3's Politics are the same open question.")
+		"Treaties · vassalage · diplomacy actions · change over time  ·  needs a decision\n"
+		+ "Three unanswered questions rather than one gap: who acts, on what clock, "
+		+ "and what a treaty does to the map (GUI_GAP_REGISTER.md CV-26, narrowed "
+		+ "to exactly these). Vassalage and alliances under v3's Politics are the "
+		+ "same open question.\n"
+		+ "The standing between every pair is derived and live above -- a reading "
+		+ "of the world as it is, which stops short of anything anyone did.")
 
 ## A fresh generate/loaded save invalidates any in-flight playback and the
 ## last simulation's own readout -- same reasoning `right_dock.gd`'s

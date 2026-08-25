@@ -544,11 +544,13 @@ func build_trade_into(parent: Control) -> void:
 	_build_flows(parent)
 
 	DccWidgets.note(DccWidgets.section(parent, "Not built"),
-		"Prices, tariffs, caravans as entities, and trade that changes over time "
-		+ "(GUI_GAP_REGISTER.md IN-13, narrowed to exactly these). The flows above "
-		+ "are a reading of the world as it stands; none of the four is derivable "
-		+ "from anything the civ layer holds, and each needs a decision about what "
-		+ "a currency is here before it could be anything but a fabricated number.")
+		"Prices · tariffs · caravans as entities · change over time  ·  needs a decision\n"
+		+ "None of the four is derivable from anything the civ layer holds, and "
+		+ "each needs a decision about what a currency is here before it could be "
+		+ "anything but a fabricated number (GUI_GAP_REGISTER.md IN-13, narrowed "
+		+ "to exactly these).\n"
+		+ "The flows above are a reading of the world as it stands, and stop "
+		+ "there.")
 
 ## `GUI_GAP_REGISTER.md` **IN-13** -- trade flows as a routed quantity.
 ##

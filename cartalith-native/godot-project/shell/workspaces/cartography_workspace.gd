@@ -468,8 +468,12 @@ func _build_visibility(parent: Control) -> void:
 		+ "lists have none at all (GUI_GAP_REGISTER.md CA-18) -- a per-layer "
 		+ "zoom range needs the separable layer stack CA-04 is blocked on.")
 	DccWidgets.note(gaps,
-		"The declutter budget is not built: label and icon collision is not "
-		+ "resolved anywhere -- overlapping annotation simply overlaps.")
+		"Declutter budget  ·  blocked on CA-04\n"
+		+ "Label and icon collision is not resolved anywhere -- overlapping "
+		+ "annotation simply overlaps. A budget needs a per-layer zoom range to "
+		+ "spend, and that needs the separable layer stack CA-04 waits on.\n"
+		+ "Two ladders do exist, both ported: way types by CIV_LOD_ROAD, and the "
+		+ "24-10 km urban-layout crossfade.")
 	DccWidgets.note(gaps,
 		"Population density, political control as a *choropleth*, and trade "
 		+ "influence: control is a real debug view above; the other two have no "
