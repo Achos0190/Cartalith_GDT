@@ -27602,3 +27602,102 @@ kind of small change. Recorded here for the owner rather than acted on.
 does not reach into the renderer's internals) and `render.rs`'s reads through
 `RenderCtx::h()` rather than a slice, so only two of the six could actually
 share. Left as they are.
+
+## The design-conformance sweep — the tokens were the bug (`GUI_GAP_REGISTER.md` §48, 2026-08-25)
+
+Two passes today fixed how the shell *behaves* on a OnePlus 12 — tap floors,
+font oversampling, icon rasterisation, scroll forwarding. Neither asked whether
+what came out looks like the design. The owner did: *"the design tool that
+really all screens are properly in-line with the design style and scale and fit
+properly per device."*
+
+Every screen was captured at four sizes — desktop 1600x900, tablet 2560x1600,
+and phone at both 1440x3168 and 1080x2400 — and set beside the canvas region it
+implements. The canvases in `design/` were treated as the specification and
+`DCC_SHELL_SPEC.md` as commentary on them, because the spec is prose written
+*about* the artefact and the artefact carries the numbers. That distinction
+turned out to matter twice: §11's "Filled accent surfaces carry reversed
+paper-coloured type… never near-black on light amber" is broken by the dark
+canvas itself, and §11's own token table lists a Panel colour the 1920 artboard
+never fills a panel with.
+
+The finding under all the others is in `dcc_theme.gd`, whose header says every
+value in it "is read off the design mockup, not invented." Eleven were not.
+Three tokens the canvas leans on constantly did not exist at all — ink secondary
+`#a9adb0`, which is the colour of a menu-bar title and of a parameter-row label
+and appears 76 times in one artboard; the `.16` control border, distinct from
+the `.10` region hairline; and accent hover. Five more had wrong values, and
+the light palette had its ground and its floating surface swapped, so light mode
+raised menus onto pure white — a colour that appears in neither light canvas —
+over a ground one step too bright to sit under them. A wrong token is never one
+wrong control.
+
+What that produced, once the screenshots were next to the canvases: the entire
+menu system set in IBM Plex Mono where the canvas sets it in prose; every action
+button in the application drawn as a filled amber slab, when a search of the
+whole 1920-wide document for `background:#e0a34a` returns slider fills and
+exactly one other hit, a *selected layer row*; Godot's stock `#404040` grey
+behind Performance, Gen info and World data, twenty levels brighter than
+anything in either palette; Godot's blue selection bar as the menu highlight,
+the one saturated colour in a shell whose palette is greys and one amber; and
+the parameter row — the most repeated component in the shell — wrong in three
+dimensions at once, its label in the wrong face and the wrong ink and its track
+expanding to 128 px where the canvas fixes it at 78, which is why long parameter
+names were clipping beside a bar with room to spare.
+
+`DccWidgets.modal_button()` carried a paragraph explaining that a dock action is
+"a filled accent slab, which is the left dock's own run-this-pass affordance"
+and that keeping the two apart was the point. The canvas makes no such
+distinction; both are the same outlined chip at two paddings. The comment is
+corrected in place rather than deleted, because the belief it recorded is how
+141 call sites came to draw the wrong thing.
+
+Tablet had a subtler version of the same problem. `_scaled()` multiplied every
+desktop figure by 1.53 with a 44 px floor, and §1's tablet column is not a
+multiplier — 34→52 is x1.53, but 26→36 is x1.38, 40→48 is x1.20 and 29→34 is
+x1.17. The shell was drawing a 61 px rail where the canvas draws 48 and a 44 px
+status bar where it draws 36, the floor firing on chrome that is not tappable;
+both docks ran the desktop 372/300 where §1 says 400. Those are now an exact
+table read off the `DCC shell tablet 2560` artboard.
+
+**Not fixed, and named.** Everything *inside* a tablet's regions is still
+desktop-sized: `phone_fit()`, the walk that rescales fonts and control heights,
+opens `if not _phone: return`, so at 2560x1600 the sliders are 14 px, the action
+buttons 26 px and the dock labels 11 px, against §13's 44–52 px and the tablet
+canvas's own 14 px prose. That is a scaling layer that does not exist rather
+than a value that is wrong, and guessing a unit for it is how the next pass gets
+a tablet that is neither device. The phone's tool options bar is likewise still
+a resident strip rather than §13's bottom sheet, costing the map 11.6 points of
+screen height against the canvas (69.6 % versus 81.2 %), and the asset library's
+phone toolbar is worse than `GUI_GAP_REGISTER.md` §46 recorded — 39.6 % of the
+screen before the first asset, not ~24 %. All three are compositions, not
+tokens.
+
+**World data is the one screen designed rather than matched.** It has no
+canvas, on phone or anywhere. §46's phone treatment kept all six columns and
+folded each record over two lines; it measured clean and read as a spreadsheet
+someone had creased, with a column header sitting over no columns and five
+unlabelled values to count along. The replacement is derived from the one phone
+list the design does draw — `design/Cartalith Android Phone.dc.html` screen `03
+Category` — whose row is a 52 dp band with a 16 dp gutter, a prose primary line
+and a 9.5 px Plex summary in `#5f6468`. The five remaining columns become that
+summary, each carrying its own word instead of its position: `capital · pop
+20 655 · faction 3 · coastal`, rather than a `yes` in the fifth slot. The
+canvas's chevron is the one element deliberately left off — these rows have no
+drill-down, and drawing an affordance that does nothing is precisely the class
+of fault this pass existed to find.
+
+Also found by looking at pixels rather than at return values:
+`performance_window.gd` has been shipping the literal string `%.2f` where the
+working-set figure goes, because the `%` operator was missing. No test would
+ever have caught it; a `#[func]` that returns a figure proves nothing about
+whether it reaches a `Label`.
+
+**Verified** in real windowed runs at all four sizes through a new
+`_designconf_shot.gd`, which hosts the shell in a `SubViewport` for the reason
+§47 recorded — `--resolution 1440x3168` is clamped to the desktop work area and
+comes back 1440x1002, which the shell then classifies as a tablet. One trap is
+worth recording because it nearly became the headline finding: the probe's own
+teardown called `_set_overflow_open(false)` unconditionally, and
+`_close_all_phone_overlays()` hides both docks with no phone guard, so the first
+desktop run measured a shell that had no docks at all.

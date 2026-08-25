@@ -7412,3 +7412,262 @@ device. It measures fonts, icon texels, tap sizes in millimetres and the scroll
 flick, and it is the first probe in this repository that runs at a phone scale
 above 1 — **this entire class of defect is arithmetically invisible at the 393 dp
 reference size every earlier probe booted at.**
+
+---
+
+## 48 · DS-01…DS-14 — the conformance sweep: what the shell looks like next to the canvases it was built from (2026-08-25) — **TEN FIXED, ONE PART-FIXED, FOUR REGISTERED**
+
+§46 and §47 fixed phone *mechanics* — tap floors, font oversampling, icon
+rasterisation, scroll forwarding. Nobody had then checked whether the result
+looks like the design. The owner asked for exactly that:
+
+> *"the design tool that really all screens are properly in-line with the design
+> style and scale and fit properly per device."*
+
+Every screen in the shell was screenshotted at four sizes — desktop 1600x900,
+tablet 2560x1600, and phone at both 1440x3168 (OnePlus 12, `_phone_scale`
+3.664) and 1080x2400 (2.748) — and each put beside the canvas region it
+implements. `design/` was read as the specification, not `DCC_SHELL_SPEC.md`:
+where the two disagree the canvas's own inline styles win, because the spec is
+prose written *about* the canvas and the canvas is the artefact.
+
+### The finding under all the others
+
+**`dcc_theme.gd`'s header says every value in it "is read off the design
+mockup, not invented", and eleven of them were not.** Three tokens the canvas
+uses constantly did not exist at all; five had wrong values; the light palette
+had its ground and its floating surface the wrong way round. Because everything
+downstream resolves through `DccTheme.c()`, a wrong token is not one wrong
+control — it is every control that ever asked for it.
+
+| Token | Canvas | Was | Effect |
+|---|---|---|---|
+| Ink secondary | `#a9adb0` | **absent** | 76 spans in `DCC shell 1920` alone — every menu-bar title and every parameter-row label, all drawn one step too quiet in `text_dim` |
+| Border | `rgba(255,255,255,.16)` | **absent** | every chip, well and action button outlined at the *region* hairline `.10` instead |
+| Accent hover | `#f0bd72` | **absent** | §11 lists it; nothing had it |
+| Divider (dark) | `.07` | `.06` | — |
+| Hairline (light) | `.14` | `.12` | — |
+| Divider (light) | `.08` | `.07` | — |
+| Ink faint (light) | `#8d9088` | `#7c807a` | — |
+| Surface (light) | `#f4f2ee` | `#fbfaf7` | light mode's ground was its raised surface |
+| Raised (light) | `#fbfaf7` | `#ffffff` | `#ffffff` appears in neither light canvas |
+
+### Ranked divergences, with the numbers
+
+**DS-01 · The whole menu system was set in Plex Mono. It is prose in the
+canvas.** — **FIXED.** `add_menu()` and `style_popup()` both set
+`DccTheme.mono(0)` at `FS_MENU` 12. The canvas's menu bar is
+`<div style="display:flex;font-size:11.5px;color:#a9adb0"><span
+style="padding:9px 11px">File</span>…`, inheriting `'Helvetica Neue'` from the
+artboard root — **sans, 11.5 px, `#a9adb0`** — and the same for every item
+inside every dropdown, with only the shortcut column in Plex. Three errors
+compounding on the single most prominent row of the application. Now prose at
+`FS_MENU_ITEM` 11 in `text_secondary`; `FS_MENU` 12 stays, for the wordmark,
+which really is `font:500 12px 'IBM Plex Mono'`.
+
+**DS-02 · Every action button was a filled amber slab. The canvas has no filled
+buttons at all.** — **FIXED.** `DccWidgets.action(primary: true)` drew
+`flat(accent, radius 2)` with `bg`-coloured text. A search of the whole
+1920-wide document for `background:#e0a34a` returns slider fills and **exactly
+one** other hit — a *selected layer row* in the layers popover. Every action in
+every artboard — `Run stage 04`, `commit pass`, `Apply`, `Open selected`,
+`Select · 3` — is `padding:4px 10px;border:1px solid #e0a34a;color:#e0a34a`.
+One helper, 141 call sites, 20 of them primary. `modal_button()`'s own comment
+had asserted the opposite ("a filled accent slab, which is the left dock's own
+run-this-pass affordance") and is corrected in place.
+
+**DS-03 · Tablet is desktop chrome with three bars stretched.** — **FRAME
+FIXED, CONTENT REGISTERED.** `_scaled()` was `maxi(44, round(px * 1.53))`, and
+§1's tablet column is not a multiplier: 34→52 is x1.53, 26→36 is x1.38, 40→48
+is x1.20, 29→34 is x1.17. Measured against the `DCC shell tablet 2560`
+artboard, the shell was drawing a **61 px rail where the canvas draws 48** and a
+**44 px status bar where it draws 36** — the 44 px floor firing on chrome that
+is not tappable. Both docks ran the desktop 372/300 where §1 says 400. All
+fixed by an exact `DccTheme.TABLET` table.
+
+What is **not** fixed is everything *inside* those regions. `phone_fit()` — the
+walk that rescales fonts, control heights and stylebox padding — begins `if not
+_phone: return`, so tablet gets none of it. Measured at 2560x1600 with
+`--force-touch`: sliders **14 px**, action buttons **26 px**, dock labels
+**11 px**, against §13's "targets 44–52 px" and the tablet canvas's own
+`font:14px/1.4` prose and `13px` Plex. The canvas's tablet type scale is
+14/11.5 ≈ **x1.22**, and its tool-options track grows 70x2 → 90x3. Left alone
+deliberately: it is a scaling layer that does not exist rather than a value that
+is wrong, and bolting `phone_fit` onto tablet with a guessed unit is how the
+next pass gets a tablet that is neither.
+
+**DS-04 · Dialog chrome was Godot's stock `#404040`.** — **FIXED.**
+`AcceptDialog` draws its own `panel` on top of the `Window` border and nothing
+had ever set it, so Performance, Gen info, World data and every modal footer
+came up on a grey **20 steps brighter than anything in either palette** —
+sampled off the framebuffer, `#404040`, at (10,10) and (10,1600) of the phone
+capture. Now `panel` with a `border` edge, set once on the theme resource.
+
+**DS-05 · The open menu item's highlight was Godot's blue selection bar.** —
+**FIXED.** The one saturated colour anywhere in a shell whose palette is greys
+plus one amber. Canvas: `background:rgba(224,163,74,.10);color:#e8ebec`, which
+is `accent_wash` — the wash the menu bar's own open title already uses. The
+menu panel also gained the two things that make a floating surface float:
+`border:1px solid rgba(255,255,255,.14)` (it had the `.10` region hairline) and
+`box-shadow:0 14px 34px rgba(0,0,0,.55)` (it had none). Its surface moved from
+`raised` `#17191a` — which is the **viewport wash's centre stop** in §11 and is
+not a menu surface anywhere in the design — to `panel` `#121314`, which is what
+the canvas draws.
+
+**DS-06 · The parameter row — the most repeated component in the shell — was
+wrong in three dimensions.** — **FIXED.** Canvas:
+`<span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue';font-size:11px">Continentality</span><div style="width:78px;height:2px;…"><div style="width:33%;…background:#e0a34a"></div></div><span style="width:44px;text-align:right;color:#c8cbcd">0.30</span>`.
+The shell drew the label in **mono** in `text_dim`, gave the track
+`SIZE_EXPAND_FILL` (measured **128 px** at a 372 px dock, and growing with the
+dock) and reserved **56 px** for a 44 px value column. The expanding track is
+why "Enable continental shelves" was clipping to "Enable continental s" with a
+bar beside it that had room to spare.
+
+**DS-07 · Tabs were stock Godot.** — **FIXED.** `TabContainer` draws its strip
+from an internal `TabBar` that no walk in `dcc_shell.gd` reaches, so World
+data, Travel library, the Asset library and the Data manager all showed a
+raised grey pill with a white top rule. The design's own two-way switch is the
+left dock's `GENERATION PIPELINE | SCULPT` header:
+`background:rgba(224,163,74,.10);border-bottom:1px solid #e0a34a` when on,
+nothing when off — which is `DccTheme.active_row()`.
+
+**DS-08 · Both dock headers were 26 px. The canvas gives them 34.** —
+**FIXED.** 26 is `H_STATUS`, borrowed by mistake; measured 30 px on the
+framebuffer including its rule, against a 34 px menu bar and a 34 px tool
+options bar beside it, so the three rules across the top of the shell did not
+line up.
+
+**DS-09 · A 74 px hole between the wordmark and File.** — **FIXED.** The
+wordmark claimed `custom_minimum_size.x = 150`; the canvas gives it
+`margin-right:22px` and nothing else. Measured: wordmark ended at x=104, `File`
+began at x=178.
+
+**DS-10 · The rail's domain labels were a size down, a tracking up and a weight
+up, all at once.** — **FIXED.** `FS_MICRO` 9 at `spacing 2` (≈.22 em) in
+Medium, against the canvas's `font:10px 'IBM Plex Mono';letter-spacing:.12em`
+in regular. Its resting ink was also brightening one step to `text_faint` the
+first time a domain was ever selected, because `_select_domain()` restored to a
+different token than `_build_rail()` had painted (`#5f6468` is correct).
+
+**DS-11 · The status bar was prose. The canvas sets the whole bar in Plex.** —
+**FIXED.** `font:10.5px 'IBM Plex Mono';color:#6f7478`, in both themes and on
+both the desktop and tablet artboards, including the modifier hints on the
+right — which were additionally a step quieter than the rest at `text_ghost`.
+
+**DS-12 · World data was a six-column spreadsheet folded in half.** —
+**FIXED, and designed rather than matched.** §46's PH-12 kept all six columns
+and broke each record over two lines. It measured clean — nothing clipped,
+nothing under the tap floor — and it read as a spreadsheet someone had folded:
+a bare `Class Population Faction Coastal Capital` band beneath a column header
+that no longer sat over any column, and five unlabelled values to count along.
+
+There is **no canvas for this window**, so the replacement is derived from the
+one phone list the design does draw — `design/Cartalith Android Phone.dc.html`
+screen `03 Category`, whose row is
+`min-height:52px;padding:0 16px;gap:12px;border-top:1px solid rgba(255,255,255,.06)`
+carrying a prose primary line over a
+`font:9.5px 'IBM Plex Mono';color:#5f6468` summary. The five remaining columns
+become that summary, each carrying its own word rather than its position
+(`capital · pop 20 655 · faction 3 · coastal`, not a `yes` in the fifth slot),
+and a false column header is dropped with the columns it labelled. The chevron
+is the one thing deliberately not copied: these rows have no drill-down, and
+drawing an affordance that does nothing is the failure this whole pass exists
+to find.
+
+**DS-13 · The phone's map buttons.** — **ALPHA FIXED, COMPOSITION
+REGISTERED.** `_navpad_paint()` filled with `panel` at full alpha; every
+floating map control in the phone canvas is `background:rgba(20,22,23,.92)`, a
+scrim the map shows through. That is now matched, and it is honestly a small
+change — at 92 % over a mid-tone terrain the disc lands about four levels
+lighter, not obviously different.
+
+The divergence that is *not* small, and is registered rather than fixed: the
+canvas's `01 Viewport` puts **two** controls on the map — a 48 dp accent FAB
+(`background:#e0a34a;color:#141617`, the one filled surface on the phone
+screen) over a 44 dp secondary pill — plus three layer chips top-left and a
+`POINT SAMPLE` readout card at the bottom. The shell draws **four identical
+dark pills in a vertical column** (zoom in, zoom out, pan, fit) and no chips,
+no FAB and no readout card. The functions genuinely differ, so this is a
+composition to design against the canvas's grammar rather than a value to
+correct, and inventing a FAB for a function the canvas never assigned one to is
+what the "no canvas, derive don't invent" rule exists to stop.
+
+**DS-14 · Radius 2 on dock and dialog controls.** — **FIXED.** §11: "Radius 0
+everywhere." Nine sites across `dcc_widgets`, the faction roster, the new-world
+dialog, the place editor and two workspaces. `viewport_host.gd`'s navpad pills
+and `resource_overlay.gd` keep their radii on purpose — the phone canvas draws
+*floating map* chrome round (`border-radius:14px` chips, `24px` FAB, `12px`
+readout card) and only panel chrome square.
+
+### Also found, not a design question
+
+**`performance_window.gd` was shipping the literal string `%.2f`** where the
+working-set figure goes — the `%` operator was missing. Caught by screenshot,
+not by any test, which is the point: a `#[func]` that returns a figure proves
+nothing about whether it reaches a `Label`.
+
+**A second `Close` button paints at the top of every full-bleed phone window** —
+present in the *first* capture of this sweep, before any change here, so it is
+pre-existing and not introduced by the safe-area reserve. It sits centred just
+below y = 0 while the real `AcceptDialog` OK button sits correctly at the foot,
+and it appears on `performance_window`, `gen_info_dialog` and
+`world_data_window` alike. Almost certainly the button bar drawn once at its
+pre-`popup()` rect; **not chased**, because it has only ever been observed in a
+`SubViewport`-hosted capture and confirming it needs a real device, which this
+session does not have. Worth 10 minutes on the next Android pass.
+
+### Registered, not fixed
+
+- **The canvas paints no regions; the shell paints all of them.** §11 says "No
+  fills on panels: regions are separated by hairlines only", and the canvas
+  obeys it literally — the menu bar, both docks, the rail and the status bar are
+  `<div>`s with a `border-*` and **no `background`**, sitting on the artboard's
+  `#0d0e0f`. The shell fills every one with `panel` `#121314`. Measured: dock
+  body `#121314` (18,19,20) where the canvas would be `#0d0e0f` (13,14,15).
+  Left alone because §11's own token table lists Surface and Panel as two
+  tokens, and the Android Phone canvas *does* shade its bottom nav (`#131516`)
+  against its ground (`#101112`) — so the two canvases disagree about whether
+  regions are shaded, and picking one is the owner's call rather than a
+  conformance fix.
+- **The phone's permanently-resident tool options bar costs the map 11.6 points
+  of screen.** §13 says "Tool options become a bottom sheet" — summoned, not
+  resident. Measured at 1440x3168: the map ends at 698.1 dp of 864.6, so it
+  gets **69.6 %**; the canvas's `01 Viewport` gives it 724 of 892 = **81.2 %**.
+  The bar also clips its own last item ("Center land…") against the right edge
+  with no affordance saying it scrolls. A sheet is a behaviour change rather
+  than a value change, so it is registered.
+- **§46's asset-library toolbar proportion is worse than that section
+  recorded.** Measured at 1440x3168 after §47's fixes: the first asset tile
+  begins at **342 dp of 864.6 = 39.6 %** of screen height, not the ~24 % §46
+  carried. Header 33 + search 63 + two chip rows + tab strip + status strip +
+  batch verb row, all resident, none collapsible. Same reasoning as above: the
+  fix is a composition, not a token.
+
+### Two canvases disagree about the phone, and it is worth saying so
+
+`design/Cartalith DCC Shell.dc.html`'s `DCC shell android phone` is authored at
+**393 dp** with a 44 dp safe area, a 52 dp app bar and a **44 dp vertical
+domain rail**. `design/Cartalith Android Phone.dc.html` — eight screens, and
+much the more developed of the two — is authored at **412 dp** ("412 × 892 dp ·
+all five disclosure levels · 44 dp rows", its own header) with a 28 dp status
+row, a 56 dp app bar and a **64 dp five-tab bottom nav** carrying a 14 px glyph
+over a 9.5 px label. `DccTheme.PHONE_REF_SHORT` is 393, so everything is scaled
+against the first; the shell's own bottom bar is 64 dp, which matches the
+second, but carries labels only and no glyphs. Not resolved here — flagged,
+because `PHONE_REF_SHORT` is the unit every phone constant in that file is
+expressed in, and a 4.8 % error in it is a 4.8 % error in all of them.
+
+### Harness
+
+`_designconf_shot.gd` / `.tscn` (new, untracked, like every other probe in
+`godot-project/`). Hosts the real shell in a `SubViewport` for §47's reason —
+`--resolution 1440x3168` is clamped to the desktop work area and comes back
+1440x1002, which `_compute_layout_mode()` classifies as a *tablet* — sweeps 20
+named screens, dumps every tappable height and every font size with its face,
+and screenshots each. `--vp WxH --tag NAME [--force-touch]`.
+
+One trap cost a full pass and is worth recording: the probe's own teardown
+called `app._set_overflow_open(false)` unconditionally, and
+`_close_all_phone_overlays()` sets `left_dock.visible = false` with **no phone
+guard** — so the first desktop run measured a shell with no docks at all, and
+very nearly reported that as the finding.
