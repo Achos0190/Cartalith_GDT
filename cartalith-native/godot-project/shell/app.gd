@@ -979,7 +979,11 @@ func _autosave_tick() -> void:
 	## still unsaved, and an autosave that made File ▸ Save look unnecessary
 	## would be worse than no autosave.
 	var was_dirty := bridge.world_dirty
-	if bridge.world_gen.save_project(target):
+	## Same writer as File ▸ Save (`EngineBridge.save_project()`'s own note on
+	## why it is `project_save` and not `save_project`). This path calls the
+	## engine directly, and only to keep the dirty flag -- an autosave written
+	## in a different format from the manual save would be a trap.
+	if bool((bridge.world_gen.project_save(target) as Dictionary).get("ok", false)):
 		set_status("autosave", "autosaved %s" % Time.get_time_string_from_system().substr(0, 5), "text_faint")
 	else:
 		set_status("autosave", "autosave failed", "accent")

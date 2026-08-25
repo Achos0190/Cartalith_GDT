@@ -99,7 +99,13 @@ func _ready() -> void:
 		and _has("measure_area") \
 		and _has("measure_radius") \
 		and _has("measure_vertical")
-	save_api = _has("save_project")
+	## `project_save`, not `save_project`. The latter still exists and still
+	## works, but since 2026-08-25 it writes the **flat interoperability
+	## export** (`SAVEFILE_COMPAT.md` §1.1) -- seven root entries and no
+	## project layer. Probing for it would leave every save affordance enabled
+	## against a writer that silently drops the civ layer, which is worse than
+	## a disabled button.
+	save_api = _has("project_save")
 	## Dirty tracking rides the two signals this node already emits rather
 	## than being set by hand in each mutator -- see `world_dirty`.
 	world_loaded.connect(func(): _set_dirty(true))
@@ -969,10 +975,20 @@ func load_save(path: String) -> bool:
 func save_project(path: String) -> bool:
 	if not save_api or not has_world:
 		return false
-	var ok: bool = world_gen.save_project(path)
+	## `project_save` writes the documented tree (`SAVEFILE_COMPAT.md`) and
+	## returns `{ok, error, bytes, entries}` rather than a bool, so the reason
+	## a save failed can be reported instead of a bare false. The engine's own
+	## `save_project` is deliberately not called here any more: it is now the
+	## flat export, and a Save that quietly dropped settlements, factions,
+	## ways, the timeline and the vault links would be the worst kind of
+	## regression -- one the user only discovers on reopening.
+	var r: Dictionary = world_gen.project_save(path)
+	var ok: bool = bool(r.get("ok", false))
 	if ok:
 		_set_dirty(false)
 		project_saved.emit(path)
+	else:
+		push_warning("Cartalith: could not write %s (%s)" % [path, String(r.get("error", "unknown"))])
 	return ok
 
 ## `File ▸ Close project` — drops the world and returns this node to the
