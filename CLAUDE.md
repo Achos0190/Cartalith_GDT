@@ -83,6 +83,7 @@ starting work — not this file, which is a map rather than a state.
 | `ANDROID_BUILD_SCOPE.md` | Android toolchain and the real device passes |
 | `GENERATION_PARAMETERS.md` | every exposed generation parameter and its API |
 | `MARKDOWN_VAULT_SCOPE.md` | the Markdown Vault: the entity audit that found continents did not exist, and milestones 0-1 |
+| `STORY_PLANNING_SCOPE.md` | settlement timelines, the conflict overlay and the Journey entity — one subsystem over the Timeline's year cursor; carries the owner's three 2026-08-25 forks |
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
