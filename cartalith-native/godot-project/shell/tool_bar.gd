@@ -125,13 +125,17 @@ func _build(row: HBoxContainer) -> void:
 		"paint": _build_paint_options(options)
 		_: _build_measure_options(options)
 
-## The canvas's three left-hand mode buttons. `DccWidgets.segment` +
-## `set_segment_on` is this shell's existing "one of a set is lit" vocabulary
-## (`dcc_widgets.gd`), so nothing new is drawn here.
+## The canvas's three left-hand mode buttons. `Cartalith Paint Toolbar.dc.html`
+## draws the armed one **filled** -- the single filled surface anywhere in the
+## tool bar, and the one exception to §48 DS-02's "the canvas has no filled
+## buttons" (see `DccWidgets.set_mode_segment_on()` for the full reading). It
+## also gives them `padding:5px 12px`, a taller box than the feature segments
+## beside them, which is how the row reads as mode-then-tool rather than as
+## eleven equal chips.
 func _build_mode_buttons(row: HBoxContainer) -> void:
 	for m in MODES:
 		var b := DccWidgets.segment(row, String(m).to_upper(), _select_mode.bind(m))
-		DccWidgets.set_segment_on(b, mode == m)
+		DccWidgets.set_mode_segment_on(b, mode == m)
 		b.custom_minimum_size.y = 22
 		if m != "measure" and not bridge.has_world:
 			b.disabled = true
@@ -168,9 +172,19 @@ func _tool_segment(row: HBoxContainer, text: String, on: bool, tip: String, pres
 ## same styling, same call -- only the two fixed columns are pulled in
 ## afterwards, so nothing about `dcc_widgets.gd` had to change for a caller
 ## it was not written for.
-const BAR_LABEL_W := 56
+## 56 fitted the prose face; Plex Mono is wider per character at the same size,
+## and the first capture after the face changed had `Brush size` clipped to
+## `Brush si` and `Intensity` losing its `y`. The engine's own control labels
+## are longer than the canvas's `size` / `strength` / `falloff`, so this is the
+## width those labels need rather than the width the canvas happens to use.
+const BAR_LABEL_W := 74
 const BAR_VALUE_W := 38
-const BAR_CONTROL_W := 56
+## `width:96px` / `78px` / `70px` on the three tracks in `Cartalith Paint
+## Toolbar.dc.html`'s `Sculpt raise 1920`, and `width:70px` in the DCC shell's
+## own tool options bar. 56 was a bar-specific narrowing of the dock's 78 that
+## no artboard asks for; 70 is what the shell canvas draws, and the widest the
+## bar can afford with four parameters and a commit pair on a 1600 px window.
+const BAR_CONTROL_W := 70
 
 func _fit(parts: Dictionary) -> void:
 	_narrow(parts["row"])
@@ -183,7 +197,22 @@ func _fit(parts: Dictionary) -> void:
 func _narrow(ctrl: Control) -> Control:
 	var row: Control = ctrl if ctrl is HBoxContainer else (ctrl.get_parent() as Control)
 	if row != null and row.get_child_count() > 0:
-		(row.get_child(0) as Control).custom_minimum_size.x = BAR_LABEL_W
+		var label := row.get_child(0) as Control
+		label.custom_minimum_size.x = BAR_LABEL_W
+		## **The bar is Plex; the dock is prose.** Every artboard that draws a
+		## tool options bar sets the whole row in
+		## `font:11px 'IBM Plex Mono';color:#8d9296` and lets its labels inherit
+		## -- `DCC shell 1920`'s `hardness` / `intensity` / `noise`, the tablet's
+		## same three at 13 px, and the Paint Toolbar's `size` / `strength` /
+		## `falloff` / `spacing` / `max Δ` / `pressure`. `DccWidgets._row()`
+		## paints its label prose in `text_secondary`, which is right for the
+		## *dock* (§48 DS-06 read that off the dock's own parameter row) and
+		## wrong here. Repainted at the one place every bar row already passes
+		## through rather than by giving `_row()` a second mode.
+		if label is Label:
+			(label as Label).add_theme_font_override("font", DccTheme.mono(0))
+			(label as Label).add_theme_color_override("font_color",
+				DccTheme.c("text_dim"))
 	return ctrl
 
 ## The options row's own hint, same clipping rule as `_note` and without its

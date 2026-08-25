@@ -1866,6 +1866,7 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 				mode_sel = ti + 1
 		mode_ob.selected = mode_sel
 		mode_ob.item_selected.connect(func(sel: int): _set_stage_override(i, "transport", ("" if sel == 0 else transport_opts[sel - 1])))
+		DccWidgets.style_popup(mode_ob.get_popup())
 		grid.add_child(mode_ob)
 
 		var pace_ob := OptionButton.new()
@@ -1881,6 +1882,7 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 				pace_sel = pi + 1
 		pace_ob.selected = pace_sel
 		pace_ob.item_selected.connect(func(sel: int): _set_stage_override(i, "pace", ("" if sel == 0 else pace_opts[sel - 1])))
+		DccWidgets.style_popup(pace_ob.get_popup())
 		grid.add_child(pace_ob)
 
 		var hrs_sb := SpinBox.new()

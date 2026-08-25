@@ -212,6 +212,62 @@ const W_RIGHT_DOCK := 300
 const W_RIGHT_DOCK_MIN := 260
 const W_RIGHT_DOCK_MAX := 460
 
+# ── Menu geometry (§2) ───────────────────────────────────────────────────────
+#
+# Read off the two artboards that actually draw an open menu, not off §2's
+# prose: `DCC shell 1920` (Assets open, with its Asset pack submenu),
+# `DCC Cartography style 1920` (File open) and `DCC shell tablet 2560`
+# (Data open). The desktop and tablet columns are two *drawn* menus, so the
+# tablet figures below are measured, not a multiplier applied to the desktop
+# ones -- the same reason `TABLET` above is a table.
+#
+# | Part | Desktop | Tablet |
+# |---|---|---|
+# | panel | `padding:5px 0` | `padding:6px 0` |
+# | item | `padding:6px 14px` | `padding:9px 18px 9px 30px;min-height:44px` |
+# | item text | `font-size:11.5px` prose | `font-size:14px` prose |
+# | trailing/shortcut | `10.5px 'IBM Plex Mono' #6f7478` | `13px` |
+# | group label | `padding:9px 14px 4px;font:9px Plex;.18em;#5f6468` | `11px`, `padding:11px 18px 5px` |
+# | rule | `height:1px;background:rgba(255,255,255,.09);margin:5px 0` | `margin:6px 0` |
+# | highlight | `background:rgba(224,163,74,.10);color:#e8ebec` | same |
+# | bar title | `padding:9px 11px` at 11.5px | `padding:15px 15px` at 14px |
+#
+# `pitch` is the whole row box the canvas's padding produces -- 11.5 x 1.45
+# line plus 6 + 6 is 28.7 px, and the tablet row states its own 44 px minimum.
+# Godot has no per-item height on `PopupMenu`, so `dcc_shell.style_popup()`
+# reaches it as `v_separation` and grows the hover box by the same amount.
+const MENU := {
+	"fs_bar": 11,       "fs_bar_t": 14,
+	"fs_item": 11,      "fs_item_t": 14,
+	"fs_group": 9,      "fs_group_t": 11,
+	"pad_x": 14,        "pad_x_t": 18,
+	"pad_y": 5,         "pad_y_t": 6,
+	"pitch": 28,        "pitch_t": 44,
+	"bar_pad_x": 11,    "bar_pad_x_t": 15,
+	"bar_pad_y": 9,     "bar_pad_y_t": 15,
+}
+
+## The open/hovered menu item's wash. **Not** `accent_wash`: the canvas draws
+## the menu *bar's* open title at `rgba(224,163,74,.08)` and the *item* inside
+## the dropdown at `rgba(224,163,74,.10)`, two literals a few lines apart in the
+## same artboard. `GUI_GAP_REGISTER.md` §48 (DS-05) matched the item to
+## `accent_wash`, which is the .08 one.
+##
+## Derived from `accent` rather than stored as its own token so a theme switch
+## repaints it: `remap()`'s RGB-only pass matches an alpha derivative back to
+## the token that produced it and keeps the alpha, which is the same mechanism
+## `phone_menu.gd`'s scrim already relies on.
+const MENU_HIGHLIGHT_ALPHA := 0.10
+
+static func menu_highlight() -> Color:
+	return Color(c("accent"), MENU_HIGHLIGHT_ALPHA)
+
+## One menu figure, desktop or tablet. `touch` is `DccShell._touch`; the phone
+## never draws a `PopupMenu` at all (§13 -- `phone_menu.gd` re-presents them as
+## rows), so there is no third column.
+static func menu(key: String, touch: bool) -> int:
+	return int(MENU[key + "_t"] if touch else MENU[key])
+
 ## Touch scale (§13) -- the fallback for any figure the table below does not
 ## name. It is a fallback and not the rule, because §1's tablet column is not a
 ## single multiplier and never was: 34 -> 52 is x1.53, but 26 -> 36 is x1.38,
@@ -270,6 +326,20 @@ static func apply_theme(is_dark: bool) -> void:
 
 static func is_dark() -> bool:
 	return _dark
+
+## Whether this session is running touch geometry (§13's tablet/phone column).
+## `DccShell` owns the decision and publishes it here once, in `_ready`, so the
+## static widget factories -- which have no node and therefore no way to reach
+## the shell -- can size a menu the same way the shell's own chrome does.
+## Menus are the reason this exists: `DccWidgets.style_popup()` is called from
+## `dropdown()`, which is static.
+static var _touch := false
+
+static func set_touch(v: bool) -> void:
+	_touch = v
+
+static func is_touch() -> bool:
+	return _touch
 
 ## The reverse of `c()`. Given a colour some node already has (painted under
 ## `old_pal`, the palette that was active when it was built) and that same

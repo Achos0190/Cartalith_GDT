@@ -7653,6 +7653,10 @@ session does not have. Worth 10 minutes on the next Android pass.
   against its ground (`#101112`) — so the two canvases disagree about whether
   regions are shaded, and picking one is the owner's call rather than a
   conformance fix.
+  > **RULED 2026-08-25 — keep the fills.** The owner chose the shell's
+  > behaviour over the desktop canvas's. The `#121314` regions are **not** a
+  > divergence and must not be logged as one or "fixed" by a later pass. §51's
+  > menu-by-menu walk was run under this ruling and logs none.
 - **The phone's permanently-resident tool options bar costs the map 11.6 points
   of screen.** §13 says "Tool options become a bottom sheet" — summoned, not
   resident. Measured at 1440x3168: the map ends at 698.1 dp of 864.6, so it
@@ -7680,6 +7684,18 @@ against the first; the shell's own bottom bar is 64 dp, which matches the
 second, but carries labels only and no glyphs. Not resolved here — flagged,
 because `PHONE_REF_SHORT` is the unit every phone constant in that file is
 expressed in, and a 4.8 % error in it is a 4.8 % error in all of them.
+
+> **RULED 2026-08-25 — adopt 412 dp fully.** `design/Cartalith Android Phone
+> .dc.html` is the phone authority from here. `DCC shell android phone`
+> (393 dp) and `DCC_SHELL_SPEC.md` §13's phone column are superseded for the
+> phone device class; desktop and tablet are unaffected and `Cartalith DCC
+> Shell.dc.html` remains authoritative for both. Nothing is broken today —
+> every shipped phone constant matches the 393 canvas coherently — so this is a
+> deliberate redesign, not a defect. **The constant migration is its own pass**
+> and was not started by §51; that section carries the measured per-region
+> divergence list it needs, and names the one conflict (the 412 canvas's
+> bottom-nav tabs are the pre-v3 domain set) that pass must resolve rather than
+> copy.
 
 ### Harness
 
@@ -8081,3 +8097,334 @@ stops the next pass re-walking the ground.
   number — that section says outright it was *"inferred from the shape of the
   memory trace rather than an instrumented timer"*. This is the instrumented
   one; treat it as the new baseline rather than as a regression against the old.
+
+---
+
+## 51 · MN-11…MN-24 — the menu-by-menu pass: every menu, every submenu, three device classes (2026-08-25) — **TWENTY-ONE FIXED, EIGHTEEN REGISTERED**
+
+§48 walked *screens* and fixed eleven theme tokens, 141 filled buttons, the
+tablet frame table and two §13 phone violations. It did not walk the menus one
+at a time. The owner asked for exactly that:
+
+> *"I also want you to compare the actual windows/tablet and phone GUI side by
+> side, menu by menu with what has been made in Claude design. Every menu should
+> match with it."*
+
+Forty-five distinct menus — the seven program menus, thirteen submenus, the
+three rail domain accordions, four right-dock contexts, the map context menu,
+six tool-options rows, the Layers popover, every `OptionButton` dropdown, and
+seven phone surfaces — opened one at a time at four sizes, dumped row by row
+with their resolved theme, screenshotted, and set beside the canvas region each
+implements. **72 menu×device rows, 39 divergences, 21 fixed here.**
+
+The full table, one row per menu per device class with the measured delta, is
+the deliverable this section summarises.
+
+### The two findings that are bigger than any single menu
+
+**MN-11 · Every menu row on a 2560×1600 tablet was 21 px.** — **FIXED.**
+`DCC_SHELL_SPEC.md` §13 states a 44 px minimum "measured inside the safe area,
+with no exceptions", and §48 built the exact `DccTheme.TABLET` table that made
+the tablet *frame* obey it. Neither `add_menu()` nor `style_popup()` had ever
+looked at `_touch`. Measured with `--force-touch` at 2560×1600: the menu bar was
+52 px tall and carried seven **40×51 desktop-sized titles in 11 px type**;
+`File`'s popup came back **byte-identical to the desktop's**, 467×344 at font
+size 11 with `v_separation` 7, giving a 21 px row — *less than half the stated
+floor, on every row of every menu in the application.* The tablet canvas is not
+ambiguous about this: `DCC shell tablet 2560` draws its open Data menu at
+`font-size:14px`, `padding:9px 18px 9px 30px` and `min-height:44px`, with
+`padding:15px 15px` on the bar titles.
+
+Now a measured desktop/tablet table (`DccTheme.MENU`) in the same shape as
+`DccTheme.TABLET`, for the same reason: §1's tablet column is a table of drawn
+figures, not a multiplier. Desktop row 21 → **28** (the canvas's `padding:6px
+14px` on an 11.5 px line is 28.7); tablet row 21 → **44**; bar title 11 → 14 px;
+`File` 40×51 → 53×51.
+
+`PopupMenu` has no per-item height, so the pitch can only be reached through
+`v_separation` — which is dead space *between* rows, while the `hover` box draws
+on the row rect alone. A bare separation gives a tall menu with a short
+highlight bar. The box's `expand_margin` claims the gap back, and the two
+together draw the canvas's full-bleed padded row.
+
+**MN-12 · Every `OptionButton` in the application opened Godot's stock popup.**
+— **FIXED.** `dark_theme.tres` defines **no `PopupMenu` type at all** — grepped,
+not assumed — so every popup in the shell falls through to Godot's own theme
+unless something overrides it, and `style_popup()` was an instance method on
+`DccShell` that only the seven program menus and their submenus ever reached.
+Every dock picker, every dialog select, the paint target, the bake depth, the
+asset-library sort, the journey planner's transport and pace columns and the
+city viewer's picker were opening a `#0f0f0f` panel with a grey selection bar,
+in a shell whose palette is `#121314` plus one amber — the same class of defect
+as §48's DS-05, in fifteen more places.
+
+Fixed at the choke point rather than per call site: the body moved to
+`DccWidgets.style_popup()` (static), `DccShell.style_popup()` is now a delegate,
+and `DccWidgets.choice()` calls it on construction. The six hand-built
+`OptionButton`s outside that factory are patched individually. A static factory
+has no node and so cannot reach the shell's `_touch`, which is why
+`DccTheme.set_touch()` / `is_touch()` now exist — published once from
+`DccShell._ready`.
+
+### The one that had never drawn at all
+
+**MN-13 · `flat = true` was suppressing three styleboxes, one of them the menu
+bar's own open-menu indicator.** — **FIXED.** A `Button` with `flat = true`
+skips its `normal`/`hover`/`pressed` styleboxes outright. `viewport_host.gd`
+already records paying for this twice on the Layers button. Three more sites had
+it, each with an override underneath that had never appeared on screen:
+
+- `add_menu()` set `pressed` to `active_row()` — the canvas's open title,
+  `color:#e0a34a;background:rgba(224,163,74,.08);border-bottom:1px solid
+  #e0a34a`. Sampled off the framebuffer with the File menu open: the title's
+  background was `#121314` (18, 19, 20), **identical to the closed `Edit`
+  beside it**. The most prominent state cue in the application was invisible,
+  and had been since the shell was built. It now samples (34, 30, 24) open
+  against (18, 19, 20) closed, with the accent underline.
+- `_build_rail()`'s domain buttons had a `hover` box: the rail gave no pointer
+  feedback.
+- `_phone_list_row()` had one too: the phone's MENU and drawer rows gave no
+  press feedback.
+- `layers_popover.gd`'s selected row had `active_row()`: the picked layer was
+  distinguished only by its accent ink and its badge opacity. **The first
+  capture of MN-22's fix showed a *blank* row where the slab should be, which is
+  how the older dead override was caught.**
+
+This is worth a rule: **an override on a flat `Button` is a comment, not a
+style.** Grep before adding another.
+
+### Ranked, with the numbers
+
+**MN-14 · Every `add_separator()` in `menus.gd` was unlabelled, and the
+separator font had never been set.** — **FIXED.** The canvas's group band is
+`padding:9px 14px 4px;font:9px 'IBM Plex Mono';letter-spacing:.18em;
+color:#5f6468` and it appears nine times across three drawn menus —
+`STORAGE LOCATIONS`, `ACTIVE PACK`, `EDIT`, `BATCH · 12 SELECTED`, `BUILD`,
+`IMPORT`, `EXPORT`, `SOURCES`, `VALIDATION`. Godot draws exactly that from
+`font_separator` / `font_separator_size` / `font_separator_color`, none of which
+was set, so a labelled separator would have come out **prose at 13 px in
+`text_faint`** — one size up and one ink step bright — and there were no labels
+to render anyway.
+
+This one change lands twice. `phone_menu.gd`'s header names it as that file's
+one honest shortfall: *"The canvas draws L3 bands with titles. Every
+`add_separator()` in `menus.gd` is unlabelled… the moment a separator is given
+text it becomes a titled band with no change to this file."* It did, and it is.
+
+**MN-15 · The Data menu offered four of the canvas's fourteen destinations.** —
+**FIXED.** `DCC shell tablet 2560` draws Data as a `⧉ DATA MANAGER` head over
+**four labelled bands carrying fourteen indented rows**, each with its own
+trailing badge — `Heightmaps · PNG · TIFF`, `World Data · .zip · fields`,
+`Assets · → Assets`, `Maps · image · tiles`, `Assets · pack .zip`,
+`Check Data · 8 warnings`. The shell collapsed each band into one row
+(`Import ▸ Maps · Heightmaps · GIS · World data`) that opened its group's
+*first* route. **Ten of fourteen routes had no path from the menu bar at all**,
+and the Data manager window itself had no row naming it.
+
+The rows are generated from `DataManagerWindow.ROUTES`, which already carries
+the canvas's own label and badge for every route — a second copy here would be a
+second thing to keep in step. Each row opens its exact route through a new
+`open_route()` / `open_data_manager_route()` pair.
+
+**MN-16 · `Assets ▸ Asset pack` was three nested submenus where the canvas draws
+one panel.** — **FIXED.** The canvas is a single 306 px panel with four labelled
+bands — `ACTIVE PACK` (five read-only rows plus Pack metadata…), `EDIT` (seven),
+`BATCH · 12 SELECTED` (five), `BUILD` (four) — and `Clear library… destructive`
+at its foot. The shell had `Edit ▸`, `Batch ▸` and `Build ▸` as child popups and
+no foot row. Flattened. Three popups became zero, which also removes three more
+places for **MN-10**'s trap — a submenu's `id_pressed` does not bubble to its
+parent in Godot 4 — to reappear: there is one popup and one connection now.
+
+`BATCH` ships without the canvas's `· 12 SELECTED` count. There is no selection
+at the menu level to count — it lives in the window — and a faked count is the
+thing this whole pass exists to find.
+
+**MN-17 · The File menu's order was the canvas's order inverted, and five rows
+were missing.** — **FIXED.** The canvas puts `Close project ⌘W` **last**, after
+a `STORAGE LOCATIONS` band listing the four roots read-only above
+`Change locations…` and `Show project on disk`. The shell had Close directly
+after Revert with the storage pair below it, one `Storage locations` row and no
+band. The four roots are live now, elided to their data-dir-relative tail
+(`…/Worlds`, `…/Cache/atlas`) with the full path on the tooltip — this port's
+roots are `OS.get_user_data_dir()`-relative and six segments long, and a
+`PopupMenu` sizes itself to its widest item, so four full paths would have made
+File wider than the left dock. The static note split into the canvas's own two
+lines for the same reason: as one row it alone set the panel to 380 px.
+Measured: 467 → **362 px**, against the canvas's 298.
+
+**MN-18 · The Assets menu had one rule too many and its most important row
+last.** — **FIXED.** The canvas runs its four opening rows as one unbroken block
+and places `Asset pack ▸` **directly above** Icon families; the shell had a rule
+between the slicer and Import image, and `Asset pack ▸` alone at the very foot,
+below `Clear library…` — six positions out of place.
+
+**MN-19 · The map right-click menu was the one `PopupMenu` nothing had ever
+styled.** — **FIXED.** Measured 232×54 on **both** desktop and tablet: Godot's
+stock panel, stock selection bar, 15 px rows — a third of the 44 px floor on the
+device that has one. `civilization_workspace.gd` builds it with a bare
+`PopupMenu.new()`. Now 291×149 on the shell's own panel.
+
+**MN-20 · The tool options bar was drawing the *dock's* parameter row.** —
+**FIXED.** Every artboard that draws a tool options bar sets the whole row in
+`font:11px 'IBM Plex Mono';color:#8d9296` and lets its labels inherit —
+`DCC shell 1920`'s `hardness`/`intensity`/`noise`, the tablet's same three at
+13 px, and `Cartalith Paint Toolbar.dc.html`'s `size`/`strength`/`falloff`/
+`spacing`/`max Δ`/`pressure`. The bar used `DccWidgets.slider()`, whose label is
+prose in `text_secondary` — which is *right for the dock*, and is exactly what
+§48's DS-06 read off the dock's own parameter row. One component, two homes,
+one of them wrong. Repainted at `_narrow()`, the single point every bar row
+already passes through. Track 56 → 70 px (the canvas's own figure); label column
+56 → 74, because Plex is wider than the prose face and the first capture after
+the change clipped `Brush size` to `Brush si`.
+
+**MN-21 · The armed mode segment is filled, and the armed feature segment is
+washed.** — **FIXED.** `Cartalith Paint Toolbar.dc.html` — a **later** artboard
+of a component `DCC shell 1920` does not draw — fills exactly one thing:
+`padding:5px 12px;border:1px solid #e0a34a;color:#141617;background:#e0a34a` on
+the active `SCULPT`/`PAINT`/`MEASURE`. Reversed paper-coloured type on accent is
+§11's own rule for a filled accent surface, so this is the design's grammar
+rather than an exception to §48's DS-02, whose search was over a different
+artboard. Kept as its own `set_mode_segment_on()` rather than a flag on
+`set_segment_on()`, so the fill cannot spread back to the 141 call sites DS-02
+cleared. The *feature* segments below them are `border:1px solid #e0a34a;
+color:#e0a34a;background:rgba(224,163,74,.10)` — border and ink were already
+right, the wash was missing, which is why "which of these eight is armed" read
+as a hairline colour change.
+
+**MN-22 · The Layers popover's selected row.** — **FIXED.** §48's DS-02 searched
+`DCC shell 1920` for `background:#e0a34a`, reported "slider fills and **exactly
+one** other hit — a *selected layer row* in the layers popover", removed 141
+filled action buttons, and did not then apply the one filled row the search had
+found. The canvas is `padding:4px 8px;background:#e0a34a;color:#1a1206;
+font-weight:600`. The reversed ink is `c("bg")` rather than the literal, so it
+follows a theme switch; the weight is left alone and said so, because no bold
+cut of the prose face is loaded.
+
+**MN-23 · The open-item wash was `.08`; the canvas's is `.10`.** — **FIXED.**
+The canvas draws the menu *bar's* open title at `rgba(224,163,74,.08)` and the
+*item* inside the dropdown at `rgba(224,163,74,.10)` — two literals a few lines
+apart in the same artboard. DS-05 matched the item to the bar's value.
+`DccTheme.menu_highlight()` is the item's; `accent_wash` stays the bar's.
+
+**MN-24 · Preferences drew four bands for five groups.** — **FIXED, and
+designed rather than matched.** No artboard draws Preferences open. §2.5's table
+names five groups — Performance, Graphics, Tiles & LOD, Memory, Application —
+and the shell had four unlabelled rules, with **Tiles & LOD and Memory sharing
+one**, so `Tiled LOD` and `Undo history` read as the same subject. The band
+*names* come from §2.5; the band *treatment* is copied from the three menus that
+are drawn.
+
+### Also fixed, not a design question
+
+`font_separator_color` was missing from `_THEME_COLOR_OVERRIDES`. It was set
+before this pass too, so a dark/light switch had never repainted it.
+
+### Registered, not fixed
+
+- **A badge is not a right-hand column.** The canvas right-aligns `PNG · TIFF`,
+  `pack .zip`, `8 warnings`, `checker ▸` in Plex. Godot's only right column on a
+  `PopupMenu` item is the accelerator, which renders a real keystroke or
+  nothing, so every badge is appended to the label after a double space.
+  Content matches; alignment does not. Same limitation costs `Recent worlds` its
+  secondary path text, which is a tooltip.
+- **`SCULPT · MOUNTAINS` names a feature absent from its own row.** The header
+  reads `sculpt_get_feature()`, set from the WORLD dock's feature list; the row
+  beside it shows `FreehandMode`'s eight sub-modes with none lit. Each is honest
+  about its own state and together they read as a bug. Which control owns the
+  armed feature is a tool-system question.
+- **The tool options bar's height: the two canvases disagree.** `DCC shell 1920`
+  draws one 34 px bar; `Cartalith Paint Toolbar.dc.html` draws **two 38 px
+  bars**, each with its own rule. The shell draws one bar carrying two unruled
+  rows. A third owner decision, smaller than the two ruled on today.
+- **Tablet dock and bar *contents* are still desktop-sized.** `phone_fit()`
+  begins `if not _phone: return`. §48 registered this as DS-03; menus are out of
+  it now, docks and the tool options bar are not — accordion rows 30 px,
+  sliders 14 px, dock labels 11 px, against §13's 44–52.
+- **Dropdown check marks** are Godot's stock radio icons; the canvas uses `●` /
+  `○` typographic marks.
+- **The Layers popover's band ink** is `#6f7478` where that popover's own canvas
+  band is `#5f6468`, and the shell prefixes `§ `, which is the canvas's
+  convention for a dock section but not for this popover.
+- **Sculpt's feature names** are `FreehandMode`'s real eight (Raise · Lower ·
+  Smooth · Cliff · Ridge · Canyon · Mesa · Volcano); the canvas's are Raise ·
+  Lower · Smooth · Flatten · Noise · Ridge · Carve · Mask. Flatten, Noise and
+  Mask have no engine mode at all. An engine gap, not a UI one.
+
+### Two canvas-vs-shell conflicts that are deliberate, recorded so they stay shut
+
+- **`Data ▸ Conversion`** is drawn in the tablet artboard and deliberately
+  absent from the shell — owner, 2026-08-20, on §7.4's research. The canvas is
+  stale on this point.
+- **`Vault` as an eighth top-bar menu** is drawn in Menu Structure v3 and is
+  deliberately three rows inside Data — owner, 2026-08-24: *"the vault menu can
+  be shoved into data."*
+
+### The two open items §48 raised, now ruled on by the owner
+
+**Region fills — KEEP THE FILLS.** §48's "Registered, not fixed" opens with
+*"The canvas paints no regions; the shell paints all of them"* and leaves the
+choice to the owner because the two canvases disagree with each other. He chose
+to keep them. **This is settled: the shell's `#121314` regions are not a
+divergence, and this pass did not log one.** Do not re-open it.
+
+**The phone canvas — ADOPT 412 dp FULLY.** §48's "Two canvases disagree about
+the phone" is resolved: `design/Cartalith Android Phone.dc.html`, the
+eight-screen 412 dp canvas, is the phone authority. `DCC shell android phone`
+(393 dp) and `DCC_SHELL_SPEC.md` §13's phone column are superseded.
+
+Nothing is broken today — `DccTheme.PHONE_REF_SHORT` is `393.0` and every
+shipped phone constant matches that canvas coherently — so this is a deliberate
+redesign, not a defect. **The migration is a separate pass and was not started
+here.** What this pass produced for it is the divergence list, measured against
+the 412 canvas menu by menu:
+
+| Constant / region | Today (393) | 412 canvas | Δ |
+|---|---|---|---|
+| `PHONE_REF_SHORT` | `393.0` | `412.0` | the unit every figure below is in |
+| `H_PHONE_TOP_SAFE` | `44` | **`28`** | 412's status row is a status row, not a keep-clear reserve |
+| `H_PHONE_TOP_SCRIM` | `96` | — | 412 draws no gradient scrim, it draws a solid ground |
+| `W_PHONE_CUTOUT` | `108` | — | 412 reserves no centre lane |
+| `H_PHONE_APP_BAR` | `52` | **`56`** | glyph boxes 40 dp, not 44 |
+| `W_PHONE_RAIL` | `44` | **region deleted** | replaced by the bottom nav |
+| bottom nav | 64 dp, labels only | 64 dp, **`14px` glyph over `9.5px` label** | five glyphs to draw, to §12's rules |
+| `H_PHONE_GESTURE` | `26` | **`20`** | handle 112×4 |
+| sheet surface | `panel` | `#151718`, radius `18px 18px 0 0` | a distinct raised tone |
+| sheet primary button | square chip | 48 dp pill, `r24`, filled `#e0a34a`/`#141617`, `500 11px Plex/.16em` | secondary is the same pill outlined |
+| sheet slider thumb | ~19 dp | 22 dp | track 3 px, row 32 dp |
+| ☰ drawer | 300 dp side sheet | **does not exist** — L2 is a full-screen drill with `←` | |
+| overflow title | `MENU` + `Cartalith`, **two `✕`** | `MORE` + `ELDRA · 1.6 GB`, one `✕` | |
+
+Measured at 1440×3168 (`_phone_scale` 3.664): status row **43.9 dp** against
+28, app bar **52.1** against 56, bottom nav **64.4** against 64, gesture inset
+**25.9** against 20, drill rows **52.1** against 52. The 1080×2400 pass
+(`_phone_scale` 2.748) is the same composition with every figure scaled
+coherently — **there is no arithmetic error at either size today**, which is
+what makes this a redesign rather than a repair.
+
+**One conflict the migration pass must resolve rather than copy.** The 412
+canvas's five bottom-nav tabs are `WORLD · GENERATE · SIMULATE · MAP · MORE` —
+the **pre-v3** domain set. `Cartalith Menu Structure v3.dc.html` is newer than
+the phone canvas and is the authority for menu content and naming, and it has
+three domains: `WORLD · CIVIL · CARTO`. The shipped bar is v3's three plus the
+two phone affordances (`PANELS`, `MENU`). That is probably right; it is not what
+the canvas draws, and it needs saying out loud rather than being silently
+resolved by whoever gets there first.
+
+### Harness
+
+`_menuconf_probe.gd` / `.tscn` (new, untracked, like every other probe in
+`godot-project/`). Hosts the real shell in a `SubViewport` for §47/§48's reason —
+`--resolution WxH` is clamped to the dev monitor's 1680×1002 work area and boots
+the shell into *tablet* mode — with `gui_embed_subwindows = true`, which is what
+brings a `PopupMenu` (a `Window`, not a `Control`, and outside any `Control`
+walk) into the captured texture at all. It opens every program menu, recurses
+into every submenu by `get_item_submenu()`, and dumps per row the text,
+disabled/checked/radio/accelerator state and per popup the measured size plus
+the resolved panel colour, item font size, `v_separation`, separator
+font/size/colour and hover colour. `--vp WxH --tag NAME [--force-touch]`.
+
+Two traps worth recording. `Window.popup(rect)` clamps to the same usable rect,
+so a submenu opened at 3168 px tall comes back 1002 — assign `size` *after*
+`popup()`. And `about_to_popup` must be emitted by hand before reading a popup
+that rebuilds itself on open (Recent worlds, GPU devices, Open windows, the
+Preferences busy-lock), or the dump reads the previous session's rows.

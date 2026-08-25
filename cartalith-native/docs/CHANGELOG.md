@@ -28135,3 +28135,84 @@ this app** (Godot renders into its own `SurfaceView`, not HWUI, so frame counts
 stick at 0 once the splash is gone) — use `dumpsys SurfaceFlinger --latency` and
 difference column 2. `project.godot`'s md5 was checked before and after **all
 seven** Godot invocations and its `;` comment block survived every one.
+
+
+## Menu by menu, beside the design — twenty-one divergences, and two of them were invisible (`GUI_GAP_REGISTER.md` §51, 2026-08-25)
+
+§48 walked *screens* against the canvases in `design/` and fixed eleven theme
+tokens, 141 filled buttons, the tablet frame table and two phone violations. It
+did not walk the menus one at a time. The owner asked for exactly that: *"compare
+the actual windows/tablet and phone GUI side by side, menu by menu with what has
+been made in Claude design. Every menu should match with it."*
+
+Forty-five distinct menus — seven program menus, thirteen submenus, three rail
+domain accordions, four right-dock contexts, the map context menu, six
+tool-options rows, the Layers popover, every `OptionButton` dropdown and seven
+phone surfaces — were opened one at a time at four sizes, dumped row by row with
+their resolved theme, screenshotted, and set beside the canvas region each
+implements. Seventy-two menu-by-device rows, thirty-nine divergences,
+twenty-one fixed.
+
+Two of them are bigger than any single menu. **Every menu row on a 2560×1600
+tablet was 21 px** — less than half the 44 px floor `DCC_SHELL_SPEC.md` §13
+states "with no exceptions" — because neither `add_menu()` nor `style_popup()`
+had ever looked at `_touch`. §48 had built the exact `DccTheme.TABLET` table that
+made the tablet *frame* obey the canvas; the menus inside it came back
+byte-identical to the desktop's, 467×344 at font size 11, on a screen four times
+the area. And **every `OptionButton` in the application opened Godot's stock
+popup**: `dark_theme.tres` defines no `PopupMenu` type at all, and `style_popup()`
+was an instance method on `DccShell` that only the seven program menus ever
+reached — so every dock picker, dialog select, paint target and bake-depth list
+came up on a `#0f0f0f` panel with a grey selection bar, in a shell whose palette
+is `#121314` plus one amber.
+
+The third is the one worth carrying forward as a rule. A `Button` with
+`flat = true` **skips its `normal`/`hover`/`pressed` styleboxes outright**, and
+`viewport_host.gd` already records paying for that twice on the Layers button.
+Three more sites had it, each with an override underneath that had never once
+appeared on screen — including `add_menu()`'s `pressed`, which is the canvas's
+own open-menu indicator. Sampled off the framebuffer with the File menu open,
+the title's background was `#121314` (18, 19, 20): **identical to the closed
+`Edit` beside it.** The most prominent state cue in the application was invisible
+and had been since the shell was built. It now reads (34, 30, 24) open, with the
+accent underline. An override on a flat `Button` is a comment, not a style.
+
+Beyond those: the Data menu offered **four of the canvas's fourteen
+destinations**, each of its four rows opening its group's first route and ten
+having no path from the menu bar at all — it is four labelled bands over
+fourteen rows now, generated from `DataManagerWindow.ROUTES` rather than retyped,
+because that table already carries the canvas's own label and badge for each.
+`Assets ▸ Asset pack` was three nested submenus where the canvas draws one panel
+with four labelled bands, which also removed three more places for MN-10's trap
+(a submenu's `id_pressed` does not bubble in Godot 4) to reappear. Every
+`add_separator()` in `menus.gd` was unlabelled *and* the separator font had never
+been set, so the canvas's nine group bands did not exist and would have rendered
+in the wrong face and ink if they had — fixing that closed `phone_menu.gd`'s own
+stated shortfall in the same stroke, since its L3 bands are those separators.
+The File menu's order was the canvas's inverted with five rows missing. The tool
+options bar was drawing the *dock's* parameter row, prose where every artboard
+that draws a tool bar sets Plex — one component, two homes, one of them wrong.
+And §48's DS-02 search had reported "exactly one other hit — a *selected layer
+row* in the layers popover" and then not applied the one filled row it found;
+that row is the canvas's amber slab now, with its reversed ink taken from `bg`
+so it follows a theme switch.
+
+**Two owner decisions landed mid-pass and are recorded beside where §48 raised
+them.** Region fills **stay** — the shell paints every region `#121314` where
+the desktop canvas fills none, and that is now settled rather than a divergence.
+And the phone adopts **412 dp fully**: `design/Cartalith Android Phone.dc.html`
+is the phone authority, superseding the 393 dp artboard and §13's phone column.
+Nothing is broken today — `PHONE_REF_SHORT` is 393 and every phone constant
+matches that canvas coherently, at both 1440×3168 and 1080×2400 — so it is a
+redesign, not a repair, and the constant migration is its own pass. §51 carries
+the per-region divergence list that pass needs, and names the one thing it must
+resolve rather than copy: the 412 canvas's five bottom-nav tabs are the pre-v3
+domain set, and Menu Structure v3 is newer than the phone canvas.
+
+Verified by running, not by reading: `_menuconf_probe.gd` hosts the real shell in
+a `SubViewport` (`--resolution` is clamped to the dev monitor's 1680×1002 work
+area and boots the shell into *tablet* mode, which would make the whole run
+measure the wrong thing) with `gui_embed_subwindows`, which is what brings a
+`PopupMenu` — a `Window`, not a `Control`, outside any `Control` walk — into the
+captured texture at all. Four sizes, zero script errors, every menu screenshotted
+before and after.

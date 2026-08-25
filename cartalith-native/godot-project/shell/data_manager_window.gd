@@ -346,6 +346,16 @@ func open(group: String = "") -> void:
 	_refresh_foot()
 	_refresh_status()
 
+## One exact route, by id. The Data dropdown draws all fourteen rows the canvas
+## draws (`menus.gd::_data()`), and each is its own destination -- `open()`
+## above takes a *group* and lands on that group's first route, which is what
+## the four collapsed group rows used to do.
+func open_route(route_id: String) -> void:
+	_popup_full()
+	_select_route(route_id)
+	_refresh_foot()
+	_refresh_status()
+
 ## `right_dock.gd`'s Region select ▸ *Send to Data ▸ Export* (RD-09): open
 ## straight onto the tile-export route with the marquee already read.
 func open_tile_export() -> void:

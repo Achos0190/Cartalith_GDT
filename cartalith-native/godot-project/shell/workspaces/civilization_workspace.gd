@@ -344,6 +344,12 @@ func on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -
 	_ctx_hit = hit
 	if _ctx_menu == null:
 		_ctx_menu = PopupMenu.new()
+		## The one `PopupMenu` in the shell that never went through the shell's
+		## own styling: measured 232x54 on both desktop and tablet in the
+		## 2026-08-25 menu sweep -- Godot's stock panel, stock selection bar and
+		## a 15 px row on a device whose floor is 44. Every program menu beside
+		## it is `#121314` with the accent wash, and this one was not.
+		DccWidgets.style_popup(_ctx_menu)
 		_ctx_menu.id_pressed.connect(_on_ctx_id)
 		add_child(_ctx_menu)
 	_ctx_menu.clear()

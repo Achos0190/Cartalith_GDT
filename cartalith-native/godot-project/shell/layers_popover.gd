@@ -307,9 +307,46 @@ func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) 
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
 	var font_color := DccTheme.c("text" if available else "text_ghost")
 	if id == current:
-		b.add_theme_stylebox_override("normal", DccTheme.active_row())
-		b.add_theme_color_override("font_color", DccTheme.c("accent"))
-		font_color = DccTheme.c("accent")
+		## **The one filled surface in the desktop canvas.** `GUI_GAP_REGISTER
+		## .md` §48 (DS-02) searched `DCC shell 1920` for `background:#e0a34a`,
+		## found slider fills and "exactly one other hit -- a *selected layer
+		## row* in the layers popover", removed 141 filled action buttons and
+		## did not then apply the one the search had found. The canvas's row is
+		## `display:flex;align-items:center;padding:4px 8px;background:#e0a34a;
+		## color:#1a1206;font-weight:600` -- a slab, not `active_row()`'s wash
+		## and underline, which is the treatment for a menu-bar title and a dock
+		## category header rather than for a picked item in a list.
+		##
+		## `#1a1206` is not a palette token and is not made one: it is the
+		## reversed paper ink §11 requires on a filled accent surface, which
+		## `bg` (`#0d0e0f` dark, `#f4f2ee` light) already is in both themes --
+		## and unlike a literal it follows a theme switch.
+		##
+		## **`flat` has to come off.** A `Button` with `flat = true` skips its
+		## `normal`/`hover`/`pressed` styleboxes entirely, so the override that
+		## used to sit here -- `active_row()`, put on a flat button -- had never
+		## drawn anything at all. The active row was distinguished only by its
+		## accent ink and its badge opacity, and the first capture of this fix
+		## showed a *blank* row where the slab was supposed to be, which is how
+		## the older override was caught too.
+		b.flat = false
+		var slab := DccTheme.flat(DccTheme.c("accent"))
+		slab.content_margin_left = 8
+		slab.content_margin_right = 8
+		slab.content_margin_top = 4
+		slab.content_margin_bottom = 4
+		for sb_name in ["normal", "hover", "pressed", "disabled"]:
+			b.add_theme_stylebox_override(sb_name, slab)
+		## The canvas also sets `font-weight:600` on this row. The shell's prose
+		## face is `FiraSans-Regular.ttf` and no bold cut is loaded (`dcc_theme
+		## .gd` preloads two Plex weights and one Fira), so the weight is left
+		## alone rather than faked with an outline. Recorded, not silently
+		## dropped.
+		b.add_theme_color_override("font_color", DccTheme.c("bg"))
+		b.add_theme_color_override("font_hover_color", DccTheme.c("bg"))
+		b.add_theme_color_override("font_pressed_color", DccTheme.c("bg"))
+		b.add_theme_color_override("font_disabled_color", DccTheme.c("bg"))
+		font_color = DccTheme.c("bg")
 	if available:
 		b.pressed.connect(_on_pick.bind(id))
 	parent.add_child(b)

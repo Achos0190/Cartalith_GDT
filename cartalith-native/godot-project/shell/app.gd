@@ -1318,11 +1318,17 @@ func open_gen_info() -> void:
 func toggle_resource_overlay() -> void:
 	resource_overlay.toggle()
 
-## `Data`'s five group items (`menus.gd`) all converge here -- `group` is one
-## of the five `DataManagerWindow.GROUP_ORDER` names, empty opens the window
-## on its first route.
+## `Data ▸ ⧉ Data manager` and the Region-select handoff converge here --
+## `group` is one of the four `DataManagerWindow.GROUP_ORDER` names, empty
+## opens the window on its first route.
 func open_data_manager(group: String = "") -> void:
 	data_manager_window.open(group)
+
+## The Data dropdown's fourteen route rows (`menus.gd::_data()`, rebuilt
+## against `DCC shell tablet 2560` on 2026-08-25). A group name picks that
+## group's first route; this picks the exact one the row names.
+func open_data_manager_route(route_id: String) -> void:
+	data_manager_window.open_route(route_id)
 
 ## Assets ▸ ⧉ Asset library / ▦ Sprite sheet slicer, and the Icon families ▸ /
 ## Texture sets ▸ submenus (`menus.gd`) all converge here. `family_key` scopes

@@ -320,8 +320,106 @@ static func choice(parent: Control, label_text: String, options: Array, selected
 		ob.add_item(String(o))
 	ob.selected = selected
 	ob.item_selected.connect(func(i: int): on_change.call(i))
+	style_popup(ob.get_popup())
 	row.add_child(ob)
 	return ob
+
+## The canvas's own menu panel, read off `DCC shell 1920`'s open Assets menu,
+## `DCC Cartography style 1920`'s open File menu and `DCC shell tablet 2560`'s
+## open Data menu:
+##
+##   background:#121314; border:1px solid rgba(255,255,255,.14);
+##   box-shadow:0 14px 34px rgba(0,0,0,.55); padding:5px 0
+##   item     padding:6px 14px               (tablet: 9px 18px, min-height 44)
+##   label    font-size:11.5px prose         (tablet: 14px)
+##   band     font:9px Plex;.18em;#5f6468    (tablet: 11px)
+##   rule     rgba(255,255,255,.09), margin:5px 0
+##   open row background:rgba(224,163,74,.10);color:#e8ebec
+##
+## Lives here rather than on `DccShell` because it serves every `PopupMenu` in
+## the shell, not only the seven program menus: `choice()` above opens one on
+## every dropdown, and until 2026-08-25 those were stock Godot.
+static func style_popup(popup: PopupMenu) -> void:
+	var touch := DccTheme.is_touch()
+	var panel := DccTheme.panel("panel",
+		{"left": 1, "right": 1, "top": 1, "bottom": 1})
+	panel.border_color = DccTheme.c("border")
+	panel.shadow_color = Color(0, 0, 0, 0.55) if DccTheme.is_dark() \
+		else Color(0.137, 0.141, 0.122, 0.16)
+	panel.shadow_size = 34
+	panel.shadow_offset = Vector2(0, 14)
+	var pad_y := DccTheme.menu("pad_y", touch)
+	var pad_x := DccTheme.menu("pad_x", touch)
+	panel.content_margin_top = pad_y
+	panel.content_margin_bottom = pad_y
+	## `padding:6px 14px` on the canvas's item is horizontal padding on the
+	## *row*, and `PopupMenu` has no such constant -- it draws from the panel's
+	## own content margin plus `item_start_padding`. Both were 0/2, which is
+	## why every menu in the shell sat about 10 px tighter to its edge than the
+	## canvas draws it.
+	panel.content_margin_left = pad_x
+	panel.content_margin_right = pad_x
+	popup.add_theme_stylebox_override("panel", panel)
+	popup.add_theme_color_override("font_color", DccTheme.c("text"))
+	popup.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	popup.add_theme_color_override("font_accelerator_color", DccTheme.c("text_faint"))
+	## Item labels are prose (`font-size:11.5px`); only the shortcut column is
+	## Plex, and `PopupMenu` draws that column from the same font, so this
+	## follows the label rather than the shortcut.
+	var fs := DccTheme.menu("fs_item", touch)
+	popup.add_theme_font_size_override("font_size", fs)
+	## **Row pitch.** `PopupMenu` sizes a row to its font height and nothing
+	## else -- there is no per-item minimum -- so the canvas's `padding:6px 14px`
+	## (a 28.7 px row) and the tablet's stated `min-height:44px` can only be
+	## reached through `v_separation`. That constant is dead space *between*
+	## rows, though, and the `hover` box is drawn on the row rect alone, so a
+	## bare separation would give a tall menu with a short highlight bar. The
+	## box's `expand_margin` claims the gap back, and the two together draw the
+	## canvas's full-bleed padded row.
+	##
+	## Measured before this change: a desktop row was 21 px against the
+	## canvas's 28.7, and a **tablet** row was the same 21 px against a stated
+	## floor of 44 -- every menu row on the tablet was less than half a target.
+	var f: Font = popup.get_theme_font("font")
+	var line: float = f.get_height(fs) if f != null else float(fs)
+	var gap: int = maxi(2, DccTheme.menu("pitch", touch) - int(ceil(line)))
+	popup.add_theme_constant_override("v_separation", gap)
+	## The highlighted item. Godot's stock `hover` box is a blue selection bar,
+	## which is what a real menu capture showed 2026-08-25 -- the one saturated
+	## colour anywhere in a shell whose entire palette is greys plus one amber.
+	## The canvas's own hovered row is `background:rgba(224,163,74,.10);
+	## color:#e8ebec` (and `rgba(164,101,15,.10)` / `#111210` in light) -- see
+	## `DccTheme.menu_highlight()` for why that is not `accent_wash`.
+	var hov := DccTheme.flat(DccTheme.menu_highlight())
+	hov.expand_margin_top = gap / 2.0
+	hov.expand_margin_bottom = gap / 2.0
+	popup.add_theme_stylebox_override("hover", hov)
+	popup.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	## **A labelled separator is the canvas's group band**, not a rule with a
+	## caption: `padding:9px 14px 4px;font:9px 'IBM Plex Mono';
+	## letter-spacing:.18em;color:#5f6468` over `STORAGE LOCATIONS`,
+	## `ACTIVE PACK`, `EDIT`, `BATCH · n SELECTED`, `BUILD`, `IMPORT`, `EXPORT`,
+	## `SOURCES` and `VALIDATION`. Godot draws that from `font_separator`,
+	## `font_separator_size` and `font_separator_color`, none of which was set:
+	## the band inherited the prose face at 13 px in `text_faint`, one size up
+	## and one step bright, and every `add_separator()` in `menus.gd` was
+	## unlabelled anyway.
+	##
+	## `phone_menu.gd`'s header names this as its own one honest shortfall --
+	## "the moment a separator is given text it becomes a titled band with no
+	## change to this file" -- so labelling them fixes the phone's L3 bands in
+	## the same stroke.
+	popup.add_theme_font_override("font_separator", DccTheme.mono(2))
+	popup.add_theme_font_size_override("font_separator_size",
+		DccTheme.menu("fs_group", touch))
+	popup.add_theme_color_override("font_separator_color", DccTheme.c("text_ghost"))
+	## `height:1px;background:rgba(255,255,255,.09);margin:5px 0` on the
+	## canvas's own menu rules. `StyleBoxLine`, not `StyleBoxFlat`: a Flat box
+	## in the `separator` slot fills the separator's whole reserved band.
+	var sep := StyleBoxLine.new()
+	sep.color = DccTheme.c("line_soft")
+	sep.thickness = 1
+	popup.add_theme_stylebox_override("separator", sep)
 
 static func number(parent: Control, label_text: String, minimum: float, maximum: float,
 		step: float, value: float, on_change: Callable, tooltip: String = "") -> SpinBox:
@@ -671,11 +769,46 @@ static func segment(parent: Control, text: String, on_press: Callable) -> Button
 static func set_segment_on(b: Button, on: bool) -> void:
 	var token := "accent" if on else "border"
 	var fg := DccTheme.c("accent") if on else DccTheme.c("text_dim")
+	## **A lit segment carries the accent wash behind its border.** `Cartalith
+	## Paint Toolbar.dc.html`'s `Sculpt raise 1920` draws the armed feature as
+	## `border:1px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.10)`
+	## and every unlit sibling as `border:1px solid rgba(255,255,255,.16)` with
+	## no fill. The border and the ink were already right; the wash was missing,
+	## which is why "which one is armed" read as a hairline colour change on a
+	## row of eight identical chips. Not a filled surface -- see
+	## `set_mode_segment_on()` below for the one segment that is.
+	var wash := "accent_wash" if on else ""
 	for sb_name in ["normal", "pressed", "disabled"]:
-		b.add_theme_stylebox_override(sb_name, box(token, "", 8, 3))
+		b.add_theme_stylebox_override(sb_name, box(token, wash, 8, 3))
 	b.add_theme_color_override("font_color", fg)
 	b.add_theme_color_override("font_disabled_color",
 		fg if on else DccTheme.c("text_ghost"))
+
+## The tool bar's three **mode** segments -- SCULPT / PAINT / MEASURE -- and
+## nothing else.
+##
+## `GUI_GAP_REGISTER.md` §48 (DS-02) removed every filled amber slab in the
+## shell after finding that a search of `DCC shell 1920` for
+## `background:#e0a34a` returns slider fills and one selected layer row, and
+## that is still true of that artboard. The **Paint Toolbar** canvas is a later
+## artboard of a component that one does not draw, and it fills exactly one
+## thing: `padding:5px 12px;border:1px solid #e0a34a;color:#141617;
+## background:#e0a34a;letter-spacing:.12em` on the active mode. Reversed
+## paper-coloured type on accent is §11's own rule for a filled accent surface,
+## so this is the design's grammar rather than an exception to it.
+##
+## Kept as its own call, not a flag on `set_segment_on()`, so the fill cannot
+## spread back to the 141 call sites DS-02 cleared.
+static func set_mode_segment_on(b: Button, on: bool) -> void:
+	if not on:
+		set_segment_on(b, false)
+		return
+	var filled := box("accent", "accent", 8, 3)
+	for sb_name in ["normal", "pressed", "disabled", "hover"]:
+		b.add_theme_stylebox_override(sb_name, filled)
+	b.add_theme_color_override("font_color", DccTheme.c("bg"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("bg"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("bg"))
 
 ## An outlined text field -- the canvas's Tile size / World bounds /
 ## Destination wells and the Asset library's search.

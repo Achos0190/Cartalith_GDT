@@ -1124,6 +1124,7 @@ func _build_window_bar() -> Control:
 		_sort_button.add_theme_stylebox_override(sb_name, _box("line", "", 9, 4))
 	_sort_button.add_theme_stylebox_override("hover", _box("line", "line_soft", 9, 4))
 	_sort_button.item_selected.connect(func(i: int): _sort_mode = i; _refresh_grid())
+	DccWidgets.style_popup(_sort_button.get_popup())
 	row.add_child(_sort_button)
 
 	## PH-12: the same four chips, named shorter. Each label is its own minimum
@@ -3028,6 +3029,7 @@ func _build_slicer_modal() -> void:
 	_slicer_target.item_selected.connect(func(i: int):
 		_slice_target_index = i
 		_refresh_slicer_target_controls())
+	DccWidgets.style_popup(_slicer_target.get_popup())
 	target_row.add_child(_slicer_target)
 
 	var fam_row := _slicer_row(side, "Family")
@@ -3038,6 +3040,7 @@ func _build_slicer_modal() -> void:
 		_slicer_family.add_item("%s · %s" % [String(f["code"]), String(f["title"])])
 	_style_option(_slicer_family, false)
 	_slicer_family.item_selected.connect(func(i: int): _slice_family_index = i)
+	DccWidgets.style_popup(_slicer_family.get_popup())
 	fam_row.add_child(_slicer_family)
 
 	var fill_row := _slicer_row(side, "Fill from")

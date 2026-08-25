@@ -164,6 +164,9 @@ func _ready() -> void:
 	## verification harness has to exercise §13 at all.
 	_touch = (DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")) \
 		or "--force-touch" in OS.get_cmdline_user_args()
+	## Published for the static widget factories -- `DccWidgets.style_popup()`
+	## sizes a menu off it and has no node to reach this one through.
+	DccTheme.set_touch(_touch)
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var ground := ColorRect.new()
 	ground.color = DccTheme.c("bg")
@@ -337,73 +340,71 @@ func _build_menu_bar() -> Control:
 func add_menu(title: String, on_built: Callable) -> MenuButton:
 	var mb := MenuButton.new()
 	mb.text = title
-	mb.flat = true
+	## **`flat` off, and this is not cosmetic.** `MenuButton` constructs itself
+	## flat, and a flat `Button` skips its `normal`/`hover`/`pressed` styleboxes
+	## outright -- the trap `viewport_host.gd` records paying for twice on the
+	## Layers button. So the `pressed` override three lines down, which is the
+	## canvas's own open-menu indicator
+	## (`color:#e0a34a;background:rgba(224,163,74,.08);border-bottom:1px solid
+	## #e0a34a`), had **never drawn**: sampled off the framebuffer with the File
+	## menu open, the title's background was `#121314` (18,19,20) -- the panel
+	## behind it -- identical to the closed `Edit` beside it. The most prominent
+	## state cue in the application was invisible. `normal`/`hover` are
+	## `StyleBoxEmpty` with the canvas's padding, so nothing else changes.
+	mb.flat = false
 	mb.focus_mode = Control.FOCUS_NONE
 	## Prose face, not Plex -- `<span style="padding:9px 11px">File</span>` sits
 	## inside a `font-size:11.5px;color:#a9adb0` run in the canvas, with no
 	## font-family of its own, so it inherits `'Helvetica Neue'` from the
 	## artboard root. No font override here at all is how a Control keeps
 	## `dark_theme.tres`'s `default_font` (Fira Sans).
-	mb.add_theme_font_size_override("font_size", DccTheme.FS_MENU_ITEM)
+	##
+	## The tablet column is `font-size:14px;padding:15px 15px` in
+	## `DCC shell tablet 2560` -- measured, not scaled. Until 2026-08-25 this
+	## row ignored `_touch` entirely, so a 2560x1600 tablet drew a 52 px menu
+	## bar (§48 fixed the *bar*) carrying seven 40x51 desktop-sized titles in
+	## 11 px type, none of which is a 44 px target in either dimension.
+	var mfs := DccTheme.menu("fs_bar", _touch)
+	var mpx := DccTheme.menu("bar_pad_x", _touch)
+	var mpy := DccTheme.menu("bar_pad_y", _touch)
+	mb.add_theme_font_size_override("font_size", mfs)
 	mb.add_theme_color_override("font_color", DccTheme.c("text_secondary"))
 	mb.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	mb.add_theme_stylebox_override("normal", DccTheme.inset(11, 9, 11, 9))
-	mb.add_theme_stylebox_override("hover", DccTheme.inset(11, 9, 11, 9))
-	mb.add_theme_stylebox_override("pressed", DccTheme.active_row())
+	mb.add_theme_stylebox_override("normal", DccTheme.inset(mpx, mpy, mpx, mpy))
+	mb.add_theme_stylebox_override("hover", DccTheme.inset(mpx, mpy, mpx, mpy))
+	mb.add_theme_stylebox_override("focus", DccTheme.inset(mpx, mpy, mpx, mpy))
+	mb.add_theme_stylebox_override("disabled", DccTheme.inset(mpx, mpy, mpx, mpy))
+	## `active_row()` is `accent_wash` (.08) plus a 1 px accent underline, which
+	## is exactly what the canvas draws on an open title -- and the .08 here is
+	## right, unlike the *item* inside the dropdown, which is .10. Two literals,
+	## a few lines apart in the same artboard.
+	var open_box := DccTheme.active_row()
+	open_box.content_margin_left = mpx
+	open_box.content_margin_right = mpx
+	open_box.content_margin_top = mpy
+	open_box.content_margin_bottom = mpy
+	mb.add_theme_stylebox_override("pressed", open_box)
+	mb.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
 	menu_bar_row.add_child(mb)
 	var popup := mb.get_popup()
 	style_popup(popup)
 	on_built.call(popup)
 	return mb
 
-## The canvas's own menu panel, read off `DCC shell 1920`'s open Assets menu:
+## The canvas's own menu panel. **The body moved to `DccWidgets.style_popup()`
+## 2026-08-25** and this is now a delegate, kept because `menus.gd` and
+## `phone_menu.gd` both call it by this name.
 ##
-##   background:#121314; border:1px solid rgba(255,255,255,.14);
-##   box-shadow:0 14px 34px rgba(0,0,0,.55); padding:5px 0
-##
-## Three of those four were missing. The panel used `raised` (`#17191a`, which
-## is the *viewport wash's* centre stop in §11 and is not a menu surface
-## anywhere in the design), the border was the region hairline at .10 rather
-## than the control edge at .16, and there was no shadow at all -- so a menu
-## separated itself from the bar behind it by four levels of grey and nothing
-## else. The shadow is most of what makes a floating surface read as floating.
+## Why it moved: `PopupMenu` is not only the seven program menus. Every
+## `OptionButton` in the shell owns one too, and none of them had ever been
+## styled -- the whole dropdown vocabulary of the application (every dock
+## picker, every dialog select, the paint target, the bake depth) was opening
+## Godot's stock dark theme, a `#0f0f0f` panel with a grey selection bar, in a
+## shell whose palette is `#121314` plus one amber. `dropdown()` is a static
+## factory with no shell to reach, so the styling had to become static too --
+## see `DccTheme.is_touch()`, which exists for exactly this call.
 func style_popup(popup: PopupMenu) -> void:
-	var panel := DccTheme.panel("panel",
-		{"left": 1, "right": 1, "top": 1, "bottom": 1})
-	panel.border_color = DccTheme.c("border")
-	panel.shadow_color = Color(0, 0, 0, 0.55) if DccTheme.is_dark() \
-		else Color(0.137, 0.141, 0.122, 0.16)
-	panel.shadow_size = 34
-	panel.shadow_offset = Vector2(0, 14)
-	panel.content_margin_top = 5
-	panel.content_margin_bottom = 5
-	popup.add_theme_stylebox_override("panel", panel)
-	popup.add_theme_color_override("font_color", DccTheme.c("text"))
-	popup.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	popup.add_theme_color_override("font_accelerator_color", DccTheme.c("text_faint"))
-	## Item labels are prose (`font-size:11.5px`); only the shortcut column is
-	## Plex, and `PopupMenu` draws that column from the same font, so this
-	## follows the label rather than the shortcut.
-	popup.add_theme_font_size_override("font_size", DccTheme.FS_MENU_ITEM)
-	popup.add_theme_constant_override("v_separation", 7)
-	## The highlighted item. Godot's stock `hover` box is a blue selection bar,
-	## which is what a real menu capture showed 2026-08-25 -- the one saturated
-	## colour anywhere in a shell whose entire palette is greys plus one amber.
-	## The canvas's own hovered row is `background:rgba(224,163,74,.10);
-	## color:#e8ebec` (and `rgba(164,101,15,.10)` / `#111210` in light), which
-	## is `accent_wash` with no rule -- the same wash the menu bar's open title
-	## and every active dock row already use.
-	popup.add_theme_stylebox_override("hover",
-		DccTheme.flat(DccTheme.c("accent_wash")))
-	popup.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	popup.add_theme_color_override("font_separator_color", DccTheme.c("text_faint"))
-	## `height:1px;background:rgba(255,255,255,.09);margin:5px 0` on the
-	## canvas's own menu rules. `StyleBoxLine`, not `StyleBoxFlat`: a Flat box
-	## in the `separator` slot fills the separator's whole reserved band.
-	var sep := StyleBoxLine.new()
-	sep.color = DccTheme.c("line_soft")
-	sep.thickness = 1
-	popup.add_theme_stylebox_override("separator", sep)
+	DccWidgets.style_popup(popup)
 
 # -- PR-13/PR-14 Theme rebuild --------------------------------------------------
 #
@@ -441,8 +442,8 @@ func style_popup(popup: PopupMenu) -> void:
 const _THEME_COLOR_OVERRIDES := [
 	"caret_color", "default_color", "font_accelerator_color", "font_color",
 	"font_disabled_color", "font_hover_color", "font_placeholder_color",
-	"font_pressed_color", "font_uneditable_color", "icon_hover_color",
-	"icon_normal_color", "icon_pressed_color",
+	"font_pressed_color", "font_separator_color", "font_uneditable_color",
+	"icon_hover_color", "icon_normal_color", "icon_pressed_color",
 ]
 const _THEME_STYLEBOX_OVERRIDES := [
 	"disabled", "focus", "grabber_area", "grabber_area_highlight", "hover", "normal",
@@ -1197,9 +1198,16 @@ func _build_rail() -> Control:
 
 		var b := Button.new()
 		b.tooltip_text = "%s -- %s" % [d.label, d.subtitle]
-		b.flat = true
+		## Not flat: a flat `Button` skips its styleboxes, so the `hover` box on
+		## the next line had never drawn and the rail gave no pointer feedback
+		## at all. `normal` is empty, so nothing else changes. (Same trap as the
+		## menu bar's open title, found in the same 2026-08-25 menu sweep.)
+		b.flat = false
 		b.focus_mode = Control.FOCUS_NONE
 		b.add_theme_stylebox_override("normal", DccTheme.empty())
+		b.add_theme_stylebox_override("focus", DccTheme.empty())
+		b.add_theme_stylebox_override("disabled", DccTheme.empty())
+		b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
 		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 		b.pressed.connect(_select_domain.bind(d.id))
 
@@ -2256,11 +2264,17 @@ func _sheet_close_button(on_press: Callable) -> Button:
 ## auto-assigned the way a container's children would be.
 func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Control:
 	var row := Button.new()
-	row.flat = true
+	## Not flat -- see `add_menu()` and `_build_rail()`: a flat `Button` draws
+	## no stylebox, so the press feedback on the next lines had never appeared
+	## on a phone list row either.
+	row.flat = false
 	row.focus_mode = Control.FOCUS_NONE
 	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	row.custom_minimum_size.y = _ptap(52)
 	row.add_theme_stylebox_override("normal", DccTheme.empty())
+	row.add_theme_stylebox_override("focus", DccTheme.empty())
+	row.add_theme_stylebox_override("disabled", DccTheme.empty())
+	row.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
 	row.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 
 	var rc := VBoxContainer.new()

@@ -111,6 +111,7 @@ func setup(b: EngineBridge, host = null) -> void:
 	else:
 		_picker.custom_minimum_size.x = 200
 	_picker.item_selected.connect(_on_pick)
+	DccWidgets.style_popup(_picker.get_popup())
 	head.add_child(_picker)
 	var reset := Button.new()
 	reset.text = "Fit"

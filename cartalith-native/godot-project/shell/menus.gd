@@ -51,12 +51,19 @@ const ID_AP_PACK_META := 49
 
 const ID_DATA_MANAGER := 40
 const ID_JOURNEY_PLANNER := 41
-const ID_DATA_MGR_IMPORT := 42
-const ID_DATA_MGR_EXPORT := 43
-const ID_DATA_MGR_SOURCES := 44
-const ID_DATA_MGR_VALIDATION := 46
+## 42/43/44/46 held one id per Data-manager *group* while the dropdown drew one
+## row per group. It now draws one row per route (see `_data()`), so the group
+## ids are gone and `ID_DATA_ROUTE_FIRST` below replaces them. Left out rather
+## than left dangling: an unused id in a menu file is how a row ends up wired
+## to the wrong thing later.
 const ID_TRAVEL_LIBRARY := 48
 const ID_VAULT := 45
+const ID_WORLD_DATA := 47
+## One id per Data-manager route, allocated above every other id in this file.
+## The Data dropdown draws all fourteen routes the canvas draws (see `_data()`),
+## and each one is its own destination rather than a group's first.
+const ID_DATA_ROUTE_FIRST := 400
+var _data_route_ids: Array[String] = []
 
 const ID_PREF_GPU := 50
 const ID_PREF_THEME_DARK := 51
@@ -91,9 +98,9 @@ var _icon_families_popup: PopupMenu
 var _texture_sets_popup: PopupMenu
 ## AS-13 / omission O2: `Assets ▸ Asset pack ▸`, `DCC_CONTROL_INDEX.md` §2.3.1.
 var _asset_pack_popup: PopupMenu
-var _ap_edit_popup: PopupMenu
-var _ap_batch_popup: PopupMenu
-var _ap_build_popup: PopupMenu
+## The `Edit ▸`/`Batch ▸`/`Build ▸` child popups these three held are gone
+## (2026-08-25): the canvas draws one panel with four labelled bands, so
+## `_build_asset_pack_submenu()` builds bands rather than submenus.
 var _ap_stats_idx: int = -1
 ## §2.5 Performance ▸ the four multi-GPU rows (`GUI_GAP_REGISTER.md`
 ## PR-01/PR-02/PR-04/PR-05). `_gpu_devices` is cached rather than
@@ -199,29 +206,57 @@ func _file(p: PopupMenu) -> void:
 			% DccSettings.autosave_minutes())
 	_live(p, "Revert to last save", ID_REVERT)
 	var revert_idx := p.item_count - 1
-	p.add_separator()
-	_live(p, "Close project", ID_CLOSE, KEY_MASK_CTRL | KEY_W)
-	var close_idx := p.item_count - 1
-	p.add_separator()
 
+	## **The canvas's own band, and its own order** (`DCC Cartography style
+	## 1920`, the one artboard that draws File open). Storage sits *between*
+	## Revert and Close, under a `STORAGE LOCATIONS` label, with the four roots
+	## listed read-only above the two actions -- and `Close project ⌘W` is the
+	## last item in the menu, not the middle one. The shell had Close directly
+	## after Revert and the storage pair below it, which is the canvas's order
+	## inverted.
+	p.add_separator("STORAGE LOCATIONS")
+	## `padding:2px 14px 8px;font:10px 'IBM Plex Mono';color:#6f7478` with the
+	## path in `#8d9296`: four read-only rows, not a control. Rebuilt on every
+	## popup because Change locations… can move any of them mid-session.
+	var root_rows: Array[int] = []
+	for key in DccSettings.ROOT_KEYS:
+		p.add_item("")
+		p.set_item_disabled(p.item_count - 1, true)
+		root_rows.append(p.item_count - 1)
 	## One item, one dialog with an inline Browse… per root (`DccApp.
 	## open_storage_locations()`) -- was two items (a read-only list plus a
 	## separate "Change locations…" item) opening two dialogs that showed the
 	## same four rows; merged on owner feedback (2026-08-19) as redundant
-	## menu surface, not two distinct capabilities.
-	_live(p, "Storage locations", ID_STORAGE)
+	## menu surface, not two distinct capabilities. The canvas's own label for
+	## the surviving one is `Change locations…`, which is what it does.
+	_live(p, "Change locations…", ID_STORAGE)
 	_live(p, "Show project on disk", ID_SHOW_ON_DISK)
 	var show_idx := p.item_count - 1
 	p.set_item_tooltip(show_idx,
 		"Reveals the project's folder in the OS file manager. Disabled until a project has been opened this session.")
 
 	p.add_separator()
-	## §2.1's static note: imports do not live in File.
-	p.add_item("Imports live under Data ▸ Import; asset packs under Assets")
-	p.set_item_disabled(p.item_count - 1, true)
+	_live(p, "Close project", ID_CLOSE, KEY_MASK_CTRL | KEY_W)
+	var close_idx := p.item_count - 1
+	## §2.1's static note: imports do not live in File. The canvas sets it in
+	## `9.5px 'IBM Plex Mono';color:#5f6468;line-height:1.6` and lets it **wrap
+	## over two lines**; a `PopupMenu` item cannot wrap, and a `PopupMenu` sizes
+	## itself to its widest item, so as one row this sentence alone made the
+	## File menu 380 px wide against the canvas's 298. Two disabled rows are the
+	## canvas's own two lines, at the canvas's own width.
+	for line in ["imports live under Data ▸ Import",
+			"asset packs under Assets"]:
+		p.add_item(line)
+		p.set_item_disabled(p.item_count - 1, true)
 
 	p.about_to_popup.connect(func():
 		_refresh_recent_worlds()
+		for ri in root_rows.size():
+			var key := String(DccSettings.ROOT_KEYS[ri])
+			var full := DccSettings.storage_root(key)
+			p.set_item_text(root_rows[ri], "%s   %s" % [
+				String(DccSettings.ROOT_LABELS[key]).to_lower(), _tail(full)])
+			p.set_item_tooltip(root_rows[ri], full)
 		p.set_item_disabled(show_idx, _host.current_project_path == "")
 		var can_write: bool = _bridge.save_api
 		var has_world: bool = _bridge.has_world
@@ -242,6 +277,23 @@ func _file(p: PopupMenu) -> void:
 			"" if _host.current_project_path != "" else "This world has never been saved.")
 		p.set_item_disabled(close_idx, not has_world))
 	p.id_pressed.connect(_on_file)
+
+## The canvas prints a storage root as `~/Cartalith/Worlds` -- three segments,
+## because the mockup's roots live under a home directory. This port's real
+## roots are `OS.get_user_data_dir()`-relative (`dcc_settings.gd`'s own header
+## says why), which on Windows is six segments and ~70 characters, and a
+## `PopupMenu` sizes itself to its widest item -- four of those would have made
+## the File menu wider than the left dock. Last two segments, elided, with the
+## whole path on the tooltip.
+static func _tail(path: String) -> String:
+	var norm := path.replace("\\", "/")
+	var base := OS.get_user_data_dir().replace("\\", "/")
+	if base != "" and norm.begins_with(base):
+		return "…" + norm.substr(base.length())
+	var parts := norm.split("/", false)
+	if parts.size() <= 2:
+		return path
+	return "…/%s/%s" % [parts[parts.size() - 2], parts[parts.size() - 1]]
 
 func _refresh_recent_worlds() -> void:
 	_recent_popup.clear()
@@ -379,9 +431,14 @@ func _assets(p: PopupMenu) -> void:
 	## matches that convention rather than reaching for `DccIcons`, whose own
 	## `PATHS` has no path a `PopupMenu` text item could render anyway --
 	## every glyph elsewhere in this menu is plain text, never `add_icon_item`.
+	##
+	## The canvas runs these four as **one unbroken block** -- there is no rule
+	## between the slicer and Import image in `DCC shell 1920` -- and puts its
+	## only two rules after Texture sets and before Apply. The shell had three
+	## rules here and `Asset pack ▸` alone at the very foot, below Clear
+	## library…, where the canvas has it directly above Icon families.
 	_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
 	_live(p, "⧉ Sprite sheet slicer (▦)", ID_SLICER)
-	p.add_separator()
 	## `AssetDB::add_item`/`raster::decode_png` are real and bound now
 	## (`as_import_item`) -- the window's own slot grid is where a target
 	## slot gets focused, so this opens straight to it rather than
@@ -389,6 +446,7 @@ func _assets(p: PopupMenu) -> void:
 	_live(p, "Import image…", ID_IMPORT_IMAGE)
 	_live(p, "Import asset pack .zip…", ID_IMPORT_PACK)
 	p.add_separator()
+	_build_asset_pack_submenu(p)
 
 	## §2.3: "Submenu listing the 24 families with filled/capacity counts."
 	## `cartalith-assets` ships EIGHT families, not 24 -- verified reading
@@ -427,74 +485,72 @@ func _assets(p: PopupMenu) -> void:
 	p.add_separator()
 	_live(p, "Apply library to map", ID_APPLY_LIBRARY)
 	_live(p, "Clear library…", ID_CLEAR_LIBRARY)
-	p.add_separator()
-	_build_asset_pack_submenu(p)
 	p.id_pressed.connect(_on_assets)
 
 ## AS-13 / omission O2: the `Assets ▸ Asset pack ▸` submenu
 ## `DCC_CONTROL_INDEX.md` §2.3.1 describes (24 controls, "19 backed-unwired
 ## against 1 engine gap") -- most of it real once `asset_bridge.rs`'s
-## session exists. Laid out in its own four groups (Active pack / Edit /
-## Batch / Build) the same way §2.3.1's own table does.
+## session exists.
 ##
-## The Edit ▸ and Batch ▸ groups need a *selected slot* (Edit) or a
-## *multi-selection* (Batch) neither of which a flat `PopupMenu` item has --
-## both open the real window, where that context lives, rather than
-## duplicating slot/selection state at the menu level (real navigation to a
-## real control, not a `_todo()` gap). Build ▸'s four items and the
-## top-level Pack metadata/Clear library actions below need no such context,
-## so they call straight into the engine.
+## **Flattened 2026-08-25.** §2.3.1's four groups were built as three *nested
+## submenus* (`Edit ▸`, `Batch ▸`, `Build ▸`) hanging off a fourth popup. The
+## canvas draws one 306 px panel with four **labelled bands** and every row
+## visible at once -- `ACTIVE PACK`, `EDIT`, `BATCH · 12 SELECTED`, `BUILD`,
+## each `font:9px 'IBM Plex Mono';letter-spacing:.18em;color:#5f6468` -- and
+## `Clear library…` at its foot. Three popups became zero, which also removes
+## three more places for MN-10's trap (a submenu's `id_pressed` does not bubble
+## to its parent in Godot 4) to reappear: there is now one popup and one
+## handler.
+##
+## The Edit and Batch rows still need a *selected slot* / *multi-selection*
+## that no `PopupMenu` item has, so they still open the real window where that
+## context lives, and still say so in their tooltips. Build's four rows and
+## Pack metadata need no such context and call straight into the engine.
 func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_asset_pack_popup = PopupMenu.new()
 	_asset_pack_popup.name = "AssetPack"
 	_shell.style_popup(_asset_pack_popup)
 	p.add_child(_asset_pack_popup)
-	p.add_submenu_item("Asset pack ▸", "AssetPack")
+	p.add_submenu_item("Asset pack", "AssetPack")
 
 	var ap := _asset_pack_popup
 	## Active pack -- name/author/license/schema/filled-slots, live values
 	## refreshed on every `about_to_popup` (the same pattern `_quality_popup`'s
 	## own live-check row and `_refresh_recent_worlds()` already use).
-	ap.add_item("Active pack")
-	ap.set_item_disabled(ap.item_count - 1, true)
+	ap.add_separator("ACTIVE PACK")
 	_ap_stats_idx = ap.item_count
 	ap.add_item("— loading —")
 	ap.set_item_disabled(ap.item_count - 1, true)
-	ap.add_item("Schema 2 · STORED zip (frozen timestamps, byte-reproducible)")
+	## `schema   2 · STORED zip` is the canvas's own row, verbatim. The longer
+	## "(frozen timestamps, byte-reproducible)" gloss this used to carry made
+	## this popup 512 px wide against the canvas's 306 -- a `PopupMenu` sizes
+	## itself to its widest item, and that one row was setting the width of the
+	## whole panel. The gloss is on the tooltip.
+	ap.add_item("schema   2 · STORED zip")
 	ap.set_item_disabled(ap.item_count - 1, true)
-	ap.add_separator()
-	ap.add_item("Pack metadata… (name / author / license)", ID_AP_PACK_META)
-	ap.add_separator()
+	ap.set_item_tooltip(ap.item_count - 1,
+		"Frozen timestamps, byte-reproducible: the same library exports to the same bytes.")
+	ap.add_item("Pack metadata…   name · author · license", ID_AP_PACK_META)
 
-	_ap_edit_popup = PopupMenu.new()
-	_ap_edit_popup.name = "APEdit"
-	_shell.style_popup(_ap_edit_popup)
-	ap.add_child(_ap_edit_popup)
-	ap.add_submenu_item("Edit", "APEdit")
+	ap.add_separator("EDIT")
 	for row in [
-		["Open library workspace", ID_ASSET_LIBRARY],
+		["Open library workspace   ▤", ID_ASSET_LIBRARY],
 		["Import image into slot…", ID_IMPORT_IMAGE],
-		["Sprite sheet slicer…", ID_SLICER],
-		["Add variant to slot", ID_IMPORT_IMAGE],
-		["Replace / delete slot art", ID_ASSET_LIBRARY],
-		["Slot transform (scale · fit · reset)", -1],
-		["Preview background", ID_ASSET_LIBRARY],
+		["Sprite sheet slicer…   cols · rows · margin", ID_SLICER],
+		["Add variant to slot   + variant", ID_IMPORT_IMAGE],
+		["Replace · delete slot art", ID_ASSET_LIBRARY],
+		["Slot transform   scale · fit · reset", -1],
+		["Preview background   checker", ID_ASSET_LIBRARY],
 	]:
 		var wid: int = row[1]
 		if wid < 0:
-			_todo(_ap_edit_popup, String(row[0]),
+			_todo(ap, String(row[0]),
 				"ItemTransform is real and shown in the inspector now, but no as_set_item_transform #[func] exists yet to write a new scale/pan back -- reading it is done, editing it is a smaller follow-on.")
 		else:
-			_ap_edit_popup.add_item(String(row[0]), wid)
-			_ap_edit_popup.set_item_tooltip(_ap_edit_popup.item_count - 1,
+			ap.add_item(String(row[0]), wid)
+			ap.set_item_tooltip(ap.item_count - 1,
 				"Opens the Asset Library window -- every Edit control needs a focused slot, which only the window's own grid provides.")
-	_ap_edit_popup.id_pressed.connect(_on_ap_edit)
 
-	_ap_batch_popup = PopupMenu.new()
-	_ap_batch_popup.name = "APBatch"
-	_shell.style_popup(_ap_batch_popup)
-	ap.add_child(_ap_batch_popup)
-	ap.add_submenu_item("Batch", "APBatch")
 	## `Delete ⌫` used to carry the canvas's own accelerator glyph inside its
 	## label, and MN-09 removed it for two reasons. **One of the two is now
 	## false**: since 2026-08-24 `asset_library_window.gd` does bind Delete and
@@ -504,36 +560,37 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	## binding lives in the window that has a selection to act on. A shortcut
 	## printed on a row that is not the action is still a promise this build
 	## cannot keep.
+	##
+	## The canvas's band reads `BATCH · 12 SELECTED`, a live count. This build
+	## has no selection at the menu level to count -- the selection lives in the
+	## window -- so the band is `BATCH` and the count is not faked.
+	ap.add_separator("BATCH")
 	for label in ["Tag…", "Collect into set…", "Rename…", "Duplicate", "Delete"]:
-		_ap_batch_popup.add_item(label, ID_ASSET_LIBRARY)
-		_ap_batch_popup.set_item_tooltip(_ap_batch_popup.item_count - 1,
+		ap.add_item(label, ID_ASSET_LIBRARY)
+		ap.set_item_tooltip(ap.item_count - 1,
 			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (Shift-click ranges, Ctrl-click adds) provides. All five are real there, and Delete/Backspace there is the same confirmed batch delete.")
-	_ap_batch_popup.id_pressed.connect(func(_id: int): _host.open_asset_library())
 
-	_ap_build_popup = PopupMenu.new()
-	_ap_build_popup.name = "APBuild"
-	_shell.style_popup(_ap_build_popup)
-	ap.add_child(_ap_build_popup)
-	ap.add_submenu_item("Build", "APBuild")
-	_ap_build_popup.add_item("Validate pack (warning count)", ID_AP_VALIDATE)
-	_ap_build_popup.add_item("Apply to map", ID_APPLY_LIBRARY)
-	_ap_build_popup.add_item("Import pack .zip…", ID_IMPORT_PACK)
+	ap.add_separator("BUILD")
+	ap.add_item("Validate pack   warning count", ID_AP_VALIDATE)
+	ap.add_item("Apply to map   compile & load", ID_APPLY_LIBRARY)
+	ap.add_item("Import pack .zip…", ID_IMPORT_PACK)
 	## The canvas draws `⌘⇧P` in the popup's own *accelerator column*, right
 	## of the label — not inside the label. Baking it into the text put the
 	## shortcut on the row twice, `Export pack .zip… ⌘⇧P    Ctrl+Shift+P`, one
 	## of them naming a modifier key that exists on neither platform this port
 	## ships on. `set_item_accelerator` alone renders exactly the canvas's
 	## layout, in the notation the machine actually has.
-	_ap_build_popup.add_item("Export pack .zip…", ID_AP_EXPORT)
-	_ap_build_popup.set_item_accelerator(_ap_build_popup.item_count - 1, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
-	_ap_build_popup.id_pressed.connect(_on_assets)
+	ap.add_item("Export pack .zip…", ID_AP_EXPORT)
+	ap.set_item_accelerator(ap.item_count - 1, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
 
-	## `GUI_GAP_REGISTER.md` **MN-10**. Every *child* popup above connects its
-	## own `id_pressed`; this one never did, and `Pack metadata…` is the one
-	## live item this popup owns directly -- so the row was enabled, carried an
-	## id, had a written handler branch (`_on_assets`' `ID_AP_PACK_META`), and
-	## could not reach it. A submenu's `id_pressed` does not bubble to its
-	## parent in Godot 4: each `PopupMenu` emits only for its own items.
+	ap.add_separator()
+	ap.add_item("Clear library…   destructive", ID_CLEAR_LIBRARY)
+
+	## `GUI_GAP_REGISTER.md` **MN-10**. The three child popups this used to
+	## build each connected their own `id_pressed` and this one never did, so
+	## `Pack metadata…` -- the one live row the parent owned -- was enabled,
+	## carried an id, had a written handler branch, and could not reach it.
+	## With the children gone there is one connection and one place to lose.
 	ap.id_pressed.connect(_on_assets)
 	ap.about_to_popup.connect(_refresh_asset_pack_stats)
 
@@ -548,11 +605,6 @@ func _refresh_asset_pack_stats() -> void:
 		String(info.get("author", "")) if String(info.get("author", "")) != "" else "(no author)",
 		String(info.get("license", "")) if String(info.get("license", "")) != "" else "(no license)",
 		total, "" if total == 1 else "s"])
-
-func _on_ap_edit(id: int) -> void:
-	match id:
-		ID_SLICER: _host.open_asset_library("", true)
-		_: _host.open_asset_library()
 
 func _on_assets(id: int) -> void:
 	match id:
@@ -593,25 +645,60 @@ func _on_assets(id: int) -> void:
 ## written -- so the group was removed outright rather than left as three
 ## permanently-empty rows promising a shape the product will not take. See
 ## `DCC_SHELL_SPEC.md` §2.4's correction note.
+## **Rebuilt against the canvas 2026-08-25.** `DCC shell tablet 2560` is the one
+## artboard that draws this menu open, and it draws it as four *labelled bands*
+## carrying **fourteen indented rows** -- `Maps`, `Heightmaps · PNG · TIFF`,
+## `GIS / GeoJSON`, `World Data · .zip · fields`, `Assets · → Assets`, and so on
+## down through Export, Sources and Validation. The shell had collapsed each
+## band into a single `Import ▸ Maps · Heightmaps · GIS · World data` row that
+## opened the group's *first* route, so four of the canvas's fourteen
+## destinations were reachable from the menu and ten were not.
+##
+## The rows are generated from `DataManagerWindow.ROUTES` rather than retyped:
+## that table already carries the canvas's own label and badge for every route,
+## and a second copy here is a second thing to keep in step.
+##
+## One thing the canvas has that a `PopupMenu` cannot draw: its badge is a
+## right-aligned second column in `13px 'IBM Plex Mono';color:#6f7478`. Godot's
+## only right column is the accelerator, which renders a real keystroke or
+## nothing, so the badge is appended to the label instead. Content matches;
+## the two-column alignment does not, and inventing a custom-drawn item to get
+## it would be a new widget for one menu.
 func _data(p: PopupMenu) -> void:
-	_live(p, "World data tables…", ID_DATA_MANAGER)
+	## The canvas's own head row: `⧉ DATA MANAGER`, the window this whole menu
+	## is a shortcut into. It had no row at all here -- the four group rows were
+	## the only way in.
+	_live(p, "⧉ Data manager", ID_DATA_MANAGER)
+	_live(p, "World data tables…", ID_WORLD_DATA)
 	_live(p, "Journey planner…", ID_JOURNEY_PLANNER, KEY_MASK_SHIFT | KEY_J)
 	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
-	p.add_separator()
-	_live(p, "Import ▸ Maps · Heightmaps · GIS · World data", ID_DATA_MGR_IMPORT)
-	_live(p, "Export ▸ Maps · GIS · World data · Asset pack", ID_DATA_MGR_EXPORT)
-	_live(p, "Sources ▸ External · Connected · Registry", ID_DATA_MGR_SOURCES)
-	_live(p, "Validation ▸ Check data · Repair", ID_DATA_MGR_VALIDATION)
+
+	_data_route_ids.clear()
+	for group in DataManagerWindow.GROUP_ORDER:
+		p.add_separator(String(group).to_upper())
+		for r in DataManagerWindow.ROUTES:
+			var route: Dictionary = r
+			if String(route["group"]) != group:
+				continue
+			var badge := String(route.get("badge", ""))
+			p.add_item("%s%s" % [String(route["label"]),
+				("   " + badge) if badge != "" else ""],
+				ID_DATA_ROUTE_FIRST + _data_route_ids.size())
+			p.set_item_tooltip(p.item_count - 1, String(route.get("sub", "")))
+			_data_route_ids.append(String(route["id"]))
+
 	_build_vault_rows(p)
 	p.id_pressed.connect(func(id: int) -> void:
+		if id >= ID_DATA_ROUTE_FIRST:
+			var i := id - ID_DATA_ROUTE_FIRST
+			if i < _data_route_ids.size():
+				_host.open_data_manager_route(_data_route_ids[i])
+			return
 		match id:
-			ID_DATA_MANAGER: _host.open_world_data()
+			ID_DATA_MANAGER: _host.open_data_manager()
+			ID_WORLD_DATA: _host.open_world_data()
 			ID_JOURNEY_PLANNER: _host.open_journey_planner()
 			ID_TRAVEL_LIBRARY: _host.open_travel_library()
-			ID_DATA_MGR_IMPORT: _host.open_data_manager("Import")
-			ID_DATA_MGR_EXPORT: _host.open_data_manager("Export")
-			ID_DATA_MGR_SOURCES: _host.open_data_manager("Sources")
-			ID_DATA_MGR_VALIDATION: _host.open_data_manager("Validation")
 			ID_VAULT: _host.open_vault_overview()
 	)
 
@@ -685,6 +772,16 @@ func _preferences(p: PopupMenu) -> void:
 	## tolerance-different, for the same seed).
 	_gpu_pref_rows.clear()
 	_gpu_pref_tips.clear()
+	## **The five bands are §2.5's own five groups**, drawn as the canvas draws
+	## a group inside a menu: a labelled band, `font:9px 'IBM Plex Mono';
+	## letter-spacing:.18em;color:#5f6468`. No artboard draws Preferences open,
+	## so the *names* come from §2.5's table and the *treatment* from the three
+	## menus that are drawn (File's `STORAGE LOCATIONS`, Assets' `ACTIVE PACK`/
+	## `EDIT`/`BATCH`/`BUILD`, Data's `IMPORT`/`EXPORT`/`SOURCES`/`VALIDATION`).
+	## Until now this menu had four unlabelled rules for five groups -- Tiles &
+	## LOD and Memory shared one band, so `Tiled LOD` and `Undo history` read as
+	## the same subject.
+	p.add_separator("PERFORMANCE")
 	p.add_check_item("GPU acceleration", ID_PREF_GPU)
 	var gpu_idx := p.item_count - 1
 	p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu")))
@@ -725,7 +822,7 @@ func _preferences(p: PopupMenu) -> void:
 	else:
 		_todo(p, "VRAM budget", "Same -- this build predates the multi-GPU API.")
 		_todo(p, "Fallback when VRAM full", "Same.")
-	p.add_separator()
+	p.add_separator("GRAPHICS")
 
 	## Render quality is real: the engine ships named tiers and recommends one.
 	_quality_popup = PopupMenu.new()
@@ -744,7 +841,7 @@ func _preferences(p: PopupMenu) -> void:
 	_todo(p, "Colour management", "The renderer is sRGB-only today.")
 	_todo(p, "3D viewport defaults", "No 3D viewport yet.")
 	_todo(p, "Lighting rig defaults", "No lighting rig yet.")
-	p.add_separator()
+	p.add_separator("TILES & LOD")
 	## The one row `world_workspace.gd`'s "Not a generation stage" note points
 	## at for chunk debug, so its tooltip has to actually name that -- it did
 	## not, which made the pointer dangle (2026-08-20 menu-structure audit).
@@ -765,6 +862,7 @@ func _preferences(p: PopupMenu) -> void:
 	## and each shows how many steps that buys at the current resolution,
 	## which is the honest way to present a bound whose depth is
 	## resolution-dependent (`undo.rs`).
+	p.add_separator("MEMORY")
 	_undo_budget_popup = PopupMenu.new()
 	_undo_budget_popup.name = "UndoBudget"
 	for i in UNDO_BUDGETS_MB.size():
@@ -790,7 +888,7 @@ func _preferences(p: PopupMenu) -> void:
 	## Bake. Clearing un-finalizes too -- a lock protecting nothing would
 	## strand the world read-only for no reason.
 	_live(p, "Clear caches…", ID_PREF_CLEAR_CACHES)
-	p.add_separator()
+	p.add_separator("APPLICATION")
 
 	## §2.5's Application group: "Storage locations… — Same modal as File."
 	## Genuinely the same dialog `File ▸ Storage locations` opens --
