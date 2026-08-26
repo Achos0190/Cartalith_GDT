@@ -783,8 +783,20 @@ func _build_group_section(parent: Control, group_name: String, stage_index: int,
 			_build_param_row(adv, key, stage_index)
 
 ## Stage 06's own table: "droplet, hillslope diffuse, stream-power, velocity,
-## glacial, coastal -- each its own group with its own run button". Only
-## stream-power is real; the other five are L4 groups too, honestly empty.
+## glacial, coastal -- each its own group with its own run button".
+##
+## The old note on the five non-stream-power groups ("Not ported -- a separate
+## manual pass in the reference with no cartalith-engine equivalent") was
+## false on all five, which `PARITY_AUDIT.md` §23 F11 caught for the droplet
+## pass and which is just as wrong for the other four:
+## `cartalith-erosion::passes` carries `hillslope_diffuse`,
+## `velocity_erode_kernel`, `glacial_kernel` and `coastal_process`, and
+## `cartalith_engine::ErosionPassParams` exposes every one of them as a
+## `passes.*` parameter (DECISIONS.md §7d: the same kernels run at the END of
+## generation rather than as buttons). Those rows are already on screen --
+## they are in the "Stream-power carve" group above, because `params.rs` files
+## them all under `group: "erosion"`. So the honest note is "run as a
+## generation toggle above", not "not ported".
 func _build_erosion_passes(body: VBoxContainer, stage_index: int) -> void:
 	var real := DccWidgets.group(body, "Stream-power carve", true)
 	for key in bridge.param_keys():
@@ -792,24 +804,147 @@ func _build_erosion_passes(body: VBoxContainer, stage_index: int) -> void:
 		if String(info.get("group", "")) == "erosion":
 			_build_param_row(real, key, stage_index)
 
-	for pass_name in ["Droplet hydraulic", "Hillslope diffuse", "Velocity (momentum)", "Glacial", "Coastal"]:
+	## Droplet is the one that is genuinely a BUTTON in this port too -- the
+	## reference runs it from `#erodeBtn` over the finished field and
+	## `generate()` never touches it, so it has no `passes.*` toggle and needs
+	## its own control. §23 F11.
+	_build_droplet_erosion(DccWidgets.group(body, "Droplet hydraulic", false))
+
+	for pass_name in ["Hillslope diffuse", "Velocity (momentum)", "Glacial", "Coastal"]:
 		var grp := DccWidgets.group(body, pass_name, false)
-		DccWidgets.note(grp, "Not ported -- a separate manual pass in the reference with no cartalith-engine equivalent.")
-		var btn := DccWidgets.action(grp, "Run %s" % pass_name, func(): pass)
-		btn.disabled = true
-		btn.tooltip_text = "No cartalith-engine implementation exists for this pass."
+		DccWidgets.note(grp,
+			"Ported. This port runs it as a generation-time toggle rather than a button " +
+			"(DECISIONS.md §7d) -- its passes.* switch and dials are in Stream-power carve above, " +
+			"off by default. There is no separate run button because the pass is part of generate().")
 		## The reference's Glacial panel carries two buttons, not one:
-		## `#glacBtn` (glacialErode, still unported -- the disabled button
-		## above) and `#fjordBtn` (carveFjordsOp), which is a real,
-		## golden-verified port since 2026-08-23. Only the second is live.
+		## `#glacBtn` (glacialErode, which this port runs as `passes.glacial`)
+		## and `#fjordBtn` (carveFjordsOp), a real, golden-verified port since
+		## 2026-08-23 and the one true opt-in button of the four.
 		if pass_name == "Glacial":
 			_build_fjord_row(grp)
+
+# -- §23 F11 · the reference's `erode()` op --------------------------------------
+#
+# `#erodeBtn` -> `erode()` (reference HTML line 3898): `dropletKernel` ->
+# `erodeFinish` (3892) -> `erodeThermal` -> clamp to [0,1] -> `isostaticRebound`
+# -> `computeFlow(true)` + `refreshClimate()`. All four kernels are ported in
+# `cartalith-erosion` with golden-parity coverage; nothing ever assembled them.
+#
+# The assembly lives in `cartalith_engine::erode_op` rather than in the bridge:
+# `cartalith-godot` does not depend on `cartalith-erosion` and the engine
+# re-exports none of it, so `erode_bridge.rs` cannot name `droplet_kernel` or
+# `erode_thermal` at all. `WorldGen::erode_op(opts)` is the thin caller.
+#
+# The `bridge._has("erode_op")` guard stays, for the same reason every other
+# `_has` guard in this shell does: a shipped `.gd` can meet an older native
+# library, and F14 records what a silently-missing binding costs. It resolves
+# true against this build.
+
+## `state.erosion`'s own literal defaults (reference HTML line 2268), limited
+## to the FIVE knobs the reference's own Erosion panel actually exposes
+## (`#drops`/`#estr`/`#edep`/`#ethr`/`#etal`, bound by `eparam()` at reference
+## lines 12922-12926). The other nine `dropletParams()` fields -- inertia,
+## capacity, minSlope, evaporate, gravity, maxLifetime, initSpeed, initWater,
+## radius -- have no reference control and stay at the engine's own defaults;
+## the op fills in anything this dictionary omits.
+const ERODE_DEFAULTS := {
+	"droplets": 60000,        ## #drops, slider 0..100 x1500, default 40
+	"erode": 0.35,            ## #estr,  slider 0..100 /100,  default 35
+	"deposit": 0.30,          ## #edep,  slider 0..100 /100,  default 30
+	"thermal_passes": 8,      ## #ethr,  slider 0..30,        default 8
+	"talus": 0.012,           ## #etal,  slider 1..40 /1000,  default 12
+}
+
+## Live op parameters. NOT world parameters: `erode()` is an op over the
+## finished field, `generate()` never runs it, and nothing here reaches
+## `WorldParams` or any generation-derived hash.
+var _erode_op: Dictionary = ERODE_DEFAULTS.duplicate()
+
+func _build_droplet_erosion(grp: Control) -> void:
+	var live := bridge._has("erode_op")
+	DccWidgets.note(grp,
+		"The reference's #erodeBtn. Particle hydraulic erosion over the finished surface: " +
+		"droplets follow the inertia-blended gradient, erode or deposit against carrying " +
+		"capacity, then thermal talus relaxation, a clamp to [0,1] and isostatic rebound of " +
+		"the unloaded crust. Opt-in, exactly as in the reference -- it never runs during " +
+		"generate, so a default world is unchanged by this control existing. Flow and climate " +
+		"are recomputed afterwards.")
+
+	## The reference's own five sliders, in its own panel order, at its own
+	## ranges -- derived from the `<input type=range>` bounds times the
+	## `eparam()` mapping (reference lines 1094-1098 and 12922-12926), not
+	## invented here. `is_int` per row so `droplets`/`thermal_passes` reach the
+	## op as ints, the same split `_build_param_row` already makes.
+	var rows: Array = [
+		["droplets", "Droplets", 0.0, 150000.0, 1500.0, true,
+			"Reference control #drops (slider 0-100, x1500)."],
+		["erode", "Strength", 0.0, 1.0, 0.01, false,
+			"Reference control #estr. How hard a droplet cuts when it is under capacity."],
+		["deposit", "Deposition", 0.0, 1.0, 0.01, false,
+			"Reference control #edep. How much sediment drops when a droplet is over capacity."],
+		["thermal_passes", "Thermal", 0.0, 30.0, 1.0, true,
+			"Reference control #ethr. Talus relaxation passes run after the droplets."],
+		["talus", "Slope limit", 0.001, 0.040, 0.001, false,
+			"Reference control #etal. The angle of repose the thermal passes relax toward."],
+	]
+	var sliders: Array = []
+	for r: Array in rows:
+		var made := DccWidgets.slider(grp, String(r[1]), float(r[2]), float(r[3]), float(r[4]),
+			float(_erode_op[String(r[0])]), "", _on_erode_param.bind(String(r[0]), bool(r[5])),
+			String(r[6]))
+		sliders.append(made["slider"])
+
+	var btn := DccWidgets.action(grp, "Erode (droplet)", _run_erode, true)
+	btn.disabled = not live
+	btn.tooltip_text = ("The reference's #erodeBtn. Runs over the whole map and pushes one " +
+		"undo step; 60k droplets is not instant at 2048².") if live else \
+		"This build's GDExtension has no WorldGen.erode_op()."
+
+	## Writing `HSlider.value` re-emits `value_changed`, which is what updates
+	## both the readout and `_erode_op` -- so the dictionary is restored by the
+	## same path a drag uses, not by a second assignment that could disagree
+	## with what is drawn.
+	var reset := DccWidgets.action(grp, "Reset dials", func():
+		for i in rows.size():
+			(sliders[i] as HSlider).value = float(ERODE_DEFAULTS[String((rows[i] as Array)[0])]))
+	reset.tooltip_text = "Back to state.erosion's own defaults (reference HTML line 2268)."
+
+func _on_erode_param(v: float, key: String, is_int: bool) -> void:
+	_erode_op[key] = int(round(v)) if is_int else v
+
+func _run_erode() -> void:
+	if not bridge.has_world or not bridge._has("erode_op"):
+		return
+	var r: Dictionary = bridge.world_gen.erode_op(_erode_op)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Erode: %s" % String(r.get("reason", "unavailable")), "accent")
+		return
+	## `build_color_texture()` reads the live field fresh on every call, so
+	## writing `map_view.texture` directly is enough -- the same reason
+	## `_on_sculpt_commit` does it this way rather than calling
+	## `ViewportHost.refresh()`, which would also reset the camera to fit.
+	app.viewport.map_view.texture = bridge.color_texture()
+	var cells := int(r.get("cells_changed", 0))
+	## `climate_coupled` false means this world carried no rainfall and the
+	## droplets spawned uniformly instead of through the rain field. A real
+	## outcome worth naming, not an error -- the erosion pattern differs.
+	var coupled := "" if bool(r.get("climate_coupled", false)) \
+		else " (no rainfall on this world -- droplets spawned uniformly)"
+	app.set_status("hint", "Eroded %d cells, %d lowered, in %.0f ms.%s"
+		% [cells, int(r.get("cells_lowered", 0)), float(r.get("ms", 0.0)), coupled],
+		"text_ghost")
 
 ## `#fjordBtn` / `carveFjordsOp` (reference HTML line 3245). Opt-in, exactly
 ## as in the reference -- it never runs during generate, so a default world
 ## is unchanged by this control existing.
 func _build_fjord_row(grp: Control) -> void:
-	DccWidgets.note(grp, "Fjord carving is ported: it overdeepens the glacially-carvable coastal valleys into drowned inlets, leaving the ridges between them high. Preview the mask first with Layers ▸ Hydrology ▸ Fjord mask. Flow, rivers and climate are not recomputed afterwards.")
+	## The old wording here ("Flow, rivers and climate are not recomputed
+	## afterwards") was wrong on two of the three: `carve_fjords` marks
+	## `PipelineStage::Height` and runs the staleness graph, which is
+	## `computeFlow(true)` + `refreshClimate()`. Only the vector river network
+	## is left as it was -- `carve_fjords`' own Rust doc comment says exactly
+	## this under "What it re-runs, and what it does not".
+	DccWidgets.note(grp, "Fjord carving is ported: it overdeepens the glacially-carvable coastal valleys into drowned inlets, leaving the ridges between them high. Preview the mask first with Layers ▸ Hydrology ▸ Fjord mask. Flow and climate are recomputed afterwards; the vector river network is not.")
 	var fjord := DccWidgets.action(grp, "Carve fjords", _carve_fjords)
 	fjord.tooltip_text = "The reference's #fjordBtn. Cold, steep, competent-rock coast only -- a warm or low-relief world honestly carves nothing."
 
@@ -1143,6 +1278,46 @@ func _build_sculpt_draft(parent: Control) -> void:
 		"climate (measured ~7s/stroke at 2048² and rejected on that ground; " +
 		"DCC_SHELL_SPEC.md header correction #1). No finalize/lock state exists to note here " +
 		"either -- see the Finalize section above: no bake/LOD pipeline exists yet.")
+	_build_force_lake_row(sec)
+
+## `buildWaterBodies`' `opts.forceLake` (reference HTML lines 5808-5809) --
+## `PARITY_AUDIT.md` §23 F13. The Lake stamp already accumulates a mask on every
+## commit (`WaterState::lake_mask`) and `cartalith_civ::apply_force_lake` has
+## been ported and tested since milestone C, but nothing joined the two: a
+## painted lake was terrain that happened to be lower, and every civ tool that
+## reads the water-body classification still saw land there.
+##
+## Its own button rather than an automatic tail on Commit because the join
+## would have to live in `sculpt_commit` (`lib.rs`), which this task does not
+## own -- and because the reference's own `forceLake` is an option a caller
+## passes, not something `buildWaterBodies` does by itself.
+func _build_force_lake_row(parent: Control) -> void:
+	var grp := DccWidgets.group(parent, "Painted lakes", false)
+	DccWidgets.note(grp,
+		"Reclassifies every cell a Lake stamp has deposited as a lake, whether or not its " +
+		"floor ended up below sea level or its basin catches enough rain to pool -- the " +
+		"reference's own forceLake semantic. Affects settlement placement, routing, trade and " +
+		"the Journey Planner, which all read the water-body classification. It does not touch " +
+		"the height field, marks nothing stale, and is undone by the next full civ recompute.")
+	var live := bridge._has("apply_force_lake")
+	var btn := DccWidgets.action(grp, "Count painted lakes as water", _on_force_lake)
+	btn.disabled = not live
+	btn.tooltip_text = "cartalith_civ::apply_force_lake, over this world's live classification." \
+		if live else "This build's GDExtension has no WorldGen.apply_force_lake()."
+
+func _on_force_lake() -> void:
+	if not bridge.has_world or not bridge._has("apply_force_lake"):
+		return
+	var r: Dictionary = bridge.world_gen.apply_force_lake()
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Painted lakes: %s" % String(r.get("reason", "unavailable")), "accent")
+		return
+	var forced := int(r.get("forced", 0))
+	app.set_status("hint",
+		("Painted lakes: every stamped cell was already water." if forced == 0
+			else "Painted lakes: %d cell%s reclassified (%d lake cells now)."
+				% [forced, "" if forced == 1 else "s", int(r.get("lake_cells", 0))]),
+		"text_ghost")
 
 func _on_sculpt_commit() -> void:
 	bridge.sculpt_commit("sculpt")

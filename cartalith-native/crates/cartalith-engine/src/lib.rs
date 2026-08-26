@@ -111,6 +111,11 @@ pub mod import;
 /// (`GUI_GAP_REGISTER.md` MS-01).
 pub mod center;
 
+/// `erode()` — the reference's droplet-erosion button (`PARITY_AUDIT.md` §23
+/// F11). An OP, not a generation stage: `generate_terrain` below does not call
+/// it, and it takes its own `ErodeOpts` rather than `WorldParams` fields.
+pub mod erode_op;
+
 /// The channel atlas — the world's affordance fields packed three to an RGB8
 /// PNG, plus its decode manifest (`chanAtlasChk`, `PARITY_AUDIT.md` §5 item
 /// 14). Data, not a picture: the export raster it ships alongside is
