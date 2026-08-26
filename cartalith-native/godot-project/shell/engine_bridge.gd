@@ -2722,3 +2722,135 @@ func vault_restore_state(json: String) -> bool:
 	if not _has("vault_restore_state"):
 		return false
 	return world_gen.vault_restore_state(json)
+
+
+# =========================================================== PARITY_AUDIT §23 ==
+#
+# Wrappers added ahead of the five agents that close §23's findings, so that
+# none of them has to edit this file and race the others in it. Every one is
+# the same thin `_has()`-guarded forward the rest of this file uses; the guard
+# matters because an older binary in `target/` is a normal state during a
+# rebuild, and a missing method must disable a control rather than crash it.
+
+# -- F9 · the vault: search, "confirm always", note data, undo a block --------
+
+## `vault_search`: `{ok, error, indexed, scanned, truncated, hits: [{rel,
+## in_name, excerpt}]}`. `limit`/`max_reads` of 0 take the engine's own
+## defaults (50 / 40).
+func vault_search(query: String, limit: int = 0, max_reads: int = 0) -> Dictionary:
+	if not _has("vault_search"):
+		return {"ok": false, "error": "vault_search not available on this binary", "hits": []}
+	return world_gen.vault_search(query, limit, max_reads)
+
+## One note's frontmatter and template fields, read from disk right now and
+## stored nowhere -- what a search result or an attach dialog shows *before*
+## the user commits to anything.
+func vault_file_data(rel: String) -> Dictionary:
+	if not _has("vault_file_data"):
+		return {"ok": false, "error": "vault_file_data not available on this binary"}
+	return world_gen.vault_file_data(rel)
+
+## Every linked note's imported data for one entity, one Dictionary per link.
+func vault_entity_data(kind: String, entity_id: int) -> Array:
+	if not _has("vault_entity_data"):
+		return []
+	return world_gen.vault_entity_data(kind, entity_id)
+
+## One link's imported data.
+func vault_link_data(link_id: String) -> Dictionary:
+	if not _has("vault_link_data"):
+		return {"ok": false, "error": "vault_link_data not available on this binary"}
+	return world_gen.vault_link_data(link_id)
+
+## Which write confirmations the user has switched off: `{section, block,
+## field_fill}`, all bool. These suppress the DIALOG, never the guard -- a
+## caller with a preference set must still call the matching `vault_preview_*`
+## (that is where `expect_hash` comes from) and simply not show it.
+func vault_write_prefs() -> Dictionary:
+	if not _has("vault_write_prefs"):
+		return {}
+	return world_gen.vault_write_prefs()
+
+## Sets one of them. `path` is "section", "block" or "field_fill"; anything
+## else returns false and changes nothing, so a typo cannot quietly disarm a
+## confirmation.
+func vault_set_write_pref(path: String, value: bool) -> bool:
+	if not _has("vault_set_write_pref"):
+		return false
+	return world_gen.vault_set_write_pref(path, value)
+
+## The preferences as JSON text, for the save file. Text, not a Dictionary --
+## Godot's JSON floats every integer on the way through (GUI_GAP_REGISTER.md
+## KV-04), so engine JSON travels as a string in both directions.
+func vault_prefs_json() -> String:
+	if not _has("vault_prefs_json"):
+		return ""
+	return world_gen.vault_prefs_json()
+
+func vault_restore_prefs(json: String) -> bool:
+	if not _has("vault_restore_prefs"):
+		return false
+	return world_gen.vault_restore_prefs(json)
+
+## Removes a Cartalith-written block from a note. `expect_hash` comes from the
+## matching preview and is what makes a note edited in between refuse instead
+## of being overwritten.
+func vault_remove_block(rel: String, kind: String, entity_id: int, expect_hash: String) -> Dictionary:
+	if not _has("vault_remove_block"):
+		return {"ok": false, "error": "vault_remove_block not available on this binary"}
+	return world_gen.vault_remove_block(rel, kind, entity_id, expect_hash)
+
+# -- F10 · project documents -------------------------------------------------
+
+## `project_save` plus the caller's own documents: `{slot: json_text}` over the
+## slots `project_document_slots()` lists. Text rather than a Dictionary for
+## the same KV-04 reason as `vault_prefs_json` above.
+func project_save_with_documents(path: String, extra_documents: Dictionary) -> Dictionary:
+	if not _has("project_save_with_documents"):
+		return {"ok": false, "error": "project_save_with_documents not available on this binary"}
+	return world_gen.project_save_with_documents(path, extra_documents)
+
+## Every slot the format defines.
+func project_document_slots() -> PackedStringArray:
+	if not _has("project_document_slots"):
+		return PackedStringArray()
+	return world_gen.project_document_slots()
+
+## The subset the engine writes itself, which a caller may not supply.
+func project_engine_owned_slots() -> PackedStringArray:
+	if not _has("project_engine_owned_slots"):
+		return PackedStringArray()
+	return world_gen.project_engine_owned_slots()
+
+func project_format_version() -> int:
+	if not _has("project_format_version"):
+		return 0
+	return world_gen.project_format_version()
+
+# -- F14 · read engine state back instead of trusting a shell copy -----------
+#
+# The setters were wired and these were not, so the shell kept its own copy of
+# each toggle and nothing re-read the engine after a load. Same shape as the
+# bug `route_get`'s `mode` carried until 2026-08-26.
+
+func get_villages_enabled() -> bool:
+	if not _has("get_villages_enabled"):
+		return true
+	return world_gen.get_villages_enabled()
+
+func get_metropolis_enabled() -> bool:
+	if not _has("get_metropolis_enabled"):
+		return true
+	return world_gen.get_metropolis_enabled()
+
+func get_recovery_phase() -> int:
+	if not _has("get_recovery_phase"):
+		return 0
+	return world_gen.get_recovery_phase()
+
+## The engine's own ceiling for `lod_level_for_zoom`, so a caller clamps
+## against the engine rather than against a number copied into GDScript.
+func lod_max_level() -> int:
+	if not _has("lod_max_level"):
+		return 0
+	return world_gen.lod_max_level()
