@@ -1249,6 +1249,26 @@ But wiring it alone would be worse than leaving it: **there is no reader.**
 caller-owned document back after `project_open`. Writing journeys today
 produces a file the shell can never load.
 
+> **Correction, 2026-08-26 — the paragraph above is wrong, and it is this
+> pass's own error, not an inherited one.** `project_open` *already* built a
+> `documents` dictionary of every non-engine-owned slot the archive carried
+> (`project_bridge.rs:1471-1478` as of `cd02490`). The audit read the `#[func]`
+> list, saw no reader-shaped name in it, and concluded there was no reader —
+> the exact failure mode the harness exists to prevent, committed by hand in
+> the prose beside it.
+>
+> The real defect was narrower and differently shaped: that dictionary held
+> `serde_json::to_string` of the **coerced `serde_json::Value`**, which is not
+> the document that was saved. `Value`'s object map is a `BTreeMap`, so members
+> come back sorted; whitespace is gone; and §14.2's integer coercion has
+> already rewritten `1.0` to `1` inside it. So the honest statement is *"the
+> shell could load them but not get them back unchanged"* — still worth fixing,
+> and fixed in `afc2d57`, but not the blocker this section claimed.
+>
+> What survives unchanged: the writer had no caller, `entities/journeys.json`
+> was and is unwritten, and the `JOURNEY_PLANNER_SCOPE.md` paragraph below is
+> still stale. Only the severity and the cause were wrong.
+
 This also makes `JOURNEY_PLANNER_SCOPE.md` stale in a specific way. It says
 the saved-journeys list is in-session only because it *"needed FI-01's `.zip`
 save-**writer**"*, and then that *"what is still missing is narrower: a way for
@@ -1258,8 +1278,27 @@ paragraph does not mention.
 
 ### F11 · The reference's `erode()` op is ported at kernel level and never assembled
 
-Reference line 3894: `erode()` is `dropletKernel(...)` → `erodeFinish` →
-`erodeThermal(p.thermalPasses)` → clamp → `isostaticRebound`.
+Reference line **3898** — `dropletParams` at 3889, `erodeFinish` at 3892:
+`erode()` is `dropletKernel(...)` → `erodeFinish` → `erodeThermal(p.thermalPasses)`
+→ clamp → `isostaticRebound`.
+
+> **Two corrections, 2026-08-26, both this pass's own.** This section first said
+> "line 3894", which is the clamp *inside* `erodeFinish`, not the op — checked
+> against the reference and fixed above. This repository's own working rule is
+> *"verify a scope document's line ranges against the real reference before
+> slicing"*, learned from four consecutive urban milestones; the audit that
+> re-states that rule broke it in the same document.
+>
+> The second correction matters more, because it changes the fix. The paragraph
+> below says the two kernels *"appear nowhere outside their own crate"*, which
+> reads as an oversight — someone forgot a call. They are **unreachable**:
+> `cartalith-godot` does not depend on `cartalith-erosion` at all (only
+> `cartalith-erosion` itself and `cartalith-engine` name it in a `Cargo.toml`),
+> and `cartalith-engine`'s `use` at `lib.rs:125` re-exports none of it, so the
+> kernels are *unnameable* from the bridge crate. That is a dependency gap, not
+> a missing call, and it is why this was the largest item: the fix is a new
+> `pub fn` in `cartalith-engine` (which already has the dependency), not a line
+> in a bridge.
 
 `cartalith-erosion` has all three, with golden-parity coverage
 (`golden_parity_droplet`, `_thermal`, `_rebound` — `CPU_MULTITHREADING_SCOPE.md`
