@@ -34,10 +34,21 @@
 //! | vault links | `vault_state_json()`/`vault_restore_state()`, the pair `vault_bridge.rs` already publishes |
 //! | anything GDScript owns | [`WorldGen::project_save_with_documents`]'s dictionary |
 //!
-//! That last row is the channel `SAVEFILE_COMPAT.md` calls for and the
+//! That last row is the channel `SAVEFILE_COMPAT.md` §6.5 calls for and the
 //! reason there is no `WorldGen` field holding shell state: a payload the
 //! shell owns travels *through* a save call rather than being mirrored into
 //! the engine first, so adding one needs no engine change at all.
+//!
+//! It has two return legs, and they answer different questions.
+//! [`WorldGen::project_open`]'s `documents` hands back every caller-owned
+//! document the archive held, which is what a caller loading the project
+//! wants. [`WorldGen::project_read_document`] answers the same question
+//! about a file the caller does **not** want to open — reloading saved
+//! journeys should not replace the world on screen. Both return JSON
+//! **text**, byte for byte as it was written, for the reason
+//! `project_save_with_documents`' own doc comment gives: a `Dictionary`
+//! would go through Godot's JSON, which floats every integer it touches.
+//! Text in, text out; the engine never types a number it does not model.
 //!
 //! ## What a restored project is, and is not
 //!
@@ -971,6 +982,31 @@ fn err(message: impl std::fmt::Display) -> VarDictionary {
     vdict! { "ok" => false, "error" => message.to_string() }
 }
 
+/// The document channel's two rules, stated once: a slot must be one the
+/// format defines, and it must not be one the engine writes and reads
+/// itself. Returns the refusal, or `None` when the slot is the caller's to
+/// have.
+///
+/// The engine-owned half is the rule that matters. Handing
+/// `entities/settlements.json` back as text would let the shell parse it,
+/// edit it and write it again — and then there would be two answers to
+/// "what are this world's settlements", one in `CivData` and one in
+/// GDScript, with no rule about which wins. The engine's own accessors are
+/// the single answer; this refusal is what keeps them so.
+fn caller_slot_refusal(slot: &str) -> Option<String> {
+    if !cartalith_io::DOCUMENT_SLOTS.contains(&slot) {
+        return Some(format!("{slot} is not a slot the project format defines"));
+    }
+    if ENGINE_OWNED_SLOTS.contains(&slot) {
+        return Some(format!(
+            "{slot} is written and read by the engine itself; ask the engine for its \
+             contents (get_settlements(), get_ways(), the faction roster, the timeline) \
+             rather than round-tripping the document through the shell"
+        ));
+    }
+    None
+}
+
 #[godot_api(secondary)]
 impl WorldGen {
     /// Saves the whole project as a `.zip` in the tree layout
@@ -1264,7 +1300,7 @@ impl WorldGen {
     /// the vault links.
     ///
     /// Returns
-    /// `{ok, error, layout, format_version, warnings, documents, foreign_entries}`:
+    /// `{ok, error, layout, format_version, warnings, documents, foreign_entries, restored}`:
     ///
     /// - `layout` is `"tree"` or `"flat"`.
     /// - `warnings` is a `PackedStringArray` of everything that was skipped
@@ -1272,11 +1308,22 @@ impl WorldGen {
     ///   costs itself and nothing else (§6.4) — but it must be shown, or
     ///   the loss is silent.
     /// - `documents` carries the slots the engine did **not** consume, as
-    ///   JSON text, for the shell to restore its own state from. The
-    ///   return half of `project_save_with_documents`' channel.
+    ///   JSON **text**, for the shell to restore its own state from. The
+    ///   return half of `project_save_with_documents`' channel, and its
+    ///   mirror image: text out, exactly as text went in.
+    ///
+    ///   **Its keys are also the answer to "which of my documents does this
+    ///   archive have?"** — only slots the archive actually carried appear,
+    ///   so a caller iterates them rather than guessing slot names and
+    ///   testing for empty. That is why no separate list key was added: one
+    ///   would be a second copy of these keys, free to drift from them.
+    ///   `project_read_document` is the same question asked of a file the
+    ///   caller does not want to open.
     /// - `foreign_entries` names entries this build did not understand.
     ///   Saving over this file would drop them (§6.2), so a caller that
     ///   offers Save should say so first.
+    /// - `restored` names the engine-owned payloads that were applied —
+    ///   `civ`, `labels`, `icons`, `ways`, `region`, `appearance`, `vault`.
     ///
     /// A loaded project is **not** regenerable: every path that needs the
     /// tectonic substrate still requires a freshly generated world. See
@@ -1454,10 +1501,11 @@ impl WorldGen {
             restored.push("appearance");
         }
 
-        // The shell's own slots are handed back rather than applied: this
-        // crate has no idea what they mean, which is the whole point of the
-        // channel.
-        let mut documents = VarDictionary::new();
+        // The vault is a document this engine *models*, so it goes through
+        // the parsed, §14.2-coerced value rather than the verbatim text
+        // below: `LinkStore::from_json` is the strict parser KV-04 was
+        // about, and the coercion is what stops it refusing a store some
+        // other layer re-emitted with `1.0` in it.
         if let Some(Ok(text)) = data.document(SLOT_VAULT).map(serde_json::to_string) {
             // A store this build cannot parse is skipped, never merged and
             // never allowed to clear the links already in memory -- the
@@ -1468,11 +1516,24 @@ impl WorldGen {
                 restored.push("vault");
             }
         }
+
+        // The shell's own slots are handed back rather than applied: this
+        // crate has no idea what they mean, which is the whole point of the
+        // channel (`SAVEFILE_COMPAT.md` §6.5).
+        //
+        // Verbatim text, not `serde_json::to_string` of the parsed value.
+        // That re-serialization sorts object members, drops the caller's
+        // whitespace and re-emits the coercion the paragraph above wants,
+        // so a document handed back through it would not be the document
+        // that was saved -- and this crate, not modelling it, could not tell
+        // which of those edits mattered. The slot the caller wrote is the
+        // slot they get back, byte for byte.
+        let mut documents = VarDictionary::new();
         for slot in cartalith_io::DOCUMENT_SLOTS {
-            if ENGINE_OWNED_SLOTS.contains(slot) {
+            if caller_slot_refusal(slot).is_some() {
                 continue;
             }
-            if let Some(Ok(text)) = data.document(slot).map(serde_json::to_string) {
+            if let Some(text) = data.text_of(slot) {
                 documents.set(*slot, text);
             }
         }
@@ -1494,6 +1555,66 @@ impl WorldGen {
         out.set("foreign_entries", &foreign);
         out.set("documents", &documents);
         out.set("restored", &restored);
+        out
+    }
+
+    /// One caller-owned document's JSON **text**, read out of an archive on
+    /// disk **without loading the world it describes**.
+    ///
+    /// The other half of `project_save_with_documents`, for the case
+    /// `project_open`'s `documents` does not cover: reading a project's
+    /// journeys — or any other shell-owned payload — while the session keeps
+    /// the world it already has. Opening the archive to get at one small
+    /// JSON document would replace the current world as a side effect, which
+    /// is not a price a "load my saved journeys" command should pay.
+    ///
+    /// Returns `{ok, error, slot, present, text}`. `present` is `false` with
+    /// `ok` still `true` when the archive simply does not carry that
+    /// document; `text` is then empty. **Check `present`, not `text`** — an
+    /// empty document and an absent one are different answers, and only one
+    /// of them means "the user has never saved any".
+    ///
+    /// Text, never a `Dictionary`, for the reason
+    /// `project_save_with_documents`' doc comment gives at length: Godot's
+    /// `JSON` has one number type and floats every integer it touches, and
+    /// KV-04 is what that cost once already. The caller parses this string
+    /// with `JSON.parse_string` at the moment it wants a value, and the
+    /// engine never sees a `Dictionary` at all.
+    ///
+    /// An **engine-owned** slot is refused rather than returned,
+    /// symmetrically with the writer — see [`caller_slot_refusal`]. The
+    /// settlements document is not the shell's to read here;
+    /// `get_settlements()` is.
+    #[func]
+    fn project_read_document(&self, path: GString, slot: GString) -> VarDictionary {
+        let slot = slot.to_string();
+        let mut out = vdict! { "ok" => false, "error" => "" };
+        out.set("slot", slot.as_str());
+        out.set("present", false);
+        out.set("text", "");
+
+        if let Some(refusal) = caller_slot_refusal(&slot) {
+            out.set("error", refusal);
+            return out;
+        }
+        let file = match std::fs::File::open(path.to_string()) {
+            Ok(f) => f,
+            Err(e) => {
+                out.set("error", format!("could not open {path}: {e}"));
+                return out;
+            }
+        };
+        match project::read_document(std::io::BufReader::new(file), &slot) {
+            Ok(Some(text)) => {
+                out.set("ok", true);
+                out.set("present", true);
+                out.set("text", text);
+            }
+            // Absent is a successful answer, not a failure: a project saved
+            // before the shell ever wrote this slot is a normal project.
+            Ok(None) => out.set("ok", true),
+            Err(e) => out.set("error", e.to_string()),
+        }
         out
     }
 
@@ -1872,6 +1993,53 @@ mod tests {
             "the dangling province must not survive"
         );
         assert_eq!(back.province_list[0].id, 1);
+    }
+
+    #[test]
+    fn the_document_channel_partitions_every_registered_slot() {
+        // The partition is the contract, so it is asserted over the whole
+        // registry rather than over a sample: every slot the format defines
+        // is either the engine's or the caller's, and none is both or
+        // neither. A slot added to `cartalith-io` and forgotten here would
+        // otherwise arrive as caller-owned by default -- which is the safe
+        // direction for `drafts/` and the wrong one for a new entity table.
+        for slot in cartalith_io::DOCUMENT_SLOTS {
+            assert_eq!(
+                caller_slot_refusal(slot).is_some(),
+                ENGINE_OWNED_SLOTS.contains(slot),
+                "{slot}"
+            );
+        }
+        // The five the shell may have today, named so that a change to the
+        // split has to be deliberate.
+        let callers: Vec<&str> = cartalith_io::DOCUMENT_SLOTS
+            .iter()
+            .copied()
+            .filter(|s| caller_slot_refusal(s).is_none())
+            .collect();
+        assert_eq!(
+            callers,
+            vec![
+                "entities/journeys.json",
+                "library/assets.json",
+                "library/travel.json",
+                "drafts/paint.json",
+                "drafts/sculpt.json",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_slot_that_is_not_a_slot_is_refused_for_a_different_reason() {
+        // Two refusals, not one: "you may not have this" and "this does not
+        // exist" send the user to different places, and a typo that reported
+        // itself as an ownership rule would be read as a permissions bug.
+        let unknown =
+            caller_slot_refusal("entities/journey.json").expect("a typo must be refused");
+        assert!(unknown.contains("not a slot"), "{unknown}");
+        let owned = caller_slot_refusal(SLOT_SETTLEMENTS).expect("an engine slot must be refused");
+        assert!(owned.contains("get_settlements()"), "{owned}");
+        assert!(!owned.contains("not a slot"), "{owned}");
     }
 
     #[test]

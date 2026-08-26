@@ -371,6 +371,62 @@ Distinct from an unrecognised entry, and handled differently:
   the damaged entry, continue, and report what it skipped. A corrupt
   `annotations/labels.json` must not cost the user their world.
 
+### 6.5 Documents an implementation does not model
+
+§5's slot list is longer than any one implementation's set of internal types,
+and permanently so: `library/` and `drafts/` are reserved for payloads whose
+owner is the *application* rather than the map engine, and `entities/journeys.
+json` was specified (§9.6) before anything could write it. An implementation
+therefore partitions §9-§13's documents in two, and the partition is a property
+of that implementation rather than of the format:
+
+- **Modelled** documents are ones it parses into its own types, keeps as those
+  types, and writes back out of them. `entities/settlements.json` is modelled
+  by anything that draws settlements.
+- **Carried** documents are ones it stores and returns without understanding.
+
+Both halves are ordinary documents in the file. Nothing in §5 or §9-§13 marks
+which is which, and a second implementation MUST NOT infer one from the other's
+choice: a slot one implementation models is a slot another carries.
+
+**A carried document MUST be exposed as JSON text, and MUST NOT be exposed as
+the implementation's decoded value.** This is the only rule in this section and
+it is not a matter of taste. JSON has one number type (§14.1) and in JavaScript
+and GDScript it is a double, so decoding a document and re-encoding it rewrites
+every integer in it — and every integer in a document the implementation does
+not model is one it cannot repair, because it does not know which members were
+integers. Carrying the text carries the whole document, including the parts the
+format has not specified yet.
+
+The text a reader returns MUST be the document as stored, byte for byte, except
+that a leading byte-order mark MUST be removed (§14). In particular the reader
+MUST NOT re-order object members, MUST NOT change whitespace, and MUST NOT
+apply §14.2's coercion to it — §14.2 governs values a reader *interprets*, and
+a carried document is by definition one it does not.
+
+Symmetrically, a writer accepting a carried document MUST accept it as text and
+MUST write those bytes unchanged. A writer that cannot write a document
+unchanged — because it is not valid JSON, or carries a byte-order mark — MUST
+refuse it rather than repair it: an edit the caller did not ask for breaks the
+same promise as a decode.
+
+Two obligations follow, and are the reason this section is under Conformance:
+
+- An implementation SHOULD refuse to *return* a modelled document through the
+  carried-document channel. Returning one invites the host application to edit
+  and re-supply it, after which the archive has two sources of truth for the
+  same concept and no rule about which wins. The engine's own accessors are the
+  single source; the channel is for everything else.
+- A reader that returns carried documents SHOULD also report **which** carried
+  documents the archive contained, so that a host application enumerates them
+  rather than guessing slot names. The set of slots returned is itself an
+  adequate report; a separate list is not required and is a second copy of the
+  same fact.
+
+This section is what makes §6.2's "without data loss" reachable for documents.
+It does not reach *entries*: an entry the reader does not recognise at all is
+still governed by §6.3, and retaining those bytes is a separate obligation.
+
 ---
 
 ## 7. `project.json`
@@ -645,6 +701,11 @@ one — which is why it is its own entity and not a fifth array in
 `entities/ways.json`. `party_preset` names an entry in `library/travel.json`;
 a reader MUST tolerate a name that resolves to nothing and MUST show the
 journey rather than drop it.
+
+This is the slot §6.5 is written for. An implementation whose journey planner
+lives in its user interface rather than in its map engine **carries** this
+document rather than modelling it, and §6.5's text rule is then the whole of
+what it has to get right.
 
 ---
 
@@ -1084,6 +1145,33 @@ be discarded by clicking elsewhere is stored.
   GDScript-owned payloads reach the archive through a document channel rather
   than through a schema in Rust, so a payload the shell owns needs no engine
   change to be persisted.
+- §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the eleven
+  documents this port models — against the five it carries
+  (`entities/journeys.json`, `library/assets.json`, `library/travel.json`,
+  `drafts/paint.json`, `drafts/sculpt.json`). `caller_slot_refusal` is the one
+  place that decides, and both directions of the channel go through it:
+  `project_save_with_documents` refuses a modelled slot on the way in and
+  `project_read_document` refuses one on the way out. `project_document_slots`
+  and `project_engine_owned_slots` publish the two lists to GDScript.
+- §6.5's text rule is why `ProjectData` keeps each document **twice**:
+  `documents` holds the parsed, §14.2-coerced `serde_json::Value` the schemas
+  in `project_bridge.rs` consume, and `document_text` holds the archive's own
+  bytes with only a BOM stripped. Re-serializing a `Value` is not the same
+  text — `serde_json`'s object map is a `BTreeMap`, so it sorts members, and it
+  drops whitespace and re-emits the coercion. `project_open`'s `documents`
+  return and `read_document` both come from `document_text`; the vault, which
+  this port *models*, deliberately still goes through the coerced `Value`.
+- Two readers, deliberately. `project_open` returns every carried document the
+  archive held, which is the right shape when the caller is opening the project
+  anyway; its keys are §6.5's "which documents did it contain" report.
+  `project_read_document(path, slot)` answers the same question about a file
+  the caller does **not** want to open — a shell reloading its saved journeys
+  should not replace the world as a side effect — and `cartalith-io`'s
+  `read_document` gives it that without decoding a single raster.
+- The writer's refusal of a document it would have to edit (§6.5's last
+  paragraph) falls out of `write_project`'s existing validation: it parses each
+  document to check it is JSON and writes the original bytes, so a BOM or a
+  syntax error fails the save rather than being silently repaired.
 - `strahler_order` is 8-bit in the archive and wider in memory; it saturates at
   255 on the way out, matching the reference exporter's own `o > 255 ? 255 : o`.
 - **This build decodes far more compression methods than the format uses.**
@@ -1095,19 +1183,34 @@ be discarded by clicking elsewhere is stored.
   it genuinely cannot decode are the legacy PKZIP ones (1-6), which is why
   §3.3's own round-trip test uses method 1.
 - Round-trip coverage lives in `crates/cartalith-io/src/project.rs`'s own test
-  module, `crates/cartalith-godot/src/project_bridge.rs`'s, and
-  `crates/cartalith-godot/tests/project_round_trip.rs`.
+  module, `crates/cartalith-godot/src/project_bridge.rs`'s,
+  `crates/cartalith-godot/tests/project_round_trip.rs`, and — for §6.5 —
+  `crates/cartalith-godot/tests/project_document_channel.rs`, which saves an
+  `entities/journeys.json` carrying an id at §14.1's ceiling and free text with
+  escaped quotes and four non-Latin scripts in it, reopens the archive, and
+  asserts the text comes back byte for byte. Its fixture is pretty-printed with
+  its members deliberately out of alphabetical order, and it asserts that
+  re-serializing the parsed value would *not* reproduce it: without that, the
+  byte-identity assertion could pass by coincidence.
 
-**One conformance gap, disclosed rather than hidden.** §6.2 asks a reader that
-writes an archive back to either re-emit entries it did not understand or
-refuse to overwrite. This implementation does **neither** yet: it reports them.
-`read_project` returns `foreign_entries`, the names of every entry it did not
-consume, and `project_open` hands that list to the shell so a Save command can
-warn before it drops them. That is weaker than §6.2 requires and is the honest
-state today; retaining the bytes is real work through every layer between the
-reader and the save button, and no implementation writes a foreign entry yet.
-When the HTML app starts writing payloads this port does not model, closing
-this is the first thing that has to happen.
+**One conformance gap, narrower than it was.** §6.2 asks a reader that writes
+an archive back to either re-emit what it did not understand or refuse to
+overwrite. Two halves, and they now stand differently:
+
+- **Registered documents this build does not model** are covered. §6.5's
+  verbatim text goes out through `project_open` and comes back in through
+  `project_save_with_documents` unchanged, so a shell that hands back what it
+  was given round-trips `library/travel.json` losslessly through a build that
+  has never heard of a travel preset. That is the mechanism §6.2 asks for; it
+  still requires the shell to *use* it, which nothing does yet.
+- **Unrecognised entries** are not. `read_project` returns `foreign_entries`,
+  the names of every entry it did not consume, and `project_open` hands that
+  list to the shell so a Save command can warn before it drops them. That is
+  weaker than §6.2 requires and is the honest state today; retaining those
+  bytes is real work through every layer between the reader and the save
+  button, and no implementation writes a foreign entry yet. When the HTML app
+  starts writing payloads this port does not model, closing this is the first
+  thing that has to happen.
 
 ---
 

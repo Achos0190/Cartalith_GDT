@@ -455,6 +455,24 @@ pub struct ProjectData {
     pub rasters: BTreeMap<String, Raster>,
     /// Registered documents, parsed and integer-coerced.
     pub documents: BTreeMap<String, serde_json::Value>,
+    /// The same documents' JSON text, **verbatim** — the archive's own bytes
+    /// with only a byte-order mark stripped (§14). Same keys as
+    /// [`ProjectData::documents`] exactly: a document that was skipped
+    /// appears in neither.
+    ///
+    /// Kept because re-serializing the parsed [`serde_json::Value`] is not
+    /// the same text. It sorts object members (`Value`'s map is a
+    /// `BTreeMap`), it drops whitespace, and §14.2's coercion pass has
+    /// already rewritten `1.0` to `1` inside it. For a document *this*
+    /// crate's callers parse against a schema none of that matters. For a
+    /// document handed **back to whoever wrote it** — the caller-owned
+    /// slots of §5, which no schema in this workspace models — all of it
+    /// does: the round trip is only lossless if the text is the text.
+    ///
+    /// The cost is one extra copy of the documents in memory for the
+    /// lifetime of a `ProjectData`, which is bounded by the same JSON the
+    /// parsed map already holds and is small beside the rasters beside it.
+    pub document_text: BTreeMap<String, String>,
     pub history_territory: BTreeMap<i64, Vec<i32>>,
     pub preview_png: Option<Vec<u8>>,
     /// The **names** of entries this build does not know
@@ -482,6 +500,13 @@ impl ProjectData {
     /// One document by slot, or `None` if the archive did not carry it.
     pub fn document(&self, slot: &str) -> Option<&serde_json::Value> {
         self.documents.get(slot)
+    }
+
+    /// One document's text exactly as the archive carried it, or `None` if
+    /// the archive did not carry it. See [`ProjectData::document_text`] for
+    /// why the verbatim text is kept alongside the parsed value.
+    pub fn text_of(&self, slot: &str) -> Option<&str> {
+        self.document_text.get(slot).map(String::as_str)
     }
 
     /// One document by slot, deserialized. `None` when the slot is absent;
@@ -751,6 +776,65 @@ pub fn read_project<R: Read + Seek>(reader: R) -> Result<ProjectData, LoadError>
     }
 }
 
+/// One document's JSON text, read straight out of an archive **without
+/// decoding the world it describes**.
+///
+/// The whole-archive path is [`read_project`], and it is the right one when
+/// the caller is opening the project. This exists for the other question —
+/// *"what does that file on disk say about X?"* — where paying for six
+/// raster decompressions and every recorded year to reach one small JSON
+/// document would be the only cost of asking.
+///
+/// The text is verbatim, on the same terms as [`ProjectData::document_text`]:
+/// the archive's own bytes, byte-order mark stripped, no reformatting and no
+/// §14.2 coercion. It is parsed once and the parse discarded, so a caller
+/// can rely on the returned text being valid JSON without this crate
+/// pretending to know its schema.
+///
+/// `Ok(None)` means *the archive does not carry that document*, and covers
+/// three cases a caller has no reason to tell apart: the entry is absent,
+/// the archive is the flat layout (§15 — it carries no documents at all), or
+/// `slot` is not one of [`DOCUMENT_SLOTS`]. That last one is deliberate
+/// rather than an error: an unregistered name must not be able to pull an
+/// arbitrary entry out of the archive, and a caller that wants to tell a
+/// typo from an absent document should check the name against
+/// [`DOCUMENT_SLOTS`] itself before calling.
+pub fn read_document<R: Read + Seek>(
+    reader: R,
+    slot: &str,
+) -> Result<Option<String>, LoadError> {
+    if !DOCUMENT_SLOTS.contains(&slot) {
+        return Ok(None);
+    }
+    let mut archive = zip::ZipArchive::new(reader)?;
+
+    // The manifest is checked for the same reason `read_project` checks it:
+    // §4 makes its presence the layout test, and an entry called
+    // `entities/journeys.json` inside an unrelated zip is not this format's
+    // journeys document. No manifest at all is the flat layout, which
+    // carries no documents -- absent, not an error.
+    let Some(manifest_bytes) = read_entry_bytes(&mut archive, PROJECT_MANIFEST) else {
+        return Ok(None);
+    };
+    let manifest: serde_json::Value =
+        serde_json::from_slice(strip_bom(&manifest_bytes.map_err(LoadError::Io)?))
+            .map_err(LoadError::Json)?;
+    match manifest.get("format").and_then(|v| v.as_str()) {
+        Some(PROJECT_FORMAT) => {}
+        Some(other) => return Err(LoadError::NotAProject(other.to_string())),
+        None => return Err(LoadError::NotAProject(String::new())),
+    }
+
+    let Some(bytes) = read_entry_bytes(&mut archive, slot) else {
+        return Ok(None);
+    };
+    let bytes = bytes.map_err(LoadError::Io)?;
+    let text = String::from_utf8(strip_bom(&bytes).to_vec())
+        .map_err(|e| LoadError::Io(std::io::Error::other(e.to_string())))?;
+    serde_json::from_str::<serde_json::Value>(&text).map_err(LoadError::Json)?;
+    Ok(Some(text))
+}
+
 fn read_tree(
     archive: &mut zip::ZipArchive<impl Read + Seek>,
     manifest_bytes: Vec<u8>,
@@ -908,17 +992,26 @@ fn read_tree(
     };
 
     // --- documents -------------------------------------------------------
+    // Each document is kept twice: parsed and coerced for the schemas that
+    // consume it, and verbatim for the slots no schema here models. The two
+    // maps are populated together so they can never disagree about which
+    // documents an archive carried.
     let mut documents: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut document_text: BTreeMap<String, String> = BTreeMap::new();
     for slot in DOCUMENT_SLOTS {
         let Some(bytes) = read_entry_bytes(archive, slot) else {
             continue;
         };
         match bytes.map_err(|e| e.to_string()).and_then(|b| {
-            serde_json::from_slice::<serde_json::Value>(strip_bom(&b)).map_err(|e| e.to_string())
+            let text = String::from_utf8(strip_bom(&b).to_vec()).map_err(|e| e.to_string())?;
+            let value =
+                serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?;
+            Ok((text, value))
         }) {
-            Ok(mut v) => {
+            Ok((text, mut v)) => {
                 coerce_integral_floats(&mut v);
                 documents.insert((*slot).to_string(), v);
+                document_text.insert((*slot).to_string(), text);
             }
             Err(e) => warnings.push(format!("{slot}: skipped ({e})")),
         }
@@ -1010,6 +1103,7 @@ fn read_tree(
         format_version,
         rasters,
         documents,
+        document_text,
         history_territory,
         preview_png,
         foreign_entries,
@@ -1025,6 +1119,7 @@ fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectD
         format_version: 0,
         rasters: BTreeMap::new(),
         documents: BTreeMap::new(),
+        document_text: BTreeMap::new(),
         history_territory: BTreeMap::new(),
         preview_png: None,
         // The flat layout has always carried entries no reader wanted
