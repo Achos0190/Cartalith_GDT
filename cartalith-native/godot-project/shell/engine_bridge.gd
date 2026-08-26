@@ -2854,3 +2854,25 @@ func lod_max_level() -> int:
 	if not _has("lod_max_level"):
 		return 0
 	return world_gen.lod_max_level()
+
+# -- F13 · the two ops_bridge bindings the shell reaches for -----------------
+
+## `_civRegionalPopulation` (reference line 23297): the modeled persons/km²
+## field integrated over land, plus the painted-territory share. The
+## reference's OTHER regional population figure -- distinct from
+## `civ_agrarian_regional_total`'s settlement-sizing ceiling, and it never
+## feeds back into it. `{total, land_km2, claimed}`, empty before a world.
+##
+## Recomputed fresh on every call, and comparable in cost to a real slice of
+## Recompute civilisation -- call it from a button, never from a panel refresh.
+func civ_regional_population() -> Dictionary:
+	if not _has("civ_regional_population"):
+		return {}
+	return world_gen.civ_regional_population()
+
+## Drops a whole asset collection by name. The grouping only -- the assets in
+## it are untouched. A no-op, not an error, for a name that does not exist.
+func as_drop_collection(name: String) -> Dictionary:
+	if not _has("as_drop_collection"):
+		return {"ok": false, "error": "as_drop_collection not available on this binary"}
+	return world_gen.as_drop_collection(name)

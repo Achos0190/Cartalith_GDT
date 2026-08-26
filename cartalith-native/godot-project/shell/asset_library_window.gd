@@ -645,6 +645,7 @@ var _rail_count_label: Label
 var _current_collection := ""
 var _collection_buttons: Dictionary = {}   ## collection name -> {button, name, count}
 var _collections_rail_body: VBoxContainer
+var _delete_collection_btn: Button   ## `PARITY_AUDIT.md` §23 F13 -- as_drop_collection.
 ## AS-12's "Unassigned imports" holding bucket: a pinned row above the
 ## dynamic collections list (`_build_unassigned_row`), backed by ordinary
 ## custom slots under the reserved `UNASSIGNED_SET` name -- see
@@ -1223,7 +1224,21 @@ func _build_family_rail() -> Control:
 	## in place (`_refresh_collections_rail`) rather than built once here.
 	body.add_child(DccTheme.rule())
 	var cgp := _pad(body, 14, 10, 14, 4)
-	cgp.add_child(DccTheme.mono_label("COLLECTIONS", "text_ghost", DccTheme.FS_MICRO, 1))
+	var cgp_row := HBoxContainer.new()
+	cgp_row.add_theme_constant_override("separation", 6)
+	cgp.add_child(cgp_row)
+	var cgp_label := DccTheme.mono_label("COLLECTIONS", "text_ghost", DccTheme.FS_MICRO, 1)
+	cgp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cgp_row.add_child(cgp_label)
+	## AS-12's own gap: rows could be created (`as_batch_collect`) and browsed
+	## (`as_collections`) but never removed outright -- `PARITY_AUDIT.md` §23
+	## F13's `AssetCollections::drop_collection`, real and ported, had no
+	## `#[func]` in front of it until this pass (`as_drop_collection`,
+	## `ops_bridge.rs`). Deletes only the grouping, never the assets in it --
+	## same distinction `remove_custom_slot`/`batch_delete` already draw
+	## between a slot and its collection membership.
+	_delete_collection_btn = _text_button(cgp_row, "Delete…", _on_delete_collection)
+	_delete_collection_btn.tooltip_text = "Select a collection below, then Delete… to remove the grouping (as_drop_collection). The assets inside it are untouched -- this only ungroups them."
 	_build_unassigned_row(body)
 	_collections_rail_body = VBoxContainer.new()
 	_collections_rail_body.add_theme_constant_override("separation", 0)
@@ -1577,6 +1592,35 @@ func _on_drop_uids_on_collection(coll_name: String, uids: Array) -> void:
 	_refresh_collections_rail()
 	_refresh_inspector()
 	_refresh_status_line()
+
+## The Collections header's "Delete…" button (`PARITY_AUDIT.md` §23 F13):
+## drops the rail's currently-selected collection. Calls `world_gen` directly
+## rather than through a new `engine_bridge.gd` wrapper -- that file is a
+## concurrently-edited file this pass, the same reasoning `_refresh_collections_rail`'s
+## own comment already gives for `as_collections`.
+func _on_delete_collection() -> void:
+	if _current_collection == "":
+		_host.set_status("hint", "select a collection first, then Delete…", "text_ghost")
+		return
+	if _bridge.world_gen == null or not _bridge.world_gen.has_method("as_drop_collection"):
+		return
+	var coll_name := _current_collection
+	var d := ConfirmationDialog.new()
+	d.title = "Delete collection \"%s\"?" % coll_name
+	d.dialog_text = "Remove the \"%s\" collection? The assets in it are not deleted -- only the grouping is." % coll_name
+	d.confirmed.connect(func():
+		_bridge.world_gen.as_drop_collection(coll_name)
+		_dirty = true
+		_current_collection = ""
+		_highlight_collection_row("")
+		_host.set_status("hint", "deleted collection \"%s\"" % coll_name, "accent")
+		_refresh_collections_rail()
+		_refresh_grid()
+		_refresh_status_line()
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
 
 ## "Import image…" targets whichever slot is focused in the grid; with none
 ## focused it still works (AS-12), landing the file in a fresh custom slot

@@ -1322,6 +1322,17 @@ func _update_lod() -> void:
 	## binary built before this milestone: stay Z1-only, exactly as the
 	## retired `lod_tile_cells() == 0` check did.
 	var z: int = _bridge.lod_level_for_zoom(screen_px_per_cell)
+	## `PARITY_AUDIT.md` §23 F14: `lod_level_for_zoom` already clamps to
+	## `lod_bridge::MAX_LEVEL` internally today, so this is currently a
+	## no-op in practice -- but nothing on this side enforced it, and the
+	## engine's own ceiling (`lod_max_level()`, real and callable, just
+	## unread until now) is the honest source of truth for it rather than a
+	## number this file would otherwise have to assume. `> 0` guard: a
+	## binary built before `lod_max_level` existed answers `0`, which would
+	## otherwise clamp every level to Z0 forever.
+	var max_z := _bridge.lod_max_level()
+	if max_z > 0:
+		z = mini(z, max_z)
 	var n: int = _bridge.lod_tiles_per_axis(z)
 	if n <= 0:
 		_set_lod_active(false)

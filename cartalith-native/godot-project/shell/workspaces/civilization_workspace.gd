@@ -164,6 +164,11 @@ var _recompute_note: Label
 ## produced in three other workspaces (a sculpt, a carve, a dropped place).
 var _recompute_badge: Label
 var _stale_timer: Timer
+## `PARITY_AUDIT.md` §23 F13's `civ_regional_population` readout -- held so
+## `_on_compute_regional_population` can find the label it already built
+## instead of rebuilding the section, the same reasoning `_recompute_note`
+## documents above.
+var _regional_pop_note: Label
 
 
 func _build() -> void:
@@ -1180,6 +1185,54 @@ func _build_pop_estimate(parent: Control) -> void:
 			FactionRosterWindow._thousands(settled), pct]
 		+ "Σ agrarian density × cell area over land -- the ceiling settlement nuclei are sized "
 		+ "against, not a target.")
+	_build_regional_population(parent)
+
+## `PARITY_AUDIT.md` §23 F13: `civ_regional_population` (`estimateRegionalDensityKm2`
+## via the reference's own `_civRegionalPopulation`, HTML line 23297) --
+## ported, tested, and until now called by nothing. A DIFFERENT figure from
+## the agrarian total above (`cartalith_civ::estimate_regional_density_km2`'s
+## own doc comment: "additive to carrying capacity k, never feeds back into
+## it"), so it gets its own row rather than replacing that one -- the
+## reference draws both as separate concepts (the agrarian ceiling
+## settlements are sized against vs. the conservative regional-average `Pop
+## density` layer), even though only the agrarian total had a live readout
+## in this port before this pass.
+##
+## A button, not an automatic readout: the engine call recomputes water
+## access, lithology, soil and carrying capacity fresh every time (none of
+## them are retained on `CivData` the way agrarian density's own input is --
+## see `civ_regional_population`'s own doc comment), so it costs a real
+## fraction of what `Recompute civilisation` costs. Auto-running it on every
+## roster refresh (a place edit) would put that cost on a path that today
+## costs nothing.
+func _build_regional_population(parent: Control) -> void:
+	if bridge.world_gen == null or not bridge.world_gen.has_method("civ_regional_population"):
+		return
+	var btn := DccWidgets.action(parent, "Compute regional population (persons/km²)…",
+		_on_compute_regional_population)
+	btn.tooltip_text = ("The reference's OTHER modeled-population figure (currentPopulationDensity's "
+		+ "persons/km² field, integrated over land) -- a conservative regional average that includes "
+		+ "waste ground, as opposed to the settled-core productivity the total above is grounded in. "
+		+ "Recomputed fresh on every press; not automatic.")
+	_regional_pop_note = DccWidgets.note(parent, "")
+
+func _on_compute_regional_population() -> void:
+	if _regional_pop_note == null or not is_instance_valid(_regional_pop_note):
+		return
+	if bridge.world_gen == null or not bridge.world_gen.has_method("civ_regional_population"):
+		return
+	var r: Dictionary = bridge.world_gen.civ_regional_population()
+	if r.is_empty():
+		_regional_pop_note.text = "No world yet."
+		return
+	var total := int(r.get("total", 0))
+	var land := int(r.get("land_km2", 0))
+	var claimed := int(r.get("claimed", 0))
+	var text := "Regional average model ≈ %s people over the same %s km²." \
+		% [FactionRosterWindow._thousands(total), FactionRosterWindow._thousands(land)]
+	if claimed > 0:
+		text += " %s of that falls inside painted faction territory." % FactionRosterWindow._thousands(claimed)
+	_regional_pop_note.text = text
 
 
 ## The reference's own settlement-population operations, which this shell has

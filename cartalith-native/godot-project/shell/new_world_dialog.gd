@@ -158,6 +158,17 @@ func setup(b: EngineBridge) -> void:
 	_archetype_names = bridge.archetypes()
 	_build(body)
 	_update_extent_state()
+	## `PARITY_AUDIT.md` §23 F14: this dialog is a persistent singleton
+	## (`app.gd` builds one at startup and reuses it, `popup_centered()`
+	## on every File > New world…), not a fresh instance per open, so
+	## `_villages`/`_metropolis`/`_recovery_phase` above stay whatever they
+	## were last set to -- by hand, or by never having been touched since
+	## construction -- across loading an entirely different project.
+	## `about_to_popup` (`Window`'s own pre-show signal) re-reads the live
+	## engine getters every time the dialog is about to be shown, so a
+	## reopened dialog offers to re-Create with the settings the world on
+	## screen was actually generated with, not silently reset ones.
+	about_to_popup.connect(_sync_from_engine)
 	## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once as
 	## the window's `content_scale_factor`, and applying it again here would
 	## square it. The form is built once, so one pass is enough.
@@ -416,6 +427,37 @@ func _on_create() -> void:
 ## opens; the caller regenerates immediately with the new seed.
 func randomise_seed() -> void:
 	seed_input.value = randi() % 100000
+
+## `PARITY_AUDIT.md` §23 F14: `get_villages_enabled`/`get_metropolis_enabled`/
+## `get_recovery_phase` are real getters -- `self.civ_options.villages`/
+## `.metropolis`/`.recovery_phase` on the Rust side, always well-defined,
+## not gated on a world existing -- that had no reader anywhere before this
+## pass. Connected to `about_to_popup` in `setup()`; see that connection's
+## own comment for why a re-sync on every open is needed at all.
+##
+## `set_pressed_no_signal`/`select()` rather than assigning `.button_pressed`/
+## `.selected` directly: both would re-fire the control's own `toggled`/
+## `item_selected` signal, which just sets `_villages`/`_metropolis`/
+## `_recovery_phase` right back to the same value -- harmless here, but the
+## no-signal setters are the honest way to say "this is a read, not a user
+## edit" and cost nothing extra.
+##
+## Goes through `bridge.get_*` (the wrappers `engine_bridge.gd` already
+## carries, each already guarded by its own `_has()` check) rather than
+## `bridge.world_gen.*` directly -- `engine_bridge.gd` is finished and off
+## limits this pass, but the read side it needed was already there.
+func _sync_from_engine() -> void:
+	if bridge == null:
+		return
+	if villages_check != null:
+		_villages = bridge.get_villages_enabled()
+		villages_check.set_pressed_no_signal(_villages)
+	if metropolis_check != null:
+		_metropolis = bridge.get_metropolis_enabled()
+		metropolis_check.set_pressed_no_signal(_metropolis)
+	if recovery_input != null and recovery_input.item_count > 0:
+		_recovery_phase = clampi(bridge.get_recovery_phase(), 0, recovery_input.item_count - 1)
+		recovery_input.select(_recovery_phase)
 
 func request() -> Dictionary:
 	return {
