@@ -340,6 +340,32 @@ impl PaintEditor {
         }
     }
 
+    /// Replaces the cached land-only gate with a fresh classification —
+    /// `PARITY_AUDIT.md` §23's third wiring item.
+    ///
+    /// **The cache stays a cache.** This module's own doc explains at length
+    /// why the mask is captured once per `generate()` rather than recomputed
+    /// per dab (`build_water_bodies` is a flood fill from every ocean edge,
+    /// and `_paintAt` runs dozens of times a second during one drag; 417 ms
+    /// of it per stroke on the measured world). Nothing about that changes:
+    /// this is the *refresh* path the cache never had, called by the one op
+    /// that edits the classification itself
+    /// ([`crate::WorldGen::apply_force_lake`]), not by the brush.
+    ///
+    /// Same contract as [`PaintEditor::new`]'s own `water_mask`: `gw * gh`
+    /// long, `0` = land, and a length mismatch degrades to "the gate never
+    /// excludes anything" rather than panicking.
+    ///
+    /// Pending drafts are untouched by design, and that is a real decision
+    /// rather than an omission: a [`PaintStamp`] captures its own `Arc` of
+    /// the mask at [`PaintEditor::stroke_at`] time, so dabs already laid down
+    /// keep the gate they were painted under and only the next dab sees the
+    /// new water. Rewriting stamps already in the draft would change what the
+    /// user has painted underneath them.
+    pub fn set_water_mask(&mut self, water_mask: Arc<[u8]>) {
+        self.water_mask = water_mask;
+    }
+
     /// Switches which layer the next [`PaintEditor::stroke_at`] writes to.
     /// Each layer keeps its own draft (this module's own doc), so switching
     /// never discards or commits anything pending in the layer being left.

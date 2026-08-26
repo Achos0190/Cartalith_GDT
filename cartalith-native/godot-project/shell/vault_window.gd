@@ -974,52 +974,28 @@ func _build_write_prefs() -> void:
 
 # -- The preferences on disk ------------------------------------------------
 
-## Beside the link store, never inside it — the same split the backlink index
-## already makes, and for the same reason §5 gives: the link store is portable
-## project data, and a person's "stop asking me" is not.
+## **Moved to `vault_store.gd` on 2026-08-26** (`PARITY_AUDIT.md` §23). The
+## paragraph that used to sit here said this window wrote the sidecar, that
+## `VaultStore` should, and that moving it was "a rename and two call sites".
+## It was. `VaultStore.PREFS_PATH` carries the reasoning for the separate file;
+## `VaultStore.load_prefs_into()` carries the verbatim-text rule.
 ##
-## **This file writes it, and `vault_store.gd` should.** `VaultStore` is where
-## every other piece of vault state reaches the disk, and the two belong
-## together; this pass does not own that file (four agents are in this
-## repository at once), so the sidecar lives here with the same discipline
-## rather than not existing. Moving it is a rename and two call sites.
-const PREFS_PATH := "user://markdown_vault_prefs.json"
-
-## The engine's own JSON string, **stored and restored verbatim**. Never parsed
-## into a Variant and re-emitted: Godot's `JSON` has one number type and it is
-## `float`, which is what discarded every knowledge link a user had made until
-## 2026-08-25 (`GUI_GAP_REGISTER.md` KV-04, and `vault_store.gd`'s own comment
-## on the same bug). Today's preferences are three booleans and would survive
-## that round trip — but the rule is about the habit, not about this payload,
-## and the next field added here would not survive it.
+## The window keeps these two names because it is the surface that toggles a
+## preference, and `_prefs_loaded` because `setup()` must have the values
+## before `_build_write_prefs()` draws three checkboxes from them. It no longer
+## touches the disk itself, which is now true of every piece of vault state.
+##
+## `VaultStore.load_into()` also loads them, unbranched, so preferences are
+## restored on a session where this window is never built at all.
 func _load_prefs_once() -> void:
 	if _prefs_loaded:
 		return
 	_prefs_loaded = true
-	if not FileAccess.file_exists(PREFS_PATH):
-		return
-	var f := FileAccess.open(PREFS_PATH, FileAccess.READ)
-	if f == null:
-		return
-	var raw := f.get_as_text()
-	f.close()
-	## A refusal is deliberately silent and deliberately harmless: malformed
-	## JSON leaves the engine's defaults, which are *ask every time*. That is
-	## the direction a corrupt preferences file must fail in.
-	if raw.strip_edges() != "":
-		bridge.vault_restore_prefs(raw)
+	VaultStore.load_prefs_into(bridge)
 
 
 func _save_prefs() -> void:
-	var json := bridge.vault_prefs_json()
-	if json == "":
-		return
-	var f := FileAccess.open(PREFS_PATH, FileAccess.WRITE)
-	if f == null:
-		push_warning("Cartalith: could not write %s (%s)" % [PREFS_PATH, error_string(FileAccess.get_open_error())])
-		return
-	f.store_string(json)
-	f.close()
+	VaultStore.save_prefs_from(bridge)
 
 
 # -- Overview ---------------------------------------------------------------

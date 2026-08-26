@@ -7461,6 +7461,24 @@ impl WorldGen {
     /// Is a chunk (or any ancestor of it) baked? — `bakedCover` (reference
     /// line 10715), the rule that stops the viewer refining beneath a baked
     /// tile and stops the editor composing an edit into one.
+    ///
+    /// # No shell caller, deliberately — `PARITY_AUDIT.md` §23, 2026-08-26
+    ///
+    /// Both jobs above need a **reader of baked imagery**, and the shell has
+    /// none: [`Self::atlas_tile_png`] is wrapped in `engine_bridge.gd` and
+    /// called by no `.gd` file, and the deep-zoom layer builds every tile from
+    /// `lod_synthesize_tile` (`viewport_host.gd`'s `_build_lod_tile`) — a live
+    /// relief-detail ratio, never the atlas.
+    ///
+    /// So gating refinement on coverage today would make deep zoom show
+    /// *less* detail than it does now, because nothing would draw the baked
+    /// chunk in the refined tile's place. And edit-composition is already
+    /// gated whole-world by the finalize lock ([`Self::set_finalized`], wired
+    /// in `world_workspace.gd`), not per chunk.
+    ///
+    /// This is correct, tested engine surface waiting on the atlas *reader* —
+    /// not a wiring gap. Recorded here so the next reachability pass does not
+    /// re-flag it.
     #[func]
     fn atlas_is_covered(&self, z: i64, col: i64, row: i64) -> bool {
         let Some(store) = self.bake.store() else { return false };

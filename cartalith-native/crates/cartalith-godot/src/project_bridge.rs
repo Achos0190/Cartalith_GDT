@@ -1585,6 +1585,31 @@ impl WorldGen {
     /// symmetrically with the writer — see [`caller_slot_refusal`]. The
     /// settlements document is not the shell's to read here;
     /// `get_settlements()` is.
+    ///
+    /// # No shell caller, deliberately — `PARITY_AUDIT.md` §23, 2026-08-26
+    ///
+    /// The wiring audit flags this as a `#[func]` no `.gd` file names, and it
+    /// is correct that nothing calls it. That was examined and **declined**,
+    /// so a later pass does not re-flag it as an oversight:
+    ///
+    /// * The obvious consumer would be showing something about a project
+    ///   *before* opening it. The one surface that does that is
+    ///   `open_project_dialog.gd`'s gallery tile, and what it shows — the
+    ///   seed — comes out of `params.json`, an **engine-owned** slot this
+    ///   function refuses by design. Widening the refusal to feed a caption
+    ///   would break the writer's symmetry for a readout the dialog already
+    ///   has by its own `ZIPReader`.
+    /// * The other candidate is the Journey Planner loading saved journeys
+    ///   without replacing the world. It has no such command: journeys ride
+    ///   `project_open`'s own `documents` dictionary, restored in
+    ///   `app.gd`'s `world_loaded` handler, which is the whole round trip
+    ///   `_savereopen_probe.gd` asserts.
+    ///
+    /// So this is a public API with no shell caller **yet**, not a gap: the
+    /// capability `project_open` structurally cannot offer (read one document,
+    /// keep the current world), kept ready for the first command that wants
+    /// it. Inventing a control to justify it would be the opposite of what
+    /// the audit is for.
     #[func]
     fn project_read_document(&self, path: GString, slot: GString) -> VarDictionary {
         let slot = slot.to_string();

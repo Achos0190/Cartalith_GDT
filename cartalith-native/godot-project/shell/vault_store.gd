@@ -44,10 +44,29 @@ const PATH := "user://markdown_vault.json"
 ## lost. Mixing them would make the portable half unportable.
 const INDEX_PATH := "user://markdown_vault_index.json"
 
+## The owner's 2026-08-25 *"option to confirm always"*, in its **own** file for
+## the same reason `INDEX_PATH` has one: the link store is portable project
+## data (§5), and a person's "stop asking me" is device state that must not
+## travel with a project.
+##
+## Written by `vault_window.gd` until 2026-08-26, which worked and sat in the
+## wrong file — that window's own comment said so and said it did not own this
+## file. `PARITY_AUDIT.md` §23 moved it; the window's two functions are
+## one-line forwards now.
+const PREFS_PATH := "user://markdown_vault_prefs.json"
+
 
 ## Reads the sidecar and pushes it into the engine, re-binding the vault
 ## folder if this device still has it. Call once, after the bridge exists.
 static func load_into(bridge: EngineBridge) -> void:
+	## **Outside every branch below, on purpose.** Write preferences are
+	## meaningful with no vault connected and with no link store on disk at
+	## all: they govern whether a write is previewed, and the panel lists them
+	## whether or not a folder is bound. Loading them inside the binding branch
+	## — where the backlink index correctly lives, because a cache of one
+	## folder is meaningless without that folder — would restore "stop asking
+	## me" only for people who already have a vault.
+	load_prefs_into(bridge)
 	if not FileAccess.file_exists(PATH):
 		return
 	var f := FileAccess.open(PATH, FileAccess.READ)
@@ -122,6 +141,45 @@ static func save_index_from(bridge: EngineBridge) -> void:
 	var f := FileAccess.open(INDEX_PATH, FileAccess.WRITE)
 	if f == null:
 		push_warning("Cartalith: could not write %s (%s)" % [INDEX_PATH, error_string(FileAccess.get_open_error())])
+		return
+	f.store_string(json)
+	f.close()
+
+
+## Reads the device-local write preferences, if there are any. Never an error:
+## a missing or malformed file leaves the engine's own defaults, which are
+## *ask every time* — the one direction a corrupt preferences file must fail
+## in.
+##
+## The engine's JSON string goes back **verbatim**, never parsed into a Variant
+## and re-emitted, exactly as `load_index_into()` above does and for the reason
+## `save_from()` documents at length: Godot's `JSON` has one number type and it
+## is `float`, which is how KV-04 discarded every knowledge link a user had
+## made. Today's preferences are three booleans and would survive that round
+## trip; the rule is about the habit, not about this payload, and the next
+## field added here would not survive it.
+static func load_prefs_into(bridge: EngineBridge) -> void:
+	if not FileAccess.file_exists(PREFS_PATH):
+		return
+	var f := FileAccess.open(PREFS_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text()
+	f.close()
+	if raw.strip_edges() == "":
+		return
+	bridge.vault_restore_prefs(raw)
+
+
+## Writes the device-local write preferences. Called after each toggle, which
+## is the only thing that changes them.
+static func save_prefs_from(bridge: EngineBridge) -> void:
+	var json := bridge.vault_prefs_json()
+	if json == "":
+		return
+	var f := FileAccess.open(PREFS_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Cartalith: could not write %s (%s)" % [PREFS_PATH, error_string(FileAccess.get_open_error())])
 		return
 	f.store_string(json)
 	f.close()

@@ -272,17 +272,19 @@ impl WorldGen {
     /// `lake_cells` (int, lake cells in the classification afterwards) and
     /// `reason` (String, only when `ok` is false).
     ///
-    /// # What it does not reach
+    /// # What it reaches, and what it does not
     ///
     /// The Biome-paint editor captured its own land-only gate as an
     /// `Arc<[u8]>` copy of this array at generation time
     /// (`paint_bridge::PaintEditor::water_mask`, deliberately cached — see
-    /// that field's own doc comment for the 417 ms it saves). That copy is
-    /// **not** refreshed here, because `PaintEditor` exposes no setter for it
-    /// and this task owns neither file; until one exists the brush will still
-    /// paint a forced lake as land. Recorded rather than hidden.
+    /// that field's own doc comment for the 417 ms it saves). That copy used
+    /// **not** to be refreshed, so the brush went on painting a forced lake as
+    /// land; `PARITY_AUDIT.md` §23 recorded it rather than hiding it, and
+    /// [`paint_bridge::PaintEditor::set_water_mask`] now closes it. The cache
+    /// is still a cache — this is the one op that edits the classification, so
+    /// it is the one op that refreshes it.
     ///
-    /// The forcing is also lost on the next full `compute_civilisation`,
+    /// The forcing is still lost on the next full `compute_civilisation`,
     /// which rebuilds `water_bodies` from `build_water_bodies` — same ceiling
     /// every manual civ edit already has.
     #[func]
@@ -304,6 +306,15 @@ impl WorldGen {
             return refuse("This world's water-body classification is empty.");
         }
         let (forced, lake_cells) = force_lakes(&mut civ.water_bodies, mask);
+        // The Paint editor's land-only gate is a copy of exactly this array,
+        // taken at `generate()` time (`WorldGen::absorb`). Refreshed here and
+        // only here: this is the one op that edits the classification, so the
+        // per-dab cache stays a cache. A cheap `Arc` allocation once per press
+        // against the 417 ms per stroke that recomputing it would cost.
+        let refreshed: std::sync::Arc<[u8]> = std::sync::Arc::from(civ.water_bodies.as_slice());
+        if let Some(paint) = self.paint.as_mut() {
+            paint.set_water_mask(refreshed);
+        }
         vdict! { "ok" => true, "reason" => "", "forced" => forced, "lake_cells" => lake_cells }
     }
 }
@@ -359,5 +370,72 @@ mod tests {
         let (forced, lakes) = force_lakes(&mut cls, &[]);
         assert_eq!(cls, [0, 1, 2]);
         assert_eq!((forced, lakes), (0, 1));
+    }
+
+    /// **The regression this pass exists to stop.** `apply_force_lake` edits
+    /// `CivData::water_bodies`; the Biome brush gates against a *copy* of that
+    /// array cached at `generate()` time. Before
+    /// [`crate::paint_bridge::PaintEditor::set_water_mask`] the copy was never
+    /// refreshed, so a forced lake stayed paintable land — `ok: true`, nothing
+    /// in the console, and the only symptom was a brush that painted through
+    /// water it should have refused.
+    ///
+    /// Drives the same two calls [`WorldGen::apply_force_lake`] makes, in the
+    /// same order, with no Godot runtime involved (`force_lakes` and
+    /// `PaintEditor` are both `godot`-free by design, which is why either can
+    /// be tested at all).
+    ///
+    /// **What it covers and what it cannot.** Emptying
+    /// [`crate::paint_bridge::PaintEditor::set_water_mask`]'s body fails this
+    /// on its second assertion — verified, not assumed. The one line it
+    /// cannot reach is the *call* in `apply_force_lake` above, which needs a
+    /// `Gd<WorldGen>` and therefore a Godot runtime; that line is guarded by
+    /// nothing but this comment and the audit harness.
+    #[test]
+    fn a_forced_lake_reaches_the_paint_gate() {
+        use crate::paint_bridge::PaintEditor;
+        use std::sync::Arc;
+
+        // 16 x 12 of land. Radius 0.0 clamps up to `PAINT_RADIUS_RANGE`'s own
+        // 1.0, which paints a five-cell plus rather than one cell
+        // (`radius_one_paints_a_plus_not_a_square`, `cartalith-spatial`), so
+        // the Lake stamp covers all five and the counts below are 5 or 0
+        // rather than 5 or 4.
+        let (gw, gh) = (16usize, 12usize);
+        let n = gw * gh;
+        let mut classification = vec![0u8; n];
+        let mut lake_stamp = vec![0u8; n];
+        for (cx, cy) in [(8, 8), (7, 8), (9, 8), (8, 7), (8, 9)] {
+            lake_stamp[cy * gw + cx] = 1;
+        }
+
+        // The editor as `WorldGen::absorb` builds it: a copy of the
+        // classification *as it stood at generation time*, all land.
+        let mut paint = PaintEditor::new(gw, gh, Arc::from(classification.as_slice()));
+        // `set_brush(value, radius, hardness, softness, erase, land_only)`.
+        paint.set_brush(5, 0.0, 1.0, 0.0, false, true);
+
+        paint.stroke_at(8.0, 8.0);
+        assert_eq!(paint.painted_counts(n).0, 5, "before forcing it is land, and paints");
+        assert_eq!(paint.discard_all(), 1);
+
+        // The op itself, both halves, in `apply_force_lake`'s own order.
+        let (forced, _) = force_lakes(&mut classification, &lake_stamp);
+        assert_eq!(forced, 5, "the fixture must actually force something");
+        paint.set_water_mask(Arc::from(classification.as_slice()));
+
+        paint.stroke_at(8.0, 8.0);
+        assert_eq!(
+            paint.painted_counts(n).0,
+            0,
+            "the forced lake must now gate the land-only brush"
+        );
+
+        // And the port's own `land_only: false` affordance still bypasses it,
+        // so the refresh did not quietly turn the toggle into a hard gate.
+        paint.discard_all();
+        paint.set_brush(5, 0.0, 1.0, 0.0, false, false);
+        paint.stroke_at(8.0, 8.0);
+        assert_eq!(paint.painted_counts(n).0, 5, "land_only off still paints through");
     }
 }

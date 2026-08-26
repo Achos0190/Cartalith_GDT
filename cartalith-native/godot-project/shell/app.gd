@@ -519,6 +519,30 @@ func _wire_status() -> void:
 ## `&self`.
 var _stale_timer: Timer
 
+## `PARITY_AUDIT.md` §23 F16's first item: the shell has shown staleness since
+## SG-01 and had no way to settle it on purpose. `recompute_stale_stages` --
+## the `#[func]` that recomputes whatever the graph currently reports stale and
+## answers `{recomputed, still_stale, ms}` -- was named by a probe and by
+## nothing else. Every commit path (sculpt, carve, paint) already calls it
+## internally, so the readout does clear eventually; what was missing is the
+## explicit "recompute now" the reference offers.
+##
+## It lives in `status_row`, beside the readout it acts on, and it is driven by
+## the same one-second poll rather than by a signal -- `_setup_staleness()`'s
+## own reasoning above, unchanged: the button's visibility is a second reader
+## of `stale_stages()`, not a seventh coupling into the six `#[func]`s that
+## produce staleness. Hidden when nothing is stale, which is also its whole
+## disabled state.
+##
+## **Desktop and tablet only, disclosed rather than hidden.** §13 parks the
+## status bar in an invisible model host on the phone and `phone_menu.gd`
+## re-presents the *readouts* as list rows (`status_slot_text()`), so a control
+## added to `status_row` is not drawn there. The phone therefore still shows
+## staleness and still settles it the way it always has -- as a side effect of
+## the commit paths -- and reaching this button from `phone_menu.gd`'s root
+## screen is that file's change to make, not this one's.
+var _stale_recompute: Button
+
 func _setup_staleness() -> void:
 	_stale_timer = Timer.new()
 	_stale_timer.name = "StalenessPoll"
@@ -527,6 +551,19 @@ func _setup_staleness() -> void:
 	_stale_timer.timeout.connect(refresh_staleness)
 	add_child(_stale_timer)
 	_stale_timer.start()
+
+	_stale_recompute = DccWidgets.action(status_row, "Recompute", _recompute_stale)
+	_stale_recompute.visible = false
+	_stale_recompute.tooltip_text = ("Re-runs the stages the graph reports stale right now, "
+		+ "and nothing else. The civilisation layer is deliberately not cascaded per edit "
+		+ "(UNIFIED_TOOL_PLAN.md milestone C measured why), so \"civ\" usually stays -- "
+		+ "Civilization ▸ Settlements ▸ Recompute civilisation is the one that clears it.")
+	## `dcc_shell.gd`'s `_build_status_bar()` fills this row in its own fixed
+	## order -- pass, stale, autosave, atlas, spacer, hint -- so index 2 is
+	## immediately after the `stale` label. Appended and moved rather than built
+	## into that function, because the row is shell geometry and this is
+	## composition, which is the split `app.gd`'s own header states.
+	status_row.move_child(_stale_recompute, 2)
 
 ## Reads the engine's stage graph and writes the `stale` status slot. Public
 ## because a control that has just cleared staleness (the Civilization dock's
@@ -540,6 +577,8 @@ func refresh_staleness() -> void:
 	var stale: Dictionary = bridge.stale_stages()
 	if stale.is_empty():
 		set_status("stale", "", "text_faint")
+		if is_instance_valid(_stale_recompute):
+			_stale_recompute.visible = false
 		return
 	var names := PackedStringArray()
 	var reason := ""
@@ -551,6 +590,48 @@ func refresh_staleness() -> void:
 			if reason.is_empty():
 				reason = String(e.get("origin", ""))
 	set_status("stale", "stale: %s — %s" % [" · ".join(names), reason], "stale")
+	## Only offered on a binary that can act on it: an older extension answers
+	## `stale_stages()` and not this, and a button that silently does nothing is
+	## worse than no button (`GUI_GAP_REGISTER.md`'s own standing rule).
+	if is_instance_valid(_stale_recompute):
+		_stale_recompute.visible = bridge.world_gen != null \
+			and bridge.world_gen.has_method("recompute_stale_stages")
+
+## The "Recompute" button beside the `stale` slot. Synchronous, with no
+## progress signal to subscribe to, so it does what `civilization_workspace.
+## gd`'s `_recompute_civ()` does for the same reason: relabel, disable, let two
+## frames actually paint that, then block.
+func _recompute_stale() -> void:
+	if bridge.generating or bridge.world_gen == null:
+		return
+	var b := _stale_recompute
+	if is_instance_valid(b):
+		b.text = "Recomputing…"
+		b.disabled = true
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var r: Dictionary = bridge.world_gen.recompute_stale_stages()
+	if is_instance_valid(b):
+		b.disabled = false
+		b.text = "Recompute"
+	var ran := PackedStringArray(r.get("recomputed", PackedStringArray()))
+	var left := PackedStringArray(r.get("still_stale", PackedStringArray()))
+	if ran.is_empty():
+		## `still_stale` without `recomputed` is the normal answer after a
+		## terrain edit, not a failure: `civ` is re-derived by a full recompute
+		## of its own and this pass deliberately leaves it alone.
+		set_status("hint", ("Nothing recomputed. Still stale: %s." % " · ".join(left))
+			if not left.is_empty() else "Nothing was stale.", "text_ghost")
+	else:
+		set_status("hint", "Recomputed %s in %.0f ms.%s" % [" · ".join(ran), float(r.get("ms", 0.0)),
+			(" Still stale: %s." % " · ".join(left)) if not left.is_empty() else ""], "text_ghost")
+		## The height/hydrology/climate fields moved, so the textures drawn from
+		## them are a frame behind. Same direct call `render_workspace.gd` makes
+		## after a live appearance change -- not `world_loaded`, which means "a
+		## different world" and would clear the trade match with it.
+		if viewport != null:
+			viewport.refresh()
+	refresh_staleness()
 
 ## `GUI_GAP_REGISTER.md` **SH-07**: the status bar's `atlas` slot, which
 ## `dcc_shell.gd` has built since the shell shipped and nothing ever wrote.
