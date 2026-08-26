@@ -2004,6 +2004,17 @@ struct WorldGen {
     /// point at, which is why every link also stores the entity's name — see
     /// `cartalith_vault::links`' own module doc on identity stability.
     vault: cartalith_vault::VaultSession,
+    /// The Journey Planner's wildlife forage lookup (`PARITY_AUDIT.md` §23
+    /// **F12**) — see [`sample_bridge::WildlifeCache`] for the measured
+    /// numbers that make it necessary and for what it retains.
+    ///
+    /// **Not invalidated by anything here, deliberately.** It carries a
+    /// fingerprint of every input it was built from and re-checks it on each
+    /// use, so no `absorb()` line, no commit path and no future bridge module
+    /// has to remember it exists. `release_world()` drops it, but only to
+    /// return the memory when the world goes away — correctness does not
+    /// depend on that line.
+    wildlife: Option<sample_bridge::WildlifeCache>,
 }
 
 #[godot_api]
@@ -2052,6 +2063,7 @@ impl IRefCounted for WorldGen {
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
             vault: cartalith_vault::VaultSession::new(),
+            wildlife: None,
         }
     }
 }
@@ -2210,6 +2222,10 @@ impl WorldGen {
         // Snapshots of the previous world's height field, which `absorb`
         // clears anyway and which are meaningless over the next world.
         self.undo.clear();
+        // F12: memory hygiene only. The cache carries its own fingerprint and
+        // would refuse itself over the next world regardless; this returns its
+        // one `i32`-per-cell buffer while there is no world to plan over.
+        self.wildlife = None;
     }
 
     /// Stores a finished generation: the effective sea level, the render
@@ -8406,6 +8422,20 @@ fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
         "has_desert" => p.has_desert,
         "has_water" => p.has_water,
         "has_land" => p.has_land,
+        // `PARITY_AUDIT.md` §23 **F13**: `jp_risk` was ported with milestone 6
+        // and called by nothing. It belongs here rather than behind its own
+        // `#[func]` because the reference puts it here -- `risk` is a field on
+        // `_jpPlan`'s own return object (reference line 19385), computed from
+        // the `days` this same dictionary already carries. A separate binding
+        // would be a second place to derive one number from another number in
+        // the same dictionary.
+        //
+        // TRAVEL days, not `total_days`: the reference's `const risk=days<=10
+        // ?null:...` reads `days`, which at that point in `_jpPlan` is the
+        // travel-day accumulator, before rest days and layovers are laid on.
+        // Empty string is the reference's own `null` -- there is no advisory
+        // for a journey short enough not to need one.
+        "risk" => cartalith_civ::jp_risk(p.days).unwrap_or(""),
     }
 }
 
@@ -8471,6 +8501,138 @@ impl WorldGen {
             journey_bridge::party_count_pairs(&plan.party).iter().map(|(k, _)| GString::from(*k)).collect();
         d.set("party_fields", &party);
         d
+    }
+
+    /// `_jpPackRange` (reference line 19518, v1.49) -- **the wagon-equation
+    /// ceiling, stated before the user configures past it.**
+    /// `PARITY_AUDIT.md` §23 **F13**: ported with milestone 6, called by
+    /// nothing, so this port reproduced the pre-v1.48 behaviour the reference
+    /// wrote the function to end (the owner's own report: *"250kg of cargo
+    /// now necessitates roughly 213 mules"*).
+    ///
+    /// A pack animal carries its own fodder, so with anything less than full
+    /// grazing there is a hard duration past which its whole capacity is its
+    /// own food and it can carry nothing else. `jp_pack_range`'s doc comment
+    /// states that it mirrors exactly the inputs `jp_auto_pick_transport`'s
+    /// `fodder_infeasible` guard tests -- so `max_days` here **is** the
+    /// threshold that guard fires at, not a second estimate of it.
+    ///
+    /// `plan` is `jp_compute`'s own `plan` key vocabulary; unrecognised keys
+    /// come back in `rejected` exactly as `jp_compute` reports them.
+    /// `has_desert` is the finished journey's own flag (`jp_compute`'s
+    /// `plan.has_desert`) -- the reference reads it off the journey for the
+    /// same reason, because a desert crossing changes what an animal eats.
+    /// Pass `false` before a route exists, which is the reference's own
+    /// answer when `_jpPlan` throws.
+    ///
+    /// **Pure and callable before `generate()`** -- it reads the party's
+    /// animal counts and grazing setting, nothing about the world. That is
+    /// the point: the ceiling is knowable while the form is being filled in,
+    /// which is precisely what v1.49 fixed.
+    ///
+    /// `{"ok": false, "rejected": [...]}` when no pack animal is in use (the
+    /// reference's own `return null` -- there is no ceiling without one).
+    /// Otherwise `ok`, `key`, `label`, `unlimited`, `max_days`,
+    /// `fodder_frac`, `supply_days`, `ratio`, `rejected`. `unlimited` is full
+    /// grazing: no ceiling exists, `max_days` is `INF` and `ratio` is 0.
+    #[func]
+    fn jp_pack_range(&self, plan: VarDictionary, has_desert: bool) -> VarDictionary {
+        let (pairs, bad) = jp_dict_to_pairs(&plan);
+        let (parsed, more_bad) = journey_bridge::plan_from_pairs(&pairs);
+        let rejected: PackedStringArray =
+            bad.into_iter().chain(more_bad).map(|k| GString::from(&k)).collect();
+        let Some(r) = cartalith_civ::jp_pack_range(&parsed, has_desert) else {
+            return vdict! { "ok" => false, "rejected" => &rejected };
+        };
+        vdict! {
+            "ok" => true,
+            "key" => r.key,
+            "label" => r.label,
+            "unlimited" => r.unlimited,
+            "max_days" => r.max_days,
+            "fodder_frac" => r.fodder_frac,
+            "supply_days" => r.supply_days,
+            "ratio" => r.ratio,
+            "rejected" => &rejected,
+        }
+    }
+
+    /// `jpVesselMatrix` (reference line 17984) -- every vessel x every water
+    /// type, plus which hull is fastest on each one. `PARITY_AUDIT.md` §23
+    /// **F13**: ported with milestone 2, called by nothing.
+    ///
+    /// The reference's own point, in its own words: *"The fastest vessel is
+    /// **not** the same everywhere -- an open-sea passage sails through the
+    /// night (22 h) while a sheltered bay is daylight-limited (9 h), so hull
+    /// speed and hull rating pull in different directions."* Speed per cell
+    /// is cruise x that water's sailing window x the fraction of cruise it
+    /// realises (`jp_vessel_day_km`).
+    ///
+    /// Pure and callable before `generate()` -- it is a static table, not a
+    /// measurement of this world.
+    ///
+    /// `{"waters": [{cat, terrain, best_vessel, best_kmday}],
+    ///   "vessels": [{name, cruise_kmh, cargo_kg, crew, range, waters_usable,
+    ///                best_kmday, best_water, cells: PackedFloat64Array}]}`.
+    /// A `cells` entry is `-1.0` where that hull is not rated for that water
+    /// at all -- the reference's own blank cell, which is a different
+    /// statement from "slow". `best_kmday` on a water row is `0.0` when no
+    /// hull can enter it.
+    ///
+    /// **The column order is `(cat, terrain)` alphabetical, river before
+    /// sea, and that is a disclosed divergence.** The reference orders its
+    /// columns physically (Calm -> Moderate -> Shallows -> Delta -> Rapids;
+    /// Bay -> Coastal -> Open -> Rough), which is a better reading order, but
+    /// that order lives only in `RIVER_TERRAINS`/`SEA_TERRAINS`, two private
+    /// `const`s inside `cartalith_civ::jp_vessel_matrix`. Re-declaring them
+    /// here would be a second copy of a table this workspace already owns, so
+    /// the order is derived from the data instead. Making those two `pub`
+    /// (or adding a `pub fn jp_water_terrains() -> &'static [(&str, &str)]`)
+    /// is the one-line `cartalith-civ` change that would restore it.
+    #[func]
+    fn jp_vessel_matrix(&self) -> VarDictionary {
+        let (rows, best) = cartalith_civ::jp_vessel_matrix();
+        // The `best` map is keyed by every `(cat, terrain)` the matrix covers,
+        // which is the water list itself -- read back out rather than
+        // restated. `HashMap` iteration order is not stable, hence the sort.
+        let mut waters: Vec<(&'static str, &'static str)> = best.keys().copied().collect();
+        waters.sort_unstable();
+
+        let water_rows: Array<VarDictionary> = waters
+            .iter()
+            .map(|&(cat, terrain)| {
+                let b = &best[&(cat, terrain)];
+                vdict! {
+                    "cat" => cat,
+                    "terrain" => terrain,
+                    "best_vessel" => b.name.unwrap_or(""),
+                    "best_kmday" => b.kmday.unwrap_or(0.0),
+                }
+            })
+            .collect();
+
+        let vessels: Array<VarDictionary> = rows
+            .iter()
+            .map(|r| {
+                let cells: PackedFloat64Array = waters
+                    .iter()
+                    .map(|&(cat, terrain)| cartalith_civ::jp_vessel_day_km(r.name, cat, terrain).unwrap_or(-1.0))
+                    .collect();
+                vdict! {
+                    "name" => r.name,
+                    "cruise_kmh" => r.cruise_kmh,
+                    "cargo_kg" => r.cargo_kg,
+                    "crew" => r.crew as i64,
+                    "range" => r.range.as_str(),
+                    "waters_usable" => r.waters_usable as i64,
+                    "best_kmday" => r.best_kmday,
+                    "best_water" => r.best_water.unwrap_or(""),
+                    "cells" => &cells,
+                }
+            })
+            .collect();
+
+        vdict! { "waters" => &water_rows, "vessels" => &vessels }
     }
 
     /// The **route-aware** default plan -- `_jpEnsurePlan(jn)` in full
@@ -8610,7 +8772,12 @@ impl WorldGen {
     /// index that does not exist, for a polyline under two points, and for
     /// the reference's own "no derivable stages" `return null`.
     #[func]
-    fn jp_compute(&self, request: VarDictionary) -> VarDictionary {
+    fn jp_compute(&mut self, request: VarDictionary) -> VarDictionary {
+        // `&mut self` for exactly one reason: the wildlife forage cache below
+        // (`PARITY_AUDIT.md` §23 F12). Refreshed here, before any of the long
+        // immutable borrows of `self.source`/`self.civ` are taken, because
+        // building it needs the same rasters they borrow.
+        self.refresh_wildlife_cache();
         let fail = |msg: &str| vdict! { "ok" => false, "error" => msg, "rejected" => &PackedStringArray::new() };
         let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
             return fail("no generated world -- call generate() first (a loaded save carries no civilisation layer)");
@@ -8789,9 +8956,22 @@ impl WorldGen {
             wind_field: None,
         };
 
-        // `|_, _| 1.0`: the reference's own answer on a world whose wildlife
-        // layer was never built, and what an exactly-average region gives.
+        // ---- the wildlife forage modifier (F12) ----
         //
+        // `PARITY_AUDIT.md` §23 F12. This used to be `&|_, _| 1.0` over a
+        // comment calling that "the reference's own answer on a world whose
+        // wildlife layer was never built". That comment described the port as
+        // of milestone 4 and had gone stale: `cartalith_civ::wildlife` is
+        // real, golden-tested, and already drives `wildlife_region_at` and the
+        // Wildlife debug view. What was missing was never the model, it was a
+        // cache -- see `sample_bridge::WildlifeCache` for the measurement that
+        // makes it necessary and for its staleness argument.
+        //
+        // `1.0` survives as the *fallback*, in exactly the reference's own
+        // three positions: no civilisation layer (a loaded save), no region
+        // under the stage midpoint, or a world mean of zero.
+        let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
+
         // `jp_plan_ex` with a live Travel Library resolver, not the plain
         // `jp_plan` this called before this dispatch -- `TRAVEL_LIBRARY_
         // SPEC.md` §6, `travel_bridge.rs`'s own module doc's "What a later
@@ -8834,7 +9014,7 @@ impl WorldGen {
         }
 
         let run = |p: &cartalith_civ::JpPlan| {
-            cartalith_civ::jp_plan_full(&world, &pts, p, &layovers, &|_, _| 1.0, Some(&resolver), Some(&vessel_resolver))
+            cartalith_civ::jp_plan_full(&world, &pts, p, &layovers, &forage, Some(&resolver), Some(&vessel_resolver))
         };
         let Some(mut journey) = run(&plan) else {
             return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
@@ -8852,6 +9032,19 @@ impl WorldGen {
         // stages.
         let mut stage_picks = VarArray::new();
         if request.get("auto_stage").and_then(|v| v.try_to::<bool>().ok()) == Some(true) {
+            // **Still `1.0`, and disclosed rather than approximated (F12).**
+            // `jp_auto_stage_picks` takes one scalar `wildlife_forage_mod`
+            // for the whole journey, not the per-stage closure `jp_plan_full`
+            // takes -- so there is no honest value to hand it here: the real
+            // modifier differs per stage by construction. Widening its
+            // signature to `&dyn Fn(f64, f64) -> f64` (it already has each
+            // stage's `mx`/`my` on the `JpDerivedStage` it reads) is a
+            // `cartalith-civ` change against golden-tested code and belongs
+            // to whoever owns that crate. The consequence is bounded: this
+            // only ranks *candidate* per-stage packages, and whichever it
+            // picks is then recomputed through `run()` above with the real
+            // per-stage modifier, so a plan is never reported under 1.0 --
+            // only, at worst, chosen under it.
             let picks = cartalith_civ::jp_auto_stage_picks(&journey, 1.0);
             if !picks.is_empty() {
                 let mut with = plan.clone();
@@ -10121,6 +10314,28 @@ impl WorldGen {
     /// that both the Sample panel and the debug views read; see
     /// `SAVEFILE_COMPAT.md`). **Borrows only. Nothing is copied, nothing is
     /// retained.**
+    /// Brings [`Self::wildlife`] up to date with this world, rebuilding it
+    /// only when [`sample_bridge::wildlife_inputs_fingerprint`] says an input
+    /// actually changed (`PARITY_AUDIT.md` §23 **F12**).
+    ///
+    /// The warm path is one fingerprint pass — 1.5 ms at 1024², 2.9 ms at
+    /// 2048², against the 69 / 236 ms a rebuild costs. Both numbers are
+    /// measured, in `sample_bridge.rs`'s own `timing_probe_*` tests.
+    ///
+    /// Called from `jp_compute` and from nowhere else, so a session that
+    /// never opens the Journey Planner pays nothing and retains nothing.
+    fn refresh_wildlife_cache(&mut self) {
+        let Some(f) = self.sample_refs() else {
+            self.wildlife = None;
+            return;
+        };
+        if self.wildlife.as_ref().is_some_and(|c| c.key == sample_bridge::wildlife_inputs_fingerprint(&f)) {
+            return;
+        }
+        let built = sample_bridge::WildlifeCache::build(&f);
+        self.wildlife = built;
+    }
+
     fn sample_refs(&self) -> Option<sample_bridge::FieldRefs<'_>> {
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);

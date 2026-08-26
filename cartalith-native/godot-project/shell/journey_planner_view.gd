@@ -133,6 +133,42 @@ class_name JourneyPlannerView
 ##   the nearest route-point's cumulative chord length divided by the route's
 ##   total chord length, which is exactly proportional to km on this port's
 ##   flat-projection map (`map_width_km` is uniform across the grid).
+## - **Wildlife forage modifier**: real as of 2026-08-26 (F12).
+##   `jp_compute` used to pass `&|_, _| 1.0` as the forage modifier over a
+##   comment calling that *"the reference's own answer on a world whose
+##   wildlife layer was never built"* -- a description of the port as of
+##   Journey Planner milestone 4, stale ever since `cartalith_civ::wildlife`
+##   landed (`PARITY_AUDIT.md` §23 F12). Foraging now reads this world's own
+##   ecoregion species richness at each stage midpoint, exactly as the
+##   reference's `_jpWildlifeForageMod(mx,my)` does, bounded to [0.5, 1.8]
+##   against the world's own mean. **It only moves anything when Foraging is
+##   not "None"** -- `jp_foraging` returns before it reads the modifier in
+##   that mode, which is the default. The cost that made this a cache
+##   problem rather than a one-liner, and the fingerprint that keeps it from
+##   going stale, are documented on `sample_bridge::WildlifeCache`.
+## - **Fodder ceiling under "Supplies carried"**: real as of 2026-08-26
+##   (JP-16, `PARITY_AUDIT.md` §23 F13). This line used to restate the
+##   current supply setting from the last compute's own `capacity.fodder`;
+##   it now states the **ceiling**, from `jp_pack_range`, before the user
+##   configures past it -- which is the whole content of the reference's
+##   v1.49 fix. See `_refresh_pack_range_note()` for what it replaced.
+## - **Campaign-duration advisory**: real as of 2026-08-26 (JP-17).
+##   `jp_risk` rides on `jp_compute`'s `plan.risk`, the reference's own field
+##   on `_jpPlan`'s return, and is drawn where the reference draws it --
+##   after the cost group, before the stage table.
+## - **Vessel matrix**: real as of 2026-08-26 (JP-17). `jp_vessel_matrix`
+##   in both of the reference's own two views (route-scored and general
+##   reference). One disclosed divergence, in `jp_vessel_matrix`'s own
+##   `#[func]` doc comment: the water **column order** is `(cat, terrain)`
+##   alphabetical rather than the reference's physical order, because that
+##   order lives in two private `const`s inside `cartalith-civ` and copying
+##   them here would be a second table.
+## - **`jp_auto_stage_picks` still runs at a flat forage modifier of 1.0**,
+##   disclosed at its call site in `lib.rs`: it takes one scalar for the
+##   whole journey rather than the per-stage closure `jp_plan_full` takes,
+##   so there is no honest per-stage value to give it. It only *ranks*
+##   candidate per-stage packages; whatever it picks is recomputed under the
+##   real per-stage modifier before anything is reported.
 
 var app: DccApp
 var bridge: EngineBridge
@@ -192,6 +228,15 @@ var _left_panel: VBoxContainer
 var _left_route_section: VBoxContainer
 var _left_party_body: VBoxContainer
 var _auto_obs: Dictionary = {}   ## JP-15: field_key (String) -> OptionButton, the party form's own "Auto" fields -- refreshed post-compute by `_refresh_auto_labels()` rather than rebuilt, so a live numeric edit elsewhere in the form never loses focus.
+## JP-16: the fodder-ceiling advisory under "Supplies carried", refreshed in
+## place by `_refresh_pack_range_note()` for exactly the reason `_auto_obs`
+## above is -- it changes on every party-form keystroke and rebuilding the
+## form to update one line would drop focus out of the SpinBox being typed in.
+var _pack_range_label: Label
+## JP-17: `jp_vessel_matrix()`'s output, fetched once. A **static table** --
+## eleven hulls against nine water types, no world state anywhere in it -- so
+## re-fetching it per compute would be re-reading a constant.
+var _vessel_matrix: Dictionary = {}
 
 var _center_panel: Control
 var _route_map: _RouteMapView
@@ -443,9 +488,10 @@ func _auto_label(key: String) -> String:
 
 ## The real resolved value behind one auto-valued party-form field, read from
 ## the last compute -- the party form is journey-wide, so this reads the
-## first stage/leg carrying a real answer, the same "first applicable leg"
-## convention `_pack_range_note()` above already uses (a per-stage breakdown
-## already exists, in the stage inspector's own `_inherit_label`).
+## first stage/leg carrying a real answer (a per-stage breakdown already
+## exists, in the stage inspector's own `_inherit_label`). The fodder-ceiling
+## note this once cited as the same convention no longer works that way --
+## `_refresh_pack_range_note()` reads the party plan itself now, not a leg.
 func _party_auto_resolved(key: String) -> String:
 	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
 		return ""
@@ -486,6 +532,7 @@ func _refresh_auto_labels() -> void:
 		if not is_instance_valid(ob) or ob.item_count == 0:
 			continue
 		ob.set_item_text(0, _auto_label(key))
+	_refresh_pack_range_note()
 
 func _rebuild_party_form() -> void:
 	if not _bound or _left_party_body == null:
@@ -524,9 +571,12 @@ func _rebuild_party_form() -> void:
 	_number_field(traveler, "Hours/day (land)", "hours", 1.0, 16.0, 0.5, false)
 	_number_field(traveler, "Trade cargo (kg)", "cargo_kg", 0.0, 500000.0, 10.0, false)
 	_number_field(traveler, "Supplies carried (d)", "supply_days", 1.0, 90.0, 1.0, true)
-	var pr := _pack_range_note()
-	if pr != "":
-		DccWidgets.note(traveler, pr)
+	## JP-16. The wagon-equation ceiling, immediately under the control that
+	## crosses it -- the reference's own placement (line 19657) and its own
+	## reason: the threshold is knowable in advance and belongs beside the
+	## control, not in a warning after the fact.
+	_pack_range_label = DccWidgets.note(traveler, "")
+	_refresh_pack_range_note()
 	_toggle_field(traveler, "Carry food (off = live off the land)", "carry_food")
 	_choice_field(traveler, "Grazing", "grazing", _options.get("grazing", PackedStringArray()), false)
 	_choice_field(traveler, "Foraging", "foraging", _options.get("foraging", PackedStringArray()), false)
@@ -908,30 +958,63 @@ func _vessel_field(parent: Control) -> void:
 		if not bool(live[i]):
 			ob.set_item_disabled(i, true)
 
-## `_jpPackRange`'s own ceiling advisory (reference ~line 19661), attached to
-## the supplies field per `JOURNEY_PLANNER_SPEC.md` §5. `jp_capacity()` is
-## exposed to `cartalith-godot` internally but not as a `#[func]` -- this
-## reads the same real numbers the reference computes, via the closest bound
-## primitive: the last compute's own land-leg capacity, if one exists. Before
-## any compute has run there is nothing to derive it from, so it stays quiet
-## rather than guessing.
-func _pack_range_note() -> String:
-	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
-		return ""
-	var plan: Dictionary = _last_result.get("plan", {})
-	var results: Array = plan.get("results", [])
-	for r in results:
-		var d: Dictionary = r
-		if d.has("land"):
-			var l: Dictionary = d["land"]
-			var cap: Dictionary = l.get("capacity", {})
-			var fodder := float(cap.get("fodder", 0.0))
-			var supply_days := float(_plan_values.get("supply_days", 1.0))
-			if fodder > 0.0 and supply_days > 0.0:
-				var mule_days := supply_days  ## fodder already reflects supply_days at the current grazing setting
-				return "At this grazing setting, the current fodder load carries roughly %.0f day(s) as configured -- lower Supplies or raise Grazing if this is a mule/donkey-bound route and animals are running short." % mule_days
-			break
-	return ""
+## JP-16. `_jpPackRange`'s own ceiling advisory (reference line 19657, the
+## v1.49 fix), attached to the supplies field per `JOURNEY_PLANNER_SPEC.md`
+## §5 -- now computed by `cartalith_civ::jp_pack_range` through the
+## `jp_pack_range` binding rather than approximated here.
+##
+## **What this replaces, and why the replacement is not cosmetic.** Until
+## 2026-08-26 this function read the last compute's own land-leg `capacity
+## .fodder` and reported "roughly N day(s) as configured" -- which restated
+## the *current* supply setting and never stated the **ceiling**. That is
+## precisely the pre-v1.48 behaviour the reference wrote `_jpPackRange` to
+## end (`PARITY_AUDIT.md` §23 F13, the owner's own report: *"250kg of cargo
+## now necessitates roughly 213 mules"*). The engine function had been
+## ported and golden-tested since milestone 6 and was called by nothing.
+##
+## Three states, all the reference's own: full grazing (no ceiling exists),
+## under the ceiling, and past it -- the last coloured `warn`, because
+## beyond it no pack-train size works at all.
+func _refresh_pack_range_note() -> void:
+	if _pack_range_label == null or not is_instance_valid(_pack_range_label):
+		return
+	var pr := _pack_range()
+	if pr.is_empty() or not bool(pr.get("ok", false)):
+		## No pack animal in the party -- the reference's own `return null`.
+		## There is no fodder ceiling without an animal carrying its own fodder.
+		_pack_range_label.text = ""
+		_pack_range_label.visible = false
+		return
+	_pack_range_label.visible = true
+	var species := String(pr.get("label", "animal")).to_lower()
+	if bool(pr.get("unlimited", false)):
+		_pack_range_label.text = "Full grazing — the %ss feed themselves on route, so no carry-duration ceiling applies." % species
+		_pack_range_label.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		return
+	var ratio := float(pr.get("ratio", 0.0))
+	var max_days := float(pr.get("max_days", 0.0))
+	var text := "A %s can carry at most ~%.0f days of its own fodder at this grazing setting — past that its whole load is its own food." % [species, max_days]
+	var token := "text_ghost"
+	if ratio >= 1.0:
+		token = "warn"
+		text = "%s %s Beyond this no pack-train size works: shorten the carry, graze more, or resupply at a stop." % [DccIcons.SYMBOLS["warn_tri"], text]
+	elif ratio >= 0.7:
+		token = "stale"
+		text += " You are close to that ceiling."
+	_pack_range_label.text = text
+	_pack_range_label.add_theme_color_override("font_color", DccTheme.c(token))
+
+## `jp_pack_range(plan, has_desert)`. Pure and world-free, so it answers
+## before a route is committed and before `generate()` -- which is the whole
+## point of the v1.49 fix. `has_desert` comes off the last computed journey
+## when there is one (the reference reads it off the finished plan for the
+## same reason: a desert crossing changes what an animal eats); `false`
+## otherwise, which is the reference's own value when `_jpPlan` throws.
+func _pack_range() -> Dictionary:
+	if not _bound or not bridge.world_gen.has_method("jp_pack_range"):
+		return {}
+	var plan: Dictionary = _last_result.get("plan", {}) if bool(_last_result.get("ok", false)) else {}
+	return bridge.world_gen.jp_pack_range(_plan_values, bool(plan.get("has_desert", false)))
 
 # =========================================================== Compute path ====
 
@@ -2279,8 +2362,26 @@ func build_results(body: Control) -> void:
 	_build_load_group(body, plan)
 	_build_supply_group(body, plan)
 	_build_cost_group(body)
+	_build_risk_note(body, plan)
 	_build_vessels_group(body, plan)
 	_build_trace_group(body)
+
+## JP-17. `jp_risk` (reference line 19385, a port of V1.915's
+## `assessCampaignRisk` tiers) -- the campaign-duration advisory.
+## `PARITY_AUDIT.md` §23 F13: ported with milestone 6, called by nothing.
+##
+## Placed exactly where the reference places it (line 19872: after the cost
+## group, before the stage table) and for its reason: it is not a verdict
+## about whether the journey *works* -- `_build_verdict_card` above owns
+## that -- it is an advisory about what a journey of this *length* costs in
+## attrition, fatigue and supply lines regardless of how feasible it is.
+## Silent under ten travel days, which is the reference's own `null`.
+func _build_risk_note(body: Control, plan: Dictionary) -> void:
+	var risk := String(plan.get("risk", ""))
+	if risk == "":
+		return
+	var l := DccWidgets.note(body, "%s %s" % [DccIcons.SYMBOLS["warn_tri"], risk])
+	l.add_theme_color_override("font_color", DccTheme.c("warn"))
 
 ## `right_dock.gd`'s RD-11 collapsed-readout call (`_dock_readout_text()`) --
 ## the one number worth keeping visible when Journey is the active right-dock
@@ -2588,6 +2689,154 @@ func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 		DccWidgets.note(g, "No water legs on this route.")
 	else:
 		DccWidgets.note(g, "The sailing window is the engine's own jp_water_window for each water type (a sheltered bay is worked in daylight; open sea is stood through the night), not the vessel's Travel Library \"sailing window\" field -- nothing in the engine couples the two, and pretending otherwise would invent a model.")
+	_build_vessel_matrix_groups(body, plan, any)
+
+## JP-17. `jp_vessel_matrix` (reference line 17984) -- `PARITY_AUDIT.md` §23
+## F13: ported with milestone 2, called by nothing until 2026-08-26.
+##
+## The reference draws two views of this one pure table (line 19883) and both
+## are built here, for its own stated reason: *"when the route HAS water, the
+## vessels are scored on this route's own water types and the ones that
+## cannot make it say why; with no water stages it falls back to the general
+## reference, so the information is reachable from any route."*
+##
+## - **On this route** — every hull's km/day and days over *these* legs,
+##   ranked, with the ones that cannot make it named and dimmed. Only when
+##   the route has water legs.
+## - **By water type** — the full hull x water grid, collapsed by default.
+##   The fastest hull per column is lit in accent, which is the whole point:
+##   an open-sea passage sails through the night (22 h) while a sheltered bay
+##   is daylight-limited (9 h), so hull speed and hull rating pull against
+##   each other and the fastest vessel is **not** the same everywhere.
+##
+## The grid scrolls horizontally inside the dock rather than widening it --
+## same discipline the stops strip already had to learn (see its own note).
+func _build_vessel_matrix_groups(body: Control, plan: Dictionary, has_water: bool) -> void:
+	var vm := _vessel_matrix_data()
+	if vm.is_empty():
+		return
+	var waters: Array = vm.get("waters", [])
+	var vessels: Array = vm.get("vessels", [])
+	if waters.is_empty() or vessels.is_empty():
+		return
+	var current := String(_plan_values.get("vessel", ""))
+
+	if has_water:
+		_build_vessels_on_route(body, plan, waters, vessels, current)
+
+	var g := DccWidgets.group(body, "vessel reference · speed by water", false)
+	DccWidgets.note(g, "km/day per water type: cruise x that water's sailing window x the fraction of cruise the hull realises. A dash is a hull not rated for that water at all -- a different statement from slow. Lit = fastest hull for that water.")
+	var grid := GridContainer.new()
+	grid.columns = waters.size() + 1
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 3)
+	grid.add_child(DccTheme.mono_label("vessel", "text_dim", DccTheme.FS_MICRO, 1, true))
+	for w in waters:
+		grid.add_child(DccTheme.mono_label(_water_column_label(w), "text_dim", DccTheme.FS_MICRO, 1, true))
+	for v in vessels:
+		var vd: Dictionary = v
+		var vname := String(vd.get("name", ""))
+		var is_current := vname == current
+		grid.add_child(DccTheme.mono_label(("%s%s" % ["> " if is_current else "", vname]), "accent" if is_current else "text", DccTheme.FS_MICRO))
+		var cells: PackedFloat64Array = vd.get("cells", PackedFloat64Array())
+		for ci in waters.size():
+			var km: float = cells[ci] if ci < cells.size() else -1.0
+			if km < 0.0:
+				grid.add_child(DccTheme.mono_label("—", "text_ghost", DccTheme.FS_MICRO))
+				continue
+			var best := String((waters[ci] as Dictionary).get("best_vessel", ""))
+			grid.add_child(DccTheme.mono_label("%.0f" % km, "accent" if best == vname else "text_dim", DccTheme.FS_MICRO))
+	var scroll := ScrollContainer.new()
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size.y = grid.get_combined_minimum_size().y
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(grid)
+	g.add_child(scroll)
+
+## The route-aware half: each hull totalled over *this* journey's water legs.
+func _build_vessels_on_route(body: Control, plan: Dictionary, waters: Array, vessels: Array, current: String) -> void:
+	var stages: Array = plan.get("stages", [])
+	## (cat, terrain) -> column index in `waters`, so a leg finds its own
+	## column rather than this file restating the water vocabulary.
+	var col: Dictionary = {}
+	for i in waters.size():
+		var w: Dictionary = waters[i]
+		col["%s|%s" % [String(w.get("cat", "")), String(w.get("terrain", ""))]] = i
+	var legs: Array = []
+	var water_km := 0.0
+	for s in stages:
+		var sd: Dictionary = s
+		if String(sd.get("cat", "")) == "land":
+			continue
+		var key := "%s|%s" % [String(sd.get("cat", "")), String(sd.get("terrain", ""))]
+		if not col.has(key):
+			continue
+		legs.append({"col": int(col[key]), "km": float(sd.get("km", 0.0)), "terrain": String(sd.get("terrain", ""))})
+		water_km += float(sd.get("km", 0.0))
+	if legs.is_empty() or water_km <= 0.0:
+		return
+
+	var scored: Array = []
+	for v in vessels:
+		var vd: Dictionary = v
+		var cells: PackedFloat64Array = vd.get("cells", PackedFloat64Array())
+		var days := 0.0
+		var blocked_on := ""
+		for leg in legs:
+			var l: Dictionary = leg
+			var ci: int = l["col"]
+			var km: float = cells[ci] if ci < cells.size() else -1.0
+			if km <= 0.0:
+				blocked_on = String(l["terrain"])
+				break
+			days += float(l["km"]) / km
+		scored.append({
+			"name": String(vd.get("name", "")),
+			"ok": blocked_on == "" and days > 0.0,
+			"why": blocked_on,
+			"days": days,
+			"kmday": (water_km / days) if (blocked_on == "" and days > 0.0) else 0.0,
+			"hold": float(vd.get("cargo_kg", 0.0)),
+			"crew": int(vd.get("crew", 0)),
+		})
+	scored.sort_custom(func(a, b):
+		if bool(a["ok"]) != bool(b["ok"]):
+			return bool(a["ok"])
+		return float(a["kmday"]) > float(b["kmday"]))
+
+	var g := DccWidgets.group(body, "vessels on this route", false)
+	DccWidgets.note(g, "%s km of water across %d leg(s). Speed is cruise x that water's sailing window x the fraction of cruise it realises -- cargo and weather aside, this is the ranking that matters." % [_fmt_thousands(water_km, 0), legs.size()])
+	for s in scored:
+		var sd: Dictionary = s
+		var vname := String(sd["name"])
+		var mark := "> " if vname == current else ""
+		if bool(sd["ok"]):
+			_kv_row(g, "%s%s" % [mark, vname], "%.0f km/d · %.1f d" % [float(sd["kmday"]), float(sd["days"])],
+				"accent" if vname == current else "text")
+		else:
+			_kv_row(g, "%s%s" % [mark, vname], "%s cannot enter %s" % [DccIcons.SYMBOLS["blocked"], String(sd["why"])], "text_ghost")
+
+## The reference's own column abbreviation (line 19921): a water-type name
+## with its "River with "/"River " prefix stripped, so nine columns fit.
+func _water_column_label(w: Variant) -> String:
+	var d: Dictionary = w
+	var t := String(d.get("terrain", ""))
+	if t.begins_with("River with "):
+		return t.substr(11)
+	if t.begins_with("River "):
+		return t.substr(6)
+	return t
+
+## `jp_vessel_matrix()`, fetched once per session. Empty on a binary without
+## the binding, which is the same "rebuild cartalith-godot" state every other
+## `has_method` guard in this file reports by simply drawing nothing.
+func _vessel_matrix_data() -> Dictionary:
+	if not _vessel_matrix.is_empty():
+		return _vessel_matrix
+	if not _bound or not bridge.world_gen.has_method("jp_vessel_matrix"):
+		return {}
+	_vessel_matrix = bridge.world_gen.jp_vessel_matrix()
+	return _vessel_matrix
 
 ## JP-05. `GUI_GAP_REGISTER.md` §7.12's own proposal, built as an inline
 ## group rather than the spec's `⧉` window: one row per multiplicative term

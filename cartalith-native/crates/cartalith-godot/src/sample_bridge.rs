@@ -1365,6 +1365,219 @@ pub fn territory_influence(f: &FieldRefs) -> Option<cartalith_civ::TerritoryInfl
     Some(cartalith_civ::territory_influence(settlements, &cost, f.gw, f.gh, f.world))
 }
 
+/// One 64-bit fingerprint over **every input [`wildlife_regions`] reads** —
+/// the invalidation key `WorldGen::wildlife_cache` is built against
+/// (`PARITY_AUDIT.md` §23 **F12**).
+///
+/// ## Why a content fingerprint and not an epoch counter
+///
+/// The obvious cheap design is a `wildlife_epoch: u64` on `WorldGen`, bumped
+/// by every path that edits the height field. It was rejected on purpose:
+/// that list is open (`sculpt_commit`, `carve_fjords`, `center_landmasses`,
+/// `undo_last`, `import_heightmap`, `recompute_stale`'s climate/hydrology
+/// re-runs, `recompute_civilisation`'s water bodies — plus whatever the next
+/// bridge module adds), and a *missed* bump does not fail loudly. It shows a
+/// stale forage number that looks exactly like a real one, which is worse
+/// than the honest `1.0` this cache replaces.
+///
+/// A fingerprint has no such list. It hashes the nine slices and seven
+/// scalars that are literally the arguments [`wildlife_regions`] passes on,
+/// so the only way to go stale is for a byte to change *and* the hash to
+/// collide — and any future writer to any of those buffers invalidates it
+/// without knowing this cache exists.
+///
+/// **Measured** (release, 2048², this file's own `timing_probe_fingerprint`):
+/// see the timing block on [`WildlifeCache`]. Parallel because the serial
+/// version is memory-bandwidth bound and `rayon` is already a dependency of
+/// this crate for exactly this class of full-grid pass.
+///
+/// The per-chunk hashes are folded back **in index order**, not reduced
+/// pairwise, so the fingerprint is deterministic across thread counts —
+/// `cartalith-rust-conventions`' "do not reorder float operations" rule has
+/// an integer sibling here: a hash reduced in scheduling order is a hash
+/// that changes when the machine does.
+pub fn wildlife_inputs_fingerprint(f: &FieldRefs) -> u64 {
+    use rayon::prelude::*;
+
+    /// FxHash's mixing step. Not a cryptographic hash and does not need to
+    /// be: this answers "did any of these bytes change since the last call",
+    /// against an adversary that is a paint brush.
+    const K: u64 = 0x517c_c1b7_2722_0a95;
+    #[inline]
+    fn mix(h: u64, w: u64) -> u64 {
+        (h.rotate_left(5) ^ w).wrapping_mul(K)
+    }
+    fn hash_bytes(seed: u64, b: &[u8]) -> u64 {
+        // One MiB per chunk: big enough that the per-chunk overhead vanishes,
+        // small enough that a 2048² field still splits across every core.
+        const CHUNK: usize = 1 << 20;
+        let parts: Vec<u64> = b
+            .par_chunks(CHUNK)
+            .map(|c| {
+                let mut h = K;
+                let (words, tail) = c.split_at(c.len() - c.len() % 8);
+                for w in words.chunks_exact(8) {
+                    h = mix(h, u64::from_le_bytes(w.try_into().expect("chunks_exact(8)")));
+                }
+                for &x in tail {
+                    h = mix(h, u64::from(x));
+                }
+                h
+            })
+            .collect();
+        // Index order, never reduction order -- see the doc comment above.
+        parts.iter().fold(mix(seed, b.len() as u64), |h, &p| mix(h, p))
+    }
+    fn hash_f32(seed: u64, v: &[f32]) -> u64 {
+        // `bytemuck` is not a dependency and this is the whole of what it
+        // would be used for. `f32` has no padding and no invalid bit
+        // patterns, so the reinterpret is sound; NaN payloads hash as
+        // themselves, which is what "did this buffer change" wants.
+        let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), std::mem::size_of_val(v)) };
+        hash_bytes(seed, bytes)
+    }
+
+    let mut h = K;
+    // The seven scalars first, cheaply -- a sea-level move or a resize is the
+    // most common invalidation and the least expensive to detect.
+    for s in [f.gw as u64, f.gh as u64, u64::from(f.world)] {
+        h = mix(h, s);
+    }
+    for s in [f.sea_level, f.map_width_km, f.lat_n, f.lat_s] {
+        h = mix(h, s.to_bits());
+    }
+    // The nine slices, in the order `wildlife_regions` consumes them.
+    h = hash_f32(h, f.field);
+    h = hash_f32(h, f.temperature);
+    h = hash_f32(h, f.rainfall);
+    h = hash_f32(h, f.flow_discharge);
+    h = hash_f32(h, f.age_field);
+    h = hash_f32(h, f.volcanic_field);
+    h = hash_f32(h, f.crust_field);
+    h = hash_f32(h, f.resistance_field);
+    match f.water_bodies {
+        // `0` and `1` rather than the same constant: "no civ layer" and "a
+        // civ layer whose water bodies happen to be empty" are different
+        // worlds, and `wildlife_regions` answers `None` for one of them.
+        None => mix(h, 0),
+        Some(wb) => hash_bytes(mix(h, 1), wb),
+    }
+}
+
+/// The Journey Planner's wildlife forage lookup, kept between calls
+/// (`PARITY_AUDIT.md` §23 **F12**).
+///
+/// ## Why this exists
+///
+/// `jp_compute` runs on every keystroke in the party form. [`wildlife_
+/// regions`] rebuilds the cart-biome, NPP, TRI, lithology, soil, water-access
+/// and carrying-capacity fields from scratch, then segments and scores them.
+/// Measured in release by this file's own `timing_probe_*` tests, on the
+/// diagonal-ramp fixture:
+///
+/// | | 1024² | 2048² |
+/// |---|---:|---:|
+/// | `jp_compute`'s own core (`JourneyWorld::build` + `jp_plan_full`) | 6-8 ms | 24-35 ms |
+/// | one `wildlife_regions` rebuild | 69-70 ms | 236-239 ms |
+/// | one [`wildlife_inputs_fingerprint`] (this cache's whole warm cost) | 1.5 ms | 2.9 ms |
+///
+/// Ranges are run-to-run spread over four release runs on one machine; run
+/// the probes rather than trusting the numbers. The ratios are what matter
+/// and they were stable.
+///
+/// So calling `wildlife_regions` per keystroke would have made the planner
+/// ~9x slower; this makes it ~1.1x. That ratio, not a preference, is why
+/// `PARITY_AUDIT.md` recorded F12 as *"needs a cache before it needs a call
+/// site"*.
+///
+/// ## What is retained, and what is thrown away
+///
+/// **`region_id` only** — 4 bytes per cell (4 MB at 1024², 16 MB at 2048²).
+/// The guild rosters, species names, summaries and colours that
+/// [`wildlife_regions`] also builds are dropped on the floor here; the one
+/// thing a journey needs from an ecoregion is its species count.
+/// `MEMORY_OPTIMIZATION_SCOPE.md`'s rule is that retention gets priced, and
+/// this is the price: one `i32` field, the same order as a single debug
+/// raster, against a rebuild that is 80x the cost of checking it.
+///
+/// `wildlife_region_at()` and the Wildlife debug view still rebuild the full
+/// segmentation per call and are deliberately left alone — they run on a
+/// click, not on a keystroke, and adopting this cache would mean retaining
+/// the rosters too.
+///
+/// ## Staleness
+///
+/// [`WildlifeCache::key`] is a fingerprint of every input, so a new
+/// generation, a sculpt or fjord commit, an undo, a climate or hydrology
+/// re-run, a sea-level move, a resize and a civ recompute all invalidate it
+/// without any of them knowing this type exists. See
+/// [`wildlife_inputs_fingerprint`] for why that is a fingerprint and not a
+/// counter.
+pub struct WildlifeCache {
+    /// [`wildlife_inputs_fingerprint`] of the world this was built from.
+    pub key: u64,
+    pub gw: usize,
+    pub gh: usize,
+    /// `currentWildlife().regionId` — one region index per cell, `-1` for a
+    /// cell in no region (water, or a component below `min_area`).
+    pub region_id: Vec<i32>,
+    /// Per region index, in `Ecoregions::regions` order: its species count.
+    /// `None` never occurs for a built region (the reference's own
+    /// `r.richness!=null` skip), and is kept as the shape
+    /// [`cartalith_civ::jp_world_mean_richness`] takes.
+    pub richness: Vec<Option<f64>>,
+    /// `_jpWorldMeanRichness(wld)` — the reference memoizes this per world
+    /// object (`_jpMeanRichWld`/`_jpMeanRichVal`, reference line 18128);
+    /// this is that memo, with a real invalidation key behind it.
+    pub mean_richness: f64,
+}
+
+impl WildlifeCache {
+    /// `None` on exactly the worlds [`wildlife_regions`] answers `None` for —
+    /// a loaded save or any world with no civilisation layer, where the
+    /// reference's own `_jpWildlifeForageMod` returns `1.0` for want of a
+    /// `currentWildlife()`.
+    pub fn build(f: &FieldRefs) -> Option<Self> {
+        let key = wildlife_inputs_fingerprint(f);
+        let eco = wildlife_regions(f)?;
+        let richness: Vec<Option<f64>> = eco.regions.iter().map(|r| Some(r.richness as f64)).collect();
+        Some(Self {
+            key,
+            gw: f.gw,
+            gh: f.gh,
+            mean_richness: cartalith_civ::jp_world_mean_richness(&richness),
+            region_id: eco.region_id,
+            richness,
+        })
+    }
+
+    /// `_jpWildlifeForageMod(mx, my)` (reference line 18134), transcribed:
+    /// round the stage midpoint to a cell, clamp it into the grid, read the
+    /// region there, and compare that region's richness with the world's own
+    /// mean through [`cartalith_civ::jp_wildlife_forage_mod`].
+    ///
+    /// Every one of the reference's fallbacks to `1.0` is preserved — an
+    /// empty region table, an out-of-range region index, a non-positive world
+    /// mean. `1.0` is the calibration anchor the flat `JP_BIOMES.forage`
+    /// table is defined against, so a miss here is a no-op rather than a
+    /// guess.
+    pub fn forage_mod(&self, mx: f64, my: f64) -> f64 {
+        if self.gw == 0 || self.gh == 0 || self.richness.is_empty() {
+            return 1.0;
+        }
+        // `js_round`, not `f64::round`: `Math.round(-0.5)` is `-0` and
+        // `(-0.5f64).round()` is `-1`. Both clamp to 0 here, so this cannot
+        // currently differ -- it is written this way because the *next*
+        // reader should not have to redo that check
+        // (`cartalith-rust-conventions`, "V8's libm is not Rust's").
+        let x = (cartalith_jsmath::js_round(mx) as i64).clamp(0, self.gw as i64 - 1) as usize;
+        let y = (cartalith_jsmath::js_round(my) as i64).clamp(0, self.gh as i64 - 1) as usize;
+        let rid = self.region_id.get(y * self.gw + x).copied().unwrap_or(-1);
+        let r = usize::try_from(rid).ok().and_then(|i| self.richness.get(i).copied().flatten());
+        cartalith_civ::jp_wildlife_forage_mod(r, self.mean_richness)
+    }
+}
+
 pub fn wildlife_regions(f: &FieldRefs) -> Option<cartalith_civ::wildlife::Ecoregions> {
     let wb = f.water_bodies?;
     let sea = f.sea_level;
@@ -2874,5 +3087,367 @@ mod tests {
         assert_eq!(biome_name(BIOME_LAKE), "lake");
         assert_eq!(biome_name(1), BIOME_KEYS[0]);
         assert_eq!(biome_name(13), BIOME_KEYS[12]);
+    }
+
+    // ---------- the Journey Planner's wildlife forage cache (F12) ----------
+
+    /// `PARITY_AUDIT.md` §23 F12's own condition: **the cache must be the
+    /// uncached path.** Checked at every cell, not at a sample of them, and
+    /// against the three functions the reference composes rather than against
+    /// a second copy of the arithmetic.
+    ///
+    /// The non-unit assertions at the end are the "silently-empty golden
+    /// output" guard this project's working rules ask for: a cache that
+    /// answered `1.0` everywhere would pass a cell-by-cell equality check
+    /// against an equally-broken uncached path and change nothing at all.
+    #[test]
+    fn wildlife_cache_matches_the_uncached_path_at_every_cell() {
+        let o = owned(96, 96);
+        let f = view(&o, true);
+
+        let eco = wildlife_regions(&f).expect("civ layer present");
+        let richness: Vec<Option<f64>> = eco.regions.iter().map(|r| Some(r.richness as f64)).collect();
+        let mean = cartalith_civ::jp_world_mean_richness(&richness);
+        let cache = WildlifeCache::build(&f).expect("same condition as wildlife_regions");
+        assert_eq!(cache.mean_richness, mean, "the memoized world mean is _jpWorldMeanRichness's own");
+
+        let mut seen: Vec<f64> = Vec::new();
+        for y in 0..o.gh {
+            for x in 0..o.gw {
+                let rid = eco.region_id[y * o.gw + x];
+                let r = usize::try_from(rid).ok().and_then(|i| richness.get(i).copied().flatten());
+                let want = cartalith_civ::jp_wildlife_forage_mod(r, mean);
+                let got = cache.forage_mod(x as f64, y as f64);
+                assert_eq!(got, want, "forage mod at ({x},{y})");
+                if !seen.contains(&got) {
+                    seen.push(got);
+                }
+            }
+        }
+        assert!(seen.len() > 1, "every cell answered the same value: {seen:?}");
+        assert!(seen.iter().any(|v| *v > 1.0), "no cell forages better than the world mean: {seen:?}");
+        assert!(seen.iter().any(|v| *v < 1.0), "no cell forages worse than the world mean: {seen:?}");
+    }
+
+    /// Out-of-grid midpoints clamp instead of panicking or reading a
+    /// neighbouring row -- the reference's own
+    /// `Math.max(0,Math.min(GW-1,Math.round(mx)))`.
+    #[test]
+    fn wildlife_cache_clamps_an_out_of_grid_midpoint() {
+        let o = owned(96, 96);
+        let f = view(&o, true);
+        let c = WildlifeCache::build(&f).expect("civ layer present");
+        assert_eq!(c.forage_mod(-40.0, -1.0), c.forage_mod(0.0, 0.0));
+        assert_eq!(c.forage_mod(1e9, 1e9), c.forage_mod(95.0, 95.0));
+    }
+
+    /// A world with no civilisation layer has no `currentWildlife()`, and the
+    /// reference's answer there is a flat `1.0` -- not a fabricated region.
+    #[test]
+    fn wildlife_cache_is_absent_without_a_civilisation_layer() {
+        let o = owned(32, 32);
+        assert!(WildlifeCache::build(&view(&o, false)).is_none());
+        assert!(wildlife_regions(&view(&o, false)).is_none());
+    }
+
+    /// **The staleness guard, and the reason the key is a fingerprint rather
+    /// than an epoch counter.** Every input `wildlife_regions` reads is
+    /// perturbed by one cell (or one scalar) in turn; each must move the
+    /// fingerprint. A slice this test forgot would be a slice an edit could
+    /// change without the cache noticing.
+    #[test]
+    fn wildlife_fingerprint_moves_for_every_input_it_reads() {
+        let base = owned(48, 48);
+        let key0 = wildlife_inputs_fingerprint(&view(&base, true));
+
+        // The nine rasters, one cell each. The cell is deliberately not index
+        // 0: a fingerprint that only hashed a header would still pass that.
+        let at = 700usize;
+        let bump = |sel: fn(&mut Owned) -> &mut Vec<f32>, name: &str| {
+            let mut o = owned(48, 48);
+            sel(&mut o)[at] += 0.125;
+            assert_ne!(wildlife_inputs_fingerprint(&view(&o, true)), key0, "{name} did not move the fingerprint");
+        };
+        bump(|o| &mut o.field, "field");
+        bump(|o| &mut o.temp, "temperature");
+        bump(|o| &mut o.rain, "rainfall");
+        bump(|o| &mut o.flow, "flow_discharge");
+        bump(|o| &mut o.age, "age_field");
+        bump(|o| &mut o.volc, "volcanic_field");
+        bump(|o| &mut o.crust, "crust_field");
+        bump(|o| &mut o.resist, "resistance_field");
+        {
+            let mut o = owned(48, 48);
+            o.wb[at] ^= 1;
+            assert_ne!(wildlife_inputs_fingerprint(&view(&o, true)), key0, "water_bodies did not move the fingerprint");
+        }
+        // Losing the civilisation layer entirely is its own state, not the
+        // same one as an all-zero classification.
+        assert_ne!(wildlife_inputs_fingerprint(&view(&base, false)), key0, "dropping the civ layer");
+
+        // The scalars. `sea_level` is the one `PARITY_AUDIT.md` §23 named
+        // explicitly, and it changes no raster at all -- an epoch counter
+        // bumped by the height-edit paths would have missed it.
+        let mut f = view(&base, true);
+        f.sea_level += 0.01;
+        assert_ne!(wildlife_inputs_fingerprint(&f), key0, "sea_level");
+        let mut f = view(&base, true);
+        f.world = !f.world;
+        assert_ne!(wildlife_inputs_fingerprint(&f), key0, "world (wrap)");
+        let mut f = view(&base, true);
+        f.map_width_km *= 2.0;
+        assert_ne!(wildlife_inputs_fingerprint(&f), key0, "map_width_km (river_flow_thresh)");
+        let mut f = view(&base, true);
+        f.lat_n += 1.0;
+        assert_ne!(wildlife_inputs_fingerprint(&f), key0, "lat_n");
+        let mut f = view(&base, true);
+        f.lat_s += 1.0;
+        assert_ne!(wildlife_inputs_fingerprint(&f), key0, "lat_s");
+
+        // A resize, which is not a per-cell edit at all.
+        let bigger = owned(49, 48);
+        assert_ne!(wildlife_inputs_fingerprint(&view(&bigger, true)), key0, "grid size");
+
+        // And the other half of the contract: an untouched world must NOT
+        // move it, or the cache never hits and the whole thing is a slow
+        // no-op that still looks correct.
+        assert_eq!(wildlife_inputs_fingerprint(&view(&base, true)), key0, "an unchanged world re-fingerprints identically");
+    }
+
+    /// `PARITY_AUDIT.md` §23 F12's second condition: **a journey over a rich
+    /// region and one over a poor region must get different forage answers**,
+    /// end to end through `jp_plan_full`, or the wiring could be inert.
+    ///
+    /// Both routes are checked against their *own* `|_, _| 1.0` baseline
+    /// rather than against each other, so the assertion isolates the wildlife
+    /// modifier from the biome and terrain the two routes also differ in.
+    /// The directions are asserted too: a region richer than its world's mean
+    /// must feed the party (less food carried), a poorer one must cost it.
+    ///
+    /// `foraging: "Active"` is not incidental. `JpPlan::default()`'s own
+    /// `foraging` is `"None"`, and `jp_foraging` returns before it reads the
+    /// wildlife modifier at all in that mode -- so a party that is not
+    /// foraging is correctly unaffected by this whole feature.
+    #[test]
+    fn a_rich_region_and_a_poor_region_forage_differently() {
+        let o = owned(96, 96);
+        let f = view(&o, true);
+        let cache = WildlifeCache::build(&f).expect("civ layer present");
+
+        // Two routes, each lying wholly inside one ecoregion of this fixture
+        // (asserted below rather than assumed -- the regions are an output of
+        // the segmentation, not something this test gets to declare).
+        let rich: Vec<(f64, f64)> = (70..=80).map(|x| (f64::from(x), 16.0)).collect();
+        let poor: Vec<(f64, f64)> = (39..=49).map(|x| (f64::from(x), 59.0)).collect();
+        let m_rich = cache.forage_mod(75.0, 16.0);
+        let m_poor = cache.forage_mod(44.0, 59.0);
+        assert!(m_rich > 1.0, "the rich route's region does not forage above the world mean: {m_rich}");
+        assert!(m_poor < 1.0, "the poor route's region does not forage below the world mean: {m_poor}");
+        assert_ne!(m_rich, m_poor);
+
+        let jw = crate::journey_bridge::JourneyWorld::build(
+            &o.field, &o.wb, &o.temp, &o.rain, o.gw, o.gh, false, 0.42, &[], &[],
+        );
+        let world = cartalith_civ::JpWorld {
+            gw: o.gw,
+            gh: o.gh,
+            world: false,
+            map_width_km: 1200.0,
+            sea_level: 0.42,
+            peak_m: 4000.0,
+            field: &o.field,
+            cart_biome: &jw.cart_biome,
+            cart_terrain: &jw.cart_terrain,
+            temp: &o.temp,
+            rain: &o.rain,
+            flow_field: Some(&o.flow),
+            flow_thresh: 1e9,
+            water_bodies: Some(&o.wb),
+            territory: Some(&o.terr),
+            places: &jw.places,
+            road_cells: &jw.road_cells,
+            ocean_field: None,
+            wind_field: None,
+        };
+        let plan = cartalith_civ::JpPlan {
+            foraging: "Active".to_string(),
+            ..cartalith_civ::JpPlan::default()
+        };
+        let lay = cartalith_civ::JpLayovers::new();
+        let run = |pts: &[(f64, f64)], forage: &dyn Fn(f64, f64) -> f64| {
+            cartalith_civ::jp_plan_full(&world, pts, &plan, &lay, forage, None, None)
+                .expect("a derivable land route")
+        };
+
+        let flat = &|_: f64, _: f64| 1.0;
+        let live = &|mx: f64, my: f64| cache.forage_mod(mx, my);
+
+        let (r_flat, r_live) = (run(&rich, flat), run(&rich, live));
+        let (p_flat, p_live) = (run(&poor, flat), run(&poor, live));
+
+        // Both routes really did derive one land stage each, with its
+        // midpoint in the region this test named. Asserted, not assumed: an
+        // earlier draft of this fixture put the "poor" route over water,
+        // where `jp_calc_water` never consults foraging at all and the test
+        // would have passed its equality checks while proving nothing.
+        for (name, j) in [("rich", &r_live), ("poor", &p_live)] {
+            assert_eq!(j.stages.len(), 1, "{name} route should derive exactly one stage");
+            assert_eq!(j.stages[0].cat, "land", "{name} route must be a land stage to reach jp_foraging");
+        }
+        assert_eq!(cache.forage_mod(r_live.stages[0].mx, r_live.stages[0].my), m_rich);
+        assert_eq!(cache.forage_mod(p_live.stages[0].mx, p_live.stages[0].my), m_poor);
+
+        // `load_ratio` is the observable, not `days` or `food_kg`, and that
+        // is a fact about the model rather than a weakness of the test:
+        // `forage.reduction` reduces the *mass of food carried* (reference
+        // line 18596's `human_food_net`), and that mass reaches speed only
+        // through `jp_load_penalty`, whose five bands are flat. On this
+        // fixture both parties stay inside "Well loaded", so the supply
+        // saving is real and the speed is rightly unchanged. Asserting
+        // `days` here would be asserting a band edge.
+        let ratio = |j: &cartalith_civ::JpJourneyPlan| match &j.results[0].calc {
+            Ok(cartalith_civ::JpLegCalc::Land(l)) => l.load_ratio,
+            _ => panic!("expected a land leg"),
+        };
+        assert!(
+            ratio(&r_live) < ratio(&r_flat),
+            "a region richer than the world mean must reduce supplies carried: {} vs flat {}",
+            ratio(&r_live),
+            ratio(&r_flat)
+        );
+        assert!(
+            ratio(&p_live) > ratio(&p_flat),
+            "a region poorer than the world mean must increase supplies carried: {} vs flat {}",
+            ratio(&p_live),
+            ratio(&p_flat)
+        );
+        // And the two moved by different amounts, not by one shared constant.
+        assert_ne!(
+            ratio(&r_live) - ratio(&r_flat),
+            ratio(&p_live) - ratio(&p_flat),
+            "both routes moved by the same delta, which is not a per-region signal"
+        );
+    }
+
+    // ---------- the vessel matrix's derived shape (F13) ----------
+
+    /// `WorldGen::jp_vessel_matrix()` builds two things `cartalith_civ::
+    /// jp_vessel_matrix` does not hand back: the ordered water list (read out
+    /// of the `best` map's keys, because `RIVER_TERRAINS`/`SEA_TERRAINS` are
+    /// private) and the per-cell km/day grid (one `jp_vessel_day_km` call per
+    /// cell, exactly as the reference's own renderer does it). Neither is
+    /// reachable from a unit test through the `#[func]` -- `WorldGen` needs a
+    /// Godot base -- so what is pinned here is the two invariants that
+    /// binding depends on.
+    #[test]
+    fn vessel_matrix_cells_agree_with_the_matrix_own_best_column() {
+        let (rows, best) = cartalith_civ::jp_vessel_matrix();
+        let mut waters: Vec<(&'static str, &'static str)> = best.keys().copied().collect();
+        waters.sort_unstable();
+
+        // Nine water types: five river, four sea. If this number moves, the
+        // grid the dock draws has a column it never had.
+        assert_eq!(waters.len(), 9, "{waters:?}");
+        assert_eq!(waters.iter().filter(|(c, _)| *c == "river").count(), 5);
+        assert_eq!(waters.iter().filter(|(c, _)| *c == "sea").count(), 4);
+        assert!(!rows.is_empty());
+
+        // 1. Every cell the binding emits is `jp_vessel_day_km`, and the
+        //    `best` row for that water names a hull that really is the
+        //    fastest over that column -- so lighting the accent cell cannot
+        //    disagree with the "fastest here" claim beside it.
+        for &(cat, terrain) in &waters {
+            let mut top: Option<(&str, f64)> = None;
+            for r in &rows {
+                if let Some(km) = cartalith_civ::jp_vessel_day_km(r.name, cat, terrain) {
+                    assert!(km > 0.0, "{} on {terrain} reported {km}", r.name);
+                    if top.is_none_or(|(_, v)| km > v) {
+                        top = Some((r.name, km));
+                    }
+                }
+            }
+            let b = &best[&(cat, terrain)];
+            assert_eq!(b.name, top.map(|(n, _)| n), "best hull on {cat}/{terrain}");
+            assert_eq!(b.kmday, top.map(|(_, v)| v), "best km/day on {cat}/{terrain}");
+        }
+
+        // 2. The reference's whole point, asserted rather than quoted: the
+        //    fastest hull is NOT the same on every water.
+        let winners: std::collections::HashSet<Option<&str>> =
+            waters.iter().map(|w| best[w].name).collect();
+        assert!(winners.len() > 1, "one hull wins every water type: {winners:?}");
+
+        // 3. Every row really is rated for something, and `best_water` is
+        //    the column its own `best_kmday` came from.
+        for r in &rows {
+            assert!(r.waters_usable > 0, "{} is rated for no water at all", r.name);
+            let bw = r.best_water.expect("a usable hull has a best water");
+            let km = waters
+                .iter()
+                .find(|(_, t)| *t == bw)
+                .and_then(|&(cat, t)| cartalith_civ::jp_vessel_day_km(r.name, cat, t));
+            assert_eq!(km, Some(r.best_kmday), "{}'s best_water/best_kmday disagree", r.name);
+        }
+    }
+
+    #[test]
+    #[ignore = "timing probe, not an assertion"]
+    fn timing_probe_fingerprint() {
+        for &n in &[1024usize, 2048] {
+            let o = owned(n, n);
+            let f = view(&o, true);
+            // warm
+            let _ = wildlife_inputs_fingerprint(&f);
+            let t = std::time::Instant::now();
+            let mut k = 0u64;
+            for _ in 0..5 { k ^= wildlife_inputs_fingerprint(&f); }
+            let ms = t.elapsed().as_secs_f64() * 1000.0 / 5.0;
+            println!("fingerprint {n}x{n}: {ms:.2} ms (k={k:x})");
+        }
+    }
+
+    #[test]
+    #[ignore = "timing probe, not an assertion"]
+    fn timing_probe_jp_compute_core() {
+        for &n in &[1024usize, 2048] {
+            let o = owned(n, n);
+            let t = std::time::Instant::now();
+            let jw = crate::journey_bridge::JourneyWorld::build(
+                &o.field, &o.wb, &o.temp, &o.rain, o.gw, o.gh, false, 0.42, &[], &[],
+            );
+            let build_ms = t.elapsed().as_secs_f64() * 1000.0;
+            let world = cartalith_civ::JpWorld {
+                gw: o.gw, gh: o.gh, world: false, map_width_km: 1200.0, sea_level: 0.42,
+                peak_m: 4000.0, field: &o.field, cart_biome: &jw.cart_biome,
+                cart_terrain: &jw.cart_terrain, temp: &o.temp, rain: &o.rain,
+                flow_field: Some(&o.flow), flow_thresh: 300.0, water_bodies: Some(&o.wb),
+                territory: Some(&o.terr), places: &jw.places, road_cells: &jw.road_cells,
+                ocean_field: None, wind_field: None,
+            };
+            let pts: Vec<(f64, f64)> = (0..40).map(|i| {
+                let f = i as f64 / 39.0;
+                (n as f64 * (0.55 + 0.4 * f), n as f64 * (0.55 + 0.4 * f))
+            }).collect();
+            let plan = cartalith_civ::JpPlan::default();
+            let lay = cartalith_civ::JpLayovers::new();
+            let t2 = std::time::Instant::now();
+            let j = cartalith_civ::jp_plan_full(&world, &pts, &plan, &lay, &|_, _| 1.0, None, None);
+            let plan_ms = t2.elapsed().as_secs_f64() * 1000.0;
+            println!("jp_compute core {n}x{n}: JourneyWorld::build {build_ms:.1} ms + jp_plan_full {plan_ms:.2} ms ({} stages)",
+                j.as_ref().map_or(0, |x| x.stages.len()));
+        }
+    }
+
+    #[test]
+    #[ignore = "timing probe, not an assertion"]
+    fn timing_probe_wildlife_regions() {
+        for &n in &[512usize, 1024, 2048] {
+            let o = owned(n, n);
+            let f = view(&o, true);
+            let t = std::time::Instant::now();
+            let eco = wildlife_regions(&f).expect("civ present");
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            println!("wildlife_regions {n}x{n}: {ms:.1} ms, {} regions", eco.regions.len());
+        }
     }
 }
