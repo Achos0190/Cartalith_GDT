@@ -8592,11 +8592,22 @@ impl WorldGen {
     #[func]
     fn jp_vessel_matrix(&self) -> VarDictionary {
         let (rows, best) = cartalith_civ::jp_vessel_matrix();
-        // The `best` map is keyed by every `(cat, terrain)` the matrix covers,
-        // which is the water list itself -- read back out rather than
-        // restated. `HashMap` iteration order is not stable, hence the sort.
-        let mut waters: Vec<(&'static str, &'static str)> = best.keys().copied().collect();
-        waters.sort_unstable();
+        // `JP_WATER_TERRAINS` rather than the `best` map's own keys sorted:
+        // `HashMap` iteration order is not stable, and sorting the keys gives
+        // ALPHABETICAL order, which puts River with Rapids before River with
+        // Shallows and reads as noise in a column header row. The const is the
+        // reference's own physical order -- calm to rapids, sheltered to rough
+        // -- and was made public on 2026-08-26 for exactly this call site.
+        //
+        // Debug-asserted against the map rather than assumed: if the matrix
+        // ever rates a water type this list does not name, the mismatch is a
+        // panic in a debug build, not a silently missing column.
+        let waters: Vec<(&'static str, &'static str)> = cartalith_civ::JP_WATER_TERRAINS.to_vec();
+        debug_assert_eq!(
+            waters.len(),
+            best.len(),
+            "JP_WATER_TERRAINS and jp_vessel_matrix disagree about how many water types exist"
+        );
 
         let water_rows: Array<VarDictionary> = waters
             .iter()
@@ -9032,20 +9043,14 @@ impl WorldGen {
         // stages.
         let mut stage_picks = VarArray::new();
         if request.get("auto_stage").and_then(|v| v.try_to::<bool>().ok()) == Some(true) {
-            // **Still `1.0`, and disclosed rather than approximated (F12).**
-            // `jp_auto_stage_picks` takes one scalar `wildlife_forage_mod`
-            // for the whole journey, not the per-stage closure `jp_plan_full`
-            // takes -- so there is no honest value to hand it here: the real
-            // modifier differs per stage by construction. Widening its
-            // signature to `&dyn Fn(f64, f64) -> f64` (it already has each
-            // stage's `mx`/`my` on the `JpDerivedStage` it reads) is a
-            // `cartalith-civ` change against golden-tested code and belongs
-            // to whoever owns that crate. The consequence is bounded: this
-            // only ranks *candidate* per-stage packages, and whichever it
-            // picks is then recomputed through `run()` above with the real
-            // per-stage modifier, so a plan is never reported under 1.0 --
-            // only, at worst, chosen under it.
-            let picks = cartalith_civ::jp_auto_stage_picks(&journey, 1.0);
+            // The same per-stage closure `jp_plan_full` above was given, so a
+            // candidate package is ranked against the forage its own stage
+            // actually has. This took a single `f64` for the whole journey
+            // until 2026-08-26 -- widened in `cartalith-civ` in the same pass
+            // that gave this crate a wildlife cache to hand it, since before
+            // that there was no per-stage value to pass and the scalar cost
+            // nothing.
+            let picks = cartalith_civ::jp_auto_stage_picks(&journey, &forage);
             if !picks.is_empty() {
                 let mut with = plan.clone();
                 for p in &picks {

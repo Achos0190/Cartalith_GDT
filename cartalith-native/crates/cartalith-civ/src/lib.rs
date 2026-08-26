@@ -8467,27 +8467,35 @@ pub struct VesselMatrixBest {
 /// `jpVesselMatrix` (reference line 17984): every vessel × every water type,
 /// plus which vessel is fastest on each one -- "what is actually fast HERE",
 /// not the same vessel everywhere.
+/// Every `(cat, terrain)` water type [`jp_vessel_matrix`] rates a hull
+/// against, **in the reference's own physical order** -- rivers calm to
+/// rapids, seas sheltered to rough.
+///
+/// Public because that order is presentation-critical and cannot be recovered
+/// from the data. These were two private `const`s inside `jp_vessel_matrix`
+/// until 2026-08-26, so the first renderer to draw the matrix
+/// (`journey_planner_view.gd`, `PARITY_AUDIT.md` §23 F13) had nothing to sort
+/// its columns by except the key itself, and drew "Calm River, Moderate River,
+/// River Delta, River with Rapids, River with Shallows" -- alphabetical, which
+/// puts the rapids before the shallows and reads as noise. A caller that wants
+/// the matrix almost always wants this too.
+pub const JP_WATER_TERRAINS: [(&str, &str); 9] = [
+    ("river", "Calm River"),
+    ("river", "Moderate River"),
+    ("river", "River with Shallows"),
+    ("river", "River Delta"),
+    ("river", "River with Rapids"),
+    ("sea", "Sheltered Bay"),
+    ("sea", "Coastal Waters"),
+    ("sea", "Open Sea"),
+    ("sea", "Rough Open Sea"),
+];
+
 pub fn jp_vessel_matrix() -> (
     Vec<VesselMatrixRow>,
     std::collections::HashMap<(&'static str, &'static str), VesselMatrixBest>,
 ) {
-    const RIVER_TERRAINS: [&str; 5] = [
-        "Calm River",
-        "Moderate River",
-        "River with Shallows",
-        "River Delta",
-        "River with Rapids",
-    ];
-    const SEA_TERRAINS: [&str; 4] = [
-        "Sheltered Bay",
-        "Coastal Waters",
-        "Open Sea",
-        "Rough Open Sea",
-    ];
-    let waters: Vec<(&str, &str)> = std::iter::empty()
-        .chain(RIVER_TERRAINS.iter().map(|&t| ("river", t)))
-        .chain(SEA_TERRAINS.iter().map(|&t| ("sea", t)))
-        .collect();
+    let waters: Vec<(&str, &str)> = JP_WATER_TERRAINS.to_vec();
 
     let mut rows = Vec::with_capacity(JP_VESSEL_PREFERENCE.len());
     for &name in JP_VESSEL_PREFERENCE.iter() {
@@ -14227,7 +14235,10 @@ impl JpStagePick {
 /// Blocked stages are skipped too. A blocked stage has no `daily_km` to
 /// improve on, and its own quick-fixes (`jp_verdict`'s `fix`) are a different,
 /// user-facing mechanism.
-pub fn jp_auto_stage_picks(journey: &JpJourneyPlan, wildlife_forage_mod: f64) -> Vec<JpStagePick> {
+pub fn jp_auto_stage_picks(
+    journey: &JpJourneyPlan,
+    wildlife_forage_mod: &dyn Fn(f64, f64) -> f64,
+) -> Vec<JpStagePick> {
     let mut picks = Vec::new();
     for (i, r) in journey.results.iter().enumerate() {
         if r.cat != "land" {
@@ -14245,7 +14256,13 @@ pub fn jp_auto_stage_picks(journey: &JpJourneyPlan, wildlife_forage_mod: f64) ->
             Err(_) => (0.0, true),
         };
         let Some(ds) = journey.stages.get(i) else { continue };
-        let st = ds.to_stage(wildlife_forage_mod);
+        // Per stage, at that stage's own midpoint -- the same shape
+        // `jp_plan_full` takes. It was a single `f64` for the whole journey
+        // until 2026-08-26, which meant every candidate was ranked against a
+        // forage figure that belonged to no stage in particular; `JpDerivedStage`
+        // has carried `mx`/`my` since milestone 5, so there was never a reason
+        // for the scalar beyond the wildlife layer having no caller yet.
+        let st = ds.to_stage(wildlife_forage_mod(ds.mx, ds.my));
 
         // 1. Species / vehicle, on this stage's own terrain and biome.
         let mut cand = r.eff.clone();
@@ -19475,7 +19492,7 @@ mod tests {
         let base = m5_plan();
         let j = jp_plan(&world, &pts, &base, &layovers, &|_, _| 1.0).expect("a planned journey");
 
-        let picks = jp_auto_stage_picks(&j, 1.0);
+        let picks = jp_auto_stage_picks(&j, &|_, _| 1.0);
         // This route is boreal taiga and mountain highland, where a mule with
         // carts already IS the right answer -- so an empty list here is the
         // correct result, not a broken one, and the loop below is a
@@ -19521,13 +19538,13 @@ mod tests {
             ..base.clone()
         };
         let js = jp_plan(&world, &pts, &solo, &layovers, &|_, _| 1.0).expect("a planned journey");
-        for p in jp_auto_stage_picks(&js, 1.0) {
+        for p in jp_auto_stage_picks(&js, &|_, _| 1.0) {
             assert!(p.species.is_none() && p.vehicle.is_none(), "a lone walker has no train to re-pack: {p:?}");
         }
 
         // And the whole thing is a no-op on a journey with no land stages.
         let empty = JpJourneyPlan { stages: Vec::new(), results: Vec::new(), ..j.clone() };
-        assert!(jp_auto_stage_picks(&empty, 1.0).is_empty());
+        assert!(jp_auto_stage_picks(&empty, &|_, _| 1.0).is_empty());
 
         // The owner's own scenario, and the reason v1.66 exists at all:
         // *"at the desert transitions they will exchange their mule and cart
@@ -19546,7 +19563,7 @@ mod tests {
         assert!(calc.is_err(), "the fixture must be the blocked case: {calc:?}");
         let res = JpLegResult { cat: "land".to_string(), km: ds.km, calc: calc.map(|c| JpLegCalc::Land(Box::new(c))), eff: base.clone() };
         let sand = JpJourneyPlan { stages: vec![ds], results: vec![res], ..j };
-        let picks = jp_auto_stage_picks(&sand, 1.0);
+        let picks = jp_auto_stage_picks(&sand, &|_, _| 1.0);
         assert_eq!(picks.len(), 1, "deep sand must produce exactly one pick: {picks:?}");
         let p = &picks[0];
         assert_eq!(p.species, Some("camel"), "{p:?}");

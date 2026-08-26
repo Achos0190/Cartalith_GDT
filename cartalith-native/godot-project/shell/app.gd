@@ -500,6 +500,13 @@ func _wire_status() -> void:
 	bridge.world_loaded.connect(func():
 		set_status("pass", "loaded", "text_dim")
 		set_status("hint", bridge.last_summary, "text_ghost")
+		## The other end of `_write_project`'s document collection. Reads the
+		## text `project_open` returned verbatim; a project saved before
+		## journeys existed simply carries no such slot, which is why the
+		## restore is a silent no-op rather than a warning.
+		if journey_planner_view != null:
+			journey_planner_view.restore_journeys_document(
+				String(bridge.last_documents.get("entities/journeys.json", "")))
 		_refresh_world_dependent())
 	_setup_staleness()
 
@@ -1040,7 +1047,18 @@ func save_project_as(then: Callable = Callable()) -> void:
 ## so the bookkeeping -- `current_project_path`, the recents list, the status
 ## line, the optional continuation -- happens once.
 func _write_project(path: String, then: Callable = Callable()) -> void:
-	if not bridge.save_project(path):
+	## The caller-owned half of the archive. `entities/journeys.json` is a
+	## registered slot the engine deliberately does not model -- a saved
+	## journey is a route index plus a party form, both of which are the
+	## shell's own state -- so it travels through
+	## `project_save_with_documents` as JSON text. This is the one place that
+	## collects it, for the same reason everything else routes through here.
+	var documents: Dictionary = {}
+	if journey_planner_view != null:
+		var doc := journey_planner_view.journeys_document()
+		if doc != "":
+			documents["entities/journeys.json"] = doc
+	if not bridge.save_project(path, documents):
 		set_status("hint", "save failed — see console", "accent")
 		return
 	current_project_path = path

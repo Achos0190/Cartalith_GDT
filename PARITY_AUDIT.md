@@ -1400,3 +1400,61 @@ before anything writes documents.
    A hit list a human triages is the right shape for these two.
 4. **F11 first among the build items.** It is a whole named op from the
    reference, not a readout.
+
+### F15 · File ▸ Save wrote the tree; File ▸ Open read it as flat, and dropped everything else
+
+**Found 2026-08-26, while wiring F10, and it is the most serious defect this
+audit produced.** Measured, not inferred (`_openpath_probe.gd`):
+
+```
+  settlements before save: 8
+  project_save: ok=true entries=18
+  load_save (what the shell calls): ok=true settlements=0
+  project_open (never called by the shell): ok=true restored=["civ","appearance"] settlements=8
+```
+
+`EngineBridge.save_project` was repointed at `project_save` — the tree writer —
+on 2026-08-25. `EngineBridge.load_save` was never repointed: it still called
+`WorldGen::load_save`, which is `cartalith_io::load_save`, the **flat HTML-format
+reader**. So every project saved by this build and reopened by this build came
+back with its terrain intact and its **entire civilisation layer, appearance and
+every document silently gone** — `ok == true`, no warning, nothing in the
+console. The user would discover it as "my settlements vanished", one session
+later, with no way to tell which of the two operations lost them.
+
+`project_open` reads *both* layouts — verified in the same probe: it opens a
+flat export and reports `layout == "flat"` — so the fix is one call, not a
+format sniff, and it satisfies the owner's own rule (read the old format and
+the new one, write only the new one). `_savereopen_probe.gd` now drives the
+round trip through the real `EngineBridge`: 8 settlements out, 8 back, a
+caller-owned document byte-identical including an integer above 2^31, and the
+old flat archive still opening.
+
+### F16 · The harness that found §23 had this exact blind spot
+
+**Question B counted every `.gd` file, including probes.** `project_open` was
+named by `_savetree_probe.gd` and by nothing else, so it scored as *reached*
+while F15 sat underneath it. A capability reached only by a probe is not wired:
+it is a capability with a test and no product behind it, which is the precise
+thing this harness exists to find.
+
+Fixed: question B now scans **shell files only**, and flags a hit that a probe
+names with `<-- named ONLY by a probe`, because that is a stronger signal than
+silence — it means someone built the thing, proved it works, and never
+connected it.
+
+The corrected question B immediately returned two more:
+
+* `recompute_stale_stages` — the shell **reads** staleness (`stale_stages()`,
+  on a one-second timer, displayed in the status rail) and never calls the
+  function that settles it. Every other recompute path reaches
+  `mark_and_recompute` as a side effect of some other op, so the indicator does
+  clear eventually; what is missing is the explicit "recompute now" the
+  reference offers. Open.
+* `atlas_is_covered` — open, unexamined.
+
+**This is the fifth distinct instance of the same defect class in one day**, and
+the first four were found by eye. The lesson §23 already drew stands, with one
+correction: the harness was right to exist and wrong in its first form, and it
+took a real data-loss bug to expose the flaw. Re-run it after wiring work, not
+only before.

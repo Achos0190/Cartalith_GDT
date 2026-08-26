@@ -146,10 +146,23 @@ def audit() -> dict:
 
     gd_all = sorted(GD.rglob("*.gd"))
     gd_shell = [p for p in gd_all if not p.name.startswith("_")]
-    gd_blob = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in gd_all)
+    # SHELL files only, deliberately. Counting probes here is how this
+    # harness's own first run (2026-08-26) reported `project_open` as reached
+    # when the only thing naming it was `_savetree_probe.gd` — while File ▸
+    # Open went through the flat HTML reader and silently dropped the entire
+    # civilisation layer on every reopen, with ok == true and no warning.
+    # A capability reached only by a probe is not wired: it is a capability
+    # with a test and no product behind it, which is precisely what this
+    # harness exists to find.
+    gd_blob = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in gd_shell)
+    probe_blob = "\n".join(
+        p.read_text(encoding="utf-8", errors="replace") for p in gd_all if p.name.startswith("_")
+    )
 
     unreached = [
-        {"name": n, "at": at} for n, at in sorted(engine_funcs.items()) if uses(n, gd_blob) == 0
+        {"name": n, "at": at, "probe_only": uses(n, probe_blob) > 0}
+        for n, at in sorted(engine_funcs.items())
+        if uses(n, gd_blob) == 0
     ]
 
     asked: dict[str, set[str]] = defaultdict(set)
@@ -204,9 +217,10 @@ def main() -> None:
     for crate in sorted(by_crate):
         print(f"   {crate} ({len(by_crate[crate])}): {', '.join(sorted(by_crate[crate]))}")
 
-    print(f"\nB. #[func] no .gd names: {len(r['engine_func_unreached'])} of {r['engine_func_total']}")
+    print(f"\nB. #[func] no SHELL .gd names: {len(r['engine_func_unreached'])} of {r['engine_func_total']}")
     for f in r["engine_func_unreached"]:
-        print(f"   {f['name']:<34} {f['at']}")
+        tag = "   <-- named ONLY by a probe" if f.get("probe_only") else ""
+        print(f"   {f['name']:<34} {f['at']}{tag}")
 
     print(f"\nC. shell asks world_gen for methods that do not exist: {len(r['shell_asks_for_missing'])}")
     for n, files in r["shell_asks_for_missing"].items():

@@ -44,6 +44,12 @@ var import_api := false
 ## writer, and every save affordance degrades to disabled rather than
 ## crashing -- the same probe shape `sized_api`/`import_api` established.
 var save_api := false
+## The caller-owned documents the last `load_save()` found in the archive,
+## `{slot: json_text}` — `project_open`'s own `documents` key, verbatim, and
+## empty when the archive carried none or the flat reader was used. Whoever
+## owns a slot reads it from here after `world_loaded`; nothing parses it on
+## the way through, because Godot's JSON floats every integer it touches.
+var last_documents: Dictionary = {}
 
 ## Whether the world has changed since it was last saved or opened
 ## (`GUI_GAP_REGISTER.md` FI-01). Driven by the two signals this node owns:
@@ -949,7 +955,32 @@ func _restore_gpu_prefs() -> void:
 ## save's terrain. `load_save` reads the save's own stored fields directly --
 ## no `generate` call is involved, so nothing here goes through the worker.
 func load_save(path: String) -> bool:
-	var ok: bool = world_gen.load_save(path)
+	## `project_open`, not `world_gen.load_save`. They are two different
+	## readers and the shell was calling the wrong one: `project_save` (File ▸
+	## Save) writes the TREE, and `world_gen.load_save` is the FLAT HTML-format
+	## reader. Measured 2026-08-26 by `_openpath_probe.gd`: save a world with 8
+	## settlements, reopen it through this function, get **0** back. The terrain
+	## returned and everything else -- the civilisation layer, appearance, and
+	## every document -- was silently dropped, with `ok == true` and no warning.
+	##
+	## `project_open` reads BOTH layouts (verified in the same probe: it opens a
+	## flat export and reports `layout == "flat"`), which is exactly the owner's
+	## rule -- read the old format and the new one, write only the new one -- so
+	## this is one call rather than a format sniff. `world_gen.load_save` stays
+	## only as the fallback for a binary too old to have `project_open`.
+	var documents: Dictionary = {}
+	var ok := false
+	if _has("project_open"):
+		var r: Dictionary = world_gen.project_open(path)
+		ok = bool(r.get("ok", false))
+		if ok:
+			documents = r.get("documents", {})
+		else:
+			push_warning("Cartalith: project_open could not read %s (%s) -- falling back to the flat reader"
+				% [path, String(r.get("error", "unknown"))])
+	if not ok:
+		ok = world_gen.load_save(path)
+	last_documents = documents
 	if ok:
 		has_world = true
 		params_dirty = false
@@ -972,7 +1003,7 @@ func load_save(path: String) -> bool:
 ## `SAVEFILE_COMPAT.md` documents. Returns `false` (leaving any existing file
 ## untouched) when the engine has no writer, when there is no world, or when
 ## the write itself fails; the engine logs the reason.
-func save_project(path: String) -> bool:
+func save_project(path: String, extra_documents: Dictionary = {}) -> bool:
 	if not save_api or not has_world:
 		return false
 	## `project_save` writes the documented tree (`SAVEFILE_COMPAT.md`) and
@@ -982,7 +1013,17 @@ func save_project(path: String) -> bool:
 	## flat export, and a Save that quietly dropped settlements, factions,
 	## ways, the timeline and the vault links would be the worst kind of
 	## regression -- one the user only discovers on reopening.
-	var r: Dictionary = world_gen.project_save(path)
+	## `project_save_with_documents` when the caller has state of its own to
+	## store, `project_save` otherwise -- the former is what the latter calls
+	## anyway, so this is one branch for one guard rather than two paths.
+	## `extra_documents` maps a registered slot to that document's JSON TEXT;
+	## a Dictionary would go through Godot's JSON, which floats every integer,
+	## and that is precisely how KV-04 discarded every knowledge link.
+	var r: Dictionary
+	if extra_documents.is_empty() or not _has("project_save_with_documents"):
+		r = world_gen.project_save(path)
+	else:
+		r = world_gen.project_save_with_documents(path, extra_documents)
 	var ok: bool = bool(r.get("ok", false))
 	if ok:
 		_set_dirty(false)
@@ -2876,3 +2917,26 @@ func as_drop_collection(name: String) -> Dictionary:
 	if not _has("as_drop_collection"):
 		return {"ok": false, "error": "as_drop_collection not available on this binary"}
 	return world_gen.as_drop_collection(name)
+
+# -- F13 · the two Journey Planner readouts ---------------------------------
+
+## `_jpPackRange` (reference line 19518, v1.48): the wagon-equation ceiling,
+## stated BEFORE the user configures their way past it. A pack animal carries
+## its own fodder, so with no grazing there is a hard duration past which its
+## whole capacity is its own food and it can carry nothing else. The number
+## here IS the threshold `jp_auto_pick_transport`'s `fodder_infeasible` guard
+## fires at -- the two read the same inputs, so the advisory can never disagree
+## with the refusal. Pure: callable before `generate()`.
+func jp_pack_range(plan: Dictionary, has_desert: bool) -> Dictionary:
+	if not _has("jp_pack_range"):
+		return {}
+	return world_gen.jp_pack_range(plan, has_desert)
+
+## `jpVesselMatrix` (reference line 17984): every vessel × every water type,
+## plus which hull is fastest on each. "What is actually fast HERE", not the
+## same vessel everywhere. `waters` comes back in the reference's own physical
+## order (calm → rapids, sheltered → rough), not alphabetically.
+func jp_vessel_matrix() -> Dictionary:
+	if not _has("jp_vessel_matrix"):
+		return {}
+	return world_gen.jp_vessel_matrix()

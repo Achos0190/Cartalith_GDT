@@ -3104,3 +3104,62 @@ class _TimelineBandView extends Control:
 			x += sw
 			if i + 1 < segments.size() and sw > 1.5:
 				draw_line(Vector2(x, 0), Vector2(x, h), DccTheme.c("bg"), 1.0)
+
+
+# ================================================ Journeys, on disk (F10) ====
+#
+# `entities/journeys.json`, the slot `SAVEFILE_COMPAT.md` §9.6 reserved and
+# nothing wrote. The list was in-session only, and this file's own header said
+# so — the reason given was that no save-writer existed, which stopped being
+# true on 2026-08-23, and then that GDScript state had no channel to the
+# archive, which stopped being true when `project_save_with_documents` landed.
+# What was actually missing by 2026-08-26 was a reader that returned the bytes
+# that were stored rather than a re-serialisation of them; that is `afc2d57`,
+# and this is the consumer it was built for.
+
+## This view's half of the project file, as JSON **text**.
+##
+## `Vector2` is written as a two-element array because JSON has no vector, and
+## `_trim` is the only field in a journey that is not already a JSON-native
+## type. Everything else is exactly what `_save_journey` stored.
+func journeys_document() -> String:
+	var out: Array = []
+	for j in _journeys:
+		var d: Dictionary = (j as Dictionary).duplicate(true)
+		var t: Vector2 = d.get("trim", Vector2(0.0, 1.0))
+		d["trim"] = [t.x, t.y]
+		out.append(d)
+	return JSON.stringify({"journeys": out})
+
+## The inverse. Silently keeps the current list when the document is absent,
+## empty or unparseable — a project saved before journeys existed is the
+## normal case, not an error, and a corrupt one must not clear a list the user
+## can still see.
+func restore_journeys_document(text: String) -> void:
+	if text.strip_edges() == "":
+		return
+	var parsed = JSON.parse_string(text)
+	if not (parsed is Dictionary):
+		push_warning("Cartalith: entities/journeys.json is not an object; the journeys list is left alone")
+		return
+	var arr = (parsed as Dictionary).get("journeys", [])
+	if not (arr is Array):
+		return
+	var loaded: Array = []
+	for e in arr:
+		if not (e is Dictionary):
+			continue
+		var d: Dictionary = (e as Dictionary).duplicate(true)
+		var t = d.get("trim", [0.0, 1.0])
+		## `route` is an index into the committed routes and MUST stay an int:
+		## `JSON.parse_string` floats every number, and `jp_compute` rejects a
+		## float where it wants an index. This is the shell's half of §14.1 —
+		## the engine guarantees the bytes, not what GDScript does after
+		## parsing them.
+		d["route"] = int(d.get("route", 0))
+		d["trim"] = Vector2(float(t[0]), float(t[1])) if (t is Array and (t as Array).size() == 2) else Vector2(0.0, 1.0)
+		loaded.append(d)
+	_journeys = loaded
+	_active_journey = -1
+	if _bound:
+		_refresh_route_choice()
