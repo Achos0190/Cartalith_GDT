@@ -1182,3 +1182,182 @@ code; none resolves a judgment call.
    do it, pass 3 did not do it. Three passes old. It is the one input that
    would find gaps the register has never registered at all — which is the
    only category none of these three passes can rule out.
+
+## 23 · Pass 5 — the wiring audit, run mechanically instead of by eye
+
+Owner, 2026-08-26: *"Do a full audit and check if everything is wired
+correctly, like you said this is the 4th time already."*
+
+Fair. Every previous find of this class — something ported, golden-tested,
+recorded as done, and called by nothing — was found **by accident, mid-task,
+by eye**. Four passes of this document did the same by reading. So this pass
+did not read anything first: it asked the question mechanically, then verified
+each hit by hand.
+
+**The harness is checked in this time**, at
+`cartalith-native/tools/audit_wiring.py` — §22 rec #5 asked for exactly that,
+after passes 1 and 2 both asked and were ignored. `python
+cartalith-native/tools/audit_wiring.py`. It answers four questions:
+
+| | question | result |
+|---|---|---|
+| A | `pub fn` with no caller outside test code | **65 of 1 167** |
+| B | `#[func]` no `.gd` file names | **17 of 361** |
+| C | names the shell asks `world_gen` for that do not exist | **0** |
+| D | `engine_bridge.gd` funcs nothing calls | **10 of 337** |
+
+It flags; it does not judge. A hit is one of four things and only reading
+tells you which: a superseded wrapper kept on purpose, a disclosed deliberate
+non-use, ordinary accessor surface, or a real gap. Everything below was read.
+
+### C is empty, and that is the one number worth celebrating
+
+Every method the shell asks `world_gen` for exists. That class — a stale
+`_has("...")` guard silently disabling a feature forever, which is exactly how
+`save_project`-versus-`project_save` disabled File ▸ Save until 2026-08-25 —
+is now empty. It is also the only one of the four that *can* be empty, and the
+only one worth turning into a red test later.
+
+### F9 · Owner-requested, engine-complete, UI-absent — the vault
+
+Four `#[func]`s, zero references in any `.gd` file. This is the 2026-08-25
+direction, verbatim: *"Search for it in the vault etc. ... When the user ever
+wants to change this or add information to the markdown file it's an explicit
+action with a prompt confirmation (the prompt should have **an option to
+confirm always**)."*
+
+| built | reached by the shell |
+|---|---|
+| `vault_search` (`vault_bridge.rs:177`) — indexed + scanned search with excerpts | **no.** There is no search field in `vault_window.gd` at all |
+| `vault_write_prefs` / `vault_set_write_pref` / `vault_prefs_json` / `vault_restore_prefs` (284/297/306/314) — the "confirm always" preference, with its own doc comment headed *"the owner's 2026-08-25 direction"* | **no.** `_preview_dialog` (`vault_window.gd:503`) builds the confirmation with a title, a note and a read-only preview — and no checkbox. Nothing reads or writes a preference |
+| `vault_file_data` / `vault_entity_data` / `vault_link_data` (215/243/263) — a note's frontmatter and fields, *"what a search result or an attach dialog shows before the user commits"* | **no** |
+| `vault_remove_block` (588) | **no.** A written block cannot be taken back from the UI |
+
+The engine half is complete, documented and tested. The confirmation dialog
+the owner asked for exists; the *"confirm always"* half of the same sentence
+does not, and neither does the search the same message opens with.
+
+### F10 · `project_save_with_documents` — unwired **and** asymmetric
+
+`entities/journeys.json` is a registered, non-engine-owned document slot.
+`project_save_with_documents` (`project_bridge.rs:1017`) is the documented
+channel for *"project state GDScript owns and the engine does not model"*.
+Nothing calls it.
+
+But wiring it alone would be worse than leaving it: **there is no reader.**
+`project_bridge.rs` exposes six `#[func]`s and none of them hands a
+caller-owned document back after `project_open`. Writing journeys today
+produces a file the shell can never load.
+
+This also makes `JOURNEY_PLANNER_SCOPE.md` stale in a specific way. It says
+the saved-journeys list is in-session only because it *"needed FI-01's `.zip`
+save-**writer**"*, and then that *"what is still missing is narrower: a way for
+GDScript-owned state to reach the save's `state` object"*. The writer exists
+and the channel exists. What is missing is the **read** side, which that
+paragraph does not mention.
+
+### F11 · The reference's `erode()` op is ported at kernel level and never assembled
+
+Reference line 3894: `erode()` is `dropletKernel(...)` → `erodeFinish` →
+`erodeThermal(p.thermalPasses)` → clamp → `isostaticRebound`.
+
+`cartalith-erosion` has all three, with golden-parity coverage
+(`golden_parity_droplet`, `_thermal`, `_rebound` — `CPU_MULTITHREADING_SCOPE.md`
+line 399 names them). `cartalith-engine` imports **`isostatic_rebound` only**
+(`lib.rs:125`); `droplet_kernel` and `erode_thermal` appear nowhere outside
+their own crate and its tests, and no `droplets` / `thermal_passes` parameter
+exists on `WorldParams`.
+
+No document discloses this as deferred. `ARCHITECTURE.md:39` lists the crate as
+*"droplet, stream-power, thermal"* without qualification. This is the largest
+single item the audit found: a named generation op the HTML app has, ported,
+tested, and unreachable.
+
+### F12 · The Journey Planner's wildlife modifier is switched off on worlds that have wildlife
+
+`jp_compute` passes `&|_, _| 1.0` as the forage modifier, over a comment
+reading *"the reference's own answer on a world whose wildlife layer was never
+built"* (`lib.rs:8790`).
+
+That comment is stale. `cartalith-civ/src/wildlife.rs` exists, is
+golden-tested (`golden_parity_wildlife.rs`), carries `Ecoregion::richness` and
+`Ecoregions::region_id`, and `wildlife_region_at` is a live `#[func]` the shell
+already calls. `jp_world_mean_richness` and `jp_wildlife_forage_mod` — the two
+functions that turn exactly those two fields into the modifier — are ported,
+tested, and called by nothing.
+
+Not a one-line fix, and the audit should say so: `sample_bridge::
+wildlife_regions` rebuilds the cart-biome, NPP, TRI and lithology fields, and
+`jp_compute` runs on every party-form keystroke. It needs a cache before it
+needs a call site.
+
+### F13 · Reference features ported, exposed nowhere
+
+Each verified individually: zero references in `cartalith-godot` and zero in
+`godot-project/**.gd`.
+
+| function | what it is |
+|---|---|
+| `extract_region_as_world` (`region_export.rs:277`) | a selected region promoted to its own world |
+| `apply_force_lake` (`civ/lib.rs:715`) | the force-lake post-pass |
+| `estimate_regional_density_km2` (`civ/lib.rs:1020`) | real regional population density, additive to carrying capacity |
+| `icon_brush_rule` / `icon_brush_stamp` (`assets/manual.rs:189/211`) | the icon brush |
+| `jp_pack_range` (`civ/lib.rs:13657`) | **the v1.48 fix itself** — the fodder ceiling stated *before* the user configures past it. Without it the port reproduces the pre-v1.48 behaviour the reference wrote this function to end |
+| `jp_risk` (`civ/lib.rs:13725`) | the campaign-duration advisory |
+| `jp_vessel_matrix` (`civ/lib.rs:8470`) | every vessel × every water type — *"what is actually fast HERE"* |
+| `arc_label_line_width` (`civ/labels.rs:194`) | arc-label line width |
+| `to_library_json` / `drop_collection` / `apply_library_file_with_items` / `referenced_files` / `slot_paths` / `filled_count` (`cartalith-assets`) | asset-library operations |
+| `build_tide_field` / `refresh_geoid` | **probably benign** — `compute_tide_field` and `current_geoid_preview` are the wired siblings; listed for completeness, not as findings |
+
+### F14 · Low severity, but real
+
+* **Three getters nothing reads.** `get_villages_enabled`,
+  `get_metropolis_enabled`, `get_recovery_phase` are registered; the setters
+  are wired and the shell keeps its own copy of each toggle. Nothing
+  re-reads engine state, so shell and engine can disagree after a load — the
+  same shape as the bug `route_get`'s `mode` had until 2026-08-26.
+* **`lod_max_level` is never read.** The shell calls `lod_level_for_zoom` and
+  `lod_tiles_per_axis` but nothing clamps a requested level against the
+  engine's own ceiling.
+* **Ten `engine_bridge.gd` wrappers nothing calls**, including
+  `missing_bindings` (the diagnostic that would have surfaced F9 and F10 in
+  the UI), `param_groups` / `param_default`, `vault_read_file`,
+  `label_glyph_layout`, `civ_has_faction_colors`,
+  `get_biome_k_enabled` / `set_biome_k_enabled`, `heightmap_grid_size`,
+  `sculpt_stroke_point_count`.
+
+### Classified as **not** gaps
+
+Read and dismissed, so a sixth pass does not re-litigate them:
+
+* **Superseded wrappers, kept deliberately:** `place_settlements` (→
+  `_with_water_edge_snap`, and its own comment says it is *"kept as an exact,
+  unchanged"* original), `name_and_populate_settlements` (→ `_with_rng`),
+  `jp_plan` (→ `jp_plan_full`), `jp_capacity` (→ `jp_capacity_ex`),
+  `jp_calc_water` (→ `jp_calc_water_ex`), `build_road_network` (→
+  `civ_hierarchical_network_topology`).
+* **Disclosed deliberate non-use:** `civ_zoom_pick_r` — `lib.rs:5903` states
+  in full why the bridge uses `civ_place_pick_radius` without zoom scaling.
+* **Accessor surface on data structures:** all 18 in `cartalith-spatial`
+  (`row_mut`, `tile_mut`, `is_dirty`, `query_region`, …), both in
+  `cartalith-io`, `clip_convex`, `with_sea_level`, `unpack_rgb8`.
+* **GPU variants behind a feature/probe path:** all 9 in `cartalith-gpu`.
+
+### What this pass changed
+
+Nothing in the crates. It added the harness and this section. Every finding
+above is a decision for the owner about what to build next, and F10 in
+particular is a decision about **what to build first** — the document reader,
+before anything writes documents.
+
+### What a sixth pass should do differently
+
+1. **Re-run the harness before reading anything.** It took under a second and
+   found in one pass what four reading passes found one at a time.
+2. **Make question C a red test.** It is the only one of the four that is
+   legitimately zero, and it is the class that has actually shipped broken.
+3. **Do not turn A or B into tests without an allowlist**, and do not write
+   the allowlist — 60-odd entries is a second place for the truth to rot.
+   A hit list a human triages is the right shape for these two.
+4. **F11 first among the build items.** It is a whole named op from the
+   reference, not a readout.
