@@ -20,11 +20,30 @@ class_name VaultWindow
 ## ## Every write here is explicit, and every write is previewed
 ##
 ## §17: *"Reading can be automatic/on-demand. Writing cannot."* There are
-## exactly three write buttons in this file, each behind a preview whose hash
+## exactly four write buttons in this file, each behind a preview whose hash
 ## is handed back to the write — so a note edited in the user's own editor
 ## between the preview and the confirmation refuses instead of overwriting.
 ## The engine enforces that; this window's job is to never offer a write
 ## without having shown what it would do.
+##
+## ## "Confirm always" suppresses the dialog and never the guard
+##
+## The owner's 2026-08-25 direction ends *"the prompt should have an option to
+## confirm always"*, and `_preview_dialog` carries it: a ticked checkbox sets
+## one of `vault_write_prefs()`' three flags, and a set flag means the next
+## write of that kind runs without stopping to ask. It does **not** mean the
+## next write runs unchecked. Every caller still computes its `vault_preview_*`
+## first and still hands that preview's `hash` to the write, because the hash
+## *is* the guard — see `_preview_dialog`'s own comment for why the preview
+## call could not be moved inside the dialog even if it looked tidier there.
+##
+## ## Search (§9, the same 2026-08-25 message's first sentence)
+##
+## `_build_search` is the panel half of `vault_search`. It reports what the
+## engine actually did rather than only what it found: content search runs off
+## the backlink index, so with no index only *names* were looked at, and
+## answering that with a bare "no results" would be telling the user their
+## vault does not contain a word nobody searched for.
 ##
 ## ## What is deliberately not here
 ##
@@ -52,9 +71,24 @@ var _reader_edit: TextEdit
 ## The New-note-from-a-template picker's current template (VA-02).
 var _pick_template := ""
 
-## The attach form's current pick.
+## The attach form's current pick, and whether its "what does this note say?"
+## readout is open. Closed by default because opening it opens the file: §31's
+## rule is that browsing never reads, so a per-rebuild disk read has to be
+## something the user asked for.
 var _pick_file := ""
 var _pick_heading := ""
+var _pick_data := false
+
+## The vault search. `_search_result` is the last `vault_search` answer held
+## verbatim — `indexed`/`scanned`/`truncated` included, because the panel has
+## to report those and not only `hits`.
+var _search_query := ""
+var _search_result := {}
+var _search_box: VBoxContainer
+var _search_open_rel := ""
+
+## Whether the device-local write preferences have been pulled off disk yet.
+var _prefs_loaded := false
 
 ## The Cartalith-feedback checkbox set (§20), by export-field key.
 var _selected_fields := {}
@@ -76,6 +110,7 @@ signal store_changed
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
+	_load_prefs_once()
 	title = "Markdown vault"
 	size = Vector2i(560, 720)
 	min_size = Vector2i(380, 460)
@@ -113,6 +148,7 @@ func open_for(kind: String, entity_id: int, label: String) -> void:
 	_reader_link = ""
 	_pick_file = ""
 	_pick_heading = ""
+	_pick_data = false
 	_selected_fields = {}
 	_rebuild()
 	if not DccWidgets.phone_present(self, app):
@@ -129,6 +165,9 @@ func _clear() -> void:
 		_body.remove_child(c)
 		c.queue_free()
 	_reader_edit = null
+	## Nulled, not left dangling: `_fill_search_results()` can be reached from a
+	## callback that outlives the rebuild that freed the box it was writing into.
+	_search_box = null
 
 
 func _rebuild() -> void:
@@ -139,9 +178,15 @@ func _rebuild() -> void:
 		_phone_title.text = (_entity_label if scoped else "Markdown vault").to_upper()
 
 	var info := bridge.vault_info()
+	var bound := bool(info.get("bound", false))
 	_build_connection(info)
+	## Search sits directly under the connection and above everything else in
+	## both modes: the owner's sentence starts with finding the note, and in the
+	## scoped view "find it, then attach it" is the order the two acts happen in.
+	if bound:
+		_build_search()
 	if scoped:
-		if bool(info.get("bound", false)):
+		if bound:
 			_build_create()
 			_build_attach()
 		_build_links()
@@ -150,6 +195,7 @@ func _rebuild() -> void:
 			_build_feedback()
 	else:
 		_build_overview()
+	_build_write_prefs()
 	_build_footer()
 	if _phone:
 		app.phone_fit(self, 1.0)
@@ -189,6 +235,182 @@ func _browse_vault() -> void:
 			else:
 				store_changed.emit()
 			_rebuild())
+
+
+# -- Searching (§9, the owner's 2026-08-25 direction) ----------------------
+
+## The search field, and the three numbers beside the results that stop it
+## lying.
+##
+## `vault_search` answers `{indexed, scanned, truncated, hits}`, and only
+## `hits` is the part a naive panel would draw. The other three are the
+## difference between "your vault does not contain that" and "nobody looked":
+##
+## - **`indexed` false** means the backlink index has never been built, so the
+##   engine matched *names only*. An empty answer there is not an answer, and
+##   the panel says so and offers the one press that fixes it.
+## - **`scanned`** is how many notes were actually opened to confirm a content
+##   match. It is the cost the user paid, and it is also the honest bound on
+##   the search: notes past it were never looked at.
+## - **`truncated`** means a cap cut the answer short. A capped search that
+##   presents itself as complete is worse than one that admits it stopped.
+##
+## The results live in their own container, refilled in place. A `_rebuild()`
+## per keystroke would be the obvious wiring and is the wrong one — it frees
+## the `LineEdit` being typed into and takes the caret with it.
+func _build_search() -> void:
+	var sec := DccWidgets.section(_body, "Find a note")
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(row)
+	var field := LineEdit.new()
+	field.placeholder_text = "a note's name, or a word inside one"
+	field.text = _search_query
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(field)
+	## Typing records the query and searches nothing; Enter or the button runs
+	## it. §31 forbids walking the vault casually, and a search-as-you-type
+	## field would open up to `max_reads` files on every letter.
+	field.text_changed.connect(func(t: String): _search_query = t)
+	field.text_submitted.connect(func(t: String):
+		_search_query = t
+		_run_search())
+	row.add_child(field)
+	var go := DccWidgets.action(row, "Search", _run_search)
+	go.tooltip_text = "Names always. The text inside notes only once the content index has been built — which is the one thing in this window that reads the whole vault, and which the results below offer when it is missing."
+
+	_search_box = VBoxContainer.new()
+	_search_box.add_theme_constant_override("separation", 2)
+	_search_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(_search_box)
+	_fill_search_results()
+
+
+func _run_search() -> void:
+	var q := _search_query.strip_edges()
+	_search_open_rel = ""
+	_search_result = {} if q == "" else bridge.vault_search(q, 0, 0)
+	_fill_search_results()
+
+
+func _fill_search_results() -> void:
+	if _search_box == null or not is_instance_valid(_search_box):
+		return
+	for c in _search_box.get_children():
+		_search_box.remove_child(c)
+		c.queue_free()
+
+	if _search_result.is_empty():
+		DccWidgets.note(_search_box, "Nothing searched yet. Type a note's name, or — once the content index exists — a word from inside one, and press Enter.")
+		_fit_search_box()
+		return
+	if not bool(_search_result.get("ok", false)):
+		DccWidgets.note(_search_box, "Search: %s" % String(_search_result.get("error", "refused")))
+		_fit_search_box()
+		return
+
+	var hits: Array = _search_result.get("hits", [])
+	var indexed := bool(_search_result.get("indexed", false))
+	var scanned := int(_search_result.get("scanned", 0))
+	var truncated := bool(_search_result.get("truncated", false))
+	## The engine's other silent narrowing, and the only one that is not in the
+	## answer: under three characters it matches names and stops, because
+	## confirming a two-letter query means opening the whole vault. A `scanned`
+	## of 0 has to be explained by *something*, and this is the explanation the
+	## user can act on.
+	var short_query := _search_query.strip_edges().length() < 3
+
+	if not indexed:
+		DccWidgets.note(_search_box, "Names only — this vault has no content index, so the inside of a note was not looked at. %s" % (
+			"Nothing here has that in its name." if hits.is_empty() else "There may be more inside the notes."))
+		var build := DccWidgets.action(_search_box, "Build the content index, then search again", func():
+			## `_refresh_index()` rebuilds the whole panel, which frees the box
+			## this button lives in — so the re-search runs after it, against
+			## the new one, and the query survives because it is window state
+			## rather than the field's.
+			_refresh_index()
+			if _search_query.strip_edges() != "":
+				_run_search())
+		build.tooltip_text = "Reads every note in the vault once and keeps its size, modified time, links and a word fingerprint — never the prose. After that a refresh only re-opens the files that changed."
+	elif short_query:
+		DccWidgets.note(_search_box, "Names only — a query under three characters is not confirmed against the text of a note, because doing that means opening every one of them. %s" % [
+			"Nothing has that in its name." if hits.is_empty() else "Add a letter to search inside the notes too."])
+	elif hits.is_empty():
+		DccWidgets.note(_search_box, "No match, in any note's name or in the %d note%s opened to check." % [scanned, "" if scanned == 1 else "s"])
+	else:
+		DccWidgets.note(_search_box, "%d match%s · %d note%s opened to confirm a match in the text." % [
+			hits.size(), "" if hits.size() == 1 else "es", scanned, "" if scanned == 1 else "s"])
+	if truncated:
+		DccWidgets.note(_search_box, "%s Cut short by the cap: there are more matches, and notes past the scan limit were never opened. Narrow the query rather than reading this as the whole answer." % DccIcons.SYMBOLS["warn_tri"])
+
+	for h in hits:
+		var d: Dictionary = h
+		var rel := String(d.get("rel", ""))
+		var in_name := bool(d.get("in_name", false))
+		## The shell's own two marks for a row that opens — `group()` uses the
+		## first, every menu the second. Not a new glyph pair.
+		var mark: String = DccIcons.SYMBOLS["caret"] if _search_open_rel == rel \
+			else DccIcons.SYMBOLS["expand"]
+		var open := DccWidgets.action(_search_box, "%s %s" % [mark, rel], func():
+			_search_open_rel = "" if _search_open_rel == rel else rel
+			_fill_search_results())
+		open.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		open.tooltip_text = "Shows what this note holds — its frontmatter and its filled-in fields — without attaching anything."
+		## `in_name` is the certain half: a name hit cost no read at all, a text
+		## hit was confirmed by opening the file. Saying which is not decoration
+		## — it is the difference between a match the engine is sure of and one
+		## it narrowed to.
+		var excerpt := String(d.get("excerpt", ""))
+		DccWidgets.note(_search_box, "    %s%s" % [
+			"in the name" if in_name else "in the text", "" if excerpt == "" else " · " + excerpt])
+		if _search_open_rel == rel:
+			var g := DccWidgets.group(_search_box, "what this note holds", true)
+			_build_note_data(g, bridge.vault_file_data(rel),
+				"No frontmatter and no filled-in template fields — this note is prose, which Cartalith reads and does not model.")
+			if _kind != "":
+				var use := DccWidgets.action(g, "Attach this one to %s…" % _entity_label, func():
+					_pick_file = rel
+					_pick_heading = ""
+					_pick_data = false
+					_rebuild())
+				use.tooltip_text = "Selects it in Attach a note below, where the section and the attach itself are still yours to confirm. Nothing is attached by this button."
+	_fit_search_box()
+
+
+## The results are built after `_rebuild()` has already run `phone_fit` over the
+## window, so the walk has to be repeated on the new subtree or every row in it
+## lands below §13's 44 dp floor. Cheap: `phone_fit` marks what it has visited.
+func _fit_search_box() -> void:
+	if _phone and _search_box != null and is_instance_valid(_search_box):
+		app.phone_fit(_search_box, 1.0)
+
+
+# -- What a note holds (`vault_file_data` / `vault_link_data`) --------------
+
+## The two maps, drawn as two lists and never merged.
+##
+## `type: town` in the frontmatter and `**Type:** City` in the body are two
+## authoring surfaces that can legitimately disagree, and merging them needs a
+## precedence rule nobody asked for. Cartalith shows both and says which is
+## which; deciding between them is the author's.
+func _build_note_data(parent: Control, data: Dictionary, empty_note: String) -> void:
+	if not bool(data.get("ok", false)):
+		DccWidgets.note(parent, "Could not read this note: %s" % String(data.get("error", "")))
+		return
+	var frontmatter: Dictionary = data.get("frontmatter", {})
+	var fields: Dictionary = data.get("fields", {})
+	if frontmatter.is_empty() and fields.is_empty():
+		DccWidgets.note(parent, empty_note)
+		return
+	if not frontmatter.is_empty():
+		DccWidgets.note(parent, "Frontmatter")
+		for k in frontmatter:
+			DccWidgets.note(parent, "    %s: %s" % [String(k), String(frontmatter[k])])
+	if not fields.is_empty():
+		DccWidgets.note(parent, "Fields the author filled in")
+		for k in fields:
+			DccWidgets.note(parent, "    %s: %s" % [String(k), String(fields[k])])
 
 
 # -- Creating a note (§16/§17, `GUI_GAP_REGISTER.md` VA-02) -----------------
@@ -281,8 +503,22 @@ func _build_attach() -> void:
 		func(i: int):
 			_pick_file = files[i]
 			_pick_heading = ""
+			_pick_data = false
 			_rebuild(),
 		"Listed lazily and capped — the vault is never fully read into memory.")
+
+	## §17's reading half, at the one moment it is worth the read: what this
+	## note actually holds, *before* the user commits to attaching it. Opened by
+	## request rather than drawn always, because `vault_file_data` opens the
+	## file and this section is rebuilt on every pick change.
+	if _pick_data:
+		var g := DccWidgets.group(sec, "what %s holds" % _pick_file.get_file(), true)
+		_build_note_data(g, bridge.vault_file_data(_pick_file),
+			"No frontmatter and no filled-in template fields. Attaching still copies the prose — this readout is about the parts a program can read back.")
+	else:
+		DccWidgets.text_button(sec, "What does this note hold?", func():
+			_pick_data = true
+			_rebuild())
 
 	## §11's own priority order: whole document first, then a heading section.
 	var headings := bridge.vault_file_headings(_pick_file)
@@ -352,6 +588,33 @@ func _build_links() -> void:
 			store_changed.emit()
 			_rebuild())
 		detach.tooltip_text = "Removes the link. The Markdown file is not touched — including any Cartalith block already written into it, which stays until you remove it explicitly."
+	_build_entity_data(sec)
+
+
+## The owner's sentence read back: *"The information then gets copied to a
+## json."* This is where that copy comes out.
+##
+## It reads the copy and never the disk, which is the whole reason copying was
+## worth doing — it still answers with the vault on a drive that is not plugged
+## in (§27's Unbound). Two consequences worth stating rather than discovering:
+##
+## - **Not deduplicated.** Two notes on one settlement may disagree, so every
+##   row carries the note it came from and the disagreement stays visible and
+##   attributable instead of being silently resolved.
+## - **Empty for a link made before 2026-08-25.** *Reload source* fills it. The
+##   engine defaults the field rather than bumping a format version, so an old
+##   sidecar loads and simply has nothing here yet.
+func _build_entity_data(sec: Control) -> void:
+	var rows := bridge.vault_entity_data(_kind, _entity_id)
+	if rows.is_empty():
+		return
+	var g := DccWidgets.group(sec, "what the notes say", false)
+	DccWidgets.note(g, "Copied out of the attached notes when each was attached or last reloaded, and readable with the vault disconnected. Cartalith holds this; it does not act on it — nothing here sets a population or a name in the world.")
+	for r in rows:
+		var d: Dictionary = r
+		DccWidgets.note(g, "    %s: %s    (%s · %s)" % [
+			String(d.get("key", "")), String(d.get("value", "")),
+			String(d.get("origin", "")), String(d.get("rel", ""))])
 
 
 # -- Reader / working copy (§29) -------------------------------------------
@@ -383,6 +646,13 @@ func _build_reader() -> void:
 		_confirm_section_write(), true)
 	write.tooltip_text = "§15's one write-back path: replaces only this section, previewed first, and refuses outright if the file changed since the preview."
 
+	## The per-link view of the same copy `_build_entity_data` shows for the
+	## whole entity. Memory only — `vault_link_data` reads the link, not the
+	## file — so unlike the attach readout this one costs nothing to draw.
+	var g := DccWidgets.group(sec, "what this note holds", false)
+	_build_note_data(g, bridge.vault_link_data(_reader_link),
+		"Nothing structured was copied from this note. Either it has no frontmatter and no filled-in fields, or the link predates Cartalith copying them — Reload source above fills it in that case.")
+
 
 ## §16's seven steps, as one dialog: preview, then an explicit confirmation
 ## carrying the hash the preview was computed from.
@@ -400,7 +670,8 @@ func _confirm_section_write() -> void:
 				store_changed.emit()
 			else:
 				app.set_status("hint", "Write refused: %s" % String(r.get("error", "")), "accent")
-			_rebuild())
+			_rebuild(),
+		"section")
 
 
 # -- Cartalith feedback (§18-§20, §23) -------------------------------------
@@ -433,6 +704,9 @@ func _build_feedback() -> void:
 
 	var fill := DccWidgets.action(sec, "Fill the note's own fields…", _confirm_field_fill)
 	fill.tooltip_text = "The owner's 2026-08-18 amendment: Cartalith may also populate the author's own template fields (Type, Location, Size / Population). A field you have already filled is never overwritten — it is reported as skipped."
+
+	var remove := DccWidgets.action(sec, "Remove the Cartalith block…", _confirm_block_remove)
+	remove.tooltip_text = "Takes the block back out of the note, leaving every other byte alone. Previewed and confirmed like a write, because it is one — and it is the only act here that never learns to stop asking."
 
 
 func _selected_keys() -> PackedStringArray:
@@ -470,7 +744,8 @@ func _confirm_block_write() -> void:
 				app.set_status("hint", "Cartalith block %s." % String(r.get("action", "written")), "text_ghost")
 			else:
 				app.set_status("hint", "Write refused: %s" % String(r.get("error", "")), "accent")
-			_rebuild())
+			_rebuild(),
+		"block")
 
 
 func _confirm_field_fill() -> void:
@@ -496,15 +771,125 @@ func _confirm_field_fill() -> void:
 				app.set_status("hint", "Template fields filled.", "text_ghost")
 			else:
 				app.set_status("hint", "Write refused: %s" % String(r.get("error", "")), "accent")
-			_rebuild())
+			_rebuild(),
+		"field_fill")
+
+
+## §32's "stale Cartalith block": the block taken back out of the note.
+##
+## The same preview-then-confirm treatment as every write here, because it is
+## equally destructive — it edits the author's file — and two simplifications
+## that are worth stating rather than hiding:
+##
+## 1. **There is no `vault_preview_block_remove`.** The hash a removal needs is
+##    the note's content hash as it is right now, which is exactly what
+##    `vault_preview_block` returns: both compute it from the bytes they just
+##    read, in the same way. So the write preview is called for its `hash` and
+##    its `action`, and `action == "inserted"` — no block for this entity in
+##    that note — is the precondition check, at no extra read. The body handed
+##    to it is irrelevant to both, since a block is found by its entity key.
+## 2. **The span shown is located by this file**, from §23's public
+##    `<!-- CARTALITH:BEGIN entity="…" -->` / `<!-- CARTALITH:END -->` markers.
+##    Display only: the removal itself is the engine's own `block::remove`
+##    under the hash guard, so a mis-slice here can show the wrong text and
+##    cannot take out the wrong bytes. When the markers are not found the whole
+##    note is shown and the dialog says that is what happened, rather than
+##    presenting an empty pane as though there were nothing to remove.
+##
+## No "confirm always" checkbox, deliberately: `vault_set_write_pref` takes
+## three names and removal is not one of them, and a fourth flag is an engine
+## change. Given the act, always asking is also the right default.
+func _confirm_block_remove() -> void:
+	var rel := _link_path()
+	if rel == "":
+		return
+	var body := bridge.vault_block_body(_kind, _entity_id, _selected_keys())
+	var p := bridge.vault_preview_block(rel, _kind, _entity_id, body)
+	if not bool(p.get("ok", false)):
+		app.set_status("hint", "Preview: %s" % String(p.get("error", "")), "accent")
+		return
+	if String(p.get("action", "")) == "inserted":
+		app.set_status("hint", "%s holds no Cartalith block for %s — there is nothing to remove." % [rel, _entity_label], "text_ghost")
+		return
+	var text := bridge.vault_read_file(rel)
+	var span := _block_span(text, String(p.get("entity_key", "")))
+	_preview_dialog("Remove the Cartalith block",
+		span if span != "" else text,
+		("These are the bytes that will be removed. Everything else in %s is written back unchanged." % rel) if span != ""
+			else ("Cartalith could not locate the block's markers in %s to show them on their own, so the whole note is above. The removal itself is the engine's, and it takes out only the delimited block for %s." % [rel, _entity_label]),
+		func():
+			var r := bridge.vault_remove_block(rel, _kind, _entity_id, String(p.get("hash", "")))
+			if not bool(r.get("ok", false)):
+				app.set_status("hint", "Removal refused: %s" % String(r.get("error", "")), "accent")
+			elif bool(r.get("removed", false)):
+				app.set_status("hint", "Cartalith block removed from %s." % rel, "text_ghost")
+			else:
+				app.set_status("hint", "%s held no Cartalith block for %s." % [rel, _entity_label], "text_ghost")
+			_rebuild(),
+		"", "Remove from Markdown")
+
+
+## The block's own bytes, for the preview above. `""` when the markers are not
+## where this file expects them — which the caller reports rather than papers
+## over. Character offsets throughout, which is self-consistent: `find` and
+## `substr` are both in characters, so a note with non-ASCII prose above the
+## block still slices correctly even though the engine works in bytes.
+func _block_span(text: String, entity_key: String) -> String:
+	if entity_key == "":
+		return ""
+	var begin := text.find("<!-- CARTALITH:BEGIN entity=\"%s\"" % entity_key)
+	if begin < 0:
+		return ""
+	var end_marker := "<!-- CARTALITH:END -->"
+	var end := text.find(end_marker, begin)
+	if end < 0:
+		return ""
+	return text.substr(begin, end + end_marker.length() - begin)
 
 
 ## §23 rule 5 and §16 step 4-5, in one place so no write path can skip them.
-func _preview_dialog(dialog_title: String, preview: String, note: String, on_confirm: Callable) -> void:
+##
+## `pref_key` is the "confirm always" flag this dialog answers to — one of
+## `vault_write_prefs()`' three names, `"section"`, `"block"` or
+## `"field_fill"`. Passing one is what puts the checkbox on the dialog; passing
+## `""` means this act always asks.
+##
+## ## The preference suppresses the dialog. It does not suppress the guard.
+##
+## Every caller computes its `vault_preview_*` **before** reaching here and
+## closes over the `hash` that came back. That ordering is not tidiness: the
+## hash is the entire write guard, so the preview is not the dialog's to skip.
+## When the preference is set this function calls `on_confirm` straight
+## through — the same closure, carrying the same hash, computed from the file
+## as it was moments ago — and the engine still compares that hash against the
+## file it is about to write. A note edited in the user's own editor in between
+## refuses with "the file changed", whether or not anybody was asked.
+##
+## Written the other way round — the preview moved inside the `if` — a
+## preference would have turned a safety mechanism into a rubber stamp, which
+## is what `vault_write_prefs`' own doc comment warns a caller not to do.
+##
+## ## Two of the three flags sit against a line in the spec
+##
+## §24 asks the user to confirm a new block's *insertion location*, and §23's
+## own header calls field fill *"offered and explicitly confirmed, never
+## silent"*. Both are honoured here anyway, because the owner asked for the
+## option by name and because what makes each safe is engine-side and is not a
+## preference: the `expect_hash` comparison, and `FieldFill::OnlyIfEmpty`
+## refusing an occupied field whether or not anybody is watching.
+## `MARKDOWN_VAULT_SCOPE.md` milestone 6 records the same tension for the
+## engine half; it is written down here rather than left as a silent
+## contradiction in the UI half.
+func _preview_dialog(dialog_title: String, preview: String, note: String,
+		on_confirm: Callable, pref_key: String = "",
+		ok_text: String = "Write to Markdown") -> void:
+	if pref_key != "" and bool(bridge.vault_write_prefs().get(pref_key, false)):
+		on_confirm.call()
+		return
 	var dlg := ConfirmationDialog.new()
 	dlg.title = dialog_title
 	dlg.size = Vector2i(620, 620)
-	dlg.get_ok_button().text = "Write to Markdown"
+	dlg.get_ok_button().text = ok_text
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 6)
 	dlg.add_child(col)
@@ -515,12 +900,126 @@ func _preview_dialog(dialog_title: String, preview: String, note: String, on_con
 	te.custom_minimum_size.y = 460
 	te.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(te)
+	var always: CheckBox = null
+	if pref_key != "":
+		## The toggle carries no callback that does anything: its value is read
+		## once, on confirm, and never while the dialog is open. Ticking the box
+		## and then pressing Cancel must leave the preference exactly as it was
+		## — a user who backs out of *this* write has not agreed to stop being
+		## asked about the next one.
+		always = DccWidgets.toggle(col, "Don't ask again", false, func(_v: bool): pass,
+			"Stops the preview appearing for this kind of write. The check that refuses a note edited since the preview is not a preference and stays on — Cartalith will still show you this dialog again if you turn the option back off under Write confirmations.")
 	dlg.confirmed.connect(func():
+		if always != null and always.button_pressed:
+			bridge.vault_set_write_pref(pref_key, true)
+			_save_prefs()
 		on_confirm.call()
 		dlg.queue_free())
 	dlg.canceled.connect(dlg.queue_free)
 	app.add_child(dlg)
+	## The dialog is built outside `_rebuild()`, so the window's own phone pass
+	## has never seen it — the same reason `app.gd`'s credits dialog fits itself
+	## after `add_child`. Without this the checkbox row lands under §13's 44 dp
+	## floor on a handset.
+	##
+	## It reaches the dialog's *content* and not its button bar: `get_children()`
+	## skips internal children, and Write/Cancel are `AcceptDialog`'s own. That
+	## bar is `DccWidgets._floor_dialog_bar`'s job, which runs from
+	## `phone_window()` for this window and has never run for these preview
+	## dialogs — unchanged by this pass, and not verified on a handset here.
+	if _phone:
+		app.phone_fit(dlg, 1.0)
 	dlg.popup_centered()
+
+
+# -- "Confirm always", and where it is turned back off ----------------------
+
+const PREF_LABELS := {
+	"section": "Insert updated section",
+	"block": "Write Cartalith block",
+	"field_fill": "Fill the note's own fields",
+}
+
+## Device state, and the one place a preference can be switched back on.
+##
+## A "don't ask again" that can only ever be set is a trap: the checkbox is on
+## a dialog the preference itself has just stopped appearing. So the three
+## flags are listed wherever this window is open, folded, in both the scoped
+## and the overview modes.
+##
+## Three flags rather than one because replacing a section, regenerating the
+## machine-owned block and writing into the author's own template lines are
+## three different risks — a person may well never want to be asked about the
+## middle one and always want to be asked about the last.
+func _build_write_prefs() -> void:
+	var prefs := bridge.vault_write_prefs()
+	## Empty means an engine without the preference surface at all. Drawing
+	## three toggles that silently do nothing would be worse than drawing none.
+	if prefs.is_empty():
+		return
+	## Open when any confirmation is switched off, folded when all three are at
+	## their safe default. A disarmed prompt is a thing the user should be able
+	## to see without going looking; three unticked boxes are not.
+	var any_off := bool(prefs.get("section", false)) or bool(prefs.get("block", false)) \
+		or bool(prefs.get("field_fill", false))
+	var sec := DccWidgets.group(_body, "Write confirmations", any_off)
+	DccWidgets.note(sec, "Ticked means Cartalith stops showing the preview before that write. It does not stop checking: a note edited since Cartalith last read it still refuses, asked or not. These stay on this device — one person's \"stop asking me\" does not travel with a project.")
+	for key in ["section", "block", "field_fill"]:
+		DccWidgets.toggle(sec, String(PREF_LABELS[key]), bool(prefs.get(key, false)),
+			func(v: bool):
+				bridge.vault_set_write_pref(key, v)
+				_save_prefs(),
+			"Off is the default and the safe direction: every write of this kind is previewed and confirmed.")
+
+
+# -- The preferences on disk ------------------------------------------------
+
+## Beside the link store, never inside it — the same split the backlink index
+## already makes, and for the same reason §5 gives: the link store is portable
+## project data, and a person's "stop asking me" is not.
+##
+## **This file writes it, and `vault_store.gd` should.** `VaultStore` is where
+## every other piece of vault state reaches the disk, and the two belong
+## together; this pass does not own that file (four agents are in this
+## repository at once), so the sidecar lives here with the same discipline
+## rather than not existing. Moving it is a rename and two call sites.
+const PREFS_PATH := "user://markdown_vault_prefs.json"
+
+## The engine's own JSON string, **stored and restored verbatim**. Never parsed
+## into a Variant and re-emitted: Godot's `JSON` has one number type and it is
+## `float`, which is what discarded every knowledge link a user had made until
+## 2026-08-25 (`GUI_GAP_REGISTER.md` KV-04, and `vault_store.gd`'s own comment
+## on the same bug). Today's preferences are three booleans and would survive
+## that round trip — but the rule is about the habit, not about this payload,
+## and the next field added here would not survive it.
+func _load_prefs_once() -> void:
+	if _prefs_loaded:
+		return
+	_prefs_loaded = true
+	if not FileAccess.file_exists(PREFS_PATH):
+		return
+	var f := FileAccess.open(PREFS_PATH, FileAccess.READ)
+	if f == null:
+		return
+	var raw := f.get_as_text()
+	f.close()
+	## A refusal is deliberately silent and deliberately harmless: malformed
+	## JSON leaves the engine's defaults, which are *ask every time*. That is
+	## the direction a corrupt preferences file must fail in.
+	if raw.strip_edges() != "":
+		bridge.vault_restore_prefs(raw)
+
+
+func _save_prefs() -> void:
+	var json := bridge.vault_prefs_json()
+	if json == "":
+		return
+	var f := FileAccess.open(PREFS_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("Cartalith: could not write %s (%s)" % [PREFS_PATH, error_string(FileAccess.get_open_error())])
+		return
+	f.store_string(json)
+	f.close()
 
 
 # -- Overview ---------------------------------------------------------------
