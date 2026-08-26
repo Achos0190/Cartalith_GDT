@@ -107,6 +107,27 @@ pub enum LoadError {
     /// §8). Only fatal for the heightmap; every other raster is skipped
     /// with a warning (§6.4).
     RasterLength(String),
+    /// A numeric member is inside `SAVEFILE_COMPAT.md` §14.1's safe-integer
+    /// range but outside what this implementation can represent.
+    ///
+    /// Today that is `world.seed` alone: the format allows +/-(2^53 - 1),
+    /// this engine's RNG is seeded with an `i32`, and the read used to be a
+    /// bare `as i32` — which in Rust **saturates silently**. A conforming
+    /// archive with a large seed therefore loaded with a different seed, and
+    /// nothing said so. The terrain itself still came back correct (it is
+    /// restored from `rasters/heightmap.f32`, not regenerated), so the damage
+    /// was narrow and nasty: pressing Generate afterwards produced a world
+    /// that was not the one on screen, and `save_round_trip`'s own
+    /// "regenerate from restored parameters and assert bit-identical" promise
+    /// quietly stopped holding.
+    ///
+    /// Refusing is the honest answer. §6.4a's damage ladder puts a value with
+    /// no representable meaning at the archive level when the value decides
+    /// what every later regeneration produces.
+    OutOfRange {
+        field: &'static str,
+        value: f64,
+    },
 }
 
 impl std::fmt::Display for LoadError {
@@ -124,6 +145,10 @@ impl std::fmt::Display for LoadError {
                 write!(f, "project.json says format \"{found}\"; this is not a Cartalith project")
             }
             LoadError::RasterLength(message) => write!(f, "{message}"),
+            LoadError::OutOfRange { field, value } => write!(
+                f,
+                "{field} is {value}, which this build cannot represent \n(the format allows the full safe-integer range; this engine seeds with a 32-bit value)"
+            ),
         }
     }
 }

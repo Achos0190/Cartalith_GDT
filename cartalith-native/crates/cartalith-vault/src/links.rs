@@ -111,11 +111,42 @@ pub fn entity_key(kind: EntityKind, id: i64) -> String {
 /// owner's clarification put out of core. V1 ships the two selections §11
 /// itself prioritises and says so, rather than shipping a `TextRange` that
 /// silently points at the wrong paragraph after one edit.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Selection {
     WholeDocument,
     Heading { value: String },
+}
+
+/// `SAVEFILE_COMPAT.md` §13.3.6: *"An unrecognised `type` MUST be read as
+/// `whole_document` and reported. It MUST NOT cost the link, and it MUST NOT
+/// cost the document."*
+///
+/// The derived `Deserialize` did the opposite. A `selection` shape a newer
+/// writer added made this one link fail, which made `LinkStore::from_json`
+/// fail, which made `project_open`'s `if let Ok(store)` skip the vault
+/// entirely — **every link in the project discarded to protect against one
+/// narrower selection than this build expected.** That is `GUI_GAP_REGISTER.md`
+/// KV-04's failure shape exactly, one layer up: a whole knowledge layer lost
+/// silently, on open, with `ok == true`.
+///
+/// Written by hand rather than with `#[serde(other)]` for one reason: `other`
+/// needs a third variant, and a third variant would be re-serialised on the
+/// next save as its own name, writing a selection type no reader knows. Folding
+/// straight onto `WholeDocument` means what this build read is exactly what it
+/// writes back — which is the honest record of what it understood.
+impl<'de> Deserialize<'de> for Selection {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("heading") => Ok(Selection::Heading {
+                // A `heading` with no `value` is a heading selecting nothing,
+                // which resolves to nothing — not a reason to lose the link.
+                value: v.get("value").and_then(|x| x.as_str()).unwrap_or_default().to_string(),
+            }),
+            _ => Ok(Selection::WholeDocument),
+        }
+    }
 }
 
 impl Selection {
@@ -579,5 +610,45 @@ mod tests {
         }
         assert_eq!(EntityKind::parse("poi"), None, "POI is not a ported concept");
         assert_eq!(entity_key(EntityKind::Continent, 2), "continent:2");
+    }
+    /// `SAVEFILE_COMPAT.md` §13.3.6, and the reason it is a MUST.
+    ///
+    /// Before 2026-08-26 an unrecognised `selection.type` failed that link,
+    /// which failed `from_json`, which made `project_open`'s `if let Ok(..)`
+    /// skip the vault entirely. One selection shape from a newer writer cost
+    /// **every link in the project**, silently, on open. KV-04's exact shape
+    /// one layer up.
+    #[test]
+    fn an_unrecognised_selection_costs_neither_the_link_nor_the_store() {
+        let json = r#"{"version":1,"vaults":[],"links":[
+            {"link_id":"a","vault_id":"v","relative_path":"a.md","entity_kind":"settlement",
+             "entity_id":1,"entity_label":"Nareth","selection":{"type":"whole_document"}},
+            {"link_id":"b","vault_id":"v","relative_path":"b.md","entity_kind":"settlement",
+             "entity_id":2,"entity_label":"Eldra","selection":{"type":"text_range","from":10,"to":20}},
+            {"link_id":"c","vault_id":"v","relative_path":"c.md","entity_kind":"settlement",
+             "entity_id":3,"entity_label":"Farsahspan","selection":{"type":"heading","value":"History"}}
+        ]}"#;
+        let store = LinkStore::from_json(json).expect("a newer writer's selection must not fail the store");
+        assert_eq!(store.links.len(), 3, "every link survives, including the unrecognised one");
+        // The unrecognised one is READ AS whole_document, per §13.3.6 -- not
+        // dropped, and not guessed into a heading.
+        assert_eq!(store.links[1].selection, Selection::WholeDocument);
+        // The two this build does know are untouched.
+        assert_eq!(store.links[0].selection, Selection::WholeDocument);
+        assert_eq!(store.links[2].selection, Selection::Heading { value: "History".to_string() });
+
+        // And what it writes back is what it understood -- no invented type
+        // string escapes into a file another reader has to cope with.
+        let round = LinkStore::from_json(&store.to_json()).expect("re-reads");
+        assert_eq!(round.links.len(), 3);
+        assert!(!store.to_json().contains("text_range"), "the shape we could not read is not echoed back");
+
+        // A `heading` missing its value is a heading selecting nothing, which
+        // resolves to nothing -- still not a reason to lose the link.
+        let partial = r#"{"version":1,"vaults":[],"links":[
+            {"link_id":"d","vault_id":"v","relative_path":"d.md","entity_kind":"faction",
+             "entity_id":1,"entity_label":"House Vare","selection":{"type":"heading"}}]}"#;
+        let store = LinkStore::from_json(partial).expect("still parses");
+        assert_eq!(store.links[0].selection, Selection::Heading { value: String::new() });
     }
 }

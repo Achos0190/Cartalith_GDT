@@ -11,7 +11,10 @@ note about what the HTML app's `exportZip()` happened to produce.
 - **§1-§3** — what changed, why, and the container.
 - **§4** — how a reader tells the two layouts apart. Read this before anything else.
 - **§5** — the tree, with the reasoning for every boundary.
-- **§6** — conformance: what MUST be written, what MAY be, minimal writer and reader.
+- **§6** — conformance: what MUST be written, what MAY be, minimal writer and
+  reader. **§6.4a is the damage ladder** — what a missing, mistyped or
+  out-of-range value costs, and it is what §7-§13 mean whenever they call
+  something damaged.
 - **§7-§13** — entry-by-entry specification.
 - **§14** — JSON conventions. **Non-optional reading**; §14.2 describes a bug
   that has already cost this project one shipped subsystem.
@@ -61,6 +64,35 @@ the express purpose of handing a file to an unmodified pre-upgrade
 `Cartalith Gen1` build. That is an export path, not a save path: it is lossy
 by construction (it can carry no part of §9-§13), and it MUST be presented to
 the user as an export rather than as saving their project.
+
+### 1.2 What the first independent implementation found, 2026-08-26
+
+The claim at the top of this document — implementable from this text alone —
+was tested rather than asserted: a second implementation of the *reader* was
+built in the HTML app from this specification, without access to the port's
+code. It mostly worked. Every place it could not is a defect in this document,
+and each one is fixed in place rather than appended:
+
+| Where | What was wrong |
+|---|---|
+| §6.4a, §7 | §7's blanket "refuse if any MUST member is missing" and §6.4's much narrower list contradicted each other, with no rule for the gap between them. Now one damage ladder and a per-member table. |
+| §8.1, §15.2 | The flat layout's 16-bit height fallback was not documented anywhere. |
+| §8.1 | `territory.i32` is wider than the flat layout's own 8-bit store, with no stated obligation either way. |
+| §9.1 | `capital` and `suitability` were specified as though every implementation had them. |
+| §9.2 | `color` was described as derived from the faction index. It is not, and a reader that regenerated it recoloured the world. |
+| §9.4 | Provinces may legitimately be re-derived rather than stored; the spec read as though storing them were required. |
+| §10.2 | `<year>` had no grammar, so `+7`, `007` and `7` were all arguably the same entry. |
+| §11.3 | A zero-sized region marquee had no defined meaning; two implementations chose differently. |
+| §13.3 | **The worst of them.** "The link store, verbatim" was the whole specification of the format's outward-facing half — the half the owner most wants in the HTML app — and the implementer had to read this port's Rust to learn its shape. Now specified field by field. |
+| §14.4 | `sea_lane` collides with the flat layout's own `sea-lane` by punctuation alone, in the one application this format was written to be implemented in. |
+| §15.1 | This document asserted that a flat archive carries no entities, no history and no annotations. It carries all three, nested inside `params.json`. A reader that believed this sentence silently discarded every settlement, faction, road and label in the file. |
+
+The general lesson, recorded because it will apply again: **the sections that
+were thinnest were the ones furthest from this port's own code**. §8 and §14
+are exact because they were written while implementing them; §13.3 was a
+pointer at a Rust type, and §15's closing sentence was a guess nobody had
+checked against the reference. A specification's gaps are where its author
+already knew the answer.
 
 ---
 
@@ -371,6 +403,54 @@ Distinct from an unrecognised entry, and handled differently:
   the damaged entry, continue, and report what it skipped. A corrupt
   `annotations/labels.json` must not cost the user their world.
 
+Only the four bullets above can refuse an archive. Nothing in §7-§13 adds a
+fifth: those sections say what a *value* means, and a value that is missing,
+mistyped or out of range is resolved by §6.4a rather than by discarding the
+project.
+
+### 6.4a The damage ladder — decided 2026-08-26
+
+**The problem this decides.** The first independent implementation of this
+format read §7's closing sentence ("a reader MUST refuse the archive if any
+MUST member is missing or is not of the stated type") as the general rule and
+§6.4 as a special case of it. Read that way, a writer that forgets one boolean
+in `project.json` produces an archive no conforming reader will open, and a
+single out-of-range integer somewhere in `entities/settlements.json` has no
+stated cost at all. Both readings were available in the text, which means the
+text was wrong rather than the reader.
+
+**The decision: damage is contained at the smallest enclosing scope that still
+has a defined meaning, and it climbs only when there is none.** Four rungs,
+innermost first:
+
+1. **A value.** A member that is absent, of the wrong type, or outside
+   §14.1's range is *damaged*. If this section or §7-§13 states a
+   substitution for it, the reader MUST apply that substitution and report it.
+   §9.1's "clamp an out-of-range faction to `0`" and §9.1's "an unrecognised
+   `kind` MUST be read as `town`" are two of these.
+2. **An array element.** A damaged value with no stated substitution costs its
+   *element*, and nothing more: the reader MUST skip that element, keep the
+   rest of the array, and report the skip (§14.3). One settlement with a
+   corrupt `id` costs one settlement.
+3. **A document.** A damaged value with no stated substitution at the *top
+   level* of a document — not inside one of its arrays — costs that document:
+   the reader MUST skip the whole entry as §6.4's fourth bullet describes, and
+   report it. A `history/timeline.json` whose `years` member is a string
+   carries no recoverable snapshots.
+4. **The archive.** Only §6.4's own four bullets reach this rung.
+
+**Why containment rather than strictness.** A save file is the user's work.
+Refusing to open one is the most expensive thing a reader can do, and it is
+only justified where continuing would mean *inventing* the world rather than
+reporting a gap — which is exactly what `project.json` and the heightmap are,
+and exactly what a label, a road or a faction colour is not. The reciprocal
+obligation is that every substitution above is **reported**, never silent: a
+reader that repairs quietly trains the user to trust a file that has already
+lost something.
+
+`project.json` is governed by §7's own table, which now states the outcome for
+each member individually rather than by a blanket rule.
+
 ### 6.5 Documents an implementation does not model
 
 §5's slot list is longer than any one implementation's set of internal types,
@@ -464,8 +544,33 @@ the grid every raster is measured against.
 | `world.sea_level` | number in `[0,1]` | MUST | The **effective** threshold against the heightmap's own `[0,1]` range. A cell is land where `heightmap[i] >= sea_level`. If the generator re-anchored sea level from a world-structure archetype, this is the re-anchored value, not the user's input — the user's input belongs in `params.json`. |
 | `world.seed` | integer | MUST | The generation seed. Range: §14.1. |
 
-A reader MUST refuse the archive if any MUST member is missing or is not of
-the stated type.
+**What a reader does when a MUST member is missing or mistyped.** Each MUST
+above binds the *writer* unconditionally; the reader's obligation differs per
+member, because "refuse" is only right where continuing would mean inventing
+the world (§6.4a). `generator` and `created` are provenance and are never
+fatal — a reader ignores a missing or malformed one.
+
+| Member | Missing, mistyped, or out of §14.1's range |
+|---|---|
+| `format` | Refuse (§4). |
+| `format_version` | Refuse. Without it the reader cannot say which rules apply. |
+| `world.grid_width`, `world.grid_height` | Refuse. Zero or negative is refused too. No raster in the archive can be validated without them, so a wrong guess reads every grid at the wrong stride. |
+| `world.map_width_km` | Refuse. Every distance, gradient and `length_km` in the archive is measured against it; substituting a default silently rescales the world. |
+| `world.sea_level` | Refuse. It is the coastline. A default would silently redraw it. |
+| `world.seed` | Refuse. It is what makes the world regenerable, and a substituted seed produces a *different* world that claims to be this one. |
+| `world.wrap_x` | **Read as `false` and report it.** |
+
+`wrap_x` is the single exception, and the reason is worth stating rather than
+leaving as an oddity: it is the only member here whose absence has a defined
+reading that cannot corrupt anything invisibly. A wrapping world read as
+non-wrapping is wrong *at one visible seam*, which a person sees and can
+correct; a substituted sea level or map width is wrong everywhere, uniformly,
+and looks entirely plausible. Refusing an otherwise complete archive over one
+missing boolean costs the user their project to protect them from a visible
+defect — which is the wrong trade, and the trade §6.4a exists to stop making.
+
+A writer MUST still write `wrap_x`. The leniency is the reader's, and a reader
+that exercises it MUST say so.
 
 ---
 
@@ -522,6 +627,35 @@ world. A reader MUST compare the entry's uncompressed length against
 named so that no implementation invents a second location for them, not
 written by any implementation today (§16.4).
 
+**`territory.i32` is deliberately wider than any implementation needs, and one
+existing implementation is narrower than it.** A faction id per cell fits in a
+byte today — the flat layout's own territory store is 8-bit, so an archive
+converted from it can never carry an id above 255 — and the tree stores it as
+`i32` anyway, because the element width is part of the entry name and cannot be
+widened later without a new name and a `format_version` bump. Capping the
+world's faction count at 255 forever, to save three bytes per cell in a payload
+that compresses to nothing (§18.1: `strahler_order` is 28 KiB at 4096²), is not
+a trade worth making.
+
+The obligations that follow are the reader's:
+
+- Values MUST be `0` or a positive faction id. A **negative** value is damaged;
+  a reader MUST read it as `0` and report it (§6.4a rung 1).
+- A reader whose own territory store is narrower than 32 bits MUST NOT truncate
+  a value it cannot hold. It MUST report the raster as unreadable and continue
+  without territory — a truncated id is a cell silently reassigned to a
+  different faction, which is indistinguishable from the author having drawn it
+  that way.
+
+The same reasoning applies to `provinces.i32`.
+
+There is **no `rasters/heightmap_rg16.bin`**, and no other second copy of a
+raster in a different precision. The flat layout has one (§15) and it does not
+survive the mapping into the tree: it is a 16-bit *quantisation* of the same
+heightmap, so an archive holding both would hold two disagreeing elevations
+with no rule about which is authoritative, and §18.4 records quantisation as a
+lossy lever this format has deliberately not pulled.
+
 ---
 
 ## 9. `entities/` — the world's discrete things
@@ -574,10 +708,35 @@ for a settlement or a way; for a **faction** id `0` is meaningful and means
 | `settlements[].population` | integer ≥ 0 | MUST | |
 | `settlements[].faction` | integer ≥ 0 | MUST | Index into `entities/factions.json`. `0` = Unclaimed. A reader MUST clamp an out-of-range faction to `0` rather than drop the settlement. |
 | `settlements[].kind` | string | MUST | One of `metropolis`, `capital`, `city`, `town`, `village`, `hamlet`. An unrecognised value MUST be read as `town`, and reported. |
-| `settlements[].capital` | boolean | MUST | Whether this is its faction's seat. Independent of `kind`. |
-| `settlements[].coastal` | boolean | MUST | Whether the settlement is a port. Computed from its final position. |
-| `settlements[].suitability` | number `[0,1]` | SHOULD | The placement score. Display and diagnostics only. Absent: `0`. |
+| `settlements[].capital` | boolean | MUST | Whether this is its faction's seat. **Independent of `kind`** — see below. Absent: read as `kind == "capital"`. |
+| `settlements[].coastal` | boolean | MUST | Whether the settlement is a port. Computed from its final position. Absent: `false`, and a reader MAY recompute it from `x`/`y`, `heightmap` and `sea_level`. |
+| `settlements[].suitability` | number `[0,1]` | SHOULD | The placement score. Display and diagnostics only; nothing downstream may branch on it. Absent: `0`. |
 | `settlements[].village_seeded` | boolean | MAY | `true` if added by the optional village-seeding pass rather than by primary placement. Matters because villages are not road-network nodes: a network rebuild that fed them back in would restructure the world. Absent: `false`. |
+
+**`capital` and `kind` are two facts, and an implementation may hold only
+one.** `kind` is a *size tier*, `capital` is a *political role*, and they are
+independent in principle: a faction whose seat is a modest town has
+`kind: "town"` with `capital: true`, and a large world can hold several
+`kind: "metropolis"` settlements of which one is the seat. An implementation
+that has no separate role — that represents "is the seat" by putting `capital`
+in the tier vocabulary, as the flat layout's own settlement records do — is a
+legitimate reader of this format, and the round trip is defined in both
+directions:
+
+- **Reading**, with only `kind`: take `capital` as `kind == "capital"` when the
+  member is absent, and prefer the stored `capital` when it is present. A
+  stored `capital: false` on a `kind: "capital"` settlement is not a
+  contradiction to repair; it is a larger model saying something this reader
+  cannot represent, and it MUST NOT be overwritten on write-back (§14.3).
+- **Writing**, with only `kind`: write both members — `kind` as stored, and
+  `capital` as the boolean the tier implies. Omitting `capital` is permitted
+  by the fallback above but loses the distinction for every reader that has it.
+
+`suitability` likewise has no equivalent in every implementation. It is a
+diagnostic over generation inputs the archive deliberately does not store
+(§16.2), so a reader that never had one writes it absent rather than inventing
+a score, and a reader that reads `0` MUST treat that as "not recorded" rather
+than as "unsuitable site".
 | `settlements[].trade` | object | MAY | `exports` and `imports`, each an array of resource key strings. Unknown keys MUST be ignored. Absent: no trade profile. |
 | `settlements[].extras` | object | MAY | Author-editable fields with no generator equivalent. All members optional. `age` is an integer or `null` (`null` = infer from population). `walls` is a boolean or `null` (`null` = automatic). `traits` is an array of strings in insertion order; order is significant and MUST be preserved. |
 
@@ -606,8 +765,33 @@ MUST NOT allow index `0` to be removed.
 | `id` | integer ≥ 0 | MUST | Equals the array index. |
 | `name` | string | MUST | |
 | `culture`, `religion`, `government`, `ag_tech` | string | MUST | Vocabulary keys. An unrecognised key MUST be preserved on write-back and MAY be shown to the user as-is; a reader MUST NOT substitute a default silently. |
-| `color` | array of 3 integers `[0,255]` | MUST | The palette colour derived from the faction index. |
-| `user_color` | array of 3 integers, or `null` | MUST | The author's chosen identity colour, or `null` for "use the palette rule". A separate member rather than an overwrite of `color`, so that clearing the override restores the palette colour rather than losing it. |
+| `color` | array of 3 integers `[0,255]` | MUST | The faction's base palette colour, **as stored**. Not derivable — see below. |
+| `user_color` | array of 3 integers, or `null` | MUST | The author's chosen identity colour, or `null` for "use the stored `color`". A separate member rather than an overwrite of `color`, so that clearing the override restores the base colour rather than losing it. |
+
+**`color` is stored because it is not a function of the index.** An earlier
+revision of this document described it as "the palette colour derived from the
+faction index", which invited a reader to drop the member and regenerate it —
+and that is wrong. A real faction palette is a short hand-picked list followed
+by a generated tail: the first several colours are chosen by eye to be
+distinguishable and pleasant, and only indices past the end of that list fall
+back to a deterministic rule. Two implementations agree on the generated tail
+and will not agree on the hand-picked head unless one of them copies the
+other's literal table — so a reader that regenerates gets a *different colour
+for the same faction*, which is a change to how every territory boundary in
+the world reads.
+
+Therefore:
+
+- A writer MUST write `color` for every faction, including index `0`.
+- A reader MUST use the stored `color` and MUST NOT regenerate it from the
+  index, even when it has a palette rule of its own.
+- A reader that meets a faction with no `color` (an archive from a writer that
+  believed the earlier wording) MAY fill it from its own palette, and MUST
+  report that it did — the colour it produces is its own, not the author's.
+
+The palette rule an implementation applies **when creating a new faction** is
+that implementation's business and is not part of this format. The format's
+only claim about `color` is that whatever was chosen is written down.
 
 ### 9.3 `entities/ways.json`
 
@@ -663,6 +847,29 @@ not connect — a real, non-error outcome that the UI reports.
 `id` matches the values in `rasters/provinces.i32`. `capital_settlement_index`
 is an **index into `entities/settlements.json`'s array**, not a settlement id;
 a reader MUST drop a province whose index is out of range.
+
+**Provinces are the one entity an implementation may legitimately decline to
+read.** In some models a province is not authored at all: it is a partition
+re-derived on demand from territory and the settlements that seed it, which
+means a stored province is redundant the moment either changes, and an
+implementation that persisted one would be choosing between a stale answer and
+its own fresh one on every load. Such an implementation MAY ignore
+`entities/provinces.json` and `rasters/provinces.i32` entirely and rebuild both
+from `rasters/territory.i32` and `entities/settlements.json`.
+
+Two obligations remain if it does:
+
+- It MUST NOT delete what it did not read. §6.2 applies unchanged — a
+  re-deriving reader that writes the archive back either re-emits the stored
+  province document untouched or refuses to overwrite. A province carries a
+  `name`, and a name is authored data no derivation can reproduce.
+- It MUST NOT write a province document of its own derivation into an archive
+  whose provinces it ignored on the way in, which would replace the author's
+  names with generated ones.
+
+The slot exists so that an implementation which *does* author provinces has one
+home for them. Nothing in the format requires an implementation to have the
+concept.
 
 ### 9.5 `entities/continents.json`
 
@@ -742,10 +949,30 @@ number.
 ### 10.2 `history/territory/<year>.i32`
 
 One entry per recorded year that has a territory snapshot, where `<year>` is
-the decimal `year` value of the corresponding entry in `history/timeline.json`
-(negative years are written with a leading `-`). Content and validation are
-exactly §8's: `GW × GH` little-endian signed 32-bit integers, row-major, faction
-id per cell, `0` = unowned.
+the corresponding `year` value from `history/timeline.json`. Content and
+validation are exactly §8's: `GW × GH` little-endian signed 32-bit integers,
+row-major, faction id per cell, `0` = unowned.
+
+**`<year>` has exactly one spelling.** It is the year's *canonical decimal*
+form, and nothing else:
+
+```
+<year> ::= "0" | ["-"] ("1".."9") {"0".."9"}
+```
+
+That is: an optional leading `-` for a negative year, then digits with no
+leading zero, and `0` written as the single character `0`. A leading `+`, a
+leading zero (`007`), a decimal point, an exponent (`4.0e2`), a thousands
+separator and surrounding whitespace are all **invalid names**, and a reader
+MUST treat an invalid name as an unrecognised entry (§6.3) — ignore it, and
+report it.
+
+This is a rule about *names*, not about numbers, which is why §14.2's
+"`1`, `1.0` and `1e0` are the same value" does not reach it: an entry name is
+matched, not parsed, and two spellings of the same year are two entries
+claiming one snapshot with no rule about which wins. Requiring one spelling
+means the match is a string comparison in any language, and a year present in
+`timeline.json` maps to at most one entry.
 
 **Why this is not inside `timeline.json`.** A territory raster for a 512×512
 world is 262 144 values. As a JSON array that is roughly 600 kB of text per
@@ -812,7 +1039,21 @@ Array order is draw order.
 ```
 
 The current region-of-interest marquee, in whole cells, or `region: null` for
-none. A reader MUST clamp it to the grid rather than reject it.
+none. `x`/`y` is the top-left cell, `w`/`h` the extent in cells; the marquee
+covers the cells `x … x + w − 1` and `y … y + h − 1`.
+
+A reader MUST clamp it to the grid rather than reject it: `x` and `y` into
+`[0, GW − 1]` / `[0, GH − 1]`, then `w` and `h` down to what remains inside the
+grid from that corner. A marquee saved against a larger world is recoverable
+that way; rejecting it would lose a selection over an arithmetic detail.
+
+**A `w` or `h` of `0`, or negative, means no region.** After clamping, a reader
+MUST treat a marquee with `w < 1` or `h < 1` as though `region` were `null`,
+and MUST NOT widen it to a minimum of one cell. An empty marquee selects
+nothing, which is precisely what "no region" means, and inventing a one-cell
+selection the author never made would hand a subsequent crop or export a
+region of its own choosing. Writers SHOULD write `region: null` rather than a
+zero-sized rectangle.
 
 ---
 
@@ -876,18 +1117,237 @@ layered over whatever base the reader uses. Unknown keys are ignored (§14.3).
 
 ### 13.3 `vault.json` — links out to a Markdown vault
 
-The link store, verbatim: a record of which external Markdown notes are
-attached to which entities in this project. It is at the root rather than under
-`annotations/` because it points *outward*, at files the archive does not
-contain, which is a different kind of thing from a mark drawn on the map.
+A record of which external Markdown notes are attached to which entities in
+this project. It is at the root rather than under `annotations/` because it
+points *outward*, at files the archive does not contain, which is a different
+kind of thing from a mark drawn on the map.
 
-Every link names both the entity's id and the entity's **name at the time the
-link was made**. A reader MUST use the id first and fall back to the name, and
-MUST report rather than silently drop a link that resolves to neither — an
-unresolvable link is the user's filing, and losing it quietly is the failure
-mode §14.2 already cost this project once.
+```json
+{
+  "version": 1,
+  "vaults": [
+    { "id": "vault_9f2c1a04bb37de51", "display_name": "Elaris" }
+  ],
+  "links": [
+    {
+      "link_id": "link_5c8e11a0d3f47b62",
+      "entity_kind": "settlement",
+      "entity_id": 42,
+      "entity_label": "Nareth",
+      "vault_id": "vault_9f2c1a04bb37de51",
+      "relative_path": "Locations/Nareth.md",
+      "selection": { "type": "heading", "value": "The Old Quarter" },
+      "source_modified": 1787605785,
+      "source_hash": "3b1f9c2a77e04d18",
+      "imported_text": "## The Old Quarter\n\nNarrow streets.\n",
+      "edited_text": null,
+      "imported_data": {
+        "frontmatter": { "type": "town", "population": "8420" },
+        "fields": { "Founded": "412", "Size / Population": "8,420" }
+      }
+    }
+  ]
+}
+```
 
-Ids inside this document are subject to §14.1.
+#### 13.3.1 The document
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `version` | integer ≥ 1 | MUST | The **link store's own** version, `1` today. Independent of `format_version` (§4): the two version different things, and a reader MUST NOT assume they move together. A reader that meets a higher value SHOULD read what it recognises, apply §14.3, and warn. |
+| `vaults` | array | SHOULD | Every vault this project references. Absent or empty is valid — a project with links but no vault entry is damaged filing, not a parse error; see §13.3.4. |
+| `links` | array | SHOULD | Every entity-to-note relationship. Absent or empty is valid and is the normal state of a project nobody has linked yet. |
+
+A writer MAY omit `vault.json` entirely when there are no links.
+
+#### 13.3.2 `vaults[]` — a vault as the *project* knows it
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | string, non-empty | MUST | Opaque, stable, unique within `vaults`. Referenced by `links[].vault_id`. A reader MUST NOT parse it. |
+| `display_name` | string | MUST | What to call this vault to a person. May be empty. |
+
+**There is deliberately no path here, and that is the point of the whole
+document.** Where a vault lives is a property of *this machine*, not of the
+project: the same project opened on a laptop and a tablet finds the same notes
+at two different paths, and a stored path would be wrong on one of them the
+first time it travelled. Binding an id to a location is the application's own
+local state, stored outside the archive. A project whose vault is not bound on
+this device is a normal, nameable condition (§13.3.5), not an error.
+
+The consequence for id assignment: a writer SHOULD derive `id` from something
+both devices can compute independently — the display name is the usual choice —
+so that the same logical vault lands on the same id without either device
+having seen the other's project file. A writer MUST NOT use a random or
+clock-derived id, which makes the two devices' links permanently disjoint.
+
+#### 13.3.3 `links[]` — one entity-to-note relationship
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `link_id` | string, non-empty | MUST | Opaque, unique within `links`. A reader MUST NOT parse it. If two links share one, the reader MUST keep the first and report the rest (§3's duplicate rule, applied inside a document). |
+| `entity_kind` | string | MUST | One of `settlement`, `province`, `continent`, `faction`, `culture`. §13.3.4 fixes what each `entity_id` means. An unrecognised value MUST NOT drop the link — see §13.3.5. |
+| `entity_id` | integer | MUST | The entity's own id, subject to §14.1. |
+| `entity_label` | string | MUST | The entity's name **at the time the link was made**. May be empty. It is never used to resolve — §13.3.5. |
+| `vault_id` | string | MUST | Matches a `vaults[].id`. |
+| `relative_path` | string, non-empty | MUST | The note's path **relative to the vault root**, forward slashes, no leading `/`, no `.` or `..` segments. Case is preserved as written; a reader on a case-insensitive filesystem MAY match case-insensitively but MUST write back what it read. |
+| `selection` | object | MUST | Which part of the note the link points at. §13.3.6. |
+| `source_modified` | integer ≥ 0 | MAY | Seconds since the Unix epoch: the note's modification time as of the last import. `0` or absent means "not recorded". |
+| `source_hash` | string | MAY | A digest of the imported bytes, as text. Compared **only for equality**, never interpreted; no algorithm is specified. Empty or absent means "not recorded". A writer that changes algorithm MUST clear every stored hash rather than leave two incomparable kinds in one document. |
+| `imported_text` | string or `null` | MAY | What was read from the note. Absent or `null` means **linked but never imported** — a real state, distinct from "imported an empty file". |
+| `edited_text` | string or `null` | MAY | The project-side working copy, present only once it differs from `imported_text`. Absent or `null` means "no local edit". |
+| `imported_data` | object | MAY | The note's *structured* content. §13.3.7. |
+
+Array order carries no meaning; a reader SHOULD preserve it anyway, so that a
+load-and-save cycle produces a diffable file.
+
+**No status member exists, and none may be added.** Whether a link is
+connected, stale, cached, missing, unbound or locally edited is *derived* at
+read time by comparing what is stored here against what the vault currently
+holds. A stored status would be a second source of truth, stale the moment
+anything outside the archive changed, and it would be believed. §13.3.5 gives
+the derivation.
+
+#### 13.3.4 What `entity_id` means, per kind
+
+The link resolves against exactly one thing, and which one depends on
+`entity_kind`:
+
+| `entity_kind` | `entity_id` is |
+|---|---|
+| `settlement` | a `settlements[].id` from `entities/settlements.json` (§9.1) — an id, not an array index |
+| `province` | a `provinces[].id` from `entities/provinces.json` (§9.4) |
+| `continent` | a `continents[].id` from `entities/continents.json` (§9.5) |
+| `faction` | a `factions[].id` from `entities/factions.json` (§9.2), which equals its array index |
+| `culture` | a **0-based index into the implementation's own culture vocabulary** — see below |
+
+`culture` is the odd one and is worth naming as such. A culture is not
+generated with the world; it is a fixed row in a vocabulary the implementation
+ships, which is why it is the only kind here whose id survives regenerating the
+world *and* a save/load. That stability is a feature — a person's essay on a
+people stays attached to that people — and it is also the one kind whose ids
+two implementations must agree on out of band, because the archive does not
+carry the vocabulary. An implementation whose culture vocabulary differs MUST
+treat these links as unresolvable (§13.3.5) rather than binding them to
+whatever sits at that index.
+
+The other four ids are **only as stable as the entity**. Provinces may be
+re-derived (§9.4) and renumbered; continents are ranked by size and renumber
+when terrain edits merge or split a landmass; a faction's id is its row and
+rows above a removed faction shift down. This is not a defect in the format —
+it is why `entity_label` is stored, and why §13.3.5 says what it says.
+
+#### 13.3.5 Resolution, and a link whose target is gone
+
+**Resolution is by `(entity_kind, entity_id)` and by nothing else.** A reader
+MUST NOT fall back to matching `entity_label` against entity names. An earlier
+revision of this document said it should; that was wrong and is corrected here.
+Names are not unique, they are user-editable, and two settlements called
+"Nareth" are exactly the case where a name-based fallback silently attaches a
+person's notes to the wrong place — the one outcome worse than telling them the
+link needs re-binding.
+
+`entity_label` exists so that a reader can *say what was lost*: "this note was
+linked to **Nareth**". It is what a person needs in order to re-bind the link
+by hand, and it is never machine-resolved.
+
+A link can fail to resolve in four independent ways, and a reader MUST keep the
+link in all four, MUST report it, and MUST write it back unchanged:
+
+| Condition | What it means |
+|---|---|
+| `vault_id` names no `vaults[]` entry, or that vault is not bound on this device | **unbound** — the project knows the vault; this machine does not |
+| `(entity_kind, entity_id)` resolves to no entity, or `entity_kind` is a value this reader does not know | **unresolved** — show `entity_label` and offer a re-bind |
+| The vault is bound but `relative_path` is not there | **missing** if `imported_text` is absent, **cached** if it is present |
+| `source_hash` (or, if either side has none, `source_modified`) differs from the file as it is now | **stale** — the copy held here is older than the note |
+
+Otherwise, if `edited_text` is present and differs from `imported_text`, the
+link has **local changes**; if not, it is **connected**. Where both a hash and a
+timestamp are available the **hash decides**: a file touched by a sync client
+has a new modification time and identical bytes, and calling that stale trains
+a person to ignore the warning.
+
+**Nothing above is a reason to drop a link.** An unresolvable link is the
+user's filing, and losing it quietly is the failure mode §14.2 already cost
+this project once — an entire feature's data, on every launch, for its whole
+shipped lifetime. A reader that cannot use a link keeps it, reports it, and
+writes it back byte-equivalent.
+
+#### 13.3.6 `selection` — which part of the note
+
+A tagged object. Its `type` member names the shape of the rest:
+
+| `type` | Other members | Meaning |
+|---|---|---|
+| `whole_document` | none | The link is to the entire note. |
+| `heading` | `value`: string, MUST | The link is to the section under the heading whose text is `value` — the text alone, without the leading `#` characters or their count. |
+
+`heading` is resolved by **matching the heading's text** in the note as it
+currently reads, not by an offset into the file, so that an author editing the
+paragraphs above a heading does not silently re-point the link at a different
+section. If the heading is no longer present, the link is stale rather than
+broken: the reader keeps it, reports it, and MAY fall back to showing whatever
+`imported_text` holds.
+
+An unrecognised `type` MUST be read as `whole_document` and reported. It MUST
+NOT cost the link, and it MUST NOT cost the document: a `selection` shape added
+by a newer writer is exactly the case §6.3 and §14.3 exist for, and refusing
+the whole store over one would discard every link in the project to protect
+against a narrower selection than the reader expected.
+
+#### 13.3.7 `imported_data` — the note's structured content
+
+Two maps taken from the same read as `imported_text`, both optional, each
+absent or empty when the note has nothing of that kind:
+
+| Member | Type | Meaning |
+|---|---|---|
+| `frontmatter` | object, string → string | Flat scalar keys from the note's leading metadata block. |
+| `fields` | object, string → string | Labelled values from the note's own body template — the `**Name:** value` convention. |
+
+They are **two maps, not one merged map**, because a note's metadata block and
+its body can legitimately disagree (`type: town` in one, `Type: City` in the
+other). Merging them needs a precedence rule this format has no business
+inventing; the consumer decides, and to decide it must be able to see where a
+value came from.
+
+**Every value is a string, and that is a decision, not an oversight.** A note
+whose metadata says `population: 8420` is stored here as the five characters
+`"8420"`, never as the number 8420. Two reasons, and this project has already
+paid for the first:
+
+1. **It cannot be corrupted by a layer that floats numbers.** §14.2 records
+   what happened when it could: a round trip through a component with one
+   number type turned two integers into `1.0` and `1787605785.0`, the strict
+   parser on the other side refused the document, and every link every user had
+   ever made was discarded on each launch. JavaScript has exactly the same
+   single number type, and an integer above 2^53 cannot round-trip through it
+   at all (§14.1). A map of strings has no such failure mode.
+2. **It is what the note said.** `8,420`, `~8000` and `8420` are three
+   different things a person wrote. Parsing them into one number is the format
+   deciding what the author meant, and it is not recoverable afterwards.
+   Whoever consumes a value decides how to read it; the copy preserves it.
+
+A reader MUST NOT coerce these values to numbers on load, and §14.2's
+integer-shaped-float rule explicitly does **not** apply inside these two maps —
+it governs values the format specifies as integers, and every value here is
+specified as text.
+
+Freshness is the link's, not the map's: `imported_data` is captured in the same
+read as `imported_text`, under the same `source_hash`, so §13.3.5's status
+answers "is this copy current" for both halves together. A reader MUST NOT add
+a per-map timestamp; two freshness ideas that can disagree is a state nobody
+can explain to a user.
+
+#### 13.3.8 Ids and numbers
+
+Every integer in this document — `version`, `entity_id`, `source_modified` — is
+subject to §14.1's range rule and §14.2's integer-shaped-float rule. `link_id`,
+`vault_id` and `source_hash` are **strings and MUST remain strings** even when
+their content looks numeric; they are opaque tokens, and §14.1's closing
+paragraph ("there are no string-encoded integers anywhere in this format") is
+about integers stored as text, not about opaque identifiers that happen to be
+hexadecimal.
 
 ### 13.4 `README.md` — for a human with a zip tool
 
@@ -924,7 +1384,11 @@ Therefore:
 - A writer MUST NOT emit an integer outside that range. A writer whose internal
   counter could exceed it MUST fail the save rather than write a value it
   cannot promise to read back.
-- A reader MUST treat an out-of-range integer as a damaged value (§6.4).
+- A reader MUST treat an out-of-range integer as a **damaged value**, and
+  §6.4a decides what that costs: the value's own stated substitution if it has
+  one, otherwise the array element it sits in, otherwise the document. An
+  out-of-range `settlements[].id` costs one settlement, not the archive. Only
+  `project.json` (§7) can reach the archive.
 
 This is a deliberate constraint on the format rather than a warning to
 implementers, because a warning does not survive contact with a second
@@ -976,10 +1440,31 @@ nesting:
 
 ### 14.4 Strings
 
-Vocabulary members (`kind`, `class`, `mode`, `family`, `size_mode`, culture and
-government keys) are lowercase ASCII identifiers with `_` as the separator.
-Each section states the closed set and what an unrecognised value reads as.
-A reader MUST NOT crash on an unrecognised vocabulary value.
+Vocabulary members (`kind`, `class`, `mode`, `family`, `size_mode`, `type`,
+`entity_kind`, culture and government keys) are lowercase ASCII identifiers
+with `_` as the separator. Each section states the closed set and what an
+unrecognised value reads as. A reader MUST NOT crash on an unrecognised
+vocabulary value.
+
+**`sea_lane`, with an underscore — and the one collision this causes.** The
+separator rule is applied without exception, including to the way kind
+`sea_lane` in §9.3. The flat legacy layout's own way vocabulary spells the same
+concept **`sea-lane`, with a hyphen**, and has done in every archive it has
+ever written. The two are the same kind and MUST be translated at the boundary:
+a reader normalising a flat archive into this format's vocabulary rewrites
+`sea-lane` to `sea_lane`, and an interoperability writer (§1.1) rewrites it
+back.
+
+This is worth stating rather than leaving to be rediscovered because it is the
+only place where this format's vocabulary collides with an existing key in the
+very application the format was written to be implemented in — so it is the
+one rename that a second implementer *will* meet, and will meet as a silently
+unrecognised value (read as `track`, §9.3) rather than as an error. Nothing
+else in §9-§13's vocabulary differs from the flat layout by punctuation alone.
+
+The rule is not relaxed for it. A single-exception vocabulary is a vocabulary
+every future member has to be checked against by hand, and one boundary rename
+in one direction is cheaper than that, permanently.
 
 Free text (`name`, `history`, label text) is arbitrary UTF-8 and may be empty.
 Empty is a real value and MUST NOT be replaced by a placeholder on load.
@@ -992,23 +1477,27 @@ Every `Cartalith Gen1` export up to and including v2.10 uses this layout.
 Readers MUST accept it (§1). **No writer produces it** except the explicitly
 labelled interoperability export of §1.1.
 
-Seven entries at the archive root, no directories:
+Eight entries at the archive root, no directories:
 
 | Entry | Contents |
 |---|---|
 | `params.json` | `{ "v": <number>, "GW": <int>, "GH": <int>, "state": { … } }` |
 | `heightmap.f32` | `GW × GH` little-endian f32, row-major |
+| `heightmap_rg16.bin` | The **same** heightmap, 16-bit-packed. §15.2. |
 | `temperature.f32` | as above, degrees Celsius |
 | `rainfall.f32` | as above |
 | `volcanic_field.f32` | as above |
 | `impact_field.f32` | as above |
 | `strahler_order.bin` | `GW × GH` unsigned bytes. Note the extension is `.bin`, not `.u8`. |
 
-A real export carries more than these — a baked atlas, `map.png`, a README,
-biome and lithology rasters, resource potentials, Köppen rasters, wildlife
-regions and an asset-library payload. §6.3's unknown-entry rule is what makes
-that normal rather than corruption, and it has been in force since the first
-reader existed.
+A real export carries a great deal more than these — a baked atlas, `map.png`,
+a README, biome and lithology rasters, resource potentials, Köppen rasters,
+wildlife regions, a tidal-range field, feature and settlement-seed documents
+and an asset-library payload. §6.3's unknown-entry rule is what makes that
+normal rather than corruption, and it has been in force since the first reader
+existed. Of the extras, only `heightmap_rg16.bin` is read back by the flat
+layout's own loader; the rest are written for downstream consumers and
+recomputed on load.
 
 **Mapping the flat layout onto the tree.** A reader that normalises everything
 to the tree's model reads:
@@ -1023,17 +1512,90 @@ to the tree's model reads:
 | `params.json` → `reference` | the whole `state` object |
 | `params.json` → `cartalith` | `state.cartalith` if present, else absent |
 | `rasters/*.f32` | the same-named root entries |
+| `rasters/heightmap.f32` | `heightmap.f32`, else `heightmap_rg16.bin` (§15.2) |
 | `rasters/strahler_order.u8` | `strahler_order.bin` |
+| `entities/settlements.json` | `params.json` → `state.places` |
+| `entities/factions.json` | `params.json` → `state.civ.factionNames`, `.factionCulture`, `.factionReligion`, `.factionGovernment`, `.factionAgTech` — five parallel arrays indexed by faction, **plus a colour the file does not contain** (§15.3) |
+| `entities/ways.json` | `params.json` → `state.civ.ways` (and `state.roads`, the older auto-network) |
+| `entities/journeys.json` | `params.json` → `state.civ.journeys` |
+| `rasters/territory.i32` | `params.json` → `state.civ.territory`, a **sparse** `[index, faction, index, faction, …]` array; cells not listed are `0` (§15.3) |
+| `history/timeline.json` + `history/territory/<year>.i32` | `params.json` → `state.civ.timeline` and `state.civ.year` |
+| `annotations/labels.json` | `params.json` → `state.labels` |
+| `annotations/icons.json` | `params.json` → `state.mapIcons` |
+| `appearance.json` | `params.json` → `state.viz` and the other presentation blocks |
 
-Everything else in the tree has no flat equivalent: a flat archive carries no
-entities, no history and no annotations this reader can restore.
+### 15.1 The flat layout is not terrain-only, and assuming it is loses a project
 
-`v` in the flat `params.json` is **provenance, not a format selector**. The
-HTML app's own loader never branches on it — every compatibility shim it has
-tests for a missing *key* instead. A reader MUST NOT branch on it either, and
-MUST use §4's test.
+**A flat archive does carry entities, history and annotations.** They are not
+separate entries — they are nested inside `params.json`'s `state` object, which
+is why an implementation that reads the flat layout as "seven rasters and a
+parameter block" silently discards every settlement, faction, road, journey,
+territory claim, recorded year, label and icon in the file. That is the single
+most expensive mistake available when implementing §15, and this document
+previously invited it by asserting the opposite.
 
-### 15.1 The flat layout's shallow-merge hazard
+The shapes under `state` are the flat layout's **own** vocabulary, not this
+format's. Member names differ (`pts` for `points`, `km` for `length_km`, `pop`
+for `population`, `brks` for `breaks`, `aIdx`/`bIdx` for `from`/`to`,
+`villageAddon` for `village_seeded`, `type` for a way's `kind`), the way-kind
+vocabulary differs by punctuation (§14.4), and territory is stored sparsely
+rather than as a grid. A normalising reader translates; it MUST NOT assume a
+member of the same meaning carries the same name.
+
+Three consequences a second implementer should have in hand before starting:
+
+- **`state.places` is not settlements-only.** The same array holds
+  non-settlement points of interest, distinguished by `kind`. A reader
+  normalising into `entities/settlements.json` MUST filter by §9.1's closed
+  `kind` set and MUST NOT invent a settlement from a point that is not one.
+- **A settlement's political role is in `kind`.** There is no separate
+  `capital` member; §9.1 states the translation in both directions.
+- **Provinces are absent by design.** The flat layout deliberately does not
+  persist them, re-deriving them on demand instead — which is the behaviour
+  §9.4 now permits explicitly rather than treating as a gap.
+
+### 15.2 `heightmap_rg16.bin` — the flat layout's portable height fallback
+
+Written by every flat export **alongside** `heightmap.f32`, and read only when
+`heightmap.f32` is absent.
+
+- **Length:** `GW × GH × 4` bytes — four bytes per cell, not two.
+- **Per cell**, in order: the high byte of a 16-bit value, its low byte, then
+  `0` and `255`. The last two bytes are padding to an RGBA pixel and carry no
+  information; the packing exists so the field can be dropped into an image
+  without re-encoding.
+- **Decoding:** `height = ((byte0 << 8) | byte1) / 65535`, giving the same
+  `[0,1]` normalised elevation `heightmap.f32` carries.
+- **Encoding** is `round(clamp(height, 0, 1) × 65535)`, so a value is accurate
+  to about 1.5 × 10⁻⁵ — lossy, and not bit-identical to the `.f32` beside it.
+
+A reader normalising a flat archive MUST prefer `heightmap.f32` and MUST use
+`heightmap_rg16.bin` only when the `.f32` is absent or unreadable, reporting
+that it did — the elevations it produces are quantised, and a parity comparison
+against a bit-exact engine will fail on them for that reason alone.
+
+It has **no equivalent in the tree** and MUST NOT be written into one: §8.1
+says why, and §18.4 records quantisation as a measured, deliberately unpulled
+lever rather than an oversight.
+
+### 15.3 Two things the flat layout cannot carry, and one that is not what it looks like
+
+- **Faction colours are not in the file.** The flat layout stores faction
+  names and attributes but no colour, regenerating each from a palette on load.
+  A reader normalising into `entities/factions.json` therefore has no authored
+  colour to copy and MUST supply one from its own palette and report that it
+  did — see §9.2, which is the reason `color` is a stored member of the tree
+  rather than a derived one.
+- **Territory ids are 8-bit.** The flat layout's territory store holds one
+  unsigned byte per cell, so a converted archive can carry faction ids `0`-`255`
+  and no more. §8.1 states the reciprocal obligation for a narrow reader meeting
+  a wide `territory.i32`.
+- **`v` in the flat `params.json` is provenance, not a format selector.** The
+  HTML app's own loader never branches on it — every compatibility shim it has
+  tests for a missing *key* instead. A reader MUST NOT branch on it either, and
+  MUST use §4's test.
+
+### 15.4 The flat layout's shallow-merge hazard
 
 Relevant to anyone writing the interoperability export of §1.1, and to nobody
 else. The HTML app's loader merges the saved `state` into its own live state
@@ -1192,6 +1754,37 @@ be discarded by clicking elsewhere is stored.
   its members deliberately out of alphabetical order, and it asserts that
   re-serializing the parsed value would *not* reproduce it: without that, the
   byte-identity assertion could pass by coincidence.
+
+**Four divergences from the rules §6.4a, §10.2, §13.3.6 and §7 now state
+explicitly**, found on 2026-08-26 when this document was corrected against its
+first independent implementation. Recorded here because a known divergence is
+cheaper than a rediscovered one; none is fixed in this document, which owns the
+format rather than the code.
+
+- **`world.seed` is narrowed to 32 bits on load.** §7 and §14.1 allow a seed
+  anywhere in ±(2^53 − 1); the reader converts it to a 32-bit signed integer,
+  which saturates rather than failing. A conforming archive with a large seed
+  therefore loads as a *different world* with no report. §14.1's own rule for
+  this is "treat an out-of-range integer as damaged" — the range in question
+  being the reader's, not the format's.
+- **`history/territory/<year>.i32` names are parsed, not matched.** §10.2 now
+  requires the canonical decimal spelling and makes anything else an
+  unrecognised entry. The reader parses the stem as an integer instead, so
+  `+7`, `007` and `7` all resolve to year 7 and the last one read wins
+  silently.
+- **An unrecognised `selection.type` costs the whole vault document.** §13.3.6
+  requires it to cost at most the link, and states the substitution
+  (`whole_document`, reported). The reader deserialises `vault.json` as a whole
+  and discards the store when any link fails to parse — which is §14.2's own
+  failure shape, one layer up.
+- **An absent `capital` or `color` defaults silently instead of being
+  repaired and reported.** Every member of the entity documents is read with a
+  type default, so a settlement with no `capital` reads as `false` rather than
+  as §9.1's `kind == "capital"`, and a faction with no `color` reads as black
+  rather than taking §9.2's palette fallback with a report. Type defaults are
+  the right *shape* of leniency — they are what makes §6.4a rung 1 cheap — but
+  they are only correct where the default is the stated substitution, and for
+  these two it is not.
 
 **One conformance gap, narrower than it was.** §6.2 asks a reader that writes
 an archive back to either re-emit what it did not understand or refuse to

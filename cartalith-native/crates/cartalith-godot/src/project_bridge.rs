@@ -1511,9 +1511,24 @@ impl WorldGen {
             // never allowed to clear the links already in memory -- the
             // rule `vault_restore_state`'s own doc comment states, and the
             // half of KV-04 that was correct.
-            if let Ok(store) = cartalith_vault::LinkStore::from_json(&text) {
-                self.vault.store = store;
-                restored.push("vault");
+            // 2026-08-26: this used to be a bare `if let Ok(..)`, so a store
+            // this build could not parse was skipped **in total silence** --
+            // the user opened a project, every knowledge link was gone, and
+            // nothing said so. Skipping is still right (never merge, never
+            // clear what is in memory), but it is now reported. The narrower
+            // half of the same defect is fixed at the source: `Selection`'s
+            // hand-written `Deserialize` no longer fails the whole store over
+            // one unrecognised selection type (`SAVEFILE_COMPAT.md` §13.3.6).
+            match cartalith_vault::LinkStore::from_json(&text) {
+                Ok(store) => {
+                    self.vault.store = store;
+                    restored.push("vault");
+                }
+                Err(e) => godot_warn!(
+                    "cartalith-godot: this project's vault.json could not be read ({e}); \
+                     its links were left out of the opened project rather than merged. \
+                     The links already in memory are untouched."
+                ),
             }
         }
 

@@ -870,8 +870,15 @@ fn read_tree(
         .ok_or(LoadError::MissingField("world.grid_width"))? as usize;
     let gh = json_num(&manifest, &["world", "grid_height"])
         .ok_or(LoadError::MissingField("world.grid_height"))? as usize;
-    let seed = json_num(&manifest, &["world", "seed"])
-        .ok_or(LoadError::MissingField("world.seed"))? as i32;
+    // `as i32` here SATURATED silently: a conforming archive whose seed is
+    // above 2^31 loaded with a different seed, and the only symptom was that
+    // pressing Generate afterwards produced a world other than the one on
+    // screen. Checked and refused instead -- see `LoadError::OutOfRange`.
+    let seed_f = json_num(&manifest, &["world", "seed"]).ok_or(LoadError::MissingField("world.seed"))?;
+    if !seed_f.is_finite() || seed_f < i32::MIN as f64 || seed_f > i32::MAX as f64 {
+        return Err(LoadError::OutOfRange { field: "world.seed", value: seed_f });
+    }
+    let seed = seed_f as i32;
     let map_width_km = json_num(&manifest, &["world", "map_width_km"])
         .ok_or(LoadError::MissingField("world.map_width_km"))?;
     let sea_level = json_num(&manifest, &["world", "sea_level"])
