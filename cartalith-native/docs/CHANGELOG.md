@@ -29047,3 +29047,488 @@ carts already is the right train. That is the honest shape of this feature: it
 earns its keep on wild ground and on desert transitions, not on the road
 network, and the probe now says so in its own output rather than leaving a
 zero to be misread as a failure.
+
+## 2026-08-26 (3) — Wiring audit pass 5, run mechanically instead of by eye (`PARITY_AUDIT.md` §23)
+
+Owner: *"Do a full audit and check if everything is wired correctly, like you
+said this is the 4th time already."* Fair — every previous find of this class
+was by eye, mid-task, by accident, and four passes of `PARITY_AUDIT.md` found
+them one at a time by reading. This pass asked the question mechanically
+first and verified every hit by hand afterwards.
+
+`cartalith-native/tools/audit_wiring.py`, checked in because §22 rec #5 asked
+for exactly that after passes 1 and 2 both asked and were ignored. Four
+questions: **A** `pub fn` with no caller outside test code (65 of 1 167),
+**B** `#[func]` no `.gd` file names (17 of 361), **C** names the shell asks
+`world_gen` for that don't exist (**0**), **D** `engine_bridge.gd` funcs
+nothing calls (10 of 337). C being zero is the good news — the class that
+disabled File ▸ Save until 2026-08-25 (a stale `_has()` guard degrading
+silently instead of failing) is now empty, and it is the only one of the four
+that can legitimately be zero.
+
+Eight findings, each read individually: **F9** the vault (eight `#[func]`s,
+zero `.gd` references — the search and the "confirm always" half of the
+owner's 2026-08-25 message); **F10** `project_save_with_documents` unwired
+and asymmetric (`entities/journeys.json` has a writer and no reader);
+**F11** the reference's `erode()` — `dropletKernel` → `erodeThermal` →
+`isostaticRebound` — ported at kernel level with golden coverage and never
+assembled; **F12** `jp_compute`'s wildlife forage modifier hard-coded to 1.0
+over a stale comment, though `wildlife.rs` is golden-tested and already
+called elsewhere; **F13** nine more ported-and-unexposed, including
+`jp_pack_range` — which *is* the v1.48 fodder-ceiling fix itself; **F14**
+three dead getters, an unclamped `lod_max_level`, ten dead
+`engine_bridge.gd` wrappers. Also classified as **not** gaps: six superseded
+wrappers, one disclosed non-use, 21 data-structure accessors, the 9
+`cartalith-gpu` feature-gated variants.
+
+No crate code changed in this pass — every finding is an owner decision
+about what to build, and F10 is a decision about what to build *first*: the
+reader, before anything writes.
+
+A same-day scaffolding commit (`5b1a18e`) pre-built the `engine_bridge.gd`
+wrappers every fix below would need plus two empty
+`#[godot_api(secondary)]` impl files (`erode_bridge.rs`, `ops_bridge.rs`),
+so five agents closing these findings in parallel wouldn't collide on the
+same two files. `erode_bridge.rs`'s module doc carries the one constraint
+that matters for F11: `erode()` is an **op**, not a generation stage — in
+the reference it is a button that mutates the field *after* generation, so
+it must never enter `generate_terrain`, which is what keeps every golden and
+every generate-derived hash bit-identical.
+
+## 2026-08-26 (4) — The vault's search and "confirm always" reach the shell
+
+`PARITY_AUDIT.md` §23 F9. Eight `#[func]`s were complete, tested and
+documented on the engine side with zero references in any `.gd` file —
+among them the search the owner's 2026-08-25 message opens with and the
+"option to confirm always" it closes with. `vault_window.gd` 641 → 1140
+lines; nothing else touched.
+
+Search surfaces all four honesty states rather than one: no content index
+(plus an action to build one), notes-opened count, a capped scan, and the
+under-three-characters case where the engine narrows silently and
+`scanned=0` would otherwise have no visible explanation. Runs on Enter or
+the button, never per keystroke — a rebuild per keystroke frees the field
+being typed into. "Don't ask again" lands on the three write dialogs, plus a
+Write-confirmations group that opens itself when any flag is off, since the
+checkbox that set it lives on a dialog that no longer appears. Preferences
+persist as verbatim engine JSON text in both directions — never parsed into
+a `Variant` and re-emitted, which is how KV-04 discarded every knowledge
+link a user had made. `vault_file_data` / `vault_link_data` /
+`vault_entity_data` surface frontmatter and fields as two lists, never
+merged — they are two authoring surfaces entitled to disagree.
+`vault_remove_block` is previewed and confirmed like a write, deliberately
+*without* a confirm-always box: `vault_set_write_pref` takes three names and
+removal is not one of them.
+
+Verified rather than trusted: every caller runs its `vault_preview_*`
+*before* the dialog and closes over the returned hash, and the preference
+shortcut calls that same closure — so a suppressed dialog still carries a
+fresh hash, and a note edited in between still refuses. Confirmed
+behaviourally on a temp vault: a stale write and a stale `remove_block` both
+refused, both succeeded fresh. `godot --check-only`: clean. Not done: no
+control was clicked in a live GUI, and the preview dialogs' Write/Cancel bar
+still misses the 44 dp phone floor — pre-existing, `_floor_dialog_bar` has
+never run for them.
+
+## 2026-08-26 (5) — Project documents: the channel returns what was stored, not a re-serialisation
+
+`PARITY_AUDIT.md` §23 F10 — and the audit's central claim for it was
+**wrong**, corrected in the same pass rather than left for later. §23 said
+*"there is no reader at all"* and concluded that wiring the writer would
+produce files the shell could never load. Checked against `cd02490`:
+`project_open` already built a `documents` dictionary of every
+non-engine-owned slot. The real defect was narrower — the text was
+`serde_json::to_string` of the **coerced** `serde_json::Value`, so it was
+not the document that was saved: `Value`'s object map is a `BTreeMap` (so
+members come back sorted), whitespace is gone, and §14.2's integer coercion
+had already rewritten `1.0` to `1` inside it. The honest statement is *"the
+shell could load them but not get them back unchanged."*
+
+`cartalith-io`'s `ProjectData` now retains `document_text` beside
+`documents`, populated in the same `read_tree` pass, plus `text_of` and
+`read_document(reader, slot)` — one document out of an archive,
+manifest-checked, BOM-stripped, parsed once to prove it's valid JSON and the
+parse discarded. `project_bridge::project_read_document(path, slot)` reads
+an archive on disk **without** replacing the current world, which
+`project_open` cannot do; `present` separates "no such document" from "an
+empty one." Both directions of the channel now share one
+`caller_slot_refusal` predicate. `SAVEFILE_COMPAT.md` gains normative §6.5
+"Documents an implementation does not model": a carried document **must** be
+exposed as text, byte-for-byte as stored, never re-ordered or coerced.
+
+Verified: `cargo test -p cartalith-io` (63/1/2/8, all green) plus a new
+five-test channel suite, re-run independently. The round-trip fixture
+brackets §14.1 rather than sampling it — `4294967297` above 2³¹ and
+`9007199254740991` exactly at the safe-integer ceiling — with escaped
+quotes, an em dash, CJK and an alchemical sigil, pretty-printed with members
+deliberately out of sorted order so byte-identity can't pass by coincidence.
+Mutation-checked: reverting the fix fails two of the five.
+
+A same-day correction (`93ccdc1`) fixed §23's own two errors in place: F10's
+"there is no reader" claim (the harness's own blind spot, committed by hand
+in the prose beside it) and F11's line number (3898, not 3894 — the clamp
+*inside* `erodeFinish`) plus its cause (the erosion kernels are
+**unreachable** across a crate boundary, not merely uncalled — `cartalith-
+godot` has no dependency on `cartalith-erosion` at all).
+
+## 2026-08-26 (6) — The `erode()` op, assembled at last, and a panic it was hiding
+
+`PARITY_AUDIT.md` §23 F11, the largest single item the audit found: the
+reference's `erode()` (`dropletKernel` → `erodeThermal` → clamp →
+`isostaticRebound`, reference line 3898) was ported at kernel level with
+golden-parity coverage and never assembled. The cause was not a missing
+call — `cartalith-godot` has no dependency on `cartalith-erosion` at all,
+and `cartalith-engine` re-exports none of it, so the three kernels were
+**unnameable** from the bridge crate. The fix is `pub fn erode_op` in
+`cartalith-engine`, which already has the dependency, rather than a
+`Cargo.toml` line the owner has asked to leave alone — and the better home
+regardless, since composing four kernels over a `WorldState` is engine work.
+`ErodeOpts` is its own struct, never `WorldParams` fields, so a caller
+cannot erode with a gravity or seed that disagrees with the world being
+eroded.
+
+**The bug the agent's own tests found:** the first version passed `None` for
+rain when `ws.rainfall` was missing or wrong-sized while leaving `ck` at
+whatever `stream.climate_k` said. Two tests panicked at
+`cartalith-erosion/src/lib.rs:162` — `rain.expect("rain field required when
+ck > 0")` — inside `droplet_kernel`'s spawn loop. `climate_k` defaults to
+0.5, so the default op on a world with no rainfall (an imported heightmap, a
+partially-run pipeline) would have taken the whole Godot process down
+through a `#[func]`. The reference can't reach that state — `rainField` is a
+module global that always exists — so this is a port-specific hazard, not a
+parity question, and it would have shipped invisibly since the op had no
+caller until the day the button existed. `ck` and the rain field are now
+decided together: a missing field zeroes `ck` rather than being dropped
+underneath it. Reported on `ErodeSummary::climate_coupled` rather than
+swallowed, surfaced in the UI as *"no rainfall on this world — droplets
+spawned uniformly."*
+
+Verified, not trusted: grep for `erode_op` across every crate but its own
+module and the bridge returns exactly one line, the `pub mod`. No
+`generate()` path reaches it — `WorldParams` is untouched, so no
+`world_key` and no `save_round_trip` input moved. `cargo test -p
+cartalith-engine`: 0 failed across every target including
+`golden_parity_pipeline` and `golden_parity_carve`. `cargo test -p
+cartalith-godot --lib`: 378 passed.
+
+Two shell corrections landed alongside: `world_workspace.gd` had told the
+user that Droplet, Hillslope, Velocity, Glacial and Coastal were "not
+ported"; four of five are ported *and already on screen* (`params.rs` files
+every `passes.*` key under group "erosion"). Droplet genuinely stays a
+button and now has one. And the fjord note claiming flow/rivers/climate
+aren't recomputed after `carve_fjords` was wrong — it marks
+`PipelineStage::Height` and runs the staleness graph, so flow and climate
+*are* recomputed; only the vector river network isn't.
+
+Also in this commit: `apply_force_lake` (§23 F13), joining
+`SculptEditor.water.lake_mask` to `CivData::water_bodies` — that edge never
+existed, so a painted lake was terrain that happened to be lower, and the
+settlement tool, router, trade, military and Journey Planner all read it as
+land. Four tests, a Painted lakes control in Sculpt ▸ Draft. Documented
+ceiling: `PaintEditor`'s `water_mask` is a private snapshot with no setter,
+so the biome brush's land-only gate still doesn't see a forced lake — closed
+two commits later (below).
+
+## 2026-08-26 (7) — Wildlife forage reaches the Journey Planner, behind a fingerprint cache that measures 1.1×
+
+`PARITY_AUDIT.md` §23 F12 and the Journey Planner half of F13. `jp_compute`
+passed `|_,_| 1.0` as the forage modifier over a comment saying the wildlife
+layer "was never built" — stale: `wildlife.rs` exists, is golden-tested, and
+`wildlife_region_at` is already called by the shell. The two functions that
+turn `Ecoregion::richness` into the modifier were ported, tested and
+uncalled.
+
+Measured before designing, which decided the shape (release, 4 runs):
+`jp_compute` core costs 6–8 ms at 1024² / 24–35 ms at 2048²; one
+`wildlife_regions` rebuild costs 69–70 ms / 236–239 ms; one fingerprint
+costs 1.45 ms / 2.85 ms. Naive wiring would have made the planner ~9× slower
+per keystroke; cached, it's ~1.1×. §23's "needs a cache before it needs a
+call site" is now confirmed, not inferred.
+
+The cache keys on a **content fingerprint** of `wildlife_regions`' own nine
+slices and seven scalars, not an epoch counter — an epoch would have needed
+a bump at `sculpt_commit`, `carve_fjords`, `center_landmasses`,
+`undo_last`, `import_heightmap`, the staleness re-runs and
+`recompute_civilisation`, an open list that `erode_bridge`/`ops_bridge`
+(landing the same hour) were free to write `ws.field` without knowing
+existed. A missed bump fails silently, which the brief refused. Completeness
+is provable by construction: the hash covers every argument the function
+takes; chunk hashes fold back in index order, so the value is stable across
+thread counts. Five tests, including the cache agreeing with the uncached
+path at all 9 216 cells, and a rich region (3/2.25 → 1.3333) really foraging
+differently from a poor one (2/2.25 → 0.8889) — an earlier draft routed the
+"poor" case over water, where `jp_calc_water` never consults foraging at
+all, so it would have passed while proving nothing.
+
+`jp_pack_range`, `jp_risk` and `jp_vessel_matrix` bound and placed where the
+reference draws them. §23 called these "exposed nowhere," which understates
+`jp_pack_range`: the view had a hand-rolled stand-in reading the last
+compute's `capacity.fodder` and reporting "roughly N days as configured" —
+restating the current setting rather than stating the ceiling, exactly the
+pre-v1.48 behaviour the reference wrote the function to end. `379` lib
+tests, 0 failed. Two disclosed limits: `jp_auto_stage_picks` still takes a
+scalar where it needs the per-stage closure (closed next commit), and the
+vessel matrix's water columns sort alphabetically because the reference's
+physical order lives in two private consts (also closed next commit via
+`JP_WATER_TERRAINS`).
+
+## 2026-08-26 (8) — File ▸ Open read the tree as flat, and silently dropped the civilisation layer
+
+**The most serious defect this audit produced**, found while wiring F10
+rather than by the audit itself. Measured, not inferred:
+
+```
+settlements before save: 8
+project_save: ok=true entries=18
+load_save (what the shell calls): ok=true settlements=0
+project_open (never called by the shell): ok=true settlements=8
+```
+
+`EngineBridge.save_project` was repointed at `project_save` — the tree
+writer — on 2026-08-25. `EngineBridge.load_save` was never repointed: it
+still called `WorldGen::load_save`, the **flat HTML-format reader**. Every
+project this build saved and reopened came back with terrain intact and its
+entire civilisation layer, appearance and documents silently gone — `ok ==
+true`, no warning, nothing in the console. The user meets it as "my
+settlements vanished," a session later, with no way to tell which operation
+lost them. `project_open` reads **both** layouts — verified in the same
+probe, it opens a flat export and reports `layout == "flat"` — so the fix is
+one call, not a format sniff, satisfying the owner's standing rule: read the
+old format and the new one, write only the new one. `WorldGen::load_save`
+stays as the fallback for a binary too old to have `project_open`.
+
+Also landed now that a reader returns what was actually stored (`afc2d57`):
+`entities/journeys.json` is written *and read* — the saved-journeys list was
+in-session only, and the scope doc had blamed first the missing writer, then
+the missing channel; what was actually missing was a reader returning stored
+bytes rather than a re-serialisation. `jp_auto_stage_picks` takes the
+per-stage closure instead of one scalar for the whole journey. `
+JP_WATER_TERRAINS` made public, so the vessel matrix draws its columns in
+the reference's physical order (calm to rapids, sheltered to rough) instead
+of alphabetical, which had put the rapids before the shallows.
+
+**And the harness had this exact blind spot.** Question B counted every
+`.gd` file, probes included — `project_open` was named by
+`_savetree_probe.gd` and nothing else, so it scored as *reached* while the
+data loss sat underneath it. A capability reached only by a probe is not
+wired: it's a capability with a test and no product behind it, the precise
+thing the harness exists to find. B now scans shell files only and flags
+probe-only hits explicitly. The corrected question immediately returned two
+more — `recompute_stale_stages` and `atlas_is_covered` (closed/declined
+next commit). Fifth distinct instance of this defect class in one day; the
+first four were found by eye.
+
+`cargo test --workspace`: **2 284 passed, 0 failed, 11 ignored**.
+`_savereopen_probe.gd` drives the round trip through the real
+`EngineBridge`: 8 settlements out, 8 back, document byte-identical
+including an integer above 2³¹, old flat archive still opening.
+
+## 2026-08-26 (9) — §23 closed: five wired, four declined with the reason in the code
+
+`PARITY_AUDIT.md` §23's F13/F14/F16 remainder (`44f7d9e`, `8f4068f`).
+Instruction to this pass: fewer done properly beats all of them shallowly,
+since a half-wired control looks finished and an unwired function does not.
+
+**Wired:** `civ_regional_population` — `estimate_regional_density_km2`
+integrated over land plus painted-territory share, on-demand in the
+Civilisation workspace, costing a real slice of Recompute civilisation, not
+run on every refresh. `as_drop_collection` — the Collections rail could
+create and browse a collection but never remove one. The three dead getters
+(`get_villages_enabled`/`get_metropolis_enabled`/`get_recovery_phase`), now
+read on `new_world_dialog`'s `about_to_popup` so the persistent, reused
+dialog shows the reopened project's settings instead of its own stale
+defaults. `lod_max_level`, now explicitly clamped in `viewport_host` — a
+no-op today since `lod_level_for_zoom` already clamps server-side, but
+explicit rather than assumed, the difference between correct and
+accidentally correct. `arc_label_line_width`, bound — though `map_overlay
+.gd`'s own inline one-liner stays, since that file holds no bridge reference
+and the expression sits inside a per-label draw loop, where an FFI
+round-trip would cost more than the multiplication it replaces; the doc
+comment now says why. `recompute_stale_stages` — the shell read staleness
+on a one-second timer and had no way to settle it; a Recompute chip now
+sits beside the stale label, driven by the same poll, refreshing the
+viewport (deliberately not `world_loaded`, which means "different world"
+and would clear the trade match) — desktop/tablet only until phone_menu
+.gd's row list carries it. `PaintEditor::water_mask` gained a setter and
+`apply_force_lake` calls it, closing the ceiling `00a9a3d` had documented —
+one `Arc` per press, nothing per dab, so the 417 ms generation-time cache
+stays untouched. Vault "confirm always" preferences moved from
+`vault_window.gd` to `vault_store.gd`, mirroring every other piece of vault
+state.
+
+**Declined, reasons written into each function's own doc comment:**
+`extract_region_as_world` (orchestration deliberately unported, lives in
+`WorldGen` state), the icon brush (the inside of a tool that doesn't exist
+— nothing arms it, renders it or stores it), `to_library_json` /
+`apply_library_file_with_items` (save-format adjacent, already disclosed),
+`referenced_files` / `slot_paths` (their one real consumer open-codes them),
+`atlas_is_covered` (both its jobs need a baked-imagery reader the shell has
+none of — gating refinement on coverage today would make deep zoom show
+*less* detail), `project_read_document` (the only surface that shows
+anything about a project before opening it — the gallery tile — already
+reads `params.json` with its own `ZIPReader`; no UI was invented to justify
+the binding). One judged **not** a gap: `filled_count` is already derived
+from real engine data by `_refresh_rail_counts`; a second binding would be
+an FFI round-trip answering a question already answered right.
+
+Verified: `cargo check -p cartalith-godot` clean, `--check-only` clean on
+all shell files touched, 378/380 lib tests green across the two commits,
+the new `a_forced_lake_reaches_the_paint_gate` re-run individually and
+mutation-tested (stubbing the setter's body fails exactly that test). One
+correction to my own brief: the vault-prefs placement bug was **latent, not
+live** — `app.gd` constructs and sets up the window eagerly at boot, so
+preferences did load today; the move removes the dependency on that eager
+construction rather than fixing a firing bug.
+
+## 2026-08-26 (10) — HTML v2.11: reads the tree format and the vault, writes neither
+
+Owner: *"can you update the old html (copy a new version) and put in there
+the new save file loading and vault reading... No need to change the
+current ui."* New file, `Cartalith Gen1 v2.11.html`, copied byte-identical
+from the frozen v2.10 snapshot (both md5 `9cba09ace11670c412ee35ca3e266d6c`
+at the copy). `reference/` is untouched and still hashes the same —
+verified after the work, not assumed, since every golden harness in this
+repo slices that file by line number.
+
+**Reading the tree.** `_treeRead(z, warn)` does not load anything — it
+*translates*. It returns exactly the `{GW, GH, state}` object `loadZip`
+already gets from a flat `params.json`, aliasing the tree's rasters onto
+the flat names inside the same `z` map, so the whole existing chain — the
+shims, `allocate()`, the typed-array reads, `buildTectonicSubstrate`,
+`computeFlow`, `syncUI`, and the civ/paint/LOD monkey-patch chains — runs
+unmodified over a tree. The `loadZip` diff is 12 lines. Both layouts still
+open, and `exportZip` is byte-identical, diffed against `HEAD` rather than
+assumed.
+
+**Reading the vault.** `vault.json` read whole, surfaced in three surfaces
+that already exist: the settlement inspector, the faction editor
+(faction + culture links), and one line on the Factions overview for
+province/continent links and unresolvable ones, since neither has an
+inspector. Read-only, no new panel, no new CSS.
+
+**The bug it found on the way.** `Object.assign(state, pk.state)` is a
+**merge**, so a state block the archive omits survives from the previously
+open project. Every pre-v2.11 export writes state whole, so this never bit
+— but §1.1's interoperability export writes a flat `params.json` with no
+civ block at all, so opening a tree and then a flat archive silently kept
+the tree's 10 settlements, 17 ways, territory, timeline, labels, icons and
+vault links over a different world, and reported `ok`. Same defect, same
+shape, as the native File ▸ Open bug fixed the same morning (above): a
+reader that succeeds while silently keeping or dropping a whole layer.
+Fixed by clearing the project-scoped collections before the merge, with a
+regression case asserting nothing leaks across a tree-then-flat open in one
+session.
+
+Verified: 93 assertions over 5 loads driven inside a `vm` context over all
+four `<script>` blocks, covering §14.2 integer coercion, §9.1–§9.4 record
+handling, §10 timeline ordering and per-year territory, §11 annotations,
+§6.3/§6.5 carried documents byte-for-byte (including non-ASCII and an
+integer above 2³¹), and §13.3 stale ids. Six negative controls — bad JSON,
+wrong format, missing `world.seed`, mistyped `wrap_x`, a heightmap short by
+one float, no heightmap — all refuse *and* leave the already-open project
+intact. Ten findings against `SAVEFILE_COMPAT.md` from this file's first
+independent implementer, folded into the spec next commit — sharpest: §13.3
+said "the link store, verbatim" with no shape given, so the vault could
+only be implemented by reading `cartalith-vault`'s Rust, exactly the
+"implementable from this text alone" claim failing.
+
+## 2026-08-26 (11) — v2.11 ponytail: a per-frame world-wide river trace, a cache that could not invalidate, and 50 fallbacks defending a legal value
+
+Top three findings from the read-only ponytail survey of v2.10, applied to
+v2.11. The frozen reference stays untouched, asserted by the checked-in
+harness.
+
+1. `_umWaterCtx` re-traced **every river in the world**, per settlement, per
+   frame. A gen-keyed cache doing exactly that, with an identical argument
+   list, sat ~150 lines below it — `drawCivLayer` §2.5 reaches `_umModelFor`
+   for every in-view settlement each frame, and `_umPlaceContext` runs
+   *before* the model cache is consulted. The comment justifying it claimed
+   the result "is itself cached per settlement" — it is not; `_umModelCache`
+   sits behind it, and that false comment is why the duplicate survived
+   review. At the default 2048-wide grid that's three full `GW×GH` sweeps,
+   two typed-array allocations, a sort and an object per channel cell, once
+   per settlement per frame.
+2. Fixing (1) exposed a real bug in the cache being switched *to*: it keyed
+   on `_fieldGen`, wrong in both directions — of five sites nulling
+   `_riverNet`, three bump `_fieldGen` and two don't (riverDensR's slider,
+   the post-carve `computeFlow(true)`), so it served a stale channel set
+   after a river-density change; two other sites bump `_fieldGen` *without*
+   touching `_riverNet`, so it also re-traced when nothing about the rivers
+   had moved. Now keyed on the **identity** of `_riverNet` — the polylines
+   derive from it and nothing else, so every invalidation path, present or
+   future, invalidates this by construction.
+3. `state.seaLevel||0.42` at 50 sites, against ~130 reading it bare. The
+   slider is `min="0"` with no clamp, and `seaLevel` is initialised in the
+   state literal so it's never undefined — the fallback only ever defended
+   against its own legal zero. At Sea level 0% the renderer drew an all-land
+   map while `_civDropPlace` computed 0.42 and refused to place a
+   settlement on most of the visible land. All 50 removed.
+4. The eight-line derived-field invalidation list, written out identically
+   eight times, is now one function with eight callers. The `_biomeK`
+   toggle keeps its narrower four-cache list, correct and not drift.
+
+`cartalith-native/tools/ponycheck.js`, checked in beside `audit_wiring.py`:
+21 assertions, all green, exercising the **shipped** function text rather
+than a reimplementation — the whole file can't be evaluated under a DOM
+stub, since `let` in a `vm` script is a lexical binding rather than a
+context property. One of ponycheck's own assertions was a false positive
+worth recording: a proximity regex for `_biomeK` near `invalidateDerived`
+matched `invalidateDerived`'s own doc comment, which names `_biomeK` in
+prose. Rewritten to assert on the toggle's actual line.
+
+## 2026-08-26 (12) — The spec's first independent implementer found a false sentence in it, and three real defects under it
+
+`SAVEFILE_COMPAT.md` +637/-44, plus the code fixes its findings implied.
+
+**The correction that matters most.** §15 ended with *"A flat archive
+carries no entities, no history and no annotations this reader can
+restore."* That is **false** — a flat archive carries all three, nested
+inside `params.json`'s `state`: `state.civ` holds sparse territory pairs,
+the timeline, ways, journeys and the year cursor; `state.places` /
+`labels` / `mapIcons` / `roads` hold settlements, labels, icons and the
+older auto-network. A second implementer who believed that sentence would
+discard the entire civilisation layer of every legacy save while being told
+by the spec they were conforming. New §15.1 plus twelve rows in the
+flat→tree mapping table; §15's claimed "seven entries" corrected to eight
+unconditional, ~30 in total.
+
+**Ten findings, nine verified and one rejected.** Rejected, correctly:
+`village_seeded` "has no home in the reference" — it does, as
+`p.villageAddon`; the agent checked rather than accepted, which is the
+point. The rest produced §6.4a's damage ladder (value → element → document
+→ archive, climbing only when the smaller scope has no defined meaning,
+resolving a §7-vs-§6.4 contradiction), §15.2's exact `rg16` packing, §9.1's
+capital↔kind translation, §9.2's rule that faction colour is stored and
+must **not** be regenerated, §9.4 permitting re-derived provinces with two
+obligations, §10.2's `<year>` grammar, §11.3 (w/h below 1 means no region,
+not a region widened to 1), and §13.3 rewritten as eight subsections. §14.4
+now names the one collision a second implementer will actually hit:
+`sea_lane` vs. the reference's own sea-lane, which would otherwise silently
+become `track`.
+
+**Three code defects, fixed here.** (1) `LinkStore::from_json` failed the
+**whole store** when any single link failed to deserialize, and
+`project_open`'s `if let Ok(store)` then skipped the vault in total
+silence — one unrecognised `selection.type` from a newer writer cost every
+knowledge link in the project, `ok == true`, KV-04's exact shape one layer
+up. `Selection` gets a hand-written `Deserialize` folding an unknown type
+onto `whole_document` (hand-written rather than `#[serde(other)]`, which
+would need a third variant that then re-serialises as a type no reader
+knows); mutation-checked, removing the fallback arm fails the new test. (2)
+`world.seed` was read `as i32`, which **saturates silently** in Rust — a
+conforming archive above 2³¹ loaded with a different seed, terrain still
+correct (restored from the raster, not regenerated), but Generate
+afterwards produced a world that wasn't the one on screen, and
+`save_round_trip`'s bit-identical assertion quietly stopped holding. Now
+range-checked and refused via `LoadError::OutOfRange`. (3) §10.2's `<year>`
+was parsed rather than matched, so `+7` and `007` were accepted and could
+silently displace each other in the `BTreeMap`; specified, code fix noted
+in §17 for follow-up.
+
+`cargo test --workspace`: **2 286 passed, 0 failed, 11 ignored**. On
+whether §13.3 is a spec or a paraphrase, the implementing agent's own
+answer is worth keeping: a spec, with one honest caveat — `entity_kind
+"culture"` can't be made self-contained, since its id indexes a vocabulary
+the archive doesn't carry, so §13.3.4 names it as the odd one and requires
+a differing implementation to treat those links as unresolvable rather than
+bind them to whatever sits at that index.
