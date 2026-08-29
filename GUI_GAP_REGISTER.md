@@ -9628,3 +9628,95 @@ document's intent.
    buildability with instructions to read the real shell code, found eight
    high-severity errors in designs that all read as competent. The provenance
    auditor's grep is what caught the fabricated citation.
+
+## 58 · PH-28 — a 16:9 tablet gets the phone layout, and its controls are clipped off the screen (2026-08-29) — **MEASURED, ONE OWNER DECISION**
+
+Owner asked whether the APK gives each device its respective layout: the
+OnePlus 6T for phone, plus a simulated 2K tablet and a 4K one. Driven on the
+real handset (`9608b26b`, ONEPLUS_A6013) against a fresh `--export-debug`
+build carrying that day's work, with `adb shell wm size` / `wm density`
+overrides and the device reset afterwards.
+
+**Three of the four geometries are right. The fourth is a real defect, and it
+is a defect of the classifier rather than of any layout.**
+
+| Geometry | short/long | Layout drawn | Correct? |
+|---|---|---|---|
+| 1080×2340 — native 6T | **0.4615** | phone: bottom nav, ☰ bar, navpad | yes |
+| 2560×1600 — 2K tablet, 16:10 | **0.625** | tablet: menu bar, rail, both 400 px docks | yes |
+| 3840×2160 — 4K, **16:9** | **0.5625** | **phone** | **no** |
+| 3840×2400 — 4K, 16:10 | **0.625** | tablet | yes |
+
+### The cause, and the controlled experiment that isolates it
+
+`dcc_shell.gd:335` is the whole classifier:
+
+```gdscript
+_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX   # 0.6
+```
+
+**Aspect is the only discriminator. Resolution and physical size are not
+consulted at all.** A 16:9 panel is `2160/3840 = 0.5625`, under the 0.6
+threshold, so a 4K 16:9 tablet is a phone by this test — and 16:9 is an
+entirely ordinary tablet, Chromebook and Android-desktop aspect.
+
+The last two rows are the experiment that proves it is the aspect and not the
+pixels: **the width is 3840 in both**, only the height changes, and the layout
+flips. Nothing about "4K" is the problem.
+
+### It is not a cosmetic misclassification — the shipped result is clipped
+
+Measured on the 3840×2160 run, not inferred:
+
+- **The welcome gate renders full-screen with its content cut off.** The
+  "Create a new world" card is truncated mid-card and the footer sits on top of
+  it. That is `phone_present()` doing exactly what it is built to do —
+  `dlg.min_size = Vector2i.ZERO; dlg.max_size = Vector2i.ZERO`
+  (`dcc_widgets.gd:1156-1157`) — on a screen it was never meant for. At
+  2560×1600 the same dialog is a correct centred modal.
+- **The navpad pills are clipped off the right edge**, the topmost one cut
+  through horizontally.
+- **The action row runs off the screen**: `BAKE AL…`, with no way to reach it.
+- No docks at all on a 3840 px display, and phone-scale type across the whole
+  width.
+
+### The owner decision
+
+The threshold is not an oversight — `_PHONE_ASPECT_MAX`'s own comment says it
+is *"Midpoint-ish between 19.5:9 (~0.46) phones"* and tablet aspects, and it is
+correct for the two device classes it was chosen against. The gap is that
+**aspect alone cannot separate a 16:9 tablet from a 16:9 phone in landscape**,
+because they are the same ratio. Only size can.
+
+The obvious fix is to add a size condition, and it is discriminating in
+practice: at the tested densities the 4K panel is **1920×1080 dp** while the
+6T is **384×832 dp**. No phone is 1920 dp wide, so a short-side dp floor
+(anything from ~600 dp — Android's own `sw600dp` tablet breakpoint — upward)
+separates them cleanly without moving any currently-correct case.
+
+**Not applied here.** Which devices count as phones is a product decision with
+a blast radius over every `_phone`-gated path in the shell — `phone_fit`,
+`phone_present`, `phone_menu.gd`'s whole navigation model — and this pass has a
+measurement, not a mandate. The measurement is above; the one-line shape of the
+fix is `_phone = _touch and aspect < _PHONE_ASPECT_MAX and short_side_dp <
+PHONE_MAX_SHORT_DP`.
+
+### Related: DS-03 is now visible rather than merely measured
+
+§48 registered the tablet interior as unscaled and §57 found a scaling layer is
+the wrong shape for it. Both 2K and 4K-16:10 runs show what that costs on a
+real panel: at 3840×2400 the dock type is the desktop's own 10.5 px inside a
+400 px dock on a 3840 px screen. The larger the tablet, the worse it reads,
+because nothing in the interior is a function of the display at all.
+
+### Build and artefact
+
+`cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot` then
+`--export-debug "Android"` — the `.gdextension`'s `android.debug.arm64` line
+resolves to that exact `android-dev` output, checked before exporting.
+207 699 354 bytes, md5 `f9c9e01984eddee01da82f8497b6b5b0`, copied to
+`D:\Users\Vincent\Documents\Vincent\Persoonlijk\Writing\Tools & writing hacks\
+Cartalith.apk` and md5-verified at the destination. Device size and density
+reset to physical (1080×2340, 450) afterwards; the override density of 314 the
+device was carrying on arrival was **not** restored, since it was left by an
+earlier session rather than being the device's own setting.
