@@ -45,10 +45,16 @@ pub struct CenterResult {
 /// `warpX`/`warpY`/`geoidField`/`tideField`/`koppenField`/`orogenyField`
 /// and its four seasonal fields have no equivalent here at all.
 ///
-/// `channels` is **dropped**, not shifted: `ChannelResult::recv` holds
-/// flat grid *indices*, so rotating the array leaves every receiver
-/// pointing at the cell it used to point at rather than the one it now
-/// means. The reference does exactly this, via `_riverNet = null`.
+/// `channels` is **shifted and re-pointed**, like everything else.
+/// `ChannelResult::recv` holds flat grid *indices*, so rotating the array
+/// alone would leave every receiver aimed at the cell it used to mean --
+/// which is why this used to drop the tree instead. Dropping it was wrong:
+/// `ws.channels` is written only by `generate_terrain`, so nothing ever put
+/// it back, and every river left the map, the exported rasters and the
+/// GeoJSON export until the next Generate (measured: 137 river features
+/// before centring, 0 after). The reference gets away with `_riverNet = null`
+/// because `renderNow` rebuilds it on the next draw; this port has no such
+/// rebuild, and one would not be faithful anyway -- see the body.
 ///
 /// # What this deliberately does not do
 ///
@@ -98,7 +104,44 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     if let Some(a) = ws.river_floor.as_mut() {
         shift_grid_x(a.as_mut_slice(), gw, gh, o);
     }
-    let channels_dropped = ws.channels.take().is_some();
+    // **The channel network is shifted, not dropped.** It used to be
+    // `ws.channels.take()`, and since `ws.channels` is written in exactly one
+    // place -- `generate_terrain` -- nothing ever put it back: every river
+    // disappeared from the map, from the exported rasters and from the GeoJSON
+    // export the moment the user pressed Center landmasses, until the next
+    // Generate. Measured before the fix on seed 24601 in world mode
+    // (offset 86): **137 river features before, 0 after**.
+    //
+    // The reference does not behave that way. `centerLandmasses` nulls
+    // `_riverNet`, and `renderNow`'s own branch rebuilds it on the next draw
+    // (`if(!_riverNet) _riverNet = buildRiverNetwork(...)`). This port has no
+    // such rebuild, and adding one here would not be equivalent anyway:
+    // `build_channels` is fed `flow_for_network` and the **pre-carve** field
+    // at generation time, and neither survives into `WorldState`, so a rebuild
+    // from `ws.field`/`ws.flow_discharge` would invent a *different* network
+    // rather than restore the one that was there.
+    //
+    // Shifting preserves the exact topology, which is what every other grid
+    // here does. `recv` needs one thing the value grids do not: its elements
+    // are **cell indices**, so after the array moves, each stored index must
+    // be re-pointed at its subject's new column. `shift_grid_x` writes
+    // `new[x] = old[(x + off) % w]`, so a cell that was at column `cx` is now
+    // at `(cx - off) mod w`. `-1` is the "no receiver" sentinel and is left
+    // alone. `slope` is released by `generate_terrain` immediately after the
+    // build and is empty here, so it is not shifted.
+    if let Some(ch) = ws.channels.as_mut() {
+        shift_grid_x(ch.chan.as_mut_slice(), gw, gh, o);
+        shift_grid_x(ch.recv.as_mut_slice(), gw, gh, o);
+        let back = gw - (off % gw);
+        for v in ch.recv.iter_mut() {
+            if *v < 0 {
+                continue;
+            }
+            let idx = *v as usize;
+            *v = ((idx / gw) * gw + (idx % gw + back) % gw) as i32;
+        }
+    }
+    let channels_dropped = false;
 
     // The world is only *approximately* periodic in X (the reference's own
     // Invariant 9: seam wrap-delta < 0.12), so the shift moves that
@@ -157,13 +200,59 @@ mod tests {
         assert_eq!(ws.field[far], before_field[(far + r.offset) % gw]);
     }
 
+    /// Replaces `the_receiver_tree_is_dropped_because_its_indices_would_be_
+    /// wrong`, which asserted the old behaviour and named its own cause in its
+    /// own title: the indices *would* have been wrong, so the tree was thrown
+    /// away instead of being re-pointed. Dropping it meant every river left
+    /// the map, the exported rasters and the GeoJSON export until the next
+    /// Generate -- measured at 137 river features before centring and 0 after.
+    /// Re-pointing them is what this pins.
     #[test]
-    fn the_receiver_tree_is_dropped_because_its_indices_would_be_wrong() {
+    fn the_receiver_tree_moves_with_the_world_instead_of_being_dropped() {
         let (mut ws, gw, gh) = world(48, 32, 24601);
-        assert!(ws.channels.is_some(), "the fixture must have a channel tree to drop");
+        // The two vectors, not the struct: `ChannelResult` is not `Clone`, and
+        // deriving it on a shipped type to satisfy a test is the wrong way round.
+        let (before_chan, before_recv) = {
+            let c = ws.channels.as_ref().expect("the fixture must have a channel tree");
+            (c.chan.clone(), c.recv.clone())
+        };
+        let channel_cells = before_chan.iter().filter(|&&c| c != 0).count();
+        assert!(channel_cells > 0, "the fixture must actually contain channels");
+
         let r = center_landmasses(&mut ws, gw, gh, true).unwrap();
-        assert!(r.channels_dropped);
-        assert!(ws.channels.is_none());
+        assert_ne!(r.offset, 0, "this seed must actually shift or the test says nothing");
+        assert!(!r.channels_dropped);
+        let after = ws.channels.as_ref().expect("the channel tree must survive centring");
+
+        // Where a cell ends up: `shift_grid_x` writes `new[x] = old[(x+off)%w]`,
+        // so the cell at old column `cx` lands at `(cx - off) mod gw`.
+        let moved = |idx: usize| -> usize {
+            (idx / gw) * gw + (idx % gw + gw - r.offset % gw) % gw
+        };
+
+        assert_eq!(
+            after.chan.iter().filter(|&&c| c != 0).count(),
+            channel_cells,
+            "centring must not gain or lose a single channel cell"
+        );
+
+        let mut checked = 0usize;
+        for i in 0..gw * gh {
+            assert_eq!(after.chan[moved(i)], before_chan[i], "chan at {i} did not move intact");
+            let old_recv = before_recv[i];
+            let new_recv = after.recv[moved(i)];
+            if old_recv < 0 {
+                assert_eq!(new_recv, -1, "the no-receiver sentinel at {i} must survive as -1");
+            } else {
+                assert_eq!(
+                    new_recv as usize,
+                    moved(old_recv as usize),
+                    "the receiver of cell {i} must point at where its receiver actually went"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "no cell had a receiver -- this test proved nothing");
     }
 
     /// Centering twice must be a no-op the second time: the first call put
