@@ -214,6 +214,11 @@ var _lod_layer: Control   ## Child of `_camera`, drawn directly above
 	## debug raster, previews, vectors) -- it replaces the base raster at deep
 	## zoom rather than sitting on top of the stack. See its `_ready()`
 	## construction site for why that distinction is load-bearing.
+var _lod_debug_layer: Control   ## Child of `_lod_layer`, above its tiles --
+	## the chunk-debug overlay. See its construction site in `_ready()`.
+var _lod_dbg_grid := false      ## The reference's `_lodGrid`,
+var _lod_dbg_colors := false    ## `_lodChunkCol` and
+var _lod_dbg_labels := false    ## `_lodLabels` (reference line 10933).
 var _lod_tiles: Dictionary = {}   ## `"%d,%d,%d" % [z, col, row]` -> the live
 	## `Sprite2D` showing that pyramid chunk, so a pan/zoom that doesn't
 	## touch a given chunk leaves its node (and the Rust call that built it)
@@ -301,6 +306,22 @@ func _ready() -> void:
 	_lod_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_lod_layer.modulate.a = 0.0
 	_camera.add_child(_lod_layer)
+
+	## Chunk-debug overlay -- the reference's `drawLODChunkDebug` (line 10946),
+	## reached there from `drawLODView`'s tail and gated on the same three
+	## toggles. A CHILD of `_lod_layer` rather than a sibling, deliberately:
+	## it inherits the `modulate:a` fade `_set_lod_active()` tweens, so the
+	## overlay appears and leaves exactly with the tiles it annotates instead
+	## of popping a frame early. `z_index` puts it above the `Sprite2D` tiles
+	## added to the same parent later; `_clear_lod_tiles()` only frees nodes
+	## it tracks in `_lod_tiles`, so this one survives a level change.
+	_lod_debug_layer = Control.new()
+	_lod_debug_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lod_debug_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lod_debug_layer.z_index = 1
+	_lod_debug_layer.visible = false
+	_lod_debug_layer.draw.connect(_draw_lod_debug)
+	_lod_layer.add_child(_lod_debug_layer)
 
 	territory_view = _raster()
 	province_view = _raster()
@@ -1613,3 +1634,135 @@ func _set_lod_active(active: bool) -> void:
 		_clear_lod_tiles()
 	var tw := create_tween()
 	tw.tween_property(_lod_layer, "modulate:a", 1.0 if active else 0.0, 0.15)
+
+# -- Chunk-debug overlay ------------------------------------------------------
+#
+# The reference's `drawLODChunkDebug` (line 10946) and its three toggles
+# (`_lodGrid`/`_lodChunkCol`/`_lodLabels`, line 10933), driven there by the
+# `lodDbgSeg` segmented control (line 1266) under an "Atlas cache ▸ Chunk debug
+# overlay" accordion. This port hangs them on `Help ▸ LOD debug` instead --
+# the shell has no Atlas panel, and a developer overlay is what Help's own
+# `Generation info…` row already is.
+#
+# **Two of the reference's four chunk states are not reachable here, and are
+# omitted rather than faked.** `CHUNK_STATE_COL` there is
+# `baked / edited / cached / unexplored`. This overlay can only annotate chunks
+# that exist as live tiles, so `unexplored` can never be drawn; and `edited`
+# reads the reference's `_lodEdits` store, which this port has no equivalent of
+# (`composeTileEdits`/`composeEditInto` are unported). What is left is the real
+# distinction a developer actually wants: is this chunk served from the baked
+# atlas, or synthesized. Inventing the other two would be a legend that lies.
+
+## Reference `LOD_LEVEL_COLS` (line 10934), verbatim -- red/blue/green/yellow/
+## cyan/magenta, indexed `z % 6`, so adjacent pyramid levels never share a
+## grid colour.
+const LOD_LEVEL_COLS: Array[Color] = [
+	Color8(235, 80, 80), Color8(80, 140, 235), Color8(80, 205, 120),
+	Color8(235, 205, 72), Color8(80, 215, 225), Color8(215, 90, 215),
+]
+
+## Reference `CHUNK_STATE_COL` (line 10935), the two entries this port can
+## actually answer for. See the note above on the two that are omitted.
+const CHUNK_COL_BAKED := Color8(80, 200, 110)
+const CHUNK_COL_CACHED := Color8(90, 140, 210)
+
+## Turn one chunk-debug layer on or off. `which` is `"grid"`, `"colors"` or
+## `"labels"` -- the reference's own `data-g` values (`grid`/`col`/`lbl`),
+## spelled out here because a menu row is not a three-character dataset key.
+func set_lod_debug(which: String, on: bool) -> void:
+	match which:
+		"grid": _lod_dbg_grid = on
+		"colors": _lod_dbg_colors = on
+		"labels": _lod_dbg_labels = on
+		_: return
+	## The reference re-renders only when the LOD view is up (`if(_lodOn)
+	## renderNow()`); here the layer is a child of `_lod_layer`, so an
+	## inactive LOD view draws nothing regardless -- but keeping the node
+	## hidden when every toggle is off means `_draw_lod_debug` is not even
+	## queued on a camera move.
+	_lod_debug_layer.visible = _lod_dbg_grid or _lod_dbg_colors or _lod_dbg_labels
+	_lod_debug_layer.queue_redraw()
+
+func lod_debug_enabled(which: String) -> bool:
+	match which:
+		"grid": return _lod_dbg_grid
+		"colors": return _lod_dbg_colors
+		"labels": return _lod_dbg_labels
+	return false
+
+## Stable per-chunk hue -- the reference's `chunkColorHash` (line 10938),
+## `hsl(hash(col,row,z+1), 0.5, 0.55)`. The hash itself is *not* ported
+## bit-for-bit: this is a debug tint, `DECISIONS.md` §7d's contract is
+## behaviour rather than pixels, and no golden covers it. What is preserved is
+## the property the overlay is *for* -- that the tint is stable per chunk and
+## uncorrelated between neighbours, so a duplicated or misindexed chunk shows
+## up as a repeated colour.
+func _chunk_hue(z: int, col: int, row: int) -> Color:
+	var h := int(col) * 73856093 ^ int(row) * 19349663 ^ int(z + 1) * 83492791
+	return Color.from_hsv(float(absi(h) % 3600) / 3600.0, 0.5, 0.55)
+
+## The rect a live tile actually occupies, read back off the `Sprite2D` rather
+## than recomputed from `_lod_tile_rect()`'s inputs. Deliberate: a
+## recomputation is a second implementation of the half-texel inset that
+## function's own 20-line comment exists to justify, and a debug overlay that
+## disagrees with the tiles it annotates is worse than no overlay.
+func _lod_sprite_rect(sprite: Sprite2D) -> Rect2:
+	var tex_size := sprite.texture.get_size() if sprite.texture != null else Vector2.ONE
+	return Rect2(sprite.position, tex_size * sprite.scale)
+
+func _draw_lod_debug() -> void:
+	if _lod_tiles.is_empty():
+		return
+	var font := ThemeDB.fallback_font
+	var fs := maxi(9, int(round(float(_lod_debug_layer.size.x) / 110.0)))
+	var lh := float(fs) * 1.25
+	var lw := maxf(1.5, float(_lod_debug_layer.size.x) / 360.0)
+
+	for key in _lod_tiles.keys():
+		var sprite := _lod_tiles[key] as Sprite2D
+		if sprite == null or not is_instance_valid(sprite):
+			continue
+		var parts := String(key).split(",")
+		if parts.size() != 3:
+			continue
+		var z := int(parts[0])
+		var col := int(parts[1])
+		var row := int(parts[2])
+		var r := _lod_sprite_rect(sprite)
+		var lc: Color = LOD_LEVEL_COLS[z % LOD_LEVEL_COLS.size()]
+
+		if _lod_dbg_colors:
+			var c := _chunk_hue(z, col, row)
+			c.a = 0.32
+			_lod_debug_layer.draw_rect(r, c, true)
+
+		if _lod_dbg_grid:
+			## Faint child-quadrant guides first -- the next level's split, so
+			## the tiling still reads when one chunk fills the whole view.
+			var faint := lc
+			faint.a = 0.30
+			var mid := r.position + r.size * 0.5
+			_lod_debug_layer.draw_line(
+				Vector2(mid.x, r.position.y), Vector2(mid.x, r.end.y), faint, maxf(1.0, lw * 0.5))
+			_lod_debug_layer.draw_line(
+				Vector2(r.position.x, mid.y), Vector2(r.end.x, mid.y), faint, maxf(1.0, lw * 0.5))
+			var edge := lc
+			edge.a = 0.95
+			_lod_debug_layer.draw_rect(r, edge, false, lw)
+
+		## The reference's own legibility gate: a chunk narrower than about
+		## eight glyphs gets no label rather than an unreadable smear.
+		if _lod_dbg_labels and r.size.x > float(fs) * 7.0:
+			var baked := _bridge.atlas_is_covered(z, col, row)
+			var state_txt := "baked" if baked else "cached"
+			var state_col := CHUNK_COL_BAKED if baked else CHUNK_COL_CACHED
+			var box := Rect2(r.position + Vector2(2, 2), Vector2(float(fs) * 8.5, lh * 3.0 + 6.0))
+			_lod_debug_layer.draw_rect(box, Color(0.031, 0.039, 0.063, 0.62), true)
+			var tp := r.position + Vector2(5, 5 + float(fs))
+			_lod_debug_layer.draw_string(font, tp,
+				"LOD%d %d,%d" % [z, col, row], HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color8(221, 255, 238))
+			var par := "root" if z <= 0 else "par %d,%d" % [col >> 1, row >> 1]
+			_lod_debug_layer.draw_string(font, tp + Vector2(0, lh),
+				par, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color8(153, 187, 221))
+			_lod_debug_layer.draw_string(font, tp + Vector2(0, lh * 2.0),
+				state_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, state_col)

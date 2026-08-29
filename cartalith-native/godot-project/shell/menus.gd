@@ -88,6 +88,10 @@ const ID_HELP_CREDITS := 70
 const ID_HELP_ABOUT := 71
 const ID_HELP_SHORTCUTS := 72
 const ID_HELP_GEN_INFO := 73
+## `Help ▸ LOD debug` -- the reference's `lodDbgSeg` trio (line 1266).
+const ID_HELP_LOD_GRID := 74
+const ID_HELP_LOD_COLORS := 75
+const ID_HELP_LOD_LABELS := 76
 
 var _shell: DccShell
 var _bridge: EngineBridge
@@ -131,6 +135,9 @@ const GPU_VRAM_CHOICES: Array[float] = [0.0, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.
 ## to put it back after a generation released the row.
 const GPU_TOGGLE_TIP := "Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate."
 
+var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
+	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
+	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
 var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## radio rows shows checked. Not persisted (`DccSettings` carries no theme
@@ -1441,9 +1448,67 @@ func _help(p: PopupMenu) -> void:
 	## affordance distinct from "Report an issue" below (which still has no
 	## actual issue-filing route).
 	_live(p, "Generation info…", ID_HELP_GEN_INFO)
+	_build_lod_debug_submenu(p)
 	_todo(p, "Report an issue", "No issue route wired.")
 	_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
+
+## `Help ▸ LOD debug` -- the reference's chunk-debug overlay, whose three
+## toggles live there on a `seg sm` segmented control (`lodDbgSeg`, reference
+## line 1266) inside an "Atlas cache ▸ Chunk debug overlay" accordion. This
+## shell has no Atlas panel, and the overlay is a developer affordance of
+## exactly the kind `Generation info…` above it already is, so Help is its
+## home here. The three rows keep the reference's own labels and order:
+## Grid, Colors, Labels.
+##
+## Checkable rows rather than a segmented control: a `PopupMenu` has no
+## segment, and a check mark is what "this overlay is on" looks like in a
+## menu. They are independent toggles in the reference too -- three separate
+## booleans, any combination legal -- so check items, not radio items.
+func _build_lod_debug_submenu(p: PopupMenu) -> void:
+	_lod_debug_popup = PopupMenu.new()
+	_lod_debug_popup.name = "LodDebug"
+	_lod_debug_popup.add_check_item("Grid", ID_HELP_LOD_GRID)
+	_lod_debug_popup.add_check_item("Colors", ID_HELP_LOD_COLORS)
+	_lod_debug_popup.add_check_item("Labels", ID_HELP_LOD_LABELS)
+	## Reference: the overlay draws only under the tiled LOD view
+	## (`drawLODChunkDebug` is called from `drawLODView`'s tail, and the
+	## handler re-renders only `if(_lodOn)`). Said in the tooltip rather than
+	## disabling the rows, because deep zoom is a camera state the user
+	## reaches by scrolling, not a mode they switch on -- greying these out
+	## would read as "not built".
+	for i in 3:
+		_lod_debug_popup.set_item_tooltip(i,
+			"Chunk-debug overlay for the deep-zoom tile pyramid. Draws only while the tiled LOD view is up -- zoom in past the threshold to see it.")
+	_refresh_lod_debug_menu()
+	_lod_debug_popup.id_pressed.connect(_on_lod_debug)
+	_shell.style_popup(_lod_debug_popup)
+	p.add_child(_lod_debug_popup)
+	p.add_submenu_item("LOD debug", "LodDebug")
+
+## Mirrors `ViewportHost`'s own three booleans onto the check marks. The
+## viewport is the single source of truth -- this menu keeps no copy, which is
+## the bug shape `PARITY_AUDIT.md` §23 F14 found in the three world-dialog
+## getters (shell and engine each holding a copy, free to disagree after a
+## load).
+func _refresh_lod_debug_menu() -> void:
+	if _lod_debug_popup == null or _host == null or _host.viewport == null:
+		return
+	_lod_debug_popup.set_item_checked(0, _host.viewport.lod_debug_enabled("grid"))
+	_lod_debug_popup.set_item_checked(1, _host.viewport.lod_debug_enabled("colors"))
+	_lod_debug_popup.set_item_checked(2, _host.viewport.lod_debug_enabled("labels"))
+
+func _on_lod_debug(id: int) -> void:
+	if _host == null or _host.viewport == null:
+		return
+	var which := ""
+	match id:
+		ID_HELP_LOD_GRID: which = "grid"
+		ID_HELP_LOD_COLORS: which = "colors"
+		ID_HELP_LOD_LABELS: which = "labels"
+		_: return
+	_host.viewport.set_lod_debug(which, not _host.viewport.lod_debug_enabled(which))
+	_refresh_lod_debug_menu()
 
 func _on_help(id: int) -> void:
 	match id:

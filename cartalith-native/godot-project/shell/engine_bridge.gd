@@ -1403,6 +1403,25 @@ func bake_visible(z: int, x0: float, y0: float, x1: float, y1: float) -> Diction
 
 ## Throw away this world's baked chunks; returns how many went. Clears the
 ## finalize lock too -- a lock protecting nothing would strand the user.
+## Is this pyramid chunk served from the baked atlas rather than synthesized?
+##
+## `PARITY_AUDIT.md` §23 F16 registered `atlas_is_covered` as **declined**, on
+## the reasoning that *"both its jobs need a reader of baked imagery and the
+## shell has none"* -- gating deep-zoom refinement on coverage would make the
+## view show *less* detail, because nothing would draw the baked chunk in the
+## refined tile's place. That reasoning still holds for those two jobs.
+##
+## It does not hold for a third one the audit did not consider: the chunk-debug
+## overlay (`ViewportHost._draw_lod_debug`, the reference's
+## `drawLODChunkDebug`) needs the *answer*, not the image -- it prints
+## `baked` or `cached` beside a chunk id. So this is the function's first real
+## consumer, and it does not reopen the refinement question.
+func atlas_is_covered(z: int, col: int, row: int) -> bool:
+	if not _has("atlas_is_covered"):
+		return false
+	atlas_ready()
+	return bool(world_gen.atlas_is_covered(z, col, row))
+
 func atlas_clear() -> int:
 	if not _has("atlas_clear"):
 		return 0
