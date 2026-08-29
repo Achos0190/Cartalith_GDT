@@ -9481,3 +9481,150 @@ Registered, not fixed: nothing here. BI-01 is closed by the stamp.
   this evening. It is the 2026-08-24 guard doing its job, and it wants a
   `cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot`
   before the next device pass measures anything that saves.
+
+## 57 · DS-03 and DS-13 re-opened, and a religion-screen design that was premature — a canvas pass whose audit refuted all three of its own designs (2026-08-29) — **THREE REGISTERED, NOTHING BUILT**
+
+Owner asked for the `/ui-ux-pro-max` skill to design the screens the canvases
+do not cover, starting from §48's two registered items and adding the
+religion-diffusion subsystem's own surfaces. The pass ran as extract → design →
+**adversarially audit**, two independent auditors per design, one hunting
+fabricated provenance and one hunting buildability.
+
+**It produced no code, and that is the result rather than a shortfall.** All
+three designs were refuted — 50 findings, 8 at high severity — and each would
+have read correctly in review and shipped broken. What follows is what the
+audit established, so a later pass starts from it rather than re-deriving it.
+
+### The finding that re-opens DS-03: the tablet is not a scaled desktop
+
+§48 registered the tablet's interior as *"a scaling layer that does not exist
+rather than a value that is wrong"*, and warned that bolting `phone_fit` onto
+tablet with a guessed unit *"is how the next pass gets a tablet that is
+neither."* Right instinct, and the diagnosis is still too shallow: **a scaling
+layer of any unit is the wrong shape.**
+
+Pairing `DCC shell tablet 2560` against `DCC shell 1920` element by element
+(~55 interior elements) gives ratios spread from **×1.00 to ×2.06** with no
+centre: hairlines, letter-spacing, the layers FAB and the rail's vertical
+padding are *pinned*; type runs ×1.14–×1.30; box metrics ×1.20–×1.57; the
+action button's height is **×2.06**. Sans and mono take different multipliers
+off the same 11 px rung — sans 11→14, mono 11→13.
+
+The two mechanisms a multiplier cannot express, and which are what the tablet
+artboard actually *is*:
+
+1. **A `min-height` touch system introduced from nothing.** The tablet artboard
+   uses `min-height:44px` **29 times** and `min-height:34px` 3 times. The
+   desktop artboard contains **zero** `min-height` declarations at all. This is
+   not a scaled property; it is a new constraint layer.
+2. **Roughly 30 % of the desktop's content is deleted.** The whole PROPERTIES
+   section, the six per-layer opacity minis, the scale bar, the layers popover,
+   2 of 6 layer rows and 4 of 13 sample fields are simply absent. That deletion
+   is what buys room for 44 px rows inside a band that only grew ×1.498.
+
+**Which makes the tablet a content decision before it is a styling one**, and
+therefore an owner call rather than a fix: *which controls leave the tablet.*
+Registered, not taken.
+
+### The architectural blocker under it: `DccTheme.TABLET`'s key space is exhausted
+
+`DccTheme.TABLET` is keyed by the bare desktop integer, and the tablet artboard
+maps one desktop figure to two different tablet figures in at least five
+places — verified individually:
+
+| desktop | tablet, in one place | tablet, in another |
+|---|---|---|
+| `14` | **22** in a bar | **18** in a dock |
+| `9` | **15** in the menu bar | **11** in a popup group |
+| `6` | **9** in the sample grid | **6**, pinned, in the layers-FAB column |
+| `11` | **13** in mono | **14** in sans |
+| `70` | **88** as the timeline height | **90** as the tool-options track |
+| `40` | **48** as the rail | **40**, pinned |
+
+A value-keyed table cannot hold that. Any real fix needs a **role-keyed**
+resolution, and the audit refuted the obvious placement for it too (below).
+
+### Three high-severity refutations against the proposed tablet fix
+
+1. **The `fit()` dispatcher would have doubled the phone's scale.** The design
+   folded `phone_fit(node, unit, wide)` and a new `tablet_fit` behind one
+   `DccShell.fit(node, wide)`, dropping `unit`. **22 of the ~25 call sites pass
+   `1.0` for a load-bearing reason the design itself quoted** — `dcc_shell.gd:858`:
+   *"`1.0` for a `Window` that has already set `content_scale_factor` to
+   `_phone_scale` … applying it again here would double it."*
+2. **Touch tiers A (44) and B (34) are unreachable as specified.** Both land on
+   the same Godot class in the same walked subtree — the mode chips are
+   `DccWidgets.segment()` → `chip()` → a plain `Button`, built into
+   `tool_options_row`, which is exactly what the walker is called on. Tier B can
+   never fire.
+3. **Role-keyed resolution at `_row()`/`label()` re-enters a trap the shell has
+   already paid for.** Both are `static` and have exactly one predicate
+   available, `DccTheme.is_touch()` — which is **true on phones**, because
+   `_phone` requires `_touch` (`dcc_shell.gd:335`). `dcc_shell.gd:249` already
+   records the lesson: *"the 412 canvas asks for things a tablet must not get."*
+
+### DS-13: four high-severity refutations, and the canvas anchoring was wrong too
+
+- **`tool_pan` is navigation after all.** The design removed it as "a tool
+  toggle, not navigation". `viewport_host.gd:457` is
+  `elif mb.button_index == MOUSE_BUTTON_LEFT and _pan_mode:` — **no armed-tool
+  condition on that branch**. With no tool armed, `_pan_mode` is what makes a
+  one-finger drag pan the camera at all.
+- **Zoom would have been removed into nothing.** Its stated destination,
+  `MORE ▸ VIEW ▸ Zoom`, exists only in the canvas. `phone_menu.gd:82-86`
+  projects `menus.gd`'s seven menu-bar menus and **there is no View menu**;
+  anything unmatched falls through.
+- **There is one navpad and it is not phone-gated.** `_build_navpad()` opens
+  `if not _touch: return`, so a touch **tablet** builds the same four pills this
+  design rewrites. `viewport_host.gd` carries no phone/tablet discriminator at
+  all — so "the desktop/tablet navpad is untouched" describes nothing.
+- **Three colour equalities are arithmetically false.** `rgba(20,22,23,.92)` is
+  `#141617`; `DccTheme.DARK.panel` is `#121314` = rgb(18,19,20). `rgba(16,18,19)`
+  is `#101213`; `sunken` is `#101112`. The design disproved its own claim two
+  decisions later, in its FAB-glyph-ink note.
+- Plus: the design anchored the control column bottom-right per the 412 canvas,
+  but **both canvases that draw zoom buttons anchor them top-right** (`2b Phone
+  map` at `right:12px;top:12px`, `2a Tablet` at `right:14px;top:14px`), and the
+  412 canvas's top-right region is drawn **empty**. And `_apply_touch_scale()`
+  enforces **one** size for every navpad child, so the canvas's 48 dp FAB over a
+  44 dp pill — and its 17 px/15 px glyph split — are both erased by the existing
+  pass before they reach the screen.
+
+### The religion screens were designed too early, and the audit says so precisely
+
+- **No data path exists, and the design never said one was needed.**
+  `get_settlements()` (`cartalith-godot/src/lib.rs:4591`) emits `x, y, name,
+  population, kind, faction, capital, coastal, tid` — no religion field, no
+  adherent counts. `engine_bridge.gd` carries only `civ_religion_vocabulary()`
+  (the 8 labels). Every share, plurality and per-settlement year in the design
+  had nothing behind it. `RELIGION_DIFFUSION_SCOPE.md` §2 already says this is
+  the central gap; the design should have opened with it.
+- **"Read-only-ness is carried by the absence of a thumb" fails on phone.**
+  `phone_fit()` walks every Control under `right_dock` and unconditionally does
+  `if ctl is HSlider: DccWidgets.phone_slider(...)`, re-adding a 22 dp accent
+  grabber. A read-only proportion bar would grow a grabber on the phone.
+- **And the tablet artboard deletes the proportion bar from dock rows entirely**
+  — so the design's tablet story contradicts the canvas it claimed to follow.
+- One **fabricated provenance**, caught by the auditor grepping the cited
+  artboard: a stale-mark style attributed to `DCC shell 1920`, which returns
+  **zero** hits for `stale`. The markup is verbatim real and lives in
+  `DCC Generate World 1920`.
+
+**Sequencing lesson, recorded because it is the cheap half of this pass:** the
+religion surfaces cannot be designed before `cartalith-civ::belief` and its
+bridge exist, because the design's every value is a number the engine does not
+yet produce. Design them against the real bindings, not against the scope
+document's intent.
+
+### What a later pass should do differently
+
+1. **Take DS-03 to the owner as a content question first.** "Which controls
+   leave the tablet" is not answerable from the canvas by a pass; the canvas
+   only records the answer somebody already gave.
+2. **Do not add a second value-keyed table.** The key space is exhausted, and
+   the audit refuted the one obvious place to put a role-keyed resolver.
+3. **Re-run the same audit shape.** Two adversarial auditors per design, one on
+   provenance with instructions to grep the cited artboard, one on
+   buildability with instructions to read the real shell code, found eight
+   high-severity errors in designs that all read as competent. The provenance
+   auditor's grep is what caught the fabricated citation.
