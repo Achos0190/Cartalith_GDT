@@ -14,6 +14,15 @@
 use cartalith_engine::WorldState;
 use rayon::prelude::*;
 
+/// `RELIGION_DIFFUSION_SCOPE.md` — the culture/religion trait model and the
+/// compatibility relation between them. New scope beyond the reference: the
+/// frozen snapshot considered a spatial religion-spread layer at v1.10 and
+/// deliberately scoped it down to a per-faction categorical label (reference
+/// line 14772), so unlike every ported module there is no source to check
+/// this against. Additive only — [`CIV_CULTURES`], [`CIV_CULTURE_TERRAIN_KEY`]
+/// and [`roster::CIV_RELIGIONS`] are read, never modified, so settlement
+/// naming stays golden.
+pub mod belief;
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
 /// `MILITARY_MANPOWER_SCOPE.md` — what a polity can put and keep under
