@@ -132,6 +132,11 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     if let Some(ch) = ws.channels.as_mut() {
         shift_grid_x(ch.chan.as_mut_slice(), gw, gh, o);
         shift_grid_x(ch.recv.as_mut_slice(), gw, gh, o);
+        // The stamped width raster is an ordinary value grid. Empty on a
+        // loaded save, and `shift_grid_x` no-ops on an empty slice.
+        if ch.intensity.len() == gw * gh {
+            shift_grid_x(ch.intensity.as_mut_slice(), gw, gh, o);
+        }
         let back = gw - (off % gw);
         for v in ch.recv.iter_mut() {
             if *v < 0 {

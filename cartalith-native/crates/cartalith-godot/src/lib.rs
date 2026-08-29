@@ -61,6 +61,38 @@ struct WalkingSkeleton {
     base: Base<Node>,
 }
 
+/// How much river ink a cell carries, so the renderer can take either the
+/// stamped width raster or the legacy one-cell flag without branching per
+/// pixel.
+///
+/// `Stamped` is `stamp_river_intensity`'s disc raster -- a real width that
+/// scales with the world's km extent and the river's Strahler order. `Flag`
+/// is `ChannelResult::chan`, the binary "this cell is a channel" byte, which
+/// is all a loaded save has: `SAVEFILE_COMPAT.md` stores no channel topology,
+/// so a save keeps the one-cell river it has always drawn instead of losing
+/// its rivers to an empty stamp.
+#[derive(Clone, Copy)]
+enum RiverInk<'a> {
+    Stamped(&'a [f32]),
+    Flag(&'a [u8]),
+}
+
+impl RiverInk<'_> {
+    #[inline]
+    fn at(self, i: usize) -> f32 {
+        match self {
+            RiverInk::Stamped(v) => v.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0),
+            RiverInk::Flag(v) => {
+                if v.get(i).copied().unwrap_or(0) != 0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
+}
+
 #[godot_api]
 impl INode for WalkingSkeleton {
     fn init(base: Base<Node>) -> Self {
@@ -4354,14 +4386,28 @@ impl WorldGen {
                     &ws.temperature,
                     &ws.rainfall,
                     Some(ws.flow_discharge.as_slice()),
-                    ws.channels.as_ref().map(|c| c.chan.as_slice()),
+                    // The stamped width raster when the world carries one,
+                    // falling back to the binary channel flag. A loaded save
+                    // has no stamp (`SAVEFILE_COMPAT.md` stores no channel
+                    // topology), so it keeps the one-cell look it has always
+                    // had rather than losing its rivers.
+                    ws.channels.as_ref().map(|c| {
+                        if c.intensity.len() == c.chan.len() {
+                            RiverInk::Stamped(c.intensity.as_slice())
+                        } else {
+                            RiverInk::Flag(c.chan.as_slice())
+                        }
+                    }),
                 ),
                 WorldSource::Loaded(save) => (
                     &save.fields.heightmap,
                     &save.fields.temperature,
                     &save.fields.rainfall,
                     None,
-                    Some(save.fields.strahler_order.as_slice()),
+                    // A save carries no channel topology and therefore no
+                    // stamp, so its rivers stay one cell wide -- unchanged
+                    // from every build before this one.
+                    Some(RiverInk::Flag(save.fields.strahler_order.as_slice())),
                 ),
             };
         let gw = self.gw as usize;
@@ -4452,9 +4498,12 @@ impl WorldGen {
                 let i = y * gw + x;
                 let (mut r, mut g, mut b) = render::cell_color(&ctx, x, y);
 
-                if let Some(mask) = chan_mask
-                    && mask[i] != 0
-                {
+                // `t` is how much river ink this cell carries: 1.0 for the
+                // legacy binary flag, and the stamped intensity otherwise, so
+                // a wide river fades at its banks instead of ending on a hard
+                // edge. Below 1/255 it cannot change a byte, so it is skipped.
+                let ink = chan_mask.map_or(0.0, |m| m.at(i)) as f64;
+                if ink > 1.0 / 255.0 {
                     // The tint composites *over* a colour `cell_color` has
                     // already stamped the plate frame onto (milestone 4), so
                     // it has to fade back out exactly as the frame fades in
@@ -4466,7 +4515,14 @@ impl WorldGen {
                     // tint is bit-identical to what it was before.
                     let cover = render::border_cover(&appearance, x, y, gw, gh);
                     if cover < 1.0 {
-                        let (tr, tg, tb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
+                        let (fr, fg, fb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
+                        // Full tint at ink 1.0, none at 0 -- the disc's own
+                        // falloff becomes the river's soft edge.
+                        let (tr, tg, tb) = (
+                            r + (fr - r) * ink,
+                            g + (fg - g) * ink,
+                            b + (fb - b) * ink,
+                        );
                         r = tr + (r - tr) * cover;
                         g = tg + (g - tg) * cover;
                         b = tb + (b - tb) * cover;

@@ -1231,6 +1231,29 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let polys = trace_river_polylines(&order, &ch.recv, gw, gh, 1);
 
         let width_k = river_width_scale_k(p.map_width_km);
+
+        // The drawn river's width, which until 2026-08-30 did not exist: the
+        // renderer tested `chan[i] != 0`, so every river was one grid cell
+        // wide whatever its order and whatever the world's real extent. This
+        // is the reference's own disc stamp (HTML 4528-4543), and it is
+        // computed here rather than in `build_channels` because it needs
+        // Strahler order, which is `strahler_from_receivers`' output above.
+        //
+        // Costs one `gw*gh` f32 grid, and is skipped entirely when the stamp
+        // would be uniform anyway -- see `stamp_river_intensity`'s own note on
+        // the 0.5 half-width floor, which binds at world scale.
+        ch.intensity = cartalith_hydrology::stamp_river_intensity(
+            &field,
+            &flow_for_network,
+            &ch.chan,
+            &order,
+            gw,
+            gh,
+            world,
+            cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+            width_k,
+        );
+
         let half_w_cap = 4.0 * width_k;
         let mut rmask = vec![0u8; gw * gh];
         let mut rfloor = vec![0f32; gw * gh];

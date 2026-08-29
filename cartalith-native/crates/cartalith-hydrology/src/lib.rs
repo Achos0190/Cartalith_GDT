@@ -238,6 +238,16 @@ pub struct ChannelResult {
     pub recv: Vec<i32>,
     pub chan: Vec<u8>,
     pub slope: Vec<f32>,
+    /// The stamped disc raster from [`stamp_river_intensity`], or empty.
+    ///
+    /// **Empty as `build_channels` returns it**, and filled by the caller
+    /// afterwards: the stamp needs Strahler order, which is
+    /// `strahler_from_receivers`' output and therefore not available until
+    /// after this function has returned its `recv`. `generate_terrain` fills
+    /// it two statements later. A consumer must treat an empty vector as "no
+    /// stamp on this world" — a loaded save has one, since
+    /// `SAVEFILE_COMPAT.md` stores no channel topology.
+    pub intensity: Vec<f32>,
 }
 
 /// `buildRiverNetwork()`'s channelization loop (reference HTML lines
@@ -391,7 +401,7 @@ pub fn build_channels(
             }
         });
 
-    ChannelResult { recv, chan, slope }
+    ChannelResult { recv, chan, slope, intensity: Vec::new() }
 }
 
 /// `strahlerFromReceivers()` (reference HTML lines 4454-4464): standard
@@ -653,6 +663,118 @@ pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor:
     }
 }
 
+/// The stamped channel *intensity* raster — `buildRiverNetwork`'s disc stamp
+/// (reference HTML lines 4528-4543), which this port had never carried.
+///
+/// # Why this exists
+///
+/// Owner, 2026-08-30: *"As soon as the map width/size becomes lower the size
+/// width and length of a river should become bigger and more visible."*
+///
+/// Until now the port drew a river as `chan[i] != 0` — a binary flag, so
+/// **every river was exactly one grid cell wide** regardless of its Strahler
+/// order or the world's real extent. At a 2048 grid in a 1400 px viewport that
+/// is 0.68 screen pixels: the "barely visible" in the report. The km-aware
+/// width law already existed ([`river_width_scale_k`]) and was used **only to
+/// carve terrain**; the mask it produced was never the mask that got drawn.
+///
+/// # What it computes
+///
+/// Per channel cell, a parabolic disc of half-width
+/// `(0.6 + 3·mag² + 0.45·(o−1)) · slope_fac · width_k`, clamped to
+/// `[0.5, 9·width_k]`, where `mag` is normalised discharge, `o` is Strahler
+/// order and `slope_fac = 1/(1 + 5·|∇field|·w)` narrows a river on steep
+/// ground. Discs composite by `max`, exactly as the reference does.
+///
+/// `width_k` is [`river_width_scale_k`]'s inverse-extent factor, so a 200 km
+/// world stamps 4× the half-width of an 800 km one. Measured against this
+/// formula at `w = 2048`: an order-7 river is ~1.1 cells wide at 800 km, ~4.5
+/// at 200 km and ~18 at 50 km, while an order-1 stream stays at the 0.5 floor
+/// until about 100 km. That floor is the reference's own literal and is
+/// **not** scaled by `width_k` — so at world scale it binds and rivers stay
+/// one cell, which is the intended "a world-scale map stops exaggerating a
+/// river" behaviour rather than an oversight.
+///
+/// # Deliberately not ported
+///
+/// The reference computes `depth` and `omax` in the same loop. Both are
+/// omitted: `depth` feeds a terrain-shading path this port does not have, and
+/// `omax` exists to let a biome overlay filter by minimum stream order — a
+/// filter this port does not implement anywhere (`min_river_order` has no
+/// consumer outside the GeoJSON exporter's own constant). Adding either now
+/// would be a second grid with no reader.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_river_intensity(
+    fld: &[f32],
+    flow: &[f32],
+    chan: &[u8],
+    order: &[i16],
+    w: usize,
+    h: usize,
+    wrap: bool,
+    thresh: f64,
+    width_k: f64,
+) -> Vec<f32> {
+    let n = w * h;
+    let mut intensity = vec![0f32; n];
+    if n == 0 || fld.len() < n || flow.len() < n || chan.len() < n || order.len() < n {
+        return intensity;
+    }
+    // Reference line 4495: `lmax = Math.log(W*H*0.05)`.
+    let lmax = ((n as f64) * 0.05).ln();
+    if !(lmax > 0.0) || !(thresh > 0.0) {
+        return intensity;
+    }
+    let half_w_cap = 9.0 * width_k;
+
+    for i in 0..n {
+        if chan[i] == 0 {
+            continue;
+        }
+        let (x, y) = (i % w, i / w);
+        let f = flow[i] as f64;
+        if !(f > 0.0) {
+            continue;
+        }
+        let o = order[i].max(1) as f64;
+        let mag = (f / thresh).ln().max(0.0).min(lmax) / lmax;
+
+        let xl = if wrap { (x + w - 1) % w } else { x.saturating_sub(1) };
+        let xr = if wrap { (x + 1) % w } else { (x + 1).min(w - 1) };
+        let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
+        let up = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
+        let dn = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
+        let gy = (dn - up) * 0.5;
+        let slope_fac = 1.0 / (1.0 + 5.0 * gx.hypot(gy) * w as f64);
+
+        let mut half_w = (0.6 + 3.0 * mag * mag + 0.45 * (o - 1.0)) * slope_fac * width_k;
+        if half_w < 0.5 {
+            half_w = 0.5;
+        } else if half_w > half_w_cap {
+            half_w = half_w_cap;
+        }
+        let amp = (0.45 + mag * 0.7).min(1.0);
+
+        let r = half_w.ceil() as isize;
+        let (xi, yi) = (x as isize, y as isize);
+        for yy in (yi - r).max(0)..=(yi + r).min(h as isize - 1) {
+            for xx in (xi - r).max(0)..=(xi + r).min(w as isize - 1) {
+                let (dx, dy) = ((xx - xi) as f64, (yy - yi) as f64);
+                let d = dx.hypot(dy);
+                if d > half_w {
+                    continue;
+                }
+                let v = (amp * (1.0 - d / half_w)) as f32;
+                let j = yy as usize * w + xx as usize;
+                if v > intensity[j] {
+                    intensity[j] = v;
+                }
+            }
+        }
+    }
+    intensity
+}
+
 #[cfg(test)]
 mod tests {
     use super::{build_channels, enforce_river_channels, flow_cmp_desc, flow_sort_desc};
@@ -837,5 +959,80 @@ mod tests {
         let before = field.clone();
         enforce_river_channels(&mut field, &[0u8; 4], &[0f32; 4]);
         assert_eq!(field, before);
+    }
+
+    /// The owner's requirement, pinned: *"As soon as the map width/size becomes
+    /// lower the size width and length of a river should become bigger and
+    /// more visible."*
+    ///
+    /// `width_k` is `river_width_scale_k(map_width_km)` -- 1.0 at 800 km, 4.0
+    /// at 200 km, 16.0 at 50 km -- so a strictly larger `width_k` must ink a
+    /// strictly larger area. Before this stamp existed the renderer tested
+    /// `chan[i] != 0` and the answer was the same single cell at every extent,
+    /// which is exactly what this test would now catch.
+    #[test]
+    fn a_smaller_map_stamps_a_wider_river() {
+        // A flat 41x41 world with one channel cell dead centre. Flat on
+        // purpose: `slope_fac` is 1/(1+5*|grad|*w), so a gradient would damp
+        // the very term under test and could hide a regression.
+        let (w, h) = (41usize, 41usize);
+        let n = w * h;
+        let mid = (h / 2) * w + w / 2;
+        let fld = vec![0.5f32; n];
+        let mut flow = vec![0f32; n];
+        let mut chan = vec![0u8; n];
+        let mut order = vec![0i16; n];
+        let thresh = 4.0f64;
+        flow[mid] = 4000.0; // well above thresh, so `mag` is near its ceiling
+        chan[mid] = 1;
+        order[mid] = 5;
+
+        let inked = |k: f64| -> usize {
+            super::stamp_river_intensity(&fld, &flow, &chan, &order, w, h, false, thresh, k)
+                .iter()
+                .filter(|&&v| v > 0.0)
+                .count()
+        };
+
+        let world_scale = inked(1.0); // 800 km
+        let regional = inked(4.0); //  200 km
+        let local = inked(16.0); //   50 km
+
+        assert!(world_scale > 0, "the stamp must ink at least the channel cell itself");
+        assert!(
+            regional > world_scale,
+            "200 km ({regional} cells) must ink more than 800 km ({world_scale})"
+        );
+        assert!(
+            local > regional,
+            "50 km ({local} cells) must ink more than 200 km ({regional})"
+        );
+
+        // And the ink is a falloff, not a flat disc -- the centre is the
+        // brightest cell, which is what gives a wide river a soft bank
+        // instead of a hard edge.
+        let v = super::stamp_river_intensity(&fld, &flow, &chan, &order, w, h, false, thresh, 16.0);
+        let peak = v.iter().cloned().fold(0.0f32, f32::max);
+        assert_eq!(v[mid], peak, "the channel cell itself must carry the peak ink");
+        assert!(peak > 0.0 && peak <= 1.0, "ink stays in [0,1], got {peak}");
+    }
+
+    /// A cell with no channel must ink nothing at all, and an empty/mismatched
+    /// input must not panic -- the renderer calls this on whatever a world
+    /// happens to carry.
+    #[test]
+    fn no_channels_means_no_ink_and_bad_input_is_refused_quietly() {
+        let (w, h) = (8usize, 8usize);
+        let n = w * h;
+        let out = super::stamp_river_intensity(
+            &vec![0.5f32; n], &vec![1.0f32; n], &vec![0u8; n], &vec![0i16; n], w, h, false, 1.0, 4.0,
+        );
+        assert_eq!(out.len(), n);
+        assert!(out.iter().all(|&v| v == 0.0), "no channel cells must ink nothing");
+
+        // Short slices: return a correctly-sized zero grid rather than panic.
+        let short = super::stamp_river_intensity(&[0.5f32; 4], &[1.0f32; 4], &[1u8; 4], &[1i16; 4], w, h, false, 1.0, 4.0);
+        assert_eq!(short.len(), n);
+        assert!(short.iter().all(|&v| v == 0.0));
     }
 }
