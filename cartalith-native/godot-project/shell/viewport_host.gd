@@ -389,6 +389,16 @@ func _ready() -> void:
 	_layers_btn.flat = true
 	_layers_btn.focus_mode = Control.FOCUS_NONE
 	_layers_btn.icon = DccIcons.get_icon("layers", 15)
+	## Icon-only, so `icon_alignment`'s `LEFT` default would hang the glyph off
+	## the left edge of its own hit box. `_apply_touch_scale()` below already
+	## sets this -- but only when the scale actually *changes*, and it opens
+	## `if is_equal_approx(scale, _touch_scale)` against a `_touch_scale` that
+	## initialises to `1.0`. So a touch device running at scale 1.0 (a tablet)
+	## never reached that line and kept the misaligned default. Set at
+	## construction, where it is true of every device; the copy in the scale
+	## pass is left alone because it is idempotent and its comment carries the
+	## OnePlus 6T history that found this class of bug.
+	_layers_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_layers_btn.tooltip_text = "Layers"
 	_layers_btn.modulate = DccTheme.c("text_dim")
 	_layers_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
@@ -973,6 +983,20 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.set_meta(NAVPAD_GLYPH_META, glyph)
 	b.icon = DccIcons.get_icon(glyph, 17)
+	## **`Button.icon_alignment` defaults to `LEFT`, and these are icon-only.**
+	## Without this the 17 px glyph sits flush against the left edge of its own
+	## 44 px pill instead of in the middle of it. Measured off a 2560x1600
+	## device capture before the fix: all four glyph centres 12.5-13.0 px left
+	## of their circle centre, dy 0 -- so the pills read as four rings with
+	## something stuck to one side rather than as buttons.
+	##
+	## `_apply_touch_scale()` above records this exact trap, found on a real
+	## OnePlus 6T, and set `icon_alignment` on `_layers_btn` -- and only on
+	## `_layers_btn`. The four pills built here were never given the same line,
+	## so the bug it documents was half-fixed for a year of screenshots. It
+	## belongs at construction rather than in the touch-scale pass, because it
+	## is true of the button on every device, not only a scaled one.
+	b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	## Icon-only, so the tooltip is the only accessible name it has.
 	b.tooltip_text = tip
 	b.custom_minimum_size = Vector2(NAVPAD_HIT, NAVPAD_HIT)

@@ -1320,15 +1320,26 @@ func _build_rail() -> Control:
 		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
 			"text_ghost", DccTheme.FS_TINY, 1, false)
 		vlabel.rotation = -PI / 2.0
-		var text_size := vlabel.get_minimum_size()
-		var label_x: float = round(w * 0.5 - text_size.y * 0.5)
-		vlabel.position = Vector2(label_x, 12.0)
 		b.add_child(vlabel)
-		b.custom_minimum_size.y = text_size.x + 24.0
+		## Provisional geometry only. The real numbers come from
+		## `_layout_rail_labels()` below, once this rail is in the tree --
+		## measuring here cannot work, and that is not a style preference:
+		## nothing built by this function is in the `SceneTree` yet (the rail
+		## is *returned* and added by the caller), so a `Label` asked for its
+		## minimum size here has no theme and therefore no font to measure.
+		## Measured before the fix: the three five-character labels WORLD /
+		## CIVIL / CARTO produced button heights of **67, 53 and 62 px** from
+		## this early read, against the identical `(34, 14)` all three report
+		## once in-tree. Three different wrong answers to the same question.
+		_layout_rail_label(b, vlabel, w)
 
 		_domain_buttons[d.id] = b
 		_domain_marks[d.id] = {"label": vlabel}
 		rail_column.add_child(b)
+
+	## Re-measure every rail label once the rail is actually in the tree. See
+	## `_layout_rail_label()` for why this cannot be done above.
+	call_deferred("_relayout_rail_labels")
 
 	body.add_child(DccTheme.spacer())
 	rail_foot = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 2)
@@ -1338,6 +1349,46 @@ func _build_rail() -> Control:
 	foot_holder.add_child(rail_foot)
 	body.add_child(foot_holder)
 	return rail
+
+## Centre one rotated rail label inside its own button, and size the button to
+## it.
+##
+## **The rotation is why this needs stating.** A `Control` rotates about its
+## `pivot_offset`, which defaults to its top-left, and `rotation = -PI/2` maps
+## local `(x, y)` to parent `(y, -x)`. So a label of length `L` positioned at
+## `y` occupies the parent's vertical span **`[y - L, y]`** -- it grows
+## *upward* from its own position, not downward. The pre-2026-08-30 code set
+## that position to a flat `12.0`, which put the text `L - 12` px **above the
+## top of its own button**: measured live, all three labels overflowed by 22 px
+## and left 41-55 px of empty band beneath them, which is the misalignment the
+## owner reported.
+##
+## Centred means the span `[y - L, y]` is centred in a button of height
+## `L + 2·PAD`, which solves to `y = L + PAD`.
+const RAIL_LABEL_PAD := 12.0
+
+func _layout_rail_label(b: Button, vlabel: Control, rail_w: float) -> void:
+	var text_size := vlabel.get_minimum_size()
+	## `text_size.y` is the glyph height, which *after* the -90° rotation is
+	## the label's horizontal extent -- hence `.y` against the rail's width.
+	vlabel.position = Vector2(
+		round(rail_w * 0.5 - text_size.y * 0.5),
+		text_size.x + RAIL_LABEL_PAD)
+	b.custom_minimum_size.y = text_size.x + RAIL_LABEL_PAD * 2.0
+
+## Deferred from `_build_rail()`, because nothing that function builds is in the
+## `SceneTree` while it runs, and an orphaned `Label` has no theme to measure a
+## font with. Idempotent, so it is safe to call again after a theme or scale
+## change.
+func _relayout_rail_labels() -> void:
+	if _rail_region == null or not is_instance_valid(_rail_region):
+		return
+	var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
+	for id in _domain_marks.keys():
+		var b: Button = _domain_buttons.get(id)
+		var lbl: Control = _domain_marks[id].get("label")
+		if b != null and lbl != null and is_instance_valid(b) and is_instance_valid(lbl):
+			_layout_rail_label(b, lbl, w)
 
 ## The rail foot carries the active context and, in World, the stage counter.
 ## Re-centred on every set because its width changes with the text.
