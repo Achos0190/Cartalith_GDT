@@ -15,6 +15,16 @@ class_name EngineBridge
 
 signal generation_started()
 signal generation_finished(ok: bool)
+## One emission per observed change of `GenerationProgress.snapshot()`'s
+## `stage` while `generating` is true -- the Android spec's "per-stage
+## progress + log" (`ANDROID_BUILD_SCOPE.md`). `index` is `0..total-1`,
+## `name` is the engine's own name for that stage (`cartalith-engine/src/
+## progress.rs`'s `STAGE_NAMES`, which stays in the same order as this
+## file's own `WorldWorkspace.STAGES`), `total` is the stage count (`10` on
+## a current build). Never emitted at all against an older cdylib with no
+## `GenerationProgress` class -- see `progress_api` below, the same
+## degrade-rather-than-crash shape every `_has()` guard in this file uses.
+signal generation_stage(index: int, name: String, total: int)
 signal params_changed()            ## A dial moved; downstream is stale.
 signal params_applied()            ## A generate landed; nothing is stale.
 signal world_loaded()              ## A save or asset pack changed the world.
@@ -55,6 +65,28 @@ var last_documents: Dictionary = {}
 ## `load_save()` for why discarding these mattered.
 var last_open_layout := ""
 var last_open_warnings := PackedStringArray()
+
+## The staged generation readout (`ANDROID_BUILD_SCOPE.md`). `GenerationProgress`
+## is a second, stateless `RefCounted` class next to `WorldGen` -- deliberately
+## not a `WorldGen` method, because the worker `Thread` `generate()` starts
+## below holds `&mut WorldGen` for the run's whole duration and any `#[func]`
+## on `world_gen` reached meanwhile fails its own `Gd<T>::bind()` (see the
+## multi-GPU block's own note on exactly that failure, further down this
+## file). Instantiated through `ClassDB` rather than a static
+## `GenerationProgress.new()`: a static reference to an unregistered class
+## name would fail to PARSE this whole file against an older cdylib, which is
+## a harder break than every other degrade-on-missing-binding guard here
+## produces -- `ClassDB.class_exists()`/`instantiate()` only fail the one
+## call, at runtime, exactly like `_has()` already does for `world_gen`
+## methods.
+var progress_api := false
+var _progress: Object = null
+## The last `(run_token, stage)` this file has already turned into a
+## `generation_stage` emission, so `_process` emits on change only -- see its
+## own doc comment for why re-emitting every frame would bury the signal it
+## exists to produce.
+var _progress_seen_token := -1
+var _progress_seen_stage := -1
 
 ## Whether the world has changed since it was last saved or opened
 ## (`GUI_GAP_REGISTER.md` FI-01). Driven by the two signals this node owns:
@@ -110,6 +142,9 @@ func _ready() -> void:
 		and _has("measure_area") \
 		and _has("measure_radius") \
 		and _has("measure_vertical")
+	if ClassDB.class_exists("GenerationProgress"):
+		_progress = ClassDB.instantiate("GenerationProgress")
+		progress_api = _progress != null
 	## `project_save`, not `save_project`. The latter still exists and still
 	## works, but since 2026-08-25 it writes the **flat interoperability
 	## export** (`SAVEFILE_COMPAT.md` §1.1) -- seven root entries and no
@@ -137,6 +172,35 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if _thread != null and _thread.is_started():
 		_thread.wait_to_finish()
+
+## Polls `GenerationProgress.snapshot()` while a generate is in flight and
+## turns a change into `generation_stage`. This is the ONLY thing in this
+## file that touches `_progress` (a plain, separately-instantiated
+## `RefCounted` -- it never reaches into `world_gen`, so calling it from the
+## main thread while the worker owns `world_gen` is safe; see `progress_api`'s
+## own doc comment above for why that distinction is the whole point of
+## `GenerationProgress` existing as a second class).
+##
+## Emits on stage change only, never once per frame -- polled every `_process`
+## tick (worst case ~1 frame of latency, cheap enough not to warrant a Timer)
+## but the signal itself fires only when `stage` (or the run token) actually
+## moved since the last tick.
+func _process(_delta: float) -> void:
+	if not progress_api or not generating:
+		return
+	var snap: Dictionary = _progress.snapshot()
+	var token := int(snap.get("run_token", 0))
+	if token != _progress_seen_token:
+		## A new run started -- forget the previous run's last-seen stage so
+		## this run's own first reading (even index 0 again) is not mistaken
+		## for "nothing changed".
+		_progress_seen_token = token
+		_progress_seen_stage = -1
+	var stage := int(snap.get("stage", 0))
+	if stage == _progress_seen_stage:
+		return
+	_progress_seen_stage = stage
+	generation_stage.emit(stage, String(snap.get("stage_name", "")), int(snap.get("stage_count", 10)))
 
 # -- The missing-binding probe ------------------------------------------------
 #

@@ -506,6 +506,23 @@ static func set_phone(v: bool) -> void:
 static func is_phone() -> bool:
 	return _phone_mode
 
+## The phone composition's scale factor, published for the same reason and by
+## the same line as `_phone_mode`: a static widget factory has no node, so it
+## cannot reach `DccShell._pscale()` and would otherwise have to floor a tap
+## target in reference units against an already-scaled control. That is exactly
+## the mistake `DccShell._ptap()` carried until 2026-08-30 -- a 44 compared
+## against a scaled value never fires past a factor of about 1.1.
+##
+## `1.0` on desktop and tablet, which is correct: neither composition is drawn
+## through `_pscale` at all.
+static var _phone_scale := 1.0
+
+static func set_phone_scale(v: float) -> void:
+	_phone_scale = maxf(1.0, v)
+
+static func phone_scale() -> float:
+	return _phone_scale
+
 ## **Tablet and only tablet.** `is_touch()` is true on a phone too — `_phone`
 ## requires `_touch` (`dcc_shell.gd:335`) — so any tablet-only resolution that
 ## reaches for `is_touch()` silently fires on phones as well. `GUI_GAP_REGISTER.md`

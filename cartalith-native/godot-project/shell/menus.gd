@@ -113,8 +113,12 @@ const ID_HELP_GEN_INFO := 73
 const ID_LOD_DBG_GRID := 74
 const ID_LOD_DBG_COLORS := 75
 const ID_LOD_DBG_LABELS := 76
-const ID_LOD_TILE_BORDERS := 78
-const ID_LOD_REFINE_VIEW := 79
+## 80/81, not 78/79: `ID_HELP_DOCS` already holds 78. Godot dispatches
+## `id_pressed` per PopupMenu, so two popups sharing an id do not cross-fire --
+## but `get_item_index(id)` does not know that, and a probe or a later reader
+## looking a row up by number would find the wrong menu's. Cheap to avoid.
+const ID_LOD_TILE_BORDERS := 80
+const ID_LOD_REFINE_VIEW := 81
 
 var _shell: DccShell
 var _bridge: EngineBridge

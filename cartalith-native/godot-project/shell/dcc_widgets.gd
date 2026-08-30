@@ -1037,6 +1037,26 @@ static func text_button(parent: Control, text: String, on_press: Callable) -> Bu
 	b.add_theme_stylebox_override("pressed", DccTheme.empty())
 	b.add_theme_stylebox_override("disabled", DccTheme.empty())
 	b.pressed.connect(on_press)
+	## **The phone tap floor, applied where the target is MADE.**
+	##
+	## `text_button` is borderless and sized by its own text, so at `FS_MICRO`
+	## it lands around 28 x 13 px -- measured by `_phonechrome_probe.gd` on
+	## `SectionStrip`'s "close", which is the Measure tool's only way out of
+	## the profile strip and the smallest tappable thing in the phone shell.
+	##
+	## `DccShell._ptap()` cannot reach it: that is an instance method on the
+	## shell and this is a static factory. `DccTheme.is_phone()` and
+	## `phone_scale()` are published as statics for exactly this case -- see
+	## their own comments.
+	##
+	## `DCC_SHELL_SPEC.md` §13: "Minimum target 44 px, measured inside the safe
+	## area, with no exceptions." Scaled, because 44 is a reference-unit figure
+	## and the phone composition is drawn at `_pscale`'s factor; an unscaled 44
+	## is 16 dp on the 6T, which is the same mistake `_ptap()` carried until
+	## this session.
+	if DccTheme.is_phone():
+		var tap := int(round(DccTheme.PHONE_TAP_MIN * DccTheme.phone_scale()))
+		b.custom_minimum_size = Vector2(tap, tap)
 	parent.add_child(b)
 	return b
 

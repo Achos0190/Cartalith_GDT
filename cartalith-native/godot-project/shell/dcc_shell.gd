@@ -221,6 +221,42 @@ var _right_sheet_open := false
 var _left_dock_scroll: ScrollContainer
 var _right_dock_scroll: ScrollContainer
 
+# -- Phone: app-bar search, floating undo chip, coach marks --------------------
+#
+# The three items the Android phone-chrome spec still owed
+# (`design/Cartalith Android Phone.dc.html`'s own TARGETS/chip vocabulary):
+# "Search: app bar, pans map to place", "Undo: floating ↶ chip (tap undo, hold
+# history), map edits only", "Coach marks: two subtle toasts, persisted".
+#
+# All three read live engine state (`EngineBridge.can_undo()`,
+# `ViewportHost.move_view_to()`, `PlaceSearch`), which `bridge`/`viewport` are
+# -- but those are `DccApp` fields (`app.gd`), not this base class's. This
+# file's own header says it "calls no engine method", and every existing
+# reach past that line already does it the same way: a typed child lookup
+# guarded to return null on a bare `DccShell` (`_find_engine_bridge()`,
+# `_find_viewport_host()` below), the same shape `has_method("open_journey_
+# planner")` at `_pick_phone_tab()` already uses for the one subclass METHOD
+# this file calls. A probe that instantiates `DccShell` alone degrades to "the
+# chip never shows, the search button never draws, the toasts never fire" --
+# never a crash.
+var _phone_search_overlay: Control
+var _phone_search_field: LineEdit
+var _phone_search_results: VBoxContainer
+var _place_search_index  ## `PlaceSearch` -- untyped, see `_has_place_search()`.
+
+var _phone_undo_chip: Button
+var _undo_chip_down := false
+var _undo_chip_hold_fired := false
+const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
+	## (Android's own `ViewConfiguration.getLongPressTimeout()` default).
+
+## Desktop's `Edit ▸ Find on map…` presentation -- built lazily, once, on
+## first `open_find_on_map()` call. See that function for why this is a plain
+## `AcceptDialog` rather than the phone's hand-built overlay.
+var _desktop_search_dialog: AcceptDialog
+var _desktop_search_field: LineEdit
+var _desktop_search_results: VBoxContainer
+
 # -- Build identity ------------------------------------------------------------
 
 ## One line in the boot log saying **which build this is**, and it exists
@@ -315,6 +351,7 @@ func _ready() -> void:
 	## things a tablet must not get, and a static factory has no way to tell the
 	## two apart from `is_touch()` alone. See `DccTheme.is_phone()`.
 	DccTheme.set_phone(_phone)
+	DccTheme.set_phone_scale(_phone_scale)
 	_style_window_chrome()
 
 	## Hand the Android back gesture to `_notification()` below instead of
@@ -439,8 +476,40 @@ func _pscale(px: float) -> int:
 	return maxi(1, int(round(px * _phone_scale)))
 
 ## Phone-only geometry for anything tappable: §13's floor, no exceptions.
+##
+## **Was `maxi(DccTheme.PHONE_TAP_MIN, _pscale(px))` and the floor never fired
+## on a real handset** -- caught by a coordinator review of this exact file,
+## 2026-08-30, not by any probe. `PHONE_TAP_MIN` (44) is a REFERENCE-px figure,
+## the same unit every other constant `_pscale()` takes is authored in, but the
+## old body compared it directly against `_pscale(px)`, which is already
+## PHYSICAL px. On the OnePlus 6T this build is tested on (`_phone_scale` =
+## 1080/412 = 2.621), `_ptap(40)` -- the app bar's own icon cell,
+## `PHONE_ICON_BOX` -- computed `maxi(44, round(40*2.621))` = `maxi(44, 105)` =
+## 105 physical px, which is **40 dp**, not 44: the "floor" of 44 was being
+## measured in the wrong unit and so sat *below* every scaled value it was
+## meant to raise. The bug was invisible near `_phone_scale` 1.0 (where 44 and
+## `_pscale(44)` coincide) and silent everywhere else, because a control that
+## is merely a bit small draws exactly like one that is correctly sized.
+##
+## `phone_fit()` above (`tap := maxf(1.0, round(DccTheme.PHONE_TAP_MIN * unit))`,
+## this file's OTHER 44 dp floor) already did this the right way round --
+## floor in reference units, multiply once -- which is what confirms the fix
+## rather than just asserting it: `_pscale(maxf(PHONE_TAP_MIN, px))` is
+## `phone_fit()`'s own `tap` expression with `unit` renamed to `_phone_scale`.
+##
+## The one call site this moves is `_phone_bar_button()`'s `PHONE_ICON_BOX`
+## (40 < 44); every other `_ptap()` call in this file already passes >= 44 and
+## is bit-for-bit unchanged (verified: for px >= 44 and scale >= 1,
+## `maxi(44, pscale(px))` and `pscale(maxf(44,px))` are the same value, since
+## `pscale(px) >= px >= 44` already). At scale 2.621 the app bar's ☰/▤/⌕ cells
+## grow from 105 to `_pscale(44)` = 115 physical px (+10, ~9%) -- still well
+## inside the app bar's own `_ptap(H_PHONE_APP_BAR)` = 147 px height, and the
+## three-cell-plus-wordmark row still fits its widest measured target (720 px
+## short side) with over 200 px to spare for "CARTALITH" + the seed subtitle.
+## No collision found; see `_phonechrome_probe.gd`'s tap-floor walk for the
+## general assertion this fix needed and the old code would have failed.
 func _ptap(px: float) -> int:
-	return maxi(DccTheme.PHONE_TAP_MIN, _pscale(px))
+	return _pscale(maxf(DccTheme.PHONE_TAP_MIN, px))
 
 # -- §2 Menu bar: program scope only ------------------------------------------
 
@@ -2053,6 +2122,15 @@ func _build_phone_shell() -> void:
 	_phone_panel_picker = _build_phone_panel_picker()
 	_phone_root.add_child(_phone_panel_picker)
 
+	## `⌕`'s destination. Built and added unconditionally -- unlike the app
+	## bar's cell, which only draws when `_has_place_search()` is true, this
+	## costs nothing sitting hidden and `open_find_on_map()` (called from
+	## `menus.gd` on desktop, and reachable here if a future build ever wires
+	## a phone route to it that isn't the app-bar cell) needs somewhere to
+	## open even if the bar button that normally reaches it is absent.
+	_phone_search_overlay = _build_phone_search_overlay()
+	_phone_root.add_child(_phone_search_overlay)
+
 	## L2-L5. Added after the panel picker so it draws over it, and
 	## before the dock sheets so a dock sheet still wins -- the same
 	## mutually-exclusive rule `_close_all_phone_overlays()` enforces anyway.
@@ -2078,6 +2156,29 @@ func _build_phone_shell() -> void:
 	get_tree().node_added.connect(_on_phone_node_added)
 
 	_apply_phone_orientation()
+
+	## The floating undo chip. Built into `_phone_content_gap` -- "the visible
+	## gap between the app bar and the tool sheet" (that field's own comment,
+	## a few hundred lines up), which already excludes the bottom nav bar AND
+	## the tool sheet by construction: it is the container `_phone_nav_reserve()`
+	## and `_phone_bottom_reserve()` exist to carve out, not a rect this code
+	## has to carve out a second time. Checked and rejected: anchoring the chip
+	## straight to `_phone_root` at `size.y - _phone_nav_reserve() - margin`
+	## looked like the more literal reading of "clear of the bottom nav
+	## (`_phone_nav_reserve()`)", but `_phone_nav_reserve()` only accounts for
+	## the gesture inset and the bottom bar -- NOT the tool sheet, which sits
+	## between them and the map and is taller than both at every detent past
+	## `peek`. A chip placed by that arithmetic would sit *under* the sheet,
+	## not above it. `_phone_content_gap` is the strictly safer bound, and
+	## bottom-LEFT keeps it clear of `ViewportHost`'s own navpad, which floats
+	## in the same vertical band on the right (`viewport_host.gd`
+	## `_apply_safe_insets()`: the navpad also stacks up from just above the
+	## tool sheet, at `right: NAVPAD_EDGE`).
+	_phone_undo_chip = _build_phone_undo_chip()
+	_phone_content_gap.add_child(_phone_undo_chip)
+	_wire_phone_undo_chip()
+
+	_maybe_show_coach_marks()
 
 ## The 412 canvas's status row, verbatim: `height:28px;padding:0 16px;
 ## font:10px 'IBM Plex Mono';color:#8d9296`, clock left, `LTE ▮▮ 84%` right at
@@ -2194,7 +2295,8 @@ func _build_phone_side_safe() -> Control:
 ## border-bottom:1px solid rgba(255,255,255,.09)`, carrying `☰` (16 px) / title
 ## over seed / `⌕` / `⋮` in 40 dp cells.
 ##
-## Two of the canvas's four cells are not built, each for a stated reason:
+## One of the canvas's four cells is still not built, for a stated reason, and
+## a second is now live where this comment used to say it could not be:
 ##
 ##   - **`⋮`** is drawn in the app bar *and* as the bottom bar's fifth tab, and
 ##     that canvas's own note ("More is a grouped list, not a duplicate menu
@@ -2203,11 +2305,22 @@ func _build_phone_side_safe() -> Control:
 ##     headers, where it can only mean "this screen's own menu". This shell has
 ##     no per-screen overflow to put behind it, and a connected affordance with
 ##     nothing behind it is exactly what `GUI_GAP_REGISTER.md` exists to catch.
-##   - **`⌕`** has no destination. `menus.gd`'s Edit ▸ Find on map… is a
-##     `_todo()` row -- disabled, with "no search index yet" as its reason --
-##     and there is no other map search in this build. A magnifier that opens
-##     a disabled menu item is worse than no magnifier. Registered rather than
-##     drawn; the moment a search index exists this is a three-line addition.
+##   - **`⌕` is built now.** This comment used to say it had "no destination"
+##     because `menus.gd`'s Edit ▸ Find on map… was a disabled `_todo()` row
+##     reasoning "no search index yet" -- true when it was written and false
+##     the moment `shell/place_search.gd` landed, which left the sentence
+##     exactly as stale as the ones this session has been correcting all week
+##     elsewhere in this file. `open_find_on_map()` below is the real
+##     destination now, on both the phone (a full-width overlay, built here)
+##     and the desktop (`menus.gd`'s row calls `_host.open_find_on_map()`,
+##     which this file answers with an `AcceptDialog`). Drawn, not text: `⌕`
+##     (U+2315) is the one glyph `dcc_icons.gd`'s own header names as missing
+##     from Plex Mono's fallback chain, the same reason that file drew a
+##     `PATHS["search"]` icon instead of listing it in `SYMBOLS` -- so this
+##     cell is the one `_phone_bar_button()` call in this bar passing
+##     `icon_name` instead of a `SYMBOLS` glyph string. **Guarded**, the same
+##     way the cell disappears if `place_search.gd` is missing: no affordance
+##     with nothing behind it, in either direction.
 ##   - **`▤`** was here and is the bottom bar's PANELS tab now.
 func _build_phone_app_bar() -> PanelContainer:
 	var bar := PanelContainer.new()
@@ -2248,6 +2361,15 @@ func _build_phone_app_bar() -> PanelContainer:
 	title_col.add_child(subtitle)
 	row.add_child(title_col)
 
+	## `⌕`. Only if the index it opens actually exists -- see this function's
+	## own header and `_has_place_search()`. `place_search.gd` is a parallel,
+	## concurrently-landing file; a build that races ahead of it must not draw
+	## a magnifier over nothing, so this checks fresh on every call rather than
+	## caching the answer from boot.
+	if _has_place_search():
+		row.add_child(_phone_bar_button("", "Search", func(): open_find_on_map(),
+			"text", "search"))
+
 	## **`▤` panels, restoring access the four-tab bar took away.**
 	## `_phone_panel_picker` is how the phone reaches the left and right dock
 	## content, and its ONLY entry used to be the PANELS cell in the bottom
@@ -2272,16 +2394,34 @@ func _build_phone_app_bar() -> PanelContainer:
 ## `pressed` styleboxes outright, so the press feedback on the last two lines
 ## had never once appeared -- the fourth site of the trap `GUI_GAP_REGISTER.md`
 ## MN-13 found in three others, and the one on the phone's most-tapped control.
+##
+## `icon_name`, added alongside `⌕`: `glyph` is drawn as `b.text`, which only
+## works for a `SYMBOLS` entry -- a real character some font in the chain can
+## shape. `⌕` (U+2315) is not one (`dcc_icons.gd`'s own header, the `search`/
+## `import` note), so it is drawn instead, the same as the bottom nav's own
+## glyphs (`DccIcons.rect()`, a few hundred lines below this one). A child
+## `TextureRect` rather than `Button.icon` + `icon_*_color` theme overrides:
+## `DccIcons.rect()` already tints to a token and centres itself via anchors
+## the way `_phone_list_row()`'s `rpad` does against a non-`Container` parent
+## (that function's own comment), so this reuses exactly that rather than
+## adding a second glyph-tinting mechanism next to it. `glyph` is ignored
+## when `icon_name` is set; callers pass `""` for it, same as the `⌕` call
+## site above does.
 func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
-		token: String = "text") -> Button:
+		token: String = "text", icon_name: String = "") -> Button:
 	var b := Button.new()
-	b.text = glyph
 	b.flat = false
 	b.focus_mode = Control.FOCUS_NONE
 	b.tooltip_text = tip
 	b.custom_minimum_size = Vector2(_ptap(DccTheme.PHONE_ICON_BOX),
 		_ptap(DccTheme.PHONE_ICON_BOX))
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if icon_name != "":
+		var ic := DccIcons.rect(icon_name, _pscale(16), token)
+		ic.set_anchors_preset(Control.PRESET_CENTER)
+		b.add_child(ic)
+	else:
+		b.text = glyph
 	b.add_theme_font_size_override("font_size", _pscale(16))
 	b.add_theme_font_override("font", DccTheme.mono())
 	b.add_theme_color_override("font_color", DccTheme.c(token))
@@ -3031,6 +3171,8 @@ func _build_phone_panel_picker() -> Control:
 func _close_all_phone_overlays() -> void:
 	if _phone_panel_picker != null:
 		_phone_panel_picker.visible = false
+	if _phone_search_overlay != null:
+		_phone_search_overlay.visible = false
 	if _phone_menu != null:
 		_phone_menu.close()
 	if left_dock != null:
@@ -3064,6 +3206,545 @@ func _set_panel_picker_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	_phone_panel_picker.visible = open
 	_refresh_phone_bar_lit()
+
+# -- ⌕ Find on map --------------------------------------------------------------
+#
+# `shell/place_search.gd` -- `PlaceSearch.new(); .build(bridge); .size();
+# .all(); .search(q)`, each row `{name, kind, subtitle, x, y, entity, id}` --
+# is a PARALLEL file landing alongside this one. Never referenced by its class
+# name: a bare `PlaceSearch` token in this script would fail to PARSE (not
+# just fail at runtime) on any checkout where that file has not landed yet,
+# since GDScript resolves a global `class_name` at compile time. Every touch
+# below goes through `ResourceLoader.exists()` + `load()` + duck-typed calls
+# instead, and `_place_search_index` is deliberately untyped for the same
+# reason. `EngineBridge`/`ViewportHost` do not need this treatment -- both are
+# permanent, already-shipped files, not this pass's concurrent sibling.
+
+## Whether the index this whole feature depends on exists yet. Checked fresh
+## on every call (button build, each open) rather than once at boot and
+## cached, because a dev session can have this file's build running before
+## `place_search.gd` lands and after, and a cached `false` would leave the
+## button undrawable for the rest of that session even once the file showed
+## up. `ResourceLoader.exists()` over `ClassDB.class_exists("PlaceSearch")`:
+## `PlaceSearch` is a GDScript `class_name`, not an engine-registered class,
+## so `ClassDB` never lists it regardless of whether the file exists.
+func _has_place_search() -> bool:
+	return ResourceLoader.exists("res://shell/place_search.gd")
+
+## Runs (or re-runs) a query against a lazily-built, cached index. Rebuilt
+## once per phone-overlay-open / desktop-dialog-open rather than on every
+## keystroke -- `text_changed` fires per character, and re-scanning the whole
+## world on each one would make the field feel laggy for no benefit `.search()`
+## alone doesn't already give it. See `_set_search_open()` and
+## `_open_desktop_find_on_map()` for the two places that reset the cache.
+func _run_place_search(query: String):
+	if not _has_place_search():
+		return []
+	if _place_search_index == null:
+		var script := load("res://shell/place_search.gd")
+		if script == null:
+			return []
+		var bridge := _find_engine_bridge()
+		if bridge == null:
+			return []  ## Bare `DccShell` -- no bridge, nothing to index.
+		var idx = script.new()
+		idx.call("build", bridge)
+		_place_search_index = idx
+	var q := query.strip_edges()
+	return _place_search_index.call("all") if q == "" else _place_search_index.call("search", q)
+
+## Drops and rebuilds the cached index -- called whenever an overlay/dialog
+## opens, so a world that regenerated since the last search is never searched
+## stale. Cheap to over-call: an unopened search never rebuilds anything.
+func _reset_place_search_cache() -> void:
+	_place_search_index = null
+
+## Renders a result set into `container` as `_phone_list_row()` rows (used on
+## BOTH surfaces -- see `_open_desktop_find_on_map()`'s own comment for why
+## reusing the phone row on desktop is deliberate here, not an oversight).
+func _fill_search_results(container: VBoxContainer, rows, close_fn: Callable) -> void:
+	for child in container.get_children():
+		child.queue_free()
+	if rows == null or (rows as Array).is_empty():
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_left", _pscale(14))
+		pad.add_theme_constant_override("margin_top", _pscale(12))
+		pad.add_child(DccTheme.label("No matches", "text_faint", _pscale(10)))
+		container.add_child(pad)
+		return
+	for row in rows:
+		var d: Dictionary = row
+		var title := String(d.get("name", ""))
+		var kind := String(d.get("kind", ""))
+		var sub := String(d.get("subtitle", ""))
+		var line2 := "%s — %s" % [kind, sub] if kind != "" and sub != "" else kind + sub
+		container.add_child(_phone_list_row(title, line2,
+			_select_search_hit.bind(d, close_fn)))
+
+## A result row was picked: pan the map to it (`x`/`y` are grid cells, the
+## same coordinate handling every OTHER `move_view_to()` call site in this
+## project already uses -- `faction_roster_window.gd`, `place_editor_window.gd`,
+## `civilization_workspace.gd`: `move_view_to(float(int(row.get("x",0))),
+## float(int(row.get("y",0))))`, matched verbatim rather than invented here),
+## then close whichever surface opened it.
+func _select_search_hit(d: Dictionary, close_fn: Callable) -> void:
+	var vh := _find_viewport_host()
+	if vh != null:
+		vh.move_view_to(float(int(d.get("x", 0))), float(int(d.get("y", 0))))
+	close_fn.call()
+
+## Public: `menus.gd`'s Edit ▸ Find on map… row calls `_host.open_find_on_map()`
+## (that row's own comment names `ViewportHost.move_view_to()` as "the one
+## half that already exists" and a place index as the other half -- this
+## closes both out). The phone app bar's `⌕` cell calls it too, so there is
+## exactly one function deciding what "search" means on this shell, not two
+## routes that could drift apart.
+func open_find_on_map() -> void:
+	if not _has_place_search():
+		return  ## Same guard the app-bar cell draws itself behind.
+	if _phone:
+		_set_search_open(true)
+	else:
+		_open_desktop_find_on_map()
+
+## ▤-style full-width overlay, `_build_phone_panel_picker()`'s own pattern:
+## `_phone_overlay_scrim()` for outside-tap dismissal, `_close_all_phone_
+## overlays()`/back-gesture participation, visible only while open.
+## Anchored under the app bar (`phone_content_insets().top`, the same figure
+## `ViewportHost` reads to keep its own corner chrome clear of it) rather than
+## the screen's true top edge, so the app bar -- and the `⌕` cell that opened
+## this -- stays visible and tappable-to-close-again while the sheet is up.
+func _build_phone_search_overlay() -> Control:
+	var overlay := _phone_overlay_scrim(func(): _set_search_open(false))
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"bottom": 1}))
+	panel.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	panel.offset_left = 0
+	panel.offset_right = 0
+	panel.offset_top = phone_content_insets().get("top", 0.0)
+	panel.offset_bottom = panel.offset_top + _pscale(360)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", _pscale(8))
+	var head_pad := MarginContainer.new()
+	head_pad.add_theme_constant_override("margin_left", _pscale(16))
+	head_pad.add_theme_constant_override("margin_right", _pscale(8))
+	head_pad.add_theme_constant_override("margin_top", _pscale(10))
+	head_pad.add_theme_constant_override("margin_bottom", _pscale(6))
+	head_pad.add_child(head)
+	col.add_child(head_pad)
+
+	_phone_search_field = LineEdit.new()
+	_phone_search_field.placeholder_text = "Search places, factions, routes…"
+	_phone_search_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_phone_search_field.custom_minimum_size.y = _ptap(40)
+	DccWidgets.well(_phone_search_field, _pscale(12), _pscale(8))
+	_phone_search_field.add_theme_font_size_override("font_size", _pscale(12))
+	_phone_search_field.text_changed.connect(func(q: String):
+		_fill_search_results(_phone_search_results, _run_place_search(q),
+			func(): _set_search_open(false)))
+	head.add_child(_phone_search_field)
+	head.add_child(_sheet_close_button(func(): _set_search_open(false)))
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	col.add_child(scroll)
+	_phone_search_results = VBoxContainer.new()
+	_phone_search_results.add_theme_constant_override("separation", 0)
+	scroll.add_child(_phone_search_results)
+
+	overlay.add_child(panel)
+	overlay.visible = false
+	return overlay
+
+func _set_search_open(open: bool) -> void:
+	_close_all_phone_overlays()
+	if _phone_search_overlay == null:
+		return
+	_phone_search_overlay.visible = open
+	if open:
+		_reset_place_search_cache()
+		_phone_search_field.text = ""
+		_fill_search_results(_phone_search_results, _run_place_search(""),
+			func(): _set_search_open(false))
+		_phone_search_field.grab_focus.call_deferred()
+	_refresh_phone_bar_lit()
+
+## Desktop's presentation. `AcceptDialog`/`PopupPanel` are retheme'd from the
+## project's own theme resource by `_style_window_chrome()` (this file, the
+## `panel` stylebox on both type names -- set at boot and again on every
+## palette switch), which is why this needs no bespoke scrim/sheet chrome of
+## its own the way the phone overlay does: there is a window-manager frame
+## under it already, styled the same way every other modal in this shell
+## (`World data`, `New world…`, …) already relies on without building its own
+## copy of that styling. Built lazily -- once, on first open -- rather than at
+## boot, so a desktop session that never searches never pays for it; reused on
+## every later call the way `new_world_dialog`/`world_data_window` are reused
+## in `app.gd`.
+##
+## `_phone_list_row()` for its rows even though this is a desktop surface: the
+## row's visual language -- rounded press feedback, IBM Plex Mono, a dim
+## subtitle line -- is the chrome vocabulary this whole pass's brief names
+## ("rounded sheets, pill chips, tonal fills... IBM Plex Mono labels") for the
+## shell generally, not a phone-only rule, and `_pscale()`/`_ptap()` are
+## identity on desktop (`_phone_scale` stays 1.0, never touched outside
+## `_compute_layout_mode()`'s phone branch) -- so the row renders at its
+## authored size here, not scaled up. Building a second, near-identical row
+## factory for one dialog would be the kind of drift this file's own "one
+## visual language" comments elsewhere argue against.
+func _open_desktop_find_on_map() -> void:
+	_ensure_desktop_search_dialog()
+	_reset_place_search_cache()
+	_desktop_search_field.text = ""
+	_fill_search_results(_desktop_search_results, _run_place_search(""),
+		func(): _desktop_search_dialog.hide())
+	_desktop_search_dialog.popup_centered(Vector2i(440, 480))
+	_desktop_search_field.grab_focus.call_deferred()
+
+func _ensure_desktop_search_dialog() -> void:
+	if _desktop_search_dialog != null:
+		return
+	var dlg := AcceptDialog.new()
+	dlg.title = "Find on map"
+	dlg.ok_button_text = "Close"
+	dlg.min_size = Vector2i(400, 420)
+	add_child(dlg)
+	_desktop_search_dialog = dlg
+
+	var pad := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		pad.add_theme_constant_override("margin_%s" % side, 14)
+	dlg.add_child(pad)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	pad.add_child(col)
+
+	_desktop_search_field = LineEdit.new()
+	_desktop_search_field.placeholder_text = "Search places, factions, routes…"
+	DccWidgets.well(_desktop_search_field)
+	_desktop_search_field.text_changed.connect(func(q: String):
+		_fill_search_results(_desktop_search_results, _run_place_search(q),
+			func(): _desktop_search_dialog.hide()))
+	col.add_child(_desktop_search_field)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	_desktop_search_results = VBoxContainer.new()
+	_desktop_search_results.add_theme_constant_override("separation", 0)
+	scroll.add_child(_desktop_search_results)
+
+# -- ↶ Floating undo chip --------------------------------------------------------
+#
+# `bridge` is a `DccApp` field (`app.gd`), not this base class's -- this
+# file's own header says it "calls no engine method". `_find_engine_bridge()`/
+# `_find_viewport_host()` below are the one, explicitly-guarded exception this
+# pass adds, reached by a typed child walk rather than a stored reference so a
+# bare `DccShell` (every phone-chrome probe in this project, including this
+# pass's own `_phonechrome_probe.gd`) gets null and degrades -- chip stays
+# hidden, search button never draws -- instead of failing to compile or crash.
+# `EngineBridge`/`ViewportHost` are real, always-shipped classes (unlike
+# `PlaceSearch` above), so a static return type is safe here.
+
+func _find_engine_bridge() -> EngineBridge:
+	for child in get_children():
+		if child is EngineBridge:
+			return child
+	return null
+
+## `viewport` (`app.gd`'s field) is a child of `viewport_content` -- a field
+## THIS class DOES declare and build (`_build_viewport()`): laying out where
+## the map surface goes is squarely "the frame", the one thing `app.gd` needs
+## handed to it before `viewport.setup(bridge)` can run.
+func _find_viewport_host() -> ViewportHost:
+	if viewport_content == null:
+		return null
+	for child in viewport_content.get_children():
+		if child is ViewportHost:
+			return child
+	return null
+
+## The chip itself. `DccTheme.pill()` -- "the ONLY rounded surface in this
+## design system" per its own header, the 412 canvas's action-button factory
+## -- rather than a hand-rolled `StyleBoxFlat`: this chip IS that button, just
+## floating over the map instead of stretched into the tool sheet's action
+## row, so it wants the same primary-filled, reversed-ink, 48 dp pill
+## `DccWidgets.phone_pill()` builds for the sheet's Commit/Discard buttons.
+## Not called through `phone_pill()` itself -- that function reads
+## `ACTION_META` + `unit` off a `Button` already sized by `phone_fit()`'s
+## walk, which only ever reaches a dock or the tool sheet, and this chip is a
+## child of neither -- so this reproduces its recipe (`DccTheme.pill()` twice,
+## `accent_hover` on the lit pair, reversed `c("bg")` ink) directly instead.
+func _build_phone_undo_chip() -> Button:
+	var b := Button.new()
+	b.name = "PhoneUndoChip"
+	b.focus_mode = Control.FOCUS_NONE
+	b.text = DccIcons.SYMBOLS["undo"]  ## "↶" -- the spec's own "↶ chip".
+	b.tooltip_text = "Undo (hold to see what it would undo)"
+	b.add_theme_font_override("font", DccTheme.mono())
+	b.add_theme_font_size_override("font_size", _pscale(18))
+	var d := _ptap(DccTheme.H_PHONE_PILL)
+	var r := d / 2
+	var rest := DccTheme.pill(true, r, _pscale(4), _pscale(4))
+	var lit := DccTheme.pill(true, r, _pscale(4), _pscale(4))
+	lit.bg_color = DccTheme.c("accent_hover")
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("disabled", rest)
+	b.add_theme_stylebox_override("hover", lit)
+	b.add_theme_stylebox_override("pressed", lit)
+	b.add_theme_stylebox_override("focus", DccTheme.empty())
+	var fg := DccTheme.c("bg")
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_hover_color", fg)
+	b.add_theme_color_override("font_pressed_color", fg)
+	b.custom_minimum_size = Vector2(d, d)
+	## Bottom-left within `_phone_content_gap` -- see `_build_phone_shell()`'s
+	## own comment at this chip's construction site for why that container
+	## (not `_phone_nav_reserve()` arithmetic against `_phone_root`) is the
+	## bound that is actually clear of both the bottom nav AND the tool sheet,
+	## and why bottom-LEFT keeps it off `ViewportHost`'s navpad on the right.
+	b.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	b.offset_left = _pscale(16)
+	b.offset_top = -d - _pscale(16)
+	b.offset_right = _pscale(16) + d
+	b.offset_bottom = -_pscale(16)
+	b.visible = false  ## `_refresh_phone_undo_chip()` shows it once `can_undo()` is true.
+	## `pressed` deliberately unused: tap and hold both start from `button_
+	## down` so this can tell them apart before either fires (see the pair
+	## below) -- `pressed` alone only ever fires on a clean tap and has
+	## nothing to race against a hold with.
+	b.button_down.connect(_on_phone_undo_chip_down)
+	b.button_up.connect(_on_phone_undo_chip_up)
+	return b
+
+## `bridge` does not exist yet when `_build_phone_shell()` (and this call,
+## made at the end of it) run: `app.gd`'s `_ready()` calls `super._ready()` --
+## which is what runs THIS file's `_ready()`, which is what calls
+## `_build_phone_shell()` -- and only builds `bridge` in the lines AFTER that
+## call returns. Deferred one frame, the same wait `_on_phone_node_added()`'s
+## own `call_deferred` relies on elsewhere in this file: by the next idle
+## frame `DccApp._ready()` has finished in full and `bridge` is live. A bare
+## `DccShell` (a probe) still has none a frame later either, and
+## `_find_engine_bridge()` returning null here is exactly the "chip stays
+## hidden" degrade this section's header promises.
+func _wire_phone_undo_chip() -> void:
+	(func() -> void:
+		var bridge := _find_engine_bridge()
+		if bridge == null:
+			return
+		## The four signals a commit to the height field can arrive through.
+		## NOT `generation_started`/`params_changed` -- a dial moving or a
+		## generate merely beginning commits nothing, so `can_undo()` cannot
+		## have changed yet; NOT `project_saved` -- writing a `.zip` reads the
+		## height field, it does not touch the undo stack.
+		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+			bridge.connect(sig, func(_a = null): _refresh_phone_undo_chip())
+		_refresh_phone_undo_chip()
+	).call_deferred()
+
+func _refresh_phone_undo_chip() -> void:
+	if _phone_undo_chip == null:
+		return
+	var bridge := _find_engine_bridge()
+	_phone_undo_chip.visible = bridge != null and bridge.can_undo()
+
+func _on_phone_undo_chip_down() -> void:
+	_undo_chip_down = true
+	_undo_chip_hold_fired = false
+	get_tree().create_timer(PHONE_UNDO_HOLD_SEC).timeout.connect(
+		_check_phone_undo_chip_hold)
+
+## Fires once, `PHONE_UNDO_HOLD_SEC` after a press starts. If the finger is
+## still down, this IS the hold -- "Hold: history."
+##
+## `EngineBridge` has no per-step history LIST -- only `undo_label()` (the
+## single next label) and `undo_stats()`'s `depth`/`max_steps`/`bytes`/
+## `budget_bytes`/`step_bytes`/`label` (`engine_bridge.gd`'s own "Global
+## heightmap undo" block, checked, not assumed), none of which is an array of
+## past operations. A real history view would need something like an
+## `undo_history() -> Array[String]` binding, which does not exist. So hold
+## shows the one thing that IS bound -- what tapping right now would revert --
+## rather than fabricating a multi-step list this build cannot back.
+func _check_phone_undo_chip_hold() -> void:
+	if not _undo_chip_down:
+		return  ## Already released -- a tap, not a hold; `_on_phone_undo_chip_up()` handled it.
+	_undo_chip_hold_fired = true
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		return
+	var label: String = bridge.undo_label()
+	if label == "":
+		return
+	var stats: Dictionary = bridge.undo_stats()
+	var msg := "Next undo: %s" % label
+	if stats.has("depth"):
+		var depth := int(stats["depth"])
+		msg = "Next undo: %s (%d step%s saved)" % [label, depth, "" if depth == 1 else "s"]
+	_show_phone_toast(msg, _phone_undo_chip, 2.4)
+
+func _on_phone_undo_chip_up() -> void:
+	var was_hold := _undo_chip_hold_fired
+	_undo_chip_down = false
+	_undo_chip_hold_fired = false
+	if not was_hold:
+		_do_phone_undo()
+
+## Tap. "Undo: ... map edits only" -- `can_undo()`/`undo_last()` are the
+## GLOBAL heightmap undo (`engine_bridge.gd`'s "Global heightmap undo" block:
+## "Deliberately NOT the same thing as `sculpt_undo`/`sculpt_redo`... those
+## pop a stamp off an uncommitted draft, these pop a whole committed height
+## field"), never a civilisation/settlement/route edit -- so "map edits only"
+## already holds without this file narrowing anything further. Checked
+## against that block's own comment rather than assumed true.
+func _do_phone_undo() -> void:
+	var bridge := _find_engine_bridge()
+	if bridge == null or not bridge.can_undo():
+		return
+	var reverted: String = bridge.undo_last()
+	_refresh_phone_undo_chip()
+	if reverted != "":
+		_show_phone_toast("Undid: %s" % reverted, _phone_undo_chip, 2.4)
+
+# -- Toasts: the undo chip's own feedback, and the two coach marks ------------
+
+## A small, subtle, self-dismissing pill -- phone only. One primitive for two
+## callers (the undo chip's tap/hold feedback above, and the two first-run
+## coach marks below), so "a toast" is one visual language rather than two
+## near-duplicates built a few functions apart.
+##
+## `mouse_filter = IGNORE` throughout: the spec's "never block a tap" is not
+## merely "keep it brief" -- it is a requirement that a tap land on whatever
+## is under the toast at any point in its lifetime, so this carries no button
+## and cannot be the control a `gui_input` walk picks.
+func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> void:
+	if not _phone or _phone_root == null:
+		return
+	var wrap := PanelContainer.new()
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var box := DccTheme.panel("raised")
+	box.set_corner_radius_all(_pscale(14))
+	box.content_margin_left = _pscale(14)
+	box.content_margin_right = _pscale(14)
+	box.content_margin_top = _pscale(9)
+	box.content_margin_bottom = _pscale(9)
+	wrap.add_theme_stylebox_override("panel", box)
+	var l := DccTheme.mono_label(text, "text_bright", _pscale(10.5))
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD
+	l.custom_minimum_size.x = _pscale(220)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(l)
+	wrap.modulate.a = 0.0
+	_phone_root.add_child(wrap)
+	_position_phone_toast.call_deferred(wrap, near)
+	var tw := create_tween()
+	tw.tween_property(wrap, "modulate:a", 1.0, 0.18)
+	tw.tween_interval(seconds)
+	tw.tween_property(wrap, "modulate:a", 0.0, 0.35)
+	tw.finished.connect(func(): if is_instance_valid(wrap): wrap.queue_free())
+
+## Deferred one frame off `_show_phone_toast()` so `wrap.get_combined_minimum_
+## size()` reflects its actual label text rather than whatever a zero-frame-old
+## node reports. Centres over `near` when it is given and still on screen,
+## clamped so the toast itself never runs off any edge.
+func _position_phone_toast(wrap: Control, near: Control) -> void:
+	if not is_instance_valid(wrap):
+		return
+	var screen: Vector2 = get_viewport_rect().size
+	var size: Vector2 = wrap.get_combined_minimum_size()
+	var cx := screen.x * 0.5
+	var cy := screen.y * 0.5
+	if near != null and is_instance_valid(near) and near.is_inside_tree():
+		var r := near.get_global_rect()
+		cx = r.position.x + r.size.x * 0.5
+		cy = r.position.y - _pscale(12) - size.y * 0.5
+	wrap.position = Vector2(
+		clampf(cx - size.x * 0.5, _pscale(12), maxf(_pscale(12), screen.x - size.x - _pscale(12))),
+		clampf(cy - size.y * 0.5, _pscale(12), maxf(_pscale(12), screen.y - size.y - _pscale(12))))
+	wrap.size = size
+
+## Coach marks (§13 chrome: "two subtle toasts, persisted"). The two
+## highest-value first-run hints into what THIS file itself builds and can
+## point a toast at with a real node: the bottom bar's disclosure model
+## (`_phone_menu_bar`) and the tool sheet's drag handle (`_phone_sheet_grab`).
+## Long-press-to-sample -- the third candidate the assigning brief named -- is
+## deliberately not one of the two: it is `map_overlay.gd`'s gesture, a file
+## this pass does not own and has no node handle on, so a toast pointed at it
+## would be a guess rather than an anchored hint.
+const _COACH_MARKS := [
+	{"id": "bottombar_tabs",
+		"text": "WORLD · CIVIL · CARTO switch domains here — PANELS and MORE reach everything else."},
+	{"id": "sheet_handle", "text": "Drag this handle to expand tool options."},
+]
+
+## Probe seam: a GDScript `const` is not an instance property, so
+## `Object.get("_COACH_MARKS")` -- the reflection idiom this file's `_find_*`
+## helpers rely on for a real `var` -- returns nothing for it. A method is
+## reflectable regardless of the underscore convention (`.call()` works on any
+## method), so this is what `_phonechrome_probe.gd` actually calls.
+func _coach_mark_ids() -> Array:
+	var out: Array = []
+	for m in _COACH_MARKS:
+		out.append(String(m.get("id", "")))
+	return out
+
+func _maybe_show_coach_marks() -> void:
+	if not _phone:
+		return
+	(func(): _show_next_coach_mark(0)).call_deferred()
+
+## Shows the first mark in `_COACH_MARKS` not yet seen, waits for it to finish
+## (its own display time plus a beat), then recurses to the next -- so the two
+## are sequential, never stacked, and a mark already seen on a prior run is
+## skipped silently rather than leaving a gap in the sequence.
+func _show_next_coach_mark(i: int) -> void:
+	if i >= _COACH_MARKS.size():
+		return
+	var mark: Dictionary = _COACH_MARKS[i]
+	var id := String(mark.get("id", ""))
+	if _coach_mark_seen(id):
+		_show_next_coach_mark(i + 1)
+		return
+	var near: Control = _phone_menu_bar if id == "bottombar_tabs" else _phone_sheet_grab
+	_show_phone_toast(String(mark.get("text", "")), near, 3.2)
+	_set_coach_mark_seen(id)
+	get_tree().create_timer(3.6).timeout.connect(_show_next_coach_mark.bind(i + 1))
+
+## `DccSettings` (`shell/dcc_settings.gd`) exposes only named sections --
+## storage roots, recent projects, GPU, autosave -- no generic flag store, and
+## this task's file ownership is `dcc_shell.gd` alone, so adding one there is
+## out of scope for this pass. This reads/writes the SAME store
+## (`DccSettings.CONFIG_PATH`, its own public constant) in a section of its
+## own ("coach_marks") instead of inventing a second file, which is what the
+## brief actually rules out.
+##
+## Known rough edge, stated rather than hidden: `DccSettings` caches its own
+## `ConfigFile` in memory for the process's whole lifetime (`_ensure_loaded()`'s
+## `_loaded` guard) and never re-reads disk, so if it calls its own `_save()`
+## AFTER this section is written -- `remember_project()` on the next `.zip`
+## load, a GPU or autosave change -- that save serialises `DccSettings`' own
+## in-memory copy, which never learned this section exists, and this section
+## is lost from disk until this code writes it again. Worst case: a coach
+## mark reappears once, in a session that also touches one of those settings
+## after dismissing it; never data loss, and self-correcting the next time
+## either mark is shown. The clean fix is a real flag API on `DccSettings`
+## itself -- a change to a file this task's ownership boundary does not
+## permit making here.
+func _coach_mark_seen(id: String) -> bool:
+	var cfg := ConfigFile.new()
+	cfg.load(DccSettings.CONFIG_PATH)
+	return bool(cfg.get_value("coach_marks", id, false))
+
+func _set_coach_mark_seen(id: String) -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(DccSettings.CONFIG_PATH)
+	cfg.set_value("coach_marks", id, true)
+	cfg.save(DccSettings.CONFIG_PATH)
 
 ## Kept under its old name so `_shot_phone.gd --overflow` and anything else
 ## already driving it keeps working; what it opens is now `PhoneMenu`'s L2 root
@@ -3148,7 +3829,8 @@ func _notification(what: int) -> void:
 		return
 	if _phone_menu != null and _phone_menu.go_back():
 		return
-	if _phone_panel_picker != null and _phone_panel_picker.visible \
+	if (_phone_panel_picker != null and _phone_panel_picker.visible) \
+			or (_phone_search_overlay != null and _phone_search_overlay.visible) \
 			or _left_sheet_open or _right_sheet_open:
 		_close_all_phone_overlays()
 		return

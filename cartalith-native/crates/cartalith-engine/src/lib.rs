@@ -83,6 +83,11 @@
 /// does not consult it yet.
 pub mod staleness;
 
+/// The process-global, ten-stage progress counter the Android spec's staged
+/// generation readout reads (`ANDROID_BUILD_SCOPE.md`). Wired: every
+/// `advance()` call in `generate_terrain_inner` below is real, not a stub.
+pub mod progress;
+
 /// `sculptCommit`'s River/Lake water hooks (`UNIFIED_TOOL_PLAN.md`
 /// milestone C). Unwired: the pipeline below does not call it yet.
 pub mod sculpt_commit;
@@ -651,6 +656,14 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 /// exists so that "the skip changes nothing" is a proof this crate can run
 /// rather than an argument in a comment.
 fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
+    // `progress.rs`'s own doc comment carries the full banner->stage mapping
+    // every `progress::advance` call below encodes. `begin_run` resets the
+    // counter to stage 0 (Planet); Planet and Extent & scale both tick
+    // through immediately since neither has real computation of its own in
+    // this function (see the module doc for why).
+    crate::progress::begin_run();
+    crate::progress::advance(crate::progress::EXTENT_SCALE);
+
     let gw = p.gw;
     let gh = p.gh;
     let world = p.world;
@@ -671,6 +684,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     };
 
     // ---- buildTectonicSubstrate (reference HTML lines 3396-3462) ----
+    // World structure (stage 2): the continentality field is this stage's
+    // own product, and it precedes the real tectonics work below despite
+    // sharing this banner with it (`progress.rs`'s own doc comment).
+    crate::progress::advance(crate::progress::WORLD_STRUCTURE);
     // generateContinentalityField(): a no-op (`None`) at World-Structure's
     // default `enabled:false` -- bit-identical to omitting it entirely.
     let continental_field = if p.world_structure.enabled {
@@ -689,6 +706,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         ocean_depth: p.world_structure.ocean_depth,
         continental_field: cf.as_slice(),
     });
+
+    // Tectonics (stage 3): plates, stress, flexure, resistance and the
+    // finished height field, through `compute_height`/`normalize_field`
+    // below -- the rest of the "buildTectonicSubstrate" banner once World
+    // structure's own slice (just above) is subtracted from its front.
+    crate::progress::advance(crate::progress::TECTONICS);
 
     let mut gpu_stages_used: Vec<String> = Vec::new();
 
@@ -960,6 +983,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     let mut field = normalize_field(&raw_height);
 
     // ---- volcanism + craters (reference HTML lines 3365-3369) ----
+    crate::progress::advance(crate::progress::VOLCANISM);
     let mut volcanic_field = vec![0f32; gw * gh];
     let mut impact_field = vec![0f32; gw * gh];
     if volc_count > 0 {
@@ -1170,6 +1194,21 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
         }
     };
+    if !p.carve_rivers {
+        // No carve pass this run: the direct `flow_discharge` just computed
+        // above IS Hydrology's whole output, and the climate priming pass
+        // already run above (the "natural order" block) is never refreshed
+        // again below -- so Erosion, Hydrology and Climate are all as done
+        // as they are going to get. Erosion itself never actually computed
+        // anything here (no light carve without `carve_rivers`), but the
+        // standalone `passes.*` toggles below (velocity/glacial/coastal/
+        // hillslope/evolveCoupled/sediment/tidal) are that same stage's own
+        // work too and `advance` is monotonic, so ticking through here does
+        // not hide any of it if one fires.
+        crate::progress::advance(crate::progress::EROSION);
+        crate::progress::advance(crate::progress::HYDROLOGY);
+        crate::progress::advance(crate::progress::CLIMATE);
+    }
 
     let mut channels = None;
     let mut stream_order = None;
@@ -1178,6 +1217,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 
     if p.carve_rivers {
         // ---- carveRiverValleys (reference HTML lines 8761-8789) ----
+        // Erosion (stage 5): the light physical erosion pass below is this
+        // stage's real, generation-time work (`progress.rs`'s own doc
+        // comment on why the earlier climate-priming pass above gets no
+        // bump of its own).
+        crate::progress::advance(crate::progress::EROSION);
         // (1) light physical erosion pass -- natural, discharge-weighted
         // valley networks. `rainfall` here is still the PRE-carve field
         // JS computed above; refreshClimate() doesn't run again until
@@ -1205,6 +1249,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         }
         // enforceRiverChannels(): always a no-op here -- see the module
         // doc comment.
+        //
+        // Hydrology (stage 6): `build_channels`/`strahler_from_receivers`/
+        // `trace_river_polylines`/the carve loop below produce the
+        // `channels`/`stream_order`/`river_mask`/`river_floor` fields
+        // `WorldState` actually stores -- this stage's real product.
+        crate::progress::advance(crate::progress::HYDROLOGY);
         let flow_for_network = match flow_on_gpu(&field, Some(&rainfall), true) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "flow") {
@@ -1274,6 +1324,14 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         }
 
         // (3) recompute so overlay + rainfall reflect the carved valleys
+        //
+        // Climate (stage 7): this refresh -- not the priming pass computed
+        // before Erosion above -- is climate's real, final, stored state on
+        // this (default) path. `progress.rs`'s own doc comment explains why
+        // the earlier pass gets no bump: showing it would walk the counter
+        // backward from Climate to Erosion/Hydrology, which `advance`'s
+        // monotonic contract forbids.
+        crate::progress::advance(crate::progress::CLIMATE);
         flow_discharge = match flow_on_gpu(&field, Some(&rainfall), true) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "flow") {
@@ -1568,6 +1626,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     if let Some(set) = gpu_set.as_ref() {
         cartalith_gpu::record_usage(set);
     }
+
+    // Ecology & biomes (8) / Resources & soils (9): no code in this function
+    // at all -- see `progress.rs`'s own doc comment for what actually
+    // computes biome/soil/resource fields (`cartalith-godot::
+    // compute_civilisation`, outside this function and outside the WORLD
+    // domain's ten-stage pipeline this counter represents). Both tick
+    // through together, honestly reporting "no engine work here" rather
+    // than lingering as if real computation were happening.
+    crate::progress::advance(crate::progress::ECOLOGY_BIOMES);
+    crate::progress::advance(crate::progress::RESOURCES_SOILS);
+    crate::progress::finish();
 
     WorldState {
         sea_level,

@@ -36,6 +36,7 @@ mod pack;
 mod ops_bridge;
 mod paint_bridge;
 mod params;
+mod progress_bridge;
 mod project_bridge;
 mod render;
 mod sample_bridge;

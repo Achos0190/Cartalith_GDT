@@ -84,7 +84,7 @@ const STAGES: Array = [
 	{"name": "Erosion", "needs": "04 Tectonics, 08 Climate",
 	 "produces": "final surface → 07 Hydrology, 10 Resources & soils",
 	 "groups": ["erosion"], "keys": [],
-	 "gap": "Only the stream-power carve and the Glacial group's fjord carve are ported. Droplet hydraulic, Hillslope diffuse, Velocity (momentum), Glacial erosion itself and Coastal are each a separate manual pass in the reference with no cartalith-engine equivalent -- the groups below for those five are honest placeholders, not missing controls. Two more reference passes have no group at all because they are not passes over this stage's own inputs: Evolve climate <-> terrain (evoCyc / state.stream.cycles, read only by evolveCoupled()) re-runs erosion and climate against each other for n cycles, and Sediment fill deposits into basins afterward -- neither has a cartalith-engine equivalent."},
+	 "gap": "Corrected 2026-08-30 while wiring the staged progress readout, against `generate_terrain_inner` (cartalith-engine/src/lib.rs) directly rather than trusting this note: it was stale on six of its seven claims. Stream-power carve, the Glacial group's fjord carve, Hillslope diffuse, Velocity (momentum), Glacial erosion, Coastal, Evolve climate <-> terrain (evoCyc) and Sediment fill are ALL ported and ALL run as generation-time `passes.*` toggles inside this stage's own block -- off by default, so a default world is unaffected by any of them existing (`_build_erosion_passes` below already said as much for the first four; this note had not caught up). Only Droplet hydraulic has no generate()-time equivalent: it is `erode_op`, a separate op the reference itself runs from its own `#erodeBtn`, never from `generate()` -- see the Droplet hydraulic group below."},
 	{"name": "Hydrology", "needs": "06 Erosion",
 	 "produces": "rivers, lakes, drainage, flow accumulation → 08 Climate, 09 Ecology & biomes",
 	 "groups": [], "keys": ["carve_rivers", "river_density"],
@@ -153,6 +153,28 @@ var _ecology_body: VBoxContainer
 ## first one there is no frame at all.
 var _crs_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
+## Per-stage wall-clock timing for the readout above, indexed the same way as
+## `_stage_state_labels` and rebuilt alongside it every `_build_generate_head`
+## call. `-1` means "not reached yet" (`_stage_start_msec`) / "not finished
+## yet" (`_stage_elapsed_ms`); `Time.get_ticks_msec()` throughout, matching
+## `last_generate_ms`'s own clock in `engine_bridge.gd`.
+var _stage_start_msec: Array = []
+var _stage_elapsed_ms: Array = []
+## A short rolling log of "NN Name -- 0.42s" lines, newest last, shown under
+## the ten rows -- the spec's own "per-stage progress + log".
+var _stage_log: Array = []
+const STAGE_LOG_MAX := 12
+var _stage_log_label: Label
+## The earliest stage index a live-edited parameter touched since the last
+## finished generate, or `-1` when the world is not stale. Cleared on
+## `generation_finished`, not on `generation_started`: the badge stays up
+## for the run it caused, then clears once that run has made the world match
+## the dials again. This engine has no partial recompute (`_regenerate_live`'s
+## own doc comment, verified live against the reference), so the note is
+## informational -- "here is where the edit that triggered this run landed"
+## -- not a claim that Generate skips stages before it.
+var _stale_from_stage := -1
+var _stale_note_label: Label
 
 ## §5.1's Finalize foot (`GUI_GAP_REGISTER.md` WW-01). `_bake_depth` defaults
 ## to 3 -- the reference's own `bakeAllDepth` default, and 85 tiles, which is
@@ -256,23 +278,41 @@ func _build() -> void:
 	app.register_tool_release_handler("paint", _paint_release)
 	app.tool_armed.connect(_on_tool_armed)
 
-	bridge.generation_started.connect(_refresh_stage_states)
+	bridge.generation_started.connect(_reset_stage_progress)
+	bridge.generation_stage.connect(_on_generation_stage)
 	bridge.generation_finished.connect(_on_generation_finished)
 	bridge.world_loaded.connect(_on_world_loaded)
-	_refresh_stage_states()
+	_paint_stage_rows()
 
 ## A new/loaded world means a fresh (or absent) `SculptEditor`/`PaintEditor`
 ## on the Rust side -- both panels rebuild from scratch rather than trusting
 ## whatever they showed for the previous world.
-func _on_generation_finished(_ok: bool) -> void:
-	_refresh_stage_states()
+func _on_generation_finished(ok: bool) -> void:
+	if ok:
+		## Close out whichever stage was still "running" when the signal
+		## landed -- `_on_generation_stage` only closes a stage out once a
+		## LATER one arrives, so the run's own last stage needs closing here.
+		var now := Time.get_ticks_msec()
+		for i in _stage_elapsed_ms.size():
+			if _stage_elapsed_ms[i] < 0 and _stage_start_msec[i] >= 0:
+				_stage_elapsed_ms[i] = now - _stage_start_msec[i]
+				_log_stage(i)
+	## The world this generate produced now matches every dial -- the stale
+	## badge from whichever edit caused this run clears.
+	_stale_from_stage = -1
+	if _stale_note_label != null:
+		_stale_note_label.text = _stale_note_text()
+	_paint_stage_rows()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 	_fill_ecology(_ecology_body)
 	_build_crs(_crs_body)
 
 func _on_world_loaded() -> void:
-	_refresh_stage_states()
+	## A load is not a generate: it never goes through `bridge.generation_stage`
+	## at all, so any timing left over from a previous run is stale and the
+	## readout should show a plain "resolved" for every row.
+	_reset_stage_progress()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 	_fill_ecology(_ecology_body)
@@ -343,19 +383,41 @@ func _build_generate_head(parent: Control) -> void:
 	centre.tooltip_text = "The reference's #centerBtn. Rotates the world in longitude so the emptiest meridian sits at the map edge, then feathers the join it moved into the interior. Whole-world mode only; the outcome is reported in the status bar."
 
 	var status := DccWidgets.section(parent, "Pipeline status")
-	## The one surviving state readout. `_stage_state_labels` is still the
-	## array `_refresh_stage_states()` writes to -- it just has one entry now
-	## instead of ten, because ten identical labels was ten copies of one fact.
-	_stage_state_labels.append(DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 1))
-	status.add_child(_stage_state_labels[0])
+	## `bridge.generation_stage` (`engine_bridge.gd`, 2026-08-30) made this a
+	## REAL per-stage readout rather than the single collapsed "generating…"
+	## label this section used to draw -- see that signal's own doc comment
+	## and `cartalith-engine/src/progress.rs` for how each stage's own bump
+	## point was chosen. `_stale_note_label` is built first so it sits above
+	## the ten rows, matching the spec's own "stale-from note, then staged
+	## progress" order.
+	_stale_note_label = DccWidgets.note(status, _stale_note_text())
+	_stage_state_labels = []
+	_stage_start_msec.clear()
+	_stage_elapsed_ms.clear()
+	for i in STAGES.size():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		status.add_child(row)
+		var name_label := DccTheme.mono_label("%02d %s" % [i + 1, String(STAGES[i]["name"])],
+			"text_dim", DccTheme.FS_MICRO, 1)
+		name_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+		row.add_child(name_label)
+		var state_label := DccTheme.mono_label("pending", "text_ghost", DccTheme.FS_MICRO, 1)
+		state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(state_label)
+		_stage_state_labels.append(state_label)
+		_stage_start_msec.append(-1)
+		_stage_elapsed_ms.append(-1)
+	_stage_log_label = DccWidgets.note(status, "")
 	DccWidgets.note(status,
-		"There is no partial recompute and no per-stage stale flag: one generate() "
-		+ "resolves all ten stages, every call, in this engine and in the app it "
-		+ "ports (verified live against the reference -- every parameter row here "
-		+ "regenerates on release rather than waiting for a run button). What CAN "
-		+ "go stale is the civilisation layer over an edited world, and that has "
-		+ "its own badge and its own button: Civilization ▸ Settlements ▸ "
-		+ "Recompute.")
+		"Real per-stage progress (`GenerationProgress`, `engine_bridge.gd`), not "
+		+ "a simulated animation -- but still ONE generate() that resolves all "
+		+ "ten stages every call: this engine has no partial recompute, so every "
+		+ "row above runs in full on every Generate, whichever stage an edit came "
+		+ "from (`Stale from NN` above names where the edit landed, not where the "
+		+ "run starts). What CAN go stale independently is the civilisation layer "
+		+ "over an edited world, and that has its own badge and its own button: "
+		+ "Civilization ▸ Settlements ▸ Recompute.")
 	DccWidgets.note(status,
 		"Resolution, working and render, is a creation-time call argument rather "
 		+ "than a stored parameter -- File ▸ New world sets it. Map extent (world "
@@ -979,7 +1041,7 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		## `<input type=checkbox>` `change` handlers (fired on click, not on a
 		## release distinct from a press).
 		DccWidgets.toggle(parent, label, bool(bridge.param_get(key)),
-			_on_bool_row_changed.bind(key), hint)
+			_on_bool_row_changed.bind(key, stage_index), hint)
 		return
 
 	var is_int := kind == "int"
@@ -990,10 +1052,11 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 	DccWidgets.slider(parent, label, float(info.get("min", 0.0)), float(info.get("max", 1.0)),
 		float(info.get("step", 0.01)), float(bridge.param_get(key)), unit,
 		_on_float_row_input.bind(key, is_int), hint,
-		_on_float_row_released.bind(key, is_int))
+		_on_float_row_released.bind(key, is_int, stage_index))
 
-func _on_bool_row_changed(v: bool, key: String) -> void:
+func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
 	bridge.param_set(key, v)
+	_mark_stale_from(stage_index)
 	_regenerate_live()
 
 ## Writes the value continuously (cheap: `param_set` is an in-memory Rust
@@ -1002,8 +1065,27 @@ func _on_bool_row_changed(v: bool, key: String) -> void:
 func _on_float_row_input(v: float, key: String, is_int: bool) -> void:
 	bridge.param_set(key, (int(round(v)) if is_int else v))
 
-func _on_float_row_released(key: String, is_int: bool) -> void:
+func _on_float_row_released(key: String, is_int: bool, stage_index: int) -> void:
+	_mark_stale_from(stage_index)
 	_regenerate_live()
+
+## `Editing any field sets stale from NN` (the Android spec). `stage_index`
+## is whichever of `STAGES` the edited row lives under -- the earliest one
+## wins, matching "stale from" naming the FIRST stage an edit could have
+## invalidated, not the last. Cleared on `generation_finished`, not here:
+## see `_stale_from_stage`'s own doc comment for why the badge outlives the
+## edit that set it.
+func _mark_stale_from(stage_index: int) -> void:
+	if _stale_from_stage < 0 or stage_index < _stale_from_stage:
+		_stale_from_stage = stage_index
+	if _stale_note_label != null:
+		_stale_note_label.text = _stale_note_text()
+
+func _stale_note_text() -> String:
+	if _stale_from_stage < 0:
+		return "Not stale -- the map matches every dial below."
+	return "Stale from %02d %s -- edited since the last Generate." % [
+		_stale_from_stage + 1, String(STAGES[_stale_from_stage]["name"])]
 
 ## The one thing every generation control now triggers on release, exactly
 ## like the reference's own `withBusy('generating…', generate)`: the whole
@@ -1015,23 +1097,91 @@ func _regenerate_live() -> void:
 		return
 	bridge.generate(app.new_world_dialog.request())
 
-## §5.1's state column, honestly reduced to what is actually true now that
-## there is no partial-recompute concept: every stage is either not-yet-built,
-## mid-regenerate, or resolved together, because one `generate()` call resolves
-## all ten at once. Nothing here claims per-stage granularity that isn't real.
-func _refresh_stage_states() -> void:
+## Clears per-stage timing and the log, then repaints -- for the start of a
+## NEW run (`generation_started`) or a freshly loaded world (`world_loaded`),
+## both of which leave any previous run's timing stale. NOT called mid-run:
+## `_on_generation_stage` calls the read-only `_paint_stage_rows` instead, so
+## a stage that already finished is never wiped by a later stage's own
+## signal arriving.
+func _reset_stage_progress() -> void:
+	for i in _stage_start_msec.size():
+		_stage_start_msec[i] = -1
+		_stage_elapsed_ms[i] = -1
+	_stage_log.clear()
+	if _stage_log_label != null:
+		_stage_log_label.text = ""
+	_paint_stage_rows()
+
+## §5.1's state column, repainted from the CURRENT `_stage_start_msec`/
+## `_stage_elapsed_ms`/`bridge.generating`/`bridge.has_world` state without
+## resetting anything -- the read-only half `_on_generation_stage` (mid-run),
+## `_on_generation_finished` (end of run) and `_build()` (first paint) all
+## share, so a stage that already finished is never shown as reset by a
+## later call. Nothing here claims a stage finished before
+## `bridge.generation_stage` actually said so, and this engine still has no
+## partial recompute -- see `_stale_from_stage`'s own doc comment.
+func _paint_stage_rows() -> void:
 	for i in _stage_state_labels.size():
 		var lbl: Label = _stage_state_labels[i]
-		if not bridge.has_world:
+		if not bridge.has_world and not bridge.generating:
 			lbl.text = "no world"
 			lbl.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
-		elif bridge.generating:
-			lbl.text = "%s generating" % DccIcons.SYMBOLS["on"]
+		elif i < _stage_elapsed_ms.size() and _stage_elapsed_ms[i] >= 0:
+			## Real timing exists for this stage (`progress_api` true on this
+			## build) -- show it rather than a generic "resolved".
+			var gap_note := "  (no engine work this run -- see gap note above)" \
+				if i == 8 or i == 9 else ""
+			lbl.text = "%s done  %.2fs%s" % [
+				DccIcons.SYMBOLS["tick"], _stage_elapsed_ms[i] / 1000.0, gap_note]
+			lbl.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+		elif bridge.generating and i < _stage_start_msec.size() and _stage_start_msec[i] >= 0:
+			lbl.text = "%s running…" % DccIcons.SYMBOLS["on"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("accent"))
+		elif bridge.generating:
+			lbl.text = "pending"
+			lbl.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
 		else:
-			lbl.text = "%s all ten stages resolved" % DccIcons.SYMBOLS["tick"]
+			## Has a world, not generating, no timing recorded for this row --
+			## either an older cdylib with no `GenerationProgress`
+			## (`progress_api` false) or a loaded save, which never goes
+			## through a per-stage-signalled generate at all.
+			lbl.text = "%s resolved" % DccIcons.SYMBOLS["tick"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 	_push_dock_readout()
+
+## Wired to `bridge.generation_stage` -- fires once per stage the engine
+## actually reaches (`engine_bridge.gd`'s own doc comment on why it is
+## change-only, not once per frame). `index` can jump by more than one: a
+## stage with no code of its own in `generate_terrain_inner` (Planet, Extent
+## & scale -- `cartalith-engine/src/progress.rs`'s own doc comment) can tick
+## through between two polls, so every not-yet-closed stage below `index` is
+## closed out here too, not just `index` itself.
+func _on_generation_stage(index: int, _stage_name: String, _total: int) -> void:
+	if index < 0 or index >= _stage_state_labels.size():
+		return
+	var now := Time.get_ticks_msec()
+	for i in index:
+		if _stage_elapsed_ms[i] < 0:
+			if _stage_start_msec[i] < 0:
+				_stage_start_msec[i] = now
+			_stage_elapsed_ms[i] = now - _stage_start_msec[i]
+			_log_stage(i)
+	if _stage_start_msec[index] < 0:
+		_stage_start_msec[index] = now
+	_paint_stage_rows()
+
+## Appends one line to the rolling "per-stage progress + log" (the Android
+## spec's own phrase). `_paint_stage_rows` is what actually paints
+## `_stage_state_labels`; this only maintains the separate scrolling log
+## text under the ten rows.
+func _log_stage(i: int) -> void:
+	_stage_log.append("%02d %s -- %.2fs" % [i + 1, String(STAGES[i]["name"]), _stage_elapsed_ms[i] / 1000.0])
+	while _stage_log.size() > STAGE_LOG_MAX:
+		_stage_log.pop_front()
+	if _stage_log_label != null:
+		_stage_log_label.text = "\n".join(_stage_log)
+	if _stage_log_label != null:
+		_stage_log_label.text = "\n".join(_stage_log)
 
 ## §3's rail-foot stage counter ("04 / 10"), repurposed as the collapsed left
 ## dock's own primary readout (§6: a collapsed dock keeps its one essential

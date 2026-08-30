@@ -48,6 +48,11 @@ var vault_window: VaultWindow
 ## the gallery holds a scope chip and a search query worth keeping between
 ## opens, exactly like every other window on this list.
 var open_project_dialog: OpenProjectDialog
+## The phone's own entry screen (`phone_project_picker.gd`'s own header for
+## the full reasoning) -- `null` on desktop and tablet, never constructed
+## there at all, so `is_phone()` is what every reader below has to check
+## rather than a visibility flag on a node that might not exist.
+var phone_project_picker: PhoneProjectPicker
 
 ## The path `bridge.load_save(path)` last succeeded with, remembered here
 ## (Godot-side only, no Rust change) so File ▸ Show project on disk and
@@ -332,6 +337,17 @@ func _ready() -> void:
 	add_child(open_project_dialog)
 	open_project_dialog.setup(self)
 
+	## Phone only, and not merely hidden the rest of the time -- see
+	## `phone_project_picker.gd`'s own header for why the node not existing at
+	## all is load-bearing rather than a style choice. `is_phone()` is already
+	## final by this point: `super._ready()` two lines into this function ran
+	## `DccShell._ready()`, which calls `_compute_layout_mode()` before
+	## returning.
+	if is_phone():
+		phone_project_picker = PhoneProjectPicker.new()
+		add_child(phone_project_picker)
+		phone_project_picker.setup(self)
+
 	## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1).
 	## Long-lived like its neighbours: it holds an entity scope, an open
 	## reader and a checkbox set worth keeping between opens, and it is
@@ -428,6 +444,12 @@ func _ready() -> void:
 	## Suppressed entirely when a world already exists -- nothing does yet at
 	## this point in `_ready`, but the guard keeps this honest if a future
 	## autoload restores a session.
+	##
+	## **On phone, `open_welcome()` (called below via `_open_welcome_when_drawn`)
+	## opens `phone_project_picker.gd` instead of this dialog** -- the locked
+	## Android spec's own entry decision, not a variant of this one. See that
+	## file's header for the full reasoning and `open_welcome()`'s own comment
+	## for the one-line branch.
 	if not bridge.has_world:
 		_open_welcome_when_drawn()
 
@@ -957,15 +979,30 @@ func open_new_world() -> void:
 ## recents, seeds, edit times, a `CURRENT` badge -- not a file tree, and
 ## `open_project_dialog.gd` draws exactly that. Its own dashed import tile is
 ## the route to a `.zip` sitting somewhere else on disk.
+##
+## On phone this is also the *only* route back to `phone_project_picker.gd`
+## after its own cold-start showing -- no second "Open project" entry was
+## added to the File menu or the MORE tab; both already called this function,
+## so branching here is the whole change (`phone_project_picker.gd`'s own
+## header, "Dismissal").
 func open_project_picker() -> void:
-	open_project_dialog.open()
+	if is_phone() and phone_project_picker != null:
+		phone_project_picker.open()
+	else:
+		open_project_dialog.open()
 
-## The welcome prompt, shown once on a cold start (see `_ready`). Same
-## dialog as `open_project_picker()`, in its welcome mode -- see
-## `open_project_dialog.gd`'s header for why this is one screen with three
-## actions rather than a second dialog in front of it.
+## The welcome prompt, shown once on a cold start (see `_ready`). Desktop and
+## tablet get `open_project_dialog.gd`'s welcome mode, unchanged -- see that
+## file's header for why it is one screen with three actions rather than a
+## second dialog in front of it. Phone gets its own entry screen instead
+## (`phone_project_picker.gd`'s own header for the full reasoning: same
+## recents, same New-world/Open-.zip flows, the locked spec's one-column card
+## layout rather than the desktop gallery scaled down).
 func open_welcome() -> void:
-	open_project_dialog.open_welcome()
+	if is_phone() and phone_project_picker != null:
+		phone_project_picker.open()
+	else:
+		open_project_dialog.open_welcome()
 
 ## Import ▸ Load heightmap… — the reference's third route into a world
 ## (`#loadBtn` + `#inferTectBtn`, reference HTML lines 534-535). Picks a PNG,

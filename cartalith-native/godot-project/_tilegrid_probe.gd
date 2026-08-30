@@ -148,31 +148,31 @@ func _ready() -> void:
 	var borders_pop: PopupMenu = null
 	var atlas_pop: PopupMenu = null
 	for pm in pops:
-		if (pm as PopupMenu).get_item_index(78) >= 0:
+		if (pm as PopupMenu).get_item_index(80) >= 0:
 			borders_pop = pm
-		if (pm as PopupMenu).get_item_index(79) >= 0:
+		if (pm as PopupMenu).get_item_index(81) >= 0:
 			atlas_pop = pm
 	_ok("a menu carries the tile-borders row", borders_pop != null, true)
 	_ok("a menu carries the refine row", atlas_pop != null, true)
 
 	if borders_pop != null:
-		var bi := borders_pop.get_item_index(78)
+		var bi := borders_pop.get_item_index(80)
 		_ok("the tile-borders row is enabled", borders_pop.is_item_disabled(bi), false)
 		_ok("...and starts unchecked", borders_pop.is_item_checked(bi), false)
-		borders_pop.id_pressed.emit(78)
+		borders_pop.id_pressed.emit(80)
 		await _frames(4)
 		_ok("pressing it turns the overlay on", vh.export_tile_grid_enabled(), true)
 		_ok("...and the check mark follows", borders_pop.is_item_checked(bi), true)
-		borders_pop.id_pressed.emit(78)
+		borders_pop.id_pressed.emit(80)
 		await _frames(4)
 		_ok("pressing again turns it off", vh.export_tile_grid_enabled(), false)
 
 	if atlas_pop != null:
-		var ai := atlas_pop.get_item_index(79)
+		var ai := atlas_pop.get_item_index(81)
 		_ok("the refine row is enabled", atlas_pop.is_item_disabled(ai), false)
 		## At fit the pyramid is down, so this must refuse and SAY so rather
 		## than bake level 0 quietly.
-		atlas_pop.id_pressed.emit(79)
+		atlas_pop.id_pressed.emit(81)
 		await _frames(4)
 		print("  info refuse-at-fit path ran")
 		vh.zoom_step(8.0)
@@ -182,7 +182,7 @@ func _ready() -> void:
 		bridge.atlas_clear()
 		await _frames(4)
 		_ok("atlas emptied before the real press", int(bridge.atlas_status().get("chunks", 0)), 0)
-		atlas_pop.id_pressed.emit(79)
+		atlas_pop.id_pressed.emit(81)
 		await _frames(30)
 		var stt: Dictionary = bridge.atlas_status()
 		print("  info atlas_status after refine: ", stt)

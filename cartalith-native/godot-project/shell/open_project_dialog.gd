@@ -490,7 +490,7 @@ func _refresh() -> void:
 	var query := _search.text.strip_edges().to_lower()
 	var shown := 0
 	for path in _paths():
-		var meta := _project_meta(String(path))
+		var meta := project_meta(String(path))
 		if query != "" and not _matches(String(path), meta, query):
 			continue
 		_grid.add_child(_build_tile(String(path), meta))
@@ -617,7 +617,7 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	thumb.custom_minimum_size.y = 128
 	thumb.clip_contents = true
 	var tex := TextureRect.new()
-	tex.texture = _identicon(path)
+	tex.texture = identicon(path)
 	tex.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	tex.stretch_mode = TextureRect.STRETCH_SCALE
@@ -742,7 +742,13 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 ## §`params.json`: `state.tect.seed`) via `ZIPReader`, which is a read of a
 ## stored value rather than a re-derivation of one -- the distinction the
 ## `godot-shell` skill's "keep logic out of GDScript" rule turns on.
-static func _project_meta(path: String) -> Dictionary:
+##
+## Public (not `_project_meta`) since `phone_project_picker.gd`'s own recents
+## list reads the identical real per-save facts for its cards rather than a
+## second implementation of the same `ZIPReader` walk -- the phone screen
+## replaces this dialog's *gallery chrome* (§ header, search well, scope
+## chips), not its data layer.
+static func project_meta(path: String) -> Dictionary:
 	var modified := FileAccess.get_modified_time(path)
 	var key := "%s@%d" % [path, modified]
 	if _meta_cache.has(key):
@@ -795,7 +801,12 @@ static func _relative_time(unix: int) -> String:
 ## always reads the same colour and two worlds rarely collide; saturation and
 ## value are fixed low, because these tiles sit behind an accent selection
 ## border and must never compete with it.
-static func _identicon(path: String) -> Texture2D:
+##
+## Public alongside `project_meta()` above, for the same reason: the phone
+## picker's cards want the identical stable-per-world art, not a second hash
+## scheme that would tag the same world with two different colours depending
+## on which screen opened it.
+static func identicon(path: String) -> Texture2D:
 	var hue := float(abs(path.hash()) % 360) / 360.0
 	var g := Gradient.new()
 	g.set_color(0, Color.from_hsv(hue, 0.30, 0.22))

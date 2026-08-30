@@ -788,8 +788,30 @@ func reset_view() -> void:
 ## camera projection to switch and works in one flat km grid throughout
 ## (`DCC_SHELL_SPEC.md` §2.4's own "this port works in one flat km projection
 ## throughout"). Only the zoom and the style name are runtime state.
+## **Is it safe to ask the engine anything right now?**
+##
+## Seven functions in this file used to open `if _bridge == null or not
+## _bridge.has_world`, and every one of them could still reach a `#[func]` on
+## `WorldGen` during a generate. `EngineBridge.generate()` hands the object to a
+## worker `Thread` that holds it mutably borrowed until `_finish` (which is why
+## `_params_cache` exists there at all), so any `#[func]` reached meanwhile
+## aborts with `Gd<T>::bind() failed, already bound`.
+##
+## `has_world` does not cover it: it is false only until the FIRST world lands.
+## On a re-generate it stays true for the whole run, so a mouse move over the
+## viewport (`_coords_text`), a camera nudge (`_update_lod`, `_update_zoom_
+## readout`) or a resize was enough. Surfaced by `_genstage_probe.gd`, which ran
+## a generate with the LOD view up and logged the panic repeatedly at what was
+## then line 1384 -- `grid_size()` inside `_update_lod`.
+##
+## Both conditions mean the same thing to every caller: there is no world this
+## frame that can be read. So they take the branch they already had for the
+## no-world case rather than needing a second one.
+func _engine_readable() -> bool:
+	return _bridge != null and _bridge.has_world and not _bridge.generating
+
 func _update_zoom_readout() -> void:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		return
 	_readout_label.text = "2D · equirect · z%.1f\n%s" % [_zoom, _style_readout]
 
@@ -1098,7 +1120,7 @@ func _chrome(preset: int, align: int) -> Label:
 # -- Refresh ------------------------------------------------------------------
 
 func refresh() -> void:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		return
 	map_view.texture = _bridge.color_texture()
 	territory_view.texture = _bridge.territory_texture()
@@ -1138,7 +1160,7 @@ func refresh() -> void:
 ## own annotation layers. See `map_overlay.gd`'s own `_manual_icons`/`_labels`
 ## doc comment, which already names this method.
 func refresh_annotations() -> void:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		return
 	overlay.set_manual_icons(_bridge.icon_list())
 	overlay.set_labels(_bridge.label_list())
@@ -1188,7 +1210,7 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 ## GDScript into a `#[func]` -- said plainly rather than hidden behind a
 ## thread that does not exist.
 func _on_urban_layouts_needed(indices: PackedInt32Array) -> void:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		overlay.set_urban_layouts(indices, [])
 		return
 	overlay.set_urban_layouts(indices, _bridge.urban_layouts(indices))
@@ -1311,7 +1333,7 @@ func _on_sampled(gx: float, gy: float, valid: bool) -> void:
 ## classified SH-06 (A) on the premise that this call already existed. It
 ## doesn't -- corrected there and in `CHANGELOG.md`.
 func _coords_text(gx: float, gy: float) -> String:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		return ""
 	var g := _bridge.grid_size()
 	if g.x <= 0 or g.y <= 0 or _width_km <= 0.0:
@@ -1377,7 +1399,7 @@ func _fmt_thousands(v: float, decimals: int) -> String:
 ## `_displayed_rect()`/`_cell_to_screen`) that the same arithmetic needs, so
 ## nothing new is invented here, only reused.
 func _update_lod() -> void:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		_set_lod_active(false)
 		return
 
@@ -1826,7 +1848,7 @@ func _lod_sprite_rect(sprite: Sprite2D) -> Rect2:
 ## the export-grid overlay and `visible_grid_rect()` cannot drift from the
 ## tiles. Returns a zero-size rect when there is no world to measure.
 func _map_display_rect() -> Rect2:
-	if _bridge == null or not _bridge.has_world:
+	if not _engine_readable():
 		return Rect2()
 	var g := _bridge.grid_size()
 	if g.x <= 1 or g.y <= 1 or size.x <= 0.0 or size.y <= 0.0:
