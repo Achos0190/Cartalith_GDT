@@ -294,6 +294,114 @@ const TABLET := {
 ## converges rather than scaling.
 const W_DOCK_TABLET := 400
 
+# ── Tablet interior · role-keyed (§13, DS-03) ────────────────────────────────
+#
+# `TABLET` above is keyed by the bare desktop integer, and that key space is
+# **exhausted**. `GUI_GAP_REGISTER.md` §57 found the tablet artboard maps one
+# desktop figure onto two different tablet figures in at least five places; all
+# five below were re-measured element-by-element off `DCC shell tablet 2560`
+# against `DCC shell 1920` on 2026-08-30 rather than taken on §57's word:
+#
+# | desktop | tablet, in one place | tablet, in another |
+# |---|---|---|
+# | `14` | **22** — bar `padding:0 14px` → `0 22px` | **18** — sample grid `gap:6px 14px` → `9px 18px` |
+# | `11` | **13** — tool-options mono `font:11px` → `13px` | **14** — frame prose `font:11px/1.4` → `14px/1.4` |
+# | `9`  | **15** — menu-bar title `padding:9px 11px` → `15px 15px` | **11** — layer row `gap:9px` → `11px` |
+# | `70` | **88** — timeline `height:70px` → `88px` | **90** — slider track `width:70px` → `90px` |
+# | `6`  | **9**  — sample grid row gap `6px` → `9px` | **6**, pinned — layers-FAB column `gap:6px` |
+#
+# So the resolution has to be keyed by **what a figure is for**, not by what it
+# happens to equal on the desktop. That is the shape `MENU` above already uses
+# (`fs_bar`/`fs_bar_t`); `ROLE` is the same idea generalised to the interior,
+# and deliberately does **not** restate any key `MENU` already owns — menu
+# figures stay there, so there is one source of truth per figure.
+#
+# `[desktop, tablet]` per role. Every pair is a *drawn* value from each
+# artboard, never a multiplier: the ratios here run ×1.00 (the FAB, hairlines,
+# every letter-spacing) to ×3.00 (a chip's vertical padding), and §57 measured
+# the full spread as ×1.00–×2.06 with no centre. There is no unit to scale by,
+# which is why this is a table.
+#
+# **This table is tokens only.** Nothing in this file applies it — the walk that
+# would push these into live Controls lives in `dcc_shell.gd`, which this pass
+# does not own. See `role_px()`'s header for the predicate it must use.
+const ROLE := {
+	# — Type. Sans and mono take different multipliers off the same 11 px rung.
+	"fs_prose": [11, 14],        ## Frame body, dock rows: `font:11px/1.4` → `14px/1.4`.
+	"fs_readout": [11, 13],      ## Tool-options bar and the sample grid, Plex.
+	"fs_shortcut": [10, 13],     ## Menu trailing text, `10.5px` → `13px` (Godot
+		## sizes are integers, so the desktop 10.5 rounds down to the 10 the rest
+		## of the desktop canvas's small mono already uses).
+	"fs_timeline": [10, 13],     ## Timeline bar, `10.5px` → `13px`.
+	"fs_status": [10, 12],       ## Status bar, `10.5px` → `12px`. **Not** the
+		## same tablet figure as `fs_timeline` despite the same desktop figure —
+		## this pair is the whole argument for a role key in one line.
+	"fs_viewport": [10, 13],     ## Viewport furniture: map labels, coordinate
+		## readout, projection/zoom block.
+	"fs_dock_header": [9, 11],   ## `font:500 9px` .22em → `500 11px` .22em.
+	"fs_rail": [10, 12],         ## Rail domain labels, .12em, vertical.
+	"fs_rail_head": [11, 13],    ## The rail head's `›` chevron.
+	"fs_wordmark": [12, 15],     ## CARTALITH, `font:500 12px` .26em → `500 15px`.
+		## `FS_MENU` is the desktop half of this and stays as it is.
+
+	# — Region boxes. These duplicate `TABLET`'s five rows on purpose: `TABLET`
+	#   answers `_scaled(px)` for a caller that only has an integer, this answers
+	#   a caller that knows which region it is building. Same figures, and if one
+	#   ever moves the other must move with it.
+	"h_menu_bar": [34, 52],
+	"h_tool_options": [34, 52],
+	"h_status": [26, 36],
+	"h_timeline": [70, 88],
+	"h_rail_head": [29, 34],
+	"w_rail": [40, 48],
+
+	# — Bar interiors.
+	"bar_pad_x": [14, 22],       ## All four bars: `padding:0 14px` → `0 22px`.
+	"bar_gap": [18, 22],         ## Tool-options bar's inter-group gap.
+	"readout_gap": [22, 26],     ## Menu-bar right readouts and the status bar.
+	"timeline_gap": [22, 24],    ## The timeline's transport row — a *third*
+		## tablet figure off the same desktop 22 as `readout_gap`.
+	"timeline_track_h": [12, 20],  ## Scrub track box.
+	"timeline_row_gap": [10, 14],  ## Between the scrub row and the transport row.
+	"rail_label_gap": [14, 18],    ## Between the rail's vertical domain labels.
+
+	# — Dock interiors.
+	"dock_pad_x": [13, 18],
+	"dock_row_pad_y": [4, 8],      ## Layer/list row: `padding:4px 13px` → `8px 18px`.
+	"dock_header_pad_y": [8, 12],  ## Section header: `8px 13px` → `12px 18px`.
+	"dock_body_pad_y": [10, 14],   ## Grid/body block: `10px 13px` → `14px 18px`.
+	"dock_row_gap": [9, 11],       ## Within a row, dot → label → value.
+	"grid_gap_y": [6, 9],          ## Sample grid, `gap:6px 14px` → `9px 18px`.
+	"grid_gap_x": [14, 18],
+
+	# — Controls.
+	"slider_track_w": [70, 90],
+	"slider_track_h": [2, 3],
+	"chip_pad_x": [9, 16],         ## Mode segment: `padding:3px 9px` → `9px 16px`.
+	"chip_pad_y": [3, 9],
+	"btn_pad_x": [11, 18],         ## Action button: `padding:3px 11px` → `9px 18px`.
+	"btn_pad_y": [3, 9],
+
+	# — Pinned. Listed rather than omitted, because "the canvas draws this the
+	#   same at both sizes" is a measured fact and a caller that guesses will
+	#   scale it. §11's letter-spacings are pinned too and are not figures this
+	#   table carries — `mono()` takes them as an argument.
+	"w_fab": [36, 36],             ## The layers button, `36×36` in both artboards.
+	"hairline": [1, 1],
+	"active_underline": [1, 2],    ## The one border that is *not* pinned: the
+		## open menu-bar title's underline, `1px` → `2px solid #e0a34a`.
+
+	# — The touch constraint layer, which is not a scaled property at all.
+	#   §57 counted **29** `min-height:44px` and **3** `min-height:34px` in the
+	#   tablet artboard against **zero** `min-height` declarations of any kind in
+	#   the desktop one. A desktop `0` here means "the design states no
+	#   constraint", not "the constraint is zero px" — a consumer must read it as
+	#   "leave the control at its content height".
+	"chip_min_h": [0, 34],         ## Mode chips (raise/lower/smooth), tier B.
+	"btn_min_h": [0, 44],          ## Commit/discard, transport, speed. Tier A.
+	"row_min_h": [0, 44],          ## Dock list rows and menu items.
+}
+
 ## Phone geometry -- **`design/Cartalith Android Phone.dc.html`, 412 dp**.
 ##
 ## Owner ruling, 2026-08-25: that eight-screen canvas is the phone authority.
@@ -309,8 +417,9 @@ const W_DOCK_TABLET := 400
 ## some hard down (the status row, the gesture inset). The two do not cancel;
 ## the constants are re-authored, not converted.
 ##
-## Tablet reuses the desktop constants above through `TOUCH_SCALE`; phone is a
-## distinct composition, because none of the desktop regions survive phone width
+## Tablet reuses the desktop constants above — its *frame* through `TABLET` and
+## `TOUCH_SCALE`, its *interior* through `ROLE`; phone is a distinct
+## composition, because none of the desktop regions survive phone width
 ## unchanged.
 const PHONE_REF_SHORT := 412.0   ## The canvas's own short-side width -- the
 	## scale of "1 phone dp" that every constant below is authored at.
@@ -396,6 +505,40 @@ static func set_phone(v: bool) -> void:
 
 static func is_phone() -> bool:
 	return _phone_mode
+
+## **Tablet and only tablet.** `is_touch()` is true on a phone too — `_phone`
+## requires `_touch` (`dcc_shell.gd:335`) — so any tablet-only resolution that
+## reaches for `is_touch()` silently fires on phones as well. `GUI_GAP_REGISTER.md`
+## §57 refuted a proposed role resolver on exactly that ground, and line 249 of
+## `dcc_shell.gd` already records the lesson in the other direction: "the 412
+## canvas asks for things a tablet must not get." The converse holds here.
+##
+## This is the predicate `role_px()` uses and the one anything reading `ROLE`
+## must use. It costs one `and`, and it is the difference between a tablet pass
+## and a tablet pass that also re-sizes the phone.
+static func is_tablet() -> bool:
+	return _touch and not _phone_mode
+
+## One `ROLE` figure, resolved for the device this session is running on.
+##
+## Tablet gets the tablet column; **desktop and phone both get the desktop
+## column**, which is not a fallback but the right answer for each: the desktop
+## column is what the desktop canvas draws, and the phone never consumes `ROLE`
+## at all — `design/Cartalith Android Phone.dc.html` is a separate composition
+## with its own `PHONE_*` constants above and its own walk. A phone that somehow
+## reaches this call gets the unscaled desktop figure, then `phone_fit()`'s own
+## unit applies on top, which is what happens today and is unchanged by this
+## table existing.
+##
+## Unknown role errors rather than guessing, the same way `c()` does: a typo'd
+## key that silently returned 0 would collapse a padding or a height to nothing
+## and look like a layout bug rather than a spelling one.
+static func role_px(role: String) -> int:
+	if not ROLE.has(role):
+		push_error("DccTheme: unknown role '%s'" % role)
+		return 0
+	var pair: Array = ROLE[role]
+	return int(pair[1] if is_tablet() else pair[0])
 
 ## The reverse of `c()`. Given a colour some node already has (painted under
 ## `old_pal`, the palette that was active when it was built) and that same

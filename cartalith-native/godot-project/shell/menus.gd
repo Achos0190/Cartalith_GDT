@@ -25,6 +25,14 @@ const ID_REVERT := 15
 const ID_CLOSE := 16
 const ID_STORAGE := 17
 const ID_SHOW_ON_DISK := 19
+## `File ▸ Autosave interval` (§2.1: "Toggle + interval submenu (off, 1, 5,
+## 15 min). Default 5 min."). `Off` writes `DccSettings.set_autosave_enabled
+## (false)` -- the same bit the `Autosave` check item above it flips, one
+## setting with two entry points, exactly as `Storage locations…` is reached
+## from both File and Preferences. The three minute values are §2.1's own.
+const ID_AUTOSAVE_OFF := 130
+const ID_AUTOSAVE_FIRST := 131      ## interval i is ID_AUTOSAVE_FIRST + i
+const AUTOSAVE_MINUTES: Array[int] = [1, 5, 15]
 
 const ID_UNDO := 20
 const ID_REDO := 21
@@ -85,22 +93,36 @@ const ID_WIN_RAIL := 64
 const ID_WIN_RESET := 65
 const ID_WIN_DIAG_OVERLAY := 66
 
+## `Preferences ▸ Tiles & LOD ▸ Tile size` -- §2.5's "256/512/1024".
+const ID_LOD_TILE_FIRST := 140      ## size i is ID_LOD_TILE_FIRST + i
+const ATLAS_TILE_SIZES: Array[int] = [256, 512, 1024]
+const ID_LOD_CLEAR_ATLAS := 149
+
+const ID_HELP_DOCS := 78
 const ID_HELP_CREDITS := 70
 const ID_HELP_ABOUT := 71
 const ID_HELP_SHORTCUTS := 72
 const ID_HELP_GEN_INFO := 73
-## `Help ▸ LOD debug` -- the reference's `lodDbgSeg` trio (line 1266).
-const ID_HELP_LOD_GRID := 74
-const ID_HELP_LOD_COLORS := 75
-const ID_HELP_LOD_LABELS := 76
+## `Preferences ▸ Tiles & LOD ▸ Chunk debug overlay` -- the reference's
+## `lodDbgSeg` trio (line 1266). Named `ID_HELP_*` while the submenu lived
+## under Help; renamed with it when §2.5's own placement was restored.
+const ID_LOD_DBG_GRID := 74
+const ID_LOD_DBG_COLORS := 75
+const ID_LOD_DBG_LABELS := 76
 
 var _shell: DccShell
 var _bridge: EngineBridge
 var _host: Node                 ## Where dialogs are parented and callbacks live.
 var _quality_popup: PopupMenu
 var _recent_popup: PopupMenu
+var _autosave_popup: PopupMenu
 var _icon_families_popup: PopupMenu
 var _texture_sets_popup: PopupMenu
+## Family keys, index-parallel to the two submenus above. Members rather than
+## locals because §2.3's "filled/capacity counts" have to be re-read on every
+## popup -- an import changes them, and the submenus are built once.
+var _icon_family_keys: Array[String] = []
+var _texture_family_keys: Array[String] = []
 ## AS-13 / omission O2: `Assets ▸ Asset pack ▸`, `DCC_CONTROL_INDEX.md` §2.3.1.
 var _asset_pack_popup: PopupMenu
 ## The `Edit ▸`/`Batch ▸`/`Build ▸` child popups these three held are gone
@@ -145,6 +167,14 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## key yet): §2.5's "follow system" is explicitly a one-shot resolve, not a
 	## live subscription, so there is no ongoing mode to save beyond the plain
 	## dark/light bit `DccTheme.is_dark()` already is.
+## §2.5 Tiles & LOD. `_atlas_popup`'s first row is a live status readout, so
+## its index is kept the way `_ap_stats_idx` keeps the Asset pack one.
+var _tile_size_popup: PopupMenu
+var _atlas_popup: PopupMenu
+var _atlas_stats_idx: int = -1
+## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
+## refreshed in `about_to_popup`, tracked by index because it carries no id.
+var _working_set_row := -1
 var _undo_budget_popup: PopupMenu
 var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own row; a
 	## submenu row carries no id, so its index is the only handle there is --
@@ -209,9 +239,37 @@ func _file(p: PopupMenu) -> void:
 	var save_as_idx := p.item_count - 1
 	p.add_check_item("Autosave", ID_AUTOSAVE)
 	var autosave_idx := p.item_count - 1
-	p.set_item_tooltip(autosave_idx,
-		"Writes a backup beside the project (world.zip → world.autosave.zip) every %d minutes while it has unsaved changes. Never overwrites the project itself."
-			% DccSettings.autosave_minutes())
+	## Its tooltip carries the live interval and is therefore set in
+	## `about_to_popup` below, not here: the submenu directly underneath can
+	## change that number while this same menu is open.
+	##
+	## **§2.1's interval submenu**, which this menu shipped without: the row was
+	## a bare check item and the interval was read-only, taken from
+	## `DccSettings.autosave_minutes()` for the tooltip and settable nowhere.
+	## `set_autosave_minutes()` was already there; nothing called it.
+	##
+	## §2.1's four values verbatim -- off, 1, 5, 15 min -- as radio rows, `Off`
+	## writing the same `autosave_enabled` bit the check item above flips. Two
+	## entry points onto one setting, the shape `Storage locations…` already has
+	## in File and Preferences, rather than two settings that can disagree.
+	##
+	## §2.1's "Default 5 min" is the spec's; this install's store defaults to 10
+	## (`dcc_settings.gd`), which is not on the ladder -- a stored value that is
+	## not one of the four leaves every row unchecked and is reported on the
+	## parent row instead of being silently rounded into one of them.
+	_autosave_popup = PopupMenu.new()
+	_autosave_popup.name = "AutosaveInterval"
+	_shell.style_popup(_autosave_popup)
+	_autosave_popup.add_radio_check_item("Off", ID_AUTOSAVE_OFF)
+	for i in AUTOSAVE_MINUTES.size():
+		_autosave_popup.add_radio_check_item("Every %d min" % AUTOSAVE_MINUTES[i],
+			ID_AUTOSAVE_FIRST + i)
+	_autosave_popup.id_pressed.connect(_on_autosave_interval)
+	_autosave_popup.about_to_popup.connect(_refresh_autosave_menu)
+	p.add_child(_autosave_popup)
+	p.add_submenu_item("Autosave interval", "AutosaveInterval")
+	var autosave_int_idx := p.item_count - 1
+	_refresh_autosave_menu()
 	_live(p, "Revert to last save", ID_REVERT)
 	var revert_idx := p.item_count - 1
 
@@ -278,6 +336,14 @@ func _file(p: PopupMenu) -> void:
 				p.set_item_tooltip(idx, "")
 		p.set_item_disabled(autosave_idx, not can_write)
 		p.set_item_checked(autosave_idx, DccSettings.autosave_enabled())
+		p.set_item_tooltip(autosave_idx,
+			"Writes a backup beside the project (world.zip -> world.autosave.zip) every %d minutes while it has unsaved changes. Never overwrites the project itself."
+				% DccSettings.autosave_minutes())
+		p.set_item_disabled(autosave_int_idx, not can_write)
+		p.set_item_text(autosave_int_idx, "Autosave interval   %s" % _autosave_summary())
+		p.set_item_tooltip(autosave_int_idx,
+			"How often the backup above is written. SS2.1 offers off / 1 / 5 / 15 min and names 5 as the default; this install's stored value is %d min."
+				% DccSettings.autosave_minutes())
 		## Revert reloads the file on disk, so it needs one -- a world that
 		## has never been saved has nothing to revert *to*.
 		p.set_item_disabled(revert_idx, _host.current_project_path == "")
@@ -302,6 +368,38 @@ static func _tail(path: String) -> String:
 	if parts.size() <= 2:
 		return path
 	return "…/%s/%s" % [parts[parts.size() - 2], parts[parts.size() - 1]]
+
+## What the `Autosave interval` row prints beside its own label -- the same
+## live-state-in-the-label pattern `Edit ▸ Undo` uses. Says `off` when the
+## toggle is off, because an interval that is not running is not a truth worth
+## printing on its own.
+func _autosave_summary() -> String:
+	if not DccSettings.autosave_enabled():
+		return "off"
+	return "every %d min" % DccSettings.autosave_minutes()
+
+func _refresh_autosave_menu() -> void:
+	var on := DccSettings.autosave_enabled()
+	var mins := DccSettings.autosave_minutes()
+	_autosave_popup.set_item_checked(0, not on)
+	for i in AUTOSAVE_MINUTES.size():
+		_autosave_popup.set_item_checked(i + 1, on and AUTOSAVE_MINUTES[i] == mins)
+
+func _on_autosave_interval(id: int) -> void:
+	if id == ID_AUTOSAVE_OFF:
+		DccSettings.set_autosave_enabled(false)
+	else:
+		var i := id - ID_AUTOSAVE_FIRST
+		if i < 0 or i >= AUTOSAVE_MINUTES.size():
+			return
+		DccSettings.set_autosave_minutes(AUTOSAVE_MINUTES[i])
+		DccSettings.set_autosave_enabled(true)
+	## The clock is re-armed here, not on the next popup: `apply_autosave_setting()`
+	## is what File ▸ Autosave already calls, and a changed interval that only
+	## takes effect after the next toggle is the silently-inert shape this file
+	## forbids.
+	_host.apply_autosave_setting()
+	_refresh_autosave_menu()
 
 func _refresh_recent_worlds() -> void:
 	_recent_popup.clear()
@@ -400,7 +498,17 @@ func _edit(p: PopupMenu) -> void:
 		"(PARITY_AUDIT.md §20, ED-03/ED-04).")
 	_todo(p, "Copy", "Same -- no clipboard model.")
 	_todo(p, "Paste", "Same -- nothing can be on a clipboard to paste.")
-	_live(p, "Delete", ID_DELETE)
+	## §2.2 prints this row's shortcut as `⌫`. That glyph is the Mac name for
+	## the key `app.gd` already binds -- `KEY_DELETE`, routed to
+	## `delete_selection()` through every workspace's `on_delete_key()` -- so the
+	## accelerator names the real key rather than the spec's glyph. The row had
+	## none at all, which made it the one live Edit item whose shortcut column
+	## was blank while the key worked.
+	##
+	## Safe to put on the menu even though `app.gd` also handles it: Godot
+	## delivers `_gui_input` to a focused `Control` **before** `_shortcut_input`
+	## runs the popup accelerators, so a `LineEdit` still eats its own Delete.
+	_live(p, "Delete", ID_DELETE, KEY_DELETE)
 	p.set_item_tooltip(p.item_count - 1,
 		"Delete the current selection. The Delete key does the same thing; this row " +
 		"exists because a keyboard-only capability is not a discoverable one.")
@@ -413,7 +521,16 @@ func _edit(p: PopupMenu) -> void:
 		"Same single-item selections, and no shared way to clear them: Escape disarms the " +
 		"active tool (app.gd _escape_action) without touching what is selected.")
 	p.add_separator()
-	_todo(p, "Find on map…", "No search index yet; settlement search lives in the Data manager.")
+	## §2.2: "Search places, labels, factions, routes; result pans the viewport."
+	## The reason this row used to give -- "no search index yet" -- stopped being
+	## true this session: `command_index.gd` builds a real ranked index. It
+	## indexes **commands** (parameters and menu rows), not world entities, and
+	## nothing in it can pan a viewport, so what is missing is a second index
+	## over places/labels/factions/routes and a hit handler calling
+	## `ViewportHost.move_view_to()`. That call is the one half that already
+	## exists.
+	_todo(p, "Find on map…",
+		"Searches world entities -- places, labels, factions, routes. CommandIndex (shell/command_index.gd) is the ranked-search pattern to reuse, but it indexes commands rather than entities, so the entity index and its pan-to-hit are both still owed. ViewportHost.move_view_to() is the half that exists.")
 
 	## The row's label carries the operation name and the live cost, the way
 	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
@@ -501,38 +618,85 @@ func _assets(p: PopupMenu) -> void:
 	## recorded this: "eight families, seven of them closed vocabularies").
 	## These two submenus list the real eight, split the way the crate itself
 	## splits them (`Family::is_texture()`); each entry is a real scoped-open
-	## shortcut into `AssetLibraryWindow` -- capacity is real (the frozen slot
-	## count), fill count is not shown because no query for it is exposed.
+	## shortcut into `AssetLibraryWindow`.
+	##
+	## **Both halves of §2.3's "filled/capacity counts" are drawn now.** The
+	## rows used to print capacity alone, on the stated grounds that "no query
+	## for it is exposed" -- `as_family_slots()` has always returned a per-slot
+	## `filled` flag, and `asset_library_window.gd`'s own rail counts it that
+	## way (`_refresh_rail_counts`). That was a gap in this file, not in the
+	## engine. Counted on every popup rather than at build time, because an
+	## import between two opens changes it.
 	_icon_families_popup = PopupMenu.new()
 	_icon_families_popup.name = "IconFamilies"
 	_shell.style_popup(_icon_families_popup)
 	p.add_child(_icon_families_popup)
 	p.add_submenu_item("Icon families", "IconFamilies")
-	var icon_keys: Array[String] = []
+	p.set_item_tooltip(p.item_count - 1, AssetLibraryWindow.FAMILIES_NOTE)
+	_icon_family_keys.clear()
 	for fam in AssetLibraryWindow.FAMILIES:
 		if not bool(fam.get("texture", false)):
-			_icon_families_popup.add_item(
-				"%s (%d)" % [String(fam["title"]), (fam["slots"] as Array).size()], icon_keys.size())
-			icon_keys.append(String(fam["key"]))
-	_icon_families_popup.id_pressed.connect(func(i: int): _host.open_asset_library(icon_keys[i]))
+			_icon_families_popup.add_item(String(fam["title"]), _icon_family_keys.size())
+			_icon_family_keys.append(String(fam["key"]))
+	_icon_families_popup.about_to_popup.connect(func():
+		_refresh_family_counts(_icon_families_popup, _icon_family_keys))
+	_icon_families_popup.id_pressed.connect(
+		func(i: int): _host.open_asset_library(_icon_family_keys[i]))
+	_refresh_family_counts(_icon_families_popup, _icon_family_keys)
 
 	_texture_sets_popup = PopupMenu.new()
 	_texture_sets_popup.name = "TextureSets"
 	_shell.style_popup(_texture_sets_popup)
 	p.add_child(_texture_sets_popup)
 	p.add_submenu_item("Texture sets", "TextureSets")
-	var tex_keys: Array[String] = []
+	p.set_item_tooltip(p.item_count - 1, AssetLibraryWindow.FAMILIES_NOTE)
+	_texture_family_keys.clear()
 	for fam in AssetLibraryWindow.FAMILIES:
 		if bool(fam.get("texture", false)):
-			_texture_sets_popup.add_item(
-				"%s (%d)" % [String(fam["title"]), (fam["slots"] as Array).size()], tex_keys.size())
-			tex_keys.append(String(fam["key"]))
-	_texture_sets_popup.id_pressed.connect(func(i: int): _host.open_asset_library(tex_keys[i]))
+			_texture_sets_popup.add_item(String(fam["title"]), _texture_family_keys.size())
+			_texture_family_keys.append(String(fam["key"]))
+	_texture_sets_popup.about_to_popup.connect(func():
+		_refresh_family_counts(_texture_sets_popup, _texture_family_keys))
+	_texture_sets_popup.id_pressed.connect(
+		func(i: int): _host.open_asset_library(_texture_family_keys[i]))
+	_refresh_family_counts(_texture_sets_popup, _texture_family_keys)
 
 	p.add_separator()
 	_live(p, "Apply library to map", ID_APPLY_LIBRARY)
 	_live(p, "Clear library…", ID_CLEAR_LIBRARY)
 	p.id_pressed.connect(_on_assets)
+
+## §2.3's "filled/capacity counts", per family, on one of the two family
+## submenus. The capacity rule is `asset_library_window.gd`'s own
+## (`_refresh_rail_counts`): a custom family's capacity is however many slots
+## it currently has, a frozen one's is the count the crate froze -- the two
+## differ, and taking `as_family_slots().size()` for both would report a
+## custom family as permanently full.
+func _refresh_family_counts(pm: PopupMenu, keys: Array[String]) -> void:
+	for i in keys.size():
+		var key: String = keys[i]
+		var fam := _family_by_key(key)
+		if fam.is_empty():
+			continue
+		var slots: Array = _bridge.as_family_slots(key)
+		var filled := 0
+		for slot in slots:
+			if bool((slot as Dictionary).get("filled", false)):
+				filled += 1
+		var capacity: int = slots.size() if bool(fam.get("custom", false)) 			else (fam["slots"] as Array).size()
+		var idx := pm.get_item_index(i)
+		if idx < 0:
+			continue
+		pm.set_item_text(idx, "%s   %d/%d" % [String(fam["title"]), filled, capacity])
+		pm.set_item_tooltip(idx,
+			"%d of %d slots filled. Opens the Asset library scoped to this family." % [
+				filled, capacity])
+
+func _family_by_key(key: String) -> Dictionary:
+	for fam in AssetLibraryWindow.FAMILIES:
+		if String((fam as Dictionary)["key"]) == key:
+			return fam
+	return {}
 
 ## AS-13 / omission O2: the `Assets ▸ Asset pack ▸` submenu
 ## `DCC_CONTROL_INDEX.md` §2.3.1 describes (24 controls, "19 backed-unwired
@@ -578,6 +742,8 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	ap.set_item_tooltip(ap.item_count - 1,
 		"Frozen timestamps, byte-reproducible: the same library exports to the same bytes.")
 	ap.add_item("Pack metadata…   name · author · license", ID_AP_PACK_META)
+	ap.set_item_tooltip(ap.item_count - 1,
+		"SS2.3.1: a modal editing name / author / license. Writes straight through as_set_pack_info(); the three values above are the same record, read back.")
 
 	ap.add_separator("EDIT")
 	for row in [
@@ -653,6 +819,55 @@ func _refresh_asset_pack_stats() -> void:
 		String(info.get("license", "")) if String(info.get("license", "")) != "" else "(no license)",
 		total, "" if total == 1 else "s"])
 
+## §2.3.1: "Pack metadata… — modal editing name / author / license."
+##
+## **This row was the file's own honesty rule broken from the other side.** It
+## was enabled, carried an id, had a handler branch -- and the branch called
+## `open_asset_library()`, so the one item §2.3.1 describes as a modal opened a
+## window that edits something else. The write binding it needed
+## (`as_set_pack_info`) had been on the bridge the whole time; nothing called
+## it. Three fields, the modal the spec asks for, and the same
+## `ConfirmationDialog`-with-a-body shape `asset_library_window.gd`'s
+## `_prompt_text()` uses for its batch prompts.
+func _open_pack_metadata() -> void:
+	var info: Dictionary = _bridge.as_pack_info()
+	var d := ConfirmationDialog.new()
+	d.title = "Pack metadata"
+	d.min_size = Vector2i(380, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 8)
+	var fields: Array[LineEdit] = []
+	for spec in [["Name", "name"], ["Author", "author"], ["License", "license"]]:
+		body.add_child(DccTheme.label(String(spec[0]), "text_dim", DccTheme.FS_SMALL))
+		var le := LineEdit.new()
+		le.text = String(info.get(String(spec[1]), ""))
+		le.select_all_on_focus = true
+		DccWidgets.well(le)
+		body.add_child(le)
+		fields.append(le)
+	## The one thing the three fields do NOT cover, said rather than implied:
+	## schema and the STORED-zip packaging are the exporter's, not the pack's.
+	DccWidgets.note(body,
+		"Written into pack.json on the next Export pack .zip. Schema and packaging are the exporter's and are not editable here.")
+	d.add_child(body)
+	d.ok_button_text = "Save"
+	d.confirmed.connect(func():
+		var ok := _bridge.as_set_pack_info(
+			fields[0].text.strip_edges(), fields[1].text.strip_edges(),
+			fields[2].text.strip_edges())
+		_host.set_status("hint",
+			"pack metadata updated" if ok else "this build has no as_set_pack_info()",
+			"accent" if ok else "text_dim")
+		_refresh_asset_pack_stats()
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	if _host.is_phone():
+		DccWidgets.phone_window(d, _host)
+	_host.add_child(d)
+	if not DccWidgets.phone_present(d, _host):
+		d.popup_centered()
+	fields[0].grab_focus.call_deferred()
+
 func _on_assets(id: int) -> void:
 	match id:
 		ID_IMPORT_PACK: _host.open_asset_pack_picker()
@@ -663,8 +878,7 @@ func _on_assets(id: int) -> void:
 		ID_CLEAR_LIBRARY: _host.asset_library_window.clear_library_now()
 		ID_AP_VALIDATE: _host.asset_library_window.validate_now()
 		ID_AP_EXPORT: _host.asset_library_window.export_pack_now()
-		ID_AP_PACK_META: _host.open_asset_library()
-		ID_SLICER: _host.open_asset_library("", true)
+		ID_AP_PACK_META: _open_pack_metadata()
 
 # -- §2.4 Data ----------------------------------------------------------------
 #
@@ -840,7 +1054,13 @@ func _preferences(p: PopupMenu) -> void:
 	## calls; this is where the refusal is made visible, because a control that
 	## silently no-ops is exactly what this file's own honesty rule forbids.
 	p.about_to_popup.connect(func():
-		p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu")))
+		var use_gpu := bool(_bridge.param_get("use_gpu"))
+		p.set_item_checked(gpu_idx, use_gpu)
+		## §2.5: "Toggle + backend readout (`WebGPU · on`)." The row carried no
+		## backend at all. See `_active_backend()` for why it can be blank.
+		var backend := _active_backend()
+		p.set_item_text(gpu_idx, "GPU acceleration" if backend == ""
+			else "GPU acceleration   %s · %s" % [backend, "on" if use_gpu else "off"])
 		var busy := _bridge.gpu_settings_locked()
 		var why := "A generation is running. Every setting in this group takes effect on the next generate anyway, and the engine object belongs to the worker thread until this one finishes."
 		p.set_item_disabled(gpu_idx, busy)
@@ -851,7 +1071,8 @@ func _preferences(p: PopupMenu) -> void:
 				p.set_item_disabled(row, busy)
 				p.set_item_tooltip(row, why if busy else _gpu_pref_tips[i])
 		if _undo_pref_row >= 0 and _undo_pref_row < p.item_count:
-			p.set_item_tooltip(_undo_pref_row, _undo_pref_tip()))
+			p.set_item_tooltip(_undo_pref_row, _undo_pref_tip())
+		_refresh_working_set_row(p))
 	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
 	## backs. Each is a submenu rather than a dialog -- every one of them is a
 	## small fixed choice, and a modal for four radio lists would be more
@@ -862,7 +1083,8 @@ func _preferences(p: PopupMenu) -> void:
 	else:
 		_todo(p, "Devices", "This GDExtension build predates the multi-GPU API (WorldGen.gpu_enumerate_devices is missing).")
 		_todo(p, "Multi-GPU mode", "Same.")
-	_todo(p, "CPU worker threads", "Rayon sizes its own pool; no override is exposed.")
+	_todo(p, "CPU worker threads",
+		"SS2.5: an integer from 1 to the logical core count, default cores - 4 (its own example is 12 of 16). Rayon builds its global pool implicitly on first use and this port never calls ThreadPoolBuilder, so there is no #[func] to set it and no pool init to set it at. A submenu ladder (1 / quarter / half / cores-4 / all) over one binding closes it, and cores-4 is the spec's own default to honour rather than a number to pick.")
 	if _bridge.gpu_api:
 		_build_gpu_vram_menu(p)
 		_build_gpu_fallback_menu(p)
@@ -884,22 +1106,41 @@ func _preferences(p: PopupMenu) -> void:
 	p.add_child(_quality_popup)
 	p.add_submenu_item("Render quality", "QualityTiers")
 
-	_todo(p, "Anti-aliasing · anisotropy", "The 2D map path does not sample-antialias; this belongs to the 3D viewport, which is not built.")
-	_todo(p, "Colour management", "The renderer is sRGB-only today.")
-	_todo(p, "3D viewport defaults", "No 3D viewport yet.")
-	_todo(p, "Lighting rig defaults", "No lighting rig yet.")
+	_todo(p, "Anti-aliasing · anisotropy",
+		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-viewport settings and there is no 3D viewport (DECISIONS.md section 4 defers it to Phase 3). The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
+	_todo(p, "Colour management",
+		"SS2.5 asks for sRGB / Display P3 / linear. The renderer is sRGB-only end to end: render.rs writes 8-bit sRGB bytes and nothing carries a colour space through to the texture. A three-row radio that always resolves to sRGB is exactly the enabled-and-inert row this menu forbids.")
+	_todo(p, "3D viewport defaults",
+		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. There is no 3D viewport to give defaults to.")
+	_todo(p, "Lighting rig defaults",
+		"SS2.5 asks for azimuth, elevation, ambient and multidirectional on/off. The values themselves already ship, per layer, in SS7's Layer properties LIGHT group (azimuth 315 deg, elevation 45 deg, strength 0.62, multidirectional 8 lights) in the Cartography workspace. What is missing is only the project-level default store those per-layer values would seed from -- a settings key, not new rendering.")
 	p.add_separator("TILES & LOD")
-	## The one row `world_workspace.gd`'s "Not a generation stage" note points
-	## at for chunk debug, so its tooltip has to actually name that -- it did
-	## not, which made the pointer dangle (2026-08-20 menu-structure audit).
-	## Partly closed 2026-08-24 (register S4/PR-10). The **atlas cache** half is
-	## real now -- a persistent, per-world, on-disk tile pyramid with a bake, a
-	## status readout and a clear (WORLD ▸ Generate ▸ Finalize, Preferences ▸ Memory ▸
-	## Clear caches, and the status bar's `atlas` slot). What this row still
-	## names honestly is §2.5's own *preference* controls over it and the two
-	## per-tile refinement passes, none of which exist.
-	_todo(p, "Tiled LOD · tile size · LOD level · chunk debug",
-		"The persistent atlas cache is LIVE as of 2026-08-24 -- bake it from WORLD -> Finalize, read it in the status bar, clear it from Memory -> Clear caches. What is still missing from SS2.5 is the preference surface over it: no auto/manual switch (#lodAutoChk), no tile-size or LOD-level choice here (the engine has atlas_set_tile_size(), nothing in Preferences calls it), and no Refine detail for the current view (#lodRefineBtn -- the engine has bake_visible(), likewise uncalled). The reference's two per-tile refinement passes, Burn rivers into tiles and Micro-erode tiles, still have no cartalith-engine equivalent: pyramid_tile() runs refine_tile + add_zoom_detail and neither burns channels nor erodes (its own doc comment lists both as deliberately unported). The chunk debug overlay (#lodDbgSeg grid / colors / off) and Show tile borders have no draw path.")
+	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
+	## behind one disabled row** reading `Tiled LOD · tile size · LOD level ·
+	## chunk debug`. That row was scrupulously honest about what was missing and
+	## wrong about the shape: two of the four are real. `atlas_tile_size()` /
+	## `atlas_set_tile_size()` have been on the bridge since the atlas landed
+	## and the row itself said "nothing in Preferences calls it"; the chunk-debug
+	## overlay was fully built and sitting under `Help ▸ LOD debug`. Folding a
+	## live control in with a gap is how a built thing stays unreachable, which
+	## is the defect class `PARITY_AUDIT.md` §23 exists for. Split here into
+	## §2.5's own four rows, each carrying its own status.
+
+	## §2.5: "Tiled LOD — `auto on zoom` (default) · `manual`. Replaces
+	## #lodAutoChk."
+	_todo(p, "Tiled LOD · auto on zoom",
+		"Auto is the only mode, and it is not a setting to switch: ViewportHost._update_lod() runs on every camera move and decides from LOD_PX_PER_CELL_THRESHOLD (1.0) and LOD_AUTO_ZOOM (2.2), both consts, through the private _set_lod_active(). There is no public suppressor, so a manual row here would be the second half of a radio pair that does nothing.")
+
+	_build_atlas_tiles_menu(p)
+	_build_atlas_cache_menu(p)
+	## §2.5 puts the chunk-debug overlay in **this** group. It was built under
+	## `Help ▸ LOD debug`, on the stated reasoning that "this shell has no Atlas
+	## panel" and a developer overlay belongs beside `Generation info…`. The
+	## first half stopped being true one row above this line; the second is a
+	## preference for Help over the spec, and `CLAUDE.md`'s own rule is that an
+	## owner decision or the newer canvas wins over the shell's improvisation.
+	## Moved, not duplicated -- Help no longer carries it.
+	_build_lod_debug_submenu(p)
 	## PR-11, live. §2.5 asked for a depth control; the engine's bound is a
 	## **byte budget** rather than a step count, because one height field is
 	## 16 MB at 2048² and 256 MB at 8192² -- a flat "5 deep" would commit to
@@ -929,6 +1170,14 @@ func _preferences(p: PopupMenu) -> void:
 	## orphaned `PerformanceWindow` this now opens. Working set is real:
 	## `OS.get_static_memory_usage()`, the same source the menu bar's own
 	## `top_mem` readout already uses (`app.gd`'s `_wire_status()`).
+	## §2.5: "Working set — read-only, `1.6 GB of 12 GB`." The spec asks for an
+	## inline readout; this menu had only the dialog below it, so the one number
+	## §2.5 wanted on the row itself was two clicks away. Both now: the row is
+	## the spec's line, the dialog is `PerformanceWindow`, which carries more.
+	p.add_item("Working set")
+	_working_set_row = p.item_count - 1
+	p.set_item_disabled(_working_set_row, true)
+	_refresh_working_set_row(p)
 	_live(p, "Working set…", ID_PREF_WORKING_SET)
 	## PR-12, live 2026-08-24. There is now a real cache to clear: the
 	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Generate ▸ Finalize ▸
@@ -962,8 +1211,15 @@ func _preferences(p: PopupMenu) -> void:
 	_shell.style_popup(_theme_popup)
 	p.add_child(_theme_popup)
 	p.add_submenu_item("Theme", "ThemeChoice")
-	_todo(p, "Units", "The shell is km-only; the reference's mi toggle is not ported.")
-	_todo(p, "Keyboard shortcuts…", "No shortcut table yet.")
+	_todo(p, "Units",
+		"SS2.5 asks for km / mi (the reference's #calUnitSeg). The shell is km-only, and the work is not this row: every readout that prints km would have to go through one formatter first -- the status bar's cursor coordinates, the scale bar, Sculpt's brush km equivalent (#sBrushKm), Measure's running total and per-segment lengths, and Region select's km column. A setting here with five call sites still printing km would be worse than no setting.")
+	## **This row's reason was stale.** It said "No shortcut table yet" after
+	## `Help ▸ Keyboard shortcuts…` shipped a live one (`shortcuts_dialog.gd`,
+	## which walks these menus). The gap §2.5 names is a different one and is
+	## real: Help's list is read-only, and this row asks for an **editable,
+	## per-context** table -- one that writes.
+	_todo(p, "Keyboard shortcuts…",
+		"SS2.5 asks for an editable, per-context table. Help > Keyboard shortcuts... already lists every binding, read-only, by walking these menus -- so the list exists and what is missing is rebinding: a per-context store in DccSettings that both the menu accelerators here and app.gd's own key handlers read back instead of hard-coding.")
 	p.id_pressed.connect(_on_preferences.bind(p))
 
 # -- §2.5 Performance ▸ multi-GPU ---------------------------------------------
@@ -1238,6 +1494,227 @@ func _on_gpu_fallback_choice(id: int) -> void:
 	if _bridge.gpu_set_vram_fallback(names[id]):
 		_refresh_gpu_fallback_menu()
 
+## §2.5's "backend readout (`WebGPU · on`)" beside the GPU-acceleration
+## toggle. Three deliberate departures, all forced:
+##
+##   1. The spec's literal `WebGPU` is the *browser* reference's backend. This
+##      port is native, so what gets printed is whatever `wgpu` really chose --
+##      `Vulkan`, `Dx12`, `Metal`, `Gl` -- rather than the spec's example
+##      string, which would be false on every machine this ships to.
+##   2. Read off `_gpu_devices` **only**, never by enumerating. `gpu_devices()`
+##      stands up a `wgpu::Instance` and walks every backend, and
+##      `_build_gpu_devices_menu()` documents at length the signal-11 that
+##      caused. So until `Devices ▸` has been opened once, this is blank --
+##      honest, because nothing has asked the driver yet.
+##   3. Blank again when the selected devices disagree on a backend, or when
+##      selection is automatic and the enumerated adapters do not all share
+##      one: `PowerPreference::HighPerformance` picks the adapter, not this
+##      code, so naming one of several would be a guess printed as a fact.
+func _active_backend() -> String:
+	var sel := _bridge.gpu_selected_devices()
+	var found := ""
+	for d in _gpu_devices:
+		var dd: Dictionary = d
+		if bool(dd.get("software", false)):
+			continue
+		if not sel.is_empty() and not (String(dd.get("key", "")) in sel):
+			continue
+		var b := String(dd.get("backend", ""))
+		if found == "":
+			found = b
+		elif found != b:
+			return ""
+	return found
+
+## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`."
+##
+## Numerator is `OS.get_static_memory_usage()`, the same source the menu bar's
+## `top_mem` slot and `PerformanceWindow` already read, so the three cannot
+## disagree. Denominator is `OS.get_memory_info()["physical"]`, which is `-1`
+## on any platform that will not report it -- in which case only the
+## numerator is printed rather than a fabricated total.
+func _refresh_working_set_row(p: PopupMenu) -> void:
+	if _working_set_row < 0 or _working_set_row >= p.item_count:
+		return
+	var used := OS.get_static_memory_usage()
+	var info := OS.get_memory_info()
+	var total := int(info.get("physical", -1))
+	if total > 0:
+		p.set_item_text(_working_set_row, "Working set   %s of %s" % [_gb(used), _gb(total)])
+		p.set_item_tooltip(_working_set_row,
+			"This process's own allocations against the machine's physical RAM. Not GPU memory -- that is under Performance > Devices. Working set... below opens the full breakdown.")
+	else:
+		p.set_item_text(_working_set_row, "Working set   %s" % _gb(used))
+		p.set_item_tooltip(_working_set_row,
+			"This process's own allocations. This platform reports no physical-RAM total (OS.get_memory_info() physical is -1), so the of-N half of SS2.5's line is left off rather than invented.")
+
+## Coarse GB/MB for the two memory readouts. Same floor logic as `_mb()`, one
+## unit up, because a working set is gigabytes and `1638 MB` is harder to read
+## against a 12 GB machine than `1.6 GB`.
+static func _gb(bytes: int) -> String:
+	if bytes <= 0:
+		return "0 MB"
+	if bytes < 1073741824:
+		return "%d MB" % int(round(float(bytes) / 1048576.0))
+	return "%.1f GB" % (float(bytes) / 1073741824.0)
+
+# -- §2.5 Tiles & LOD -----------------------------------------------------------
+
+## §2.5: "Tile size · LOD levels — 256/512/1024; levels 0–8 (#lodMaxLevel)."
+##
+## The tile size is real and was never called from here: `atlas_tile_size()`
+## and `atlas_set_tile_size()` are both on the bridge, and the collapsed row
+## this replaces said so in its own tooltip for six days.
+##
+## **The levels half is deliberately not a control here**, and that is not an
+## engine gap. The bake depth already has one owner -- the WORLD dock's
+## Finalize foot (`world_workspace.gd`'s `_bake_depth`, LOD 0-3 by default),
+## which is what `bake_all()` is actually called with. It is a private field
+## with no `DccSettings` key and no bridge accessor, so a second ladder here
+## would be a copy free to disagree with the number the Bake button reads. Said
+## as a disabled row rather than silently omitted.
+func _build_atlas_tiles_menu(p: PopupMenu) -> void:
+	_tile_size_popup = PopupMenu.new()
+	_tile_size_popup.name = "AtlasTileSize"
+	_shell.style_popup(_tile_size_popup)
+	for i in ATLAS_TILE_SIZES.size():
+		_tile_size_popup.add_radio_check_item("%d px" % ATLAS_TILE_SIZES[i],
+			ID_LOD_TILE_FIRST + i)
+	_tile_size_popup.add_separator()
+	_tile_size_popup.add_item("LOD levels · set on WORLD ▸ Finalize")
+	_tile_size_popup.set_item_disabled(_tile_size_popup.item_count - 1, true)
+	_tile_size_popup.set_item_tooltip(_tile_size_popup.item_count - 1,
+		"SS2.5's levels 0-8 (#lodMaxLevel). The depth is real and already has an owner: the WORLD dock's Finalize foot, whose LOD 0-3 default is the number bake_all() is called with. It is a private field with no settings key, so a second ladder here could disagree with the one the Bake button reads.")
+	_tile_size_popup.id_pressed.connect(_on_tile_size)
+	_tile_size_popup.about_to_popup.connect(_refresh_tile_size_menu)
+	p.add_child(_tile_size_popup)
+	p.add_submenu_item("Tile size · LOD levels", "AtlasTileSize")
+	_refresh_tile_size_menu()
+
+## Locked once anything is baked, and this is a real constraint rather than
+## caution: `atlas_set_tile_size()` writes `bake.tile_size` and nothing else
+## (`lib.rs` line 7273), so chunks already on disk keep the size they were
+## written at. Changing it with a populated atlas mixes two tile sizes under
+## one world key. Clearing the cache first is the way through, which is why
+## `Atlas cache ▸ Clear` sits directly below this row.
+func _refresh_tile_size_menu() -> void:
+	var st: Dictionary = _bridge.atlas_status()
+	var cur := int(st.get("tile_size", _bridge.atlas_tile_size()))
+	var baked := int(st.get("chunks", 0))
+	for i in ATLAS_TILE_SIZES.size():
+		_tile_size_popup.set_item_checked(i, ATLAS_TILE_SIZES[i] == cur)
+		_tile_size_popup.set_item_disabled(i, baked > 0)
+		_tile_size_popup.set_item_tooltip(i, "" if baked <= 0 else
+			"%d chunk%s already baked at %d px. Clear the atlas cache below first -- a size change does not rewrite tiles already on disk." % [
+				baked, "" if baked == 1 else "s", cur])
+
+func _on_tile_size(id: int) -> void:
+	var i := id - ID_LOD_TILE_FIRST
+	if i < 0 or i >= ATLAS_TILE_SIZES.size():
+		return
+	_bridge.set_atlas_tile_size(ATLAS_TILE_SIZES[i])
+	_refresh_tile_size_menu()
+	if _host.has_method("refresh_atlas_status"):
+		_host.refresh_atlas_status()
+	_host.set_status("hint", "tile size %d px — applies to the next bake" % ATLAS_TILE_SIZES[i],
+		"text_dim")
+
+## §2.5: "Atlas cache — size cap in GB + Clear (#lodBakeBtn,
+## #lodClearAtlasBtn)."
+##
+## Clear is the same action as `Memory ▸ Clear caches…` and goes through the
+## same `_clear_caches()` -- one implementation, two entry points, the shape
+## `Storage locations…` already has in File and Preferences, not a second
+## clearer. The cap and the reference's Refine pass are both real gaps and say
+## which kind of gap each is.
+func _build_atlas_cache_menu(p: PopupMenu) -> void:
+	_atlas_popup = PopupMenu.new()
+	_atlas_popup.name = "AtlasCache"
+	_shell.style_popup(_atlas_popup)
+	_atlas_stats_idx = 0
+	_atlas_popup.add_item("— loading —")
+	_atlas_popup.set_item_disabled(0, true)
+	_todo(_atlas_popup, "Size cap · GB",
+		"The store is real and measured (atlas_status() reports chunks and bytes), but nothing evicts: bake_bridge writes chunks and only atlas_clear() removes them, all of them at once. A cap needs an eviction policy -- which chunk goes when the cap is hit -- and there is no access order or level priority recorded to choose by. The GB ladder itself would mirror Performance > VRAM budget, which already solves the presentation half.")
+	_todo(_atlas_popup, "Refine detail for the current view",
+		"The reference's #lodRefineBtn. The engine call exists and is uncalled: bake_visible(z, x0, y0, x1, y1) takes a view rectangle in coarse grid cells, and ViewportHost computes exactly that rectangle inside the private _update_lod() and exposes nothing -- zoom() is the only camera reading it publishes. One public visible-grid-rect accessor there closes this.")
+	_atlas_popup.add_separator()
+	_atlas_popup.add_item("Clear atlas cache now…", ID_LOD_CLEAR_ATLAS)
+	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
+		"The same action as Preferences > Memory > Clear caches..., confirmation and all -- one clearer with two entry points, since SS2.5 lists it in both groups.")
+	_atlas_popup.id_pressed.connect(func(id: int):
+		if id == ID_LOD_CLEAR_ATLAS:
+			_clear_caches())
+	_atlas_popup.about_to_popup.connect(_refresh_atlas_cache_menu)
+	p.add_child(_atlas_popup)
+	p.add_submenu_item("Atlas cache", "AtlasCache")
+	_refresh_atlas_cache_menu()
+
+## The live store, from `atlas_status()` -- the same dictionary the status
+## bar's `atlas` slot already reads, so the menu cannot report a different
+## cache than the bar does.
+func _refresh_atlas_cache_menu() -> void:
+	if _atlas_stats_idx < 0:
+		return
+	var st: Dictionary = _bridge.atlas_status()
+	if st.is_empty():
+		_atlas_popup.set_item_text(_atlas_stats_idx, "No atlas in this build")
+		_atlas_popup.set_item_tooltip(_atlas_stats_idx,
+			"This GDExtension build has no atlas_status().")
+		return
+	var chunks := int(st.get("chunks", 0))
+	var deepest := int(st.get("deepest_level", -1))
+	_atlas_popup.set_item_text(_atlas_stats_idx, "%d chunk%s · %s · %s" % [
+		chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B")),
+		"empty" if deepest < 0 else "to LOD %d" % deepest])
+	_atlas_popup.set_item_tooltip(_atlas_stats_idx,
+		"%s\nRoot: %s" % [String(st.get("text", "")), String(st.get("root", ""))])
+	var clear_idx := _atlas_popup.get_item_index(ID_LOD_CLEAR_ATLAS)
+	if clear_idx >= 0:
+		_atlas_popup.set_item_disabled(clear_idx, chunks <= 0)
+
+## §2.5: "Clear caches… — **Confirmation**; clears atlas + field caches, never
+## project data."
+##
+## **The confirmation was missing.** The row fired the moment it was clicked,
+## and it is genuinely destructive twice over: it deletes every baked chunk
+## (minutes of bake time, and `bake_all` at depth 5 is 1365 tiles) and it
+## clears the finalize lock, so a finalized world silently becomes editable
+## again. `Assets ▸ Clear library…` is marked destructive and does confirm;
+## this one is at least as destructive and did not. The freed-bytes figure the
+## old handler only printed *afterwards* is what the prompt shows *first*.
+func _clear_caches() -> void:
+	var st: Dictionary = _bridge.atlas_status()
+	var chunks := int(st.get("chunks", 0))
+	var freed := String(st.get("bytes_text", "0 B"))
+	if chunks <= 0:
+		_host.set_status("hint", "nothing baked for this world — no cache to clear", "text_dim")
+		return
+	var d := ConfirmationDialog.new()
+	d.title = "Clear cached tiles?"
+	d.dialog_text = ("Deletes %d baked chunk%s (%s) for this world.\n\n"
+		+ "The world itself, its parameters and every edit are untouched -- only the "
+		+ "rendered tile pyramid goes, and it can be baked again from WORLD > Finalize. "
+		+ "%s") % [chunks, "" if chunks == 1 else "s", freed,
+			"This world is finalized; clearing releases that lock, because a lock protecting nothing would strand it read-only."
+				if bool(st.get("finalized", false)) else ""]
+	d.ok_button_text = "Clear %s" % freed
+	d.confirmed.connect(func():
+		var n := _bridge.atlas_clear()
+		_host.set_status("hint", "cleared %d baked chunk%s (%s)" % [
+			n, "" if n == 1 else "s", freed], "text_dim")
+		if _host.has_method("refresh_atlas_status"):
+			_host.refresh_atlas_status()
+		_refresh_atlas_cache_menu()
+		_refresh_tile_size_menu()
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	if _host.is_phone():
+		DccWidgets.phone_window(d, _host)
+	_host.add_child(d)
+	if not DccWidgets.phone_present(d, _host):
+		d.popup_centered()
+
 func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:
 		_host.open_storage_locations()
@@ -1246,15 +1723,7 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		_host.open_performance()
 		return
 	if id == ID_PREF_CLEAR_CACHES:
-		var st: Dictionary = _bridge.atlas_status()
-		var freed := String(st.get("bytes_text", "0 B"))
-		var n := _bridge.atlas_clear()
-		var msg := "nothing baked for this world — no cache to clear"
-		if n > 0:
-			msg = "cleared %d baked chunk%s (%s)" % [n, "" if n == 1 else "s", freed]
-		_host.set_status("hint", msg, "text_dim")
-		if _host.has_method("refresh_atlas_status"):
-			_host.refresh_atlas_status()
+		_clear_caches()
 		return
 	if id != ID_PREF_GPU:
 		return
@@ -1262,6 +1731,14 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	var on := not bool(_bridge.param_get("use_gpu"))
 	if _bridge.param_set("use_gpu", on):
 		p.set_item_checked(idx, on)
+		## §2.5's backend readout carries the on/off half of `WebGPU · on`, so
+		## it has to move with the check mark rather than waiting for the next
+		## `about_to_popup` -- the popup stays open after a toggle, and a row
+		## reading `Vulkan · off` beside a ticked box is the kind of
+		## disagreement this file's own region-check bug already cost once.
+		var backend := _active_backend()
+		p.set_item_text(idx, "GPU acceleration" if backend == ""
+			else "GPU acceleration   %s · %s" % [backend, "on" if on else "off"])
 
 # -- §2.5 Memory ▸ Undo history (PR-11) ---------------------------------------
 
@@ -1415,7 +1892,8 @@ func _window(p: PopupMenu) -> void:
 
 	p.add_separator()
 	_live(p, "Reset layout", ID_WIN_RESET)
-	_todo(p, "Save layout as…", "No layout store yet.")
+	_todo(p, "Save layout as…",
+		"SS2.6 lists it beside Reset layout. Every ingredient already exists and none of them is collected: dock widths, each dock's collapsed state, the five region toggles above and the active domain are all live on DccShell, and DccSettings already persists machine-scoped state (storage roots, GPU selection, autosave). What is owed is a named-preset section over data the shell is already holding, plus the read side that applies one.")
 	p.id_pressed.connect(func(id: int):
 		_host.toggle_region(id)
 		_sync_region_checks(p, id))
@@ -1480,7 +1958,22 @@ func _on_open_window(id: int) -> void:
 # -- §2.7 Help ----------------------------------------------------------------
 
 func _help(p: PopupMenu) -> void:
-	_todo(p, "Documentation", "No in-app documentation yet; the repository docs are the reference.")
+	## §2.7 lists Documentation first. There is no in-app manual and the spec
+	## names no URL, so inventing one would be the worst kind of gap-filling --
+	## a row that opens something that may not exist. What *does* exist is the
+	## repository the tooltip has always pointed at, and opening a real folder
+	## is a real behaviour. Resolved once, at build time (the filesystem does
+	## not move under a running app), and left disabled with the true reason
+	## when it is not there -- which is every exported build, where `res://`
+	## lives inside the `.pck` and the repository is not shipped beside it.
+	var docs := _docs_dir()
+	if docs == "":
+		_todo(p, "Documentation",
+			"No in-app documentation exists, and SS2.7 names no URL to open instead. The reference is the repository's own documents (README.md, DECISIONS.md, ARCHITECTURE.md and the scope documents), which are not present beside this build -- an exported build ships res:// inside the .pck and nothing else. Running from the repository enables this row.")
+	else:
+		_live(p, "Documentation", ID_HELP_DOCS)
+		p.set_item_tooltip(p.item_count - 1,
+			"Opens the repository's documents in the OS file manager: %s. There is no in-app manual, and SS2.7 names no URL -- this is the reference CLAUDE.md itself calls the reading entry point." % docs)
 	## Was a `_todo` reading "No shortcut table yet." There is no table now
 	## either, and that is the point: `ShortcutsDialog` walks these very menus
 	## and reports what it finds, so the list cannot disagree with the app.
@@ -1491,18 +1984,28 @@ func _help(p: PopupMenu) -> void:
 	## affordance distinct from "Report an issue" below (which still has no
 	## actual issue-filing route).
 	_live(p, "Generation info…", ID_HELP_GEN_INFO)
-	_build_lod_debug_submenu(p)
-	_todo(p, "Report an issue", "No issue route wired.")
+	## `LOD debug ▸` used to be built here. §2.5 puts the chunk-debug overlay
+	## under `Preferences ▸ Tiles & LOD`, and that is where it is now -- see the
+	## note at that call site for why the reason it was put in Help stopped
+	## being true.
+	_todo(p, "Report an issue",
+		"SS2.7 lists it and names no destination, which is the whole blocker: there is no issue tracker, support address or crash endpoint in this port to send to, and picking one would be inventing a route. The content is already solved -- Generation info... above dumps every generation parameter as plain text, and pairing that with the version and build string from About is exactly the body a report wants.")
 	_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
 
-## `Help ▸ LOD debug` -- the reference's chunk-debug overlay, whose three
-## toggles live there on a `seg sm` segmented control (`lodDbgSeg`, reference
-## line 1266) inside an "Atlas cache ▸ Chunk debug overlay" accordion. This
-## shell has no Atlas panel, and the overlay is a developer affordance of
-## exactly the kind `Generation info…` above it already is, so Help is its
-## home here. The three rows keep the reference's own labels and order:
-## Grid, Colors, Labels.
+## §2.5's `Preferences ▸ Tiles & LOD ▸ Chunk debug overlay` -- the reference's
+## own overlay, whose three toggles live on a `seg sm` segmented control
+## (`lodDbgSeg`, reference line 1266) inside an "Atlas cache ▸ Chunk debug
+## overlay" accordion.
+##
+## **Built under `Help ▸ LOD debug` and moved here 2026-08-30.** The reason it
+## was in Help was that "this shell has no Atlas panel" -- it has one now, the
+## `Atlas cache ▸` row directly above this call, so the reference's own
+## accordion placement and §2.5's group are the same place again. Help keeps
+## `Generation info…`, which is a dump rather than an overlay.
+##
+## The three rows keep the reference's own labels and order: Grid, Colors,
+## Labels.
 ##
 ## Checkable rows rather than a segmented control: a `PopupMenu` has no
 ## segment, and a check mark is what "this overlay is on" looks like in a
@@ -1511,9 +2014,9 @@ func _help(p: PopupMenu) -> void:
 func _build_lod_debug_submenu(p: PopupMenu) -> void:
 	_lod_debug_popup = PopupMenu.new()
 	_lod_debug_popup.name = "LodDebug"
-	_lod_debug_popup.add_check_item("Grid", ID_HELP_LOD_GRID)
-	_lod_debug_popup.add_check_item("Colors", ID_HELP_LOD_COLORS)
-	_lod_debug_popup.add_check_item("Labels", ID_HELP_LOD_LABELS)
+	_lod_debug_popup.add_check_item("Grid", ID_LOD_DBG_GRID)
+	_lod_debug_popup.add_check_item("Colors", ID_LOD_DBG_COLORS)
+	_lod_debug_popup.add_check_item("Labels", ID_LOD_DBG_LABELS)
 	## Reference: the overlay draws only under the tiled LOD view
 	## (`drawLODChunkDebug` is called from `drawLODView`'s tail, and the
 	## handler re-renders only `if(_lodOn)`). Said in the tooltip rather than
@@ -1523,11 +2026,17 @@ func _build_lod_debug_submenu(p: PopupMenu) -> void:
 	for i in 3:
 		_lod_debug_popup.set_item_tooltip(i,
 			"Chunk-debug overlay for the deep-zoom tile pyramid. Draws only while the tiled LOD view is up -- zoom in past the threshold to see it.")
+	## §2.5's fourth element of this row: "`off · grid · colours` (#lodDbgSeg)
+	## **+ tile borders**". The three above are the segmented control; tile
+	## borders is a separate thing and is the one part with nothing behind it.
+	_lod_debug_popup.add_separator()
+	_todo(_lod_debug_popup, "Show tile borders",
+		"SS2.5 lists this beside the three toggles above, and it is not one of them: Grid draws the CHUNK grid of the debug overlay, this would outline each composited LOD TILE's own edge. ViewportHost._draw_lod_debug() has no border pass -- it draws chunk rects, hue fills and labels -- and _lod_sprite_rect() already returns exactly the rect one would need, so this is a draw call short rather than a design short.")
 	_refresh_lod_debug_menu()
 	_lod_debug_popup.id_pressed.connect(_on_lod_debug)
 	_shell.style_popup(_lod_debug_popup)
 	p.add_child(_lod_debug_popup)
-	p.add_submenu_item("LOD debug", "LodDebug")
+	p.add_submenu_item("Chunk debug overlay", "LodDebug")
 
 ## Mirrors `ViewportHost`'s own three booleans onto the check marks. The
 ## viewport is the single source of truth -- this menu keeps no copy, which is
@@ -1546,15 +2055,35 @@ func _on_lod_debug(id: int) -> void:
 		return
 	var which := ""
 	match id:
-		ID_HELP_LOD_GRID: which = "grid"
-		ID_HELP_LOD_COLORS: which = "colors"
-		ID_HELP_LOD_LABELS: which = "labels"
+		ID_LOD_DBG_GRID: which = "grid"
+		ID_LOD_DBG_COLORS: which = "colors"
+		ID_LOD_DBG_LABELS: which = "labels"
 		_: return
 	_host.viewport.set_lod_debug(which, not _host.viewport.lod_debug_enabled(which))
 	_refresh_lod_debug_menu()
 
+## Where `Help ▸ Documentation` points, or `""` when nothing is there.
+##
+## `res://` is the Godot project directory, so the repository root is two
+## levels up and `cartalith-native/` is one. The root is preferred because
+## `CLAUDE.md` names its `README.md` as the reading entry point; presence of
+## that file is also how this tells a source checkout from an exported build,
+## rather than trusting `OS.has_feature("editor")` -- an exported build run
+## from inside the repository has the documents too.
+static func _docs_dir() -> String:
+	var base := ProjectSettings.globalize_path("res://")
+	for rel in ["../..", ".."]:
+		var dir := base.path_join(rel).simplify_path()
+		if FileAccess.file_exists(dir.path_join("README.md")):
+			return dir
+	return ""
+
 func _on_help(id: int) -> void:
 	match id:
+		## `file://` rather than the bare path: `OS.shell_open` takes a URI on
+		## every platform this ships to, and a bare Windows path with a drive
+		## letter is not one.
+		ID_HELP_DOCS: OS.shell_open("file://" + _docs_dir())
 		ID_HELP_CREDITS: _host.open_credits()
 		ID_HELP_SHORTCUTS: _host.open_shortcuts()
 		ID_HELP_GEN_INFO: _host.open_gen_info()

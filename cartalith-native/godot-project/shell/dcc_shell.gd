@@ -132,6 +132,73 @@ var _phone_tool_sheet: PanelContainer
 var _phone_app_bar: PanelContainer  ## Held so a probe can measure it and so
 	## `phone_content_insets()` reads its real height rather than recomputing it.
 var _phone_gesture_inset: Control
+
+# -- Phone bottom-sheet detents ------------------------------------------------
+#
+# `docs/ANDROID_UI_SPEC.md`, Locked decisions: *"Sheets: peek → half → full
+# detents, drag handle; tab tap opens half"* and *"bar stays visible at full
+# sheet"*.
+#
+# The three heights are the interactive prototype's own arithmetic, not derived
+# ones -- `design/android-2026-08-30/Cartalith Android.dc.html`, `_detH()`:
+#
+#     fh   = frameH - 84            (portrait; the whole frame in landscape)
+#     peek = 66                     a constant, not a fraction of anything
+#     half = round(fh * 0.46)
+#     full = fh - 96                so 96 dp of map is never covered
+#
+# That `84` is the prototype's `navH`, which is exactly this shell's bottom bar
+# (`H_PHONE_BOTTOM_NAV` 64) plus its gesture inset (`H_PHONE_GESTURE` 20) -- the
+# same figure reached from two constants instead of one literal.
+# `_phone_nav_reserve()` reads it live rather than hard-coding 84, because this
+# shell parks the timeline between the sheet and the bar and the prototype has
+# no equivalent of that row.
+#
+# **"Bar stays visible at full sheet" is structural here, not arithmetic.** The
+# sheet is a *sibling above* the bottom bar in the chrome column, so no detent
+# height can put it over the bar; the prototype has to position the sheet at
+# `bottom:${navH}px` to get the same result out of absolute positioning.
+const PHONE_DETENT_PEEK := 66.0        ## `_detH`: `det==='peek'?66`.
+const PHONE_DETENT_HALF_FRAC := 0.46   ## `Math.round(fh*0.46)`.
+const PHONE_DETENT_FULL_GAP := 96.0    ## `full=fh-96`.
+const PHONE_DETENT_ANIM := 0.28        ## `transition:height .28s cubic-bezier(.3,.9,.3,1)`.
+	## Godot has no cubic-bezier easing; `TRANS_CUBIC`/`EASE_OUT` is the curve
+	## that control point set approximates -- named as an approximation rather
+	## than passed off as the mockup value.
+const PHONE_DETENT_MIN_DRAG := 40.0    ## `_sm`: `Math.max(40, ...)`.
+const PHONE_DETENT_DISMISS := 44.0     ## `_su`: `if(h<44)` closes the sheet.
+## The prototype boots at `detent:'half'` because ITS sheet carries the tab's
+## whole panel. This one carries the tool options row and nothing else (§13:
+## "tool options become a bottom sheet"), so half opens a sheet that is mostly
+## empty -- measured on the handset: one row of chips above roughly 700 px of
+## nothing. Boot at `peek`, which is that content's own height, and leave half
+## and full reachable by dragging the handle.
+##
+## This is a deliberate divergence from the prototype and it is the CONTENT
+## that differs, not the geometry: the detent sizes below are the prototype's
+## own numbers, unchanged.
+var _phone_detent := "peek"
+var _phone_sheet_grab: Control         ## The drag handle's own hit area.
+var _phone_sheet_drag := {}            ## `{"y0","h0","h"}` while a drag is live; empty otherwise.
+var _phone_sheet_tween: Tween          ## Held so a new snap kills the running one.
+
+# -- Phone landscape: left rail + right-docked sheet ---------------------------
+#
+# `docs/ANDROID_UI_SPEC.md`: *"Landscape: nav becomes left rail, sheet docks
+# right, map stays wide."* Both are the *same nodes* rotated into new positions
+# rather than a second set built alongside -- `_apply_phone_orientation()`
+# reparents them between the chrome column and `_phone_root`, and flips the
+# bar's own box containers with `BoxContainer.vertical`.
+var _phone_chrome_col: VBoxContainer   ## The portrait stack the two nodes above return to.
+var _phone_bar_row: BoxContainer       ## The bottom bar's three nested boxes, held
+var _phone_bar_domains: BoxContainer   ## only so `vertical` can be flipped on them.
+var _phone_bar_cells: BoxContainer
+const W_PHONE_LAND_RAIL := 72.0   ## Prototype, landscape branch: `width:72px;
+	## background:var(--pan2);border-right:1px solid var(--hair2)`, and the map
+	## host moves to `left:72px`.
+const W_PHONE_LAND_SHEET_MAX := 440.0  ## `Math.min(440,Math.round(fw*0.46))`.
+const PHONE_LAND_SHEET_FRAC := 0.46
+
 var _phone_clock_label: Label
 var _phone_battery_label: Label
 var _phone_side_clock_label: Label     ## Landscape's rotated-pocket twins of
@@ -1925,6 +1992,11 @@ func _build_phone_shell() -> void:
 	chrome.add_theme_constant_override("separation", 0)
 	chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_phone_chrome_margin.add_child(chrome)
+	## Held because landscape lifts two of this column's children out of it --
+	## the bottom bar becomes a left rail and the tool sheet docks right -- and
+	## portrait has to put them back in the right slots. See
+	## `_apply_phone_orientation()`.
+	_phone_chrome_col = chrome
 
 	_phone_top_safe = _build_phone_top_safe()
 	chrome.add_child(_phone_top_safe)
@@ -2175,6 +2247,20 @@ func _build_phone_app_bar() -> PanelContainer:
 	_status_labels["top_world"] = subtitle
 	title_col.add_child(subtitle)
 	row.add_child(title_col)
+
+	## **`▤` panels, restoring access the four-tab bar took away.**
+	## `_phone_panel_picker` is how the phone reaches the left and right dock
+	## content, and its ONLY entry used to be the PANELS cell in the bottom
+	## bar. Replacing that bar with MAP/GENERATE/PLAN/MORE left the picker
+	## built, alive and unreachable -- built-and-unwired, the defect class this
+	## repository keeps finding, introduced by me this session and caught on the
+	## device rather than by reading.
+	##
+	## `DCC_SHELL_SPEC.md` §13 puts it here anyway: the phone app bar is
+	## "☰ (domain drawer), title + seed, ▤ (panels), ⋯ (overflow menu)". So the
+	## fix and the spec agree.
+	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["panels"], "Panels",
+		func(): _set_panel_picker_open(true)))
 	return bar
 
 ## One app-bar glyph cell. The canvas draws a `40x40` box at `color:#c8cbcd`
@@ -2256,11 +2342,21 @@ func _build_phone_menu_bar() -> Control:
 	var bar := PanelContainer.new()
 	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
 
-	var row := HBoxContainer.new()
+	## **`BoxContainer`, not `HBoxContainer`** -- for all three of the boxes this
+	## bar nests, and for no other reason than landscape. `HBoxContainer` is not
+	## merely a `BoxContainer` with `vertical = false` preset: its `set_vertical`
+	## *refuses* the write outright (`Can't change orientation of
+	## HBoxContainer`, `scene/gui/box_container.cpp`). Assuming otherwise is
+	## exactly what the first run of `_apply_phone_nav_orientation()` did, three
+	## errors per rotation and a rail that stayed horizontal. A bare
+	## `BoxContainer` starts horizontal and lets the flip through.
+	var row := BoxContainer.new()
+	row.vertical = false
 	row.add_theme_constant_override("separation", 0)
 	bar.add_child(row)
 
-	var domains := HBoxContainer.new()
+	var domains := BoxContainer.new()
+	domains.vertical = false
 	domains.add_theme_constant_override("separation", 0)
 	domains.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	domains.size_flags_stretch_ratio = float(PHONE_TABS.size())
@@ -2272,9 +2368,22 @@ func _build_phone_menu_bar() -> Control:
 	rail_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	domains.add_child(rail_column)
 
-	var cells := HBoxContainer.new()
+	var cells := BoxContainer.new()   ## See `row` above for why not `HBox`.
+	cells.vertical = false
 	cells.add_theme_constant_override("separation", 0)
 	rail_column.add_child(cells)
+
+	## Landscape turns this bar on its side (`docs/ANDROID_UI_SPEC.md`: "nav
+	## becomes left rail"). Every one of these three is an `HBoxContainer`,
+	## which in Godot 4 is a `BoxContainer` with `vertical = false` -- so the
+	## rotation is a property flip on the *same nodes*, not a second bar built
+	## alongside this one. Held here because `_apply_phone_orientation()` has no
+	## other route to them: `rail_column` is a documented public-ish name that
+	## `set_rail_foot()`/`_select_domain()` already rely on, and the other three
+	## were locals.
+	_phone_bar_row = row
+	_phone_bar_domains = domains
+	_phone_bar_cells = cells
 
 	## **`PHONE_TABS`, not `DOMAINS`.** The bar used to mirror the desktop's
 	## three workspaces plus PANELS and MORE, which is how a phone ended up
@@ -2321,6 +2430,7 @@ var _phone_tab := "gen"   ## Which of `PHONE_TABS` is lit.
 ## One tab press. A workspace tab selects its domain; the two that are not
 ## workspaces do their own thing.
 func _pick_phone_tab(id: String) -> void:
+	var was_tab := _phone_tab
 	_phone_tab = id
 	match id:
 		"more":
@@ -2339,7 +2449,35 @@ func _pick_phone_tab(id: String) -> void:
 			for t in PHONE_TABS:
 				if String(t.id) == id and String(t.domain) != "":
 					_pick_bar_domain(String(t.domain))
+	## "tab tap opens half" (`docs/ANDROID_UI_SPEC.md`). The prototype's `hTab`
+	## is `{tab:t, detent: s.detent==='peek' ? 'half' : s.detent}` -- a tap
+	## *lifts* a peeking sheet to half and leaves half and full where the user
+	## put them, so switching tabs never shrinks a sheet someone has just pulled
+	## open. Re-tapping the lit tab closes it there; here it collapses to peek
+	## instead, for the reason `_on_phone_sheet_grab_input()` sets out at
+	## length: this sheet is the tool options bar, and it has no "gone" state on
+	## the other two form factors.
+	##
+	## Only the two *workspace* tabs drive the detent. In the prototype all four
+	## tabs fill the one sheet, so all four move it; here PLAN opens the journey
+	## planner and MORE opens `PhoneMenu`, both full overlays over the sheet
+	## rather than content inside it. Lifting a peeking sheet behind an overlay
+	## the user cannot see through would only surface after they closed it
+	## again, as a sheet that had grown while they were elsewhere.
+	if _phone_tab_drives_sheet(id):
+		if was_tab == id and _phone_detent != "peek":
+			_set_phone_detent("peek")
+		elif _phone_detent == "peek":
+			_set_phone_detent("half")
 	_refresh_phone_tabs()
+
+## Whether a tab's destination is the tool sheet itself. `domain` is `""` for
+## exactly the two tabs that open an overlay instead -- see `PHONE_TABS`.
+func _phone_tab_drives_sheet(id: String) -> bool:
+	for t in PHONE_TABS:
+		if String(t.id) == id:
+			return String(t.domain) != ""
+	return false
 
 ## The active tab wears the candidate's own pill -- `padding:5px 16px;
 ## border-radius:14px; background:rgba(224,163,74,.16)` behind the glyph
@@ -2464,42 +2602,70 @@ func _pick_bar_domain(id: String) -> void:
 	_close_all_phone_overlays()
 	_select_domain(id)
 
-## §13: "tool options become a bottom sheet". The drag handle is decorative --
-## the mockup pictures exactly one static sheet state, so nothing here answers
-## a drag gesture (inventing one would be behaviour the design doesn't show).
+## §13: "tool options become a bottom sheet", now with
+## `docs/ANDROID_UI_SPEC.md`'s three detents behind it.
+##
+## The handle used to be decorative, with a comment saying so: the 412 canvas
+## pictured one static sheet state and answering a drag would have been invented
+## behaviour. `docs/ANDROID_UI_SPEC.md` and the interactive prototype it ships
+## with now specify the gesture exactly, so the handle is live -- see
+## `_on_phone_sheet_grab_input()` for the drag and `_phone_detent_height()` for
+## the three heights.
+##
 ## `tool_options_row` is the same `HBoxContainer` `set_tool_options()` already
-## rebuilds from `app.gd` -- wrapped in a horizontal `ScrollContainer` here
-## because its desktop-tuned content (a run-pipeline row with several buttons
-## and spacers) is wider than 393 px and would otherwise clip. No fixed sheet
-## height is set; it hugs the handle plus that one content row.
+## rebuilds from `app.gd` -- wrapped in a `ScrollContainer` here because its
+## desktop-tuned content (a run-pipeline row with several buttons and spacers)
+## is wider than 412 dp and would otherwise clip.
 func _build_phone_tool_sheet() -> PanelContainer:
 	var sheet := PanelContainer.new()
-	sheet.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
+	sheet.add_theme_stylebox_override("panel", _phone_sheet_box(false))
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	sheet.add_child(col)
 
-	var handle_wrap := Control.new()
-	handle_wrap.custom_minimum_size.y = _pscale(20)
+	## The grab handle -- and, as of the detents, the drag target for them.
+	## `MOUSE_FILTER_STOP` (a bare `Control`'s default, set explicitly because
+	## it is now load-bearing rather than incidental) so the row picks the
+	## press; everything else in the phone chrome that is *not* meant to pick
+	## is `IGNORE` for the reason `_phone_content_gap` documents at length.
+	_phone_sheet_grab = Control.new()
+	## `height:24px` with a `40x4` radius-2 bar
+	## (`candidates/Android Chrome B.dc.html`, the sheet's own first row). This
+	## was `20`/`34x4` from `design/Cartalith Android Phone.dc.html`; the
+	## candidate is the newer canvas and `CLAUDE.md`'s first working rule gives
+	## it the disagreement.
+	_phone_sheet_grab.custom_minimum_size.y = _pscale(24)
+	_phone_sheet_grab.mouse_filter = Control.MOUSE_FILTER_STOP
+	_phone_sheet_grab.gui_input.connect(_on_phone_sheet_grab_input)
 	var handle := ColorRect.new()
 	## Token-derived, not a literal white: `DccTheme.remap()` can only repaint a
-	## colour it can trace back to a token, so a flat `Color(1,1,1,0.22)` here
-	## stayed white when the palette went light and vanished into the panel.
+	## colour it can trace back to a token, so a flat `Color(1,1,1,0.25)` here
+	## would stay white when the palette goes light and vanish into the panel.
+	## The candidate's `rgba(255,255,255,.25)` is therefore matched in *weight*
+	## rather than in value -- `text_ghost` at the alpha this handle already
+	## carried, unchanged; only its geometry moved to the candidate's.
 	handle.color = Color(DccTheme.c("text_ghost"), 0.55)
-	## `34x4` at `rgba(255,255,255,.24)` -- the 412 canvas's own sheet grab
-	## handle, the same one `phone_menu.gd` draws. This was 38.
-	var hw := _pscale(34)
+	var hw := _pscale(40)
 	var hh := _pscale(4)
 	handle.set_anchors_preset(Control.PRESET_CENTER)
 	handle.size = Vector2(hw, hh)
 	handle.position = Vector2(-hw / 2.0, -hh / 2.0)
-	handle_wrap.add_child(handle)
-	col.add_child(handle_wrap)
+	handle.mouse_filter = Control.MOUSE_FILTER_IGNORE  ## The bar must not eat
+		## the press its own row is there to receive.
+	_phone_sheet_grab.add_child(handle)
+	col.add_child(_phone_sheet_grab)
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	## Was `DISABLED`, on the premise that the sheet always hugs its one content
+	## row. A detent sets the height instead, so at `peek` (66 dp, of which the
+	## handle row takes 24) that row no longer fits and needs somewhere to go.
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	## And it must take the height the detent hands the sheet, rather than its
+	## own minimum -- otherwise `half` and `full` draw a tall empty panel with
+	## the content still crushed against the handle.
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
 	tool_options_row = HBoxContainer.new()
 	## Scaled like everything else in the sheet: left unscaled these read as a
@@ -2514,6 +2680,198 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	scroll.add_child(pad)
 	col.add_child(scroll)
 	return sheet
+
+## The sheet surface. Portrait: `background:#15171a; border-radius:22px 22px 0 0`
+## (`candidates/Android Chrome B.dc.html`, and the prototype's own
+## `sheetStyle`). Landscape: `border-radius:0` with `border-left:1px solid
+## var(--hair)`, because a sheet docked to the right edge is a dock, not a
+## sheet, and the prototype drops the radius there explicitly.
+##
+## `#15171a` is drawn as the `raised` token (`#17191a`) rather than a twelfth
+## near-identical literal -- the accumulation `GUI_GAP_REGISTER.md` §48 exists
+## because of -- and `raised` is already this palette's "anything floating",
+## which is exactly what a sheet over the map is.
+##
+## The shadow is the candidate's `box-shadow:0 -8px 24px rgba(0,0,0,.35)`, all
+## three values verbatim. It is an **approximation, not a match**:
+## `StyleBoxFlat`'s shadow is an expanded, anti-aliased copy of the box, not a
+## gaussian blur, so 24 px of it reads as a firmer edge than CSS's would. Both
+## are only there to lift the sheet off the map, which it does; said plainly
+## because everything else on this surface is exact.
+func _phone_sheet_box(docked: bool) -> StyleBoxFlat:
+	var box := DccTheme.panel("raised", {"left": 1} if docked else {"top": 1})
+	if not docked:
+		box.corner_radius_top_left = _pscale(22)
+		box.corner_radius_top_right = _pscale(22)
+	box.shadow_color = Color(0, 0, 0, 0.35)
+	box.shadow_size = _pscale(24)
+	box.shadow_offset = Vector2(0, -_pscale(8))
+	return box
+
+## What the bottom of the screen owes to chrome that is *not* the sheet: the
+## gesture inset, the bottom bar, and (this shell's own addition, which the
+## prototype has no row for) the timeline when it is up. The prototype folds the
+## first two into one `navH = 84` literal.
+func _phone_nav_reserve() -> float:
+	var r := float(_pscale(DccTheme.H_PHONE_GESTURE))
+	if _phone_menu_bar != null and _phone_menu_bar.visible:
+		## `_ptap()` rather than the bar's measured `size.y`, for the same
+		## reason `_apply_phone_orientation()` gives: this can run before the
+		## first layout pass, where that is still zero.
+		r += float(_ptap(DccTheme.H_PHONE_BOTTOM_NAV))
+	if timeline_bar != null and timeline_bar.visible:
+		r += timeline_bar.size.y
+	return r
+
+## The three detent heights, from the prototype's `_detH()` -- see the constant
+## block above for the transcription. Landscape has no detents (the sheet is
+## width-driven there), so this is portrait-only and its callers all guard.
+func _phone_detent_height(det: String) -> float:
+	var fh: float = get_viewport_rect().size.y - _phone_nav_reserve()
+	var peek := float(_pscale(PHONE_DETENT_PEEK))
+	match det:
+		"peek":
+			return peek
+		"full":
+			## `maxf` guards the degenerate small-window case (a `--force-touch`
+			## desktop probe at a few hundred px) where `fh - 96` would come out
+			## under the peek height and the sheet would *shrink* on "full".
+			return maxf(peek, fh - float(_pscale(PHONE_DETENT_FULL_GAP)))
+		_:
+			return maxf(peek, round(fh * PHONE_DETENT_HALF_FRAC))
+
+## Move to a detent. `animate` is false for the two cases where a transition
+## would be wrong: the initial layout, and a rotation (where the whole chrome
+## re-lays out in one frame anyway).
+func _set_phone_detent(det: String, animate: bool = true) -> void:
+	_phone_detent = det
+	_snap_phone_sheet(animate)
+
+## The prototype's `_snapSheet()`: writes the current detent's height onto the
+## sheet, and does nothing at all in landscape.
+##
+## `custom_minimum_size.y` is the height here because the sheet is a child of a
+## `VBoxContainer` -- the container owns the rect, and a minimum is the only
+## thing a child gets to say about it. `_phone_content_gap` above it carries
+## `SIZE_EXPAND_FILL`, so every pixel the sheet claims comes out of the map gap
+## and none of it out of the bar below.
+func _snap_phone_sheet(animate: bool) -> void:
+	if _phone_tool_sheet == null or _landscape:
+		return
+	var target := _phone_detent_height(_phone_detent)
+	if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
+		_phone_sheet_tween.kill()
+	if not animate:
+		_phone_tool_sheet.custom_minimum_size.y = target
+		phone_insets_changed.emit()
+		return
+	_phone_sheet_tween = create_tween()
+	_phone_sheet_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_phone_sheet_tween.tween_property(_phone_tool_sheet,
+		"custom_minimum_size:y", target, PHONE_DETENT_ANIM)
+	## Fired once, at rest, rather than per-frame: `phone_insets_changed` makes
+	## `ViewportHost` re-read `phone_content_insets()` and re-place its floating
+	## chrome, and doing that on every tween frame would animate the scale bar
+	## and the coordinate readout along with the sheet for no stated reason.
+	_phone_sheet_tween.finished.connect(func() -> void: phone_insets_changed.emit())
+
+## One drag on the sheet's grab handle -- the prototype's `_sd`/`_sm`/`_su`
+## triple:
+##
+## - press: record the finger's y and the height it started from, and kill the
+##   height transition so the sheet tracks the finger exactly;
+## - move: `h = h0 - (y - y0)`, clamped to `[40, frameH - 90]`;
+## - release: snap to whichever of the three detent heights is nearest.
+##
+## Two departures from the prototype, both stated rather than quietly taken:
+##
+## 1. **Under 44 px this collapses to `peek`; the prototype closes the sheet.**
+##    Its sheet is a tab panel with nothing in it when no tab is lit. This one
+##    is the desktop's *tool options bar* (§13: "tool options become a bottom
+##    sheet") -- the one row that is on screen at all times on desktop and
+##    tablet -- so a state where it is gone entirely has no counterpart on the
+##    other two form factors to keep parity with. `peek` is the closest honest
+##    reading of "dismissed": still there, out of the way.
+## 2. **Mouse and touch events are both handled.** Godot only synthesises mouse
+##    events from touch while `emulate_mouse_from_touch` is on; it is on by
+##    default, but this file may not edit `project.godot` to guarantee it, so
+##    the screen events are read directly too. Handling both is safe rather
+##    than double-counted: the maths is absolute (recomputed from the finger's
+##    current position every event, never accumulated), so a duplicated move is
+##    idempotent, a duplicated press re-records the same origin, and the second
+##    of a duplicated release finds `_phone_sheet_drag` already empty.
+##
+## Positions are converted to *global* y. A local y would drift: this control is
+## inside the sheet, and the sheet's origin moves upward as it grows, so local
+## coordinates shift under a finger that has not moved.
+func _on_phone_sheet_grab_input(event: InputEvent) -> void:
+	if _landscape or _phone_tool_sheet == null:
+		return  ## `_sd()` returns immediately in landscape too: a docked side
+			## sheet has a width, not a detent.
+	var press_state := 0  ## -1 release, +1 press, 0 not a press event at all.
+	var moved := false
+	var local_y := 0.0
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		press_state = 1 if mb.pressed else -1
+		local_y = mb.position.y
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		press_state = 1 if st.pressed else -1
+		local_y = st.position.y
+	elif event is InputEventMouseMotion:
+		moved = true
+		local_y = (event as InputEventMouseMotion).position.y
+	elif event is InputEventScreenDrag:
+		moved = true
+		local_y = (event as InputEventScreenDrag).position.y
+	else:
+		return
+
+	var gy: float = _phone_sheet_grab.global_position.y + local_y
+	if press_state == 1:
+		if _phone_sheet_tween != null and _phone_sheet_tween.is_valid():
+			_phone_sheet_tween.kill()
+		_phone_sheet_drag = {"y0": gy, "h0": _phone_tool_sheet.size.y}
+		_phone_sheet_grab.accept_event()
+		return
+	if _phone_sheet_drag.is_empty():
+		return
+	if moved:
+		var lo := float(_pscale(PHONE_DETENT_MIN_DRAG))
+		## The prototype's ceiling is `frameH - 90` on an absolutely-positioned
+		## sheet, which cannot push anything: here the sheet is a row in a
+		## `VBoxContainer`, and a minimum height that large would shove the
+		## timeline, the bottom bar and the gesture inset off the bottom of the
+		## screen mid-drag. The `full` detent's own height is the ceiling
+		## instead -- 90 dp under the prototype's `frameH - 90` on a 412 x 892
+		## frame (802 against 712), and it
+		## makes "bar stays visible at full sheet" hold *during* the gesture and
+		## not merely at rest.
+		var hi: float = _phone_detent_height("full")
+		var h: float = clampf(float(_phone_sheet_drag["h0"]) \
+			- (gy - float(_phone_sheet_drag["y0"])), lo, maxf(lo, hi))
+		_phone_sheet_drag["h"] = h
+		_phone_tool_sheet.custom_minimum_size.y = h
+		_phone_sheet_grab.accept_event()
+		return
+	## Release. `_su()`: nearest detent by absolute height difference, with the
+	## prototype's own `best='half'` as the seed.
+	var final_h: float = float(_phone_sheet_drag.get("h", _phone_sheet_drag["h0"]))
+	_phone_sheet_drag = {}
+	if final_h < float(_pscale(PHONE_DETENT_DISMISS)):
+		_set_phone_detent("peek")
+		return
+	var best := "half"
+	var best_d := INF
+	for det in ["peek", "half", "full"]:
+		var d: float = absf(_phone_detent_height(det) - final_h)
+		if d < best_d:
+			best_d = d
+			best = det
+	_set_phone_detent(best)
 
 ## The gesture inset: `height:20px` with a `112x4` radius-2 handle at
 ## `rgba(255,255,255,.22)`, on every one of the 412 canvas's eight screens.
@@ -2878,13 +3236,35 @@ func _apply_phone_orientation() -> void:
 	## safe area lives inside this margin, so growing it by the side safe area's
 	## own width is the entire mechanism.
 	var side_reserve := _pscale(DccTheme.H_PHONE_TOP_SAFE) if _landscape else 0
-	_phone_chrome_margin.add_theme_constant_override("margin_left", side_reserve)
+	## ...and in landscape two more regions now live at the edges: the nav rail
+	## on the left and the docked sheet on the right
+	## (`docs/ANDROID_UI_SPEC.md`: "nav becomes left rail, sheet docks right,
+	## map stays wide"). The chrome column runs *between* them.
+	##
+	## The prototype instead lets the sheet overlay the app bar (its map host is
+	## `left:72px;right:0` and the sheet sits on top at `z-index:12`). Insetting
+	## the column is the deliberate departure: this app bar carries the search
+	## and overflow buttons, which the prototype's does not, and a docked sheet
+	## covering them would put two of the phone's five always-available controls
+	## behind a sheet the user has to close to reach them. The *map* is still
+	## edge-to-edge behind everything, so "map stays wide" is unaffected.
+	var rail_w := _pscale(W_PHONE_LAND_RAIL) if _landscape else 0
+	var sheet_w := _phone_land_sheet_width() if _landscape else 0
+	_phone_chrome_margin.add_theme_constant_override("margin_left",
+		side_reserve + rail_w)
+	_phone_chrome_margin.add_theme_constant_override("margin_right", sheet_w)
+
+	_apply_phone_nav_orientation(side_reserve, rail_w, sheet_w)
 
 	var safe_top := 0 if _landscape else _pscale(DccTheme.H_PHONE_TOP_SAFE)
 	for sheet in [left_dock, right_dock]:
 		if sheet == null:
 			continue
-		sheet.offset_left = side_reserve
+		## `+ rail_w`: a full-height dock sheet must clear the nav rail for the
+		## same reason it clears the side safe area -- the rail is L1 of the
+		## disclosure tree in landscape exactly as the bottom bar is in
+		## portrait, and covering it would strand the user in the sheet.
+		sheet.offset_left = side_reserve + rail_w
 		sheet.offset_right = 0
 		sheet.offset_top = safe_top
 		sheet.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
@@ -2905,14 +3285,135 @@ func _apply_phone_orientation() -> void:
 	## `_ptap()` rather than the bar's measured `size.y`: this runs before the
 	## first layout pass, where that is still zero, and it is the same expression
 	## the bar sets its own minimum from.
+	##
+	## In landscape that same bar is the left rail, so its reserve moves from
+	## the menu's bottom inset to its left one -- `rail_w`, folded into the
+	## side reserve below. Getting this wrong would have been invisible in
+	## portrait and would have covered the rail with the screen the rail opens.
 	var bar_reserve := 0
-	if _phone_menu_bar != null and _phone_menu_bar.visible:
+	if _phone_menu_bar != null and _phone_menu_bar.visible and not _landscape:
 		bar_reserve = _ptap(DccTheme.H_PHONE_BOTTOM_NAV)
 	if _phone_menu != null:
-		_phone_menu.apply_insets(float(safe_top), float(side_reserve),
+		_phone_menu.apply_insets(float(safe_top), float(side_reserve + rail_w),
 			float(_pscale(DccTheme.H_PHONE_GESTURE) + bar_reserve))
 
 	phone_insets_changed.emit()
+
+## `Math.min(440, Math.round(fw * 0.46))` -- the prototype's landscape sheet
+## width, in its own dp, mapped onto real pixels. `fw` there is the frame's
+## *long* side, which in landscape is the viewport width.
+func _phone_land_sheet_width() -> int:
+	return int(minf(float(_pscale(W_PHONE_LAND_SHEET_MAX)),
+		round(get_viewport_rect().size.x * PHONE_LAND_SHEET_FRAC)))
+
+## The landscape half of "nav becomes left rail, sheet docks right" -- and the
+## portrait half that undoes it.
+##
+## Both regions are the **same nodes** in both orientations: rotating the bar is
+## a `BoxContainer.vertical` flip (an `HBoxContainer` in Godot 4 is a
+## `BoxContainer` with `vertical = false`, so this is a property, not a class),
+## and relocating either one is a reparent between the chrome column and
+## `_phone_root`. A second bar and a second sheet built alongside would have
+## meant `set_tool_options()`, `_select_domain()`, `_domain_buttons`,
+## `_phone_tab_cells` and `rail_column` each carrying two targets to keep in
+## step -- five places for the two to drift apart.
+func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
+		sheet_w: int) -> void:
+	if _phone_menu_bar == null or _phone_tool_sheet == null \
+			or _phone_chrome_col == null:
+		return
+	var gesture := _pscale(DccTheme.H_PHONE_GESTURE)
+
+	## `_phone_root` is a plain `Control`, so a child of it keeps whatever
+	## anchors it is given -- the two dock sheets already rely on exactly that.
+	var host: Node = _phone_root if _landscape else _phone_chrome_col
+	for node in [_phone_tool_sheet, _phone_menu_bar]:
+		if node.get_parent() == host:
+			continue
+		node.get_parent().remove_child(node)
+		host.add_child(node)
+	if _landscape:
+		## Index 3 is directly above `_phone_chrome_margin` and below every
+		## overlay (`_phone_side_safe`, the panel picker, `PhoneMenu`, the two
+		## dock sheets) -- the same stacking order these two have in portrait,
+		## where the overlays are added to `_phone_root` after the chrome.
+		_phone_root.move_child(_phone_tool_sheet, 3)
+		_phone_root.move_child(_phone_menu_bar, 3)
+	else:
+		## Back into their portrait slots. The order is re-established from the
+		## top down, each target derived from the node just placed above it,
+		## rather than by naming a neighbour's index directly.
+		##
+		## **`move_child()` inserts at the index it is given**, so the intuitive
+		## "put the bar where the gesture inset currently is" lands it one slot
+		## *below* the inset whenever the bar is already above it -- which is
+		## the state the build-time call runs in. Caught on the device-shaped
+		## probe: the bottom bar drew at y=827 in an 892 px frame, i.e. flush to
+		## the bottom edge with the 20 px gesture inset stranded above it,
+		## every launch, before any rotation.
+		var order: Array[Node] = [_phone_content_gap, _phone_tool_sheet]
+		if timeline_bar != null:
+			order.append(timeline_bar)
+		order.append(_phone_menu_bar)
+		order.append(_phone_gesture_inset)
+		for i in range(1, order.size()):
+			_phone_chrome_col.move_child(order[i], order[i - 1].get_index() + 1)
+
+	## -- the bar --------------------------------------------------------
+	for box in [_phone_bar_row, _phone_bar_domains, _phone_bar_cells]:
+		if box != null:
+			box.vertical = _landscape
+	if _phone_bar_domains != null:
+		## The stretch that makes the four cells share the bar has to change
+		## axis with it; `size_flags_stretch_ratio` is axis-agnostic and stays.
+		_phone_bar_domains.size_flags_horizontal = \
+			Control.SIZE_FILL if _landscape else Control.SIZE_EXPAND_FILL
+		_phone_bar_domains.size_flags_vertical = \
+			Control.SIZE_EXPAND_FILL if _landscape else Control.SIZE_FILL
+	if _phone_bar_cells != null:
+		## Prototype rail: `gap:6` between cells. Its `padding-top:40` is not
+		## carried across -- that clears the prototype's status row, which sits
+		## along the top edge in both orientations; this shell rotates its
+		## status row onto the *left* edge in landscape (`_phone_side_safe`),
+		## and the rail already starts to the right of it.
+		_phone_bar_cells.add_theme_constant_override("separation",
+			_pscale(6) if _landscape else 0)
+	## `border-right:1px solid var(--hair2)` on `var(--pan2)` -- and `--pan2` is
+	## `#121314`, which is the `panel` token the bar already draws in, so only
+	## the edge moves.
+	_phone_menu_bar.add_theme_stylebox_override("panel",
+		DccTheme.panel("panel", {"right": 1} if _landscape else {"top": 1}))
+	if _landscape:
+		_phone_menu_bar.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+		_phone_menu_bar.offset_left = side_reserve
+		_phone_menu_bar.offset_right = side_reserve + rail_w
+		_phone_menu_bar.offset_top = 0
+		_phone_menu_bar.offset_bottom = -gesture
+		_phone_menu_bar.custom_minimum_size = Vector2(float(rail_w), 0.0)
+	else:
+		_phone_menu_bar.custom_minimum_size = Vector2.ZERO
+
+	## -- the sheet ------------------------------------------------------
+	if _landscape:
+		_phone_tool_sheet.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+		_phone_tool_sheet.offset_left = -sheet_w
+		_phone_tool_sheet.offset_right = 0
+		_phone_tool_sheet.offset_top = 0
+		## §13: "Timeline and sheets stop above it" -- the gesture inset is the
+		## one region a docked sheet still may not reach into.
+		_phone_tool_sheet.offset_bottom = -gesture
+		## The detent height is a portrait concept; in landscape the anchors own
+		## the rect and a leftover minimum would fight them.
+		_phone_tool_sheet.custom_minimum_size.y = 0.0
+		_phone_tool_sheet.add_theme_stylebox_override("panel",
+			_phone_sheet_box(true))
+	else:
+		_phone_tool_sheet.add_theme_stylebox_override("panel",
+			_phone_sheet_box(false))
+		## Un-animated: a rotation re-lays the whole chrome out in one frame,
+		## and a 0.28 s height tween across that reads as a glitch, not a
+		## transition.
+		_snap_phone_sheet(false)
 
 ## What `ViewportHost`'s own corner chrome (layers button, coord readout,
 ## scale bar -- all built by `viewport_host.gd`, unchanged) should treat as
@@ -2930,8 +3431,16 @@ func phone_content_insets() -> Dictionary:
 	## there is the bottom bar now, so the map has the full width back and only
 	## the landscape safe area still eats into it.
 	var left := 0.0
+	var right := 0.0
 	if _landscape:
 		left += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
+		## Landscape's two new edge regions: the nav rail on the left, the
+		## docked sheet on the right (`docs/ANDROID_UI_SPEC.md`). Both are
+		## opaque, so `ViewportHost`'s floating chrome has to clear them the
+		## same way it clears the bottom bar in portrait -- and `right` had
+		## never been anything but 0 before there was something over there.
+		left += float(_pscale(W_PHONE_LAND_RAIL))
+		right = float(_phone_land_sheet_width())
 	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
 	if not _landscape:
 		top += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
@@ -2945,8 +3454,17 @@ func phone_content_insets() -> Dictionary:
 	## OnePlus 12's 1440/510, against the ~7 mm a 44 dp floor is asking for.
 	## Passing it through the existing dictionary rather than adding a setter
 	## keeps `app.gd` -- which owns the one call site -- out of it.
-	return {"left": left, "top": top, "right": 0.0,
-		"bottom": _phone_bottom_reserve(), "scale": _phone_scale}
+	## The clamp is the detents' doing. At `full` the sheet covers everything
+	## but 96 dp of map, so the *honest* bottom reserve exceeds the screen and
+	## `ViewportHost` would place its coordinate readout and scale bar above the
+	## top edge -- off screen, which is worse than occluded. One tap target of
+	## band is left for them; they overlap the sheet's top edge at that detent,
+	## which is the same trade `_phone_bottom_reserve()` already documents in
+	## the other direction.
+	var band: float = get_viewport_rect().size.y - top - float(_ptap(DccTheme.PHONE_TAP_MIN))
+	var bottom: float = clampf(_phone_bottom_reserve(), 0.0, maxf(0.0, band))
+	return {"left": left, "top": top, "right": right,
+		"bottom": bottom, "scale": _phone_scale}
 
 ## The tool sheet's real height depends on whatever `tool_options_row`
 ## currently holds -- domain content this frame doesn't own -- so this reads
@@ -2959,6 +3477,15 @@ func phone_content_insets() -> Dictionary:
 ## leaves them floating a bit higher than strictly necessary. Wrong in the
 ## safe direction, in other words.
 func _phone_bottom_reserve() -> float:
+	if _landscape:
+		## Neither the bar nor the sheet is at the bottom any more -- they are
+		## the left rail and the right dock. Only the gesture inset and the
+		## timeline still are, and both are reported to the caller as `left`
+		## and `right` instead (see `phone_content_insets()`).
+		var b := float(_pscale(DccTheme.H_PHONE_GESTURE))
+		if timeline_bar != null and timeline_bar.visible:
+			b += timeline_bar.size.y
+		return b
 	var bar := 0.0
 	if _phone_menu_bar != null and _phone_menu_bar.visible:
 		bar = _phone_menu_bar.size.y if _phone_menu_bar.size.y > 0.0 \

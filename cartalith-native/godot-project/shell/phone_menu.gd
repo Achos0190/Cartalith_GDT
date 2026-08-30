@@ -28,7 +28,7 @@ class_name PhoneMenu
 ## | Level | Canvas treatment | What it is here |
 ## |---|---|---|
 ## | L1 | bottom bar | `DccShell._build_phone_menu_bar()` -- WORLD/CIVIL/CARTO/PANELS/MENU. Not this file. |
-## | L2 | drill screen | This file's **root**: the seven program menus as a grouped list, plus the live status readouts. |
+## | L2 | drill screen | This file's **root**: `ANDROID_UI_SPEC.md`'s MORE list -- the seven program menus plus Civilization, Travel library and Simulation, banded per `GROUPS`, over the live status readouts. |
 ## | L3 | titled band | One program menu's items. Its `add_separator()` groups are the bands. |
 ## | L4 | sheet, 60% cap | A submenu (Recent worlds, Theme, Devices, Asset pack, Workspace, ...). |
 ## | L5 | full screen | A submenu *inside* a submenu -- really three of them: `Assets ▸ Asset pack ▸ Edit / Batch / Build`. |
@@ -74,24 +74,82 @@ class _Step:
 	func is_sheet() -> bool:
 		return level == 4
 
-## The L2 grouping. `menus.gd`'s seven menus in the order §2 declares them,
-## banded the way the canvas's own "07 · MORE" artboard bands its list
-## (PROJECT / ASSETS / VIEW). Any menu bar entry that matches no group falls
-## into a trailing "Other" band rather than disappearing, so an eighth program
-## menu can never go silently missing from the phone.
+## The L2 destination list, banded the way the canvas's own "07 · MORE"
+## artboard bands its list (PROJECT / ASSETS / VIEW).
+##
+## The order and the contents are `ANDROID_UI_SPEC.md`'s MORE line, verbatim:
+##
+##   "MORE: Project, Civilization (settlement/POI/way tools arm & place on
+##    map), Data manager, Asset library, Travel library, Simulation (mini
+##    transport strip overlay), Preferences (theme dark/light + units km/mi
+##    wired), Help/about."
+##
+## Two kinds of entry, because that list mixes two kinds of destination:
+##
+##   - **`menus`** names a program menu on the desktop menu bar. The row drills
+##     into the real `PopupMenu` (`_menu_row()`) -- this file's whole contract
+##     with `menus.gd` -- and keeps the menu's own text as its title. The band
+##     carries the spec's word ("Project"), the row carries the thing that is
+##     actually opening ("File"), so neither authority is retyped.
+##   - **`rows`** names an entry in `_action_row()`: a destination with no
+##     program menu behind it, wired to the exact call the desktop reaches it
+##     by.
+##
+## Menus are drawn before rows inside a band. That is what keeps the spec's own
+## sequence (Data manager, Asset library, Travel library) intact in the third
+## band rather than leaving it to luck.
+##
+## Three band captions are the spec's own words; "Data & assets" and "System"
+## are groupings, since the spec gives that list no headings of its own.
+## `Window` is the one menu the list does not name -- it joins System rather
+## than falling through, and the "Other" fallback in `_fill_root()` still
+## catches whatever an eighth program menu adds, so a menu can never go
+## silently missing from the phone.
+##
+## **Civilization is reached from here and nowhere else.** It stopped being a
+## bottom-bar tab when the bar became MAP · GENERATE · PLAN · MORE
+## (`DccShell.PHONE_TABS`, whose own comment records that the spec moved it
+## here rather than dropping it), so this row is the only route to the CIVIL
+## domain on a phone. `_go_civilization()` is why it lands somewhere.
 const GROUPS: Array = [
 	{"title": "Project", "menus": ["File", "Edit"]},
-	{"title": "Content", "menus": ["Assets", "Data"]},
+	{"title": "Civilization", "rows": ["civilization"]},
+	{"title": "Data & assets", "menus": ["Data", "Assets"], "rows": ["travel_library"]},
+	{"title": "Simulation", "rows": ["simulation"]},
 	{"title": "System", "menus": ["Preferences", "Window", "Help"]},
 ]
 
 ## The status readouts, in the order they read best as a list. Keys are
 ## `DccShell`'s own status slots; `set_status()` keeps them live and this
 ## re-reads them every time the root screen is drawn.
+##
+## Two changes this pass, both from reading the shipped root screen rather than
+## the code:
+##
+##   - **"Pass" is gone.** The row read `Pass — no world`. "Pass" is what the
+##     engine calls one stage run; it is not a word this app has ever shown a
+##     user, and nothing in either spec uses it. The *slot* is worth keeping --
+##     it is the only report that a generation happened and what it cost -- so
+##     it is relabelled **Generator**, which is the phone's own name for that
+##     pipeline (`PHONE_TABS`' second tab is GENERATE), and every value
+##     `app.gd` writes into it then reads as a state of one: `no world`,
+##     `generating…`, `generated · 1.4s`, `loaded`.
+##   - **`hint` is new here, and first.** It is the only slot carrying an
+##     instruction rather than a measurement -- `app.gd` writes "File ▸ New
+##     world… to begin" the moment the app opens with no world -- and on a
+##     phone the status bar it normally lives in is parked in a hidden host, so
+##     it was reaching nobody at all. That is the row a user can act on, which
+##     is what the em-dash row it replaces was not. Drawn wrapped rather than
+##     as a right-hand readout, because it is a sentence (`_note_row()`).
+##
+## `World —` was not a labelling fault and is not fixed here: see
+## `_status_rows()`, which stopped drawing rows whose value is the shell's own
+## em-dash placeholder for "nothing yet".
 const STATUS_ROWS: Array = [
+	["hint", "Next"],
 	["top_world", "World"],
 	["top_res", "Resolution"],
-	["pass", "Pass"],
+	["pass", "Generator"],
 	["stale", "Stale"],
 	["autosave", "Autosave"],
 	["atlas", "Atlas"],
@@ -539,25 +597,31 @@ func _fill_root(body: VBoxContainer) -> void:
 	var status := _status_rows()
 	if not status.is_empty():
 		body.add_child(_band("Status"))
-		for pair in status:
+		for entry in status:
 			body.add_child(DccTheme.rule())
-			body.add_child(_value_row(String(pair[0]), String(pair[1])))
+			## `entry[2]` is set only for the one slot that holds a sentence.
+			body.add_child(_note_row(String(entry[0]), String(entry[1])) if bool(entry[2])
+				else _value_row(String(entry[0]), String(entry[1])))
 
 	var buttons := _menu_buttons()
 	var placed := {}
 	for group in GROUPS:
 		var rows: Array = []
-		for wanted in group.menus:
+		## Menus first, then action rows -- `GROUPS` explains why that ordering
+		## is what preserves the spec's own sequence inside a band.
+		for wanted in group.get("menus", []):
 			for mb in buttons:
 				if String(mb.text) == String(wanted):
 					rows.append(mb)
 					placed[mb] = true
+		for action in group.get("rows", []):
+			rows.append(String(action))
 		if rows.is_empty():
 			continue
 		body.add_child(_band(String(group.title)))
-		for mb in rows:
+		for r in rows:
 			body.add_child(DccTheme.rule())
-			body.add_child(_menu_row(mb))
+			body.add_child(_menu_row(r) if r is MenuButton else _action_row(String(r)))
 
 	var rest: Array = []
 	for mb in buttons:
@@ -569,13 +633,95 @@ func _fill_root(body: VBoxContainer) -> void:
 			body.add_child(DccTheme.rule())
 			body.add_child(_menu_row(mb))
 
+## The live status rows, as `[label, value, wraps]`.
+##
+## **`_slot()`, not `status_slot_text()`.** The raw read only skips a slot that
+## was never written, and before a world exists `app.gd` writes `top_world` as
+## the shell's em-dash placeholder -- so the very first thing the MORE screen
+## drew was a row reading `World —`, a label with a dash where its value should
+## be. `_slot()` is the reader that already treats that placeholder as "nothing
+## yet" (`_root_meta()` has used it since the header was built), and a readout
+## with nothing to say is a row that should not exist rather than a row that
+## says nothing.
 func _status_rows() -> Array:
 	var out: Array = []
 	for entry in STATUS_ROWS:
-		var text := _shell.status_slot_text(String(entry[0]))
-		if text.strip_edges() != "":
-			out.append([String(entry[1]), text])
+		var key := String(entry[0])
+		var text := _slot(key)
+		if text != "":
+			out.append([String(entry[1]), text, key == "hint"])
 	return out
+
+## A MORE row for one of the spec's destinations that has no program menu
+## behind it. All three are real places in this shell, reached by the same call
+## the desktop reaches them by -- none of this is a stub, and none of it
+## duplicates a `menus.gd` handler.
+func _action_row(id: String) -> Control:
+	match id:
+		"civilization":
+			return _row("Civilization",
+				"Settlement, POI and way tools — arm one here, then place it on the map.",
+				null, _chevron(), _go_civilization, false)
+		"travel_library":
+			return _row("Travel library",
+				"Animals and mounts, vehicles, vessels and party presets.",
+				null, _chevron(), _go_travel_library, false)
+		"simulation":
+			return _row("Simulation",
+				"The collapse and recovery model, run over the recorded years.",
+				null, _chevron(), _go_simulation, false)
+	## Only reachable if `GROUPS` names a row this match has no case for. Drawn
+	## disabled with the reason, not skipped -- the same honesty rule `menus.gd`
+	## follows for an item the port cannot honour, and the alternative is a
+	## destination that vanishes with nothing said.
+	return _row(id, "No destination is wired to this row.", null, null, Callable(), true)
+
+## Civilization is a *domain*, not a menu: the desktop reaches it by clicking
+## CIVIL on the rail, and `select_domain()` is that same `_select_domain()`
+## made public for exactly this kind of cross-surface jump.
+##
+## Selecting it is not enough on a phone, and that is the whole point of this
+## function. A domain decides what the left dock *would* show, and on a phone
+## the dock is a sheet that is closed -- so a bare `select_domain()` swaps the
+## tool-options sheet and otherwise leaves the user looking at the same map they
+## were looking at, which is a menu row that appears to do nothing. Opening the
+## left sheet lands them on the CIVIL dock's own TOOLS block, which is what the
+## spec's parenthesis ("settlement/POI/way tools arm & place on map") names.
+func _go_civilization() -> void:
+	_shell.select_domain("civilization")
+	_open_left_sheet()
+
+## Simulation is a category *inside* the CIVIL dock, not a domain of its own:
+## `civilization_workspace.gd` builds it as "Simulation" (the collapse/recovery
+## model), and `app.gd`'s own timeline strip already points at it by that name.
+## `select_domain_category()` is the shell's one call for "switch domain and
+## open this category", and it `push_warning`s rather than failing silently if
+## the category is ever renamed out from under this row.
+func _go_simulation() -> void:
+	_shell.select_domain_category("civilization", "Simulation")
+	_open_left_sheet()
+
+## `_set_sheet_open()` is the phone's dock-sheet opener, and its first act is
+## `_close_all_phone_overlays()` -- which closes this menu. So there is no
+## `close()` call in the two functions above and there must not be one: it
+## would run after the sheet opened and take the sheet down with it.
+func _open_left_sheet() -> void:
+	_shell._set_sheet_open("left", true)
+
+## The Travel library window (`TRAVEL_LIBRARY_SPEC.md`; the desktop reaches it
+## from Data ▸ Travel library…, ⇧L). `open_travel_library()` lives on `DccApp`,
+## the subclass that owns the windows, and is reached **by name** rather than by
+## type for the same reason `DccShell._pick_phone_tab()` reaches
+## `open_journey_planner()` that way: `DccApp extends DccShell` and `DccShell`
+## builds this file, so a typed call here would close a class cycle. Guarded
+## because `DccShell` is also instantiated bare by the capture probes.
+##
+## Closed first: the window opens over the map, and leaving the menu underneath
+## it would put the user behind a full-screen overlay when they dismiss it.
+func _go_travel_library() -> void:
+	close()
+	if _shell.has_method("open_travel_library"):
+		_shell.call("open_travel_library")
 
 ## Deliberately does **not** fire `about_to_popup` to build the preview. A
 ## preview needs names and a count, both static; firing it would run all seven
@@ -804,6 +950,17 @@ func _band(title: String) -> Control:
 
 func _value_row(title: String, value: String) -> Control:
 	return _row(title, "", _trail_label(value), null, Callable(), false)
+
+## A status row whose value is a sentence rather than a readout: it wraps under
+## the title instead of being pinned to the right in a mono label.
+##
+## `_trail_label()` neither wraps nor clips, and a `Label` reports its full text
+## width as its minimum size -- so putting "File ▸ New world… to begin" through
+## `_value_row()` would set this row's minimum width past the screen, inside a
+## `ScrollContainer` whose horizontal scrolling is disabled. The subtitle slot
+## already autowraps and already carries a sentence on every drill row.
+func _note_row(title: String, text: String) -> Control:
+	return _row(title, text, null, null, Callable(), false)
 
 func _trail_label(text: String) -> Label:
 	var l := DccTheme.mono_label(text, "text_dim", _ps(11), 0)
