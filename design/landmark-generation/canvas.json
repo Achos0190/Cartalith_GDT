@@ -1,0 +1,50 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "The panel" },
+    { "id": "page-2", "name": "One row, and why fewer" },
+    { "id": "page-3", "name": "Phone" }
+  ],
+  "artboards": [
+    { "file": "Dock.dc.html", "x": 0, "y": 0, "w": 1920, "h": 1080, "page": "page-1", "title": "CIVIL ▸ Landmarks" },
+    { "file": "Submenu.dc.html", "x": 2060, "y": 0, "w": 1920, "h": 1080, "page": "page-1", "title": "Assets ▸ Landmark types ▸" },
+    { "file": "TypeRow.dc.html", "x": 0, "y": 0, "w": 900, "h": 820, "page": "page-2", "title": "One type row, expanded to L5" },
+    { "file": "WhyFewer.dc.html", "x": 1000, "y": 0, "w": 960, "h": 620, "page": "page-2", "title": "40 asked for, 11 placed" },
+    { "file": "Phone.dc.html", "x": 0, "y": 0, "w": 412, "h": 892, "page": "page-3", "title": "Half detent · six families" },
+    { "file": "PhoneTypes.dc.html", "x": 512, "y": 0, "w": 412, "h": 892, "page": "page-3", "title": "Full detent · one family" }
+  ],
+  "annotations": [
+    {
+      "id": "where",
+      "x": 0,
+      "y": -230,
+      "w": 1920,
+      "page": "page-1",
+      "text": "CIVIL ▸ Landmarks — v3's own 'Points of interest' category, renamed, with its 'Not built' stub replaced.\n\nWhat was rejected, and why:\n· CARTO ▸ Assets & landmarks. §4.5.5 lets labels and icons live in CARTO only 'because they add nothing to and take nothing from the world model'. A landmark has a causal chain, an emergent importance and settlement/political associations — it fails that test in both directions.\n· An eleventh WORLD stage. world_workspace.gd:1113 turns every slider release into _regenerate_live() — the whole world, from stage 01, because generate() is monolithic (DCC_SHELL_SPEC.md's own correction 2). Nudging Waterfall 40 → 41 would re-run tectonics.\n· A physical/cultural split across two domains. §35's chain is one chain (waterfall → sacred site → shrine → pilgrimage → settlement), and §16's exclusion radius is not per family — a shrine and a waterfall compete for the same ground, so a split panel has two spacing budgets over one field.\n\nWhy CIVIL is positively right: v3 already declared the category; the dependency direction is WORLD → CIVIL and landmarks consume both; and CIVIL's recompute is already an explicit button (civilization_workspace.gd:1096) rather than an automatic cascade — which is also what gives '11 placed' a last run to be a fact about."
+    },
+    {
+      "id": "capquota",
+      "x": 0,
+      "y": 1140,
+      "w": 1920,
+      "page": "page-1",
+      "text": "CAP IS NOT QUOTA, SHOWN THREE WAYS ON EVERY ROW\n\n1. Two bars, same origin. The accent track is the cap; the dim rule beneath it is what was actually placed. The gap between them is the distinction, rendered, with no reading required. Flush bars mean the row topped out.\n\n2. One word after the count. 'at cap' (accent — dragging right WILL help) · 'spacing' · 'no terrain' · 'candidates' (dim — dragging right will NOT help). The row answers 'will this do anything?' before the user drags it, which is the whole of the owner's brief.\n\n3. The headroom line, at the panel scale: caps total 640 · room for about 210 at this spacing · last run placed 187. The arithmetic sits above the sliders, so a user whose 640 produced 187 has the reason before they go hunting for a broken control.\n\nThe viewport carries the fourth reading, for free: each placed waterfall draws its own exclusion ring, and the rejected candidates are dashed markers sitting inside those rings. Seeing the rings overlap is the moment the concept lands, and it needs no vocabulary at all."
+    },
+    {
+      "id": "fifty",
+      "x": 0,
+      "y": -300,
+      "w": 1960,
+      "page": "page-2",
+      "text": "49 TYPES, SIX FAMILIES, FOUR CLASSES — AND STILL FIVE LEVELS\n\n§29 groups the types six ways; §23 grades them four ways; the two schemes are orthogonal, and nesting both would make a sixth level, which UI_SHELL_DESIGN.md forbids outright ('A sixth level means the L2 category is wrong and should be split').\n\nSo family is the GROUPING and class is a BADGE on the row, with four filter chips at the section head. L1 domain → L2 Landmarks → L3 § TYPES (always expanded) → L4 family group → L5 the row's own constraints. Exactly five.\n\n'I want more ruins' is three steps: CIVIL → Landmarks → Historical. A fourth path costs one: command_index.gd builds its search from param_keys()/param_info(), so if the caps land as ParamSpec rows, typing 'ruin' finds the row on desktop and phone with no further work.\n\nCollapsed groups are never silent — each header reports 'n of m armed · k placed', so a user who opens the panel with everything shut already knows where their 187 landmarks came from."
+    },
+    {
+      "id": "phone",
+      "x": 0,
+      "y": 968,
+      "w": 924,
+      "page": "page-3",
+      "text": "~50 sliders cannot be a phone screen, so the half detent does not try: it shows the two controls that move everything — the headroom line and Crowding — then six family rows. Tapping a family pushes the full detent, which turns a 49-row wall into a 15-row list.\n\nRows are 56 dp with a 48 dp slider hit box. That clears the brief's 44 px floor and Android's own 48 dp minimum at once, which matters because the two specs disagree: design/phone-redesign/canvas.json records that 44 is the iOS number DccTheme.PHONE_TAP_MIN carries on an Android-only build.\n\nChrome is lifted, not re-picked, from design/android-2026-08-30's chosen chrome — 66 px nav, active pill rgba(224,163,74,.16) at radius 14, sheet 22px 22px 0 0 on #15171a, handle 40×4, 20 dp gesture inset with no target in it and no painted handle.\n\nThe resolved line ('11 placed · spacing') is the most cuttable element on a 412 dp screen and it is the thing this whole design is for, so it stays. A phone user who asks for 40 and gets 11 is MORE likely to conclude the app is broken than a desktop user, not less — they have less context on screen to contradict them.\n\nNot read: docs/ANDROID_UI_SPEC.md. The DesignSync tool was not available in this session, so these figures come from the three newest readable sources in the repo. Where the live spec disagrees, it wins."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}
