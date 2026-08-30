@@ -12224,7 +12224,7 @@ fn landmark_dict(lm: &cartalith_civ::landmark::Landmark) -> VarDictionary {
 
 /// `landmark_funnels()`'s (and `landmark_run()`'s own `funnels` entries')
 /// per-entry `Dictionary`: `{kind,candidates,rejected_constraint,
-/// rejected_score,rejected_spacing,cap,placed,limit}`. `limit` is
+/// rejected_score,rejected_spacing,rejected_cap,cap,placed,limit}`. `limit` is
 /// `LandmarkLimit::as_str()` verbatim -- "the one-word token the dock draws
 /// after the placed count", per that method's own doc comment.
 fn landmark_funnel_dict(f: &cartalith_civ::landmark::LandmarkFunnel) -> VarDictionary {
@@ -12234,6 +12234,11 @@ fn landmark_funnel_dict(f: &cartalith_civ::landmark::LandmarkFunnel) -> VarDicti
         "rejected_constraint" => f.rejected_constraint as i64,
         "rejected_score" => f.rejected_score as i64,
         "rejected_spacing" => f.rejected_spacing as i64,
+        // The fifth bucket (2026-08-30). Added to the contract rather than
+        // folded into `rejected_score`, because "you asked for fewer" and
+        // "these were not good enough" are different sentences and §5's
+        // popover exists to say which one is true.
+        "rejected_cap" => f.rejected_cap as i64,
         "cap" => f.cap as i64,
         "placed" => f.placed as i64,
         "limit" => f.limit.as_str(),
@@ -12721,13 +12726,15 @@ mod landmark_dict_tests {
             rejected_constraint: 902,
             rejected_score: 247,
             rejected_spacing: 124,
+            rejected_cap: 7,
             cap: 40,
             placed: 11,
             limit: LandmarkLimit::Candidates,
         };
         let d = landmark_funnel_dict(&f);
         for key in [
-            "kind", "candidates", "rejected_constraint", "rejected_score", "rejected_spacing", "cap",
+            "kind", "candidates", "rejected_constraint", "rejected_score", "rejected_spacing",
+            "rejected_cap", "cap",
             "placed", "limit",
         ] {
             assert!(d.contains_key(key), "missing key {key}");

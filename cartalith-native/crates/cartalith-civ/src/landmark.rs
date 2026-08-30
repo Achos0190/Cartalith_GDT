@@ -438,21 +438,32 @@ impl LandmarkLimit {
 /// **The counters are the product, not a debug aid.** The identity
 ///
 /// ```text
-/// candidates == rejected_constraint + rejected_score + rejected_spacing + placed
+/// candidates == rejected_constraint + rejected_score + rejected_spacing
+///             + rejected_cap + placed
 /// ```
 ///
 /// holds for every funnel this module emits, and is asserted in
 /// `funnel_arithmetic_closes_on_every_kind`.
 ///
-/// One consequence of that identity is worth stating plainly, because it is
-/// the only place the arithmetic is not the naive reading. When the **cap**
-/// binds, the walk over the score-sorted survivors stops, and every remaining
-/// survivor is counted in `rejected_score`. That is not a fudge: the list is
-/// sorted by score, so a candidate the walk never reached is by construction
-/// at or below the score of the last one placed. The cap raises the effective
-/// score floor to exactly that value, and losing on rank is a score rejection.
-/// `limit` still reports [`LandmarkLimit::AtCap`], which is the honest
-/// headline.
+/// ## Why there is a fifth bucket
+///
+/// There were four. When the **cap** bound, the walk over the score-sorted
+/// survivors stopped and every candidate it never reached was counted in
+/// `rejected_score`. That was arguable — the list is score-sorted, so an
+/// unreached candidate is by construction at or below the last placed one's
+/// score, and the cap does raise the effective floor to exactly that value.
+///
+/// It was also wrong for this popover's one job. §5 exists to answer *"why
+/// fewer than I asked for"*, and when the cap binds the honest answer is **you
+/// got exactly what you asked for** — nothing was rejected for being unsuitable.
+/// Folding those into `rejected_score` made the popover report a quality
+/// judgement the generator never made: a row reading `rejected by score: 3`
+/// when the truth is `3 more would have fit, you capped at 24`. Two different
+/// sentences, and the owner's whole question is which one is true.
+///
+/// So `rejected_score` now carries exactly one meaning — **scored below the
+/// floor** — and `rejected_cap` carries **passed everything and the cap ran
+/// out**. The distinction is visible in the popover and in `limit`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LandmarkFunnel {
     pub kind: String,
@@ -461,11 +472,14 @@ pub struct LandmarkFunnel {
     /// Failed a hard physical requirement (§2.1) — the constraint block
     /// §7 writes out longhand for a waterfall.
     pub rejected_constraint: usize,
-    /// Scored below the floor. See the note above for what "the floor" is once
-    /// a cap binds.
+    /// Scored below the floor, and nothing else. See the note above.
     pub rejected_score: usize,
     /// Lost to an exclusion radius (§16).
     pub rejected_spacing: usize,
+    /// Passed every constraint and every spacing test, and would have been
+    /// placed — the cap ran out first. **This is the bucket that means the
+    /// user got what they asked for**, not that anything was found wanting.
+    pub rejected_cap: usize,
     /// The cap in force for this kind on this run.
     pub cap: usize,
     pub placed: usize,
@@ -483,6 +497,7 @@ impl LandmarkFunnel {
             rejected_constraint: 0,
             rejected_score: 0,
             rejected_spacing: 0,
+            rejected_cap: 0,
             cap,
             placed: 0,
             limit,
@@ -493,7 +508,11 @@ impl LandmarkFunnel {
     /// too rather than trusting this file.
     pub fn closes(&self) -> bool {
         self.candidates
-            == self.rejected_constraint + self.rejected_score + self.rejected_spacing + self.placed
+            == self.rejected_constraint
+                + self.rejected_score
+                + self.rejected_spacing
+                + self.rejected_cap
+                + self.placed
     }
 }
 
@@ -2576,14 +2595,21 @@ pub fn generate(
                 ),
             });
         }
-        // Everything the walk never reached, because the cap ran out. See
-        // `LandmarkFunnel`'s own doc comment for why this is a score rejection
-        // and not a fifth bucket.
-        rejected_score += ord.len() - walked;
+        // Everything the walk never reached, because the cap ran out. Its own
+        // bucket since 2026-08-30 — see `LandmarkFunnel`'s doc comment. These
+        // candidates passed every test the generator applies; the only thing
+        // that stopped them is the number the user set.
+        let rejected_cap = ord.len() - walked;
 
         let limit = if candidates == 0 {
             LandmarkLimit::NoTerrain
-        } else if cap > 0 && placed >= cap {
+        } else if rejected_cap > 0 || (cap > 0 && placed >= cap) {
+            // `rejected_cap > 0` is the direct statement — something was turned
+            // away purely by the number. The second clause still matters for
+            // the exact-fit case, where the walk ended on the last candidate
+            // AND on the cap, so nothing was turned away but the cap is still
+            // what is binding: dragging the slider right would place more if
+            // more existed. Both are `at cap` to a reader.
             LandmarkLimit::AtCap
         } else if placed == 0 && pool.rejected_constraint + rejected_score == candidates {
             LandmarkLimit::NoTerrain
@@ -2601,6 +2627,7 @@ pub fn generate(
                 rejected_constraint: pool.rejected_constraint,
                 rejected_score,
                 rejected_spacing,
+                rejected_cap,
                 cap,
                 placed,
                 limit,
@@ -2994,12 +3021,13 @@ mod tests {
             // reader can check this pass against by eye.
             if f.candidates > 0 || f.placed > 0 {
                 println!(
-                    "{:24} cand {:6} = con {:6} + sco {:6} + spa {:5} + placed {:4}   cap {:4}  {}",
+                    "{:24} cand {:6} = con {:6} + sco {:6} + spa {:5} + cap {:5} + placed {:4}   cap {:4}  {}",
                     f.kind,
                     f.candidates,
                     f.rejected_constraint,
                     f.rejected_score,
                     f.rejected_spacing,
+                    f.rejected_cap,
                     f.placed,
                     f.cap,
                     f.limit.as_str()
@@ -3007,14 +3035,38 @@ mod tests {
             }
             assert!(
                 f.closes(),
-                "{}: {} != {} + {} + {} + {}",
+                "{}: {} != {} + {} + {} + {} + {}",
                 f.kind,
                 f.candidates,
                 f.rejected_constraint,
                 f.rejected_score,
                 f.rejected_spacing,
+                f.rejected_cap,
                 f.placed
             );
+            // **The fifth bucket must actually separate the two meanings.**
+            // A kind that hit its cap and had survivors left over must report
+            // them under `rejected_cap` and NOT under `rejected_score` -- the
+            // whole reason the bucket exists is that "you asked for fewer" is
+            // not "these were not good enough".
+            if f.rejected_cap > 0 {
+                assert_eq!(
+                    f.limit,
+                    LandmarkLimit::AtCap,
+                    "{}: turned {} away on the cap but reports {}",
+                    f.kind,
+                    f.rejected_cap,
+                    f.limit.as_str()
+                );
+                assert!(
+                    f.placed >= f.cap,
+                    "{}: cap-rejected {} while below its own cap ({} of {})",
+                    f.kind,
+                    f.rejected_cap,
+                    f.placed,
+                    f.cap
+                );
+            }
         }
         // The identity is only interesting if the funnels are not all empty.
         let total: usize = r.funnels.iter().map(|f| f.candidates).sum();

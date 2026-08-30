@@ -2334,6 +2334,13 @@ func _lm_funnel_body(r: Dictionary, f: Dictionary) -> Control:
 	var c_con := int(f.get("rejected_constraint", 0))
 	var c_sc := int(f.get("rejected_score", 0))
 	var c_sp := int(f.get("rejected_spacing", 0))
+	## The fifth bucket (engine, 2026-08-30). Before it existed these were
+	## folded into `rejected_score`, and this popover reported them as "below
+	## the importance floor" -- a quality judgement the generator never made.
+	## Measured on the fixture the moment the bucket landed: `ford` had **320**
+	## candidates blamed on score, and every one of them had passed every test
+	## and simply lost to the number 24.
+	var c_cap := int(f.get("rejected_cap", 0))
 	var cap := int(f.get("cap", int(r["cap"])))
 	var placed := int(f.get("placed", 0))
 	var left := cand
@@ -2342,14 +2349,27 @@ func _lm_funnel_body(r: Dictionary, f: Dictionary) -> Control:
 	_lm_funnel_row(box, "failed this type's constraints", "− %d" % c_con,
 		"%d left" % left, limit == "no_terrain")
 	left -= c_sc
+	## Drawn even at zero, and it IS zero on every kind today. That is a real
+	## fact about the pipeline rather than a gap: §30 has no suitability-
+	## rejection step (step 6 rejects on constraints, step 8 on spacing, step 7
+	## only ranks), so the engine's score floor is 0.0 and nothing falls under
+	## it. Showing the row keeps the funnel's five terms visible and lets a
+	## future floor appear here without the popover changing shape.
 	_lm_funnel_row(box, "below the importance floor", "− %d" % c_sc,
 		"%d left" % left, false)
 	left -= c_sp
 	_lm_funnel_row(box, "rejected by spacing", "− %d" % c_sp,
 		"%d left" % left, limit == "spacing")
+	left -= c_cap
+	## **The row the owner's brief is about.** These passed everything and were
+	## turned away by the number alone -- so the wording says exactly that, and
+	## deliberately does not use the verb "rejected", which the four rows above
+	## have earned and this one has not.
+	_lm_funnel_row(box, "over the cap — would have fit", "− %d" % c_cap,
+		"%d left" % left, limit == "at_cap")
 	## §5's own annotation: this row subtracts nothing and it is the most
-	## important line here. It is the panel stating, in its own funnel, that the
-	## number the user set was not what limited them -- which is the whole of the
+	## important line here. It is the panel stating, in its own funnel, whether
+	## the number the user set was what limited them -- which is the whole of the
 	## owner's brief. Omit it and the funnel silently drops the one term the user
 	## came to check.
 	_lm_funnel_row(box, "cap %d" % cap, "",
