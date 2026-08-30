@@ -447,7 +447,12 @@ func _push(popup: PopupMenu, title: String, level: int) -> void:
 	var trail := PackedStringArray()
 	for s in _stack:
 		trail.append(s.title)
-	_stack.append(_Step.new(popup, title, " · ".join(trail) + " · L%d" % level, level))
+	## The breadcrumb is where the user is, not how deep the code thinks it is.
+	## This used to append " · L%d" -- so the File screen's header read
+	## "More · L3", printing an internal disclosure level to somebody who has no
+	## idea the levels exist. `level` still drives layout; it just stopped
+	## being copy.
+	_stack.append(_Step.new(popup, title, " · ".join(trail), level))
 	_render()
 
 # -- Render -------------------------------------------------------------------
@@ -730,7 +735,7 @@ func _row(title: String, subtitle: String, trail: Control, mark: Control,
 	var t := DccTheme.label(title, "text_ghost" if dim else "text", _ps(13))
 	t.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(t)
-	if subtitle.strip_edges() != "":
+	if subtitle.strip_edges() != "" and not _is_bare_path(subtitle):
 		## `font:9.5px 'IBM Plex Mono';color:#5f6468` -- `text_ghost`, one step
 		## quieter than the `text_faint` this used, on every drill row the canvas
 		## draws a second line on.
@@ -890,10 +895,48 @@ const _SUBTITLE_MAX := 150
 func _count_label(n: int) -> String:
 	return "%d item" % n if n == 1 else "%d items" % n
 
+## Is this "subtitle" just a filesystem path?
+##
+## File's STORAGE LOCATIONS rows carry the full root as their tooltip while the
+## row TEXT already carries the readable tail (`projects   .../Worlds`). On
+## desktop that is right: hover to see where it really is. On a phone the
+## tooltip becomes permanent body copy, so the screen printed four lines of
+## `/data/data/org.cartalith.walkingskeleton/files/...` under four rows that had
+## already said which folder they meant -- a value repeated as an explanation,
+## in a location the user cannot open anyway.
+##
+## Matching a leading `/` or a `C:\` drive letter, not the app id, so it stays
+## true if the package name or the storage root ever moves.
+func _is_bare_path(text: String) -> bool:
+	var t := text.strip_edges()
+	if t.find(" ") >= 0:
+		return false   ## a sentence that mentions a path is still a sentence
+	return t.begins_with("/") or (t.length() > 2 and t[1] == ":" and t[2] == "\\")
+
+## A subtitle for a phone row, from a string written to be a desktop tooltip.
+##
+## **These are two different kinds of text and were being treated as one.**
+## A tooltip is read on demand, in full, hovering; a phone subtitle is read at a
+## glance, always, under a title. Dumping the first into the second produced the
+## File screen's Autosave row: three dense lines including
+## "(world.zip → world.autosave.zip)", cut mid-sentence at "Never overwrites the
+## project…", with the sentence that actually mattered lost past the cut.
+##
+## So take the FIRST SENTENCE rather than the first N characters. A tooltip's
+## opening sentence is almost always its summary -- the rest is the caveat a
+## hover-reader wanted -- and a whole sentence never ends mid-word. The length
+## cut stays as a backstop for a tooltip with no sentence break in it, and only
+## then does an ellipsis appear.
 func _shorten(text: String) -> String:
-	if text.length() <= _SUBTITLE_MAX:
-		return text
-	var cut := text.substr(0, _SUBTITLE_MAX)
+	var t := text.strip_edges()
+	if t.length() <= _SUBTITLE_MAX:
+		return t
+	## First sentence, if there is one that is not absurdly long. `. ` rather
+	## than `.` so "world.zip" and "0.42" do not read as sentence ends.
+	var stop := t.find(". ")
+	if stop > 0 and stop <= _SUBTITLE_MAX:
+		return t.substr(0, stop + 1)
+	var cut := t.substr(0, _SUBTITLE_MAX)
 	var space := cut.rfind(" ")
 	if space > _SUBTITLE_MAX / 2:
 		cut = cut.substr(0, space)
