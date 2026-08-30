@@ -179,7 +179,16 @@ var _stale_note_label: Label
 ## §5.1's Finalize foot (`GUI_GAP_REGISTER.md` WW-01). `_bake_depth` defaults
 ## to 3 -- the reference's own `bakeAllDepth` default, and 85 tiles, which is
 ## the deepest bake that finishes in a plausible interactive wait.
+##
+## **Since 2026-08-30 it is a mirror of `DccSettings.bake_depth()`, not a
+## private field.** §2.5 lists "LOD levels 0-8" in Preferences ▸ Tiles & LOD,
+## and this dock foot is the only place the number was settable; a Preferences
+## ladder over a private field would have been a second copy free to disagree
+## with what `bake_all()` is actually called with. Both surfaces write the one
+## key now, and this reads it back in `_refresh_finalize()` so a change made in
+## the menu is visible here without a rebuild.
 var _bake_depth := 3
+var _bake_depth_choice: OptionButton
 var _bake_button: Button
 var _unfinalize_button: Button
 var _bake_status: Label
@@ -648,16 +657,43 @@ func _build_crs(parent: Control) -> void:
 ## The depth row shows the tile count *before* the user commits, because depth 5
 ## is 1365 tiles and finding that out by waiting is not an acceptable way to
 ## learn it.
+## Tiles in a pyramid of `depth` levels: (4^(depth+1) - 1) / 3, thousands
+## separated. Written out rather than read from `bake_estimate()` because this
+## builds NINE labels at once and `bake_estimate` opens the atlas directory --
+## the arithmetic is exact and the estimate's other fields (bytes, seconds) are
+## world-dependent, so those stay on the status line where a world exists.
+func _pyramid_tiles(depth: int) -> String:
+	var n := 0
+	for z in range(0, depth + 1):
+		n += (1 << z) * (1 << z)
+	var out := ""
+	var s := str(n)
+	for i in s.length():
+		if i > 0 and (s.length() - i) % 3 == 0:
+			out += " "
+		out += s[i]
+	return out
+
 func _build_finalize(parent: Control) -> void:
 	var foot := DccWidgets.section(parent, "Finalize")
 	_bake_status = DccWidgets.note(foot, "")
 
-	DccWidgets.choice(foot, "Bake depth", ["LOD 0–2", "LOD 0–3", "LOD 0–4", "LOD 0–5"],
-		_bake_depth - 2,
+	## §2.5's full 0-8 ladder, not the four rungs this used to offer. The cost
+	## is on the label rather than behind it, because depth 8 is 87 381 tiles
+	## and a synchronous bake that deep is a decision, not a click -- the same
+	## reasoning that already put the tile count on the row below.
+	_bake_depth = DccSettings.bake_depth()
+	var depth_labels: Array[String] = []
+	for d in range(0, 9):
+		depth_labels.append("LOD 0–%d   %s tile%s" % [
+			d, _pyramid_tiles(d), "" if d == 0 else "s"])
+	_bake_depth_choice = DccWidgets.choice(foot, "Bake depth", depth_labels,
+		clampi(_bake_depth, 0, 8),
 		func(i: int):
-			_bake_depth = i + 2
+			_bake_depth = i
+			DccSettings.set_bake_depth(i)
 			_refresh_finalize(),
-		"How deep the pyramid is baked. Level z holds 2^z x 2^z tiles, so the total is (4^(depth+1)-1)/3 -- depth 3 is 85 tiles, depth 4 is 341, depth 5 is 1365. Already-baked chunks are skipped, so raising the depth later only fills the gaps.")
+		"How deep the pyramid is baked. Level z holds 2^z x 2^z tiles, so the total is (4^(depth+1)-1)/3. Already-baked chunks are skipped, so raising the depth later only fills the gaps. The same setting lives in Preferences > Tiles & LOD > LOD levels -- one store, two entry points.")
 
 	_bake_button = DccWidgets.action(foot, "Bake ALL levels & finalize", _on_bake_all, true)
 	_bake_button.tooltip_text = "Pre-render every tile of the pyramid to the on-disk atlas, then lock the world. Deep zoom then reads bytes instead of re-synthesising octaves. Already-baked chunks are skipped. This blocks the UI while it runs -- see the size and tile count above before committing."
@@ -727,6 +763,15 @@ func _refresh_finalize() -> void:
 	var st: Dictionary = bridge.atlas_status()
 	var finalized := bool(st.get("finalized", false))
 	var has_world: bool = bridge.has_world
+	## Re-read the shared store: `Preferences > Tiles & LOD > LOD levels` writes
+	## the same key, and this dock is refreshed on every atlas change, so a
+	## change made in the menu shows up here without either surface knowing
+	## about the other.
+	var stored := DccSettings.bake_depth()
+	if stored != _bake_depth:
+		_bake_depth = stored
+		if _bake_depth_choice != null:
+			_bake_depth_choice.selected = clampi(stored, 0, 8)
 	## The reference swaps the bake button for Un-finalize rather than showing
 	## both -- `applyFinalizedUI`'s own `display` toggles, line 10861-10864.
 	_bake_button.visible = not finalized

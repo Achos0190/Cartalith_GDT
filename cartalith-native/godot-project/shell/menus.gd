@@ -101,6 +101,9 @@ const ID_WIN_DIAG_OVERLAY := 66
 ## `Preferences ▸ Tiles & LOD ▸ Tile size` -- §2.5's "256/512/1024".
 const ID_LOD_TILE_FIRST := 140      ## size i is ID_LOD_TILE_FIRST + i
 const ATLAS_TILE_SIZES: Array[int] = [256, 512, 1024]
+## `Preferences ▸ Tiles & LOD ▸ Tile size · LOD levels ▸ LOD levels` --
+## §2.5's "levels 0-8". Depth d is ID_LOD_LEVEL_FIRST + d.
+const ID_LOD_LEVEL_FIRST := 150   ## depths 0..8 occupy 150-158
 const ID_LOD_CLEAR_ATLAS := 149
 
 const ID_HELP_DOCS := 78
@@ -181,6 +184,7 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 ## §2.5 Tiles & LOD. `_atlas_popup`'s first row is a live status readout, so
 ## its index is kept the way `_ap_stats_idx` keeps the Asset pack one.
 var _tile_size_popup: PopupMenu
+var _lod_levels_popup: PopupMenu
 var _atlas_popup: PopupMenu
 var _atlas_stats_idx: int = -1
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
@@ -1596,13 +1600,21 @@ static func _gb(bytes: int) -> String:
 ## and `atlas_set_tile_size()` are both on the bridge, and the collapsed row
 ## this replaces said so in its own tooltip for six days.
 ##
-## **The levels half is deliberately not a control here**, and that is not an
-## engine gap. The bake depth already has one owner -- the WORLD dock's
-## Finalize foot (`world_workspace.gd`'s `_bake_depth`, LOD 0-3 by default),
-## which is what `bake_all()` is actually called with. It is a private field
-## with no `DccSettings` key and no bridge accessor, so a second ladder here
-## would be a copy free to disagree with the number the Bake button reads. Said
-## as a disabled row rather than silently omitted.
+## **The levels half is live since 2026-08-30, and the thing that unblocked it
+## was a settings key, not an engine call.** The reason that stood here was
+## right about the blocker: bake depth already had ONE owner, the WORLD dock's
+## Finalize foot, and it was a private field, so a ladder here would have been
+## a copy free to disagree with the number `bake_all()` is actually called
+## with. Promoting it to `DccSettings.bake_depth()` -- read by BOTH surfaces,
+## re-read by the dock on every atlas refresh -- removes the objection rather
+## than working around it.
+##
+## The range is §2.5's own 0-8. The engine's ceiling is higher
+## (`lod_bridge::MAX_LEVEL` is 10), so the clamp is the spec's, not a
+## capability limit. Each rung carries its tile count, because depth 8 is
+## 87 381 tiles and a synchronous bake that deep is a decision rather than a
+## click -- the same reason the dock already prints the count before the user
+## commits.
 func _build_atlas_tiles_menu(p: PopupMenu) -> void:
 	_tile_size_popup = PopupMenu.new()
 	_tile_size_popup.name = "AtlasTileSize"
@@ -1611,15 +1623,62 @@ func _build_atlas_tiles_menu(p: PopupMenu) -> void:
 		_tile_size_popup.add_radio_check_item("%d px" % ATLAS_TILE_SIZES[i],
 			ID_LOD_TILE_FIRST + i)
 	_tile_size_popup.add_separator()
-	_tile_size_popup.add_item("LOD levels · set on WORLD ▸ Finalize")
-	_tile_size_popup.set_item_disabled(_tile_size_popup.item_count - 1, true)
+	_lod_levels_popup = PopupMenu.new()
+	_lod_levels_popup.name = "AtlasLodLevels"
+	_shell.style_popup(_lod_levels_popup)
+	for d in range(0, 9):
+		_lod_levels_popup.add_radio_check_item("LOD 0–%d   %s tile%s" % [
+			d, _pyramid_tiles(d), "" if d == 0 else "s"], ID_LOD_LEVEL_FIRST + d)
+	_lod_levels_popup.id_pressed.connect(_on_lod_levels)
+	_lod_levels_popup.about_to_popup.connect(_refresh_lod_levels_menu)
+	_tile_size_popup.add_child(_lod_levels_popup)
+	_tile_size_popup.add_submenu_item("LOD levels", "AtlasLodLevels")
 	_tile_size_popup.set_item_tooltip(_tile_size_popup.item_count - 1,
-		"SS2.5's levels 0-8 (#lodMaxLevel). The depth is real and already has an owner: the WORLD dock's Finalize foot, whose LOD 0-3 default is the number bake_all() is called with. It is a private field with no settings key, so a second ladder here could disagree with the one the Bake button reads.")
+		"How deep Bake ALL levels & finalize goes. The same setting as WORLD > Finalize > Bake depth -- one store, two entry points.")
 	_tile_size_popup.id_pressed.connect(_on_tile_size)
 	_tile_size_popup.about_to_popup.connect(_refresh_tile_size_menu)
 	p.add_child(_tile_size_popup)
 	p.add_submenu_item("Tile size · LOD levels", "AtlasTileSize")
 	_refresh_tile_size_menu()
+
+## Tiles in a pyramid of `depth` levels: (4^(depth+1) - 1) / 3, thousands
+## separated. Duplicated from `world_workspace.gd::_pyramid_tiles` on purpose
+## and it is four lines of exact arithmetic, not a shared value: making this a
+## helper on a third object to serve two label builders is the abstraction the
+## `/ponytail` rule exists to refuse. The NUMBER that must not diverge is the
+## depth, and that is a settings key, not this.
+func _pyramid_tiles(depth: int) -> String:
+	var n := 0
+	for z in range(0, depth + 1):
+		n += (1 << z) * (1 << z)
+	var out := ""
+	var txt := str(n)
+	for i in txt.length():
+		if i > 0 and (txt.length() - i) % 3 == 0:
+			out += " "
+		out += txt[i]
+	return out
+
+func _refresh_lod_levels_menu() -> void:
+	if _lod_levels_popup == null:
+		return
+	var cur := DccSettings.bake_depth()
+	for d in range(0, 9):
+		_lod_levels_popup.set_item_checked(d, d == cur)
+
+func _on_lod_levels(id: int) -> void:
+	var d := id - ID_LOD_LEVEL_FIRST
+	if d < 0 or d > 8:
+		return
+	DccSettings.set_bake_depth(d)
+	_refresh_lod_levels_menu()
+	## The dock re-reads the key on its own atlas refresh, but nudging it here
+	## means the change is visible immediately rather than at the next bake or
+	## cache change -- the same courtesy `_on_tile_size` already does.
+	if _host != null and _host.has_method("refresh_atlas_status"):
+		_host.refresh_atlas_status()
+	_host.set_status("hint", "bake depth set to LOD 0–%d (%s tile%s)" % [
+		d, _pyramid_tiles(d), "" if d == 0 else "s"], "text_dim")
 
 ## Locked once anything is baked, and this is a real constraint rather than
 ## caution: `atlas_set_tile_size()` writes `bake.tile_size` and nothing else

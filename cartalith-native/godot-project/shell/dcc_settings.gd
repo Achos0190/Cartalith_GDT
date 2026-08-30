@@ -28,6 +28,7 @@ const _SEC_RECENT := "recent"
 const _SEC_GPU := "gpu"
 ## `DCC_SHELL_SPEC.md` §2.1's Autosave toggle (`GUI_GAP_REGISTER.md` FI-01).
 const _SEC_AUTOSAVE := "autosave"
+const _SEC_LOD := "tiles_lod"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -179,4 +180,31 @@ static func autosave_minutes() -> int:
 static func set_autosave_minutes(minutes: int) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_AUTOSAVE, "minutes", maxi(1, minutes))
+	_save()
+
+# -- §2.5 Tiles & LOD ---------------------------------------------------------
+
+## **How deep `Bake ALL levels & finalize` goes.**
+##
+## `DCC_SHELL_SPEC.md` §2.5 asks for "levels 0-8" under Preferences ▸ Tiles &
+## LOD. The number was already real -- `world_workspace.gd`'s `_bake_depth`,
+## which is what `bake_all()` is called with -- but it was a private field with
+## no key and no accessor, so a Preferences ladder would have been a SECOND
+## copy free to disagree with the dock the user actually bakes from.
+## `UNWIRED_FUNCTIONS.md` named that as the blocker; this is the store both
+## surfaces now read.
+##
+## Default 3: the reference's own `bakeAllDepth`, and 85 tiles, the deepest
+## bake that finishes in a plausible interactive wait.
+##
+## Clamped 0..8 to §2.5's own range. The ENGINE's ceiling is higher --
+## `lod_bridge::MAX_LEVEL` is 10 -- so this clamp is the spec's, not a
+## capability limit, and raising it needs only this line.
+static func bake_depth() -> int:
+	_ensure_loaded()
+	return clampi(int(_cfg.get_value(_SEC_LOD, "bake_depth", 3)), 0, 8)
+
+static func set_bake_depth(depth: int) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LOD, "bake_depth", clampi(depth, 0, 8))
 	_save()
