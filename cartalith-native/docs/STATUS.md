@@ -23,6 +23,66 @@ session. Update it in the same commit as whatever changes its answer.
 > the order `PARITY_AUDIT.md` §22 recommends, and it is how pass 3 and pass 4
 > both found the drift they found.
 
+## Landmark generation catalogued, nothing built — no viewshed, no Poisson-disc, and a golden-verified mountain-pass corridor already exists (2026-08-30)
+
+A **section, not another clause on the `Last updated:` line**, per this
+file's own header block. Full record: `LANDMARK_GENERATION_SCOPE.md`,
+`LANDMARK_GENERATION_RESEARCH.md`, `CLAUDE.md`'s Contents table,
+`README.md`, `ROADMAP.md`'s "Options kept open, not scheduled".
+
+The owner supplied a new research specification for causally-placed
+landmarks (TPI, curvature, viewshed, least-cost path, spatial interaction,
+Poisson-disc sampling, all composed into a weighted suitability model). It
+was imported verbatim and then catalogued against the real workspace,
+crate by crate, with `file:line` evidence — **no Rust or GDScript written**.
+
+- **Exists, and more than the research's own hedge assumed**: D8 flow
+  direction/accumulation, river networks, Strahler order, lakes (all
+  `cartalith-hydrology`); a **golden-verified, real-world-measured
+  mountain-pass corridor detector** (`build_route_corridors`,
+  `DECISIONS.md` §7i — ≈30.8% of land carries a value, ≈1.02% above half
+  strength); least-cost pathfinding at two granularities (`DijkstraPath`,
+  `WayRouter`); a population-weighted cost-distance influence field
+  (`territory_influence`, `DECISIONS.md` §7b) that is a real precedent for
+  the research's gravity/spatial-interaction model; 15 geologically-grounded
+  mineral resources, soils and lithology (`cartalith-civ`); settlements,
+  roads, sea routes, provinces, factions and timeline snapshots (all
+  bridged in `cartalith-godot`).
+- **Exists under a different name and for a different purpose** — the
+  single most useful finding: `build_ao` (`cartalith-godot/src/render.rs`)
+  computes `blur(field, r) - field` at two radii for 2D ambient-occlusion
+  darkening, which is exactly the Topographic Position Index formula,
+  sign-flipped, private to the renderer and not exposed as data.
+- **Confirmed completely absent**: viewshed/visibility (zero hits for
+  `viewshed`/`line_of_sight` across all sixteen crates; the renderer's own
+  module doc explicitly excludes "SVF/cast-shadow fields" as depending on
+  subsystems not yet built) and any general-purpose Poisson-disc sampler
+  (only two narrower building blocks exist — a brush-scoped dart-thrower in
+  `cartalith-assets` and a rank-then-suppress settlement seeder in
+  `cartalith-civ`).
+- **Nine milestones**, dependency-ordered, `LANDMARK_GENERATION_SCOPE.md`
+  §3 — M1 (extract the buried TPI/curvature math into a reusable field
+  library) through M9 (cultural interpretation, blocked on
+  `STORY_PLANNING_SCOPE.md` SP-4, itself not started). The Category
+  A/B/C distinction the research's own §31 demands is carried forward as a
+  binding rule for source code, not just documentation.
+- **Six open questions posed, none answered**: does the landmark set need
+  a save-format slot (`entities/landmarks.json`, unreserved today) or can it
+  regenerate on load; does it become a `cartalith_vault::EntityKind` (the
+  owner's own `design/vault-templates/Landmark template.md` already
+  anticipates one, unconnected to any engine entity); does
+  `DECISIONS.md` §7a/§7d's parity contract apply at all, given
+  `reference/FUNCTION_INDEX.md` has no "landmark" hit; which crate owns it;
+  what the viewshed cost budget is; and how it relates to the existing
+  manual icon-placement tool.
+- **Cost note**: viewshed at this project's 8192² UI ceiling
+  (67 108 864 cells) is not a naive-all-pairs proposition —
+  `CPU_MULTITHREADING_SCOPE.md`'s per-cell-independence test says a
+  fixed-observer-set viewshed parallelises safely, but
+  `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9's own numbers (a real
+  4.6-15.5× GPU win at 512²-2048², a real GPU **loss** at 128²) are the
+  right calibration for what it will actually cost, not a theoretical one.
+
 ## The map overlay is bounded in zoom now — `Gfx dev` 825 MB → 103 (2026-08-25)
 
 A **section, not another clause on the `Last updated:` line**, per this file's

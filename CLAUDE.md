@@ -84,6 +84,7 @@ starting work — not this file, which is a map rather than a state.
 | `GENERATION_PARAMETERS.md` | every exposed generation parameter and its API |
 | `MARKDOWN_VAULT_SCOPE.md` | the Markdown Vault: the entity audit that found continents did not exist, and milestones 0-1 |
 | `STORY_PLANNING_SCOPE.md` | settlement timelines, the conflict overlay and the Journey entity — one subsystem over the Timeline's year cursor; carries the owner's three 2026-08-25 forks |
+| `LANDMARK_GENERATION_SCOPE.md` | causally-placed landmarks: the inventory of what this engine already has for it (a golden-verified mountain-pass corridor detector, a TPI-equivalent buried inside the 2D renderer's AO, 15 mineral resources — and no viewshed and no Poisson-disc sampler), the Category A/B/C rule carried forward as binding, nine milestones, and six open questions |
 | `EXPORT_SCOPE.md` | 16K/32K single-image export — **shelved 2026-08-25 by the owner**, findings only. Records that the reference's own bake draws terrain and nothing else, the four measured gaps in today's export, the render-once decision that would have to be reversed, a banded renderer that was prototyped and measured byte-identical before being reverted, and the codec survey (WebP eliminated at 16 383 px, JPEG XL at its AGPL encoder) |
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
@@ -98,6 +99,7 @@ starting work — not this file, which is a map rather than a state.
 | `TERRAIN_ARCHITECTURE_RESEARCH.md` | owner-supplied; tiling/LOD/clipmaps, mostly Phase-3-or-later |
 | `HETEROGENEOUS_COMPUTE_RESEARCH.md` | owner-supplied; hardware-tiered scheduling, mostly not yet applicable |
 | `TERRAIN_APPEARANCE_RESEARCH.md` | owner-supplied; the source for `TERRAIN_APPEARANCE_SCOPE.md` |
+| `LANDMARK_GENERATION_RESEARCH.md` | owner-supplied, imported verbatim 2026-08-30; a geographic-causality framework for landmark placement (TPI, viewshed, least-cost path, Poisson-disc, spatial interaction) — see `LANDMARK_GENERATION_SCOPE.md` for what of it this port already has |
 | **Directories** | |
 | `cartalith-native/` | the Cargo workspace (16 crates) and the Godot project |
 | `cartalith-native/docs/` | the port's living `CHANGELOG.md` and `STATUS.md` |

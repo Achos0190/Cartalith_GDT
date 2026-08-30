@@ -188,3 +188,28 @@ the V1 design allows (`obsidian://` links, note links in exported GeoJSON,
 two-way sync — the last an explicit V1 non-goal) and **was deliberately not
 touched by this work**; `DCC_CONTROL_INDEX.md` records the conflict and
 `MARKDOWN_VAULT_INTEGRATION.md`'s header resolves it.
+
+**Landmark generation** — owner-supplied research imported 2026-08-30
+(`LANDMARK_GENERATION_RESEARCH.md`), cataloged the same day
+(`LANDMARK_GENERATION_SCOPE.md`), **no code written**. Placed here rather than
+as a numbered phase because it is not one subsystem's work: it composes
+terrain, hydrology, civilisation, urban and vault data that already spans
+Phases 1, 2 and 5, the same cross-cutting shape the Markdown Vault entry
+above has — not a new pipeline stage with its own start/end.
+
+The investigation found this closer to buildable than the research's own
+"Cartalith already possesses or intends to possess" hedge suggests: a
+golden-verified mountain-pass corridor detector (`DECISIONS.md` §7i) and a
+population-weighted cost-distance influence field (`DECISIONS.md` §7b)
+already exist and map closely onto two of the research's own suitability
+terms; a TPI-equivalent computation already exists, buried inside the 2D
+renderer's ambient-occlusion pass (`cartalith-godot/src/render.rs`) rather
+than exposed as reusable data; and 15 mineral resources, soils and lithology
+are all real. What is confirmed **completely absent** is viewshed/visibility
+and any general-purpose Poisson-disc sampler — the two the research leans on
+hardest for landmark *significance* rather than mere placement.
+`LANDMARK_GENERATION_SCOPE.md` §1 is the full inventory, §3 lays out nine
+dependency-ordered milestones, and §4 poses six questions — persistence,
+Markdown Vault entity status, whether the golden-parity contract even applies
+here, the crate boundary, the viewshed cost budget, and the manual-icon
+relationship — that need an owner ruling before any of them start.
