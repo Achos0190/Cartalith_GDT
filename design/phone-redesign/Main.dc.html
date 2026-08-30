@@ -1,0 +1,139 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f;
+           font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    a { color: #e0a34a; } a:hover { color: #f0bd72; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 412px; height: 892px; background: #0d0e0f; color: #c8cbcd; display: flex; flex-direction: column; overflow: hidden; position: relative">
+
+  <!-- The map is the app. Everything else sits over it. -->
+  <div style="position: absolute; inset: 0; background:
+      radial-gradient(120% 80% at 30% 28%, #2f4a3a 0%, #243c30 34%, #1b3040 62%, #14232f 100%)"></div>
+  <!-- suggestion of terrain: coast + a river, drawn not photographed -->
+  <svg viewBox="0 0 412 892" style="position: absolute; inset: 0" aria-hidden="true">
+    <path d="M0 300 Q90 268 152 300 T300 292 T412 318 L412 892 L0 892 Z" fill="#22392c" opacity="0.85"/>
+    <path d="M0 372 Q104 344 176 380 T332 372 T412 396 L412 892 L0 892 Z" fill="#2a4634" opacity="0.7"/>
+    <path d="M198 892 C186 760 214 690 190 616 C168 548 196 486 178 404"
+          stroke="#5fa8c4" stroke-width="5" fill="none" opacity="0.85" stroke-linecap="round"/>
+    <path d="M190 616 C232 596 254 556 252 500" stroke="#5fa8c4" stroke-width="3" fill="none" opacity="0.7" stroke-linecap="round"/>
+    <path d="M178 404 C150 372 120 366 96 336" stroke="#5fa8c4" stroke-width="2.5" fill="none" opacity="0.6" stroke-linecap="round"/>
+  </svg>
+
+  <!-- CONTEXT BAR. Replaces the hamburger: says what you have open, and is
+       itself the way to the project. 56dp. -->
+  <div style="position: relative; height: 56px; flex: none; display: flex; align-items: center;
+              gap: 12px; padding: 0 16px; background: rgba(18,19,20,0.92);
+              border-bottom: 1px solid rgba(255,255,255,0.10)">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e0a34a" stroke-width="1.6" aria-hidden="true">
+      <circle cx="12" cy="12" r="9"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><path d="M15.5 8.5l-2.2 5.4-5.4 2.2 2.2-5.4z" fill="#e0a34a" stroke="none"/>
+    </svg>
+    <div style="display: flex; flex-direction: column; gap: 1px; flex-grow: 1; min-width: 0">
+      <div style="font-size: 14px; color: #e8ebec; letter-spacing: 0.01em">Kethran Reach</div>
+      <div class="mono" style="font-size: 10px; color: #6f7478">seed 24601 · 640 km · 2048×1311</div>
+    </div>
+    <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+                margin-right: -12px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a9adb0" stroke-width="1.6" aria-hidden="true">
+        <circle cx="12" cy="12" r="1.4" fill="#a9adb0"/><circle cx="19" cy="12" r="1.4" fill="#a9adb0"/><circle cx="5" cy="12" r="1.4" fill="#a9adb0"/>
+      </svg>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1"></div>
+
+  <!-- Map controls. Differentiated by JOB, not four identical discs: a paired
+       zoom stepper, then fit, then pan-lock. -->
+  <div style="position: absolute; right: 14px; bottom: 316px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; flex-direction: column; background: rgba(20,22,23,0.92);
+                border: 1px solid rgba(255,255,255,0.16); border-radius: 24px; overflow: hidden">
+      <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e8ebec" stroke-width="1.8" aria-hidden="true"><path d="M12 6v12M6 12h12"/></svg>
+      </div>
+      <div style="height: 1px; background: rgba(255,255,255,0.16)"></div>
+      <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e8ebec" stroke-width="1.8" aria-hidden="true"><path d="M6 12h12"/></svg>
+      </div>
+    </div>
+    <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+                background: rgba(20,22,23,0.92); border: 1px solid rgba(255,255,255,0.16); border-radius: 24px">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#e8ebec" stroke-width="1.7" aria-hidden="true">
+        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+      </svg>
+    </div>
+  </div>
+
+  <!-- THE DISCOVERY SURFACE. One always-visible line that answers "what can
+       this app do?" without knowing a word of its vocabulary. -->
+  <div style="position: relative; flex: none; background: rgba(18,19,20,0.96);
+              border-top: 1px solid rgba(255,255,255,0.10); padding: 14px 16px 10px;
+              display: flex; flex-direction: column; gap: 12px">
+
+    <div style="display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
+                background: #101112; border: 1px solid rgba(255,255,255,0.16); border-radius: 2px">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#8d9296" stroke-width="1.8" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>
+      </svg>
+      <div style="font-size: 14px; color: #8d9296">Search every action…</div>
+    </div>
+
+    <!-- Contextual next steps. Three, because the state suggests three -- not
+         a horizontal scroller of everything. -->
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <div class="mono" style="font-size: 9px; letter-spacing: 0.22em; color: #8d9296; padding-bottom: 6px">SUGGESTED NEXT</div>
+      <div style="display: flex; gap: 8px">
+        <div style="flex-grow: 1; height: 48px; display: flex; align-items: center; justify-content: center;
+                    border: 1px solid #e0a34a; color: #e0a34a; font-size: 13px; border-radius: 2px">Place settlements</div>
+        <div style="flex-grow: 1; height: 48px; display: flex; align-items: center; justify-content: center;
+                    border: 1px solid rgba(255,255,255,0.16); color: #c8cbcd; font-size: 13px; border-radius: 2px">Rivers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM NAV. Four verbs a person recognises, not four workspace names.
+       "Panels" and "More" said nothing; these say what is behind them. -->
+  <div style="position: relative; flex: none; height: 64px; display: flex;
+              background: #121314; border-top: 1px solid rgba(255,255,255,0.10)">
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#e0a34a" stroke-width="1.7" aria-hidden="true">
+        <path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13M15 7v13"/>
+      </svg>
+      <div style="font-size: 10.5px; color: #e0a34a">Map</div>
+    </div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8d9296" stroke-width="1.7" aria-hidden="true">
+        <path d="M4 19l5-5 3 3 8-8"/><path d="M14 6h6v6"/>
+      </svg>
+      <div style="font-size: 10.5px; color: #8d9296">Build</div>
+    </div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8d9296" stroke-width="1.7" aria-hidden="true">
+        <path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>
+      </svg>
+      <div style="font-size: 10.5px; color: #8d9296">Layers</div>
+    </div>
+    <div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#8d9296" stroke-width="1.7" aria-hidden="true">
+        <path d="M4 6a2 2 0 012-2h4l2 2h6a2 2 0 012 2v9a2 2 0 01-2 2H6a2 2 0 01-2-2z"/>
+      </svg>
+      <div style="font-size: 10.5px; color: #8d9296">Project</div>
+    </div>
+  </div>
+
+  <!-- Gesture inset. Left empty on purpose: the OS draws its own handle. -->
+  <div style="flex: none; height: 20px; background: #121314"></div>
+</div>
+</x-dc>
+</body>
+</html>
