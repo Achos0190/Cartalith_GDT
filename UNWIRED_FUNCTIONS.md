@@ -5,77 +5,154 @@ functions are wired or the ones that have no code behind them get listed in a
 table with a proper proposal (inferred from the menu name and highest probable
 explanation/design spec of the named function.)"*
 
-This is that table. It was produced by reading `docs/DCC_SHELL_SPEC.md` §2 and
-§2.5 item by item against `shell/menus.gd`, plus the phone and tablet passes,
-and every proposal is drawn from the spec's own behaviour column or from a
-binding that already exists in the engine — not invented.
+This is that table. Every proposal is drawn from `docs/DCC_SHELL_SPEC.md`'s own
+behaviour column, from `docs/ANDROID_UI_SPEC.md`, or from a binding that already
+exists in the engine — none is invented.
 
 **Every row here is honest in the product too.** `menus.gd::_todo(p, text, why)`
-always sets a tooltip, so each of these appears disabled *with its reason* where
-a user meets it; none is enabled-and-inert. `CommandIndex` reports the same
-reasons in the phone's search results (32 of 32 unavailable rows carry one).
+always sets a tooltip, so each appears disabled *with its reason* where a user
+meets it; none is enabled-and-inert. `CommandIndex` reports the same reasons in
+the phone's search results.
 
-Counts: **44 items** — 7 trivial, 14 small, 13 medium, 10 large.
+---
 
-| Item | Where | Proposal | Size |
-|---|---|---|---|
-| "Arming a tool drops the sheet to a peek" | MAP tab tool chips — the prototype states it on the label itself (`TOOLS · ARMING DROPS THE SHEET TO A PEEK`) and implements it in `hTool` (`detent: t==='inspect' ? current : 'peek'`). No caller exists in dcc_shell.gd; tool arming lives outside this file (menus.gd / app.gd / map_overlay.gd). | Expose `_set_phone_detent()` as a small public `phone_peek_sheet()` and call it from whichever function arms a tool, for every tool except Inspect — arming a tool means the user is about to touch the map, and the sheet is what is covering it. One line at the arming site; the detent machinery it needs is now in place. | trivial |
-| Clear caches… confirmation dialog | MISSING GUARD — Preferences ▸ Memory ▸ Clear caches… fires immediately, shell/menus.gd:937 / handler at shell/menus.gd:1256-1266 | Spec §2.5: "Confirmation; clears atlas + field caches, never project data." The row is destructive (it also un-finalizes the world) and has no confirm step, unlike Assets ▸ Clear library… which the spec marks destructive and the shell does confirm. Add the same confirmation; the freed-bytes text the handler already computes is the right thing to show in it. | trivial |
-| Documentation | Help menu — shell/menus.gd:1483 (_todo) | Spec §2.7 lists it first. No in-app documentation exists. Smallest honest version: OS.shell_open() to the repository docs, which the tooltip already names as the reference — that is a real behaviour rather than a promise. | trivial |
-| GPU acceleration backend readout ("WebGPU · on") | ABSENT — Preferences ▸ Performance ▸ GPU acceleration label carries no backend text, shell/menus.gd:832 | Spec §2.5: "Toggle + backend readout (`WebGPU · on`)." The backend string is already known per device (gpu_devices() returns "backend") and already rendered in the Devices rows. Append the active backend to this row's label in about_to_popup, the way Edit ▸ Undo already appends its live operation name. Note the spec's literal "WebGPU" is the browser reference's backend; print the real one (Vulkan/DX12) rather than the spec's example string. | trivial |
-| Letter-spacing is pinned across desktop and tablet but `ROLE` cannot carry it | `shell/dcc_theme.gd` — `mono(spacing, medium)` takes tracking as an int argument; `ROLE`'s pinned block notes the omission. | No change needed, recorded so the next reader does not add it. The tablet artboard draws .12/.14/.18/.20/.22/.26 em exactly as the desktop one does — tracking is one of the properties that is genuinely pinned at x1.00 — so a `ROLE` row would be a pair of identical numbers behind a resolver that can only return one of them. The three pinned rows that ARE in the table (`w_fab`, `hairline`, `active_underline`) earn their place because a consumer might otherwise scale them; tracking already comes from an explicit argument at every call site and cannot be scaled by accident. | trivial |
-| Working set — read-only "1.6 GB of 12 GB" | PARTIAL — Preferences ▸ Memory ▸ Working set… opens PerformanceWindow instead, shell/menus.gd:932 | Spec §2.5: "Read-only, `1.6 GB of 12 GB`." The spec asks for an inline disabled readout in the menu, not a dialog. OS.get_static_memory_usage() is already the source app.gd's status bar uses, so this is one disabled row refreshed in about_to_popup — keep the dialog as well, since it carries more than the spec's one line. | trivial |
-| `TABLET` and `ROLE` now state the six region boxes twice | `shell/dcc_theme.gd:286` (`TABLET`, consumed by `dcc_shell.gd:322` `_scaled()`) and the `h_menu_bar`/`h_tool_options`/`h_status`/`h_timeline`/`h_rail_head`/`w_rail` rows of `ROLE`. | Deliberate, flagged in the code, and left for the agent who owns dcc_shell.gd. `TABLET` answers `_scaled(px)` for a caller holding only an integer; `ROLE` answers a caller that knows which region it is building. The figures are identical today and the comment says they must move together. The single-source fix is to rewrite `_scaled()`'s five call sites to name their region and derive `TABLET` from `ROLE` (or delete it), but that edits dcc_shell.gd, which this pass does not own. Until then the duplication is two names for one measured value, not two competing values. | trivial |
-| Autosave interval submenu — off, 1, 5, 15 min | ABSENT — File ▸ Autosave is a bare check item, shell/menus.gd:210 | Spec §2.1: "Toggle + interval submenu (off, 1, 5, 15 min). Default 5 min. Status bar reports last autosave." DccSettings.autosave_minutes() already exists and is read for the tooltip — this is a four-row radio submenu writing that key, plus a status-bar slot for the last autosave time. The spec's four values and 5 min default are real numbers to use. | small |
-| Deselect (⌘D) | Edit menu — shell/menus.gd:412 (_todo) | Spec §2.2, same row as Select all. Cheaper than Select all: it only needs a shared clear-selection call across the three selection owners (icon, label, settlement); Escape currently disarms the tool without touching selection (app.gd _escape_action). | small |
-| Documentation (in-app) | Help menu — shell/menus.gd _help(), live only when a source checkout resolves; disabled with the reason otherwise | §2.7 lists it first. It now opens the repository's documents (README.md, DECISIONS.md, ARCHITECTURE.md and the scope documents) via OS.shell_open, which is a real behaviour, but there is still no in-app manual and §2.7 names no URL. An exported build ships res:// inside the .pck, so the row is honestly disabled there. Closing it properly needs either a published documentation URL from the owner or docs bundled into the export. | small |
-| Fully-dismissed sheet state (prototype `tab:null`) | `_pick_phone_tab()` re-tap path and `_on_phone_sheet_grab_input()` release path, dcc_shell.gd — both collapse to `peek` where the prototype removes the sheet entirely. | Declined on purpose rather than missed, and recorded in both functions' comments: this sheet is the desktop's tool options bar (§13 "tool options become a bottom sheet"), the one row that is always on screen on desktop and tablet, so a state where it is absent has no counterpart to keep parity with. If the owner wants true dismissal, it should come with a way back that is not a tab (the prototype has none — its bar re-lights a tab), e.g. the peeking handle staying as a 24 dp grab strip. | small |
-| Icon families / Texture sets — filled/capacity counts (and the spec's 24 families) | PARTIAL — Assets ▸ Icon families ▸ / Texture sets ▸ show capacity only, shell/menus.gd:625-655 | Spec §2.3: "Submenu listing the 24 families with filled/capacity counts." Two separate facts: the family count is 8, not 24 (verified in cartalith-assets slots.rs/library.rs and already recorded in ASSET_LIBRARY_SCOPE.md §1 — the spec's 24 is the number to correct, not the code), and the filled count is genuinely missing because no per-family fill query is exposed. One small #[func] returning filled-per-family closes the second half. | small |
-| LOD levels 0–8 (#lodMaxLevel) | Preferences ▸ Tiles & LOD ▸ Tile size · LOD levels ▸ — shell/menus.gd _build_atlas_tiles_menu(), disabled row naming its owner | Deliberately NOT a control here. The bake depth is real and already owned by the WORLD dock's Finalize foot (world_workspace.gd's _bake_depth, LOD 0–3 default), which is the number bake_all() is called with. It is a private field with no DccSettings key and no bridge accessor, so a Preferences ladder would be a second copy free to disagree. To make it a preference properly: promote _bake_depth to a DccSettings key that world_workspace.gd reads, then both surfaces point at one store. | small |
-| Pack metadata… — modal editing name / author / license | WIRED TO THE WRONG THING — Assets ▸ Asset pack ▸ ACTIVE PACK, handler at shell/menus.gd:672 calls _host.open_asset_library() with no modal | Spec §2.3.1: "Pack metadata… — modal editing name / author / license." Reading is already live (as_pack_info() feeds the ACTIVE PACK row). The gap is a three-field write modal and the matching setter; the slot inspector already shows the same three values read-only at its foot. Until the modal exists the row's tooltip should say it opens the library rather than editing metadata, as the Edit and Batch rows honestly do. | small |
-| Refine detail for the current view (#lodRefineBtn) | Preferences ▸ Tiles & LOD ▸ Atlas cache ▸ — shell/menus.gd _build_atlas_cache_menu(), _todo | The engine call exists and is uncalled: bake_visible(z, x0, y0, x1, y1) wants a view rect in coarse grid cells, and ViewportHost computes exactly that rect inside the private _update_lod() while publishing only zoom(). One public visible-grid-rect accessor on ViewportHost closes this entirely — it is the cheapest remaining win in this group. | small |
-| Report an issue | Help menu — shell/menus.gd:1495 (_todo) | Spec §2.7 lists it. No issue route wired. Pairs naturally with the already-live Generation info… (which dumps every generation parameter as plain text): an issue route that pre-fills that dump plus version/build is the useful shape. Blocked only on the owner naming a destination. | small |
-| Sheet header row (title · subtitle · ← back · ✕ close) | Phone tool sheet, directly under the grab handle — the prototype draws it inside the same `grabRef` block (`Cartalith Android.dc.html` line 176ff: `sheetTitle` at 11px/.2em accent, `sheetSub` at 9.5px dim, two 38px round chips). dcc_shell.gd:_build_phone_tool_sheet() — the sheet goes straight from the handle to the scrolling body. | Add a 38 dp row under the handle: an accent 11 px/.2em title and a 9.5 px dim subtitle fed from the active tab (`titles` in the prototype: MAP · 'layers · style · annotation'; GENERATE · 'pipeline · seed NNNN'; PLAN · 'journey · A → B'), a leading ← chip shown only when a depth exists (which `PhoneMenu` already tracks with `moreStack`), and a trailing ✕ that collapses to peek rather than closing, matching the re-tap behaviour already wired. Title text is the only new state; everything else reads from `_phone_tab` and the existing menu stack. | small |
-| Show tile borders | Preferences ▸ Tiles & LOD ▸ Chunk debug overlay ▸ — shell/menus.gd _build_lod_debug_submenu(), _todo (newly added row; was absent outright) | §2.5 lists it beside the off/grid/colours segment and it is not one of them: Grid draws the debug overlay's CHUNK grid, this outlines each composited LOD TILE's own edge. ViewportHost._draw_lod_debug() has no border pass, and _lod_sprite_rect() already returns the exact rect needed — a draw call short, not a design short. | small |
-| Slot transform — scale · fit · reset | Assets ▸ Asset pack ▸ EDIT band — shell/menus.gd:594 (_todo) | Spec §2.3.1 Edit: "Slot transform (scale · fit · reset — #alScale, #alFit, #alReset)". ItemTransform is already real and shown read-only in the slot inspector; the missing half is one as_set_item_transform #[func] to write scale/pan back. Engine-side, small. | small |
-| Tile size · LOD levels | ABSENT as its own row; folded into shell/menus.gd:901 | Spec §2.5: "256/512/1024; levels 0–8 (#lodMaxLevel)." The engine already exposes atlas_set_tile_size() and nothing in Preferences calls it — this is a submenu over an existing binding plus a 0–8 level ladder. The cheapest real win in this group. | small |
-| Tiled LOD — auto on zoom / manual | ABSENT as its own row; folded into the single disabled row at Preferences ▸ Tiles & LOD — shell/menus.gd:901 | Spec §2.5: "`auto on zoom` (default) · `manual`. Replaces #lodAutoChk." A two-row radio submenu. The auto path is what the viewport already does on zoom; manual means the deep-zoom pyramid is only entered on explicit request. Small once split out of the collapsed row. | small |
-| Atlas cache — size cap in GB | Preferences ▸ Tiles & LOD ▸ Atlas cache ▸ — shell/menus.gd _build_atlas_cache_menu(), _todo | §2.5: "Size cap in GB + Clear." Clear is now live here; the cap is not, and the blocker is eviction rather than measurement — bake_bridge writes chunks and only atlas_clear() removes them, all at once, with no access order or level priority recorded to evict by. The GB ladder itself should mirror Performance ▸ VRAM budget, which already solves the presentation half. | medium |
-| Atlas cache — size cap in GB + Clear | PARTIAL: Clear exists as Preferences ▸ Memory ▸ Clear caches… (shell/menus.gd:937); the GB size cap is ABSENT — folded into shell/menus.gd:901 | Spec §2.5: "Size cap in GB + Clear (#lodBakeBtn, #lodClearAtlasBtn)." The persistent atlas is live (bake_bridge.rs) and atlas_status() already reports bytes, so the cap is an eviction policy over a measured store plus a GB ladder — mirror the VRAM budget ladder's shape, which already solves the same problem. Also missing: the reference's Refine detail for the current view (#lodRefineBtn), whose engine call bake_visible() exists and is uncalled. | medium |
-| CPU worker threads | Preferences ▸ Performance — shell/menus.gd:865 (_todo) | Spec §2.5: "Integer, 1…logical cores, default cores − 4 (12 of 16)." Rayon sizes its own pool today. Wire as a submenu ladder (1 · ¼ · ½ · cores−4 · all) calling ThreadPoolBuilder::num_threads at pool init; the default the spec names, cores−4, is a real number to honour. | medium |
-| Chunk debug overlay — off · grid · colours, + tile borders | MISPLACED + PARTIAL: grid/colors/labels live under Help ▸ LOD debug (shell/menus.gd:1500-1536); spec puts it in Preferences ▸ Tiles & LOD, where it is folded into shell/menus.gd:901. Tile borders ABSENT entirely. | Spec §2.5: "`off · grid · colours` (#lodDbgSeg) + tile borders." Two jobs: move the existing three-toggle submenu from Help to Preferences ▸ Tiles & LOD where §2.5 puts it (the Help placement is a documented but spec-contradicting choice), and add Show tile borders, which has no draw path in ViewportHost yet. | medium |
-| Find on map… (⌘F) | Edit menu — shell/menus.gd:416 (_todo) | Spec §2.2: "Search places, labels, factions, routes; result pans the viewport." CommandIndex (shell/command_index.gd, built this session) is the pattern to reuse — a second index over world entities rather than menu commands, with the hit panning ViewportHost to the entity's cell. | medium |
-| Lighting rig defaults | Preferences ▸ Graphics — shell/menus.gd:890 (_todo) | Spec §2.5: "Azimuth, elevation, ambient, multidirectional on/off." Note §7's Layer properties LIGHT group already ships azimuth 315°, elevation 45°, strength 0.62, multidirectional 8 lights in the Cartography workspace — this Preferences row is the per-project *default* those per-layer values seed from, so it is a defaults store over existing controls, not new rendering. | medium |
-| Preferences ▸ Units (km / mi) | MORE ▸ System ▸ Preferences ▸ Units — shell/menus.gd:1211, added via _todo() so it draws disabled with its reason. NOT my file; reported because ANDROID_UI_SPEC.md's MORE line explicitly says "units km/mi wired" and the MORE list I restructured is what now surfaces it on the phone. | menus.gd's own reason is the honest one and I would not override it: the shell is km-only, and a setting here with five call sites still printing km is worse than no setting. The work is one formatter (DccSettings.distance(km) -> String) plus its five consumers — the status bar's cursor coordinates, the scale bar, Sculpt's brush km equivalent (#sBrushKm), Measure's running total and per-segment lengths, and Region select's km column — after which this row becomes a two-value radio pair beside Theme, and the phone gets it for free because phone_menu.gd re-presents the same popup. Theme dark/light, the other half of that spec clause, IS wired (menus.gd:1198 _theme_popup) and draws here as a working radio row. | medium |
-| Redo (⌘⇧Z) | Edit menu — shell/menus.gd:354 (_todo) | Spec §2.2 lists Redo with no behaviour column of its own ("—"), i.e. the mirror of Undo. The code's reason is correct: undoLast() pops the snapshot rather than moving a cursor, so global redo needs undo.rs turned from a stack into a cursor-over-history. Until then keep the _todo; the Sculpt draft's own Redo (right dock) already exists and the tooltip already points at it. | medium |
-| Save layout as… | Window menu — shell/menus.gd:1418 (_todo) | Spec §2.6 lists it beside Reset layout. Needs a layout store: dock widths, collapsed state, visible regions, active domain — DccSettings already persists window state, so this is a named-preset section over data the shell already has. | medium |
-| Simulation — "mini transport strip overlay" | MORE ▸ Simulation (shell/phone_menu.gd, _action_row() case "simulation", ~line 700). The strip the spec means would live over the map; today's phone timeline region is shell/app.gd:810 _fill_timeline_strip(), which draws the caption TIMELINE, a sentence, and an "Open Timeline" button — a pointer, not transport controls. | The row is wired to the real destination (CIVIL ▸ Simulation, the collapse/recovery model), so nothing is dead — but the spec's overlay does not exist anywhere in the shell, on phone or desktop. DCC_SHELL_SPEC.md §10 gives its full desktop form: a scrub track across the project's year range with the current year in accent, transport ▶ Play · ⏸ Pause · Step ◀ ▶, speeds ×1 / ×10 / ×100, a run-state readout (PAUSED), and per-layer toggles Climate · Population · Economy · Politics · Infrastructure · Warfare. Proposal for the phone: a peek-detent overlay above the bottom bar (not a new region — reuse timeline_bar, which the phone already builds) carrying year readout · ▶/⏸ · step ◀ ▶ · ×1/×10/×100, with the six layer toggles behind the drag handle at half detent. It must drive the same year cursor civilization_workspace.gd's Politics category already owns rather than a second clock — that cursor is the only timeline state the engine has. Blocked on nothing but that binding; app.gd's own strip comment ("the controls it reserves space for deliberately live in the CIVIL dock's Timeline category instead") is the decision this would revisit, so it needs the owner's word before it is built. | medium |
-| The tablet interior walk — nothing reads `ROLE` | `shell/dcc_shell.gd` — `phone_fit()` opens `if not _phone: return` (registered as DS-03 at GUI_GAP_REGISTER.md:8340); the sibling tablet pass does not exist. Token side is `shell/dcc_theme.gd` `ROLE` / `role_px()`. | A `tablet_fit(node)` in dcc_shell.gd, kept as a SECOND function rather than folded into `phone_fit` behind a shared `fit()`. §57's refutation #1 killed the folded version: 22 of ~25 `phone_fit` call sites pass `unit = 1.0` for the load-bearing reason quoted at dcc_shell.gd:858 (a Window that already set `content_scale_factor`), and a dispatcher that drops `unit` doubles the phone's scale. `tablet_fit` guards on `DccTheme.is_tablet()`, takes no unit at all (there is none — the measured spread is x1.00 to x2.06 with no centre), and resolves per construction site: `role_px("fs_prose")` on dock labels, `"fs_readout"` on Plex numerics, `"slider_track_h"`/`"slider_track_w"` on HSlider, `"btn_min_h"`/`"chip_min_h"` on the two button tiers. Resolving by ROLE KEY at the call site is what makes §57's refutation #2 moot: tiers A (44) and B (34) are unreachable when dispatched by Godot class, because DccWidgets.segment() -> chip() and the commit/discard buttons are both a plain `Button` in the same walked subtree — but `segment()` knows it is building chips and can ask for `chip_min_h` directly. This closes the measured defect: 2560x1600 currently draws 14px sliders, 26px action buttons and 11px dock labels against the canvas's 44/44/14. | medium |
-| Units — km · mi | Preferences ▸ Application — shell/menus.gd:965 (_todo) | Spec §2.5: "`km` · `mi` (#calUnitSeg)." The shell is km-only. Real work is not the menu row but every readout that prints km — status bar cursor coords, scale bar, brush km equivalent (#sBrushKm), Measure totals, Region select's km column. One formatting helper plus a settings key, then every call site through it. | medium |
-| Which controls leave the tablet — the content decision under DS-03 | Owner call, not a file. Recorded at GUI_GAP_REGISTER.md §57 'the tablet is not a scaled desktop'; the affected regions are the right dock (`dcc_shell.gd` `_build_right_dock`) and `layers_popover.gd`. | Take it to the owner as a question before building, per §57's own 'what a later pass should do differently'. The tablet artboard DELETES roughly 30% of the desktop's content — the entire PROPERTIES section, the six per-layer opacity minis, the scale bar, the layers popover, 2 of 6 layer rows and 4 of 13 sample fields — and that deletion is precisely what buys room for 44px rows inside a band that only grew x1.498. No table can express a deletion, so `ROLE` cannot and does not attempt it. Concretely: a `TABLET_OMITS` set of section ids that `_build_right_dock` skips when `DccTheme.is_tablet()`. I did not invent the membership list, because the canvas only records an answer somebody already gave and the four sample fields it drops (aspect, drainage, soil, control) versus the four it keeps are not derivable from the spec. | medium |
-| 3D viewport defaults | Preferences ▸ Graphics — shell/menus.gd:889 (_todo) | Spec §2.5: "Submenu: relief exaggeration, detail, light, flatten oceans. Replaces #genV3dSec — exempt from the finalize lock." No 3D viewport exists. The four parameter names and the finalize-lock exemption are the spec's own and should be honoured verbatim when Phase 3 lands. | large |
-| Anti-aliasing · anisotropy | Preferences ▸ Graphics — shell/menus.gd:887 (_todo) | Spec §2.5: "off · MSAA 2× · MSAA 4× · MSAA 8×; anisotropy 1–16." Belongs to the 3D viewport, which DECISIONS.md §4 defers to Phase 3. Keep the _todo; do not bolt MSAA onto the 2D map path, where it means nothing. | large |
-| Check Data — current warning count | PARTIAL — Data ▸ VALIDATION ▸ Check Data row has an empty badge, generated from data_manager_window.gd ROUTES (kind "gap") | Spec §2.4: "Check Data (shows current warning count)." The badge column exists and is drawn for other routes ("tiles", "PNG", ".zip"). Blocked on a validation pass to count — the route itself is a disclosed gap in the window — so the badge should stay empty rather than be faked, and lands with the validation engine work. | large |
-| Colour management | Preferences ▸ Graphics — shell/menus.gd:888 (_todo) | Spec §2.5: "sRGB · Display P3 · linear." Renderer is sRGB-only. Realistically blocked until render.rs carries a working colour space through to the texture; a three-row radio that only ever resolves to sRGB would be the silently-inert shape this file forbids. | large |
-| Copy (⌘C) | Edit menu — shell/menus.gd:401 (_todo) | Spec §2.2, same row as Cut. Same prerequisite: a shared clipboard representation for label / icon / place / stamp. | large |
-| Cut (⌘X) | Edit menu — shell/menus.gd:397 (_todo) | Spec §2.2: "Operate on the current selection (labels, icons, places, stamps)." Needs a clipboard model — one common serialised representation across the three unrelated single-item selections (icon_get_selected, label_get_selected, settlement). PARITY_AUDIT.md §20 classes ED-03/ED-04 as large for exactly this reason. | large |
-| Cut · Copy · Paste (⌘X ⌘C ⌘V) | Edit menu — shell/menus.gd _edit(), three _todo rows | §2.2: "Operate on the current selection (labels, icons, places, stamps)." Blocked on one shared serialised representation across three unrelated single-item selections (icon_get_selected, label_get_selected, settlement) — PARITY_AUDIT.md §20 classes ED-03/ED-04 large for exactly this. Paste additionally needs a placement rule (cursor position vs. original coordinates) that §2.2 does not state, so that is a question for the owner rather than an inference. | large |
-| Keyboard shortcuts… (editable, per-context) | Preferences ▸ Application — shell/menus.gd:966 (_todo). NOTE: its tooltip "No shortcut table yet." is STALE — Help ▸ Keyboard shortcuts… is live (shell/menus.gd:1487). | Spec §2.5: "Editable table, per-context." Distinct from Help's read-only ShortcutsDialog, which walks the menus and reports what it finds. This one must WRITE: a per-context binding store in DccSettings that the menu accelerators and app.gd's key handlers read back. Minimum honest fix right now: correct the stale tooltip to say the read-only list exists under Help and what is missing is rebinding. | large |
-| Paste (⌘V) | Edit menu — shell/menus.gd:402 (_todo) | Spec §2.2, same row. Blocked on the same clipboard model; paste additionally needs a placement rule (cursor position vs. original coordinates) the spec does not state. | large |
-| Select all (⌘A) | Edit menu — shell/menus.gd:408 (_todo) | Spec §2.2: "Scoped to the active layer." Needs multi-selection first — every selection in the shell holds exactly one index today. Ship after the selection model becomes a set. | large |
+## This document was itself stale, and that is the point of re-verifying it
 
-## Two things this table deliberately does not list
+The first cut had **44 rows**. A read-only re-verification pass on 2026-08-30
+checked every one against the code and found **12 of 44 wrong**: eleven had
+shipped since the table was written, and one described a real gap inaccurately.
+Four more were duplicates of each other.
 
-**`Data ▸ Conversion`** (Coordinate Systems · Format Conversion · Data
-Transformation) is in `DCC_SHELL_SPEC.md` §2.4 and is **absent by owner decision
-of 2026-08-20** (`GUI_GAP_REGISTER.md` §7.4). `CLAUDE.md`'s own working rule
-names this exact case: an owner decision is newer than any canvas, so the spec
-is the stale party there, not the shell. It is not a gap and must not be
-re-added.
+That is the exact defect class this repository has spent the week fixing — a
+disclosure describing something the code no longer does — and a *gap register*
+is the worst place for it, because its whole value is being trustworthy about
+what is missing. Recorded here rather than quietly corrected.
 
-**Bindings with no shell caller** are a different question and are tracked by
-`cartalith-native/tools/audit_wiring.py`, not here. That harness reports
-question B at **2 of 370**, and both survivors carry an argued decline in their
-own Rust doc comment (`arc_label_line_width` would cost an FFI round-trip per
-label per frame; `project_read_document` has no caller the gallery cannot
-already serve with its own `ZIPReader`).
+The rows closed since the first cut, with what closed them:
+
+| Was listed as a gap | Actually |
+|---|---|
+| Clear caches… has no confirmation | `menus.gd::_clear_caches()` builds a real `ConfirmationDialog`, freed bytes in the OK button |
+| Autosave interval submenu ABSENT | `_autosave_popup` exists and writes `DccSettings.set_autosave_minutes()`; the status bar reports it |
+| GPU backend readout absent | rewritten in `about_to_popup` to `"GPU acceleration   %s · %s"` via `_active_backend()` |
+| Working set opens a dialog instead of a row | inline disabled row, refreshed in `about_to_popup`; the dialog is kept as well |
+| Icon families / Texture sets have no filled counts | `_refresh_family_counts()` computes filled/capacity live |
+| Pack metadata… wired to the wrong thing | a real three-field modal writing `as_set_pack_info()` |
+| Tile size · LOD levels ABSENT | a real radio submenu calling `set_atlas_tile_size()` |
+| Documentation (listed twice) | live via `OS.shell_open` when a source checkout resolves |
+| **Slot transform — scale · fit · reset** | **the row's reason was FALSE for a week**: `as_set_item_transform` is at `cartalith-godot/src/lib.rs:10811` and `asset_library_window.gd:1703` has been calling it on every slider tick, with Fit and Reset at `:2485`/`:2488`. Same shape as `Show tile borders` below: not stale wiring but a stale *reason*, which `audit_wiring.py` structurally cannot see, because every `#[func]` involved IS called and it is the tooltip that lies |
+
+And the rows closed by building them, same day:
+
+| Row | What closed it |
+|---|---|
+| Find on map… (⌘F) | `shell/place_search.gd` — 162 entities on a 192×144 world, off five live getters |
+| Refine detail for the current view | `ViewportHost.visible_grid_rect()`; measured, 20 chunks to LOD 5 in 0.63 s |
+| Show tile borders | live — **and its stated reason was factually wrong.** It is not a fourth chunk-debug toggle: the reference's `#lodShowGrid` (line 1281) sets `_showExportGrid`, draws `drawExportTileGrid()` (line 9602) as a dashed `refCols × refRows` split of the whole map, and its call site is `if(_showExportGrid && !_lodOn)` (line 8658) — it draws when the pyramid is DOWN, the opposite of the three toggles it was filed beside |
+| Deselect (⌘D) | `DccApp.clear_selection()` + the `icon_deselect()` binding icons never had |
+| LOD levels 0–8 | `DccSettings.bake_depth()` — the blocker was a private field, so it stopped being one |
+| Tiled LOD · auto / manual | three functions on `ViewportHost`, shipped **with** `Enter deep detail now`, because a suppressor with no way in is worse than no choice |
+| Lighting rig defaults | `DccSettings.lighting_defaults()` — the row's own reason named this fix and left it unbuilt |
+
+**Counts now: 21 rows genuinely open** — 3 trivial, 6 small, 6 medium, 6 large —
+after deduplication. Every one below was re-verified against the code on
+2026-08-30.
+
+---
+
+## Trivial
+
+| Item | Where | Proposal |
+|---|---|---|
+| "Arming a tool drops the sheet to a peek" | MAP tab tool chips. The prototype states it on the label itself (`TOOLS · ARMING DROPS THE SHEET TO A PEEK`) and implements it in `hTool` (`detent: t==='inspect' ? current : 'peek'`). `_set_phone_detent()` has no caller outside `dcc_shell.gd` | Expose it as a small public `phone_peek_sheet()` and call it from whichever function arms a tool, for every tool except Inspect — arming a tool means the user is about to touch the map, and the sheet is what covers it. One line at the arming site; the detent machinery is already in place |
+| Letter-spacing is pinned but `ROLE` cannot carry it | `dcc_theme.gd` — `mono(spacing, medium)` takes tracking as an argument | **No change needed**, recorded so the next reader does not add it. The tablet artboard draws .12/.14/.18/.20/.22/.26 em exactly as the desktop one does; tracking is genuinely pinned at ×1.00, so a `ROLE` row would be two identical numbers behind a resolver that can only return one. Tracking already comes from an explicit argument at every call site and cannot be scaled by accident |
+| `TABLET` and `ROLE` state the six region boxes twice | `dcc_theme.gd:286` (`TABLET`, consumed by `dcc_shell.gd:413` `_scaled()`) and `ROLE`'s six region rows | Deliberate and flagged in the code. `TABLET` answers `_scaled(px)` for a caller holding only an integer; `ROLE` answers a caller that knows which region it is building. The figures are identical and the comment says they must move together. The single-source fix is to rewrite `_scaled()`'s call sites to name their region and derive `TABLET` from `ROLE` — until then it is two names for one measured value, not two competing values |
+
+## Small
+
+| Item | Where | Proposal |
+|---|---|---|
+| Deselect's sibling: **Select all** | `menus.gd:526` (`_todo`) | Every selection here holds exactly one item — `icon_get_selected` and `label_get_selected` each return a single index — so there is nothing to select *into*. Needs a multi-selection model first. Deliberately NOT closed alongside Deselect: clearing one item needs no such model |
+| Documentation (in-app) | `menus.gd:1995` — live when a source checkout resolves, disabled with its reason otherwise | §2.7 lists it first. It opens the repository's documents via `OS.shell_open`, which is a real behaviour, but there is no in-app manual and §2.7 names no URL. An exported build ships `res://` inside the `.pck`, so the row is honestly disabled there. Closing it needs a published documentation URL from the owner, or docs bundled into the export |
+| Fully-dismissed sheet state (prototype `tab:null`) | `dcc_shell.gd:2607` and `:3002` — both collapse to `peek` where the prototype removes the sheet | Declined on purpose and recorded in both functions. This sheet is the desktop's tool options bar (§13: "tool options become a bottom sheet"), the one row always on screen on desktop and tablet, so a state where it is absent has no counterpart to keep parity with. If the owner wants true dismissal it should come with a way back that is not a tab — the prototype has none, its bar just re-lights one |
+| LOD levels ladder ▸ its **other half** | `menus.gd:1601` disabled row inside `_build_atlas_tiles_menu()` | The 0–8 ladder now ships and writes `DccSettings.bake_depth()`. What remains disabled here is the pointer row naming its owner, kept so a reader who opens the tiles submenu learns where the number lives rather than finding two ladders |
+| Report an issue | `menus.gd:2017` (`_todo`) | §2.7 lists it. Pairs naturally with the already-live `Generation info…`, which dumps every generation parameter as plain text: an issue route that pre-fills that dump plus version and build is the useful shape. **Blocked only on the owner naming a destination** |
+| Sheet header row (title · subtitle · ← back · ✕ close) | Phone tool sheet, under the grab handle. The prototype draws it inside the same `grabRef` block (`Cartalith Android.dc.html` line 176ff: `sheetTitle` 11px/.2em accent, `sheetSub` 9.5px dim, two 38px round chips). `dcc_shell.gd:2759` goes straight from handle to scroll | A 38 dp row under the handle: accent 11 px/.2em title and 9.5 px dim subtitle fed from the active tab (the prototype's own `titles`: MAP · "layers · style · annotation"; GENERATE · "pipeline · seed NNNN"; PLAN · "journey · A → B"), a leading ← chip shown only when a depth exists (`PhoneMenu` already tracks it with `moreStack`), and a trailing ✕ that collapses to peek rather than closing, matching the re-tap already wired. The title text is the only new state |
+
+## Medium
+
+| Item | Where | Proposal |
+|---|---|---|
+| Atlas cache — size cap in GB | `menus.gd:1654` (`_todo`) | §2.5: "Size cap in GB + Clear." Clear is live; the cap is not, and **the blocker is eviction, not measurement** — `bake_bridge` writes chunks and only `atlas_clear()` removes them, all at once, with no access order or level priority to evict by. `atlas_status()` already reports bytes. The GB ladder itself should mirror Performance ▸ VRAM budget, which solves the presentation half; the policy question (which chunk goes when the cap is hit) is the real work. Filesystem mtime is available as a least-recently-written proxy and is worth costing before inventing a record |
+| CPU worker threads | `menus.gd:1103` (`_todo`) | §2.5: "Integer, 1…logical cores, default cores − 4 (`12 of 16`)." Rayon sizes its own pool today. Wire as a ladder (1 · ¼ · ½ · cores−4 · all) calling `ThreadPoolBuilder::num_threads` at pool init. The spec's own default, cores−4, is a real number to honour |
+| Preferences ▸ Units (km / mi) | `menus.gd:1231` (`_todo`), re-presented on the phone under MORE ▸ System | The reason is the honest one: the shell is km-only, and a setting with five call sites still printing km is worse than no setting. The work is one formatter (`DccSettings.distance(km) -> String`) plus its five consumers — the status bar's cursor coordinates, the scale bar, Sculpt's brush km equivalent (`#sBrushKm`), Measure's running total and per-segment lengths, and Region select's km column — after which this becomes a two-value radio beside Theme, and the phone gets it free because `phone_menu.gd` re-presents the same popup. Theme dark/light, the other half of `ANDROID_UI_SPEC.md`'s clause, IS wired |
+| Redo (⌘⇧Z) | `menus.gd:462` (`_todo`) | §2.2 lists Redo as the mirror of Undo. The reason is correct: `undo_last()` pops the snapshot rather than moving a cursor, so global redo needs `undo.rs` turned from a stack into a cursor over history. The Sculpt draft's own Redo already exists and the tooltip points at it |
+| Save layout as… | `menus.gd:1921` (`_todo`) | §2.6 lists it beside Reset layout. Needs a layout store: dock widths, collapsed state, visible regions, active domain. `DccSettings` already persists window state, so this is a named-preset section over data the shell already has |
+| Simulation — the "mini transport strip overlay" | `phone_menu.gd:669` routes MORE ▸ Simulation to CIVIL ▸ Simulation, which is real. The overlay itself exists nowhere | The row is wired to a real destination, so nothing is dead — but §10 gives the overlay's full desktop form (a scrub track across the year range with the current year in accent, ▶ ⏸ step ◀ ▶, ×1/×10/×100, a run-state readout, and six layer toggles) and it is not built on either platform. For the phone: a peek-detent overlay above the bottom bar reusing `timeline_bar`, carrying year · ▶/⏸ · step · speed, with the six toggles behind the drag handle at half detent. **It must drive the same year cursor `civilization_workspace.gd`'s Politics category already owns**, not a second clock. `app.gd`'s own strip comment says the controls "deliberately live in the CIVIL dock's Timeline category instead" — this revisits that, so it needs the owner's word first |
+| Which controls leave the tablet — the content decision | Owner call, not a file. `GUI_GAP_REGISTER.md` §57; affects `_build_right_dock` and `layers_popover.gd` | **Take it to the owner before building.** The tablet artboard DELETES roughly 30 % of the desktop's content — the entire PROPERTIES section, the six per-layer opacity minis, the scale bar, the layers popover, 2 of 6 layer rows and 4 of 13 sample fields — and that deletion is what buys room for 44 px rows. No table can express a deletion, so `ROLE` does not attempt it. Concretely: a `TABLET_OMITS` set of section ids that `_build_right_dock` skips under `DccTheme.is_tablet()`. The membership list is not derivable from the spec — the four sample fields it drops (aspect, drainage, soil, control) versus the four it keeps record an answer somebody already gave |
+
+## Large
+
+| Item | Where | Proposal |
+|---|---|---|
+| Cut · Copy · Paste (⌘X ⌘C ⌘V) | `menus.gd:505`, `:509`, `:510` (three `_todo`s) | §2.2: "Operate on the current selection (labels, icons, places, stamps)." All three share one prerequisite — a clipboard representation for each entity kind — which is why they are one row here rather than three. `PARITY_AUDIT.md` §20 records them as "three separate pieces, not one selection abstraction" |
+| 3D viewport defaults | `menus.gd:1161` (`_todo`) | §2.5's four parameters verbatim — relief exaggeration, detail, light, flatten oceans — replacing `#genV3dSec`, exempt from the finalize lock. There is no 3D viewport; `DECISIONS.md` §4 defers it to Phase 3. Honour the four names and the lock exemption verbatim when it lands |
+| Anti-aliasing · anisotropy | `menus.gd:1126` (`_todo`) | §2.5: "off · MSAA 2× · 4× · 8×; anisotropy 1–16." Both are 3D-viewport settings, deferred with it. Do **not** bolt MSAA onto the 2D map path, which composites whole rasters and where a sample count means nothing |
+| Colour management | `menus.gd:1128` (`_todo`) | §2.5: "sRGB · Display P3 · linear." The renderer is sRGB-only end to end — `render.rs` writes 8-bit sRGB bytes and nothing carries a colour space to the texture. Blocked until it does; a three-row radio that always resolves to sRGB is the enabled-and-inert shape this menu forbids |
+| Check Data — current warning count | `data_manager_window.gd:148` — the badge column exists and is drawn for other routes | §2.4: "Check Data (shows current warning count)." Blocked on a validation pass to count: `load_save()` reports pass/fail only. The badge should stay **empty rather than faked**, and lands with the validation engine work |
+| Keyboard shortcuts… (editable, per-context) | `menus.gd:1233` | §2.5 asks for an editable table. The dialog is live and lists every shortcut by walking the real MenuBar; what is missing is *rebinding* — a per-context store and an input-remap layer. (This row's own earlier note, that its tooltip was stale, is itself now stale: that fix already shipped) |
+
+---
+
+## Two footnotes, so the `_todo` census reconciles
+
+**Four `_todo` calls in `menus.gd` have no row here on purpose.** `Devices`,
+`Multi-GPU mode`, `VRAM budget` and `Fallback when VRAM full` (`:1101`, `:1102`,
+`:1109`, `:1110`) fire **only** when `_bridge.gpu_api` is false — a GDExtension
+older than the multi-GPU API. `gpu_enumerate_devices` is bound in the current
+engine (`cartalith-godot/src/lib.rs:2638`), so against any current build those
+four are unreachable and the live builders run instead. A defensive fallback for
+a stale binary, not a standing gap.
+
+**Two disclosed gaps bypass the `_todo` helper** and so do not appear in a
+grep-based census: `Alternate frames` (`menus.gd:1401`) and `Reduce working res`
+(`:1487`) are radio options disabled directly, each with an honest tooltip.
+
+---
+
+## Not gaps — recorded so they are not re-listed
+
+- **`Data ▸ Conversion` is absent by owner decision** (2026-08-20). The spec's
+  §2.4 still draws it, so the **spec** is the stale party there, not the shell.
+  It must not be re-added.
+- **The nine colour ramps are exact and complete**: Earth, Elevation, Atlas,
+  Mono, Imhof, Ice, Dark ice, Desert, Dark atlas (`render.rs:610-619`), matching
+  §7 one for one.
+- **The planner's 15 per-stage overrides are all present**
+  (`journey_planner_view.gd`, 18 `_override_*_row` calls): transport,
+  group_size, cargo_kg, pace, hours, weather_override, carry_food, supply_days,
+  grazing, foraging, route_cond, infra, mount_animal, desert_water, vessel —
+  exactly `ANDROID_UI_SPEC.md`'s fifteen.
+- **The MORE list is built to the spec line verbatim** (`phone_menu.gd:80-82`).
+- **Tablet parity is measured, not asserted**: `_tabletparity_probe` boots
+  2560×1600 touch and 1920×1080 in one run — docks 400/400, rail 48, bands
+  52/88/36, and the same seven menus with **223 reachable rows on both**.
+
+---
+
+## One question for the owner: the style presets are named differently
+
+`DCC_SHELL_SPEC.md` §4 and `ANDROID_UI_SPEC.md`'s MAP line both ask for preset
+chips **Atlas / Parchment / Physical / Ink**. `render_workspace.gd:111` ships
+the reference's own six — **Natural Vibrant · Default · Antique · Ink ·
+Watercolor · Print** — which are the looks the renderer actually has.
+
+Mapping: Ink = Ink. Antique ≈ Parchment (its own label is literally "Antique
+Parchment"). **Atlas and Physical have no counterpart at all**, and the spec's
+*Atlas* may be a conflation with the colour RAMP of that name, where Atlas and
+Dark atlas are both real.
+
+This is a vocabulary decision, not a code gap: rename the shipped presets to the
+spec's words, or keep the reference's? Inventing an "Atlas" and a "Physical"
+preset would be two chips with no look behind them, which is the one thing this
+table exists to prevent.
