@@ -1148,6 +1148,20 @@ func _build_wd_footer(api: bool) -> void:
 	go.disabled = _bridge == null or not _bridge.has_world
 	go.tooltip_text = ("export_raster_png -> render::bake_rect, written with std::fs. "
 		+ "Synchronous: an 8K export is seconds of work and the window will not repaint while it runs.")
+	## The height field as a 16-bit grayscale PNG. Sits beside the colour
+	## raster because it is the same bake at the same width -- and exists at
+	## all because `import_heightmap` has been able to READ this format since
+	## Phase 1 while nothing could write it.
+	var hm := DccWidgets.chip(_pane_footer, "Export heightmap…", func():
+		_pick_heightmap_destination(), false, 16, 6)
+	hm.disabled = _bridge == null or not _bridge.has_world
+	hm.tooltip_text = ("The committed height field as a 16-bit grayscale PNG, at the width "
+		+ "selected above -- for game engines and terrain editors, and readable back by "
+		+ "File ▸ New world ▸ Import a heightmap.
+
+"
+		+ "Does NOT include an open Sculpt draft: that is uncommitted state, so commit it first "
+		+ "if you want it in the export.")
 
 func _wd_estimate() -> Dictionary:
 	if not _raster_api():
@@ -1184,6 +1198,43 @@ func _pick_raster_destination() -> void:
 	add_child(d)
 	d.popup_centered_ratio(0.6)
 
+## The heightmap's own picker. A single file, always -- unlike the colour
+## raster it has no tiled mode, because the formats that read a heightmap want
+## one image.
+func _pick_heightmap_destination() -> void:
+	var d := FileDialog.new()
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.current_dir = DccSettings.storage_root("exports")
+	d.title = "Export heightmap"
+	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	d.add_filter("*.png ; 16-bit grayscale PNG")
+	d.current_file = "heightmap.png"
+	d.file_selected.connect(func(path: String):
+		_run_heightmap_export(path)
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered_ratio(0.6)
+
+func _run_heightmap_export(path: String) -> void:
+	if _bridge == null or not _bridge.has_world:
+		return
+	_status_left.text = "writing heightmap…"
+	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
+	var r: Dictionary = _bridge.export_heightmap_png(
+		ProjectSettings.globalize_path(path), _wd_width)
+	_record_wd_run("heightmap %dK" % int(round(float(_wd_width) / 1024.0)), r)
+	if bool(r.get("ok", false)):
+		var shown: bool = _host.reveal_on_disk(path)
+		_host.set_status("hint", "heightmap %d × %d px — %s in %.1f s → %s"
+			% [int(r.get("width", 0)), int(r.get("height", 0)),
+				_fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0,
+				(path.get_file() if shown else path)], "accent")
+	else:
+		_host.set_status("hint", "heightmap export failed — %s"
+			% String(r.get("error", "see the Godot log")), "warn")
+	_rebuild_world_data()
+
 func _pick_atlas_destination() -> void:
 	var d := FileDialog.new()
 	d.title = "Export channel atlas into…"
@@ -1211,10 +1262,16 @@ func _run_raster_export(path: String) -> void:
 	_record_wd_run("map %dK" % int(round(float(_wd_width) / 1024.0)), r)
 	if bool(r.get("ok", false)):
 		var files: PackedStringArray = r.get("files", PackedStringArray())
-		_host.set_status("hint", "exported %d × %d px%s — %s in %.1f s"
+		## The size and the duration were already here; WHERE it went was not,
+		## and `r.files` -- the list of what was actually written -- was read
+		## only for its `.size()`. An export that finishes into silence leaves
+		## the user to go looking for their own file.
+		var shown: bool = _host.reveal_on_disk(path)
+		_host.set_status("hint", "exported %d × %d px%s — %s in %.1f s → %s"
 			% [int(r.get("width", 0)), int(r.get("height", 0)),
 				(" as %d tiles" % files.size()) if _wd_tiled else "",
-				_fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0], "accent")
+				_fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0,
+				(path.get_file() if shown else path)], "accent")
 	else:
 		_host.set_status("hint", "export failed — %s" % String(r.get("error", "see the Godot log")), "warn")
 	if bool(r.get("ok", false)) and _wd_layers:

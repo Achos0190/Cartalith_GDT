@@ -50,6 +50,11 @@ var save_api := false
 ## owns a slot reads it from here after `world_loaded`; nothing parses it on
 ## the way through, because Godot's JSON floats every integer it touches.
 var last_documents: Dictionary = {}
+## What the last successful `load_save()` read: `"tree"` or `"flat"`, and
+## whatever the reader could not use. Empty before the first open. See
+## `load_save()` for why discarding these mattered.
+var last_open_layout := ""
+var last_open_warnings := PackedStringArray()
 
 ## Whether the world has changed since it was last saved or opened
 ## (`GUI_GAP_REGISTER.md` FI-01). Driven by the two signals this node owns:
@@ -970,11 +975,27 @@ func load_save(path: String) -> bool:
 	## only as the fallback for a binary too old to have `project_open`.
 	var documents: Dictionary = {}
 	var ok := false
+	last_open_layout = ""
+	last_open_warnings = PackedStringArray()
 	if _has("project_open"):
 		var r: Dictionary = world_gen.project_open(path)
 		ok = bool(r.get("ok", false))
 		if ok:
 			documents = r.get("documents", {})
+			## `project_open` reports which of the two layouts it found, what
+			## it could not use, and the archive's own format version. All four
+			## were being discarded here, so a user opening a legacy flat
+			## archive was told nothing -- even though the conversion is
+			## ONE-WAY: this build reads both layouts and writes only the tree,
+			## so a save round-tripped back to the browser app will not open
+			## there. Kept for `_load_project` to say so.
+			last_open_layout = String(r.get("layout", ""))
+			var w = r.get("warnings", PackedStringArray())
+			if w is PackedStringArray:
+				last_open_warnings = w
+			elif w is Array:
+				for item in w:
+					last_open_warnings.append(String(item))
 		else:
 			push_warning("Cartalith: project_open could not read %s (%s) -- falling back to the flat reader"
 				% [path, String(r.get("error", "unknown"))])
@@ -1416,6 +1437,17 @@ func bake_visible(z: int, x0: float, y0: float, x1: float, y1: float) -> Diction
 ## `drawLODChunkDebug`) needs the *answer*, not the image -- it prints
 ## `baked` or `cached` beside a chunk id. So this is the function's first real
 ## consumer, and it does not reopen the refinement question.
+## `Data ▸ World data ▸ Export heightmap`. Writes the committed height field
+## as a 16-bit grayscale PNG -- the format `import_heightmap` has always been
+## able to READ and nothing could write.
+##
+## Does not reflect an open Sculpt draft: that is uncommitted state on
+## `SculptEditor`, not on `WorldState::field`. The caller says so on screen.
+func export_heightmap_png(path: String, width: int) -> Dictionary:
+	if not _has("export_heightmap_png"):
+		return {"ok": false, "error": "this build of the engine has no heightmap export"}
+	return world_gen.export_heightmap_png(path, width)
+
 func atlas_is_covered(z: int, col: int, row: int) -> bool:
 	if not _has("atlas_is_covered"):
 		return false

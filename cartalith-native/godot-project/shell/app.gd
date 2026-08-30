@@ -1001,6 +1001,18 @@ func _load_project(path: String) -> void:
 	if bridge.load_save(path):
 		current_project_path = path
 		DccSettings.remember_project(path)
+		## Say which format was read when it was the OLD one. The conversion is
+		## one-way -- this build reads the reference app's flat layout and
+		## writes only the tree -- so a user who round-trips through the
+		## browser app needs to know before they save over it, not after.
+		## `engine_bridge.gd`'s own comment has stated that rule since
+		## 2026-08-26; it was never said to the person it affects.
+		if bridge.last_open_layout == "flat":
+			set_status("hint",
+				"%s is the older flat format — saving converts it to the project format, which the browser app cannot reopen"
+					% path.get_file(), "accent")
+		elif not bridge.last_open_warnings.is_empty():
+			set_status("hint", "opened %s — %s" % [path.get_file(), bridge.last_open_warnings[0]], "accent")
 		return
 	## `GUI_GAP_REGISTER.md` **FI-04**. "see console" names somewhere the person
 	## running an exported build cannot look, and it was the *only* thing said
@@ -1586,12 +1598,27 @@ func open_undo_history() -> void:
 		right_dock_ctrl.show_history()
 
 func show_project_on_disk() -> void:
-	if current_project_path == "":
-		return
+	reveal_on_disk(current_project_path)
+
+## Show `path` in the desktop file manager. Extracted from
+## `show_project_on_disk()` so an export can end somewhere rather than in
+## silence: `data_manager_window.gd` reported how many pixels and how many
+## seconds and never where the file went.
+##
+## **Desktop only, and that is deliberate rather than an omission.** Android
+## has no file manager to hand a path to -- `DisplayServer` reports the
+## capability but the intent lands nowhere useful -- so on a phone or tablet
+## the caller's status line, which names the file, is the whole answer.
+## Returns whether it actually did anything, so a caller can word its status
+## accordingly instead of promising a window that never opens.
+func reveal_on_disk(path: String) -> bool:
+	if path == "" or DccTheme.is_touch():
+		return false
 	if OS.has_method("shell_show_in_file_manager"):
-		OS.shell_show_in_file_manager(current_project_path)
+		OS.shell_show_in_file_manager(path)
 	else:
-		OS.shell_open("file://" + current_project_path.get_base_dir())
+		OS.shell_open("file://" + path.get_base_dir())
+	return true
 
 ## `DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19 addition: Journey is an INFRA tool
 ## takeover, not a dialog -- this arms it exactly like any other tool

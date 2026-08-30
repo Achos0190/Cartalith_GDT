@@ -191,6 +191,111 @@ impl WorldGen {
     ///
     /// Returns `{ok, path, width, height, files, bytes, ms}`, or
     /// `{ok: false, error}`.
+    /// Write the height field as a **16-bit grayscale PNG** — the one format
+    /// this app could read and could not write.
+    ///
+    /// `cartalith_engine::import::decode_heightmap` has accepted a heightmap
+    /// PNG since Phase 1, and nothing anywhere produced one: the only
+    /// elevation this port emitted was RG16 *inside* a region tile
+    /// (`region_export_tiles`), and the channel atlas has no elevation
+    /// channel at all. An app that reads a format it cannot write is a
+    /// one-way door, and this was never declined — `EXPORT_SCOPE.md` does not
+    /// contain the word "heightmap". Found by comparing against Nortantis
+    /// 3.18, whose File ▸ Export Heightmap ships the same thing for the same
+    /// stated reason ("for use in other applications such as creating a
+    /// videogame world").
+    ///
+    /// **16-bit, not 8.** A height field is continuous, and 8 bits quantises
+    /// a world's whole elevation range into 256 steps — terracing the moment
+    /// anything downstream takes a gradient.
+    ///
+    /// **What this does not reflect, stated rather than discovered.** It
+    /// writes `WorldState::field`, which is the committed height. An open
+    /// Sculpt draft is uncommitted state held by `SculptEditor` and is *not*
+    /// in it, so a user mid-stroke exports the world as it was before the
+    /// draft. Nortantis ships the same caveat on its own row; the shell
+    /// repeats it where the user can see it.
+    ///
+    /// Sampling is the box filter `render::bake_dims` already implies —
+    /// nearest at magnification, area-average at minification — so the export
+    /// is the same geometry as the colour raster at the same width, and
+    /// re-importing at the grid's own width round-trips.
+    ///
+    /// Returns `{ok, path, width, height, bytes, ms}` or `{ok: false, error}`.
+    #[func]
+    fn export_heightmap_png(&self, path: GString, width: i64) -> VarDictionary {
+        let started = std::time::Instant::now();
+        if !BAKE_WIDTHS.contains(&width) {
+            return fail(format!("unsupported export width {width} -- offered: {BAKE_WIDTHS:?}"));
+        }
+        let path = PathBuf::from(path.to_string());
+        if path.as_os_str().is_empty() {
+            return fail("no destination path");
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 {
+            return fail("no world to export -- generate or load one first");
+        }
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return fail("no world to export -- generate or load one first"),
+        };
+        if field.len() < gw * gh {
+            return fail(format!("height field is {} cells, expected {}", field.len(), gw * gh));
+        }
+        let (w, h) = render::bake_dims(width as usize, gw, gh);
+        if w == 0 || h == 0 {
+            return fail(format!("degenerate export dimensions {w}x{h}"));
+        }
+
+        // Box-filter the grid into the export raster. Same span arithmetic as
+        // `cartalith_terrain::infer::heightmap_to_field`, which is what
+        // *reads* this format -- so a round trip at the grid's own width is
+        // the identity rather than two different resamplers disagreeing.
+        let mut gray = vec![0u16; w * h];
+        for ty in 0..h {
+            let sy0 = ty * gh / h;
+            let sy1 = (((ty + 1) * gh).div_ceil(h)).max(sy0 + 1).min(gh);
+            for tx in 0..w {
+                let sx0 = tx * gw / w;
+                let sx1 = (((tx + 1) * gw).div_ceil(w)).max(sx0 + 1).min(gw);
+                let (mut acc, mut cnt) = (0f64, 0f64);
+                for sy in sy0..sy1 {
+                    for sx in sx0..sx1 {
+                        acc += field[sy * gw + sx] as f64;
+                        cnt += 1.0;
+                    }
+                }
+                let v = if cnt > 0.0 { acc / cnt } else { 0.0 };
+                gray[ty * w + tx] = (v.clamp(0.0, 1.0) * 65535.0).round() as u16;
+            }
+        }
+
+        let bytes = match cartalith_assets::raster::encode_png_luma16(w as u32, h as u32, gray) {
+            Ok(b) => b,
+            Err(e) => return fail(format!("could not encode the heightmap: {e}")),
+        };
+        if let Some(dir) = path.parent()
+            && !dir.as_os_str().is_empty()
+            && let Err(e) = std::fs::create_dir_all(dir)
+        {
+            return fail(format!("could not create {}: {e}", dir.display()));
+        }
+        if let Err(e) = std::fs::write(&path, &bytes) {
+            return fail(format!("could not write {}: {e}", path.display()));
+        }
+
+        let mut out = VarDictionary::new();
+        out.set("ok", true);
+        out.set("path", path.display().to_string());
+        out.set("width", w as i64);
+        out.set("height", h as i64);
+        out.set("bytes", bytes.len() as i64);
+        out.set("ms", started.elapsed().as_secs_f64() * 1000.0);
+        out
+    }
+
     #[func]
     fn export_raster_png(&self, path: GString, width: i64, tiled: bool) -> VarDictionary {
         let started = std::time::Instant::now();
