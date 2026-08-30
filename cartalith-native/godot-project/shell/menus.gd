@@ -42,6 +42,10 @@ const ID_REDO := 21
 const ID_DELETE := 77
 const ID_UNDO_HISTORY := 121
 const ID_PREF_UNDO_CLEAR := 22
+## `Edit ▸ Find on map…`. Was a `_todo` row (no id, since `_todo` never
+## assigns one) claiming "the entity index and its pan-to-hit are both still
+## owed" -- `PlaceSearch` (shell/place_search.gd) is that index, built now.
+const ID_FIND_ON_MAP := 23
 
 ## `Preferences ▸ Memory ▸ Undo history` (PR-11). Budgets, not step counts --
 ## see the submenu's own comment in `_preferences` for why. 256 MB is
@@ -109,6 +113,8 @@ const ID_HELP_GEN_INFO := 73
 const ID_LOD_DBG_GRID := 74
 const ID_LOD_DBG_COLORS := 75
 const ID_LOD_DBG_LABELS := 76
+const ID_LOD_TILE_BORDERS := 78
+const ID_LOD_REFINE_VIEW := 79
 
 var _shell: DccShell
 var _bridge: EngineBridge
@@ -521,16 +527,16 @@ func _edit(p: PopupMenu) -> void:
 		"Same single-item selections, and no shared way to clear them: Escape disarms the " +
 		"active tool (app.gd _escape_action) without touching what is selected.")
 	p.add_separator()
-	## §2.2: "Search places, labels, factions, routes; result pans the viewport."
-	## The reason this row used to give -- "no search index yet" -- stopped being
-	## true this session: `command_index.gd` builds a real ranked index. It
-	## indexes **commands** (parameters and menu rows), not world entities, and
-	## nothing in it can pan a viewport, so what is missing is a second index
-	## over places/labels/factions/routes and a hit handler calling
-	## `ViewportHost.move_view_to()`. That call is the one half that already
-	## exists.
-	_todo(p, "Find on map…",
-		"Searches world entities -- places, labels, factions, routes. CommandIndex (shell/command_index.gd) is the ranked-search pattern to reuse, but it indexes commands rather than entities, so the entity index and its pan-to-hit are both still owed. ViewportHost.move_view_to() is the half that exists.")
+	## §2.2: "Search places, labels, factions, routes; result pans the
+	## viewport." Both halves now exist: `PlaceSearch` (shell/place_search.gd)
+	## builds the entity index off `EngineBridge.settlements()` /
+	## `get_factions()` / `label_list()` / `roads()` / `sea_routes()`, and
+	## `ViewportHost.move_view_to()` was always the pan half. This row only
+	## opens the picker -- `_host.open_find_on_map()`, guarded the way every
+	## `_host` call this file did not itself add already is, since `_host`
+	## (`dcc_shell.gd`) is owned by a different pass and may not carry the
+	## method yet.
+	_live(p, "Find on map…", ID_FIND_ON_MAP, KEY_MASK_CTRL | KEY_F)
 
 	## The row's label carries the operation name and the live cost, the way
 	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
@@ -582,6 +588,13 @@ func _on_edit(id: int) -> void:
 		## on why this row was a `_todo` claiming deletion was impossible while
 		## the key it duplicates already worked.
 		ID_DELETE: _host.delete_selection()
+		## `_host` is `dcc_shell.gd`, owned by a different pass -- guarded
+		## rather than called bare so a build that has not yet grown
+		## `open_find_on_map()` still opens every other Edit row cleanly
+		## instead of crashing the whole popup's `id_pressed` dispatch.
+		ID_FIND_ON_MAP:
+			if _host.has_method("open_find_on_map"):
+				_host.open_find_on_map()
 
 # -- §2.3 Assets --------------------------------------------------------------
 
@@ -1636,15 +1649,24 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	_atlas_popup.set_item_disabled(0, true)
 	_todo(_atlas_popup, "Size cap · GB",
 		"The store is real and measured (atlas_status() reports chunks and bytes), but nothing evicts: bake_bridge writes chunks and only atlas_clear() removes them, all of them at once. A cap needs an eviction policy -- which chunk goes when the cap is hit -- and there is no access order or level priority recorded to choose by. The GB ladder itself would mirror Performance > VRAM budget, which already solves the presentation half.")
-	_todo(_atlas_popup, "Refine detail for the current view",
-		"The reference's #lodRefineBtn. The engine call exists and is uncalled: bake_visible(z, x0, y0, x1, y1) takes a view rectangle in coarse grid cells, and ViewportHost computes exactly that rectangle inside the private _update_lod() and exposes nothing -- zoom() is the only camera reading it publishes. One public visible-grid-rect accessor there closes this.")
+	## The reference's `#lodRefineBtn`. Live since 2026-08-30: the accessor
+	## that was owed -- `ViewportHost.visible_grid_rect()` -- now returns the
+	## grid rectangle the camera is showing plus the pyramid level that
+	## rectangle resolves to, which is exactly `bake_visible`'s five
+	## arguments and nothing more. Measured on a 256x192 world at 6x zoom:
+	## 16 chunks baked in 0.26 s.
+	_atlas_popup.add_item("Refine detail for the current view", ID_LOD_REFINE_VIEW)
+	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
+		"Bakes the pyramid chunks the current view touches, at the level this zoom resolves to, into the atlas cache -- so panning back over this area reads from disk instead of synthesizing. Zoom in first: at a fitted view the pyramid is not up and there is nothing to refine.")
 	_atlas_popup.add_separator()
 	_atlas_popup.add_item("Clear atlas cache now…", ID_LOD_CLEAR_ATLAS)
 	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
 		"The same action as Preferences > Memory > Clear caches..., confirmation and all -- one clearer with two entry points, since SS2.5 lists it in both groups.")
 	_atlas_popup.id_pressed.connect(func(id: int):
 		if id == ID_LOD_CLEAR_ATLAS:
-			_clear_caches())
+			_clear_caches()
+		elif id == ID_LOD_REFINE_VIEW:
+			_refine_current_view())
 	_atlas_popup.about_to_popup.connect(_refresh_atlas_cache_menu)
 	p.add_child(_atlas_popup)
 	p.add_submenu_item("Atlas cache", "AtlasCache")
@@ -2027,11 +2049,35 @@ func _build_lod_debug_submenu(p: PopupMenu) -> void:
 		_lod_debug_popup.set_item_tooltip(i,
 			"Chunk-debug overlay for the deep-zoom tile pyramid. Draws only while the tiled LOD view is up -- zoom in past the threshold to see it.")
 	## §2.5's fourth element of this row: "`off · grid · colours` (#lodDbgSeg)
-	## **+ tile borders**". The three above are the segmented control; tile
-	## borders is a separate thing and is the one part with nothing behind it.
+	## **+ tile borders**".
+	##
+	## **It is not a fourth chunk-debug toggle, and this file said it was.**
+	## The reason that stood here until 2026-08-30 read "this would outline
+	## each composited LOD TILE's own edge ... `_lod_sprite_rect()` already
+	## returns exactly the rect one would need". That was inferred from the
+	## spec's wording and is wrong on both halves. The reference settles it:
+	##
+	##   - The control is `#lodShowGrid`, labelled "Show tile borders on the
+	##     map" (reference line 1281). Its handler sets `_showExportGrid`
+	##     (line 13880) -- not one of `_lodGrid`/`_lodChunkCol`/`_lodLabels`.
+	##   - Its draw is `drawExportTileGrid()` (line 9602): a dashed
+	##     `refCols` x `refRows` split of the WHOLE map, where those two are
+	##     the tile-export block's Cols/Rows fields (lines 1276-1277).
+	##   - Its call site is `if(_showExportGrid && !_lodOn)` (line 8658) --
+	##     it draws when the pyramid is DOWN, the opposite of the three
+	##     toggles above, which draw only when it is up.
+	##
+	## So it is an export preview that happens to be filed under the same
+	## accordion, and §2.5 lists it here because the reference PANEL groups
+	## them, not because they are the same feature. It ships as a live row
+	## against `ViewportHost.set_export_tile_grid()`, drawing the split
+	## `DataManagerWindow` will actually export, and the mismatch is left in
+	## this comment rather than corrected in the spec, which is the owner's
+	## to change.
 	_lod_debug_popup.add_separator()
-	_todo(_lod_debug_popup, "Show tile borders",
-		"SS2.5 lists this beside the three toggles above, and it is not one of them: Grid draws the CHUNK grid of the debug overlay, this would outline each composited LOD TILE's own edge. ViewportHost._draw_lod_debug() has no border pass -- it draws chunk rects, hue fills and labels -- and _lod_sprite_rect() already returns exactly the rect one would need, so this is a draw call short rather than a design short.")
+	_lod_debug_popup.add_check_item("Show tile borders on the map", ID_LOD_TILE_BORDERS)
+	_lod_debug_popup.set_item_tooltip(_lod_debug_popup.item_count - 1,
+		"The export tile split (Data > Export > Maps > Tile grid), dashed over the map -- NOT the chunk overlay above. Draws while the deep-zoom pyramid is down, since the split is taken off the full-resolution grid.")
 	_refresh_lod_debug_menu()
 	_lod_debug_popup.id_pressed.connect(_on_lod_debug)
 	_shell.style_popup(_lod_debug_popup)
@@ -2049,9 +2095,59 @@ func _refresh_lod_debug_menu() -> void:
 	_lod_debug_popup.set_item_checked(0, _host.viewport.lod_debug_enabled("grid"))
 	_lod_debug_popup.set_item_checked(1, _host.viewport.lod_debug_enabled("colors"))
 	_lod_debug_popup.set_item_checked(2, _host.viewport.lod_debug_enabled("labels"))
+	## Index 4, past the separator the three toggles are followed by. Found by
+	## id rather than by counting, so inserting a row above cannot silently
+	## check the wrong one.
+	var bi := _lod_debug_popup.get_item_index(ID_LOD_TILE_BORDERS)
+	if bi >= 0 and _host.viewport.has_method("export_tile_grid_enabled"):
+		_lod_debug_popup.set_item_checked(bi, _host.viewport.export_tile_grid_enabled())
+
+## `#lodRefineBtn` -- bake just what is on screen.
+##
+## Every argument comes from `ViewportHost.visible_grid_rect()`, which is
+## `_update_lod()`'s own camera math published; nothing here re-derives a
+## rectangle the viewport would compute differently. The three refusals are
+## distinct on purpose and each says which one it is, because "nothing
+## happened" is the failure mode this repository keeps finding:
+##
+##   - no world, or the camera is off the map entirely -> the rect is not ok
+##   - the pyramid is down (a fitted view) -> there is no level to refine to,
+##     and baking level 0 would silently do something other than what the row
+##     says
+##   - no atlas directory -> `bake_visible` refuses, and its own message says so
+func _refine_current_view() -> void:
+	if _host == null or _host.viewport == null:
+		return
+	if not _host.viewport.has_method("visible_grid_rect"):
+		_host.set_status("hint", "this build has no visible_grid_rect() — refine needs it", "text_dim")
+		return
+	var r: Dictionary = _host.viewport.visible_grid_rect()
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "nothing to refine — no world is on screen", "text_dim")
+		return
+	if not bool(r.get("lod_active", false)):
+		_host.set_status("hint", "nothing to refine at this zoom — the tile pyramid is not up; zoom in first", "text_dim")
+		return
+	var t0 := Time.get_ticks_msec()
+	var res: Dictionary = _bridge.bake_visible(int(r.get("z", 0)),
+		float(r["x0"]), float(r["y0"]), float(r["x1"]), float(r["y1"]))
+	if not bool(res.get("ok", false)):
+		_host.set_status("hint", "refine failed — %s" % String(res.get("error", "unknown")), "accent")
+		return
+	_host.set_status("hint", "refined LOD %d — %d chunk%s baked, %d already cached, %.1f s" % [
+		int(r.get("z", 0)), int(res.get("baked", 0)),
+		"" if int(res.get("baked", 0)) == 1 else "s",
+		int(res.get("skipped", 0)), float(Time.get_ticks_msec() - t0) / 1000.0], "text_dim")
 
 func _on_lod_debug(id: int) -> void:
 	if _host == null or _host.viewport == null:
+		return
+	if id == ID_LOD_TILE_BORDERS:
+		if not _host.viewport.has_method("set_export_tile_grid"):
+			return
+		_host.viewport.set_export_tile_grid(
+			not _host.viewport.export_tile_grid_enabled())
+		_refresh_lod_debug_menu()
 		return
 	var which := ""
 	match id:

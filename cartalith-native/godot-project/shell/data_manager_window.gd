@@ -1394,6 +1394,7 @@ func _build_tiles_column(col: Control) -> void:
 	_segments(grid_row, grid_items, grid_sel, func(i: int):
 		_tx_cols = GRID_CHOICES[i]
 		_tx_rows = GRID_CHOICES[i]
+		_push_tile_grid_preview()
 		_rebuild_tile_export())
 
 	var size_row := _row(col, "Tile size")
@@ -1795,3 +1796,24 @@ func _refresh_status() -> void:
 			int(region.get("w", 0)), int(region.get("h", 0)), _tx_cols * _tx_rows])
 	_status_mid.add_theme_color_override("font_color",
 		DccTheme.c("accent") if region.is_empty() else DccTheme.c("text_faint"))
+
+## The reference's `#lodShowGrid` preview ("Show tile borders on the map", line
+## 1281) draws `refCols` x `refRows` over the map -- the *export* split, not the
+## LOD pyramid. Those two numbers are `_tx_cols`/`_tx_rows` here, and this is
+## the only place they change, so the viewport is told from here rather than
+## keeping a second pair that could disagree with what Export actually writes.
+##
+## Called on every grid change, not only when the preview is showing: the
+## overlay caches the split and redraws itself, so turning the preview on later
+## finds the current numbers already there instead of the 4x4 default.
+func _push_tile_grid_preview() -> void:
+	if _host == null or _host.viewport == null:
+		return
+	if not _host.viewport.has_method("set_export_tile_grid"):
+		return
+	_host.viewport.set_export_tile_grid(
+		_host.viewport.export_tile_grid_enabled(), _tx_cols, _tx_rows)
+
+## The current export split, for the menu row that toggles its preview.
+func tile_grid() -> Vector2i:
+	return Vector2i(_tx_cols, _tx_rows)

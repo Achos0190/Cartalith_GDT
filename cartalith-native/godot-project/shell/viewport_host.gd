@@ -251,6 +251,15 @@ var _lod_backlog_size := Vector2.ZERO   ## `_process()` reuses it rather than
 	## geometry) before `_process()` next runs.
 var _lod_active := false
 
+## The export tile-border preview (`#lodShowGrid` / `drawExportTileGrid`).
+## `_export_grid_cols`/`_rows` mirror `data_manager_window.gd`'s `_tx_cols`/
+## `_tx_rows`; that window pushes them here whenever they change, so this is a
+## cache of one authority rather than a second one.
+var _export_grid_layer: Control
+var _export_grid_on := false
+var _export_grid_cols := 4
+var _export_grid_rows := 4
+
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	bridge.generation_finished.connect(func(ok: bool): if ok: refresh())
@@ -379,6 +388,38 @@ func _ready() -> void:
 	tool_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tool_overlay.overlay = overlay
 	_camera.add_child(tool_overlay)
+
+	## **Export tile borders** -- the reference's `#lodShowGrid`, "Show tile
+	## borders on the map" (reference line 1281), whose handler sets
+	## `_showExportGrid` and whose draw is `drawExportTileGrid()` (line 9602).
+	##
+	## `DCC_SHELL_SPEC.md` §2.5 lists it beside the off/grid/colours segment,
+	## under "Chunk debug overlay ... + tile borders", and reading the spec
+	## alone makes it look like a fourth chunk-debug toggle. **It is not**, and
+	## `UNWIRED_FUNCTIONS.md` said so wrongly before the reference was read:
+	## the spec groups the two because the reference PANEL puts the checkbox
+	## under the same accordion, but the two are different features over
+	## different data.
+	##
+	##   - The chunk-debug segment annotates live pyramid tiles, and its draw
+	##     runs inside `drawLODView`'s tail -- LOD ON.
+	##   - This draws the **export** split: `refCols` x `refRows` (reference
+	##     lines 1276-1277, the Cols/Rows number fields of the tile-export
+	##     block), dashed, over the whole map, and its call site is guarded
+	##     `if(_showExportGrid && !_lodOn)` at line 8658 -- LOD **OFF**.
+	##
+	## So it belongs here, a sibling of the overlays and NOT a child of
+	## `_lod_layer`, and its cols/rows come from `DataManagerWindow`'s own
+	## `_tx_cols`/`_tx_rows` (the same two numbers the export writes, defaulting
+	## 4x4 there against the reference's 2x2) rather than from a second store
+	## free to disagree with what Export actually emits.
+	_export_grid_layer = Control.new()
+	_export_grid_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_export_grid_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_export_grid_layer.z_index = 2
+	_export_grid_layer.visible = false
+	_export_grid_layer.draw.connect(_draw_export_tile_grid)
+	_camera.add_child(_export_grid_layer)
 
 	## §9's chrome, all corner-anchored so it survives any dock width.
 	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT)
@@ -1650,6 +1691,47 @@ func _clear_lod_tiles() -> void:
 ## when `active` already matches `_lod_active` -- called from several
 ## early-return paths in `_update_lod()`, most of which run on every camera
 ## move.
+## The grid-cell rectangle the viewport is currently showing, plus the pyramid
+## level that rectangle resolves to -- everything `EngineBridge.bake_visible(z,
+## x0, y0, x1, y1)` wants and nothing it does not.
+##
+## That binding is real, callable and, until now, called by nothing: the rect it
+## needs was computed inside `_update_lod()` and published nowhere, so
+## `Preferences > Tiles & LOD > Atlas cache > Refine detail for the current
+## view` (the reference's `#lodRefineBtn`) had no way to say *which* view.
+## `UNWIRED_FUNCTIONS.md` called that "the cheapest remaining win in this
+## group"; this is it.
+##
+## The math is `_update_lod()`'s, deliberately duplicated rather than cached
+## off it: a cache would be stale for exactly one frame after every pan, which
+## is the frame a user who just moved the camera is most likely to press the
+## button in. Returns `ok: false` with nothing else when there is no world, a
+## degenerate grid, or the camera is off the map entirely.
+func visible_grid_rect() -> Dictionary:
+	var disp := _map_display_rect()
+	if disp.size.x <= 0.0 or disp.size.y <= 0.0:
+		return {"ok": false}
+	var g := _bridge.grid_size()
+	var local_tl := (Vector2.ZERO - _camera.position) / _zoom
+	var local_br := (size - _camera.position) / _zoom
+	var x0 := clampf((local_tl.x - disp.position.x) / disp.size.x * g.x, 0.0, float(g.x))
+	var y0 := clampf((local_tl.y - disp.position.y) / disp.size.y * g.y, 0.0, float(g.y))
+	var x1 := clampf((local_br.x - disp.position.x) / disp.size.x * g.x, 0.0, float(g.x))
+	var y1 := clampf((local_br.y - disp.position.y) / disp.size.y * g.y, 0.0, float(g.y))
+	if x1 <= x0 or y1 <= y0:
+		return {"ok": false}
+	## Same level `_update_lod()` would pick for this camera, through the same
+	## engine call, clamped by the same `lod_max_level()` guard -- so Refine
+	## bakes the level the view is about to ask for rather than one it will not
+	## read. `screen_px_per_cell` is the native fit scale times the zoom.
+	var px_per_cell := (disp.size.x / float(g.x)) * _zoom
+	var z: int = _bridge.lod_level_for_zoom(px_per_cell)
+	var max_z := _bridge.lod_max_level()
+	if max_z > 0:
+		z = mini(z, max_z)
+	return {"ok": true, "z": z, "x0": x0, "y0": y0, "x1": x1, "y1": y1,
+		"px_per_cell": px_per_cell, "lod_active": _lod_active}
+
 func _set_lod_active(active: bool) -> void:
 	if active == _lod_active:
 		return
@@ -1658,6 +1740,11 @@ func _set_lod_active(active: bool) -> void:
 		_clear_lod_tiles()
 	var tw := create_tween()
 	tw.tween_property(_lod_layer, "modulate:a", 1.0 if active else 0.0, 0.15)
+	## The export preview is of the full-resolution split and hides while the
+	## pyramid is up (reference line 8658's `&& !_lodOn`), so it has to be
+	## re-evaluated here and not only when the checkbox moves.
+	if _export_grid_layer != null:
+		_export_grid_layer.visible = _export_grid_on and not active
 
 # -- Chunk-debug overlay ------------------------------------------------------
 #
@@ -1733,6 +1820,82 @@ func _chunk_hue(z: int, col: int, row: int) -> Color:
 func _lod_sprite_rect(sprite: Sprite2D) -> Rect2:
 	var tex_size := sprite.texture.get_size() if sprite.texture != null else Vector2.ONE
 	return Rect2(sprite.position, tex_size * sprite.scale)
+
+## The map's own rect in `_camera`-local space -- `_update_lod()`'s own
+## `native_scale` / `displayed_size` / `displayed_origin` math, lifted out so
+## the export-grid overlay and `visible_grid_rect()` cannot drift from the
+## tiles. Returns a zero-size rect when there is no world to measure.
+func _map_display_rect() -> Rect2:
+	if _bridge == null or not _bridge.has_world:
+		return Rect2()
+	var g := _bridge.grid_size()
+	if g.x <= 1 or g.y <= 1 or size.x <= 0.0 or size.y <= 0.0:
+		return Rect2()
+	var native_scale := minf(size.x / float(g.x), size.y / float(g.y))
+	if native_scale <= 0.0:
+		return Rect2()
+	var displayed_size := Vector2(g.x, g.y) * native_scale
+	return Rect2((size - displayed_size) * 0.5, displayed_size)
+
+## Turn the export tile-border preview on or off, and tell it the split to
+## draw. `data_manager_window.gd` owns `cols`/`rows`; this only caches them.
+func set_export_tile_grid(on: bool, cols: int = -1, rows: int = -1) -> void:
+	if cols > 0:
+		_export_grid_cols = cols
+	if rows > 0:
+		_export_grid_rows = rows
+	_export_grid_on = on
+	## `if(_showExportGrid && !_lodOn)` (reference line 8658) -- the preview is
+	## of the *export* split, which is taken off the full-resolution grid, so
+	## drawing it over deep-zoom pyramid tiles would annotate the wrong thing.
+	_export_grid_layer.visible = on and not _lod_active
+	_export_grid_layer.queue_redraw()
+
+func export_tile_grid_enabled() -> bool:
+	return _export_grid_on
+
+## `drawExportTileGrid` (reference line 9602), in this space rather than the
+## reference's grid-pixel canvas: a dashed border around the whole map plus
+## `cols - 1` verticals and `rows - 1` horizontals at the even split. Colour
+## and the dash cadence are the reference's own -- `rgba(255,210,60,0.6)`, dash
+## `max(3, GW/120)` -- with `GW` reading as the drawn width here, since this
+## overlay is measured in screen-space pixels and the reference's was measured
+## in grid cells at 1:1.
+func _draw_export_tile_grid() -> void:
+	var r := _map_display_rect()
+	if r.size.x <= 0.0 or r.size.y <= 0.0:
+		return
+	var col := Color(1.0, 0.824, 0.235, 0.6)
+	var lw := maxf(1.0, r.size.x / 640.0)
+	var dash := maxf(3.0, r.size.x / 120.0)
+	_dashed_rect(r, col, lw, dash)
+	for c in range(1, maxi(1, _export_grid_cols)):
+		var x := r.position.x + roundf(r.size.x * float(c) / float(_export_grid_cols))
+		_dashed_line(Vector2(x, r.position.y), Vector2(x, r.end.y), col, lw, dash)
+	for rw in range(1, maxi(1, _export_grid_rows)):
+		var y := r.position.y + roundf(r.size.y * float(rw) / float(_export_grid_rows))
+		_dashed_line(Vector2(r.position.x, y), Vector2(r.end.x, y), col, lw, dash)
+
+## Godot's `draw_line` has no dash pattern, so the dashes are drawn. Kept
+## private and used only by the overlay above; `draw_dashed_line` exists in
+## Godot 4.7 but takes an *aligned* dash length that snaps the last segment,
+## which visibly shortens one edge of a rect at these lengths.
+func _dashed_line(a: Vector2, b: Vector2, col: Color, width: float, dash: float) -> void:
+	var span := a.distance_to(b)
+	if span <= 0.0 or dash <= 0.0:
+		return
+	var dir := (b - a) / span
+	var t := 0.0
+	while t < span:
+		var seg := minf(dash, span - t)
+		_export_grid_layer.draw_line(a + dir * t, a + dir * (t + seg), col, width)
+		t += dash * 2.0
+
+func _dashed_rect(r: Rect2, col: Color, width: float, dash: float) -> void:
+	_dashed_line(r.position, Vector2(r.end.x, r.position.y), col, width, dash)
+	_dashed_line(Vector2(r.end.x, r.position.y), r.end, col, width, dash)
+	_dashed_line(r.end, Vector2(r.position.x, r.end.y), col, width, dash)
+	_dashed_line(Vector2(r.position.x, r.end.y), r.position, col, width, dash)
 
 func _draw_lod_debug() -> void:
 	if _lod_tiles.is_empty():
