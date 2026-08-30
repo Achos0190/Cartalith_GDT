@@ -31,6 +31,7 @@ const ID_REDO := 21
 ## `GUI_GAP_REGISTER.md` **ED-02**. Its own id and not `ID_UNDO`'s: the panel
 ## and the action are different things, and routing both through one id is the
 ## shape this shell keeps having to undo.
+const ID_DELETE := 77
 const ID_UNDO_HISTORY := 121
 const ID_PREF_UNDO_CLEAR := 22
 
@@ -369,13 +370,48 @@ func _edit(p: PopupMenu) -> void:
 		+ "is linear -- it discards everything after the row -- and asks first when "
 		+ "it would discard more than one step.")
 	p.add_separator()
-	_todo(p, "Cut", "Nothing is selectable for editing yet beyond settlements, which are read-only.")
-	_todo(p, "Copy", "Same.")
-	_todo(p, "Paste", "Same.")
-	_todo(p, "Delete", "Same.")
+	## **These six rows used to say "Nothing is selectable for editing yet
+	## beyond settlements, which are read-only." Both halves of that were
+	## false**, and had been since well before 2026-08-30 when a Nortantis
+	## comparison happened to read them next to the bindings.
+	##
+	## Three independent selections exist and this shell calls all three:
+	## icons (`icon_get_selected` / `icon_hit_test` / `icon_delete`, reached
+	## from `cartography_workspace.gd`), labels (`label_select` /
+	## `label_get_selected` / `label_delete`, same file), and settlements --
+	## which are not read-only either: `app.gd`'s `KEY_DELETE` branch has
+	## routed to `civilization_workspace.on_delete_key()` →
+	## `place_editor_window.confirm_delete()` the whole time.
+	##
+	## So Delete already worked from the keyboard while the menu row beside it
+	## said deletion could not exist. That is `PARITY_AUDIT.md` §23's defect
+	## class with the polarity reversed -- the *disclosure* was the stale
+	## artefact, not the wiring -- which is exactly why `audit_wiring.py`
+	## cannot see it: every one of those `#[func]`s scores as reached.
+	##
+	## Delete is now live and goes through the same `app.delete_selection()`
+	## the key does. The other five keep a `_todo`, with the reason replaced by
+	## one that is true: what is missing is not selectability, it is a
+	## clipboard model and a multi-selection -- `PARITY_AUDIT.md` §20 classes
+	## ED-03/ED-04 as large for exactly that reason.
+	_todo(p, "Cut",
+		"No clipboard model exists. Icons, labels and settlements are three unrelated " +
+		"single-item selections with no common representation to cut into one buffer " +
+		"(PARITY_AUDIT.md §20, ED-03/ED-04).")
+	_todo(p, "Copy", "Same -- no clipboard model.")
+	_todo(p, "Paste", "Same -- nothing can be on a clipboard to paste.")
+	_live(p, "Delete", ID_DELETE)
+	p.set_item_tooltip(p.item_count - 1,
+		"Delete the current selection. The Delete key does the same thing; this row " +
+		"exists because a keyboard-only capability is not a discoverable one.")
 	p.add_separator()
-	_todo(p, "Select all", "Same.")
-	_todo(p, "Deselect", "Same.")
+	_todo(p, "Select all",
+		"Every selection in the shell holds exactly one item -- icon_get_selected and " +
+		"label_get_selected each return a single index -- so there is no multi-selection " +
+		"for this to select into.")
+	_todo(p, "Deselect",
+		"Same single-item selections, and no shared way to clear them: Escape disarms the " +
+		"active tool (app.gd _escape_action) without touching what is selected.")
 	p.add_separator()
 	_todo(p, "Find on map…", "No search index yet; settlement search lives in the Data manager.")
 
@@ -425,6 +461,10 @@ func _on_edit(id: int) -> void:
 	match id:
 		ID_UNDO: _host.undo_last()
 		ID_UNDO_HISTORY: _host.open_undo_history()
+		## Same path the Delete key takes -- see the Edit block's own comment
+		## on why this row was a `_todo` claiming deletion was impossible while
+		## the key it duplicates already worked.
+		ID_DELETE: _host.delete_selection()
 
 # -- §2.3 Assets --------------------------------------------------------------
 

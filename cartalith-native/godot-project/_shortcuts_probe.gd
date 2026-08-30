@@ -87,5 +87,45 @@ func _ready() -> void:
 	_texts(dlg, again)
 	_ok("row count stable across reopen", again.size(), first)
 
+	# The rank-1 finding from the Nortantis comparison: six Edit rows carried
+	# "Nothing is selectable for editing yet beyond settlements, which are
+	# read-only", which the build falsifies -- Delete has always worked from
+	# the keyboard. Asserted here so that sentence cannot come back.
+	print("")
+	print("=== 6: the Edit menu no longer states a falsehood ===")
+	var pops: Array = []
+	_find_popups(app, pops)
+	var edit: PopupMenu = null
+	for pm in pops:
+		for k in (pm as PopupMenu).item_count:
+			if (pm as PopupMenu).get_item_text(k).begins_with("Undo history"):
+				edit = pm
+				break
+		if edit != null:
+			break
+	_ok("found the Edit popup", edit != null, true)
+	if edit != null:
+		var del_i := -1
+		var stale := 0
+		for k in edit.item_count:
+			if edit.get_item_text(k) == "Delete":
+				del_i = k
+			var tip := edit.get_item_tooltip(k)
+			if tip.findn("which are read-only") >= 0 or tip == "Same.":
+				stale += 1
+		_ok("a Delete row exists", del_i >= 0, true)
+		if del_i >= 0:
+			_ok("the Delete row is live, not a _todo", edit.is_item_disabled(del_i), false)
+		_ok("no row still claims settlements are read-only", stale, 0)
+	_ok("app exposes delete_selection()", app.has_method("delete_selection"), true)
+	_ok("delete_selection() is safe with nothing selected", app.delete_selection(), false)
+
 	print("\n_shortcuts_probe: ", "PASS" if _fail == 0 else str(_fail) + " FAILURE(S)")
 	get_tree().quit(1 if _fail > 0 else 0)
+
+
+func _find_popups(n: Node, out: Array) -> void:
+	if n is PopupMenu:
+		out.append(n)
+	for c in n.get_children(true):
+		_find_popups(c, out)

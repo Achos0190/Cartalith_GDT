@@ -173,11 +173,25 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		var focused := get_viewport().gui_get_focus_owner()
 		if focused is LineEdit or focused is TextEdit or focused is SpinBox:
 			return
-		for ws in _workspaces:
-			if ws.has_method("on_delete_key"):
-				if ws.on_delete_key():
-					get_viewport().set_input_as_handled()
-					return
+		if delete_selection():
+			get_viewport().set_input_as_handled()
+			return
+
+## Delete whatever is selected, in whichever workspace owns a selection.
+##
+## Extracted from the `KEY_DELETE` branch above so `Edit ▸ Delete` can reach
+## the same path. It was reachable only from the keyboard until 2026-08-30,
+## while the menu row beside it said deletion was impossible -- see
+## `menus.gd`'s Edit block for what that row used to claim.
+##
+## Returns whether anything was actually deleted, so a caller can tell "there
+## was nothing selected" from "it happened".
+func delete_selection() -> bool:
+	for ws in _workspaces:
+		if ws.has_method("on_delete_key"):
+			if ws.on_delete_key():
+				return true
+	return false
 
 ## Escape's body, named because Android's back gesture means the same thing at
 ## the point it runs out of surfaces to leave (`_back_exhausted()`), and a phone
