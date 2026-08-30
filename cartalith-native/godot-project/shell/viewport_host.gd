@@ -1182,6 +1182,13 @@ func refresh_annotations() -> void:
 	if not _engine_readable():
 		return
 	overlay.set_manual_icons(_bridge.icon_list())
+	## Generated landmarks (`LANDMARK_GENERATION_SCOPE.md`). Guarded on the
+	## method rather than assumed: the landmark bridge is newer than this call
+	## site, and an older cdylib must lose the overlay rather than the whole
+	## annotation refresh — the same degrade `_has()` gives every other binding
+	## in `engine_bridge.gd`.
+	if _bridge.has_method("landmarks") and overlay.has_method("set_landmarks"):
+		overlay.set_landmarks(_bridge.landmarks())
 	overlay.set_labels(_bridge.label_list())
 	overlay.set_manual_routes(manual_routes())
 
@@ -1216,6 +1223,14 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"settlements": overlay.set_show_settlements(shown)
 		"roads": overlay.set_show_roads(shown)
 		"sea_routes": overlay.set_show_sea_routes(shown)
+		## Guarded on the method, unlike its neighbours: this arm is newer than
+		## `map_overlay.gd`'s own landmark block in some checkouts, and a match
+		## arm that calls a method the overlay does not have takes the whole
+		## `set_layer_visible` dispatch down with it -- including the five rows
+		## that do work.
+		"landmarks":
+			if overlay.has_method("set_landmarks_visible"):
+				overlay.set_landmarks_visible(shown)
 		## `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01). Reveals only
 		## once a town's 1.7 km site box is worth pixels -- `map_overlay.gd`'s
 		## own "Urban layouts" block owns that gate and states why it is not

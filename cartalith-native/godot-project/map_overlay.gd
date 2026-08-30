@@ -360,6 +360,40 @@ const ICON_FAMILY_COLORS := {
 const ICON_BASE_RADIUS := 5.5
 const ICON_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
 
+## **Generated landmarks are not manual icons, and must not read as them.**
+##
+## `design/landmark-generation/LANDMARK_UI_DESIGN.md` §9's row 23:
+## `icon_place`/`icon_list` draw the *manual* Icon tool's stamps, and "a
+## generated landmark is not one". They come from different places, mean
+## different things, and one of them the user placed by hand — so they are drawn
+## with a different mark, not a fifth colour in `ICON_FAMILY_COLORS`.
+##
+## Size carries CLASS (`LANDMARK_GENERATION_RESEARCH.md` §23's hierarchy:
+## Continental is extremely rare and enormous, Local is common and small),
+## because §23 says the hierarchy "should determine both generation frequency
+## and map visibility" — this is the visibility half. Importance modulates
+## within a class (§24: importance is emergent, not a rarity roll), so two
+## regional landmarks are not identical dots.
+##
+## The mark itself is a **ring**, open rather than filled, for a reason worth
+## stating: a filled mark competes with the settlement pins and the manual
+## icons for the same visual weight, and a landmark is a place on the map
+## rather than a thing on top of it. An open ring reads as an annotation of the
+## terrain under it.
+const LANDMARK_CLASS_RADIUS := {
+	"continental": 9.0,
+	"regional": 6.5,
+	"local": 4.5,
+	"cultural": 5.5,
+}
+## Cultural landmarks are the one class whose meaning is a civilisation's rather
+## than the terrain's (§26: the same mountain is sacred to one culture and a
+## border marker to another), so they carry the accent the rest of the shell
+## uses for civ data, and the physical classes carry a cool neutral.
+const LANDMARK_COL_PHYSICAL := Color(0.612, 0.769, 0.816, 0.95)
+const LANDMARK_COL_CULTURAL := Color(0.878, 0.639, 0.290, 0.95)
+const LANDMARK_OUTLINE := Color(0.051, 0.043, 0.031, 0.85)
+
 ## §4.5.5's Label tool. `color`/`font` are always the label's *effective*
 ## value (`label_dict` calls `color_or_default`/`font_or_default`), so no
 ## further fallback is needed here. `font` is a CSS font-family list (e.g.
@@ -690,6 +724,30 @@ var _manual_routes: Array = []
 ## list (`route_delete`), so anything that cached the route itself would draw
 ## a stale line the list no longer has a row for.
 var _selected_manual_route := -1
+
+## Generated landmarks, in `bridge.landmarks()`'s own dictionary shape:
+## `{id, kind, class, x, y, elevation, score, importance, causal}`. Held as the
+## bridge returned them rather than reshaped — every field the hover card or a
+## future inspector wants is already there, and a reshape here would be a
+## second place for the vocabulary to drift.
+var _landmarks: Array = []
+var _landmarks_visible := true
+
+func set_landmarks(items: Array) -> void:
+	_landmarks = items
+	queue_redraw()
+
+## The Layers popover's own on/off for this overlay. Separate from
+## `_landmarks` being empty, which means "the pass has not run", so the map can
+## say those two apart.
+func set_landmarks_visible(on: bool) -> void:
+	if on == _landmarks_visible:
+		return
+	_landmarks_visible = on
+	queue_redraw()
+
+func landmarks_visible() -> bool:
+	return _landmarks_visible
 
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
@@ -1048,7 +1106,7 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
 			and _manual_icons.is_empty() and _labels.is_empty()
-			and _manual_routes.is_empty()):
+			and _manual_routes.is_empty() and _landmarks.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -1333,6 +1391,10 @@ func _draw() -> void:
 	# in `DCC_SHELL_SPEC.md`, so they always draw once placed, same as the
 	# Measure/Region tool overlays in `tool_overlay.gd` always draw once armed.
 	_draw_manual_icons(rect, interior)
+	## Under the labels and over everything else. Labels are text and lose
+	## legibility the moment anything crosses them; a landmark ring is a mark
+	## and does not.
+	_draw_landmarks(rect, interior)
 	_draw_labels(rect, interior)
 
 
@@ -1367,6 +1429,47 @@ func _draw_manual_icons(rect: Rect2, interior: Rect2) -> void:
 				draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
 				draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
 				draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
+
+
+## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
+## drawn as open rings sized by class and modulated by importance.
+##
+## Positions are grid CELLS (`Landmark.x`/`.y` are `usize` cell indices, unlike
+## the manual Icon tool's continuous click coordinates), so this is
+## `_cell_to_screen`, not `_point_to_screen`. Getting that wrong puts every
+## landmark half a cell out at every zoom, which is invisible at fit and
+## obvious at deep zoom — the same distinction `set_civ_data`'s own doc comment
+## draws for roads.
+##
+## An unknown class falls through to the Local radius rather than being skipped:
+## a landmark the engine placed and this build cannot categorise is still a real
+## landmark, and dropping it would be this file quietly disagreeing with the
+## panel about how many exist.
+func _draw_landmarks(rect: Rect2, interior: Rect2) -> void:
+	if not _landmarks_visible or _landmarks.is_empty():
+		return
+	for lm: Dictionary in _landmarks:
+		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+		if not interior.has_point(pos):
+			continue
+		var cls := String(lm.get("class", "local")).to_lower()
+		var base: float = float(LANDMARK_CLASS_RADIUS.get(cls, LANDMARK_CLASS_RADIUS["local"]))
+		## §24: importance is emergent, so it is worth showing. Bounded to
+		## +/-25% so the class stays the dominant read — an important local
+		## landmark must never out-draw a continental one, or the size stops
+		## meaning class at all.
+		var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
+		var r: float = base * (0.75 + 0.5 * imp)
+		var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
+		## Dark halo first so the ring survives on pale terrain, the same
+		## two-pass trick the settlement labels use for their outline.
+		draw_arc(pos, r, 0, TAU, 22, LANDMARK_OUTLINE, 2.4, true)
+		draw_arc(pos, r, 0, TAU, 22, col, 1.3, true)
+		## A centre dot only on the two rare classes. On Local, where a dense
+		## world can carry hundreds, it fills the ring in and the mark stops
+		## reading as open.
+		if cls == "continental" or cls == "regional":
+			draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
 
 
 ## §4.5.5's Label tool: user-authored region-name text, angled/arched in the

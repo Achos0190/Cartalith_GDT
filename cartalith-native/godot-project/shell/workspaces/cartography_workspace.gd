@@ -73,6 +73,14 @@ const LIVE_LAYERS: Array = [
 	## by default, on a row only reachable from this rail dock, is why the
 	## layer went unseen.
 	{"id": "urban_layouts", "label": "Town layouts (deep zoom)", "on": true},
+	## Generated landmarks (`LANDMARK_GENERATION_SCOPE.md`). A layer row rather
+	## than a control in the CIVIL panel that generates them, for the same
+	## reason Settlements is one: this category answers "what is drawn", and the
+	## domain that produces a thing is not the one that decides whether it is
+	## visible. On by default — a pass the user deliberately ran should show its
+	## result without a second step — and drawing nothing until one has run,
+	## which is exactly how Sea routes behaves before any exist.
+	{"id": "landmarks", "label": "Landmarks", "on": true},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]
