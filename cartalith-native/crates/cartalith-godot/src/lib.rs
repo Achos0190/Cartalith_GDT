@@ -5830,6 +5830,28 @@ impl WorldGen {
         self.icons.as_ref().and_then(|i| i.selected).map_or(-1, |i| i as i64)
     }
 
+    /// Clear the placed-icon selection — `Edit ▸ Deselect` (⌘D,
+    /// `DCC_SHELL_SPEC.md` §2.2). The icon counterpart of
+    /// `label_select(-1)`, which has always accepted a negative index as
+    /// "select nothing"; icons had no equivalent, and that asymmetry is
+    /// exactly why the Deselect menu row said there was "no shared way to
+    /// clear them".
+    ///
+    /// Deliberately narrower than `label_select`: this only ever CLEARS.
+    /// Setting an icon selection from outside is not a thing the shell needs
+    /// — `icon_place` and `icon_hit_test` are the two ways one starts, and
+    /// both already own that — so a settable index would be a third path
+    /// into `IconEditor::select` with no caller.
+    ///
+    /// Always succeeds, including with nothing selected: Deselect twice is a
+    /// legal no-op, not a failure.
+    #[func]
+    fn icon_deselect(&mut self) {
+        if let Some(icons) = self.icons.as_mut() {
+            icons.deselect();
+        }
+    }
+
     /// Grid-space hit test against every placed icon's box
     /// (`icon_bridge::IconEditor::hit_test` -- box hits only; a *handle*
     /// hit is the shell's own job, by comparing the pointer against

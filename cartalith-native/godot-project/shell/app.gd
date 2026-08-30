@@ -198,6 +198,52 @@ func delete_selection() -> bool:
 				return true
 	return false
 
+## Clear every selection the shell holds -- `Edit > Deselect` (⌘D,
+## `DCC_SHELL_SPEC.md` §2.2, "Select all / Deselect ... Scoped to the active
+## layer").
+##
+## The row was disabled until 2026-08-30 with the reason *"no shared way to
+## clear them: Escape disarms the active tool without touching what is
+## selected"*. Both halves of that were true and only the second is now: this
+## is the shared way, and Escape still deliberately does not call it -- Escape
+## means "put the tool down", which is a different act from "keep the tool,
+## forget what it was pointed at".
+##
+## Three owners, because there are exactly three selections in this shell and
+## none of them knew about the others:
+##
+##   - **settlements** -- `_selected_index` on `CivilizationWorkspace`, reached
+##     through `on_deselect()` the same way Delete reaches `on_delete_key()`
+##   - **labels** -- `label_select(-1)`, which the engine has always accepted
+##     as "select nothing"
+##   - **icons** -- `icon_deselect()`, which it did NOT have until this change;
+##     that asymmetry is what made the row's reason true in the first place
+##
+## "Scoped to the active layer" is honoured by the workspace guard rather than
+## by a layer test: `on_deselect()` refuses unless its own domain is active,
+## and labels and icons are both Cartography's, so a Deselect in World clears
+## nothing. Returns whether anything was actually cleared.
+func clear_selection() -> bool:
+	var any := false
+	for ws in _workspaces:
+		if ws.has_method("on_deselect"):
+			if ws.on_deselect():
+				any = true
+	if bridge.label_get_selected() >= 0:
+		bridge.label_select(-1)
+		any = true
+	if bridge.icon_get_selected() >= 0:
+		bridge.icon_deselect()
+		any = true
+	if any:
+		## The two on-canvas handle sets belong to whatever was selected, so
+		## they go with it -- a resize handle floating over nothing is the
+		## same class of lie as a menu row that claims a capability.
+		viewport.tool_overlay.set_handles([])
+		viewport.refresh_annotations()
+		set_status("hint", "selection cleared", "text_dim")
+	return any
+
 ## Escape's body, named because Android's back gesture means the same thing at
 ## the point it runs out of surfaces to leave (`_back_exhausted()`), and a phone
 ## has no Escape key to press.

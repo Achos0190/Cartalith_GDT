@@ -261,6 +261,19 @@ impl IconEditor {
         self.selected = Some(index);
     }
 
+    /// Drops the selection without touching any icon — `Edit ▸ Deselect`
+    /// (`DCC_SHELL_SPEC.md` §2.2, "Select all / Deselect ⌘A ⌘D"), the third
+    /// legitimate way a selection changes and the only one that ends it.
+    ///
+    /// `resize_base_scale` goes with it. It is the baseline the next
+    /// `resize()` drag measures against, snapshotted by `select`, so leaving
+    /// it behind would let a drag on a freshly-selected icon measure from the
+    /// *previous* one's scale.
+    pub fn deselect(&mut self) {
+        self.selected = None;
+        self.resize_base_scale = None;
+    }
+
     /// Applies one resize-drag sample to the selected icon's `scale` —
     /// `icon_resize_scale(base, cx, cy, gx, gy, start_dist)`, `base` being
     /// the snapshot `select` took, not the icon's live (already-updated-
@@ -473,6 +486,26 @@ mod tests {
         let hit = e.hit_test(5.5, 5.5, &env());
         assert_eq!(hit, Some(0));
         assert_eq!(e.selected, Some(0));
+    }
+
+    #[test]
+    fn deselect_clears_the_selection_and_the_resize_baseline() {
+        let mut e = IconEditor::new();
+        e.arm("feature", 0, 1.0, 0.0, 0.0);
+        e.place(5.0, 5.0, 48, 32);
+        assert_eq!(e.hit_test(5.5, 5.5, &env()), Some(0));
+        assert_eq!(e.selected, Some(0));
+        assert!(e.resize_base_scale.is_some());
+        e.deselect();
+        assert_eq!(e.selected, None);
+        // The baseline goes with it: a drag after a fresh select must measure
+        // from THAT icon's scale, never the previous selection's.
+        assert!(e.resize_base_scale.is_none());
+        // Idempotent -- Deselect with nothing selected is a legal no-op.
+        e.deselect();
+        assert_eq!(e.selected, None);
+        // And nothing was deleted.
+        assert_eq!(e.icons.len(), 1);
     }
 
     #[test]

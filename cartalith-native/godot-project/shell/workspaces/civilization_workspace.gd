@@ -329,6 +329,25 @@ static func _clear_body(node: Control) -> void:
 func on_settlement_selected(_data: Variant, index: int) -> void:
 	_selected_index = index
 
+## `Edit > Deselect` (§2.2), the sibling of `on_delete_key` above and reached
+## the same way: `DccApp.clear_selection()` walks the workspaces and calls
+## whichever ones answer.
+##
+## Domain-guarded exactly as `on_delete_key` is -- deselecting a settlement
+## while the user is in Cartography would clear a selection they cannot see,
+## and the register's own rule is that a command acts on what is in front of
+## the person issuing it.
+##
+## Returns whether there was anything to clear, so the caller can tell "there
+## was no selection" from "it happened".
+func on_deselect() -> bool:
+	if app.active_domain() != "civilization":
+		return false
+	if _selected_index < 0:
+		return false
+	_selected_index = -1
+	return true
+
 ## `_civCtxShow` (reference 25857) and the `contextmenu` handler that builds
 ## its item list (25888). Five of the reference's six operations; the sixth
 ## ("Drop POI here") is absent because POI is not a ported concept

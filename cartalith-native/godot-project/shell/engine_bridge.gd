@@ -1598,6 +1598,16 @@ func icon_place(gx: float, gy: float) -> int:
 		return -1
 	return world_gen.icon_place(gx, gy)
 
+## Clear the placed-icon selection -- `Edit > Deselect`. The icon half of
+## `label_select(-1)`, which icons had no counterpart for; that asymmetry is
+## the whole reason the Deselect row was disabled. Silent no-op against an
+## older cdylib, which is correct here: nothing was selected in a build that
+## cannot select.
+func icon_deselect() -> void:
+	if not _has("icon_deselect"):
+		return
+	world_gen.icon_deselect()
+
 ## `GUI_GAP_REGISTER.md` CA-05: `label_get_selected`'s own icon counterpart.
 func icon_get_selected() -> int:
 	if not _has("icon_get_selected"):

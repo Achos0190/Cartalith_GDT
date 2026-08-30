@@ -40,6 +40,7 @@ const ID_REDO := 21
 ## and the action are different things, and routing both through one id is the
 ## shape this shell keeps having to undo.
 const ID_DELETE := 77
+const ID_DESELECT := 82
 const ID_UNDO_HISTORY := 121
 const ID_PREF_UNDO_CLEAR := 22
 ## `Edit ▸ Find on map…`. Was a `_todo` row (no id, since `_todo` never
@@ -527,9 +528,20 @@ func _edit(p: PopupMenu) -> void:
 		"Every selection in the shell holds exactly one item -- icon_get_selected and " +
 		"label_get_selected each return a single index -- so there is no multi-selection " +
 		"for this to select into.")
-	_todo(p, "Deselect",
-		"Same single-item selections, and no shared way to clear them: Escape disarms the " +
-		"active tool (app.gd _escape_action) without touching what is selected.")
+	## §2.2's other half, live since 2026-08-30. Its reason used to be "no
+	## shared way to clear them", which was true of all three selections at
+	## once: settlements had no `on_deselect`, and icons had no engine call to
+	## clear with (labels always did -- `label_select(-1)`). `DccApp.
+	## clear_selection()` is that shared way and `icon_deselect()` is the
+	## binding it needed.
+	##
+	## **Select all above stays disabled, and the two are not the same job.**
+	## Every selection here holds exactly one item, so there is nothing for
+	## Select all to select INTO -- that needs a multi-selection model first.
+	## Clearing one item needs no such model.
+	_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)
+	p.set_item_tooltip(p.item_count - 1,
+		"Clears the settlement, label or icon selection in the active domain. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone.")
 	p.add_separator()
 	## §2.2: "Search places, labels, factions, routes; result pans the
 	## viewport." Both halves now exist: `PlaceSearch` (shell/place_search.gd)
@@ -592,6 +604,7 @@ func _on_edit(id: int) -> void:
 		## on why this row was a `_todo` claiming deletion was impossible while
 		## the key it duplicates already worked.
 		ID_DELETE: _host.delete_selection()
+		ID_DESELECT: _host.clear_selection()
 		## `_host` is `dcc_shell.gd`, owned by a different pass -- guarded
 		## rather than called bare so a build that has not yet grown
 		## `open_find_on_map()` still opens every other Edit row cleanly
