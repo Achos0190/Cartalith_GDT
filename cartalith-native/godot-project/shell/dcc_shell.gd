@@ -2263,7 +2263,7 @@ func _build_phone_menu_bar() -> Control:
 	var domains := HBoxContainer.new()
 	domains.add_theme_constant_override("separation", 0)
 	domains.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	domains.size_flags_stretch_ratio = float(DOMAINS.size())
+	domains.size_flags_stretch_ratio = float(PHONE_TABS.size())
 	_rail_region = domains
 	row.add_child(domains)
 
@@ -2276,23 +2276,96 @@ func _build_phone_menu_bar() -> Control:
 	cells.add_theme_constant_override("separation", 0)
 	rail_column.add_child(cells)
 
-	for d in DOMAINS:
-		var cell := _phone_bar_cell(String(d.rail), String(d.icon),
-			String(d.label) + " -- " + String(d.subtitle),
-			_pick_bar_domain.bind(String(d.id)))
-		_domain_buttons[d.id] = cell["button"]
-		_domain_marks[d.id] = {"label": cell["label"], "icon": cell["icon"],
-			"off": "text_dim", "box": false}
+	## **`PHONE_TABS`, not `DOMAINS`.** The bar used to mirror the desktop's
+	## three workspaces plus PANELS and MORE, which is how a phone ended up
+	## with two tabs -- "PANELS" and "MORE" -- that name a container rather
+	## than a destination. `docs/ANDROID_UI_SPEC.md` replaces them with four
+	## task tabs, and CIVIL moves under MORE, which that spec states
+	## explicitly ("MORE: Project, Civilization ..., Data manager, ...").
+	for t in PHONE_TABS:
+		var cell := _phone_bar_cell(String(t.caption), String(t.icon), String(t.tip),
+			_pick_phone_tab.bind(String(t.id)))
+		var key := String(t.id)
+		_phone_tab_cells[key] = cell
+		if String(t.domain) != "":
+			_domain_buttons[String(t.domain)] = cell["button"]
+			_domain_marks[String(t.domain)] = {"label": cell["label"], "icon": cell["icon"],
+				"off": "text_dim", "box": false}
 		cells.add_child(cell["button"] as Control)
-
-	## Outside `_rail_region`, on purpose -- see this function's header.
-	_phone_bar_panels = _phone_bar_cell("PANELS", "nav_panels", "Left and right panels",
-		func(): _set_panel_picker_open(true))
-	row.add_child(_phone_bar_panels["button"] as Control)
-	_phone_bar_more = _phone_bar_cell("MORE", "nav_more",
-		"File, Edit, Assets, Data, Preferences, Window, Help", _toggle_overflow)
-	row.add_child(_phone_bar_more["button"] as Control)
 	return bar
+
+## The phone's four task tabs (`docs/ANDROID_UI_SPEC.md`: "bottom bar, task tabs
+## MAP · GENERATE · PLAN · MORE").
+##
+## `domain` is the desktop workspace a tab selects, or `""` for a tab that is
+## not a workspace at all. Two of the four map straight onto existing domains;
+## PLAN opens the journey planner, and MORE is the overflow screen.
+##
+## `civilization` is deliberately absent as a *tab* and still fully reachable --
+## the planner selects it, and MORE lists it. The spec moved it there rather
+## than dropping it.
+const PHONE_TABS: Array = [
+	{"id": "map", "caption": "MAP", "icon": "domain_carto", "domain": "cartography",
+		"tip": "Layers, style and annotation"},
+	{"id": "gen", "caption": "GENERATE", "icon": "domain_world", "domain": "world",
+		"tip": "The generation pipeline, and Sculpt"},
+	{"id": "plan", "caption": "PLAN", "icon": "tool_route", "domain": "",
+		"tip": "Journey planner"},
+	{"id": "more", "caption": "MORE", "icon": "nav_more", "domain": "",
+		"tip": "Project, Civilization, Data, Assets, Preferences, Help"},
+]
+
+var _phone_tab_cells: Dictionary = {}
+var _phone_tab := "gen"   ## Which of `PHONE_TABS` is lit.
+
+## One tab press. A workspace tab selects its domain; the two that are not
+## workspaces do their own thing.
+func _pick_phone_tab(id: String) -> void:
+	_phone_tab = id
+	match id:
+		"more":
+			_toggle_overflow()
+		"plan":
+			if _phone_menu != null and _phone_menu.is_open():
+				_phone_menu.close()
+			## `DccApp extends DccShell`, so `self` is the app; the planner
+			## opener lives on the subclass. Guarded rather than assumed,
+			## because `DccShell` is also instantiated bare by probes.
+			if has_method("open_journey_planner"):
+				call("open_journey_planner")
+		_:
+			if _phone_menu != null and _phone_menu.is_open():
+				_phone_menu.close()
+			for t in PHONE_TABS:
+				if String(t.id) == id and String(t.domain) != "":
+					_pick_bar_domain(String(t.domain))
+	_refresh_phone_tabs()
+
+## The active tab wears the candidate's own pill -- `padding:5px 16px;
+## border-radius:14px; background:rgba(224,163,74,.16)` behind the glyph
+## (`candidates/Android Chrome B.dc.html`). Lighting only the caption, which is
+## what the old bar did, left the row reading as four labels of equal weight.
+func _refresh_phone_tabs() -> void:
+	for key in _phone_tab_cells.keys():
+		var cell: Dictionary = _phone_tab_cells[key]
+		var on: bool = (String(key) == _phone_tab)
+		var lbl: Label = cell.get("label")
+		var pill: PanelContainer = cell.get("pill")
+		if lbl != null and is_instance_valid(lbl):
+			(lbl as Label).add_theme_color_override("font_color",
+				DccTheme.c("accent" if on else "text_dim"))
+		if pill != null and is_instance_valid(pill):
+			## `rgba(224,163,74,.16)` verbatim from the candidate, NOT the
+			## `accent_wash` token. That token is 8% (`#e0a34a14`), which is
+			## the desktop's active-menu wash and is effectively invisible
+			## behind a 14 px glyph on `#121314` -- checked on the handset, the
+			## pill did not read at all at 8%. The candidate chose twice that
+			## for this surface and it is right for it.
+			var box := DccTheme.flat(Color(DccTheme.c("accent"), 0.16))
+			box.set_corner_radius_all(_pscale(14))
+			(pill as PanelContainer).add_theme_stylebox_override("panel",
+				box if on else DccTheme.empty())
+
 
 ## Which of the two non-domain tabs is lit. The three domain cells go through
 ## `_select_domain()`; these two have no domain to select, and without this the
@@ -2350,7 +2423,25 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 	## transform, which here is 1, so this is the real raster size too.
 	var ic := DccIcons.rect(glyph, _pscale(14), "text_dim")
 	ic.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	col.add_child(ic)
+	## The glyph sits in a pill that only the ACTIVE tab fills --
+	## `candidates/Android Chrome B.dc.html`: `padding:5px 16px;
+	## border-radius:14px; background:rgba(224,163,74,.16)`. Lighting only the
+	## caption (what the bar did before) left four labels of equal weight and no
+	## sense of where you are. Empty stylebox until `_refresh_phone_tabs()`
+	## fills it, so an inactive tab is byte-identical to what it drew before.
+	var pill := PanelContainer.new()
+	pill.add_theme_stylebox_override("panel", DccTheme.empty())
+	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pill_pad := MarginContainer.new()
+	pill_pad.add_theme_constant_override("margin_left", _pscale(16))
+	pill_pad.add_theme_constant_override("margin_right", _pscale(16))
+	pill_pad.add_theme_constant_override("margin_top", _pscale(5))
+	pill_pad.add_theme_constant_override("margin_bottom", _pscale(5))
+	pill_pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill_pad.add_child(ic)
+	pill.add_child(pill_pad)
+	col.add_child(pill)
 
 	## `9.5px` with `.1em` tracking -- just under 1 px at that size, so `spacing`
 	## is 1. This was 9 px at 2 (≈.22em) in Medium: a size down, tracking up and
@@ -2364,7 +2455,7 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 
 	b.add_child(col)
 	col.set_anchors_preset(Control.PRESET_FULL_RECT)
-	return {"button": b, "label": l, "icon": ic}
+	return {"button": b, "label": l, "icon": ic, "pill": pill}
 
 ## A bar domain was tapped: switch domain and drop any menu that was over it,
 ## so the result is visible immediately -- the canvas's "the map never leaves
