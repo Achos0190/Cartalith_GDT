@@ -108,6 +108,13 @@ const ID_LOD_MODE_AUTO := 160
 const ID_LOD_MODE_MANUAL := 161
 const ID_LOD_ENTER_NOW := 162
 const ID_LOD_LEAVE_NOW := 163
+## `Preferences ▸ Graphics ▸ Lighting rig defaults`. Four ladders, spaced 20
+## apiece so a longer rung list cannot collide with the next ladder.
+const ID_LIGHT_AZ_FIRST := 170
+const ID_LIGHT_ALT_FIRST := 190
+const ID_LIGHT_AMB_FIRST := 210
+const ID_LIGHT_NUM_FIRST := 230
+const ID_LIGHT_RESET := 250
 const ID_LOD_CLEAR_ATLAS := 149
 
 const ID_HELP_DOCS := 78
@@ -190,6 +197,11 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 var _tile_size_popup: PopupMenu
 var _lod_levels_popup: PopupMenu
 var _tiled_lod_popup: PopupMenu
+var _lighting_popup: PopupMenu
+var _light_az_popup: PopupMenu
+var _light_alt_popup: PopupMenu
+var _light_amb_popup: PopupMenu
+var _light_num_popup: PopupMenu
 var _atlas_popup: PopupMenu
 var _atlas_stats_idx: int = -1
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
@@ -1160,8 +1172,19 @@ func _preferences(p: PopupMenu) -> void:
 		"SS2.5 asks for sRGB / Display P3 / linear. The renderer is sRGB-only end to end: render.rs writes 8-bit sRGB bytes and nothing carries a colour space through to the texture. A three-row radio that always resolves to sRGB is exactly the enabled-and-inert row this menu forbids.")
 	_todo(p, "3D viewport defaults",
 		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. There is no 3D viewport to give defaults to.")
-	_todo(p, "Lighting rig defaults",
-		"SS2.5 asks for azimuth, elevation, ambient and multidirectional on/off. The values themselves already ship, per layer, in SS7's Layer properties LIGHT group (azimuth 315 deg, elevation 45 deg, strength 0.62, multidirectional 8 lights) in the Cartography workspace. What is missing is only the project-level default store those per-layer values would seed from -- a settings key, not new rendering.")
+	## Live since 2026-08-30. The reason that stood here identified its own fix
+	## exactly -- *"what is missing is only the project-level default store
+	## those per-layer values would seed from -- a settings key, not new
+	## rendering"* -- and then left it unbuilt. `DccSettings.lighting_defaults()`
+	## is that key; the four values are `render.rs` tunables the engine has
+	## bound all along.
+	##
+	## Applied on a fresh Generate only, NOT on opening a project: a save
+	## carries its own `appearance.json` slot (`project_bridge.rs:92`), and
+	## overwriting a loaded world's lighting with a preference would be this
+	## menu destroying data on the user's behalf. `app.gd`'s
+	## `_apply_lighting_defaults()` carries that reasoning at the call site.
+	_build_lighting_menu(p)
 	p.add_separator("TILES & LOD")
 	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
 	## behind one disabled row** reading `Tiled LOD · tile size · LOD level ·
@@ -1618,6 +1641,112 @@ static func _gb(bytes: int) -> String:
 	return "%.1f GB" % (float(bytes) / 1073741824.0)
 
 # -- §2.5 Tiles & LOD -----------------------------------------------------------
+
+## §2.5 Graphics ▸ Lighting rig defaults. Four ladders over
+## `DccSettings.LIGHTING_DEFAULTS`' own keys, plus a reset.
+##
+## Ladders rather than free numbers because a `PopupMenu` has no slider, and
+## the rungs are the values a cartographer actually picks: the eight compass
+## bearings for azimuth, the reference's own band for elevation. The per-world
+## controls in RENDER stay continuous -- this sets where they START.
+const LIGHT_AZ_STEPS: Array[float] = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+const LIGHT_ALT_STEPS: Array[float] = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0]
+const LIGHT_AMB_STEPS: Array[float] = [0.0, 0.15, 0.25, 0.35, 0.5, 0.7]
+const LIGHT_NUM_STEPS: Array[float] = [1.0, 2.0, 4.0, 6.0, 8.0, 12.0]
+
+func _build_lighting_menu(p: PopupMenu) -> void:
+	_lighting_popup = PopupMenu.new()
+	_lighting_popup.name = "LightingRig"
+	_shell.style_popup(_lighting_popup)
+	_light_az_popup = _light_ladder("LightAz", "Azimuth", LIGHT_AZ_STEPS,
+		ID_LIGHT_AZ_FIRST, "sun_az_deg",
+		"Compass bearing the light comes from. 315 deg (north-west) is the cartographic convention -- lighting from the south-east makes ridges read as valleys.")
+	_light_alt_popup = _light_ladder("LightAlt", "Elevation", LIGHT_ALT_STEPS,
+		ID_LIGHT_ALT_FIRST, "sun_alt_deg",
+		"How high the light sits. Low angles lengthen shadows and exaggerate relief; high angles flatten it.")
+	_light_amb_popup = _light_ladder("LightAmb", "Ambient", LIGHT_AMB_STEPS,
+		ID_LIGHT_AMB_FIRST, "relief_ambient",
+		"The floor under the shading -- how much light reaches a slope facing away from the sun. 0 makes shadowed faces black.")
+	_light_num_popup = _light_ladder("LightNum", "Multidirectional", LIGHT_NUM_STEPS,
+		ID_LIGHT_NUM_FIRST, "relief_lights",
+		"Hillshade light directions, evenly spaced from the azimuth. 1 is the reference's exact single-sun shading; more reveals ridges running parallel to the primary sun.")
+	_lighting_popup.add_separator()
+	_lighting_popup.add_item("Reset to the reference rig", ID_LIGHT_RESET)
+	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1,
+		"315 deg / 45 deg / 0.35 ambient / 1 light -- what this build renders with out of the box.")
+	_lighting_popup.id_pressed.connect(_on_lighting)
+	_lighting_popup.about_to_popup.connect(_refresh_lighting_menu)
+	p.add_child(_lighting_popup)
+	p.add_submenu_item("Lighting rig defaults", "LightingRig")
+
+func _light_ladder(node_name: String, label: String, steps: Array,
+		first_id: int, key: String, tip: String) -> PopupMenu:
+	var sub := PopupMenu.new()
+	sub.name = node_name
+	_shell.style_popup(sub)
+	for i in steps.size():
+		sub.add_radio_check_item(_light_rung_text(key, float(steps[i])), first_id + i)
+	sub.id_pressed.connect(_on_lighting)
+	_lighting_popup.add_child(sub)
+	_lighting_popup.add_submenu_item(label, node_name)
+	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1, tip)
+	return sub
+
+func _light_rung_text(key: String, v: float) -> String:
+	match key:
+		"sun_az_deg", "sun_alt_deg":
+			return "%d deg" % int(v)
+		"relief_lights":
+			return "1 light (single sun)" if v <= 1.0 else "%d lights" % int(v)
+	return "%.2f" % v
+
+## Ladder, its rungs, its id base and its key, in one place so the refresh and
+## the handler cannot disagree about which is which.
+func _light_ladders() -> Array:
+	return [
+		[_light_az_popup, LIGHT_AZ_STEPS, ID_LIGHT_AZ_FIRST, "sun_az_deg"],
+		[_light_alt_popup, LIGHT_ALT_STEPS, ID_LIGHT_ALT_FIRST, "sun_alt_deg"],
+		[_light_amb_popup, LIGHT_AMB_STEPS, ID_LIGHT_AMB_FIRST, "relief_ambient"],
+		[_light_num_popup, LIGHT_NUM_STEPS, ID_LIGHT_NUM_FIRST, "relief_lights"],
+	]
+
+func _refresh_lighting_menu() -> void:
+	if _lighting_popup == null:
+		return
+	var cur: Dictionary = DccSettings.lighting_defaults()
+	for row in _light_ladders():
+		var sub: PopupMenu = row[0]
+		var steps: Array = row[1]
+		var key := String(row[3])
+		if sub == null:
+			continue
+		var v := float(cur.get(key, 0.0))
+		## Nearest rung, not equality: a value stored before a rung list changed
+		## must still read as checked somewhere rather than as nothing checked.
+		var best := 0
+		for i in steps.size():
+			if absf(float(steps[i]) - v) < absf(float(steps[best]) - v):
+				best = i
+		for i in steps.size():
+			sub.set_item_checked(i, i == best)
+
+func _on_lighting(id: int) -> void:
+	if id == ID_LIGHT_RESET:
+		DccSettings.reset_lighting_defaults()
+		_refresh_lighting_menu()
+		_host.set_status("hint", "lighting rig back to 315/45/0.35/1 light", "text_dim")
+		return
+	for row in _light_ladders():
+		var steps: Array = row[1]
+		var first := int(row[2])
+		var key := String(row[3])
+		var i := id - first
+		if i >= 0 and i < steps.size():
+			DccSettings.set_lighting_default(key, float(steps[i]))
+			_refresh_lighting_menu()
+			_host.set_status("hint", "lighting default %s = %s (next Generate)" % [
+				key, _light_rung_text(key, float(steps[i]))], "text_dim")
+			return
 
 ## §2.5's Tiled LOD mode, plus the manual mode's own entry point.
 func _build_tiled_lod_menu(p: PopupMenu) -> void:

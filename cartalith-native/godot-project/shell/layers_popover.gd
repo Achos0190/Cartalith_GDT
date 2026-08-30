@@ -289,16 +289,26 @@ func rebuild() -> void:
 	_refresh_legend(_legend_for(current, groups))
 	_phone_fit()   ## PH-12 -- every row above is a fresh node.
 
+## `GUI_GAP_REGISTER.md` §57 / `UNWIRED_FUNCTIONS.md` "the tablet interior
+## walk". §57's own DS-03 audit found the tablet artboard deletes this popover
+## entirely to buy room for its 44 px rows elsewhere -- that is a content
+## question for the owner (`UNWIRED_FUNCTIONS.md`'s companion row), explicitly
+## not this pass's to decide, so nothing here is hidden. What this pass owns
+## is sizing: a row the artboard would have kept still has to hit its target,
+## which is `role_px("row_min_h")`/`"fs_prose"` -- a plain `Button` with no
+## font override, i.e. prose, same as `DccWidgets._row()`'s own label.
 func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) -> Button:
 	var id := String(item["id"])
 	var available: bool = bool(item["available"])
+	var tablet := DccTheme.is_tablet()
 	var b := Button.new()
 	b.text = String(item["label"])
 	b.flat = true
 	b.focus_mode = Control.FOCUS_NONE
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	b.custom_minimum_size.y = 22
-	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	b.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	b.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL)
 	b.tooltip_text = String(item["hint"]) if available else \
 		String(item["hint"]) + "\n\nNot available for this world."
 	b.disabled = not available

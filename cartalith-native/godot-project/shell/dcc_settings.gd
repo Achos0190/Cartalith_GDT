@@ -29,6 +29,7 @@ const _SEC_GPU := "gpu"
 ## `DCC_SHELL_SPEC.md` §2.1's Autosave toggle (`GUI_GAP_REGISTER.md` FI-01).
 const _SEC_AUTOSAVE := "autosave"
 const _SEC_LOD := "tiles_lod"
+const _SEC_LIGHT := "lighting"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -221,4 +222,52 @@ static func lod_auto() -> bool:
 static func set_lod_auto(on: bool) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LOD, "auto_on_zoom", on)
+	_save()
+
+# -- §2.5 Graphics ▸ Lighting rig defaults ------------------------------------
+
+## §2.5 asks for "Azimuth, elevation, ambient, multidirectional on/off";
+## §7's Layer properties LIGHT group draws the same rig per layer at azimuth
+## 315°, elevation 45°, strength 0.62, multidirectional 8 lights.
+##
+## Both describe **one rig**, and the engine already binds every value of it as
+## a `render.rs` tunable (`sun_az_deg` 0-360, `sun_alt_deg` 5-85,
+## `relief_ambient` 0-1, `relief_lights` 1-12). What was missing was never
+## rendering — it was the project-level DEFAULT those per-world values start
+## from, which is a settings key.
+##
+## The four defaults below are the reference's own: 315° is the cartographic
+## convention (lighting from the south-east makes ridges read as valleys, as
+## `render_workspace.gd`'s own tooltip says), 45° its companion, and
+## `relief_lights` 1 is the reference's exact single-sun shading — so an
+## untouched install renders exactly as it did before this key existed.
+const LIGHTING_DEFAULTS := {
+	"sun_az_deg": 315.0,
+	"sun_alt_deg": 45.0,
+	"relief_ambient": 0.35,
+	"relief_lights": 1.0,
+}
+
+static func lighting_defaults() -> Dictionary:
+	_ensure_loaded()
+	var out: Dictionary = {}
+	for k in LIGHTING_DEFAULTS:
+		out[k] = float(_cfg.get_value(_SEC_LIGHT, String(k), LIGHTING_DEFAULTS[k]))
+	return out
+
+static func set_lighting_default(key: String, value: float) -> void:
+	if not LIGHTING_DEFAULTS.has(key):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LIGHT, key, value)
+	_save()
+
+## Back to the reference's rig. Erases the keys rather than writing the default
+## values over them, so `lighting_defaults()` falls through to
+## `LIGHTING_DEFAULTS` and a later change to those constants reaches anyone who
+## has reset -- a stored copy of a default is a default that cannot move.
+static func reset_lighting_defaults() -> void:
+	_ensure_loaded()
+	if _cfg.has_section(_SEC_LIGHT):
+		_cfg.erase_section(_SEC_LIGHT)
 	_save()

@@ -648,7 +648,8 @@ func _build_settlement(body: Control) -> void:
 	rt.scroll_active = false
 	rt.custom_minimum_size.x = 220
 	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rt.add_theme_font_size_override("normal_font_size", DccTheme.FS_SMALL)
+	rt.add_theme_font_size_override("normal_font_size",
+		DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
 	rt.add_theme_color_override("default_color", DccTheme.c("text"))
 	rt.text = _build_causal_chain_text(s, _settlement_index)
 	why_sec.add_child(rt)
@@ -896,10 +897,12 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	var r := int(roster.get("color_r", 0))
 	var g := int(roster.get("color_g", 0))
 	var b := int(roster.get("color_b", 0))
+	var tablet := DccTheme.is_tablet()
+	var fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size.y = 22
-	var l := DccTheme.label("Colour", "text_dim", DccTheme.FS_SMALL)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	var l := DccTheme.label("Colour", "text_dim", fs)
 	l.custom_minimum_size.x = _FIELD_LABEL_W
 	l.clip_text = true
 	row.add_child(l)
@@ -912,7 +915,7 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	sw.custom_minimum_size = Vector2(11, 11)
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	trail.add_child(sw)
-	trail.add_child(DccTheme.label("#%02X%02X%02X" % [r, g, b], "text", DccTheme.FS_SMALL))
+	trail.add_child(DccTheme.label("#%02X%02X%02X" % [r, g, b], "text", fs))
 	row.add_child(trail)
 	parent.add_child(row)
 
@@ -1466,23 +1469,31 @@ func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
 	var hidden := bool(d.get("hidden", false))
 	var label_text := String(d.get("label", "?"))
 	var pts := int(d.get("point_count", 0))
+	var tablet := DccTheme.is_tablet()
+	var readout_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
-	row.custom_minimum_size.y = 20
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 20
 	var mark := DccTheme.mono_label(DccIcons.SYMBOLS["off"] if hidden else DccIcons.SYMBOLS["on"],
-		"text_ghost" if hidden else "text_dim", DccTheme.FS_TINY)
+		"text_ghost" if hidden else "text_dim", readout_fs)
 	row.add_child(mark)
 	var text := "#%d %s (%d pt%s)" % [idx, label_text, pts, "" if pts == 1 else "s"]
-	var l := DccTheme.mono_label(text, "accent" if idx == selected else "text", DccTheme.FS_SMALL)
+	var l := DccTheme.mono_label(text, "accent" if idx == selected else "text",
+		DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.clip_text = true
 	row.add_child(l)
+	## §57 tier B: one row of many, one selected -- the same "one of a set is
+	## lit" shape as a mode chip, so it takes `chip_min_h`/`fs_readout` rather
+	## than the discrete-action `btn_min_h`.
 	var select_btn := Button.new()
 	select_btn.flat = true
 	select_btn.focus_mode = Control.FOCUS_NONE
 	select_btn.text = "selected" if idx == selected else "select"
 	select_btn.disabled = idx == selected
-	select_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	select_btn.add_theme_font_size_override("font_size", readout_fs)
+	if tablet:
+		select_btn.custom_minimum_size.y = DccTheme.role_px("chip_min_h")
 	select_btn.pressed.connect(_on_stamp_select.bind(idx))
 	row.add_child(select_btn)
 	parent.add_child(row)
@@ -1598,23 +1609,32 @@ const _FIELD_LABEL_W := 116
 ##
 ## `label_w` narrows the label column for the handful of rows whose *value* is
 ## the content (a settlement name) rather than a short reading.
+## `GUI_GAP_REGISTER.md` §57 / `UNWIRED_FUNCTIONS.md` "the tablet interior
+## walk": this dock's single most-repeated row builder, resolved at
+## construction the same way `DccWidgets._row()` now is -- `role_px("row_min_h")`
+## for the row, `"fs_prose"` for the label (prose, `DccTheme.label()`) and
+## `"fs_readout"` for a mono value (Plex, `DccTheme.mono_label()`). A non-mono
+## value stays prose-sized, matching the label beside it.
 func _field(parent: Control, label_text: String, value_text: String,
 		tooltip: String = "", reachable: bool = true, mono: bool = false,
 		label_w: int = _FIELD_LABEL_W) -> Label:
+	var tablet := DccTheme.is_tablet()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size.y = 22
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
 	row.tooltip_text = tooltip
-	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
+	var label_fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
+	var l := DccTheme.label(label_text, "text_dim", label_fs)
 	l.custom_minimum_size.x = label_w
 	l.clip_text = true
 	row.add_child(l)
 	var token := "text" if reachable else "text_ghost"
 	var v: Label
 	if mono:
-		v = DccTheme.mono_label(value_text, token, DccTheme.FS_SMALL)
+		var mono_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
+		v = DccTheme.mono_label(value_text, token, mono_fs)
 	else:
-		v = DccTheme.label(value_text, token, DccTheme.FS_SMALL)
+		v = DccTheme.label(value_text, token, label_fs)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -1629,7 +1649,12 @@ func _accent_readout(parent: Control, label_text: String, value_text: String, to
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 0)
 	wrap.tooltip_text = tooltip
-	wrap.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
+	var caption_fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	wrap.add_child(DccTheme.label(label_text, "text_dim", caption_fs))
+	## `26` (`FS_HERO`) is left unscaled -- §6's "one big accent readout per
+	## context" is pinned, the same way `w_fab`/`hairline` are in `ROLE`'s own
+	## pinned block, and it is already well above every tablet floor this pass
+	## introduces.
 	var v := DccTheme.label(value_text, "accent", 26)
 	## Same rule as `_field()`: at 26 px a readout is the fastest row in the
 	## dock to outgrow the pane, and this one is rewritten on every mouse-move.

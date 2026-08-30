@@ -33,9 +33,16 @@ static func category(parent: Control, title: String, group: Array,
 	btn.flat = true
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size.y = 30
+	## A category header is itself a dock row (an L2 disclosure header), so it
+	## takes the same `row_min_h`/`fs_readout` pair `_row()` takes for its own
+	## label -- `fs_readout` rather than `fs_prose` because this label is set in
+	## Plex (`mono(1)` two lines down), matching §57's "sans and mono take
+	## different multipliers off the same rung" finding.
+	var cat_tablet := DccTheme.is_tablet()
+	btn.custom_minimum_size.y = DccTheme.role_px("row_min_h") if cat_tablet else 30
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	btn.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if cat_tablet else DccTheme.FS_SMALL)
 	btn.add_theme_font_override("font", DccTheme.mono(1))
 	btn.add_theme_color_override("font_color", DccTheme.c("text_bright"))
 	btn.add_theme_stylebox_override("normal", DccTheme.inset(12, 0, 12, 0))
@@ -156,8 +163,11 @@ static func stage_category(parent: Control, number: String, title: String,
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.custom_minimum_size.y = 30
-	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	## See `category()`'s own comment -- same row, same role pair.
+	var stage_tablet := DccTheme.is_tablet()
+	btn.custom_minimum_size.y = DccTheme.role_px("row_min_h") if stage_tablet else 30
+	btn.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if stage_tablet else DccTheme.FS_SMALL)
 	btn.add_theme_font_override("font", DccTheme.mono(1))
 	btn.add_theme_color_override("font_color", DccTheme.c("text_bright"))
 	btn.add_theme_stylebox_override("normal", DccTheme.inset(12, 0, 0, 0))
@@ -219,9 +229,14 @@ static func group(parent: Control, title: String, open: bool = true,
 	btn.flat = true
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size.y = 22
+	## An L4 group header is a dock row too (§57's "row_min_h" -- "Dock list
+	## rows and menu items"); its own type is `FS_HEADER` (9), which is exactly
+	## `ROLE`'s `fs_dock_header` desktop figure (`[9, 11]`), not `fs_readout`.
+	var grp_tablet := DccTheme.is_tablet()
+	btn.custom_minimum_size.y = DccTheme.role_px("row_min_h") if grp_tablet else 22
 	btn.text = "%s %s" % [mark, title.to_upper()]
-	btn.add_theme_font_size_override("font_size", DccTheme.FS_HEADER)
+	btn.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_dock_header") if grp_tablet else DccTheme.FS_HEADER)
 	btn.add_theme_font_override("font", DccTheme.mono(2, true))
 	btn.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 	btn.add_theme_stylebox_override("normal", DccTheme.empty())
@@ -264,11 +279,19 @@ const TRACK_W := 78
 ## everywhere." A slider follows the same rule -- a 2 px rule, the travelled
 ## part in accent, and **no grabber**. Godot's default is a thick track with a
 ## round knob, which reads as a web form rather than a tool.
+##
+## `StyleBoxFlat.content_margin_*` is how thin the drawn bar reads: with no
+## `custom_minimum_size` of its own, a StyleBox's minimum size *is* its content
+## margins, and Godot centres that minimum inside the control's real height --
+## so `top=1,bottom=1` here draws a 2 px line centred in the 14 px control, not
+## a 14 px slab. `role_px("slider_track_h")` (`[2, 3]`, §57's own measured
+## pair) is that same total split as evenly as an odd tablet figure allows.
 static func _style_slider(s: HSlider) -> void:
+	var thickness := DccTheme.role_px("slider_track_h") if DccTheme.is_tablet() else 2
 	var track := StyleBoxFlat.new()
 	track.bg_color = DccTheme.c("line")
-	track.content_margin_top = 1
-	track.content_margin_bottom = 1
+	track.content_margin_top = thickness / 2
+	track.content_margin_bottom = thickness - thickness / 2
 	s.add_theme_stylebox_override("slider", track)
 	var filled := StyleBoxFlat.new()
 	filled.bg_color = DccTheme.c("accent")
@@ -281,10 +304,20 @@ static func _style_slider(s: HSlider) -> void:
 	s.add_theme_icon_override("grabber_disabled", ImageTexture.new())
 	s.add_theme_constant_override("center_grabber", 1)
 
+## `GUI_GAP_REGISTER.md` §57 / `UNWIRED_FUNCTIONS.md` "the tablet interior
+## walk": resolved here, at the one place every dock parameter row passes
+## through, rather than by a class-dispatched walk over the finished tree --
+## §57's refutation #2 is exactly that a walk cannot tell this row apart from
+## any other `HBoxContainer` once built, but this factory always knows it is
+## building a dock row. `role_px("row_min_h")` is `ROLE`'s own "Dock list rows
+## and menu items" pair (`[0, 44]` -- the desktop `0` means "no constraint",
+## not "floor to zero", so the literal `24` stays the desktop figure and only
+## tablet reads the table) and `"fs_prose"` is the row label's own pair
+## (`[11, 14]`, matching the `FS_SMALL` this replaced on tablet only).
 static func _row(parent: Control, label_text: String, tooltip: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size.y = 24
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 24
 	row.tooltip_text = tooltip
 	## `font-family:'Helvetica Neue';font-size:11px;color:#a9adb0` on every
 	## parameter row in the canvas's left dock -- prose, not Plex, and one ink
@@ -292,7 +325,8 @@ static func _row(parent: Control, label_text: String, tooltip: String) -> HBoxCo
 	## This row is the single most repeated thing in the shell, so drawing its
 	## label in mono put a monospaced texture across every dock in the app that
 	## the reference does not have anywhere.
-	var l := DccTheme.label(label_text, "text_secondary", DccTheme.FS_SMALL)
+	var label_fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	var l := DccTheme.label(label_text, "text_secondary", label_fs)
 	l.custom_minimum_size.x = ROW_LABEL_W
 	l.clip_text = true
 	row.add_child(l)
@@ -329,12 +363,19 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 	## were clipping while the bar beside them had room to spare.
 	s.size_flags_horizontal = Control.SIZE_SHRINK_END
 	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	s.custom_minimum_size = Vector2(TRACK_W, 14)
+	## `role_px("slider_track_w")` (`[70, 90]`) on tablet only -- `TRACK_W` (78)
+	## is the dock's own desktop figure and stays put; the control's own 14 px
+	## height is an interaction floor already comfortably above the 2-3 px
+	## visual line `_style_slider()` draws, so it is left alone here rather than
+	## resized to a figure that would make the touch target *smaller*.
+	var track_w := DccTheme.role_px("slider_track_w") if DccTheme.is_tablet() else TRACK_W
+	s.custom_minimum_size = Vector2(track_w, 14)
 	s.focus_mode = Control.FOCUS_NONE
 	_style_slider(s)
 	row.add_child(DccTheme.spacer())
 	row.add_child(s)
-	var readout := DccTheme.mono_label("", "text", DccTheme.FS_SMALL, 0)
+	var readout_fs := DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	var readout := DccTheme.mono_label("", "text", readout_fs, 0)
 	readout.custom_minimum_size.x = ROW_VALUE_W
 	readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(readout)
@@ -350,13 +391,20 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 		s.drag_ended.connect(func(_value_changed: bool): on_release.call())
 	return {"row": row, "slider": s, "readout": readout, "format": fmt}
 
+## `CheckBox`/`OptionButton` are both `BaseButton` in Godot 4, so they are real
+## tap targets in their own right, not just row furniture -- floored to
+## `role_px("btn_min_h")` on tablet for the same reason `action()` is (tier A:
+## a single discrete tap, not one of a lit set).
 static func toggle(parent: Control, label_text: String, value: bool,
 		on_change: Callable, tooltip: String = "") -> CheckBox:
 	var row := _row(parent, label_text, tooltip)
 	var cb := CheckBox.new()
 	cb.button_pressed = value
 	cb.focus_mode = Control.FOCUS_NONE
-	cb.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	var fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	cb.add_theme_font_size_override("font_size", fs)
+	if DccTheme.is_tablet():
+		cb.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	cb.toggled.connect(func(v: bool): on_change.call(v))
 	row.add_child(cb)
 	row.add_child(DccTheme.spacer())
@@ -368,7 +416,10 @@ static func choice(parent: Control, label_text: String, options: Array, selected
 	var ob := OptionButton.new()
 	ob.focus_mode = Control.FOCUS_NONE
 	ob.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ob.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	var fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	ob.add_theme_font_size_override("font_size", fs)
+	if DccTheme.is_tablet():
+		ob.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	for o in options:
 		ob.add_item(String(o))
 	ob.selected = selected
@@ -533,6 +584,8 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 	sb.step = step
 	sb.value = value
 	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if DccTheme.is_tablet():
+		sb.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	sb.value_changed.connect(func(v: float): on_change.call(v))
 	row.add_child(sb)
 	return sb
@@ -562,14 +615,24 @@ static func number(parent: Control, label_text: String, minimum: float, maximum:
 ## because the pill's two variants differ by fill, not by size.
 const ACTION_META := "dcc_action_primary"
 
+## §57's tier A: "commit/discard, transport, speed" -- the single factory
+## behind all of them, so `role_px("btn_min_h")` (`[0, 44]`) resolved here
+## reaches every one at once rather than needing a per-call-site fix. Padding
+## grows with it (`btn_pad_x`/`btn_pad_y`, `[11, 18]`/`[3, 9]`) so a 44 px-tall
+## button does not read as a tiny label adrift in a tall box; the desktop
+## figures (10/4) are the pre-existing literals, kept as-is since they are not
+## quite the same as `ROLE`'s own desktop pair and this pass changes tablet
+## only.
 static func action(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
 	b.set_meta(ACTION_META, primary)
-	b.custom_minimum_size.y = 26
-	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	var act_tablet := DccTheme.is_tablet()
+	b.custom_minimum_size.y = DccTheme.role_px("btn_min_h") if act_tablet else 26
+	b.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if act_tablet else DccTheme.FS_SMALL)
 	b.add_theme_font_override("font", DccTheme.mono(1))
 	var edge := "accent" if primary else "border"
 	b.add_theme_color_override("font_color",
@@ -577,18 +640,20 @@ static func action(parent: Control, text: String, on_press: Callable,
 	b.add_theme_color_override("font_hover_color", DccTheme.c(
 		"accent_hover" if primary else "text_bright"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var pad_x := DccTheme.role_px("btn_pad_x") if act_tablet else 10
+	var pad_y := DccTheme.role_px("btn_pad_y") if act_tablet else 4
 	var rest := DccTheme.outline(edge)
-	rest.content_margin_left = 10
-	rest.content_margin_right = 10
-	rest.content_margin_top = 4
-	rest.content_margin_bottom = 4
+	rest.content_margin_left = pad_x
+	rest.content_margin_right = pad_x
+	rest.content_margin_top = pad_y
+	rest.content_margin_bottom = pad_y
 	b.add_theme_stylebox_override("normal", rest)
 	b.add_theme_stylebox_override("disabled", rest)
 	var lit := DccTheme.outline(edge, "accent_wash" if primary else "line_soft")
-	lit.content_margin_left = 10
-	lit.content_margin_right = 10
-	lit.content_margin_top = 4
-	lit.content_margin_bottom = 4
+	lit.content_margin_left = pad_x
+	lit.content_margin_right = pad_x
+	lit.content_margin_top = pad_y
+	lit.content_margin_bottom = pad_y
 	b.add_theme_stylebox_override("hover", lit)
 	b.add_theme_stylebox_override("pressed", lit)
 	b.pressed.connect(on_press)
@@ -605,12 +670,20 @@ static func action(parent: Control, text: String, on_press: Callable,
 ## used to sit here claimed a dock action was a filled accent slab and that
 ## keeping the two apart was the point -- see `action()` above for why that was
 ## wrong about the canvas. The two are the same chip at two sizes.
+## §57 tier A: a modal's Open/Cancel pair is exactly "commit/discard" at a
+## larger size, so it takes `role_px("btn_min_h")` the same way `action()`
+## does. `open_project_dialog.gd`'s Welcome gate is the one modal the tablet
+## probe actually opens by default, and its "Open selected"/"Continue without
+## a world" pair (30 px) was two of the small number of genuine violations
+## left standing after every dock fix, because the factory itself, not a call
+## site this pass owns, was where the figure lived.
 static func modal_button(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, 30)
+	var modal_h := float(DccTheme.role_px("btn_min_h")) if DccTheme.is_tablet() else 30.0
+	b.custom_minimum_size = Vector2(0, modal_h)
 	b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 	var token := "accent" if primary else "border"
 	var fg := "accent" if primary else "text"
@@ -661,7 +734,11 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 	b.focus_mode = Control.FOCUS_NONE
 	b.tooltip_text = label_text
 	b.set_meta(TOOL_GLYPH_META, glyph)
-	b.custom_minimum_size = Vector2(30, 30)
+	## A square icon tool button is a discrete single-tap target -- tier A --
+	## the same as `action()`, floored to `role_px("btn_min_h")` on both
+	## dimensions on tablet rather than the desktop's fixed `30x30`.
+	var tb_size := DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 30
+	b.custom_minimum_size = Vector2(tb_size, tb_size)
 	b.icon = DccIcons.get_icon(glyph, 15)
 	b.expand_icon = false
 	b.add_theme_stylebox_override("normal", DccTheme.empty())
@@ -786,7 +863,14 @@ const GLOBAL_TOOL_ENTRIES: Array = [
 ## fixed-floor-fights-the-dock bug PARITY_AUDIT.md's pass 2 (F8) found here,
 ## and 695821f fixed one call site up in `_field()`'s value labels.
 static func note(parent: Control, text: String) -> Label:
-	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_MICRO)
+	## `role_px("fs_prose")` on tablet -- a note is prose (`DccTheme.label()`,
+	## no font override) like any other dock row, so it takes the same floor
+	## `_row()`'s own label does. Resolved here rather than left to
+	## `DccShell.tablet_fit()`'s walk for the same reason `DccTheme.header()`
+	## now is: `right_dock.gd`'s `note()` calls sit in a dock that walk never
+	## reaches.
+	var fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_MICRO
+	var l := DccTheme.label(text, "text_ghost", fs)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.custom_minimum_size.x = 190
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -864,10 +948,24 @@ static func chip(parent: Control, text: String, on_press: Callable,
 
 ## The narrower `padding:3px 8px` chip -- the canvas's Scheme / Zoom range /
 ## CRS / Packaging rows, where one of a set is lit and the rest are quiet.
+##
+## §57's tier B: "mode chips (raise/lower/smooth)". `chip()` below is shared
+## with dozens of call sites this pass does not own (window batch-action
+## chips that have no artboard evidence they should grow), so the tier-B floor
+## is applied here, one level up, where the caller has told us -- by calling
+## `segment()` rather than `chip()` -- that this button *is* one of a lit set.
+## `role_px("chip_min_h")` (`[0, 34]`) and `chip_pad_x`/`chip_pad_y`
+## (`[9, 16]`/`[3, 9]`) are the pair §57 measured for exactly this control.
 static func segment(parent: Control, text: String, on_press: Callable) -> Button:
-	var b := chip(parent, text, on_press, false, 8, 3)
-	b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	var seg_tablet := DccTheme.is_tablet()
+	var px := DccTheme.role_px("chip_pad_x") if seg_tablet else 8
+	var py := DccTheme.role_px("chip_pad_y") if seg_tablet else 3
+	var b := chip(parent, text, on_press, false, px, py)
+	b.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if seg_tablet else DccTheme.FS_TINY)
 	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	if seg_tablet:
+		b.custom_minimum_size.y = DccTheme.role_px("chip_min_h")
 	return b
 
 ## A lit segment has to survive being `disabled` -- Godot resolves the
@@ -875,9 +973,16 @@ static func segment(parent: Control, text: String, on_press: Callable) -> Button
 ## a lit-but-disabled segment (the Data manager draws several: the one real
 ## scheme among three impossible ones) would otherwise be painted exactly like
 ## the impossible ones.
+## **Padding matches `segment()`'s own tablet figure, not a bare `8, 3`.**
+## `add_theme_stylebox_override` *replaces* the box `segment()` built, so
+## calling this afterward (the normal pattern -- every real caller does) used
+## to silently put the desktop padding back on a tablet chip, leaving the
+## height floor `segment()` set the only surviving part of the fix.
 static func set_segment_on(b: Button, on: bool) -> void:
 	var token := "accent" if on else "border"
 	var fg := DccTheme.c("accent") if on else DccTheme.c("text_dim")
+	var seg_px := DccTheme.role_px("chip_pad_x") if DccTheme.is_tablet() else 8
+	var seg_py := DccTheme.role_px("chip_pad_y") if DccTheme.is_tablet() else 3
 	## **A lit segment carries the accent wash behind its border.** `Cartalith
 	## Paint Toolbar.dc.html`'s `Sculpt raise 1920` draws the armed feature as
 	## `border:1px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.10)`
@@ -888,7 +993,7 @@ static func set_segment_on(b: Button, on: bool) -> void:
 	## `set_mode_segment_on()` below for the one segment that is.
 	var wash := "accent_wash" if on else ""
 	for sb_name in ["normal", "pressed", "disabled"]:
-		b.add_theme_stylebox_override(sb_name, box(token, wash, 8, 3))
+		b.add_theme_stylebox_override(sb_name, box(token, wash, seg_px, seg_py))
 	b.add_theme_color_override("font_color", fg)
 	b.add_theme_color_override("font_disabled_color",
 		fg if on else DccTheme.c("text_ghost"))
@@ -912,7 +1017,9 @@ static func set_mode_segment_on(b: Button, on: bool) -> void:
 	if not on:
 		set_segment_on(b, false)
 		return
-	var filled := box("accent", "accent", 8, 3)
+	var seg_px := DccTheme.role_px("chip_pad_x") if DccTheme.is_tablet() else 8
+	var seg_py := DccTheme.role_px("chip_pad_y") if DccTheme.is_tablet() else 3
+	var filled := box("accent", "accent", seg_px, seg_py)
 	for sb_name in ["normal", "pressed", "disabled", "hover"]:
 		b.add_theme_stylebox_override(sb_name, filled)
 	b.add_theme_color_override("font_color", DccTheme.c("bg"))

@@ -692,12 +692,29 @@ static func mono_label(text: String, token: String = "text", size: int = FS_READ
 	l.add_theme_font_override("font", mono(spacing, medium))
 	return l
 
+## The meta key `DccShell.tablet_fit()`'s fallback walk reads to resolve a
+## `Label`'s `ROLE` figure precisely instead of guessing from its font alone --
+## every Plex label would otherwise read as `fs_readout`, which is wrong for a
+## section header (`fs_dock_header`, a smaller pair). Set only where a factory
+## here already knows the role; the walk falls back to a mono/prose guess for
+## everything else. Mirrors `DccWidgets.ACTION_META`'s own pattern.
+const ROLE_META := "dcc_role"
+
 ## §11's section header: uppercase Plex Mono, widely tracked, faint. The `§`
 ## marker is the disclosure grammar's L3 sigil and is drawn, not implied.
+##
+## Resolved here, at construction, rather than left to `DccShell.tablet_fit()`'s
+## fallback walk -- `right_dock.gd` builds `§ SAMPLE` and every other section
+## title through `DccWidgets.section()` -> this function, and that dock is
+## never walked (it is not a `register_workspace()` panel). `ROLE_META` is
+## still stamped below, for the walk's OWN precision on whatever label it does
+## reach, but a caller of `header()` must not depend on being walked at all.
 static func header(text: String, sigil: String = "§") -> Label:
 	var body := text.to_upper()
+	var size := role_px("fs_dock_header") if is_tablet() else FS_HEADER
 	var l := mono_label(("%s %s" % [sigil, body]) if sigil != "" else body,
-		"text_faint", FS_HEADER, 2, true)
+		"text_faint", size, 2, true)
+	l.set_meta(ROLE_META, "fs_dock_header")
 	return l
 
 ## The one large accent number a context is collapsed down to (§6's elevation).

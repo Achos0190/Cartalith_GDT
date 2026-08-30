@@ -112,6 +112,40 @@ var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns
 # for a distinct landscape treatment.
 const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
 	## and 16:10 (~0.625) tablets -- every common handset aspect sits under it.
+
+## **Aspect alone gets a 16:9 tablet wrong, and that is not hypothetical.**
+##
+## 1920 x 1080 is 0.5625, under `_PHONE_ASPECT_MAX`, so every 16:9 Android
+## tablet was classified as a PHONE and given the phone composition. Found on
+## 2026-08-30 by `_tabletparity_probe.gd`, whose "desktop" leg boots 1920x1080
+## under `--force-touch` and came up running `phone_project_picker.gd` --
+## visible in the run as a `_set_transient_exclusive_child` warning from
+## `phone_present()` in a leg that had no business being a phone at all.
+##
+## It also runs straight against the owner's standing directive to "keep the
+## tablet version as close as possible to the windows gui": a 16:9 tablet was
+## getting the opposite.
+##
+## The fix is Android's own breakpoint rather than a new guess. `sw600dp` --
+## smallest width 600 density-independent pixels -- is the line the platform
+## itself draws between phone and tablet layouts, and it is a SIZE test, which
+## is the thing aspect was standing in for. dp is `px / (dpi / 160)`.
+##
+## Worked through, on the three devices this port is actually measured against:
+##
+##   OnePlus 6T   1080 short / (402/160) = 430 dp  -> phone   (correct, unchanged)
+##   OnePlus 12   1440 short / (525/160) = 439 dp  -> phone   (correct, unchanged)
+##   16:9 tablet  1080 short / (200/160) = 864 dp  -> TABLET  (was phone; fixed)
+##   2560x1600    1600 short / (288/160) = 889 dp  -> tablet  (correct, unchanged)
+##
+## **Applied only on a real mobile device.** `screen_get_dpi()` reports the
+## desktop monitor under `--force-touch`, where the viewport size is synthetic
+## and the two have nothing to do with each other -- a probe forcing 1080x2340
+## on a 96-dpi monitor computes 1800 dp and would classify the phone leg as a
+## tablet. So the dp test runs when `OS.has_feature("mobile")` is genuinely
+## true, and `--force-touch` runs keep pure aspect, which is what every existing
+## phone probe was written against.
+const _TABLET_MIN_DP := 600.0
 var _phone := false
 var _landscape := false
 var _phone_scale := 1.0  ## Maps `DccTheme.PHONE_REF_SHORT` phone-px onto the
@@ -430,13 +464,31 @@ func _scaled(px: int) -> int:
 # -- §13 Phone layout mode ------------------------------------------------
 
 ## Order-independent aspect: see the field comment on `_phone` above for why.
+## Android's `sw600dp`: is the short side at least 600 density-independent
+## pixels? See `_TABLET_MIN_DP`'s own comment for why this exists and why it is
+## gated on a real device.
+##
+## Returns `false` -- "not tablet-sized, judge by aspect alone" -- whenever the
+## question cannot be answered honestly: off a mobile device, or when the
+## platform reports a DPI of zero or less, which some Android builds do for a
+## secondary display. A wrong `true` would hand a phone the desktop
+## composition, which is far worse than the aspect rule this falls back to.
+func _is_tablet_sized(short_side_px: float) -> bool:
+	if not OS.has_feature("mobile"):
+		return false
+	var dpi := float(DisplayServer.screen_get_dpi(DisplayServer.window_get_current_screen()))
+	if dpi <= 0.0:
+		return false
+	return short_side_px / (dpi / 160.0) >= _TABLET_MIN_DP
+
 func _compute_layout_mode() -> void:
 	var size: Vector2 = get_viewport_rect().size
 	if size.x <= 0.0 or size.y <= 0.0:
 		return
 	var short_side: float = minf(size.x, size.y)
 	var long_side: float = maxf(size.x, size.y)
-	_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX
+	_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX \
+		and not _is_tablet_sized(short_side)
 	_landscape = size.x > size.y
 	_phone_scale = maxf(1.0, short_side / DccTheme.PHONE_REF_SHORT)
 	## §1's tablet column widens BOTH docks to 400 px, "so two-column readouts
@@ -961,6 +1013,16 @@ func set_tool_options(build: Callable) -> void:
 		## see `phone_fit()`'s own header.
 		phone_fit(tool_options_row, _phone_scale, true)
 		(func(): phone_insets_changed.emit()).call_deferred()
+	elif DccTheme.is_tablet():
+		## `tool_options_row` is rebuilt continuously (every tool-mode switch),
+		## outside `register_workspace()`'s one-time walk -- and it is the one
+		## place a caller this pass does not own (`tool_bar.gd`'s
+		## `_tool_segment()`) sets a raw `custom_minimum_size.y` on a
+		## `DccWidgets.segment()` button *after* the factory already sized it,
+		## which would otherwise silently undo that fix on every rebuild. Run
+		## after `build.call()` above, this floors it back up rather than
+		## reporting a fault this choke point can trivially close.
+		tablet_fit(tool_options_row)
 
 ## Owner, 2026-08-20: "the bottom menu butons on phone are near too small to
 ## use". They were, and the earlier "44 px lands at ~121 physical px" arithmetic
@@ -1238,6 +1300,87 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 				## is set and nothing changes.
 				DccWidgets.oversample(pop, _phone_magnify(unit))
 		phone_fit(child, unit, wide)
+
+# -- §13 Tablet interior ------------------------------------------------------
+#
+# `UNWIRED_FUNCTIONS.md`'s "the tablet interior walk -- nothing reads `ROLE`",
+# `GUI_GAP_REGISTER.md` §57. `phone_fit()` above multiplies every authored
+# figure by a `unit`, because there is one (`_phone_scale`). Tablet has none:
+# §57 measured the artboard's own interior ratios at x1.00-x2.06 with no
+# centre, so `DccTheme.ROLE` is a table of drawn `[desktop, tablet]` pairs, not
+# a multiplier, and `tablet_fit()` is kept as a SECOND function rather than
+# folded into `phone_fit()` behind a shared dispatcher for exactly the reason
+# §57's own refutation #1 gives: 22 of ~25 `phone_fit()` call sites pass
+# `unit = 1.0` for the reason at that function's own header (a `Window` that
+# already applied `content_scale_factor` once) -- a dispatcher that dropped
+# `unit` would double the phone's scale.
+#
+# **Most of the fix is not this function.** `DccWidgets`' own factories
+# (`_row()`, `slider()`, `action()`, `segment()`, `category()`,
+# `stage_category()`, `group()`, `tool_button()`, `toggle()`, `choice()`,
+# `number()`) and `right_dock.gd`'s/`layers_popover.gd`'s own row builders now
+# resolve their `ROLE` figure at the point of construction -- the answer §57's
+# refutation #2 itself gives: a walk dispatched by Godot class cannot tell a
+# tier-A action from a tier-B mode chip when both are a plain `Button` in the
+# same subtree (`DccWidgets.segment()` -> `chip()`), but the factory that built
+# one always knows which it made. `tablet_fit()` below is the fallback for
+# whatever a raw `Button.new()`/`Label.new()` elsewhere in the tree -- a
+# workspace panel this pass does not own -- built without going through one.
+# It floors, never shrinks, and is a no-op everywhere but a tablet.
+
+## Idempotent, matching `phone_fit()`'s own `_PHONE_FIT_META` pattern -- safe
+## to call more than once over the same subtree.
+const _TABLET_FIT_META := "_tablet_fitted"
+
+## Walks `node`'s descendants and floors whatever a `DccWidgets`/`right_dock.gd`
+## /`layers_popover.gd` factory did not already size: any `BaseButton`,
+## `LineEdit` or `TextEdit` under `role_px("btn_min_h")` (tier A -- the safe
+## default for an ad hoc control, since a tier-B mode chip only exists behind a
+## factory this pass already fixed at its source), and any visible `Label`
+## under its own `ROLE` figure.
+##
+## `HSlider` is deliberately excluded: it is a `Range`, not a discrete tap
+## target, and `DccWidgets.slider()`/`_style_slider()` already resolve its
+## `slider_track_w`/`slider_track_h` at construction. Flooring its control
+## height here too would grow it well past the 2-3 px line the design draws
+## and, worse, would grow whatever fixed-height bar contains it -- exactly the
+## kind of self-inflicted overflow this pass was told to report, not cause.
+##
+## **Guarded on `DccTheme.is_tablet()`, not `is_touch()`.** `is_touch()` is
+## true on a phone too (`_phone` requires `_touch`); `is_tablet()` exists
+## precisely so a tablet-only pass cannot silently re-size the phone --
+## `GUI_GAP_REGISTER.md` §57 refuted an earlier proposal on exactly that
+## ground, and this file's own `_phone`/`is_phone()` note records the mirror
+## case ("the 412 canvas asks for things a tablet must not get").
+func tablet_fit(node: Node) -> void:
+	if not DccTheme.is_tablet():
+		return
+	_tablet_fit_walk(node)
+
+func _tablet_fit_walk(node: Node) -> void:
+	for child in node.get_children():
+		if child is Control and not child.has_meta(_TABLET_FIT_META):
+			var ctl := child as Control
+			ctl.set_meta(_TABLET_FIT_META, true)
+			if ctl is BaseButton or ctl is LineEdit or ctl is TextEdit:
+				var floor_h := float(DccTheme.role_px("btn_min_h"))
+				if ctl.custom_minimum_size.y < floor_h:
+					ctl.custom_minimum_size.y = floor_h
+			elif ctl is Label:
+				## `DccTheme.header()` stamps `ROLE_META` with the exact role it
+				## built the label for (`fs_dock_header`, a smaller pair than a
+				## bare Plex guess would give it). Everything else falls back to
+				## the same mono/prose test `DccTheme.mono_label()` vs `label()`
+				## already makes real: a `font` theme override means Plex
+				## (`fs_readout`), its absence means the project theme's prose
+				## default (`fs_prose`).
+				var role: String = ctl.get_meta(DccTheme.ROLE_META) \
+					if ctl.has_meta(DccTheme.ROLE_META) \
+					else ("fs_readout" if ctl.has_theme_font_override("font") else "fs_prose")
+				var floor_fs := DccTheme.role_px(role)
+				if ctl.get_theme_font_size("font_size") < floor_fs:
+					ctl.add_theme_font_size_override("font_size", floor_fs)
+		_tablet_fit_walk(child)
 
 ## What one unit of `phone_fit()`'s own space is worth in physical pixels.
 ##
@@ -1583,6 +1726,22 @@ func register_workspace(id: String, panel: Control) -> void:
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_workspace_panels[id] = panel
 	left_dock_body.add_child(panel)
+	## **Deferred, not called here directly -- measured, not assumed.**
+	## `dcc_widgets.gd`'s own header claims a workspace builds its whole panel
+	## before this call ever runs; `app.gd::_register_workspaces()` disproves
+	## it for the panel *itself*: `register_workspace(entry[0], ws)` runs
+	## against a bare `WorldWorkspace.new()` with only its `name` set, and
+	## `ws.setup(self, bridge)` -- which is what actually fills it with every
+	## category, section and row -- runs on the very next line, after this
+	## function has already returned. A synchronous walk here would floor an
+	## empty tree and fix nothing; `category()`'s own `_fill_category_count()`
+	## already reaches for `call_deferred()` for exactly this reason (a body
+	## the caller has not filled yet), and the same fix applies here one level
+	## up. By the end of the current frame every workspace registered this
+	## frame has also been `setup()` -- `_register_workspaces()`'s loop calls
+	## both synchronously, with no `await` between them. No-op on desktop and
+	## phone.
+	call_deferred("tablet_fit", panel)
 
 func active_domain() -> String:
 	return _active_domain

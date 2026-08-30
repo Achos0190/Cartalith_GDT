@@ -198,6 +198,23 @@ func delete_selection() -> bool:
 				return true
 	return false
 
+## Seed a fresh world's lighting from `DccSettings.lighting_defaults()`.
+##
+## Every key is a real `render.rs` tunable (`sun_az_deg`, `sun_alt_deg`,
+## `relief_ambient`, `relief_lights`), so this is one `set_appearance()` call
+## and no new rendering -- which is what the menu row's own reason said was the
+## only thing missing.
+##
+## `set_appearance` returns how many keys it accepted; an older cdylib that
+## does not publish one of the four simply takes fewer, which is the same
+## degrade `render_workspace.gd` already relies on. Silent by design: this runs
+## on every Generate and a status line saying "lighting applied" every time
+## would be noise, not information.
+func _apply_lighting_defaults() -> void:
+	if not bridge.has_method("set_appearance"):
+		return
+	bridge.set_appearance(DccSettings.lighting_defaults())
+
 ## Clear every selection the shell holds -- `Edit > Deselect` (⌘D,
 ## `DCC_SHELL_SPEC.md` §2.2, "Select all / Deselect ... Scoped to the active
 ## layer").
@@ -304,6 +321,17 @@ func _ready() -> void:
 	## nothing behind it. The default is `true`, so this is a no-op for anyone
 	## who never touched it.
 	viewport.set_lod_auto(DccSettings.lod_auto())
+	## §2.5 Graphics ▸ Lighting rig defaults, applied to each FRESH world.
+	##
+	## Deliberately `generation_finished` and **not** `world_loaded`: a project
+	## archive carries its own `appearance.json` slot (`project_bridge.rs:92`),
+	## so seeding a preference over a world someone saved would be this
+	## preference destroying their work. A Generate has no such record to
+	## respect -- it is the moment a new world's look is decided, which is
+	## exactly what a default is for.
+	bridge.generation_finished.connect(func(ok: bool):
+		if ok:
+			_apply_lighting_defaults())
 
 	## `PARITY_AUDIT.md` §5 item 5, the reference's `#resOverlay` (Shift+D) --
 	## a top-right diagnostics HUD, not part of `ViewportHost`'s own "exactly
