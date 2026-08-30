@@ -299,6 +299,11 @@ func _ready() -> void:
 	viewport = ViewportHost.new()
 	viewport_content.add_child(viewport)
 	viewport.setup(bridge)
+	## §2.5's Tiled LOD mode is a preference, so it survives a restart -- and a
+	## preference the shell forgets on boot is the same lie as a menu row with
+	## nothing behind it. The default is `true`, so this is a no-op for anyone
+	## who never touched it.
+	viewport.set_lod_auto(DccSettings.lod_auto())
 
 	## `PARITY_AUDIT.md` §5 item 5, the reference's `#resOverlay` (Shift+D) --
 	## a top-right diagnostics HUD, not part of `ViewportHost`'s own "exactly

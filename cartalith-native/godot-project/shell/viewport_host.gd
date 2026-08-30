@@ -251,6 +251,25 @@ var _lod_backlog_size := Vector2.ZERO   ## `_process()` reuses it rather than
 	## geometry) before `_process()` next runs.
 var _lod_active := false
 
+## **§2.5's "Tiled LOD — `auto on zoom` (default) · `manual`", the reference's
+## `state.lodAuto` (line 13479).**
+##
+## The reference gates exactly one thing on it: the wheel handler's
+## `if(state.lodAuto && !_lodOn && e.deltaY<0 && ...) enterLodFromView(...)`
+## (line 13986). It never prevents the LOD view from being entered, only from
+## being entered *by zooming*. That distinction is why `manual` is a usable
+## mode there and would be a trap here without the request below -- a
+## suppressor with no way in makes deep detail unreachable, which is worse
+## than not offering the choice.
+##
+## So: `_lod_auto` false suppresses automatic entry, and
+## `request_lod_entry()` is the way in. Once entered, manual mode keeps the
+## pyramid up while the camera stays past the threshold and drops it on the
+## way out, exactly as auto does -- the mode is about *entering*, not about
+## staying.
+var _lod_auto := true
+var _lod_manual_request := false
+
 ## The export tile-border preview (`#lodShowGrid` / `drawExportTileGrid`).
 ## `_export_grid_cols`/`_rows` mirror `data_manager_window.gd`'s `_tx_cols`/
 ## `_tx_rows`; that window pushes them here whenever they change, so this is a
@@ -1421,6 +1440,16 @@ func _update_lod() -> void:
 		return
 	var screen_px_per_cell := native_scale * _zoom
 	if screen_px_per_cell <= LOD_PX_PER_CELL_THRESHOLD or _zoom <= LOD_AUTO_ZOOM:
+		## Below the threshold the pyramid goes down in either mode, and the
+		## manual request goes with it -- otherwise a request made once would
+		## silently re-enter on every later zoom, which is auto by another name.
+		_lod_manual_request = false
+		_set_lod_active(false)
+		return
+	## Manual mode: past the threshold, but nobody asked. The reference's own
+	## gate, one level up from the wheel handler because this file has no
+	## single zoom entry point to hang it on.
+	if not _lod_auto and not _lod_active and not _lod_manual_request:
 		_set_lod_active(false)
 		return
 
@@ -1753,6 +1782,45 @@ func visible_grid_rect() -> Dictionary:
 		z = mini(z, max_z)
 	return {"ok": true, "z": z, "x0": x0, "y0": y0, "x1": x1, "y1": y1,
 		"px_per_cell": px_per_cell, "lod_active": _lod_active}
+
+## §2.5's Tiled LOD mode. `true` is "auto on zoom" (the default and the
+## reference's own); `false` is "manual", where the pyramid is entered only
+## through `request_lod_entry()`.
+func set_lod_auto(on: bool) -> void:
+	if on == _lod_auto:
+		return
+	_lod_auto = on
+	if on:
+		_lod_manual_request = false
+	_update_lod()
+
+func lod_auto() -> bool:
+	return _lod_auto
+
+## Enter the deep-detail view now, if the camera is far enough in for there to
+## be one. The reference's `enterLodFromView`. Returns whether the pyramid is
+## up afterwards, so a caller can say "you are not zoomed in far enough" rather
+## than appear to do nothing -- the failure mode this repository keeps finding.
+func request_lod_entry() -> bool:
+	_lod_manual_request = true
+	_update_lod()
+	if not _lod_active:
+		## Nothing came up, so the request was against a camera that has no
+		## deep detail to show. Drop it rather than leaving it armed to fire on
+		## some later zoom the user did not connect to this.
+		_lod_manual_request = false
+	return _lod_active
+
+## Leave the deep-detail view without moving the camera. Only meaningful in
+## manual mode: in auto the next `_update_lod()` would bring it straight back,
+## and saying so is better than a control that undoes itself.
+func release_lod_entry() -> void:
+	_lod_manual_request = false
+	if not _lod_auto:
+		_set_lod_active(false)
+
+func lod_active() -> bool:
+	return _lod_active
 
 func _set_lod_active(active: bool) -> void:
 	if active == _lod_active:

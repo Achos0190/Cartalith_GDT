@@ -208,3 +208,17 @@ static func set_bake_depth(depth: int) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_LOD, "bake_depth", clampi(depth, 0, 8))
 	_save()
+
+## §2.5's "Tiled LOD — `auto on zoom` (default) · `manual`", the reference's
+## `state.lodAuto` (which its own save format carries, defaulting true).
+## Persisted here rather than on the world because it is a preference about how
+## the viewer behaves, not a property of the map -- §2.5 files it under
+## Preferences and so does this.
+static func lod_auto() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_LOD, "auto_on_zoom", true))
+
+static func set_lod_auto(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_LOD, "auto_on_zoom", on)
+	_save()

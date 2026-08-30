@@ -104,6 +104,10 @@ const ATLAS_TILE_SIZES: Array[int] = [256, 512, 1024]
 ## `Preferences ▸ Tiles & LOD ▸ Tile size · LOD levels ▸ LOD levels` --
 ## §2.5's "levels 0-8". Depth d is ID_LOD_LEVEL_FIRST + d.
 const ID_LOD_LEVEL_FIRST := 150   ## depths 0..8 occupy 150-158
+const ID_LOD_MODE_AUTO := 160
+const ID_LOD_MODE_MANUAL := 161
+const ID_LOD_ENTER_NOW := 162
+const ID_LOD_LEAVE_NOW := 163
 const ID_LOD_CLEAR_ATLAS := 149
 
 const ID_HELP_DOCS := 78
@@ -185,6 +189,7 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 ## its index is kept the way `_ap_stats_idx` keeps the Asset pack one.
 var _tile_size_popup: PopupMenu
 var _lod_levels_popup: PopupMenu
+var _tiled_lod_popup: PopupMenu
 var _atlas_popup: PopupMenu
 var _atlas_stats_idx: int = -1
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
@@ -1161,9 +1166,20 @@ func _preferences(p: PopupMenu) -> void:
 	## §2.5's own four rows, each carrying its own status.
 
 	## §2.5: "Tiled LOD — `auto on zoom` (default) · `manual`. Replaces
-	## #lodAutoChk."
-	_todo(p, "Tiled LOD · auto on zoom",
-		"Auto is the only mode, and it is not a setting to switch: ViewportHost._update_lod() runs on every camera move and decides from LOD_PX_PER_CELL_THRESHOLD (1.0) and LOD_AUTO_ZOOM (2.2), both consts, through the private _set_lod_active(). There is no public suppressor, so a manual row here would be the second half of a radio pair that does nothing.")
+	## #lodAutoChk." Live since 2026-08-30.
+	##
+	## The reason that stood here was accurate and stopped one step early: there
+	## WAS no public suppressor, so a manual row "would be the second half of a
+	## radio pair that does nothing". The missing half was three functions on
+	## `ViewportHost`, not a design problem.
+	##
+	## **Manual ships with its own way in, and that is not optional.** The
+	## reference gates only the WHEEL handler on `state.lodAuto` (line 13986)
+	## and keeps `enterLodFromView` as the explicit route; a suppressor without
+	## one would make deep detail unreachable, which is worse than not offering
+	## the choice at all. `Enter deep detail now` is that route, and it reports
+	## when the camera is not far enough in rather than appearing inert.
+	_build_tiled_lod_menu(p)
 
 	_build_atlas_tiles_menu(p)
 	_build_atlas_cache_menu(p)
@@ -1593,6 +1609,73 @@ static func _gb(bytes: int) -> String:
 	return "%.1f GB" % (float(bytes) / 1073741824.0)
 
 # -- §2.5 Tiles & LOD -----------------------------------------------------------
+
+## §2.5's Tiled LOD mode, plus the manual mode's own entry point.
+func _build_tiled_lod_menu(p: PopupMenu) -> void:
+	_tiled_lod_popup = PopupMenu.new()
+	_tiled_lod_popup.name = "TiledLod"
+	_shell.style_popup(_tiled_lod_popup)
+	_tiled_lod_popup.add_radio_check_item("Auto on zoom", ID_LOD_MODE_AUTO)
+	_tiled_lod_popup.set_item_tooltip(0,
+		"The default, and the reference's own: zooming past roughly one screen pixel per grid cell brings the tile pyramid up by itself.")
+	_tiled_lod_popup.add_radio_check_item("Manual", ID_LOD_MODE_MANUAL)
+	_tiled_lod_popup.set_item_tooltip(1,
+		"Zooming in never enters the pyramid; use Enter deep detail now below. Panning a deep view stays cheap either way -- the mode is about entering, not about staying.")
+	_tiled_lod_popup.add_separator()
+	_tiled_lod_popup.add_item("Enter deep detail now", ID_LOD_ENTER_NOW)
+	_tiled_lod_popup.add_item("Leave deep detail", ID_LOD_LEAVE_NOW)
+	_tiled_lod_popup.id_pressed.connect(_on_tiled_lod)
+	_tiled_lod_popup.about_to_popup.connect(_refresh_tiled_lod_menu)
+	p.add_child(_tiled_lod_popup)
+	p.add_submenu_item("Tiled LOD", "TiledLod")
+
+func _refresh_tiled_lod_menu() -> void:
+	if _tiled_lod_popup == null or _host == null or _host.viewport == null:
+		return
+	var vp = _host.viewport
+	if not vp.has_method("lod_auto"):
+		return
+	var auto: bool = vp.lod_auto()
+	_tiled_lod_popup.set_item_checked(0, auto)
+	_tiled_lod_popup.set_item_checked(1, not auto)
+	var up: bool = vp.lod_active()
+	var enter_i := _tiled_lod_popup.get_item_index(ID_LOD_ENTER_NOW)
+	var leave_i := _tiled_lod_popup.get_item_index(ID_LOD_LEAVE_NOW)
+	## Both rows say why they cannot run, rather than only greying out.
+	_tiled_lod_popup.set_item_disabled(enter_i, up)
+	_tiled_lod_popup.set_item_tooltip(enter_i, "Already in the deep-detail view." if up
+		else "Brings the tile pyramid up at the current camera. Needs the camera zoomed past the detail threshold -- it will say so if it is not.")
+	## Leaving under Auto would be undone by the next camera move, so it is
+	## refused with that as the reason instead of being offered and reverting.
+	_tiled_lod_popup.set_item_disabled(leave_i, not up or auto)
+	_tiled_lod_popup.set_item_tooltip(leave_i,
+		"Not in the deep-detail view." if not up
+		else ("Auto mode would bring it straight back on the next camera move. Switch to Manual first." if auto
+			else "Drops back to the base raster without moving the camera."))
+
+func _on_tiled_lod(id: int) -> void:
+	if _host == null or _host.viewport == null:
+		return
+	var vp = _host.viewport
+	if not vp.has_method("set_lod_auto"):
+		return
+	match id:
+		ID_LOD_MODE_AUTO, ID_LOD_MODE_MANUAL:
+			var auto := id == ID_LOD_MODE_AUTO
+			DccSettings.set_lod_auto(auto)
+			vp.set_lod_auto(auto)
+			_host.set_status("hint", "tiled LOD: %s" % (
+				"auto on zoom" if auto else "manual — use Enter deep detail now"), "text_dim")
+		ID_LOD_ENTER_NOW:
+			if vp.request_lod_entry():
+				_host.set_status("hint", "deep detail on", "text_dim")
+			else:
+				_host.set_status("hint",
+					"not zoomed in far enough for deep detail — zoom in, then try again", "text_dim")
+		ID_LOD_LEAVE_NOW:
+			vp.release_lod_entry()
+			_host.set_status("hint", "deep detail off", "text_dim")
+	_refresh_tiled_lod_menu()
 
 ## §2.5: "Tile size · LOD levels — 256/512/1024; levels 0–8 (#lodMaxLevel)."
 ##
