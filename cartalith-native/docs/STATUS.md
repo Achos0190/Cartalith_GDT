@@ -23,6 +23,113 @@ session. Update it in the same commit as whatever changes its answer.
 > the order `PARITY_AUDIT.md` §22 recommends, and it is how pass 3 and pass 4
 > both found the drift they found.
 
+## Both shells to spec, and the gap register that was itself stale (2026-08-30)
+
+A **section, not another clause on the `Last updated:` line**, per this file's
+own header block. Full record: `git log` for 2026-08-30, `UNWIRED_FUNCTIONS.md`,
+and the probes named below.
+
+Owner goal: *"implement the latest designs for both android and Windows … keep
+the tablet version as close as possible to the windows gui … all presented
+functions are wired or the ones that have no code behind them get listed in a
+table with a proper proposal … tested on both windows and the attached
+OnePlus 6T."*
+
+### The six locked Android decisions that had no build
+
+`docs/ANDROID_UI_SPEC.md` (owner-locked over nine question rounds) listed six
+things with nothing behind them. All six now ship:
+
+- **Project picker** — recents from `DccSettings.recent_projects()`, the same
+  list `File ▸ Recent worlds` reads. The mockup's "Eldra + 2 others" is
+  placeholder content and is deliberately NOT hardcoded; an empty store says so.
+- **Staged 10-stage generator readout** — there was no per-stage signal at all,
+  so any readout drawn before this was an animation. It could not be a method on
+  `WorldGen`: `generate()` hands that object to a worker thread that holds it
+  mutably borrowed for the whole run. So it is a process-global `AtomicUsize` in
+  a new `cartalith-engine::progress` (std only), bumped at 13 sites in
+  `generate_terrain_inner`, read through a second stateless `RefCounted` class
+  that never touches `WorldGen`. The banner→stage mapping is written out with
+  line numbers in `progress.rs`, and deliberately does NOT bump at two places
+  that would walk the counter *backward*. Golden parity green throughout.
+- **App-bar search**, **undo chip**, **coach marks** (two, persisted).
+- Plus `Edit ▸ Find on map…`, whose index — `shell/place_search.gd` — is what
+  the `⌕` cell opens: 162 entities on a 192×144 world, off five live getters.
+
+### Tablet parity, measured rather than asserted
+
+`_tabletparity_probe.gd` boots 2560×1600 touch and 1920×1080 in one run.
+
+- §1's frame column was already exact: docks 400/400, rail 48, bands 52/88/36.
+- §13's disclosure promise holds: the same seven menus in the same order, and
+  **223 reachable rows on both legs**, submenus included.
+- §13's "targets 44–52 px" did **not**: **260 buttons measured 26–35 px**,
+  because `phone_fit()` opens `if not _phone: return` and its tablet sibling was
+  never written, leaving `DccTheme.ROLE` / `role_px()` read by nothing. Now
+  **1**, and that one is a 35 px `✕` in an `AcceptDialog`, correctly at its own
+  smaller tier. Dock labels below their ROLE size: 0.
+
+**A 16:9 Android tablet was getting the phone shell.** `_phone` was decided on
+aspect alone and 1920×1080 is 0.5625, under the 0.6 threshold. Fixed with
+Android's own `sw600dp` breakpoint — a SIZE test, which is what aspect was
+standing in for — gated on `OS.has_feature("mobile")` so `--force-touch` probes
+keep the aspect rule they were written against.
+
+### Two defects the probes found, both in code shipped earlier
+
+- **`_ptap()` enforced nothing.** `maxi(PHONE_TAP_MIN, _pscale(px))` compares a
+  REFERENCE-unit floor against an ALREADY-SCALED value, so past `_phone_scale`
+  ≈ 1.1 it was dead code. On the 6T (`1080/412 = 2.62`) the real floor is 115
+  physical px, and `DccWidgets.text_button` was measuring **28 × 13** on
+  `SectionStrip`'s close — the Measure tool's only way out of the profile strip.
+- **Seven `viewport_host.gd` functions could abort the app.** All guarded
+  `has_world`, which is false only until the FIRST world — so on a *re-generate*
+  a mouse move, a camera nudge or a resize reached a `#[func]` on the borrowed
+  object and hit `Gd<T>::bind() failed, already bound`. One `_engine_readable()`
+  that also asks `not generating`.
+
+### The gap register was stale, and that is recorded rather than quietly fixed
+
+`UNWIRED_FUNCTIONS.md` had 44 rows. Re-verification found **12 wrong** — eleven
+had shipped, one described a real gap inaccurately — plus four duplicates.
+**44 → 21 open.** The interesting class is not stale wiring but a stale
+*reason*: `Slot transform` had been disabled for a week against a binding that
+existed and was being called on every slider tick, and `Show tile borders`
+carried a reason the reference disproves outright. `audit_wiring.py` structurally
+cannot see either, because every `#[func]` involved IS called and it is the
+tooltip that lies.
+
+Seven rows were closed by building them: Find on map, Refine detail for the
+current view, Show tile borders, Deselect, LOD levels 0–8, Tiled LOD
+auto/manual, Lighting rig defaults. `CommandIndex`, which is generated from the
+live MenuBar, reports the effect without being told: **245 entries, 24
+unavailable, all 24 carrying a reason** (was 220 / 32).
+
+### Tested on both targets, end to end
+
+**Windows**: `cargo build --release` clean, `cargo test -p cartalith-engine` 96
++ all six golden suites, `cargo test -p cartalith-godot --lib` 381. Exported
+`Cartalith.exe` (109 MB) and booted it — exit 0.
+
+**OnePlus 6T**: exported, installed, and walked the whole path — picker → New
+world (2048 × 1311, 2.68 M cells, 0.391 km/cell) → Create → the map, generated
+on the handset; then the `⌕` overlay listing real settlements with real
+subtitles. **logcat: 0 script errors at every step.**
+
+Two device-only faults found and fixed there, neither visible in code review:
+the picker drew its column at a third width (**a `ScrollContainer` lays a child
+out at its MINIMUM size unless the child asks to EXPAND — `FILL` is not enough,
+the opposite of a `BoxContainer`**), and the header subtitle ran off the screen
+because on Android `storage_root("projects")` is a 50-character app-private
+path.
+
+### F8 closed as a side effect
+
+`PARITY_AUDIT.md` §20 lists the test harnesses under "already built, just
+unwired" with a one-word fix: `git add`. **148 files** — every `_*_probe.gd` and
+`_*_shot.gd` this repository cites as evidence — were untracked, so a fresh
+clone had none of them. Committed.
+
 ## Landmark generation catalogued, nothing built — no viewshed, no Poisson-disc, and a golden-verified mountain-pass corridor already exists (2026-08-30)
 
 A **section, not another clause on the `Last updated:` line**, per this
