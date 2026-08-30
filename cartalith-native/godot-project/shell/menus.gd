@@ -791,17 +791,26 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 		["Sprite sheet slicer…   cols · rows · margin", ID_SLICER],
 		["Add variant to slot   + variant", ID_IMPORT_IMAGE],
 		["Replace · delete slot art", ID_ASSET_LIBRARY],
-		["Slot transform   scale · fit · reset", -1],
+		## Live since 2026-08-30. The `_todo` here said "no
+		## `as_set_item_transform` #[func] exists yet to write a new scale/pan
+		## back" -- **false, and false for a week**: it is at
+		## `cartalith-godot/src/lib.rs:10811` and the library window has been
+		## calling it from `_on_insp_transform_changed()`
+		## (`asset_library_window.gd:1703`) along with `as_reset_item_transform`
+		## behind the Fit and Reset chips (`:2485`, `:2488`).
+		##
+		## So the row is what its four neighbours already are: a route into the
+		## library workspace where the three controls live. It never needed to
+		## be anything else -- a menu cannot host a scale slider.
+		["Slot transform   scale · fit · reset", ID_ASSET_LIBRARY],
 		["Preview background   checker", ID_ASSET_LIBRARY],
 	]:
-		var wid: int = row[1]
-		if wid < 0:
-			_todo(ap, String(row[0]),
-				"ItemTransform is real and shown in the inspector now, but no as_set_item_transform #[func] exists yet to write a new scale/pan back -- reading it is done, editing it is a smaller follow-on.")
-		else:
-			ap.add_item(String(row[0]), wid)
-			ap.set_item_tooltip(ap.item_count - 1,
-				"Opens the Asset Library window -- every Edit control needs a focused slot, which only the window's own grid provides.")
+		## Every row in this band now has an id -- the `wid < 0` branch that
+		## used to draw `Slot transform` as a `_todo` is gone with it, rather
+		## than kept as a fallback nothing takes.
+		ap.add_item(String(row[0]), int(row[1]))
+		ap.set_item_tooltip(ap.item_count - 1,
+			"Opens the Asset Library window -- every Edit control needs a focused slot, which only the window's own grid provides.")
 
 	## `Delete ⌫` used to carry the canvas's own accelerator glyph inside its
 	## label, and MN-09 removed it for two reasons. **One of the two is now
