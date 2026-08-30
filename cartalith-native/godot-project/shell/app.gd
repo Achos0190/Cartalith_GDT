@@ -17,6 +17,7 @@ var world_data_window: WorldDataWindow
 var performance_window: PerformanceWindow
 var resource_overlay: ResourceOverlay
 var gen_info_dialog: GenInfoDialog
+var shortcuts_dialog: ShortcutsDialog
 var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
@@ -297,6 +298,9 @@ func _ready() -> void:
 	gen_info_dialog = GenInfoDialog.new()
 	add_child(gen_info_dialog)
 	gen_info_dialog.setup(self, bridge)
+	shortcuts_dialog = ShortcutsDialog.new()
+	add_child(shortcuts_dialog)
+	shortcuts_dialog.setup(self)
 
 	data_manager_window = DataManagerWindow.new()
 	add_child(data_manager_window)
@@ -1413,6 +1417,11 @@ func open_performance() -> void:
 
 func open_gen_info() -> void:
 	gen_info_dialog.open()
+
+## `Help ▸ Keyboard shortcuts`. The dialog reads the accelerators off the live
+## menus every time it opens, so there is no table here to keep in step.
+func open_shortcuts() -> void:
+	shortcuts_dialog.open()
 
 func toggle_resource_overlay() -> void:
 	resource_overlay.toggle()

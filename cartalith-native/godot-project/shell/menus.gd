@@ -1441,7 +1441,10 @@ func _on_open_window(id: int) -> void:
 
 func _help(p: PopupMenu) -> void:
 	_todo(p, "Documentation", "No in-app documentation yet; the repository docs are the reference.")
-	_todo(p, "Keyboard shortcuts", "No shortcut table yet.")
+	## Was a `_todo` reading "No shortcut table yet." There is no table now
+	## either, and that is the point: `ShortcutsDialog` walks these very menus
+	## and reports what it finds, so the list cannot disagree with the app.
+	_live(p, "Keyboard shortcuts…", ID_HELP_SHORTCUTS)
 	_live(p, "Credits & academic principles", ID_HELP_CREDITS)
 	## `PARITY_AUDIT.md` §5 item 6: the reference's ℹ️ `#genInfoBtn` --
 	## dumps every generation parameter as plain text, a bug-report
@@ -1513,5 +1516,6 @@ func _on_lod_debug(id: int) -> void:
 func _on_help(id: int) -> void:
 	match id:
 		ID_HELP_CREDITS: _host.open_credits()
+		ID_HELP_SHORTCUTS: _host.open_shortcuts()
 		ID_HELP_GEN_INFO: _host.open_gen_info()
 		ID_HELP_ABOUT: _host.open_about()
