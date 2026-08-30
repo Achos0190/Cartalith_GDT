@@ -170,6 +170,36 @@ var _stale_timer: Timer
 ## documents above.
 var _regional_pop_note: Label
 
+## -- CIVIL ▸ Landmarks (`design/landmark-generation/LANDMARK_UI_DESIGN.md`).
+## See the `# -- CIVIL ▸ Landmarks` block near the foot of this file for what
+## each of these backs; they are declared together here with the rest of the
+## dock's category state rather than beside their own code, so the "what does
+## this workspace retain" question has one answer. --
+var _landmarks_body: Control
+## One record per type row, keyed by the ENGINE's own kind key. Holds both the
+## nodes (`row`/`under`/`bar`/`line`/`count`/`token`/`slider`/`readout`) and the
+## row's model (`cap`/`armed`/`rung`/`retained`/`default_cap`/`funnel`), because
+## §2.2's second line is a function of all of them at once and recomputing it
+## from a walk of the tree would be reading the display to redraw the display.
+var _lm_rows := {}
+## family key -> {button, body, title}. The `button` is `DccWidgets.group()`'s
+## header, which that factory does not return -- §3.2's counts live on it.
+var _lm_groups := {}
+## class key ("" for `all`) -> the lit-set chip. §3.1's filter.
+var _lm_chips := {}
+var _lm_filter := ""
+var _lm_head_note: Label       ## §4.4's headroom line.
+var _lm_crowd_note: Label      ## §4.1's "a regional landmark keeps 34 km clear".
+var _lm_crowd_readout: Label   ## The `× 1.00` the slider factory cannot format.
+var _lm_run_btn: Button
+var _lm_run_note: Label
+var _lm_stale_note: Label
+## §5's funnel, built lazily on the first click and reused: one popover, refilled
+## per type, rather than 49 that mostly never open.
+var _lm_funnel: PopupPanel
+var _lm_crowding := 1.0
+var _lm_radii: Array = []
+
 
 func _build() -> void:
 	_infra = InfrastructureWorkspace.new()
@@ -199,7 +229,7 @@ func _build() -> void:
 	_build_factions()                                                     ## 2
 	_build_territories()                                                  ## 3
 	_build_settlements()                                                  ## 4
-	_build_poi()                                                          ## 5
+	_build_landmarks()                                                    ## 5
 	_infra.build_ways_into(
 		DccWidgets.category(self, "Routes & ways", categories))           ## 6
 	_infra.build_travel_into(
@@ -241,6 +271,11 @@ func _on_world_changed() -> void:
 	_selected_index = -1
 	_rebuild_readouts()
 	_tl_on_world_changed()
+	## Landmarks rebuild here and NOT in `_rebuild_readouts()`: a new world
+	## replaces every placed landmark and every funnel, but a place rename does
+	## not, and rebuilding on a rename would shut whichever family group the user
+	## had open under them.
+	_lm_rebuild()
 
 ## A place edit or delete moved map data: repaint the pins, refresh the
 ## selection state that may now point at a different (or no) settlement, and
@@ -1613,33 +1648,1125 @@ func _build_simulation() -> void:
 	_sim_body = DccWidgets.category(self, "Simulation", categories)
 	_rebuild_timeline()
 
-## v3 CIVIL ▸ POINTS OF INTEREST. Not built, and omitted rather than drawn
-## inert: `civ_tools_bridge.rs` says outright that POI *"is not a ported
-## concept"* -- there is no `civ_drop_poi`, no POI record on `CivData`, and
-## nothing for a list to enumerate (`GUI_GAP_REGISTER.md` CV-01).
+# -- CIVIL ▸ Landmarks --------------------------------------------------------
+#
+# `design/landmark-generation/LANDMARK_UI_DESIGN.md`, built. This replaces v3's
+# `Points of interest` category and the "Not built" stub that stood in it
+# (`_build_poi`, deleted with this block) -- §1.1: *"the existing v3 category
+# Points of interest, renamed, with its 'Not built' stub replaced."*
+#
+# **Why CIVIL and not WORLD**, restated here because it is measured rather than
+# tasteful and the next reader will be tempted the same way §1.2 was: a WORLD
+# parameter row calls `_mark_stale_from` then `_regenerate_live`
+# (`world_workspace.gd:1113`, `:1140`), which calls `bridge.generate()` -- the
+# whole world from stage 01, every time, because `generate()` is monolithic. A
+# landmark cap slider on that path would re-run tectonics, erosion, hydrology
+# and climate to move Waterfall from 40 to 41. CIVIL's recompute is a *button*
+# (`_build_recompute` below), and a button-driven pass is also what makes the
+# cap-vs-placed readout possible at all: "11 placed" is a fact about the last
+# run, and a panel that silently re-ran on every drag would have no last run to
+# report.
+#
+# **Every value here comes from the bridge and nothing is hardcoded.** The type
+# vocabulary, the families, the classes, the caps and the funnels are all read
+# from `landmark_*` on `EngineBridge`. If those methods are absent the category
+# draws a disclosed empty state (`_lm_not_built`) rather than a list this file
+# invented -- the same rule `menus.gd:233`'s `_todo` follows, one level up.
+#
+# Places the design and what is buildable disagreed are marked **DIVERGENCE**
+# in place, with the reason, rather than left for a reader to find by holding
+# the artboard next to the running dock.
+
+## §2.4's cap ladder, verbatim: `off · 1 · 2 · 3 · 5 · 8 · 12 · 20 · 30 · 50 ·
+## 80 · 120 · 200`. Thirteen detents on a rounded 1-2-3-5 ladder, because "a
+## linear 0-200 slider spends most of its travel in a range nobody wants" and
+## the step from 1 to 2 deserves as much travel as the step from 120 to 200 --
+## for a Continental-class type one versus two is the design of the world and
+## 120 versus 200 means nothing.
 ##
-## v3 also has POIs absorb the reference's manual icon list -- "an icon on the
-## map becomes a POI entity, not a decoration". That is a real design position
-## and the note says where the icons actually live meanwhile, because they do
-## work: they are Cartography ▸ Assets & landmarks, as placed annotation.
-func _build_poi() -> void:
-	var cat := DccWidgets.category(self, "Points of interest", categories)
-	var sec := DccWidgets.section(cat, "Not built")
+## The slider therefore carries the ladder INDEX (0..12), never the cap, and
+## `_lm_refresh_row()` rewrites the readout from this table -- the `fmt` closure
+## `DccWidgets.slider()` installs (`dcc_widgets.gd:387`) would otherwise print
+## the index. Index 0 is the detented zero stop, which reads `off`.
+const LM_LADDER: Array[int] = [0, 1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120, 200]
+
+## §23's four classes, in §23's own order.
+##
+## This is the ONE place the panel assumes an order the bridge states
+## positionally: `landmark_settings()` returns `class_radius_km` as a
+## four-element `Array`, so something has to say which element is which.
+## `landmark_set_class_radius()` takes the key, so only the READ is positional
+## and a mis-ordered write is not possible.
+const LM_CLASSES: Array[String] = ["continental", "regional", "local", "cultural"]
+const LM_CLASS_LABEL := {
+	"continental": "Continental", "regional": "Regional",
+	"local": "Local", "cultural": "Cultural",
+}
+## Which element of `class_radius_km` the Crowding readout quotes. §4.1's own
+## example sentence is about a *regional* landmark, and regional is the
+## middle-of-the-road class most of §29's types fall in.
+const LM_QUOTED_CLASS := 1
+
+## §2.2's limiting-reason vocabulary: the engine's token -> the word the row
+## prints. `at_cap` is the only one drawn in accent, which is what makes §2.2's
+## "a panel where nothing is at cap has no accent on any second line" true by
+## construction rather than by a rule someone has to remember.
+const LM_LIMIT_WORD := {
+	"at_cap": "at cap", "spacing": "spacing", "no_terrain": "no terrain",
+	"candidates": "candidates", "disarmed": "off", "not_buildable": "not buildable",
+	## Not in the locked contract's six; the engine that landed returns it for
+	## every type whose generator does not exist yet. See `_lm_limit_key()`.
+	"not_generated": "not generated",
+}
+## The same four rows of §2.2's table, as the tooltip each token carries. Every
+## reason other than `at cap` is the panel saying *the cap is not what is
+## limiting you*, which is the sentence the owner's brief is entirely about, so
+## each one names what to touch instead.
+const LM_LIMIT_WHY := {
+	"at_cap": "The cap was the binding constraint. Dragging this slider right WILL place more.",
+	"spacing": "The exclusion radius rejected the rest. Raising the cap changes nothing -- lower Crowding, or this class's radius.",
+	"no_terrain": "Every remaining candidate failed this type's own constraints. The cap is not what is limiting you.",
+	"candidates": "The candidate pool ran out before the cap or the spacing did. The world is too small or too coarse for more of these.",
+	"disarmed": "Disarmed. The cap is retained and the row says what it was.",
+	"not_buildable": "The engine reports no placement rule for this type yet, so it is listed and disabled rather than quietly omitted.",
+	"not_generated": "This type has no generator in this build. It is listed and disabled rather than quietly omitted, so a reader can tell 'unimplemented' from 'hidden'.",
+}
+
+## The engine's `limit` token, normalised before it is looked up.
+##
+## The locked contract says `limit` is one of `at_cap` / `spacing` /
+## `no_terrain` / `candidates` / `disarmed` / `not_buildable`. **The engine that
+## landed emits the same reasons spelled with spaces** -- `"at cap"`,
+## `"not generated"` -- and a bare dictionary lookup misses every one of them in
+## the worst possible way: `at cap` still *reads* correctly, because the
+## fallback prints the raw token, while the accent §2.2 makes this panel's whole
+## signal never fires and the tooltip goes blank. Found by
+## `_landmark_probe.gd` half E against a real 384x288 world, not by reading.
+##
+## Normalising here accepts both spellings and keeps working when the engine is
+## corrected to the contract, so this is a widened door rather than a patch over
+## one build's behaviour. The deviation itself is the engine's to fix.
+static func _lm_limit_key(raw: String) -> String:
+	return raw.strip_edges().to_lower().replace(" ", "_").replace("-", "_")
+
+## The word the row prints for a reason token, raw or normalised. An unknown
+## token is printed verbatim rather than swallowed -- a reason this panel has no
+## wording for is still a reason, and dropping it would make the row look as
+## though nothing limited it.
+static func _lm_limit_word(raw: String) -> String:
+	return String(LM_LIMIT_WORD.get(_lm_limit_key(raw), raw.strip_edges()))
+
+## ...and its explanation, which is never blank: a token with no wording says
+## so, in place, instead of hovering to nothing.
+static func _lm_limit_why(raw: String) -> String:
+	var k := _lm_limit_key(raw)
+	if LM_LIMIT_WHY.has(k):
+		return String(LM_LIMIT_WHY[k])
+	if raw.strip_edges().is_empty():
+		return "The engine gave no limiting reason for this type."
+	return ("This build's engine gave \"%s\" as the limiting reason and this "
+		+ "panel has no wording for it; the funnel is the arithmetic it came "
+		+ "from.") % raw.strip_edges()
+
+## v3 CIVIL ▸ LANDMARKS (`design/landmark-generation/LANDMARK_UI_DESIGN.md`
+## §1.1). Three L3 sections -- PLACEMENT, TYPES, LAST RUN -- and five
+## disclosure levels, never six (§3: domain / category / section / family /
+## the row's own fold), which is why the class is a badge on the row and not a
+## second tree over the family one.
+func _build_landmarks() -> void:
+	_landmarks_body = DccWidgets.category(self, "Landmarks", categories)
+	_fill_landmarks(_landmarks_body)
+
+## `Assets ▸ Landmark types ▸ <family> ▸ Open … in the dock` lands here
+## (`menus.gd`'s `_open_landmark_dock`). `select_domain_category()` has already
+## switched the domain and opened the category; this opens the family group
+## *inside* it, which is the half §9.1 row 20 calls owed for the category jump.
+##
+## Presses the group's own header rather than flipping `visible`, for the same
+## reason `open_category()` presses a category header: the caret text and the
+## count line are written by that handler and by ours behind it, and setting
+## `visible` directly would leave both saying the opposite of what the panel
+## shows. Scrolling the dock down to the group is still owed -- the scroller
+## belongs to `dcc_shell.gd`, which this pass does not own.
+func open_landmark_family(family: String) -> void:
+	open_category("Landmarks")
+	var g: Dictionary = _lm_groups.get(family, {})
+	if g.is_empty():
+		return
+	var body: Control = g.get("body")
+	var btn: Button = g.get("button")
+	if body == null or btn == null or not is_instance_valid(body) or not is_instance_valid(btn):
+		return
+	if not body.visible:
+		btn.pressed.emit()
+
+## Rebuild the category from the bridge. Called on a new world and after a
+## settings reset -- NOT from `_rebuild_readouts()`, because a place edit does
+## not change a landmark cap and rebuilding here would close whichever family
+## group the user had open.
+func _lm_rebuild() -> void:
+	if _landmarks_body == null or not is_instance_valid(_landmarks_body):
+		return
+	_clear_body(_landmarks_body)
+	_fill_landmarks(_landmarks_body)
+
+func _fill_landmarks(parent: Control) -> void:
+	_lm_rows.clear()
+	_lm_groups.clear()
+	_lm_chips.clear()
+	_lm_filter = ""
+	var kinds := _lm_kinds()
+	if kinds.is_empty():
+		_lm_not_built(parent)
+		return
+	var st := _lm_settings()
+	_lm_crowding = float(st.get("crowding", 1.0))
+	_lm_radii = (st.get("class_radius_km", []) as Array).duplicate()
+	_lm_placement(parent, st)
+	_lm_types(parent, kinds, st, _lm_funnel_map())
+	_lm_last_run(parent)
+
+## The disclosed empty state. Drawn when the landmark bridge is absent (an
+## older cdylib, or a build where the pass has not landed) or when it returns
+## no vocabulary at all -- this repository's own silently-empty-output trap,
+## which four subsystems have already been bitten by, so the two cases say
+## different things rather than sharing one vague sentence.
+func _lm_not_built(parent: Control) -> void:
+	var has_api: bool = bridge != null and bridge.has_method("landmark_kinds")
+	var sec := DccWidgets.section(parent, "Not wired")
+	if has_api:
+		DccWidgets.note(sec,
+			"The landmark bridge is here and it reports no types at all. That is "
+			+ "an empty vocabulary, not an empty world: landmark_kinds() is the "
+			+ "type table and it does not depend on a world existing, so an empty "
+			+ "one means the engine side is not finished rather than that there is "
+			+ "nothing to place.")
+	else:
+		DccWidgets.note(sec,
+			"The panel is built; the engine binding is not. EngineBridge carries no "
+			+ "landmark_kinds(), so there is no type vocabulary to draw rows from, "
+			+ "no caps to write and no pass to run. Every control this category "
+			+ "would hold is withheld rather than drawn inert.")
 	DccWidgets.note(sec,
-		"A POI is not a ported concept: cartalith-civ has no POI record, so there "
-		+ "is no #[func] to drop one, no list to enumerate and no owner, condition "
-		+ "or importance to edit. One civ_drop_poi mirroring civ_drop_settlement "
-		+ "is the whole engine side, and cartalith-assets' poi family already "
-		+ "carries the ten-slot vocabulary the icons would use.")
+		"What it expects, and nothing more: landmark_kinds, landmark_settings, "
+		+ "landmark_run, landmark_funnels, landmark_headroom, and the five "
+		+ "setters (cap, armed, crowding, class radius, cross-type competition). "
+		+ "The moment they exist this category fills itself -- no type list, "
+		+ "family or class name is written down in this file.")
 	DccWidgets.note(sec,
-		"v3 has POIs absorb the manual icon list -- \"an icon on the map becomes a "
-		+ "POI entity, not a decoration\". Until the entity exists, placed icons "
-		+ "are annotation and live where annotation lives: Cartography ▸ Assets & "
-		+ "landmarks. Stamping one there is real and works; it just is not an "
-		+ "entity anything can own or describe.")
-	var go := DccWidgets.action(cat, "Place an icon → Cartography ▸ Assets & landmarks",
+		"Hand-stamped icons are unaffected and still work. They are annotation, "
+		+ "not entities, and they live where annotation lives -- a hand-placed "
+		+ "mark has no causal chain and no emergent importance, which is what a "
+		+ "generated landmark is, so the two lists never merge into one count.")
+	var go := DccWidgets.action(parent, "Place an icon → Cartography ▸ Assets & landmarks",
 		func(): app.select_domain_category("cartography", "Assets & landmarks"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+# -- § PLACEMENT --------------------------------------------------------------
+
+## §4. One dial named after its effect, one toggle that changes the meaning of
+## the whole panel, and the headroom line above both.
+func _lm_placement(parent: Control, st: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Placement")
+
+	## §4.4, the panel-scale answer: "caps total 640 · room for about 210 at
+	## this spacing · last run placed 187". The arithmetic that explains
+	## everything below it, on screen *before* the user goes hunting for a
+	## broken slider. The word `about` is doing real work and stays.
+	_lm_head_note = DccWidgets.note(sec, "")
+	_lm_refresh_headroom()
+
+	## §4.1. `× 1.00` is arithmetic; `34 km` is a fact about the map the user is
+	## looking at. Nobody needs to know what the multiplier multiplies, so the
+	## word "Poisson" and the letter `r` appear nowhere in this control.
+	##
+	## The `on_change`/`on_release` split is `dcc_widgets.gd:349`'s own, and the
+	## reference's `tparam()` split before it: every tick updates the readout and
+	## the km sentence (cheap, local), and the write to the engine happens once,
+	## on release.
+	var crowd := DccWidgets.slider(sec, "Crowding", 0.25, 2.00, 0.05, _lm_crowding,
+		"", func(v: float): _lm_on_crowding(v),
+		"Scales every class's exclusion radius at once, 0.25x (sparse) to 2.00x "
+		+ "(dense). This is the control the reason token `spacing` is pointing "
+		+ "at: when a type places fewer than its cap because the radius rejected "
+		+ "the rest, this moves the number and the cap does not.",
+		func(): _lm_write("landmark_set_crowding", [_lm_crowding]))
+	_lm_crowd_readout = crowd["readout"]
+	_lm_crowd_note = DccWidgets.note(sec, "")
+	_lm_refresh_crowding()
+
+	## §4.3, the one toggle that changes the meaning of the whole panel, in
+	## nineteen words with no jargon in them.
+	DccWidgets.toggle(sec, "Types compete with each other",
+		bool(st.get("cross_type_competition", true)),
+		func(v: bool): _lm_write("landmark_set_cross_competition", [v]),
+		"On: one exclusion field over every type at once, so a dense Physical "
+		+ "family genuinely crowds out the Religious one. Off: one field per "
+		+ "type, and the families stop interacting. Both are legitimate worlds "
+		+ "and the difference is enormous.")
+	DccWidgets.note(sec,
+		"Off lets a shrine sit beside a waterfall. On keeps every landmark clear "
+		+ "of every other one.")
+
+	## §4.2's L5: the four class radii the Crowding dial scales. "One dial for
+	## everyone; four for the person who wants a world where regional landmarks
+	## crowd and continental ones do not."
+	var adv := DccWidgets.advanced(sec, "advanced")
+	DccWidgets.note(adv,
+		"Exclusion radius per class, before Crowding. Continental landmarks keep "
+		+ "the most ground clear and cultural ones the least, which is what makes "
+		+ "one world landmark per continent and a shrine every few valleys come "
+		+ "out of the same rule.")
+	for i in LM_CLASSES.size():
+		var ck: String = LM_CLASSES[i]
+		var km := _lm_class_radius(i)
+		var cname := String(LM_CLASS_LABEL.get(ck, ck))
+		DccWidgets.slider(adv, cname, 1.0, 400.0, 1.0, km, " km",
+			func(v: float): _lm_on_radius(i, v),
+			"The clear ground a %s-class landmark keeps around itself before " % cname.to_lower()
+			+ "Crowding scales it. Every type of this class inherits it.",
+			func(): _lm_write("landmark_set_class_radius", [ck, _lm_class_radius(i)]))
+
+	## **DIVERGENCE.** No artboard draws a reset, and §9.1's control table does
+	## not list one. It is here because the locked bridge contract offers
+	## `landmark_reset_settings()` and a panel that never calls it leaves that
+	## call dead -- and because `UI_SHELL_DESIGN.md`'s own rule for an L5 fold is
+	## "expert dials only, defaults already correct", which is only true if there
+	## is a way back to those defaults. One row, in the fold, beside the dials it
+	## undoes.
+	DccWidgets.action(adv, "Reset every cap and radius to its default", _lm_reset)
+
+# -- § TYPES ------------------------------------------------------------------
+
+## §3. Family is the grouping, class is a badge on the row, and the four class
+## chips filter rather than nest -- §29's six families and §23's four classes
+## are orthogonal, and nesting both would produce a six-level tree that
+## `UI_SHELL_DESIGN.md` forbids outright ("A sixth level means the L2 category
+## is wrong and should be split").
+func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Types")
+
+	## Family order is the ENGINE's first-seen order, not a list written here.
+	## `landmark_kinds()` is the vocabulary and this file must not carry a second
+	## copy of it that can drift -- the same argument `params.rs`'s own header
+	## makes about 58 names, 58 ranges and 58 labels.
+	var fams: Array[String] = []
+	var by_fam := {}
+	var by_class := {}
+	var viewshed := 0
+	var unbuildable := 0
+	for k in kinds:
+		var kd: Dictionary = k
+		var f := String(kd.get("family", "other"))
+		if not by_fam.has(f):
+			by_fam[f] = []
+			fams.append(f)
+		(by_fam[f] as Array).append(kd)
+		var c := String(kd.get("class", ""))
+		by_class[c] = int(by_class.get(c, 0)) + 1
+		if bool(kd.get("needs_viewshed", false)):
+			viewshed += 1
+		if not bool(kd.get("buildable", true)):
+			unbuildable += 1
+
+	DccWidgets.note(sec,
+		"%d types in %d families. The four classes are a badge on the row and a "
+		% [kinds.size(), fams.size()]
+		+ "filter, not a second tree -- a waterfall is Physical by family and "
+		+ "regional by class, and those are different questions.")
+
+	## §9.3, and the rule this panel is held to: the viewshed gap shows on the
+	## ROW, not in a footnote. The engine computes no visibility term at all --
+	## no line of sight, no horizon march, no sky-view factor -- and the research
+	## weights it at 0.20, the joint-largest term in its castle model. So the
+	## types that lean on it carry `[no viewshed]` beside their name and this
+	## line says how many there are and what it costs them.
+	if viewshed > 0:
+		DccWidgets.note(sec,
+			"%d of them carry [no viewshed]: this engine computes no visibility " % viewshed
+			+ "term, which the research weights at 0.20 -- its joint-largest. "
+			+ "Those types score on the model minus its biggest piece, and the "
+			+ "panel says so on the row rather than presenting a score it cannot "
+			+ "honestly compute.")
+	if unbuildable > 0:
+		DccWidgets.note(sec,
+			"%d are listed and disabled: the engine reports no placement rule for " % unbuildable
+			+ "them yet. Omitting them would be worse -- a reader who finds no row "
+			+ "cannot tell whether the type is unimplemented or simply hidden.")
+
+	## **DIVERGENCE.** §3.1 gives every type row an L5 `+ advanced` fold holding
+	## its own constraints (§7's four hydraulic tests for a waterfall, §8's
+	## topological one for a pass, a per-type Minimum separation, an importance
+	## floor). The locked bridge contract exposes none of them: there is no
+	## per-type setter of any kind, only the four per-class radii above. Rather
+	## than draw ~50 folds of permanently dead sliders, the gap is stated once,
+	## here, where a reader looking for the fold will meet it.
+	DccWidgets.note(sec,
+		"No row carries a + advanced fold. A type's own thresholds -- minimum "
+		+ "drop and flow for a waterfall, corridor strength for a pass, its own "
+		+ "minimum separation, its importance floor -- are not exposed by the "
+		+ "landmark bridge, so the four class radii under Placement are the only "
+		+ "spacing controls that exist.")
+
+	## §3.1's four filter chips, plus `all`. `segment()` is the shell's own
+	## "one of a lit set" control (`dcc_widgets.gd:959`) and `set_segment_on`
+	## carries the accent wash, so the lit chip reads as lit rather than as a
+	## hairline colour change.
+	var chips := HBoxContainer.new()
+	chips.add_theme_constant_override("separation", 3)
+	sec.add_child(chips)
+	_lm_chips[""] = DccWidgets.segment(chips, "all", func(): _lm_set_filter(""))
+	_lm_chips[""].tooltip_text = "Show every class."
+	for ck in LM_CLASSES:
+		if not by_class.has(ck):
+			continue
+		var n := int(by_class[ck])
+		var b := DccWidgets.segment(chips, "%s %d" % [_lm_badge(ck), n],
+			func(): _lm_set_filter(ck))
+		b.tooltip_text = "%d %s-class types. Dims every row that is not one." % [
+			n, String(LM_CLASS_LABEL.get(ck, ck)).to_lower()]
+		_lm_chips[ck] = b
+
+	## §3.1: the six families, one open at a time by default.
+	for fi in fams.size():
+		var f: String = fams[fi]
+		var title := _lm_pretty(f)
+		var body := DccWidgets.group(sec, title, fi == 0)
+		var btn := _lm_last_button(sec)
+		_lm_groups[f] = {"button": btn, "body": body, "title": title}
+		## §3.2: a collapsed group is not silent. `group()`'s own toggle handler
+		## rewrites the header text from the title it captured, so this
+		## connection is made AFTER it -- signal callbacks fire in connection
+		## order, so ours re-appends the counts every time the caret is clicked.
+		if btn != null:
+			btn.pressed.connect(func(): _lm_refresh_group(f))
+
+		## §3.2's bulk gesture. **DIVERGENCE:** the artboard puts `arm all · off`
+		## on the group header row. `DccWidgets.group()` builds that header as a
+		## single `Button` with no room for children and this pass may not edit
+		## that factory, so the pair is the first row *inside* the group instead.
+		## It is a bulk operation, not a second copy of the row control -- the
+		## same distinction `Assets ▸ Asset pack ▸ Batch` already draws.
+		var bulk := HBoxContainer.new()
+		bulk.add_theme_constant_override("separation", 4)
+		body.add_child(bulk)
+		DccWidgets.chip(bulk, "arm all", func(): _lm_bulk(f, true)).tooltip_text = (
+			"Arms every buildable type in this family at its retained cap, or at "
+			+ "its default where it has never been set. Thirteen detents six times "
+			+ "is not the way to turn a family on.")
+		DccWidgets.chip(bulk, "off", func(): _lm_bulk(f, false)).tooltip_text = (
+			"Disarms every type in this family. Each row keeps its number and "
+			+ "says so, so this is reversible without retyping anything.")
+
+		for k in (by_fam[f] as Array):
+			_lm_type_row(body, k, st, funnels)
+		_lm_refresh_group(f)
+
+	_lm_apply_filter()
+
+## §2. One slider, two jobs: it arms the type and it sets the cap. The zero stop
+## is detented and reads `off`, because "zero waterfalls" and "waterfalls
+## disabled" are the same outcome and there is no reason to make the user say it
+## twice.
+##
+## The STORE is still two fields (`{armed, cap}`), which is not a contradiction
+## -- it is what stops a papercut this codebase has already met: `ScatterRule`
+## (`cartalith-assets/src/scatter.rs:133`) keeps `enabled` and `density` apart
+## for the identical reason, that a user who switches something off briefly
+## should get their number back. So disarming writes `landmark_set_armed(false)`
+## and never `landmark_set_cap(0)`, and the row prints `was 40`.
+func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
+		funnels: Dictionary) -> void:
+	var key := String(kind.get("key", ""))
+	if key.is_empty():
+		return
+	var label := String(kind.get("label", key))
+	var fam := String(kind.get("family", "other"))
+	var cls := String(kind.get("class", ""))
+	var buildable := bool(kind.get("buildable", true))
+	var needs_vs := bool(kind.get("needs_viewshed", false))
+	var default_cap := int(kind.get("default_cap", 0))
+	var caps: Dictionary = st.get("caps", {})
+	var armed_map: Dictionary = st.get("armed", {})
+	var cap := int(caps.get(key, default_cap))
+	var armed: bool = buildable and bool(armed_map.get(key, false))
+	var rung := _lm_rung(cap) if armed else 0
+
+	var tip := "%s -- %s class." % [label, String(LM_CLASS_LABEL.get(cls, cls))]
+	if needs_vs:
+		tip += (" [no viewshed]: this engine computes no visibility term, which "
+			+ "the research weights at 0.20 -- its joint-largest -- so this "
+			+ "type's score is the model minus its biggest piece.")
+	if not buildable:
+		tip += " " + String(LM_LIMIT_WHY["not_buildable"])
+	else:
+		tip += (" Drag to the zero stop to disarm; the cap is kept and the row "
+			+ "says what it was. The track is a 1-2-3-5 ladder, not a linear "
+			+ "0-200 count.")
+
+	var parts := DccWidgets.slider(parent, label, 0.0, float(LM_LADDER.size() - 1),
+		1.0, float(rung), "", func(v: float): _lm_on_cap(key, v), tip,
+		func(): _lm_commit_cap(key))
+	var row: HBoxContainer = parts["row"]
+	var slider: HSlider = parts["slider"]
+	var name_label := row.get_child(0) as Label
+	## `slider()` puts a `DccTheme.spacer()` between the label and the track,
+	## which expands. Captured BEFORE the badge is inserted, and identified by
+	## its exact class rather than by a surviving index, because a bare `Control`
+	## is the only thing in that row that is one.
+	var slack: Control = null
+	if row.get_child_count() > 1 and row.get_child(1).get_class() == "Control":
+		slack = row.get_child(1)
+
+	## §3.1's class badge, in the row's left gutter: a three-letter mono mark,
+	## not a nested level. `_row()` builds its label as child 0, so the badge is
+	## inserted ahead of it and the name label gives up its fixed width to take
+	## the slack instead -- 49 names of very different lengths through one
+	## `clip_text` column would clip the long ones on every row that has a tag.
+	var badge := DccTheme.mono_label(_lm_badge(cls), "text_ghost", DccTheme.FS_MICRO, 0)
+	badge.custom_minimum_size.x = 22
+	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(badge)
+	row.move_child(badge, 0)
+	## The canvas gives the *name* the slack (`flex:1` on the row's name span),
+	## so the expansion moves off `_row()`'s spacer and onto the label, and the
+	## label's fixed `ROW_LABEL_W` goes to zero. Both halves matter: with the
+	## width left at 132 a row carrying the `[no viewshed]` tag needs ~334 px of
+	## a dock the user can drag down to `W_LEFT_DOCK_MIN` (300), and the row
+	## would overflow rather than clip. At zero it clips, which is what
+	## `_row()`'s own `clip_text` is already there for.
+	if name_label != null:
+		name_label.custom_minimum_size.x = 0
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if slack != null:
+		slack.size_flags_horizontal = Control.SIZE_FILL
+
+	## §9.3 / `Dock.dc.html`: the bracketed tag beside the type's name, on the
+	## row, never in a footnote.
+	if needs_vs:
+		var tag := DccTheme.mono_label("[no viewshed]", "text_faint", DccTheme.FS_MICRO, 0)
+		tag.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(tag)
+		row.move_child(tag, 2)
+
+	## §2.2 part 1 -- **the crux**. A second 2 px rule directly under the slider
+	## track, its length the placed count as a fraction of the cap. Two bars,
+	## same origin, different lengths; the gap between them IS the
+	## cap-versus-quota distinction, rendered on every row with no reading
+	## required, and they sit flush when a type tops out.
+	##
+	## The columns are `_row()`'s own: `TRACK_W` wide, ending `ROW_VALUE_W` plus
+	## one row separation from the right edge, so the two bars share an origin
+	## exactly rather than approximately.
+	var under := HBoxContainer.new()
+	under.add_theme_constant_override("separation", 0)
+	under.custom_minimum_size.y = 2
+	under.add_child(DccTheme.spacer())
+	var track := HBoxContainer.new()
+	track.add_theme_constant_override("separation", 0)
+	track.custom_minimum_size = Vector2(_lm_track_w(), 2)
+	var bar := ColorRect.new()
+	bar.color = DccTheme.c("text_dim")
+	bar.custom_minimum_size = Vector2(0, 2)
+	track.add_child(bar)
+	under.add_child(track)
+	var gutter := Control.new()
+	gutter.custom_minimum_size.x = DccWidgets.ROW_VALUE_W + 8
+	under.add_child(gutter)
+	parent.add_child(under)
+
+	## §2.2 parts 2 and 3: the count, and the one word that names what actually
+	## stopped the generator. The word is a `text_button` because clicking it
+	## opens §5's funnel -- the design's three depths are the under-bar at a
+	## glance, the token in one word, and the popover in five numbers.
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 4)
+	var indent := Control.new()
+	indent.custom_minimum_size.x = 30
+	line.add_child(indent)
+	var count := DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 0)
+	line.add_child(count)
+	parent.add_child(line)
+	var token := DccWidgets.text_button(line, "", func(): _lm_open_funnel(key))
+
+	_lm_rows[key] = {
+		"family": fam, "class": cls, "label": label, "buildable": buildable,
+		"needs_viewshed": needs_vs, "row": row, "under": under, "bar": bar,
+		"line": line, "count": count, "token": token, "slider": slider,
+		"readout": parts["readout"], "cap": cap, "armed": armed, "rung": rung,
+		"retained": cap, "default_cap": default_cap,
+		"funnel": funnels.get(key, {}), "drag_from_off": false,
+	}
+	if not buildable:
+		slider.editable = false
+	slider.drag_started.connect(func(): _lm_drag_start(key))
+	_lm_refresh_row(key)
+
+# -- § LAST RUN ---------------------------------------------------------------
+
+## §9.1 rows 15-17. The run button follows `_recompute_civ` below exactly --
+## relabel, disable, let two frames actually paint that, then block -- because
+## `landmark_run()` is a synchronous engine call with no progress signal to
+## subscribe to and the honest minimum is to say so before blocking.
+func _lm_last_run(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Last run")
+	_lm_stale_note = DccWidgets.note(sec, "")
+	_lm_refresh_stale()
+	_lm_run_btn = DccWidgets.action(sec, "Run landmark pass", _lm_run, true)
+	_lm_run_btn.tooltip_text = ("Generates candidates for every armed type, scores "
+		+ "them, and spaces them under the exclusion radii above. Seconds, not "
+		+ "milliseconds, and it runs on the main thread -- the window will hold "
+		+ "still.\n\nDeliberately a button and not a cascade after every slider: a "
+		+ "panel that silently re-ran on every drag would have no *last run* to "
+		+ "report, and '11 placed' is a fact about a run.")
+	## Always pressable, for `_build_recompute`'s own reason: pressing it with
+	## nothing stale is a real re-run of the same answer, not an error, and a
+	## greyed button reports a state the badge above it already reports better.
+	_lm_run_note = DccWidgets.note(sec,
+		"Not run yet in this session. Every row's second line will say what the "
+		+ "pass actually did and, in one word, what stopped it.")
+
+	## §1.4: hand-stamped icons keep their own group at the foot and are never
+	## mixed into a generated family's counts. A hand-placed mark has no causal
+	## chain and no emergent importance -- the two fields a landmark *is* -- so a
+	## generated 11 and a hand-placed 3 are different claims and this panel never
+	## adds them together.
+	var hand := DccWidgets.group(sec, "placed by hand", false)
+	var icons: Array = bridge.icon_list() if bridge != null and bridge.has_method("icon_list") else []
+	DccWidgets.note(hand,
+		"%d icon(s) stamped on the map by hand. They are annotation, not " % icons.size()
+		+ "entities: no causal chain, no emergent importance, and never counted "
+		+ "into a family above.")
+	var go := DccWidgets.action(hand, "Place an icon → Cartography ▸ Assets & landmarks",
+		func(): app.select_domain_category("cartography", "Assets & landmarks"))
+	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+## `_recompute_civ`'s pattern, in this panel's own subject. Two frames rather
+## than one because a single `process_frame` await returns before the redraw has
+## reached the screen on the frame the label changed.
+func _lm_run() -> void:
+	var b := _lm_run_btn
+	if b != null and is_instance_valid(b):
+		b.text = "Running…"
+		b.disabled = true
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var r: Dictionary = {}
+	if bridge != null and bridge.has_method("landmark_run"):
+		r = bridge.landmark_run()
+	if b != null and is_instance_valid(b):
+		b.disabled = false
+		b.text = "Run landmark pass"
+	if _lm_run_note != null and is_instance_valid(_lm_run_note):
+		if r.is_empty():
+			_lm_run_note.text = ("No pass ran: this build's EngineBridge has no "
+				+ "landmark_run(). Nothing was changed.")
+		elif not bool(r.get("ok", false)):
+			_lm_run_note.text = "Not run. %s" % String(r.get("error", "Unknown reason."))
+		else:
+			_lm_run_note.text = ("Placed %d landmarks in %.1f s. Every armed row's "
+				+ "second line now says what stopped it; click that word for the "
+				+ "arithmetic.") % [int(r.get("placed", 0)), float(r.get("seconds", 0.0))]
+	## The funnels the run just produced, from the run's own reply where it
+	## carries them and from `landmark_funnels()` otherwise -- the contract
+	## returns them in both places and this must not depend on which.
+	var funnels := {}
+	for f in (r.get("funnels", []) as Array):
+		funnels[String((f as Dictionary).get("kind", ""))] = f
+	if funnels.is_empty():
+		funnels = _lm_funnel_map()
+	for key in _lm_rows:
+		var rec: Dictionary = _lm_rows[key]
+		rec["funnel"] = funnels.get(key, {})
+		_lm_refresh_row(String(key))
+	for f in _lm_groups:
+		_lm_refresh_group(String(f))
+	_lm_refresh_headroom()
+	_lm_refresh_stale()
+
+# -- §5 the "why fewer" funnel ------------------------------------------------
+
+## §5. Clicking a row's reason token opens the funnel for that type from the
+## last run: one arithmetic, no prose. Its shape and its division of labour are
+## `explain_settlement`'s (`cartalith-godot/src/lib.rs:4920`), whose own doc
+## comment states the rule this popover keeps -- *"All wording is left to the
+## caller: this returns facts, not prose."* The engine returns the integers;
+## this file writes the labels.
+##
+## A `PopupPanel` rather than a `PopupMenu`: these are numbers, not actions, and
+## `layers_popover.gd` is the shell's own precedent for a panel-shaped popover.
+## Built here rather than in `dcc_widgets.gd`, which this pass may not edit --
+## the same way this file already builds `_ctx_menu` inline.
+func _lm_open_funnel(key: String) -> void:
+	var r: Dictionary = _lm_rows.get(key, {})
+	if r.is_empty():
+		return
+	var f: Dictionary = r.get("funnel", {})
+	if f.is_empty():
+		return
+	if _lm_funnel == null or not is_instance_valid(_lm_funnel):
+		_lm_funnel = PopupPanel.new()
+		_lm_funnel.add_theme_stylebox_override("panel",
+			DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1}))
+		add_child(_lm_funnel)
+	for c in _lm_funnel.get_children():
+		_lm_funnel.remove_child(c)
+		c.queue_free()
+	_lm_funnel.add_child(_lm_funnel_body(r, f))
+	var tok: Control = r["token"]
+	var at := Vector2i(tok.get_screen_position()) + Vector2i(0, int(tok.size.y) + 4)
+	_lm_funnel.popup(Rect2i(at, Vector2i(342, 0)))
+
+func _lm_funnel_body(r: Dictionary, f: Dictionary) -> Control:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 12)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 10)
+	pad.add_theme_constant_override("margin_bottom", 10)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+	pad.add_child(box)
+
+	var raw_limit := String(f.get("limit", ""))
+	var limit := _lm_limit_key(raw_limit)
+	box.add_child(DccTheme.header("%s · last pass" % String(r["label"]), ""))
+	var cand := int(f.get("candidates", 0))
+	var c_con := int(f.get("rejected_constraint", 0))
+	var c_sc := int(f.get("rejected_score", 0))
+	var c_sp := int(f.get("rejected_spacing", 0))
+	var cap := int(f.get("cap", int(r["cap"])))
+	var placed := int(f.get("placed", 0))
+	var left := cand
+	_lm_funnel_row(box, "candidates evaluated", "", str(cand), limit == "candidates")
+	left -= c_con
+	_lm_funnel_row(box, "failed this type's constraints", "− %d" % c_con,
+		"%d left" % left, limit == "no_terrain")
+	left -= c_sc
+	_lm_funnel_row(box, "below the importance floor", "− %d" % c_sc,
+		"%d left" % left, false)
+	left -= c_sp
+	_lm_funnel_row(box, "rejected by spacing", "− %d" % c_sp,
+		"%d left" % left, limit == "spacing")
+	## §5's own annotation: this row subtracts nothing and it is the most
+	## important line here. It is the panel stating, in its own funnel, that the
+	## number the user set was not what limited them -- which is the whole of the
+	## owner's brief. Omit it and the funnel silently drops the one term the user
+	## came to check.
+	_lm_funnel_row(box, "cap %d" % cap, "",
+		"reached" if limit == "at_cap" else "not reached", limit == "at_cap")
+	box.add_child(DccTheme.rule())
+	var unused: int = maxi(cap - placed, 0)
+	_lm_funnel_row(box, "%d placed" % placed, "",
+		"%d of the cap unused" % unused, false)
+
+	DccWidgets.note(box, _lm_limit_why(raw_limit))
+
+	## §5's two actions, drawn and disabled with the reason attached -- the same
+	## treatment `menus.gd:233`'s `_todo` gives an unbacked menu row, and the one
+	## `TypeRow.dc.html` argues for in as many words ("a dimmed row with a dash
+	## is not a bug"). Neither is computable from the bridge contract: the
+	## crowding figure at which the rejected candidates would have fit is not
+	## returned by anything, and the rejected candidates themselves have no
+	## coordinates in `landmark_funnels()` and no renderer path of their own.
+	var acts := HBoxContainer.new()
+	acts.add_theme_constant_override("separation", 5)
+	box.add_child(acts)
+	var lower := DccWidgets.chip(acts, "Lower crowding to fit", Callable())
+	lower.disabled = true
+	lower.tooltip_text = ("Owed. §5 wants the exact multiplier at which the "
+		+ "rejected candidates would have fit under the remaining cap, and "
+		+ "landmark_funnels() returns counts only -- a generic 'adjust spacing' "
+		+ "would send you back to guessing, which is what the design rejects.")
+	var show := DccWidgets.chip(acts, "Show rejected", Callable())
+	show.disabled = true
+	show.tooltip_text = ("Owed. Drawing the rejected candidates inside the placed "
+		+ "ones' exclusion rings needs their positions and a map layer for them; "
+		+ "landmark_funnels() carries neither.")
+	return pad
+
+func _lm_funnel_row(box: Control, label_text: String, minus: String, right: String,
+		binding: bool) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var token := "accent" if binding else "text_faint"
+	var l := DccTheme.mono_label(label_text, token, DccTheme.FS_TINY, 0)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(l)
+	if minus != "":
+		var m := DccTheme.mono_label(minus, token, DccTheme.FS_TINY, 0)
+		m.custom_minimum_size.x = 52
+		m.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		row.add_child(m)
+	var rr := DccTheme.mono_label(right, "text_bright" if binding else "text_ghost",
+		DccTheme.FS_TINY, 0)
+	rr.custom_minimum_size.x = 88
+	rr.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(rr)
+	box.add_child(row)
+
+# -- landmark refreshes and handlers ------------------------------------------
+
+func _lm_refresh_headroom() -> void:
+	if _lm_head_note == null or not is_instance_valid(_lm_head_note):
+		return
+	var h := _lm_headroom()
+	if h.is_empty():
+		_lm_head_note.text = ("Caps total %d. The packing estimate and the last " % _lm_caps_total()
+			+ "run's total are not reported by this build's bridge, so this line "
+			+ "carries the one figure it can stand behind.")
+		return
+	_lm_head_note.text = ("caps total %d · room for about %d at this spacing · "
+		+ "last run placed %d") % [int(h.get("caps_total", _lm_caps_total())),
+		int(h.get("room_estimate", 0)), int(h.get("last_placed", 0))]
+
+func _lm_caps_total() -> int:
+	var n := 0
+	for key in _lm_rows:
+		var r: Dictionary = _lm_rows[key]
+		if bool(r["armed"]):
+			n += int(r["cap"])
+	return n
+
+func _lm_refresh_crowding() -> void:
+	if _lm_crowd_readout != null and is_instance_valid(_lm_crowd_readout):
+		_lm_crowd_readout.text = "× %.2f" % _lm_crowding
+	if _lm_crowd_note == null or not is_instance_valid(_lm_crowd_note):
+		return
+	## §4.1: the second line is the whole point. `× 1.00` is arithmetic; `34 km`
+	## is a fact about the map the user is looking at.
+	##
+	## Kilometres unconditionally: `Preferences ▸ Units` has two ids reserved
+	## (`menus.gd`'s `ID_PREF_UNITS_KM` / `ID_PREF_UNITS_MI`) and nothing in the
+	## shell reads them, so there is no setting to honour yet and inventing one
+	## here would be a second copy of a preference.
+	var km := _lm_class_radius(LM_QUOTED_CLASS) * _lm_crowding
+	var cname := String(LM_CLASS_LABEL.get(LM_CLASSES[LM_QUOTED_CLASS], "")).to_lower()
+	_lm_crowd_note.text = "a %s landmark keeps %.0f km clear · sparse → dense" % [cname, km]
+
+func _lm_class_radius(i: int) -> float:
+	return float(_lm_radii[i]) if i >= 0 and i < _lm_radii.size() else 0.0
+
+func _lm_on_crowding(v: float) -> void:
+	_lm_crowding = v
+	_lm_refresh_crowding()
+
+func _lm_on_radius(i: int, v: float) -> void:
+	while _lm_radii.size() <= i:
+		_lm_radii.append(0.0)
+	_lm_radii[i] = v
+	if i == LM_QUOTED_CLASS:
+		_lm_refresh_crowding()
+
+func _lm_reset() -> void:
+	_lm_write("landmark_reset_settings", [])
+	_lm_rebuild()
+
+## §2.1's zero stop, live: every tick rewrites the readout and the second line
+## so the row's own state is honest mid-drag, and nothing is written to the
+## engine until the drag ends.
+func _lm_on_cap(key: String, v: float) -> void:
+	var r: Dictionary = _lm_rows.get(key, {})
+	if r.is_empty():
+		return
+	var rung: int = clampi(int(round(v)), 0, LM_LADDER.size() - 1)
+	r["rung"] = rung
+	r["armed"] = rung > 0
+	if rung > 0:
+		r["cap"] = LM_LADDER[rung]
+	_lm_refresh_row(key)
+
+func _lm_drag_start(key: String) -> void:
+	var r: Dictionary = _lm_rows.get(key, {})
+	if not r.is_empty():
+		r["drag_from_off"] = not bool(r["armed"])
+
+## §2.1's *"Drag up from `off` and the slider resumes at 40."*
+##
+## Implemented as a snap on release rather than mid-drag: leaving the zero stop
+## re-arms the type at the number the row was already promising it had kept, and
+## the row's own `was 40` is what made that promise, so the value the user lands
+## on is the one they were shown. Changing it from there is an ordinary drag
+## from an armed state.
+##
+## **A resumed cap is restored exactly, not re-quantised.** The ladder has no
+## 40 -- `off · 1 · 2 · 3 · 5 · 8 · 12 · 20 · 30 · 50 · 80 · 120 · 200` -- so
+## running the retained number back through `_lm_rung()` and taking the rung's
+## value would silently turn the 40 the row promised into 30, which is a
+## different world and a broken promise. The rung is where the *handle* goes;
+## `cap` stays the number the store actually holds. Caught by
+## `_landmark_probe.gd` §B9, which is why the fixture's default is 40.
+func _lm_commit_cap(key: String) -> void:
+	var r: Dictionary = _lm_rows.get(key, {})
+	if r.is_empty():
+		return
+	var rung := int(r.get("rung", 0))
+	var resumed := 0
+	if rung > 0 and bool(r.get("drag_from_off", false)):
+		resumed = int(r["retained"])
+		if resumed <= 0:
+			resumed = int(r["default_cap"])
+		if resumed > 0:
+			rung = _lm_rung(resumed)
+			r["rung"] = rung
+			(r["slider"] as HSlider).set_value_no_signal(float(rung))
+	r["drag_from_off"] = false
+	r["armed"] = rung > 0
+	if rung > 0:
+		r["cap"] = resumed if resumed > 0 else LM_LADDER[rung]
+		r["retained"] = int(r["cap"])
+		_lm_write("landmark_set_cap", [key, int(r["cap"])])
+	## Disarming writes `armed` and NOT a zero cap -- see `_lm_type_row`'s own
+	## header for why the store keeps two fields.
+	_lm_write("landmark_set_armed", [key, bool(r["armed"])])
+	_lm_refresh_row(key)
+	_lm_refresh_group(String(r["family"]))
+	_lm_refresh_headroom()
+
+func _lm_bulk(family: String, on: bool) -> void:
+	for key in _lm_rows:
+		var r: Dictionary = _lm_rows[key]
+		if String(r["family"]) != family or not bool(r["buildable"]):
+			continue
+		if on:
+			var cap := int(r["retained"])
+			if cap <= 0:
+				cap = int(r["default_cap"])
+			if cap <= 0:
+				continue
+			## The exact number, not the rung's -- see `_lm_commit_cap()` for
+			## why re-quantising a retained cap is a broken promise.
+			r["rung"] = _lm_rung(cap)
+			r["cap"] = cap
+			r["retained"] = cap
+			r["armed"] = true
+			(r["slider"] as HSlider).set_value_no_signal(float(r["rung"]))
+			_lm_write("landmark_set_cap", [String(key), int(r["cap"])])
+			_lm_write("landmark_set_armed", [String(key), true])
+		else:
+			r["rung"] = 0
+			r["armed"] = false
+			(r["slider"] as HSlider).set_value_no_signal(0.0)
+			_lm_write("landmark_set_armed", [String(key), false])
+		_lm_refresh_row(String(key))
+	_lm_refresh_group(family)
+	_lm_refresh_headroom()
+
+## §2.2, all three parts at once: the readout, the placed under-bar and the
+## resolved line with its one-word reason.
+func _lm_refresh_row(key: String) -> void:
+	var r: Dictionary = _lm_rows.get(key, {})
+	if r.is_empty():
+		return
+	var readout: Label = r["readout"]
+	var count: Label = r["count"]
+	var token: Button = r["token"]
+	var under: Control = r["under"]
+	var bar: ColorRect = r["bar"]
+	var armed := bool(r["armed"])
+	var cap := int(r["cap"])
+	if not is_instance_valid(readout):
+		return
+	readout.text = ("%d max" % cap) if armed else "off"
+
+	if not bool(r["buildable"]):
+		readout.text = "—"
+		count.text = "not buildable"
+		token.visible = false
+		under.visible = false
+		(r["row"] as Control).modulate.a = 0.55
+		return
+	if not armed:
+		var retained := int(r["retained"])
+		count.text = ("was %d" % retained) if retained > 0 else "never set"
+		token.visible = false
+		under.visible = false
+		return
+
+	var f: Dictionary = r.get("funnel", {})
+	if f.is_empty():
+		count.text = "not run yet"
+		token.visible = false
+		under.visible = false
+		return
+
+	var placed := int(f.get("placed", 0))
+	var raw := String(f.get("limit", ""))
+	var limit := _lm_limit_key(raw)
+	count.text = "%d placed ·" % placed
+	token.visible = true
+	token.text = _lm_limit_word(raw)
+	token.tooltip_text = "%s Click for the funnel." % _lm_limit_why(raw)
+	## §2.2: `at cap` in accent, every other reason in ink-dim. A panel where
+	## nothing is at cap therefore has no accent on any second line, and a user
+	## who has genuinely maxed something sees it immediately.
+	token.add_theme_color_override("font_color",
+		DccTheme.c("accent") if limit == "at_cap" else DccTheme.c("text_ghost"))
+	under.visible = true
+	bar.custom_minimum_size.x = _lm_bar_px(placed, cap, int(r["rung"]))
+
+## The placed bar's length, in pixels of the same track the slider fills.
+##
+## §2.2 fixes the invariant rather than the arithmetic: "two bars, same origin,
+## different lengths", flush when placed equals cap. The artboard draws every
+## armed row's cap bar at full width because it is not drawing a real slider; a
+## real one fills to where the cap sits on the ladder, so the placed bar is
+## scaled to *that* fill. Do it any other way and a topped-out row stops reading
+## as topped out, which is the one thing the pair of bars exists to show.
+func _lm_bar_px(placed: int, cap: int, rung: int) -> float:
+	if cap <= 0 or rung <= 0:
+		return 0.0
+	var frac := clampf(float(placed) / float(cap), 0.0, 1.0)
+	var fill := float(rung) / float(LM_LADDER.size() - 1)
+	return round(frac * fill * float(_lm_track_w()))
+
+## §3.2: `› PHYSICAL   6 of 15 armed · 74 placed`. A count on a closed container
+## is worth more than the container -- the same principle `Assets ▸ Icon
+## families` already draws, and the reason a user who opens this panel with
+## everything collapsed can still see where the map's markers came from.
+func _lm_refresh_group(family: String) -> void:
+	var g: Dictionary = _lm_groups.get(family, {})
+	if g.is_empty():
+		return
+	var btn: Button = g.get("button")
+	if btn == null or not is_instance_valid(btn):
+		return
+	var armed := 0
+	var total := 0
+	var placed := 0
+	for key in _lm_rows:
+		var r: Dictionary = _lm_rows[key]
+		if String(r["family"]) != family:
+			continue
+		total += 1
+		if bool(r["armed"]):
+			armed += 1
+		placed += int((r.get("funnel", {}) as Dictionary).get("placed", 0))
+	btn.text = "%s %s   %d of %d armed · %d placed" % [
+		DccIcons.SYMBOLS["expand"], String(g["title"]).to_upper(), armed, total, placed]
+
+func _lm_set_filter(cls: String) -> void:
+	_lm_filter = cls
+	_lm_apply_filter()
+
+## §3.1: the chips DIM the non-matching rows rather than hiding them. A row that
+## vanishes takes its own count with it, and a user cannot tell a filtered panel
+## from a short one.
+func _lm_apply_filter() -> void:
+	for k in _lm_chips:
+		var b: Button = _lm_chips[k]
+		if b != null and is_instance_valid(b):
+			DccWidgets.set_segment_on(b, String(k) == _lm_filter)
+	for key in _lm_rows:
+		var r: Dictionary = _lm_rows[key]
+		var hit: bool = _lm_filter == "" or String(r["class"]) == _lm_filter
+		var a := 1.0 if hit else 0.28
+		if not bool(r["buildable"]):
+			a = minf(a, 0.55)
+		(r["row"] as Control).modulate.a = a
+		(r["line"] as Control).modulate.a = a
+		(r["under"] as Control).modulate.a = a
+
+## §9.1 row 17. `stale_stages()` has no `landmarks` key -- it is a graph over
+## the ten generation stages plus `civ` -- so this note reports the layer the
+## pass reads *from* and says outright that it cannot report the pass itself.
+## Inferring "landmarks stale" from "civ stale" would be this file inventing a
+## fact the engine did not state.
+func _lm_refresh_stale() -> void:
+	if _lm_stale_note == null or not is_instance_valid(_lm_stale_note):
+		return
+	if bridge == null or not bridge.has_world:
+		_lm_stale_note.text = "No world yet -- generate one before running a landmark pass."
+		return
+	var civ: Dictionary = bridge.stale_stages().get("civ", {})
+	if civ.is_empty():
+		_lm_stale_note.text = ("The civ layer this pass reads is up to date. The "
+			+ "engine's stage graph carries no landmarks entry, so nothing can say "
+			+ "whether the last landmark run itself is still current.")
+		return
+	var why := String(civ.get("reason", ""))
+	if why.is_empty():
+		why = String(civ.get("origin", "an edit"))
+	_lm_stale_note.text = ("The civ layer under this pass is stale (%s), so a run " % why
+		+ "now would place against settlements and roads that have not caught up. "
+		+ "Recompute civilisation first.")
+
+# -- landmark bridge access ---------------------------------------------------
+#
+# Every call is guarded. A concurrent pass is writing these wrappers and the
+# panel must degrade to a disclosed empty state against a build that does not
+# have them yet, not crash the dock -- the same `_has()` shape
+# `engine_bridge.gd` uses for `sized_api`/`import_api`/`save_api`.
+
+func _lm_kinds() -> Array:
+	if bridge == null or not bridge.has_method("landmark_kinds"):
+		return []
+	return bridge.landmark_kinds()
+
+func _lm_settings() -> Dictionary:
+	if bridge == null or not bridge.has_method("landmark_settings"):
+		return {}
+	return bridge.landmark_settings()
+
+func _lm_headroom() -> Dictionary:
+	if bridge == null or not bridge.has_method("landmark_headroom"):
+		return {}
+	return bridge.landmark_headroom()
+
+func _lm_funnel_map() -> Dictionary:
+	var out := {}
+	if bridge == null or not bridge.has_method("landmark_funnels"):
+		return out
+	for f in bridge.landmark_funnels():
+		out[String((f as Dictionary).get("kind", ""))] = f
+	return out
+
+func _lm_write(method: String, args: Array) -> void:
+	if bridge != null and bridge.has_method(method):
+		bridge.callv(method, args)
+
+# -- landmark helpers ---------------------------------------------------------
+
+## The nearest rung to a cap, never equality: a cap stored before this ladder
+## changed (or handed over as the engine's own default) must still land on a
+## detent rather than on nothing. Same rule `menus.gd`'s
+## `_refresh_lighting_menu()` applies to its four value ladders.
+static func _lm_rung(cap: int) -> int:
+	if cap <= 0:
+		return 0
+	var best := 1
+	for i in range(1, LM_LADDER.size()):
+		if absi(LM_LADDER[i] - cap) < absi(LM_LADDER[best] - cap):
+			best = i
+	return best
+
+## `CON` / `REG` / `LOC` / `CUL` -- §3.1's three-letter mono badge. Derived from
+## the engine's own class key rather than tabulated, so a fifth class would get
+## a badge instead of a blank gutter.
+static func _lm_badge(cls: String) -> String:
+	return cls.substr(0, 3).to_upper() if cls.length() >= 3 else cls.to_upper()
+
+## A family key as a group title: `religious_cultural` -> `RELIGIOUS CULTURAL`
+## once `group()` upper-cases it.
+static func _lm_pretty(key: String) -> String:
+	return key.replace("_", " ")
+
+## The dock's own track width, which is a tablet figure on tablet -- the placed
+## bar has to share the slider's column exactly, so it reads the same expression
+## `DccWidgets.slider()` does rather than the desktop constant.
+static func _lm_track_w() -> int:
+	return DccTheme.role_px("slider_track_w") if DccTheme.is_tablet() else DccWidgets.TRACK_W
+
+## The header `Button` `DccWidgets.group()` just appended -- it returns the body
+## and not the header, and §3.2's counts have to live on the header. Searched
+## backwards for the last `Button` child rather than indexed off the end, so a
+## change to what `group()` appends after its header does not silently return
+## the wrong node.
+static func _lm_last_button(parent: Control) -> Button:
+	for i in range(parent.get_child_count() - 1, -1, -1):
+		var c := parent.get_child(i)
+		if c is Button:
+			return c
+	return null
 
 ## v3 CIVIL ▸ MILITARY (`GUI_GAP_REGISTER.md` **CV-25**, built 2026-08-25).
 ##

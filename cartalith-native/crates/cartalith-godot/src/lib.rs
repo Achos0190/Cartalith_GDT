@@ -30,6 +30,7 @@ mod icon_bridge;
 mod infra_tools_bridge;
 mod journey_bridge;
 mod label_bridge;
+mod landmark_bridge;
 mod lod_bridge;
 mod measure_bridge;
 mod pack;
@@ -2048,6 +2049,25 @@ struct WorldGen {
     /// return the memory when the world goes away — correctness does not
     /// depend on that line.
     wildlife: Option<sample_bridge::WildlifeCache>,
+    /// The Landmark Generation dock's settings AND last-run result
+    /// (`LANDMARK_UI_DESIGN.md` §9) — a `cartalith-civ` type
+    /// ([`cartalith_civ::landmark::LandmarkStore`]) rather than two fields
+    /// split across this struct, because that crate's own module doc states
+    /// why the panel must not own the 49-key vocabulary a second time. See
+    /// `landmark_bridge.rs`'s own module doc for what this bridge adds on
+    /// top of it, and why the settings are not persisted to disk.
+    ///
+    /// `settings` is **not** reset by `absorb()`, the same reasoning
+    /// `civ_options` already carries: a cap table describes what the user
+    /// wants placed, not one generation's output. `last` (the retained
+    /// result) **is** invalidated there (`LandmarkStore::invalidate`) — a
+    /// fresh terrain makes the previous run's placements meaningless, and
+    /// landmark generation is deterministic per
+    /// `LANDMARK_GENERATION_RESEARCH.md` §27, so nothing is lost by asking
+    /// for another run rather than trying to carry the old one across.
+    /// Unlike `civ`, `last` is never auto-computed — the dock's own "Run
+    /// landmark pass" button is the only writer.
+    landmark_store: cartalith_civ::landmark::LandmarkStore,
 }
 
 #[godot_api]
@@ -2097,6 +2117,7 @@ impl IRefCounted for WorldGen {
             bake: bake_bridge::BakeState::new(),
             vault: cartalith_vault::VaultSession::new(),
             wildlife: None,
+            landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
         }
     }
 }
@@ -2380,6 +2401,12 @@ impl WorldGen {
         // under their own `atlas_world_key()`, so regenerating back to the
         // same parameters finds them again rather than re-baking.
         self.bake.finalized = false;
+        // The previous run's landmarks sit at grid coordinates and terrain
+        // readings over the *old* field -- meaningless (and potentially
+        // out of bounds at a new resolution) over this one. Not
+        // recomputed here: landmark generation is its own synchronous,
+        // user-triggered pass (`landmark_run()`), not part of `generate()`.
+        self.landmark_store.invalidate();
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
@@ -12160,5 +12187,535 @@ impl WorldGen {
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.
         self.ledger.clear();
+    }
+}
+
+
+// -- Landmark generation (`LANDMARK_UI_DESIGN.md` §9, `cartalith_civ::
+// landmark`, `landmark_bridge.rs`) --------------------------------------
+//
+// `cartalith_civ::landmark::LandmarkStore` (held as `self.landmark_store`)
+// already bundles the settings this dock writes and the last run's result
+// it reads -- see that module's own doc for why. `landmark_bridge.rs` adds
+// exactly two things the crate does not: unknown-key rejection for
+// `set_cap`/`set_armed`, and a `class_key` string -> `LandmarkClass` reverse
+// lookup. Everything below is the thin `Variant`/`Dictionary` conversion
+// over both, plus `landmark_run()`'s own `LandmarkInputs` assembly from
+// `WorldGen`'s state.
+
+/// `landmarks()`'s per-entry `Dictionary` — every key the GDScript contract
+/// names, no more: `{id,kind,class,x,y,elevation,score,importance,causal}`.
+/// `Landmark::seed` is deliberately not exposed; the contract's own
+/// `landmarks()` row has no `seed` key.
+fn landmark_dict(lm: &cartalith_civ::landmark::Landmark) -> VarDictionary {
+    let causal: PackedStringArray = lm.causal.iter().map(|s| GString::from(s.as_str())).collect();
+    dict! {
+        "id" => lm.id as i64,
+        "kind" => lm.kind.as_str(),
+        "class" => lm.class.as_str(),
+        "x" => lm.x as i64,
+        "y" => lm.y as i64,
+        "elevation" => lm.elevation,
+        "score" => lm.score,
+        "importance" => lm.importance,
+        "causal" => &causal,
+    }
+}
+
+/// `landmark_funnels()`'s (and `landmark_run()`'s own `funnels` entries')
+/// per-entry `Dictionary`: `{kind,candidates,rejected_constraint,
+/// rejected_score,rejected_spacing,cap,placed,limit}`. `limit` is
+/// `LandmarkLimit::as_str()` verbatim -- "the one-word token the dock draws
+/// after the placed count", per that method's own doc comment.
+fn landmark_funnel_dict(f: &cartalith_civ::landmark::LandmarkFunnel) -> VarDictionary {
+    dict! {
+        "kind" => f.kind.as_str(),
+        "candidates" => f.candidates as i64,
+        "rejected_constraint" => f.rejected_constraint as i64,
+        "rejected_score" => f.rejected_score as i64,
+        "rejected_spacing" => f.rejected_spacing as i64,
+        "cap" => f.cap as i64,
+        "placed" => f.placed as i64,
+        "limit" => f.limit.as_str(),
+    }
+}
+
+/// `landmark_settings()`'s whole `Dictionary`:
+/// `{caps,armed,crowding,class_radius_km,cross_type_competition}`.
+/// `class_radius_km` is `[Continental, Regional, Local, Cultural]` --
+/// `LandmarkClass::index()`'s own order.
+fn landmark_settings_dict(s: &cartalith_civ::landmark::LandmarkSettings) -> VarDictionary {
+    let mut caps = VarDictionary::new();
+    for (k, v) in &s.caps {
+        caps.set(k.as_str(), *v as i64);
+    }
+    let mut armed = VarDictionary::new();
+    for (k, v) in &s.armed {
+        armed.set(k.as_str(), *v);
+    }
+    let class_radius_km: PackedFloat64Array = s.class_radius_km.iter().copied().collect();
+    dict! {
+        "caps" => &caps,
+        "armed" => &armed,
+        "crowding" => s.crowding,
+        "class_radius_km" => &class_radius_km,
+        "cross_type_competition" => s.cross_type_competition,
+    }
+}
+
+/// §14/§8/§12's route-corridor and resource-potential fields.
+/// `compute_civilisation` (above) already derives both from `ws`/`civ`, but
+/// does not retain either past its own return — only `CivData::
+/// water_bodies` survives onto the struct this pass can otherwise reuse.
+/// This is a repeat of that function's own composition (same inputs, same
+/// call order, `scarcity`/`scarcity_legacy` pinned to its literal
+/// `true, false` production default), not a new one — see
+/// `compute_civilisation`'s body for the calls this mirrors.
+///
+/// Not cheap: an extra lithology + biome + resource-potential + slope +
+/// corridor pass. `landmark_run()` is already a synchronous, user-
+/// triggered, seconds-scale call by design (matching
+/// `recompute_civilisation`'s own budget, `civilization_workspace.gd:1154`'s
+/// busy-state pattern on the caller's side) — this is within that same cost
+/// class, not a new one.
+fn landmark_geology_inputs(
+    ws: &cartalith_engine::WorldState,
+    civ: &CivData,
+    gw: usize,
+    gh: usize,
+    world: bool,
+    sea_level: f64,
+    map_width_km: f64,
+) -> (cartalith_civ::ResourcePotentials, Vec<f32>) {
+    let lithology = cartalith_civ::build_lithology(
+        &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field,
+        &ws.rainfall, sea_level,
+    );
+    let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
+    let resources = cartalith_civ::build_resource_potentials(
+        &lithology,
+        Some(&ws.boundary_type),
+        Some(&ws.shear_field),
+        Some(&ws.flow_discharge),
+        Some(&biome),
+        &ws.field,
+        &ws.rainfall,
+        &ws.age_field,
+        gw,
+        gh,
+        sea_level,
+        Some(&ws.volcanic_field),
+        true,
+        false,
+    );
+    let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
+    let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+    let corridors = cartalith_civ::build_route_corridors(
+        &ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh,
+    );
+    (resources, corridors)
+}
+
+/// `RESOURCE_KEYS`' own declaration order (`cartalith-civ/src/lib.rs`),
+/// zipped against [`cartalith_civ::ResourcePotentials`]' own field order --
+/// the shape `LandmarkInputs::resources` wants, built once per
+/// `landmark_run()` call rather than duplicated at every call site.
+fn landmark_resource_pairs(rp: &cartalith_civ::ResourcePotentials) -> Vec<(&str, &[f32])> {
+    vec![
+        ("copper", rp.copper.as_slice()),
+        ("tin", rp.tin.as_slice()),
+        ("iron", rp.iron.as_slice()),
+        ("gold", rp.gold.as_slice()),
+        ("salt", rp.salt.as_slice()),
+        ("timber", rp.timber.as_slice()),
+        ("lead", rp.lead.as_slice()),
+        ("silver", rp.silver.as_slice()),
+        ("clay", rp.clay.as_slice()),
+        ("buildstone", rp.buildstone.as_slice()),
+        ("flint", rp.flint.as_slice()),
+        ("obsidian", rp.obsidian.as_slice()),
+        ("gems", rp.gems.as_slice()),
+        ("sulfur", rp.sulfur.as_slice()),
+        ("alum", rp.alum.as_slice()),
+    ]
+}
+
+/// `landmark_headroom()`'s own approximate packing estimate —
+/// `LANDMARK_UI_DESIGN.md` §4.4's "room for about N at this spacing", not a
+/// promise (the word "about" is doing real work there and here). Land area
+/// (`field > sea_level` cells times this world's own square cell area,
+/// `map_width_km / gw` a side) divided by a circle-packing area per
+/// landmark at [`cartalith_civ::landmark::LandmarkSettings::radius_km`]'s
+/// own crowding-adjusted mean class radius. Zero before a generated world
+/// of the right size exists.
+fn landmark_room_estimate(
+    ws: &cartalith_engine::WorldState,
+    gw: i32,
+    gh: i32,
+    map_width_km: f64,
+    sea_level: f64,
+    settings: &cartalith_civ::landmark::LandmarkSettings,
+) -> i64 {
+    if gw <= 0 || gh <= 0 {
+        return 0;
+    }
+    let n = (gw as usize) * (gh as usize);
+    if ws.field.len() != n {
+        return 0;
+    }
+    let sea = sea_level as f32;
+    let land_cells = ws.field.iter().filter(|&&h| h > sea).count();
+    if land_cells == 0 {
+        return 0;
+    }
+    let cell_km = map_width_km / gw as f64;
+    let land_area_km2 = land_cells as f64 * cell_km * cell_km;
+    let mean_radius_km: f64 = cartalith_civ::landmark::LandmarkClass::all()
+        .iter()
+        .map(|&c| settings.radius_km(c))
+        .sum::<f64>()
+        / 4.0;
+    if mean_radius_km <= 0.0 {
+        return 0;
+    }
+    let area_per_landmark_km2 = std::f64::consts::PI * mean_radius_km * mean_radius_km;
+    (land_area_km2 / area_per_landmark_km2).floor().max(0.0) as i64
+}
+
+/// The Landmark Generation dock (`LANDMARK_UI_DESIGN.md` §9's wiring
+/// table): the static type registry, the caps/armed/crowding/radii/
+/// competition settings, the synchronous placement pass, and its results.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// The static type registry (`cartalith_civ::landmark::kinds()`), one
+    /// `Dictionary` per type: `{key,label,family,class,default_cap,
+    /// needs_viewshed,buildable,not_built}`. `not_built` is a superset over
+    /// the agreed GDScript contract (`LandmarkKindSpec::not_built`'s own doc:
+    /// "Not in the agreed contract... added because 'declared and honestly
+    /// NOT generated' is only honest if the panel can say why") — harmless
+    /// to a caller reading only the seven contract keys, and it is the
+    /// `§9.3`/`not_built` disclosure `LANDMARK_UI_DESIGN.md` §9.4 asks for,
+    /// available the moment this row exists rather than waiting on a
+    /// contract amendment.
+    ///
+    /// Unlike every other row in this block, this needs no generated world
+    /// at all — it is safe to call, and the GDScript wrapper caches it, the
+    /// moment this build's GDExtension has the binding.
+    #[func]
+    fn landmark_kinds(&self) -> Array<VarDictionary> {
+        cartalith_civ::landmark::kinds()
+            .iter()
+            .map(|k| {
+                dict! {
+                    "key" => k.key,
+                    "label" => k.label,
+                    "family" => k.family.as_str(),
+                    "class" => k.class.as_str(),
+                    "default_cap" => k.default_cap as i64,
+                    "needs_viewshed" => k.needs_viewshed,
+                    "buildable" => k.buildable,
+                    "not_built" => k.not_built,
+                }
+            })
+            .collect()
+    }
+
+    /// The live settings table — see [`landmark_settings_dict`] for the
+    /// exact shape.
+    #[func]
+    fn landmark_settings(&self) -> VarDictionary {
+        landmark_settings_dict(&self.landmark_store.settings)
+    }
+
+    /// Writes one type's cap. `false`, changing nothing, for a key
+    /// `landmark_kinds()` does not carry.
+    #[func]
+    fn landmark_set_cap(&mut self, key: GString, v: i64) -> bool {
+        landmark_bridge::set_cap(&mut self.landmark_store.settings, &key.to_string(), v)
+    }
+
+    /// Arms/disarms one type. Same unknown-key rejection as
+    /// `landmark_set_cap`.
+    #[func]
+    fn landmark_set_armed(&mut self, key: GString, on: bool) -> bool {
+        landmark_bridge::set_armed(&mut self.landmark_store.settings, &key.to_string(), on)
+    }
+
+    /// The Crowding dial. Always succeeds — an out-of-range or non-finite
+    /// value is clamped, not rejected (`landmark_bridge::set_crowding`'s own
+    /// doc has the exact range).
+    #[func]
+    fn landmark_set_crowding(&mut self, v: f64) -> bool {
+        landmark_bridge::set_crowding(&mut self.landmark_store.settings, v)
+    }
+
+    /// One of the four class radii, km. `class_key` is `"continental"` /
+    /// `"regional"` / `"local"` / `"cultural"`; `false` for anything else.
+    #[func]
+    fn landmark_set_class_radius(&mut self, class_key: GString, km: f64) -> bool {
+        landmark_bridge::set_class_radius(&mut self.landmark_store.settings, &class_key.to_string(), km)
+    }
+
+    /// `LANDMARK_UI_DESIGN.md` §4.3's "Types compete with each other".
+    /// Always succeeds — a plain boolean has nothing to reject.
+    #[func]
+    fn landmark_set_cross_competition(&mut self, on: bool) -> bool {
+        landmark_bridge::set_cross_competition(&mut self.landmark_store.settings, on)
+    }
+
+    /// Restores every landmark setting to
+    /// `cartalith_civ::landmark::LandmarkSettings::default()`. Does not
+    /// touch the retained run result — the last run's placements stay on
+    /// screen until the next `landmark_run()`, the same way resetting a
+    /// generation parameter does not itself regenerate the world.
+    #[func]
+    fn landmark_reset_settings(&mut self) {
+        self.landmark_store.settings = cartalith_civ::landmark::LandmarkSettings::default();
+    }
+
+    /// Runs the landmark placement pass over the current world and current
+    /// settings — `LANDMARK_UI_DESIGN.md` §9.1 row 15's "Run landmark
+    /// pass" button. Synchronous and blocking, following
+    /// `civilization_workspace.gd:1154`'s own busy-state pattern (relabel
+    /// -> disable -> two frames -> this call -> result note) rather than a
+    /// worker thread: `engine_bridge.gd`'s `generating` flag is what must
+    /// keep this from ever being reached while a full `generate()` worker
+    /// thread holds this object mutably borrowed (`Gd<T>::bind() failed,
+    /// already bound` — `engine_bridge.gd`'s own `_gpu_read` doc comment,
+    /// around its `generating` guard block, has the 360-panic measurement
+    /// that established the rule this follows; this function does not
+    /// re-check that flag itself, since gdext gives it no way to observe
+    /// GDScript-side state, and does not need to — the borrow itself is
+    /// gdext's own enforcement).
+    ///
+    /// Returns `{ok:bool, placed:int, seconds:float, error:String,
+    /// funnels:Array}`. Refuses (`ok:false`, the rest at their zero value)
+    /// for a loaded save or a session with no generated world yet —
+    /// `SAVEFILE_COMPAT.md` stores no substrate to place landmarks over,
+    /// the same restriction `recompute_civilisation` states for the same
+    /// reason.
+    ///
+    /// Assembles `cartalith_civ::landmark::LandmarkInputs` from this
+    /// world's own state: the required six straight off `WorldState`/
+    /// `WorldGen`, `channel`/`recv`/`order` from `WorldState::channels`/
+    /// `stream_order` (already retained, no recompute), `water` from
+    /// `CivData::water_bodies` (also already retained), `settlements` from
+    /// `CivData::settlements`, and `resources`/`corridors` from
+    /// [`landmark_geology_inputs`] (recomputed — see that function's own
+    /// doc for why neither survives past `compute_civilisation`). All of
+    /// `resources`/`corridors`/`water`/`settlements` degrade to absent
+    /// (`None`/empty) when there is no civ layer, which
+    /// `LandmarkInputs`/`generate`'s own "honest degradation is a hard
+    /// rule" handles by reporting `NoTerrain` for the kinds that needed
+    /// them — never a panic, never an invented placement.
+    #[func]
+    fn landmark_run(&mut self) -> VarDictionary {
+        let refuse = |error: &str| -> VarDictionary {
+            dict! {
+                "ok" => false, "placed" => 0i64, "seconds" => 0.0,
+                "error" => error, "funnels" => &Array::<VarDictionary>::new(),
+            }
+        };
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
+            return refuse(
+                "Landmark generation needs a generated world; a loaded save carries no substrate to place landmarks over (SAVEFILE_COMPAT.md).",
+            );
+        };
+        let gwu = self.gw.max(0) as usize;
+        let ghu = self.gh.max(0) as usize;
+        if gwu == 0 || ghu == 0 || ws.field.len() != gwu * ghu {
+            return refuse("No world.");
+        }
+
+        let geology = self.civ.as_ref().map(|civ| {
+            landmark_geology_inputs(ws, civ, gwu, ghu, self.world, self.sea_level, self.map_width_km)
+        });
+        let resource_pairs: Vec<(&str, &[f32])> =
+            geology.as_ref().map(|(rp, _)| landmark_resource_pairs(rp)).unwrap_or_default();
+        let corridors: Option<&[f32]> = geology.as_ref().map(|(_, c)| c.as_slice());
+        let sites: Vec<cartalith_civ::landmark::LandmarkSite> = self
+            .civ
+            .as_ref()
+            .map(|civ| civ.settlements.iter().map(landmark_bridge::settlement_to_site).collect())
+            .unwrap_or_default();
+
+        let mut inputs = cartalith_civ::landmark::LandmarkInputs::new(
+            &ws.field, gwu, ghu, self.sea_level, self.world, self.map_width_km,
+        );
+        if self.params.peak_m > 0.0 {
+            inputs.peak_m = self.params.peak_m;
+        }
+        inputs.flow = Some(&ws.flow_discharge);
+        inputs.channel = ws.channels.as_ref().map(|c| c.chan.as_slice());
+        inputs.recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
+        inputs.order = ws.stream_order.as_deref();
+        inputs.water = self.civ.as_ref().map(|c| c.water_bodies.as_slice());
+        inputs.corridors = corridors;
+        inputs.resources = &resource_pairs;
+        inputs.settlements = &sites;
+
+        let seed = self.seed as u64;
+        let result = self.landmark_store.run(&inputs, seed);
+        let placed = result.landmarks.len() as i64;
+        let seconds = result.seconds;
+        let funnels: Array<VarDictionary> = result.funnels.iter().map(landmark_funnel_dict).collect();
+        dict! {
+            "ok" => true, "placed" => placed, "seconds" => seconds,
+            "error" => "", "funnels" => &funnels,
+        }
+    }
+
+    /// The last `landmark_run()`'s placements — empty before any run, and
+    /// after every `absorb()` (see the `landmark_store` field's own doc
+    /// comment).
+    #[func]
+    fn landmarks(&self) -> Array<VarDictionary> {
+        self.landmark_store
+            .last
+            .as_ref()
+            .map_or_else(Array::new, |r| r.landmarks.iter().map(landmark_dict).collect())
+    }
+
+    /// The last `landmark_run()`'s per-type funnel — the "why fewer than I
+    /// asked for" popover's own data (`LANDMARK_UI_DESIGN.md` §5).
+    #[func]
+    fn landmark_funnels(&self) -> Array<VarDictionary> {
+        self.landmark_store
+            .last
+            .as_ref()
+            .map_or_else(Array::new, |r| r.funnels.iter().map(landmark_funnel_dict).collect())
+    }
+
+    /// The headroom line (`LANDMARK_UI_DESIGN.md` §4.4): `{caps_total:int,
+    /// room_estimate:int, last_placed:int}`. `caps_total` is
+    /// `LandmarkStore::caps_total()` verbatim (armed kinds only) and
+    /// `last_placed` are exact; `room_estimate` is the approximate packing
+    /// estimate [`landmark_room_estimate`] documents.
+    #[func]
+    fn landmark_headroom(&self) -> VarDictionary {
+        let caps_total = self.landmark_store.caps_total() as i64;
+        let last_placed = self.landmark_store.last.as_ref().map_or(0, |r| r.landmarks.len()) as i64;
+        let room_estimate = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => landmark_room_estimate(
+                ws, self.gw, self.gh, self.map_width_km, self.sea_level, &self.landmark_store.settings,
+            ),
+            _ => 0,
+        };
+        dict! {
+            "caps_total" => caps_total,
+            "room_estimate" => room_estimate,
+            "last_placed" => last_placed,
+        }
+    }
+}
+
+/// Key-by-key checks of the three `landmark_*` `Dictionary` shapes against
+/// the GDScript contract — present so a rename on either side is caught in
+/// source rather than only by the UI silently reading `null`.
+///
+/// **`#[ignore]`d, not deleted.** Every test here constructs a real
+/// `VarDictionary`/`GString` (via `dict!`, straight `VarDictionary::new()`,
+/// or `GString::from`), and every one of those calls panics under plain
+/// `cargo test` with `"Godot engine not available; make sure you are not
+/// calling it from unit/doc tests"` (`godot-ffi-0.5.5`) — confirmed by
+/// actually running this suite, not assumed. That is also, empirically, why
+/// no other test anywhere in this crate builds a `VarDictionary`: every
+/// existing `#[cfg(test)]` module in `lib.rs` and every bridge module
+/// (`civ_roster_bridge.rs`, `params.rs`, …) tests plain Rust structs and
+/// pure functions instead, for exactly this reason, stated in their own
+/// module docs as "free of any `godot` dependency so it can be unit-tested".
+/// These three break that pattern on purpose, to assert the dict *shape*
+/// this task's own Verify section asks for; `#[ignore]` is what keeps them
+/// from failing `cargo test -p cartalith-godot --lib` while still compiling
+/// (so a real field-name typo is still a compile error) and remaining
+/// runnable by hand (`cargo test -p cartalith-godot --lib -- --ignored`)
+/// inside anything that does initialize the engine — a future `itest`-style
+/// harness, should this crate grow one.
+#[cfg(test)]
+mod landmark_dict_tests {
+    use super::*;
+    use cartalith_civ::landmark::{Landmark, LandmarkClass, LandmarkFunnel, LandmarkLimit, LandmarkSettings};
+    use std::collections::BTreeMap;
+
+    /// The GDScript contract's `landmarks()` row, key-by-key — a rename on
+    /// either side fails this rather than the UI silently reading `null`.
+    #[test]
+    #[ignore = "VarDictionary/GString need a live Godot engine; see this module's own doc comment"]
+    fn landmark_dict_carries_every_contract_key_and_omits_seed() {
+        let lm = Landmark {
+            id: 7,
+            kind: "waterfall".to_string(),
+            class: LandmarkClass::Regional,
+            x: 12,
+            y: 34,
+            elevation: 0.6,
+            score: 0.8,
+            importance: 0.5,
+            causal: vec!["tectonic uplift".to_string(), "river gradient".to_string()],
+            seed: 99,
+        };
+        let d = landmark_dict(&lm);
+        for key in ["id", "kind", "class", "x", "y", "elevation", "score", "importance", "causal"] {
+            assert!(d.contains_key(key), "missing key {key}");
+        }
+        assert_eq!(d.get("id").and_then(|v| v.try_to::<i64>().ok()), Some(7));
+        assert_eq!(
+            d.get("class").and_then(|v| v.try_to::<GString>().ok()),
+            Some(GString::from("regional"))
+        );
+        // The contract's own `landmarks()` row has no `seed` key.
+        assert!(!d.contains_key("seed"));
+    }
+
+    /// The GDScript contract's `landmark_funnels()` (and `landmark_run()`'s
+    /// `funnels`) row, key-by-key.
+    #[test]
+    #[ignore = "VarDictionary/GString need a live Godot engine; see this module's own doc comment"]
+    fn landmark_funnel_dict_carries_every_contract_key() {
+        let f = LandmarkFunnel {
+            kind: "waterfall".to_string(),
+            candidates: 1284,
+            rejected_constraint: 902,
+            rejected_score: 247,
+            rejected_spacing: 124,
+            cap: 40,
+            placed: 11,
+            limit: LandmarkLimit::Candidates,
+        };
+        let d = landmark_funnel_dict(&f);
+        for key in [
+            "kind", "candidates", "rejected_constraint", "rejected_score", "rejected_spacing", "cap",
+            "placed", "limit",
+        ] {
+            assert!(d.contains_key(key), "missing key {key}");
+        }
+        assert_eq!(
+            d.get("limit").and_then(|v| v.try_to::<GString>().ok()),
+            Some(GString::from("candidates"))
+        );
+    }
+
+    /// The GDScript contract's `landmark_settings()` row, key-by-key.
+    #[test]
+    #[ignore = "VarDictionary/GString need a live Godot engine; see this module's own doc comment"]
+    fn landmark_settings_dict_carries_every_contract_key() {
+        let mut caps = BTreeMap::new();
+        caps.insert("waterfall".to_string(), 40u32);
+        let mut armed = BTreeMap::new();
+        armed.insert("waterfall".to_string(), true);
+        let s = LandmarkSettings {
+            caps,
+            armed,
+            crowding: 1.0,
+            class_radius_km: [220.0, 34.0, 6.0, 18.0],
+            cross_type_competition: false,
+        };
+        let d = landmark_settings_dict(&s);
+        for key in ["caps", "armed", "crowding", "class_radius_km", "cross_type_competition"] {
+            assert!(d.contains_key(key), "missing key {key}");
+        }
+        let caps_dict =
+            d.get("caps").and_then(|v| v.try_to::<VarDictionary>().ok()).expect("caps is a Dictionary");
+        assert!(caps_dict.contains_key("waterfall"));
     }
 }

@@ -30,6 +30,19 @@ pub mod belief;
 pub mod naming;
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
+/// `LANDMARK_GENERATION_RESEARCH.md` / `LANDMARK_GENERATION_SCOPE.md` — the
+/// landmark record (§22), the 49-type cap table (§29/§23) and the placement
+/// pass (§30), including the per-kind funnel that answers "why fewer than the
+/// cap".
+///
+/// Here rather than in a new crate because every input it composes already
+/// lives in this one or one below it: water bodies, route corridors, resource
+/// potentials and settlements are all `cartalith-civ`, the analytical fields
+/// are `cartalith-terrain::analysis`, and the channel threshold is
+/// `cartalith-hydrology`. `LANDMARK_GENERATION_SCOPE.md` open question 4 poses
+/// the crate-boundary fork; this answers it the way the existing dependency
+/// graph already did, and adds no edge to it.
+pub mod landmark;
 /// `MILITARY_MANPOWER_SCOPE.md` — what a polity can put and keep under
 /// arms: standing army, field army, emergency mobilization and maximum war
 /// duration, from five interacting variables. CV-25's *other* half, and the

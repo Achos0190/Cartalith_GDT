@@ -158,6 +158,7 @@ func _ready() -> void:
 	generation_finished.connect(func(ok: bool): if ok: _set_dirty(true))
 	_restore_gpu_prefs()
 	_read_param_table()
+	_read_landmark_kinds()
 	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
 	## the golden-parity reference path (`GPU_LAYER_INTEGRATION_SCOPE.md`
 	## milestone 9), and the CPU-path tests pin it exactly. This is the
@@ -1138,6 +1139,7 @@ func close_world() -> void:
 	params_dirty = false
 	_restore_gpu_prefs()
 	_read_param_table()
+	_read_landmark_kinds()
 	world_loaded.emit()
 	## After the emit, for the same reason `load_save` clears it there: the
 	## handler above sets the flag, and an empty shell has nothing to save.
@@ -3065,3 +3067,141 @@ func jp_vessel_matrix() -> Dictionary:
 	if not _has("jp_vessel_matrix"):
 		return {}
 	return world_gen.jp_vessel_matrix()
+
+# -- Landmark generation (`landmark_bridge.rs`, `LANDMARK_UI_DESIGN.md` §9) --
+#
+# `landmark_*` is a SEPARATE accessor set from `param_*`/`get_param_info`,
+# on purpose: a WORLD parameter's `on_release` write triggers a full
+# `generate()` (`param_set` above, and `world_workspace.gd:1113`'s own call
+# site), and a landmark cap is downstream of terrain, never an input to it
+# -- it must never trigger one, and none of the writers below call
+# `mark_dirty()` or touch `param_set`.
+#
+# Every row here is guarded on `generating`, not only `_has()`, the same
+# discipline `stale_stages()` and `_gpu_read()` above already use and for
+# the same reason (`_gpu_read`'s own doc comment, ~line 895, has the
+# 360-panic measurement): `generate()` holds the whole `WorldGen` mutably
+# borrowed on a worker thread for its run's duration, and any `#[func]`
+# reached from the main thread meanwhile fails its own `Gd<T>::bind()` --
+# a Rust panic per call. `landmark_run()` is synchronous rather than
+# threaded, so it is the one row here that would otherwise race the worker
+# outright rather than merely read stale data; it refuses cleanly instead.
+
+## Static for the session -- filled once by `_read_landmark_kinds()` (called
+## from `_ready()` and after `close_world()` swaps in a fresh `WorldGen`),
+## so this never itself crosses the `Gd<T>` boundary and needs no
+## `generating` guard.
+var _landmark_kinds_cache: Array = []
+var _landmark_settings_cache: Dictionary = {}
+
+func _read_landmark_kinds() -> void:
+	_landmark_kinds_cache = world_gen.landmark_kinds() if _has("landmark_kinds") else []
+	_landmark_settings_cache = world_gen.landmark_settings() if _has("landmark_settings") else {}
+
+## The ~49-row type registry: `[{key,label,family,class,default_cap,
+## needs_viewshed,buildable}, …]`. Served from the startup cache -- safe to
+## call at any time, including mid-generation.
+func landmark_kinds() -> Array:
+	return _landmark_kinds_cache
+
+## `{caps:{key:int}, armed:{key:bool}, crowding:float,
+## class_radius_km:[f,f,f,f], cross_type_competition:bool}`. Cached read-
+## through, the same shape `_gpu_read()` uses: mid-generation this answers
+## from the last-known cache rather than reaching a borrowed `world_gen`.
+func landmark_settings() -> Dictionary:
+	if not _has("landmark_settings"):
+		return {}
+	if generating:
+		return _landmark_settings_cache
+	_landmark_settings_cache = world_gen.landmark_settings()
+	return _landmark_settings_cache
+
+func landmark_set_cap(key: String, v: int) -> bool:
+	if generating or not _has("landmark_set_cap"):
+		return false
+	var ok: bool = world_gen.landmark_set_cap(key, v)
+	if ok:
+		_landmark_settings_cache = world_gen.landmark_settings()
+	return ok
+
+func landmark_set_armed(key: String, on: bool) -> bool:
+	if generating or not _has("landmark_set_armed"):
+		return false
+	var ok: bool = world_gen.landmark_set_armed(key, on)
+	if ok:
+		_landmark_settings_cache = world_gen.landmark_settings()
+	return ok
+
+func landmark_set_crowding(v: float) -> bool:
+	if generating or not _has("landmark_set_crowding"):
+		return false
+	var ok: bool = world_gen.landmark_set_crowding(v)
+	if ok:
+		_landmark_settings_cache = world_gen.landmark_settings()
+	return ok
+
+## `class_key` is `"continental"` / `"regional"` / `"local"` / `"cultural"`.
+func landmark_set_class_radius(class_key: String, km: float) -> bool:
+	if generating or not _has("landmark_set_class_radius"):
+		return false
+	var ok: bool = world_gen.landmark_set_class_radius(class_key, km)
+	if ok:
+		_landmark_settings_cache = world_gen.landmark_settings()
+	return ok
+
+func landmark_set_cross_competition(on: bool) -> bool:
+	if generating or not _has("landmark_set_cross_competition"):
+		return false
+	var ok: bool = world_gen.landmark_set_cross_competition(on)
+	if ok:
+		_landmark_settings_cache = world_gen.landmark_settings()
+	return ok
+
+func landmark_reset_settings() -> void:
+	if generating or not _has("landmark_reset_settings"):
+		return
+	world_gen.landmark_reset_settings()
+	_landmark_settings_cache = world_gen.landmark_settings() if _has("landmark_settings") else {}
+
+## Synchronous and blocking -- `civilization_workspace.gd:1154`'s exact busy
+## pattern (relabel -> disable -> two frames -> this call -> result note) is
+## the caller's job; this function does the blocking call itself rather than
+## spawning a `Thread`. Refuses cleanly (`ok: false`, an `error` naming why)
+## rather than racing the worker when a full `generate()` is already in
+## flight -- see this block's own header comment for why that race would be
+## a crash, not a stale read.
+func landmark_run() -> Dictionary:
+	if generating:
+		return {
+			"ok": false, "placed": 0, "seconds": 0.0,
+			"error": "A world generation is already running.", "funnels": [],
+		}
+	if not _has("landmark_run"):
+		return {
+			"ok": false, "placed": 0, "seconds": 0.0,
+			"error": "This build's extension has no landmark_run.", "funnels": [],
+		}
+	return world_gen.landmark_run()
+
+## The last `landmark_run()`'s placements: `[{id,kind,class,x,y,elevation,
+## score,importance,causal:Array}, …]`.
+func landmarks() -> Array:
+	if generating or not _has("landmarks"):
+		return []
+	return world_gen.landmarks()
+
+## The last `landmark_run()`'s per-type funnel -- the "why fewer than I
+## asked for" popover's own data (`LANDMARK_UI_DESIGN.md` §5): `[{kind,
+## candidates,rejected_constraint,rejected_score,rejected_spacing,cap,
+## placed,limit}, …]`, `limit` a String.
+func landmark_funnels() -> Array:
+	if generating or not _has("landmark_funnels"):
+		return []
+	return world_gen.landmark_funnels()
+
+## The headroom line (`LANDMARK_UI_DESIGN.md` §4.4): `{caps_total:int,
+## room_estimate:int, last_placed:int}`.
+func landmark_headroom() -> Dictionary:
+	if generating or not _has("landmark_headroom"):
+		return {}
+	return world_gen.landmark_headroom()
