@@ -406,8 +406,30 @@ static func toggle(parent: Control, label_text: String, value: bool,
 	if DccTheme.is_tablet():
 		cb.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
 	cb.toggled.connect(func(v: bool): on_change.call(v))
-	row.add_child(cb)
+	## **The spacer goes BEFORE the box, and the label is allowed to grow.**
+	##
+	## `_row` clips its label to `ROW_LABEL_W` (132) and every other control
+	## this file builds — `slider`, `choice`, `value` — puts an EXPANDING
+	## control after it, so the label's clip is invisible: the row is full and
+	## the value sits on the right edge, which is what `_row`'s own comment
+	## describes ("Only the *value* on the right").
+	##
+	## A toggle had neither. The check box is intrinsically sized, so it hugged
+	## the clipped label and left the rest of the row empty — and any label
+	## longer than 132 px was cut mid-word for no reason, with the space to fix
+	## it sitting unused two pixels to the right. Measured on the OnePlus 6T:
+	## `Types compete with each o…` with the box on top of the cut and half the
+	## row blank.
+	##
+	## Letting the label expand takes the slack, and moving the spacer ahead of
+	## the box right-aligns it into the value column where every other control
+	## already lives. 27 toggles across nine files get their full label and a
+	## consistent right edge.
+	var lbl := row.get_child(0) as Control
+	if lbl != null:
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(DccTheme.spacer())
+	row.add_child(cb)
 	return cb
 
 static func choice(parent: Control, label_text: String, options: Array, selected: int,

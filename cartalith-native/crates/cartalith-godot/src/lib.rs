@@ -12370,16 +12370,59 @@ fn landmark_room_estimate(
     }
     let cell_km = map_width_km / gw as f64;
     let land_area_km2 = land_cells as f64 * cell_km * cell_km;
-    let mean_radius_km: f64 = cartalith_civ::landmark::LandmarkClass::all()
-        .iter()
-        .map(|&c| settings.radius_km(c))
-        .sum::<f64>()
-        / 4.0;
-    if mean_radius_km <= 0.0 {
-        return 0;
+    // **Per class, capped by what was actually asked for** — NOT the mean of
+    // the four radii, which is what this computed until it was measured on a
+    // real world and read `room for about 18` where the pass then placed
+    // **214**. An order of magnitude out, on the one line whose job is to make
+    // the cap-versus-placed distinction believable before the user runs
+    // anything.
+    //
+    // The mean is the wrong statistic for a specific and instructive reason.
+    // The four radii span 200 / 34 / 10 / 6 km, and there is exactly **one**
+    // Continental type against 23 Local ones. Averaging gives 62.5 km, so
+    // every landmark is charged pi*62.5^2 = 12 272 km^2 of ground — the
+    // footprint of a class that can contribute at most a handful — while a
+    // Local one really occupies pi*10^2 = 314 km^2 and fits forty times over.
+    // A single rare class was setting the price for all four.
+    //
+    // So: sum each class's own capacity, and cap each by the caps the user
+    // actually set for the types in that class. Both halves matter. Without
+    // the packing term the line would just echo `caps total` and say nothing;
+    // without the cap term it would promise room for 1 300 Local landmarks
+    // when only 23 types exist to fill it.
+    //
+    // `radius_km()` already folds `crowding` in, so dragging that dial moves
+    // this number, which is the whole point of showing them on the same line.
+    //
+    // Still an estimate, and the panel still says "about": real terrain is not
+    // a disc-packing problem, most of these types need a channel or a coast or
+    // an ore body, and `cross_type_competition` makes the classes share ground
+    // rather than tile it independently. It is a ceiling on a ceiling. What it
+    // must not be is off by 12x.
+    use std::collections::BTreeMap;
+    let mut cap_by_class: BTreeMap<usize, u32> = BTreeMap::new();
+    for k in cartalith_civ::landmark::kinds() {
+        if !k.buildable || !settings.is_armed(k.key) {
+            continue;
+        }
+        *cap_by_class.entry(k.class.index()).or_insert(0) += settings.cap(k.key);
     }
-    let area_per_landmark_km2 = std::f64::consts::PI * mean_radius_km * mean_radius_km;
-    (land_area_km2 / area_per_landmark_km2).floor().max(0.0) as i64
+    let mut room: f64 = 0.0;
+    for c in cartalith_civ::landmark::LandmarkClass::all() {
+        let asked = *cap_by_class.get(&c.index()).unwrap_or(&0) as f64;
+        if asked <= 0.0 {
+            continue;
+        }
+        let r = settings.radius_km(c);
+        if r <= 0.0 {
+            // No separation for this class: the caps are the only limit.
+            room += asked;
+            continue;
+        }
+        let fits = land_area_km2 / (std::f64::consts::PI * r * r);
+        room += asked.min(fits);
+    }
+    room.floor().max(0.0) as i64
 }
 
 /// The Landmark Generation dock (`LANDMARK_UI_DESIGN.md` §9's wiring
