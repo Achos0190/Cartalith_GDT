@@ -1502,7 +1502,19 @@ static func phone_head(parent: Control, title: String, subtitle: String) -> Labe
 	var t := DccTheme.mono_label(title.to_upper(), "text_bright", 12, 3, true)
 	col.add_child(t)
 	if subtitle != "":
-		col.add_child(DccTheme.mono_label(subtitle, "text_faint", 9, 1))
+		var sub := DccTheme.mono_label(subtitle, "text_faint", 9, 1)
+		## **Clipped, because a subtitle here is often a path.**
+		## `phone_project_picker.gd` passes the projects root, and on Android
+		## that is an absolute app-private path -- measured on the OnePlus 6T,
+		## `worlds on this device · /data/data/org.cartalith.walkingskeleton/…`
+		## ran straight off the right edge of the screen with no ellipsis,
+		## because a `Label` in a `MarginContainer` grows past its parent
+		## rather than truncating. One line, clipped, with the tail cut: a
+		## header is a header, not a place to read a filesystem path.
+		sub.clip_text = true
+		sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(sub)
 	parent.add_child(wrap)
 	parent.move_child(wrap, 0)
 	return t

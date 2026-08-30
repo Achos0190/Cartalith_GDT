@@ -134,17 +134,54 @@ func _build() -> void:
 	## title in (`gen_info_dialog.gd`, `world_data_window.gd`, …) -- reused
 	## rather than a fifth hand-rolled header.
 	DccWidgets.phone_head(outer, "Cartalith",
-		"worlds on this device · %s" % DccSettings.storage_root("projects"))
+		"worlds on this device · %s" % _short_root())
 
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	var pad := DccWidgets.pad(scroll, 14, 14, 14, 20)
+	## **`EXPAND`, not just `FILL`, and this is the whole reason the picker
+	## drew its column at a third of the screen.**
+	##
+	## A `ScrollContainer` lays a child out at the child's MINIMUM size along
+	## an axis unless that child asks to expand -- `SIZE_FILL` alone is not
+	## enough there, which is the opposite of how it behaves inside a plain
+	## `BoxContainer` and is why this looked correct in every reading of the
+	## code. `_list` already carried `EXPAND_FILL`; the `MarginContainer`
+	## between it and the scroll did not, so the expansion had nothing to
+	## expand inside.
+	##
+	## Measured by `_pickerwidth_probe.gd` on the real tree rather than
+	## reasoned about: `ScrollContainer` 736 wide, its `MarginContainer` child
+	## **220**, the `VBoxContainer` under that 192. Found on the OnePlus 6T,
+	## where the screenshot showed the actions ending at about half the screen
+	## with the window itself full width.
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 10)
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(_list)
 	outer.add_child(scroll)
+
+## The projects root, short enough to be a header subtitle.
+##
+## `DccSettings.storage_root("projects")` is an absolute path, and on Android it
+## is the app-private one -- `/data/data/org.cartalith.walkingskeleton/files/…`
+## on the 6T, which is 50-odd characters of scaffolding around one useful word
+## and which overran the right edge of the screen. The prototype's own header
+## reads `worlds on this device · ~/Cartalith/Worlds`: a short, recognisable
+## tail, not a filesystem address.
+##
+## So: the last two segments, which is `Cartalith/Worlds` on desktop and
+## `files/Worlds` on Android, prefixed to show it is a tail. The full path is
+## still one tap away and unabbreviated in `File ▸ Storage locations`, which is
+## the row that exists to answer "where exactly".
+func _short_root() -> String:
+	var root := DccSettings.storage_root("projects")
+	var parts := root.replace("\\", "/").split("/", false)
+	if parts.size() <= 2:
+		return root
+	return "…/%s/%s" % [parts[parts.size() - 2], parts[parts.size() - 1]]
 
 func _refresh() -> void:
 	for c in _list.get_children():
