@@ -145,6 +145,17 @@ func setup(b: EngineBridge) -> void:
 	DccWidgets.note(root,
 		"Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason.")
 
+	## The appearance separation is real and was invisible. `look`, `npr`,
+	## `appearance_over`, `appearance_ramp` and `appearance_preset` are session
+	## state on `WorldGen` and none of them marks a generation stage stale, and
+	## presets are written to `user://appearance_presets/` rather than into the
+	## world `.zip` precisely because a look is reusable across worlds. So
+	## Nortantis's "New Map With Same Theme…" is already this shell's DEFAULT
+	## behaviour -- the dialog simply never said so, and a user with a look they
+	## like had no way to know Create would not take it away.
+	DccWidgets.note(root,
+		"Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it.")
+
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED

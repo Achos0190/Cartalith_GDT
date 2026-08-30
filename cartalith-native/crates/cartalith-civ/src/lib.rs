@@ -23,6 +23,11 @@ use rayon::prelude::*;
 /// and [`roster::CIV_RELIGIONS`] are read, never modified, so settlement
 /// naming stays golden.
 pub mod belief;
+/// Name shaping for things the reference does not name -- a length bound, a
+/// per-map uniqueness set, and feature-kind templates. Confined to callers
+/// with no parity contract; see the module header for why nothing here
+/// touches `civ_settle_name`.
+pub mod naming;
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
 /// `MILITARY_MANPOWER_SCOPE.md` — what a polity can put and keep under
@@ -1936,6 +1941,9 @@ pub fn civ_continents(lq: &LandmassQuality, gw: usize, gh: usize, min_cells: usi
     order.sort_by(|&a, &b| acc[b].cells.cmp(&acc[a].cells).then(a.cmp(&b)));
 
     let mut rng = civ_continent_name_rng();
+    // Per-map uniqueness set. Local, because this crate is stateless
+    // (`ARCHITECTURE.md`) and uniqueness is a property of the map being built.
+    let mut seen_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     order
         .into_iter()
         .enumerate()
@@ -1946,7 +1954,18 @@ pub fn civ_continents(lq: &LandmassQuality, gw: usize, gh: usize, min_cells: usi
             let faction = a.by_faction.iter().max_by_key(|(id, n)| (**n, std::cmp::Reverse(**id))).map(|(id, _)| *id).unwrap_or(0);
             Continent {
                 id: rank as i32 + 1,
-                name: civ_settle_name(&mut rng, faction.max(1)),
+                // A continent used to take the bare settlement stem, so it
+                // came out called "Sevjuniana" and read as a town.
+                // `naming::decorate` gives it a form of its own, and
+                // `civ_settle_name_bounded` keeps it short and unique across
+                // the map -- neither is a parity change, because the reference
+                // has no continents at all (`MARKDOWN_VAULT_SCOPE.md`'s entity
+                // audit found they did not exist).
+                name: crate::naming::decorate(
+                    &crate::naming::civ_settle_name_bounded(&mut rng, faction.max(1), &mut seen_names),
+                    crate::naming::FeatureKind::Continent,
+                    &mut rng,
+                ),
                 cells: a.cells,
                 min_x: a.min_x,
                 min_y: a.min_y,
