@@ -133,6 +133,82 @@ const PATHS := {
 	## in `SYMBOLS` missing from Plex Mono outright.
 	"nav_panels": '<rect x="1.8" y="3.2" width="12.4" height="9.6" rx="1"/><path d="M1.8 6.4 H14.2"/><path d="M1.8 9.6 H14.2"/>',
 	"nav_more": '<circle cx="3.6" cy="8" r="1.05" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="1.05" fill="#ffffff" stroke="none"/><circle cx="12.4" cy="8" r="1.05" fill="#ffffff" stroke="none"/>',
+
+	# ══ Landmark / point-of-interest types (LANDMARK_GENERATION_RESEARCH.md §29)
+	#
+	# 49 types, drawn to §12 exactly as the sculpt features are: 16x16, one
+	# weight, no interior detail, and read as ONE family with them -- which is
+	# why several are plainly terrain cross-sections and none is a pictogram.
+	#
+	# Three are NOT here because a shipped glyph already says the thing, and
+	# reusing one beats drawing a near-duplicate: `cliff`, `lake` and `volcano`
+	# serve `cliff`, `lake` and `volcanic_feature`. `landmark_glyph()` below
+	# resolves those, so a caller never has to know which are which.
+	#
+	# Two devices are deliberate and carry meaning across the set:
+	#   - **a ring above** marks sanctity, and only where sanctity is what
+	#     distinguishes the type from a physical one it would otherwise match:
+	#     `lm_sacred_mountain` against `lm_peak`, `lm_sacred_grove` against
+	#     `lm_ancient_forest`.
+	#   - **a broken or dashed run** marks age, so `lm_historic_crossing` is
+	#     `lm_river_crossing` with its way dashed, and `lm_destroyed_fortress`
+	#     is `lm_fort` breached.
+	# -- Physical ------------------------------------------------------
+	"lm_peak": '<path d="M1.2 13 L4.6 10.2 L8 2.4 L11.4 10.2 L14.8 13"/><path d="M1.4 14.6 H14.6"/>',
+	"lm_ridge": '<path d="M1.2 14 L4 5.2 L6.6 11 L9.2 6.4 L11.4 9.6 L13.2 7.4 L14.6 8.6"/>',
+	"lm_saddle": '<path d="M1.2 13.4 L4.6 4.6 C6.4 9.2 9.6 9.2 11.4 4.6 L14.8 13.4"/>',
+	## `cliff` reuses the shipped `cliff` glyph -- see LANDMARK_ICONS.
+	"lm_gorge": '<path d="M1.4 4.4 H5.6 L6.8 12.8 H9.2 L10.4 4.4 H14.6"/>',
+	"lm_cave": '<path d="M1.4 13.6 L4.6 6.4 L8.4 3.2 L12 7.4 L14.6 13.6"/><path d="M6.2 13.6 C6.2 9.6 7.2 8.6 8.6 8.6 C10 8.6 11 9.8 11 13.6"/>',
+	"lm_waterfall": '<path d="M1.6 4.2 H14.4"/><path d="M6 4.2 V11.2 M10 4.2 V11.2"/><path d="M2.4 13.6 C4.4 12.4 6 14.2 8 13.2 C10 12.2 11.6 14 13.6 12.8"/>',
+	"lm_spring": '<path d="M3.2 6.4 C3.2 4.4 6.2 3.4 8 3.4 C9.8 3.4 12.8 4.4 12.8 6.4 C12.8 8.2 10.4 9 8 9 C5.6 9 3.2 8.2 3.2 6.4 Z"/><path d="M8 9 C8 11.2 6.2 12 6.2 14.4"/>',
+	## `lake` reuses the shipped `lake` glyph -- see LANDMARK_ICONS.
+	"lm_delta": '<path d="M8.6 1.6 C8.2 3.2 7.8 4 7.2 5 C6.4 6.4 5.6 7 5 8.2 C4.2 9.8 3 11.4 2.4 13"/><path d="M7.2 5 C8.4 6.6 9.6 9 10.4 13 M5 8.2 C6.2 9.4 6.4 11 6.6 13"/><path d="M1.4 14.6 H14.6"/>',
+	"lm_river_confluence": '<path d="M2.6 1.8 C3.4 4.4 5.4 6.4 7.4 8.4 C8.4 9.6 8.8 11.6 8.8 14.2"/><path d="M13 2 C12.2 4.6 9.6 6.6 7.4 8.4"/>',
+	## `volcanic_feature` reuses the shipped `volcano` glyph -- see LANDMARK_ICONS.
+	"lm_rock_formation": '<path d="M5.2 13.4 L6.4 6.4 L8 4 L9.2 6 L10.4 13.4"/><path d="M1.6 13.4 H14.4"/>',
+	"lm_glacial_feature": '<path d="M2.4 2.6 L6 8.6 M13.6 2.6 L10 8.6"/><path d="M6 8.6 C3.4 10 3 12.2 4.6 13.4 C6.6 14.4 9.4 14.4 11.4 13.4 C13 12.2 12.6 10 10 8.6"/><path d="M6.4 11.6 H9.6"/>',
+	"lm_ancient_forest": '<path d="M2 9.8 C2 3.6 14 3.6 14 9.8"/><path d="M6.8 7 C6.8 10.6 6 12 5 13.8 M9.2 7 C9.2 10.6 10 12 11 13.8"/><path d="M1.6 13.8 H14.4"/>',
+	# -- Transportation ------------------------------------------------
+	"lm_mountain_pass": '<path d="M1 13.6 L4.2 6.6 L5.8 9.4"/><path d="M10.2 9.4 L11.8 6.6 L15 13.6"/><path d="M8 14.4 C7.2 11.6 8.8 9.6 8 6.8"/>',
+	"lm_river_crossing": '<path d="M5 1.8 C7.4 4 6.4 6.2 8.4 7.8 C10.4 9.4 10.2 11.2 11.4 13.6"/><path d="M2.4 12.2 L13.6 4.2"/>',
+	"lm_ford": '<path d="M1.4 6.6 C3.8 5.6 5.6 7.6 8 6.6 C10.4 5.6 12.2 7.4 14.6 6.4"/><path d="M1.4 10.4 C3.8 9.4 5.6 11.4 8 10.4 C10.4 9.4 12.2 11.2 14.6 10.2"/><path d="M8 1.4 V5 M8 12 V14.6"/>',
+	"lm_bridge_site": '<path d="M1.4 6 H14.6"/><path d="M2.6 12.4 C2.6 6.4 13.4 6.4 13.4 12.4"/><path d="M1.4 14.2 H14.6"/>',
+	"lm_road_junction": '<path d="M1.4 8 H7.6"/><path d="M7.6 8 L14.6 3.4"/><path d="M7.6 8 L14.6 12.6"/>',
+	"lm_caravan_station": '<path d="M2.4 7 L8 3.2 L13.6 7"/><path d="M4 5.9 V10.2 M12 5.9 V10.2"/><path d="M1.4 12.6 H14.6"/>',
+	"lm_portage": '<path d="M2.4 1.8 C1.2 5.6 3.4 10 2.4 14.2"/><path d="M13.6 1.8 C14.8 5.6 12.6 10 13.6 14.2"/><path d="M5.2 6.8 H10.8 L9.4 9.6 H6.6 Z"/>',
+	"lm_harbour": '<path d="M1.2 4.4 H14.8"/><path d="M3.8 4.4 C3.4 9.2 4.8 12.4 6.7 12.8"/><path d="M12.2 4.4 C12.6 9.2 11.2 12.4 9.3 12.8"/>',
+	# -- Economic ------------------------------------------------------
+	"lm_mine": '<path d="M1 5.2 H15"/><path d="M8 5.2 V9.6"/><path d="M4.2 12.8 L8 9.6 L11.8 12.8"/>',
+	"lm_quarry": '<path d="M1 4.8 H5 V8 H8.4 V11.2 H15"/>',
+	"lm_salt_works": '<path d="M1.4 7.2 V11.6 H14.6 V7.2"/><path d="M8 11.6 V8.4"/><path d="M2.8 9.6 H6.6"/>',
+	"lm_resource_extraction_site": '<path d="M1 6.2 H5.2 L6.8 11 H9.2 L10.8 6.2 H15"/>',
+	"lm_market_site": '<path d="M1.4 8 L8 4.2 L14.6 8"/><path d="M3.4 8 V13 M12.6 8 V13"/><path d="M3.4 10.6 H12.6"/>',
+	"lm_trade_depot": '<path d="M1.6 9 H14.4 V13.4 H1.6 Z"/><path d="M8 9 V13.4"/><path d="M5 9 V4.6 H11 V9"/>',
+	# -- Military ------------------------------------------------------
+	"lm_fort": '<path d="M2 14 V5.2 H4.4 V7 H6.8 V5.2 H9.2 V7 H11.6 V5.2 H14 V14 Z"/>',
+	"lm_watchtower": '<path d="M5.8 14 L6.6 6.4 H4.8 V2.6 H6.9 V4.4 H9.1 V2.6 H11.2 V6.4 H9.4 L10.2 14 Z"/>',
+	"lm_fortified_pass": '<path d="M1 9.8 L2.8 6.6 L5.2 14"/><path d="M15 9.8 L13.2 6.6 L10.8 14"/><path d="M5.2 14 V9.4 H6.9 V11.2 H9.1 V9.4 H10.8 V14"/>',
+	"lm_fortified_crossing": '<path d="M1 9.6 C4.5 7.4 11.5 7.4 15 9.6"/><path d="M5.2 8.1 V4.6 H6.9 V6.4 H9.1 V4.6 H10.8 V8.1"/><path d="M1.4 12.6 C3.8 11.2 5.4 14.2 8 12.8 C10.6 11.4 12.2 14.2 14.6 12.8"/>',
+	"lm_battlefield": '<path d="M1 13.6 H15"/><path d="M4.2 13.6 L10.6 4.2"/><path d="M11.8 13.6 L5.4 4.2"/>',
+	"lm_border_marker": '<path d="M1 13.4 H4"/><path d="M12 13.4 H15"/><path d="M6 13.4 L6.6 8.6 C6.8 7.2 9.2 7.2 9.4 8.6 L10 13.4 Z"/>',
+	# -- Religious / Cultural ------------------------------------------
+	"lm_shrine": '<path d="M1.4 13.8 H14.6"/><path d="M5.4 13.8 V9.8 L8 7.2 L10.6 9.8 V13.8"/>',
+	"lm_temple": '<path d="M1.2 13.8 H14.8"/><path d="M2.2 6.8 H13.8 L8 3.2 Z"/><path d="M4.2 6.8 V13.8 M8 6.8 V13.8 M11.8 6.8 V13.8"/>',
+	"lm_sacred_grove": '<path d="M1.6 14.2 H14.4"/><path d="M5.6 14.2 V9.8 M10.4 14.2 V9.8"/><path d="M3.4 9.8 C3.4 6.2 12.6 6.2 12.6 9.8"/><circle cx="8" cy="2.8" r="1.4"/>',
+	"lm_sacred_mountain": '<path d="M1.2 14.2 L4.6 11.4 L8 5.6 L11.4 11.4 L14.8 14.2"/><circle cx="8" cy="2.6" r="1.4"/>',
+	"lm_pilgrimage_site": '<path d="M1.2 14 H14.8"/><path d="M2.6 14 C5.6 12 4.6 9 8 7.4 C9.6 6.6 10.4 5.4 11 4"/><circle cx="12.4" cy="2.6" r="1.6"/>',
+	"lm_tomb": '<path d="M1.6 13.8 H14.4"/><path d="M2.8 13.8 C2.8 7.2 13.2 7.2 13.2 13.8"/><path d="M6.4 13.8 V10.4 H9.6 V13.8"/>',
+	"lm_monument": '<path d="M1.6 14.2 H14.4"/><path d="M4.6 14.2 V11.4 H11.4 V14.2"/><path d="M6.4 11.4 L7.2 3.2 H8.8 L9.6 11.4 Z"/>',
+	"lm_ceremonial_site": '<path d="M1.8 11.6 C1.8 8.8 14.2 8.8 14.2 11.6 C14.2 14.2 1.8 14.2 1.8 11.6 Z"/><path d="M4.2 9.8 V6.2 M8 9.2 V4.8 M11.8 9.8 V6.2"/>',
+	# -- Historical ----------------------------------------------------
+	"lm_ruin": '<path d="M1.6 14.2 H14.4"/><path d="M3.4 14.2 V6.2 L5.8 8.2 V14.2"/><path d="M8.8 14.2 V9.6 L10.8 7.2 V11 L12.6 9.2 V14.2"/>',
+	"lm_abandoned_settlement": '<path d="M1.4 14.2 H14.6"/><path d="M2.4 14.2 V9.6 L4.8 7.2 L7.2 9.6 V14.2"/><path d="M9 14.2 V10.4 L11.4 8.2 L13.6 10.8"/>',
+	"lm_ancient_road": '<path d="M2.6 14.4 L6.4 2"/><path d="M13.4 14.4 L9.6 2"/><path d="M8 12.6 V10.4 M8 8.2 V6 M8 4 V2.4"/>',
+	"lm_battlefield_historic": '<path d="M1.2 14 H14.8"/><path d="M2.6 14 C4.6 9.4 11.4 9.4 13.4 14"/><path d="M5.2 11.2 L8.4 5.2"/><path d="M10.6 11.4 L8.8 7.8"/>',
+	"lm_destroyed_fortress": '<path d="M1.6 14.2 H14.4"/><path d="M1.6 14.2 V6.2 H4 V8 H6.2 V10.4"/><path d="M9.6 10.6 V5.4 H12 V7.2 H14.4 V14.2"/>',
+	"lm_historic_crossing": '<path d="M5 1.8 C7.4 4 6.4 6.2 8.4 7.8 C10.4 9.4 10.2 11.2 11.4 13.6"/><path d="M2.4 12.2 L5.6 9.9 M7.4 8.6 L9.2 7.3 M11 6 L13.6 4.2"/>',
+
 }
 
 static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture
@@ -252,6 +328,26 @@ static func _refit_glyph(t: TextureRect, name: String, px: int) -> void:
 	var tex := get_icon(name, px, mag)
 	if tex != null:
 		t.texture = tex
+
+## The glyph name for a landmark type key, resolving the three that reuse a
+## shipped sculpt-feature glyph rather than carrying a near-duplicate.
+##
+## Callers pass the ENGINE's key (`cartalith_civ::landmark::kinds()`'s `key`,
+## e.g. `"volcanic_feature"`) and get back a name `get_icon()` accepts. A key
+## this build has no glyph for returns `""` -- the caller draws no icon rather
+## than a wrong one, which matters because the engine's type list is data and
+## can grow ahead of this table.
+const LANDMARK_REUSE := {
+	"cliff": "cliff",
+	"lake": "lake",
+	"volcanic_feature": "volcano",
+}
+
+static func landmark_glyph(kind_key: String) -> String:
+	if LANDMARK_REUSE.has(kind_key):
+		return String(LANDMARK_REUSE[kind_key])
+	var name := "lm_" + kind_key
+	return name if PATHS.has(name) else ""
 
 ## Text symbols stay text (§12): they are typographic, inherit type metrics and
 ## need no drawing. Listed here so nobody is tempted to draw them.

@@ -2123,11 +2123,36 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 	## inserted ahead of it and the name label gives up its fixed width to take
 	## the slack instead -- 49 names of very different lengths through one
 	## `clip_text` column would clip the long ones on every row that has a tag.
+	## §12's drawn glyph for this type, ahead of the class badge.
+	##
+	## `DccIcons.landmark_glyph()` resolves the engine's own key, including the
+	## three that reuse a shipped sculpt-feature glyph rather than carrying a
+	## near-duplicate (`cliff`, `lake`, `volcanic_feature`). It returns `""` for
+	## a key this build has no glyph for, and then **no icon is drawn at all** --
+	## the engine's type list is data and can grow ahead of the glyph table, and
+	## a wrong icon is worse than none.
+	##
+	## `modulate` rather than a second asset: the glyph is drawn in white and
+	## takes its colour from the row, so it dims with a `not buildable` row and
+	## inverts with the light theme without a light-mode copy existing. That is
+	## `currentColor` by the route `dcc_icons.gd`'s own header describes.
+	var glyph := DccIcons.landmark_glyph(key)
+	if glyph != "":
+		var ic := TextureRect.new()
+		ic.texture = DccIcons.get_icon(glyph, 13)
+		ic.custom_minimum_size = Vector2(13, 13)
+		ic.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		ic.modulate = DccTheme.c("text_dim" if buildable else "text_ghost")
+		ic.tooltip_text = label
+		row.add_child(ic)
+		row.move_child(ic, 0)
+
 	var badge := DccTheme.mono_label(_lm_badge(cls), "text_ghost", DccTheme.FS_MICRO, 0)
 	badge.custom_minimum_size.x = 22
 	badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(badge)
-	row.move_child(badge, 0)
+	row.move_child(badge, 1 if glyph != "" else 0)
 	## The canvas gives the *name* the slack (`flex:1` on the row's name span),
 	## so the expansion moves off `_row()`'s spacer and onto the label, and the
 	## label's fixed `ROW_LABEL_W` goes to zero. Both halves matter: with the
