@@ -3353,8 +3353,12 @@ func _tl_year_pill(year: int, active: bool) -> Control:
 	go.custom_minimum_size.y = 22
 	go.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 	go.add_theme_font_override("font", DccTheme.mono(1))
-	go.add_theme_color_override("font_color", DccTheme.c("bg") if active else DccTheme.c("text"))
-	go.add_theme_color_override("font_hover_color", DccTheme.c("bg") if active else DccTheme.c("text_bright"))
+	## `accent_ink` on the filled half since the 2026-08-31 re-base -- see the
+	## token's own comment in `dcc_theme.gd`; `c("bg")` was near-black on amber.
+	go.add_theme_color_override("font_color",
+		DccTheme.c("accent_ink") if active else DccTheme.c("text"))
+	go.add_theme_color_override("font_hover_color",
+		DccTheme.c("accent_ink") if active else DccTheme.c("text_bright"))
 	go.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("accent") if active else DccTheme.c("sunken")))
 	go.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent").lightened(0.1) if active else DccTheme.c("raised")))
 	go.tooltip_text = "Jump to %s (civ_goto_year)." % _tl_format_year(year)

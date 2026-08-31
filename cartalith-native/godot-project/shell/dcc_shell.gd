@@ -52,6 +52,100 @@ const DOMAINS: Array = [
 		"subtitle": "Layers, styles, labels, annotation and terrain appearance"},
 ]
 
+# -- The node tree behind the rail (stage 2, 2026-08-31) ----------------------
+#
+# `design/dcc-environment-2026-08-31/Cartalith DCC Environment.dc.html:1823-1824`
+# builds this list literally; the labels, their order and their `mode` strings
+# below are that array transcribed, ampersands and sentence case included. The
+# prototype renders it flat -- three `{t:'h'}` headers interleaved with ten
+# `{t:'n'}` nodes -- and so does `_build_rail_expansion()`, which is why this is
+# one flat array and not a nested one.
+#
+# **`mode` is a rail-and-dock *selector* here, not a dock gate.** The prototype
+# hides dock content by mode (`ldPipe`/`ldSculpt`/`ldCarto`/`ldLabels`/... at
+# `parts.js:374` and `ENV:1945`): when `cartoCat` is `labels`, the layer tree is
+# not in the DOM at all. This shell cannot do that, and must not: each domain's
+# dock is ONE accordion of every category that domain owns, reached only from
+# that accordion, so gating it by mode would make the eight CIVIL categories the
+# prototype has no node for -- Civilizations, Territories, Economy, Culture,
+# Politics, Military, Relationships, Simulation -- unreachable. That is exactly
+# the failure this stage's own rule forbids ("every category reachable before
+# must be reachable after"). So a node click *opens* its category and lights the
+# rail; it never hides a sibling.
+#
+# `category` is the accordion header the node opens -- `Workspace.open_category()`
+# matches these strings verbatim against the titles the workspaces pass to
+# `DccWidgets.category()`, so a typo here is a silent no-op and is what
+# `_railfold_probe.gd` §2 exists to catch.
+#
+# `owns` is the reverse map: which categories make this node read as the active
+# one. Every category of every domain appears in exactly one node's `owns`,
+# which is asserted rather than assumed (`_railfold_probe.gd` §3). Where the
+# design gives no node for a category, the assignment is this port's judgement
+# and is called out in `_MODE_ASSIGNMENT_NOTES` below rather than passed off as
+# the design's.
+const RAIL_NODES: Array = [
+	{"kind": "head", "domain": "world", "label": "WORLD"},
+	{"kind": "node", "domain": "world", "mode": "a", "label": "Generation pipeline",
+		"category": "Generate",
+		"owns": ["Generate", "Geology", "Hydrology", "Climate", "Biomes",
+			"Ecology", "Resources", "World data"]},
+	{"kind": "node", "domain": "world", "mode": "b", "label": "Sculpt",
+		"category": "Terrain", "owns": ["Terrain"]},
+
+	{"kind": "head", "domain": "civilization", "label": "CIVIL"},
+	{"kind": "node", "domain": "civilization", "mode": "landmarks", "label": "Landmarks",
+		"category": "Landmarks", "owns": ["Landmarks"]},
+	{"kind": "node", "domain": "civilization", "mode": "factions",
+		"label": "Factions & settlements", "category": "Factions",
+		"owns": ["Civilizations", "Factions", "Territories", "Settlements",
+			"Economy", "Culture", "Politics", "Military", "Relationships",
+			"Simulation"]},
+	{"kind": "node", "domain": "civilization", "mode": "infra", "label": "Ways & routes",
+		"category": "Routes & ways", "owns": ["Routes & ways", "Trade"]},
+	{"kind": "node", "domain": "civilization", "mode": "planner", "label": "Journey planner",
+		"category": "Travel", "owns": ["Travel"]},
+
+	{"kind": "head", "domain": "cartography", "label": "CARTO"},
+	{"kind": "node", "domain": "cartography", "mode": "style", "label": "Layers & style",
+		"category": "Layers",
+		"owns": ["Layers", "Map style", "Colours", "Roads & routes",
+			"Political display", "Visibility / zoom", "Map presets"]},
+	{"kind": "node", "domain": "cartography", "mode": "labels", "label": "Labels",
+		"category": "Labels", "owns": ["Labels"]},
+	{"kind": "node", "domain": "cartography", "mode": "icons", "label": "Icons",
+		"category": "Assets & landmarks", "owns": ["Assets & landmarks"]},
+	{"kind": "node", "domain": "cartography", "mode": "terrain", "label": "Terrain appearance",
+		"category": "Terrain appearance", "owns": ["Terrain appearance"]},
+]
+
+# `RAIL_NODES` -- where this port had to decide, because the prototype's ten
+# nodes do not cover this shell's thirty-three categories. Written down rather than invented in
+# silence, per the house rule; each line is a claim a reader can disagree with.
+#
+# - **WORLD `b` owns `Terrain` and nothing else.** `Terrain` is where
+#   `world_workspace.gd:_build_categories()` parents `_sculpt_body`, so it is
+#   the only category that contains the sculpt UI the prototype's `ldSculpt`
+#   block draws. The eight remaining WORLD categories are pipeline stages and
+#   go to `a`, which is what `ldPipe:s.domain==='WORLD'&&wm==='a'` (`ENV:1945`)
+#   means. `Terrain` therefore does NOT appear under `a` even though it carries
+#   stage 5's parameters -- a node owns a category exactly once, and the
+#   accordion shows all nine regardless, so nothing is lost.
+# - **CIVIL `factions` is the catch-all.** The prototype's four CIVIL nodes map
+#   cleanly onto four of this shell's fourteen categories. The other ten have no
+#   node. Eight of them (Civilizations, Territories, Settlements, Economy,
+#   Culture, Politics, Military, Relationships, Simulation) are the roster and
+#   its consequences, which is what the `factions` node's own dock block draws
+#   (`FACTIONS` list + `civPlaces`, `04-left-dock.md` §4 row 7), so they go
+#   there. `Trade` goes to `infra` because `civilization_workspace.gd:238`
+#   builds it from `_infra.build_trade_into()` -- INFRA's own subject, and the
+#   `infra` node is INFRA's surviving name.
+# - **CARTO `style` is the catch-all**, for the same reason: `Layers & style` is
+#   the node the prototype gives the layer tree, the ramp editor and
+#   `caDomains`/`caLight` (`ENV:496`), and this shell's Map style, Colours,
+#   Political display, Visibility / zoom, Map presets and Roads & routes are all
+#   layer-and-style subjects with no node of their own.
+
 # -- Region handles -----------------------------------------------------------
 #
 # Everything a workspace module needs is reachable from here. Workspaces never
@@ -77,6 +171,27 @@ var rail_foot: Label
 var _domain_buttons: Dictionary = {}   ## id -> Button
 var _domain_marks: Dictionary = {}     ## id -> {icon, label}
 var _active_domain := "world"
+
+## The per-domain mode, one live selection each, exactly as the prototype keeps
+## three independent fields rather than one: `worldMode` (`ENV:1199`, initial
+## `'a'`), `civCat` (`cc()`, `ENV:1211`, absent from the initial state and so
+## defaulting to `landmarks`) and `cartoCat` (`ct()`, `ENV:1289`, defaulting to
+## `style`). Three fields and not one is what lets a user leave CIVIL on
+## `planner`, visit CARTO, and come back to `planner` -- the same persistence
+## rule `register_workspace()`'s comment states for L2 accordion state.
+##
+## Seeded from `RAIL_NODES` rather than written out, so the defaults cannot
+## drift from the tree: the first node of each domain is that domain's default,
+## which matches all three of the prototype's own defaults (`a`, `landmarks`,
+## `style` are each their domain's first node).
+var _domain_mode: Dictionary = _default_modes()
+
+static func _default_modes() -> Dictionary:
+	var out := {}
+	for n in RAIL_NODES:
+		if String(n.get("kind", "")) == "node" and not out.has(String(n["domain"])):
+			out[String(n["domain"])] = String(n["mode"])
+	return out
 var _left_collapsed := false
 var _right_collapsed := false
 var _left_width := float(DccTheme.W_LEFT_DOCK)
@@ -95,7 +210,22 @@ var _touch := false
 ## domains are three cells of the L1 bottom bar, and hiding the bar would take
 ## the MENU cell with it -- the only route back to the row that un-hides it.
 ## See `_build_phone_menu_bar()`.
+##
+## **Desktop: this is now the rail *pair*, not the 40 px strip.** `ENV:282`
+## wraps both the strip and the expansion column in the one
+## `<sc-if value="{{ showRail }}">`, so hiding the rail hides the expansion with
+## it -- which is also the only correct behaviour, since the expansion has no
+## affordance of its own to reopen from once its chevron is gone.
 var _rail_region: Control
+
+# -- The expansion column (`railExp`, `ENV:293`-`303`) -------------------------
+## Collapsed at rest, matching `railExp:false` (`ENV:1199`). The prototype makes
+## it a genuine `<sc-if>` -- the column is absent from the DOM, not a width
+## transition -- so this is `visible`, not an animated width.
+var _rail_expanded := false
+var _rail_exp_column: Control          ## The 200/264 px column itself.
+var _rail_chevron: Control             ## The one `▸` that rotates 0°/180°.
+var _rail_node_rows: Dictionary = {}   ## "domain/mode" -> the row's Label.
 
 # -- WI-04 dock width dragging --------------------------------------------------
 var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns the current drag.
@@ -510,12 +640,42 @@ func _compute_layout_mode() -> void:
 		and not _is_tablet_sized(short_side)
 	_landscape = size.x > size.y
 	_phone_scale = maxf(1.0, short_side / DccTheme.PHONE_REF_SHORT)
+	## The **fourth density set**, new with the 2026-08-31 token re-base.
+	## `DccTheme.LAPTOP`'s header carries the whole argument; what belongs here
+	## is why the test is on `size.x` and not on `short_side`. The prototype's
+	## own gate is `frame === 'w1366'` against a 1366 x 768 artboard (`ENV:1675`)
+	## and what the narrow set gives back is horizontal: two dock widths and a
+	## menu popup. A tall pointer window -- a 1200 x 1600 portrait monitor -- has
+	## a short side of 1200 and a width of 1200, so both readings agree there;
+	## they part on a 2560 x 1080 ultrawide, where `short_side` would call it
+	## narrow and the width correctly does not. Width is the question the
+	## override answers.
+	DccTheme.set_narrow(size.x < float(DccTheme.W_LAPTOP_MAX))
 	## §1's tablet column widens BOTH docks to 400 px, "so two-column readouts
 	## survive the larger type" (`UI_SHELL_DESIGN.md`). Neither dock had ever
-	## been told that: tablet ran the desktop 372/300 pair.
+	## been told that: tablet ran the desktop pair, which was 372/300 when this
+	## was written and is 372/304 after the 2026-08-31 token re-base -- the
+	## point is unaffected, since what tablet needed was 400/400 either way.
 	if _touch and not _phone:
 		_left_width = float(DccTheme.W_DOCK_TABLET)
 		_right_width = float(DccTheme.W_DOCK_TABLET)
+	## The LAPTOP band's half of the same assignment, and the reason it is an
+	## `elif` in spirit even though `is_laptop()` already excludes touch: both
+	## branches write the same two fields, and reading them as one either/or is
+	## how the next person will expect it. `role_px()` resolves the override, so
+	## the widths are stated once, in `DccTheme.LAPTOP`, and not duplicated here.
+	##
+	## Runs once, from `_ready()`, exactly like the tablet branch above and for
+	## the same recorded reason: `_on_window_resized()` early-returns for
+	## anything that is not the phone, so that a tablet user's dragged dock
+	## widths (WI-04) are not reset on rotation. The cost is that dragging a
+	## desktop window across 1920 px does not re-band it until the next launch.
+	## That is a real limit and it is the existing one, not a new one -- making
+	## the band live would first require the drag-width preservation this early
+	## return protects.
+	elif DccTheme.is_laptop():
+		_left_width = float(DccTheme.role_px("w_left_dock"))
+		_right_width = float(DccTheme.role_px("w_right_dock"))
 
 ## **The early return is deliberate, and it was audited rather than assumed**
 ## (`GUI_GAP_REGISTER.md` §56). It reads as an asymmetry -- a shell that latched
@@ -1001,7 +1161,15 @@ func _recolor_stylebox(sb: StyleBoxFlat, old_pal: Dictionary) -> void:
 
 func _build_tool_options_bar() -> Control:
 	var bar := PanelContainer.new()
-	bar.custom_minimum_size.y = _scaled(DccTheme.H_TOOL_OPTIONS)
+	## `role_px()`, **not** `_scaled()`, and this is the one region in the shell
+	## that cannot use `_scaled()`. The 2026-08-31 token re-base put `--tbH` at
+	## 40 px, which is also `--railW`, and `DccTheme.TABLET` is keyed by the
+	## bare desktop integer -- so `_scaled(40)` has to mean one thing and the
+	## rail already owns it (40 -> 48; this bar needs 40 -> 56). `ROLE` exists
+	## for exactly this collision; see `DccTheme.TABLET`'s header for the full
+	## account, and note that `_scaled()` is still correct for the other three
+	## bands, whose keys stayed unique.
+	bar.custom_minimum_size.y = DccTheme.role_px("h_tool_options")
 	bar.add_theme_stylebox_override("panel",
 		DccTheme.panel("panel_alt", {"bottom": 1}))
 	tool_options_row = HBoxContainer.new()
@@ -1520,34 +1688,51 @@ func rail_region() -> Control:
 
 # -- §3 Domain rail -----------------------------------------------------------
 
-## **The rail has exactly one width, and no collapsed/expanded pair.**
+## **The rail has two states again, and this time the canvas draws both.**
 ##
-## Between 2026-08-19 and 2026-08-24 it had both: SH-01 turned the mockup's head
-## chevron into a `Button` that grew the rail to `W_RAIL_EXPANDED` (200 px) and
-## swapped the domain column for a `_phone_list_row()` list of each domain's
-## sub-structure. `DCC_SHELL_SPEC.md` §3 does ask for that ("the domain's
-## sub-nodes as a 200 px list"), which is why it was built.
-##
-## It is gone because the canvas -- the ground truth the shell is measured
-## against -- **never draws it**. Every one of the eight desktop artboards
-## across `design/Cartalith DCC Shell.dc.html` and
-## `design/Cartalith Measurement Toolbar.dc.html` opens the rail with the same
-## literal `width:40px;flex:none`, in the dark theme, the light theme, the
-## tablet composition and all three measurement states. There is no artboard of
-## an expanded rail to build against, and the state that got built instead
+## Between 2026-08-19 and 2026-08-24 it had a collapsed/expanded pair: SH-01
+## turned the mockup's head chevron into a `Button` that grew the rail to
+## `W_RAIL_EXPANDED` (200 px) and swapped the domain column for a
+## `_phone_list_row()` list of each domain's sub-structure. That was deleted on
+## 2026-08-24 with the reasoning "the canvas never draws it" -- every one of the
+## eight desktop artboards across `design/Cartalith DCC Shell.dc.html` and
+## `design/Cartalith Measurement Toolbar.dc.html` opened the rail at the same
+## literal `width:40px;flex:none`, and the state that had been built instead
 ## borrowed the *phone* drawer's type scale into a 200 px column: screenshotted
 ## live, "CARTOGRAPHY" ran straight under the left dock. The owner reported it
 ## as "the left rail is collapsible and shouldn't be".
 ##
-## What the canvas *does* draw is kept: a 29 px head cell carrying a dim `›`,
-## ruled off from the domains below. It is a `Label` now rather than a `Button`
-## -- chrome the mockup specifies, not an affordance nothing behind it can
-## honour. `Window ▸ Domain rail` still hides the whole region, unchanged: that
-## is the same region toggle the other four layout regions have, reversible from
-## the same menu, and not what "collapsible" meant here.
+## **That reasoning was true of the old canvas and is false of this one.** The
+## 2026-08-31 ENV prototype draws the expansion as a *separate sibling column*
+## (`ENV:293`-`303`), not as the strip growing: the 40 px strip keeps its width
+## in both states and a `var(--railExpW)` column appears to its right, pushing
+## the left dock over. That is a different composition from the one the owner
+## rejected, and `CLAUDE.md`'s "when two design canvases disagree, the newer one
+## wins" settles which applies. The type scale that broke last time cannot break
+## this time either: node rows are sans at `--fs` (11.5 px) and headers mono at
+## `--m2` (9 px) -- `02-rail-and-domains.md` §5d -- neither of which is the
+## phone drawer's scale.
+##
+## Composition, top to bottom (`02-rail-and-domains.md` §5b):
+##
+##   chevron cell   `height:var(--tool)`, `--faint`, one `▸` rotated 0°/180°
+##   domain ×3      `flex:1; max-height:112px`, vertical mono label
+##   spacer         `flex:1`
+##   footer         vertical mono `--m2`, `--faint`
+##
+## What this function returns is therefore the **pair**, not the strip:
+## `ENV:282` wraps both in one `<sc-if value="{{ showRail }}">`, so
+## `Window ▸ Domain rail` must take both or leave the expansion column stranded
+## with no chevron to close it. `_rail_region` is the pair for the same reason.
 func _build_rail() -> Control:
+	## The pair. An `HBoxContainer` rather than the rail panel itself, so the
+	## expansion column is a sibling at the same depth the prototype puts it --
+	## see this function's header for why it is not the strip widening.
+	var pair := HBoxContainer.new()
+	pair.add_theme_constant_override("separation", 0)
+	_rail_region = pair
+
 	var rail := PanelContainer.new()
-	_rail_region = rail
 	rail.custom_minimum_size.x = _scaled(DccTheme.W_RAIL_COLLAPSED)
 	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
 	rail_column = VBoxContainer.new()
@@ -1556,17 +1741,51 @@ func _build_rail() -> Control:
 	pad.add_theme_constant_override("margin_top", 12)
 	pad.add_child(rail_column)
 
-	## The mockup opens the rail with a 29 px cell carrying a dim `›`, ruled off
-	## from the domains below it -- `MOUSE_FILTER_IGNORE` so it is unmistakably
-	## chrome and never eats a hover.
+	## The head cell. **A `Button` again, and this is a reversal that has to be
+	## argued rather than just done.** It was demoted to a `Label` on 2026-08-24
+	## under the rule "chrome the mockup specifies, not an affordance nothing
+	## behind it can honour" -- correct at the time, because the expansion it
+	## toggled had just been deleted. There is something behind it now:
+	## `ENV:1929` binds `hRailExp:()=>this.setState(x=>({railExp:!x.railExp}))`
+	## to exactly this cell, and BUILD_ANSWERS §2.5 rules on what it opens. The
+	## rule did not change; the fact it was applied to did.
+	##
+	## `_scaled(30)`, not the old `_scaled(29)`: `ENV:284` draws the cell at
+	## `height:var(--tool)`, which is 30 px pointer and 44 px touch.
+	## `DccTheme.TABLET`'s stale `29: 34` row was flagged by stage 1 as
+	## "left alone because changing it moves the rail head's box, and the rail
+	## is stage 2's rebuild" -- this is that rebuild, so the row moved to
+	## `30: 44` in the same pass.
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	var head := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_dim", DccTheme.FS_SMALL)
-	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	head.custom_minimum_size.y = _scaled(29)
-	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	col.add_child(head)
+	var chev_btn := Button.new()
+	chev_btn.flat = false
+	chev_btn.focus_mode = Control.FOCUS_NONE
+	chev_btn.custom_minimum_size.y = _scaled(30)
+	chev_btn.tooltip_text = "Show or hide the node list"
+	chev_btn.add_theme_stylebox_override("normal", DccTheme.empty())
+	chev_btn.add_theme_stylebox_override("focus", DccTheme.empty())
+	chev_btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
+	chev_btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	chev_btn.pressed.connect(_toggle_rail_expansion)
+	## **One glyph rotated, not two glyphs swapped** -- BUILD_ANSWERS §2.5
+	## retires the `›`/`‹` pair the old head cell used. So this is
+	## `SYMBOLS["submenu"]` (`▸`, the same U+25B8 the dock accordions draw) with
+	## `rotation` flipped between `0` and `PI`, and `_paint_rail_chevron()` owns
+	## the flip. A `Control` rotates about `pivot_offset`, which defaults to the
+	## top-left, so a 180° turn about it would throw the glyph clean out of its
+	## own cell -- the pivot is therefore re-centred on every `resized`, which is
+	## the only moment the label's size is known (the same in-tree measurement
+	## problem `_layout_rail_label()`'s header documents, in its smaller form).
+	var chev := DccTheme.mono_label(DccIcons.SYMBOLS["submenu"], "text_dim", DccTheme.FS_SMALL)
+	chev.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	chev.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	chev.set_anchors_preset(Control.PRESET_FULL_RECT)
+	chev.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chev.resized.connect(_paint_rail_chevron)
+	chev_btn.add_child(chev)
+	_rail_chevron = chev
+	col.add_child(chev_btn)
 	col.add_child(DccTheme.rule())
 
 	var body := VBoxContainer.new()
@@ -1601,14 +1820,21 @@ func _build_rail() -> Control:
 		b.add_theme_stylebox_override("disabled", DccTheme.empty())
 		b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
 		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
-		b.pressed.connect(_select_domain.bind(d.id))
+		## **Not `_select_domain` any more.** BUILD_ANSWERS §2.5: clicking the
+		## already-active domain toggles the expansion column, because with the
+		## dock closed it is the only affordance in reach. `_on_domain_pressed()`
+		## is that branch; a click on an inactive domain still lands on
+		## `_select_domain()` unchanged.
+		b.pressed.connect(_on_domain_pressed.bind(d.id))
 
 		## The reference rail is text only -- verified twice: once by reading
 		## `design/Cartalith DCC Shell.dc.html`'s own markup (`writing-mode:
 		## vertical-rl` labels, no icon element anywhere in the rail), and once
 		## by the owner directly, after an earlier revision added icons anyway:
 		## "those icons don't exist." Removed rather than hidden behind a flag --
-		## an addition the design does not specify does not get to linger.
+		## an addition the design does not specify does not get to linger. The
+		## 2026-08-31 prototype agrees: `ENV:287`'s cell holds one
+		## `writing-mode:vertical-rl` span and nothing else.
 		## `font:10px 'IBM Plex Mono'; letter-spacing:.12em; color:#5f6468`,
 		## regular weight -- the rail block's own inline style, verbatim. This
 		## was 9 px at `spacing 2` (≈.22em) in Medium, which is a size down, a
@@ -1646,7 +1872,155 @@ func _build_rail() -> Control:
 	foot_holder.custom_minimum_size.y = 84
 	foot_holder.add_child(rail_foot)
 	body.add_child(foot_holder)
-	return rail
+
+	pair.add_child(rail)
+	pair.add_child(_build_rail_expansion())
+	return pair
+
+## The `--railExpW` node column (`ENV:293`-`303`), collapsed at rest.
+##
+## Thirteen rows in one flat list -- three headers interleaved with ten nodes --
+## because that is literally what `ENV:1824` builds and `ENV:295` iterates. The
+## header/node distinction is drawn, not structural: a header is mono `--m2` at
+## `.2em` in `--faint` and is inert; a node is sans `--fs`, clickable, hovers to
+## `--wash`, and states its selection **in ink alone** (`ENV:1826`'s `bg` is the
+## literal string `'transparent'` for every node, always). There is no selected
+## row fill, no indicator bar and no bold weight, which is why the only thing
+## `_paint_rail_nodes()` writes is `font_color`.
+##
+## The column is `visible = false` at rest rather than absent, where the
+## prototype uses a real `<sc-if>` that keeps it out of the DOM. A hidden
+## `Control` in Godot contributes no minimum size to its `HBoxContainer` parent,
+## so the laid-out result is identical -- and building it once means the node
+## rows exist for `_paint_rail_nodes()` and for `_railfold_probe.gd` to assert
+## on before the user has ever opened it.
+func _build_rail_expansion() -> Control:
+	var panel := PanelContainer.new()
+	panel.visible = false
+	panel.custom_minimum_size.x = DccTheme.role_px("w_rail_expanded")
+	panel.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
+	_rail_exp_column = panel
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	panel.add_child(scroll)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(col)
+
+	for entry in RAIL_NODES:
+		var n: Dictionary = entry
+		if String(n["kind"]) == "head":
+			## `padding:10px 14px 3px`, mono `--m2`, `.2em`, `--faint`, and
+			## **`--faint` unconditionally**: `ENV:1826` computes a `col` for
+			## header rows too and `ENV:296` then hard-codes the colour and
+			## throws it away, so a header never changes with selection. Copied
+			## rather than corrected -- `02-rail-and-domains.md` §8 item 10 flags
+			## the discard as unresolvable from the file, and inventing the
+			## other reading would be inventing a design value.
+			var h := DccTheme.mono_label(String(n["label"]), "text_faint",
+				DccTheme.FS_MICRO, 2)
+			var hp := MarginContainer.new()
+			hp.add_theme_constant_override("margin_left", 14)
+			hp.add_theme_constant_override("margin_right", 14)
+			hp.add_theme_constant_override("margin_top", 10)
+			hp.add_theme_constant_override("margin_bottom", 3)
+			hp.add_child(h)
+			col.add_child(hp)
+			continue
+
+		var b := Button.new()
+		b.text = String(n["label"])
+		b.flat = false
+		b.focus_mode = Control.FOCUS_NONE
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.clip_text = true
+		b.custom_minimum_size.y = _scaled(28)
+		b.tooltip_text = "%s -- %s" % [String(n["domain"]).capitalize(), String(n["label"])]
+		## Sans, not mono: `ENV:297` declares no `font` on the node row, so it
+		## inherits the shell body face -- the one element in the whole rail that
+		## is NOT IBM Plex (`02-rail-and-domains.md` §5d). Left at the theme's
+		## default font for exactly that reason: no `DccTheme.mono()` here.
+		b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+		b.add_theme_stylebox_override("normal", DccTheme.inset(14, 2, 14, 2))
+		b.add_theme_stylebox_override("focus", DccTheme.empty())
+		b.add_theme_stylebox_override("pressed", DccTheme.inset(14, 2, 14, 2))
+		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent_wash")))
+		b.pressed.connect(_on_rail_node_pressed.bind(String(n["domain"]), String(n["mode"])))
+		col.add_child(b)
+		_rail_node_rows["%s/%s" % [String(n["domain"]), String(n["mode"])]] = b
+
+	_paint_rail_nodes()
+	return panel
+
+## `hRailExp` (`ENV:1929`). Nothing but the flag and the two things that read it.
+func _toggle_rail_expansion() -> void:
+	set_rail_expanded(not _rail_expanded)
+
+## Public because `Window ▸ Reset layout` writes `railExp:false` (`ENV:2052`)
+## and because `_railfold_probe.gd` drives the toggle without a synthetic click.
+func set_rail_expanded(on: bool) -> void:
+	_rail_expanded = on
+	if _rail_exp_column != null and is_instance_valid(_rail_exp_column):
+		_rail_exp_column.visible = on
+	_paint_rail_chevron()
+
+func is_rail_expanded() -> bool:
+	return _rail_expanded
+
+func _paint_rail_chevron() -> void:
+	if _rail_chevron == null or not is_instance_valid(_rail_chevron):
+		return
+	_rail_chevron.pivot_offset = _rail_chevron.size * 0.5
+	_rail_chevron.rotation = PI if _rail_expanded else 0.0
+
+## `hDomain` (`ENV:1930`-`1931`), verbatim in behaviour:
+##
+##     if(id===s.domain) this.setState(x=>({railExp:!x.railExp}));
+##     else this.setDomain(id)
+##
+## BUILD_ANSWERS §2.5 gives the reason the two branches differ -- the expansion
+## toggle "is the only affordance in reach when the panel is closed" -- and that
+## is also why re-clicking the active domain must not be the no-op it was before
+## this stage.
+func _on_domain_pressed(id: String) -> void:
+	if id == _active_domain:
+		_toggle_rail_expansion()
+		return
+	_select_domain(id)
+
+## `hRailNode` (`ENV:1934`): sets the domain, sets *that domain's* mode from the
+## row's own `data-mode`, and closes the expansion -- all three, in that order.
+## The close is what makes the column a transient drill-down rather than a second
+## permanent navigation surface, and it matches `setDomain`'s own
+## `railExp:false` (`ENV:2054`).
+func _on_rail_node_pressed(domain: String, mode: String) -> void:
+	select_domain_mode(domain, mode)
+	set_rail_expanded(false)
+
+## Node ink (`ENV:1826`). Accent when the node's domain is the active one **and**
+## its mode is that domain's current mode; `text` otherwise.
+##
+## The prototype's predicate is
+## `n.dom===s.domain && (!n.mode || n.mode===modeOf(n.dom))`, whose `!n.mode`
+## half existed only because the four CARTO nodes carried an empty mode in the
+## truncated build and therefore all lit at once (`02-rail-and-domains.md` §3a).
+## BUILD_ANSWERS §2.1 gave them real modes -- `ENV:1824` now reads
+## `nd('Layers & style','CARTO','style')` and so on -- so the `!n.mode` branch is
+## dead in the complete file and is not reproduced here: every node in
+## `RAIL_NODES` has a mode, and exactly one node per domain is accent.
+## `_railfold_probe.gd` §5 asserts that for CARTO specifically, since CARTO is
+## where the defect was.
+func _paint_rail_nodes() -> void:
+	for key in _rail_node_rows:
+		var parts := String(key).split("/")
+		var on: bool = parts[0] == _active_domain \
+			and String(_domain_mode.get(parts[0], "")) == parts[1]
+		var b: Button = _rail_node_rows[key]
+		if is_instance_valid(b):
+			b.add_theme_color_override("font_color",
+				DccTheme.c("accent") if on else DccTheme.c("text"))
 
 ## Centre one rotated rail label inside its own button, and size the button to
 ## it.
@@ -1735,7 +2109,78 @@ func _select_domain(id: String) -> void:
 		if d.id == id:
 			left_dock_title.text = String(d.label).to_upper()
 			break
+	## The expansion column's ink follows the domain, and `setDomain` closes the
+	## column (`ENV:2054`: `{domain:d, railExp:false}`) -- both are part of the
+	## same state write in the prototype, so both happen here rather than at the
+	## two call sites that reach `_select_domain()`.
+	_paint_rail_nodes()
+	set_rail_expanded(false)
 	workspace_changed.emit(id)
+
+## The active mode of one domain -- `worldMode` / `cc()` / `ct()` behind one
+## accessor, since this shell has no reason to keep three names for one question.
+## Falls back to that domain's first node, which is what `cc()`'s and `ct()`'s
+## own `|| 'landmarks'` / `|| 'style'` defaults do.
+func active_mode(id: String = "") -> String:
+	var d := id if not id.is_empty() else _active_domain
+	return String(_domain_mode.get(d, ""))
+
+## Switch domain **and** mode, then open whichever category that mode's node
+## names. The rail's own node click (`_on_rail_node_pressed`) is one caller;
+## `select_domain_category()` below is the other.
+##
+## The category open is not optional garnish: this shell's left dock is a single
+## accordion per domain (see `RAIL_NODES`' header for why it cannot be
+## mode-gated the way the prototype's is), so without it a node click would
+## light the rail and change nothing the user can see.
+func select_domain_mode(id: String, mode: String) -> void:
+	var node := rail_node(id, mode)
+	if node.is_empty():
+		push_warning("Cartalith: no rail node '%s/%s'." % [id, mode])
+		_select_domain(id)
+		return
+	_domain_mode[id] = mode
+	## Order matters. `_select_domain()` repaints the rail from `_domain_mode`,
+	## so the mode has to be written first or the click would light the previous
+	## node; and it emits `workspace_changed`, which `app.gd::_refresh_rail_foot()`
+	## answers by reading `active_mode()` -- also written above.
+	_select_domain(id)
+	var panel: Control = _workspace_panels.get(id)
+	if panel != null and panel.has_method("open_category"):
+		if not panel.call("open_category", String(node["category"])):
+			push_warning("Cartalith: rail node '%s/%s' names category '%s', which the %s dock does not have."
+				% [id, mode, String(node["category"]), id])
+
+## The `RAIL_NODES` row for one (domain, mode) pair, or `{}`.
+static func rail_node(id: String, mode: String) -> Dictionary:
+	for n in RAIL_NODES:
+		if String(n.get("kind", "")) == "node" \
+				and String(n["domain"]) == id and String(n["mode"]) == mode:
+			return n
+	return {}
+
+## Which mode owns an accordion category -- the reverse of `RAIL_NODES`' `owns`
+## lists, and the reason `select_domain_category()` does not need every caller to
+## learn a third argument.
+##
+## **This derivation is the single source of truth, and that is deliberate.**
+## The obvious alternative was to make the mode a required parameter and update
+## the eight existing `select_domain_category()` call sites to pass one. Every
+## such call would then either agree with this table (and be redundant) or
+## disagree with it (and be a bug that lights the wrong rail node while opening
+## the right category). A caller knows which category it wants; only
+## `RAIL_NODES` knows which node owns it. Returning `""` for an unowned category
+## is the honest answer -- `select_domain_category()` treats it as "leave the
+## mode alone" rather than guessing, and `_railfold_probe.gd` §3 asserts that no
+## category in any of the three docks is unowned, so the `""` branch is
+## unreachable in a correct build and is there to make an incorrect one visible.
+static func mode_for_category(id: String, category: String) -> String:
+	for n in RAIL_NODES:
+		if String(n.get("kind", "")) != "node" or String(n["domain"]) != id:
+			continue
+		if (n.get("owns", []) as Array).has(category):
+			return String(n["mode"])
+	return ""
 
 ## A workspace module calls this once, from `_ready`, with the panel it wants in
 ## the left dock. Panels are built up front and hidden, not rebuilt on every
@@ -1765,6 +2210,14 @@ func register_workspace(id: String, panel: Control) -> void:
 func active_domain() -> String:
 	return _active_domain
 
+## One domain's left-dock panel. Public for `_railfold_probe.gd`, which has to
+## read each workspace's own `categories` array to prove the fold stranded
+## nothing -- and which must not do that by reaching into `_workspace_panels`,
+## since a probe that knows a private field is a probe that breaks on a rename
+## instead of on a regression.
+func workspace_panel(id: String) -> Control:
+	return _workspace_panels.get(id)
+
 ## WI-02's public entry point: `menus.gd`'s Window ▸ Workspace submenu jumps
 ## here rather than calling the underscore-prefixed `_select_domain()`
 ## directly across a file boundary.
@@ -1776,10 +2229,33 @@ func select_domain(id: String) -> void:
 ## promises. See `Workspace.open_category()` for why half of it was not enough
 ## once v3 gave CIVIL fourteen categories and CARTO ten.
 ##
+## **The signature carries a mode now** (stage 2, 2026-08-31). Before the rail
+## grew its node tree, "switch domain and open a category" was the whole of
+## navigation. It no longer is: the rail also has a lit node per domain, and a
+## jump that moved the dock without moving the node would leave the two
+## disagreeing about where the user is -- the shell claiming CIVIL ▸ Landmarks in
+## the rail while the dock sits open on Military.
+##
+## `mode` is **optional and defaults to derived**, not required. See
+## `mode_for_category()` for the argument: the mapping category → mode is a fact
+## about `RAIL_NODES`, not about the call site, so a required third argument at
+## eight call sites would be eight chances to disagree with the one table that
+## knows. Pass it explicitly only to override -- i.e. when the caller wants a
+## node lit that does not own the category it is opening, which nothing in this
+## shell wants today.
+##
 ## Silent about a miss on purpose at the call site, loud in the log: a stale
 ## pointer must not swallow the domain switch the user asked for, and a
 ## `push_warning` is what a probe can assert on.
-func select_domain_category(id: String, category: String) -> void:
+func select_domain_category(id: String, category: String, mode: String = "") -> void:
+	var m := mode if not mode.is_empty() else mode_for_category(id, category)
+	## `""` means no node owns this category, which `_railfold_probe.gd` §3
+	## proves cannot happen for any category the three docks actually build. If
+	## it somehow does, the domain switch and the category open still happen --
+	## losing the rail highlight is a far smaller failure than swallowing the
+	## navigation, which is the same judgement the `push_warning` below encodes.
+	if not m.is_empty():
+		_domain_mode[id] = m
 	_select_domain(id)
 	var panel: Control = _workspace_panels.get(id)
 	if panel != null and panel.has_method("open_category"):
@@ -3658,7 +4134,8 @@ func _find_viewport_host() -> ViewportHost:
 ## `ACTION_META` + `unit` off a `Button` already sized by `phone_fit()`'s
 ## walk, which only ever reaches a dock or the tool sheet, and this chip is a
 ## child of neither -- so this reproduces its recipe (`DccTheme.pill()` twice,
-## `accent_hover` on the lit pair, reversed `c("bg")` ink) directly instead.
+## `accent_hover` on the lit pair, reversed `c("accent_ink")` ink) directly
+## instead.
 func _build_phone_undo_chip() -> Button:
 	var b := Button.new()
 	b.name = "PhoneUndoChip"
@@ -3677,7 +4154,10 @@ func _build_phone_undo_chip() -> Button:
 	b.add_theme_stylebox_override("hover", lit)
 	b.add_theme_stylebox_override("pressed", lit)
 	b.add_theme_stylebox_override("focus", DccTheme.empty())
-	var fg := DccTheme.c("bg")
+	## `accent_ink` since the 2026-08-31 re-base -- see the token's comment in
+	## `dcc_theme.gd`. This is a filled amber pill, so it is exactly the case
+	## the token exists for.
+	var fg := DccTheme.c("accent_ink")
 	b.add_theme_color_override("font_color", fg)
 	b.add_theme_color_override("font_hover_color", fg)
 	b.add_theme_color_override("font_pressed_color", fg)

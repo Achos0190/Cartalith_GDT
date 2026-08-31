@@ -428,7 +428,10 @@ func _build_traits(details: Dictionary) -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.custom_minimum_size.y = 22
 		b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-		b.add_theme_color_override("font_color", DccTheme.c("bg") if is_on else DccTheme.c("text_dim"))
+		## `accent_ink` on the filled half since the 2026-08-31 re-base -- see
+		## the token's own comment; `c("bg")` here was near-black on amber.
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent_ink") if is_on else DccTheme.c("text_dim"))
 		b.add_theme_stylebox_override("normal",
 			DccTheme.flat(DccTheme.c("accent") if is_on else DccTheme.c("sunken")))
 		b.add_theme_stylebox_override("hover",

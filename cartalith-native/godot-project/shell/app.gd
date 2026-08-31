@@ -874,7 +874,17 @@ func _on_workspace_changed(id: String) -> void:
 		## CARTO absorbed RENDER's one subject (terrain appearance) the same
 		## pass; that subject is bound as of the map-coloration pass, so this
 		## caption no longer claims it is not.
-		"cartography": _tool_options_simple("CARTOGRAPHY · STYLE",
+		## **The second half of the caption is the MODE, not a fixed word.**
+		## It read "CARTOGRAPHY · STYLE" unconditionally until stage 2, which
+		## was true while CARTO had one destination and became a plain
+		## contradiction the moment it had four: the bar said STYLE over an open
+		## Labels panel with the rail's `Labels` node lit and the rail foot
+		## reading LABELS. Three surfaces agreeing and one disagreeing is worse
+		## than four saying nothing. `_tool_options_*` is otherwise stage 5's
+		## rewrite (blocked on the prototype's truncated `tbLabel`); this is the
+		## one word of it stage 2 is obliged to fix, because stage 2 is what
+		## made it wrong.
+		"cartography": _tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
 			"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
 		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
 		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
@@ -1033,11 +1043,42 @@ func _new_seed() -> void:
 		open_new_world()
 
 ## §3: the rail foot carries the active context and, in World, the stage counter.
+##
+## **Re-based on `railFoot` (`ENV:1932`), stage 2.** That binding reads, in full:
+##
+##     s.domain==='WORLD' ? (wm==='b' ? 'SCULPT' : ('0'+(s.staleFrom||10)).slice(-2)+' / 10')
+##   : s.domain==='CIVIL' ? this.cc().toUpperCase()
+##   :                      this.ct().toUpperCase()
+##
+## i.e. the foot names the **mode**, not the domain -- which is the whole point
+## of it now that each domain has one. The shipped version named the domain with
+## three fixed strings ("TERRAIN" for WORLD, "CIVIL" for CIVIL, "STYLE" for
+## CARTO), two of which were already lies about where the user was: CARTO said
+## STYLE while the dock sat on Labels, and WORLD said TERRAIN while the pipeline
+## was open.
+##
+## Two divergences from `ENV:1932`, both stated rather than silently taken:
+##
+## - **`staleFrom` has no counterpart here.** The prototype counts down from the
+##   first stale stage, so its WORLD foot reads `03 / 10` after a stage-3 edit.
+##   `bridge.stale_stages()` does expose that (`app.gd`'s own `SG-01` note), but
+##   the foot is 84 px of rotated 9 px type that already carries the mode word,
+##   and wiring a second live readout into it is dock work, not rail work. The
+##   shipped `10`/`00` reading survives: "does a world exist at all".
+## - **The mode word for WORLD `a` is the counter, not a word.** That is the
+##   prototype's own asymmetry (`'SCULPT'` versus `'NN / 10'`), kept because the
+##   counter is the more useful of the two and the node label already says
+##   "Generation pipeline".
 func _refresh_rail_foot() -> void:
-	var ctx := {"world": "TERRAIN", "civilization": "CIVIL", "cartography": "STYLE"}
-	var text: String = ctx.get(active_domain(), "")
-	if active_domain() == "world":
-		text += "   %s / 10" % ("10" if bridge.has_world else "00")
+	var domain := active_domain()
+	var mode := active_mode(domain)
+	var text := ""
+	if domain == "world":
+		text = "SCULPT" if mode == "b" else "%s / 10" % ("10" if bridge.has_world else "00")
+	else:
+		## `cc()`/`ct()` upper-cased, verbatim -- `landmarks` → `LANDMARKS`,
+		## `style` → `STYLE`. Mode ids are already the prototype's own words.
+		text = mode.to_upper()
 	set_rail_foot(text)
 
 # -- Menu callbacks -----------------------------------------------------------
@@ -1847,6 +1888,13 @@ func toggle_region(id: int) -> void:
 	if id == DccMenus.ID_WIN_RESET:
 		for node in _region_nodes.values():
 			(node as CanvasItem).visible = true
+		## `resetlayout` (`ENV:2052`) writes `railExp:false` alongside the five
+		## region flags, and it has to: the expansion column is not one of the
+		## regions this loop re-shows, so a reset that left it open would leave
+		## the one piece of chrome the user cannot reach from this menu in
+		## whatever state they had put it in. Cheap, and it makes "reset" mean
+		## the layout the shell boots into.
+		set_rail_expanded(false)
 		return
 	if not _region_nodes.has(id):
 		return

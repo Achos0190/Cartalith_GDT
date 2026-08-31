@@ -257,11 +257,23 @@ func _build() -> void:
 	## 5 -- ROADS & ROUTES
 	_build_way_style(DccWidgets.category(self, "Roads & routes", categories))
 
-	## 6 -- LABELS
-	_build_label_panel(DccWidgets.category(self, "Labels", categories))
+	## 6 -- LABELS. The rail's `labels` node lands here (`RAIL_NODES`).
+	##
+	## Two panels, in the order the design draws them: the ENV prototype's
+	## per-class typography block first (`ENV:698`-`721`, engine-blocked, drawn
+	## disclosed -- see `_build_label_classes()`), then this shell's own
+	## hand-placed region-label list, which is live.
+	var labels_cat := DccWidgets.category(self, "Labels", categories)
+	_build_label_classes(labels_cat)
+	_build_label_panel(labels_cat)
 
-	## 7 -- ASSETS & LANDMARKS
-	_build_icon_panel(DccWidgets.category(self, "Assets & landmarks", categories))
+	## 7 -- ASSETS & LANDMARKS. The rail's `icons` node lands here.
+	##
+	## Same shape: the prototype's automatic-placement block (`ENV:731`-`755`),
+	## then the live list of icons the Icon tool has stamped.
+	var icons_cat := DccWidgets.category(self, "Assets & landmarks", categories)
+	_build_icon_placement(icons_cat)
+	_build_icon_panel(icons_cat)
 
 	## 8 -- POLITICAL DISPLAY
 	_build_political_display(DccWidgets.category(self, "Political display", categories))
@@ -997,6 +1009,341 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 	DccWidgets.action(row, "Cancel", _cancel_label_edit)
 	row.add_child(DccTheme.spacer())
 
+
+
+# -- The ENV prototype's two new CARTO panels (stage 2, 2026-08-31) -----------
+#
+# BUILD_ANSWERS §2.1 turned CARTO's four rail nodes into four real destinations
+# and named what two of them hold: "LABELS and ICONS are new and real". They are
+# new *to the design*; what follows is the whole of what the prototype specifies
+# for each, drawn here in full and **disabled, with the reason on the control**,
+# because this port's engine has no call behind any of it.
+#
+# The disclosure is not a hedge. `cartalith-civ::labels::MapLabel` is one
+# hand-placed label -- text, position, size, arc, angle, font, colour
+# (`lib.rs:7782`'s `label_dict`) -- and `label_create` is the only way one comes
+# into existence (`lib.rs:7826`). There is no label *class*, no automatic
+# labelling pass to assign one, no `halo` or `tracking` field to set, and no
+# collision test: `grep -c "halo\|collision" crates/*/src/*.rs` finds the arc
+# halo *stroke width* (`labels.rs:193`, a draw-time constant) and nothing else.
+# Icons are the same story one level over: `icon_bridge.rs` arms a family/slot
+# for the Icon tool to *stamp*, and every icon on the map got there by a click.
+# There is no generated-icon pass for a minimum spacing or a placement rule to
+# constrain.
+#
+# So the choice was between omitting these panels, faking them against local
+# state that reaches nothing, and drawing them disabled with their reason. The
+# house rule settles it: "a control with nothing behind it is a defect: draw it
+# disabled WITH its reason." A faked slider is worse than an absent one, because
+# a user who moves it and sees no change learns that the *map* is broken.
+#
+# The design's own default values are kept on the disabled controls rather than
+# zeroed, because they are real design values (`parts.js:395`'s `LABD()` and
+# `:398`'s `ICOD()`) and the next pass, the one that binds these, should not have
+# to re-read the prototype to find them.
+
+## The five label classes and their typography (`ENV:698`-`721`,
+## `parts.js:363`/`:376`-`:387`).
+##
+## `CL` in `parts.js:363` is `[id, label, swatch, spec, count]` and this is that
+## array transcribed. The `spec` column is the prototype's own compact notation:
+## `26/2.5 · .28 em` reads size / halo / tracking, which is exactly the three
+## sliders below it, so the row doubles as the class's own summary.
+##
+## **The counts are not transcribed.** `parts.js:363`'s `4 · 11 · 48 · 22 · 37`
+## and `:372`'s `122 drawn · 9 culled` are the prototype's mock data over its
+## mock world. Copying them would put five confident numbers in the dock that
+## describe nothing -- the exact failure `GUI_GAP_REGISTER.md` CA-20 caught on
+## the Clear-all buttons, where a live-looking control sat over an empty list.
+## Each count draws as `--` and the block's note says why.
+const LABEL_CLASSES: Array = [
+	{"id": "continental", "label": "Continental", "swatch": "#e0a34a",
+		"spec": "26/2.5 · .28 em", "size": 26.0, "halo": 2.5, "track": 0.28},
+	{"id": "region", "label": "Region", "swatch": "#c8cbcd",
+		"spec": "18/2 · .20 em", "size": 18.0, "halo": 2.0, "track": 0.20},
+	{"id": "settlement", "label": "Settlement", "swatch": "#a9adb0",
+		"spec": "13/1.5 · .06 em", "size": 13.0, "halo": 1.5, "track": 0.06},
+	{"id": "water", "label": "Water", "swatch": "#6f9fb5",
+		"spec": "15/1.5 · .14 em italic", "size": 15.0, "halo": 1.5, "track": 0.14},
+	{"id": "landmark", "label": "Landmark", "swatch": "#8d9296",
+		"spec": "11/1.2 · .06 em", "size": 11.0, "halo": 1.2, "track": 0.06},
+]
+
+## The prototype's own slider domains, read off the inverse maps in
+## `parts.js:383`-`:385`: `size` is `Math.round(8+p*26)` so 8-34 px, `halo` is
+## `p*4` so 0-4 px, `track` is `p*0.4` so 0-0.40 em. Stated as constants because
+## a range is a design value like any other and guessing one later would be
+## guessing at a design value.
+const LABEL_SIZE_RANGE := Vector2(8.0, 34.0)
+const LABEL_HALO_RANGE := Vector2(0.0, 4.0)
+const LABEL_TRACK_RANGE := Vector2(0.0, 0.40)
+
+## Which class the panel's three sliders describe. `parts.js:395`'s
+## `LABD().sel` is `'settlement'`, and the design's own fallback when `sel`
+## matches nothing is `CL[2]` -- also settlement (`parts.js:378`).
+var _label_class := "settlement"
+var _label_class_rows: Dictionary = {}   ## id -> the row's name Label.
+var _label_class_title: Label
+var _label_class_fields: Array = []      ## The three `DccWidgets.slider()` dicts.
+
+func _build_label_classes(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Label classes")
+	## The reason, first and once, rather than repeated on nine controls. Every
+	## control below is `disabled`/`editable = false`, so the note explains a
+	## state the user can already see rather than warning about one they cannot.
+	DccWidgets.note(sec,
+		"Not bound. The design's five label classes describe an AUTOMATIC "
+		+ "labelling pass -- continental, region, settlement, water and landmark "
+		+ "names placed by the engine and styled per class. This port has no such "
+		+ "pass: cartalith-civ's MapLabel is one hand-placed label and label_create "
+		+ "is the only way one exists, so there is no class to assign, no halo or "
+		+ "tracking field to set, and no collision test to switch off. The rows "
+		+ "and dials below carry the design's own figures so the pass that binds "
+		+ "them does not have to re-derive them. Region labels you place yourself "
+		+ "are live -- they are the section under this one.")
+
+	var rows := DccWidgets.group(sec, "Classes", true)
+	for entry in LABEL_CLASSES:
+		var cl: Dictionary = entry
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.custom_minimum_size.y = 22
+		## `width:11px;height:11px;border-radius:3px` (`ENV:702`). A `ColorRect`
+		## rather than a themed swatch: these five colours are the design's own
+		## literals and are NOT tokens -- `#a9adb0` and `#6f9fb5` appear nowhere
+		## in `DccTheme.PALETTE`, and routing them through `c()` would silently
+		## substitute the nearest token.
+		var sw := ColorRect.new()
+		sw.color = Color(String(cl["swatch"]))
+		sw.custom_minimum_size = Vector2(11, 11)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(sw)
+		var name_l := DccTheme.label(String(cl["label"]), "text", DccTheme.FS_SMALL)
+		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_l)
+		row.add_child(DccTheme.mono_label(String(cl["spec"]), "text_dim", DccTheme.FS_MICRO))
+		## The drawn-count column (`ENV:706`, `width:44px;text-align:right`).
+		## `--` and not a number: see `LABEL_CLASSES`' header.
+		var count := DccTheme.mono_label("--", "text_ghost", DccTheme.FS_MICRO)
+		count.custom_minimum_size.x = 44
+		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		count.tooltip_text = "No automatic labelling pass exists, so nothing has been drawn or culled to count."
+		row.add_child(count)
+		rows.add_child(row)
+		_label_class_rows[String(cl["id"])] = name_l
+
+	## `labSelTitle` (`parts.js:378`): the selected class's own name plus
+	## ` · TYPE`. Live even though the sliders under it are not -- picking which
+	## class you are *looking at* costs the engine nothing, and a panel whose
+	## every part is frozen teaches less than one whose disabled parts are
+	## clearly the bound-later half.
+	var fields := DccWidgets.group(sec, "Type", true)
+	_label_class_title = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 2)
+	fields.add_child(_label_class_title)
+	var picker := DccWidgets.choice(fields, "Class",
+		LABEL_CLASSES.map(func(c: Dictionary) -> String: return String(c["label"])),
+		_label_class_index(_label_class),
+		func(i: int): _set_label_class(String((LABEL_CLASSES[i] as Dictionary)["id"])),
+		"Which class the three dials below describe. The dials themselves are not bound -- see the note above.")
+	picker.tooltip_text = String(picker.tooltip_text)
+
+	var cl0: Dictionary = LABEL_CLASSES[_label_class_index(_label_class)]
+	_label_class_fields = [
+		_dead_slider(fields, "size", LABEL_SIZE_RANGE, 1.0, float(cl0["size"]), " px"),
+		_dead_slider(fields, "halo", LABEL_HALO_RANGE, 0.1, float(cl0["halo"]), " px"),
+		_dead_slider(fields, "tracking", LABEL_TRACK_RANGE, 0.01, float(cl0["track"]), " em"),
+	]
+
+	## `hLabColl` / `labCollNote` (`parts.js:387`-`:389`). The ON note quotes a
+	## live suppressed count in the prototype ("9 labels suppressed at this
+	## zoom"); with no culler there is no count, so the note here is the design's
+	## OFF wording plus what is actually true.
+	var coll_why := "No collision test exists -- label boxes are never measured against each other, so nothing is ever suppressed and this switch has nothing to switch."
+	var coll := DccWidgets.toggle(fields, "collision culling", true,
+		func(_on: bool): pass, coll_why)
+	coll.disabled = true
+	## `DccWidgets.toggle()` hangs the tooltip on the ROW, next to the label. A
+	## disabled control has to carry its own reason as well: the box is where the
+	## pointer goes when the user tries to press it and finds it will not move,
+	## and that is the moment the explanation is wanted.
+	coll.tooltip_text = coll_why
+	_mark_inert(coll.get_parent() as Control)
+	DccWidgets.note(fields,
+		"Design: on, labels that would overlap are suppressed and the count is "
+		+ "reported here; off, \"labels may overlap; export will not fix it\". "
+		+ "Neither branch runs yet.")
+	_sync_label_class()
+
+
+func _label_class_index(id: String) -> int:
+	for i in LABEL_CLASSES.size():
+		if String((LABEL_CLASSES[i] as Dictionary)["id"]) == id:
+			return i
+	return 2   ## `parts.js:378`'s own fallback -- `CL[2]`, settlement.
+
+func _set_label_class(id: String) -> void:
+	_label_class = id
+	_sync_label_class()
+
+## Repaint the class list's ink and re-seat the three dials on the newly
+## selected class's design defaults. The dials are `editable = false`, so this
+## writes `value` directly -- which is exactly why it is safe to do here rather
+## than through the `on_change` a live slider would fire.
+func _sync_label_class() -> void:
+	var cl: Dictionary = LABEL_CLASSES[_label_class_index(_label_class)]
+	for id in _label_class_rows:
+		var l: Label = _label_class_rows[id]
+		if is_instance_valid(l):
+			l.add_theme_color_override("font_color",
+				DccTheme.c("accent") if id == _label_class else DccTheme.c("text"))
+	if _label_class_title != null and is_instance_valid(_label_class_title):
+		_label_class_title.text = "%s · TYPE" % String(cl["label"]).to_upper()
+	if _label_class_fields.size() == 3:
+		for pair in [[0, "size"], [1, "halo"], [2, "track"]]:
+			var d: Dictionary = _label_class_fields[int(pair[0])]
+			var s: HSlider = d["slider"]
+			if is_instance_valid(s):
+				s.value = float(cl[String(pair[1])])
+				(d["readout"] as Label).text = (d["format"] as Callable).call(s.value)
+
+
+## The prototype's four icon families and their slot counts (`parts.js:364`'s
+## `FAM`). **Deliberately not reconciled with this file's own `ICON_FAMILIES`.**
+## Those two lists answer different questions: `ICON_FAMILIES` is
+## `cartalith-assets`' frozen `PACK_*_SLOTS` vocabulary, positionally indexed by
+## `icon_bridge::resolve_variant`, and it is what the Icon tool arms. `FAM` is
+## the design's *placement* vocabulary for a generated pass -- PLACES, TREES,
+## SEA MARKS, POI -- and "SEA MARKS" has no counterpart in the engine's three
+## families at all. Mapping one onto the other would be inventing a
+## correspondence the design does not state.
+const ICON_PLACEMENT_FAMILIES: Array = [
+	{"id": "PLACES", "filled": 10, "slots": 12},
+	{"id": "TREES", "filled": 22, "slots": 22},
+	{"id": "SEA MARKS", "filled": 6, "slots": 8},
+	{"id": "POI", "filled": 10, "slots": 12},
+]
+
+## `parts.js:398`'s `ICOD()` defaults and `:391`-`:392`'s inverse maps:
+## `scale` is `0.5+p*1.5` so 0.50-2.00, `spacing` is `p*40` so 0-40 px.
+const ICON_SCALE_RANGE := Vector2(0.5, 2.0)
+const ICON_SPACING_RANGE := Vector2(0.0, 40.0)
+
+var _icon_placement_family := "PLACES"
+var _icon_family_chips: Dictionary = {}   ## id -> Button
+var _icon_slot_line: Label
+
+func _build_icon_placement(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Automatic placement")
+	DccWidgets.note(sec,
+		"Not bound. This block describes a GENERATED icon pass -- the engine "
+		+ "choosing where a family's glyphs go and thinning them against a "
+		+ "minimum spacing and the label boxes. This port stamps icons by hand "
+		+ "only: icon_bridge.rs arms a family and slot, and every icon on the map "
+		+ "got there from a click, so there is no generated set for a spacing or "
+		+ "a placement rule to constrain. Scale, rotation and jitter for the icon "
+		+ "you are about to stamp are live, in the tool options bar while Icon is "
+		+ "armed. The list below this note is live too.")
+
+	var fam := DccWidgets.group(sec, "Family", true)
+	var chips := HBoxContainer.new()
+	chips.add_theme_constant_override("separation", 4)
+	fam.add_child(chips)
+	_mark_inert(chips)
+	for entry in ICON_PLACEMENT_FAMILIES:
+		var f: Dictionary = entry
+		var b := DccWidgets.segment(chips, String(f["id"]), Callable())
+		b.disabled = true
+		b.tooltip_text = "No automatic placement pass exists, so there is no family for it to place."
+		_icon_family_chips[String(f["id"])] = b
+
+	## `icoSlotLine` (`parts.js:390`). The slot numbers ARE transcribed where the
+	## label counts above were not, and the difference is real: `FAM`'s
+	## `[filled, total]` pairs describe the design's own asset families -- how
+	## many glyphs it drew for each -- not a measurement of the user's world. The
+	## sentence is the prototype's, verbatim.
+	_icon_slot_line = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO)
+	_icon_slot_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	fam.add_child(_icon_slot_line)
+
+	_dead_slider(fam, "icon scale", ICON_SCALE_RANGE, 0.01, 1.0, "×")
+	_dead_slider(fam, "min spacing", ICON_SPACING_RANGE, 1.0, 14.0, " px")
+
+	## `icoRules` (`parts.js:393`), all three, in the design's order and with its
+	## own wording. `snapCoast` starts off; the other two start on
+	## (`parts.js:398`).
+	var rules := DccWidgets.group(sec, "Placement rules", true)
+	for r in [
+		["avoid label boxes", true,
+			"Would keep a placed icon clear of a label's box. Needs both the generated placement pass and the label collision test -- neither exists."],
+		["enforce min spacing", true,
+			"Would thin a generated set to the minimum spacing above. There is no generated set."],
+		["snap sea marks to coast", false,
+			"Would pull a SEA MARKS glyph onto the nearest coastline. SEA MARKS is a design family with no counterpart in the engine's three (see ICON_PLACEMENT_FAMILIES)."],
+	]:
+		var cb := DccWidgets.toggle(rules, String(r[0]), bool(r[1]), func(_on: bool): pass, String(r[2]))
+		cb.disabled = true
+		## See `collision culling` above: the reason goes on the box too, not only
+		## on the row it sits in.
+		cb.tooltip_text = String(r[2])
+		_mark_inert(cb.get_parent() as Control)
+
+	_sync_icon_placement()
+
+func _sync_icon_placement() -> void:
+	for id in _icon_family_chips:
+		DccWidgets.set_segment_on(_icon_family_chips[id], id == _icon_placement_family)
+		(_icon_family_chips[id] as Button).disabled = true
+	for entry in ICON_PLACEMENT_FAMILIES:
+		var f: Dictionary = entry
+		if String(f["id"]) == _icon_placement_family and _icon_slot_line != null:
+			_icon_slot_line.text = "%d of %d slots filled · unfilled slots fall back to the family default glyph" \
+				% [int(f["filled"]), int(f["slots"])]
+
+
+## **Make an inert control LOOK inert.**
+##
+## `disabled = true` / `editable = false` stops a control moving; it does not
+## reliably say so. Godot draws a disabled `CheckBox` with its `checked` icon at
+## full strength and a `chip()` with `set_segment_on()`'s accent border still
+## painted, so the first screenshot of these two panels showed an accent-filled
+## "collision culling" box and a lit PLACES chip that a user would reasonably try
+## to press. The tooltip carries the reason, but a tooltip is only found by
+## someone who already suspects something is wrong.
+##
+## A `modulate` on the whole row is the cheapest signal that covers every control
+## type at once -- label, box, chip, slider grip -- and it composes with the
+## `text_ghost` readout `_dead_slider()` already sets rather than fighting it.
+## `.55` is the same ratio `DccTheme`'s own `text_ghost`/`text` pair sits at
+## against `panel`, so a dimmed row lands where a disclosed-gap note already
+## does instead of at a new, fourth ink level.
+const INERT_DIM := 0.55
+
+static func _mark_inert(node: Control) -> void:
+	if node != null and is_instance_valid(node):
+		node.modulate = Color(1.0, 1.0, 1.0, INERT_DIM)
+
+## One dial the design specifies and the engine cannot serve: drawn at its
+## design default, with its design range, and inert.
+##
+## `editable = false` rather than omitting the slider, and rather than a plain
+## readout: the range is part of what the design states (a 0-4 px halo is a
+## different claim from a 0-40 px one), and only a real `HSlider` shows it. The
+## `tooltip` is the same string on the row and the grip so a hover anywhere over
+## it answers the question.
+func _dead_slider(parent: Control, label_text: String, range_: Vector2, step: float,
+		value: float, unit: String) -> Dictionary:
+	var why := "Not bound -- see the note at the top of this section. Drawn at the design's own default and range."
+	var d := DccWidgets.slider(parent, label_text, range_.x, range_.y, step, value, unit,
+		func(_v: float): pass, why)
+	var s: HSlider = d["slider"]
+	s.editable = false
+	s.tooltip_text = why
+	## `text_ghost` is what every other disclosed-gap readout in this shell uses
+	## (`_set_clear_state`'s disabled button, `Workspace._not_built`'s note), so
+	## an inert value reads the same way here as it does there.
+	(d["readout"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+	_mark_inert(d["row"])
+	return d
 
 func _build_label_panel(parent: Control) -> void:
 	## `#carLabelList` (`DCC_SHELL_SPEC.md` §4.5.5).

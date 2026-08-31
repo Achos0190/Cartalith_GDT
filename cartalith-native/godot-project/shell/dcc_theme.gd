@@ -3,95 +3,319 @@ class_name DccTheme
 
 ## Colour tokens and StyleBox factories for the DCC shell.
 ##
-## Every value here is read off the design mockup
-## (`design/Cartalith DCC Shell.dc.html`), not invented. The mockup ships a dark
-## and a light screen of the same layout, so the tokens come in pairs and the
-## shell swaps `ACTIVE` between them rather than restyling anything.
+## **Re-based 2026-08-31 onto `design/dcc-environment-2026-08-31/Cartalith DCC
+## Environment.dc.html`** -- cited throughout as `ENV:<line>`, its companion
+## `cartalith-dcc-parts.js` as `PARTS:<line>`, and the phone prototype
+## `Cartalith Android.dc.html` as `AND:<line>`. That prototype arrived with the
+## owner's instruction "Replace the current GUI, do not upgrade. Fully replace."
+## Every value below is read off its own two token blocks -- the dark root at
+## `ENV:25` and the light override string `themeStr` at `ENV:1818` -- and not
+## off `design/Cartalith DCC Shell.dc.html`, which this file was written against
+## until today and which the new prototype supersedes.
+##
+## The *shape* is unchanged and deliberately so: the prototype ships one dark
+## block and one light block of the same custom-property names, so the tokens
+## still come in pairs and the shell still swaps `ACTIVE` between them rather
+## than restyling anything.
+##
+## **This is stage 1 of the replacement: token values only.** Nothing here
+## re-assigns which token a region draws with, and no accessor is renamed --
+## `DccTheme` is consumed by ~30 files and a rename is 30 files of churn for no
+## design reason. Where the prototype moves a *region* onto a different token,
+## the value is retuned here and the re-assignment is left to the structural
+## stage, named at the site. The three the next reader will look for:
+##
+## - the menu bar's open title is `var(--ins)` (`ENV:1821`), not an accent wash;
+## - the menu bar, the tool-options bar and the status bar have **no background
+##   of their own** and sit straight on `--sur`, separated by one `--hair` rule
+##   (`ENV:56`, `ENV:109`, `ENV:1218`) -- this shell draws all three on
+##   `panel`/`panel_alt`;
+## - a menu row's OFF toggle track is `var(--ins)` (`PARTS:180`) where a dock
+##   row's is `var(--sur)` (`ENV:1838`). The prototype carries both idioms; the
+##   audit logged it as an open design defect and it is not resolved here.
 ##
 ## `DCC_SHELL_SPEC.md` §1 owns the geometry; this file owns only colour, type
 ## and the borders that separate regions.
 
 # ── Palette ──────────────────────────────────────────────────────────────────
 
+## `ENV:25` is the dark root: 34 custom properties on one line. The mapping onto
+## the names this file already publishes, so the next reader can diff the two
+## without re-deriving it:
+##
+## | prototype | here | prototype | here |
+## |---|---|---|---|
+## | `--sur`   | `bg`             | `--acc`    | `accent`         |
+## | `--pan`   | `panel`          | `--accH`   | `accent_hover`   |
+## | `--ins`   | `sunken`         | `--accInk` | `accent_ink`     |
+## | `--ink`   | `text_bright`    | `--wash`   | `accent_wash`    |
+## | `--body`  | `text`           | `--wash2`  | `accent_wash_2`  |
+## | `--sec`   | `text_secondary` | `--hair`   | `line`           |
+## | `--dim`   | `text_dim`       | `--div`    | `line_soft`      |
+## | `--faint` | `text_faint`     | `--bor`    | `border`         |
+## | `--dis`   | `text_ghost`     | `--block`  | `block`          |
+## |           |                  | `--water`  | `water`          |
+##
+## Five tokens here have **no** counterpart in the prototype and keep the values
+## they had -- `panel_alt`, `raised`, `accent_dim`, `stale`, `stale_wash` --
+## each annotated in place with what the prototype does instead.
+##
+## Two prototype properties are deliberately **not** imported. `--good` is
+## declared at both densities and `grep -c "var(--good)"` over `ENV` plus
+## `PARTS` returns **0**; `--g` (a 10 px / 12 px gap unit) likewise returns 0.
+## Importing either would reproduce the prototype's own dead-token defect in a
+## file whose consumers would then have to guess what it meant. `--shadow` is
+## skipped too, but for the opposite reason: `DccWidgets.style_popup():473`
+## already draws exactly `0 14px 34px rgba(0,0,0,.55)` / `rgba(35,36,31,.16)`
+## as literals, so a token would be a second source of truth for a value that
+## is already correct.
 const DARK := {
-	"bg": Color("#0d0e0f"),          ## Application ground, and the viewport letterbox.
-	"panel": Color("#121314"),       ## Docks, menu bar, tool options bar.
-	"panel_alt": Color("#111210"),   ## Rows that need to sit a shade back from `panel`.
-	"raised": Color("#17191a"),      ## Menus, popovers, modals -- anything floating.
-	"sunken": Color("#101112"),      ## Input wells and list bodies.
-	"line": Color(1, 1, 1, 0.10),    ## The hairline every region is separated by.
-	"line_soft": Color(1, 1, 1, 0.07),
-	## §11's third rule weight, distinct from `line` and absent here until
-	## 2026-08-25. The canvas outlines every *control* -- chip, action button,
-	## input well, modal footer button -- at .16 and separates every *region*
-	## at .10. Drawing both at .10 is why the shell's chips read as suggestions
-	## rather than as edges.
+	"bg": Color("#0d0e0f"),          ## `--sur`. Application ground, and the
+		## viewport letterbox. Unchanged by the re-base.
+	"panel": Color("#121314"),       ## `--pan`. Docks, and *also* every
+		## floating surface: the prototype raises the menu popup (`ENV:62`) and
+		## the layers popover (`ENV:902`) on `var(--pan)` with `--bor` and
+		## `--shadow`, never onto a brighter third grey.
+		## `DccWidgets.style_popup()` already does precisely that, which is why
+		## the collapse costs this shell nothing. Unchanged in value.
+	## No prototype counterpart. `ENV:56`, `ENV:109` and `ENV:1218` draw the
+	## menu bar, the tool-options bar and the status bar with **no background at
+	## all** -- they sit on `--sur` and are separated by one `--hair` rule. This
+	## file's `panel_alt` consumers are two of those three bars
+	## (`dcc_shell.gd:1006`, `:2090`) plus the planner totals column
+	## (`journey_planner_view.gd:1315`), so the token survives stage 1 at its
+	## old value and the re-assignment belongs to the structural stage. Kept
+	## rather than deleted: deleting it now would silently repaint three regions
+	## in a pass whose whole contract is "look different, behave identically".
+	"panel_alt": Color("#111210"),
+	## No prototype counterpart either, and for the opposite reason -- the
+	## prototype has no surface *above* `--pan`. Its three dark greys are
+	## `--sur` #0d0e0f (ground) < `--pan` #121314 (panel and float) < `--ins`
+	## #191c1e (inset), and #17191a falls between the last two. Kept for the
+	## four consumers that are not menus and that the prototype does not draw:
+	## an image-preview backdrop (`asset_library_window.gd:282`), a toast box
+	## (`dcc_shell.gd:3808`), a `Window` title outline (`:862`) and a swatch
+	## well (`place_editor_window.gd:435`).
+	##
+	## **Note the inversion this pass creates.** `raised` (#17191a) is now
+	## *darker* than `sunken` (#191c1e). Both are independently right against
+	## their own sources; the pair is no longer a ramp and must not be read as
+	## one. If that ever matters visually, the fix is to move `raised` onto
+	## `panel` the way the prototype does, not to un-do `sunken`.
+	"raised": Color("#17191a"),
+	## `--ins`, and the single largest visible change in this pass: **#101112 ->
+	## #191c1e**, from a shade *darker* than `bg` to a shade *lighter* than
+	## `panel`. The old canvas sank an input well below the ground; the new one
+	## lifts it above the panel. It is the prototype's most-used surface after
+	## `--pan` -- 130 `var(--ins)` occurrences across `ENV` and `PARTS` -- and
+	## it now carries three distinct jobs: input wells, the **open menu-bar
+	## title** (`ENV:1821`, where this shell still paints an accent wash), and
+	## the OFF track of a menu-row toggle (`PARTS:180`).
+	"sunken": Color("#191c1e"),
+	"line": Color(1, 1, 1, 0.10),      ## `--hair`. The rule every region is
+		## separated by. Unchanged.
+	"line_soft": Color(1, 1, 1, 0.07), ## `--div`. The lighter rule, used inside
+		## a surface rather than between two: menu separators (`ENV:65`).
+		## Unchanged.
+	## `--bor`. Control outlines -- chip, action button, input well, modal
+	## footer button -- as against `line`'s region separators. Unchanged, and
+	## the prototype confirms the distinction this file added on 2026-08-25:
+	## `ENV:62` outlines the menu popup at `--bor` while `ENV:56` separates the
+	## menu bar at `--hair`, six lines apart.
 	"border": Color(1, 1, 1, 0.16),
-	"text": Color("#c8cbcd"),        ## Body text.
-	"text_bright": Color("#e8ebec"), ## Headers, active rows, the wordmark.
-	## §11's "Ink secondary", missing from this file until 2026-08-25 and the
-	## most-used ink in the canvas after body text: 76 occurrences in
-	## `DCC shell 1920` alone. It is the colour of a *menu bar item* and of a
-	## *parameter row's label* -- the two highest-traffic labels in the shell,
-	## both of which were being drawn in `text_dim`, one step too quiet.
-	"text_secondary": Color("#a9adb0"),
-	"text_dim": Color("#8d9296"),    ## Secondary values.
-	"text_faint": Color("#6f7478"),  ## Units, hints, the status bar's quiet half.
-	"text_ghost": Color("#5f6468"),  ## Disabled.
-	"accent": Color("#e0a34a"),
-	"accent_hover": Color("#f0bd72"), ## §11's own row, never added here before.
+	"text": Color("#c8cbcd"),           ## `--body`. Unchanged.
+	"text_bright": Color("#e8ebec"),    ## `--ink`. Unchanged.
+	"text_secondary": Color("#a9adb0"), ## `--sec`. Unchanged.
+	"text_dim": Color("#8d9296"),       ## `--dim`. Unchanged.
+	"text_faint": Color("#6f7478"),     ## `--faint`. Unchanged.
+	"text_ghost": Color("#5f6468"),     ## `--dis`. Unchanged.
+	"accent": Color("#e0a34a"),         ## `--acc`. Unchanged.
+	## `--accH`. Unchanged, and worth stating that it is dead **in the
+	## prototype**: `grep -c "var(--accH)"` over `ENV` plus `PARTS` is 0, no
+	## hover rule reaches for it. It is not imported *from* there -- it survives
+	## because this shell has two real consumers (`dcc_shell.gd:3661` and
+	## `dcc_widgets.gd:662`) that predate the re-base.
+	"accent_hover": Color("#f0bd72"),
+	## **New in this pass**, `--accInk` `ENV:25`, and it exists to enforce one
+	## rule: nothing may render near-black on a FILLED accent surface. The six
+	## reversed-ink sites in this shell used `c("bg")` until today -- #0d0e0f on
+	## #e0a34a -- and now use this.
+	##
+	## Read the light half before assuming what this token is. It is #f7f4ee, a
+	## *light* ink, because the light accent #a4650f is dark. `accent_ink` is
+	## not "the dark ink"; it is "whatever reads on top of `accent`", and a
+	## theme switch flips it end for end.
+	"accent_ink": Color("#141005"),
+	## `--wash`, retuned **.08 -> .09**. The old canvas wrote it as the hex
+	## `#e0a34a14` (alpha 20/255 = .078); the prototype writes
+	## `rgba(224,163,74,.09)` at `ENV:25` and uses it as the menu row's hover
+	## (`ENV:67`) and the active domain cell's fill (`ENV:1823`). Written as
+	## floats rather than an 8-digit hex because .09 has no exact byte.
+	"accent_wash": Color(0.878431, 0.639216, 0.290196, 0.09),
+	## **New in this pass**: `--wash2`, `rgba(224,163,74,.16)`, the *armed*
+	## weight at almost twice `--wash`. The prototype uses it 44 times and
+	## always for the same distinction -- a control that is armed and will act
+	## on the next click, as against one that is merely current: `inspChips`
+	## (`ENV:1910`), `measSegBg` (`ENV:1912`), the timeline speed pills
+	## (`ENV:1978`), `ldSwABg` (`ENV:1941`), `layersBtnBg` (`ENV:1959`).
+	##
+	## **Nothing in this port reads it yet, and that is disclosed rather than
+	## quietly shipped.** "Armed" is not a state this shell distinguishes from
+	## "active" today; inventing the distinction means deciding which of some
+	## forty controls is which, which is a structural change stage 1 does not
+	## own. The value is imported now so the structural stage has it to hand,
+	## and it is the one token here whose consumer is in the future rather than
+	## the past.
+	"accent_wash_2": Color(0.878431, 0.639216, 0.290196, 0.16),
+	## No prototype counterpart: besides the two washes, `--accH` is the only
+	## amber derivative the prototype declares. Kept at the old canvas's value
+	## for its existing consumers.
 	"accent_dim": Color("#a4650f"),
-	"accent_wash": Color("#e0a34a14"), ## 8% -- the active menu/tool background.
-	"stale": Color("#b9a878"),       ## "downstream is stale" marks.
+	## No prototype counterpart. The prototype expresses "downstream is stale"
+	## as a **literal em dash** in the readout (`ENV:1835` turns a stale field
+	## into `label · —`; the twelve `sampleRows` gate the same way at
+	## `ENV:1866`) plus `pipeNoteCol:'var(--acc)'` on the pipeline note
+	## (`ENV:1924`) -- never as a colour of its own. Both tokens keep their old
+	## values until the structural stage decides whether this shell adopts the
+	## em-dash idiom or keeps a stale tint.
+	"stale": Color("#b9a878"),
 	"stale_wash": Color("#3d3226"),
-	## Read off `design/Journey Planner DCC.dc.html`'s own inline styles
-	## (`JOURNEY_PLANNER_SPEC.md` §3: "warn #e0a840, block #b55950, water
-	## #7d9dae"), added here rather than left as hard-coded hex in
-	## `journey_planner_view.gd` because §6's disclosure grammar and this
-	## file's own header both say colour is a shell-wide token, not a
-	## per-feature constant. Not yet used anywhere else in the shell -- the
-	## journey planner is the first feature to need "strained"/"blocked"/
-	## "water leg" as distinct from the existing `accent`/`stale` pair.
+	## The semantic pair, and **the one place the two delivered prototypes
+	## contradict each other outright**:
+	##
+	## |       | `ENV:25` / `ENV:1818` | `AND:31` / `AND:1469` |
+	## |---|---|---|
+	## | good  | `#6fae7d` / `#2c7a44` | `#8fae7d` / `#4e6f3f` |
+	## | block | `#c96a5a` / `#a03d2e` | `#c26a60` / `#a04437` |
+	## | water | `#6a9bc4` / `#2e6a9e` | `#7d9dae` / `#3f6675` |
+	##
+	## Both files are dated 2026-08-31, so `CLAUDE.md`'s "the newer canvas wins"
+	## does not separate them. `ENV` is taken here on two grounds: it is the
+	## prototype this file's desktop half is being re-based onto, and it is the
+	## only one of the two that states a value for all three in **both** themes
+	## from one source. The divergence is recorded, not averaged -- if the phone
+	## composition ever needs its own semantic triple it needs a second palette,
+	## not a compromise in this one. `--good` is not imported at all; see the
+	## header table for why.
+	"block": Color("#c96a5a"),
+	"water": Color("#6a9bc4"),
+	## `--warn` exists in **neither** `ENV` block: `grep -c -- "--warn:"` over
+	## the whole file returns 0. Its only source is the phone prototype
+	## (`AND:31` dark, `AND:1469` light), which BUILD_ANSWERS §4 confirms as a
+	## deliberate addition there. Held at the phone's dark value, which is what
+	## this file already carried; the light half below is the one that moves.
 	"warn": Color("#e0a840"),
-	"block": Color("#b55950"),
-	"water": Color("#7d9dae"),
+	## **New in this pass**: `scrimBg` `ENV:1963`, and BUILD_ANSWERS §2.6
+	## confirms the two halves differ deliberately rather than being one alpha
+	## over two grounds.
+	##
+	## Named for the HUD and not "scrim" because it is **not** a modal dim: it
+	## is the pill drawn behind each of the three viewport HUD readouts
+	## (`ENV:911` context, `ENV:913` projection/zoom, `ENV:918` coordinates).
+	## The phone sheet scrim (`phone_menu.gd:224`) is a different thing and
+	## stays `Color(c("bg"), 0.72)` off its own canvas.
+	##
+	## **Nothing consumes it yet** -- this port has no desktop viewport HUD.
+	## Imported because the value is settled and the HUD is a later stage's
+	## work; unlike `accent_wash_2` it needs no design decision to wire, only
+	## the widget to exist.
+	##
+	## One trap for whoever does wire it: in **both** themes this token's RGB is
+	## `bg`'s RGB exactly -- `rgba(13,14,15,.62)` against #0d0e0f here, and
+	## `rgba(244,242,238,.72)` against #f4f2ee below. `remap()` still resolves
+	## it correctly, because its **exact-RGBA** pass runs first and `bg` carries
+	## alpha 1.0; but a further alpha derivative (`Color(c("hud_scrim"), 0.5)`)
+	## would fall through to the RGB-only pass and be matched back to `bg`,
+	## which comes first in this dictionary. Paint with the token as it stands;
+	## do not derive from it.
+	"hud_scrim": Color(0.050980, 0.054902, 0.058824, 0.62),
 }
 
-## Re-read off `DCC shell 1920 light` 2026-08-25 rather than off §11's table.
-## Four values were wrong and one was inverted: the canvas's *ground* is
-## `#f4f2ee` and its *floating* surfaces are `#fbfaf7`, where this file had the
-## ground at `#fbfaf7` and floated onto pure white -- so light mode raised a
-## menu onto a surface brighter than anything the design draws, over a ground
-## a shade too bright to sit under it. `#ffffff` appears nowhere in either
-## light canvas.
+## The light half is `themeStr` at `ENV:1818` -- a string of the same custom
+## properties, concatenated ahead of `densStr` and applied over the dark root
+## (`fvars:themeStr+densStr`, `ENV:1896`). It is empty when dark, so the root at
+## `ENV:25` **is** the dark theme rather than a base both themes override.
+##
+## The 2026-08-25 re-read off `DCC shell 1920 light` turns out to have been
+## right about six of its eight inks: `text`, `text_bright`, `text_secondary`,
+## `text_dim`, `text_faint` and `text_ghost` all match the new prototype
+## character for character, as do `bg`, `accent`, `accent_hover` and all three
+## rules. Three values move -- `panel`, `sunken` and `warn` -- and two are new.
 const LIGHT := {
-	"bg": Color("#f4f2ee"),
-	"panel": Color("#f2f0ec"),
+	"bg": Color("#f4f2ee"),          ## `--sur`. Unchanged.
+	## `--pan`, **#f2f0ec -> #fbfaf7**. The prototype's light theme has one
+	## surface for panels and floats where the old canvas had two, and it is the
+	## *brighter* of the old pair: what this file called `raised` is what the
+	## prototype calls `--pan`. So light mode's docks brighten by three steps
+	## and its menus stay exactly where they were. `#ffffff` still appears
+	## nowhere in either theme.
+	"panel": Color("#fbfaf7"),
+	## No prototype counterpart -- see the dark half. Unchanged, and now only
+	## one step below `panel` rather than four, which is the correct reading of
+	## a token whose whole job is "a shade back".
 	"panel_alt": Color("#eeece7"),
+	## No prototype counterpart, and in light it is already *equal* to the new
+	## `panel` -- the collapse the dark half only describes has in effect
+	## already happened here. Left as its own entry rather than aliased, so the
+	## two halves stay symmetrical and a future divergence has somewhere to go.
 	"raised": Color("#fbfaf7"),
-	"sunken": Color("#e7e5e0"),
-	"line": Color(0, 0, 0, 0.14),
-	"line_soft": Color(0, 0, 0, 0.08),
-	"border": Color(0, 0, 0, 0.20),
-	"text": Color("#23241f"),
-	"text_bright": Color("#111210"),
-	"text_secondary": Color("#3d3f39"),
-	"text_dim": Color("#6b6f6a"),
-	"text_faint": Color("#8d9088"),
-	"text_ghost": Color("#9a9d95"),
-	"accent": Color("#a4650f"),
-	"accent_hover": Color("#8a5309"),
-	"accent_dim": Color("#7a6a4a"),
-	"accent_wash": Color("#a4650f1a"),
+	## `--ins`, **#e7e5e0 -> #eceae4**. Lighter, and in the same direction as
+	## the dark half's much larger move: an inset well is a step *toward* the
+	## panel in this design system, not away from it.
+	"sunken": Color("#eceae4"),
+	"line": Color(0, 0, 0, 0.14),      ## `--hair`. Unchanged.
+	"line_soft": Color(0, 0, 0, 0.08), ## `--div`. Unchanged.
+	"border": Color(0, 0, 0, 0.20),    ## `--bor`. Unchanged.
+	"text": Color("#23241f"),           ## `--body`. Unchanged.
+	"text_bright": Color("#111210"),    ## `--ink`. Unchanged.
+	"text_secondary": Color("#3d3f39"), ## `--sec`. Unchanged.
+	"text_dim": Color("#6b6f6a"),       ## `--dim`. Unchanged.
+	"text_faint": Color("#8d9088"),     ## `--faint`. Unchanged.
+	"text_ghost": Color("#9a9d95"),     ## `--dis`. Unchanged.
+	"accent": Color("#a4650f"),         ## `--acc`. Unchanged.
+	"accent_hover": Color("#8a5309"),   ## `--accH`. Unchanged. Darker than
+		## `accent`, where the dark theme's is lighter -- both move *away* from
+		## the ground, which is why this is a token pair and not one colour.
+	## **New**, `--accInk`. #f7f4ee: paper, not ink. See the dark half -- this
+	## is the token that makes "reversed on accent" survive a theme switch, and
+	## it is the reason `c("bg")` was the wrong thing to reverse onto. On the
+	## light theme `c("bg")` is #f4f2ee, which is *nearly* right by accident and
+	## fails by a shade; on the dark theme it was wrong outright.
+	"accent_ink": Color("#f7f4ee"),
+	## `--wash`, retuned **.102 -> .09**. The old canvas wrote `#a4650f1a`
+	## (26/255); the prototype writes `rgba(164,101,15,.09)`, the same alpha as
+	## the dark half, so the two themes now agree on the wash weight where they
+	## used to differ by a quarter.
+	"accent_wash": Color(0.643137, 0.396078, 0.058824, 0.09),
+	## **New**: `--wash2`, `rgba(164,101,15,.16)`. Unconsumed for now -- see the
+	## dark half for why that is deliberate.
+	"accent_wash_2": Color(0.643137, 0.396078, 0.058824, 0.16),
+	"accent_dim": Color("#7a6a4a"),  ## No prototype counterpart. Unchanged.
+	## No prototype counterpart. Unchanged; see the dark half.
 	"stale": Color("#7a6a4a"),
 	"stale_wash": Color("#e2d7bd"),
-	## The dark-mode journey planner hex values, unchanged. `JOURNEY_PLANNER_
-	## SPEC.md` §10 lists light theme as still to build for this feature --
-	## these three tokens exist so `c()` never errors under light mode, not
-	## because they were tuned against a light mockup that doesn't exist yet.
-	"warn": Color("#e0a840"),
-	"block": Color("#b55950"),
-	"water": Color("#7d9dae"),
+	## `ENV:1818`'s `--block` and `--water`. These were the *dark* values until
+	## today -- `JOURNEY_PLANNER_SPEC.md` §10 listed light theme as unbuilt for
+	## that feature and the three tokens existed only so `c()` would not error.
+	## They are real light values now, and they are markedly more saturated than
+	## the phone's (`#a03d2e` against `AND:1469`'s `#a04437`, `#2e6a9e` against
+	## `#3f6675`). See the dark half's table for the full contradiction.
+	"block": Color("#a03d2e"),
+	"water": Color("#2e6a9e"),
+	## The one token here sourced from the phone prototype rather than `ENV`,
+	## because `ENV` declares no `--warn` in either theme. `AND:1469`, confirmed
+	## by BUILD_ANSWERS §4 as one of the four semantic colours that gained a
+	## light value in this delivery. **This is a real change**: light mode was
+	## drawing `warn` at the dark #e0a840, an amber that has no contrast against
+	## a #f4f2ee ground.
+	"warn": Color("#9a6a12"),
+	## **New**: `scrimBg` light, `ENV:1963`. Note the alpha differs from the
+	## dark half -- .72 against .62 -- which BUILD_ANSWERS §2.6 states is
+	## deliberate. A light HUD pill has to work harder to separate its text from
+	## a map beneath it, because the map does not lighten with the chrome
+	## (BUILD_ANSWERS §4: "light chrome over a dark map is the intended
+	## pairing"). Unconsumed; see the dark half.
+	"hud_scrim": Color(0.956863, 0.949020, 0.933333, 0.72),
 }
 
 # ── Type ─────────────────────────────────────────────────────────────────────
@@ -135,7 +359,14 @@ const FS_TINY := 10
 const FS_MICRO := 9    ## Section labels and the smallest readouts.
 const FS_HEADER := 9   ## §-prefixed section headers, tracked wide.
 const FS_READOUT := 11 ## Mono numerics.
-const FS_HERO := 26    ## The one big accent readout per context (§6's elevation).
+## The one big accent readout per context (§6's elevation). `--hero` at
+## `ENV:25`, unchanged at this density -- but it is a *pair* now: 30 px on
+## touch (`ENV:1819`), which BUILD_ANSWERS §2.4 added because the readout used
+## to be a bare literal that did not scale with the 11 px mono around it. This
+## constant is the desktop half and keeps its name and its one consumer
+## (`right_dock.gd:1654`); the pair lives in `ROLE` as `fs_hero`, beside
+## `fs_hero_2` for `--hero2` (22 / 26), which this file had no name for at all.
+const FS_HERO := 26
 ## The one size the shell's *modal* screens set their own title in -- both the
 ## "Open project dialog 1920" and "Select folder dialog 1920" cards in
 ## `design/Cartalith DCC Shell.dc.html` open with `font:500 16px` prose, a
@@ -195,20 +426,52 @@ static func mono(spacing: int = 0, medium: bool = false) -> Font:
 	return fv
 
 # ── Geometry (§1) ────────────────────────────────────────────────────────────
+#
+# Re-read off the new prototype's own token block (`ENV:25`) for the base set
+# and `densStr` (`ENV:1819`) for the touch set. Four of the eight figures below
+# move; the ones that do not are stated as unchanged rather than left silent,
+# because "still 372" is a measurement too.
 
-const H_MENU_BAR := 34
-const H_TOOL_OPTIONS := 34
+const H_MENU_BAR := 36      ## `--menuH`, **34 -> 36** (`ENV:25`). Touch 52,
+	## unchanged, so the touch/desktop ratio tightens from x1.53 to x1.44.
+const H_TOOL_OPTIONS := 40  ## `--tbH`, **34 -> 40** (`ENV:25`), touch **52 ->
+	## 56** (`ENV:1819`). The tool-options bar is the one bar that grew at both
+	## densities: it now carries the run/finalize block (`ENV:1921`-`1928`) and
+	## the four mutually-exclusive tool rows, where the old canvas drew only
+	## chips. **This figure collides with `W_RAIL_COLLAPSED` in `TABLET`'s key
+	## space** -- see `TABLET`'s header for what that forced.
+## No prototype counterpart any more, and this is a real gap rather than an
+## unchanged value. The new prototype's timeline has two states and neither is
+## 70 px: collapsed is authored at `calc(var(--sbH) - 2px)` = 24 px (`ENV:1187`)
+## and expanded is content-driven -- `flex:none;...;gap:6px;padding:8px var(--pad)`
+## (`ENV:1195`) with no authored height at all. It is also domain-gated now
+## (`tlShow:s.domain==='CIVIL'&&this.cc()!=='planner'`, `ENV:1973`), which this
+## shell does not do. Held at 70 so stage 1 moves no structure; the timeline is
+## a structural-stage rewrite, not a token retune.
 const H_TIMELINE := 70
-const H_STATUS := 26
-## §1's rail width, and also what a *collapsed dock* narrows to. §1's companion
-## `W_RAIL_EXPANDED := 200` is gone with the rail expansion itself (2026-08-24):
-## the design canvas draws the rail at 40 px in every artboard and never draws
-## an expanded one -- see `dcc_shell.gd::_build_rail()`'s header.
+const H_STATUS := 26        ## `--sbH`. Unchanged, touch 36 unchanged.
+## `--railW` (`ENV:25`). Unchanged, and still also what a *collapsed dock*
+## narrows to.
+##
+## **`W_RAIL_EXPANDED` is coming back.** It was deleted on 2026-08-24 with the
+## reasoning "the design canvas draws the rail at 40 px in every artboard and
+## never draws an expanded one" -- true of the old canvas, false of this one.
+## `ENV:294` draws the expansion column at `var(--railExpW)`, `ENV:1929` binds
+## its chevron and `ENV:1934` its node clicks, and BUILD_ANSWERS §2.5 rules on
+## how it opens. The width lives in `ROLE` as `w_rail_expanded` rather than as a
+## const here, because unlike `W_RAIL_COLLAPSED` it is density-varying
+## (200 / 264) and has no consumer yet -- `dcc_shell.gd::_build_rail()` still
+## builds the collapsed-only rail. Rebuilding the rail is stage 2's work.
 const W_RAIL_COLLAPSED := 40
-const W_LEFT_DOCK := 372
+const W_LEFT_DOCK := 372    ## `--ldW`. Unchanged at the base density; 330 on
+	## the new LAPTOP band and 400 on touch -- see `LAPTOP` and `ROLE`.
 const W_LEFT_DOCK_MIN := 300
 const W_LEFT_DOCK_MAX := 520
-const W_RIGHT_DOCK := 300
+const W_RIGHT_DOCK := 304   ## `--rdW`, **300 -> 304** (`ENV:25`). Four pixels,
+	## and they are not noise: the right dock's sample grid is a two-column
+	## key/value table (`ENV:1866`'s twelve rows) whose widest value,
+	## `SLOPE · ASPECT`'s `'18° · 243°'`, sets the column. 280 on LAPTOP,
+	## 400 on touch.
 const W_RIGHT_DOCK_MIN := 260
 const W_RIGHT_DOCK_MAX := 460
 
@@ -247,17 +510,30 @@ const MENU := {
 	"bar_pad_y": 9,     "bar_pad_y_t": 15,
 }
 
-## The open/hovered menu item's wash. **Not** `accent_wash`: the canvas draws
-## the menu *bar's* open title at `rgba(224,163,74,.08)` and the *item* inside
-## the dropdown at `rgba(224,163,74,.10)`, two literals a few lines apart in the
-## same artboard. `GUI_GAP_REGISTER.md` §48 (DS-05) matched the item to
-## `accent_wash`, which is the .08 one.
+## The hovered menu item's wash, retuned **.10 -> .09**, at which point it is
+## no longer distinct from `accent_wash`.
 ##
-## Derived from `accent` rather than stored as its own token so a theme switch
-## repaints it: `remap()`'s RGB-only pass matches an alpha derivative back to
-## the token that produced it and keeps the alpha, which is the same mechanism
-## `phone_menu.gd`'s scrim already relies on.
-const MENU_HIGHLIGHT_ALPHA := 0.10
+## The old canvas drew two amber washes a few lines apart -- the menu *bar's*
+## open title at `rgba(224,163,74,.08)` and the *item* inside the dropdown at
+## `.10` -- and this constant existed to hold the second. The new prototype
+## keeps neither pairing: its item hover is `style-hover="background:var(--wash)"`
+## (`ENV:67`), the same .09 wash as everything else, and its open bar title is
+## not a wash at all but `var(--ins)` (`ENV:1821`).
+##
+## So the constant survives with one value instead of two. It is **not** deleted
+## in favour of `c("accent_wash")` directly, for the same reason `panel_alt`
+## survives above: the open-title half of the pairing is a structural
+## re-assignment this stage does not make, and when it is made this is the hook
+## that half will move through.
+##
+## Still derived from `accent` rather than stored as its own token so a theme
+## switch repaints it: `remap()`'s RGB-only pass matches an alpha derivative
+## back to the token that produced it and keeps the alpha, the same mechanism
+## `phone_menu.gd`'s scrim relies on. Note that it now produces a colour
+## *exactly* equal to `accent_wash`, so `remap()`'s prior exact-RGBA pass
+## resolves it through that token -- which is correct, and is why the two must
+## not be allowed to drift apart again without a reason in the prototype.
+const MENU_HIGHLIGHT_ALPHA := 0.09
 
 static func menu_highlight() -> Color:
 	return Color(c("accent"), MENU_HIGHLIGHT_ALPHA)
@@ -277,22 +553,100 @@ static func menu(key: String, touch: bool) -> int:
 ## floor firing on chrome that is not tappable and has no business being
 ## floored.
 const TOUCH_SCALE := 1.53
-## §1's tablet column, verified figure-by-figure against
-## `design/Cartalith DCC Shell.dc.html`'s own `DCC shell tablet 2560`
-## artboard: `height:52px` twice (menu bar, tool options), `width:48px` (rail),
-## `height:34px` (rail head), `height:88px` (timeline), `height:36px` (status),
-## `width:400px` (right dock). Keyed by the desktop figure, which is unique per
-## region here.
+## The tablet column, re-read off `densStr` (`ENV:1819`) rather than off the old
+## `DCC shell tablet 2560` artboard: the prototype states its touch density as
+## one string of the same custom properties the base set uses, so every figure
+## here is a *declared* token value rather than an element measured off a
+## drawing.
+##
+## **Keyed by the desktop figure, and that key space has now collided.** The new
+## `--tbH` is 40, which is also `--railW`, and the two want different tablet
+## answers -- 56 and 48. A dictionary keyed by a bare integer cannot serve both,
+## so the tool-options bar was moved off `DccShell._scaled()` and onto
+## `role_px("h_tool_options")` (`dcc_shell.gd:1004`). That is the resolver
+## `ROLE` exists for and the same remedy `GUI_GAP_REGISTER.md` §57 prescribed
+## when this key space first ran short. `40` below therefore means the rail and
+## only the rail.
+##
+## `34` is kept alongside the new `36` rather than replaced. 36 is the menu bar;
+## 34 is the *dock header*, which `dcc_shell.gd:1835`/`:1902` still ask for and
+## for which the prototype authors no height at all (`ENV:305` is
+## `padding:8px var(--pad) 0` around a `var(--ctl)` button). Both resolve to 52,
+## which is exactly why dropping 34 would have looked harmless: it would have
+## fallen through to `TOUCH_SCALE` and landed on 52 by arithmetic coincidence.
+## Keeping the row makes the dock header's tablet height a stated figure rather
+## than a lucky one.
 const TABLET := {
-	34: 52,   ## Menu bar, tool options bar, dock header.
-	29: 34,   ## The rail's own head cell.
-	26: 36,   ## Status bar.
-	40: 48,   ## Domain rail width.
-	70: 88,   ## Timeline.
+	36: 52,   ## Menu bar -- `--menuH` 36 -> 52 (`ENV:1819`).
+	34: 52,   ## Dock header. Not a prototype figure; see above.
+	30: 44,   ## The rail's own head cell -- `var(--tool)` (`ENV:284`), 30 px
+		## pointer and 44 px touch. **This row was `29: 34` until stage 2.**
+		## Stage 1 measured the prototype's figure, found the shipped one stale,
+		## and left it: "changing it moves the rail head's box, and the rail is
+		## stage 2's rebuild." `dcc_shell.gd::_build_rail()` is that rebuild, and
+		## it now asks for `_scaled(30)`; it was the only caller of `_scaled(29)`
+		## in the project, so the old key had no other consumer to strand. The
+		## touch figure is a real gain and not cosmetic: 34 px was below `ROLE`'s
+		## own 34 px tier-B floor's intent for a control that is now a `Button`
+		## rather than the inert `Label` it was when 34 was written.
+	26: 36,   ## Status bar -- `--sbH` (`ENV:1819`).
+	40: 48,   ## Domain rail width -- `--railW`. **Not** the tool-options bar;
+		## see the header above.
+	70: 88,   ## Timeline. No prototype counterpart -- see `H_TIMELINE`.
 }
-## Tablet dock width. §1: "400 px" for both, so the desktop 372/300 pair
-## converges rather than scaling.
+## Tablet dock width. `--ldW:400px;--rdW:400px` (`ENV:1819`) -- the desktop
+## 372/304 pair still converges rather than scaling, exactly as the old canvas
+## had it, so this constant survives the re-base unchanged.
 const W_DOCK_TABLET := 400
+
+# ── The fourth density: LAPTOP 1366 ──────────────────────────────────────────
+#
+# There were three density sets and they were three *device classes* -- desktop,
+# tablet, phone -- resolved by `is_touch()` and `is_phone()`. The prototype adds
+# a fourth that is not a device class at all:
+#
+#   densStr = (touch ? <touch tokens> : <pointer tokens>)
+#           + (!touch && frame==='w1366' ? '--ldW:330px;--rdW:280px;--pop:280px;' : '')
+#                                                                    -- ENV:1819
+#
+# Read the *shape* of that expression rather than its content. LAPTOP is not a
+# fourth branch of a four-way switch; it is an **override layer applied on top
+# of the pointer set, and only while the pointer set is the one in play**. Three
+# tokens change and every other figure is inherited. Modelling it as its own
+# column would mean restating two dozen inherited values and inviting the copies
+# to drift -- which is the failure `ROLE`'s own header describes when `TABLET`'s
+# five rows had to be duplicated.
+#
+# So it is a dictionary of overrides keyed by the same role names `ROLE` uses,
+# consulted by `role_px()` *before* `ROLE`, and gated on `is_laptop()`, which is
+# `narrow and not touch`. That `not touch` is the literal `!touch` above and it
+# is load-bearing: without it a 1366-wide tablet would take dock widths sized
+# for a mouse. It also means the four sets are resolved by two independent
+# questions -- "is this touch?" and "is this narrow?" -- rather than by one
+# four-way classification, which is what makes phone (touch, and narrow, and
+# neither answer consulted because it has its own `PHONE_*` composition) fall
+# out without a special case.
+#
+# **The threshold is derived rather than read, and that is disclosed.** The
+# prototype names two pointer frames -- `w1920` (1920x1080) and `w1366`
+# (1366x768), `ENV:1675` -- and no boundary between them, because an artboard is
+# discrete where a real window is continuous. `W_LAPTOP_MAX` is set to the base
+# set's own frame width, so what selects the override is "narrower than the
+# width the base set was authored at". That is the only line the two named
+# frames support without inventing a figure, and it puts every common panel
+# below 1920 (1680, 1600, 1440) on the narrow set and everything at or above it
+# on the base set. BUILD_ANSWERS §2.3 argues a threshold for the phone/desktop
+# split from chrome-versus-map arithmetic and says nothing about this one; if
+# the owner ever states a number, it replaces this constant and nothing else.
+const W_LAPTOP_MAX := 1920
+## `--ldW` / `--rdW` / `--pop` at `ENV:1819`. Three overrides, no more: the
+## prototype leaves `--railExpW`, `--popW`, `--hero` and every type rung at the
+## base value on `w1366`.
+const LAPTOP := {
+	"w_left_dock": 330,
+	"w_right_dock": 280,
+	"w_menu_popup": 280,
+}
 
 # ── Tablet interior · role-keyed (§13, DS-03) ────────────────────────────────
 #
@@ -348,12 +702,17 @@ const ROLE := {
 	#   answers `_scaled(px)` for a caller that only has an integer, this answers
 	#   a caller that knows which region it is building. Same figures, and if one
 	#   ever moves the other must move with it.
-	"h_menu_bar": [34, 52],
-	"h_tool_options": [34, 52],
-	"h_status": [26, 36],
-	"h_timeline": [70, 88],
-	"h_rail_head": [29, 34],
-	"w_rail": [40, 48],
+	"h_menu_bar": [36, 52],        ## `--menuH` (`ENV:25`, `ENV:1819`).
+	## `--tbH`. **The one row here that is not a duplicate of `TABLET`** -- it
+	## cannot be, because `TABLET`'s integer key space maps 40 to the rail. This
+	## is the authoritative tool-options height and `dcc_shell.gd:1004` reads
+	## it directly; see `TABLET`'s header.
+	"h_tool_options": [40, 56],
+	"h_status": [26, 36],          ## `--sbH`.
+	"h_timeline": [70, 88],        ## No prototype counterpart; see `H_TIMELINE`.
+	"h_rail_head": [29, 34],       ## Stale; the prototype says `var(--tool)`,
+		## 30 / 44. See `TABLET`'s `29` row.
+	"w_rail": [40, 48],            ## `--railW`.
 
 	# — Bar interiors.
 	"bar_pad_x": [14, 22],       ## All four bars: `padding:0 14px` → `0 22px`.
@@ -381,6 +740,43 @@ const ROLE := {
 	"chip_pad_y": [3, 9],
 	"btn_pad_x": [11, 18],         ## Action button: `padding:3px 11px` → `9px 18px`.
 	"btn_pad_y": [3, 9],
+
+	# — Density-varying widths and the two hero type rungs, all new with the
+	#   2026-08-31 re-base. They live here rather than as top-level constants
+	#   because each is a *pair* the prototype states in `densStr` (`ENV:1819`),
+	#   and because `ROLE` is by its own header a table of tokens rather than of
+	#   wired values -- three of the five have no consumer in this shell yet and
+	#   say so below.
+	#
+	#   `w_left_dock` / `w_right_dock` restate `W_LEFT_DOCK` / `W_RIGHT_DOCK` /
+	#   `W_DOCK_TABLET` on purpose, the same way the region-box rows restate
+	#   `TABLET`: those constants answer a caller that has only a number, this
+	#   answers one that knows which dock it is building and can therefore also
+	#   pick up the `LAPTOP` override. If one moves the other must move with it.
+	"w_left_dock": [372, 400],
+	"w_right_dock": [304, 400],
+	## `--railExpW`, 200 -> **264**. BUILD_ANSWERS §2.4 records this as one of
+	## three values that did not scale to touch and should have -- "they were
+	## oversights". No consumer: `dcc_shell.gd::_build_rail()` builds the
+	## collapsed rail only, and the expansion column (`ENV:294`) is stage 2.
+	"w_rail_expanded": [200, 264],
+	## `--popW`, 238 -> **300**. The layers popover (`ENV:902`). Same §2.4
+	## ruling, same absence of a consumer -- `layers_popover.gd` sizes itself
+	## from its content today.
+	"w_popover": [238, 300],
+	## `--pop`, 300 -> **380**, and 280 on the LAPTOP band. The menu dropdown
+	## (`ENV:62`). Unconsumed because Godot's `PopupMenu` widths are
+	## content-driven; carried so the structural stage can pin them.
+	"w_menu_popup": [300, 380],
+	## `--hero` / `--hero2` (`ENV:1819`), the two large accent readouts.
+	## `FS_HERO` above is the desktop half of the first and keeps its name and
+	## its consumer (`right_dock.gd:1654`); this pair adds the touch halves that
+	## §2.4 says were missing. `--hero` is the sample elevation, the measure
+	## total and the paint count (`ENV:957`, `:973`, `:1041`); `--hero2` is the
+	## planner verdict (`ENV:1144`), which is smaller because it sits inside a
+	## dock rather than at the top of one.
+	"fs_hero": [26, 30],
+	"fs_hero_2": [22, 26],
 
 	# — Pinned. Listed rather than omitted, because "the canvas draws this the
 	#   same at both sizes" is a measured fact and a caller that guesses will
@@ -536,6 +932,30 @@ static func phone_scale() -> float:
 static func is_tablet() -> bool:
 	return _touch and not _phone_mode
 
+## The **fourth density set's** own predicate. See `LAPTOP`'s header for the
+## whole argument; the short version is that "narrow" and "touch" are two
+## independent questions, and this is the one `_touch` cannot answer.
+##
+## Published the same way as `_touch` and `_phone_mode`, and for the same
+## reason: the widget factories are static and cannot reach `DccShell`.
+## `DccShell._compute_layout_mode()` is the single writer.
+##
+## Defaults to `false`, which is the safe direction: a shell that never calls
+## `set_narrow()` gets the base 1920 set, which is what it got before this
+## constant existed. The failure mode of the other default would be a 1920
+## desktop silently running 330 px docks.
+static var _narrow := false
+
+static func set_narrow(v: bool) -> void:
+	_narrow = v
+
+## `narrow and not touch` -- the `!touch` in `ENV:1819`'s own expression, which
+## keeps a 1366-wide tablet on the touch set rather than handing it dock widths
+## sized for a mouse. A phone answers `false` here too (it is `_touch`), and
+## would ignore the answer regardless: it consumes `PHONE_*`, not `ROLE`.
+static func is_laptop() -> bool:
+	return _narrow and not _touch
+
 ## One `ROLE` figure, resolved for the device this session is running on.
 ##
 ## Tablet gets the tablet column; **desktop and phone both get the desktop
@@ -554,6 +974,13 @@ static func role_px(role: String) -> int:
 	if not ROLE.has(role):
 		push_error("DccTheme: unknown role '%s'" % role)
 		return 0
+	## `LAPTOP` is consulted first and only ever narrows the *pointer* answer:
+	## `is_laptop()` already excludes touch, so this can never shadow a tablet
+	## figure. The lookup is `LAPTOP.has()` rather than a parallel three-element
+	## array in `ROLE` because the override covers three roles out of forty --
+	## see `LAPTOP`'s header for why an override layer and not a fourth column.
+	if is_laptop() and LAPTOP.has(role):
+		return int(LAPTOP[role])
 	var pair: Array = ROLE[role]
 	return int(pair[1] if is_tablet() else pair[0])
 
@@ -630,9 +1057,11 @@ static func outline(border_token: String = "line", bg_token: String = "",
 ## desktop canvas never had to have an opinion about; taking radius 0 to the
 ## phone would be applying a rule the newer canvas already answered.
 ##
-## Reversed ink is `c("bg")` rather than the literal `#141617`, so a theme
-## switch repaints it -- the same choice `DccWidgets.set_mode_segment_on()`
-## made for the one filled accent surface on the desktop.
+## Reversed ink is `c("accent_ink")` -- `c("bg")` until the 2026-08-31 token
+## re-base, and the literal `#141617` before that. `pill()` sets only the fill;
+## its five callers set the ink, and all five moved together. See
+## `accent_ink`'s own comment above for why "dark" was the wrong property to
+## reverse onto and "reads on amber" is the right one.
 static func pill(primary: bool, radius: int, pad_x: int, pad_y: int) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = c("accent") if primary else Color(0, 0, 0, 0)

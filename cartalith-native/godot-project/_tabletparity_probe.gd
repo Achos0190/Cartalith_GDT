@@ -204,10 +204,42 @@ func _ready() -> void:
 	## them with -- measuring the built node would also pass if the resolver
 	## were right and the builder ignored it, so both are checked: the resolver
 	## here, the built node below.
-	_ok("_scaled(34) menu bar -> 52", tshell.call("_scaled", 34), 52)
+	##
+	## **Two of these four assertions were superseded by the 2026-08-31 token
+	## re-base and are restated to the new truth rather than left standing.**
+	## `design/dcc-environment-2026-08-31/Cartalith DCC Environment.dc.html:25`
+	## puts the menu bar at `--menuH:36px` (was 34) and the tool-options bar at
+	## `--tbH:40px` (was 34), and `:1819` puts them at 52 and 56 on touch.
+	##
+	## - The menu bar's desktop key moved 34 -> 36, so the call moved with it.
+	##   `_scaled(34)` still answers 52 and is still asked below, because 34 is
+	##   now the *dock header's* figure -- see `DccTheme.TABLET`'s header for
+	##   why that row was kept rather than deleted.
+	## - The tool-options bar left `_scaled()` altogether. Its new desktop
+	##   figure, 40, is also `--railW`, and `DccTheme.TABLET` is keyed by the
+	##   bare integer -- one key, two required answers (56 and 48). It resolves
+	##   through `role_px("h_tool_options")` now (`dcc_shell.gd`'s
+	##   `_build_tool_options_bar()`), which is asserted separately below. A
+	##   probe that kept asking `_scaled(40)` for the tool bar would have gone
+	##   on passing while silently measuring the rail.
+	_ok("_scaled(36) menu bar -> 52", tshell.call("_scaled", 36), 52)
+	_ok("_scaled(34) dock header -> 52", tshell.call("_scaled", 34), 52)
 	_ok("_scaled(70) timeline -> 88", tshell.call("_scaled", 70), 88)
 	_ok("_scaled(26) status -> 36", tshell.call("_scaled", 26), 36)
 	_ok("_scaled(40) rail -> 48", tshell.call("_scaled", 40), 48)
+	## The band `_scaled()` can no longer answer, and the two role figures the
+	## re-base moved. Asserted through `DccTheme` rather than the shell because
+	## `role_px()` is static and this is the resolver the builder calls.
+	_ok("role_px(h_tool_options) -> 56", DccTheme.role_px("h_tool_options"), 56)
+	_ok("role_px(h_menu_bar) -> 52", DccTheme.role_px("h_menu_bar"), 52)
+	_ok("role_px(w_rail) -> 48", DccTheme.role_px("w_rail"), 48)
+	## The fourth density set must NOT fire on a tablet: `is_laptop()` is
+	## `narrow and not touch`, and 2560 is not narrow anyway, so this checks
+	## both halves at once. If it ever reads true here, a tablet is about to be
+	## handed 330/280 px docks meant for a 1366 px mouse-driven window.
+	_ok("LAPTOP band stays off on tablet", DccTheme.is_laptop(), false)
+	_ok("tablet dock width survives the LAPTOP override",
+		DccTheme.role_px("w_left_dock"), 400)
 
 	print("")
 	print("-- SS13 targets: tier A 44px (action/category/group/tool), tier B 34px (mode/style chips) --")

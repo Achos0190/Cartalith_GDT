@@ -352,11 +352,16 @@ func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) 
 		## .gd` preloads two Plex weights and one Fira), so the weight is left
 		## alone rather than faked with an outline. Recorded, not silently
 		## dropped.
-		b.add_theme_color_override("font_color", DccTheme.c("bg"))
-		b.add_theme_color_override("font_hover_color", DccTheme.c("bg"))
-		b.add_theme_color_override("font_pressed_color", DccTheme.c("bg"))
-		b.add_theme_color_override("font_disabled_color", DccTheme.c("bg"))
-		font_color = DccTheme.c("bg")
+		## Reversed ink on the filled accent slab: `accent_ink` since the
+		## 2026-08-31 token re-base, `c("bg")` before it. The prototype agrees
+		## on the rule and on the site -- `layerRows` at `ENV:1960` sets the
+		## selected row to `col:'var(--accInk)'` and its key hint to the same,
+		## against `var(--body)`/`var(--faint)` when unselected.
+		b.add_theme_color_override("font_color", DccTheme.c("accent_ink"))
+		b.add_theme_color_override("font_hover_color", DccTheme.c("accent_ink"))
+		b.add_theme_color_override("font_pressed_color", DccTheme.c("accent_ink"))
+		b.add_theme_color_override("font_disabled_color", DccTheme.c("accent_ink"))
+		font_color = DccTheme.c("accent_ink")
 	if available:
 		b.pressed.connect(_on_pick.bind(id))
 	parent.add_child(b)

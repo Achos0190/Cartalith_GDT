@@ -1044,9 +1044,11 @@ static func set_mode_segment_on(b: Button, on: bool) -> void:
 	var filled := box("accent", "accent", seg_px, seg_py)
 	for sb_name in ["normal", "pressed", "disabled", "hover"]:
 		b.add_theme_stylebox_override(sb_name, filled)
-	b.add_theme_color_override("font_color", DccTheme.c("bg"))
-	b.add_theme_color_override("font_hover_color", DccTheme.c("bg"))
-	b.add_theme_color_override("font_disabled_color", DccTheme.c("bg"))
+	## See `accent_ink`'s own comment in `dcc_theme.gd`: this was `c("bg")`
+	## until the 2026-08-31 re-base, i.e. #0d0e0f ink on an #e0a34a fill.
+	b.add_theme_color_override("font_color", DccTheme.c("accent_ink"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("accent_ink"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("accent_ink"))
 
 ## The phone form of `action()`: `design/Cartalith Android Phone.dc.html`'s
 ## `height:48px;border-radius:24px`, primary filled `#e0a34a` with `#141617`
@@ -1080,10 +1082,13 @@ static func phone_pill(b: Button, unit: float) -> void:
 	for sb_name in ["hover", "pressed"]:
 		b.add_theme_stylebox_override(sb_name, lit)
 	b.add_theme_stylebox_override("focus", DccTheme.empty())
-	## Reversed paper ink on the filled pill (`c("bg")`, not the literal
-	## `#141617`, so a theme switch repaints it -- the same choice
-	## `set_mode_segment_on()` made), and `#c8cbcd` on the outlined one.
-	var fg := DccTheme.c("bg") if primary else DccTheme.c("text")
+	## Reversed paper ink on the filled pill -- `c("accent_ink")` since the
+	## 2026-08-31 re-base, and `c("bg")` before it, which was the literal
+	## `#141617` before *that*. Each step is the same correction taken one
+	## notch further: a theme switch has to repaint it, AND it has to be a
+	## colour chosen to sit on amber rather than one that happens to be dark.
+	## `#c8cbcd` on the outlined one, unchanged.
+	var fg := DccTheme.c("accent_ink") if primary else DccTheme.c("text")
 	b.add_theme_color_override("font_color", fg)
 	b.add_theme_color_override("font_hover_color", fg)
 	b.add_theme_color_override("font_pressed_color", fg)
