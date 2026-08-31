@@ -89,6 +89,7 @@ starting work — not this file, which is a map rather than a state.
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
+| `DESIGN_HANDOFF.md` | **give this to a designer.** Everything needed to produce a buildable GUI: the resolved tokens, the frame geometry for all three shells, the widget inventory a design must map onto, what does not exist, and the six rules learned expensively |
 | `UI_SHELL_DESIGN.md` | the DCC shell's rule set (owner-supplied) |
 | `DCC_SHELL_SCOPE.md` | how that shell maps onto the port — **carries the (lifted) UI hold notice** |
 | `GUI_SHELL_SCOPE.md` | the superseded panel-browser shell; history only |
