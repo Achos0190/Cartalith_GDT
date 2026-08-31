@@ -387,9 +387,6 @@ var _phone_battery_label: Label
 var _phone_side_clock_label: Label     ## Landscape's rotated-pocket twins of
 var _phone_side_battery_label: Label   ## the two above -- see `_build_phone_side_safe()`.
 var _phone_panel_picker: Control
-var _phone_bar_panels: Dictionary = {}  ## The bottom bar's two non-domain cells,
-var _phone_bar_more: Dictionary = {}    ## held so `_refresh_phone_bar_lit()` can
-	## light them; the three domain cells go through `_domain_marks` instead.
 var _phone_menu_bar: Control    ## L1 of the phone disclosure tree -- the bottom
 	## bar. Named handle because `_phone_bottom_reserve()` has to measure it.
 var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
@@ -3299,26 +3296,6 @@ func _refresh_phone_tabs() -> void:
 				box if on else DccTheme.empty())
 
 
-## Which of the two non-domain tabs is lit. The three domain cells go through
-## `_select_domain()`; these two have no domain to select, and without this the
-## bar said WORLD while the MORE screen was on top of it -- a tab bar naming a
-## destination the user is not at.
-##
-## Read off live state rather than tracked, so every opener and
-## `_close_all_phone_overlays()` need only call it, in any order.
-func _refresh_phone_bar_lit() -> void:
-	if _phone_bar_more.is_empty():
-		return
-	var more_on: bool = _phone_menu != null and _phone_menu.is_open()
-	var panels_on: bool = _left_sheet_open or _right_sheet_open \
-		or (_phone_panel_picker != null and _phone_panel_picker.visible)
-	_light_bar_cell(_phone_bar_more, more_on)
-	_light_bar_cell(_phone_bar_panels, panels_on)
-
-func _light_bar_cell(cell: Dictionary, on: bool) -> void:
-	var col := DccTheme.c("accent") if on else DccTheme.c("text_dim")
-	(cell["label"] as Label).add_theme_color_override("font_color", col)
-	(cell["icon"] as CanvasItem).modulate = col
 
 ## One bar cell: a `14px` glyph over a `9.5px/.1em` caption with `gap:4px`,
 ## centred in a 64 dp cell. Returns all three nodes because `_select_domain()`
@@ -3854,12 +3831,10 @@ func _close_all_phone_overlays() -> void:
 		var pop := node as Popup
 		if pop != null and pop.visible:
 			pop.hide()
-	_refresh_phone_bar_lit()
 
 func _set_panel_picker_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	_phone_panel_picker.visible = open
-	_refresh_phone_bar_lit()
 
 # -- ⌕ Find on map --------------------------------------------------------------
 #
@@ -4028,7 +4003,6 @@ func _set_search_open(open: bool) -> void:
 		_fill_search_results(_phone_search_results, _run_place_search(""),
 			func(): _set_search_open(false))
 		_phone_search_field.grab_focus.call_deferred()
-	_refresh_phone_bar_lit()
 
 ## Desktop's presentation. `AcceptDialog`/`PopupPanel` are retheme'd from the
 ## project's own theme resource by `_style_window_chrome()` (this file, the
@@ -4411,7 +4385,6 @@ func _set_overflow_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	if open:
 		_phone_menu.open()
-	_refresh_phone_bar_lit()
 
 ## The MORE tab is a toggle, because the canvas's `07 More` screen carries no
 ## close button of its own -- tapping the lit tab again is how you leave it, the
@@ -4422,7 +4395,6 @@ func _toggle_overflow() -> void:
 	_close_all_phone_overlays()
 	if not was_open:
 		_phone_menu.open()
-	_refresh_phone_bar_lit()
 
 ## Offer a transient `PopupMenu` the phone's own sheet presentation. Returns
 ## **false** on desktop and tablet, where the caller should go on and call
@@ -4540,7 +4512,6 @@ func _set_sheet_open(side: String, open: bool) -> void:
 		right_dock.visible = open
 		if open:
 			_reset_dock_scroll(_right_dock_scroll)
-	_refresh_phone_bar_lit()
 
 ## `phone_menu.gd::_render()` zeroes its own scroll the same way on every
 ## fill; a dock sheet's body, unlike the menu's, is never torn down and

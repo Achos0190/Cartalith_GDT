@@ -841,10 +841,29 @@ func _build_faction(body: Control) -> void:
 			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.",
 		not stats.is_empty())
 	_field(sec, "Provinces", str(mine.size()))
-	_field(sec, "State religion", "—",
-		"cartalith-civ computes a has_religion flag internally " +
-		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +
-		"it and there is no get_faction_aggregates() binding.", false)
+	## §6's Faction context asks for "state religion", and it was dashed with a
+	## reason that looked at the wrong source: *"get_provinces() doesn't carry
+	## it and there is no get_faction_aggregates() binding."* Both halves are
+	## true and neither is relevant -- **this row is built from `roster`, not
+	## from `get_provinces()`**, and `get_factions()` has carried `"religion"`
+	## since the roster window shipped (`cartalith-godot/src/lib.rs:6243`).
+	##
+	## `roster` is fetched at the head of this same function (`:813-818`) and
+	## `Culture` two rows up already reads out of it. The binding was one
+	## `.get()` away for as long as the row has said it was missing.
+	##
+	## Found by the 2026-08-31 unwired audit. Not stale WIRING -- a stale
+	## REASON, which `audit_wiring.py` structurally cannot see: every `#[func]`
+	## involved is called, and it is the tooltip that lies.
+	if roster.is_empty():
+		_field(sec, "State religion", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+	else:
+		var rel := String(roster.get("religion", "")).strip_edges()
+		## `"none"` is a real answer from `cartalith-civ`'s own vocabulary, not
+		## an absence -- a faction with no state religion is a fact about the
+		## world, so it prints rather than dashing.
+		_field(sec, "State religion", rel.capitalize() if rel != "" else "—")
 	_build_faction_relations(body)
 
 ## `GUI_GAP_REGISTER.md` **RL-01**. Every relation this faction is a party to,
