@@ -14,6 +14,10 @@ Most of those collapse into one transport problem. The rest are genuine design
 decisions I need you to make, and I'd rather you make them **in the files** than
 answer in prose, so the prototype stays the source of truth.
 
+**Already settled, so please don't re-open it:** the rail going from five domains
+to three is intended — INFRA is absorbed by CIVIL, RENDER by CARTO. I'm building
+that. The questions below are the ones still genuinely open.
+
 ## 1 · Blocker: the desktop file exceeds the export limit and arrives truncated
 
 `Cartalith DCC Environment.dc.html` comes back through the design MCP as exactly

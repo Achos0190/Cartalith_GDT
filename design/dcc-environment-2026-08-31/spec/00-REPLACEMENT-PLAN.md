@@ -61,6 +61,11 @@ needs nothing.
 
 ### 1.1 The rail goes from five domains to three
 
+> **Owner ruling, 2026-08-31:** *"Infra gets absorbed by civil and render by
+> Carto."* The fold is deliberate and is not up for re-litigation. INFRA and
+> RENDER stop being top-level domains; their content survives as nodes under
+> CIVIL and CARTO.
+
 Shipped: `WORLD · CIVIL · INFRA · CARTO · RENDER`, five flat domains.
 
 New: **three domains, each a header over a node tree.**
@@ -194,8 +199,7 @@ independently probe-verifiable.
    or collapse to one? The design gives four rows and one destination.
 3. **`statusMid` has no candidate anywhere in the delivered file** — what does
    the middle of the status bar show?
-4. **Does the fold lose anything you meant to keep?** INFRA and RENDER stop
-   being top-level. Their content survives as nodes, but the rail no longer
-   advertises them.
+4. ~~Does the fold lose anything you meant to keep?~~ **Answered 2026-08-31:**
+   *"Infra gets absorbed by civil and render by Carto."* Deliberate. See §1.1.
 5. The full 84-item list is at the foot of each spec file under
    `UNSPECIFIED:`.
