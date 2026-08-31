@@ -126,17 +126,36 @@ const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
 ## tablet version as close as possible to the windows gui": a 16:9 tablet was
 ## getting the opposite.
 ##
-## The fix is Android's own breakpoint rather than a new guess. `sw600dp` --
-## smallest width 600 density-independent pixels -- is the line the platform
-## itself draws between phone and tablet layouts, and it is a SIZE test, which
-## is the thing aspect was standing in for. dp is `px / (dpi / 160)`.
+## The fix is a SIZE test, which is the thing aspect was standing in for.
+## dp is `px / (dpi / 160)`.
 ##
-## Worked through, on the three devices this port is actually measured against:
+## **The threshold is 900 dp, and it is deliberately NOT Android's own 600.**
+## Owner ruling, 2026-08-31, with the arithmetic that settles it: the
+## desktop-parity shell has a hard chrome floor of 48 dp rail + 400 dp dock =
+## **448 dp before any map at all**. At 800 dp that leaves a 352 dp map --
+## narrower than the dock beside it, which is not the Windows GUI in any useful
+## sense. At 900 dp it leaves 452 dp and the map is the larger pane again.
 ##
-##   OnePlus 6T   1080 short / (402/160) = 430 dp  -> phone   (correct, unchanged)
-##   OnePlus 12   1440 short / (525/160) = 439 dp  -> phone   (correct, unchanged)
-##   16:9 tablet  1080 short / (200/160) = 864 dp  -> TABLET  (was phone; fixed)
-##   2560x1600    1600 short / (288/160) = 889 dp  -> tablet  (correct, unchanged)
+## So the line is where the map stops being the smaller half. `sw600dp` is the
+## right breakpoint for a phone/tablet LAYOUT question in general; it is the
+## wrong one for this shell, whose chrome is unusually wide.
+##
+## Worked through, on the devices this port is measured against:
+##
+##   OnePlus 6T   1080 short / (402/160) = 430 dp  -> phone
+##   OnePlus 12   1440 short / (525/160) = 439 dp  -> phone
+##   TABLET 800    800 dp                          -> phone   (deliberate; the
+##                                                   design frames it as one)
+##   16:9 tablet  1080 short / (200/160) = 864 dp  -> phone   (under 900)
+##   2560x1600    1600 short / (288/160) = 889 dp  -> phone   (!! see below)
+##   TABLET PORT. 1600 dp shortest width           -> tablet
+##
+## **The 2560x1600 case is worth stating plainly**: at 288 dpi it measures
+## 889 dp, four short of the line, so a physically large tablet with a very
+## dense panel lands on the phone side. That is what the ruling says and the
+## arithmetic is the ruling's own -- the shell needs 448 dp of chrome and 889
+## does not comfortably carry it. `_tabletparity_probe` forces the tablet
+## composition directly and so is unaffected.
 ##
 ## **Applied only on a real mobile device.** `screen_get_dpi()` reports the
 ## desktop monitor under `--force-touch`, where the viewport size is synthetic
@@ -145,7 +164,7 @@ const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
 ## tablet. So the dp test runs when `OS.has_feature("mobile")` is genuinely
 ## true, and `--force-touch` runs keep pure aspect, which is what every existing
 ## phone probe was written against.
-const _TABLET_MIN_DP := 600.0
+const _TABLET_MIN_DP := 900.0
 var _phone := false
 var _landscape := false
 var _phone_scale := 1.0  ## Maps `DccTheme.PHONE_REF_SHORT` phone-px onto the

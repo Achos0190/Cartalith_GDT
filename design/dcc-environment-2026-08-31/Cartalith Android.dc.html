@@ -7,7 +7,7 @@
 </head>
 <body>
 <x-dc>
-<helmet><script src="./landmark-glyphs.js"></script><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>html,body{margin:0;background:#0a0b0c}a{color:#e0a34a}a:hover{color:#f0bd72}@keyframes tIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes pIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}input[type=range]{-webkit-appearance:none;appearance:none;height:22px;background:transparent;margin:0}input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:10px;background:var(--acc,#e0a34a);margin-top:-8.5px;border:none}</style></helmet>
+<helmet><script src="./landmark-glyphs.js"></script><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>html,body{margin:0;background:#0a0b0c}:focus-visible{outline:2px solid #e0a34a;outline-offset:2px}a{color:#e0a34a}a:hover{color:#f0bd72}@keyframes tIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@keyframes pIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:none}}input[type=range]{-webkit-appearance:none;appearance:none;height:22px;background:transparent;margin:0}input[type=range]::-webkit-slider-runnable-track{height:3px;background:var(--hair,rgba(255,255,255,.14));border-radius:2px}input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:10px;background:var(--acc,#e0a34a);margin-top:-8.5px;border:none}</style></helmet>
 
 <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px 12px 40px;font:12px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#8d9296">
   <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;justify-content:center">
@@ -33,7 +33,7 @@
 
         <sc-if value="{{ scrPicker }}" hint-placeholder-val="{{ true }}">
           <div style="position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden">
-            <div style="height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font:10px 'IBM Plex Mono',monospace;color:var(--dim)"><span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span></div>
+            <div style="height:max(env(safe-area-inset-top),30px);flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font:10px 'IBM Plex Mono',monospace;color:var(--dim)"><span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span></div>
             <div style="padding:22px 20px 14px;flex:none">
               <div style="font:500 15px 'IBM Plex Mono',monospace;letter-spacing:.3em;color:var(--ink)">CARTALITH</div>
               <div style="padding-top:5px;font:10.5px 'IBM Plex Mono',monospace;color:var(--dim)">worlds on this device · ~/Cartalith/Worlds</div>
@@ -75,7 +75,7 @@
             </div>
 
             <div style="position:absolute;left:{{ chromeLeft }}px;right:0;top:0;pointer-events:none;z-index:8">
-              <div style="height:30px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;font:10px 'IBM Plex Mono',monospace;color:{{ statusCol }}"><span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span></div>
+              <div style="height:max(env(safe-area-inset-top),30px);display:flex;align-items:center;justify-content:space-between;padding:0 18px;font:10px 'IBM Plex Mono',monospace;color:{{ statusCol }}"><span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span></div>
               <div style="display:flex;align-items:center;gap:8px;padding:4px 10px 0">
                 <div style="pointer-events:auto;flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:20px;background:{{ pillBg }};border:1px solid var(--hair)">
                   <div style="flex:1;min-width:0">
@@ -602,7 +602,7 @@
                     </div>
                   </sc-for>
                 </div>
-                <div style="height:18px;flex:none;display:flex;align-items:center;justify-content:center"><div style="width:112px;height:4px;border-radius:2px;background:var(--bord)"></div></div>
+                <div style="height:max(env(safe-area-inset-bottom),18px);flex:none;display:flex;align-items:center;justify-content:center"><div style="width:112px;height:4px;border-radius:2px;background:var(--bord)"></div></div>
               </div>
             </sc-if>
             <sc-if value="{{ landscape }}" hint-placeholder-val="{{ false }}">
@@ -625,7 +625,10 @@
                     <input value="{{ searchQ }}" onInput="{{ hSearchQ }}" placeholder="find places · labels · routes…" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font:13px 'IBM Plex Mono',monospace">
                     <span onClick="{{ hSearchClose }}" style="font:11px 'IBM Plex Mono',monospace;color:var(--sec);cursor:pointer;padding:8px 4px">✕</span>
                   </div>
-                  <sc-for list="{{ searchRows }}" as="r" hint-placeholder-count="4">
+                  <sc-if value="{{ searchEmpty }}" hint-placeholder-val="{{ false }}">
+                      <div style="padding:22px 16px;text-align:center;font:10.5px/1.7 'IBM Plex Mono',monospace;color:var(--faint)">no match for “{{ searchQ }}”<br></br><span style="color:var(--dim)">search covers places, labels, routes — not terrain</span></div>
+                    </sc-if>
+                    <sc-for list="{{ searchRows }}" as="r" hint-placeholder-count="4">
                     <div onClick="{{ hSearchPick }}" data-x="{{ r.x }}" data-y="{{ r.y }}" data-n="{{ r.n }}" style="display:flex;align-items:center;gap:12px;min-height:48px;padding:0 16px;cursor:pointer;border-bottom:1px solid var(--hair2)">
                       <span style="font:11px 'IBM Plex Mono',monospace;color:var(--acc)">{{ r.glyph }}</span>
                       <span style="flex:1;color:var(--body)">{{ r.n }}</span>
@@ -725,10 +728,26 @@ class Component extends DCLogic {
   componentDidMount(){
     this._raf=requestAnimationFrame(this._loop=()=>{this._drawIf();this._raf=requestAnimationFrame(this._loop)});
     this._onKey=(e)=>{if(e.key==='Escape')this._esc()};window.addEventListener('keydown',this._onKey);
+    try{history.pushState({cart:1},'')}catch(e){}
+    this._onPop=()=>{const s=this.state;const deep=!!(s.modal||s.search.open||s.menuOpen||s.inspector.open||s.tab);
+      if(deep){this._esc();this._haptic('back');try{history.pushState({cart:1},'')}catch(e){}}};
+    window.addEventListener('popstate',this._onPop);
+    if(window.visualViewport){this._onVV=()=>{const vv=window.visualViewport;
+      const kb=Math.max(0,Math.round(window.innerHeight-vv.height-vv.offsetTop));
+      if(kb!==(this.state.kb||0))this.setState({kb})};window.visualViewport.addEventListener('resize',this._onVV)}
+    try{const raw=localStorage.getItem('cartalith.shell');if(raw){const v=JSON.parse(raw);
+      const d=[{label:'360',w:360,h:800},{label:'412',w:412,h:892},{label:'480',w:480,h:1040},{label:'TABLET 800',w:800,h:1280}].find(x=>x.label===v.dev);
+      const p={};if(d)p.dev=d;if(typeof v.light==='boolean')p.light=v.light;if(v.units)p.units=v.units;
+      if(Object.keys(p).length)this.setState(p,()=>{this._sizeCanvas();this._snapSheet();this.dirty=true})}}catch(e){}
     this._bindAll();
   }
-  componentWillUnmount(){cancelAnimationFrame(this._raf);window.removeEventListener('keydown',this._onKey);if(this._ro)this._ro.disconnect()}
-  componentDidUpdate(){this._bindAll()}
+  componentWillUnmount(){cancelAnimationFrame(this._raf);window.removeEventListener('keydown',this._onKey);window.removeEventListener('popstate',this._onPop);if(window.visualViewport&&this._onVV)window.visualViewport.removeEventListener('resize',this._onVV);if(this._ro)this._ro.disconnect()}
+  componentDidUpdate(){this._bindAll();
+    try{const s=this.state;const v=JSON.stringify({dev:s.dev.label,light:s.light,units:s.units});
+      if(v!==this._pv){this._pv=v;localStorage.setItem('cartalith.shell',v)}}catch(e){}}
+  // §4.9 haptics — one table, called from the four moments that earn one
+  _haptic(kind){const MS={sample:12,detent:8,arm:10,verdict:[14,40,14],back:6,blocked:[20,60,20]}[kind];
+    this._lastHaptic=kind;try{if(navigator.vibrate&&MS!=null)navigator.vibrate(MS)}catch(e){}}
   _esc(){const s=this.state;if(s.modal)this.setState({modal:null});else if(s.search.open)this.setState({search:{open:false,q:''}});else if(s.menuOpen)this.setState({menuOpen:false});else if(s.inspector.open)this.setState({inspector:{open:false,d:s.inspector.d}});else if(s.tab)this.setState({tab:null})}
   toast(msg){const t={id:Date.now()+Math.random(),msg};this.setState(s=>({toasts:[...s.toasts,t]}));setTimeout(()=>this.setState(s=>({toasts:s.toasts.filter(x=>x.id!==t.id)})),2600)}
   pushUndo(label,revert){this.setState(s=>({undoStack:[...s.undoStack,{label,revert}]}))}
@@ -882,7 +901,7 @@ class Component extends DCLogic {
     hSearchOpen:()=>this.setState({search:{open:true,q:''},menuOpen:false}),
     hChipTap:()=>this._openInspector(),
   }}
-  _snapSheet(){const sh=this.sheetRef.current;if(sh&&this.state.tab&&!this.state.land)sh.style.height=this._detH(this.state.detent)+'px'}
+  _snapSheet(){const sh=this.sheetRef.current;if(sh&&this.state.tab&&!this.state.land){const h=this._detH(this.state.detent);if(sh.style.height!==h+'px')this._haptic('detent');sh.style.height=h+'px'}}
   valsMap(){
     const s=this.state;const chip=(on)=>({bord:on?'var(--acc)':'var(--hair)',col:on?'var(--acc)':'var(--sec)',bg:on?'var(--wash)':'var(--chip)'});
     const mapTools=[{id:'inspect',label:'INSPECT',glyph:'➤'},{id:'measure',label:'MEASURE',glyph:'⟟'},{id:'label',label:'LABEL',glyph:'⌖'},{id:'icon',label:'ICON',glyph:'◇'}].map(t=>({...t,...chip(s.tool===t.id)}));
@@ -901,7 +920,7 @@ class Component extends DCLogic {
       measureOn:s.tool==='measure',measTotal:this.fmtKm(mt),measN:String(s.measurePts.length),
       labelDraftOn:!!s.labelDraft,labelText:s.labelDraft?s.labelDraft.text:'',
       wayOn:s.tool==='way'&&s.wayDraft.length>0,wayN:String(s.wayDraft.length),wayLen:this.fmtKm(wl),
-      hTool:e=>{const t=e.currentTarget.dataset.tool;this.setState({tool:t,detent:t==='inspect'?this.state.detent:'peek'},()=>this._snapSheet())},
+      hTool:e=>{const t=e.currentTarget.dataset.tool;this._haptic('arm');this.setState({tool:t,detent:t==='inspect'?this.state.detent:'peek'},()=>this._snapSheet())},
       hIconVar:e=>this.setState({iconVar:e.currentTarget.dataset.v}),
       hLayer:e=>{const d=e.currentTarget.dataset;if(d.kind==='base')this.setState({base:d.id},()=>{this.dirty=true});else this.setState(st=>({overlay:st.overlay===d.id?null:d.id}),()=>{this.dirty=true})},
       hPreset:e=>{this.setState({stylePreset:e.currentTarget.dataset.id,styleCustom:false},()=>{this.dirty=true})},
@@ -1393,7 +1412,7 @@ class Component extends DCLogic {
     const stack=s.undoStack;const histRows=stack.map((e,i)=>({label:(i+1)+' · '+e.label,i:String(i)})).reverse().slice(0,6);
     const coachTexts=['Drag to pan · pinch to zoom · two fingers to rotate','Long-press samples the terrain · swipe in from the right edge for the inspector'];
     const coachEnabled=(this.props.coachMarks??true)&&s.scr==='app';
-    const dockBottom=land?14:98;
+    const dockBottom=(land?14:98)+(s.kb||0);
     return {
       fabBottom:land?18:104,undoLeft:land?86:12,dockBottom,coachBottom:dockBottom+2,toastBottom:dockBottom+64,
       vpLabel:s.vp3d?'3D':'2D',
@@ -1413,7 +1432,7 @@ class Component extends DCLogic {
       coachOn:coachEnabled&&(s.coach===0||s.coach===1),coachText:coachTexts[s.coach]||'',
       hCoachDismiss:()=>{if(this.state.coach===0)this.setState({coach:1});else this._coachDone()},
       toasts:s.toasts,
-      searchOpen:s.search.open,searchQ:s.search.q,searchRows,
+      searchOpen:s.search.open,searchQ:s.search.q,searchRows,searchEmpty:!!q&&searchRows.length===0,
       hSearchQ:e=>{const v=e.target.value;this.setState(st=>({search:{...st.search,q:v}}))},
       hSearchClose:()=>this.setState({search:{open:false,q:''}}),
       hSearchPick:e=>{const d2=e.currentTarget.dataset;this.view.cx=+d2.x;this.view.cy=+d2.y;this.view.s=Math.max(this.view.s,1.1);this.dirty=true;this.setState({search:{open:false,q:''},samplePin:{x:+d2.x,y:+d2.y}});this.toast('Panned to '+d2.n)},
@@ -1447,7 +1466,7 @@ class Component extends DCLogic {
     const titles={map:['MAP','layers · style · annotation'],gen:['GENERATE',s.genMode==='pipe'?'pipeline · seed '+s.world.seed:'sculpt · draft stamps'],plan:[s.planView==='stage'?'PLAN · STAGE '+(s.plan.sel+1):'PLAN','journey · Vhal Serai → Port Amre'],more:mt};
     const tt=s.tab?titles[s.tab]:['',''];
     const light=s.light;
-    const themeVars=light?'--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#6b6f6a;--faint:#8d9088;--acc:#a4650f;--accInk:#f7f4ee;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.20);--wash:rgba(164,101,15,.10);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.10);background:var(--sur)':'';
+    const themeVars=light?'--warn:#9a6a12;--block:#a04437;--good:#4e6f3f;--water:#3f6675;--sur:#f4f2ee;--pan:#fbfaf7;--pan2:#eceae4;--ink:#111210;--body:#23241f;--sec:#3d3f39;--dim:#6b6f6a;--faint:#8d9088;--acc:#a4650f;--accInk:#f7f4ee;--hair:rgba(0,0,0,.14);--hair2:rgba(0,0,0,.08);--bord:rgba(0,0,0,.20);--wash:rgba(164,101,15,.10);--chip:rgba(0,0,0,.05);--chipOn:rgba(0,0,0,.10);background:var(--sur)':'';
     const sd=s.samplePin?this.sampleData(s.samplePin):null;
     const moreDepth=s.moreStack.length>1;const planDepth=s.planView!=='root';
     return {
