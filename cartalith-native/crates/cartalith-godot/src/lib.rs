@@ -160,6 +160,32 @@ struct CivData {
     /// own `n < 2` early return) -- a legitimate empty-map outcome, not an
     /// error.
     sea_routes: Vec<cartalith_civ::SeaRoute>,
+    /// The **raw** auto-populate road topology's own edges
+    /// (`civ_hierarchical_network_topology`'s `RoadEdge` list), retained
+    /// past `compute_civilisation` rather than dropped with `topology`.
+    ///
+    /// Not a second copy of `ways` above: `ways` is the consolidated,
+    /// smoothed, classified polyline set the map *draws*, and an edge here
+    /// is the un-smoothed cell path the router actually laid down. The
+    /// Journey Planner wants the second one — `cartalith_civ::jp_road_cells`
+    /// takes `ways` **and** `road_edges` (the reference's two road sources,
+    /// `civWays` plus `state.roads.edges`), and until this field existed
+    /// `journey_bridge::JourneyWorld::build` had no choice but to pass `&[]`
+    /// for the second, so a route that followed a road the planner could not
+    /// see was costed as trackless ground.
+    ///
+    /// Empty on the SG-02 keep path only insofar as the topology is: the
+    /// endpoint remap that `ways` gets is applied before this is captured,
+    /// so `a`/`b` index into `settlements` here exactly as they do there.
+    /// Empty for a project restored from an archive — the format stores no
+    /// channel topology (`SAVEFILE_COMPAT.md` §16.2), the same reason
+    /// `explanations` is empty there.
+    ///
+    /// **`build_road_network` is still not this.** That is the reference's
+    /// *manual*-placement-tool MST and no tool in this port calls it; this
+    /// field is the auto-populate pass's own output, which is what
+    /// `UNWIRED_FUNCTIONS.md`'s row asked to retain first.
+    road_edges: Vec<cartalith_civ::RoadEdge>,
     /// `cartalith_civ::assign_territory`'s per-cell output (Phase 2
     /// milestone 10, `DECISIONS.md` §7b -- cost-distance Voronoi from
     /// capitals, population-weighted, no JS reference to match since the
@@ -251,10 +277,14 @@ struct CivData {
     /// `TIMELINE_SCOPE.md` milestone 4's active-year cursor -- the
     /// reference's `civYear` (reference line 14757: `let civYear=0`). `0`
     /// before any year has ever been added, matching the reference's own
-    /// init value. No reader yet -- milestone 5's `#[func]` boundary
-    /// (`timeline_bridge.rs`) is what will expose it to GDScript; this field
-    /// is written by every method below regardless.
-    #[allow(dead_code)]
+    /// init value.
+    ///
+    /// This used to carry "No reader yet" and an `#[allow(dead_code)]`.
+    /// Milestone 5 built the readers and neither was re-checked: the cursor
+    /// is exposed to GDScript by [`WorldGen::get_civ_year`], read as the
+    /// restore point by `civ_run_collapse_simulation` (`let active_year =
+    /// civ.year`), and carried across a civ-only recompute by
+    /// `recompute_civilisation` (`fresh.year = old.year`).
     year: i64,
     /// `TIMELINE_SCOPE.md` milestone 5's own addition -- `currentAgrarianDensity()`'s
     /// per-cell output (`cartalith_civ::timeline::civ_current_agrarian_density`),
@@ -323,17 +353,22 @@ struct KeptCiv {
 /// (and in `cartalith-native/docs/CHANGELOG.md`) as a deliberate deviation,
 /// not a silent one -- `civ_add_year`'s own doc comment is where it's
 /// enforced.
-#[allow(dead_code)] // read by `CivData::civ_add_year` below; the lint can't see through `impl` gating
 const TIMELINE_MAX_YEARS: usize = 2000;
 
-/// This milestone (`TIMELINE_SCOPE.md` milestone 4) deliberately stops at
-/// plain Rust methods over `CivData` -- no `#[func]`/`Variant` surface, per
-/// its own scope ("Do NOT start milestone 5"). Every method below is
-/// consequently unreachable from anywhere in this crate yet (nothing calls
-/// `civ_add_year`/`civ_remove_year`/`civ_year_diff` until milestone 5 wires a
-/// `#[func]` to each) -- `#[allow(dead_code)]` on the block disclosing why,
-/// rather than scattering it per-method.
-#[allow(dead_code)]
+/// Plain Rust methods over [`CivData`], below the `#[func]`/`Variant`
+/// boundary.
+///
+/// This block used to carry a blanket `#[allow(dead_code)]` justified by
+/// `TIMELINE_SCOPE.md` milestone 4's "Do NOT start milestone 5" -- "every
+/// method below is consequently unreachable from anywhere in this crate
+/// yet". Milestone 5 wired all of them and the allow was never re-checked,
+/// so a lint that should have been protecting five live methods was
+/// suppressing warnings for the whole block. Every method here now has a
+/// live caller: `faction_rgb` from the territory wash, the Political-control
+/// field and `get_factions`; `civ_goto_year`/`civ_add_year`/
+/// `civ_remove_year` from the `civ_*_year` `#[func]`s; and `civ_year_diff`
+/// from `civ_year_diff_dict`. The allow is gone rather than re-dated, so the
+/// next method added here has to earn its own.
 impl CivData {
     /// **The** swatch for faction `f` (`1`-based) — the roster's own
     /// identity colour when the user has set one, and
@@ -488,6 +523,7 @@ mod civ_timeline_tests {
             settlements,
             ways: Vec::new(),
             sea_routes: Vec::new(),
+            road_edges: Vec::new(),
             territory,
             provinces: Vec::new(),
             province_list: Vec::new(),
@@ -732,6 +768,90 @@ impl RecoveryPhaseOpt {
     }
 }
 
+/// The coarse ocean-current/wind vector fields [`cartalith_civ::civ_sea_routes`]
+/// needs for current/wind-costed sea-lane routing (`DECISIONS.md`, the
+/// `_civSeaTimeEdgeCost` port) -- the exact same "recompute fresh, keep
+/// nothing" fields the Wind/Ocean-currents debug views already sample
+/// (`cartalith_climate::current_wind_field`/`current_ocean_field`,
+/// "deliberately uncached"; `sample_bridge::flow_fx_raster`'s own call is
+/// the recipe this mirrors field-for-field).
+///
+/// A free function, not a method: both callers of [`compute_civilisation`]
+/// build this from a **local** `p: &WorldParams` (`absorb`'s own parameter,
+/// `recompute_civilisation`'s own `self.recompute_params()`) rather than
+/// `self.params`, which is not yet the generation this civ layer is being
+/// computed for at either call site — `absorb`'s own comment right above
+/// makes the same point about `sea_level`, which is why that is a separate
+/// explicit parameter here too rather than `p.sea_level`.
+fn coarse_ocean_wind_fields(
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    sea_level: f64,
+    p: &WorldParams,
+) -> (cartalith_civ::JpCoarseField, cartalith_civ::JpCoarseField) {
+    let ww = gw.min(240);
+    let wh = (cartalith_jsmath::js_round(ww as f64 * gh as f64 / gw.max(1) as f64) as usize).max(2);
+    let cur = cartalith_climate::current_ocean_field(
+        gw,
+        gh,
+        field,
+        ww,
+        wh,
+        world,
+        3.0,
+        sea_level,
+        world,
+        p.climate.lat_n,
+        p.climate.lat_s,
+        p.climate.equator_temp,
+        p.climate.pole_temp,
+        p.planet.axial_tilt_deg,
+        p.planet.rotation_hours,
+        p.climate.wind_manual,
+        p.climate.wind_dir_deg,
+        p.climate.press_k,
+    );
+    // `currentOceanField()`'s own `maxSpeed` (reference line 5577): the max
+    // current SPEED over ocean cells ONLY (`if(!cur.ocean[i]){...continue;}`
+    // skips land before measuring) -- `current_ocean_field`'s Rust port
+    // returns `OceanCurrentResult{u,v,ocean}` with no `max_speed` field of
+    // its own (its only other caller, `ocean_sst_anomaly`, has no use for
+    // one), so it is measured here rather than inside `cartalith-climate`.
+    let ocean_max_speed = cur
+        .u
+        .iter()
+        .zip(cur.v.iter())
+        .zip(cur.ocean.iter())
+        .filter(|&(_, &o)| o != 0)
+        .map(|((&u, &v), _)| (u as f64).hypot(v as f64))
+        .fold(1e-6_f64, f64::max);
+    let ocean_field = cartalith_civ::JpCoarseField { ww, wh, u: cur.u, v: cur.v, max_speed: ocean_max_speed };
+
+    let wf = cartalith_climate::current_wind_field(
+        gw,
+        gh,
+        field,
+        sea_level,
+        p.peak_m,
+        world,
+        p.climate.lat_n,
+        p.climate.lat_s,
+        p.climate.equator_temp,
+        p.climate.pole_temp,
+        p.planet.axial_tilt_deg,
+        p.planet.rotation_hours,
+        p.climate.lapse_rate,
+        p.climate.wind_manual,
+        p.climate.wind_dir_deg,
+        p.climate.press_k,
+    );
+    let wind_field = cartalith_civ::JpCoarseField { ww: wf.ww, wh: wf.wh, u: wf.u, v: wf.v, max_speed: wf.max_speed };
+
+    (ocean_field, wind_field)
+}
+
 /// `keep` is what separates the two callers (`GUI_GAP_REGISTER.md` SG-02):
 ///
 /// - **`None`** — `absorb`'s path, and the only one that existed before
@@ -769,6 +889,13 @@ fn compute_civilisation(
     river_density: f64,
     opts: CivOptions,
     keep: Option<KeptCiv>,
+    // `_civSeaTimeEdgeCost`'s port (`DECISIONS.md` §7i): current/wind-costed
+    // sea lanes. Both callers build this via `coarse_ocean_wind_fields`,
+    // which needs `self.params`/a local `p: &WorldParams` this free
+    // function does not otherwise take -- see that function's own doc
+    // comment for why it is computed there and handed in rather than
+    // re-derived here.
+    ocean_wind: (&cartalith_civ::JpCoarseField, &cartalith_civ::JpCoarseField),
 ) -> CivData {
     let keeping = keep.is_some();
     let sea_level = ws.sea_level;
@@ -1240,7 +1367,10 @@ fn compute_civilisation(
     // ports here, matching the reference's own hamlet-tier village shape).
     let ports: Vec<cartalith_civ::NamedSettlement> =
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
-    let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
+    let sea_routes = cartalith_civ::civ_sea_routes(
+        &ports, &ws.field, &wb.classification, gw, gh, world, map_width_km,
+        Some(ocean_wind.0), Some(ocean_wind.1),
+    );
 
     // `TIMELINE_SCOPE.md` milestone 1: stamp every settlement/way with a
     // real `tid` right here -- the "placement/road-generation time" this
@@ -1298,6 +1428,10 @@ fn compute_civilisation(
     CivData {
         settlements,
         ways,
+        // The raw topology, kept rather than dropped with `topology` at the
+        // end of this function -- see `CivData::road_edges`. Taken after the
+        // `net_idx` remap above, so the endpoints index into `settlements`.
+        road_edges: topology.edges,
         sea_routes,
         territory,
         provinces,
@@ -1972,6 +2106,23 @@ struct WorldGen {
     /// meaningless over a new one, and at a different resolution it is not
     /// even the right length.
     undo: undo::HeightUndo,
+    /// The forward half of the same cursor — what `undo_last()` stepped off
+    /// and `redo_last()` steps back onto (`UNWIRED_FUNCTIONS.md`'s "Global
+    /// `Redo`" row).
+    ///
+    /// That row **went live in this same batch**, on this field: `menus.gd`'s
+    /// `_edit` builder draws `Redo` with `_live(...)` and its Ctrl+Shift+Z
+    /// accelerator (`menus.gd:639`) as soon as `redo_available` is bound
+    /// on both the shell's bridge and the loaded cdylib. The disabled `_todo`
+    /// beside it (`menus.gd:642`) survives only for the mismatch case — a
+    /// native library older than the shell — and says so; it is no longer the
+    /// state a correctly-built app is in.
+    ///
+    /// **Not** `sculpt_redo`, which walks an uncommitted Sculpt draft's stamp
+    /// history and shares nothing with this: `undo.rs`'s module doc draws the
+    /// line, the reference draws it in its own words, and the two stacks stay
+    /// separate here too.
+    redo: RedoTail,
     /// `GUI_GAP_REGISTER.md` **ED-02** — the history ledger over every
     /// committed operation, not only the reversible ones. See
     /// `undo::HistoryLedger` for why it records more than `undo` can revert.
@@ -2055,7 +2206,30 @@ struct WorldGen {
     /// split across this struct, because that crate's own module doc states
     /// why the panel must not own the 49-key vocabulary a second time. See
     /// `landmark_bridge.rs`'s own module doc for what this bridge adds on
-    /// top of it, and why the settings are not persisted to disk.
+    /// top of it.
+    ///
+    /// # What is saved, and what is not
+    ///
+    /// This doc used to end the sentence above with "and why the settings
+    /// are not persisted to disk". `landmark_bridge.rs` says nothing about
+    /// persistence — the citation was dangling, and behind it was a real
+    /// hole: **neither `settings` nor `last` reached any project slot**, so
+    /// a user who armed twelve types, tuned the caps and ran the pass got an
+    /// archive that remembered none of it.
+    ///
+    /// Half of that is now closed. `project_bridge.rs` writes `settings`
+    /// into `entities/landmarks.json` (see `LandmarksDoc`) and restores it in
+    /// `project_open`, and `load_save`'s reset puts it back to
+    /// `LandmarkSettings::default()` first — which also ends the leak in the
+    /// other direction, where an un-reset cap table followed the user from
+    /// one project into the next.
+    ///
+    /// `last` is still not written, deliberately and not for want of a slot:
+    /// the pass is a pure function of the world, the settings and the seed
+    /// (`LANDMARK_GENERATION_RESEARCH.md` §27), `invalidate()` has to clear
+    /// it on open regardless — placements taken over the previous field must
+    /// not be drawn against a new one — and re-running it is one click that
+    /// reproduces the same placements exactly.
     ///
     /// `settings` is **not** reset by `absorb()`, the same reasoning
     /// `civ_options` already carries: a cap table describes what the user
@@ -2111,6 +2285,7 @@ impl IRefCounted for WorldGen {
             asset_library: asset_bridge::AssetLibrarySession::new(),
             territory_opacity: TERRITORY_ALPHA_DEFAULT,
             undo: undo::HeightUndo::new(),
+            redo: RedoTail::new(),
             ledger: undo::HistoryLedger::new(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
@@ -2264,6 +2439,42 @@ impl WorldGen {
     /// called from `import_heightmap` or `load_save`: those two really can
     /// fail recoverably — a file that will not read or decode — and both
     /// already promise to leave the previous world untouched when they do.
+    ///
+    /// # Four of these lines destroy user work, and nothing asks first
+    ///
+    /// `source`, `civ`, `sculpt` and `civ_tools` are derived from, or drafts
+    /// over, the outgoing terrain: dropping them is correct and costs
+    /// nothing a regenerate does not already replace. **`icons`, `labels`,
+    /// `infra` and `paint` are not.** They hold hand-placed marks,
+    /// hand-typed label text, hand-drawn ways and routes, and accumulated
+    /// paint layers — authored by the user, held nowhere else in the process,
+    /// and gone the instant this runs.
+    ///
+    /// That would be a defensible cost for an explicit *Generate world*
+    /// press. It is not one for how the shell actually reaches here:
+    /// `world_workspace.gd::_on_float_row_released` calls
+    /// `_regenerate_live()` on **every generation slider's `drag_ended`**, so
+    /// nudging one dial one notch runs a full generate and takes the lot,
+    /// with no prompt and no way back -- `undo`/`redo` are cleared in this
+    /// same function, and none of the four was ever snapshotted into either
+    /// stack to begin with (both hold height fields, nothing else).
+    ///
+    /// Not changed here, because neither of the two honest repairs is this
+    /// function's alone:
+    ///
+    /// * **Ask.** A confirmation on `_regenerate_live()` when any of the four
+    ///   is non-empty. Shell-side, and the cheaper of the two. This paragraph
+    ///   is the enumeration such a prompt needs.
+    /// * **Keep.** Carry the four across when `p.gw`/`p.gh` are unchanged,
+    ///   clearing them only on a resolution or region-mode change. Every
+    ///   coordinate stays in bounds, but `PaintEditor`'s `water_mask` gate is
+    ///   captured per world and would have to be re-seeded from the new
+    ///   `civ.water_bodies` (`PaintEditor::new`'s own doc), and holding the
+    ///   layers through the generate gives back part of what
+    ///   `MEMORY_OPTIMIZATION_SCOPE.md` R1 bought by introducing this
+    ///   function. Neither is a blocker; both are decisions.
+    ///
+    /// Whichever is chosen, the four names above are the list.
     fn release_world(&mut self) {
         self.source = None;
         self.civ = None;
@@ -2276,10 +2487,22 @@ impl WorldGen {
         // Snapshots of the previous world's height field, which `absorb`
         // clears anyway and which are meaningless over the next world.
         self.undo.clear();
+        self.redo.clear();
         // F12: memory hygiene only. The cache carries its own fingerprint and
         // would refuse itself over the next world regardless; this returns its
         // one `i32`-per-cell buffer while there is no world to plan over.
         self.wildlife = None;
+        // The project-scoped half of the Markdown Vault, for the same reason
+        // every editor above is dropped: a knowledge link binds a note to an
+        // `entity_id` in the *outgoing* civ layer, and `absorb()` replaces
+        // `self.civ` wholesale. Kept, they would resolve against the next
+        // world's ids by coincidence -- and `project_save_with_documents`
+        // would write them into whatever project is saved next.
+        //
+        // `store.vaults` survives: it is the device's binding registry
+        // (`vault_info()`), not world state. See `load_save`'s copy of this
+        // clear for the longer version.
+        self.vault.store.links.clear();
     }
 
     /// Stores a finished generation: the effective sea level, the render
@@ -2296,7 +2519,10 @@ impl WorldGen {
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
         self.gpu_stages_used = ws.gpu_stages_used.clone();
-        self.civ = Some(compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options, None));
+        let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
+        self.civ = Some(compute_civilisation(
+            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options, None, (&ocean_f, &wind_f),
+        ));
         // Milestone F: a fresh Sculpt draft over this world's own
         // dimensions, seeding the water hooks from whatever
         // carve_river_valleys already locked during generation
@@ -2375,6 +2601,9 @@ impl WorldGen {
         // grid cannot change size mid-session); this port's `generate_sized`
         // can, so it must. See `undo.rs`'s divergence list.
         self.undo.clear();
+        // The forward half of the cursor holds the same wrong-world field,
+        // for the same reason.
+        self.redo.clear();
         // ED-02: a generate is the ledger's **floor**, and clears it for the
         // same reason `undo.clear()` above does -- nothing before it can be
         // reverted to, so drawing it would be an offer the engine cannot
@@ -2832,6 +3061,52 @@ impl WorldGen {
             .collect()
     }
 
+    /// Whether a GPU buffer readback has failed at all this session.
+    ///
+    /// The enable condition for `Preferences ▸ Performance ▸ Try the GPU
+    /// again` (`menus.gd::_refresh_gpu_retry_row`), and nothing else: the row
+    /// clears a ban, so it may only be live while there is a ban to clear.
+    /// False is the normal answer on healthy hardware and stays false for a
+    /// whole session that never hits the wall.
+    ///
+    /// **What "failed" means here** is measured, not predicted. An adapter can
+    /// report limits covering a grid size, pass every check, dispatch, and
+    /// still return `BufferAsyncError` from the `MAP_READ` staging map — this
+    /// machine's integrated Radeon does exactly that at 8192². There is no
+    /// query for it, so `cartalith-gpu` records the size against the adapter
+    /// when it happens and refuses that size and larger for the rest of the
+    /// session (`multi::device_supports_grid`), taking the CPU path instead of
+    /// crashing (`HARDWARE_ACCELERATION.md` §27). This reports whether any
+    /// such record exists.
+    ///
+    /// Deliberately not covered: the per-device *lost* flag. That one dies
+    /// with the device handle, and the next `generate()` opens a fresh device,
+    /// so there is nothing for a user to clear — see `any_readback_failure`'s
+    /// own doc in `cartalith-gpu`.
+    #[func]
+    fn gpu_readback_failed(&self) -> bool {
+        cartalith_gpu::any_readback_failure()
+    }
+
+    /// Forget every recorded GPU readback failure, so the next `generate()`
+    /// tries the GPU at sizes this session has banned.
+    ///
+    /// Returns whether anything was actually forgotten, so a caller can say
+    /// "cleared" rather than guess. Clearing an empty record is a harmless
+    /// no-op returning `false` — a disabled row's handler can still be reached
+    /// by a menu accelerator or a double click, and that must be inert.
+    ///
+    /// This does not make the hardware work. It withdraws the *assumption*
+    /// that the failure repeats, which is worth withdrawing after a driver
+    /// update, or before generating a smaller world than the one that failed.
+    /// If it fails again the record simply comes back.
+    #[func]
+    fn gpu_clear_readback_failures(&self) -> bool {
+        let had = cartalith_gpu::any_readback_failure();
+        cartalith_gpu::clear_readback_failures();
+        had
+    }
+
     /// The seed the last `generate()`/`generate_world_structure()` used
     /// (reference `state.tect.seed`). `0` before the first call. Seed is a
     /// `generate()` argument, not a settable parameter — this exists so a
@@ -3107,6 +3382,36 @@ impl WorldGen {
     /// terrain that has moved out from under them. Re-run `generate()` for
     /// a civilisation layer over the centred world.
     ///
+    /// The generated landmark set is invalidated for the same reason
+    /// [`absorb`] and the project loader already invalidate it: a landmark
+    /// holds a grid coordinate *and* terrain readings taken at it, and the
+    /// terrain under that coordinate has just moved. Not data loss —
+    /// `landmark_run()` is a user-triggered pass that rebuilds from the
+    /// current field.
+    ///
+    /// # What still drifts, and is not fixed here
+    ///
+    /// **Every other hand-authored editor keeps its old-grid coordinates.**
+    /// `self.icons` (hand-placed marks), `self.labels`, `self.infra`
+    /// (committed ways/routes, the Measure chain, the Region-select
+    /// marquee) and `self.paint`'s accumulated layers all survive this call
+    /// untouched, so after a non-zero rotation they sit `offset` columns
+    /// away from the terrain they were authored against.
+    ///
+    /// They are **not** dropped, because dropping them is the one outcome
+    /// worse than the drift: a user loses hand work to a button whose
+    /// tooltip promises only that "the civilisation layer is dropped". The
+    /// correct repair is a shift, not a drop — the map wraps, so a point
+    /// feature's new column is `(x - offset).rem_euclid(gw)`, exactly the
+    /// inverse of [`cartalith_terrain::center::shift_grid_x`]'s own "new
+    /// column `x` reads old column `(x + off) % W`". It is not done here
+    /// because two of the five editors cannot be shifted correctly from
+    /// this file: `PaintEditor`'s three layers are private sparse buffers
+    /// (a grid shift, not a coordinate one), and `InfraTools`' polylines
+    /// would need per-point wrapping that splits any way crossing the
+    /// relocated seam into two pieces rather than drawing a streak across
+    /// the map. Half of that is worse than the disclosure.
+    ///
     /// Call `build_color_texture()` again afterwards — the same "no
     /// regeneration needed, the render path reads the field fresh"
     /// contract [`Self::sculpt_commit`] documents.
@@ -3126,6 +3431,35 @@ impl WorldGen {
             // them. Dropping beats silently drifting.
             self.civ = None;
             self.sculpt = None;
+            // Same line, same reason, that `absorb()` and the project loader
+            // already run: a landmark is a grid coordinate plus terrain
+            // readings taken at it, and the terrain under it just moved.
+            // Missing here while both siblings had it, so a centred world
+            // drew the pre-rotation landmark set.
+            self.landmark_store.invalidate();
+            // ED-02: this rewrites the height field (and ~20 sibling grids)
+            // with no undo step, so the history window is the only place it
+            // can be seen at all. Inside the `offset != 0` branch for the
+            // same reason `carve_fjords` pushes no step on a refusal: an
+            // already-centred world is a no-op, and a ledger row for it
+            // would be a record of something that did not happen.
+            //
+            // `Recorded` rather than `HeightSnapshot` because a height-only
+            // snapshot would be a *lie*: `center::center_landmasses` rotates
+            // field, stress, age, resistance, crust, shear, volcanic,
+            // impact, temperature, rainfall, discharge, plate_id, the two
+            // boundary grids, stream order and river mask/floor -- and
+            // re-indexes the channel network -- in one pass, so restoring
+            // the field alone would leave it misaligned with every one of
+            // them.
+            self.ledger.record(
+                "world",
+                "Center landmasses",
+                format!("rotated {} columns, seam at {}", r.offset, r.seam_column),
+                undo::EntryKind::Recorded(
+                    "the rotation moves about twenty grids at once and only the height field is snapshot-able, so a height-only undo would restore a field misaligned with the rest",
+                ),
+            );
         }
         dict! { "ok" => true, "offset" => r.offset as i64, "seam_column" => r.seam_column as i64 }
     }
@@ -3214,6 +3548,12 @@ impl WorldGen {
         // handler's `pushUndo()`). No step is spent on a call that changed
         // nothing.
         self.undo.push("Carve fjords", &ws.field);
+        // A new operation truncates the redo tail: what was undone is not
+        // reachable from here any more, and holding its snapshots would both
+        // lie in the menu and cost a whole field of memory. `RedoTail` would
+        // refuse to serve them anyway (see its own doc) -- this is what
+        // actually gives the bytes back.
+        self.redo.clear();
         self.ledger.record(
             "height",
             "Carve fjords",
@@ -3413,14 +3753,30 @@ impl WorldGen {
             next_tid: civ.next_tid,
             village_tids: civ.village_tids.clone(),
         };
+        let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
         let mut fresh = compute_civilisation(
-            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options, Some(keep),
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options, Some(keep), (&ocean_f, &wind_f),
         );
         // Boundary state with no terrain input: moved across rather than
         // rebuilt, which is the whole difference between this and `generate`.
         let old = self.civ.take().expect("checked directly above");
         fresh.timeline = old.timeline;
         fresh.year = old.year;
+        // The timeline arrives *after* `compute_civilisation` issued this
+        // pass's `tid`s from `keep.next_tid`, so the counter has never seen
+        // the recorded history it is now standing next to. Carrying the live
+        // counter across is enough today (it is monotonic and never rewinds),
+        // and this is the defensive half of the same rule
+        // `civ_from_project` needs for real -- stated once, here, where the
+        // two halves are joined, rather than left as an invariant a future
+        // edit to either side could break silently.
+        fresh.next_tid = fresh.next_tid.max(
+            cartalith_civ::timeline::civ_resync_next_tid_with_timeline(
+                &fresh.settlements,
+                &fresh.ways,
+                &fresh.timeline,
+            ),
+        );
         fresh.faction_roster = old.faction_roster;
         fresh.place_extras = old.place_extras;
         if let Some(tools) = self.civ_tools.as_mut() {
@@ -3655,10 +4011,50 @@ impl WorldGen {
         // from the *previous* world would silently carry grid coordinates
         // over the wrong dimensions if kept.
         self.infra = None;
+        // The same line, for the same reason, that `absorb()` already runs on
+        // the generate path: a landmark sits at grid coordinates over terrain
+        // readings taken from the *previous* field, so it is meaningless (and
+        // at a different resolution, out of bounds) over this one. This was
+        // missing here while `absorb()` had it, so opening a project drew the
+        // last world's landmarks over it. Not recomputed: landmark generation
+        // is its own synchronous, user-triggered pass (`landmark_run()`).
+        self.landmark_store.invalidate();
+        // The *settings* half, which `invalidate()` deliberately leaves alone
+        // and which `absorb()` deliberately does not touch either: a cap
+        // table describes what the user wants placed, so it rightly survives
+        // a regenerate of the same project. It must not survive a change of
+        // project. Un-reset, the caps, armed flags, crowding and class radii
+        // authored in whichever project was open last silently followed the
+        // user into the next one, belonging to neither -- and, now that
+        // `project_bridge.rs` writes `entities/landmarks.json`, would be
+        // saved into it as well.
+        //
+        // Runs before `project_open`'s restore (which calls this function
+        // first), so an archive carrying a landmark document still wins and
+        // one without it opens at the documented defaults.
+        self.landmark_store.settings = cartalith_civ::landmark::LandmarkSettings::default();
+        // The project-scoped half of the Markdown Vault. A knowledge link
+        // binds a *note* to an `entity_id` in **this** world's civ layer, and
+        // `self.civ` was set to `None` a few lines above -- keeping the links
+        // would leave them pointing at settlements that no longer exist, and
+        // (worse) `project_save_with_documents` would then write the previous
+        // project's links into this project's `vault.json`.
+        //
+        // `store.vaults` is deliberately **not** cleared: a `VaultRef` is
+        // `{id, display_name}`, the device's own binding registry that
+        // `vault_info()` reads and `vault_disconnect()` is the only thing
+        // meant to drop. Clearing the whole store here would silently
+        // unbind the user's vault every time they opened a project.
+        //
+        // Runs before `project_open`'s own restore (`project_bridge.rs`,
+        // which calls this function first), so an archive that carries a
+        // `vault.json` still wins.
+        self.vault.store.links.clear();
         // Same reasoning as `absorb()`'s own clear: an undo step holds the
         // *previous* world's height field, which is the wrong content and
         // possibly the wrong length over a loaded save.
         self.undo.clear();
+        self.redo.clear();
         // ED-02: a load is the ledger's other floor, for the same reason.
         self.ledger.record(
             "world",
@@ -5723,6 +6119,8 @@ impl WorldGen {
         // — matching its step accounting is worth more than saving 16 MB on
         // an empty commit the UI already disables.
         self.undo.push("Sculpt commit", &ws.field);
+        // A new operation truncates the redo tail -- see `carve_fjords`.
+        self.redo.clear();
         self.ledger.record(
             "height",
             "Sculpt commit",
@@ -5888,6 +6286,25 @@ impl WorldGen {
     /// `icon_place`'s own convention, not screen pixels. Selects and
     /// returns the hit icon's index on a hit; `-1` on a miss or before any
     /// `generate()` call.
+    ///
+    /// # The box this tests is not the box the handle is drawn on
+    ///
+    /// `zoom_scale: 1.0` below is a **placeholder, not a value**: this
+    /// signature has no zoom parameter, so the box is always evaluated at
+    /// view scale 1. [`Self::icon_handles`] one method down takes a real
+    /// `zoom` and `cartography_workspace.gd::_update_icon_handles_overlay`
+    /// passes `app.viewport.zoom()` into it, so during one interaction the box
+    /// and the resize handle are computed from **different** `civ_zoom_k`
+    /// terms. An icon's footprint in grid cells shrinks as the view zooms
+    /// in; this box does not, so the further from 1.0 the view is, the
+    /// further the clickable area drifts from the drawn mark.
+    ///
+    /// Not fixed here because the fix is a `#[func]` signature change and
+    /// the wrapper (`engine_bridge.gd::icon_hit_test`) plus its call sites are
+    /// this crate. [`Self::label_hit_test`] carries the identical defect for
+    /// the identical reason; whoever adds `zoom` should add it to both in
+    /// one pass, matching `icon_handles`/`label_handles`' existing
+    /// parameter.
     #[func]
     fn icon_hit_test(&mut self, gx: f64, gy: f64) -> i64 {
         let grid_w = self.gw as usize;
@@ -6032,6 +6449,21 @@ impl WorldGen {
     /// view-zoom value to pass. Until then this is the same radius at
     /// every zoom level, which is exactly what `civ_place_pick_radius`
     /// alone already gives.
+    ///
+    /// **Two settlement-picking rules exist in this program and this is not
+    /// the one the user hits.** No shell file calls this binding: it is
+    /// wrapped at `engine_bridge.gd::civ_pick_place_at` and wrapped only.
+    /// The press path runs `map_overlay.gd::_hit_test_settlement`, which tests
+    /// `d <= _settlement_pin_radius(kind, rect) + HOVER_RADIUS_PAD` and then
+    /// keeps the **smallest `d`**. Its radius does scale with settlement
+    /// kind, but its tie-break is raw distance, so a closer hamlet beats a
+    /// larger city inside the same radius -- the exact case
+    /// `cartalith_civ::tools::civ_pick_place_at` inverts by minimising
+    /// `d2 / weight^2` (`tools.rs`' own `v1.88` note). Stated rather than
+    /// resolved, because resolving it is a choice between two defensible
+    /// answers -- route the press through here, or keep the screen-space
+    /// rule as a deliberate GUI divergence -- and the press path is not this
+    /// crate's to pick.
     #[func]
     fn civ_pick_place_at(&self, gx: f64, gy: f64) -> i64 {
         let Some(civ) = self.civ.as_ref() else { return -1 };
@@ -6275,6 +6707,25 @@ impl WorldGen {
 /// this**, which is the same function with the roster's own user override
 /// (`GUI_GAP_REGISTER.md` CV-21) consulted first. This one is the fallback
 /// underneath it, and is called directly only where no roster is in hand.
+///
+/// **One renderer does not, and it is outside this crate.**
+/// `godot-project/map_overlay.gd`'s `_draw` draws a settlement pin from its
+/// own `const FACTION_COLORS`, a frozen six-entry copy of
+/// [`FACTION_RGB`] indexed `(faction - 1) % size()`. Its six values do match
+/// byte for byte, so the divergence is not in the palette -- it is in the
+/// two rules layered over it, and both are live:
+///
+/// * a roster identity colour set through CV-21 changes the territory wash,
+///   the Political-control field and `get_factions`' swatch, and does not
+///   change the pin;
+/// * on a seven-faction world the `%` wrap gives faction 7 faction 1's exact
+///   colour, which is the wrap this function was written to replace.
+///
+/// The repair belongs on the shell side and needs no new binding:
+/// `get_factions()` already emits `color_r`/`color_g`/`color_b` per faction,
+/// so `viewport_host.gd::refresh_annotations` can push a faction-index to
+/// Color array the way it already pushes the settlement list, leaving
+/// `FACTION_COLORS` as the pre-generate fallback only.
 fn faction_rgb_default(f: i32) -> (u8, u8, u8) {
     let i = (f - 1).max(0) as usize;
     match FACTION_RGB.get(i) {
@@ -6347,9 +6798,9 @@ impl WorldGen {
     /// tool options row exposes: `value` (a 1-based index into the
     /// *active* layer's own `get_paint_palette`), `radius` (cells,
     /// reference default 6, clamped to `_paintRadius`'s own 1..=40),
-    /// `hardness`/`softness` (0..1, stored and echoed back for the row but
-    /// never consumed — `paint_bridge`'s own module doc: painting is a
-    /// hard disc with no soft falloff, unlike Sculpt), `erase` (paints `0`
+    /// `hardness`/`softness` (0..1, consumed since `DECISIONS.md` §7k — a
+    /// deterministic probability-threshold band feathers the disc's edge;
+    /// `1.0`/`0.0` is bit-identical to the old hard disc), `erase` (paints `0`
     /// regardless of `value`), `land_only` (gates the dab against this
     /// world's own water-body classification — **a toggle, not the
     /// reference's hard-always gate**, the flagged new affordance
@@ -6692,8 +7143,11 @@ impl WorldGen {
             map_width_km: self.map_width_km,
             // DECISIONS.md 7i: the Route/Way tools get the pass detection
             // the reference computes and then offers only to its settlement
-            // placer.
+            // placer, plus (same section) the swamp/floodplain and river
+            // ford-vs-bridge terms that need this pair.
             corridors: inputs.corridors.as_deref(),
+            flow: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
         };
         let Some(infra) = self.infra.as_mut() else { return -1 };
         match infra.way_commit(&ctx) {
@@ -6775,8 +7229,11 @@ impl WorldGen {
             map_width_km: self.map_width_km,
             // DECISIONS.md 7i: the Route/Way tools get the pass detection
             // the reference computes and then offers only to its settlement
-            // placer.
+            // placer, plus (same section) the swamp/floodplain and river
+            // ford-vs-bridge terms that need this pair.
             corridors: inputs.corridors.as_deref(),
+            flow: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
         };
         let Some(infra) = self.infra.as_mut() else { return -1 };
         match infra.route_commit(&ctx) {
@@ -7475,6 +7932,94 @@ impl WorldGen {
         }
     }
 
+    /// `Preferences ▸ Tiles & LOD ▸ Atlas cache ▸ Size cap · GB`
+    /// (`menus.gd::_build_atlas_cap_menu`, `menus.gd:2824`;
+    /// `UNWIRED_FUNCTIONS.md`'s "Atlas cache `Size cap · GB`" row) — delete
+    /// cached chunks until the cache fits in `max_bytes`. Returns the bytes
+    /// actually freed.
+    ///
+    /// **The group is Tiles & LOD, not Memory**: `_preferences` emits
+    /// `add_separator("TILES & LOD")` and builds the `Atlas cache` submenu
+    /// under it. `Preferences ▸ Memory` holds `Clear caches…`, which is the
+    /// clear button, not the cap.
+    ///
+    /// That row **went live in this same batch**, on this function: with
+    /// `atlas_evict_to` bound, `_build_atlas_cap_menu` builds the real
+    /// radio-check submenu, and the disabled `_todo` above it
+    /// (`menus.gd:2826`, the `_todo(p, "Size cap · GB", ...)` row) is now
+    /// reached only when the loaded cdylib is older
+    /// than the shell. The reason it used to carry was true when written:
+    /// there was `atlas_status`, `atlas_clear` and nothing between them — no
+    /// per-chunk eviction, no access order, no level priority. All three now
+    /// live in
+    /// `cartalith_io::atlas::AtlasStore::evict_to`, whose own doc states the
+    /// ordering rule (coldest first, deeper LOD first at equal age) and the
+    /// floor (a world is never taken below its coarsest level — a size cap is
+    /// a budget, `atlas_clear` is the clear button).
+    ///
+    /// **Spans every world in the cache directory, not only the current
+    /// one** — an old world's chunks are most of what a long session
+    /// accumulates and exactly what the cap is set to bound.
+    ///
+    /// `0` when no cache directory is configured, when the cache already
+    /// fits, or when nothing outside the protected coarsest levels is left to
+    /// free; the caller should re-read `atlas_status()` rather than infer
+    /// which of those it was. A negative `max_bytes` is treated as `0`.
+    #[func]
+    fn atlas_evict_to(&mut self, max_bytes: i64) -> i64 {
+        let Some(store) = self.bake.store() else { return 0 };
+        match store.evict_to(max_bytes.max(0) as u64) {
+            Ok(freed) => freed as i64,
+            Err(e) => {
+                godot_print!("cartalith-godot: atlas_evict_to failed: {e}");
+                0
+            }
+        }
+    }
+
+    /// Free bytes on the volume holding `path`, or `-1` when this platform
+    /// cannot say — the check a save or an export makes before it starts, so
+    /// a full disk is refused with a real number instead of surfacing as
+    /// *"save failed — see console"* on a phone with no console
+    /// (`UNWIRED_FUNCTIONS.md`'s "No storage-full handling" row, whose
+    /// source is `BUILD_ANSWERS.md:110` §4).
+    ///
+    /// `path` may be a file that does not exist yet — the intended save
+    /// target usually is — so the query walks up to the nearest ancestor
+    /// that does. An empty `path` asks about the current directory.
+    ///
+    /// The figure is the space available **to this user**, not the volume's
+    /// raw free space, which is the number a quota makes different and the
+    /// one a write actually gets.
+    ///
+    /// # Why `-1` exists rather than a fallback estimate
+    ///
+    /// `Cargo.toml` is off limits to the pass that added this, so there is no
+    /// `libc` and no `sysinfo`. Windows needs neither: `GetDiskFreeSpaceExW`
+    /// is in `kernel32`, which `std` already links, so the declaration below
+    /// is the whole dependency. Every other target (Android included) would
+    /// need `statvfs`, whose `struct` layout is libc's rather than the
+    /// kernel's and cannot be honestly re-declared here — so those return
+    /// `-1`, and a caller must draw its storage check as unavailable rather
+    /// than as "plenty of room". Adding `libc` is a one-line manifest change
+    /// whenever that is wanted.
+    #[func]
+    fn disk_free_bytes(&self, path: GString) -> i64 {
+        let raw = path.to_string();
+        let mut probe = std::path::PathBuf::from(if raw.is_empty() { ".".to_string() } else { raw });
+        // The target file typically does not exist yet; its directory does.
+        while !probe.exists() {
+            match probe.parent() {
+                Some(parent) if !parent.as_os_str().is_empty() => probe = parent.to_path_buf(),
+                _ => return -1,
+            }
+        }
+        if probe.is_file() {
+            probe = probe.parent().map(|p| p.to_path_buf()).unwrap_or(probe);
+        }
+        volume_free_bytes(&probe).map(|b| b.min(i64::MAX as u64) as i64).unwrap_or(-1)
+    }
+
     /// `atlasExportEntries` + `zipStore` (reference lines 10890/12009) — this
     /// world's whole baked atlas as a portable `World/` archive.
     ///
@@ -7482,6 +8027,17 @@ impl WorldGen {
     /// `gzip` compresses each chunk's `rg16`; the PNGs are stored either way
     /// (already DEFLATE'd internally, so re-compressing them is wasted CPU —
     /// the reference's own `zipStore` note).
+    ///
+    /// **Unwired at the UI end**, together with [`Self::atlas_import_zip`]:
+    /// both are wrapped in `engine_bridge.gd` (`func atlas_export_zip`,
+    /// `func atlas_import_zip`) and called
+    /// only by `_bake_probe.gd`. No menu row, no Data-manager route and no
+    /// document mentions either one, so a user has no way to move a baked
+    /// atlas between machines even though the engine can. The natural home
+    /// is two rows in `menus.gd`'s existing `Atlas cache` submenu
+    /// (`_build_atlas_cache_menu`), beside `Clear atlas cache now…`; both
+    /// wrappers already degrade safely on an older binary. Recorded here
+    /// because a binding with a probe and no consumer reads as finished.
     #[func]
     fn atlas_export_zip(&self, gzip: bool) -> PackedByteArray {
         let Some(store) = self.bake.store() else { return PackedByteArray::new() };
@@ -7520,6 +8076,9 @@ impl WorldGen {
     /// between "loaded and live" and "loaded, but for a different world".
     ///
     /// Keys: `ok`, `chunks`, `world_key`, `matches_current`, `error`.
+    ///
+    /// Unwired at the UI end — see [`Self::atlas_export_zip`] for the pair's
+    /// shared note and where the two rows belong.
     #[func]
     fn atlas_import_zip(&mut self, bytes: PackedByteArray) -> VarDictionary {
         let Some(store) = self.bake.store() else { return bake_error("no atlas root set") };
@@ -7548,9 +8107,24 @@ impl WorldGen {
     /// cache, and the thing that makes a bake worth doing.
     ///
     /// Empty when the chunk was never baked, when the bake stored height only
-    /// (`visual: false`), or before any atlas root is set. A caller that gets
-    /// nothing back falls through to live synthesis, exactly as the reference's
-    /// `atlasLoadImg` (line 10752) does.
+    /// (`visual: false`), or before any atlas root is set.
+    ///
+    /// **No draw path calls this yet, so the bake is write-only in the
+    /// shipped shell.** This doc used to end "a caller that gets nothing back
+    /// falls through to live synthesis, exactly as the reference's
+    /// `atlasLoadImg` (line 10752) does", which described a caller that does
+    /// not exist: `viewport_host.gd::_build_lod_tile` opens with an
+    /// unconditional `lod_synthesize_tile()` and never consults the atlas, so
+    /// *every* drawn tile is synthesised. The only callers of this binding
+    /// anywhere are `engine_bridge.gd`'s wrapper and `_bake_probe.gd`.
+    ///
+    /// The fall-through contract above is what the read path *should* be
+    /// when it is written — kept here as the specification for it, not as a
+    /// description of today. `viewport_host.gd`'s legend note above
+    /// `_draw_lod_debug` and `menus.gd`'s
+    /// `_build_atlas_cache_menu` header carry the shell half of the same
+    /// disclosure, including the shader constraint that stops the branch
+    /// being one line.
     #[func]
     fn atlas_tile_png(&self, z: i64, col: i64, row: i64) -> PackedByteArray {
         let Some(store) = self.bake.store() else { return PackedByteArray::new() };
@@ -8029,6 +8603,31 @@ impl WorldGen {
     /// `label_bridge.rs`'s own "text measurement" section; the box narrows
     /// to a font-height square rather than the label's true rendered width
     /// until a live `Font` is threaded through.
+    ///
+    /// # A second placeholder, and this one drifts with the view
+    ///
+    /// `zoom_scale: 1.0` below is the same kind of stand-in as `meas_w = 0`
+    /// and has the worse consequence, because the view moves and the font
+    /// does not. This signature has no zoom parameter, so the box is always
+    /// evaluated at view scale 1, while [`Self::label_handles`] takes a real
+    /// `zoom` that `cartography_workspace.gd::_handle_hit` and
+    /// `_update_label_handles_overlay` both fill with `app.viewport.zoom()`.
+    /// The two are used in the same gesture -- `_on_label_click` box-hits
+    /// through here, `_handle_hit` tests the handles -- so at any zoom but
+    /// 1.0 they disagree about where the label is.
+    ///
+    /// The shell has a third answer again: `map_overlay.gd::_label_font_px`
+    /// derives the drawn size from its own px-per-cell fit
+    /// (`rect.size.x / _gw`) and `LABEL_ZOOM_BASE_PX_PER_CELL`, never from
+    /// `cartalith_civ::labels::label_font_size`. Three models for one
+    /// number.
+    ///
+    /// Not fixed here for the reason [`Self::icon_hit_test`] gives for its
+    /// identical defect: threading `zoom` in is a `#[func]` signature change
+    /// whose wrapper (`engine_bridge.gd::label_hit_test`) and call sites are
+    /// outside
+    /// this crate. Collapsing the shell's own font-size model into
+    /// `label_font_size` is the same pass and the larger half of it.
     #[func]
     fn label_hit_test(&mut self, gx: f64, gy: f64) -> i64 {
         let grid_w = self.gw as usize;
@@ -8810,7 +9409,7 @@ impl WorldGen {
             gh,
             self.sea_level as f32,
         ) >= 0.5;
-        let jw = journey_bridge::JourneyWorld::build(
+        let mut jw = journey_bridge::JourneyWorld::build(
             &ws.field,
             &civ.water_bodies,
             &ws.temperature,
@@ -8822,6 +9421,21 @@ impl WorldGen {
             &civ.ways,
             &civ.settlements,
         );
+        // The planner's second and third road sources -- `CivData::road_edges`
+        // (the auto-populate topology) and every hand-drawn way (the Route/Way
+        // tool's own draft list). `JourneyWorld::build` still passes `&[]` for
+        // both because widening its signature belongs to `journey_bridge.rs`;
+        // re-deriving the one table that reads them is the whole of the
+        // difference, and `jp_road_cells` is a walk over way polylines and
+        // edge cell paths -- not one of the two full-grid passes `build`
+        // spends its time in.
+        let manual_ways: &[cartalith_civ::tools::ManualWay] = self.infra.as_ref().map_or(&[], |t| &t.ways);
+        jw.road_cells = cartalith_civ::jp_road_cells(&civ.ways, manual_ways, &civ.road_edges, gw);
+        // The Journey Planner's real current/wind fields (`DECISIONS.md`,
+        // `journey_bridge.rs`'s own former "honestly absent" bullet) --
+        // computed fresh here exactly as the Wind/Ocean-currents debug views
+        // compute theirs, per `coarse_ocean_wind_fields`'s own doc comment.
+        let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, gw, gh, self.world, self.sea_level, &self.params);
         let world = cartalith_civ::JpWorld {
             gw,
             gh,
@@ -8840,8 +9454,8 @@ impl WorldGen {
             territory: Some(&civ.territory),
             places: &jw.places,
             road_cells: &jw.road_cells,
-            ocean_field: None,
-            wind_field: None,
+            ocean_field: Some(&ocean_f),
+            wind_field: Some(&wind_f),
         };
         let plan = cartalith_civ::jp_ensure_plan(&world, &route.pts, sea_journey);
         let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));
@@ -9052,9 +9666,10 @@ impl WorldGen {
         //
         // Every raster below already exists on this `WorldGen`; `JourneyWorld`
         // derives only the three tables no pipeline stage produces, and
-        // `journey_bridge`'s module doc lists the whole mapping plus the three
-        // inputs this port genuinely does not have.
-        let jw = journey_bridge::JourneyWorld::build(
+        // `journey_bridge`'s module doc lists the whole mapping plus the
+        // three inputs that used to be genuinely absent here (all three now
+        // wired, see that doc's own "corrected below" section).
+        let mut jw = journey_bridge::JourneyWorld::build(
             &ws.field,
             &civ.water_bodies,
             &ws.temperature,
@@ -9066,6 +9681,21 @@ impl WorldGen {
             &civ.ways,
             &civ.settlements,
         );
+        // The planner's second and third road sources -- `CivData::road_edges`
+        // (the auto-populate topology) and every hand-drawn way (the Route/Way
+        // tool's own draft list). `JourneyWorld::build` still passes `&[]` for
+        // both because widening its signature belongs to `journey_bridge.rs`;
+        // re-deriving the one table that reads them is the whole of the
+        // difference, and `jp_road_cells` is a walk over way polylines and
+        // edge cell paths -- not one of the two full-grid passes `build`
+        // spends its time in.
+        let manual_ways: &[cartalith_civ::tools::ManualWay] = self.infra.as_ref().map_or(&[], |t| &t.ways);
+        jw.road_cells = cartalith_civ::jp_road_cells(&civ.ways, manual_ways, &civ.road_edges, gw);
+        // The Journey Planner's real current/wind fields (`DECISIONS.md`,
+        // `journey_bridge.rs`'s own former "honestly absent" bullet) --
+        // computed fresh here exactly as the Wind/Ocean-currents debug views
+        // compute theirs, per `coarse_ocean_wind_fields`'s own doc comment.
+        let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, gw, gh, self.world, self.sea_level, &self.params);
         let world = cartalith_civ::JpWorld {
             gw,
             gh,
@@ -9084,11 +9714,8 @@ impl WorldGen {
             territory: Some(&civ.territory),
             places: &jw.places,
             road_cells: &jw.road_cells,
-            // No retained coarse current/wind field exists in this port --
-            // `journey_bridge`'s module doc has the full disclosure. `None` is
-            // `jp_sea_condition`'s own supported input, not a stand-in value.
-            ocean_field: None,
-            wind_field: None,
+            ocean_field: Some(&ocean_f),
+            wind_field: Some(&wind_f),
         };
 
         // ---- the wildlife forage modifier (F12) ----
@@ -9280,8 +9907,11 @@ impl WorldGen {
             map_width_km: self.map_width_km,
             // DECISIONS.md 7i: the Route/Way tools get the pass detection
             // the reference computes and then offers only to its settlement
-            // placer.
+            // placer, plus (same section) the swamp/floodplain and river
+            // ford-vs-bridge terms that need this pair.
             corridors: inputs.corridors.as_deref(),
+            flow: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
         };
         match cartalith_civ::jp_reroute_for_mode(&ctx, &pts, &transport.to_string(), forced.as_deref()) {
             Err(e) => fail(&e),
@@ -10561,6 +11191,44 @@ impl WorldGen {
         if let Some(civ) = self.civ.as_mut() {
             civ.civ_remove_year(year);
         }
+    }
+
+    /// `_civResyncNextTid` (reference lines 20565-20574) in its **milestone-4**
+    /// form: the stable-id counter reseeded from the highest `tid` anywhere in
+    /// the project -- live settlements and ways *and* every recorded
+    /// `history/timeline.json` snapshot -- so the next hand-placed settlement
+    /// can never be issued an id a snapshot already uses. Returns the counter's
+    /// new value; `0` before any `generate()` call, where there is no counter.
+    ///
+    /// Idempotent and monotonic: the counter only ever moves forward
+    /// (`max` against its current value), so calling this twice, or on a
+    /// project that never needed it, changes nothing.
+    ///
+    /// **Deliberately not `civ_resync_next_tid`**, the milestone-1 twin that
+    /// scans only the live arrays. That one is superseded here: this port
+    /// assigns `tid`s eagerly in `compute_civilisation`, so the live scan can
+    /// only ever return what the counter already holds. The snapshots are the
+    /// half that can actually be ahead of it, which is why only this function
+    /// is bound.
+    ///
+    /// The two places this port needs it are called internally rather than
+    /// left to a shell to remember -- `civ_from_project` (an archive whose
+    /// `entities/settlements.json` omits `next_id`, §14.3) and
+    /// `recompute_civilisation` (where a carried-across timeline is joined to
+    /// a freshly issued counter). This `#[func]` exists for the third case
+    /// neither covers: a shell that has just imported or edited history and
+    /// wants the guarantee without a full recompute.
+    #[func]
+    fn civ_resync_next_tid_with_timeline(&mut self) -> i64 {
+        let Some(civ) = self.civ.as_mut() else { return 0 };
+        civ.next_tid = civ.next_tid.max(
+            cartalith_civ::timeline::civ_resync_next_tid_with_timeline(
+                &civ.settlements,
+                &civ.ways,
+                &civ.timeline,
+            ),
+        );
+        civ.next_tid as i64
     }
 
     /// The active timeline cursor (`CivData::year`, reference `civYear`). `0` before
@@ -11984,6 +12652,184 @@ fn key_label_array(table: &[(&str, &str)]) -> Array<VarDictionary> {
         .collect()
 }
 
+/// Free bytes available to this user on the volume containing `dir`, which
+/// must exist. `None` where the platform has no dependency-free way to ask —
+/// see [`WorldGen::disk_free_bytes`] for why that is a real answer here and
+/// not a stub.
+#[cfg(windows)]
+fn volume_free_bytes(dir: &std::path::Path) -> Option<u64> {
+    use std::os::windows::ffi::OsStrExt;
+
+    // `kernel32` is already linked by `std`, so declaring the one function
+    // needed is cheaper than a dependency and adds nothing to the tree.
+    // Signature: `BOOL GetDiskFreeSpaceExW(LPCWSTR, PULARGE_INTEGER x3)`.
+    unsafe extern "system" {
+        fn GetDiskFreeSpaceExW(
+            directory: *const u16,
+            free_to_caller: *mut u64,
+            total: *mut u64,
+            total_free: *mut u64,
+        ) -> i32;
+    }
+
+    let mut wide: Vec<u16> = dir.as_os_str().encode_wide().collect();
+    wide.push(0);
+    let mut available: u64 = 0;
+    // SAFETY: `wide` is NUL-terminated and outlives the call; the two output
+    // pointers this does not want are null, which the API documents as
+    // permitted; `available` is a live `u64` and `ULARGE_INTEGER` is a 64-bit
+    // unsigned integer.
+    let ok = unsafe {
+        GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut available,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    };
+    (ok != 0).then_some(available)
+}
+
+/// See the `#[cfg(windows)]` twin above, and
+/// [`WorldGen::disk_free_bytes`] for why this reports "unknown" rather than
+/// guessing.
+#[cfg(not(windows))]
+fn volume_free_bytes(_dir: &std::path::Path) -> Option<u64> {
+    None
+}
+
+/// The redo half of the global height cursor.
+///
+/// ## Why the ledger became a cursor
+///
+/// `undo.rs`'s stack *pops*: a reverted snapshot is gone, and the state it
+/// was reverted from is gone with it. That is the reference's own behaviour
+/// (`undoStack.pop()`, no redo anywhere in the file), and it is why the shell
+/// had nothing to put a global `Redo` over. A cursor keeps both halves: undo
+/// moves the newest state onto this tail before restoring, redo moves it
+/// back — which is what let `menus.gd:639` draw that row live rather than
+/// disabled.
+///
+/// The tail is a second [`undo::HeightUndo`] rather than a bare `Vec`
+/// because a redo entry is exactly what an undo entry is -- a labelled
+/// pre-state field -- and it needs the same bounds for the same reason. At
+/// 8192² one step is 256 MB; a redo tail without the byte budget would be
+/// the memory bug that budget exists to prevent, doubled.
+///
+/// **The cost is real and worth stating**: undoing now retains the state it
+/// undid, so a full undo/redo pair holds two fields where the old pop held
+/// one. Both are inside their own budgets, and `undo_stats()` reports the
+/// tail's depth and bytes separately so `Preferences ▸ Memory` does not
+/// under-report what undo actually costs.
+///
+/// ## The truncation invariant, and how it is enforced here
+///
+/// Undoing and then performing a **new** operation must discard the redo
+/// tail -- the standard rule, and getting it wrong silently offers a redo
+/// that would overwrite the new work. Two mechanisms, because one of them
+/// cannot reach every call site:
+///
+/// 1. **Explicit**: `carve_fjords` and `sculpt_commit` clear the tail beside
+///    their `undo.push`, which is what actually frees the memory.
+/// 2. **Structural**: [`RedoTail::at_undo_depth`] records the undo depth the
+///    tail was written at. Any push moves that depth (it can only go up by
+///    one, since the push replaces the step the undo removed and therefore
+///    cannot trip eviction), so a stale tail reports itself unavailable
+///    without the pusher having to know it exists.
+///
+/// The second is not belt-and-braces: `erode_bridge.rs:219` is a third
+/// `undo.push` call site in a file this pass does not own, and the depth
+/// check is what keeps an erosion run from leaving a live redo offer behind.
+#[derive(Debug)]
+struct RedoTail {
+    steps: undo::HeightUndo,
+    /// `undo.depth()` as it stood when the tail was last written. A tail
+    /// whose recorded depth no longer matches the live stack was left behind
+    /// by an operation that happened after the undo, and is not an offer.
+    at_undo_depth: usize,
+}
+
+impl RedoTail {
+    fn new() -> Self {
+        RedoTail { steps: undo::HeightUndo::new(), at_undo_depth: 0 }
+    }
+
+    /// Whether the tail still describes the stack it was built against.
+    fn is_current(&self, undo_depth: usize) -> bool {
+        !self.steps.is_empty() && self.at_undo_depth == undo_depth
+    }
+
+    fn label(&self, undo_depth: usize) -> Option<&str> {
+        if !self.is_current(undo_depth) {
+            return None;
+        }
+        self.steps.next_label()
+    }
+
+    fn clear(&mut self) {
+        self.steps.clear();
+        self.at_undo_depth = 0;
+    }
+}
+
+/// One step back along the cursor: revert `field` to the newest snapshot and
+/// leave what was there on the redo tail. Returns the reverted label.
+///
+/// Free functions rather than `WorldGen` methods so they can be unit-tested:
+/// every `#[func]` here needs a live Godot engine (see this file's
+/// `landmark_dict_tests` for the same constraint, stated at length), and the
+/// cursor invariant is the part worth testing.
+fn undo_one(
+    undo: &mut undo::HeightUndo,
+    redo: &mut RedoTail,
+    field: &mut [f32],
+) -> Option<String> {
+    if !redo.is_current(undo.depth()) {
+        // Something was pushed since the last undo: the tail is unreachable
+        // and its fields are dead weight.
+        redo.clear();
+    }
+    let label = undo.next_label()?.to_string();
+    // Captured *before* the restore, which is the only moment this state
+    // exists anywhere: `HeightUndo::restore` overwrites it in place.
+    redo.steps.push(&label, field);
+    if undo.restore(field).is_none() {
+        // A length mismatch -- `undo.rs` refuses and drops the step. The tail
+        // entry pushed a line ago describes a field that was never left, so
+        // take it straight back off; the write it performs is the bytes that
+        // are already there.
+        redo.steps.restore(field);
+        redo.at_undo_depth = undo.depth();
+        return None;
+    }
+    redo.at_undo_depth = undo.depth();
+    Some(label)
+}
+
+/// One step forward: re-apply the newest tail entry and put the state it
+/// replaces back on the undo stack, so the pair is walkable in both
+/// directions any number of times.
+fn redo_one(
+    undo: &mut undo::HeightUndo,
+    redo: &mut RedoTail,
+    field: &mut [f32],
+) -> Option<String> {
+    if !redo.is_current(undo.depth()) {
+        redo.clear();
+        return None;
+    }
+    let label = redo.steps.next_label()?.to_string();
+    undo.push(&label, field);
+    if redo.steps.restore(field).is_none() {
+        // Same refusal, same repair as `undo_one`.
+        undo.restore(field);
+        redo.clear();
+        return None;
+    }
+    redo.at_undo_depth = undo.depth();
+    Some(label)
+}
+
 /// Global heightmap undo — the reference's `pushUndo`/`undoLast`/
 /// `updateUndoUI` (`PARITY_AUDIT.md` §3.1's three missing functions,
 /// register `ED-01`/`PR-11`). The mechanism, the bound and every deliberate
@@ -12021,13 +12867,25 @@ impl WorldGen {
     /// live grid's length, which `undo.rs` refuses rather than
     /// half-applies).
     ///
-    /// # What it does not re-run
+    /// # What it does not re-run, and what it now marks
     ///
-    /// Flow, river extraction and climate, exactly as
-    /// [`Self::sculpt_commit`] and [`Self::carve_fjords`] do not — the
-    /// reference's `undoLast` recomputes them inline, this port defers them
-    /// (`UNIFIED_TOOL_PLAN.md` milestone A). Undo is therefore as consistent
-    /// as the commit it reverses, and no more.
+    /// Flow, river extraction and climate are **not** recomputed here. This
+    /// doc used to justify that with "exactly as [`Self::sculpt_commit`] and
+    /// [`Self::carve_fjords`] do not", which was simply false: both of those
+    /// end in `mark_and_recompute`, and so do erosion and the paint commit.
+    /// Undo was the only height mutator in the crate that wrote `ws.field`
+    /// and left the staleness graph saying nothing had changed — so every
+    /// derived stage kept the values it computed from the *reverted-away*
+    /// field, and `recompute_stale_stages` had nothing to offer because
+    /// nothing was marked.
+    ///
+    /// It now marks `PipelineStage::Height` changed **over the whole map**
+    /// and stops there. Whole-map because an undo restores an arbitrary
+    /// earlier field and the set of tiles that differ is not recoverable from
+    /// a snapshot swap. Marking without recomputing because this call is
+    /// synchronous on the main thread with no progress channel, and because
+    /// the result is now *true* rather than convenient: the world is stale,
+    /// says so, and `recompute_stale_stages` will run it.
     ///
     /// Nor does it revert the `river_mask`/`river_floor` locks a Sculpt
     /// commit's water hooks wrote. Neither does the reference: it snapshots
@@ -12040,14 +12898,67 @@ impl WorldGen {
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
             return GString::new();
         };
-        match self.undo.restore(&mut ws.field) {
-            Some(label) => {
-                // ED-02: the ledger's row for that operation goes with it.
-                self.ledger.pop_newest_height();
-                GString::from(&label)
-            }
-            None => GString::new(),
-        }
+        let Some(label) = undo_one(&mut self.undo, &mut self.redo, &mut ws.field) else {
+            return GString::new();
+        };
+        // ED-02: the ledger's row for that operation goes with it.
+        self.ledger.pop_newest_height();
+        // The height field just changed under every stage derived from it.
+        // Whole-map, for the reason this method's own doc gives.
+        let n = self.stages.tile_count();
+        self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "undo");
+        GString::from(&label)
+    }
+
+    /// Whether `redo_last()` would do anything — the mirror of
+    /// [`Self::can_undo`], and what `Edit ▸ Redo` and the menu bar's `↷`
+    /// square enable on.
+    ///
+    /// `false` at the tip (nothing has been undone), `false` again as soon as
+    /// a new operation is committed after an undo: see [`RedoTail`] for the
+    /// two mechanisms that enforce that.
+    #[func]
+    fn redo_available(&self) -> bool {
+        self.redo.is_current(self.undo.depth())
+    }
+
+    /// The operation `redo_last()` would re-apply, for a "Redo <operation>"
+    /// row. Empty string when there is nothing to redo.
+    #[func]
+    fn redo_label(&self) -> GString {
+        GString::from(self.redo.label(self.undo.depth()).unwrap_or_default())
+    }
+
+    /// Step the cursor forward: re-apply the state the last `undo_last()` (or
+    /// `undo_revert_to()`) stepped off, and put what it replaces back on the
+    /// undo stack.
+    ///
+    /// Returns whether anything happened. `false` when there is nothing to
+    /// redo, when no world is generated, or when the tail was truncated by a
+    /// new operation — all three of which [`Self::redo_available`] reports in
+    /// advance, so a shell that draws the row from it never calls this
+    /// blindly.
+    ///
+    /// Re-renders nothing and re-runs no flow or climate, exactly as
+    /// [`Self::undo_last`] does not — call `build_color_texture()` again
+    /// afterwards. It does mark `PipelineStage::Height` stale over the whole
+    /// map for the same reason undo does; see that method's doc. The ledger
+    /// gets its row back, since the operation is in effect again.
+    #[func]
+    fn redo_last(&mut self) -> bool {
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return false };
+        let Some(label) = redo_one(&mut self.undo, &mut self.redo, &mut ws.field) else {
+            return false;
+        };
+        self.ledger.record(
+            "height",
+            label,
+            format!("{} x {}", self.gw, self.gh),
+            undo::EntryKind::HeightSnapshot,
+        );
+        let n = self.stages.tile_count();
+        self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "redo");
+        true
     }
 
     // -- the ledger (`GUI_GAP_REGISTER.md` ED-02) --------------------------
@@ -12131,7 +13042,9 @@ impl WorldGen {
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return 0 };
         let mut done = 0i64;
         for _ in 0..steps {
-            if self.undo.restore(&mut ws.field).is_none() {
+            // Through the cursor, so a multi-step rollback is as redoable as
+            // a single `undo_last()` is -- one `redo_last()` per step.
+            if undo_one(&mut self.undo, &mut self.redo, &mut ws.field).is_none() {
                 break;
             }
             done += 1;
@@ -12151,6 +13064,12 @@ impl WorldGen {
     /// `step_bytes` is what makes the byte bound legible in a preference
     /// row: at 8192² it is 256 MB, which is why the depth there is 1 and not
     /// the reference's 5.
+    ///
+    /// Plus `redo_depth` and `redo_bytes` (ints), the same two numbers for
+    /// the forward half of the cursor. Reported separately rather than folded
+    /// into `bytes` because they are separately freeable — committing any new
+    /// operation drops the tail — and because a Memory row that showed one
+    /// figure for two budgets would be a readout nobody could act on.
     #[func]
     fn undo_stats(&self) -> VarDictionary {
         let step_bytes = match self.source.as_ref() {
@@ -12164,6 +13083,8 @@ impl WorldGen {
             "budget_bytes" => self.undo.budget_bytes() as i64,
             "step_bytes" => step_bytes as i64,
             "label" => self.undo.next_label().unwrap_or_default(),
+            "redo_depth" => self.redo.steps.depth() as i64,
+            "redo_bytes" => self.redo.steps.bytes() as i64,
         }
     }
 
@@ -12173,7 +13094,12 @@ impl WorldGen {
     /// that makes undo useless at every resolution.
     #[func]
     fn set_undo_budget_mb(&mut self, mb: i64) {
-        self.undo.set_budget_bytes(mb.max(0) as usize * 1024 * 1024);
+        let bytes = mb.max(0) as usize * 1024 * 1024;
+        self.undo.set_budget_bytes(bytes);
+        // The redo tail is the same kind of buffer under the same preference:
+        // budgeting one and not the other would make the row report half of
+        // what it controls.
+        self.redo.steps.set_budget_bytes(bytes);
     }
 
     /// Drop every step. The reference has no such control — this exists
@@ -12183,6 +13109,7 @@ impl WorldGen {
     #[func]
     fn clear_undo(&mut self) {
         self.undo.clear();
+        self.redo.clear();
         // The ledger's rows go with the snapshots. Leaving them would show a
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.
@@ -12767,5 +13694,170 @@ mod landmark_dict_tests {
         let caps_dict =
             d.get("caps").and_then(|v| v.try_to::<VarDictionary>().ok()).expect("caps is a Dictionary");
         assert!(caps_dict.contains_key("waterfall"));
+    }
+}
+
+
+/// The global Undo/Redo cursor's invariants (`UNWIRED_FUNCTIONS.md`'s
+/// "Global `Redo`" row).
+///
+/// These drive [`undo_one`]/[`redo_one`] directly rather than `WorldGen`,
+/// for the reason `landmark_dict_tests` states at length: every `#[func]`
+/// here needs a live Godot engine, and none of the cursor's behaviour does.
+#[cfg(test)]
+mod global_redo_tests {
+    use super::*;
+
+    fn field(v: f32) -> Vec<f32> {
+        vec![v; 8]
+    }
+
+    /// Commit an operation the way a real call site does: snapshot the
+    /// pre-state, clear the tail, then write the new state.
+    fn commit(undo: &mut undo::HeightUndo, redo: &mut RedoTail, field: &mut Vec<f32>, label: &str, to: f32) {
+        undo.push(label, field);
+        redo.clear();
+        field.iter_mut().for_each(|v| *v = to);
+    }
+
+    #[test]
+    fn nothing_is_redoable_at_the_tip() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        assert!(!redo.is_current(undo.depth()), "an untouched cursor offers a redo");
+        assert_eq!(redo.label(undo.depth()), None);
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+
+        commit(&mut undo, &mut redo, &mut f, "Carve fjords", 1.0);
+        assert!(!redo.is_current(undo.depth()), "committing is not undoing");
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(f, field(1.0), "a refused redo must not touch the field");
+    }
+
+    #[test]
+    fn undo_then_redo_restores_the_state_and_the_labels() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        commit(&mut undo, &mut redo, &mut f, "Carve fjords", 1.0);
+
+        assert_eq!(undo_one(&mut undo, &mut redo, &mut f).as_deref(), Some("Carve fjords"));
+        assert_eq!(f, field(0.0));
+        assert!(redo.is_current(undo.depth()));
+        assert_eq!(redo.label(undo.depth()), Some("Carve fjords"));
+
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f).as_deref(), Some("Carve fjords"));
+        assert_eq!(f, field(1.0), "redo did not restore the state undo left");
+        assert!(!redo.is_current(undo.depth()), "the tail is empty again at the tip");
+        // ...and the undo stack got the step back, so the pair is walkable
+        // as many times as asked.
+        assert_eq!(undo.next_label(), Some("Carve fjords"));
+        assert_eq!(undo_one(&mut undo, &mut redo, &mut f).as_deref(), Some("Carve fjords"));
+        assert_eq!(f, field(0.0));
+    }
+
+    #[test]
+    fn the_cursor_walks_several_steps_in_both_directions() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        for step in 1..=3 {
+            commit(&mut undo, &mut redo, &mut f, &format!("op{step}"), step as f32);
+        }
+        for expected in (0..=2).rev() {
+            assert!(undo_one(&mut undo, &mut redo, &mut f).is_some());
+            assert_eq!(f, field(expected as f32));
+        }
+        assert_eq!(undo.depth(), 0);
+        for expected in 1..=3 {
+            assert_eq!(
+                redo_one(&mut undo, &mut redo, &mut f).as_deref(),
+                Some(format!("op{expected}").as_str())
+            );
+            assert_eq!(f, field(expected as f32));
+        }
+        assert!(!redo.is_current(undo.depth()));
+        assert_eq!(undo.depth(), 3, "every step went back onto the undo stack");
+    }
+
+    /// The invariant the row calls out by name: undoing and then committing
+    /// something new truncates the tail. Getting this wrong offers a redo
+    /// that would overwrite the new work.
+    #[test]
+    fn a_new_operation_after_an_undo_truncates_the_redo_tail() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        commit(&mut undo, &mut redo, &mut f, "op1", 1.0);
+        commit(&mut undo, &mut redo, &mut f, "op2", 2.0);
+        undo_one(&mut undo, &mut redo, &mut f);
+        assert_eq!(f, field(1.0));
+        assert!(redo.is_current(undo.depth()));
+
+        commit(&mut undo, &mut redo, &mut f, "op3", 3.0);
+        assert!(!redo.is_current(undo.depth()), "the redo tail survived a new operation");
+        assert_eq!(redo.label(undo.depth()), None);
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(f, field(3.0), "a truncated redo must not overwrite the new work");
+    }
+
+    /// The same truncation, enforced by the depth check alone — what keeps
+    /// `erode_bridge.rs`'s `undo.push` (a call site outside this file) from
+    /// leaving a live redo offer behind. See [`RedoTail`]'s own doc.
+    #[test]
+    fn a_push_that_does_not_clear_the_tail_still_invalidates_it() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        let mut f = field(0.0);
+        commit(&mut undo, &mut redo, &mut f, "op1", 1.0);
+        undo_one(&mut undo, &mut redo, &mut f);
+        assert!(redo.is_current(undo.depth()));
+
+        // Deliberately *not* `commit`: the tail is left in place, exactly as
+        // a call site that has never heard of it would leave it.
+        undo.push("Erode (droplet)", &f);
+        f.iter_mut().for_each(|v| *v = 7.0);
+        assert!(!redo.is_current(undo.depth()), "a stale tail was still offered");
+        assert_eq!(redo_one(&mut undo, &mut redo, &mut f), None);
+        assert_eq!(f, field(7.0));
+        // ...and the dead tail is dropped by the refusal, not left holding a
+        // field nobody can reach.
+        assert_eq!(redo.steps.depth(), 0);
+        assert_eq!(redo.steps.bytes(), 0);
+    }
+
+    /// The tail is bounded like the stack it mirrors: it is the same type,
+    /// with the same byte budget, for the same reason.
+    #[test]
+    fn the_tail_is_bounded_by_its_own_budget() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        redo.steps.set_budget_bytes(9 * 1024 * 1024);
+        let mut f = vec![0.0f32; 1024 * 1024]; // 4 MiB a step
+        for step in 1..=4 {
+            undo.push(&format!("op{step}"), &f);
+            redo.clear();
+            f.iter_mut().for_each(|v| *v = step as f32);
+        }
+        for _ in 0..4 {
+            undo_one(&mut undo, &mut redo, &mut f);
+        }
+        assert_eq!(redo.steps.depth(), 2, "the tail grew past its budget");
+        assert!(redo.steps.bytes() <= redo.steps.budget_bytes());
+    }
+
+    /// A grid resize leaves snapshots of the wrong length. `undo.rs` refuses
+    /// those rather than half-applying them, and the cursor must not leave a
+    /// tail entry behind for a step that never happened.
+    #[test]
+    fn a_length_mismatch_reverts_the_bookkeeping_too() {
+        let mut undo = undo::HeightUndo::new();
+        let mut redo = RedoTail::new();
+        undo.push("op1", &field(0.0));
+        let mut resized = vec![5.0f32; 3];
+        assert_eq!(undo_one(&mut undo, &mut redo, &mut resized), None);
+        assert_eq!(resized, vec![5.0f32; 3], "a refused undo must not write");
+        assert!(!redo.is_current(undo.depth()), "a step that did not happen is not redoable");
     }
 }

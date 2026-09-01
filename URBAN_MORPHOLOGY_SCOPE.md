@@ -10,6 +10,12 @@ That sentence was written before anyone read the code. This document is the
 result of actually reading it. **Two of its three claims hold, one does not,
 and the word "cleanly" is doing work it cannot support.**
 
+**This document defines Phase 5's milestones and records what each pass
+read, ported and learned. It does not track them.** For where any milestone
+stands today — done, partial, not started, blocked — read
+`cartalith-native/docs/STATUS.md`, which is the only place progress is
+recorded.
+
 ## What was verified, and what it turned out to be
 
 ### "Self-contained DOM-free engine" — CONFIRMED, unusually strongly
@@ -104,9 +110,10 @@ written in the reference's compressed multi-statement-per-line style, with
 several functions (`buildWall` ~190 lines, `grow` ~167, `buildBuildings` ~148,
 `applyStarFort` ~100) that are single algorithms, not dispatch tables.
 
-**Phase 5 is the largest single unported subsystem remaining in this project.**
-"Ports cleanly" should be read as "has no boundary problems", not as "is small".
-Recording that correction is the most valuable output of this investigation.
+**When this investigation ran, Phase 5 was the largest single unported
+subsystem in the project.** "Ports cleanly" should be read as "has no
+boundary problems", not as "is small". Recording that correction is the most
+valuable output of this investigation.
 
 ## What it actually generates, and how
 
@@ -208,7 +215,7 @@ Dependency-ordered. Each is a real, self-contained, independently verifiable
 piece; the reference's `_test` export and `hashModel` make most of them
 golden-verifiable rather than hand-checked.
 
-### Milestone 1 — RNG substreams + geometry kernel: **done** (2026-08-18)
+### Milestone 1 — RNG substreams + geometry kernel (2026-08-18)
 
 `fnv1a`, `stream` and its six derived draws; `V` (as `Vec2`), `js_hypot`,
 `polyArea`, `polyCentroid`, `pointInPoly`, `segInt`, `distPtSeg`,
@@ -222,7 +229,7 @@ subject poking past the window's corners can collapse to empty), and
 `insetPoly` returns nothing at all — not a degenerate polygon — below area 15
 or on self-intersection at ≤60 vertices. Downstream code reads both.
 
-### Milestone 2 — planar street graph: **done** (2026-08-18)
+### Milestone 2 — planar street graph (2026-08-18)
 
 All 15 functions, reference lines **28363-28512** (the plan said 28363-28513;
 `edgeBetween` ends at 28512 and `astar` starts at 28514, so the range was one
@@ -350,7 +357,7 @@ recording plainly: the balance assert is necessary, not sufficient.
    and the strict `>` makes the *lowest-indexed* one outer. `buildBlocks`
    (milestone 12) skips the outer face, so this is not cosmetic.
 
-### Milestone 3 — A\* over the cost raster: **done** (2026-08-18)
+### Milestone 3 — A\* over the cost raster (2026-08-18)
 
 `astar`, reference lines **28514-28547** (the plan said 28514-28556; `astar`'s
 last line is `path.reverse();return path;}` at 28547, and 28548-28556 is a blank
@@ -513,7 +520,7 @@ mtime forward and anchor its patterns on code that cannot appear in prose.
    Build at least one quantised or symmetric fixture per milestone from here on,
    and mutation-check rather than assuming a full state dump is enough.
 
-### Milestone 4 — generation rules + culture profiles: **done** (2026-08-18)
+### Milestone 4 — generation rules + culture profiles (2026-08-18)
 
 `CULTURE_PROFILES` (medieval/organic and Venus/radial), `resolveProfile`,
 `DEFAULT_RULES`, `cloneRules`, `resolveRules`, `clamp`, `applyWildness`,
@@ -783,7 +790,7 @@ every one of the four cases the balance scan cannot see.
    boundary. Build one deliberately rather than discovering it in the survivor
    list.
 
-### Milestone 5 — the site model: **done** (2026-08-18)
+### Milestone 5 — the site model (2026-08-18)
 
 `shoreFromMask`, `buildSite`, `terrainSuitability` — reference lines
 **28549-28741**. Module `cartalith-urban::site`; dependencies still
@@ -1073,7 +1080,7 @@ each exists for:
    geometry under test*. A grid of round fractions tests almost nothing in a
    subsystem whose thresholds are metres wide.
 
-### Milestone 6 — anchors and primary routes: **done** (2026-08-18)
+### Milestone 6 — anchors and primary routes (2026-08-18)
 
 `placeAnchors`, `buildPrimaries`, `buildPrimariesFromPaths` — reference lines
 **28743-28833**. Module `cartalith-urban::routes`; dependencies still
@@ -1413,7 +1420,7 @@ mutations, where milestone 4's shared-directory run reported 34.)
    up the branch the old band reached. Add; do not substitute — and re-run the
    full sweep after every fixture change rather than assuming the direction.
 
-### Milestone 7 — organic growth: **done** (2026-08-18)
+### Milestone 7 — organic growth (2026-08-18)
 
 `logisticRamp`, `estimateCarryingCapacity`, `wallOccupancy`, `grow`,
 `supersedeWall` — reference lines **29384-29630**. Module
@@ -1754,7 +1761,7 @@ skip `1.5 → 500`, the parallel-angle limit `0.5 → 3.2`, the exploration band
    engine reject. This will hit milestones 10 (`buildWall`'s terrain
    deflection), 13 (`terrainAware` parcels) and 15 (`computeMetrics`).
 
-### Milestone 17a — the adapter and the first consumer: **done** (2026-08-23)
+### Milestone 17a — the adapter and the first consumer (2026-08-23)
 
 Out of dependency order on purpose, and the reason is recorded rather than
 assumed away. `PARITY_AUDIT.md` §3.4 found what this document's own "Out of
@@ -1827,7 +1834,7 @@ real settlement produces a *non-empty* street graph, and that no street class
 milestones 8+ own has leaked in. Closing this properly is milestone 17's
 remaining half.
 
-### Milestone 12 — blocks and parcels: **done** (2026-08-24)
+### Milestone 12 — blocks and parcels (2026-08-24)
 
 Out of dependency order, like 17a before it, and for a comparable reason. The
 City Viewer (§17a's own first consumer) drew a wire diagram, because a street
@@ -1909,7 +1916,7 @@ rather than trusting it. **Milestone 8a did both**, the same day: `blocks.rs`
 is unchanged apart from its doc comments, and the plaza golden re-runs
 `build_blocks` on every one of its own post-plaza graphs.
 
-### Milestone 8a — the plaza: **done** (2026-08-24)
+### Milestone 8a — the plaza (2026-08-24)
 
 `buildPlaza` alone, reference lines **28941-28965**. Module
 `cartalith-urban::plaza`; dependencies still `cartalith-rng` only. 12 tests,
@@ -2013,7 +2020,7 @@ survivor without one.
 
 1. **Milestone 8's remaining range is 28835-28939** (`buildRadialStreets` at
    28844 and `buildWaterway` at 28928, plus the radial header comment at
-   28835). `buildPlaza`'s 28941-28965 is done.
+   28835). `buildPlaza`'s 28941-28965 belongs to milestone 8a.
 2. **Milestone 9's start of 28967 is right** — milestone 7 moved it there and
    this milestone confirms it: 28967 is the first line of the harbour block
    comment, 28966 is blank, and 28965 is `buildPlaza`'s close.
@@ -2031,8 +2038,8 @@ survivor without one.
 ### Milestone 8 — radial (Venus) streets, waterway (lines 28835-28939, 2 functions)
 
 `buildRadialStreets`, `buildWaterway`. The second planning mode, independent of
-`grow`. Separable from milestone 7 and cheaper. **`buildPlaza` is done** —
-milestone 8a above.
+`grow`. Separable from milestone 7 and cheaper. **`buildPlaza` was split out
+of this milestone as 8a above** and is not part of it.
 
 ### Milestone 9 — water infrastructure (lines 28967-29159, 4 functions)
 
@@ -2062,14 +2069,14 @@ always has a live road on it.
 `splitEdge` does not (finding 3). **Do not unify them** — the port reproduces
 both as written, and the difference is the reference's, not the port's.
 
-### Milestone 12 — blocks and parcels: **done**, recorded above
+### Milestone 12 — blocks and parcels: recorded above
 
-Built out of order on 2026-08-24 — see the full record in the completed-
-milestone run above. The plan this stub carried was right on every count: the
-line range 30193-30344 was correct at both ends, `buildBlocks` does skip
-`extractFaces`' outer face on milestone 2's first-index-wins tie-break, and
-`hashModel` was indeed unavailable, so the golden dumps state directly exactly
-as milestone 2 did.
+Ported out of order on 2026-08-24 — the full record is in its own section
+above. The plan this stub carried was right on every count: the line range
+30193-30344 was correct at both ends, `buildBlocks` does skip `extractFaces`'
+outer face on milestone 2's first-index-wins tie-break, and `hashModel` was
+indeed unavailable, so the golden dumps state directly exactly as milestone 2
+did.
 
 ### Milestone 13 — districts and buildings (lines 30345-30710, 7 functions)
 

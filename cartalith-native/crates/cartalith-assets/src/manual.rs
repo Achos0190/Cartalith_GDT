@@ -317,6 +317,14 @@ pub fn place_manual_icon(gx: f64, gy: f64, gw: usize, gh: usize, armed: Option<&
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IconViewEnv {
     pub grid_w: usize,
+    /// `viewT.scale`, the raw zoom before [`civ_zoom_k`]'s clamp -- the same
+    /// contract `cartalith_civ::labels::LabelViewEnv::zoom_scale` states.
+    ///
+    /// **This port's shell does not pass `viewT.scale`.**
+    /// `cartography_workspace.gd` reaches `icon_handles` with
+    /// `app.viewport.zoom()`, the deep camera zoom, whose ceiling is
+    /// `max(64, width_km / ZOOM_TARGET_SPAN_KM)` and so is far past the
+    /// clamp. See [`civ_zoom_k`].
     pub zoom_scale: f64,
     pub icon_scale: f64,
 }
@@ -329,6 +337,17 @@ impl Default for IconViewEnv {
 
 /// `_civZoomK()` — duplicated here rather than depended on, because
 /// `cartalith-assets` does not (and should not) depend on `cartalith-civ`.
+///
+/// Byte-identical to `cartalith_civ::labels::civ_zoom_k`, **including the
+/// `[0.35, 5]` clamp the shell's own third copy deliberately drops**
+/// (`map_overlay.gd::_civ_zoom_k`, 2026-08-24, measured). That divergence and
+/// why this copy keeps the clamp are written out once, in full, on the
+/// `cartalith-civ` copy's doc comment; the short version is that above
+/// `zoom_scale == 5` this term saturates at `0.2` while the shell's keeps
+/// shrinking, so [`icon_box_at`]'s `r`/`side` -- and the resize handle
+/// `icon_handles` derives from them -- grow relative to the mark the shell
+/// actually draws. Noted here 2026-09-01 so a reader of this copy is not the
+/// one reader who never sees it.
 pub fn civ_zoom_k(zoom_scale: f64) -> f64 {
     1.0 / zoom_scale.clamp(0.35, 5.0)
 }
@@ -360,6 +379,17 @@ pub fn icon_box(icon: &ManualIcon, env: &IconViewEnv) -> IconBox {
 
 /// `_carIconBox(icon, toScreenFn)` — the render-time call site with its own
 /// screen mapping.
+///
+/// **`r` is in grid cells and the shell draws the mark in screen pixels.**
+/// `map_overlay.gd` uses its own `ICON_BASE_RADIUS := 5.5` times the icon's
+/// scale, with no `sc` term at all -- unlike the settlement pins in the same
+/// file, which do apply `sc`. So `r` here (`5.0 * sc * scale`, where
+/// `sc = max(1, grid_w/512) * civ_zoom_k(zoom_scale) * icon_scale`) and the
+/// drawn glyph are two different sizes in two different units, and the hit
+/// box and resize handle follow this one. Disclosed 2026-09-01; the fix is to
+/// make one side authoritative -- draw at the engine's radius, or publish `r`
+/// on `icon_handles` and draw against that -- which is a change in
+/// `cartalith-godot` and the shell, not here.
 pub fn icon_box_at(px: f64, py: f64, icon: &ManualIcon, env: &IconViewEnv) -> IconBox {
     let sc = f64::max(1.0, env.grid_w as f64 / 512.0) * civ_zoom_k(env.zoom_scale) * env.icon_scale;
     let r = 5.0 * sc * if icon.scale == 0.0 { 1.0 } else { icon.scale };

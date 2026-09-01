@@ -79,6 +79,7 @@ var grid_h_input: SpinBox
 var archetype_input: OptionButton
 var villages_check: CheckBox
 var metropolis_check: CheckBox
+var biome_k_check: CheckBox
 var recovery_input: OptionButton
 var dimension_warning_label: Label
 var _derived_labels: Dictionary = {} ## "Grid"/"Extent"/"Cell size"/"Aspect" -> value Label
@@ -96,7 +97,6 @@ var _biome_k := false
 ## Cancel button exist, and whether the form is re-fitted for touch.
 var _phone := false
 var _dim_syncing := false
-var _auto_generate := true ## Whether Create also calls bridge.generate() -- see set_auto_generate().
 
 func setup(b: EngineBridge) -> void:
 	bridge = b
@@ -250,7 +250,7 @@ func _build(body: VBoxContainer) -> void:
 	metropolis_check = DccWidgets.toggle(gen_sec, "Imperial-seat tier (metropolis ★)", false,
 		func(v: bool): _metropolis = v,
 		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
-	DccWidgets.toggle(gen_sec, "Biome carrying-capacity residual", false,
+	biome_k_check = DccWidgets.toggle(gen_sec, "Biome carrying-capacity residual", false,
 		func(v: bool): _biome_k = v,
 		"Reference civBiomeKChk, default off. Applies a per-biome disease/climate correction to carrying capacity K -- and, where a cell is a lowland wetland, the wetland residual instead. K feeds settlement suitability and the food-shed ceiling, so turning it on moves where settlements are placed and how large they get. Off short-circuits the whole correction, so output is bit-identical to not having it (the reference's own comment).")
 	## Filled from the engine's own `_CIV_RECOVERY_NAME` table rather than a
@@ -394,6 +394,35 @@ func _update_derived_readout(gw: int, gh: int, km_w: float) -> void:
 	dimension_warning_label.text = "\n".join(warnings)
 	dimension_warning_label.visible = not warnings.is_empty()
 
+## `2048 × 1311 → working grid 1024 × 656` for a picked heightmap, or `""`
+## when there is nothing honest to say (no import API, unreadable file, or an
+## engine too old to answer). `EngineBridge.heightmap_grid_size()`'s own doc
+## names this consumer -- *"for a dialog that wants to show the working grid
+## before committing"*. It went a stretch with no caller at all, and while it
+## did, `Import ▸ Load heightmap…` picked a file and committed in the same
+## breath -- so the first a user heard of the resample was the world coming
+## back at a resolution they had not chosen. `app.gd::open_heightmap_import()`
+## now folds this line into the status it was already setting on the pick.
+##
+## The width it resamples *to* is this form's own `grid_w` (`request()` hands
+## the engine exactly that field), which is why the summary belongs here and
+## not in the picker: this dialog is the only place that number exists.
+##
+## Returns the line rather than drawing it, because the pick happens while this
+## dialog is closed -- `app.gd`'s `open_heightmap_import()` owns the file
+## callback, and the surface a user is looking at then is the status line.
+func heightmap_grid_summary(path: String) -> String:
+	if bridge == null or not bridge.import_api:
+		return ""
+	var img := Image.load_from_file(path)
+	if img == null or img.is_empty():
+		return ""
+	var src := img.get_size()
+	var grid := bridge.heightmap_grid_size(int(grid_w_input.value), src)
+	if grid == Vector2i.ZERO:
+		return ""
+	return "%d × %d → working grid %d × %d" % [src.x, src.y, grid.x, grid.y]
+
 func _format_count(n: int) -> String:
 	if n >= 1000000:
 		return "%.2f M cells" % (n / 1000000.0)
@@ -418,15 +447,16 @@ func _on_archetype_selected(index: int) -> void:
 
 # -- Create ---------------------------------------------------------------------
 
-## Whether pressing Create also starts a generate (default true, matching
-## File ▸ New world's own reference behaviour). A future caller wanting to
-## only stage values without generating yet can flip this before opening.
-func set_auto_generate(v: bool) -> void:
-	_auto_generate = v
-
+## Create generates. Unconditionally, which is what `File ▸ New world` does in
+## the reference and what this dialog has always actually done.
+##
+## A `set_auto_generate()` setter and its `_auto_generate` flag used to sit
+## here for "a future caller wanting to only stage values without generating
+## yet". Nothing ever wrote the flag, so the branch was constant-true and the
+## setter unreachable -- a stage-without-generate mode needs a caller and a
+## control, not a private boolean, and would be added with them.
 func _on_create() -> void:
-	if _auto_generate:
-		bridge.generate(request())
+	bridge.generate(request())
 
 ## The keys `EngineBridge.generate()` reads. Sea level and the four
 ## experimental flags are read live off `bridge` rather than cached locally --
@@ -466,6 +496,14 @@ func _sync_from_engine() -> void:
 	if metropolis_check != null:
 		_metropolis = bridge.get_metropolis_enabled()
 		metropolis_check.set_pressed_no_signal(_metropolis)
+	## The fourth toggle F14 itself missed: the return of `DccWidgets.toggle()`
+	## was discarded here, so this box had no handle to write back through and
+	## no clause in this function. It read unchecked while the engine held it
+	## ON, and the next Create posted that stale `false` straight back into
+	## the engine, silently turning the residual off again.
+	if biome_k_check != null:
+		_biome_k = bridge.get_biome_k_enabled()
+		biome_k_check.set_pressed_no_signal(_biome_k)
 	if recovery_input != null and recovery_input.item_count > 0:
 		_recovery_phase = clampi(bridge.get_recovery_phase(), 0, recovery_input.item_count - 1)
 		recovery_input.select(_recovery_phase)

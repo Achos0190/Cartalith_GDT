@@ -1,7 +1,12 @@
 extends Node
-## TEMPORARY, untracked probe -- confirms the CARTO dock's "Ways · by type"
+## Committed probe -- confirms the CARTO dock's "Ways · by type"
 ## group actually BUILDS its five rows in the real shell (the way-real probe
 ## only read the constant), and shoots the panel.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 func _p(s: String) -> void:
 	print("WAYFILTER  %s" % s)

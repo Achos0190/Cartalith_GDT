@@ -26,13 +26,40 @@
 //!   `territory_base`, exactly as `timeline`'s own module doc argues for
 //!   `tid`. This module supplies the *defaults* those arrays are seeded
 //!   with and the vocabularies they are constrained to.
-//! - **`farmersPerUrbanite`'s consumer.** [`AG_TECH_LEVELS`] carries the
-//!   reference's real ratios, but `_civFoodShed`/`foodSurplusRatio` -- the
-//!   only two functions that read them -- are not ported, so in this port
-//!   ag-tech is presently as inert as Government/Religion are in the
-//!   reference. Ported anyway so the table is the reference's table, the
-//!   same reasoning `civ_base_pop_for_kind`'s unreachable `Metropolis` row
-//!   already carries.
+//!
+//! ## `farmersPerUrbanite`'s consumers -- a stale claim, corrected 2026-09-01
+//!
+//! This section used to say [`crate::roster::AG_TECH_LEVELS`]'s
+//! `farmers_per_urbanite` was as inert as Government/Religion, because the
+//! reference's own two readers
+//! of it -- `_civFoodShed`/`foodSurplusRatio` (reference line 14811:
+//! *"`farmersPerUrbanite` is read by foodSurplusRatio()/_civFoodShed() and
+//! genuinely changes a faction's urbanisation ceiling"*) -- had no port.
+//! That stopped being true, in two unrelated ways, neither of which touched
+//! this file:
+//!
+//! - `foodSurplusRatio` is [`crate::timeline::food_surplus_ratio`], and
+//!   `_civFoodShed` is [`crate::trade::civ_food_shed`] (2026-09-01, closing
+//!   `ECONOMY_SCOPE.md` milestone 2 -- see that function's own doc comment
+//!   for what this pass found already ported with zero callers, and what
+//!   it built). This is the food/trade route the reference itself names.
+//! - Separately, `cartalith_civ::manpower::civ_military_manpower`'s
+//!   agricultural-labour-ratio term reads
+//!   [`crate::roster::AgTechLevel`]'s `farmers_per_urbanite` field directly,
+//!   wired at `civ_military_bridge.rs` (`MILITARY_MANPOWER_SCOPE.md`,
+//!   2026-08-25).
+//!   That route has nothing to do with food logistics -- it is the labour
+//!   force behind an army's headcount -- and it is the only one of the two
+//!   actually reachable from Godot today.
+//!
+//! **What is still genuinely true:** nobody at the `cartalith-godot`
+//! boundary calls `civ_food_shed`. This crate holds no faction roster, so a
+//! real per-settlement `farmers_per_urbanite` (and a soil field) has to be
+//! resolved and threaded in from there before ag-tech influences trade the
+//! way it already influences manpower -- the same shape of wiring
+//! `civ_military_bridge.rs` already did for the other route. The table
+//! itself was ported regardless of who reads it, the same reasoning
+//! `civ_base_pop_for_kind`'s unreachable `Metropolis` row already carries.
 
 /// `CIV_FACTIONS` (reference line 14568), index 0 = "Unclaimed", fixed.
 ///

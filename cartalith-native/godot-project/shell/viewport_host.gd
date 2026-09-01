@@ -1150,6 +1150,7 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	refresh_faction_colors()
 	## A regenerate empties `InfraTools::routes`, so this also *clears* the
 	## route layer rather than leaving the previous world's routes drawn over
 	## the new one.
@@ -1181,6 +1182,13 @@ func refresh() -> void:
 func refresh_annotations() -> void:
 	if not _engine_readable():
 		return
+	## Deliberately does NOT re-pull the faction swatches, unlike `refresh()`.
+	## `cartography_workspace.gd` registers this as the *drag* handler's tail
+	## for both the Icon and Label tools, so it runs once per mouse-motion
+	## event; `get_factions()` scans the whole territory raster once per
+	## faction (`claimed_cells`), which would put the first O(gw*gh) term into
+	## a path whose existing work is all list marshalling. Nothing about a
+	## faction's colour can change while a label is being dragged.
 	overlay.set_manual_icons(_bridge.icon_list())
 	## Generated landmarks (`LANDMARK_GENERATION_SCOPE.md`). Guarded on the
 	## method rather than assumed: the landmark bridge is newer than this call
@@ -1191,6 +1199,49 @@ func refresh_annotations() -> void:
 		overlay.set_landmarks(_bridge.landmarks())
 	overlay.set_labels(_bridge.label_list())
 	overlay.set_manual_routes(manual_routes())
+
+## Push the engine's own faction swatches into `map_overlay.gd`, which drew
+## its settlement pins from a frozen six-entry copy of them until
+## 2026-09-01.
+##
+## `CivData::faction_rgb` is the single authority the territory wash, the
+## Political-control analysis field and `get_factions()`'s roster/banner
+## swatch all go through, and its whole reason for existing is that those
+## surfaces "cannot disagree". The pins were the fourth surface and were not
+## going through it: they indexed `FACTION_COLORS` with a `% 6` wrap, so a
+## colour the user set in the Faction roster never reached them, and on a
+## seven-faction world faction 7 got faction 1's colour on the pin while the
+## wash under it drew `civ_faction_color`'s golden-angle hue -- the exact
+## divergence `faction_rgb`'s own doc comment records having already fixed
+## once, for the Political-control field.
+##
+## `color_r`/`color_g`/`color_b` are 0-255 and are documented as "the exact
+## swatch `build_territory_texture` paints this faction's cells in", so the
+## pin and the wash are now the same number rather than two derivations of
+## it. `get_factions()` enumerates `1..=roster.len()`, so the array covers
+## every faction that exists, including appended ones past the base six.
+##
+## Called from `refresh()` -- generate, load, and every other full rebuild --
+## and from nowhere hotter, for the reason `refresh_annotations()` states at
+## its own head.
+##
+## **One path is still open and is not this pass's file.** A roster edit that
+## changes only a colour goes through `civilization_workspace.gd`'s
+## `_on_roster_changed` -> `_refresh_civ_data`, which calls
+## `overlay.set_civ_data()` directly and touches nothing here, so the pins
+## keep the previous swatch until the next `refresh()`. One added line there
+## -- `app.viewport.refresh_faction_colors()`, beside the territory-texture
+## write that handler already does for exactly this reason -- closes it, and
+## this method is public so that line is the whole change.
+func refresh_faction_colors() -> void:
+	if _bridge == null or not overlay.has_method("set_faction_colors"):
+		return
+	var out: Array[Color] = []
+	for f in _bridge.get_factions():
+		var d: Dictionary = f
+		out.append(Color8(int(d.get("color_r", 128)), int(d.get("color_g", 128)),
+			int(d.get("color_b", 128))))
+	overlay.set_faction_colors(out)
 
 ## Every committed Route-tool route, in `route_get`'s own dictionary shape.
 ## `route_count`/`route_get` are the only readback the Route tool has (see
@@ -1865,9 +1916,20 @@ func _set_lod_active(active: bool) -> void:
 # `baked / edited / cached / unexplored`. This overlay can only annotate chunks
 # that exist as live tiles, so `unexplored` can never be drawn; and `edited`
 # reads the reference's `_lodEdits` store, which this port has no equivalent of
-# (`composeTileEdits`/`composeEditInto` are unported). What is left is the real
-# distinction a developer actually wants: is this chunk served from the baked
-# atlas, or synthesized. Inventing the other two would be a legend that lies.
+# (`composeTileEdits`/`composeEditInto` are unported).
+#
+# **What the third state measures was corrected on 2026-08-31.** It used to be
+# labelled `baked` / `cached`, and described here as "is this chunk served from
+# the baked atlas, or synthesized" -- a distinction this port cannot draw,
+# because `_build_lod_tile()` calls `lod_synthesize_tile()` unconditionally and
+# no shell file calls `atlas_tile_png()`. *Every* drawn tile is synthesized, so
+# a legend answering that question had one correct answer and was reading the
+# wrong flag to give it. What `atlas_is_covered()` actually answers is store
+# coverage -- is this chunk, or an ancestor of it, in the on-disk atlas -- which
+# is a real thing to want to see while baking, and is what the two labels now
+# say. Restore the provenance wording in the same commit that makes
+# `_build_lod_tile` try the atlas first; `menus.gd`'s `_build_atlas_cache_menu`
+# header carries the shader constraint that stops that being a one-line branch.
 
 ## Reference `LOD_LEVEL_COLS` (line 10934), verbatim -- red/blue/green/yellow/
 ## cyan/magenta, indexed `z % 6`, so adjacent pyramid levels never share a
@@ -1878,9 +1940,10 @@ const LOD_LEVEL_COLS: Array[Color] = [
 ]
 
 ## Reference `CHUNK_STATE_COL` (line 10935), the two entries this port can
-## actually answer for. See the note above on the two that are omitted.
-const CHUNK_COL_BAKED := Color8(80, 200, 110)
-const CHUNK_COL_CACHED := Color8(90, 140, 210)
+## actually answer for. See the note above on the two that are omitted, and on
+## what these two now mean: atlas *coverage*, not the drawn tile's provenance.
+const CHUNK_COL_IN_ATLAS := Color8(80, 200, 110)
+const CHUNK_COL_NOT_IN_ATLAS := Color8(90, 140, 210)
 
 ## Turn one chunk-debug layer on or off. `which` is `"grid"`, `"colors"` or
 ## `"labels"` -- the reference's own `data-g` values (`grid`/`col`/`lbl`),
@@ -2045,9 +2108,11 @@ func _draw_lod_debug() -> void:
 		## The reference's own legibility gate: a chunk narrower than about
 		## eight glyphs gets no label rather than an unreadable smear.
 		if _lod_dbg_labels and r.size.x > float(fs) * 7.0:
-			var baked := _bridge.atlas_is_covered(z, col, row)
-			var state_txt := "baked" if baked else "cached"
-			var state_col := CHUNK_COL_BAKED if baked else CHUNK_COL_CACHED
+			## Store coverage, not provenance: the tile drawn under this
+			## label was synthesized either way (see the header note).
+			var in_atlas := _bridge.atlas_is_covered(z, col, row)
+			var state_txt := "in atlas" if in_atlas else "not in atlas"
+			var state_col := CHUNK_COL_IN_ATLAS if in_atlas else CHUNK_COL_NOT_IN_ATLAS
 			var box := Rect2(r.position + Vector2(2, 2), Vector2(float(fs) * 8.5, lh * 3.0 + 6.0))
 			_lod_debug_layer.draw_rect(box, Color(0.031, 0.039, 0.063, 0.62), true)
 			var tp := r.position + Vector2(5, 5 + float(fs))

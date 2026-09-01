@@ -33,6 +33,34 @@
 > (34 methods, 2026-08-19), which is the template for the rest. Milestone F is
 > partially done, not done.
 >
+> **Update, 2026-09-01: that engine question is closed, and the paragraph
+> above is stale.** It described 2026-08-19, the day Sculpt's binding landed
+> and nothing else's had yet. By 2026-08-25 the rest had: every one of the
+> seven STRANDED rows and the one half-stranded row below now has a real
+> `cartalith-godot` binding behind a real tool-rail control, arming, storing
+> and rendering it — enumerated tool by tool, with file:line citations, in
+> `UNIFIED_TOOL_PLAN.md`'s new **"Milestone F as built"** section. Nobody
+> corrected this document when that happened, which is the exact defect
+> `OUTSTANDING_WORK.md` §1 ("Milestone F's own closeout") was opened to fix.
+>
+> In brief, so a reader who stops here still gets the truth: **Milestone F is
+> done.** The "Status of all sixteen" table below is left exactly as written
+> on 2026-08-18 — it is the record of the investigation that found the gap,
+> and every one of its "Bound to Godot: ✗" and "State: STRANDED" marks is
+> now wrong, dated evidence of a state that no longer holds, not a live
+> status. Same for "What blocks all of it regardless"'s claim that the
+> GDExtension "exports 44 methods... and not one sculpt, stamp, paint,
+> label, icon, measure or region-export method" — false as of this update —
+> and for "Recommendation" item 2, which is done. The one exception the
+> table did not anticipate: the design's own later revision added a
+> seventeenth tool, **POI**, which this port still declines to bind — by a
+> Milestone D decision older than Milestone F itself, not an omission (see
+> `UNIFIED_TOOL_PLAN.md`'s new section for the three-file citation trail).
+> And one small, honestly-drawn loose end survives: Region select's corner
+> handles are drawn but a drag-resize is not wired to them (same section,
+> "One honest residual") — dragging a fresh marquee still reaches the whole
+> export loop correctly, only the handle shortcut does not.
+>
 > The original report follows unchanged, as the record of how the gap was found.
 
 ---
@@ -66,6 +94,14 @@ This revision removed it and replaced it with the domain rail, which selects a
 Engine column cites the file that actually implements it. "Bound" means a
 `cartalith-godot` GDExtension method exists — **none of the stranded seven have
 one**, so each is two layers away from usable, not one.
+
+> **This table is dated 2026-08-18 and preserved as written.** Every `✗` and
+> every `STRANDED` below describes that day, not today: as of 2026-09-01
+> every row is bound (rows 1-3 correctly still show no binding — they never
+> needed one) except **POI**, a seventeenth tool the design added later and
+> this port still declines to bind by design. See `UNIFIED_TOOL_PLAN.md`'s
+> "Milestone F as built" for the current, verified state of each row and why
+> this one stayed stale for two weeks.
 
 | # | Tool | Engine (built, tested) | Bound to Godot | Design surface | State |
 |---|---|---|---|---|---|
@@ -171,14 +207,30 @@ textures, settlements, roads, sea routes, provinces, trade, quality tiers — an
 So even the six *specified* Sculpt tools (rows 4–8) cannot be wired today: §5.2
 is fully designed and fully implemented in Rust, with nothing in between.
 
+> **False as of 2026-09-01.** The 44-method count and the "not one... method"
+> claim describe 2026-08-18. Sculpt, Paint, Label, Icon, Measure and Region
+> export all have `#[func]` bindings now — 34 for Sculpt alone, the same
+> figure this document's own top block already named on 2026-08-19 — each
+> enumerated with file:line citations in `UNIFIED_TOOL_PLAN.md`'s "Milestone
+> F as built".
+
 That makes the binding layer the real critical path, ahead of any of the
 proposals above. `UNIFIED_TOOL_PLAN.md` calls this Milestone F ("Shell wiring")
 and it is the only lettered milestone still outstanding.
+
+> **Also stale**: Milestone F shipped 2026-08-18 through 2026-08-25 and is no
+> longer outstanding. It was the *last* lettered milestone, not because one
+> remained after it, but because there is no Milestone G.
 
 ## Recommendation
 
 1. Build the shell to the spec, exactly — nothing invented (in progress).
 2. Do Milestone F: bind sculpt, stamps, paint, labels, icons, measure and region
    export to Godot. This unblocks rows 4–8 *and* every proposal above.
+   **Done, 2026-08-18 through 2026-08-25** — see `UNIFIED_TOOL_PLAN.md`'s
+   "Milestone F as built" for the tool-by-tool evidence.
 3. Bring this table to the design project and let the rows above be specified
-   properly, rather than improvised in code.
+   properly, rather than improvised in code. **Also done** — the top of this
+   very document records it: the design's §4.5 Tool palette, imported at sync
+   2026-08-19T00:20Z, is that response, giving every one of these tools the
+   home this recommendation asked for.

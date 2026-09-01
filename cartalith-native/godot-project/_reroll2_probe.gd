@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe. Isolating why the Place editor's ⟳ (re-roll
+## Committed probe. Isolating why the Place editor's ⟳ (re-roll
 ## name) is a no-op on its FIRST press and works afterwards.
 ##
 ## Hypothesis: `open_for()` focuses the name field (§4.5.3). `⟳` calls
@@ -15,6 +15,11 @@ extends Node
 ##   C. call the engine directly -> read back
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _reroll2_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge
@@ -115,5 +120,9 @@ func _ready() -> void:
 	var ret: String = _bridge.civ_reroll_settlement_name(idx)
 	_p("C  engine only: '%s' -> returned '%s', read back '%s'" % [before_c, ret, _name_of(idx)])
 
+	## Gated. The defect this probe was written for (2026-08-25, PE-01: the
+	## focused name field writing its pre-roll text back over the roll) is
+	## fixed -- run A now changes the engine name on the first press -- so
+	## `_fail` is a regression guard, and `quit(0)` threw it away.
 	_p("DONE  A-was-a-noop=%d" % _fail)
-	get_tree().quit(0)
+	get_tree().quit(1 if _fail > 0 else 0)

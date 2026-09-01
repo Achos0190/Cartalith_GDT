@@ -163,11 +163,57 @@ const SCHEME_NOTE := "The export writes a flat row/column tile grid plus tiles/i
 
 const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling exists anywhere in the workspace -- reprojection was the substance of the Conversion group the owner deleted on 2026-08-20 (GUI_GAP_REGISTER.md §7.4), and no import or export path has carried a projection since."
 
-const LAYER_NOTE := "region_export_tiles bakes elevation (RG16) and, with visual tiles on, a hillshaded colour raster. Political tint, labels/icons and rivers are drawn by render.rs into the live viewport texture and never reach the export path; compositing them into a tile is CA-04's separable-layer work, not a switch here."
+## **Corrected 2026-09-01.** This used to say the political tint, labels/icons
+## and rivers "are drawn by render.rs into the live viewport texture". None of
+## those three is a `render.rs` stage, and `render.rs` says so itself: its own
+## grading-stage header states it runs "before the Godot overlays draw rivers,
+## labels, settlement icons, territory and the scale bar (`map_overlay.gd` and
+## its siblings, which composite over the `ImageTexture` this raster
+## becomes)". Traced this pass:
+##
+## - labels, settlement icons and manual icons -> `map_overlay.gd`'s own
+##   `_draw_labels` / `_draw_manual_icons`, Control-level draw calls
+## - political tint -> `lib.rs::territory_texture()`, its own TextureRect
+##   layer under `viewport_host.gd`
+## - rivers -> a channel-mask tint inside `lib.rs::build_color_texture()`
+##
+## The *tile* export is a third thing again: `region_export::tile_png_bytes`
+## calls `render_height_tile_rgba(tile, ...)`, a hillshade of the tile's own
+## heights, so it carries none of the four. (The whole-world raster export is
+## the one place a river tint does survive -- `render.rs::channel_tint`
+## transcribes it -- which is why the sentence has to name the path, not just
+## the feature.)
+const LAYER_NOTE := "region_export_tiles bakes elevation (RG16) and, with visual tiles on, a hillshade computed from the tile's own heights (render_height_tile_rgba) -- nothing else. The political tint is lib.rs's territory_texture() on its own layer, labels and icons are map_overlay.gd Control draws, and the river tint lives in build_color_texture; none of them is a raster stage the tile writer could switch on. Compositing them into a tile means rasterising overlay geometry, which is CA-04's separable-layer work and not a switch here."
 
-const PRESET_NOTE := "No preset store exists. DccSettings persists storage roots and window state only; export presets would be a new section in it, and nothing reads one yet."
+## The enumeration this used to carry -- "DccSettings persists storage roots
+## and window state only" -- was two of the ten sections `dcc_settings.gd`
+## now declares (roots, recents, GPU, autosave, LOD, lighting, theme,
+## graphics, layout, atlas). The claim that matters is unchanged and is the
+## only thing left here: no *export-preset* section exists and nothing reads
+## one. `dcc_settings.gd`'s `§2.6 Window > Save layout as...` is the nearest
+## shape such a list would take.
+const PRESET_NOTE := "No export-preset store exists: DccSettings has no preset section and nothing reads one. Saving one would mean a new section there plus a reader in this pane, which is why the chip is drawn dead rather than writing a preset nothing would load."
 
-const VAULT_NOTE := "MARKDOWN_VAULT_INTEGRATION.md is owner-supplied design that is explicitly \"Not started; no code exists\", and its §33 lists two-way sync as a V1 non-goal. DM-14 is deferred by owner decision, so this block is drawn in the canvas's shape and quiet rather than accent -- there is no vault to be linked to."
+## **Rewritten 2026-09-01.** This constant used to read "MARKDOWN_VAULT_
+## INTEGRATION.md is owner-supplied design that is explicitly 'Not started; no
+## code exists' [...] there is no vault to be linked to", and the block below
+## hard-coded `NOT LINKED` / `0 notes` to match. That stopped being true on
+## 2026-08-24: `cartalith-vault` is a real crate, `vault_bridge.rs` binds it,
+## and `Data ▸ Markdown vault` opens a panel that connects a folder and links
+## settlements, provinces and continents to notes in it. The block now reads
+## `EngineBridge.vault_info()` for its status instead of asserting one.
+##
+## What is genuinely still DM-14 is the *export* half, and only that half:
+## `obsidian://` links in exported tiles and note links in exported GeoJSON
+## (`MARKDOWN_VAULT_SCOPE.md`'s own divergence table), plus two-way sync,
+## which `MARKDOWN_VAULT_INTEGRATION.md` §33 keeps an explicit V1 non-goal.
+## Those three are exactly the three checkboxes below, and they stay disabled.
+const VAULT_NOTE := "The vault connection itself is live (Data ▸ Markdown vault): cartalith-vault indexes a folder of .md files and links settlements, provinces and continents to notes in it. What is still DM-14 is the export half -- obsidian:// links in exported tiles and note links in exported GeoJSON -- plus two-way sync, which MARKDOWN_VAULT_INTEGRATION.md §33 makes an explicit V1 non-goal. The three checkboxes below are those three items."
+
+## The disabled reason for the three checkboxes specifically, which is a
+## narrower statement than `VAULT_NOTE`: these three are unbuilt, not the
+## connection above them.
+const VAULT_EXPORT_NOTE := "Not built. cartalith-vault deliberately generates no obsidian:// URLs (its own module doc: \"no obsidian:// scheme here, no wikilink generation\"), cartalith-engine::geojson writes no note property, and two-way sync is MARKDOWN_VAULT_INTEGRATION.md §33's explicit V1 non-goal. Linking an entity to a note is live and lives in Data ▸ Markdown vault."
 
 const PACKAGING_NOTE := "zip_region_export always produces one stored (uncompressed) .zip. A loose folder tree and MBTiles are both new writers, and MBTiles additionally needs the XYZ addressing the scheme row above does not have."
 
@@ -339,10 +385,12 @@ func open(group: String = "") -> void:
 			if String(r["group"]) == group:
 				target = String(r["id"])
 				break
-	if target == "" and not ROUTES.is_empty():
+	## `ROUTES` is a 14-entry `const`, so the `is_empty()` test could never be
+	## false and the `target != ""` test after it could never fail either -- the
+	## line above assigns one. Both are gone; the fallback is unconditional.
+	if target == "":
 		target = String(ROUTES[0]["id"])
-	if target != "":
-		_select_route(target)
+	_select_route(target)
 	_refresh_foot()
 	_refresh_status()
 
@@ -1516,42 +1564,125 @@ func _build_estimate_block(col: Control, region: Dictionary) -> void:
 	note.custom_minimum_size.x = 200
 	block.add_child(note)
 
+## §9's MARKDOWN VAULT block, reading the live vault rather than asserting it
+## away. See `VAULT_NOTE` for what changed and what of DM-14 genuinely remains.
+##
+## Everything on screen here traces to one `vault_info()` call plus, when the
+## backlink index is already built, `vault_backlink_stats()`. Neither walks the
+## folder, so this is safe from a pane rebuild -- the note count is reported
+## only when the index already holds one, and says so plainly when it does not,
+## rather than forcing a filesystem scan to fill a caption.
 func _build_vault_block(col: Control) -> void:
-	_col_header(col, "MARKDOWN VAULT · NOT LINKED", VAULT_NOTE)
+	var info: Dictionary = _bridge.vault_info() if _bridge != null else {}
+	var bound := bool(info.get("bound", false))
+	var root := String(info.get("root", ""))
+	var display := String(info.get("display_name", ""))
+	var link_count := int(info.get("link_count", 0))
+	_col_header(col, "MARKDOWN VAULT · %s" % ("LINKED" if bound else "NOT LINKED"), VAULT_NOTE)
 	## The canvas borders this block in accent (`rgba(224,163,74,.35)`) because
-	## its mockup vault *is* linked. Nothing is linked here and nothing can be,
-	## so it is drawn quiet -- the shape without the claim.
-	var block := _block(col)
+	## its mockup vault *is* linked. The border now reads the same source the
+	## header does, so the shape can never claim a link the engine has not got.
+	var block := _block(col, "accent_wash_2" if bound else "line")
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 9)
-	head.add_child(DccTheme.mono_label(DccIcons.SYMBOLS["off"], "text_ghost", DccTheme.FS_TINY))
-	var path := DccTheme.mono_label("no vault linked", "text_dim", DccTheme.FS_TINY)
+	head.add_child(DccTheme.mono_label(
+		DccIcons.SYMBOLS["on"] if bound else DccIcons.SYMBOLS["off"],
+		"accent" if bound else "text_ghost", DccTheme.FS_TINY))
+	## Three states, not two. `vault_info()` distinguishes "connected here" from
+	## "this project knows a vault this device has not got" (a non-empty
+	## `display_name` with `bound == false`) -- §27's Unbound case, and the one a
+	## user opening someone else's project actually lands in.
+	var path_text := "no vault linked"
+	if bound:
+		path_text = root if root != "" else display
+	elif display != "":
+		path_text = "%s — known to this project, not connected on this device" % display
+	var path := DccTheme.mono_label(path_text, "text" if bound else "text_dim", DccTheme.FS_TINY)
 	path.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Clipped, so a long root cannot push the count off the block -- with the
+	## full path in the tooltip, and `MOUSE_FILTER_STOP` so that tooltip can
+	## actually be reached (a Label ignores the mouse by default, which is how a
+	## tooltip ends up set and unreadable). Only when there IS a path to show.
+	path.clip_text = true
+	if root != "":
+		path.tooltip_text = root
+		path.mouse_filter = Control.MOUSE_FILTER_STOP
 	head.add_child(path)
-	head.add_child(DccTheme.mono_label("0 notes", "text_ghost", DccTheme.FS_TINY))
+	var count_text := "0 notes"
+	if bound:
+		var stats: Dictionary = _bridge.vault_backlink_stats()
+		count_text = ("%d note(s) · %d link(s)" % [int(stats.get("notes", 0)), link_count]) \
+			if bool(stats.get("built", false)) else ("%d link(s) · index not built" % link_count)
+	head.add_child(DccTheme.mono_label(count_text, "text_dim" if bound else "text_ghost", DccTheme.FS_TINY))
 	block.add_child(head)
 
 	var prose := DccTheme.label(
-		"MARKDOWN_VAULT_INTEGRATION.md is owner-supplied design with no code behind it. Settlements, factions and journeys would resolve to notes by name, and exported tiles would carry obsidian:// links -- none of that is built, and DM-14 is deferred by owner decision.",
+		("Settlements, provinces and continents link to notes in this folder; the panel that owns those links is Data ▸ Markdown vault. What is missing HERE is the export half -- exported tiles carry no obsidian:// link and exported GeoJSON carries no note property (DM-14)."
+			if bound else
+			"Connect any folder of .md files -- Obsidian is one such folder, and nothing requires it -- and settlements, provinces and continents can be linked to notes in it. Cartalith reads only the folder you choose, and writes only where you tell it to."),
 		"text_ghost", DccTheme.FS_MICRO)
 	prose.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	prose.custom_minimum_size.x = 200
 	block.add_child(prose)
 
+	## Still the three unbuilt items, and only those three. Verified this pass:
+	## `cartalith-vault` generates no `obsidian://` URL by design (its own module
+	## doc), `cartalith-engine::geojson` writes no note property, and §33 makes
+	## two-way sync a V1 non-goal. Drawn disabled with THAT reason rather than the
+	## old "there is no vault" one, which the block above now visibly contradicts.
 	_check(block, "Two-way sync (write place notes back)", false, func(): pass,
-		"V1 non-goal", false, VAULT_NOTE)
-	_check(block, "Link labels to notes in GeoJSON", false, func(): pass, "", false, VAULT_NOTE)
-	_check(block, "Include front-matter as properties", false, func(): pass, "", false, VAULT_NOTE)
+		"V1 non-goal", false, VAULT_EXPORT_NOTE)
+	_check(block, "Link labels to notes in GeoJSON", false, func(): pass, "", false, VAULT_EXPORT_NOTE)
+	_check(block, "Include front-matter as properties", false, func(): pass, "", false, VAULT_EXPORT_NOTE)
 
 	var btns := HBoxContainer.new()
 	btns.add_theme_constant_override("separation", 6)
 	block.add_child(btns)
-	for t in ["Re-scan vault", "Change folder…", "Unlink"]:
-		var b := DccWidgets.chip(btns, t, func(): pass, false, 0, 6)
+
+	## Re-scan is two calls, not one: `vault_rebuild_backlinks()` only throws the
+	## index away -- `vault_refresh_backlinks()` is what re-reads, and its own
+	## return says how far it got.
+	##
+	## The outcome goes to the app status line, not to `_status_mid`: this window
+	## rebuilds its own pane afterwards to pick up the new count, and
+	## `_refresh_status()` rewrites `_status_mid` with the marquee line on the way
+	## through -- so anything written there would be gone before it was read.
+	## `_run_export()` reports through `_host.set_status()` for the same reason.
+	var rescan := DccWidgets.chip(btns, "Re-scan vault", func():
+		_bridge.vault_rebuild_backlinks()
+		var r: Dictionary = _bridge.vault_refresh_backlinks()
+		if _host != null:
+			_host.set_status("hint",
+				("vault re-scanned — %d note(s)" % int(r.get("notes", 0)))
+					if bool(r.get("ok", false))
+					else "vault re-scan failed — %s" % String(r.get("error", "unknown")),
+				"accent" if bool(r.get("ok", false)) else "warn")
+		_rebuild_tile_export(), false, 0, 6)
+	rescan.disabled = not bound
+	rescan.tooltip_text = ("Throws the backlink index away and reads the folder again (vault_rebuild_backlinks, then vault_refresh_backlinks)."
+		if bound else "No vault is connected. Use Change folder… first.")
+
+	## Change folder routes to the panel that owns connecting rather than opening
+	## a second folder browser here: `vault_window.gd` is where a chosen path
+	## meets `vault_connect()`, and two connect paths is how the two ends of a
+	## binding start disagreeing.
+	var change := DccWidgets.chip(btns, "Change folder…", func():
+		hide()
+		_host.open_vault_overview(), false, 0, 6)
+	change.disabled = _host == null
+	change.tooltip_text = ("Opens Data ▸ Markdown vault, which owns the folder picker and the connection itself."
+		if _host != null else "This window has no shell host to open the vault panel from.")
+
+	var unlink := DccWidgets.chip(btns, "Unlink", func():
+		_bridge.vault_disconnect()
+		_rebuild_tile_export(), false, 0, 6)
+	unlink.disabled = not bound
+	unlink.tooltip_text = ("Drops this device's binding (vault_disconnect). The links themselves survive -- that is the difference between disconnecting and detaching."
+		if bound else "Nothing is connected to unlink.")
+
+	for b in [rescan, change, unlink]:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-		b.disabled = true
-		b.tooltip_text = VAULT_NOTE
 
 func _build_recent_runs(col: Control) -> void:
 	_col_header(col, "RECENT RUNS")
@@ -1814,6 +1945,11 @@ func _push_tile_grid_preview() -> void:
 	_host.viewport.set_export_tile_grid(
 		_host.viewport.export_tile_grid_enabled(), _tx_cols, _tx_rows)
 
-## The current export split, for the menu row that toggles its preview.
-func tile_grid() -> Vector2i:
-	return Vector2i(_tx_cols, _tx_rows)
+## No `tile_grid()` accessor here, deliberately. One existed for "the menu row
+## that toggles its preview", and that row never called it: `menus.gd`'s
+## `ID_LOD_TILE_BORDERS` handler calls
+## `viewport.set_export_tile_grid(not viewport.export_tile_grid_enabled())`
+## with `cols`/`rows` left at their `-1` default, which that setter reads as
+## "keep what you were told last". What told it is `_push_tile_grid_preview()`
+## above, on every grid change -- so the numbers are already there and a
+## getter would only offer a second way to disagree with them.

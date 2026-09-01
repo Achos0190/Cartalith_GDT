@@ -1,11 +1,16 @@
 extends Node
-## TEMPORARY verification harness for the Icon tool's on-canvas resize
+## Committed verification harness for the Icon tool's on-canvas resize
 ## handle (`GUI_GAP_REGISTER.md` CA-05). Drives the *real shell* through
 ## `app.arm_tool`/`app._on_map_clicked`/`_on_map_dragged`/`_on_map_released`,
 ## the same registry the viewport's own pointer handler uses --
 ## `_authoring_shot.gd`'s own pattern for the sibling four authoring tools.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _iconhandle_probe.tscn -- --nowelcome
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var app: Node
 

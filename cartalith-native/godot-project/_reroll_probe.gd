@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe. Two leads from the press-every-button sweep:
+## Committed probe. Two leads from the press-every-button sweep:
 ##
 ##   1. Place editor ⟳ (re-roll name) changed nothing on screen. Call the
 ##      engine directly ten times and see whether the name actually moves,
@@ -9,6 +9,11 @@ extends Node
 ##      pressed. Name them.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _reroll_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

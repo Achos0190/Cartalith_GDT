@@ -1,11 +1,16 @@
 extends Node
-## TEMPORARY, untracked probe. One question: does a `File ▸ Recent worlds` row
+## Committed probe. One question: does a `File ▸ Recent worlds` row
 ## actually load the world it names, and does it say anything when it cannot?
 ## `_menuwire_probe.gd` reported both rows as "changed nothing anywhere", which
 ## is either a dead menu row or a probe artifact, and the two are worth
 ## separating.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _recent_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

@@ -11,12 +11,20 @@ describes decisions made for the Rust/Godot port, and nothing here is
 maintained as the port evolves. Read it to understand *why the JS engine does
 what it does*; never as a statement of what this repository is building.
 
-## ⚠ Two filenames collide with the port's own documents
+## ⚠ Filenames that collide with the port's own documents
 
 | This directory | Repo root | Same name, different document |
 |---|---|---|
 | `docs/UNIFIED_TOOL_PLAN.md` | `UNIFIED_TOOL_PLAN.md` | **Unrelated.** Here: the HTML app's own 2026 plan to merge `elevation_foundation_v0.036.html` and `Cartalith_V1.914.html` into one file. At root: this port's tool-system milestone plan (A-F), written from the reference's Sculpt editor. |
 | `docs/ROADMAP.md` | `ROADMAP.md` | **Unrelated.** Here: the HTML app's own priority-ordered roadmap. At root: this port's phase plan (Phase 0-5). |
+
+**A third name collides, and it matters more than either of those.**
+"CHANGELOG.md" means two different files. Every unprefixed mention of a
+CHANGELOG *inside this directory* — and `HANDOFF.md` alone has dozens — means
+**the HTML project's own changelog, in `Cartalith_RC`**, which is live and is
+where those "see CHANGELOG for the full writeup" pointers lead. The port's
+`cartalith-native/docs/CHANGELOG.md` is a different file and was **retired on
+2026-08-31**. Do not resolve one to the other.
 
 When any instruction, scope document or agent brief in this repository names
 `UNIFIED_TOOL_PLAN.md` or `ROADMAP.md` **without a directory prefix, it means
@@ -29,8 +37,9 @@ discrepancy is recorded in the root `UNIFIED_TOOL_PLAN.md`'s own header.
 
 | Location | Contents |
 |---|---|
-| Repository root | Every scope, decision and plan document for the port (`DECISIONS.md`, `ARCHITECTURE.md`, `ROADMAP.md`, the `*_SCOPE.md` family, `VISION.md`, `FUNCTIONAL_CONTRACT.md`, …). `README.md` is the index. |
-| `cartalith-native/docs/` | The port's living `CHANGELOG.md` and `STATUS.md`. |
+| **`cartalith-native/docs/STATUS.md`** | **The port's progress — the single source of truth for it** (owner decision, 2026-08-31). Nothing in the directory you are reading now says anything about how far the port has got. |
+| Repository root | Every scope, decision and plan document for the port (`DECISIONS.md`, `ARCHITECTURE.md`, `ROADMAP.md`, the `*_SCOPE.md` family, `VISION.md`, `FUNCTIONAL_CONTRACT.md`, …). `README.md` is the index. Scope documents define milestones; they do not track them. |
+| `cartalith-native/docs/` | `STATUS.md`, above; the **retired** `CHANGELOG.md` (frozen 2026-08-31 — historical narrative, not state); and `3D_TERRAIN_RENDER_RESEARCH.md`. |
 | `design/` | Owner-supplied UI mockups and handoff specs, imported verbatim. |
 | `reference/` | The frozen `Cartalith Gen1 v2.10.html` snapshot and its generated `FUNCTION_INDEX.md`. |
 

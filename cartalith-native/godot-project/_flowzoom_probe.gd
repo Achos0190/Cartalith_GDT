@@ -1,5 +1,5 @@
 extends Node
-## Temporary, untracked verification harness for the zoom behaviour of the
+## Committed verification harness for the zoom behaviour of the
 ## animated Wind / Ocean-currents streak overlay (`shell/wind_fx_layer.gd`) --
 ## the owner's 2026-08-25 report that it "doesn't scale with zoom ... doesn't
 ## show finer patterns", and that the tip should be an arrowhead rather than a
@@ -16,6 +16,11 @@ extends Node
 ## Objects-in-frame is the number that matters twice over: the arrowheads must
 ## cost O(1) of it, not O(particles) -- the mistake `map_overlay.gd`'s dashed
 ## polylines made (311 237 objects in a frame).
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const VP := Vector2i(1600, 1000)
 const ZOOMS := [1.0, 2.0, 4.0, 8.0, 16.0]

@@ -627,3 +627,109 @@ are reported — rather than overrides landing on the wrong stages.
 recommendation the user must execute by hand, stage by stage, on a form that
 had no per-stage vehicle control at all until v1.66 added one. "Equivalent or
 better" is met by executing it.
+
+## 7k. Paint brush falloff: a probability-threshold edge, no palette index ever blended (owner ruling, 2026-08-31)
+
+**The owner's ruling** (`LARGE_ITEM_RULINGS.md`, taken by interrogation over
+`UNWIRED_FUNCTIONS.md`'s Large section): *"Bind it — add a falloff term to
+`PaintStamp`... This is a deliberate divergence from the reference, not a
+parity fix... It must be recorded in `DECISIONS.md` as a divergence when it
+lands. Also resolves the duplicate: two `Hardness` copies are on screen at
+once today, and only one should survive."* This was the highest-severity row
+in `UNWIRED_FUNCTIONS.md` and the source of both remaining dangerous-class
+entries there.
+
+**What the reference does.** Nothing. `cartalith-spatial/src/paint.rs`
+quotes it verbatim: painting is *"a hard disc... unlike `sculpt()`/
+`brushHeight` there's no soft falloff here."* `Brush::hardness`/`softness`
+(`paint_bridge.rs`) were accepted, clamped and stored since the Paint tool
+shipped, but went nowhere — `PaintStamp::apply` never read either one.
+
+**Why this is a divergence and not a parity gap.** There is nothing to
+port: the reference brush has no falloff of any shape to reproduce, hard or
+soft. `DCC_SHELL_SPEC.md` §4.5.2's tool options row lists the two sliders
+anyway, almost certainly carried over from the Sculpt row's own shape rather
+than a deliberate reference behaviour this port had simply failed to find.
+
+**The mechanism** (`cartalith_spatial::paint::PaintStamp::with_falloff`,
+`paint.rs:180`). The categorical-blending objection the reference's own
+comment raises is real and untouched by this: averaging two palette indices
+produces a meaningless third index, so every painted cell still carries
+exactly one clean index, always, at any hardness or softness. What softens
+is the disc's own *edge* — which cells a dab touches at all — never the
+*value* a touched cell receives.
+
+- `hardness`/`softness` (`paint.rs:143-144`) are the two `DCC_SHELL_SPEC.md`
+  §4.5.2 sliders, verbatim and uncombined by the caller. They combine into
+  one *softening* amount inside `PaintStamp` itself,
+  `((1.0 - hardness) + softness).clamp(0.0, 1.0)`
+  (`PaintStamp::feather_width`, `paint.rs:199`) — moving either slider away
+  from "fully hard" (`hardness = 1, softness = 0`) softens the edge a
+  little, both pushing the same needle the same way, rather than one being
+  forced into the other's exact inverse.
+- That amount times the radius is the width, in cells, of a falloff band at
+  the disc's own outer rim. Inside `radius - width` every cell paints
+  unconditionally — what keeps the centre solid rather than fading it
+  uniformly; from there out to `radius` (the disc's existing hard boundary,
+  unchanged) the paint probability ramps linearly from 1 to 0
+  (`passes_falloff`, `paint.rs:219`).
+- The probability is decided against `cell_dither` (`paint.rs:249`): a
+  deterministic hash of the cell's own absolute grid position, not a
+  per-frame random draw, so repainting the same spot at the same brush
+  settings keeps or drops exactly the same cells every time — the brush
+  stipples the map, it does not flicker. It is MurmurHash3's public-domain
+  `fmix64` finalizer over a salted position key, picked only for a fast,
+  good avalanche — **not for JS parity**: there is no reference falloff to
+  match, so `cartalith-rust-conventions`' precision-matching rules do not
+  govern this function.
+
+**The bit-identity guarantee.** `PaintStamp::new`/`PaintStamp::ungated`
+construct with `hardness: 1.0, softness: 0.0`. `(1.0 - 1.0) + 0.0` is `0.0`
+with no rounding — IEEE 754 subtraction of two equal finite operands is
+exact — so `feather_width()` is exactly `0.0` for every stamp that never
+calls `with_falloff`, and `PaintStamp::apply` skips the falloff branch
+entirely for it rather than evaluating a probability that always comes out
+to 1. This is a **strict superset** of the old behaviour, not a
+replacement: `cartalith-civ`'s territory brush (`cartalith-civ/src/
+tools.rs:973`, `cartalith-godot/src/civ_tools_bridge.rs:345`) calls
+`PaintStamp::ungated` and never `with_falloff`, so it is untouched by this
+entry and stays a hard disc forever, by construction rather than by a
+separate check. Every pre-existing golden/regression test for the hard-disc
+case — `cartalith-spatial/tests/golden_parity_paint.rs`'s 7 cases (checked
+against the reference's own `_paintAt`), `cartalith-civ`'s territory-brush
+suite, and every hard-disc test already in `paint.rs`'s own module — passed
+unchanged; none needed touching.
+
+**Verification.** `cargo test -p cartalith-spatial --lib`: 148 passed, 0
+failed, including 4 new tests added with this entry — bit-identity at the
+construction default and again with an explicit `with_falloff(1.0, 0.0)`
+call at two different radii; a mottled (not merely smaller) edge at
+`hardness=0.4`, checked over the full ~1 000-cell annulus rather than a
+single ray so the assertion cannot pass by luck; determinism across two
+applications of one stamp; softness alone feathering the edge while
+hardness stays at `1.0`. `cargo test -p cartalith-spatial --test
+golden_parity_paint`: 7 passed, unchanged. `cargo test -p cartalith-godot
+--lib`: 409 passed, 0 failed, 6 pre-existing ignores, including 3 new tests
+exercising the same two claims through `PaintEditor::stroke_at`/`Brush`'s
+real public names rather than `PaintStamp` directly. `cargo test -p
+cartalith-civ`: the 513-test lib suite plus every golden-parity suite in
+the crate, all passing — the territory brush is provably unaffected.
+
+**The duplicate slider.** `UNWIRED_FUNCTIONS.md` separately flagged
+`Hardness` drawn live in two places at once. `world_workspace.gd:2103` (the
+WORLD dock's Biome paint panel, which also carries `Softness` at `:2105` and
+owns the actual `_paint_brush` dictionary) and `tool_bar.gd`'s unified tool
+options bar only mirrored that same dictionary through `_paint_state`/
+`_write_paint_state` and never held a value of its own. The dock's copy
+survives; the tool bar's was deleted outright — between its `Size` slider
+and `Land only` toggle — not hidden or disabled, matching Sculpt's own
+precedent of a narrowed subset in the bar against the dock's fuller set
+(the bar still has no `Softness` control at all, and none was added: nothing
+here was ever duplicated for that field).
+
+**Relationship to §7d.** Moot rather than met. §7d asks whether a divergent
+implementation is equivalent-or-better for a reference *feature*; this one
+has no reference feature to be equivalent to, so there is nothing it could
+regress. Recorded per this section's own pattern (§7e, §7f) because
+deviating from "the reference has none at all" is still a decision, not
+because §7d's own test applies to it.

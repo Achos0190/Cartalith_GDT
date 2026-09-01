@@ -1,6 +1,6 @@
 extends Node
-## THROWAWAY evidence-gathering probe for the OnePlus 12 phone-UI complaint.
-## Not tracked, not to be committed. Boots the real shell at handset size(s)
+## Evidence-gathering probe for the OnePlus 12 phone-UI complaint.
+## Boots the real shell at handset size(s)
 ## with --force-touch, generates a small world, walks every named screen,
 ## screenshots it, and measures every tappable control and label font size.
 ##
@@ -11,6 +11,11 @@ extends Node
 ## (same trick _shot_phone.gd's --rotate uses) so both resolutions come out of
 ## one run. Screenshots and the raw measurement log land in
 ## user://phonesweep/*.png and user://phonesweep/log.txt.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const SEED := 483920
 const TAP_FLOOR := 44.0   ## dcc_theme.gd DccTheme.PHONE_TAP_MIN, dp/units as authored.

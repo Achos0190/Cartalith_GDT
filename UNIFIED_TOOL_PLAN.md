@@ -1,5 +1,13 @@
 # Unified tool plan: what a tool *is*
 
+> **This document defines what a tool is, what each one needs from the engine,
+> and the A-F milestones that follow from that. It does not track them.** Which
+> milestones have run lives in **`cartalith-native/docs/STATUS.md`**, the only
+> place progress is recorded. The dated "as built" sections below are the record
+> of the passes that ran, and the tool-by-tool audit is a 2026-08-18 reading of
+> the reference and of this port — read either for *what was found and decided*,
+> never for where the work stands.
+
 `UI_SHELL_DESIGN.md`'s own line names this document directly: *"`docs/
 UNIFIED_TOOL_PLAN.md` decides what a tool *is*; this document decides where
 it appears."* The design team's `github.md` places it at `docs/
@@ -286,6 +294,12 @@ mockup being unfinished. The concrete rule this plan adopts:
   explicitly rather than assuming it falls out for free.
 
 ## Tool-by-tool
+
+*Each tool below carries an **Engine backing** finding — what this port had, or
+did not have, for it. Those findings are a **2026-08-18 reading** of the
+workspace, and they are what the A-F milestones were sized from; they are not a
+description of the crates as they stand now. Milestones A-E were written to
+close exactly the gaps this section names.*
 
 ### Group 1 — Navigate & inspect
 
@@ -650,8 +664,7 @@ the largest single chunk and the one with the most complete reference
 answer, so it anchors the plan.
 
 **Milestone A — `PassBuffer`/staleness core (`cartalith-spatial` +
-`cartalith-engine`). DONE 2026-08-18 — see "Milestone A as built" below.**
-The new `PassBuffer<Stamp>` type from "The shared
+`cartalith-engine`).** The new `PassBuffer<Stamp>` type from "The shared
 editing model" above: stamp storage, touched-tile tracking, preview-via-
 scratch-composite, commit-via-real-write, discard. Per-stage `DirtyTracker`
 instances wired along the real dependency chain (height → hydrology →
@@ -660,8 +673,7 @@ no eager cascading. No UI. Verifiable headlessly: commit/discard round-trip
 tests, staleness-propagation tests against a small synthetic field. This
 is the one milestone every other milestone depends on.
 
-**Milestone B — Terrain group, the Sculpt-editor port. DONE 2026-08-18 —
-see "Milestone B as built" below.** The largest
+**Milestone B — Terrain group, the Sculpt-editor port.** The largest
 single chunk: all thirteen `SCULPT_FEATURES` (`apply()` bodies are small,
 pure, individually portable — parallelizable across sub-agents/sessions by
 feature if useful), the three noise families, the stamp bbox/coverage/
@@ -677,8 +689,7 @@ verify per-feature `apply()` math against the reference's own formulas
 (direct algebraic port, checkable by unit test at fixed inputs) rather than
 attempting stroke-sequence parity.
 
-**Milestone C — Water & ecology group. DONE 2026-08-18 — see "Milestone C as
-built" below.** River/water's special commit path
+**Milestone C — Water & ecology group.** River/water's special commit path
 (`enforceChannelDescent` reuse, the lake `waterOnly` dry-run ordering) on
 top of Milestone B's stamp pipeline — real but genuinely more delicate than
 a generic terrain feature, kept as its own milestone rather than folded
@@ -687,8 +698,7 @@ integration into every current `classify_biome` call site (an audit of
 those call sites is real work here — confirm the full list before wiring,
 don't assume it's only render-time).
 
-**Milestone D — Civilization group. DONE 2026-08-18 — see "Milestone D as
-built" below.** Place settlement's manual-insertion
+**Milestone D — Civilization group.** Place settlement's manual-insertion
 path into the existing `SettlementPlacement`/`NamedSettlement` pipeline.
 Draw route/way's waypoint-collection + snap-to-target interaction, reusing
 `road_dijkstra` as-is, plus the new `ManualWay` type and the unreachable-
@@ -699,10 +709,11 @@ terrain group's four are (different data structures, different downstream
 consumers), so this milestone could split into three parallel sub-efforts
 if useful.
 
-**Milestone E — Annotation & measure group. DONE 2026-08-18 — see "Milestone E
-as built" below, which also records the honest split this paragraph's last
-sentence asked for: Region select/export's compute and encoding core ships
-here, and its PNG/gzip/`.zip`/GeoJSON half becomes milestone E2.** Label's new struct + arc-text
+**Milestone E — Annotation & measure group.** *Split in the building, and the
+split is part of the definition: Region select/export's compute and encoding
+core belongs to E, and its PNG/gzip/`.zip`/GeoJSON half became **milestone
+E2** — the boundary and the reasoning are under "Milestone E2 as built"
+below.* Label's new struct + arc-text
 rendering (the one genuinely new *rendering* problem in this whole plan —
 curved text along an arbitrary arc is not something any current Godot
 scene in this port does). Icon stamp's manual-placement addition beside
@@ -2136,9 +2147,10 @@ this document is compared to the reference *as a whole string*.
 copied a third time (and `json_string` gained the two short control escapes
 `QuoteJSONString` uses, since a place name is arbitrary user text).
 
-**`regionNewWorldBtn` is a UI action with a real computational core.** All UI
-work is on hold (owner, 2026-08-18, `DCC_SHELL_SCOPE.md`), so the button stays
-unported. What it *computes* before it starts mutating anything does not:
+**`regionNewWorldBtn` is a UI action with a real computational core.** The
+button itself is an interaction, so it belongs to milestone F like every other
+tool's interaction half, and E2 leaves it alone. What it *computes* before it
+starts mutating anything does not:
 `tileDims(sel, 1, 1, ts)` for the new grid, `max(1, mapWidthKm * sel.w / GW)`
 against the **old** `GW` for the new scale, and `amplifyRegion` for the field.
 That is `extract_region_as_world`. The rest — `allocate()`, `refreshClimate()`,
@@ -2262,7 +2274,226 @@ reports a healthy `N passed`; all four survive on their own too.
   `SAVEFILE_COMPAT.md` is explicitly read-only in this port; adding a writer is
   its own decision.
 - **Every UI surface**: `regionNewWorldBtn` itself, `refineBtn`, the download,
-  the progress label and the `confirm()` — all UI work is on hold.
+  the progress label and the `confirm()` — every tool's interaction half is
+  milestone F's, not E2's.
 
-With E2 done, the Region select/export tool's engine half is complete, and the
-only unified-tool-plan work left is **milestone F**, the shell wiring.
+E2 is where the Region select/export tool's engine half ends; **milestone F**,
+the shell wiring, is where that engine half and Track 1's shell meet — see
+"Milestone F as built" below for how, and how completely: this sentence was
+still the last one in the file as of 2026-08-31, which is exactly the
+staleness `OUTSTANDING_WORK.md` §1 flagged.
+
+## Milestone F as built (2026-09-01)
+
+No pass wrote this section while the work happened, which is the entire
+reason `OUTSTANDING_WORK.md` §1 flagged the gap and this pass exists. The
+work itself is not new: it shipped across roughly a dozen commits between
+2026-08-18 (`7f5e54c` "Sculpt bindings, the ten-stage pipeline, and the right
+dock"; `611c5fa` "Bind the six remaining tool engines to Godot") and
+2026-08-25 (`789626d`, a Paint commit/discard gating fix), with the dispatch
+substrate and the CARTO/WORLD domain wiring landing 2026-08-19 (`2729734`,
+`5bffabd`, `ecd113a`, `82243b8`), a visual sweep on 2026-08-20 (`cd29266`),
+and the six-mode Measurement toolbar plus the SG-01/SG-03 staleness restore
+on 2026-08-24 (`7ffb59a`, `a0ce1f0`, `1099ca1`, `b5b83f0` — the last
+restoring a feature an unrelated commit, `cebd466`, had silently deleted the
+same day). `STRANDED_TOOLS.md`'s own 2026-08-19 resolution note caught the
+very start of this ("Sculpt now does [have a binding]... which is the
+template for the rest") and was never revisited once the rest actually
+shipped. This section is that revisit, verified against the working tree
+rather than against either document's memory of itself.
+
+**The claim in one line: all sixteen tools `STRANDED_TOOLS.md` catalogued
+are closed** — thirteen with a real `cartalith-godot` binding behind a real
+shell control, three that correctly need neither — **with one tool the
+design added that this port still declines to bind, by a Milestone D
+decision that predates this milestone, not an oversight, and one small,
+honestly-drawn loose end on Region select's corner handles.** The rest of
+this section is the enumeration that backs that sentence.
+
+### The dispatch substrate
+
+One mechanism arms and routes every tool, in `shell/app.gd`: a single
+`ButtonGroup` (`tool_group`, `app.gd:84`) shared across every domain's TOOLS
+block, an `armed_tool` string defaulting to `"inspect"`, and five
+`id -> Callable` dictionaries — `_click_handlers`, `_drag_handlers`,
+`_release_handlers`, `_escape_handlers`, `_backspace_handlers`
+(`app.gd:92-106`) — that a workspace populates through
+`register_tool_click_handler` and its four siblings (`app.gd:137-150`).
+`_on_map_clicked`/`_on_map_dragged`/`_on_map_released` (`app.gd:152-162`)
+look up whichever entry matches `armed_tool` and call it, or do nothing for
+an id nobody registered — which is Select/inspect's entire mechanism: it
+registers no handler at all, because `_wire_selection()`'s unconditional
+cursor-sample forwarding already is its behaviour, and Pan needs none
+either, being "always available as a modifier" on the camera itself
+(`global_tools.gd`'s own comment, line 10-12).
+`arm_tool()` (`app.gd:108-135`) is the one place a tool becomes active, and it is deliberately
+workspace-agnostic — no domain file can see another domain's tool, which is
+what let five files (`world_workspace.gd`, `civilization_workspace.gd` for
+Settlement/Territory and, since the 2026-08-20 domain merge, Way/Route
+alongside it, `infrastructure_workspace.gd`, `cartography_workspace.gd`,
+`global_tools.gd`) each register their own tools with no shared switch
+statement anywhere.
+
+Counted directly in the tree: **ten tool ids are registered** — `icon`,
+`label`, `measure`, `paint`, `region`, `route`, `sculpt`, `settlement`,
+`territory`, `way`. That is fewer than the sixteen `STRANDED_TOOLS.md`
+catalogued only because five of Sculpt's rows (Raise/lower, Smooth,
+Flatten/terrace, Stamp, River/water) share one registry-backed id exactly as
+Milestone B's own plan predicted ("splitting them further would just be UI
+sequencing, not real engine boundaries"), and because Draw route/way was
+always two reference tools (`draw_way`/`route`) and stays split into two ids.
+
+### Tool by tool, against `STRANDED_TOOLS.md`'s own sixteen rows
+
+| # | Tool | Tool id | Arms it | Stores the draft | Renders it |
+|---|---|---|---|---|---|
+| 1 | Select / inspect (`V`) | *(default; no handler registered)* | `armed_tool`'s own default | n/a | selection is the shell's own — unchanged |
+| 2 | Pan (`H`) | *(none; camera modifier)* | always active | n/a | `viewport_host.gd` camera — unchanged |
+| 3 | Point sample (`I`) | *(none; a readout)* | n/a | n/a | right dock Sample context — unchanged, still correctly not a tool |
+| 4-8 | Raise/lower, Smooth, Flatten/terrace, Stamp, River/water | `sculpt` | `world_workspace.gd:355-358` | `sculpt: Option<SculptEditor>` (`lib.rs:1909`) | `tool_overlay.gd` path preview + brush ring; `build_sculpt_preview_texture` composited live |
+| 9 | Biome paint | `paint` | `world_workspace.gd:359-361` | `paint: Option<PaintEditor>` (`lib.rs:1941`) | brush ring; `build_paint_preview_texture` (visibility fixed `1099ca1`; Commit/Discard gating fixed `789626d`) |
+| 10 | Place settlement | `settlement` | `civilization_workspace.gd:545` | `civ_tools: Option<CivTools>` (`lib.rs:1930`) | Settlement inspector + map pin |
+| 11 | Draw route / way | `way` + `route` | `infrastructure_workspace.gd:266-267` | `infra: Option<InfraTools>` (`lib.rs:1967`) | `tool_overlay.gd` path preview while drafting; Route/Way inspector once committed (`right_dock.gd:332`, `show_route`) |
+| 12 | Territory / faction paint | `territory` | `civilization_workspace.gd:546` | `civ_tools` (shared with row 10) | `territory_texture()` wash (`engine_bridge.gd:655`) + brush ring |
+| 13 | Label | `label` | `cartography_workspace.gd:556-558` | `labels: Option<LabelBridge>` (`lib.rs:1953`) | `map_overlay.gd::_draw_labels` once placed; `tool_overlay.gd` handles (resize/rotate/arc) while selected |
+| 14 | Icon stamp | `icon` | `cartography_workspace.gd:552-554` | `icons: Option<IconEditor>` (`lib.rs:1919`) | `map_overlay.gd` icon draw once placed; `tool_overlay.gd` resize handle (added `a0ce1f0`) |
+| 15 | Measure | `measure` | `global_tools.gd:104-107` | `infra` (shared with row 11) | `tool_overlay.gd` ruler / ring / A-B labels; right dock, one context per mode |
+| 16 | Region select / export | `region` | `global_tools.gd:110-112` | `infra` (shared with row 11) | `tool_overlay.gd` dashed marquee + corner handles; right dock Region summary (`right_dock.gd:1422-1447`) |
+
+Rows 1-3 are unchanged from `STRANDED_TOOLS.md`'s own read and correctly so
+— none of the three ever needed a `cartalith-godot` binding, and none has
+grown one. Rows 4-16 are the thirteen that did, and every one now has both
+halves: an engine call and a shell control that reaches it.
+
+### Rows 15 and 16 grew past what was proposed
+
+`STRANDED_TOOLS.md`'s own "What I would expect on the UI" table sketched
+Measure as one ruler mode and Region select as a marquee feeding an
+existing export route. What shipped is larger than either sketch:
+
+- **Measure is six modes**, not one: Distance, Bearing, Area, Radius,
+  Cross-section and Δ vertical (`global_tools.gd:50-63`), each reading one
+  of eight bound `#[func]`s (`measure_begin`/`add_point`/`result`/`clear`/
+  `section`/`area`/`radius`/`vertical`, `engine_bridge.gd:2333-2383`) and
+  each rendered by the same `tool_overlay.gd` primitives (a ring for
+  Radius, A/B end labels for Cross-section, a closed polygon for Area)
+  rather than one drawing routine per mode.
+- **Region select is a closed loop, not half of one.** The proposal's own
+  gap — "bounds as a typed field, not a marquee dragged on the map" — is
+  gone: `global_tools.gd:306-324` drags a rect into `region_set`, the right
+  dock's `_build_region` (`right_dock.gd:1422-1447`) reads it back through
+  `region_get` and shows extent, cell count and a per-LOD tile estimate
+  (the design's own §4.5.1 spec, quoted in that function's doc comment:
+  "Extent in both units, cell count, tile estimate per LOD, and Send to
+  Data > Export"), and its own `Send to Data ▸ Export` action opens the
+  Data manager straight onto the export pane that already called
+  `region_export_tiles` (`data_manager_window.gd:1411, 1820, 1831, 1923`).
+  Marquee, readout and export route are one path now, not two.
+
+### The one tool the design added that this port still declines to bind: POI
+
+`STRANDED_TOOLS.md`'s own resolution note records that the design revision
+added a seventeenth control past its original sixteen: POI (§4.5.3, key
+`P`, `_civDropPOI`). It has no row in the table above because it has no
+tool id, and that is a decision, not a gap this milestone left open — and
+not even this milestone's decision. `cartalith-civ/src/tools.rs`'s doc
+comment for `civ_place_pick_weight` says outright, in Milestone D, before
+Milestone F existed to wire anything: *"[the reference's] POI branch (a
+flat weight of 5) is likewise absent because this port has no POI concept"*
+(`tools.rs:137-138`). `cartalith-godot/src/civ_tools_bridge.rs`'s own module
+doc — which self-identifies as Milestone F's own work (`civ_tools_bridge.rs:1-2`:
+*"the CIVIL tool group's Godot-facing bridge state —
+`UNIFIED_TOOL_PLAN.md` milestone F"*) — confirms it rather than papering
+over it: *"POI is not a ported concept... `_civDropPOI` has no Rust
+counterpart anywhere in the workspace. This module therefore binds
+Settlement and Territory only"* (`civ_tools_bridge.rs:20-26`).
+`civilization_workspace.gd:531-537` carries the shell-side consequence
+forward correctly: no fifth button is drawn next to Settlement/Territory/
+Way/Route, because *"[a]rming a button with no engine behind it would be
+the fake control this port's own discipline... exists to avoid... omitted
+rather than built disabled or wired to a stub."* That is this project's own
+standing rule working as intended, not an item for anyone's backlog.
+
+### The staleness readout — SG-01, SG-02, SG-03
+
+Milestone F's other stated half: *"Status-bar staleness readout... reading
+Milestone A's per-stage `DirtyTracker`s."* Built, and — per the commit log
+— briefly un-built by an unrelated change before being restored the same
+day:
+
+- `app.gd:789-796`, `_setup_staleness()`, starts a one-second `Timer` onto
+  `refresh_staleness()` rather than wiring a signal into every one of the
+  half-dozen `#[func]`s that can dirty something (`app.gd:756-762` gives
+  the reasoning: six couplings for a readout that is a plain query).
+- `refresh_staleness()` (`app.gd:819-841`) reads `bridge.stale_stages()`
+  (`engine_bridge.gd:2042` → `lib.rs:3549`, which reads `self.stages`, a
+  `cartalith_spatial::staleness::StageGraph`, `staleness.rs:86` —
+  Milestone A's own type, unmodified), names the stale stages and the
+  most-upstream reason, and writes the shell's `stale` status slot. This is
+  SG-01.
+- SG-02 is the civ-side half of the same reading: a sculpt or paint commit
+  settles hydrology and climate but leaves civ stale until
+  `recompute_civilisation` catches up, which `stale_stages()`'s own doc
+  comment (`lib.rs:3540-3547`) names as the one source the graph itself
+  cannot represent, reported through a dedicated `civ_dirty` flag instead.
+- SG-03 is the per-*parameter* half: moving a generation dial marks the
+  correct pipeline stage stale too, not only a tool commit — `set_params`'s
+  own doc comment (`lib.rs:2682`) says it "marks the staleness graph... for
+  the 25 keys that have a live-apply path," and `params.rs:706` names which
+  node of `pipeline_stage_graph()` each one invalidates.
+- The explicit "recompute now" affordance F's own definition implies also
+  shipped: a `Recompute` button (`app.gd:787, 843-859`) calling
+  `recompute_stale_stages()`, visible only when the bound binary actually
+  has that method — the same degrade-rather-than-crash discipline every
+  wrapper in `engine_bridge.gd` uses.
+
+### One honest residual
+
+Region select's corner handles are drawn — `tool_overlay.gd:221-223`,
+*"handles resize it... drawn even though resize-by-drag isn't wired yet, so
+the affordance reads correctly once it is"* — and grabbing one does
+nothing: no `region_resize` `#[func]` exists anywhere in
+`cartalith-godot` (checked; `infra_tools_bridge.rs` and `lib.rs` between
+them have `region_set`/`_get`/`_clear`/`_export_tiles` and no fifth verb).
+This is not a promise this milestone broke: neither Milestone E's nor E2's
+own "as built" sections above ever scoped a resize verb for Region, only
+the drag-to-draw marquee and its dashed overlay, which this milestone did
+build. Label and Icon, by contrast, both got a real resize verb
+(`label_resize_size`, `icon_resize`) because their own reference precedent
+had one. Redrawing a region today means dragging a fresh marquee from
+empty, which reaches every other step of the loop correctly — only the
+handle-grab shortcut the overlay's own comment anticipates is unbuilt.
+Small, and exactly as far as "genuinely incomplete" goes for this milestone.
+
+### Verified
+
+Not re-run this pass — this is a documentation closeout, not a code change,
+so nothing here required a rebuild — but counted directly against the
+working tree: **131 `#[test]` functions** across the six bridge files this
+milestone's tools are bound through (`sculpt_bridge.rs` 12, `paint_bridge.rs`
+25, `label_bridge.rs` 23, `icon_bridge.rs` 28, `infra_tools_bridge.rs` 22,
+`civ_tools_bridge.rs` 21), on top of the 29 in `cartalith-civ/src/tools.rs`
+and 26 in `cartalith-spatial/src/pass.rs` that Milestones A and D's own
+sections above already counted for the pure-engine halves. The `#[func]`
+wrapper counts cited above are a direct count of `engine_bridge.gd`'s own
+per-source-file blocks between lines 1844 and 2506, each a 1:1 wrapper over
+one bound `#[func]` by the file's own stated contract (`:1350-1366`): 34 for
+Sculpt (`:1367-1571`, matching `STRANDED_TOOLS.md`'s own 2026-08-19 count of
+Sculpt's binding exactly), 13 for Icon (`:1844-1922`), 10 for Paint
+(`:2201-2258`), 4 for Way (`:2259-2281`) and 8 for Route (`:2282-2331`), 8
+for Measure (`:2332-2383`), 4 for Region (`:2384-2405`), 17 for Label
+(`:2414-2506`).
+
+### Not built, deliberately — carried forward, not new to this pass
+
+Everything Milestones D, E and E2 already named as deferred to F and listed
+under their own "Not built, deliberately" headings above is now either
+built (the interaction halves: waypoint capture, the Escape/commit
+keybindings, the drag-rectangle with its dashed overlay, the two-click
+measure capture, label drag/rotate/arc, icon arm/disarm/resize) or still
+correctly absent for the reason those sections already gave: `params.json`'s
+contents (needs a save *writer*, and `SAVEFILE_COMPAT.md` is read-only by
+design), persistence of labels/icons into the save format (same reason),
+and `_civGenerateProvinces` consuming a painted territory raster (Milestone
+D's own item, unrelated to shell wiring). None of these are Milestone F's
+to close, and this pass did not touch any of them.

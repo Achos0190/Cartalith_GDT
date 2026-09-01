@@ -22,7 +22,7 @@ class_name OpenProjectDialog
 ## | `Recent` / `All worlds` / `Shared` chips, active one accent-outlined | `_build_scopes()` |
 ## | 4-column tile grid, `16/11.5` tiles | `_grid` |
 ## | dashed import tile, first | `_build_import_tile()` |
-## | `CURRENT` badge, name, `seed · edited 4 min ago` | `_build_tile()` |
+## | `CURRENT` badge, name, `seed · fmt N · edited 4 min ago` | `_build_tile()` |
 ## | foot: `projects read from …`, `Cancel`, `Open selected` | `_build_foot()` |
 ##
 ## **What is real and what is disclosed.** Following this shell's own habit of
@@ -654,8 +654,14 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	title_label.name = "Title"
 	title_label.clip_text = true
 	caption.add_child(title_label)
+	## `seed · fmt N · edited 4 min ago`. The format number is this *save's*
+	## own (read above), not `EngineBridge.project_format_version()`, which is
+	## the version this build writes -- printing the build constant on every
+	## tile would say nothing about the file the tile opens.
+	var fmt := int(meta.get("format", 0))
+	var fmt_part := ("fmt %d · " % fmt) if fmt > 0 else ""
 	caption.add_child(DccTheme.mono_label(
-		"%s · %s" % [meta.get("seed", "seed unread"), meta.get("edited", "")],
+		"%s · %s%s" % [meta.get("seed", "seed unread"), fmt_part, meta.get("edited", "")],
 		"text_faint", DccTheme.FS_TINY))
 
 	_ignore_mouse(wrap)
@@ -737,8 +743,18 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 # Per-project metadata
 # ---------------------------------------------------------------------------
 
-## `{seed, edited}` for one save. Both are display strings; nothing reads them
-## back. The seed comes from the save's own `params.json` (`SAVEFILE_COMPAT.md`
+## `project.json`'s own `format` member, which identifies the archive as this
+## application's. `cartalith-io/src/project.rs` declares it as
+## `pub const PROJECT_FORMAT: &str = "cartalith-project"` and refuses any
+## archive whose manifest says something else or nothing at all. Duplicated as
+## a literal only because no binding exposes it; if one is ever added,
+## `project_meta()` should read it instead of this constant.
+const PROJECT_FORMAT := "cartalith-project"
+
+## `{seed, edited, format}` for one save. The first two are display strings and
+## nothing reads them back; `format` is the save's own `format_version`
+## (`SAVEFILE_COMPAT.md` §4) as an integer, 0 when unread.
+## The seed comes from the save's own `params.json` (`SAVEFILE_COMPAT.md`
 ## §`params.json`: `state.tect.seed`) via `ZIPReader`, which is a read of a
 ## stored value rather than a re-derivation of one -- the distinction the
 ## `godot-shell` skill's "keep logic out of GDScript" rule turns on.
@@ -753,9 +769,37 @@ static func project_meta(path: String) -> Dictionary:
 	var key := "%s@%d" % [path, modified]
 	if _meta_cache.has(key):
 		return _meta_cache[key]
-	var meta := {"seed": "seed unread", "edited": _relative_time(modified)}
+	var meta := {"seed": "seed unread", "edited": _relative_time(modified), "format": 0}
 	var zip := ZIPReader.new()
 	if zip.open(path) == OK:
+		## `project.json`'s `format_version` (`SAVEFILE_COMPAT.md` §4), which a
+		## reader MUST check and which nothing in this shell ever showed. It is
+		## the first number asked for when an old save misbehaves, so the tile
+		## that offers to open it is where it belongs. 0 means "not read" --
+		## an absent or unparsable header, which §4 says a reader refuses -- and
+		## the caption omits the field rather than printing a version this file
+		## never claimed.
+		##
+		## **The `format` identity test comes first, and did not used to exist.**
+		## The engine refuses an archive whose `project.json` carries a different
+		## `format`, or none at all (`cartalith-io/src/project.rs`, twice: `match
+		## manifest.get("format") { Some(PROJECT_FORMAT) => {}, Some(other) =>
+		## Err(NotAProject(other)), None => Err(NotAProject("")) }`). Reading only
+		## `format_version` here meant any unrelated `.zip` that happened to
+		## contain a `project.json` with that key got a confident `format 1`
+		## caption on a tile offering to open it -- a caption the loader behind
+		## the tile would then refuse. `phone_project_picker.gd` reads this same
+		## static, so both pickers gain the test together. `PROJECT_FORMAT`'s value
+		## is spelled again here only because no binding exposes it: the way to end
+		## that duplication is a `project_format()` wrapper in `engine_bridge.gd`
+		## beside the existing `project_format_version()`, returning
+		## `cartalith_io::PROJECT_FORMAT` from the engine.
+		if zip.file_exists("project.json"):
+			var head = JSON.parse_string(zip.read_file("project.json").get_string_from_utf8())
+			if head is Dictionary \
+					and String((head as Dictionary).get("format", "")) == PROJECT_FORMAT \
+					and (head as Dictionary).has("format_version"):
+				meta["format"] = int((head as Dictionary)["format_version"])
 		if zip.file_exists("params.json"):
 			var parsed = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
 			if parsed is Dictionary:

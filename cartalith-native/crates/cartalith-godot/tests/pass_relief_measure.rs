@@ -70,6 +70,8 @@ fn the_corridor_relief_is_sparse_and_reaches_real_routes() {
         world: false,
         map_width_km: 5120.0,
         corridors: None,
+        flow: None,
+        flow_thresh: 0.0,
     };
     let aware = cartalith_civ::tools::RouteContext { corridors: Some(&corr), ..plain };
 

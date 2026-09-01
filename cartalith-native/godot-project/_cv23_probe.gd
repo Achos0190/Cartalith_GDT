@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for GUI_GAP_REGISTER.md CV-23.
+## Committed probe for GUI_GAP_REGISTER.md CV-23.
 ##
 ## Drives, windowed, against a real multi-faction world:
 ##   * `civ_territory_influence()` returns real per-faction and per-border
@@ -16,6 +16,11 @@ extends Node
 ##     is the actual CV-23 claim (nothing is retained).
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _cv23_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge
@@ -116,6 +121,7 @@ func _ready() -> void:
 	await _memory()
 	await _memory_large()
 
+	_check_bindings()
 	_p("=== %s ===" % ("PASS" if _fail == 0 else "%d FAILURES" % _fail))
 	get_tree().quit(0 if _fail == 0 else 1)
 
@@ -486,3 +492,28 @@ func _memory_large() -> void:
 	## at the port's own 8192x8192 ceiling.
 	_p("extrapolated at 8192x8192: %.0f MB transient, 0 bytes resident"
 		% (float(8192 * 8192 * 53) / 1048576.0))
+
+
+## The staleness fingerprint, read off the shell instead of guessed at.
+##
+## `EngineBridge._has()` (`shell/engine_bridge.gd`) is the one choke point
+## every binding guard in the shell goes through, and it records the name of
+## each method the shell asked for that this build does not export;
+## `EngineBridge.missing_bindings()` hands back the set. Nothing in this probe
+## suite read it -- and a stale `target/debug/cartalith_godot.dll` has twice
+## sent every `_has()` guard in a run down its degraded-fallback branch, which
+## turns a whole sweep into a clean report over code that was never exercised.
+## That is the failure mode this suite is least able to notice on its own, and
+## the shell was already carrying the answer.
+##
+## Called last, after every surface this run drives has been driven: the set
+## only fills as guards are reached, so an early read reports an empty one.
+func _check_bindings() -> void:
+	var mb: PackedStringArray = _bridge.missing_bindings()
+	if mb.is_empty():
+		return
+	_bad("stale extension -- the shell asked for %d binding(s) this build "
+		% mb.size()
+		+ "does not export (%s). " % ", ".join(mb)
+		+ "Every result above was measured against a degraded shell; rebuild "
+		+ "the crates and re-run before believing any of it.")

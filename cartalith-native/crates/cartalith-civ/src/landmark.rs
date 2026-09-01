@@ -15,7 +15,10 @@
 //! [`kinds`] declares all 49 landmark types of research §29 — which family
 //! (§29), which class (§23), a default cap, whether the type leans on the
 //! viewshed field this port does not have (§9.3 of the UI design names exactly
-//! six), and whether the type is **actually generated**. Thirteen are.
+//! six), and whether the type is **actually generated**. Fourteen are, as of
+//! the M8 residual pass that added Resource extraction site — see
+//! [`EXTRACTION_RESOURCES`] for why that one is not the duplicate its name
+//! suggests.
 //! [`generate`] runs research §30's twelve steps over whichever inputs the
 //! caller really has, and returns both the landmarks and — the part the UI
 //! actually needs — a [`LandmarkFunnel`] per kind saying how many candidates
@@ -96,8 +99,15 @@ impl LandmarkClass {
         }
     }
 
-    /// The three-letter badge the dock draws in a row's left gutter
+    /// The three-letter badge for a row's left gutter
     /// (`LANDMARK_UI_DESIGN.md` §3.1).
+    ///
+    /// **The dock does not call this.** `civilization_workspace.gd`'s
+    /// `_lm_badge` derives the same four strings from the engine's own class
+    /// key, deliberately, so a fifth class gets a badge instead of a blank
+    /// gutter; `UNWIRED_FUNCTIONS.md` registers the pair and that reason.
+    /// Kept as the engine-side spelling of §3.1 -- corrected 2026-09-01,
+    /// where this claimed a caller it does not have.
     pub fn badge(self) -> &'static str {
         match self {
             LandmarkClass::Continental => "CON",
@@ -211,8 +221,10 @@ pub struct LandmarkKindSpec {
     ///
     /// **Not in the agreed contract** — added because "declared and honestly
     /// NOT generated" is only honest if the panel can say *why*, and the
-    /// alternative was 36 reasons living in GDScript where they would drift
-    /// from the engine that owns them. Purely additive.
+    /// alternative was three dozen-odd reasons living in GDScript where they
+    /// would drift from the engine that owns them (36 at the time this field
+    /// was added; 35 after the M8 residual pass built Resource extraction
+    /// site). Purely additive.
     pub not_built: &'static str,
 }
 
@@ -250,11 +262,11 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             not_built: "A river mouth is detectable; a delta is a deposition landform and this engine carries no sediment budget. Placing one at every mouth would be a rename, not a detection." },
         LandmarkKindSpec { key: "river_confluence", label: "River confluence", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: false,
-            not_built: "The volcanism raster is not among this pass's inputs, and §9.3 marks this as one of the six types whose dominant term is the missing viewshed." },
+            not_built: "The volcanism raster is not among this pass's inputs — it drives lithology and resource potentials in cartalith-godot's landmark_geology_inputs and is discarded there, never threaded through — and §9.3 marks this as one of the six types whose dominant term is the missing viewshed besides." },
         LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "Needs a differential-erosion signal — resistant rock standing proud of soft rock. The engine has lithology and it has erosion, but never the contrast between neighbours as a field." },
+            not_built: "Needs a differential-erosion signal — resistant rock standing proud of soft rock. build_lithology runs on every landmark_run() call but is discarded after deriving resource potentials rather than reaching this pass, and even wired in, nothing computes the neighbour-contrast a differential signal needs." },
         LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: false,
-            not_built: "No glaciation model. The landform classifier names a cirque from curvature alone, which is a shape test, not a history of ice." },
+            not_built: "No general glaciation model. cartalith-terrain's fjord module reconstructs one specific glacial landform from paleoclimate temperature, relief and lithology, but covers coastal fjords only — not a cirque, moraine or esker inland — and needs three inputs this pass does not take." },
         LandmarkKindSpec { key: "ancient_forest", label: "Ancient forest", family: F::Physical, class: C::Continental, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "Biome says where forest is; nothing says how old it is. Age is what makes the forest a landmark." },
         // ---------------- Transportation (8) ----------------
@@ -275,9 +287,12 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         LandmarkKindSpec { key: "mine", label: "Mine", family: F::Economic, class: C::Local, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "quarry", label: "Quarry", family: F::Economic, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "salt_works", label: "Salt works", family: F::Economic, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
-            not_built: "The salt potential exists, but rock salt and a coastal salt pan are different installations in the same field and nothing here separates them. Mine already covers the rock-salt shape." },
-        LandmarkKindSpec { key: "resource_extraction_site", label: "Resource extraction site", family: F::Economic, class: C::Local, default_cap: 16, needs_viewshed: false, buildable: false,
-            not_built: "A generic parent of Mine and Quarry. Generating it too would put a second record on cells those two already claim." },
+            not_built: "The salt potential exists, but rock salt and a coastal salt pan are different installations in the same field and nothing here separates them. build_resource_potentials computes it as one arid-lowland evaporite-basin model with no coastal term at all, so a coastal split would be invented, not read. Mine already covers the rock-salt shape." },
+        // Built from EXTRACTION_RESOURCES (timber, sulfur, alum) — the three
+        // potentials Mine and Quarry do not read — via the same pool_resource
+        // test those two use. See EXTRACTION_RESOURCES's own doc for why this
+        // is not the duplicate the name suggests.
+        LandmarkKindSpec { key: "resource_extraction_site", label: "Resource extraction site", family: F::Economic, class: C::Local, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "market_site", label: "Market site", family: F::Economic, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
             not_built: "Needs §13's spatial interaction over least-cost distance. Straight-line settlement proximity is not the same claim and would put markets on the wrong side of mountains." },
         LandmarkKindSpec { key: "trade_depot", label: "Trade depot", family: F::Economic, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: false,
@@ -314,9 +329,9 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             not_built: "The same gap as Shrine: awaiting §26's cultural-interpretation layer." },
         // ---------------- Historical (6) ----------------
         LandmarkKindSpec { key: "ruin", label: "Ruin", family: F::Historical, class: C::Regional, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "§20 is explicit that a ruin comes from a settlement's own decline chain. The timeline collapse simulation exists in this crate but is not an input here, and the Conflict link in that chain is SP-4, not started." },
+            not_built: "§20 is explicit that a ruin comes from a settlement's own decline chain. timeline.rs's civ_collapse_step models that decline but drops an abandoned settlement from its output entirely rather than retaining the site's coordinates, so there is nothing to place a Ruin at even before the Conflict link in that chain (SP-4) is reached." },
         LandmarkKindSpec { key: "abandoned_settlement", label: "Abandoned settlement", family: F::Historical, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "The same chain as Ruin, one state earlier in §25." },
+            not_built: "The same chain as Ruin, one state earlier in §25 — and the same missing coordinates: civ_collapse_step drops the site rather than marking it abandoned in place." },
         LandmarkKindSpec { key: "ancient_road", label: "Ancient road", family: F::Historical, class: C::Regional, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "Needs a superseded route to be the ghost of. Way history is not retained." },
         LandmarkKindSpec { key: "battlefield_historic", label: "Historic battlefield", family: F::Historical, class: C::Cultural, default_cap: 8, needs_viewshed: false, buildable: false,
@@ -804,6 +819,28 @@ pub const MINE_RESOURCES: [&str; 8] =
 /// earth potentials. **Category C**, same note as [`MINE_RESOURCES`].
 pub const QUARRY_RESOURCES: [&str; 4] = ["buildstone", "clay", "flint", "obsidian"];
 
+/// `RESOURCE_KEYS` entries Resource extraction site is generated from —
+/// **the three potentials [`MINE_RESOURCES`] and [`QUARRY_RESOURCES`] do not
+/// read at all**: `timber` (forestry), `sulfur` and `alum` (both computed by
+/// `build_resource_potentials`, `cartalith-civ/src/lib.rs`, and already
+/// carried this whole way — `RESOURCE_KEYS`' own doc calls the list "frozen/
+/// append-only", and `landmark_resource_pairs` in `cartalith-godot/src/
+/// lib.rs` zips all fifteen into `LandmarkInputs::resources` unconditionally,
+/// not just the twelve Mine and Quarry claim).
+///
+/// **Why this kind is buildable and not a duplicate.** §29's own list gives
+/// "Resource Extraction Site" no formula and no distinguishing test — unlike
+/// Waterfall (§7) or Castle (§18), it is a bare name with no elaboration
+/// anywhere in `LANDMARK_GENERATION_RESEARCH.md`. Read as "the same resources
+/// Mine and Quarry already claim," it is indeed a pure duplicate and was
+/// correctly left unbuilt for that reason. Read instead as **the residual
+/// extraction economy neither of those two covers**, it claims zero cells
+/// they do, using the identical, already-validated [`pool_resource`] test —
+/// a local maximum of potential, above a floor, scored by potential/ground/
+/// settlement access. That is a Category C naming decision, not a relaxed
+/// rule: the underlying detector is the one Mine and Quarry already use.
+pub const EXTRACTION_RESOURCES: [&str; 3] = ["timber", "sulfur", "alum"];
+
 impl<'a> LandmarkInputs<'a> {
     /// The required half. Everything else defaults to absent.
     pub fn new(
@@ -942,7 +979,7 @@ impl Needs {
             "mountain_pass" => (true, false, false, true),
             "ford" => (true, false, false, false),
             "harbour" => (true, false, false, false),
-            "mine" | "quarry" => (true, false, false, false),
+            "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false),
             _ => (false, false, false, false),
         };
         Needs { slope, curv, tpi, extrema }
@@ -1467,6 +1504,10 @@ const GORGE_TERMS: [(&str, f64); 4] = [
 /// increase the probability of exploitation" becomes worth a landmark.
 const MINE_MIN_POTENTIAL: f64 = 0.55;
 const QUARRY_MIN_POTENTIAL: f64 = 0.55;
+/// Same floor as [`MINE_MIN_POTENTIAL`]/[`QUARRY_MIN_POTENTIAL`], for the
+/// same reason: no basis exists to call the residual resources rarer or
+/// commoner than the ones the other two kinds already claim.
+const EXTRACTION_MIN_POTENTIAL: f64 = 0.55;
 /// §14's `P(L | R, S, C, T)`: `R` the resource value, `S`+`C` the settlement
 /// structure and its connectivity (read as gravity, absent when there are no
 /// settlements), `T` folded into `S`. "Workable ground" is the one term §14
@@ -1476,6 +1517,11 @@ const MINE_TERMS: [(&str, f64); 3] =
     [("ore potential", 0.55), ("workable ground", 0.20), ("settlement access", 0.25)];
 const QUARRY_TERMS: [(&str, f64); 3] =
     [("stone potential", 0.55), ("exposed face", 0.20), ("settlement access", 0.25)];
+/// [`EXTRACTION_RESOURCES`]' own §14 chain. `prefer_flat: true` at the call
+/// site, same sense as Mine: a logging camp or a sulfur/alum pit wants ground
+/// it can work, not a cliff.
+const EXTRACTION_TERMS: [(&str, f64); 3] =
+    [("extraction potential", 0.55), ("workable ground", 0.20), ("settlement access", 0.25)];
 
 /// A shore you can build on.
 const HARBOUR_MAX_GRADIENT: f64 = 0.06;
@@ -2379,6 +2425,9 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
         "quarry" => {
             pool_resource(c, &QUARRY_RESOURCES, QUARRY_MIN_POTENTIAL, &QUARRY_TERMS, false)
         }
+        "resource_extraction_site" => {
+            pool_resource(c, &EXTRACTION_RESOURCES, EXTRACTION_MIN_POTENTIAL, &EXTRACTION_TERMS, true)
+        }
         "harbour" => pool_harbour(c),
         "ford" => pool_ford(c),
         _ => None,
@@ -2783,6 +2832,10 @@ mod tests {
         corridors: Vec<f32>,
         iron: Vec<f32>,
         stone: Vec<f32>,
+        /// Stands in for one of [`EXTRACTION_RESOURCES`] — Mine and Quarry's
+        /// fixtures get `iron`/`stone`, so Resource extraction site needs its
+        /// own so `every_buildable_kind_can_actually_place_one` can reach it.
+        timber: Vec<f32>,
         settlements: Vec<LandmarkSite>,
     }
 
@@ -2835,6 +2888,16 @@ mod tests {
             stone: {
                 let mut v = blob(gw, gh, 0.23, 0.45, 0.028);
                 let b = blob(gw, gh, 0.26, 0.92, 0.028);
+                for i in 0..v.len() {
+                    if b[i] > v[i] {
+                        v[i] = b[i];
+                    }
+                }
+                v
+            },
+            timber: {
+                let mut v = blob(gw, gh, 0.30, 0.30, 0.028);
+                let b = blob(gw, gh, 0.10, 0.55, 0.028);
                 for i in 0..v.len() {
                     if b[i] > v[i] {
                         v[i] = b[i];
@@ -2922,12 +2985,13 @@ mod tests {
                 "mountain_pass",
                 "peak",
                 "quarry",
+                "resource_extraction_site",
                 "ridge",
                 "river_confluence",
                 "spring",
                 "waterfall",
             ],
-            "the thirteen kinds this engine actually generates"
+            "the fourteen kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -2948,6 +3012,7 @@ mod tests {
                         | "gorge"
                         | "mine"
                         | "quarry"
+                        | "resource_extraction_site"
                         | "harbour"
                         | "ford"
                 ),
@@ -3010,8 +3075,11 @@ mod tests {
     #[test]
     fn funnel_arithmetic_closes_on_every_kind() {
         let w = world(256, 192, 1000.0);
-        let res: Vec<(&str, &[f32])> =
-            vec![("iron", w.iron.as_slice()), ("buildstone", w.stone.as_slice())];
+        let res: Vec<(&str, &[f32])> = vec![
+            ("iron", w.iron.as_slice()),
+            ("buildstone", w.stone.as_slice()),
+            ("timber", w.timber.as_slice()),
+        ];
         let inp = inputs(&w, &res);
         let r = generate(&inp, &LandmarkSettings::default(), 12345);
         assert_eq!(r.funnels.len(), kinds().len());
@@ -3076,8 +3144,11 @@ mod tests {
     #[test]
     fn a_real_world_places_landmarks_of_several_kinds() {
         let w = world(256, 192, 1000.0);
-        let res: Vec<(&str, &[f32])> =
-            vec![("iron", w.iron.as_slice()), ("buildstone", w.stone.as_slice())];
+        let res: Vec<(&str, &[f32])> = vec![
+            ("iron", w.iron.as_slice()),
+            ("buildstone", w.stone.as_slice()),
+            ("timber", w.timber.as_slice()),
+        ];
         let inp = inputs(&w, &res);
         let r = generate(&inp, &LandmarkSettings::default(), 7);
         // CLAUDE.md's standing rule: a pass that places nothing must fail a
@@ -3111,7 +3182,7 @@ mod tests {
         assert!(r.seconds >= 0.0);
     }
 
-    /// **Every one of the thirteen detectors must be able to place something.**
+    /// **Every one of the fourteen detectors must be able to place something.**
     /// Run with cross-type competition off, because with it on a gorge and a
     /// waterfall at the same river crossing are one landmark by design and the
     /// second reports `spacing` — which is correct behaviour and would
@@ -3119,8 +3190,11 @@ mod tests {
     #[test]
     fn every_buildable_kind_can_actually_place_one() {
         let w = world(256, 192, 1000.0);
-        let res: Vec<(&str, &[f32])> =
-            vec![("iron", w.iron.as_slice()), ("buildstone", w.stone.as_slice())];
+        let res: Vec<(&str, &[f32])> = vec![
+            ("iron", w.iron.as_slice()),
+            ("buildstone", w.stone.as_slice()),
+            ("timber", w.timber.as_slice()),
+        ];
         let inp = inputs(&w, &res);
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let r = generate(&inp, &s, 7);
@@ -3132,6 +3206,48 @@ mod tests {
                 r.funnel(k.key)
             );
         }
+    }
+
+    /// **The M8 residual's whole justification for `resource_extraction_site`
+    /// being buildable at all**: it reads a disjoint resource set from Mine
+    /// and Quarry, so it is a new kind rather than a second record on cells
+    /// they already claim. Pinned directly rather than trusted from the doc
+    /// comment.
+    #[test]
+    fn resource_extraction_site_reads_a_disjoint_resource_set_from_mine_and_quarry() {
+        let w = world(256, 192, 1000.0);
+        // Only what Mine and Quarry read — no timber, no sulfur, no alum.
+        let mine_quarry_only: Vec<(&str, &[f32])> =
+            vec![("iron", w.iron.as_slice()), ("buildstone", w.stone.as_slice())];
+        let inp = inputs(&w, &mine_quarry_only);
+        let r = generate(&inp, &LandmarkSettings::default(), 21);
+        let f = r.funnel("resource_extraction_site").unwrap();
+        assert_eq!(
+            f.limit,
+            LandmarkLimit::NoTerrain,
+            "resource_extraction_site fired on Mine/Quarry's own resources: {:?}",
+            f
+        );
+        assert_eq!(f.candidates, 0);
+        assert_eq!(r.placed("resource_extraction_site"), 0);
+
+        // The same world, with only its residual resource added, places one —
+        // proof the kind is not simply dead code that happens to pass
+        // `every_buildable_kind_can_actually_place_one` through some other
+        // fixture field.
+        let with_timber: Vec<(&str, &[f32])> = vec![("timber", w.timber.as_slice())];
+        let inp2 = inputs(&w, &with_timber);
+        let r2 = generate(&inp2, &LandmarkSettings::default(), 21);
+        assert!(
+            r2.placed("resource_extraction_site") > 0,
+            "resource_extraction_site placed nothing off timber alone: {:?}",
+            r2.funnel("resource_extraction_site")
+        );
+        // And it must not have borrowed a Mine/Quarry cell to do it — Mine and
+        // Quarry see no resources of their own in `with_timber` and must stay
+        // at zero.
+        assert_eq!(r2.placed("mine"), 0);
+        assert_eq!(r2.placed("quarry"), 0);
     }
 
     #[test]
@@ -3212,7 +3328,7 @@ mod tests {
         for key in ["lake", "harbour"] {
             assert_eq!(r.funnel(key).unwrap().limit, LandmarkLimit::NoTerrain, "{}", key);
         }
-        for key in ["mountain_pass", "mine", "quarry"] {
+        for key in ["mountain_pass", "mine", "quarry", "resource_extraction_site"] {
             let f = r.funnel(key).unwrap();
             assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}", key);
             assert_eq!(f.placed, 0, "{}", key);

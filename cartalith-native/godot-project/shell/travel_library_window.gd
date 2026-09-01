@@ -660,7 +660,7 @@ func _refresh_inspector() -> void:
 	head.add_child(DccTheme.label(origin if editable else "stock · read-only", "text_dim", DccTheme.FS_TINY))
 	head.add_child(DccTheme.spacer())
 	var usage_p := int(_entry.get("usage_presets", 0))
-	var usage_j := int(_entry.get("usage_journeys", 0))
+	var usage_j := _usage_journeys()
 	if usage_p > 0 or usage_j > 0:
 		head.add_child(DccTheme.label("in use by %d party set-up(s) · %d journey(s)" % [usage_p, usage_j], "text_ghost", DccTheme.FS_TINY))
 	_inspector_body.add_child(DccTheme.rule())
@@ -671,9 +671,20 @@ func _refresh_inspector() -> void:
 	if _current_kind == "animal" and String(_entry.get("species_key", "")) == "":
 		DccWidgets.note(_inspector_body,
 			"No live effect yet: this is not one of the four built-in party-form species (donkey/mule/camel/horse). It is real, validated, inspectable data, but the party form's JpParty shape has no slot for a new species to occupy, so it does not change a computed journey (TRAVEL_LIBRARY_SPEC.md §6). Duplicating one of the four built-in animals below DOES affect computed journeys.")
-	elif _current_kind == "vehicle" or _current_kind == "vessel":
+	## **Split 2026-09-01.** These two used to share one note saying neither had
+	## a resolver hook. That is still true of vehicles and has not been true of
+	## vessels since the vessel resolver landed: `lib.rs`'s `jp_compute` builds
+	## `vessel_overrides()` -> `vessel_resolver_fn` -> `JpVesselResolver` and
+	## hands it to `jp_plan_full`, so a custom hull's speed, hold, crew and water
+	## rating drive the water legs for real. Telling the user otherwise here
+	## while `journey_planner_view.gd`'s own Vessel field tells them the opposite
+	## is the two halves of one feature disagreeing on screen.
+	elif _current_kind == "vehicle":
 		DccWidgets.note(_inspector_body,
-			"No live effect yet: vehicles and vessels are real, validated, inspectable data, but no resolver hook exists yet for jp_capacity's vehicle constants or jp_ship_stats' vessel table (TRAVEL_LIBRARY_SPEC.md §6).")
+			"No live effect yet: vehicles are real, validated, inspectable data, but no resolver hook exists for jp_capacity's vehicle constants -- there is no vehicle_overrides() beside vessel_overrides(), so nothing a vehicle carries reaches a computed journey (TRAVEL_LIBRARY_SPEC.md §6).")
+	elif _current_kind == "vessel":
+		DccWidgets.note(_inspector_body,
+			"Live: this definition reaches the Journey planner. jp_compute resolves a vessel by NAME through vessel_overrides -> vessel_resolver_fn, so speed, hold, crew and water rating drive the water legs. An entry still missing one of those four numbers is declined by the resolver -- it falls back to the built-in table rather than sailing a hull with a zero hold, and the planner's Vessel field draws it disabled. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only.")
 
 	for group in GROUPS_BY_KIND.get(_current_kind, []):
 		var g: Dictionary = group
@@ -718,7 +729,29 @@ func _build_validation_banners(parent: Control) -> void:
 		for c in conflicts:
 			_banner(parent, "block", String(c))
 	elif state == "ok":
-		_banner(parent, "water", "Selectable in the party form. Changing capacity, fodder or a constraint re-plans %d saved set-up(s)/journey(s)." % (int(_entry.get("usage_presets", 0)) + int(_entry.get("usage_journeys", 0))))
+		_banner(parent, "water", "Selectable in the party form. Changing capacity, fodder or a constraint re-plans %d saved set-up(s)/journey(s)." % (int(_entry.get("usage_presets", 0)) + _usage_journeys()))
+
+## How many saved journeys reference this entry (`TRAVEL_LIBRARY_SPEC.md` §4).
+##
+## `tl_get`'s own `usage_journeys` is hard-wired to `0` by
+## `travel_bridge.rs::animal_usage_in_journeys`, and that function's doc gives
+## the reason: "no persistent, referenceable saved journey exists anywhere in
+## this port". That stopped being true when the Journey planner's list became
+## part of the project archive -- but it is still true of the *engine*, which
+## owns no journey to count. So the count is taken here, from the list that
+## does exist, rather than being invented on the Rust side.
+##
+## `journey_usage()` matches an animal by entry **id** (the party form stores
+## `animal_entries` as species -> id) and a vessel by **name** (`JpPlan.vessel`
+## is a name, and `vessel_overrides` keys on it). A vehicle is always 0, and
+## honestly so: no vehicle reaches a computed journey at all. `maxi` keeps
+## whatever the engine reports if it ever grows a real answer of its own.
+func _usage_journeys() -> int:
+	var n := int(_entry.get("usage_journeys", 0))
+	if _host == null or _host.journey_planner_view == null:
+		return n
+	return maxi(n, _host.journey_planner_view.journey_usage(
+		_current_kind, _current_id, String(_entry.get("name", ""))))
 
 ## One banner: a coloured left rule plus washed background, matching `2b`'s
 ## own amber/blue inline styling -- `DccTheme`'s `warn` (`#e0a840`) and

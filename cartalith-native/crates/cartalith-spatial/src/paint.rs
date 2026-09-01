@@ -44,24 +44,41 @@ use std::sync::Arc;
 use crate::pass::Stamp;
 use crate::Region;
 
-/// One hard-edged circular paint dab — the reference's `_paintAt` (line 4783),
-/// re-shaped as a [`Stamp`] so a paint stroke gets milestone A's draft/commit/
-/// discard and draft-scoped undo for free.
+/// One circular paint dab — the reference's `_paintAt` (line 4783), re-shaped
+/// as a [`Stamp`] so a paint stroke gets milestone A's draft/commit/discard
+/// and draft-scoped undo for free.
 ///
 /// **Categorical data has no half-painted state**, which is the reference's
 /// own stated reason (verbatim: *"unlike `sculpt()`/`brushHeight` there's no
-/// soft falloff here"*) for this being a hard disc rather than the smoothstep
+/// soft falloff here"*) for shipping a hard disc rather than the smoothstep
 /// coverage every [`crate::pass::Stamp`] in `cartalith-terrain`'s sculpt
-/// registry uses. Blending two palette indices would produce a meaningless
-/// third index, not a blend.
+/// registry uses. **That reasoning is still correct, and this port has not
+/// touched it**: no palette index is ever blended with another; every
+/// painted cell still carries exactly one clean index, always. What this
+/// port adds (`DECISIONS.md` §7k, owner ruling 2026-08-31,
+/// `LARGE_ITEM_RULINGS.md` — the highest-severity row in
+/// `UNWIRED_FUNCTIONS.md`, bound rather than deleted) is falloff at the
+/// disc's own *edge* — which cells get touched at all — never at its
+/// *interior* — what value a touched cell receives. See
+/// [`PaintStamp::with_falloff`] for the mechanism.
 ///
-/// **Divergence from the reference, and it is the only one:** `_paintAt`
-/// writes the override array *immediately*, with no draft stage — the
-/// reference has no pass buffer for paint at all. Routing it through
-/// [`crate::PassBuffer`] is this port's addition, per `UNIFIED_TOOL_PLAN.md`'s
-/// shared editing model, and it is purely additive: committing a buffer of
-/// `PaintStamp`s in stack order produces exactly what the same sequence of
-/// `_paintAt` calls would.
+/// **Two divergences from the reference, both disclosed, and this is the
+/// complete list:**
+///
+/// 1. `_paintAt` writes the override array *immediately*, with no draft
+///    stage — the reference has no pass buffer for paint at all. Routing it
+///    through [`crate::PassBuffer`] is this port's addition, per
+///    `UNIFIED_TOOL_PLAN.md`'s shared editing model, and it is purely
+///    additive: committing a buffer of `PaintStamp`s in stack order
+///    produces exactly what the same sequence of `_paintAt` calls would.
+/// 2. The edge falloff itself. The reference has no falloff of any kind for
+///    this brush, hard or soft. A stamp built through [`PaintStamp::new`]/
+///    [`PaintStamp::ungated`] and never handed to [`PaintStamp::
+///    with_falloff`] is the historical hard disc, bit-for-bit — this is a
+///    strict superset of the old behaviour, not a replacement for it, and
+///    every pre-existing golden/regression test for the hard-disc case
+///    (this crate's own, `cartalith-civ`'s territory brush, which does not
+///    use falloff at all, and `cartalith-godot`'s) keeps passing unchanged.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PaintStamp {
     /// Disc centre in grid cells. Signed because a stroke legitimately runs
@@ -104,25 +121,140 @@ pub struct PaintStamp {
     ///
     /// `Arc` so every dab in one stroke shares one classification array.
     pub mask: Option<Arc<[u8]>>,
+
+    /// Falloff inputs for [`PaintStamp::apply`]'s own edge band,
+    /// `0.0..=1.0` each — the `DCC_SHELL_SPEC.md` §4.5.2 `Hardness`/
+    /// `Softness` sliders, verbatim and uncombined. **Not reference
+    /// values** — there is nothing in the reference to port here; see this
+    /// type's own doc. Set through [`PaintStamp::with_falloff`], never
+    /// directly: [`PaintStamp::new`]/[`PaintStamp::ungated`] default both
+    /// to the pair that keeps this a hard disc (`hardness: 1.0, softness:
+    /// 0.0`), so every existing caller — including `cartalith-civ`'s
+    /// territory brush, which this falloff was never meant to reach — is
+    /// unaffected by these fields' existence unless it explicitly opts in.
+    ///
+    /// The two combine into one *softening* amount at read time
+    /// (`PaintStamp::feather_width`): `((1.0 - hardness) +
+    /// softness).clamp(0.0, 1.0)`. Moving either slider away from "fully
+    /// hard" (`hardness = 1`, `softness = 0`) softens the edge a little —
+    /// both push the same needle the same way, the plain-English meaning of
+    /// both words, rather than one being forced into the other's exact
+    /// inverse.
+    pub hardness: f64,
+    pub softness: f64,
 }
 
 impl PaintStamp {
     /// A gated dab — the Cartography default. `mask` is the water-body
-    /// classification (`0` = land).
+    /// classification (`0` = land). Constructs with `hardness: 1.0,
+    /// softness: 0.0` — the historical hard disc; see [`PaintStamp::
+    /// with_falloff`] to opt into a soft edge.
     pub fn new(cx: i64, cy: i64, radius: f64, value: u8, mask: Arc<[u8]>) -> Self {
-        Self { cx, cy, radius, value, mask: Some(mask) }
+        Self { cx, cy, radius, value, mask: Some(mask), hardness: 1.0, softness: 0.0 }
     }
 
     /// An ungated dab. See [`PaintStamp::mask`] — this is the new affordance,
-    /// not the reference's behaviour.
+    /// not the reference's behaviour. Constructs with `hardness: 1.0,
+    /// softness: 0.0`, same as [`PaintStamp::new`].
     pub fn ungated(cx: i64, cy: i64, radius: f64, value: u8) -> Self {
-        Self { cx, cy, radius, value, mask: None }
+        Self { cx, cy, radius, value, mask: None, hardness: 1.0, softness: 0.0 }
     }
 
     /// True when this dab erases rather than paints.
     pub fn is_erase(&self) -> bool {
         self.value == 0
     }
+
+    /// Opts this dab into a soft-edged falloff band at the outer rim of the
+    /// disc — `DECISIONS.md` §7k, bound by the owner 2026-08-31
+    /// (`LARGE_ITEM_RULINGS.md`) as a deliberate divergence from the
+    /// reference, which has no falloff for this brush at all.
+    ///
+    /// `hardness`/`softness` are the two `DCC_SHELL_SPEC.md` §4.5.2 sliders,
+    /// verbatim — not pre-combined by the caller. See [`PaintStamp::
+    /// feather_width`] for how they turn into a band width, and this type's
+    /// own doc for why never calling this method (or calling it with
+    /// `hardness: 1.0, softness: 0.0`, [`PaintStamp::new`]/[`PaintStamp::
+    /// ungated`]'s own construction default) is a documented, tested no-op:
+    /// the historical hard disc, bit-for-bit.
+    pub fn with_falloff(mut self, hardness: f64, softness: f64) -> Self {
+        self.hardness = hardness;
+        self.softness = softness;
+        self
+    }
+
+    /// Width, in cells, of the probabilistic falloff band at the outer edge
+    /// of the disc — `0.0` (the exact float, not merely small) means no
+    /// band at all, and every cell inside `radius` paints unconditionally.
+    ///
+    /// [`PaintStamp::new`]/[`PaintStamp::ungated`] construct with
+    /// `hardness: 1.0, softness: 0.0`: `(1.0 - 1.0) + 0.0` is `0.0` with no
+    /// rounding (IEEE 754 subtraction of two equal finite operands is
+    /// exact), so `softening` below is exactly `0.0`, and `0.0 * radius` is
+    /// exactly `0.0` for any finite `radius` — every dab that never calls
+    /// `with_falloff` gets a literal, not merely approximate, zero-width
+    /// band, and [`PaintStamp::apply`] skips the falloff branch for it
+    /// entirely rather than evaluating a probability that always comes out
+    /// to 1.
+    fn feather_width(&self) -> f64 {
+        let softening = ((1.0 - self.hardness) + self.softness).clamp(0.0, 1.0);
+        softening * self.radius
+    }
+}
+
+/// Whether the cell at absolute grid position `(x, y)`, measured `dist`
+/// cells from the stamp's own centre by the same [`js_hypot`] the disc's
+/// own boundary test uses, survives a falloff band `width` cells wide at
+/// the outer edge of a disc of the given `radius`.
+///
+/// The interior — everything closer than `radius - width` — always passes,
+/// which is what keeps the disc's centre solid instead of fading it
+/// uniformly; only the band itself is probabilistic. Inside the band the
+/// pass probability ramps linearly from 1 (at the band's own inner edge) to
+/// 0 (at `radius`, the disc's existing hard boundary), decided against
+/// [`cell_dither`]: a deterministic hash of the cell's own absolute
+/// position, not a per-frame random draw, so repainting the same spot with
+/// the same brush settings keeps (or drops) exactly the same cells every
+/// time. The brush stipples the map; it does not flicker.
+fn passes_falloff(x: i64, y: i64, dist: f64, radius: f64, width: f64) -> bool {
+    let inner = radius - width;
+    if dist <= inner {
+        return true;
+    }
+    let t = (radius - dist) / width;
+    cell_dither(x, y) < t
+}
+
+/// A fast, deterministic `[0, 1)` value from a cell's own absolute grid
+/// position — the mottled edge's own source of "randomness".
+///
+/// **Not a port.** No reference brush falloff exists to match (this whole
+/// mechanism is new engine work, `DECISIONS.md` §7k), so there is no JS
+/// behaviour this needs to reproduce and none of `cartalith-rust-
+/// conventions`' precision-matching rules govern it — only a good, stable
+/// avalanche is required. This is MurmurHash3's 64-bit finalizer
+/// (`fmix64`, public domain): small, well known, and already avalanches
+/// well from one multiply-xor-shift-multiply-xor-shift-multiply-xor-shift
+/// pass. `cartalith_noise::hash` next door does the equivalent job for
+/// terrain noise, but pulling it into this crate would add a
+/// `cartalith-spatial` → `cartalith-noise` dependency edge for one
+/// comparison, and this crate's own module doc is explicit about staying
+/// free of dependencies it does not need.
+///
+/// Salted with a fixed odd constant before the mix so the origin cell
+/// `(0, 0)` — whose raw key is `0`, and `fmix64(0) == 0` — does not become
+/// the one grid cell that always deterministically passes every falloff
+/// test; every other cell already avalanches away from its own key without
+/// help.
+fn cell_dither(x: i64, y: i64) -> f64 {
+    let key = ((x as u32 as u64) << 32) | (y as u32 as u64);
+    let mut h = key ^ 0x9E37_79B9_7F4A_7C15;
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+    h ^= h >> 33;
+    (h >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
 }
 
 impl Stamp for PaintStamp {
@@ -164,6 +296,7 @@ impl Stamp for PaintStamp {
             return;
         }
         let r = self.radius.floor() as i64;
+        let feather = self.feather_width();
         for dy in -r..=r {
             for dx in -r..=r {
                 let (x, y) = (self.cx + dx, self.cy + dy);
@@ -173,7 +306,17 @@ impl Stamp for PaintStamp {
                 // JS `Math.hypot(dx,dy) > R` -- the comparison, and so the
                 // exact set of rim cells, is on the raw radius, and on V8's
                 // `Math.hypot` rather than Rust's (see `js_hypot`).
-                if js_hypot(dx as f64, dy as f64) > self.radius {
+                let dist = js_hypot(dx as f64, dy as f64);
+                if dist > self.radius {
+                    continue;
+                }
+                // `feather == 0.0` -- the exact float, not merely small --
+                // is the construction default, and skips this branch
+                // (including the `passes_falloff` call, so no hash is ever
+                // computed) entirely: see `feather_width`'s own doc for why
+                // that keeps this loop bit-for-bit identical to the
+                // pre-falloff code for every caller that never opted in.
+                if feather > 0.0 && !passes_falloff(x, y, dist, self.radius, feather) {
                     continue;
                 }
                 let i = y as usize * width + x as usize;
@@ -452,6 +595,121 @@ mod tests {
         assert_eq!(dst[8 * W + 12], 0);
         // The corner of the bounding box is outside the disc.
         assert_eq!(dst[11 * W + 11], 0);
+    }
+
+    // ---- with_falloff (`DECISIONS.md` §7k) ----
+
+    #[test]
+    fn with_falloff_at_the_construction_defaults_is_bit_identical_to_the_hard_disc() {
+        // The exact claim `DECISIONS.md` §7k rests on: `hardness=1.0,
+        // softness=0.0` -- both the type's own construction default AND an
+        // explicit `with_falloff` call at those values -- must reproduce
+        // the untouched hard-disc output, cell for cell.
+        let mut baseline = vec![0u8; W * H];
+        PaintStamp::new(8, 8, 6.0, 5, land()).apply(&mut baseline, W, H);
+
+        let mut explicit_default = vec![0u8; W * H];
+        PaintStamp::new(8, 8, 6.0, 5, land())
+            .with_falloff(1.0, 0.0)
+            .apply(&mut explicit_default, W, H);
+
+        assert_eq!(baseline, explicit_default);
+        // A second radius, away from the 6.0 this test already uses and the
+        // 3.0 `a_dab_is_a_hard_disc_with_no_falloff` uses above -- the
+        // invariant is `feather_width() == 0.0`, not "holds at one radius".
+        let mut baseline2 = vec![0u8; W * H];
+        PaintStamp::new(8, 8, 4.0, 5, land()).apply(&mut baseline2, W, H);
+        let mut explicit2 = vec![0u8; W * H];
+        PaintStamp::new(8, 8, 4.0, 5, land()).with_falloff(1.0, 0.0).apply(&mut explicit2, W, H);
+        assert_eq!(baseline2, explicit2);
+    }
+
+    #[test]
+    fn a_softer_edge_keeps_the_interior_solid_but_mottles_the_rim() {
+        // Radius 20 in a grid big enough to hold it -- the small radii
+        // (3..6) the rest of this file uses don't leave enough rim cells
+        // for "mottled, not merely smaller" to be a meaningful measurement.
+        const G: usize = 48;
+        const C: i64 = 24;
+        const R: f64 = 20.0;
+        let mut hard = vec![0u8; G * G];
+        PaintStamp::ungated(C, C, R, 7).apply(&mut hard, G, G);
+
+        let mut soft = vec![0u8; G * G];
+        // hardness=0.4 -> softening = 0.6 -> a 12-cell-wide band (inner
+        // edge at distance 8, disc's own edge at 20).
+        PaintStamp::ungated(C, C, R, 7).with_falloff(0.4, 0.0).apply(&mut soft, G, G);
+
+        // The deep interior -- inside distance ~7.07, well short of the
+        // band's own inner edge at 8 -- is untouched by the falloff: every
+        // cell the hard disc painted there, the soft one does too.
+        for dy in -5i64..=5 {
+            for dx in -5i64..=5 {
+                let i = ((C + dy) as usize) * G + (C + dx) as usize;
+                assert_eq!(soft[i], hard[i], "interior cell ({dx},{dy}) must be unaffected by falloff");
+            }
+        }
+
+        // The band itself (distance in (8, 20]) is sampled over the full
+        // annulus -- hundreds of cells, not one ray -- so "some painted,
+        // some not" is a real structural check, not a coin flip this test
+        // could get unlucky on.
+        let mut band_painted = 0;
+        let mut band_total = 0;
+        for dy in -20i64..=20 {
+            for dx in -20i64..=20 {
+                let dist = js_hypot(dx as f64, dy as f64);
+                if dist > 8.0 && dist <= R {
+                    band_total += 1;
+                    let i = ((C + dy) as usize) * G + (C + dx) as usize;
+                    if soft[i] != 0 {
+                        band_painted += 1;
+                    }
+                }
+            }
+        }
+        assert!(band_total > 100, "sanity: the annulus should be a few hundred cells, got {band_total}");
+        assert!(band_painted > 0, "some of the band must still be painted");
+        assert!(band_painted < band_total, "and some of it must not -- a mottled edge, not a shrunk disc");
+
+        // Falloff only ever *removes* cells the hard disc painted; it never
+        // extends the disc past its own radius.
+        for i in 0..G * G {
+            if soft[i] != 0 {
+                assert_ne!(hard[i], 0, "cell {i} painted soft but not hard -- falloff must not extend the disc");
+            }
+        }
+    }
+
+    #[test]
+    fn softness_alone_softens_the_edge_even_at_full_hardness() {
+        // hardness stays at its own "fully hard" default; softness alone
+        // must still be able to open a falloff band -- the two sliders add,
+        // rather than softness being hardness-in-disguise.
+        const G: usize = 48;
+        const C: i64 = 24;
+        const R: f64 = 20.0;
+        let mut hard = vec![0u8; G * G];
+        PaintStamp::ungated(C, C, R, 7).apply(&mut hard, G, G);
+        let mut soft = vec![0u8; G * G];
+        PaintStamp::ungated(C, C, R, 7).with_falloff(1.0, 0.5).apply(&mut soft, G, G);
+        assert_ne!(hard, soft, "softness=0.5 at hardness=1.0 must still feather the edge");
+    }
+
+    #[test]
+    fn falloff_is_deterministic_across_repeated_applications() {
+        // "a deterministic, position-seeded threshold so repeated passes
+        // are stable" -- the property a per-frame random draw would not
+        // have. Applying the same stamp twice (independent scratch buffers,
+        // same stamp value reused) must paint exactly the same cells both
+        // times.
+        const G: usize = 48;
+        let stamp = PaintStamp::ungated(24, 24, 20.0, 3).with_falloff(0.4, 0.0);
+        let mut a = vec![0u8; G * G];
+        let mut b = vec![0u8; G * G];
+        stamp.apply(&mut a, G, G);
+        stamp.apply(&mut b, G, G);
+        assert_eq!(a, b, "the same stamp applied twice must paint exactly the same cells");
     }
 
     #[test]

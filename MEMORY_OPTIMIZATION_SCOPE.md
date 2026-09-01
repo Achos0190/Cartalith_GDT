@@ -7,6 +7,13 @@ writing this scope — the same discipline every other piece of work in
 this project follows (`cartalith-porting-discipline`: verify, don't
 assume).
 
+> **This document defines the memory work — the measurements, the ranked
+> R1-R8 candidate list and the reasoning behind each — and does not track
+> which of them have landed.** Every figure below is a reading taken on the
+> date of the section that carries it, on the hardware that section names.
+> Which candidates are built is a status question and lives in
+> `cartalith-native/docs/STATUS.md`, the single source of truth for this port.
+
 ## Real measurement already done (2026-08-16, this session)
 
 Windows, real windowed app, `PrintWindow`/`mouse_event` automation (this
@@ -114,13 +121,14 @@ this session has already modeled.
 ## Done means
 
 Real before/after peak-memory numbers at the same real-app measurement
-technique used here, at minimum at 2048² (today's default); a clear,
+technique used here, at minimum at 2048² (the default when this was
+written); a clear,
 honest account of what the actual dominant cost turned out to be
 (confirming or correcting the hypothesis above); no regression in
 correctness (existing tests still pass) or the "no persistent leak"
 finding (re-verify with two consecutive generations again after any fix).
 
-## Resolved (2026-08-16)
+## What the 2026-08-16 pass found and fixed
 
 **Hypothesis 1 confirmed as the real dominant contributor.** NLL-lifetime
 analysis of `compute_civilisation()` (`cartalith-godot/src/lib.rs`)
@@ -379,9 +387,10 @@ is this one.
 **The other two thirds were already answered.** LOD tiles are *already* on
 disk: `cartalith-engine/src/bake.rs` writes a persistent store namespaced by
 `world_key`, skips already-baked chunks, resumes partial bakes and has
-export/import entries. And today's steady-state Android memory is not stored
-data at all but per-frame canvas geometry — §52 above, and a separate pass owns
-the `draw_multiline` collapse.
+export/import entries. And the steady-state Android memory this pass measured
+is not stored data at all but per-frame canvas geometry — §52 above, and a
+separate pass took the `draw_multiline` collapse up (it measured a no-op and
+was retired; see *The overlay's zoom cost* below).
 
 ### Method, and the one rule this pass inherited
 
@@ -601,7 +610,14 @@ in the workspace — grepped field by field across `cartalith-godot`,
 | `WorldState::flexure_field` | `compute_height` (`lib.rs:933`) | 10.24 |
 | `WorldState::heterogeneity_field` | `compute_height` (`lib.rs:934`) | 10.24 |
 | `WorldState::flow_area` | `apply_climate_moisture_correctors` (`lib.rs:1085`) | 10.24 |
-| `ChannelResult::slope` | **nobody, anywhere** | 10.24 |
+| `ChannelResult::slope` | **nobody in production** | 10.24 |
+
+> **This table is what the audit found, and it was wrong about the goldens.**
+> The grep behind it covered production code only. All four fields are
+> asserted cell for cell by golden tests, and `ChannelResult::slope` was
+> consequently **not** deleted — it is released instead. The full correction is
+> *Where the audit was wrong* below; it is repeated here so a reader who lands
+> on this table does not carry the original claim away.
 
 None is in `sample_bridge::FieldRefs` (which names thirteen of the others).
 None is written to a save. `import.rs`'s own comment and `staleness.rs`'s doc
@@ -683,7 +699,7 @@ the peak walks down as follows:
 
 | after | binding stage | peak |
 |---|---|---:|
-| *today* | `build_resource_potentials` | **618.28 MiB** |
+| *as audited* | `build_resource_potentials` | **618.28 MiB** |
 | R2 + R4 | `build_resource_potentials` | 561.96 |
 | + R3 | `civ_hierarchical_network_topology` | 503.51 |
 | + R8 | `build_coast_sdf` | 494.25 |
@@ -861,9 +877,10 @@ shipping script beside a subclass whose only difference is that
 `_visible_local_rect()` returns everything, through a real camera ancestor at
 four zooms × four pans — **16 of 16 frames byte-identical**.
 
-**Still open**: one long way crossing the window keeps a bounding box that covers
-it, so its whole run is still walked and dashed. Per-segment culling would fix
-that and is a bigger change; registered in `GUI_GAP_REGISTER.md` §54, not taken.
+**Deliberately not taken here**: one long way crossing the window keeps a
+bounding box that covers it, so its whole run is walked and dashed. Per-segment
+culling would fix that and is a bigger change; registered in
+`GUI_GAP_REGISTER.md` §54 rather than folded into this pass.
 
 ## R1, R2 and R3 landed: 618.81 → 518.92 MiB, −16.1 % (2026-08-25, same day)
 
@@ -892,7 +909,9 @@ higher: R2 lowers the whole plateau by 40.96, R3 takes 138.63 off the
 `build_resource_potentials` spike, and the next ceiling then binds. Working
 that arithmetic through before measuring gave 518.87 MiB; the measurement is
 518.92 on Windows and 518.86 on the handset. **The model is right to about
-60 KiB.** R4–R8 are still on the table and would take it the rest of the way.
+60 KiB.** R4–R8 were not attempted in this pass and would take it the rest of
+the way; whether any has since been built is a status question —
+`cartalith-native/docs/STATUS.md`.
 
 ### Where the audit was wrong
 

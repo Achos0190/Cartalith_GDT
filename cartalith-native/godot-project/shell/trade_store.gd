@@ -1,8 +1,9 @@
 extends RefCounted
 class_name TradeStore
 
-## The last trade-flow match, held on the shell side so three surfaces can
-## share one computation (`GUI_GAP_REGISTER.md` **IN-13**).
+## The last trade-flow match AND the last food-shed pass, held on the shell
+## side so three surfaces can share one computation (`GUI_GAP_REGISTER.md`
+## **IN-13**; the food shed is `ECONOMY_SCOPE.md` milestone 2).
 ##
 ## ## Why this exists at all
 ##
@@ -14,11 +15,17 @@ class_name TradeStore
 ## the match once per reader would mean a quarter-second recompute every time
 ## somebody opens a place editor.
 ##
-## So the engine keeps nothing and the shell keeps one dictionary. The
+## So the engine keeps nothing and the shell keeps one dictionary each. The
 ## difference is not cosmetic: a GDScript dictionary is dropped by
 ## `clear()` on any world change, and the engine is never asked to hold a
 ## per-cell field for the lifetime of a session — which was the whole of the
 ## register's memory objection.
+##
+## The food-shed pass is cached the same way and for the same reason, even
+## though it has one real reader today ([refresh] itself) and no dock section
+## yet: `food_shed_for()` is written for the place editor's Trade tab, right
+## beside its existing [navigability] read, so that section can be added
+## without a second engine call.
 ##
 ## ## When it is dropped
 ##
@@ -31,9 +38,14 @@ class_name TradeStore
 ## of these per running app and threading an instance through five call sites
 ## would buy nothing.
 
-## The last result, or `{}` when nothing has been matched since the last
-## world change.
+## The last trade-flow match, or `{}` when nothing has been matched since the
+## last world change.
 static var _last: Dictionary = {}
+
+## The last food-shed pass, or `{}` when none has run since the last world
+## change. Populated by [refresh] alongside the trade-flow match -- see this
+## file's own module doc for why the two share one trigger.
+static var _food_shed: Dictionary = {}
 
 ## True when a match has been run against the current world.
 static func is_matched() -> bool:
@@ -45,14 +57,40 @@ static func is_matched() -> bool:
 static func last() -> Dictionary:
 	return _last
 
-## Run a match and keep it. Returns the same dictionary [`last`] will.
+## True when a food-shed pass has been run against the current world.
+static func is_food_shed_matched() -> bool:
+	return not _food_shed.is_empty()
+
+## The last food-shed pass, `{}` if there is none. Never runs one, for the
+## same reason [last] does not.
+static func food_shed() -> Dictionary:
+	return _food_shed
+
+## One settlement's food-shed row from the last pass -- `{}` when none has
+## run, or when this index has no row. Parallel in shape to [navigability]
+## below: `local_capacity`, `hinterland_capacity`, `import_capacity`,
+## `supported`, `suppliers`, `best_mode`, `limited_by`, `sustainable`,
+## `over_by` (`civ_food_shed()`'s own doc comment names every key).
+static func food_shed_for(index: int) -> Dictionary:
+	var rows: Array = _food_shed.get("rows", [])
+	if index < 0 or index >= rows.size():
+		return {}
+	return rows[index]
+
+## Run the trade-flow match and the food-shed pass, and keep both. Bundled
+## behind this one call rather than two: both are on-demand, held-nowhere
+## reads of the same settlement/way state, and the shell offers exactly one
+## trigger for either (`infrastructure_workspace.gd`'s "Match trade flows").
+## Returns the same dictionary [`last`] will.
 static func refresh(bridge) -> Dictionary:
 	_last = bridge.civ_trade_flows()
+	_food_shed = bridge.civ_food_shed()
 	return _last
 
-## Drop it. Called from `app.gd` on every world change.
+## Drop both. Called from `app.gd` on every world change.
 static func clear() -> void:
 	_last = {}
+	_food_shed = {}
 
 ## Every flow touching one settlement, split by direction, from the last
 ## match. `{"imports": [...], "exports": [...]}` — both empty when no match

@@ -1,5 +1,5 @@
 extends Node
-## Temporary, untracked verification harness for CV-25 (`civ_military_summary`)
+## Committed verification harness for CV-25 (`civ_military_summary`)
 ## and CV-26 (`civ_faction_relations`).
 ##
 ## Run:
@@ -18,6 +18,11 @@ extends Node
 ##   4. relations produce every unordered pair, symmetric, with at least two
 ##      distinct stances on a world with real borders;
 ##   5. a shared border is measured, and the widest one is not zero.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const SEED := 483920
 

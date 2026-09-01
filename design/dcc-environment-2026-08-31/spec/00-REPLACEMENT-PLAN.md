@@ -1,17 +1,23 @@
-# Replacing the GUI — status, plan, and one blocker
+# Replacing the GUI — the plan
 
 Owner instruction, 2026-08-31: **"Replace the current GUI, do not upgrade. Fully
 replace."**
 
 Six specification passes ran over the two prototypes and are in this directory.
-This document is what has to happen to the code, and it opens with the one thing
-that changes the answer.
+This document is what has to happen to the code, and it opens with the condition
+the prototypes arrived in, because that shaped everything under it.
+
+> **This document defines the replacement — the structural delta, the
+> file-by-file actions and the seven stages. It does not track them.** Which
+> stages have run, and what is in the tree today, lives in
+> **`cartalith-native/docs/STATUS.md`** and nowhere else. Read a stage below for
+> *what it is*, never for whether it is done.
 
 ---
 
-## 0 · The desktop prototype we received is truncated
+## 0 · How the prototypes were delivered, and the 84 holes that left
 
-**`Cartalith DCC Environment.dc.html` arrived as exactly 262 144 bytes —
+**`Cartalith DCC Environment.dc.html` first arrived as exactly 262 144 bytes —
 256.0 KiB on the nose.** That is the design MCP's `get_file` cap, not a
 coincidence, and the file ends mid-word inside the logic class:
 
@@ -24,19 +30,20 @@ measRows.push({i:('0'+i).slice(-2),len:this.fmtKm(km),be
 `Cartalith Android.dc.html` is **166 424 bytes and complete**, ending properly
 with `</script></body></html>`.
 
-### What that does and does not block
+### What that did and did not cost
 
 The **markup** survived, and the markup is where the layout, the labels, the
 structure and the token sets live. So the frame, the rail tree, the seven menus,
-the dock contents and the geometry are all specified and buildable.
+the dock contents and the geometry were all specified and buildable from the
+first delivery.
 
-What is missing is the **tail of `valsCore()`'s return object** — the bindings
+What was missing was the **tail of `valsCore()`'s return object** — the bindings
 that say which string or colour fills each hole. That is why the six passes
 raised **84 `UNSPECIFIED:` items**, and why so many of them read "was in the
 truncated return".
 
-Concretely, the following cannot be built without guessing, and this repository
-does not guess at a design:
+Concretely, the following could not be built without guessing, and this
+repository does not guess at a design:
 
 - `ldPipe` — the gate that selects the Generation-pipeline dock (its complement
   `ldSculpt` survives, so the shape is knowable but the file does not say it)
@@ -50,10 +57,15 @@ does not guess at a design:
 - `vpContext`, `vpField`, `scrimBg`, `mapCursor`, `layersBtnBg/Col`
 - `tlShow` / `tlCollapsed` / `tlExpanded` — the timeline's gating
 
-**Ask:** re-export the desktop prototype under 256 KiB — either split it into
-two `.dc.html` files (frame + docks, say), or strip the embedded map-drawing
-code, which is a large block that the GUI port does not need. The phone file
-needs nothing.
+**The ask that followed**, and its answer: re-export the desktop prototype under
+256 KiB — either split it into two `.dc.html` files (frame + docks, say), or
+strip the embedded map-drawing code, which is a large block that the GUI port
+does not need. The phone file needed nothing. **Answered 2026-08-31**: the file
+in this directory is 239 712 bytes and ends properly with
+`</script></body></html>`, its heavy method bodies split into
+`cartalith-dcc-parts.js` behind `window.CDCC`. The bindings listed above are
+readable from the prototype rather than guessed at; the list stays as the record
+of what the six specification passes had to leave `UNSPECIFIED:`.
 
 ---
 
@@ -66,9 +78,9 @@ needs nothing.
 > RENDER stop being top-level domains; their content survives as nodes under
 > CIVIL and CARTO.
 
-Shipped: `WORLD · CIVIL · INFRA · CARTO · RENDER`, five flat domains.
+Before the fold: `WORLD · CIVIL · INFRA · CARTO · RENDER`, five flat domains.
 
-New: **three domains, each a header over a node tree.**
+After: **three domains, each a header over a node tree.**
 
 | Domain | Node | mode |
 |---|---|---|
@@ -100,17 +112,18 @@ part that genuinely cannot be an upgrade.
 | `command_index.gd` | groups by domain; the group set changes |
 | `faction_roster_window.gd:682`, `civilization_workspace.gd:399`, and every other `select_domain_category` caller | re-point |
 
-**The good news:** INFRA and RENDER are *already* composed into CIVIL and CARTO
-rather than being independent — `infrastructure_workspace` runs with
+**What makes the fold cheap**, as the shell stood when this plan was written:
+INFRA and RENDER were *already* composed into CIVIL and CARTO rather than being
+independent — `infrastructure_workspace` runs with
 `_nested = true` inside civ, and `render_workspace` exposes
 `build_presets_into` / `build_colours_into` for cartography to call. The fold is
 closer to a promotion of what exists than to a rewrite.
 
 ### 1.2 Token and density changes
 
-| Token | Shipped | New | Note |
+| Token | Before | New | Note |
 |---|---|---|---|
-| `--ins` (inset/cell) | `#101112` (`sunken`) | **`#191c1e`** | the new value is §11's own; the shipped one drifted |
+| `--ins` (inset/cell) | `#101112` (`sunken`) | **`#191c1e`** | the new value is §11's own; the one it replaces had drifted |
 | `--wash` | `.08` | **`.09`** | §11's value |
 | `--accInk` | *absent* | **`#141005`** | reversed ink on filled accent — new token |
 | `--wash2` | *absent* | **`.16`** | armed-tool wash — new token |
@@ -122,14 +135,14 @@ closer to a promotion of what exists than to a rewrite.
 
 ### 1.3 A fourth breakpoint
 
-`LAPTOP 1366` — `--ldW:330 --rdW:280 --pop:280`. The shell has desktop, tablet
+`LAPTOP 1366` — `--ldW:330 --rdW:280 --pop:280`. The shell had desktop, tablet
 and phone; this adds a narrow-desktop density between desktop and tablet.
 
 ---
 
 ## 2 · File-by-file
 
-| File | Lines | Action | Why |
+| File | Lines when written | Action | Why |
 |---|---|---|---|
 | `dcc_shell.gd` | 4 339 | **REWRITE-INTERIOR** | rail 5→3 + node tree, new tokens, the 1366 breakpoint; the phone half is a separate rewrite from the complete phone spec |
 | `dcc_theme.gd` | 739 | **REWRITE-INTERIOR** | new token values, two new tokens, four density sets |
@@ -141,11 +154,11 @@ and phone; this adds a narrow-desktop density between desktop and tablet.
 | `workspaces/cartography_workspace.gd` | 1 192 | **RETARGET** | becomes CARTO's four nodes |
 | `workspaces/infrastructure_workspace.gd` | 1 103 | **RETARGET** | domain → CIVIL mode `infra` |
 | `workspaces/render_workspace.gd` | 1 047 | **RETARGET** | domain → CARTO node |
-| `right_dock.gd` | 1 759 | **REWRITE-INTERIOR** | new contexts; **blocked on the truncated `rdTitle`/`sampleRows`** |
-| `tool_bar.gd` | 606 | **REWRITE-INTERIOR** | **blocked on the truncated `tbLabel`** |
+| `right_dock.gd` | 1 759 | **REWRITE-INTERIOR** | new contexts; needs the `rdTitle`/`sampleRows` bindings §0 lists |
+| `tool_bar.gd` | 606 | **REWRITE-INTERIOR** | needs the `tbLabel` bindings §0 lists |
 | `phone_menu.gd` | 1 100 | **REWRITE-INTERIOR** | from the complete phone spec |
-| `viewport_host.gd` | 2 060 | **RETARGET** | furniture restyled; **`vpContext`/`vpField` truncated** |
-| `layers_popover.gd` | 482 | **REWRITE-INTERIOR** | new popover; **`l.bg`/`l.col` truncated** |
+| `viewport_host.gd` | 2 060 | **RETARGET** | furniture restyled; needs `vpContext`/`vpField` |
+| `layers_popover.gd` | 482 | **REWRITE-INTERIOR** | new popover; needs `l.bg`/`l.col` |
 | `dcc_icons.gd` | 365 | **KEEP** | the prototype imports this repo's own glyph set |
 | `engine_bridge.gd` | 3 207 | **KEEP** | not GUI |
 | the nine windows | 6 363 | **KEEP, RESTYLE** | the prototypes do not specify them; artboards being ported separately |
@@ -153,6 +166,10 @@ and phone; this adds a narrow-desktop density between desktop and tablet.
 
 **Nothing is deleted outright.** The fold of INFRA and RENDER moves code; it
 does not discard it.
+
+*The line counts above are a snapshot taken while this plan was written, and are
+a sizing input rather than a measurement of the tree. They drift; `STATUS.md`
+records by how much. Re-measure before leaning on one.*
 
 ---
 
@@ -170,8 +187,9 @@ independently probe-verifiable.
    pre-existing category is still reachable under its new home.
 3. **Menus.** Restyle only; `_cmdindex_probe` guards the row count.
 4. **Left dock**, mode by mode, against `04-left-dock.md`.
-5. **Right dock, tool options, status, timeline, viewport furniture.**
-   *Blocked* until the desktop file is re-exported.
+5. **Right dock, tool options, status, timeline, viewport furniture.** Needs the
+   `rdTitle` / `sampleRows` / `tbLabel` / `statusMid` bindings §0 lists, which
+   the re-exported prototype supplies.
 6. **Phone**, from the complete `06-phone.md`.
 7. **The nine windows**, restyled to the new tokens.
 
@@ -192,13 +210,17 @@ independently probe-verifiable.
 
 ## 5 · For the owner
 
-1. **Re-export the desktop prototype under 256 KiB** (split it, or strip the
-   embedded map-drawing code). Until then stages 5 and parts of 2 are blocked.
+1. ~~**Re-export the desktop prototype under 256 KiB**~~ (split it, or strip the
+   embedded map-drawing code). **Answered 2026-08-31** — see §0. The split file
+   carries the bindings stages 2 and 5 were written against.
 2. **CARTO's four nodes all carry an empty `mode`.** Do `Layers & style`,
    `Labels`, `Icons` and `Terrain appearance` select four distinct dock panels,
    or collapse to one? The design gives four rows and one destination.
-3. **`statusMid` has no candidate anywhere in the delivered file** — what does
-   the middle of the status bar show?
+3. ~~**`statusMid` has no candidate anywhere in the delivered file** — what does
+   the middle of the status bar show?~~ **Answered 2026-08-31** by the re-export:
+   `statusMid` reads
+   `last pass <NN stage-name> · <n> ms · repaint 84 ms · autosave <time|off>`,
+   taken from the last stage whose `stageState` is `resolved`.
 4. ~~Does the fold lose anything you meant to keep?~~ **Answered 2026-08-31:**
    *"Infra gets absorbed by civil and render by Carto."* Deliberate. See §1.1.
 5. The full 84-item list is at the foot of each spec file under

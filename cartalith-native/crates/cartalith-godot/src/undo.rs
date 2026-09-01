@@ -73,12 +73,23 @@
 //!   a 4096² world would be a length mismatch, not an undo. [`Self::restore`]
 //!   also refuses a length mismatch outright, so the clear is a policy and
 //!   the length check is the guard.
-//! - **Undo does not re-run flow/climate.** The reference's `undoLast` calls
-//!   `computeFlow(true); refreshClimate(); renderNow()`. This port's whole
-//!   commit path already defers those (`UNIFIED_TOOL_PLAN.md` milestone A's
-//!   deferred staleness; `sculpt_commit`'s own doc comment says the same),
-//!   so undo is consistent with the commit it reverses rather than with the
-//!   reference's inline recompute.
+//! - **Undo marks flow/climate stale instead of re-running them.** The
+//!   reference's `undoLast` calls `computeFlow(true); refreshClimate();
+//!   renderNow()` inline. `WorldGen::undo_last`/`redo_last` mark
+//!   `PipelineStage::Height` changed over the whole map and return; the
+//!   recompute is `recompute_stale_stages`' to run.
+//!
+//!   This bullet used to say the port "defers those" because "this port's
+//!   whole commit path already defers" them, citing `sculpt_commit`. **That
+//!   citation contradicted the claim**: `sculpt_commit` ends in
+//!   `mark_and_recompute` (`lib.rs`), and so do `carve_fjords`, the erosion
+//!   ops and the paint commit. What undo actually did was neither defer nor
+//!   recompute — it wrote `ws.field` and marked *nothing*, so the graph
+//!   reported a world that was current while every derived stage still held
+//!   values computed from the field the undo had just thrown away. Whole-map
+//!   marking is the fix, because a snapshot swap cannot say which tiles
+//!   differ; not recomputing stays deliberate, since this runs synchronously
+//!   on the main thread with no progress channel.
 //!
 //! **What it does not revert, exactly as in the reference:** `river_mask` /
 //! `river_floor` locks written by a Sculpt commit's water hooks. Reverting
@@ -522,12 +533,15 @@ impl HistoryLedger {
         self.next_seq
     }
 
+    /// How many rows are held. **Test-only**, and gated so it says so:
+    /// `rows()` is what every production reader uses, and this and a
+    /// matching `is_empty()` sat next to it unconditionally with no caller
+    /// outside `#[cfg(test)]` — `cargo check` reported both as dead while
+    /// `cargo test` still compiled them, so the warning was permanent and
+    /// ignorable. `is_empty()` had no caller at all and is gone.
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 
     /// Every row, oldest first, each paired with whether a snapshot is still

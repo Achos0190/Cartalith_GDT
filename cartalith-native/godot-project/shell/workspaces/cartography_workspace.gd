@@ -157,10 +157,12 @@ enum DragMode { NONE, MOVE, RESIZE, ROTATE, ARC }
 ## `DragMode` above (`GUI_GAP_REGISTER.md` CA-05: `icon_handles()` returns
 ## exactly one circle, `"resize"`, since a manually-placed icon has no
 ## rotate/arc field at all -- `icon_bridge.rs`'s own doc comment). `MOVE`
-## has no counterpart here either: unlike the Label tool, a box hit outside
-## the handle isn't wired to a move-drag yet (`icon_hit_test` is exposed but
-## unused by this file still -- a separate gap from CA-05, not folded in
-## here).
+## has no counterpart here: a box hit **selects** (2026-09-01 -- see
+## `_on_icon_click`, which now calls `icon_hit_test` the way the Label tool
+## calls `label_hit_test`) but does not start a move-drag, because there is
+## no `icon_move` binding to drag against -- `icon_bridge.rs` exposes
+## place, hit-test, resize and delete and nothing that rewrites an icon's
+## `x`/`y`. Deleting and re-placing is the wired alternative.
 enum IconDragMode { NONE, RESIZE }
 
 # -- Icon tool state (UI-side only -- the engine holds the authoritative armed
@@ -455,15 +457,41 @@ func _build_political_display(parent: Control) -> void:
 	colour.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	colour.tooltip_text = "v3's own rule for this category: which colour a faction *is* belongs to CIVIL, how heavily it is painted belongs here. The roster's colour picker writes the identity colour this wash draws in."
 
+	## **Rewritten 2026-09-01: two of these three stopped being data gaps and
+	## nobody moved the note.** It said claim hatching and the influence
+	## gradient "rest on data that does not exist" -- that
+	## `CivData::territory` is one plurality owner per cell "with no
+	## contested-claim value and no influence field for a gradient to ramp".
+	## CV-23 closed exactly that: `sample_bridge::territory_influence` builds
+	## owner, rival, influence and contested per cell on demand, `#[func]
+	## civ_territory_influence` aggregates it, and `sample_bridge`'s own
+	## `"contested"` debug raster already *draws* it -- dimmed owner tint
+	## inside, the rival's colour hatched in past `CONTEST_HATCH_T`, with a
+	## four-row legend. So what is missing here is a control and a legend in
+	## THIS panel, not a quantity in the engine, and the note says which.
 	var gaps := DccWidgets.section(parent, "Not built")
+	var contested := DccWidgets.action(gaps, "Claim hatching and the influence ramp → Layers ▸ Civilization ▸ Contested borders",
+		func():
+			## `set_debug_layer` then open the popover, the same pair
+			## `render_workspace.gd`'s own "Biome colour table → Layers ▸
+			## Biomes" row uses: setting the layer behind the picker's back
+			## would leave its rows naming a different view, and the popover
+			## rebuilds its rows on open.
+			app.viewport.set_debug_layer("contested")
+			app.layers_popover.open())
+	contested.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	contested.tooltip_text = "territory_influence(): how evenly the owner and its nearest rival reach each cell. Secure interiors keep a dimmed owner tint, frontiers hatch into the rival's colour, and the popover carries the ramp's own legend. Built on demand from the capitals -- one Dijkstra per capital -- and held nowhere."
 	DccWidgets.note(gaps,
-		"Border line width and style, claim hatching, and the influence gradient "
-		+ "with its legend (GUI_GAP_REGISTER.md CA-17). All three rest on data "
-		+ "that does not exist rather than on a missing control: CivData::"
-		+ "territory is one plurality owner per cell, with no contested-claim "
-		+ "value and no influence field for a gradient to ramp (CV-23). Fill "
-		+ "opacity and identity colour, above, are the two that had a real "
-		+ "quantity behind them.")
+		"Border line width and style (GUI_GAP_REGISTER.md CA-17). The faction "
+		+ "wash has no outline at all -- build_territory_texture() is a per-cell "
+		+ "fill and nothing traces its edge -- and the province line that does "
+		+ "exist (build_province_boundary_texture) is one cell wide in one "
+		+ "hard-coded ink tone, with no argument for either. Claim hatching and "
+		+ "the influence gradient are NOT in that state: both are real and both "
+		+ "are drawn, as the Contested borders view above. What they lack is a "
+		+ "styling control and a legend inside this category, which is a "
+		+ "different kind of gap from a missing quantity. Fill opacity and "
+		+ "identity colour, above, are the two that already have one.")
 
 
 ## v3 CARTO ▸ VISIBILITY / ZOOM. Its `§ Data overlays` band is the reference's
@@ -586,6 +614,18 @@ func _refresh_trade_load_row(available: bool) -> void:
 
 
 func _on_world_changed() -> void:
+	## RENDER first: it is nested in this workspace (`_render`), so
+	## `app.gd`'s own `on_world_changed` broadcast never reaches it -- that
+	## walks the *registered* workspaces, and RenderWorkspace stopped being
+	## one at the 2026-08-20 domain merge. Until 2026-09-01 nothing else
+	## reached it either: `grep "world_loaded|generation_finished" ` over
+	## `render_workspace.gd` matched nothing, so five of the six things
+	## `project_bridge.rs`'s `AppearanceDoc` restores on File ▸ Open showed
+	## launch-time values afterwards -- and the ramp editor, which pushes its
+	## whole shell-side list on any stop edit, would then write the pre-open
+	## ramp back over the restored one. See `RenderWorkspace.on_world_changed`.
+	if _render != null:
+		_render.on_world_changed()
 	app.viewport.tool_overlay.set_handles([])
 	_label_drag_mode = DragMode.NONE
 	_label_drag_index = -1
@@ -621,6 +661,40 @@ func _arm_icon_from_ui() -> void:
 	bridge.icon_arm(fam.key, _icon_variant_idx, _icon_scale, _icon_rotation, _icon_jitter)
 
 
+## Display names for one manual-icon family's slots, from the engine's own
+## `slot_title()` table rather than from `String.capitalize()`.
+##
+## The ids in `ICON_FAMILIES` above are the engine's frozen vocabularies
+## verbatim (`slots.rs`'s `PACK_SETTLEMENT_SLOTS` / `PACK_ICON_SLOTS` /
+## `PACK_POI_SLOTS`, checked element for element) and `icon_arm`'s
+## `variant` indexes them, so the ORDER here is load-bearing and is not
+## touched -- only the wording is. Capitalising the id disagreed with the
+## engine on about a quarter of them: `tree_conifer` reads "Conifer tree",
+## `ruin` reads "Ruin / old settlement", `shrine` reads "Shrine / temple",
+## `cave` reads "Cave / tunnel". `library.rs`'s own module doc calls those
+## titles functionally load-bearing, and the asset library window shows
+## them, so the same slot was named two ways in two panels.
+##
+## `feature` → `icons` is the one family rename
+## (`manual.rs::ManualIconFamily::pack_family`); settlement and poi carry
+## across unchanged. Falls back to `capitalize()` per slot, so an older
+## cdylib with no `as_family_slots` (or a slot the library does not carry)
+## reads exactly as it did before rather than blank.
+func _slot_labels(family_key: String, slots: Array) -> Array:
+	var titles := {}
+	var pack_family := "icons" if family_key == "feature" else family_key
+	for row in bridge.as_family_slots(pack_family):
+		var d: Dictionary = row
+		## `title`, not `name`: `Node.name` is a base-class property and a local
+		## called that shadows it.
+		var title := String(d.get("name", ""))
+		if not title.is_empty():
+			titles[String(d.get("id", ""))] = title
+	var out: Array = []
+	for sl in slots:
+		out.append(String(titles.get(String(sl), String(sl).capitalize())))
+	return out
+
 ## Tool options row: `CARTO · ICON` · family · variant · scale · rotation ·
 ## jitter (`DCC_SHELL_SPEC.md` §4.5.5's own table). Live: every control
 ## re-arms immediately, matching the reference's "the armed selection is
@@ -646,7 +720,7 @@ func _build_icon_tool_options_row(row: HBoxContainer) -> void:
 		app.set_tool_options(_build_icon_tool_options_row))
 
 	var slots: Array = ICON_FAMILIES[_icon_family_idx].slots
-	var slot_labels: Array = slots.map(func(s): return String(s).capitalize())
+	var slot_labels: Array = _slot_labels(String(ICON_FAMILIES[_icon_family_idx].key), slots)
 	DccWidgets.choice(row, "Variant", slot_labels, _icon_variant_idx, func(i: int):
 		_icon_variant_idx = i
 		_arm_icon_from_ui())
@@ -682,6 +756,24 @@ func _on_icon_click(gx: float, gy: float) -> void:
 		if not h.is_empty() and Vector2(gx, gy).distance_to(Vector2(h["x"], h["y"])) <= float(h["r"]):
 			_begin_icon_handle_drag(sel, gx, gy)
 			return
+
+	## Hit an existing icon before falling through to place, mirroring
+	## `_on_label_click` one section down and the reference's own
+	## hit-then-select click sequencing (`_carIconHitTest`, line 9664).
+	## Without this branch there was no way to re-select a placed icon at
+	## all: every click on one stamped a *duplicate* on top of it, and the
+	## resize handle was reachable only for whatever icon happened to be
+	## selected by having been placed last. `icon_hit_test` was bound and
+	## wrapped from the start and called by nothing until 2026-09-01.
+	##
+	## Before the asset-pack guard on purpose: selecting an icon that is
+	## already on the map does not need a pack loaded, and refusing it
+	## there would make an unloaded pack look like a dead map.
+	## `IconEditor::hit_test` performs the selection itself.
+	if bridge.icon_hit_test(gx, gy) >= 0:
+		_update_icon_handles_overlay()
+		_rebuild_icon_panel()
+		return
 
 	if not bridge.has_asset_pack():
 		app.set_status("hint", "load an asset pack first — File ▸ Import asset pack", "accent")
@@ -1260,7 +1352,17 @@ func _build_icon_placement(parent: Control) -> void:
 	## label counts above were not, and the difference is real: `FAM`'s
 	## `[filled, total]` pairs describe the design's own asset families -- how
 	## many glyphs it drew for each -- not a measurement of the user's world. The
-	## sentence is the prototype's, verbatim.
+	## sentence is the prototype's, apart from the `(design figures)` tag.
+	##
+	## That tag, and not the `--` the drawn-count column uses, because the two
+	## cases are opposite: `parts.js:363`'s label counts are mock *measurements*
+	## of a mock world, so there is no honest number to print, while these are
+	## real design values -- kept for the same reason the disabled sliders keep
+	## theirs (see this block's header). What the line lacked was a word saying
+	## which of the two it is. It also never changes: `_icon_placement_family` is
+	## read here and by the chip sync below but never written -- the family chips
+	## are inert, since no placement pass exists to switch -- so the line reports
+	## PLACES for the life of the session.
 	_icon_slot_line = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO)
 	_icon_slot_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	fam.add_child(_icon_slot_line)
@@ -1296,7 +1398,7 @@ func _sync_icon_placement() -> void:
 	for entry in ICON_PLACEMENT_FAMILIES:
 		var f: Dictionary = entry
 		if String(f["id"]) == _icon_placement_family and _icon_slot_line != null:
-			_icon_slot_line.text = "%d of %d slots filled · unfilled slots fall back to the family default glyph" \
+			_icon_slot_line.text = "%d of %d slots filled (design figures) · unfilled slots fall back to the family default glyph" \
 				% [int(f["filled"]), int(f["slots"])]
 
 

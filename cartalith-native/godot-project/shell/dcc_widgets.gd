@@ -799,6 +799,9 @@ static func _tools_row(entries: Array, app, group: ButtonGroup) -> Control:
 	row.add_theme_constant_override("h_separation", 2)
 	row.add_theme_constant_override("v_separation", 2)
 	for e in entries:
+		if e.has("legend"):
+			_tool_legend(row, String(e["glyph"]), String(e["label"]), String(e["legend"]))
+			continue
 		var b := tool_button(row, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
 		## The TOOLS block is the one caller whose labels are short enough to
 		## draw under a glyph. `world_workspace.gd`'s feature picker uses the
@@ -831,6 +834,45 @@ static func _tools_row(entries: Array, app, group: ButtonGroup) -> Control:
 			b.shortcut = sc
 			b.shortcut_in_tooltip = false
 	return row
+
+## The fourth global cell. `02-rail-and-domains.md` §4d and
+## `01-frame-and-tokens.md` §3.6c both draw `pan` in the same four-square row
+## as the three real tools and both say what it is: *"the pan button is
+## permanently `bg:var(--ins)` / `col:var(--dis)` -- it is a legend, not a
+## button"*. It arms nothing and joins no `ButtonGroup`, because panning is
+## never armed: it is on the wheel, the middle drag and the pinch at all times,
+## in every domain, whatever tool is live. Drawn here so the palette *says*
+## that -- the desktop shell says it nowhere today (there is a pan mode on the
+## touch navpad, `viewport_host.gd`, and no pan cell in any TOOLS block), which
+## leaves "how do I pan?" answerable only by trying it.
+##
+## `disabled` is what makes it inert, and it is also what paints it: Godot uses
+## the `disabled` stylebox and `icon_disabled_color`, which is exactly the
+## `ins` ground / `dis` ink pair the spec asks for, in one state that no hover
+## or press can move off. The tooltip carries the spec's own sentence, so the
+## reason it cannot be armed is where a user meets it -- `menus.gd`'s rule for
+## every other inert control in this shell.
+##
+## It still takes `TOOL_GLYPH_META`/`TOOL_CAPTION_META`: `DccShell.phone_fit()`
+## re-rasterises every tool glyph from its name and captions it, and a legend
+## that stayed a 15 px mark beside four captioned squares would read as a
+## rendering fault rather than as the row's fourth member.
+static func _tool_legend(parent: Control, glyph: String, caption: String, tip: String) -> Button:
+	var b := Button.new()
+	b.disabled = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = tip
+	b.set_meta(TOOL_GLYPH_META, glyph)
+	b.set_meta(TOOL_CAPTION_META, caption)
+	var tb_size := DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 30
+	b.custom_minimum_size = Vector2(tb_size, tb_size)
+	b.icon = DccIcons.get_icon(glyph, 15)
+	b.expand_icon = false
+	b.add_theme_stylebox_override("disabled", DccTheme.flat(DccTheme.c("sunken")))
+	b.add_theme_color_override("icon_disabled_color", DccTheme.c("text_ghost"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	parent.add_child(b)
+	return b
 
 ## `"Route (⇧R)"` -> a `Shortcut` for Shift+R; `"Inspect (V)"` -> plain V.
 ## Returns `null` for any label whose parenthetical is not a single A-Z letter
@@ -865,11 +907,15 @@ static func tool_caption(label_text: String) -> String:
 	var paren := s.find(" (")
 	return (s.substr(0, paren) if paren > 0 else s).strip_edges()
 
-## §4.5.1 -- present in every domain, identical everywhere.
+## §4.5.1 -- present in every domain, identical everywhere. Four cells, and
+## the fourth is not a tool: an entry carrying `legend` is drawn by
+## `_tool_legend()` instead of `tool_button()` -- see there.
 const GLOBAL_TOOL_ENTRIES: Array = [
 	{"id": "inspect", "glyph": "tool_inspect", "label": "Inspect (V)"},
 	{"id": "measure", "glyph": "tool_measure", "label": "Measure (M)"},
 	{"id": "region", "glyph": "tool_region", "label": "Region select (R)"},
+	{"id": "pan", "glyph": "tool_pan", "label": "Pan",
+		"legend": "Pan / zoom — always available"},
 ]
 
 ## Prose that explains a rule rather than labelling a control. Kept narrow so a
@@ -902,6 +948,15 @@ static func note(parent: Control, text: String) -> Label:
 ## The mark a stage carries when something upstream changed. Non-destructive by
 ## default: editing a stage marks everything downstream stale rather than
 ## silently invalidating it.
+##
+## **No caller** (checked repo-wide 2026-09-01), on exactly the terms
+## `stage_category()` above states for itself: this is the mark that row
+## type carries, v3 replaced the numbered ten-stage list it belonged to, and
+## the two are dead together rather than separately. Staleness is disclosed
+## today by the status bar's own `stale` slot (`app.gd`'s
+## `refresh_staleness()`), which is a different presentation of the same
+## fact and does not use this. Same expiry as its row type: if nothing has
+## claimed either by the time WORLD is next reworked, delete both then.
 static func stale_mark(parent: Control) -> Label:
 	var l := DccTheme.label("stale", "stale", DccTheme.FS_TINY)
 	l.visible = false

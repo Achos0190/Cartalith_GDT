@@ -1076,10 +1076,18 @@ pub fn estimate_regional_density_km2(
 
 /// `RESOURCE_KEYS` (reference HTML line 6027): the full block-1 resource
 /// vocabulary, frozen/append-only (`resource_index.json`/`.f32` export
-/// names are keyed to this exact order). Block 2's own `CIV_RESOURCE_KEYS`
-/// is a *different*, larger vocabulary (reference comment, line ~6293);
-/// `SUIT_RESOURCE_KEYS` (settlement suitability's copy, line 6294) is a
-/// smaller 9-key ore-only subset -- neither is this milestone's concern.
+/// names are keyed to this exact order).
+///
+/// **[`CIV_RESOURCE_KEYS`] is the SAME vocabulary, deliberately duplicated.**
+/// Corrected 2026-08-31: this comment previously called block 2's copy "a
+/// *different*, larger vocabulary", which the reference's own comment at line
+/// 6292-6293 contradicts in as many words -- *"block 2's CIV_RESOURCE_KEYS is
+/// the same vocabulary, but this function must stay pure/block-1-only, so it
+/// carries its own copy. Keep the two in step."* The two arrays here are
+/// byte-identical 15-key lists, and `civ_resource_keys_track_resource_keys`
+/// below is what keeps them that way rather than a sentence asking a reader
+/// to. `SUIT_RESOURCE_KEYS` (settlement suitability's copy, reference line
+/// 6294) genuinely is different: a smaller 9-key ore-only subset.
 pub const RESOURCE_KEYS: [&str; 15] = [
     "copper",
     "tin",
@@ -3901,7 +3909,7 @@ pub fn label_land_components(
     comp
 }
 
-/// `_civLakeFlooded` (reference line 5737): true when (x,y) is
+/// `_civLakeFlooded` (reference line 20737): true when (x,y) is
 /// classified "land" by the coarse water-body raster but sits below a
 /// neighbouring lake's pooled fill level, so it reads dry on the map but
 /// wet once a sub-cell renderer floods the shoreline band. `lake_fill` is
@@ -4463,14 +4471,17 @@ pub fn assign_landmass_factions(
 /// design the port needs to preserve bit-for-bit.
 ///
 /// Named `_with_water_edge_snap` rather than replacing the original
-/// `place_settlements` in place: `cartalith-godot`'s bridge call site
-/// (`lib.rs`) was mid-edit by a concurrent session when this fix landed
-/// (Travel Library `#[func]` boundary, unrelated) and could not safely be
-/// touched. [`place_settlements`] below is kept as an exact, unchanged
-/// alias of the old (pre-fix) behaviour so that in-flight edit keeps
-/// compiling against it; the bridge should switch its call site to this
-/// function once that edit lands (see `STATUS.md`'s note on this pass for
-/// the exact one-line change still needed there).
+/// `place_settlements` in place because `cartalith-godot`'s bridge call site
+/// was mid-edit by a concurrent session when this fix landed (Travel Library
+/// `#[func]` boundary, unrelated) and could not safely be touched.
+///
+/// **That constraint is gone, and this doc claimed otherwise until
+/// 2026-09-01.** The bridge switched: `cartalith-godot/src/lib.rs`'s
+/// auto-populate path calls *this* function, and so do both golden-parity
+/// settlement tests and both `_peakaudit_*` examples. **This function is the
+/// production entry point; nothing calls [`place_settlements`] any more.**
+/// It is kept as the pre-snap reference (see its own doc), not as a
+/// compilation crutch, and no call-site change remains outstanding.
 #[allow(clippy::too_many_arguments)]
 pub fn place_settlements_with_water_edge_snap(
     seeds: &[SettlementSeed],
@@ -4602,13 +4613,22 @@ pub fn place_settlements_with_water_edge_snap(
 /// The original (pre-water-edge-snap) `place_settlements` -- land-component
 /// labelling, snap seeds onto land then coast, faction assignment by
 /// landmass, settlement tier classification, ocean-port detection, and
-/// nothing past that. Kept byte-for-byte as it was before this pass so
-/// every existing caller (in particular `cartalith-godot`'s bridge, which
-/// could not be touched this pass -- see
-/// [`place_settlements_with_water_edge_snap`]'s own doc comment) keeps
-/// compiling and behaving exactly as before. New callers should prefer
-/// `place_settlements_with_water_edge_snap`, which additionally closes the
-/// real placement-fidelity gap that function documents.
+/// nothing past that.
+///
+/// **This function has no caller, by design.** It is kept byte-for-byte as
+/// the pre-snap reference: the isolated half of the water-edge-snap fix, so
+/// the snap's effect can be read as a diff between two live functions rather
+/// than reconstructed from history. `UNWIRED_FUNCTIONS.md` registers it under
+/// "Superseded twins" and `PARITY_AUDIT.md` classifies it as not a gap; both
+/// are the standing decision, and neither is an invitation to call it.
+///
+/// The justification here until 2026-09-01 -- that it kept "every existing
+/// caller (in particular `cartalith-godot`'s bridge, which could not be
+/// touched this pass)" compiling -- outlived the mid-edit it described. The
+/// bridge, both golden-parity settlement tests and both `_peakaudit_*`
+/// examples all call [`place_settlements_with_water_edge_snap`], which is
+/// the production entry point and additionally closes the real
+/// placement-fidelity gap that function documents.
 #[allow(clippy::too_many_arguments)]
 pub fn place_settlements(
     seeds: &[SettlementSeed],
@@ -5298,11 +5318,14 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
 /// (`build_road_network`, below) passes a scalar source, so porting the
 /// array branch now would be an abstraction with no caller (`ponytail`).
 ///
-/// The `edgeCost` (v1.98 optional directional-cost callback) parameter is
-/// also omitted -- no call site in this port's scope passes one, and the
-/// reference's own comment confirms every such call site is bit-identical
-/// to the unconditional `(dx&&dy?SQ2:1)*0.5*(cost[i]+cost[j])` path ported
-/// here.
+/// The `edgeCost` (v1.98 optional directional-cost callback) parameter was
+/// omitted through milestone 13 -- no call site in this port's scope passed
+/// one, and the reference's own comment confirmed every such call site was
+/// bit-identical to the unconditional `(dx&&dy?SQ2:1)*0.5*(cost[i]+cost[j])`
+/// path ported here. [`civ_sea_routes`]' current/wind-costed lanes
+/// (`DECISIONS.md` §7i, the `_civSeaTimeEdgeCost` port) is now that first
+/// real caller; every pre-existing call site still passes `None` and is
+/// untouched -- this parameter is purely additive.
 fn road_dijkstra(
     cost: &[f32],
     gw: usize,
@@ -5310,6 +5333,7 @@ fn road_dijkstra(
     sx: usize,
     sy: usize,
     world: bool,
+    edge_cost: Option<&dyn Fn(usize, usize, isize, isize) -> f64>,
 ) -> (Vec<f32>, Vec<i32>) {
     // Bit-identical to the reference's own literal `1.4142135623730951`
     // (both parse to the same nearest f64) -- named per clippy's
@@ -5354,9 +5378,12 @@ fn road_dijkstra(
                     continue;
                 }
                 let j = ny as usize * gw + nx as usize;
-                let step = (if dx != 0 && dy != 0 { SQ2 } else { 1.0 })
-                    * 0.5
-                    * (cost[i] as f64 + cost[j] as f64);
+                let step = match edge_cost {
+                    Some(f) => f(i, j, dx, dy),
+                    None => {
+                        (if dx != 0 && dy != 0 { SQ2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64)
+                    }
+                };
                 let nd = d + step;
                 if nd < dist[j] as f64 {
                     dist[j] = nd as f32;
@@ -5414,7 +5441,7 @@ pub fn build_road_network(
     for place in places {
         let sx = place.x.min(gw - 1);
         let sy = place.y.min(gh - 1);
-        let (dist, prev) = road_dijkstra(cost, gw, gh, sx, sy, world);
+        let (dist, prev) = road_dijkstra(cost, gw, gh, sx, sy, world, None);
         dists.push(dist);
         prevs.push(prev);
     }
@@ -5539,6 +5566,55 @@ fn civ_navigable_river_discount(order: i16) -> f64 {
     }
 }
 
+/// The swamp/floodplain multiplier out of `_civEnhancedTravelCost`'s own
+/// "near-sea land with high flow accumulation = marshland" comment
+/// (reference line 20988): `1.8x` when a cell is low-lying (within `0.06`
+/// of sea level, in the same normalised `field` units `sea` is) **and** its
+/// full-resolution flow accumulation exceeds eight times the river
+/// threshold; `1.0` (no penalty) otherwise, including whenever no flow
+/// field is available at all -- `flow` is `None` for every caller that has
+/// not retained one (`DECISIONS.md` §7i's "named as the obvious next step"
+/// note), and a missing field must read as "no data", not "no swamp".
+///
+/// `fi` indexes `flow` at *its own* resolution -- full-res for
+/// `civ_enhanced_travel_cost`'s caller, whatever `flow` actually is for
+/// [`tools::civ_land_cost_grid`]/[`tools::civ_mixed_cost_grid`] (both of
+/// which resample it the same way `flow` reaches this cell already).
+fn civ_swamp_penalty(flow: Option<&[f32]>, flow_thresh: f64, d_i: f64, sea: f64, fi: usize) -> f64 {
+    let Some(fl) = flow else { return 1.0 };
+    if d_i < sea + 0.06 && (fl[fi] as f64) > flow_thresh * 8.0 {
+        1.8
+    } else {
+        1.0
+    }
+}
+
+/// The river ford-vs-bridge additive cost from the same function
+/// (reference line 20990): zero below the river threshold (no crossing at
+/// all, matching the reference's own `if(flow&&flow[fi]>flowThresh)` guard)
+/// or with no flow field, `8 * mag * ford_k` above it -- `mag` a
+/// log-compressed magnitude of how far above threshold the flow is (capped
+/// at `1`), `ford_k` cheaper for a Strahler order 1-2 ford than an order-5+
+/// bridge crossing.
+fn civ_river_crossing_cost(flow: Option<&[f32]>, flow_thresh: f64, river_order: Option<&[i16]>, fi: usize) -> f64 {
+    let Some(fl) = flow else { return 0.0 };
+    let flow_fi = fl[fi] as f64;
+    if flow_fi > flow_thresh {
+        let ord = river_order.map(|ro| ro[fi]).unwrap_or(0);
+        let mag = (((flow_fi / flow_thresh) + 1.0).ln() / 5.0).min(1.0);
+        let ford_k = if ord <= 2 {
+            0.35
+        } else if ord <= 4 {
+            0.75
+        } else {
+            1.0
+        };
+        8.0 * mag * ford_k
+    } else {
+        0.0
+    }
+}
+
 /// `_civRoutingGrid` (reference ~line 21022): the shared downsampled
 /// routing grid every civ router builds through, so paths/discount masks/
 /// place snapping all agree cell-for-cell. `rw <= 384`.
@@ -5617,24 +5693,15 @@ fn civ_enhanced_travel_cost(
             if ew_pass || ns_pass {
                 c = 1.0 + SLOPE_K * sl * sl * 0.40;
             }
-            if let Some(fl) = flow {
-                let flow_fi = fl[fi] as f64;
-                if d_i < sea + 0.06 && flow_fi > flow_thresh * 8.0 {
-                    c *= 1.8;
-                }
-                if flow_fi > flow_thresh {
-                    let ord = river_order.map(|ro| ro[fi]).unwrap_or(0);
-                    let mag = (((flow_fi / flow_thresh) + 1.0).ln() / 5.0).min(1.0);
-                    let ford_k = if ord <= 2 {
-                        0.35
-                    } else if ord <= 4 {
-                        0.75
-                    } else {
-                        1.0
-                    };
-                    c += 8.0 * mag * ford_k;
-                }
-            }
+            // Swamp/floodplain + ford-vs-bridge: factored out to
+            // [`civ_swamp_penalty`]/[`civ_river_crossing_cost`] so
+            // [`tools::civ_land_cost_grid`]/[`tools::civ_mixed_cost_grid`]
+            // can apply the SAME formula (`DECISIONS.md` §7i) rather than a
+            // second copy free to drift -- the exact trap `_civBiomeFriction`'s
+            // own v1.95 comment already found once for this file's other
+            // shared terrain-cost terms.
+            c *= civ_swamp_penalty(flow, flow_thresh, d_i, sea, fi);
+            c += civ_river_crossing_cost(flow, flow_thresh, river_order, fi);
             if let Some(ro) = river_order {
                 c *= civ_navigable_river_discount(ro[fi]);
             }
@@ -5831,7 +5898,7 @@ pub fn civ_hierarchical_network_topology(
         .collect();
     let res1: Vec<(Vec<f32>, Vec<i32>)> = rp1
         .iter()
-        .map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world))
+        .map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world, None))
         .collect();
 
     {
@@ -5902,7 +5969,7 @@ pub fn civ_hierarchical_network_topology(
         .collect();
     let res2: Vec<(Vec<f32>, Vec<i32>)> = rp2
         .iter()
-        .map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world))
+        .map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world, None))
         .collect();
 
     let mut edge_set: std::collections::HashSet<usize> = all_edges
@@ -6189,7 +6256,7 @@ fn territory_sweep(
         if !s.placement.capital {
             continue;
         }
-        let (dist, _prev) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world);
+        let (dist, _prev) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, None);
         let weight = territory_weight(s.pop);
         // One capital's Dijkstra pass at a time, same order as before
         // (needed: the running per-cell min IS meant to compare across
@@ -7403,6 +7470,131 @@ pub struct SeaRoute {
     pub name: String,
 }
 
+/// `_CIV_LANE_REF_VESSEL` (reference line 21197): the hull
+/// [`civ_sea_time_edge_cost`] rates every lane's sailing performance
+/// against. The reference's own comment: the Cog is *"the historically
+/// dominant bulk carrier and the more wind-constrained [square] rig, so
+/// lanes chosen for it avoid persistently unsailable axes. A lane is
+/// shared infrastructure, not one vessel's voyage, so a fixed reference is
+/// the honest choice."*
+const CIV_LANE_REF_VESSEL: &str = "Cog";
+/// `_CIV_LANE_CURRENT_W` (reference line 21198): current's contribution to
+/// [`civ_sea_time_edge_cost`]'s made-good speed, relative to nominal
+/// sailing speed -- deliberately small next to the sail term.
+const CIV_LANE_CURRENT_W: f64 = 0.15;
+/// `_CIV_LANE_TACK_FLOOR` (reference line 21203): the minimum made-good
+/// speed fraction a dead-upwind leg still gets. The reference's own
+/// comment: *"A polar value of 0 means 'cannot sail this angle directly' --
+/// not 'cannot get there'. A real square-rigger tacks: it still makes
+/// ground to windward, just slowly... without it the edge time would be
+/// Infinity and upwind water would read as impassable ocean, which is
+/// wrong and would also break the MST."*
+const CIV_LANE_TACK_FLOOR: f64 = 0.25;
+
+/// `_civSeaTimeEdgeCost(RW,RH,sc)` (reference line 21204): a per-edge
+/// current/wind-costed [`road_dijkstra`] step for [`civ_sea_routes`]' MST
+/// build, replacing the uniform `0.5*(cost[i]+cost[j])` arithmetic step
+/// with the round-trip sailing TIME a real hull would spend crossing that
+/// edge -- so lane *geometry*, not just lane existence, follows the current
+/// and the prevailing wind.
+///
+/// Both coarse fields are resampled onto the `rw`x`rh` **routing** grid
+/// exactly **once** here (the reference's own "deliberately uncached
+/// (v1.86)... must not happen per edge" comment), via [`jp_coarse_idx`] --
+/// the same coarse-to-full-res inversion `_jpDeriveStages` uses, itself
+/// only reachable at full-grid indices, hence the `x/sc`/`y/sc` step down
+/// to a full-res `(gx,gy)` first, matching the reference's own two-stage
+/// mapping.
+///
+/// Returns `None` when neither field is available, matching the
+/// reference's own `if(!oceanF&&!windF) return null` -- the caller then
+/// keeps [`road_dijkstra`]'s uniform arithmetic step exactly as before,
+/// not a fabricated calm-sea answer.
+///
+/// **Does not itself gate land/sea passability.** The reference's own call
+/// site wraps this in `(i,j,dx,dy)=>cost[j]===Infinity||cost[i]===Infinity
+/// ?Infinity:seaEdge(i,j,dx,dy)` -- *"the `cost` grid still gates
+/// PASSABILITY... the callback only prices navigable edges"* -- and
+/// [`civ_sea_routes`] applies that same wrap around this function's result,
+/// which is why this function alone must never be handed to
+/// [`road_dijkstra`] as its `edge_cost`.
+#[allow(clippy::too_many_arguments)]
+fn civ_sea_time_edge_cost(
+    rw: usize,
+    rh: usize,
+    sc: f64,
+    gw: usize,
+    gh: usize,
+    ocean_f: Option<&JpCoarseField>,
+    wind_f: Option<&JpCoarseField>,
+) -> Option<impl Fn(usize, usize, isize, isize) -> f64> {
+    if ocean_f.is_none() && wind_f.is_none() {
+        return None;
+    }
+    let n = rw * rh;
+    let (mut cu, mut cv, mut wu, mut wv) = (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);
+    let max_cur = ocean_f.map_or(1.0, |o| o.max_speed.max(1e-6));
+    for y in 0..rh {
+        for x in 0..rw {
+            let i = y * rw + x;
+            let gx = ((x as f64 / sc) as usize).min(gw - 1);
+            let gy = ((y as f64 / sc) as usize).min(gh - 1);
+            if let Some(o) = ocean_f
+                && let Some(k) = jp_coarse_idx(gx as f64, gy as f64, o.ww, o.wh, gw, gh)
+            {
+                cu[i] = o.u[k];
+                cv[i] = o.v[k];
+            }
+            if let Some(w) = wind_f
+                && let Some(k) = jp_coarse_idx(gx as f64, gy as f64, w.ww, w.wh, gw, gh)
+            {
+                wu[i] = w.u[k];
+                wv[i] = w.v[k];
+            }
+        }
+    }
+    const SQ2: f64 = std::f64::consts::SQRT_2;
+    // Made-good speed (units of nominal hull speed) heading `(tx,ty)`
+    // through current `(ccx,ccy)` and wind `(wwx,wwy)`, both already the
+    // edge's own midpoint average -- `_civSeaTimeEdgeCost`'s own
+    // `speedAlong`.
+    let speed_along = move |tx: f64, ty: f64, ccx: f64, ccy: f64, wwx: f64, wwy: f64| -> f64 {
+        let wl = js_hypot(wwx, wwy);
+        let mut sail = 1.0;
+        if wl > 1e-9 {
+            let d = (-((wwx / wl) * tx + (wwy / wl) * ty)).clamp(-1.0, 1.0);
+            sail = jp_sail_factor(CIV_LANE_REF_VESSEL, d.acos().to_degrees());
+        }
+        if sail < CIV_LANE_TACK_FLOOR {
+            sail = CIV_LANE_TACK_FLOOR;
+        }
+        let cur = (ccx * tx + ccy * ty) / max_cur;
+        (sail + CIV_LANE_CURRENT_W * cur).max(0.05)
+    };
+    Some(move |i: usize, j: usize, dx: isize, dy: isize| -> f64 {
+        let len = if dx != 0 && dy != 0 { SQ2 } else { 1.0 };
+        let l = js_hypot(dx as f64, dy as f64);
+        let (tx, ty) = (dx as f64 / l, dy as f64 / l);
+        let ccx = (cu[i] + cu[j]) as f64 * 0.5;
+        let ccy = (cv[i] + cv[j]) as f64 * 0.5;
+        let wwx = (wu[i] + wu[j]) as f64 * 0.5;
+        let wwy = (wv[i] + wv[j]) as f64 * 0.5;
+        // Round-trip time, not one-directional: the reference's own
+        // comment (v1.98 U5) is explicit about why this is the correct
+        // objective, not a fudge -- "a Dijkstra/Prim MST is UNDIRECTED --
+        // you cannot build a spanning tree over an asymmetric cost without
+        // inventing a tie-break... a permanent trade lane is sailed BOTH
+        // ways, so what matters is the round trip", and it is not a no-op
+        // that averages the current away because the polar is non-linear:
+        // a lane along the wind axis is a fast reach one way and a beat
+        // the other, so its round trip is genuinely worse than a
+        // cross-wind lane that is a moderate reach both ways.
+        let s_f = speed_along(tx, ty, ccx, ccy, wwx, wwy);
+        let s_r = speed_along(-tx, -ty, ccx, ccy, wwx, wwy);
+        0.5 * len * (1.0 / s_f + 1.0 / s_r)
+    })
+}
+
 /// `_civMstRoutes(ports, true)` (reference line 21240, `isSea` branch
 /// only -- the `isSea=false` land-route branch has no confirmed real
 /// caller in production; `_civHierarchicalNetwork`/milestone 12 is what
@@ -7417,19 +7609,26 @@ pub struct SeaRoute {
 /// the separate `_civAutoRoutes` manual "Auto routes" tool (out of
 /// scope, confirmed by reading `_civAutoRoutes` itself).
 ///
-/// **Deliberately does not implement `_civSeaTimeEdgeCost`** (current/
-/// wind-costed routing): its real inputs -- ocean-current and wind u/v
-/// vector fields -- are not retained on `WorldState` past their internal
-/// use in `apply_ocean_currents`/`deflect_flow` (only the resulting SST/
-/// rainfall corrections are kept there today). The reference's own code
-/// degrades gracefully when these fields are unavailable
-/// (`if(!oceanF&&!windF) return null` -> caller falls back to the
-/// uniform arithmetic-cost path, `roadDijkstra`'s own default
-/// `0.5*(cost[i]+cost[j])` step), so this port takes that same
-/// documented fallback rather than adding new `WorldState` plumbing
-/// outside this milestone's own scope -- a real, flagged follow-up
-/// (wind/current-aware sea-lane costing), not a silently-dropped
-/// feature.
+/// **Now implements `_civSeaTimeEdgeCost`** (current/wind-costed routing)
+/// via [`civ_sea_time_edge_cost`], reached through `ocean_f`/`wind_f`.
+///
+/// **This doc comment used to say this was deliberately unimplemented**,
+/// because this port's climate stage computed the coarse current/wind
+/// fields and discarded them, keeping only the SST/rainfall corrections
+/// derived from them. That was true when written and is corrected here
+/// rather than left as a stale decline: `cartalith_climate::current_ocean_
+/// field`/`current_wind_field` already exist and are already called fresh
+/// (uncached, by design) by the Wind/Ocean-currents debug views
+/// (`sample_bridge::flow_fx_raster`) -- the same "derive when needed, keep
+/// nothing after" recipe this function's caller now uses to build
+/// `ocean_f`/`wind_f`, no `WorldState` retention required. `None` for
+/// either (or both) is still fully supported and reproduces the reference's
+/// own graceful degradation (`if(!oceanF&&!windF) return null` -> the
+/// caller's uniform arithmetic-cost path, `road_dijkstra`'s own default
+/// `0.5*(cost[i]+cost[j])` step) -- this function does not require a
+/// generated world's caller to have both fields, only offer them when it
+/// does.
+#[allow(clippy::too_many_arguments)]
 pub fn civ_sea_routes(
     ports: &[NamedSettlement],
     field: &[f32],
@@ -7438,6 +7637,8 @@ pub fn civ_sea_routes(
     gh: usize,
     world: bool,
     map_width_km: f64,
+    ocean_f: Option<&JpCoarseField>,
+    wind_f: Option<&JpCoarseField>,
 ) -> Vec<SeaRoute> {
     let n = ports.len();
     if n < 2 {
@@ -7481,9 +7682,31 @@ pub fn civ_sea_routes(
         })
         .collect();
 
+    // v1.98 U5's current/wind-costed lane time (`civ_sea_time_edge_cost`),
+    // wrapped exactly the way the reference's own call site wraps it: the
+    // `cost` grid above still gates PASSABILITY (land/lake stays
+    // `Infinity`), and the callback below only prices an already-navigable
+    // edge -- so an edge with either endpoint impassable in `cost` never
+    // reaches `civ_sea_time_edge_cost` at all, and can never be made
+    // artificially cheap (or artificially finite) by a strong following
+    // current.
+    let sea_edge = civ_sea_time_edge_cost(rw, rh, sc, gw, gh, ocean_f, wind_f);
+    let cost_ref: &[f32] = &cost;
+    let edge_fn = sea_edge.map(|se| {
+        move |i: usize, j: usize, dx: isize, dy: isize| -> f64 {
+            if !cost_ref[i].is_finite() || !cost_ref[j].is_finite() {
+                f64::INFINITY
+            } else {
+                se(i, j, dx, dy)
+            }
+        }
+    });
+    let edge_cost: Option<&dyn Fn(usize, usize, isize, isize) -> f64> =
+        edge_fn.as_ref().map(|f| f as &dyn Fn(usize, usize, isize, isize) -> f64);
+
     let results: Vec<(Vec<f32>, Vec<i32>)> = rp
         .iter()
-        .map(|&ri| road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world))
+        .map(|&ri| road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world, edge_cost))
         .collect();
 
     // Prim's MST using Dijkstra distances (same loop shape as milestone
@@ -9234,10 +9457,17 @@ pub fn jp_plan_cost(journey: &JpJourneyPlan, plan: &JpPlan) -> Option<JourneyCos
 // but the quantity itself is a per-ecoregion **species count**
 // (`assignWildlife`, reference line 18177 of block 1: `present.length`, a
 // biome species roster clipped by `regionRichness`'s species-area x energy x
-// heterogeneity x latitude curve). The whole ecoregion-segmentation +
-// species-roster subsystem (`buildEcoregions`/`regionRichness`/
-// `assignWildlife`/`WILD_ROSTERS`) is unported, is not on any Journey Planner
-// milestone, and is far larger than this one. So the input is genuinely new.
+// heterogeneity x latitude curve). At the time this was written the whole
+// ecoregion-segmentation + species-roster subsystem was unported and on no
+// Journey Planner milestone, which is why the input arrives from outside.
+//
+// **That is no longer true, and this comment said otherwise until
+// 2026-08-31.** `buildEcoregions`/`regionRichness`/`assignWildlife`/
+// `WILD_ROSTERS` are all ported, in this crate, golden-tested:
+// `wildlife::build_ecoregions`, `wildlife::region_richness`,
+// `wildlife::assign_wildlife`, `wildlife::wild_roster`, assembled by
+// `wildlife::current_wildlife`. The caller-supplied shape below is kept
+// anyway -- see the paragraph after next for the reason that survives.
 //
 // It is supplied by the caller, not reached for: `jp_wildlife_forage_mod`
 // takes one region's richness and the world mean and returns exactly the
@@ -9248,8 +9478,17 @@ pub fn jp_plan_cost(journey: &JpJourneyPlan, plan: &JpPlan) -> Option<JourneyCos
 // means, and it preserves the reference's own calibration anchor exactly:
 // **1.0 means "no wildlife data", and 1.0 is also what an exactly-average
 // region produces**, so the flat `JP_BIOMES.forage` table stays the anchor and
-// a port with no ecoregion model behaves identically to the reference running
-// on a world whose wildlife layer was never built.
+// a caller with no ecoregion data to hand behaves identically to the reference
+// running on a world whose wildlife layer was never built.
+//
+// The reason the closure stayed a closure after `wildlife` landed: this crate
+// is stateless (`ARCHITECTURE.md`), and reading a region under a stage
+// midpoint needs a segmentation the caller has to retain and invalidate.
+// `cartalith-godot`'s `sample_bridge::WildlifeCache` is that retained state,
+// and `lib.rs`'s `jp_compute` call site passes a live
+// `|mx, my| wildlife.forage_mod(mx, my)` -- so `1.0` is now a genuine fallback
+// (no civilisation layer, no region under the midpoint, world mean of zero)
+// rather than the only answer this port can give.
 //
 // Golden-verified against the frozen reference: lines 17297-19206 were sliced
 // out of `reference/Cartalith Gen1 v2.10.html` and evaluated in a bare Node
@@ -9690,9 +9929,20 @@ pub fn jp_world_mean_richness(region_richness: &[Option<f64>]) -> f64 {
 /// **Exactly 1.0 whenever wildlife data is unavailable** -- the reference's
 /// own calibration anchor, which is what keeps the flat `JP_BIOMES.forage`
 /// table meaningful. The reference reads the region under a stage's midpoint
-/// cell out of `currentWildlife()`; this port has no ecoregion/species model
-/// (see the milestone header above), so the caller passes the sampled
-/// richness and the world mean instead of a grid coordinate.
+/// cell out of `currentWildlife()`; this port takes the sampled richness and
+/// the world mean as arguments instead of a grid coordinate.
+///
+/// **That argument shape is a statelessness boundary, not a missing
+/// subsystem** -- corrected 2026-09-01, having said "this port has no
+/// ecoregion/species model" long after one landed. The model is
+/// [`crate::wildlife`] (`build_ecoregions`, `region_richness`,
+/// `assign_wildlife`, `wild_roster`, assembled by `current_wildlife`), and
+/// the shipped caller is real: `cartalith-godot`'s
+/// `sample_bridge::WildlifeCache::forage_mod` retains the segmentation and
+/// calls straight back into this function. `1.0` is a genuine fallback (no
+/// civilisation layer, no region under the midpoint, world mean of zero),
+/// which is also what an exactly-average region gives. See the milestone
+/// header above `jp_world_mean_richness` for the full reasoning.
 pub fn jp_wildlife_forage_mod(region_richness: Option<f64>, world_mean_richness: f64) -> f64 {
     let Some(r) = region_richness else { return 1.0 };
     // `!(x > 0.0)`, not `x <= 0.0` -- the reference's own `!(mean>0)`,
@@ -11499,17 +11749,26 @@ pub struct JpRoadCell {
 /// plus the terrain reference roads, dilated by one cell. Riding an existing
 /// road upgrades the sampled terrain and route condition.
 ///
-/// Two real differences from the reference, both from what this port actually
-/// produces rather than from a redesign:
+/// **Now takes `manual_ways` too.** The reference keeps one flat `civWays`
+/// array holding both the generated network and every hand-drawn way, and
+/// `_jpRoadCells` walks it without caring which is which; this port splits
+/// them into [`Way`] (generated) and `tools::ManualWay` (hand-drawn,
+/// `journey_bridge.rs`'s own former module-doc gap), so this function now
+/// walks both slices with each type's own way-type vocabulary. `ancient`
+/// (`ManualWayType::Ancient`, no [`WayType`] equivalent -- a generated way
+/// is never classified `ancient`) gets the reference's own
+/// `'ancient' -> ["Dirt Track","Deteriorated"]` mapping; manual
+/// `Road`/`Track` share the generated network's own `Road`/`Track` tuple;
+/// `SeaLane` is skipped, matching the reference's own `w.sea||w.type===
+/// 'sea-lane'` guard -- real here, unlike the generated loop below, because
+/// a hand-drawn way (unlike a generated one) really can be a sea lane.
 ///
-/// * The reference skips `w.sea`/`w.type==='sea-lane'` ways. This port keeps
-///   sea routes in their own [`SeaRoute`] type, never in [`Way`], so there is
-///   nothing to skip -- passing `civ_sea_routes`' output here would be the
-///   caller's own error, not a case to filter.
-/// * `w.condition` (a user-edited override from the reference's way-properties
-///   editor) has no equivalent in this port, which has no such editor; the
-///   way-type default stands, exactly as it does for every unedited way in the
-///   reference.
+/// One real difference from the reference remains, from what this port
+/// actually produces rather than from a redesign: `w.condition` (a
+/// user-edited override from the reference's way-properties editor) has no
+/// equivalent in this port, which has no such editor on either way type;
+/// the way-type default stands, exactly as it does for every unedited way
+/// in the reference.
 ///
 /// The reference keys its map with JS string concatenation (`x+','+y`), so a
 /// way's *unrounded* first or seam-break point writes a key like `"12.5,3"`
@@ -11518,6 +11777,7 @@ pub struct JpRoadCell {
 /// carrying float keys around.
 pub fn jp_road_cells(
     ways: &[Way],
+    manual_ways: &[tools::ManualWay],
     road_edges: &[RoadEdge],
     gw: usize,
 ) -> std::collections::HashMap<(i64, i64), JpRoadCell> {
@@ -11551,6 +11811,18 @@ pub fn jp_road_cells(
             WayType::Highway => ("Paved Road", "Maintained", 3),
             WayType::Regional => ("Paved Road", "Standard", 2),
             WayType::Road | WayType::Track => ("Dirt Track", "Standard", 1),
+        };
+        let mut emit = |x: f64, y: f64| put(&mut map, x, y, terrain, cond, pri);
+        civ_walk_way_cells(&w.pts, &w.brks, gw, &mut emit);
+    }
+    for w in manual_ways {
+        if w.hidden || w.sea || w.way_type == tools::ManualWayType::SeaLane {
+            continue;
+        }
+        let (terrain, cond, pri) = match w.way_type {
+            tools::ManualWayType::Ancient => ("Dirt Track", "Deteriorated", 1),
+            tools::ManualWayType::Road | tools::ManualWayType::Track => ("Dirt Track", "Standard", 1),
+            tools::ManualWayType::SeaLane => unreachable!("filtered above"),
         };
         let mut emit = |x: f64, y: f64| put(&mut map, x, y, terrain, cond, pri);
         civ_walk_way_cells(&w.pts, &w.brks, gw, &mut emit);
@@ -12172,10 +12444,14 @@ pub fn civ_path_water_frac(
 /// This carries the reference's own `mx`/`my` stage-midpoint grid coordinate,
 /// which milestone 4's [`JpStage`] deliberately does *not*: `mx`/`my` are a
 /// genuine map measurement made here, while what the stage *calculators*
-/// consume is the finished `wildlife_forage_mod` that the (unported)
-/// ecoregion/species-richness subsystem would produce from them. Keeping both
-/// -- the measurement here, the multiplier there -- is what
-/// [`JpDerivedStage::to_stage`] bridges.
+/// consume is the finished `wildlife_forage_mod` produced from them by the
+/// ecoregion/species-richness subsystem -- [`crate::wildlife`], which is
+/// ported and golden-tested, reached through a caller-held segmentation
+/// (`cartalith-godot`'s `sample_bridge::WildlifeCache`) because this crate is
+/// stateless. Keeping both -- the measurement here, the multiplier there --
+/// is what [`JpDerivedStage::to_stage`] bridges. (This comment said
+/// "(unported)" until 2026-09-01; it was true when written and stopped being
+/// true when `wildlife.rs` landed.)
 #[derive(Debug, Clone, PartialEq)]
 pub struct JpDerivedStage {
     /// `"land"`, `"river"` or `"sea"`.
@@ -12919,10 +13195,15 @@ const JP_TIMELINE_MAX_ENTRIES: i64 = 400;
 /// per-stage calculation, and the roll-up plus timeline.
 ///
 /// `wildlife_forage_mod` is the reference's `_jpWildlifeForageMod(mx,my)`,
-/// supplied by the caller because the ecoregion/species-richness subsystem
-/// behind it is unported and on no milestone in `JOURNEY_PLANNER_SCOPE.md`.
-/// `|_, _| 1.0` is the reference's own answer on a world whose wildlife layer
-/// was never built, and also what an exactly-average region gives.
+/// supplied by the caller because reading a region under a stage midpoint
+/// needs a segmentation somebody has to retain and invalidate, and this crate
+/// is stateless (`ARCHITECTURE.md`). The subsystem behind it is **ported** --
+/// [`crate::wildlife`] -- and the shipped call site passes a live closure over
+/// `cartalith-godot`'s `sample_bridge::WildlifeCache`, so `|_, _| 1.0` is a
+/// fallback for callers with no civilisation layer rather than the only
+/// available answer. It is the reference's own answer on a world whose
+/// wildlife layer was never built, and also what an exactly-average region
+/// gives. (Corrected 2026-09-01: this said "unported and on no milestone".)
 ///
 /// Returns `None` on a route with no drawn path or no derivable stages, both
 /// of the reference's own `return null` cases.
@@ -14459,6 +14740,27 @@ mod tests {
         assert_eq!(CIV_RESOURCE_KEYS[14], "alum");
     }
 
+    /// The reference's own instruction, made enforceable: *"block 2's
+    /// CIV_RESOURCE_KEYS is the same vocabulary, but this function must stay
+    /// pure/block-1-only, so it carries its own copy. **Keep the two in
+    /// step.**"* (reference lines 6292-6293).
+    ///
+    /// A duplicate kept in step by a sentence drifts; a duplicate kept in step
+    /// by an assertion cannot. Deliberately not collapsed into
+    /// `pub const CIV_RESOURCE_KEYS: [&str; 15] = RESOURCE_KEYS;` -- the
+    /// reference carries two arrays precisely so `build_resource_potentials`
+    /// stays block-1-pure, and aliasing them here would erase the boundary the
+    /// duplication exists to draw.
+    #[test]
+    fn civ_resource_keys_track_resource_keys() {
+        assert_eq!(
+            RESOURCE_KEYS, CIV_RESOURCE_KEYS,
+            "block 1's RESOURCE_KEYS and block 2's CIV_RESOURCE_KEYS are one \
+             vocabulary held twice (reference line 6292-6293). Whichever one \
+             you appended to, append to the other."
+        );
+    }
+
     fn test_resources(n: usize, fill: f32) -> ResourcePotentials {
         let v = || vec![fill; n];
         ResourcePotentials {
@@ -15222,6 +15524,64 @@ mod tests {
         assert_eq!(snapped, Some((1, 2)));
     }
 
+    /// [`place_settlements`] is kept as the pre-snap reference and has no
+    /// caller (see its own doc). A reference nothing exercises rots, so this
+    /// pins the one claim that makes it worth keeping: on a world where the
+    /// snap can do nothing, the two functions agree exactly.
+    ///
+    /// All-land, no water bodies, no river flow -- so
+    /// `civ_snap_to_water_edge` finds no waterish cell and returns `None`
+    /// for every candidate, and `civ_is_coastal` is false everywhere, which
+    /// collapses the deliberate "coastal from the FINAL position" departure
+    /// documented on `place_settlements_with_water_edge_snap`. Any behavioural
+    /// drift between the two outside the snap itself breaks this.
+    #[test]
+    fn place_settlements_is_the_pre_snap_half_of_the_snapping_placer() {
+        const GW: usize = 24;
+        const GH: usize = 24;
+        let n = GW * GH;
+
+        // Dry everywhere (sea = 0.4), no water bodies, no lakes.
+        let field = vec![0.7f32; n];
+        let wb = vec![0u8; n];
+        let lake_fill = vec![0f32; n];
+        // No flood, no river: the snap has nothing to snap to.
+        let flood = vec![0f32; n];
+        let flow = vec![0f32; n];
+
+        // A deterministic, non-uniform suitability so ranks, tiers and the
+        // coast-swap tie-breaks all have something to discriminate on.
+        let mut suit = vec![0f32; n];
+        for y in 0..GH {
+            for x in 0..GW {
+                suit[y * GW + x] = (((x * 7 + y * 13) % 23) as f32) / 23.0;
+            }
+        }
+
+        let seeds: Vec<SettlementSeed> = (0..8)
+            .map(|k| {
+                let x = 2 + k * 2;
+                let y = 3 + (k * 5) % 17;
+                SettlementSeed { x, y, score: suit[y * GW + x] }
+            })
+            .collect();
+
+        let plain = place_settlements(&seeds, &suit, &field, &wb, &lake_fill, GW, GH, 0.4, false, 3);
+        let snapped = place_settlements_with_water_edge_snap(
+            &seeds, &suit, &field, &wb, &lake_fill, GW, GH, 0.4, false, 3, &flood, &flow, 1e9,
+            GW as f64,
+        );
+
+        assert!(
+            !plain.is_empty(),
+            "fixture placed nothing -- the comparison below would be vacuous"
+        );
+        assert_eq!(
+            plain, snapped,
+            "place_settlements must stay the exact pre-snap half of              place_settlements_with_water_edge_snap on a world with no water              for the snap to reach"
+        );
+    }
+
     // civ_snap_to_water_edge golden fixtures -- extracted from the real
     // reference (`reference/Cartalith Gen1 v2.10.html` line 20787,
     // `_civSnapToWaterEdge`) via a small transient Node harness that
@@ -15517,7 +15877,7 @@ mod tests {
     fn road_dijkstra_flat_grid_diagonal_uses_sqrt2() {
         // 3x3 flat land, cost=1 everywhere. Source at (0,0).
         let cost = vec![1.0f32; 9];
-        let (dist, _prev) = road_dijkstra(&cost, 3, 3, 0, 0, false);
+        let (dist, _prev) = road_dijkstra(&cost, 3, 3, 0, 0, false, None);
         assert!((dist[0] - 0.0).abs() < 1e-6, "source distance should be 0");
         assert!(
             (dist[1] - 1.0).abs() < 1e-5,
@@ -15536,13 +15896,104 @@ mod tests {
     fn road_dijkstra_impassable_water_stays_unreachable() {
         // 1x3 strip, middle cell impassable -> the far end is unreachable from the source.
         let cost = vec![1.0f32, f32::INFINITY, 1.0f32];
-        let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false);
+        let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false, None);
         assert!((dist[0] - 0.0).abs() < 1e-6);
         assert!(
             dist[2].is_infinite(),
             "cell past an infinite-cost barrier should stay unreachable"
         );
         assert_eq!(prev[2], -1);
+    }
+
+    /// `civ_swamp_penalty`/`civ_river_crossing_cost` -- `DECISIONS.md` §7i's
+    /// "named as the obvious next step" pair, factored out of
+    /// `civ_enhanced_travel_cost` so [`tools::civ_land_cost_grid`]/
+    /// [`tools::civ_mixed_cost_grid`] share the exact same formula.
+    #[test]
+    fn civ_swamp_penalty_and_river_crossing_cost_match_the_reference_formula() {
+        // No flow field at all -- both terms are the identity, not a
+        // fabricated "no swamp anywhere" zero.
+        assert_eq!(civ_swamp_penalty(None, 10.0, 0.40, 0.42, 0), 1.0);
+        assert_eq!(civ_river_crossing_cost(None, 10.0, None, 0), 0.0);
+
+        let high_flow = vec![100.0f32]; // > flow_thresh(10)*8 == 80
+        // Low-lying (within 0.06 of sea) AND high flow -> the swamp multiplier.
+        assert_eq!(civ_swamp_penalty(Some(&high_flow), 10.0, 0.44, 0.42, 0), 1.8);
+        // Same flow, well above sea level -> no swamp.
+        assert_eq!(civ_swamp_penalty(Some(&high_flow), 10.0, 0.80, 0.42, 0), 1.0);
+        // Low-lying but flow under the *8 gate -> no swamp either.
+        let low_flow = vec![50.0f32];
+        assert_eq!(civ_swamp_penalty(Some(&low_flow), 10.0, 0.44, 0.42, 0), 1.0);
+
+        // Ford vs bridge: a low Strahler order is cheap to ford, a high one
+        // pays the full crossing cost.
+        let over = vec![30.0f32]; // > flow_thresh(10.0)
+        let ford = civ_river_crossing_cost(Some(&over), 10.0, Some(&[1i16]), 0);
+        let bridge = civ_river_crossing_cost(Some(&over), 10.0, Some(&[6i16]), 0);
+        assert!(ford > 0.0 && bridge > ford, "a bridge-grade river must cost more to cross than a ford: {ford} vs {bridge}");
+        // At or below the threshold there is no crossing at all.
+        assert_eq!(civ_river_crossing_cost(Some(&[10.0f32]), 10.0, Some(&[1i16]), 0), 0.0);
+    }
+
+    /// `civ_sea_time_edge_cost` -- the `_civSeaTimeEdgeCost` port.
+    #[test]
+    fn civ_sea_time_edge_cost_is_none_without_any_field_and_penalises_a_current_aligned_edge() {
+        assert!(civ_sea_time_edge_cost(4, 4, 1.0, 4, 4, None, None).is_none());
+
+        // A uniform eastward current, resampled from a 2x2 coarse field --
+        // `jp_coarse_idx` refuses `ww`/`wh` <= 1, and every coarse cell
+        // carries the same vector anyway, so which one resampling actually
+        // picks does not matter to this fixture.
+        let ocean = JpCoarseField { ww: 2, wh: 2, u: vec![1.0; 4], v: vec![0.0; 4], max_speed: 1.0 };
+        let f = civ_sea_time_edge_cost(4, 4, 1.0, 4, 4, Some(&ocean), None).expect("ocean field present");
+
+        // The reference's own point (v1.98 U5): the round-trip cost is NOT
+        // a no-op that averages the current away. An edge ALONG the current
+        // axis is a fast reach one way and a beat the other; a
+        // PERPENDICULAR edge gets no along-track current contribution
+        // either direction. AM-HM makes the aligned edge's round trip
+        // strictly worse even though its mean one-way speed looks the same.
+        let along = f(0, 1, 1, 0); // east-west, i.e. along the current
+        let across = f(0, 4, 0, 1); // north-south, i.e. cross-current
+        assert!(
+            along > across,
+            "a current-aligned edge should cost MORE round-trip than a cross-current edge: {along} vs {across}"
+        );
+    }
+
+    /// `civ_sea_routes` with real fields supplied end to end -- a
+    /// regression guard that wiring `ocean_f`/`wind_f` through
+    /// [`civ_sea_time_edge_cost`] and its passability wrap did not break
+    /// the ordinary "two ports, one lane" case, with or without them.
+    #[test]
+    fn civ_sea_routes_still_connects_ports_with_or_without_current_and_wind_fields() {
+        let (gw, gh) = (10usize, 6usize);
+        let n = gw * gh;
+        let mut water_bodies = vec![0u8; n];
+        let mut field = vec![0.6f32; n];
+        for y in 2..4 {
+            for x in 0..gw {
+                water_bodies[y * gw + x] = 1;
+                field[y * gw + x] = 0.1;
+            }
+        }
+        let port = |name: &str, x: usize, y: usize| NamedSettlement {
+            tid: 0,
+            placement: SettlementPlacement { x, y, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: true },
+            name: name.to_string(),
+            pop: 500,
+        };
+        let ports = vec![port("Aldwic", 1, 1), port("Brenmoor", 8, 4)];
+
+        let baseline = civ_sea_routes(&ports, &field, &water_bodies, gw, gh, false, 400.0, None, None);
+        assert_eq!(baseline.len(), 1, "two ports make exactly one lane");
+        assert!(baseline[0].km > 0.0 && baseline[0].pts.len() >= 2);
+
+        let ocean = JpCoarseField { ww: 2, wh: 2, u: vec![0.3; 4], v: vec![0.0; 4], max_speed: 0.5 };
+        let wind = JpCoarseField { ww: 2, wh: 2, u: vec![0.2; 4], v: vec![0.1; 4], max_speed: 0.4 };
+        let costed = civ_sea_routes(&ports, &field, &water_bodies, gw, gh, false, 400.0, Some(&ocean), Some(&wind));
+        assert_eq!(costed.len(), 1, "the same two ports still make one lane with real fields");
+        assert!(costed[0].km > 0.0 && costed[0].pts.len() >= 2, "a real sailed route, not an empty one");
     }
 
     #[test]
@@ -15859,7 +16310,7 @@ mod tests {
         // Brute force: every capital's own effective distance field.
         let mut eff: Vec<(i32, Vec<f64>)> = Vec::new();
         for s in &settlements {
-            let (dist, _) = road_dijkstra(&cost, gw, gh, s.placement.x, s.placement.y, false);
+            let (dist, _) = road_dijkstra(&cost, gw, gh, s.placement.x, s.placement.y, false, None);
             let w = territory_weight(s.pop);
             eff.push((s.placement.faction, dist.iter().map(|&d| d as f64 / w).collect()));
         }
@@ -18868,7 +19319,7 @@ mod tests {
             b: 1,
             path: vec![11 * M5_GW + 11, 11 * M5_GW + 12, 11 * M5_GW + 13],
         }];
-        let road_cells = jp_road_cells(&ways, &edges, M5_GW);
+        let road_cells = jp_road_cells(&ways, &[], &edges, M5_GW);
 
         let place = |name: &str, kind: &str, x: f64, y: f64| JpPlace {
             name: name.to_string(),
@@ -19050,6 +19501,71 @@ mod tests {
             !f.road_cells.contains_key(&(2, 2)),
             "open country carries no road"
         );
+    }
+
+    /// `jp_road_cells`' new `manual_ways` branch: the reference's own
+    /// `'ancient' -> ["Dirt Track","Deteriorated"]` mapping (the tuple no
+    /// generated [`WayType`] produces), a manual `Track` sharing the
+    /// generated network's plain tuple, and a `SeaLane` filtered out
+    /// exactly like the reference's own `w.sea||w.type==='sea-lane'` guard.
+    #[test]
+    fn jp_road_cells_reads_hand_drawn_ways_including_ancient() {
+        let gw = 20usize;
+        let manual = vec![
+            tools::ManualWay {
+                pts: vec![(3.0, 3.0), (3.0, 3.0)],
+                brks: vec![],
+                km: 0.0,
+                sea: false,
+                way_type: tools::ManualWayType::Ancient,
+                name: String::new(),
+                hidden: false,
+            },
+            tools::ManualWay {
+                pts: vec![(9.0, 9.0), (9.0, 9.0)],
+                brks: vec![],
+                km: 0.0,
+                sea: false,
+                way_type: tools::ManualWayType::Track,
+                name: String::new(),
+                hidden: false,
+            },
+            tools::ManualWay {
+                pts: vec![(15.0, 15.0), (15.0, 15.0)],
+                brks: vec![],
+                km: 0.0,
+                sea: true,
+                way_type: tools::ManualWayType::SeaLane,
+                name: String::new(),
+                hidden: false,
+            },
+            // A hidden ancient way must not appear either.
+            tools::ManualWay {
+                pts: vec![(1.0, 1.0), (1.0, 1.0)],
+                brks: vec![],
+                km: 0.0,
+                sea: false,
+                way_type: tools::ManualWayType::Ancient,
+                name: String::new(),
+                hidden: true,
+            },
+        ];
+        let cells = jp_road_cells(&[], &manual, &[], gw);
+        assert_eq!(
+            (cells[&(3, 3)].terrain, cells[&(3, 3)].cond, cells[&(3, 3)].pri),
+            ("Dirt Track", "Deteriorated", 1),
+            "ancient gets the reference's own distinct condition"
+        );
+        assert_eq!(
+            (cells[&(9, 9)].terrain, cells[&(9, 9)].cond, cells[&(9, 9)].pri),
+            ("Dirt Track", "Standard", 1),
+            "manual Track shares the generated network's own tuple"
+        );
+        assert!(
+            !cells.contains_key(&(15, 15)),
+            "a sea lane must not become a land road cell"
+        );
+        assert!(!cells.contains_key(&(1, 1)), "a hidden way is not drawn");
     }
 
     #[test]
@@ -21653,6 +22169,8 @@ mod tests {
             world: false,
             map_width_km: 80.0,
             corridors: None,
+            flow: None,
+            flow_thresh: 0.0,
         };
         let pts = vec![(1.0, 1.0), (6.0, 4.0)];
 

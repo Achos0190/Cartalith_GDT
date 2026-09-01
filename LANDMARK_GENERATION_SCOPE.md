@@ -2,13 +2,21 @@
 
 `LANDMARK_GENERATION_RESEARCH.md` is the owner-supplied framework — imported
 verbatim, unedited, 2026-08-30. This document is the other half: it goes and
-finds out, crate by crate, which of the research's assumed inputs are real in
-this engine today, separates what would be genuinely new work from what is
+finds out, crate by crate, which of the research's assumed inputs were real in
+this engine, separates what would be genuinely new work from what is
 composition of things that already exist, and lays out an order to build in.
-**No code was written for this pass.** Every claim below is checked against
-the workspace as it stands, with `file:line`, the same discipline
-`URBAN_MORPHOLOGY_SCOPE.md` and `MARKDOWN_VAULT_SCOPE.md` were held to before
-any of their milestones started.
+It is an **inventory and a plan**: it defines M1-M9 and poses §4's open
+questions. Every claim in §1 was checked against the workspace with
+`file:line` on **2026-08-30**, the same discipline `URBAN_MORPHOLOGY_SCOPE.md`
+and `MARKDOWN_VAULT_SCOPE.md` were held to before any of their milestones
+started.
+
+> **This document defines the milestones; it does not track them.** Where each
+> of M1-M9 stands — and which of §4's questions the owner has since answered —
+> is recorded only in `cartalith-native/docs/STATUS.md`. Building began the day
+> after this document was written, so read §1's inventory as the *starting*
+> state it was, and re-check anything load-bearing against the code rather than
+> against this page.
 
 The research's own framing is worth restating because it is the test every
 milestone below is held to: the goal is not "where should a landmark be
@@ -34,12 +42,19 @@ the two the task brief predicted would be missing, and the two the research
 itself (§9, §16) leans on hardest for "why is this landmark *significant*"
 rather than merely "why is it *here*."
 
-## 1. Inventory: what the research assumes vs. what is real
+## 1. Inventory: what the research assumes vs. what was real, 2026-08-30
 
 Checked against the code, not against what a scope document or the research's
 own prose claims. Where a name in the research maps to a *different* name in
 this codebase, that mapping is called out — per the task brief, it is the
-single most useful thing this section can carry.
+single most useful thing this section can carry, and it is the half of this
+table that does not age.
+
+**The Exists/Absent verdicts are this pass's own reading on 2026-08-30**, and
+are what the milestone ordering below was derived from. Several were changed by
+the build that followed. The mappings, the naming collisions and the
+"exists under a different name" findings are the durable content; treat a bare
+*Absent* as a starting condition, not a live fact.
 
 | Research input | Verdict | Evidence |
 |---|---|---|
@@ -70,7 +85,7 @@ single most useful thing this section can carry.
 | Geological resistance | **Exists, but naming collides with a different "resistance"** | `compute_resistance` (`cartalith-terrain/src/lib.rs:1041`) is **tectonic/erosion** resistance (crustal type × age) — a different concept from `build_lithology`'s rock classification, despite the shared English word. Research §7's "R = geological resistance or lithological contrast" almost certainly means the lithology classification, not this function; flagged so a future implementer does not reach for the wrong one |
 | Ecology / biome | **Exists** | `classify_biome`/`build_biome_raster`, `cartalith-civ/src/lib.rs:786,838` |
 | Political regions / provinces / factions | **Exists** | `Province` (`cartalith-civ/src/lib.rs:6337`: id, faction, name, capital_settlement_index), `civ_generate_provinces`; `FactionEntry`/`FactionRoster` (`cartalith-godot/src/civ_roster_bridge.rs:57,113`); `assign_territory` (`cartalith-civ/src/lib.rs:6116`, the cost-distance weighted Voronoi of `DECISIONS.md` §7b) |
-| Historical state / timeline | **Exists, for the settlement half only** | `TimelineSnapshot`/`YearDiff` (`cartalith-civ/src/lib.rs:1499,1512`), `timeline_bridge.rs`'s collapse/recovery simulation (`run_collapse_simulation`) — directly usable for research §20's "Settlement → Expansion → Conflict/decline → Abandonment → Ruination" chain, **except the "Conflict" link**: there is no conflict/battle entity yet (`STORY_PLANNING_SCOPE.md` SP-4, not started) |
+| Historical state / timeline | **Exists, for the settlement half only** | `TimelineSnapshot`/`YearDiff` (`cartalith-civ/src/lib.rs:1499,1512`), `timeline_bridge.rs`'s collapse/recovery simulation (`run_collapse_simulation`) — directly usable for research §20's "Settlement → Expansion → Conflict/decline → Abandonment → Ruination" chain, **except the "Conflict" link**, which needs the conflict/battle entity `STORY_PLANNING_SCOPE.md` SP-4 defines |
 | Poisson-disc sampling | **Building blocks exist; the algorithm does not** | Two related but distinct mechanisms, neither of them Bridson (2007): (1) `icon_brush_stamp` (`cartalith-assets/src/manual.rs`, ~lines 196-260) is genuine dart-throwing with a blue-noise rejection radius, but scoped to one manual brush stamp — local, user-tool-driven, capped at 1 500 darts — not a global field; (2) `find_settlement_seeds` (`cartalith-civ/src/lib.rs:3685`) is greedy non-maximum suppression with an exclusion radius over ranked local-maxima candidates, which is the same *spirit* as research §15-16's "spatial competition / exclusion radius" but is rank-then-suppress, not dart-thrown, and is specific to settlement placement. No generic, reusable multi-class Poisson-disc sampler exists. `cartalith_spatial::QuadTree<T>` (`cartalith-spatial/src/lib.rs:368`) exists and would accelerate a real implementation's exclusion-radius queries |
 | **Viewshed / visibility** | **Confirmed absent** | Zero hits for `viewshed`, `line_of_sight`, `los(` in any of the sixteen crates. `cartalith-godot/src/render.rs`'s own module doc explicitly lists "SVF/cast-shadow fields" among features it **deliberately excludes**, "depend[ing] on subsystems this port hasn't built yet." The nearest architectural relative is `build_ao`'s dual-radius blur-cavity math (see the TPI row above) — a statistical local-concavity estimate, not a geometric line-of-sight test, and it cannot answer "is B visible from A" without new code |
 
@@ -131,7 +146,12 @@ Dependency-ordered. The research's own Phase 1-6 (`LANDMARK_GENERATION_
 RESEARCH.md`, "Implementation Priority") is the outer frame; each is split
 here into a piece this repository can land and verify on its own, the same
 granularity `URBAN_MORPHOLOGY_SCOPE.md` used to turn one "ports cleanly"
-sentence into seventeen real milestones. **Nothing below is started.**
+sentence into seventeen real milestones.
+
+Each milestone below carries its dependencies and its **done when** — the bar
+it has to clear. Neither is a status: the dependency graph does not change as
+work proceeds, and the bar is what the work is measured against.
+`cartalith-native/docs/STATUS.md` says which of them have cleared it.
 
 ### M1 — Extract the analytical field library (Category A)
 
@@ -280,9 +300,9 @@ One physical feature, several civilisations' readings of it (research §26);
 state transitions (discovered → named → …→ ruined, research §25). This is
 research's own Phase 6, and it is the one milestone genuinely blocked on
 things outside this document's own dependency chain: the conflict/battle
-entity (`STORY_PLANNING_SCOPE.md` SP-4, not started — needed for the
-"Conflict/decline" link in a ruin's causal chain) and the Markdown Vault
-entity-kind decision (open question 2).
+entity (`STORY_PLANNING_SCOPE.md` SP-4 — needed for the "Conflict/decline"
+link in a ruin's causal chain) and the Markdown Vault entity-kind decision
+(open question 2).
 
 **Blocked on**: M8, `STORY_PLANNING_SCOPE.md` SP-4, and open questions 1-2.
 

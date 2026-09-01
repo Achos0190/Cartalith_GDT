@@ -22,6 +22,20 @@ extends Control
 ## not UI chrome -- the same reasoning the terrain renderer's own biome
 ## colours already follow (theme-independent, see CHANGELOG's UI-reskin
 ## entries).
+##
+## **This is the fallback now, not the authority** (2026-09-01). It matched
+## `lib.rs`'s `FACTION_RGB` byte for byte, and the engine stopped indexing
+## that table directly: `CivData::faction_rgb` consults the roster's own
+## `color_override` first (`GUI_GAP_REGISTER.md` CV-21) and falls through to
+## `faction_rgb_default`, whose rule past the sixth faction is
+## `civ_faction_color`'s golden-angle rotation -- explicitly *not* a
+## `% FACTION_RGB.len()` wrap, "which would have given faction 7 faction 1's
+## exact colour". Indexing this table with `% 6` was doing exactly that, and
+## ignoring every user colour edit besides, so a settlement pin disagreed
+## with the territory wash under it, with the Political-control field and
+## with the roster swatch -- three surfaces that all go through
+## `faction_rgb`. `set_faction_colors()` pushes those same swatches in;
+## these six are what is drawn before a world exists to push any.
 const FACTION_COLORS: Array[Color] = [
 	Color(0.902, 0.624, 0.0),   # orange
 	Color(0.337, 0.706, 0.914), # sky blue
@@ -357,6 +371,34 @@ const ICON_FAMILY_COLORS := {
 	"poi": Color(0.941, 0.894, 0.259),
 	"custom": Color(0.337, 0.706, 0.914),
 }
+## **This is not the engine's icon radius, and the two do not convert**
+## (recorded 2026-09-01).
+##
+## Here the drawn mark is `ICON_BASE_RADIUS * max(0.2, scale)` in this
+## control's own LOCAL pixels -- no `rect`/grid term and no `_civ_zoom_k()`
+## term -- so the camera, which is an ancestor scale (see `_crisp_begin()`),
+## multiplies it: an icon's mark grows with zoom rather than holding a
+## constant on-screen size the way a settlement pin does. `_draw_landmarks`
+## is written the same way, so this is a shared property of the two newer
+## annotation layers and not a slip unique to this constant.
+##
+## The engine's `manual.rs::icon_box_at` computes
+## `r = 5.0 * max(1, grid_w/512) * civ_zoom_k(zoom) * icon_scale * icon.scale`
+## in GRID CELLS, and `cartography_workspace.gd` uses it that way: both the
+## resize-handle hit test (`Vector2(gx, gy).distance_to(...) <= h["r"]`) and
+## the drawn handle come from `icon_handles`. The two expressions share no
+## term. One is grid-relative and zoom-stabilised under a clamp; the other is
+## a bare local-pixel constant. They can only coincide at one accidental
+## combination of grid width, viewport width and zoom, and the ratio between
+## them swings as the camera moves -- which is why the resize handle does not
+## sit on the mark it resizes.
+##
+## **Deliberately not "fixed" by editing this number.** Making the mark match
+## the engine means adopting `civ_zoom_k`'s clamp, which `_civ_zoom_k()` above
+## rejects on a live measurement; making the engine match the mark means the
+## unclamped handle variant that same comment describes. Both are the one
+## engine-side decision, and changing the drawn size here without it would add
+## a third rule rather than remove the second.
 const ICON_BASE_RADIUS := 5.5
 const ICON_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
 
@@ -404,6 +446,50 @@ const LABEL_STROKE_COLOR := Color(0.031, 0.024, 0.016, 0.8)
 const LABEL_ZOOM_BASE_PX_PER_CELL := 2.0 ## tuning constant, see `_label_font_px`
 const LABEL_FONT_PX_MIN := 8.0
 const LABEL_FONT_PX_MAX := 96.0
+
+## `drawArcLabel`'s three layout numbers. **`cartalith-civ/src/labels.rs` is
+## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:150`) and
+## the two inside `arc_label_layout` (`:176`, the radius floor and the
+## spread-over-1/2.2-of-a-circle term). They are duplicated here as named
+## constants, not left as literals in `_draw_labels`, so that a change on the
+## Rust side has one place to land on this one and `grep` finds the pair.
+##
+## Why they are duplicated at all rather than the layout being asked of
+## `WorldGen.label_glyph_layout` (bound, wrapped by
+## `EngineBridge.label_glyph_layout`, `engine_bridge.gd:2469 func
+## label_glyph_layout`, and preferable in principle -- its doc warns that summing per-`char`
+## advances instead of measuring the whole string drifts on a kerned font,
+## which is exactly what the loop below does): this control is data-*pushed*.
+## It holds no `EngineBridge` -- `ViewportHost.refresh_annotations()` hands it
+## `label_list()` and nothing else -- so the call is not reachable from here
+## without giving the overlay a bridge handle, which is `viewport_host.gd`'s
+## decision and not this file's.
+##
+## The second reason is the one that would survive that: the binding sizes the
+## label itself, from `labels.rs::label_font_size` (`grid_w / 512`, `civ_zoom_k`,
+## floor 9), while this file sizes it from `_label_font_px` below (px-per-cell
+## against `LABEL_ZOOM_BASE_PX_PER_CELL`, clamped to the two constants above,
+## truncated to an int). Those are different numbers, and `size_px` is an input
+## to the radius floor -- so swapping the loop for the binding would silently
+## re-shape every arched label, not merely relocate the arithmetic. Reconciling
+## the two font-size models is the real work, and it is not this row's.
+##
+## **What that unreconciled pair actually costs, added 2026-09-01.** The
+## engine's number is not merely unused here -- it is what the user grabs.
+## `label_box_at` derives its box from `label_font_size` (`side = max(meas_w,
+## fsz * 1.3) * 1.25`), `label_handles` places the resize/rotate/arc handles
+## on that box, and `cartography_workspace.gd` hit-tests and draws all three
+## from it (`_handle_hit`, `_update_label_handles_overlay`). So the engine
+## sizes the hit box and the handles against a label whose on-screen size this
+## file computed differently -- the same shape of defect `ICON_BASE_RADIUS`
+## and `_civ_zoom_k()` each carry a note about, and the same one fix: pick one
+## model. Cheapest correct direction is to feed this file's own px-per-cell
+## into `LabelViewEnv` so `label_font_size` reproduces `_label_font_px`, then
+## read `fsz` off the binding and delete the local copy. That spans two crates
+## and another pass's workspace file; recorded here rather than half-done.
+const ARC_STRAIGHT_THRESHOLD := 0.01   ## `labels.rs:150`, the named constant there.
+const ARC_RADIUS_FLOOR_K := 1.2        ## `labels.rs:176`, `size_px * 1.2`.
+const ARC_SPREAD_DIVISOR := 2.2        ## `labels.rs:176`, `total_w / (2.2 * |a|)`.
 
 ## Emitted whenever the hovered settlement changes -- `null` on hover-exit.
 ## Lets `main.gd`'s Sample dock show the same data this overlay's own
@@ -621,6 +707,27 @@ func set_camera_zoom(z: float) -> void:
 ## pin is. The `0.35` floor is the zoom-*out* half and is untouched — that one
 ## does the reference's "never dominate at extreme zoom-out" job, and this port
 ## reaches no zoom-out the reference does not.
+##
+## **The decision was taken here and only here** (recorded 2026-09-01). There
+## are two more ports of `_civZoomK` in the workspace and both still clamp:
+## `cartalith-civ/src/labels.rs`'s `civ_zoom_k` and
+## `cartalith-assets/src/manual.rs`'s, each `1.0 / zoom_scale.clamp(0.35, 5.0)`.
+## They are not dead: `label_box`/`label_handles` and `icon_box`/`icon_handles`
+## are built on them, and `cartography_workspace.gd` hit-tests and draws the
+## Label and Icon tools' on-canvas handles from exactly those values. So past
+## `zoom = 5` this control and the engine size the same annotation by two
+## different rules -- the handle a user grabs is placed by the clamped one and
+## the mark they see is drawn by this one -- and the gap widens with every
+## further zoom step.
+##
+## Restoring the clamp here is not the answer: it was removed against a live
+## measurement (`_umreveal_shot.gd` at z=60), and this port's deep zoom really
+## does run to `lodMaxZoom()` where the reference's never left 1. The fix is on
+## the engine side -- an unclamped variant used for handle geometry while
+## `civ_zoom_k` keeps the reference clamp for anything parity-pinned -- plus a
+## test asserting the three implementations agree over the reachable range.
+## That spans two crates and is not this pass's to make; it is written down
+## here so the next reader of this function does not re-derive it.
 func _civ_zoom_k() -> float:
 	return 1.0 / maxf(_camera_zoom, 0.35)
 
@@ -746,9 +853,6 @@ func set_landmarks_visible(on: bool) -> void:
 	_landmarks_visible = on
 	queue_redraw()
 
-func landmarks_visible() -> bool:
-	return _landmarks_visible
-
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
 	queue_redraw()
@@ -818,6 +922,40 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 	clear_urban_layouts()
 	queue_redraw()
 
+
+## The engine's own faction swatches, index `faction - 1`, as pushed by
+## `ViewportHost.refresh_faction_colors()` off `get_factions()`'s
+## `color_r`/`color_g`/`color_b`. Empty until a world exists.
+##
+## Pushed rather than fetched, like every other array this control draws:
+## `map_overlay.gd` is handed finished data and never calls the bridge
+## itself (see `set_civ_data`'s own doc comment), so the one file that does
+## hold a bridge handle hands these over with the rest.
+var _faction_colors: Array[Color] = []
+
+## Deliberately NOT cleared by `set_civ_data()`. A filtered settlement list
+## (the Timeline's "Exist only" box) is pushed through that call several
+## times a session with no faction change behind it, and wiping the swatches
+## there would drop every pin back to the fallback palette until the next
+## full refresh -- a flicker with no cause the user could see.
+func set_faction_colors(colors: Array) -> void:
+	var out: Array[Color] = []
+	for c in colors:
+		out.append(c as Color)
+	_faction_colors = out
+	queue_redraw()
+
+## One faction's swatch. `0` is Unclaimed and has no faction colour at all;
+## a `faction` past the pushed table falls back to the frozen six, which is
+## the only case where the old `% size()` wrap survives -- and it is reached
+## only before a world exists, since `get_factions()` enumerates every
+## faction the roster has.
+func _faction_color(faction: int) -> Color:
+	if faction <= 0:
+		return Color(0.5, 0.5, 0.5)
+	if faction <= _faction_colors.size():
+		return _faction_colors[faction - 1]
+	return FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()]
 
 func set_show_settlements(shown: bool) -> void:
 	_show_settlements = shown
@@ -1281,7 +1419,7 @@ func _draw() -> void:
 			if not interior.has_point(pos):
 				continue
 			var faction: int = s["faction"]
-			var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
+			var color: Color = _faction_color(faction)
 			var kind: String = s["kind"]
 
 			# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
@@ -1497,7 +1635,7 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 		var th: float = deg_to_rad(float(lb["angle"]))
 		var a: float = clampf(float(lb["arc"]), -1.0, 1.0)
 
-		if absf(a) < 0.01:
+		if absf(a) < ARC_STRAIGHT_THRESHOLD:
 			var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
 			var local_pos := Vector2(-full_w / 2.0, v_center)
 			draw_set_transform(pos, th, Vector2.ONE)
@@ -1506,7 +1644,8 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			continue
 
 		var total_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
-		var radius: float = maxf(font_px * 1.2, total_w / (2.2 * absf(a)))
+		var radius: float = maxf(font_px * ARC_RADIUS_FLOOR_K,
+			total_w / (ARC_SPREAD_DIVISOR * absf(a)))
 		var dir_sign: float = 1.0 if a > 0.0 else -1.0
 		var acc := -total_w / 2.0
 		for ch in text:
@@ -1807,6 +1946,26 @@ func _format_pop(pop: int) -> String:
 ## Nearest settlement whose marker is within its own hit radius of `mouse`,
 ## or `-1`. Shared by hover (`_gui_input`'s motion branch) and click-to-pin
 ## (its button branch) so both use exactly one hit-test definition.
+## **A deliberate divergence from the engine's own pick, stated rather than
+## left to be discovered** (2026-09-01). `lib.rs` binds
+## `civ_pick_place_at(gx, gy)` -- `cartalith_civ::tools`' weighted-nearest
+## rule, where a bigger settlement outcompetes a closer small one, at
+## `civ_place_pick_radius`'s base radius -- and it is wrapped in
+## `engine_bridge.gd` and called by no shell file. This screen-space rule is
+## what the shell picks with instead, and it is the right one for a pointer:
+## it tests against the marker actually on screen, at that marker's own tier
+## radius plus `HOVER_RADIUS_PAD`, and it refuses the two cases where nothing
+## is drawn -- an off-plate settlement and a hidden addon village. A grid-space
+## pick would happily return a settlement the user cannot see, which is worse
+## than losing a tie-break.
+##
+## What IS lost is that tie-break: two overlapping pins here resolve to the
+## nearer one whatever their size, where the reference resolves to the more
+## important one. Porting it means weighting `closest_dist` by settlement
+## rank, which is a third rule unless it is the engine's own weighting exactly
+## -- and that weighting is not exposed, only its answer is. Left as it stands,
+## and named here and at `civ_pick_place_at` so neither side reads as an
+## oversight.
 func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 	var closest := -1
 	var closest_dist := INF

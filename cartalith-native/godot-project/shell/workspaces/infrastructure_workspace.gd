@@ -27,7 +27,14 @@ class_name InfrastructureWorkspace
 ## Ports here means coastal settlements, derived from `get_settlements()`'s
 ## real `coastal` field, not a separate concept the engine models. Logistics
 ## (the journey planner) is engine-complete per `JOURNEY_PLANNER_SCOPE.md`
-## but, like culture, exports nothing past that crate boundary.
+## **and crosses the boundary**: `jp_options`, `jp_default_plan`, `jp_compute`,
+## `jp_plan_for_route`, `jp_pack_range`, `jp_vessel_matrix` and the
+## `route_count`/`route_get` pair, all wrapped in `engine_bridge.gd` and all
+## driven from `journey_planner_view.gd`. This sentence read "exports nothing
+## past that crate boundary, like culture" until 2026-09-01, and was wrong
+## twice over -- the Logistics section below had already recorded the
+## correction for itself in 2026-08-19, and culture exports too
+## (`get_cultures()`, CV-02).
 ##
 ## Drawing a new way or route (`infra_tools_bridge.rs`'s `InfraTools`,
 ## `STRANDED_TOOLS.md` row 11) has an engine, a surface, and -- since
@@ -75,6 +82,16 @@ class_name InfrastructureWorkspace
 ## route pins it into the right dock (`right_dock.gd`'s Route context), and
 ## that now works for a hand-drawn way too, since it is the same dictionary
 ## shape.
+##
+## **`04-left-dock.md` §6c and §6d closed 2026-09-01.** §6c's `ROUTES` block
+## is real: a compact, click-to-plan row per committed route under the Ways
+## & routes category's own Network list (`_build_routes_teaser`), plus its
+## section footnote quoted verbatim. §6d's full TRAVELER/SEASON/CARRIAGE/
+## ROUTE/STOPS accordion is deliberately NOT embedded in the Travel category
+## -- `_fill_logistics()`'s own doc comment carries the reasoning, which
+## `_refresh_manual_routes()`'s doc comment (below) already laid the
+## groundwork for. Both reuse the one real open path, `app.open_journey_
+## planner()` -- never a second one.
 
 const WAY_TYPE_ORDER := ["highway", "regional", "road", "track"]
 
@@ -122,6 +139,13 @@ var _manual_list: Control = null
 ## above (`GUI_GAP_REGISTER.md` IN-09). `null` until `_build()` has run.
 var _manual_routes_list: Control = null
 
+## `04-left-dock.md` §6c's own `ROUTES` block's row host -- a compact,
+## click-to-plan list over the same committed routes `_manual_routes_list`
+## above edits; see `_build_routes_teaser()`'s own doc for why it is a
+## second, simpler view rather than a rename of that one. `null` until
+## `_build_routes_teaser()` has run.
+var _routes_teaser_section: Control = null
+
 ## The reference's `_civSelectedJourneyIdx`; `-1` for none. Lives here rather
 ## than in `map_overlay.gd` because the list is what changes it -- the overlay
 ## only draws it (`set_selected_manual_route`).
@@ -129,9 +153,9 @@ var _selected_route := -1
 
 ## The four data-backed categories' own body nodes, held so `rebuild_readouts()`
 ## can clear and refill exactly those and nothing else -- the same discipline
-## `civilization_workspace.gd` uses for its own four. Rivers has no field
-## because it has no data: `_build_rivers()` writes one fixed note about the
-## missing `get_rivers()` binding, which a world does not change.
+## `civilization_workspace.gd` uses for its own. Rivers has no field because it
+## is no longer a category of this class at all: it moved to WORLD ▸ Hydrology
+## with v3, and `rivers_note()` below is the one owner of its disclosure.
 var _roads_body: Control
 var _ports_body: Control
 var _trade_body: Control
@@ -167,9 +191,21 @@ var _dock_hosted := false
 
 func _build() -> void:
 	_build_tools()
+	## **This branch is unreachable today, and is kept deliberately.**
+	## `civilization_workspace.gd` is the only thing that constructs this class
+	## and it sets `_dock_hosted = true` before calling `setup()`, so the four
+	## builders below never run; the live path is the `build_*_into()` entry
+	## points further down, which CIVIL calls with its own category bodies.
+	## Retained because that is the whole cost of keeping this class able to
+	## stand on its own again -- what `_dock_hosted` exists for.
+	##
+	## `_build_rivers()` was a fifth line here until 2026-09-01, and it was the
+	## one that could not be kept: Rivers left this dock for WORLD ▸ Hydrology
+	## in the v3 re-parenting, and the category it drew held a second, drifting
+	## copy of `rivers_note()`'s text -- the same disclosure with one owner and
+	## two spellings, in a function nothing called.
 	if not _dock_hosted:
 		_build_roads()
-		_build_rivers()
 		_build_ports()
 		_build_trade()
 		_build_logistics()
@@ -744,12 +780,25 @@ func _match_trade_flows() -> void:
 ## never started. Found by grepping for callers rather than by a user hitting
 ## the empty category. One owner of the text, two possible hosts, which is the
 ## same discipline `build_*_into()` above uses for the controls.
+##
+## **Corrected 2026-09-01.** It used to say the only river-derived output
+## crossing the boundary was baked into `build_color_texture()`'s raster, and
+## that is not true: Strahler order crosses as data in three places -- the
+## `strahler` analysis raster (`sample_bridge`'s own layer table), the
+## `river_order` reading on `explain_settlement()`, and `measure_section()`'s
+## crossings, which label a river "River · order 3" precisely because there is
+## no name to give it. Discharge and drainage cross per cell too
+## (Sample ▸ Drainage). What does not cross is a river as an ENTITY: nothing
+## aggregates a channel run into one thing with its own readings, which is
+## `measure_bridge.rs`'s own wording for the same gap.
 static func rivers_note() -> String:
-	return ("No hydrological river entity is exposed to Godot -- cartalith-hydrology "
-		+ "computes river networks internally, but the only output that crosses the "
-		+ "GDExtension boundary is baked into build_color_texture()'s rendered raster. "
-		+ "There is no get_rivers() and no way to select one, so v3's per-reach rows "
-		+ "(navigability, discharge, catchment, tributaries) have no entity to hang "
+	return ("No river ENTITY is exposed to Godot. cartalith-hydrology computes river "
+		+ "networks internally, and per-cell readings do cross -- Strahler order as an "
+		+ "analysis field and on a settlement's own explanation, discharge and drainage "
+		+ "in Sample, and a labelled crossing on every measured section. What does not "
+		+ "cross is a channel run aggregated into one river with a name, a length and a "
+		+ "mouth: there is no get_rivers() and no way to select one, so v3's per-reach "
+		+ "rows (navigability, discharge, catchment, tributaries) have no entity to hang "
 		+ "on. Same finding the right dock's River context reports, field by field.")
 
 func _fill_roads(parent: Control) -> void:
@@ -786,8 +835,103 @@ func _fill_roads(parent: Control) -> void:
 		for i in range(mini(6, ranked.size())):
 			_route_row(longest, ranked[i], "road")
 
+	_build_routes_teaser(parent)
 	_build_manual_ways(parent)
 	_build_road_gaps(parent)
+
+
+## `04-left-dock.md` §6c's own `ROUTES` block: one compact, click-to-plan row
+## per committed route, directly under the Network group above -- the spec's
+## own `WAYS · {count}` list. Deliberately not the same widget as `Routes
+## committed this session` below (`_manual_routes_list`, select/rename/
+## delete) -- that one is this port's own richer addition for editing a
+## route; this one is the spec's own simpler shape, whose one action is
+## opening the Journey Planner. Both read the same `bridge.route_count()`/
+## `route_get()`, the same "filtered view, not a second store" reasoning
+## `_build_manual_ways()`'s own doc comment already gives for Hand-drawn vs
+## Network below.
+##
+## `<n> stages` from the spec's own mockup row is not drawn here: a stage is
+## `jp_compute`'s own output and needs a party form, which is exactly the
+## second computation surface `_refresh_manual_routes()`'s doc comment
+## (below) already reasoned against for this same list. `route_get()` itself
+## carries no stage count either way -- `lib.rs`'s own doc for the call
+## lists only `points`/`brks`/`km`/`mode`/`unreachable_legs`/`name`. `km` is
+## shown instead: real, exact, and already this file's own convention for a
+## route/way row (`_route_row`, bottom of this file).
+func _build_routes_teaser(parent: Control) -> void:
+	_routes_teaser_section = DccWidgets.section(parent, "Routes")
+	_refresh_routes_teaser()
+
+## Clear-and-refill, the same shape and the same reason as
+## `_refresh_manual_routes()` just below -- and called FROM it, so every
+## trigger that already refreshes the editable routes list (a commit, a
+## delete, `rebuild_readouts()`) keeps this teaser list in step with it too,
+## rather than needing its own copy of the same three call sites.
+func _refresh_routes_teaser() -> void:
+	if _routes_teaser_section == null or not is_instance_valid(_routes_teaser_section):
+		return
+	for c in _routes_teaser_section.get_children():
+		c.queue_free()
+	var n := bridge.route_count()
+	if n <= 0:
+		DccWidgets.note(_routes_teaser_section,
+			"None yet -- arm Route in the TOOLS block above, click two or more " +
+			"stops, then ✓ Commit.")
+	else:
+		var settlements := bridge.settlements()
+		for i in n:
+			var r := bridge.route_get(i)
+			if not r.is_empty():
+				_routes_teaser_row(_routes_teaser_section, i, r, settlements)
+	## §6c's own section footnote, quoted verbatim.
+	DccWidgets.note(_routes_teaser_section,
+		"a way is durable geometry others route over · a route is a journey along existing geometry — two tools, two records")
+
+## One row: glyph, name, the nearest settlement at each end, length -- click
+## opens the Journey Planner. Reuses `app.open_journey_planner()`, the SAME
+## call `_fill_logistics()` below and `Data ▸ Journey planner… ⇧J`
+## (`menus.gd`) already make -- not a second way to open the same window.
+func _routes_teaser_row(parent: Control, i: int, r: Dictionary, settlements: Array) -> void:
+	var name := String(r.get("name", ""))
+	if name.is_empty():
+		name = "Journey %d" % (i + 1)
+	var label_text := "➔ %s" % name
+	var pts: PackedVector2Array = r.get("points", PackedVector2Array())
+	if pts.size() > 0:
+		var origin := _nearest_settlement_name(pts[0], settlements)
+		var dest := _nearest_settlement_name(pts[pts.size() - 1], settlements)
+		if origin != "" and dest != "":
+			label_text += " · %s → %s" % [origin, dest]
+	label_text += " -- %d km" % int(round(float(r.get("km", 0.0))))
+	var b := DccWidgets.action(parent, label_text, func(): app.open_journey_planner())
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = ("Opens the Journey Planner. It opens to its own Journeys list -- " +
+		"usually route #1 or the most recently saved journey, not necessarily this " +
+		"one; the dock has no per-route preselect hook into journey_planner_view.gd.")
+
+## The nearest settlement to a route endpoint, by straight Euclidean
+## distance -- valid because `bridge.settlements()`'s `x`/`y` (grid-cell
+## index, `get_settlements()`'s own doc comment) and `route_get()`'s
+## `points` (continuous coordinates) share one coordinate frame:
+## `map_overlay.gd`'s own `_cell_to_screen`/`_point_to_screen` both divide by
+## the identical `_gw`/`_gh`, the one confirming the other. `route_get()`
+## carries no origin/destination of its own, so this is a presentation-only
+## label, not a stored fact -- always the CLOSEST settlement, however far,
+## not a snap-radius match to "the settlement this route was drawn from"
+## (`civ_snap_radius` is Rust-internal, not exposed to GDScript).
+func _nearest_settlement_name(pt: Vector2, settlements: Array) -> String:
+	var best_name := ""
+	var best_d2 := INF
+	for s in settlements:
+		var d: Dictionary = s
+		var dx := float(d.get("x", 0)) - pt.x
+		var dy := float(d.get("y", 0)) - pt.y
+		var d2 := dx * dx + dy * dy
+		if d2 < best_d2:
+			best_d2 = d2
+			best_name = String(d.get("name", ""))
+	return best_name
 
 
 ## Every way the Way tool has committed this session (`GUI_GAP_REGISTER.md`
@@ -864,6 +1008,15 @@ func _refresh_manual_ways() -> void:
 func _refresh_manual_routes() -> void:
 	if _manual_routes_list == null:
 		return
+	## `04-left-dock.md` §6c's own ROUTES teaser reads the same two calls this
+	## function makes below -- refreshed first and unconditionally, so the
+	## early return three lines down (zero committed routes) cannot skip it
+	## the way a call placed after the loop would. Kept in step here rather
+	## than at each of this function's own three call sites (`rebuild_
+	## readouts()`, `_commit_route()`, `_delete_route()`), so a fourth
+	## trigger never has to remember to add a second refresh call beside
+	## this one.
+	_refresh_routes_teaser()
 	for c in _manual_routes_list.get_children():
 		c.queue_free()
 	var n := bridge.route_count()
@@ -968,18 +1121,6 @@ func _build_road_gaps(parent: Control) -> void:
 	clear.disabled = true
 	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func], and InfraTools::ways (where committed manual ways live -- readable since GUI_GAP_REGISTER.md IN-02, but read-only) has no clear either, so there is nothing here that could honestly claim to clear both. Journeys alone CAN now be cleared, one at a time, by the × on each row of Routes committed this session (route_delete, IN-09)."
 
-# -- Rivers ---------------------------------------------------------------
-
-func _build_rivers() -> void:
-	var cat := DccWidgets.category(self, "Rivers", categories)
-	var sec := DccWidgets.section(cat, "Hydrology")
-	DccWidgets.note(sec,
-		"No hydrological river entity is exposed to Godot -- cartalith-hydrology " +
-		"computes river networks internally, but the only output that crosses the " +
-		"GDExtension boundary is baked into build_color_texture()'s rendered raster. " +
-		"There is no get_rivers() and no way to select one; see right_dock.gd's River " +
-		"context for the same finding, field by field.")
-
 # -- Ports ------------------------------------------------------------------
 
 func _build_ports() -> void:
@@ -1062,6 +1203,35 @@ func _build_logistics() -> void:
 	_logistics_body = DccWidgets.category(self, "Logistics", categories)
 	_fill_logistics(_logistics_body)
 
+## **`04-left-dock.md` §6d decision (2026-09-01).** v3's `Travel` category
+## (the header text `_railfold_probe.gd`'s `EXPECTED["civilization"]` locks
+## in -- the rail's own expandable node list uses the spec's own "Journey
+## planner" label instead, `dcc_shell.gd`'s `RAIL_NODES`, a different file's
+## naming for the same subject) is where §6d's own `JOURNEY PLANNER`
+## category lands in this port.
+##
+## §6d's own body is a full accordion -- TRAVELER / SEASON / CARRIAGE /
+## ROUTE / STOPS, five parameter groups plus a stage list, the pipeline's
+## own disclosure pattern reused. **Not embedded here.** `_refresh_manual_
+## routes()`'s doc comment (above, in the Ways & routes category) already
+## reasoned through this for a single route's one-line summary; the same
+## reasoning applies with more force to the full form. That form is
+## `journey_planner_view.gd`'s own `_plan_values` / `_stage_overrides` /
+## `_route_index` -- private fields that file exposes no accessor for, and
+## every other entry point into it already lives with that: `right_dock.gd`'s
+## Settlement "Logistics" and Measure "Plan a journey", `menus.gd`'s `Data ▸
+## Journey planner… ⇧J`, and this file's own new `ROUTES` row above are all
+## bare buttons, none of them a live preview. Building a second TRAVELER/
+## SEASON/CARRIAGE/ROUTE/STOPS surface here would either bind to nothing (a
+## form that edits no state) or reach into those private fields from outside
+## the file that owns them -- two files mutating one form through no shared
+## contract, which is a worse outcome than the window this already is.
+##
+## So this stays the standing choice: a thin, honest summary of what
+## `bridge` alone can say (route count; the five group names, so a reader
+## knows what is behind the door without this dock claiming to show live
+## values it cannot), plus the one real, already-shared way in --
+## `app.open_journey_planner()`.
 func _fill_logistics(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Journey planning")
 	var count := bridge.route_count()
@@ -1072,8 +1242,17 @@ func _fill_logistics(parent: Control) -> void:
 	else:
 		DccWidgets.note(sec, "%d committed route%s available to plan a journey along." %
 			[count, "" if count == 1 else "s"])
+	DccWidgets.note(sec,
+		"The planner itself is TRAVELER, SEASON, CARRIAGE, ROUTE and STOPS -- group " +
+		"size, pace and supplies; season, weather and rest days; carriage and mounts; " +
+		"road quality and closures; and a per-stage override list. All five live in " +
+		"the planner's own window, not copied here.")
 	var g := DccWidgets.group(sec, "Journey Planner")
-	DccWidgets.action(g, "Open Journey Planner", func(): app.open_journey_planner(), true)
+	var b := DccWidgets.action(g, "Open Journey Planner", func(): app.open_journey_planner(), true)
+	b.tooltip_text = ("Arms the Journey tool and swaps to its own in-shell takeover " +
+		"(journey_planner_view.gd) -- the same call Data ▸ Journey planner… ⇧J makes. " +
+		"Opens to its own Journeys list: usually route #1 or the most recently saved " +
+		"journey, not necessarily whichever route you were just looking at here.")
 
 # -- Shared ---------------------------------------------------------------
 

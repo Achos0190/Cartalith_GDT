@@ -22,9 +22,25 @@ func _init() -> void:
 	var bridge: EngineBridge = EngineBridge.new()
 	get_root().add_child(bridge)
 
+	## Not a SKIP. `vault_set_write_pref` is bound today
+	## (`crates/cartalith-godot/src/vault_bridge.rs`), so the only way to reach
+	## this branch is a `.dll` older than the shell -- the exact condition this
+	## project has twice had invalidate a whole verification pass. Exiting 0
+	## here would report a green run over zero assertions.
+	##
+	## The exit code is "could not run", not "ran and failed": `1` is reserved
+	## for a real finding. The suite is not consistent about which non-1 code
+	## that is -- `_cull_probe.gd`, `_winsweep_probe.gd` and `_dashbatch_probe.gd`
+	## abort with `2`, while `_conform_probe.gd`, `_cv23_probe.gd`,
+	## `_deadwire_probe.gd` and six others use `3` for their watchdog (counted
+	## 2026-09-01). `2` here, since `3` is the more common watchdog code and
+	## this is not a timeout. Any non-zero is enough for the caller; what
+	## matters is that it is not `0`.
 	if not bridge.world_gen.has_method("vault_set_write_pref"):
-		print("  SKIP: this extension has no vault preference surface")
-		quit(0)
+		print("  ABORT: vault_set_write_pref absent -- the loaded extension "
+			+ "predates the vault preference surface; rebuild before believing "
+			+ "any probe in this suite")
+		quit(2)
 		return
 
 	# A clean slate: the sidecar may be left over from a real session.

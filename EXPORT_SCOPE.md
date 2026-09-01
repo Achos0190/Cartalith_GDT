@@ -5,10 +5,16 @@
 > document is scheduled work. It exists so that the day it is un-shelved, the
 > expensive parts do not have to be established a second time.
 >
-> **The shipped 2K/4K/8K export is untouched.** Everything described below as
-> "prototyped" was written, run, and then reverted; the working tree is exactly
-> as it was found. Test suite before and after: **139 binaries, 2 254 passed,
-> 0 failed, 8 ignored.**
+> **The shipped 2K/4K/8K export was left untouched.** Everything described below
+> as "prototyped" was written, run, and then reverted; the pass left the working
+> tree exactly as it found it. Test suite before and after: **139 binaries,
+> 2 254 passed, 0 failed, 8 ignored.**
+>
+> **This document defines what a 16K/32K export would be — the findings, the
+> constraints, the codec survey and the five milestones §7 sets out. It does not
+> track them.** The shelving is an owner decision and stays; anything about where
+> work stands belongs to **`cartalith-native/docs/STATUS.md`**, which is the only
+> place progress is recorded.
 
 ## What was asked for
 

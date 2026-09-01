@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY verification harness for the two ways this shell can be asked to
+## Committed verification harness for the two ways this shell can be asked to
 ## end: the Android back-gesture chain (BK-01, `DccShell._notification` /
 ## `DccApp._back_exhausted`) and the desktop window's system close (BK-02,
 ## `DccApp._close_requested`). Drives the REAL shell with a REAL generated world
@@ -18,6 +18,11 @@ extends Node
 ## The one thing this CANNOT prove is that Android delivers the notification at
 ## all -- only a device can. It proves everything downstream of delivery, which
 ## is where the data-loss bug lived.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var app: Node
 var _fails: Array[String] = []
@@ -307,6 +312,9 @@ func _close_box_pass(bridge) -> void:
 	# --- 2. A second × while the prompt is up neither stacks nor quits -----
 	## Quitting on a double-click of the close box would destroy the world the
 	## first click just asked about, so this branch re-raises rather than exits.
+	## This is `DccApp._close_requested()`'s first branch, driven
+	## with the real notification -- the one arm of that function that is
+	## survivable in-process, which is why the other two are §4's separate runs.
 	await _close()
 	_check("still running after a second close request", is_instance_valid(app), true)
 	_check("no second prompt stacked", _visible_windows().size(), 1)
@@ -325,20 +333,35 @@ func _close_box_pass(bridge) -> void:
 	second.hide()
 	await _frames(4)
 
-	# --- 4. The escape hatch --------------------------------------------
-	## Checked by branch rather than by pressing, for the same reason the phone
-	## pass checks its empty-world exit that way: passing it honestly terminates
-	## the harness before it can report. Both conditions below reach
-	## `get_tree().quit()` unconditionally in `_close_requested()`.
-	print("  escape hatch (by branch -- pressing it would end the harness)")
-	app._quit_asked = true
-	app._quit_prompt = null
-	_check("asked once, nothing on screen -> would quit",
-		app._quit_asked and not is_instance_valid(app._quit_prompt), true)
-	app._quit_asked = false
-	bridge.has_world = false
-	_check("no world -> would quit", app._quit_asked or not bridge.has_world, true)
-	bridge.has_world = true
+	# --- 4. The escape hatch, driven for real ----------------------------
+	## **These two checks used to be tautologies.** The probe assigned
+	## `app._quit_asked = true` and `app._quit_prompt = null` and then asserted
+	## `app._quit_asked and not is_instance_valid(app._quit_prompt)` -- a
+	## restatement of its own two assignments, which passes whatever
+	## `_close_requested()` does, and which was not even the source condition:
+	## that function's quit branch reads `_quit_asked or not bridge.has_world`,
+	## while the branch the first check was paraphrasing is the earlier one,
+	## which also requires `_quit_prompt.visible`. Rewriting a condition into
+	## the test is not testing it -- the two drift apart silently, which is the
+	## whole defect class this probe exists for.
+	##
+	## So the branch is taken for real instead, in a separate process, the same
+	## way `_resolve_pass()` already presses the two answers that end the run:
+	## set the state, send the real notification, and **survive** -- because
+	## surviving is the failure here. A pass exits through
+	## `_close_requested()`'s own `get_tree().quit()`, which is exit 0.
+	##
+	##   godot4 --path . _backnav_probe.tscn -- --hatch=asked
+	##   godot4 --path . _backnav_probe.tscn -- --hatch=noworld
+	##
+	## The default run cannot do this and report, which is why it is opt-in and
+	## why sections 1-3 above cover everything that is survivable -- including
+	## the one arm of `_close_requested()` that must NOT quit (section 2).
+	print("  escape hatch: not checked in this run -- see --hatch=asked / --hatch=noworld")
+
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--hatch="):
+			await _hatch_pass(bridge, a.substr(8))
 
 	## The three answers actually being *pressed* cannot be checked in the same
 	## run as anything else -- two of them end the process, which is the point.
@@ -442,3 +465,49 @@ func _buttons(node: Node) -> Array:
 	for c in node.get_children(true):
 		out.append_array(_buttons(c))
 	return out
+
+
+## Take one of `_close_requested()`'s two quit-without-asking branches for real.
+##
+## `asked`   -- the prompt has already been shown once and resolved without a
+##              decision (`_quit_asked` still true, no prompt on screen). The
+##              second x must go straight through.
+## `noworld` -- there is nothing to lose, so there is nothing to ask about.
+##
+## Both must end the process. The harness therefore fails by SURVIVING, which
+## is the same shape `_resolve_pass()`'s `discard` and `save` use, and it is
+## what makes this a test rather than the restatement it replaced: if the
+## quit condition in `DccApp._close_requested()` were narrowed, the
+## notification would build a
+## prompt instead, this function would still be running, and the timeout below
+## would report it.
+func _hatch_pass(bridge, mode: String) -> void:
+	print("[hatch] ", mode)
+	match mode:
+		"asked":
+			## The state a user is in after dismissing the prompt without
+			## answering it. Set through the shell's own fields because there is
+			## no other way in -- but the DECISION is still the shell's, taken
+			## by `_close_requested()` below and not restated here.
+			app._quit_asked = true
+			if is_instance_valid(app._quit_prompt):
+				app._quit_prompt.hide()
+			await _frames(4)
+			_check("armed: asked once, nothing on screen", app._quit_asked, true)
+		"noworld":
+			bridge.has_world = false
+			await _frames(2)
+			_check("armed: no world in memory", bridge.has_world, false)
+		_:
+			print("  unknown hatch mode '", mode, "'")
+			get_tree().quit(2)
+			return
+
+	print("  sending the real WM_CLOSE_REQUEST; a pass exits here")
+	await _close()
+	## Reached only if the shell did NOT quit. Generous, because `quit()` lands
+	## at the end of the frame and a slow frame is not a failure.
+	await _frames(120)
+	print("=== FAIL: the escape hatch did not quit -- ", _visible_windows().size(),
+		" window(s) on screen, app alive=", is_instance_valid(app), " ===")
+	get_tree().quit(1)

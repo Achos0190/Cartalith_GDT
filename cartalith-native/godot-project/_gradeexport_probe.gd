@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY verification harness: does the export raster carry the colour
+## Committed verification harness: does the export raster carry the colour
 ## grade, and does a graded export match the graded viewport? Not committed.
 ##
 ## Why this is a separate probe from _exportraster_probe.gd: that probe's
@@ -11,6 +11,11 @@ extends Node
 ## under Antique Parchment, the one shipped look that actually grades.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _gradeexport_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var bridge: Node
 var fails := 0

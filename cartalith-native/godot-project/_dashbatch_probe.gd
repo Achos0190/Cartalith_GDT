@@ -103,6 +103,9 @@ static func _dashes(points: PackedVector2Array, dash_len: float, gap_len: float)
 	return out
 
 
+## The arms' own "nothing was drawn" framebuffer, captured with an empty
+## `_case`. Held as bytes rather than an Image so the per-case test is one `!=`.
+var _blank: PackedByteArray = PackedByteArray()
 var _vp_a: SubViewport
 var _vp_b: SubViewport
 var _case := {}
@@ -118,12 +121,50 @@ func _ready() -> void:
 		get_tree().quit(2))
 	wd.start()
 
+	## This probe measures PIXELS, and its documented invocation is the windowed
+	## binary for that reason. Under `--headless` Godot loads the dummy display
+	## driver: `RenderingServer.frame_post_draw` never fires, so the first
+	## `_capture()` blocks forever and the run dies at the watchdog above having
+	## printed nothing. Measured 2026-09-01 on both this probe and
+	## `_cull_probe.gd`, and on the committed version of this one -- which is why
+	## the watchdog is NOT the thing to raise: the run is not slow, it is stopped.
+	## Said out loud here, because a silent 5-minute hang reads as "slow machine".
+	if DisplayServer.get_name() == "headless":
+		_p("ABORT: this probe measures pixels and cannot run headless -- "
+			+ "RenderingServer.frame_post_draw never fires with the dummy driver. "
+			+ "Re-run with the windowed binary, as the header shows:")
+		_p("  Godot_v4.7.1-stable_win64.exe --path . _dashbatch_probe.tscn")
+		get_tree().quit(2)
+		return
+
+
 	_vp_a = _make_vp(_ArmLines.new())
 	_vp_b = _make_vp(_ArmMultiline.new())
 
 	var fails := 0
 	var checks := 0
 	var saved := 0
+
+	## ------------------------------------------------------- the blank control
+	## **Pixel-equality alone is a test that cannot fail**, and this probe did not
+	## have this until 2026-09-01. Two frames that drew nothing are byte-identical,
+	## so if `_case` stopped reaching the arms, or either `_draw()` stopped
+	## emitting, all 108 cases would come back "identical" and the probe would
+	## report the collapse safe over zero coverage -- which is the conclusion
+	## `MEMORY_OPTIMIZATION_SCOPE.md` MEM-5 rests on. `_cull_probe.gd` grew the
+	## same control for the same reason; this is that idiom.
+	##
+	## An empty `_case` is exactly the "nothing was drawn" framebuffer: both arms
+	## open `_draw()` with `if c.is_empty(): return`, so this is the arms' own
+	## blank output rather than a colour guessed at here.
+	_case = {}
+	var blank_pair := await _capture()
+	_blank = (blank_pair[0] as Image).get_data()
+	if _blank.is_empty():
+		_p("FAIL  the blank reference captured nothing; the ink test below would "
+			+ "pass every case vacuously")
+		fails += 1
+	var inked := 0
 	var paths := _paths()
 	for path_i in paths.size():
 		for pat in PATTERNS:
@@ -138,10 +179,23 @@ func _ready() -> void:
 						"width": float(pat["width"]) * sc,
 						"dashes": _dashes(pts, float(pat["dash"]) * sc, float(pat["gap"]) * sc)}
 					var img := await _capture()
-					var diff := _compare(img[0], img[1])
 					checks += 1
-					if int(diff[0]) == 0:
+					## One `get_data()` per arm, reused for both tests. The
+					## per-pixel `_compare()` walk below still runs only on a
+					## case that already failed -- 630k GDScript `get_pixel`
+					## pairs x 108 cases is minutes of wall clock and would push
+					## this probe past its own watchdog.
+					var data_a := (img[0] as Image).get_data()
+					var same: bool = data_a == (img[1] as Image).get_data()
+					## Ink against the blank control -- NOT against the other
+					## arm, which is the mistake that made the equality check
+					## vacuous. A case where the `draw_line` arm drew nothing
+					## proves nothing about the primitive under test.
+					if not _blank.is_empty() and data_a != _blank:
+						inked += 1
+					if same:
 						continue
+					var diff := _compare(img[0], img[1])
 					fails += 1
 					_p("DIFF  %-10s path%d scale %.1f zoom %.1f -> %d px differ, max channel delta %d/255" % [
 						pat["name"], path_i, sc, z, diff[0], diff[1]])
@@ -151,7 +205,16 @@ func _ready() -> void:
 						img[1].save_png("user://dashbatch_multi_%s_%d.png" % [pat["name"], path_i])
 						_p("      captures -> %s" % ProjectSettings.globalize_path("user://"))
 
-	_p("%d / %d cases pixel-identical" % [checks - fails, checks])
+	_p("%d / %d cases pixel-identical, %d drew ink" % [checks - fails, checks, inked])
+	## Every case here is a real dash pattern over a real path at a real scale;
+	## none of them is a legal blank. One blank is a bug in the harness, and
+	## `inked == 0` means the 108 "identical" results above are 108 pairs of
+	## empty frames.
+	if inked < checks:
+		_p("FAIL  %d of %d cases rendered the bare background: the arms drew "
+			% [checks - inked, checks]
+			+ "nothing, so those 'identical' results compare empty frames")
+		fails += 1
 
 	## Phase 2 -- the counters, one arm at a time so the per-frame monitors
 	## belong to a single arm. A long dense path, so the count is big enough
@@ -178,8 +241,31 @@ func _ready() -> void:
 			"draw_line" if arm == _vp_a else "draw_multiline", counts[-1][0], counts[-1][1]])
 	var same_counts: bool = counts[0] == counts[1]
 
+	## **Phase 2 was a print, not a check.** `same_counts` was computed, reported
+	## in the RESULT line, and then dropped: `quit()` gated on `fails`, which
+	## only phase 1 could raise. So the half of this probe that MEM-5 was
+	## declined on -- "the counters are identical, so batching buys nothing" --
+	## could go false without the exit code moving. It is an assertion now, in
+	## both directions:
+	##
+	##   - a non-trivial object count in each arm, because `0 == 0` satisfies
+	##     equality perfectly and would mean neither arm rendered at all;
+	##   - the equality itself, because if it ever stops holding then MEM-5's
+	##     declined lever is worth revisiting and a green run would hide that.
+	if int(counts[0][0]) < 100 or int(counts[1][0]) < 100:
+		_p("FAIL  an arm rendered almost nothing (objects %d vs %d over %d dashes); "
+			% [counts[0][0], counts[1][0], _case["dashes"].size() / 2]
+			+ "the counter comparison below is between two empty frames")
+		fails += 1
+	elif not same_counts:
+		_p("FAIL  the counters DIFFER (draw_line %s, draw_multiline %s). "
+			% [str(counts[0]), str(counts[1])]
+			+ "MEM-5 was declined on these being identical -- the lever is worth "
+			+ "revisiting, and this header's claim is now false.")
+		fails += 1
+
 	_p("RESULT: %s; %s" % [
-		"pixels identical" if fails == 0 else "PIXELS DIFFER in %d cases" % fails,
+		"pixels identical" if fails == 0 else "%d CHECK(S) FAILED" % fails,
 		"counters identical -- batching buys nothing" if same_counts
 			else "counters DIFFER -- batching is worth revisiting"])
 	get_tree().quit(0 if fails == 0 else 1)

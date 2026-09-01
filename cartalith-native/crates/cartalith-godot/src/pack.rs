@@ -23,26 +23,53 @@
 //!
 //! **The third named surface — the two "painted layers" (`_paintedTex`'s
 //! `biomes`/`terrains` families, the Cartography paint-brush biome/terrain
-//! override) — is deliberately NOT implemented this pass.** Read literally
-//! (reference lines 7898-7900, 12187-12196): `pBio`/`pTer` are per-cell
-//! indices into `state.cartoPaint.biome`/`.terrain`, sparse arrays a user
-//! populates by hand with a paint-brush tool (`paintBiome`/`paintSplat`/
-//! `paintTerrain` module globals, reference ~26200+). This port has never
-//! ported that tool — there is no producer of a painted-cell array anywhere
-//! in this workspace, and building one from scratch is itself a real,
-//! separate UI+state effort this milestone's "no GUI controls" boundary
-//! rules out (the paint tool has no meaning without a brush UI to drive it).
-//! Unlike splat (gated only by `assetPack.texAny`, active by default the
-//! moment a pack is loaded) and icons (gated by `state.viz.icons`, default
-//! `false` — never on by default either way), the painted layers are gated
-//! by a *third* piece of state this port simply does not have a producer
-//! for. Decoding `biomes`/`terrains` pack images with nothing that could
-//! ever set `pBio`/`pTer` to a nonzero value would be dead code — so
-//! [`LoadedPack`] does not decode them, and `PackManifest`'s own `.biomes`/
-//! `.terrains` fields are parsed (for a correct `packSummary`-equivalent and
-//! warning count) but never turned into pixels. A future milestone that
-//! ports the Cartography paint-brush tool is the natural place to pick this
-//! back up.
+//! override) — is half-implemented, and the missing half is the decoding,
+//! not the painting.** Read literally (reference lines 7898-7900,
+//! 12187-12196): `pBio`/`pTer` are per-cell indices into
+//! `state.cartoPaint.biome`/`.terrain`, and `_paintedTex(fam, slots, idx,
+//! px, py)` samples the loaded pack's image for that index — one texel per
+//! grid cell, wrapped — falling back to the flat palette swatch (`_t ||
+//! CART_BIOME_COLS[pBio-1]`) whenever no texture is loaded for it.
+//!
+//! When this milestone shipped, this doc said the port had no producer of a
+//! painted-cell array anywhere in the workspace and stopped there. **That
+//! ceased to be true on 2026-08-24**; `render.rs`'s own module doc (lines
+//! 32-35, the "and so was the **paint-brush biome/terrain override**"
+//! sentence) took the correction that day and this one never did. The producer
+//! is real and reachable end to end: `PaintEditor` (`paint_bridge.rs:235`,
+//! `pub struct PaintEditor`) over three `PaintLayer`s
+//! (`cartalith-spatial/src/paint.rs:207`, `pub struct PaintLayer`), baked by
+//! `PaintEditor::commit_all` (`paint_bridge.rs:494`);
+//! `WorldGen::get_paint_layers` (`lib.rs:6660`); the committed cells handed to
+//! the renderer by the `ctx.with_paint(...)` call site (`lib.rs:4800`, in
+//! `build_color_texture`; the builder itself is `render.rs:2264`); and a brush
+//! UI driving all of it in the DCC shell — `_build_paint`
+//! (`shell/workspaces/world_workspace.gd:1960`) for the WORLD dock's
+//! "Biome paint" panel and `_build_paint_options`
+//! (`shell/tool_bar.gd:407`) for the canvas tool-options row.
+//! `land_color`'s paint blend (`render.rs:3106`, the `if !paint.is_empty()`
+//! branch of `fn land_color` at `render.rs:2740`) already applies
+//! `pBio`/`pTer`, at the reference's own `0.60` weight and in its own
+//! position.
+//!
+//! Every line number in this paragraph was re-checked against the working
+//! tree on 2026-08-31; cite the symbol beside the number when adding to it,
+//! because concurrent edits move these files faster than the comment is
+//! re-read.
+//!
+//! What is missing is exactly one thing: **decoding a pack's `biomes`/
+//! `terrains` images, so that blend has a texture to prefer over the flat
+//! swatch.** `PackManifest`'s own `.biomes`/`.terrains`
+//! (`cartalith-assets/src/manifest.rs:145`/`:148`, keyed by
+//! `PACK_BIOME_SLOTS`/`PACK_TERRAIN_SLOTS`) are parsed — for a correct
+//! `packSummary`-equivalent and warning count — but [`LoadedPack`] never
+//! turns them into pixels, and so [`load_pack_from_bytes`] below decodes
+//! `icons` and `splat` and nothing else. Until it does, every painted cell
+//! takes the reference's own no-texture branch, which is why this is a
+//! missing refinement rather than a divergence. Picking it up means
+//! decoding both families here and carrying them to `render.rs` the way
+//! [`SplatChannel`] already is — a real, separate job, deliberately not
+//! started in the pass that corrected this comment.
 
 use std::collections::HashMap;
 use std::io::Cursor;

@@ -11,6 +11,17 @@ longer applies — this pass re-attempted it for real, following this
 project's own `cartalith-porting-discipline` rule to flag what can't be
 verified rather than claim false success.
 
+> **This document is a log of real device passes — what each one required,
+> drove, measured and deliberately left alone, on the date in its own heading.
+> It is a record, not a tracker.** Every "not fixed", "still unseen",
+> "flagged" and "owed" below is scoped to the pass that wrote it and is not a
+> claim about where that item stands now; every memory figure is one handset
+> reading of one build. Current status lives in
+> `cartalith-native/docs/STATUS.md`, the single source of truth for this port.
+> Note also the seed rule this effort learned the hard way and
+> `MEMORY_OPTIMIZATION_SCOPE.md` records: **any Android memory figure must
+> state its seed**, or the spread swamps the effect being claimed.
+
 ## What was actually required (none of it was missing)
 
 `TOOLCHAIN.md`'s own framing called Android "the single highest-risk item
@@ -45,7 +56,7 @@ already correctly installed and wired from earlier in this project's
 history. This pass's real work was producing a *current* build and testing
 it on real hardware, not toolchain setup.
 
-## Build (done)
+## Build
 
 1. `cargo ndk -t arm64-v8a build --release -p cartalith-godot` —
    compiled clean, 2m38s, produced a current
@@ -62,7 +73,7 @@ it on real hardware, not toolchain setup.
    builds/android/Cartalith.apk` — succeeded, signed with Godot's own
    auto-generated debug keystore.
 
-## Install and launch (done)
+## Install and launch
 
 `adb install -r` succeeded first try. `adb shell am force-stop` then
 `monkey -p org.cartalith.walkingskeleton -c android.intent.category.LAUNCHER
@@ -194,21 +205,23 @@ an ANR under Android's stricter watchdog — needs the phone physically
 unlocked (by the owner) while a session drives it, or the owner running
 the already-installed APK by hand.
 
-## Done means (fully reached)
+## What this pass established (2026-08-17)
 
-| Item | Status |
+| Item | Outcome on the day |
 |---|---|
 | Android toolchain (NDK/cargo-ndk/gdext/Godot export) actually works | **Confirmed**, first real end-to-end proof this project has had |
-| Current `.apk` built from today's code, not a stale one | **Done** — installed build reflects all of 2026-08-16's landed work |
-| Installs on real hardware | **Done** |
+| `.apk` built from that day's code, not a stale one | **Built** — the installed build reflected all of 2026-08-16's landed work |
+| Installs on real hardware | **Installed**, first try |
 | Launches, GDExtension loads, engine initializes, real GPU context created | **Confirmed via logcat** |
-| Golden path exercised (tap Generate, confirm render) | **Done (2026-08-17)** — same-seed regeneration reproduced the identical rendered world |
-| On-device memory during generation | **Done** — peak ~283,326 KB PSS (~277 MB) at 512×512, steady-state ~271,290 KB, no leak observed |
-| ANR/responsiveness check under load | **Done** — no ANR/crash/hang, ~7-9s wall-clock at 512×512 |
+| Golden path exercised (tap Generate, confirm render) | **Driven** — same-seed regeneration reproduced the identical rendered world |
+| On-device memory during generation | **Measured** — peak ~283,326 KB PSS (~277 MB) at 512×512, steady-state ~271,290 KB, no leak observed |
+| ANR/responsiveness check under load | **Clean** — no ANR/crash/hang, ~7-9s wall-clock at 512×512 |
 
-MVP criterion 4 ("Android `.apk` builds + owner has installed/run") is
-now **fully closed**, real hardware, real numbers, both halves (build+
-install and actually running the golden path).
+Both halves of MVP criterion 4 ("Android `.apk` builds + owner has
+installed/run") were exercised in this pass on real hardware with real
+numbers — build+install, and actually running the golden path. What that
+leaves the criterion at is `cartalith-native/docs/STATUS.md`'s to say, not
+this document's.
 
 ---
 
@@ -457,7 +470,7 @@ layout would be no better than the current one.
 the phone would not re-lock mid-run; both were restored afterwards
 (`stayon false`, timeout 120000 ms). Nothing else on the device was changed.
 
-## Done means (this pass)
+## What this pass got
 
 | Item | Result |
 |---|---|
@@ -469,7 +482,7 @@ the phone would not re-lock mid-run; both were restored afterwards
 | Leak | **None** — big-world memory fully released on regenerate |
 | Generation time on device | 3.2 s (131 k cells) → 4.5 s (262 k) → 8-9 s (466 k) → **31 s (2.68 M, the default)** |
 | Non-square maps | **All four shapes correct**, including Whole world 2:1 pinning |
-| Phone UI | **Structurally intact, physically unusable by finger** — see §6; open item, not fixed |
+| Phone UI | **Structurally intact, physically unusable by finger** — see §6; recorded, not fixed in this pass |
 | Crashes / ANRs / OOM kills | **None** |
 
 ---
@@ -811,7 +824,7 @@ landscape — those are consistent, not contradictory.)
 portrait attempt and restored to `1` / `0` (auto-rotate on) afterwards.
 `screen_off_timeout` was read but never changed. Nothing else.
 
-## 5. Unrelated cruft noticed in the APK, flagged not fixed
+## 5. Unrelated cruft noticed in the APK, flagged and not fixed in this pass
 
 `export_filter="all_resources"` pulls the editor-only addons into the shipped
 APK. The archive contains `assets/addons/godotsteam/` and
@@ -827,7 +840,7 @@ verify it, and re-cutting the export filter is a separate change that wants its
 own build-install-run cycle rather than being smuggled into a verification
 pass. Worth ~19 MB and one line to whoever picks it up.
 
-## Done means (this pass)
+## What this pass got
 
 | Item | Result |
 |---|---|
@@ -848,9 +861,9 @@ pass. Worth ~19 MB and one line to whoever picks it up.
 | Crashes / ANRs / script errors / OOM kills | **None** |
 | Memory at 2048x1311 | Peak **899,089 KB (878 MB)**, flat vs. 2026-08-18's 874 MB; steady **662,793 KB (647 MB)**, up ~23%; no leak |
 | §13 phone layout on real hardware | **Yes, and it works** — `_phone` latched, phone chrome built, 44 px targets land at ~121 physical px; retires the 2026-08-18 §6 "unusable by finger" verdict |
-| Phone-layout defects found | **Two, reported not fixed** — runtime dialogs keep desktop sizing; `Open project` shows duplicated header/close (§4.2) |
-| §13 *portrait* composition | **Still unseen** — `"sensor"` follows the accelerometer, so `adb` cannot force it; needs the phone physically rotated |
-| Editor-only addons in the APK | **Flagged, not fixed** — ~19 MB of godotsteam + godot_ai (§5) |
+| Phone-layout defects found | **Two, reported and not fixed in this pass** — runtime dialogs keep desktop sizing; `Open project` shows duplicated header/close (§4.2) |
+| §13 *portrait* composition | **Unseen by this pass** — `"sensor"` follows the accelerometer, so `adb` cannot force it; needs the phone physically rotated |
+| Editor-only addons in the APK | **Flagged, not fixed in this pass** — ~19 MB of godotsteam + godot_ai (§5) |
 
 ---
 
@@ -1046,7 +1059,7 @@ minimum sizes and explicit font-size overrides are scaled; anything tappable is
 then floored at §13's 44 px. The sheet's own padding constants were scaled too —
 left raw they put the first control flush against the screen edge.
 
-## 5. The overflow menu: diagnosed, deliberately not fixed
+## 5. The overflow menu: diagnosed here, deliberately not fixed in this pass
 
 Owner: *"not much from the menus work on android."* A mobile menu design is
 being produced separately, so this is evidence for that design pass, not a
@@ -1098,7 +1111,7 @@ the previous pass despite its own note saying otherwise — and is restored to `
 `wm user-rotation lock 1` was used to capture landscape and released with
 `wm user-rotation free`. `user_rotation` restored to `0`. Nothing else.
 
-## Done means (this pass)
+## What this pass got
 
 | Item | Result |
 |---|---|
@@ -1111,7 +1124,7 @@ the previous pass despite its own note saying otherwise — and is restored to `
 | Light theme: embedded `Window` chrome | **Fixed** — written from tokens, cold-boot safe |
 | Light theme: per-window coverage | **8 of 8 correct**, both palettes, verified by capture |
 | Bottom sheet targets | **Fixed** — scaled at `set_tool_options()`, floored at 44 px |
-| Overflow menu | **Diagnosed, not fixed** (§5), by instruction |
+| Overflow menu | **Diagnosed, not fixed in this pass** (§5), by instruction |
 | Headless smoke test | **PASS** |
 | Desktop windowed launch | **Clean** — world generated, `6a97911` GL fix not regressed |
 | Device install and run | **Clean** — portrait and landscape both captured |
@@ -1452,9 +1465,9 @@ adb install -r builds/android/Cartalith.apk
   `stretch/mode` must stay unset (HD-04); losing it would be a real regression,
   so it was checked every time and not just once.
 - `export_presets.cfg` and `Cargo.toml` untouched, per the owner's standing
-  instruction. The ~100 `_*_probe` / `_*_shot` development files still ship
-  inside the APK and the release profile is still unstripped; both are recorded
-  elsewhere and both are the owner's call.
+  instruction. The ~100 `_*_probe` / `_*_shot` development files still shipped
+  inside the APK and the release profile was still unstripped at this pass;
+  both are recorded elsewhere and both are the owner's call.
 - The launcher activity is
   `org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher`, **not**
   `.GodotApp` — `am start` on the latter throws. Resolve it with
@@ -1551,7 +1564,7 @@ follows the accelerometer and overrides `settings put system user_rotation`.
 Every measurement in §50 is portrait, and anything landscape-dependent is
 marked inferred there rather than observed.
 
-## Still owed from the 2026-08-24 pass
+## Owed by the 2026-08-24 pass, and not paid by this one either
 
 That pass asked the next one to confirm, **first**, that `push_warning` reaches
 Android's `logcat`, before a silent log is trusted as evidence of a matched

@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe -- the REAL app half of `_waycolor_probe.gd`.
+## Committed probe -- the REAL app half of `_waycolor_probe.gd`.
 ##
 ##   Godot_v4.7.1-stable_win64.exe --path . _wayreal_probe.tscn
 ##
@@ -16,6 +16,11 @@ extends Node
 ## coverage a 1.2 px stroke actually lands, with no assumption that the stroke
 ## fully covers a pixel. Scoring every candidate type against the same pixel
 ## makes it a discrimination test, not just a match test.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

@@ -1,5 +1,5 @@
 extends Node
-## Temporary, untracked verification harness for `MILITARY_MANPOWER_SCOPE.md`
+## Committed verification harness for `MILITARY_MANPOWER_SCOPE.md`
 ## -- the four manpower outputs nested under `civ_military_summary()`.
 ##
 ## Run:
@@ -27,6 +27,11 @@ extends Node
 ##   7. the era is derived and its band reported rather than enforced;
 ##   8. the citizen / free population (owner ruling, 2026-08-25) is the band
 ##      denominator, is differentiated by government, and moves NO headcount.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const SEED := 483920
 

@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe -- exact per-way-type colour recovery.
+## Committed probe -- exact per-way-type colour recovery.
 ##
 ##   Godot_v4.7.1-stable_win64.exe --path . _waycolor_probe.tscn
 ##
@@ -17,6 +17,11 @@ extends Node
 ## fully covered by both the underlayer and the overlay. Geometry is unchanged
 ## (`_stroke_points` multiplies by the same k), so this is the same code path a
 ## real frame takes, only wider.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const W := 1200
 const H := 800

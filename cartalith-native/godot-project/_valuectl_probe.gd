@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for the 2026-08-25 "is every control wired" pass.
+## Committed probe for the 2026-08-25 "is every control wired" pass.
 ##
 ## The control class no sweep in this repository has ever driven. `_deadwire`
 ## reads connection lists; `_pressall` and `_railpress` press BUTTONS and
@@ -18,6 +18,11 @@ extends Node
 ## nothing else produces.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _valuectl_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

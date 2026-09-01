@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe -- the same teardown-fires-focus_exited defect
+## Committed probe -- the same teardown-fires-focus_exited defect
 ## found in the Place editor (PE-01), tested where it should be worse: the
 ## Faction roster.
 ##
@@ -12,6 +12,11 @@ extends Node
 ## Read the roster from the engine before and after, so the answer is data.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _focusbug_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge
@@ -77,9 +82,17 @@ func _ready() -> void:
 	for n in all:
 		if n is LineEdit:
 			edits.append(n)
+	## Not a pass. The roster inspector has drawn a name field since FR-02, so
+	## the only ways here are a renamed/removed control or a shell that failed
+	## to build the pane -- and both mean the defect this probe exists for went
+	## unexamined. `2` for "the probe could not run", distinct from `1` for a
+	## real finding -- see `_vaultprefs_probe.gd`'s note on how unevenly this
+	## suite picks that code. Exiting 0 reported a green run over zero
+	## assertions, which is the only outcome that actually misleads.
 	if edits.is_empty():
-		_p("no LineEdit in the inspector -- cannot test")
-		get_tree().quit(0)
+		_p("ABORT: no LineEdit in the roster inspector -- the pane did not build, "
+			+ "or the name field was renamed; the focus test never ran")
+		get_tree().quit(2)
 		return
 	var name_edit: LineEdit = edits[0]
 	name_edit.grab_focus()
@@ -95,9 +108,13 @@ func _ready() -> void:
 			## the second row, i.e. not the selected one
 			if target == null and (n as Button).text.find(name_edit.text) < 0:
 				target = n
+	## Same: this world generates several factions, so a single selectable row
+	## means the roster list did not build. Without a second row there is no
+	## selection change, and a selection change is the whole test.
 	if target == null:
-		_p("no second faction row found")
-		get_tree().quit(0)
+		_p("ABORT: no second faction row in the roster list -- there is no "
+			+ "selection change to make, so the rename test never ran")
+		get_tree().quit(2)
 		return
 	_p("clicking list row '%s'" % target.text)
 	target.pressed.emit()

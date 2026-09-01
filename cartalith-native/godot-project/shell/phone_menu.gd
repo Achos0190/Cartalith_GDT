@@ -602,6 +602,22 @@ func _fill_root(body: VBoxContainer) -> void:
 			## `entry[2]` is set only for the one slot that holds a sentence.
 			body.add_child(_note_row(String(entry[0]), String(entry[1])) if bool(entry[2])
 				else _value_row(String(entry[0]), String(entry[1])))
+		## The only status row a user can *act* on, and until 2026-09-01 the
+		## phone showed the readout and offered nothing. `app.gd` puts a
+		## Recompute button beside the desktop `stale` slot and its own
+		## comment says why the handset does not get it -- SS13 parks the
+		## status bar in an invisible model host here, so a control added to
+		## `status_row` is never drawn -- and ends by naming this file as
+		## where the phone half belongs. This is that row: the same act, on
+		## the same two preconditions, presented as a list row.
+		if _can_recompute_stale():
+			body.add_child(DccTheme.rule())
+			body.add_child(_row("Recompute stale stages",
+				"Re-runs only the stages the graph reports stale. The civilisation "
+					+ "layer is deliberately not cascaded per edit, so \"civ\" usually "
+					+ "stays -- Civilization ▸ Settlements ▸ Recompute civilisation is "
+					+ "the one that clears it.",
+				null, null, _go_recompute_stale, false))
 
 	var buttons := _menu_buttons()
 	var placed := {}
@@ -675,6 +691,44 @@ func _action_row(id: String) -> Control:
 	## follows for an item the port cannot honour, and the alternative is a
 	## destination that vanishes with nothing said.
 	return _row(id, "No destination is wired to this row.", null, null, Callable(), true)
+
+## Both halves of the condition `app.gd` puts on its own Recompute button:
+## something is actually stale, and this GDExtension build can act on it.
+## An older extension answers `stale_stages()` and not
+## `recompute_stale_stages()`, and a row that silently does nothing is
+## worse than no row -- so the row is absent rather than drawn dead, which
+## is the same call the desktop button makes (it hides itself).
+##
+## `bridge` lives on `DccApp`, not on `DccShell`, so it is fetched by name
+## for the same reason `_go_travel_library()` reaches `open_travel_library`
+## that way: `DccApp extends DccShell` and `DccShell` builds this file, so a
+## typed access here would close a class cycle -- and the capture probes
+## instantiate `DccShell` bare, where the property does not exist at all.
+func _can_recompute_stale() -> bool:
+	if _slot("stale") == "":
+		return false
+	if not _shell.has_method("_recompute_stale"):
+		return false
+	var br = _shell.get("bridge")
+	if br == null or br.world_gen == null:
+		return false
+	return br.world_gen.has_method("recompute_stale_stages")
+
+## Closed **before** the call, not after. `_recompute_stale()` yields two
+## frames to paint its busy state and then blocks the main thread for the
+## whole recompute (it is synchronous and has no progress signal), so
+## leaving a full-screen overlay up across that freeze is the one
+## presentation this must not have. Closing also matches `_activate()`'s
+## own default for every non-checkable row.
+##
+## The result lands in the `stale` and `hint` slots, which this screen
+## re-reads from scratch on its next open -- the same freshness every other
+## row in the Status band has.
+func _go_recompute_stale() -> void:
+	if not _shell.has_method("_recompute_stale"):
+		return
+	close()
+	_shell.call("_recompute_stale")
 
 ## Civilization is a *domain*, not a menu: the desktop reaches it by clicking
 ## CIVIL on the rail, and `select_domain()` is that same `_select_domain()`
@@ -796,7 +850,14 @@ func _popup_row(p: PopupMenu, i: int, level: int) -> Control:
 	## reason is drawn as the row's second line instead of being unreachable --
 	## this surface is *more* legible than the desktop one, not less.
 	if disabled:
-		return _row(text, p.get_item_tooltip(i), null, null, Callable(), true)
+		## ...but a disabled *radio* row is still one of a group, and dropping
+		## its mark demotes "unselected choice" to "dim line of text" -- a
+		## reading the desktop popup never gives, since it keeps drawing the
+		## bullet either way. Draw the mark first, then dim. Radio only: a
+		## disabled `_switch()` pill reads as an operable toggle, which is the
+		## opposite of what the honesty rule above is for.
+		var off_mark: Control = _radio(p.is_item_checked(i)) if p.is_item_radio_checkable(i) else null
+		return _row(text, p.get_item_tooltip(i), null, off_mark, Callable(), true)
 
 	if p.is_item_checkable(i) or p.is_item_radio_checkable(i):
 		var on := p.is_item_checked(i)

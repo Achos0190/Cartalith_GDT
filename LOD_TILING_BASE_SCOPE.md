@@ -1,4 +1,4 @@
-# LOD/tiling base: standalone data structures, not yet integrated
+# LOD/tiling base: standalone data structures, no integration in this pass
 
 Prompted by the owner (2026-08-17), directly after `TERRAIN_ARCHITECTURE_RESEARCH.md`
 was filed as forward-looking research, not current scope: *"LOD and zoom etc
@@ -8,6 +8,12 @@ The base should be present before integration."* Given three concrete options
 threading tiles through the live pipeline now), the owner chose the middle
 one — build the foundational data structures now, standalone and real, but
 touch **nothing** in the live generation/rendering pipeline.
+
+> **This document defines the pass's boundary and the reasoning behind it; it
+> does not track it.** What `cartalith-spatial` contains today, how many tests
+> it carries and which crates depend on it are status questions, and status
+> lives in `cartalith-native/docs/STATUS.md` — the single source of truth for
+> this port.
 
 This is deliberately narrower than `TERRAIN_ARCHITECTURE_RESEARCH.md`'s full
 9-phase roadmap — no camera, no quadtree-driven rendering, no clipmaps, no GPU
@@ -117,8 +123,9 @@ touch Godot, doesn't touch generation).
 - `cargo build -p cartalith-spatial`, `cargo test -p cartalith-spatial`,
   `cargo clippy -p cartalith-spatial --all-targets` clean.
 - `cargo build --workspace`, `cargo test --workspace` — 0 regressions
-  elsewhere (nothing else references this crate yet, so this mainly confirms
-  the workspace `Cargo.toml` addition didn't disturb anything).
+  elsewhere (nothing else referenced this crate when the pass ran, so this
+  mainly confirms the workspace `Cargo.toml` addition didn't disturb
+  anything).
 - Real, meaningful unit tests per component above — correctness tests, not
   "it compiles."
 
@@ -130,29 +137,20 @@ crate. Ready to be picked up — with a known, tested foundation instead of a
 green field — whenever Phase 3 or a real large-world need starts actual
 integration.
 
-## Done (2026-08-17)
-
-Built exactly as scoped: `TiledField<T>`, `QuadTree<T>`, `DirtyTracker`, all
-`serde`-round-trippable, 24 real unit tests, `cargo build/test/clippy -p
-cartalith-spatial` clean, full workspace `cargo test --workspace` clean (one
-unrelated, already-documented pre-existing GPU-driver test flake reproduced
-and confirmed unrelated — no GPU code in this crate, nothing depends on it).
-Confirmed zero references from any other crate or `.gd`/`.tscn` file. Full
-record: `cartalith-native/docs/CHANGELOG.md`'s "New crate cartalith-spatial"
-entry, `docs/STATUS.md`'s own "LOD/tiling base" section.
-
-## Integrated (2026-08-18) — the trigger was the tool system, not LOD
+## What integration found (2026-08-18) — the trigger was the tool system, not LOD
 
 "Whenever Phase 3 or a real large-world need actually starts integration"
 turned out to be neither: it was the DCC tool system.
 `UNIFIED_TOOL_PLAN.md` milestone A built `PassBuffer<S>` and `StageGraph`
-*in this crate*, on top of `TiledField`/`DirtyTracker`, and
-`cartalith-engine` now depends on it — the first dependent, so the "not a
-dependency of any other crate" line above is history rather than current
-fact. The bet this document made paid off exactly as argued: the tool
-system started from a tested foundation instead of a green field, and
-`DirtyTracker` needed **no** extension at all to serve a real caller — its
-deliberately generic caller-supplied reason string (defended here against
-baking in Cartalith field names) turned out to be right, because each
-pipeline stage owns its own tracker instance rather than sharing one
-field-name enum.
+*in this crate*, on top of `TiledField`/`DirtyTracker`. The bet this document
+made paid off exactly as argued: the tool system started from a tested
+foundation instead of a green field, and `DirtyTracker` needed **no**
+extension at all to serve a real caller — its deliberately generic
+caller-supplied reason string (defended here against baking in Cartalith
+field names) turned out to be right, because each pipeline stage owns its own
+tracker instance rather than sharing one field-name enum.
+
+That also retires the *Done means* clause above about not being a dependency
+of any other crate: it described this pass's own boundary, not a standing
+property of the crate. How many crates depend on it is a status question —
+`cartalith-native/docs/STATUS.md`.

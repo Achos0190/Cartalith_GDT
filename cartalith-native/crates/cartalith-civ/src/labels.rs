@@ -205,6 +205,15 @@ pub struct LabelViewEnv {
     /// `GW`, the grid width in cells.
     pub grid_w: usize,
     /// `viewT.scale`, the raw zoom before `_civZoomK`'s clamp.
+    ///
+    /// **This port's shell does not pass `viewT.scale`.** `label_handles`'
+    /// callers (`cartography_workspace.gd`, three sites) pass
+    /// `viewport_host.gd::zoom()` -- the *deep* camera zoom, whose ceiling is
+    /// `max(64, width_km / ZOOM_TARGET_SPAN_KM)`. In the reference the two are
+    /// different numbers: `viewT.scale` stays at 1 under Tiled LOD and the
+    /// deep zoom lives in `_lodZoom`, which is why `_civZoomK`'s upper clamp
+    /// is free there. Here it is not free -- see [`civ_zoom_k`] for what
+    /// saturates.
     pub zoom_scale: f64,
     /// `state.viz.civIconScale`.
     pub icon_scale: f64,
@@ -219,6 +228,34 @@ impl Default for LabelViewEnv {
 /// `_civZoomK()` (reference line 14980) — the reciprocal of the zoom, clamped
 /// to `[0.35, 5]` first, so screen-constant elements stop growing without
 /// bound at either extreme.
+///
+/// # The shell dropped the upper clamp and this copy keeps it
+///
+/// Recorded 2026-09-01, having been an undisclosed divergence. There are
+/// three ports of this one reference function: here, `cartalith-assets`'
+/// `manual::civ_zoom_k` (an identical copy, for the reason its own doc
+/// gives), and `godot-project/map_overlay.gd::_civ_zoom_k`, which is
+/// `1.0 / maxf(_camera_zoom, 0.35)` -- **no `min(5, ...)`**, deliberately,
+/// since 2026-08-24. That decision is measured and sound on its own terms:
+/// the shell's zoom really does run past 5, and the clamp turned every pin
+/// and glyph into magnified mush at deep zoom.
+///
+/// The consequence for *this* copy is the part that was never written down.
+/// Above `zoom_scale == 5` the term saturates at `0.2` here while the
+/// shell's keeps shrinking, so anything the engine sizes off it --
+/// [`label_font_size`], [`label_box`]'s `side`, and through them
+/// `label_handles`' handle radii -- describes a label larger than the one
+/// the shell draws, and the gap widens with depth.
+///
+/// **The clamp is not removed here, and should not be.** It is what
+/// `_civLabelBox` does, [`LabelViewEnv::zoom_scale`] documents the input as
+/// `viewT.scale` (which never reaches 5 in the reference), and this module's
+/// own `zoom_k_clamps_at_both_ends` test pins it. The honest fix is on the
+/// caller's side of the boundary -- either the shell passes a
+/// `viewT.scale`-equivalent, or handle geometry is read back from the engine
+/// instead of being redrawn from a second formula. Until one of those lands,
+/// treat engine-computed label geometry as faithful only for
+/// `zoom_scale <= 5`.
 pub fn civ_zoom_k(zoom_scale: f64) -> f64 {
     1.0 / zoom_scale.clamp(0.35, 5.0)
 }
@@ -228,6 +265,16 @@ pub fn civ_zoom_k(zoom_scale: f64) -> f64 {
 /// Needed **before** the text can be measured (the caller measures at
 /// `fsz as i32` px, matching the reference's `${fsz|0}px`), which is why it is
 /// public separately from [`label_box`].
+///
+/// **This is not the size this port's shell draws a label at.**
+/// `map_overlay.gd`'s `_label_font_px` computes its own -- `size *
+/// (rect.size.x / GW) / LABEL_ZOOM_BASE_PX_PER_CELL`, clamped to
+/// `[LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX]` -- and never calls this. Two
+/// formulas over one quantity, so the hit box and the on-canvas handles are
+/// sized against a label nobody renders wherever they disagree;
+/// [`civ_zoom_k`]'s note names the widest source of disagreement. Disclosed
+/// 2026-09-01: choosing one owner for the number is a change on both sides of
+/// the gdext boundary, not a change here.
 pub fn label_font_size(lb: &MapLabel, env: &LabelViewEnv) -> f64 {
     let base = f64::max(1.0, env.grid_w as f64 / 512.0) * env.icon_scale;
     let lsc = match lb.size_mode {

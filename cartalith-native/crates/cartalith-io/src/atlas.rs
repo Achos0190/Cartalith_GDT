@@ -45,6 +45,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use cartalith_spatial::pyramid::ChunkId;
 use serde::{Deserialize, Serialize};
@@ -251,6 +252,10 @@ impl AtlasStore {
             Err(e) if e.kind() == io::ErrorKind::NotFound => None,
             Err(e) => return Err(e),
         };
+        // The read *is* the access, and this is where the access order
+        // `evict_to` sorts on gets written. See `touch_access` for why the
+        // filesystem has to be told rather than asked.
+        touch_access(&stem.with_extension("bin"));
         // `w`/`h` are not stored beside the bytes: `rg16` is exactly four bytes
         // per cell, and the tile's dimensions are a pure function of the
         // pyramid level and tile size the key already carries. Recovering them
@@ -258,8 +263,15 @@ impl AtlasStore {
         Ok(Some(AtlasChunk { id, w: 0, h: 0, rg16, png }))
     }
 
-    /// Byte length of a stored chunk's `rg16`, without reading it — used to
-    /// size the status readout cheaply. `Ok(None)` if not baked.
+    /// Byte length of a stored chunk's `rg16`, without reading it.
+    /// `Ok(None)` if not baked.
+    ///
+    /// **Nothing calls this.** Cache sizing goes through [`Self::key_bytes`],
+    /// which stats *both* files of the pair and is what [`Self::world_bytes`]
+    /// and eviction actually use; this one covers the `.bin` alone.
+    /// `UNWIRED_FUNCTIONS.md` registers it as the superseded half of that
+    /// pair. Corrected 2026-09-01, where this said it was "used to size the
+    /// status readout".
     pub fn chunk_len(&self, wk: &str, ts: usize, id: ChunkId) -> io::Result<Option<u64>> {
         match fs::metadata(self.chunk_stem(wk, ts, id).with_extension("bin")) {
             Ok(m) => Ok(Some(m.len())),
@@ -363,14 +375,142 @@ impl AtlasStore {
     pub fn world_bytes(&self, wk: &str) -> io::Result<u64> {
         let mut total = 0u64;
         for k in self.keys_for_world(wk)? {
-            let stem = self.chunk_stem(wk, k.ts, k.id);
-            for ext in ["bin", "png"] {
-                if let Ok(m) = fs::metadata(stem.with_extension(ext)) {
-                    total += m.len();
-                }
-            }
+            total += self.key_bytes(wk, k);
         }
         Ok(total)
+    }
+
+    /// One chunk's on-disk cost, both files. Metadata only — the point of
+    /// [`Self::chunk_len`] applied to the pair, so sizing the cache never
+    /// reads a byte of it.
+    fn key_bytes(&self, wk: &str, k: AtlasKey) -> u64 {
+        let stem = self.chunk_stem(wk, k.ts, k.id);
+        ["bin", "png"]
+            .iter()
+            .filter_map(|ext| fs::metadata(stem.with_extension(ext)).ok())
+            .map(|m| m.len())
+            .sum()
+    }
+
+    /// When a chunk was last *read*, as [`Self::get`] records it.
+    ///
+    /// Falls back to the modification time (the bake) where the platform has
+    /// no access time, and to the epoch where it has neither — both of which
+    /// make the chunk look maximally cold, which is the safe direction: the
+    /// worst case is evicting something that was in fact warm, never keeping
+    /// something stale forever.
+    fn last_access(&self, wk: &str, k: AtlasKey) -> SystemTime {
+        fs::metadata(self.chunk_stem(wk, k.ts, k.id).with_extension("bin"))
+            .and_then(|m| m.accessed().or_else(|_| m.modified()))
+            .unwrap_or(SystemTime::UNIX_EPOCH)
+    }
+
+    /// Every world key that has a directory in this store.
+    ///
+    /// The directory name *is* the key as [`sanitise`] wrote it, and
+    /// `sanitise` is a character filter and therefore idempotent, so a name
+    /// read back out here addresses the same directory when handed to
+    /// [`Self::keys_for_world`].
+    pub fn worlds(&self) -> io::Result<Vec<String>> {
+        let entries = match fs::read_dir(&self.root) {
+            Ok(d) => d,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        let mut out: Vec<String> = entries
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().to_str().map(str::to_string))
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    /// Bytes held by **every** world in this store, not only the current one.
+    pub fn total_bytes(&self) -> io::Result<u64> {
+        let mut total = 0u64;
+        for wk in self.worlds()? {
+            total += self.world_bytes(&wk)?;
+        }
+        Ok(total)
+    }
+
+    /// Bring the whole cache under `max_bytes` by deleting chunks, coldest
+    /// first. Returns the bytes actually freed.
+    ///
+    /// The engine half of *Preferences ▸ Memory ▸ Atlas cache · Size cap*,
+    /// which until now had a status readout and a clear button and nothing in
+    /// between.
+    ///
+    /// **The budget is over the store, not over one world.** A cap that only
+    /// saw the current world would leave every previously-generated world's
+    /// chunks on disk untouched — which is most of what a long session
+    /// accumulates, and exactly what a user sets a cap to bound.
+    ///
+    /// Order:
+    ///
+    /// 1. **Coldest first**, by last read ([`Self::last_access`]).
+    /// 2. **At equal age, the deeper LOD level first.** A coarse tile covers
+    ///    the whole world at a glance, is what a re-bake has to rebuild
+    ///    before anything else, and costs a quarter of what the level below
+    ///    it does — cheaper to keep and more expensive to lose.
+    /// 3. Then by world key and chunk address, only so the order is total and
+    ///    therefore reproducible across platforms.
+    ///
+    /// **A world's coarsest level is never evicted.** Reducing a world to no
+    /// tiles at all would draw as an empty atlas rather than as a coarse one,
+    /// and a size cap is a budget, not a clear button — [`Self::clear_world`]
+    /// is the clear button. A cache that cannot reach the budget without
+    /// crossing that line stops above it and reports what it did free.
+    pub fn evict_to(&self, max_bytes: u64) -> io::Result<u64> {
+        let mut total = 0u64;
+        // (last access, level, world key, chunk, bytes)
+        let mut cold: Vec<(SystemTime, u32, String, AtlasKey, u64)> = Vec::new();
+        for wk in self.worlds()? {
+            let keys = self.keys_for_world(&wk)?;
+            let Some(coarsest) = keys.iter().map(|k| k.id.z).min() else { continue };
+            for k in keys {
+                let bytes = self.key_bytes(&wk, k);
+                total += bytes;
+                if k.id.z == coarsest {
+                    continue;
+                }
+                cold.push((self.last_access(&wk, k), k.id.z, wk.clone(), k, bytes));
+            }
+        }
+        cold.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)).then((&a.2, a.3).cmp(&(&b.2, b.3))));
+        let mut freed = 0u64;
+        for (_, _, wk, k, bytes) in cold {
+            if total <= max_bytes {
+                break;
+            }
+            self.delete(&wk, k.ts, k.id)?;
+            total -= bytes;
+            freed += bytes;
+        }
+        Ok(freed)
+    }
+}
+
+/// Record that a chunk was just read, by writing its access time.
+///
+/// The filesystem **is** the access record here, because there is nowhere
+/// else to keep one: [`AtlasStore`] is rebuilt from a root path on every call
+/// (`bake_bridge::BakeState::store`) and holds no state between them, so an
+/// in-memory LRU would be born empty on every use.
+///
+/// It is written explicitly rather than left to the OS because Windows ships
+/// with NTFS last-access updates disabled (Win10 onwards), so an atime read
+/// back there would silently be the bake time and [`AtlasStore::evict_to`]
+/// would degrade from "coldest first" to "oldest bake first" without saying
+/// so.
+///
+/// Best-effort and deliberately silent: a read-only atlas (an imported
+/// archive, a cache on a read-only mount) must still serve chunks, and a
+/// failed touch costs eviction accuracy and nothing else.
+fn touch_access(path: &Path) {
+    if let Ok(f) = fs::File::options().write(true).open(path) {
+        let _ = f.set_times(fs::FileTimes::new().set_accessed(SystemTime::now()));
     }
 }
 
@@ -590,6 +730,155 @@ mod tests {
         let m = AtlasMeta { ts: 1024, ver: "0.1".into(), chunks: 85, time: 1_700_000_000_000 };
         s.put_meta("w", &m).unwrap();
         assert_eq!(s.get_meta("w").unwrap().unwrap(), m);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    // -- eviction (`Preferences ▸ Memory ▸ Atlas cache · Size cap`) --------
+
+    /// Real clocks have a resolution a test cannot rely on — two `put`s in
+    /// the same millisecond are the same age — so age is *stated* here
+    /// rather than produced, through the same access time `touch_access`
+    /// writes and `last_access` reads.
+    fn age(s: &AtlasStore, wk: &str, k: AtlasKey, secs: u64) {
+        let p = s.chunk_stem(wk, k.ts, k.id).with_extension("bin");
+        let f = fs::File::options().write(true).open(p).unwrap();
+        f.set_times(
+            fs::FileTimes::new()
+                .set_accessed(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs)),
+        )
+        .unwrap();
+    }
+
+    fn key(z: u32, col: u32, row: u32) -> AtlasKey {
+        AtlasKey { ts: 512, id: ChunkId::new(z, col, row) }
+    }
+
+    /// Each chunk here is 16 cells of `rg16` (64 bytes) plus a 4-byte PNG
+    /// stub, so every count in these tests is an exact byte figure rather
+    /// than an approximate one.
+    const CHUNK_BYTES: u64 = 16 * 4 + 4;
+
+    #[test]
+    fn evicting_to_a_budget_below_the_cache_reaches_the_budget() {
+        let root = tmp("evict-budget");
+        let s = AtlasStore::new(&root);
+        // One coarse tile (never evictable) and four deep ones.
+        s.put("w1", 512, &chunk(0, 0, 0, 16)).unwrap();
+        for (col, row) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+            s.put("w1", 512, &chunk(2, col, row, 16)).unwrap();
+        }
+        assert_eq!(s.total_bytes().unwrap(), 5 * CHUNK_BYTES);
+        let budget = 2 * CHUNK_BYTES;
+        let freed = s.evict_to(budget).unwrap();
+        assert_eq!(freed, 3 * CHUNK_BYTES);
+        assert!(s.total_bytes().unwrap() <= budget, "the budget was not reached");
+        // ...and no further eviction is owed once inside it.
+        assert_eq!(s.evict_to(budget).unwrap(), 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn eviction_takes_the_coldest_chunk_first() {
+        let root = tmp("evict-cold");
+        let s = AtlasStore::new(&root);
+        s.put("w1", 512, &chunk(0, 0, 0, 16)).unwrap();
+        for row in 0..3 {
+            s.put("w1", 512, &chunk(2, 0, row, 16)).unwrap();
+        }
+        // Row 1 is the coldest, row 2 the warmest.
+        age(&s, "w1", key(2, 0, 0), 2_000);
+        age(&s, "w1", key(2, 0, 1), 1_000);
+        age(&s, "w1", key(2, 0, 2), 3_000);
+        s.evict_to(3 * CHUNK_BYTES).unwrap();
+        let left = s.keys_for_world("w1").unwrap();
+        assert!(!left.contains(&key(2, 0, 1)), "the coldest chunk survived");
+        assert!(left.contains(&key(2, 0, 0)) && left.contains(&key(2, 0, 2)));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// At the same age the deeper level goes first: a coarse tile is cheaper
+    /// to keep and more expensive to lose.
+    #[test]
+    fn at_equal_age_the_deeper_level_goes_first() {
+        let root = tmp("evict-level");
+        let s = AtlasStore::new(&root);
+        s.put("w1", 512, &chunk(0, 0, 0, 16)).unwrap(); // coarsest: protected
+        s.put("w1", 512, &chunk(1, 0, 0, 16)).unwrap();
+        s.put("w1", 512, &chunk(3, 0, 0, 16)).unwrap();
+        for k in [key(1, 0, 0), key(3, 0, 0)] {
+            age(&s, "w1", k, 1_000);
+        }
+        s.evict_to(2 * CHUNK_BYTES).unwrap();
+        let left = s.keys_for_world("w1").unwrap();
+        assert!(!left.contains(&key(3, 0, 0)), "the deep level survived a tie");
+        assert!(left.contains(&key(1, 0, 0)) && left.contains(&key(0, 0, 0)));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The floor: a budget of zero still leaves every world its coarsest
+    /// level, so the atlas reads as coarse rather than as absent.
+    #[test]
+    fn eviction_never_takes_a_world_below_one_level() {
+        let root = tmp("evict-floor");
+        let s = AtlasStore::new(&root);
+        for wk in ["w1", "w2"] {
+            s.put(wk, 512, &chunk(1, 0, 0, 16)).unwrap();
+            s.put(wk, 512, &chunk(1, 1, 0, 16)).unwrap();
+            s.put(wk, 512, &chunk(4, 0, 0, 16)).unwrap();
+        }
+        s.evict_to(0).unwrap();
+        for wk in ["w1", "w2"] {
+            let left = s.keys_for_world(wk).unwrap();
+            assert_eq!(left.len(), 2, "{wk} kept the wrong number of chunks");
+            assert!(left.iter().all(|k| k.id.z == 1), "{wk} kept a level it should have evicted");
+        }
+        assert!(s.total_bytes().unwrap() > 0, "a size cap is not a clear button");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The budget is over the *store*: an old world nobody is looking at is
+    /// exactly what a long session accumulates, and is evictable.
+    #[test]
+    fn the_budget_spans_every_world_in_the_store() {
+        let root = tmp("evict-worlds");
+        let s = AtlasStore::new(&root);
+        for wk in ["old", "new"] {
+            s.put(wk, 512, &chunk(0, 0, 0, 16)).unwrap();
+            s.put(wk, 512, &chunk(2, 0, 0, 16)).unwrap();
+        }
+        age(&s, "old", key(2, 0, 0), 1_000);
+        age(&s, "new", key(2, 0, 0), 9_000);
+        assert_eq!(s.worlds().unwrap(), vec!["new".to_string(), "old".to_string()]);
+        s.evict_to(3 * CHUNK_BYTES).unwrap();
+        assert!(s.keys_for_world("old").unwrap().len() == 1, "the cold world was not touched");
+        assert!(s.keys_for_world("new").unwrap().len() == 2, "the warm world was evicted first");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn evicting_an_empty_store_is_not_an_error() {
+        let root = tmp("evict-empty");
+        let s = AtlasStore::new(&root);
+        assert_eq!(s.evict_to(0).unwrap(), 0);
+        assert_eq!(s.total_bytes().unwrap(), 0);
+        assert!(s.worlds().unwrap().is_empty());
+    }
+
+    /// `get` is what makes a chunk warm, and it must not need a writable
+    /// clock to succeed — the returned bytes are the contract, the touch is
+    /// bookkeeping.
+    #[test]
+    fn reading_a_chunk_refreshes_its_access_time() {
+        let root = tmp("evict-touch");
+        let s = AtlasStore::new(&root);
+        s.put("w1", 512, &chunk(2, 0, 0, 16)).unwrap();
+        age(&s, "w1", key(2, 0, 0), 1_000);
+        assert_eq!(s.last_access("w1", key(2, 0, 0)), SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000));
+        assert!(s.get("w1", 512, ChunkId::new(2, 0, 0)).unwrap().is_some());
+        assert!(
+            s.last_access("w1", key(2, 0, 0)) > SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000),
+            "a read left the chunk as cold as it found it"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

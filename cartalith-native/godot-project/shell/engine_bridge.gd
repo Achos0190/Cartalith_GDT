@@ -29,6 +29,15 @@ signal params_changed()            ## A dial moved; downstream is stale.
 signal params_applied()            ## A generate landed; nothing is stale.
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
+## The sculpt draft stack changed shape (a stamp added, removed, reordered,
+## undone, redone, committed or discarded). Added 2026-09-01: the right
+## dock re-reads the stack every time `show_sculpt_stack()` rebuilds it, so
+## it never needed one -- but `world_workspace.gd`'s WORLD - Terrain - Draft
+## section reads `sculpt_stamp_count()` ONCE at build time and gates its
+## Commit/Discard buttons on it, so a stroke drawn after that panel was
+## built left both buttons greyed with a non-empty draft behind them.
+## `_deadwire_probe` found it the first time it audited that surface.
+signal sculpt_draft_changed()
 signal project_saved(path: String) ## A `.zip` was written.
 
 var world_gen: WorldGen = WorldGen.new()
@@ -56,9 +65,18 @@ var import_api := false
 var save_api := false
 ## The caller-owned documents the last `load_save()` found in the archive,
 ## `{slot: json_text}` — `project_open`'s own `documents` key, verbatim, and
-## empty when the archive carried none or the flat reader was used. Whoever
-## owns a slot reads it from here after `world_loaded`; nothing parses it on
-## the way through, because Godot's JSON floats every integer it touches.
+## empty when the archive carried none or the flat reader was used. Nothing
+## parses it on the way through, because Godot's JSON floats every integer it
+## touches.
+##
+## **Read it from `DccApp._restore_project_documents()` and nowhere else.**
+## It is a snapshot of the last *opened* archive, and it outlives that open:
+## `world_loaded` also fires for a centring pass, a fjord carve, an applied
+## asset pack and a close, and restoring from this dictionary on any of those
+## replays the file's documents over whatever the user has authored since.
+## That is how the journey list was being reset to its on-disk state every
+## time someone pressed `Center landmasses`. Cleared by `close_world()`, for
+## the same reason.
 var last_documents: Dictionary = {}
 ## What the last successful `load_save()` read: `"tree"` or `"flat"`, and
 ## whatever the reader could not use. Empty before the first open. See
@@ -89,18 +107,26 @@ var _progress_seen_token := -1
 var _progress_seen_stage := -1
 
 ## Whether the world has changed since it was last saved or opened
-## (`GUI_GAP_REGISTER.md` FI-01). Driven by the two signals this node owns:
-## a finished generation, and `world_loaded` (which every world-changing
-## wrapper here already emits -- the centring pass, the fjord carve, an
-## applied asset pack). Cleared by `save_project()` and `load_save()`.
+## (`GUI_GAP_REGISTER.md` FI-01). Cleared by `save_project()`, `load_save()`
+## and `close_world()`. Three kinds of writer set it:
 ##
-## **What it does not see**, stated rather than implied: a Milestone-F tool
-## commit that mutates the world without emitting `world_loaded` leaves this
-## `false`. That is why `DccApp.close_project()` prompts whenever a world
-## exists rather than only when this is set -- a close is the one moment
-## where under-reporting costs the user work. Autosave *does* gate on it,
-## because re-writing an unchanged multi-hundred-megabyte world every few
-## minutes is the worse failure there.
+##   1. a finished generation (`generation_finished`);
+##   2. `world_loaded` -- the centring pass, the fjord carve, an applied
+##      asset pack, all of which emit it;
+##   3. **every mutating wrapper in this file, through `mark_world_dirty()`**.
+##
+## (3) was missing until 2026-09-01, and its absence was the whole defect:
+## the flag meant "a generate or an open happened", so a sculpt commit, an
+## icon, a label, a civilisation edit or an undo made *after* a manual save
+## left it `false`. Autosave gates on this flag and therefore stopped firing
+## for the rest of the session, and the status bar said nothing. See
+## `mark_world_dirty()` for why the marks are unconditional.
+##
+## `DccApp.close_project()` still prompts whenever a world exists rather than
+## only when this is set: a close is the one moment where under-reporting
+## costs the user work, and one belt-and-braces prompt is the cheap side of
+## that trade. Autosave *does* gate on it, because re-writing an unchanged
+## multi-hundred-megabyte world every few minutes is the worse failure there.
 var world_dirty := false
 
 var params_dirty := false
@@ -152,8 +178,9 @@ func _ready() -> void:
 	## against a writer that silently drops the civ layer, which is worse than
 	## a disabled button.
 	save_api = _has("project_save")
-	## Dirty tracking rides the two signals this node already emits rather
-	## than being set by hand in each mutator -- see `world_dirty`.
+	## The two signal-driven writers of `world_dirty`. The third -- the one
+	## that catches a hand edit rather than a whole-world replacement -- is
+	## `mark_world_dirty()`, called from inside each mutating wrapper below.
 	world_loaded.connect(func(): _set_dirty(true))
 	generation_finished.connect(func(ok: bool): if ok: _set_dirty(true))
 	_restore_gpu_prefs()
@@ -355,6 +382,36 @@ func mark_dirty() -> void:
 	params_dirty = true
 	params_changed.emit()
 
+## The other half of `mark_dirty()`, and the one the SAVE path reads.
+##
+## `world_dirty` was driven entirely by the two signals `_ready()` connects --
+## `world_loaded` and `generation_finished` -- which together mean "a generate
+## or an open happened", not "the world changed". So every hand edit made
+## after a manual save left the flag `false`: autosave gates on it and skipped
+## those edits for the rest of the session, and `_refresh_save_status()`
+## printed nothing where it should have said `unsaved changes`. A sculpt
+## commit, an icon, a label, a civilisation edit and an undo are exactly the
+## work an autosave exists to protect, and none of them were reaching it.
+##
+## Called from inside each mutating wrapper below rather than from its
+## callers, so a new call site cannot forget it, and **unconditionally** --
+## before the engine call, not gated on its return value. Marking an
+## unchanged world dirty costs one redundant autosave beside the project;
+## missing a real change costs the user's work, and only one of those two is
+## recoverable.
+##
+## Guarded on `has_world` so the pre-first-generate shell, where every
+## wrapper below is a no-op anyway, never reads as having unsaved changes.
+##
+## **Not** called from `sculpt_restore_document` / `asset_library_restore_document`
+## / `travel_library_restore_document`: those run from
+## `DccApp._restore_project_documents()` immediately after `load_save()` has
+## cleared the flag, and a project that was just opened has nothing unsaved
+## in it by definition.
+func mark_world_dirty() -> void:
+	if has_world:
+		_set_dirty(true)
+
 # -- Generation ---------------------------------------------------------------
 
 ## `request` carries everything the setup surface decided: seed, extent in km,
@@ -429,8 +486,13 @@ func _apply_civ_options(request: Dictionary) -> void:
 	## `civBiomeKChk` (reference line 1406 / `_biomeK` line 6441), the third
 	## one -- default off, same guard, added 2026-08-23 (`PARITY_AUDIT.md`
 	## §5 item 12: the engine parameter always existed, nothing could set it).
-	if _has("set_biome_k_enabled"):
-		world_gen.set_biome_k_enabled(bool(request.get("biome_k", false)))
+	## Through this file's own wrapper, not around it. The direct
+	## `world_gen.set_biome_k_enabled(...)` that used to stand here is what
+	## made that wrapper read as dead code -- and it also skipped the
+	## `mark_world_dirty()` the wrapper performs, which is only harmless
+	## because a generate follows immediately and marks the world itself.
+	## `set_biome_k_enabled()` carries the identical `_has()` guard.
+	set_biome_k_enabled(bool(request.get("biome_k", false)))
 
 
 func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archetype: String) -> void:
@@ -599,6 +661,7 @@ func territory_texture() -> Texture2D:
 func set_territory_opacity(a: float) -> void:
 	if not _has("set_territory_opacity"):
 		return
+	mark_world_dirty()
 	world_gen.set_territory_opacity(a)
 
 func territory_opacity() -> float:
@@ -660,6 +723,7 @@ func quality_tier() -> String:
 	return world_gen.get_quality_tier()
 
 func set_quality_tier(name: String) -> bool:
+	mark_world_dirty()
 	return world_gen.set_quality_tier(name)
 
 func quality_tiers() -> PackedStringArray:
@@ -698,6 +762,7 @@ func look() -> String:
 func set_look(name: String) -> bool:
 	if not look_api:
 		return false
+	mark_world_dirty()
 	return world_gen.set_look(name)
 
 # -- NPR / "Painter" styles (`GUI_GAP_REGISTER.md` RN-01) ---------------------
@@ -719,6 +784,7 @@ func npr_settings() -> Dictionary:
 func set_npr(values: Dictionary) -> int:
 	if not npr_api:
 		return 0
+	mark_world_dirty()
 	return world_gen.set_npr(values)
 
 
@@ -749,6 +815,7 @@ func appearance_tunables() -> Array:
 func set_appearance(values: Dictionary) -> int:
 	if not appearance_api:
 		return 0
+	mark_world_dirty()
 	return world_gen.set_appearance(values)
 
 ## Hand every appearance value back to the active quality tier. Returns how
@@ -756,6 +823,7 @@ func set_appearance(values: Dictionary) -> int:
 func reset_appearance() -> int:
 	if not appearance_api:
 		return 0
+	mark_world_dirty()
 	return world_gen.reset_appearance()
 
 
@@ -788,11 +856,13 @@ func color_ramp() -> Array:
 func set_color_ramp(stops: Array) -> int:
 	if not ramp_api:
 		return 0
+	mark_world_dirty()
 	return world_gen.set_color_ramp(stops)
 
 func load_ramp_preset(name: String) -> bool:
 	if not ramp_api:
 		return false
+	mark_world_dirty()
 	return world_gen.load_ramp_preset(name)
 
 ## `["Linear", "Ease", "Step"]` -- the engine's own interpolation modes.
@@ -818,6 +888,7 @@ func ramp_mode() -> String:
 func set_ramp_mode(name: String) -> bool:
 	if not ramp_mode_api:
 		return false
+	mark_world_dirty()
 	return world_gen.set_ramp_mode(name)
 
 
@@ -997,6 +1068,48 @@ func gpu_vram_estimate(gw: int = 0, gh: int = 0) -> Dictionary:
 func gpu_last_device_usage() -> Array:
 	return _gpu_read("usage", [], func(): return world_gen.gpu_last_device_usage())
 
+## The readback ban, and the one thing that lifts it.
+##
+## When a GPU readback fails, `cartalith-gpu` records that grid size against
+## the adapter and refuses that size and every larger one on it for the rest of
+## the process (`crates/cartalith-gpu/src/lib.rs:1217
+## multi::readback_failure_cells` decides, `:1240 multi::note_readback_failure`
+## records). There is no way back short of a restart, which is why
+## `multi.rs::clear_readback_failures()`'s own doc asks for a "try the GPU
+## again" affordance -- `menus.gd::_build_gpu_retry_row()` is it.
+##
+## Not routed through `_gpu_read()`: that helper answers its `busy_value` when
+## `gpu_api` is false, and these two are a **separate binding pair** from the
+## multi-GPU API `gpu_api` tests for. A build can have one without the other,
+## and `_has()` is the question that fits.
+
+## Whether anything is banned right now. `false` on an older cdylib, which is
+## also the answer that keeps `menus.gd`'s row honestly dark -- it never claims
+## a ban it has not been told about.
+##
+## Cached across a generation for `_gpu_read()`'s reason: the worker thread
+## holds the engine mutably borrowed, and a `bind()` through it while it does
+## is the failure `gpu_settings_locked()` exists to prevent.
+func gpu_readback_failed() -> bool:
+	if not _has("gpu_readback_failed"):
+		return false
+	if generating:
+		return bool(_gpu_cache.get("readback_failed", false))
+	var v: bool = world_gen.gpu_readback_failed()
+	_gpu_cache["readback_failed"] = v
+	return v
+
+## Clear the record. `true` if the call reached the engine; `false` if it could
+## not (no binding, or a generation is running), which is the same answer the
+## other GPU setters give and for the same reason.
+func gpu_clear_readback_failures() -> bool:
+	if generating or not _has("gpu_clear_readback_failures"):
+		return false
+	var ok: bool = world_gen.gpu_clear_readback_failures()
+	if ok:
+		_gpu_cache["readback_failed"] = false
+	return ok
+
 ## Push the persisted §2.5 Performance settings into the engine at startup.
 ##
 ## Order matters: devices before mode, because `split_tiles` only actually
@@ -1020,6 +1133,27 @@ func _restore_gpu_prefs() -> void:
 		world_gen.gpu_set_vram_fallback(fb)
 
 # -- Files --------------------------------------------------------------------
+
+## Bytes free on the volume `path` lives on, or `-1` when it cannot be
+## determined -- an unmounted drive, a path whose parent does not exist, a
+## platform whose statvfs equivalent refused, or a GDExtension too old to have
+## the binding at all. **`-1` is the only "I do not know" answer**, so a caller
+## must branch on it explicitly rather than treating it as "zero free" and
+## refusing every save on an old build.
+##
+## Exists so a save or an export can refuse with a real sentence before it
+## writes, instead of failing halfway and reporting "save failed -- see
+## console". Nothing in this shell checked free space anywhere: `grep` for
+## disk / space / ENOSPC / free-bytes across `shell/` found nothing at all.
+##
+## `path` rather than no argument because the answer is per-volume: a project
+## on an external drive and the atlas cache under `user://` routinely sit on
+## different filesystems, and the one that matters is whichever the bytes are
+## about to be written to.
+func disk_free_bytes(path: String) -> int:
+	if not _has("disk_free_bytes"):
+		return -1
+	return int(world_gen.disk_free_bytes(path))
 
 ## `MVP_SCOPE.md` criterion 7: opens a real HTML-app `.zip` and renders that
 ## save's terrain. `load_save` reads the save's own stored fields directly --
@@ -1136,6 +1270,14 @@ func close_world() -> void:
 	last_summary = ""
 	last_width_km = 0.0
 	last_height_km = 0.0
+	## The closed project's caller-owned documents go with it. Leaving them
+	## here meant the *next* thing to read `last_documents` -- a generate, a
+	## centring pass, anything that reached `DccApp`'s restore -- put the
+	## closed project's journeys into an unrelated world, carrying route
+	## indices that no longer address anything.
+	last_documents = {}
+	last_open_layout = ""
+	last_open_warnings = PackedStringArray()
 	params_dirty = false
 	_restore_gpu_prefs()
 	_read_param_table()
@@ -1192,6 +1334,19 @@ func carve_fjords() -> Dictionary:
 		world_loaded.emit()
 	return r
 
+## No `erode_defaults()` wrapper exists here, deliberately. `ErodeOpts`
+## (`cartalith-engine/src/erode_op.rs`) is a separate struct from
+## `WorldParams` on purpose -- droplet erosion is an op over the finished
+## field, not a generation stage -- so its five exposed keys are not rows in
+## `cartalith-godot/src/params.rs`' `PARAMS` table and `param_default()`
+## returns `null` for them. There is no engine-side getter for them either.
+## A wrapper guarded on `_has("erode_defaults")` would therefore push the
+## stale-library warning above on every boot, telling the reader to rebuild
+## for a symbol no rebuild can produce, and would leave that never-real name
+## in `missing_bindings()`, which is meant to be the staleness fingerprint.
+## `world_workspace.gd:_erode_defaults()` reads `param_default(key)` per key
+## and falls back to its own transcription, saying which it used.
+
 # -- Milestone F tool bindings ------------------------------------------------
 #
 # One thin wrapper per bound-but-unwired #[func], added together so no domain
@@ -1199,6 +1354,15 @@ func carve_fjords() -> Dictionary:
 # own established shape (`has_method` guard, safe default on an older binary),
 # so a workspace built against these never crashes against a GDExtension that
 # predates one specific tool's binding.
+#
+# **Call sites address `bridge.<name>()`, never `bridge.world_gen.<name>()`.**
+# A caller that reaches around a wrapper gets none of what the wrapper is for:
+# not the `_has()` guard, not the `missing_bindings()` staleness record, not
+# the safe default, and since 2026-09-01 not `mark_world_dirty()` either -- so
+# the edit it makes does not reach autosave. It also leaves the wrapper reading
+# as dead code, which is how four of them were nearly deleted. Writing the
+# `world_gen.has_method(...)` test at the call site is the tell: the wrapper
+# already performed it.
 
 # sculpt_bridge.rs
 func get_sculpt_features() -> Array:
@@ -1229,6 +1393,7 @@ func sculpt_get_globals() -> Dictionary:
 func sculpt_set_globals(values: Dictionary) -> Dictionary:
 	if not _has("sculpt_set_globals"):
 		return {}
+	mark_world_dirty()
 	return world_gen.sculpt_set_globals(values)
 
 func sculpt_get_feature() -> String:
@@ -1239,6 +1404,7 @@ func sculpt_get_feature() -> String:
 func sculpt_set_feature(feature_key: String) -> bool:
 	if not _has("sculpt_set_feature"):
 		return false
+	mark_world_dirty()
 	return world_gen.sculpt_set_feature(feature_key)
 
 func sculpt_get_feature_params() -> Dictionary:
@@ -1249,11 +1415,13 @@ func sculpt_get_feature_params() -> Dictionary:
 func sculpt_set_feature_params(values: Dictionary) -> Dictionary:
 	if not _has("sculpt_set_feature_params"):
 		return {}
+	mark_world_dirty()
 	return world_gen.sculpt_set_feature_params(values)
 
 func sculpt_apply_preset(index: int) -> bool:
 	if not _has("sculpt_apply_preset"):
 		return false
+	mark_world_dirty()
 	return world_gen.sculpt_apply_preset(index)
 
 func sculpt_get_freehand_mode() -> String:
@@ -1264,6 +1432,7 @@ func sculpt_get_freehand_mode() -> String:
 func sculpt_set_freehand_mode(mode_key: String) -> bool:
 	if not _has("sculpt_set_freehand_mode"):
 		return false
+	mark_world_dirty()
 	return world_gen.sculpt_set_freehand_mode(mode_key)
 
 func sculpt_get_seed() -> int:
@@ -1274,6 +1443,7 @@ func sculpt_get_seed() -> int:
 func sculpt_set_seed(seed: int) -> void:
 	if not _has("sculpt_set_seed"):
 		return
+	mark_world_dirty()
 	world_gen.sculpt_set_seed(seed)
 
 func sculpt_begin_stroke() -> bool:
@@ -1286,6 +1456,12 @@ func sculpt_add_point(x: float, y: float) -> int:
 		return -1
 	return world_gen.sculpt_add_point(x, y)
 
+## **No caller.** The Sculpt tool needs the stroke's point *positions*, not
+## its length -- it draws them as a path preview -- so
+## `world_workspace.gd::_sculpt_stroke_points` keeps the array as the clicks
+## arrive and the count falls out of it. Kept rather than deleted: the
+## `#[func]` behind it is live, and it is the natural cross-check the next
+## time that local copy and the engine's draft disagree.
 func sculpt_stroke_point_count() -> int:
 	if not _has("sculpt_stroke_point_count"):
 		return -1
@@ -1299,6 +1475,8 @@ func sculpt_cancel_stroke() -> void:
 func sculpt_end_stroke() -> int:
 	if not _has("sculpt_end_stroke"):
 		return -1
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_end_stroke()
 
 func sculpt_stamp_count() -> int:
@@ -1324,21 +1502,28 @@ func sculpt_select_stamp(index: int) -> bool:
 func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
 	if not _has("sculpt_set_stamp_hidden"):
 		return false
+	mark_world_dirty()
 	return world_gen.sculpt_set_stamp_hidden(index, hidden)
 
 func sculpt_move_stamp_up(index: int) -> bool:
 	if not _has("sculpt_move_stamp_up"):
 		return false
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_move_stamp_up(index)
 
 func sculpt_move_stamp_down(index: int) -> bool:
 	if not _has("sculpt_move_stamp_down"):
 		return false
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_move_stamp_down(index)
 
 func sculpt_delete_stamp(index: int) -> bool:
 	if not _has("sculpt_delete_stamp"):
 		return false
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_delete_stamp(index)
 
 func sculpt_can_undo() -> bool:
@@ -1354,11 +1539,15 @@ func sculpt_can_redo() -> bool:
 func sculpt_undo() -> bool:
 	if not _has("sculpt_undo"):
 		return false
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_undo()
 
 func sculpt_redo() -> bool:
 	if not _has("sculpt_redo"):
 		return false
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_redo()
 
 func build_sculpt_preview_texture() -> Texture2D:
@@ -1369,11 +1558,15 @@ func build_sculpt_preview_texture() -> Texture2D:
 func sculpt_commit(reason: String) -> Dictionary:
 	if not _has("sculpt_commit"):
 		return {}
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_commit(reason)
 
 func sculpt_discard() -> int:
 	if not _has("sculpt_discard"):
 		return -1
+	mark_world_dirty()
+	sculpt_draft_changed.emit()
 	return world_gen.sculpt_discard()
 
 # -- Global heightmap undo (Edit ▸ Undo, Ctrl+Z) -------------------------------
@@ -1405,7 +1598,44 @@ func undo_label() -> String:
 func undo_last() -> String:
 	if not _has("undo_last"):
 		return ""
+	mark_world_dirty()
 	return String(world_gen.undo_last())
+
+## Global redo. Separate `#[func]`s from `sculpt_redo` for exactly the reason
+## the block header above gives: the sculpt pair cursors an uncommitted draft,
+## these cursor the committed height stack.
+##
+## The three exist because the global stack used to POP rather than cursor --
+## `menus.gd`'s `_edit()` Redo row (`:632` in this tree, and it moves) was
+## drawn disabled with "global undo has no redo, in this port or the reference" and
+## that reason was true and verified. Once the ledger became a cursor (it
+## already recorded enough to revert *to* a point, which was most of the work),
+## it stopped being true. These wrappers are what a shell meeting either binary
+## uses: on an older cdylib `redo_available()` answers `false` and the menu
+## item stays disabled with its old reason still honest.
+
+## True when there is a step forward of the cursor to take.
+func redo_available() -> bool:
+	if not _has("redo_available"):
+		return false
+	return world_gen.redo_available()
+
+## The operation `redo_last()` would re-apply ("Sculpt commit", "Carve
+## fjords"), or "" when the cursor is already at the top of the stack. Same
+## shape as `undo_label()`, so a menu can label both from one code path.
+func redo_label() -> String:
+	if not _has("redo_label"):
+		return ""
+	return String(world_gen.redo_label())
+
+## Re-applies one step. `true` when the field changed; the caller repaints,
+## exactly as it must after `undo_last()` -- the engine re-runs no flow or
+## climate here either.
+func redo_last() -> bool:
+	if not _has("redo_last"):
+		return false
+	mark_world_dirty()
+	return world_gen.redo_last()
 
 ## `depth`, `max_steps`, `bytes`, `budget_bytes`, `step_bytes`, `label` --
 ## the reference's `#undoMem` readout as data. Empty dictionary on an older
@@ -1526,12 +1756,43 @@ func atlas_clear() -> int:
 	atlas_ready()
 	return int(world_gen.atlas_clear())
 
+## Evict least-recently-used chunks until the store is at or under
+## `max_bytes`. Returns the bytes actually freed -- `0` covers both "already
+## under the cap" and "this build cannot evict", which is the right answer for
+## a caller that only wants to know whether it should re-read `atlas_status()`.
+##
+## This is what makes Preferences' `Atlas cache ▸ Size cap · GB` a real
+## control: until the engine grew per-chunk last-access and level accounting
+## there was `atlas_status` and `atlas_clear` and nothing in between, so a cap
+## could only ever have been enforced by throwing the whole cache away. The
+## menu row's disabled reason said exactly that; it is only safe to enable the
+## row on a binary where `_has("atlas_evict_to")` is true.
+func atlas_evict_to(max_bytes: int) -> int:
+	if not _has("atlas_evict_to"):
+		return 0
+	if not atlas_ready():
+		return 0
+	return int(world_gen.atlas_evict_to(max_bytes))
+
+## **No shell caller: `_bake_probe.gd` is the only one, and there is no UI.**
+## A whole tile pyramid moved between machines as one file is a real
+## capability with a real `#[func]` behind it, and nothing in the shell or in
+## any document names it -- so it is recorded here, where the next person to
+## read this pair will be.
+##
+## The route it wants is `data_manager_window.gd`'s `ROUTES` table, which
+## already has an Import group and an Export group and carries a per-route
+## `reason` string for exactly this kind of disclosure. Adding it is a UI
+## decision (where a multi-hundred-megabyte cache export belongs, and what it
+## should say about staleness), not a binding decision, which is why the
+## binding waits here rather than being deleted.
 func atlas_export_zip(gzip: bool = true) -> PackedByteArray:
 	if not _has("atlas_export_zip"):
 		return PackedByteArray()
 	atlas_ready()
 	return world_gen.atlas_export_zip(gzip)
 
+## The other half of the pair above, and unreachable for the same reason.
 func atlas_import_zip(bytes: PackedByteArray) -> Dictionary:
 	if not _has("atlas_import_zip"):
 		return {"ok": false, "error": "this build has no atlas_import_zip()"}
@@ -1564,6 +1825,7 @@ func is_finalized() -> bool:
 func set_finalized(on: bool) -> bool:
 	if not _has("set_finalized"):
 		return false
+	mark_world_dirty()
 	var ok: bool = world_gen.set_finalized(on)
 	if ok:
 		finalize_changed.emit(on)
@@ -1598,6 +1860,7 @@ func icon_disarm() -> void:
 func icon_place(gx: float, gy: float) -> int:
 	if not _has("icon_place"):
 		return -1
+	mark_world_dirty()
 	return world_gen.icon_place(gx, gy)
 
 ## Clear the placed-icon selection -- `Edit > Deselect`. The icon half of
@@ -1631,6 +1894,7 @@ func icon_handles(index: int, zoom: float) -> Dictionary:
 func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> bool:
 	if not _has("icon_resize"):
 		return false
+	mark_world_dirty()
 	return world_gen.icon_resize(index, cx, cy, gx, gy, start_dist)
 
 func icon_get(index: int) -> Dictionary:
@@ -1641,6 +1905,7 @@ func icon_get(index: int) -> Dictionary:
 func icon_delete(index: int) -> bool:
 	if not _has("icon_delete"):
 		return false
+	mark_world_dirty()
 	return world_gen.icon_delete(index)
 
 func icon_list() -> Array:
@@ -1651,10 +1916,26 @@ func icon_list() -> Array:
 func icon_clear_all() -> void:
 	if not _has("icon_clear_all"):
 		return
+	mark_world_dirty()
 	world_gen.icon_clear_all()
 
 
 # civ_bridge.rs
+## **No caller, and the shell picks settlements by a different rule.**
+## `map_overlay.gd::_hit_test_settlement()` takes the settlement nearest the
+## cursor within `_settlement_pin_radius(kind) + HOVER_RADIUS_PAD` -- a
+## SCREEN-space test against the drawn pin. This binding is
+## `cartalith_civ::civ_pick_place_at`'s weighted-nearest pick, where a bigger
+## settlement outcompetes a closer small one, at a GRID-space radius
+## (`tools.rs`, reference v1.88).
+##
+## The divergence is deliberate and it is the GUI's: a hit test must answer in
+## the units the cursor is in, and only a screen radius stays constant as the
+## map zooms -- a grid radius would grow and shrink under the same finger.
+## What the engine's rule answers is a different question: "which settlement
+## does this map coordinate belong to", which is the reference's own
+## place-drop, not "which one did the user aim at". Left wrapped for that op;
+## it is not a substitute for the hit test and must not be swapped in for one.
 func civ_pick_place_at(gx: float, gy: float) -> int:
 	if not _has("civ_pick_place_at"):
 		return -1
@@ -1663,16 +1944,19 @@ func civ_pick_place_at(gx: float, gy: float) -> int:
 func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name: String, snap_to_water: bool) -> int:
 	if not _has("civ_drop_settlement"):
 		return -1
+	mark_world_dirty()
 	return world_gen.civ_drop_settlement(gx, gy, kind, faction, name, snap_to_water)
 
 func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, subtract: bool) -> void:
 	if not _has("civ_territory_paint_at"):
 		return
+	mark_world_dirty()
 	world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
 
 func civ_territory_commit() -> void:
 	if not _has("civ_territory_commit"):
 		return
+	mark_world_dirty()
 	world_gen.civ_territory_commit()
 
 func civ_territory_discard() -> void:
@@ -1704,21 +1988,25 @@ func civ_settlement_details(index: int) -> Dictionary:
 func civ_edit_settlement(index: int, fields: Dictionary) -> bool:
 	if not _has("civ_edit_settlement"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_edit_settlement(index, fields)
 
 func civ_settlement_toggle_trait(index: int, key: String) -> bool:
 	if not _has("civ_settlement_toggle_trait"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_settlement_toggle_trait(index, key)
 
 func civ_reroll_settlement_name(index: int) -> String:
 	if not _has("civ_reroll_settlement_name"):
 		return ""
+	mark_world_dirty()
 	return world_gen.civ_reroll_settlement_name(index)
 
 func civ_delete_settlement(index: int) -> bool:
 	if not _has("civ_delete_settlement"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_delete_settlement(index)
 
 ## `GUI_GAP_REGISTER.md` SG-02 / ED-03d's "Recompute now" for the civ layer.
@@ -1735,6 +2023,7 @@ func civ_delete_settlement(index: int) -> bool:
 func civ_recompute() -> Dictionary:
 	if not _has("recompute_civilisation"):
 		return {"ok": false, "reason": "This build's extension has no recompute_civilisation."}
+	mark_world_dirty()
 	return world_gen.recompute_civilisation()
 
 ## `GUI_GAP_REGISTER.md` SG-01: which pipeline stages are stale right now, and
@@ -1763,16 +2052,19 @@ func civ_faction_count() -> int:
 func civ_add_faction() -> int:
 	if not _has("civ_add_faction"):
 		return -1
+	mark_world_dirty()
 	return world_gen.civ_add_faction()
 
 func civ_remove_faction() -> bool:
 	if not _has("civ_remove_faction"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_remove_faction()
 
 func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
 	if not _has("civ_set_faction_field"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_set_faction_field(faction, key, value)
 
 ## A faction's **identity colour** (`GUI_GAP_REGISTER.md` CV-21). Read back
@@ -1786,6 +2078,7 @@ func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
 func civ_set_faction_color(faction: int, c: Color) -> bool:
 	if not _has("civ_set_faction_color"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_set_faction_color(faction,
 		int(round(c.r * 255.0)), int(round(c.g * 255.0)), int(round(c.b * 255.0)))
 
@@ -1793,9 +2086,17 @@ func civ_set_faction_color(faction: int, c: Color) -> bool:
 func civ_clear_faction_color(faction: int) -> bool:
 	if not _has("civ_clear_faction_color"):
 		return false
+	mark_world_dirty()
 	return world_gen.civ_clear_faction_color(faction)
 
 ## Whether any faction carries a user identity colour.
+##
+## **No caller.** The one surface that asks a question of this shape --
+## `faction_roster_window.gd`'s Reset button -- needs the PER-FACTION answer
+## and reads `color_custom` off the `get_factions()` row it already holds
+## (`faction_roster_window.gd`, the `reset.disabled` line). The aggregate has
+## no reader today; it is what a "reset every faction's colour" row would
+## gate on, and that row does not exist yet.
 func civ_has_faction_colors() -> bool:
 	if not _has("civ_has_faction_colors"):
 		return false
@@ -1867,9 +2168,28 @@ func civ_culture_vocabulary() -> PackedStringArray:
 		return PackedStringArray()
 	return world_gen.civ_culture_vocabulary()
 
+## The same seven cultures as **rows**: `{id, key, name, terrain_affinity,
+## faction_count, factions, settlement_count, population}` (`lib.rs`'s
+## `get_cultures`, `GUI_GAP_REGISTER.md` CV-02).
+##
+## Non-empty **before** a world exists -- the seven are compile-time
+## constants; only the three aggregates need a `civ` layer and come back
+## zero without one. So a caller must not use emptiness as "no world":
+## `[]` here means an engine too old to have the binding, nothing else.
+##
+## `id` is the 0-based `CIV_CULTURES` index, which is what the Markdown
+## Vault addresses a culture by (`EntityKind::Culture`) and the one entity
+## id in this port that survives both a regenerate and a save/load.
+func get_cultures() -> Array:
+	if not _has("get_cultures"):
+		return []
+	return world_gen.get_cultures()
+
+
 func set_biome_k_enabled(enabled: bool) -> void:
 	if not _has("set_biome_k_enabled"):
 		return
+	mark_world_dirty()
 	world_gen.set_biome_k_enabled(enabled)
 
 func get_biome_k_enabled() -> bool:
@@ -1902,6 +2222,7 @@ func paint_set_brush(value: int, radius: float, hardness: float, softness: float
 func paint_stroke_at(gx: float, gy: float) -> void:
 	if not _has("paint_stroke_at"):
 		return
+	mark_world_dirty()
 	world_gen.paint_stroke_at(gx, gy)
 
 func build_paint_preview_texture() -> Texture2D:
@@ -1925,11 +2246,13 @@ func paint_draft_count() -> int:
 func paint_commit() -> Dictionary:
 	if not _has("paint_commit"):
 		return {}
+	mark_world_dirty()
 	return world_gen.paint_commit()
 
 func paint_discard() -> int:
 	if not _has("paint_discard"):
 		return -1
+	mark_world_dirty()
 	return world_gen.paint_discard()
 
 
@@ -1947,6 +2270,7 @@ func way_append_point(gx: float, gy: float) -> bool:
 func way_commit() -> int:
 	if not _has("way_commit"):
 		return -1
+	mark_world_dirty()
 	return world_gen.way_commit()
 
 func way_discard() -> void:
@@ -1969,6 +2293,7 @@ func route_append_stop(gx: float, gy: float) -> bool:
 func route_commit() -> int:
 	if not _has("route_commit"):
 		return -1
+	mark_world_dirty()
 	return world_gen.route_commit()
 
 func route_discard() -> void:
@@ -1994,11 +2319,13 @@ func route_get(index: int) -> Dictionary:
 func route_delete(index: int) -> bool:
 	if not _has("route_delete"):
 		return false
+	mark_world_dirty()
 	return world_gen.route_delete(index)
 
 func route_set_name(index: int, name: String) -> bool:
 	if not _has("route_set_name"):
 		return false
+	mark_world_dirty()
 	return world_gen.route_set_name(index, name)
 
 
@@ -2088,11 +2415,13 @@ func export_geojson() -> String:
 func label_create(gx: float, gy: float, text: String) -> int:
 	if not _has("label_create"):
 		return -1
+	mark_world_dirty()
 	return world_gen.label_create(gx, gy, text)
 
 func label_move(index: int, gx: float, gy: float) -> bool:
 	if not _has("label_move"):
 		return false
+	mark_world_dirty()
 	return world_gen.label_move(index, gx, gy)
 
 func label_select(index: int) -> bool:
@@ -2108,6 +2437,7 @@ func label_get_selected() -> int:
 func label_confirm_edit() -> void:
 	if not _has("label_confirm_edit"):
 		return
+	mark_world_dirty()
 	world_gen.label_confirm_edit()
 
 func label_cancel_edit() -> bool:
@@ -2128,16 +2458,19 @@ func label_list() -> Array:
 func label_set(index: int, values: Dictionary) -> Dictionary:
 	if not _has("label_set"):
 		return {}
+	mark_world_dirty()
 	return world_gen.label_set(index, values)
 
 func label_delete(index: int) -> bool:
 	if not _has("label_delete"):
 		return false
+	mark_world_dirty()
 	return world_gen.label_delete(index)
 
 func label_clear_all() -> void:
 	if not _has("label_clear_all"):
 		return
+	mark_world_dirty()
 	world_gen.label_clear_all()
 
 func label_hit_test(gx: float, gy: float) -> int:
@@ -2277,6 +2610,23 @@ func civ_trade_flows() -> Dictionary:
 		return {}
 	return world_gen.civ_trade_flows()
 
+## Every settlement's food-shed capacity -- `_civFoodShed` run once per
+## settlement: its own catchment ceiling, the countryside within land reach,
+## and genuine spare capacity imported from elsewhere over the cheapest mode
+## both ends share (`ECONOMY_SCOPE.md` milestone 2).
+##
+## **Computed on demand and held nowhere**, the same contract
+## `civ_trade_flows()` above ships on -- `CivData` gains no field and
+## nothing is saved. `TradeStore` is what keeps the result on the shell
+## side, alongside the trade-flow match.
+##
+## `{}` before any generate, on a loaded save (no civilisation layer), and
+## on a world with no settlements.
+func civ_food_shed() -> Dictionary:
+	if not _has("civ_food_shed"):
+		return {}
+	return world_gen.civ_food_shed()
+
 ## The coordinate frame this world's fields and its GeoJSON export are in
 ## (`GUI_GAP_REGISTER.md` WW-15). `{}` before any generate.
 func world_crs() -> Dictionary:
@@ -2314,6 +2664,7 @@ func ecology_summary() -> Dictionary:
 func civ_add_year(year: int) -> void:
 	if not _has("civ_add_year"):
 		return
+	mark_world_dirty()
 	world_gen.civ_add_year(year)
 
 ## `civGotoYear`: moves the active-year cursor and restores `territory` from
@@ -2330,6 +2681,7 @@ func civ_goto_year(year: int) -> void:
 func civ_remove_year(year: int) -> void:
 	if not _has("civ_remove_year"):
 		return
+	mark_world_dirty()
 	world_gen.civ_remove_year(year)
 
 ## The active timeline cursor (reference `civYear`). `0` before any
@@ -2344,6 +2696,35 @@ func get_civ_timeline_years() -> PackedInt64Array:
 	if not _has("get_civ_timeline_years"):
 		return PackedInt64Array()
 	return world_gen.get_civ_timeline_years()
+
+## Re-derive `CivData::next_tid` from the live settlements/ways AND every
+## recorded timeline snapshot's own, returning the new value.
+##
+## `cartalith_civ::timeline::civ_resync_next_tid_with_timeline` is the
+## milestone-4 function; the milestone-1 `civ_resync_next_tid` beside it scans
+## only the live arrays, because `TimelineSnapshot` did not exist when it was
+## written. That difference is the whole point of binding this one: a reseed
+## that ignores the timeline can hand out a tid a historical year already
+## holds, and the collision only shows up as two records claiming one id long
+## after the year that created it was recorded.
+##
+## Returns the resynced `next_tid`, or `0` on a binary that has neither
+## resync bound -- `0` is not a value the function can legitimately produce
+## (it is always `max(tid) + 1`, so at minimum `1`), so a caller can tell
+## "unavailable" from "resynced to the first free id".
+## **No caller.** Nothing in the shell reseeds `next_tid` by hand: the engine
+## does it wherever it hands one out, and the collision this guards against
+## needs a timeline snapshot written by a build whose live arrays had already
+## moved past it. Kept because that is exactly the repair a Timeline panel
+## would offer once one exists, and because deleting it would leave the
+## milestone-1 `civ_resync_next_tid` as the only reachable resync -- the one
+## that ignores the snapshots and can therefore hand out a tid a recorded year
+## already holds.
+func civ_resync_next_tid_with_timeline() -> int:
+	if not _has("civ_resync_next_tid_with_timeline"):
+		return 0
+	mark_world_dirty()
+	return int(world_gen.civ_resync_next_tid_with_timeline())
 
 ## `_civYearDiff`: `{"present": PackedInt64Array, "removed": PackedInt64Array,
 ## "added": PackedInt64Array}` of settlement/way tids, diffing `year` against
@@ -2369,6 +2750,7 @@ func civ_year_diff(year: int) -> Dictionary:
 func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
 	if not _has("civ_run_collapse_simulation"):
 		return {"ok": false, "error": "civ_run_collapse_simulation not available on this binary"}
+	mark_world_dirty()
 	return world_gen.civ_run_collapse_simulation(request)
 
 
@@ -2405,24 +2787,28 @@ func tl_get(kind: String, id: String) -> Dictionary:
 func tl_duplicate(kind: String, id: String) -> Dictionary:
 	if not _has("tl_duplicate"):
 		return {"ok": false, "error": "tl_duplicate not available on this binary"}
+	mark_world_dirty()
 	return world_gen.tl_duplicate(kind, id)
 
 ## A brand-new custom entry with every field unset. `{"ok": true, "id": new_id}`.
 func tl_add_blank(kind: String, name: String) -> Dictionary:
 	if not _has("tl_add_blank"):
 		return {"ok": false, "error": "tl_add_blank not available on this binary"}
+	mark_world_dirty()
 	return world_gen.tl_add_blank(kind, name)
 
 ## Deletes a custom entry. No-op on an unknown id or a stock one.
 func tl_delete(kind: String, id: String) -> Dictionary:
 	if not _has("tl_delete"):
 		return {"ok": false}
+	mark_world_dirty()
 	return world_gen.tl_delete(kind, id)
 
 ## Discards every custom entry of one kind, restoring the stock-only bootstrap.
 func tl_reset_to_stock(kind: String) -> Dictionary:
 	if not _has("tl_reset_to_stock"):
 		return {"ok": false}
+	mark_world_dirty()
 	return world_gen.tl_reset_to_stock(kind)
 
 ## Applies a partial `fields` Dictionary onto an existing custom entry (stock entries
@@ -2431,6 +2817,7 @@ func tl_reset_to_stock(kind: String) -> Dictionary:
 func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
 	if not _has("tl_edit"):
 		return {"ok": false, "error": "tl_edit not available on this binary", "rejected": []}
+	mark_world_dirty()
 	return world_gen.tl_edit(kind, id, fields)
 
 ## "Capture party from planner": a new custom party preset from `plan`, in
@@ -2438,6 +2825,7 @@ func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
 func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
 	if not _has("tl_capture_preset_from_plan"):
 		return {"ok": false, "error": "tl_capture_preset_from_plan not available on this binary"}
+	mark_world_dirty()
 	return world_gen.tl_capture_preset_from_plan(name, plan)
 
 
@@ -2451,12 +2839,14 @@ func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
 func as_import_item(uid: String, item_name: String, bytes: PackedByteArray) -> Dictionary:
 	if not _has("as_import_item"):
 		return {"ok": false, "error": "as_import_item not available on this binary"}
+	mark_world_dirty()
 	return world_gen.as_import_item(uid, item_name, bytes)
 
 ## Add (or return the existing) custom slot. `{"ok": true, "uid": ...}`.
 func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:
 	if not _has("as_add_custom_slot"):
 		return {"ok": false, "error": "as_add_custom_slot not available on this binary"}
+	mark_world_dirty()
 	return world_gen.as_add_custom_slot(slot_name, set_name)
 
 ## Every slot in `family_key`'s registry with real fill state -- each row carries
@@ -2494,18 +2884,21 @@ func as_pack_info() -> Dictionary:
 func as_set_pack_info(pack_name: String, author: String, license: String) -> bool:
 	if not _has("as_set_pack_info"):
 		return false
+	mark_world_dirty()
 	return world_gen.as_set_pack_info(pack_name, author, license)
 
 ## Removes one item from a slot.
 func as_remove_item(uid: String, index: int) -> bool:
 	if not _has("as_remove_item"):
 		return false
+	mark_world_dirty()
 	return world_gen.as_remove_item(uid, index)
 
 ## Resets the whole session to a fresh, empty library.
 func as_clear_library() -> bool:
 	if not _has("as_clear_library"):
 		return false
+	mark_world_dirty()
 	return world_gen.as_clear_library()
 
 ## `AssetValidator.run()`'s real, ordered warning strings.
@@ -2526,6 +2919,7 @@ func as_export_pack_bytes() -> Dictionary:
 func as_apply_to_map() -> Dictionary:
 	if not _has("as_apply_to_map"):
 		return {"ok": false, "error": "as_apply_to_map not available on this binary"}
+	mark_world_dirty()
 	var result: Dictionary = world_gen.as_apply_to_map()
 	if bool(result.get("ok", false)):
 		world_loaded.emit()
@@ -2535,12 +2929,14 @@ func as_apply_to_map() -> Dictionary:
 func as_batch_tag(uids: PackedStringArray, tags_csv: String) -> Dictionary:
 	if not _has("as_batch_tag"):
 		return {"ok": false}
+	mark_world_dirty()
 	return world_gen.as_batch_tag(uids, tags_csv)
 
 ## Adds every uid in `uids` to collection `coll_name`.
 func as_batch_collect(uids: PackedStringArray, coll_name: String) -> Dictionary:
 	if not _has("as_batch_collect"):
 		return {"ok": false}
+	mark_world_dirty()
 	return world_gen.as_batch_collect(uids, coll_name)
 
 ## `{base}_01`, `{base}_02`, ... over `uids` in order. `remap` carries
@@ -2548,18 +2944,21 @@ func as_batch_collect(uids: PackedStringArray, coll_name: String) -> Dictionary:
 func as_batch_rename(uids: PackedStringArray, base: String) -> Dictionary:
 	if not _has("as_batch_rename"):
 		return {"ok": false, "renamed": 0, "remap": {}}
+	mark_world_dirty()
 	return world_gen.as_batch_rename(uids, base)
 
 ## Clones every slot in `uids` carrying at least one item into a new custom slot.
 func as_batch_duplicate(uids: PackedStringArray) -> Dictionary:
 	if not _has("as_batch_duplicate"):
 		return {"ok": false, "made": 0}
+	mark_world_dirty()
 	return world_gen.as_batch_duplicate(uids)
 
 ## Custom slots in `uids` are removed entirely; frozen slots have their items cleared.
 func as_batch_delete(uids: PackedStringArray) -> Dictionary:
 	if not _has("as_batch_delete"):
 		return {"ok": false, "deleted": 0}
+	mark_world_dirty()
 	return world_gen.as_batch_delete(uids)
 
 ## Decodes a sprite sheet and holds it on the session for slicing (AS-09).
@@ -2595,6 +2994,7 @@ func as_slice_apply(opts: Dictionary) -> Dictionary:
 	if not _has("as_slice_apply"):
 		return {"ok": false, "error": "as_slice_apply not available on this binary",
 			"added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
+	mark_world_dirty()
 	return world_gen.as_slice_apply(opts)
 
 ## AS-07: writes one item's scale/pan directly. `false` for an unknown
@@ -2602,6 +3002,7 @@ func as_slice_apply(opts: Dictionary) -> Dictionary:
 func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, pan_y: float) -> bool:
 	if not _has("as_set_item_transform"):
 		return false
+	mark_world_dirty()
 	return world_gen.as_set_item_transform(uid, index, scale, pan_x, pan_y)
 
 ## AS-07: resets one item's transform to identity, re-fitting to the slot's
@@ -2610,6 +3011,7 @@ func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, 
 func as_reset_item_transform(uid: String, index: int, fit: bool) -> Dictionary:
 	if not _has("as_reset_item_transform"):
 		return {"ok": false}
+	mark_world_dirty()
 	return world_gen.as_reset_item_transform(uid, index, fit)
 
 ## AS-17: moves interior line `index` of `lines` to `frac`, clamped strictly
@@ -2655,10 +3057,12 @@ func continents() -> Array:
 func vault_connect(path: String, display_name: String = "") -> Dictionary:
 	if not _has("vault_connect"):
 		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
 	return world_gen.vault_connect(path, display_name)
 
 func vault_disconnect() -> void:
 	if _has("vault_disconnect"):
+		mark_world_dirty()
 		world_gen.vault_disconnect()
 
 func vault_info() -> Dictionary:
@@ -2707,11 +3111,13 @@ func vault_read_file(rel: String) -> String:
 func vault_attach(kind: String, entity_id: int, label: String, rel: String, heading: String) -> Dictionary:
 	if not _has("vault_attach"):
 		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
 	return world_gen.vault_attach(kind, entity_id, label, rel, heading)
 
 func vault_detach(link_id: String) -> bool:
 	if not _has("vault_detach"):
 		return false
+	mark_world_dirty()
 	return world_gen.vault_detach(link_id)
 
 func vault_links_for(kind: String, entity_id: int) -> Array:
@@ -2737,6 +3143,7 @@ func vault_link_text(link_id: String) -> String:
 func vault_set_link_text(link_id: String, text: String) -> bool:
 	if not _has("vault_set_link_text"):
 		return false
+	mark_world_dirty()
 	return world_gen.vault_set_link_text(link_id, text)
 
 func vault_reload_link(link_id: String) -> Dictionary:
@@ -2752,14 +3159,27 @@ func vault_preview_section_write(link_id: String) -> Dictionary:
 func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_section"):
 		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
 	return world_gen.vault_write_section(link_id, expect_hash)
 
-## Every entity kind this build can address in a vault. `faction` joined
+## Every entity kind this build can address in a vault, in the order the
+## docks list them. `faction` and `culture` both joined
 ## `settlement`/`province`/`continent` on 2026-08-25 (`GUI_GAP_REGISTER.md`
-## CV-22).
+## CV-22 and CV-02); `poi` is deliberately absent and will stay absent while
+## this port has no point-of-interest entity (CV-01).
+##
+## **Build every kind list from this, never from a literal.** The fallback
+## below carried the pre-2026-08-25 three for months after the engine grew
+## five, so a transcribed copy of it was wrong in two places at once -- which
+## is the whole reason `vault_bridge.rs` exports the list at all.
 func vault_entity_kinds() -> PackedStringArray:
 	if not _has("vault_entity_kinds"):
-		return PackedStringArray(["settlement", "province", "continent"])
+		## Matches `vault_bridge.rs::vault_entity_kinds` exactly. A binary old
+		## enough to be missing the binding may also reject `faction` and
+		## `culture` at `vault_attach`; that call answers for itself, and
+		## under-reporting the list here would hide two kinds from a binary
+		## that does support them.
+		return PackedStringArray(["settlement", "province", "continent", "faction", "culture"])
 	return world_gen.vault_entity_kinds()
 
 func vault_export_fields(kind: String, entity_id: int) -> Array:
@@ -2785,6 +3205,7 @@ func vault_preview_block(rel: String, kind: String, entity_id: int, body: String
 func vault_write_block(rel: String, kind: String, entity_id: int, body: String, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_block"):
 		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
 	return world_gen.vault_write_block(rel, kind, entity_id, body, expect_hash)
 
 func vault_preview_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool) -> Dictionary:
@@ -2795,6 +3216,7 @@ func vault_preview_field_fill(rel: String, kind: String, entity_id: int, overwri
 func vault_write_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_field_fill"):
 		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
 	return world_gen.vault_write_field_fill(rel, kind, entity_id, overwrite, expect_hash)
 
 ## The link store as JSON. `VaultStore` (`vault_store.gd`) owns writing it to
@@ -2945,6 +3367,7 @@ func vault_write_prefs() -> Dictionary:
 func vault_set_write_pref(path: String, value: bool) -> bool:
 	if not _has("vault_set_write_pref"):
 		return false
+	mark_world_dirty()
 	return world_gen.vault_set_write_pref(path, value)
 
 ## The preferences as JSON text, for the save file. Text, not a Dictionary --
@@ -2966,6 +3389,7 @@ func vault_restore_prefs(json: String) -> bool:
 func vault_remove_block(rel: String, kind: String, entity_id: int, expect_hash: String) -> Dictionary:
 	if not _has("vault_remove_block"):
 		return {"ok": false, "error": "vault_remove_block not available on this binary"}
+	mark_world_dirty()
 	return world_gen.vault_remove_block(rel, kind, entity_id, expect_hash)
 
 # -- F10 · project documents -------------------------------------------------
@@ -2973,10 +3397,75 @@ func vault_remove_block(rel: String, kind: String, entity_id: int, expect_hash: 
 ## `project_save` plus the caller's own documents: `{slot: json_text}` over the
 ## slots `project_document_slots()` lists. Text rather than a Dictionary for
 ## the same KV-04 reason as `vault_prefs_json` above.
+##
+## **`save_project()` is still the entry point File ▸ Save uses**; this one
+## exists for the single caller that must write the same archive *without*
+## the bookkeeping `save_project()` performs -- `DccApp._autosave_tick()`,
+## which must not clear the dirty flag and must not emit `project_saved`,
+## because the project the user chose to keep is still unwritten.
+##
+## An older binary with no `project_save_with_documents` degrades to
+## `project_save` rather than refusing the write outright: an autosave that
+## carries the world but not the drafts still beats no autosave. It says so,
+## because silently dropping documents is exactly the failure this pair of
+## functions was added to end.
 func project_save_with_documents(path: String, extra_documents: Dictionary) -> Dictionary:
 	if not _has("project_save_with_documents"):
-		return {"ok": false, "error": "project_save_with_documents not available on this binary"}
+		if not _has("project_save"):
+			return {"ok": false, "error": "project_save_with_documents not available on this binary"}
+		if not extra_documents.is_empty():
+			push_warning("Cartalith: this binary has no project_save_with_documents -- %d caller-owned document(s) were not written to %s"
+				% [extra_documents.size(), path])
+		return world_gen.project_save(path)
 	return world_gen.project_save_with_documents(path, extra_documents)
+
+## Every document the ENGINE can build for a caller-owned slot, keyed by slot
+## name (`project_bridge.rs::project_engine_built_documents`): the paint
+## layers, the sculpt draft, the Asset Library and the Travel Library. Merge
+## it into whatever the shell owns and hand the union to `save_project()`;
+## the two sets never collide, because none of these four is a slot GDScript
+## writes.
+##
+## A slot with nothing to write is **absent**, not empty -- that side's own
+## contract, and the reason this returns a Dictionary to merge rather than
+## four strings to test.
+func project_engine_built_documents() -> Dictionary:
+	if not _has("project_engine_built_documents"):
+		return {}
+	return world_gen.project_engine_built_documents()
+
+## Puts a `drafts/sculpt.json` back into the live Sculpt editor. Returns
+## `{ok, error, stamps}`.
+##
+## **Expect `ok == false` after opening a project**, and report the `error`
+## rather than swallowing it: the engine drops the Sculpt editor on every
+## load (`lib.rs`, the `self.sculpt = None` beside `self.icons = None`)
+## because a save carries no `river_mask`/`river_floor` for the draft's water
+## hooks to adopt. The document is still carried in the archive; it is not
+## re-applied, and the person who painted it is owed that sentence.
+func sculpt_restore_document(text: String) -> Dictionary:
+	if not _has("sculpt_restore_document"):
+		return {"ok": false, "error": "sculpt_restore_document not available on this binary"}
+	sculpt_draft_changed.emit()
+	return world_gen.sculpt_restore_document(text)
+
+## Puts a `library/assets.json` back. Returns `{ok, error, slots, items}`.
+## `items` is `0` on this build by design -- the record comes back, the
+## decoded pixels do not (`project_bridge.rs`'s own note on
+## `asset_library_document_json`).
+func asset_library_restore_document(text: String) -> Dictionary:
+	if not _has("asset_library_restore_document"):
+		return {"ok": false, "error": "asset_library_restore_document not available on this binary"}
+	return world_gen.asset_library_restore_document(text)
+
+## Puts a `library/travel.json` back. Returns `{ok, error, restored,
+## rejected}`. Replaces the custom half of every set and leaves the stock
+## entries alone, so opening a project cannot leave the previous one's pack
+## mule behind.
+func travel_library_restore_document(text: String) -> Dictionary:
+	if not _has("travel_library_restore_document"):
+		return {"ok": false, "error": "travel_library_restore_document not available on this binary"}
+	return world_gen.travel_library_restore_document(text)
 
 ## Every slot the format defines.
 func project_document_slots() -> PackedStringArray:
@@ -2985,6 +3474,14 @@ func project_document_slots() -> PackedStringArray:
 	return world_gen.project_document_slots()
 
 ## The subset the engine writes itself, which a caller may not supply.
+##
+## **No caller.** `DccApp._project_documents()` is the only place that builds
+## a document map, and it cannot produce an engine-owned slot: its two sources
+## are `project_engine_built_documents()` (which names its own four
+## caller-owned slots) and the one literal `entities/journeys.json`. This is
+## what a check would test against if that ever stops being true -- a slot
+## name typed by hand is discovered "as a failed save" otherwise, which is
+## the failure `project_document_slots()` was added for.
 func project_engine_owned_slots() -> PackedStringArray:
 	if not _has("project_engine_owned_slots"):
 		return PackedStringArray()

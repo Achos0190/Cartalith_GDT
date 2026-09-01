@@ -4,7 +4,7 @@ extends Node
 ## desktop, every action button meets the phone tap floor, and it is gone
 ## once a world loads.
 ##
-## `_touch` (`dcc_shell.gd:333`) is read once from `OS.get_cmdline_user_args()`
+## `DccShell._touch` is read once from `OS.get_cmdline_user_args()`
 ## per process and cannot be toggled mid-run, so unlike `_ph412_probe.gd`
 ## (which only varies `--vp` within one process) this one needs **two
 ## separate invocations**, one with `--force-touch` and one without:
@@ -15,7 +15,11 @@ extends Node
 ## Hosted in a `SubViewport` sized from `--vp`, exactly like `_ph412_probe.gd`
 ## -- `--resolution WxH` alone clamps to the dev monitor's work area and never
 ## reaches a real phone aspect. Modelled on `_cmdindex_probe.gd`'s boot/assert
-## shape otherwise. Untracked, like every other probe in this folder.
+## shape otherwise.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them.
 
 var _fail := 0
 var app: Node

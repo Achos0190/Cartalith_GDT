@@ -95,6 +95,18 @@ func _dump_text() -> String:
 	lines.append("Quality tier: %s" % _bridge.quality_tier())
 	var gpu_on := bool(_bridge.param_get("use_gpu"))
 	lines.append("GPU: %s" % ("on" if gpu_on else "off"))
+	## The `format_version` this build writes (`SAVEFILE_COMPAT.md` §4). It is
+	## the first thing asked when an old `.zip` misbehaves, and nothing else in
+	## the UI printed it. `project_format_version()` returns 0 when the binding
+	## is absent, which is not a version -- say so rather than print "0".
+	var fmt := _bridge.project_format_version()
+	lines.append("Project format version: %s" % (str(fmt) if fmt > 0 else "unknown (binding absent)"))
+	## The staleness fingerprint. `EngineBridge._has()` already warns once per
+	## missing method and accumulates the names; printing them here means a
+	## report that says "feature X is greyed out" arrives with its own answer,
+	## instead of needing the reporter to find the warnings in a log.
+	var missing := _bridge.missing_bindings()
+	lines.append("Bindings missing: %s" % ("none" if missing.is_empty() else ", ".join(missing)))
 	lines.append("")
 	lines.append("Full generation parameters (for reproducing this exact world):")
 

@@ -247,22 +247,44 @@ func _ready() -> void:
 	await _frames(3)
 
 	# ── GUI_GAP_REGISTER.md §46: a Popup is a Window, not a Control ──────────
+	## **This block used to call `app._set_drawer_open(true)` and read
+	## `app._phone_drawer`, neither of which exists any more.** The ☰ side drawer
+	## was removed by the 412 dp phone migration in favour of the domain drill
+	## (`dcc_shell.gd::_build_phone_menu_bar()` / `_phone_menu: PhoneMenu`); the
+	## only trace left of the old names is a stale comment at
+	## `dcc_shell.gd` (a doc comment naming `_pick_drawer_domain()` /
+	## `_set_drawer_open()`). So this probe died here with "Nonexistent function
+	## '_set_drawer_open'", never reached `get_tree().quit()`, and hung until the
+	## caller's timeout -- a probe that cannot report is a probe that cannot
+	## fail, which is the same defect as the bare `quit()` fixed below.
+	##
+	## The check itself is still live and still worth making: §46 is that the
+	## Layers popover is a `PopupPanel`, i.e. a `Window`, which no Control walk
+	## reaches, so opening a phone overlay used to leave both on screen. The
+	## overlay is now a dock sheet, and `_set_sheet_open()` routes through
+	## `_close_all_phone_overlays()`, which is where §46's fix lives. Same
+	## assertion, against the surface that replaced the one it named -- and
+	## `_set_sheet_open("left", ...)` is already used seven lines above, so this
+	## block was the only stale caller left in the file.
 	app.layers_popover.open()
 	await _frames(4)
 	var pop_before: bool = app.layers_popover.visible
-	app._set_drawer_open(true)
+	app._set_sheet_open("left", true)
 	await _frames(4)
 	print("[POPUP] layers popover visible before=", pop_before,
-		" after opening the drawer=", app.layers_popover.visible,
-		" drawer visible=", app._phone_drawer.visible)
+		" after opening the left dock sheet=", app.layers_popover.visible,
+		" sheet visible=", app.left_dock.visible)
 	_check("the popover opened at all", pop_before, true)
 	_check("a phone overlay closes the popover", app.layers_popover.visible, false)
-	_check("and the overlay it opened is up", app._phone_drawer.visible, true)
-	app._set_drawer_open(false)
+	_check("and the overlay it opened is up", app.left_dock.visible, true)
+	app._set_sheet_open("left", false)
 	await _frames(3)
 
 	print("=== failures=", _fails, " ===")
-	get_tree().quit()
+	## Was a bare `quit()`, i.e. exit 0 whatever `_fails` held -- the same
+	## defect `_deadwire_probe.gd` had fixed above its own `_verdict()`. A
+	## counted failure nobody can gate on is a probe that cannot fail.
+	get_tree().quit(1 if _fails > 0 else 0)
 
 func _find_scroll(n: Node) -> ScrollContainer:
 	if n is ScrollContainer:

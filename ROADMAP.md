@@ -4,20 +4,23 @@ A sketch, deliberately not over-planned. Each phase gets its own scope document 
 as `MVP_SCOPE.md` serves Phase 1 — written when it starts, informed by what the
 previous phase actually taught.
 
-**This file is the plan, not the state.** Each phase below carries a one-line
-status, but the authority is `cartalith-native/docs/STATUS.md`; the per-phase
-scope documents carry the milestone-by-milestone record. Where a phase
-description below was written before the work started and the work then
-contradicted it, the correction is recorded in the phase's own section rather
-than by quietly rewriting the original text.
+**This file defines the phases. It does not track them.** Read it for what a
+phase *is*, where its boundary sits, and which decisions shaped it. For where
+any of it stands today — done, partial, blocked, declined — read
+**`cartalith-native/docs/STATUS.md`**, which is the only place progress is
+recorded. Where a phase description below was written before the work started
+and the work then contradicted it, the correction is recorded in the phase's own
+section rather than by quietly rewriting the original text.
 
 ## Phase 0 — Walking skeleton
-
-**Status: done.**
 
 No engine logic. Prove `gdext` + Godot + Rust builds and runs on all three targets
 with placeholder content: a triangle, a button, a printed line. Steps in
 `TOOLCHAIN.md`.
+
+"All three targets" means the three `DECISIONS.md` §2 names: Windows, Android,
+and a WASM build. Only the first two have ever been committed to — WASM is
+listed under *Options kept open* below and has no export preset.
 
 **The Android export is the risk.** gdext's own docs call Android support
 experimental (`REFERENCES.md`). Surface trouble here immediately rather than
@@ -25,12 +28,10 @@ discovering it mid-Phase 1.
 
 ## Phase 1 — Terrain MVP
 
-**Status: done** — all seven criteria in `MVP_SCOPE.md`, plus both closeout
-items named below (credits screen, crate licence audit).
-
-Scope in `MVP_SCOPE.md`. The full pipeline — tectonics, height, climate, erosion,
-hydrology — parity-verified (`PARITY_TESTING.md`), rendered in 2D, reading HTML
-saves (`SAVEFILE_COMPAT.md`), shipping as an `.exe` and `.apk` confirmed on the
+Scope in `MVP_SCOPE.md`, which carries the seven success criteria. The phase is
+the full pipeline — tectonics, height, climate, erosion, hydrology —
+parity-verified (`PARITY_TESTING.md`), rendered in 2D, reading HTML saves
+(`SAVEFILE_COMPAT.md`), and packaged as an `.exe` and an `.apk` confirmed on the
 owner's hardware.
 
 Two things belong in the definition of done and are easy to forget: the **credits
@@ -38,20 +39,9 @@ screen** and a **licence check** over the crates pulled in (`PROVENANCE.md`).
 
 ## Phase 2 — Civilisation layer
 
-**Status: done** — `PHASE2_SCOPE.md` carries the milestone record. The
-Journey Planner advice below proved right and was followed: it became its own
-sub-phase (`JOURNEY_PLANNER_SCOPE.md`, six milestones) and is engine-complete
-at **66** of the reference's 74 `jp*` functions — 6 UI-only, 2 JS idioms with
-no Rust function to write, **nothing blocked**. Economy aggregation
-(`ECONOMY_SCOPE.md`) closed the last piece. *Corrected 2026-08-25
-(`PARITY_AUDIT.md` pass 3, F3): this line still read "65 … 1 blocked on a
-Route-tool pathfinder since ported" — pass 2's F10 fixed that same claim in
-`README.md` and not here. `JOURNEY_PLANNER_SCOPE.md` §"the count reaches 66
-of 74" and `cartalith_civ::jp_reroute_for_mode` are the authority.*
-
 Block 2: factions, settlements, territory, roads, provinces, economy. A new
 `cartalith-civ` crate depending on `cartalith-engine`'s terrain without modifying
-it.
+it. `PHASE2_SCOPE.md` carries the milestone definitions.
 
 It will need its own golden data. Settlement suitability is exactly the kind of
 subtly-tuned scoring — soil × rainfall optimum, flood penalty, coastal preference
@@ -59,63 +49,60 @@ subtly-tuned scoring — soil × rainfall optimum, flood penalty, coastal prefer
 entry before starting.
 
 The Journey Planner is large and largely self-contained. Consider it a sub-phase
-rather than bundling it.
+rather than bundling it. **That advice was taken**: it became its own scope
+document, `JOURNEY_PLANNER_SCOPE.md`, with six engine milestones and five
+integration steps. Economy aggregation was likewise split out into
+`ECONOMY_SCOPE.md`.
 
 ## Phase 3 — Rendering and 3D
 
-**Status: partial.** The 2D-fidelity half is well underway —
-`TERRAIN_APPEARANCE_SCOPE.md` milestones 1-6 (multidirectional hillshade,
-ambient occlusion, hydrology tint, the atlas look, geological exposure and
-local contrast, then the GPU question answered by measurement plus the §29
-quality tiers). **The 3D drape is not started.** The UI/UX half went further
-than this entry anticipated — a full DCC-style shell was designed and built
-(`DCC_SHELL_SCOPE.md`), and the hold called on 2026-08-18 was **lifted later
-the same day** ("replace the current GUI and replace it in full … including
-all it's wiring and functionality"); shell work has been landing continuously
-since. *Corrected 2026-08-24 (`PARITY_AUDIT.md` pass 2, F1).*
+Two halves, scoped separately.
 
-Brings back the 3D drape deferred in `DECISIONS.md` §4, and the point to evaluate
+**2D fidelity beyond MVP's "correct and plain"** — multi-octave grain, hillshade
+quality, NPR styles — is `TERRAIN_APPEARANCE_SCOPE.md`, six milestones plus a
+follow-up.
+
+**The 3D drape** deferred in `DECISIONS.md` §4, and with it the point to evaluate
 `Terrain3D` and `godot_heightmap_plugin` (`REFERENCES.md`) — as a dependency or as
-reference for a Godot-idiomatic clipmap renderer.
+reference for a Godot-idiomatic clipmap renderer. **The owner parked 3D on
+2026-08-31**, the same day the research it commissioned landed:
+`cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md` explores the options,
+makes a recommendation, and parks itself with three questions unanswered.
+`DECISIONS.md` §4 continues to stand.
 
-Also the natural moment to revisit 2D fidelity beyond MVP's "correct and plain":
-multi-octave grain, hillshade quality, NPR styles. And the moment to install a
-UI/UX skill (`SKILLS.md`), once the interface outgrows four controls.
+**The UI/UX half went further than this entry anticipated.** The entry named it
+as "the moment to install a UI/UX skill (`SKILLS.md`), once the interface
+outgrows four controls". What it became instead is a full DCC-style shell with
+its own scope document (`DCC_SHELL_SCOPE.md`): a hold was called on the GUI on
+2026-08-18 and **lifted later the same day** by the owner — *"replace the current
+GUI and replace it in full … including all it's wiring and functionality"* — and
+that replacement has been its own line of work since.
 
 ## Phase 4 — Asset Library
 
-**Status: done** — all seven milestones, `ASSET_LIBRARY_SCOPE.md`. Started on
-the owner's explicit direction, which satisfied the "confirm before starting"
-below; it did **not** wait for Phase 3, and that turned out fine because the
-dependency this entry assumed doesn't exist (see the correction below).
+Block 3, the sprite and texture pack system. `ASSET_LIBRARY_SCOPE.md` carries the
+milestone definitions.
 
-**Two corrections to the paragraph below, from reading the real code:** an
-asset is not arbitrary art but one PNG bound to a slot in a **frozen, ordered
+The paragraph this entry originally carried said the phase was "lower priority
+unless custom art becomes a near-term goal — and probably better after Phase 3
+establishes what art plugs into. Confirm before starting." **The owner's explicit
+direction started it**, which satisfied the confirmation; it did not wait for
+Phase 3, and the dependency this entry assumed does not exist.
+
+**Two corrections to that paragraph, from reading the real code:** an asset is
+not arbitrary art but one PNG bound to a slot in a **frozen, ordered
 vocabulary**, and an asset pack is a real shipping serialization format
 (PKZIP + `pack.json`/`pack.csv`), not a proposal. The renderer genuinely
 draws pack sprites; the vector glyphs are the *fallback*. Also confirmed:
 Phase 5's urban morphology does **not** consume asset packs, so the two are
 independent.
 
-Block 3, the sprite and texture pack system. Lower priority unless custom art
-becomes a near-term goal — and probably better after Phase 3 establishes what art
-plugs into. Confirm before starting.
-
 ## Phase 5 — Urban morphology
-
-**Status: in progress** — milestones 1-7 done (2026-08-18), wired end to end
-as milestone 17a (2026-08-23), then **8a (the plaza) and 12 (blocks and
-parcels) done out of order on 2026-08-24**. Open: 8, 9, 10, 11, 13, 14, 15,
-16 and the rest of 17. Figures mirrored from `URBAN_MORPHOLOGY_SCOPE.md`'s own
-milestone headings, which are the authority. *Status line added 2026-08-24 by
-a roadmap-coverage audit — this file's own preamble promises every phase one,
-and Phase 5 was the only section without it. **Corrected 2026-08-25**
-(`PARITY_AUDIT.md` pass 3, F2): it still read "8-17 open" a day after
-milestones 8a and 12 shipped.*
 
 Block 4, procedural city layouts. Already a self-contained DOM-free engine in the
 JS codebase, which suggests it ports cleanly into `cartalith-urban`, depending on
-`cartalith-civ` for settlement context.
+`cartalith-civ` for settlement context. `URBAN_MORPHOLOGY_SCOPE.md` carries the
+milestone definitions.
 
 **Started 2026-08-18. Two corrections to the paragraph above, from actually
 reading the code — see `URBAN_MORPHOLOGY_SCOPE.md`:**
@@ -123,9 +110,9 @@ reading the code — see `URBAN_MORPHOLOGY_SCOPE.md`:**
 - "DOM-free" is right (zero hits for any browser API in block 4's whole range),
   but **"ports cleanly" is true of the boundary and false of the effort**: 92
   engine functions / 2,937 lines plus a 28-function / 925-line civ adapter —
-  ~3,860 lines, **the largest single unported subsystem left**, bigger than the
-  Journey Planner and the Asset Library. ~17 milestones, not one phase-sized
-  push.
+  ~3,860 lines, **the largest single unported subsystem** this port found,
+  bigger than the Journey Planner and the Asset Library. ~17 milestones, not one
+  phase-sized push.
 - **"depending on `cartalith-civ`" is wrong for the engine.** `generate(seed,
   opts)` takes only scalars and two plain rasters; no civ types anywhere. The
   civ coupling lives one layer up in block 2's `_um*` adapter. `cartalith-urban`
@@ -137,43 +124,41 @@ The tiled-LOD deep-zoom system matters as worlds grow. Godot's terrain plugins m
 cover the 3D case; the 2D case may need its own answer if 20,000 km worlds — the
 ones v2.05–v2.09 were fixing — turn out to matter natively too.
 
-Revisit when a concrete need appears rather than building it speculatively.
+This section originally ended "revisit when a concrete need appears rather than
+building it speculatively." **The owner triggered that revisit on 2026-08-17**,
+choosing to lay the foundation without waiting for the need — data structures
+only, touching nothing in the live pipeline. It therefore has scope documents of
+its own and is no longer an unscheduled option:
+`LOD_TILING_BASE_SCOPE.md` for the standalone base, and
+`LOD_TILING_INTEGRATION_SCOPE.md` for threading it through the pipeline.
 
 ## Options kept open, not scheduled
 
-~~Save-file **writing** (`SAVEFILE_COMPAT.md`)~~ — **no longer open. Done,
-2026-08-23**, authorised by the owner after five register rows (FI-01, DM-04,
-JP-06, JP-08, MEA-07) had queued up behind it. `cartalith_io::write_save`
-plus `WorldGen::save_project`; File ▸ Save / Save as… / Autosave / Revert /
-Close project are all real controls now. `SAVEFILE_COMPAT.md`'s own "Writing
-a save" section carries the format decisions and the one disclosed
+~~Save-file **writing** (`SAVEFILE_COMPAT.md`)~~ — **no longer open.**
+Authorised by the owner 2026-08-23 after five register rows (FI-01, DM-04,
+JP-06, JP-08, MEA-07) had queued up behind it. `SAVEFILE_COMPAT.md`'s own
+"Writing a save" section carries the format decisions and the one disclosed
 limitation (`state.erosion`).
 
 Store distribution (`DECISIONS.md` §6) and a WASM target sharing
 `cartalith-engine` (`DECISIONS.md` §2) are things the architecture permits
 and nobody has committed to. Raise them rather than assuming they are queued.
 
-~~**Markdown Vault integration**~~ — **no longer unscheduled. Started
+~~**Markdown Vault integration**~~ — **no longer unscheduled. Scheduled
 2026-08-24 on the owner's own instruction**, naming three entity kinds:
 continents, provinces and settlements (explicitly *not* POIs, which stay an
 unported concept). `MARKDOWN_VAULT_SCOPE.md` is the scope document this
-section demanded, and **milestones 0 and 1 have shipped**: continents are
-addressable entities for the first time, and links, section-aware write-back,
-the machine-owned Cartalith block and author-field population all work
-against a real vault on disk.
+section demanded, and carries the milestone definitions.
 
 The verification this section asked for was done first and changed the plan:
 **continents did not exist**. `generate_continentality_field` is a per-cell
 scalar, not an entity — but `build_landmass_quality`'s golden-verified
-8-neighbour flood fill has always labelled land components and always thrown
+8-neighbour flood fill has always labelled land components and always threw
 the labelling away, so `cartalith_civ::civ_continents` keeps it. Settlements
 (`tid`) and provinces (`id`) were real as expected.
 
-**What is left is real and listed** (`MARKDOWN_VAULT_SCOPE.md` §5, §8): the
-map snapshot (§21), project-scoped links (blocked on the save format carrying
-a civ layer at all), the Android SAF provider, and the Compare view for a
-stale source. POIs and "regions" as §35 criteria 6-7 mean them remain
-unsatisfiable in this port and are recorded as such rather than faked.
+POIs and "regions" as §35 criteria 6-7 mean them are **unsatisfiable in this
+port** and are recorded as such rather than faked.
 
 **Priority and framing, owner 2026-08-18**: *"Its not a critical part."* It
 does not compete with engine or parity work; the owner's 2026-08-24 go-ahead
@@ -190,26 +175,26 @@ touched by this work**; `DCC_CONTROL_INDEX.md` records the conflict and
 `MARKDOWN_VAULT_INTEGRATION.md`'s header resolves it.
 
 **Landmark generation** — owner-supplied research imported 2026-08-30
-(`LANDMARK_GENERATION_RESEARCH.md`), cataloged the same day
-(`LANDMARK_GENERATION_SCOPE.md`), **no code written**. Placed here rather than
-as a numbered phase because it is not one subsystem's work: it composes
-terrain, hydrology, civilisation, urban and vault data that already spans
-Phases 1, 2 and 5, the same cross-cutting shape the Markdown Vault entry
-above has — not a new pipeline stage with its own start/end.
+(`LANDMARK_GENERATION_RESEARCH.md`) and cataloged the same day
+(`LANDMARK_GENERATION_SCOPE.md`). Placed here rather than as a numbered phase
+because it is not one subsystem's work: it composes terrain, hydrology,
+civilisation, urban and vault data that already spans Phases 1, 2 and 5, the
+same cross-cutting shape the Markdown Vault entry above has — not a new
+pipeline stage with its own start/end.
 
-The investigation found this closer to buildable than the research's own
-"Cartalith already possesses or intends to possess" hedge suggests: a
+The 2026-08-30 investigation found this closer to buildable than the research's
+own "Cartalith already possesses or intends to possess" hedge suggested: a
 golden-verified mountain-pass corridor detector (`DECISIONS.md` §7i) and a
 population-weighted cost-distance influence field (`DECISIONS.md` §7b)
-already exist and map closely onto two of the research's own suitability
-terms; a TPI-equivalent computation already exists, buried inside the 2D
+already existed and mapped closely onto two of the research's own suitability
+terms; a TPI-equivalent computation already existed, buried inside the 2D
 renderer's ambient-occlusion pass (`cartalith-godot/src/render.rs`) rather
 than exposed as reusable data; and 15 mineral resources, soils and lithology
-are all real. What is confirmed **completely absent** is viewshed/visibility
-and any general-purpose Poisson-disc sampler — the two the research leans on
-hardest for landmark *significance* rather than mere placement.
-`LANDMARK_GENERATION_SCOPE.md` §1 is the full inventory, §3 lays out nine
-dependency-ordered milestones, and §4 poses six questions — persistence,
-Markdown Vault entity status, whether the golden-parity contract even applies
-here, the crate boundary, the viewshed cost budget, and the manual-icon
-relationship — that need an owner ruling before any of them start.
+were all real. What that pass found **completely absent** was
+viewshed/visibility and any general-purpose Poisson-disc sampler — the two the
+research leans on hardest for landmark *significance* rather than mere
+placement. `LANDMARK_GENERATION_SCOPE.md` §1 is the full inventory, §3 lays
+out nine dependency-ordered milestones, and §4 poses six questions —
+persistence, Markdown Vault entity status, whether the golden-parity contract
+even applies here, the crate boundary, the viewshed cost budget, and the
+manual-icon relationship — raised for an owner ruling.

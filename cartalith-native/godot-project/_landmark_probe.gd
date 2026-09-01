@@ -282,8 +282,18 @@ func _ready() -> void:
 	_ok("there ARE viewshed types in the fixture", vs_expected > 0, true)
 	_ok("every one carries the tag beside its name", vs_tagged, vs_expected)
 	var ws_blob := _blob(ws)
+	## The weight this used to assert was the research's flat `0.20`. The owner
+	## replaced it on 2026-08-31 (`design/dcc-environment-2026-08-31/`
+	## `BUILD_ANSWERS.md` §3, "Landmark viewshed | intended"), and
+	## `civilization_workspace.gd::_build_landmarks()` was rewritten to quote the
+	## new formula instead. The panel is right and this assertion was the stale
+	## party -- so it now guards the formula that is actually specified, and
+	## re-asserts that the old number is gone rather than merely absent by luck.
 	_ok("and § TYPES says how many, and what it costs them",
-		ws_blob.find("no viewshed]") >= 0 and ws_blob.find("0.20") >= 0, true)
+		ws_blob.find("no viewshed]") >= 0, true)
+	_ok("...quoting the owner's 2026-08-31 formula, not the retired 0.20 weight",
+		ws_blob.find("0.6 × prominence + 0.4 × visible land area inside 30 km") >= 0
+			and ws_blob.find("0.20") < 0, true)
 
 	print("\n=== B2: buildable:false is listed, disabled, WITH a reason ===")
 	var ice: Dictionary = rows["ice_shelf"]

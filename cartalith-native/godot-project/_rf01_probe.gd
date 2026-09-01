@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for the 2026-08-25 "is every control wired" pass.
+## Committed probe for the 2026-08-25 "is every control wired" pass.
 ##
 ## Hunts **RF-01** systematically: a surface built at launch, before a world
 ## exists, with nothing re-running it on `generation_finished` / `world_loaded`.
@@ -16,6 +16,11 @@ extends Node
 ##      same bug with a longer fuse (§23's own step 4).
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _rf01_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

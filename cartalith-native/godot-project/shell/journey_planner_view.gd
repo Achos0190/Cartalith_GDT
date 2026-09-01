@@ -66,13 +66,14 @@ class_name JourneyPlannerView
 ##
 ## - **Journeys list**: real as of 2026-08-23 (JP-06/JP-08) — "save journey"
 ##   names the selected route *plus* the whole party form and adds it to the
-##   list, which reloads it in one click. **In-session only, and said so on
-##   the button**: persisting one to disk needs the `.zip` save-*writer*
-##   (`GUI_GAP_REGISTER.md` FI-01) that `ROADMAP.md` keeps unscheduled, and
-##   building one as a side effect of a planner button would be a far larger
-##   thing than this row. The list lives in GDScript for the same reason:
-##   with no writer behind it there is nothing for the engine to own — a
-##   saved journey is exactly the request `jp_compute` already takes.
+##   list, which reloads it in one click. **Persistent as of 2026-08-26**: the
+##   list is written into the project archive as `entities/journeys.json` (the
+##   §9.6 slot `SAVEFILE_COMPAT.md` reserved) and restored on open — see the
+##   "Journeys, on disk (F10)" section at the foot of this file. It stays in
+##   GDScript rather than in `cartalith-civ` because a saved journey is exactly
+##   the request `jp_compute` already takes, so the engine would own nothing
+##   the shell does not already hold; the archive channel is
+##   `project_save_with_documents`, which takes caller-owned slots as text.
 ## - **Carriage auto/manual**: real as of 2026-08-23 (JP-01).
 ##   `jpAutoPickTransport` was already ported (`cartalith_civ::
 ##   jp_auto_pick_transport`); what was missing was the call. Auto now sends
@@ -197,17 +198,25 @@ var _stage_auto := false
 var _trim := Vector2(0.0, 1.0)
 
 ## JP-06 / JP-08. The journeys list: a route index plus the whole party form,
-## named. **In-session only, and deliberately so** -- persisting one across
-## sessions needs the `.zip` save-*writer* (`GUI_GAP_REGISTER.md` FI-01),
-## which `ROADMAP.md` keeps explicitly unscheduled, and building one as a
-## side effect of a planner button would be a much larger thing than this
-## row. Kept in GDScript rather than pushed into `cartalith-civ` for the same
-## reason: with no writer behind it there is nothing for the engine to own --
-## a saved journey is exactly the request `jp_compute` already takes.
+## named. **Persisted** into the project's `entities/journeys.json` slot by
+## `journeys_document()` and read back by `restore_journeys_document()` — both
+## at the foot of this file. Kept in GDScript rather than pushed into
+## `cartalith-civ` because a saved journey is exactly the request `jp_compute`
+## already takes, so the engine would own nothing the shell does not; the
+## archive channel is `project_save_with_documents`, which carries
+## caller-owned slots as text. `route` is an index into the routes saved
+## beside it, which is why `setup()` clears this list on a world change.
 ## Entries: `{name: String, route: int, plan: Dictionary, stage_overrides:
 ## Dictionary, layovers: Dictionary, animal_entries: Dictionary, trim: Vector2}`.
 var _journeys: Array = []
 var _active_journey := -1
+
+## The `EngineBridge.last_documents` dictionary the last restore read -- held
+## for `is_same()` identity only, and never indexed. `world_loaded` re-announces
+## the *same* documents on every in-place field op, and re-restoring them threw
+## away every journey planned since the file was opened; see
+## `restore_journeys_document()` for the whole reasoning.
+var _restored_documents: Dictionary = {}
 
 ## TL-01: which Travel Library animal definition occupies each of the four
 ## built-in party-form species slots -- species key (String) -> entry id
@@ -268,6 +277,35 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	app.tool_armed.connect(func(_id: String): _recompute_visibility())
 	app.workspace_changed.connect(func(_id: String): _recompute_visibility())
 
+	## **The journeys list has a world lifecycle, and until now had none.**
+	##
+	## A journey is a *route index* plus a party form (see `_journeys`), and a
+	## route index only means anything against the world that produced it. A
+	## list carried across a world change indexes routes that no longer exist,
+	## and `journeys_document()` then writes those dangling indices into the
+	## NEXT project's archive on the next save. Two connections close that:
+	##
+	## - `generation_finished`: a generate replaces `WorldGen.infra` wholesale,
+	##   so every committed route is gone and `route_count()` answers 0.
+	##   Heightmap import arrives here too (`EngineBridge.import_heightmap()`
+	##   emits it), which is right -- an imported heightmap is a new world.
+	## - `world_loaded`, but **only when no world remains**. That signal fires
+	##   for seven different reasons (a project open, an import, `close_world`,
+	##   an asset pack, `center_landmasses`, `carve_fjords`, `as_apply_to_map`)
+	##   and only `close_world()` leaves `has_world == false`. The four in-place
+	##   ops keep the same routes and must not touch the list; a project *open*
+	##   is `restore_journeys_document()`'s job, which `app.gd` calls from
+	##   `_restore_project_documents()` (itself called only from `_load_project`,
+	##   the one place a new set of documents actually arrives).
+	##
+	## A close is therefore the one case both ends could touch: `close_world()`
+	## emits `world_loaded` and leaves `last_documents` holding the previous
+	## archive's text. The clear below handles it, and
+	## `restore_journeys_document()`'s own identity guard means a later stray
+	## call with those same bytes cannot undo it.
+	bridge.generation_finished.connect(func(ok: bool): if ok: clear_journeys())
+	bridge.world_loaded.connect(func(): if not bridge.has_world: clear_journeys())
+
 ## Both entry points this pass wires (`DCC_SHELL_SPEC.md` §2.4, §4.5.4):
 ## `Data ▸ Journey planner… ⇧J` and the INFRA dock's own Logistics button both
 ## call this. It only arms the tool -- `_recompute_visibility()` (driven by
@@ -314,15 +352,30 @@ func _hide() -> void:
 		civ_panel.visible = true
 	if app.right_dock_ctrl != null:
 		app.right_dock_ctrl.clear_journey()
-	## JP-13: this view is the only thing that ever populates `timeline_row`
-	## (CV-09 -- `GUI_GAP_REGISTER.md` §11 -- leaves it deliberately empty in
-	## CIVIL); clear it back to that empty state on disarm so Journey content
-	## never leaks into a domain switch.
+	## JP-13, **corrected**: hand `timeline_row` back to `app.gd` rather than
+	## leaving it empty.
+	##
+	## The original premise -- "this view is the only thing that ever populates
+	## `timeline_row`; CV-09 leaves it deliberately empty in CIVIL" -- stopped
+	## being true when `app.gd` grew `_fill_timeline_strip()` and the desktop
+	## timeline strip that lives in that row. Clearing the row to empty on disarm
+	## therefore blanked the strip *permanently*: `_repaint_timeline()`'s own
+	## rebuild fallback tests `_tl_year_labels.is_empty()`, and those labels were
+	## still held (freed, but held), so the guard written for exactly this case
+	## could never fire.
+	##
+	## `_fill_timeline_strip()` clears the row itself before rebuilding and resets
+	## every held label/button reference in the same breath, so nothing of
+	## Journey's band leaks into the domain switch either.
+	##
+	## `app.gd::arm_tool()` also refills after its `tool_armed` emit, gated on the
+	## row being empty. That gate is now a no-op for this path rather than a
+	## second fill — which is the intended relationship, not an oversight: the
+	## borrower gives the row back here, and that gate stays as the backstop for
+	## any disarm route that never reaches this function.
+	_timeline_view = null
 	if app.timeline_row != null:
-		for c in app.timeline_row.get_children():
-			app.timeline_row.remove_child(c)
-			c.queue_free()
-		_timeline_view = null
+		app._fill_timeline_strip()
 
 # ============================================================ Left panel ====
 
@@ -379,7 +432,7 @@ func _refresh_route_choice() -> void:
 		open_btn.text = "%s%s" % ["● " if i == _active_journey else "", String(j.get("name", "journey"))]
 		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		open_btn.tooltip_text = "Route #%d + this party form. Session-only (no save-writer, FI-01)." % int(j.get("route", 0))
+		open_btn.tooltip_text = "Route #%d + this party form. Saved into the project's entities/journeys.json and restored on File ▸ Open project. The route is stored as an INDEX, so a journey only means what it meant against the routes saved beside it." % int(j.get("route", 0))
 		open_btn.pressed.connect(func(): _load_journey(i))
 		jrow.add_child(open_btn)
 		var del_btn := Button.new()
@@ -411,7 +464,7 @@ func _refresh_route_choice() -> void:
 			_isolated_stage = -1
 			_trim = Vector2(0.0, 1.0)
 			_compute(),
-		"route_get()'s own points/km/mode. \"save journey\" in the tool options bar names the route + party form together and adds it to the list above (this session only -- no save-writer exists, FI-01).")
+		"route_get()'s own points/km/mode. \"save journey\" in the tool options bar names the route + party form together and adds it to the list above; that list travels in the project archive and comes back when the project is reopened.")
 
 # -- Party form fields (shared field-binding vocabulary, matching journey_planner_window.gd's own convention) --
 
@@ -1011,10 +1064,15 @@ func _refresh_pack_range_note() -> void:
 ## same reason: a desert crossing changes what an animal eats); `false`
 ## otherwise, which is the reference's own value when `_jpPlan` throws.
 func _pack_range() -> Dictionary:
-	if not _bound or not bridge.world_gen.has_method("jp_pack_range"):
+	if not _bound:
 		return {}
 	var plan: Dictionary = _last_result.get("plan", {}) if bool(_last_result.get("ok", false)) else {}
-	return bridge.world_gen.jp_pack_range(_plan_values, bool(plan.get("has_desert", false)))
+	## Through the bridge, not around it. `EngineBridge.jp_pack_range()` performs
+	## the same `has_method` probe this used to do inline -- and additionally
+	## records the miss in `missing_bindings()`, which is the shell's staleness
+	## fingerprint. A call site that reaches `world_gen` directly is invisible to
+	## it, so a stale binary looks healthy from the one place that reports on it.
+	return bridge.jp_pack_range(_plan_values, bool(plan.get("has_desert", false)))
 
 # =========================================================== Compute path ====
 
@@ -2132,7 +2190,7 @@ func _tool_options_journey() -> void:
 		row.add_child(DccTheme.spacer())
 		var save_btn := DccWidgets.action(row, "save journey", _save_journey)
 		save_btn.disabled = count == 0
-		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. IN-SESSION ONLY: persisting it to disk needs the .zip save-writer this port does not have (GUI_GAP_REGISTER.md FI-01), so the list is lost when the app closes."
+		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. File ▸ Save project writes that list into the archive as entities/journeys.json and reopening the project restores it -- it is not lost when the app closes. One real limit: a journey stores a route INDEX, so generating a new world discards the list rather than pointing it at routes that no longer exist."
 		var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
 	)
 
@@ -2153,7 +2211,7 @@ func _save_journey() -> void:
 	le.select_all_on_focus = true
 	body.add_child(le)
 	body.add_child(DccTheme.label(
-		"Kept for this session only — no save-writer exists yet (FI-01).",
+		"Stored in this project — written by File ▸ Save project, restored on open.",
 		"text_ghost", DccTheme.FS_MICRO))
 	d.add_child(body)
 	d.confirmed.connect(func():
@@ -2170,7 +2228,7 @@ func _save_journey() -> void:
 			})
 			_active_journey = _journeys.size() - 1
 			_refresh_route_choice()
-			app.set_status("hint", "Saved journey \"%s\" (this session only)." % jname, "accent")
+			app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent")
 		d.queue_free())
 	d.canceled.connect(func(): d.queue_free())
 	add_child(d)
@@ -2308,9 +2366,10 @@ func _capture_preset() -> void:
 	le.grab_focus.call_deferred()
 
 ## The one export path with real data behind it: the stage matrix as CSV, to
-## the OS clipboard -- no file-writer exists to save it to disk (the same
-## FI-01 gap that keeps the Journeys list session-scoped), but a clipboard
-## export is honest and immediately useful.
+## the OS clipboard. No CSV file-writer exists to save it to disk -- unrelated
+## to the Journeys list, which does persist (`journeys_document()`); this is
+## a missing *text file* writer, not a missing archive. A clipboard export is
+## honest and immediately useful meanwhile.
 func _export_stage_table() -> void:
 	if not bool(_last_result.get("ok", false)):
 		return
@@ -2833,9 +2892,11 @@ func _water_column_label(w: Variant) -> String:
 func _vessel_matrix_data() -> Dictionary:
 	if not _vessel_matrix.is_empty():
 		return _vessel_matrix
-	if not _bound or not bridge.world_gen.has_method("jp_vessel_matrix"):
+	if not _bound:
 		return {}
-	_vessel_matrix = bridge.world_gen.jp_vessel_matrix()
+	## Through the bridge -- see `_pack_range()` for why the inline `has_method`
+	## probe this replaces was the wrong shape.
+	_vessel_matrix = bridge.jp_vessel_matrix()
 	return _vessel_matrix
 
 ## JP-05. `GUI_GAP_REGISTER.md` §7.12's own proposal, built as an inline
@@ -3131,12 +3192,42 @@ func journeys_document() -> String:
 		out.append(d)
 	return JSON.stringify({"journeys": out})
 
-## The inverse. Silently keeps the current list when the document is absent,
-## empty or unparseable — a project saved before journeys existed is the
-## normal case, not an error, and a corrupt one must not clear a list the user
-## can still see.
+## The inverse. `app.gd::_restore_project_documents()` calls this with whatever
+## the archive's `entities/journeys.json` slot held, once per project open.
+##
+## **Two guards, each of which was data loss before it existed.**
+##
+## 1. *Restore only when the documents are new.* This used to hang off `app.gd`'s
+##    `world_loaded` handler, and that signal is emitted for seven different
+##    reasons while only `EngineBridge.load_save()` ever assigns
+##    `last_documents` — so centring the landmasses, carving fjords, applying an
+##    asset pack or closing the world all replayed the *previous* archive's
+##    journeys over everything planned since the file was opened. `app.gd` has
+##    since moved the call to `_load_project()`, which is the right end of the
+##    fix; this is the view's own half of it, and it is what makes the function
+##    safe to call from any handler rather than from exactly one. `is_same()`
+##    on the dictionary is the test: `load_save` assigns a **fresh**
+##    `Dictionary` on every open (a re-open of the same path included), and
+##    nothing else assigns it at all, so object identity means "new documents
+##    arrived" and nothing else. Value equality would not do — two opens of the
+##    same file carry equal text and must both restore.
+## 2. *New documents with no journeys slot clear the list.* Keeping it was how
+##    project A's journeys followed the user into project B, to be written into
+##    B's archive by `journeys_document()` on the next save — carrying route
+##    indices that index B's routes, which is the same corruption seen from the
+##    other end. A flat legacy archive lands here too: `load_save` leaves
+##    `documents` empty for it, which is a new (empty) dictionary and therefore
+##    a genuine "this project has no journeys".
+##
+## A slot that is present but unparseable still leaves the list alone: that is
+## a corrupt document, not an empty one, and it must not silently delete work.
 func restore_journeys_document(text: String) -> void:
+	if bridge != null:
+		if is_same(bridge.last_documents, _restored_documents):
+			return
+		_restored_documents = bridge.last_documents
 	if text.strip_edges() == "":
+		clear_journeys()
 		return
 	var parsed = JSON.parse_string(text)
 	if not (parsed is Dictionary):
@@ -3163,3 +3254,48 @@ func restore_journeys_document(text: String) -> void:
 	_active_journey = -1
 	if _bound:
 		_refresh_route_choice()
+
+## Empties the list because the world its route indices pointed into is gone.
+##
+## Public: `setup()` connects it to `generation_finished` and to the
+## world-less half of `world_loaded`, and `restore_journeys_document()` calls
+## it when a newly opened project carries no journeys slot of its own.
+## `_refresh_route_choice()` is what redraws the left dock's list, and it is
+## only safe once `_build_left_panel()` has run — which `_bound` implies, since
+## that is the only branch which creates `_left_route_section`.
+func clear_journeys() -> void:
+	if _journeys.is_empty() and _active_journey < 0:
+		return
+	_journeys = []
+	_active_journey = -1
+	if _bound:
+		_refresh_route_choice()
+
+## How many saved journeys reference one Travel Library entry —
+## `TRAVEL_LIBRARY_SPEC.md` §4's "how many saved journeys reference it", which
+## the inspector printed as a hard-coded `0`.
+##
+## It is answered here rather than in `travel_bridge.rs` because the journeys
+## list is the shell's own state by design (see `_journeys`): the engine holds
+## no journey to count. `travel_bridge.rs::animal_usage_in_journeys` was
+## written when that was true of every journey anywhere; it is still true of
+## the *engine*, and this is the reader that closes the gap on the shell side.
+##
+## `kind` is the Travel Library kind. An `animal` is matched by entry **id**
+## through `animal_entries` (`_save_journey` stores that map verbatim); a
+## `vessel` by **name**, because `JpPlan.vessel` is a name and the resolver
+## keys on it (`travel_bridge.rs::vessel_overrides`). `vehicle` is always 0 and
+## honestly so — no vehicle reaches a computed journey at all.
+func journey_usage(kind: String, entry_id: String, entry_name: String) -> int:
+	var n := 0
+	for j in _journeys:
+		var journey: Dictionary = j
+		if kind == "animal":
+			var entries: Dictionary = journey.get("animal_entries", {})
+			if entry_id != "" and entries.values().has(entry_id):
+				n += 1
+		elif kind == "vessel":
+			var plan: Dictionary = journey.get("plan", {})
+			if entry_name != "" and String(plan.get("vessel", "")) == entry_name:
+				n += 1
+	return n

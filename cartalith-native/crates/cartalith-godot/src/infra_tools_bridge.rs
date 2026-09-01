@@ -595,7 +595,7 @@ mod tests {
     }
 
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
-        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0 }
+        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
 
     #[test]

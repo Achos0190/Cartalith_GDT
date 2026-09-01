@@ -1,5 +1,5 @@
 extends Node
-## THROWAWAY menu-conformance sweep (2026-08-25). Not to be committed.
+## Committed menu-conformance sweep (2026-08-25).
 ##
 ## §48 walked *screens*. This walks **menus** -- every program menu, every
 ## submenu, the rail's three domain menus, the right dock's contexts, the tool
@@ -17,6 +17,11 @@ extends Node
 ##   ... -- --vp 2560x1600 --tag tablet --force-touch
 ##   ... -- --vp 1440x3168 --tag phone1440 --force-touch
 ##   ... -- --vp 1080x2400 --tag phone1080 --force-touch
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const SEED := 483920
 

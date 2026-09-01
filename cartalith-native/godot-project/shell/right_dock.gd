@@ -115,6 +115,57 @@ const SAMPLE_FIELDS := [
 		"tip": "CivData::territory -- assign_territory()'s owner per cell, 0 = unowned. Reads — on a loaded save."},
 ]
 
+## `05-right-dock-and-bars.md` §1.4's footnote, verbatim: *"fields owned by
+## stale stages read —"*. Which pipeline stage owns which row, derived from what
+## `sample_cell()` actually reads (`sample_bridge::sample_cell()`, named
+## rather than cited by line -- that file moves) rather than from where the
+## row sits in the panel:
+##
+## * `height` -- `WorldState::field` and the two gradients taken from it. The
+##   graph's root stage has no upstream, so `staleness()` can never report it
+##   (`cartalith-spatial/src/staleness.rs:243-267 pub fn staleness`) and
+##   these three never dash.
+##   That is the correct answer rather than a dead entry: a sculpt writes the
+##   height field in place, so elevation IS current the instant the stroke
+##   commits -- it is everything downstream of it that is not. Named anyway, so
+##   the ownership is stated once here instead of inferred from an absence.
+## * `hydrology` -- `flow_discharge`, and `stream_order` for the order suffix.
+## * `climate` -- `temperature`/`rainfall`, and the two per-cell functions
+##   `sample_cell()` evaluates over them: `build_lithology` takes rainfall and
+##   `build_soil_fertility` takes both, so neither row is upstream of climate
+##   however geological it reads. Each field is gated on its DEEPEST input only,
+##   which is sufficient because `pipeline_stage_graph()` makes every stage
+##   depend on all of its upstreams -- a stale `height` is always a stale
+##   `climate` too.
+## * `civ` -- `CivData`'s own rasters (`water_bodies` for Biome, `territory`
+##   for Control) and `get_settlements()` for `Nearest`.
+##
+## **Deliberately absent, and therefore never gated:** `Plate + type`,
+## `Boundary + distance` and `Resistance` read `plate_id`, `crust_field`,
+## `boundary_mask`, `boundary_type` and `resistance_field` -- tectonic-era
+## fields that no stage in `pipeline_stage_graph()` writes, so no stage's
+## staleness says anything at all about them. `Position` and `Cell` are the
+## cursor, not the engine. Gating those on a stage would dash them for a reason
+## that is not true of them, which this file treats as exactly as bad as
+## leaving a stale value on screen.
+const SAMPLE_STAGE := {
+	"Elevation": "height",
+	"Slope": "height",
+	"Aspect": "height",
+	"Drainage": "hydrology",
+	"Temperature": "climate",
+	"Precipitation": "climate",
+	"Lithology": "climate",
+	"Soil": "climate",
+	"Biome": "civ",
+	"Control": "civ",
+	"Nearest": "civ",
+}
+
+## `Nearest`'s own tip, named because both `_build_sample()` and
+## `on_cursor_sampled()` compose the staleness reason onto it.
+const _NEAREST_TIP := "Computed here from get_settlements()'s x/y against the cursor cell."
+
 var app: DccApp
 var bridge: EngineBridge
 
@@ -153,6 +204,52 @@ var _sample_nearest: Label
 ## never crosses the GDExtension boundary more than once per mouse-move.
 var _sample_rows: Dictionary = {}
 
+## `stale_stages()` is a pure read on the engine side -- every `StageGraph`
+## query takes `&self` -- but it is not a free one: it walks every tile of every
+## stage. `on_cursor_sampled()` fires on every mouse-motion event over the
+## viewport, and this panel's whole design is ONE boundary crossing per motion
+## (see `_sample_rows`), so the answer is cached and re-read on the same
+## one-second cadence `app.gd`'s own staleness poll uses rather than per motion.
+## Nothing makes a stage stale except a tool commit, so a reading up to a second
+## old is the same reading.
+var _stale_cache: Dictionary = {}
+var _stale_cache_ms := -1000000
+
+func _stale_now() -> Dictionary:
+	var t := Time.get_ticks_msec()
+	if t - _stale_cache_ms >= 1000:
+		_stale_cache = bridge.stale_stages()
+		_stale_cache_ms = t
+	return _stale_cache
+
+## Empty when this row's value is current; otherwise the reason it reads `—`.
+## The stage graph reports the most-upstream unconsumed change all the way down
+## the chain by design, so `reason` names the edit that caused it ("sculpt"),
+## not the intermediate stage that passed it on.
+func _stale_reason(label_text: String, stale: Dictionary) -> String:
+	var stage := String(SAMPLE_STAGE.get(label_text, ""))
+	if stage == "" or not stale.has(stage):
+		return ""
+	var e: Dictionary = stale[stage]
+	var cause := String(e.get("reason", ""))
+	if cause == "":
+		cause = String(e.get("origin", ""))
+	return ("Stale: the %s stage has not re-run since %s, so the engine's answer " +
+		"for this cell is from before that edit. Recompute (status bar) to settle it.") % [stage, cause]
+
+func _tip_with(tip: String, why: String) -> String:
+	return tip if why == "" else "%s\n\n%s" % [tip, why]
+
+## `_field()` hangs the tooltip on the row `HBoxContainer` it returns the value
+## `Label` out of, and staleness starts and stops without a dock rebuild -- so a
+## row that begins dashing mid-session has its reason rewritten here, rather
+## than keeping the tip it was built with. A dashed row with no reason for the
+## dash is the exact defect this pass exists to remove.
+func _set_row_tip(v: Label, tip: String) -> void:
+	var box := v.get_parent() as Control
+	if box != null:
+		box.tooltip_text = tip
+
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -188,9 +285,20 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	var coord := _coord_texts(gx, gy, valid)
 	_sample_pos.text = coord[0]
 	_sample_cell.text = coord[1]
-	_sample_nearest.text = _nearest_settlement_text(gx, gy, valid)
+	## §1.4's staleness gate, read once for the whole panel -- see
+	## `SAMPLE_STAGE` for which row each stage owns, and which rows no stage
+	## owns. `Position` and `Cell` above are the cursor's own reading and are
+	## never gated.
+	var stale := _stale_now()
+	var nearest_why := _stale_reason("Nearest", stale)
+	_sample_nearest.text = "—" if nearest_why != "" else _nearest_settlement_text(gx, gy, valid)
+	_set_row_tip(_sample_nearest, _tip_with(_NEAREST_TIP, nearest_why))
 	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if valid else {}
-	_sample_elev.text = _elevation_text(cell)
+	## `height` cannot be reported stale (see `SAMPLE_STAGE`), so this branch
+	## never takes today -- written the same way as every other row so that a
+	## stage added upstream of height gates the dock's one big number too,
+	## instead of leaving it the single unguarded readout.
+	_sample_elev.text = "—" if _stale_reason("Elevation", stale) != "" else _elevation_text(cell)
 	## RD-11: live-updated in place for the same reason the rows above are --
 	## a full `_rebuild()` on every mouse-motion event would be needless
 	## churn, and the collapsed dock's one number is this same elevation
@@ -201,8 +309,15 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 		var row: Label = _sample_rows.get(f["label"])
 		if row == null:
 			continue
-		var text := _sample_field_text(f["key"], cell)
+		## The owning stage is stale, so the engine's answer for this cell is
+		## from before the last edit: dashed rather than printed. The same rule
+		## `_sample_field_text()` already applies to an absent key -- never a
+		## real-looking number for something that is not a reading of the world
+		## as it stands.
+		var why := _stale_reason(f["label"], stale)
+		var text := "—" if why != "" else _sample_field_text(f["key"], cell)
 		row.text = text
+		_set_row_tip(row, _tip_with(String(f["tip"]), why))
 		## `text_ghost` is this dock's own "nothing behind this row" tone
 		## (`_field`'s `reachable` argument). A row goes ghost when its
 		## reading is genuinely absent for this world -- no civ layer, no
@@ -482,17 +597,23 @@ func _build_sample(body: Control) -> void:
 		"metersPerUnit()'s own anchoring (1 - seaLevel maps to peak altitude). " +
 		"Negative below the waterline, which is the honest reading for an ocean cell.")
 
+	## §1.4's staleness gate. Read once for the whole panel -- `_stale_now()`
+	## caches, but a dozen calls to it would still be a dozen dictionary lookups
+	## per rebuild for one answer that cannot change between rows.
+	var stale := _stale_now()
 	for f in SAMPLE_FIELDS:
-		_sample_rows[f["label"]] = _field(sec, f["label"], "—", f["tip"], false)
+		_sample_rows[f["label"]] = _field(sec, f["label"], "—",
+			_tip_with(String(f["tip"]), _stale_reason(f["label"], stale)), false)
 
 	## "Nearest settlement" was this dock's single widest row -- and its value
 	## changes on every mouse-move, which is what made the whole pane breathe
 	## (see `_field()`). The label is shortened and its column narrowed so the
 	## name and its distance both still fit inside the pane's own width instead
 	## of pushing against it.
+	var nearest_why := _stale_reason("Nearest", stale)
 	_sample_nearest = _field(sec, "Nearest", "—",
-		"Computed here from get_settlements()'s x/y against the cursor cell.",
-		valid, false, 60)
+		_tip_with(_NEAREST_TIP, nearest_why),
+		valid and nearest_why == "", false, 60)
 
 	## §6's no-selection list has two more entries than the rows above, and
 	## both were simply absent rather than disclosed (2026-08-20 menu-structure
@@ -603,9 +724,19 @@ func _build_settlement(body: Control) -> void:
 
 	var why: Dictionary = bridge.explain_settlement(_settlement_index)
 	var water := _term_value(why, "water_access")
+	## Two different absences, and the row used to blame the narrow one for
+	## both (2026-09-01). An EMPTY `why` means this world was opened rather
+	## than generated -- `project_bridge.rs` stores no explanations at all --
+	## which is a whole-project fact, not "no water_access entry for this
+	## cell". The per-cell sentence is still right when `why` has terms and
+	## none of them is `water_access`.
 	_field(sec, "Water access", water if water != "" else "—",
 		"" if water != "" else
-			"This settlement's suitability terms carry no water_access entry for this cell.",
+			("Suitability diagnostics are computed at generate time and the project "
+				+ "format does not store them (SAVEFILE_COMPAT.md §16.2), so an opened "
+				+ "project has none. Regenerate this world to get them back."
+				if why.is_empty() else
+			"This settlement's suitability terms carry no water_access entry for this cell."),
 		water != "")
 	_field(sec, "Defensibility", "—",
 		"explain_settlement()'s suitability terms have no defensibility axis -- " +
@@ -722,6 +853,31 @@ func _build_causal_chain_text(s: Dictionary, index: int) -> String:
 		lines.append("Distance to water: %.1f cells" % coast_cells)
 		lines.append("Elevation: %.3f (normalised)" % float(why["elevation"]))
 		lines.append("Travel cost: %.2f" % float(why["travel_cost"]))
+	else:
+		## **Said, not silently dropped** (2026-09-01).
+		##
+		## `explain_settlement()` returns an empty dictionary for every
+		## settlement of a world that was *opened* rather than generated:
+		## `project_bridge.rs` rebuilds `CivData` with `explanations:
+		## Vec::new()` and says why in as many words -- an explanation is a
+		## diagnostic over suitability rasters the archive does not store
+		## (`SAVEFILE_COMPAT.md` §16.2), and synthesising one from what is
+		## stored would be inventing a reason rather than recalling it.
+		##
+		## Until now the whole block -- the causal chain AND the six terrain
+		## readouts under it -- simply was not appended, so the panel came
+		## back one section shorter with nothing said about it, which reads
+		## as a dock that is broken on this save rather than a diagnostic
+		## the format never carried.
+		lines.append("")
+		lines.append("[b]WHY HERE?[/b]")
+		lines.append("Not available for an opened project. The suitability "
+			+ "diagnostics behind this chain -- and the river, water-distance, "
+			+ "elevation and travel-cost readings under it -- are computed at "
+			+ "generate time, and the project format does not store them "
+			+ "(SAVEFILE_COMPAT.md §16.2). They are omitted rather than "
+			+ "reconstructed from what was saved. Regenerating this world from "
+			+ "its parameters brings them back.")
 
 	return "\n".join(lines)
 
@@ -780,20 +936,55 @@ func _route_length_text(pts: PackedVector2Array) -> String:
 ## recording the gap rather than hiding it.
 func _build_river(body: Control) -> void:
 	var sec := DccWidgets.section(body, "River")
+	## The clause struck here on 2026-09-01 said "the only river-derived output
+	## that crosses the GDExtension boundary is baked into
+	## build_color_texture()'s rendered raster", and this same file disproves
+	## it three rows up: the Sample readouts report Strahler order and
+	## discharge per cell off `stream_order`/`flow_discharge`
+	## (`SAMPLE_FIELDS`' own Drainage row, three above this one, cites both by
+	## name), `layers_popover.gd` draws
+	## `strahler` as a live layer, and `measure_section` labels a crossing
+	## "River · order 3". What genuinely does not cross is the *entity*, which
+	## is `measure_bridge.rs`'s own wording and is what this note now says.
 	DccWidgets.note(sec,
-		"No hydrological river entity is exposed to Godot. cartalith-hydrology " +
+		"No hydrological river ENTITY is exposed to Godot. cartalith-hydrology " +
 		"computes river networks internally (order, discharge, catchment) for " +
-		"erosion and settlement suitability, but the only river-derived output that " +
-		"crosses the GDExtension boundary is baked into build_color_texture()'s " +
-		"rendered raster -- there is no get_rivers() and nothing in the viewport " +
-		"can select one.")
+		"erosion and settlement suitability, and per-CELL order and discharge do " +
+		"cross the boundary -- Sample reads them, the Strahler layer draws them, " +
+		"and a measured section labels its river crossings by order. What nothing " +
+		"does is aggregate a channel run into one river: there is no get_rivers(), " +
+		"so there is no river to name, to total a length for, or to select in the " +
+		"viewport.")
 	for f in ["Name", "Length", "Source elevation", "Discharge", "Catchment", "Tributaries", "Navigation"]:
 		_field(sec, f, "—", "No get_rivers() binding.", false)
 	var actions := DccWidgets.group(sec, "Actions")
+	## All three used to share one seven-word tooltip ("No river binding to act
+	## on."), which named the same gap three times and told a reader nothing
+	## about what each Action would need. Each now says what is specifically
+	## missing for *it* -- the three are blocked by three different absences,
+	## not by one. Found by the 2026-08-31 unwired audit.
+	var why := {
+		"Hydrology":
+			"Would report this river's Strahler order, discharge and channel width. " +
+			"All three are computed (strahler_from_receivers, compute_flow's " +
+			"flow_discharge, river_width_scale_k) but only ever as per-CELL rasters -- " +
+			"nothing aggregates a channel run into one river with its own readings, so " +
+			"there is no per-river figure to report.",
+		"Edit geometry":
+			"Would move the river's course. The course is not stored: it is re-traced " +
+			"from the receiver tree on demand (trace_river_polylines, the way the GeoJSON " +
+			"export and the urban pass both do it), so there is no polyline to edit, and " +
+			"no write path from an edited one back into the flow field it came from.",
+		"Analyse catchment":
+			"Would report the upstream area draining into this river. That area lives " +
+			"inside compute_flow's accumulation and crosses the boundary only one cell at " +
+			"a time (Sample -> Drainage); no #[func] sums it over a channel, and summing " +
+			"it here would mean one boundary crossing per upstream cell.",
+	}
 	for label_text in ["Hydrology", "Edit geometry", "Analyse catchment"]:
 		var b := DccWidgets.action(actions, label_text, func(): pass)
 		b.disabled = true
-		b.tooltip_text = "No river binding to act on."
+		b.tooltip_text = String(why[label_text])
 
 # -- Faction ------------------------------------------------------------
 
@@ -807,9 +998,23 @@ func _build_faction(body: Control) -> void:
 
 	## RD-08: this used to list province names under "Roster" -- a list of
 	## who claims the faction, not a reading of the faction itself. §6 calls
-	## for a "roster entry", singular: `get_factions()` (lib.rs:3442) carries
-	## the real per-faction culture/colour/settlement_count, so that's what
-	## fills this section now.
+	## for a "roster entry", singular: `WorldGen::get_factions`
+	## (`cartalith-godot/src/lib.rs:6559 fn get_factions`) carries the real
+	## per-faction culture/government/ag-tech/colour/settlement_count, so that's
+	## what fills this section now.
+	##
+	## (Citation history, because it is the point: this number has been wrong
+	## three times. It read `3442`, then `6225`, then `6295` -- each re-derived
+	## in good faith and each stale before it was committed, because other
+	## agents were editing `lib.rs` in the same window. The third value was the
+	## worst of them: `6295` had drifted into `civ_faction_territory_stats`'s
+	## doc comment, whose `dict!` a few lines below carries a plausible
+	## `"faction"` key -- so following the citation landed a reader in a
+	## different function that *looks* like the right one, and this file calls
+	## that function too, at `_build_faction`'s Territory row below. Corrected
+	## the third time on 2026-08-31, in a pass with nothing else editing the
+	## tree, and every number here now carries the symbol name beside it so the
+	## next drift is a `grep` away instead of a silent lie.)
 	var roster: Dictionary = {}
 	for f in bridge.get_factions():
 		var d: Dictionary = f
@@ -818,12 +1023,37 @@ func _build_faction(body: Control) -> void:
 			break
 
 	_field(sec, "Faction", str(_faction_id))
+	## `Government` and `Ag. technology` ride the same `roster` dict `Culture`
+	## does -- the `"government"` and `"ag_tech"` keys of `get_factions`'s own
+	## `dict!` (`cartalith-godot/src/lib.rs:6578-6579`, the `"government"` and
+	## `"ag_tech"` rows, two under `"culture"` at `:6365`) -- and were shown
+	## nowhere in this dock, while
+	## `faction_roster_window.gd`'s `_vocab_choice`/`_ag_tech_choice` rows
+	## (`:432`, `:438`) both read *and* edit them. Named
+	## with that window's own labels rather than a second vocabulary for the
+	## same two fields. Found by the 2026-08-31 unwired audit.
 	if roster.is_empty():
 		_field(sec, "Culture", "—",
 			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
-		_field(sec, "Settlements", "—", "", false)
+		_field(sec, "Government", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+		_field(sec, "Ag. technology", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+		## The same reason its three siblings carry, not an empty string. A
+		## ghosted row whose tooltip says nothing is indistinguishable from a
+		## control that is broken, and this one is neither -- the roster is
+		## simply empty until a world exists. Found by the 2026-09-01
+		## integration audit, which reported the empty argument twice.
+		_field(sec, "Settlements", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
 	else:
 		_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
+		## `capitalize()` is the same formatting `Culture` above uses, and it
+		## reads both vocabularies correctly: the government keys are
+		## snake_case and the ag-tech keys camelCase (`traditionalAgrarian`),
+		## which it splits into words either way.
+		_field(sec, "Government", String(roster.get("government", "?")).capitalize())
+		_field(sec, "Ag. technology", String(roster.get("ag_tech", "?")).capitalize())
 		_faction_colour_row(sec, roster)
 		_field(sec, "Settlements", str(int(roster.get("settlement_count", 0))))
 
@@ -846,10 +1076,17 @@ func _build_faction(body: Control) -> void:
 	## it and there is no get_faction_aggregates() binding."* Both halves are
 	## true and neither is relevant -- **this row is built from `roster`, not
 	## from `get_provinces()`**, and `get_factions()` has carried `"religion"`
-	## since the roster window shipped (`cartalith-godot/src/lib.rs:6243`).
+	## since the roster window shipped -- the `"religion"` key of
+	## `get_factions`'s `dict!` (`cartalith-godot/src/lib.rs:6578`, the
+	## `"religion"` row; the citation read `6243`, then `6313`, and both had
+	## drifted -- `6313` onto `civ_faction_territory_stats`'s own `"faction"`
+	## row, which reads convincingly and is the wrong function. Third
+	## correction, 2026-08-31; see the note on `get_factions` above).
 	##
-	## `roster` is fetched at the head of this same function (`:813-818`) and
-	## `Culture` two rows up already reads out of it. The binding was one
+	## `roster` is fetched at the head of this same function, by the
+	## `bridge.get_factions()` loop in `_build_faction` -- deliberately named
+	## rather than numbered, since a self-citation into this file drifts every
+	## time this file is touched. `Culture` two rows up already reads out of it. The binding was one
 	## `.get()` away for as long as the row has said it was missing.
 	##
 	## Found by the 2026-08-31 unwired audit. Not stale WIRING -- a stale
@@ -1670,13 +1907,20 @@ func _accent_readout(parent: Control, label_text: String, value_text: String, to
 	wrap.tooltip_text = tooltip
 	var caption_fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
 	wrap.add_child(DccTheme.label(label_text, "text_dim", caption_fs))
-	## `26` (`FS_HERO`) is left unscaled -- §6's "one big accent readout per
-	## context" is pinned, the same way `w_fab`/`hairline` are in `ROLE`'s own
-	## pinned block, and it is already well above every tablet floor this pass
-	## introduces.
-	var v := DccTheme.label(value_text, "accent", 26)
-	## Same rule as `_field()`: at 26 px a readout is the fastest row in the
-	## dock to outgrow the pane, and this one is rewritten on every mouse-move.
+	## This used to hard-code `26` and argue that §6's "one big accent readout
+	## per context" was deliberately pinned. `BUILD_ANSWERS.md` §2.4 reverses
+	## that on 2026-08-31 -- *"The three unscaled values -- all three now scale.
+	## They were oversights."* -- so the size comes from `fs_hero`'s own
+	## desktop/tablet pair instead.
+	##
+	## Through `DccTheme.hero()`, not a second `role_px("fs_hero")` read here:
+	## that helper's own doc names this exact readout ("§6's elevation") and had
+	## no caller, so this row is what it was written for. It also draws in Plex,
+	## which is what `mono_label()` is for -- every numeric readout in this
+	## shell -- where `DccTheme.label()` left the dock's one big number in prose.
+	var v := DccTheme.hero(value_text)
+	## Same rule as `_field()`: this is the fastest row in the dock to outgrow
+	## the pane, and it is rewritten on every mouse-move.
 	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	wrap.add_child(v)
 	parent.add_child(wrap)

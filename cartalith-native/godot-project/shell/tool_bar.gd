@@ -430,10 +430,16 @@ func _build_paint_options(row: HBoxContainer) -> void:
 	_fit(DccWidgets.slider(row, "Size", 1.0, 40.0, 1.0, float(st.get("radius", 6.0)), " c", func(v: float):
 		_write_paint_state("radius", v)
 		_sync_paint()))
-	_fit(DccWidgets.slider(row, "Hardness", 0.0, 1.0, 0.01, float(st.get("hardness", 1.0)), "", func(v: float):
-		_write_paint_state("hardness", v)
-		_sync_paint(),
-		"Stored and echoed back but never consumed -- a dab is a hard disc (paint_bridge.rs)."))
+	## `Hardness` (and its `Softness` sibling, which never had a copy here)
+	## lives in the WORLD dock's Biome paint panel only now -- `UNWIRED_
+	## FUNCTIONS.md`'s "two copies on screen at once" row, ruled by the owner
+	## 2026-08-31 (`LARGE_ITEM_RULINGS.md`): bind the falloff (`DECISIONS.md`
+	## §7k) *and* resolve the duplicate. The dock panel owns the actual
+	## `_paint_brush` state (this bar only mirrors it through `_paint_state`/
+	## `_write_paint_state`) and is the one place both sliders already sat
+	## side by side, so its copy survives and this bar's is deleted, not
+	## hidden -- matching Sculpt's own tool-bar row, which draws a narrowed
+	## subset of the dock's full parameter set rather than all of it.
 	_narrow(DccWidgets.toggle(row, "Land only", bool(st.get("land_only", true)), func(v: bool):
 		_write_paint_state("land_only", v)
 		_sync_paint()))

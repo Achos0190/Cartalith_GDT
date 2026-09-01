@@ -572,15 +572,14 @@ func _build_links() -> void:
 			_rebuild())
 		open.tooltip_text = "Shows the imported text and, once it diverges, the write-back action."
 		if String(d.get("status", "")) == "stale":
-			## §14's own three-way prompt, minus Compare — see the footer.
-			var reload := DccWidgets.action(row, "Reload source", func():
-				var r := bridge.vault_reload_link(lid)
-				if not bool(r.get("ok", false)):
-					app.set_status("hint", "Reload: %s" % String(r.get("error", "")), "accent")
-				else:
-					store_changed.emit()
-				_rebuild())
+			## §14's own three-way prompt, all three now: Reload and Compare
+			## are buttons; Keep is simply pressing neither, which is why
+			## milestone 1 needed no button for it at all.
+			var reload := DccWidgets.action(row, "Reload source", func(): _reload_link(lid))
 			reload.tooltip_text = "Discards the Cartalith working copy and re-reads the section from the vault. The vault is not written."
+			var link_rel := String(d.get("path", ""))
+			var compare := DccWidgets.action(row, "Compare…", func(): _compare_link(lid, link_rel))
+			compare.tooltip_text = "A line-by-line diff between %s as it is right now and your working copy, so you can judge before choosing Reload or Keep." % link_rel.get_file()
 		var detach := DccWidgets.action(row, "Detach", func():
 			bridge.vault_detach(lid)
 			if lid == _reader_link:
@@ -615,6 +614,237 @@ func _build_entity_data(sec: Control) -> void:
 		DccWidgets.note(g, "    %s: %s    (%s · %s)" % [
 			String(d.get("key", "")), String(d.get("value", "")),
 			String(d.get("origin", "")), String(d.get("rel", ""))])
+
+
+# -- Compare (§14's third action, `MARKDOWN_VAULT_SCOPE.md` milestone 5) ----
+
+## §14's "Reload source", factored out so the stale row's own button and
+## Compare's own button (below) share one call rather than risk two copies
+## drifting apart. Behaviour is unchanged from before this pass: discards
+## the working copy, re-reads the section, and never touches the file.
+func _reload_link(lid: String) -> void:
+	var r := bridge.vault_reload_link(lid)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Reload: %s" % String(r.get("error", "")), "accent")
+	else:
+		store_changed.emit()
+	_rebuild()
+
+
+## A guard on the DP table the diff below builds, the same shape as
+## `_run_search`'s own `truncated` — a vault note is realistically tens to a
+## few hundred lines, so this is a fence against a mistakenly huge
+## attachment, not a limit anyone should ever actually see.
+const DIFF_MAX_CELLS := 1_000_000
+## Lines of unchanged context kept on each side of a change before the run
+## between two changes collapses to a count — `diff -U3`'s own idea: enough
+## to place a change without echoing a whole unchanged note back at someone
+## who already has it.
+const DIFF_CONTEXT := 3
+
+## §14's Compare. Diffs the source file as it stands right now against what
+## the file would read **if the working copy were written into it** — not
+## the raw working text against the raw file. That choice is what lets this
+## function skip reimplementing heading/fence parsing to find the linked
+## section's own boundaries a second time: `vault_preview_section_write`
+## already builds exactly that document, through the same
+## `markdown::replace_section` the real write uses, so every byte outside
+## this link's own section is identical on both sides and the diff shows
+## only what this link actually touches.
+##
+## Both calls this makes are read-only (`&self` on the Rust side) — unlike
+## `vault_reload_link`, which updates the link's *stored* hash and timestamp
+## as a side effect of re-reading. That update is exactly right for an
+## explicit Reload and exactly wrong for "let me just look first": it would
+## silently clear the very Stale status this button is offered from, so a
+## Compare that merely looked would make the row stop saying the source had
+## changed. This function never calls `vault_reload_link`, so looking never
+## changes what a link reports — only the dialog's own Reload button, wired
+## through `_reload_link` above, does that, and only once pressed.
+func _compare_link(lid: String, rel: String) -> void:
+	var p := bridge.vault_preview_section_write(lid)
+	if not bool(p.get("ok", false)):
+		app.set_status("hint", "Compare: %s" % String(p.get("error", "")), "accent")
+		return
+	## CRLF-normalised before splitting, for display only — nothing here is
+	## written back. A Windows-authored note is CRLF throughout; the spliced
+	## section came from the working copy's own line endings, which a
+	## `TextEdit` normalises to `\n`, so without this every line of an
+	## otherwise-identical section would show as changed on the ending alone.
+	var source_text := bridge.vault_read_file(rel).replace("\r\n", "\n")
+	var working_text := String(p.get("preview", "")).replace("\r\n", "\n")
+	var old_lines := source_text.split("\n")
+	var new_lines := working_text.split("\n")
+	if old_lines.size() * new_lines.size() > DIFF_MAX_CELLS:
+		_compare_dialog(lid, rel, [], true)
+		return
+	_compare_dialog(lid, rel, _lcs_diff(old_lines, new_lines), false)
+
+
+## Longest-common-subsequence line diff — the classic O(n·m) DP table plus a
+## backtrack, which is the whole algorithm a line-level diff needs and the
+## only one this window builds: no third-party widget, no new crate. `old`
+## is the source file as it reads right now; `new` is what it would read
+## with the working copy written back — `_compare_link`'s own header says
+## why those two and not the raw working text.
+##
+## One flat `PackedInt32Array` rather than an `Array` of rows, deliberately:
+## `dp[i][j] = x` through a plain `Array` of packed arrays risks writing
+## through a copy GDScript handed back rather than the stored element, and
+## this project has already paid once for a silent-loss bug shaped exactly
+## like that (`vault_store.gd`'s own KV-04 header). A single packed array
+## has one level of indexing and no such question to get wrong.
+func _lcs_diff(old: PackedStringArray, new: PackedStringArray) -> Array:
+	var n := old.size()
+	var m := new.size()
+	var w := m + 1
+	var dp := PackedInt32Array()
+	dp.resize((n + 1) * w)
+	for i in range(n - 1, -1, -1):
+		for j in range(m - 1, -1, -1):
+			dp[i * w + j] = (dp[(i + 1) * w + j + 1] + 1) if old[i] == new[j] \
+				else maxi(dp[(i + 1) * w + j], dp[i * w + j + 1])
+	var ops: Array = []
+	var i := 0
+	var j := 0
+	while i < n and j < m:
+		if old[i] == new[j]:
+			ops.append({"op": "eq", "text": old[i]})
+			i += 1
+			j += 1
+		elif dp[(i + 1) * w + j] >= dp[i * w + j + 1]:
+			ops.append({"op": "del", "text": old[i]})
+			i += 1
+		else:
+			ops.append({"op": "add", "text": new[j]})
+			j += 1
+	while i < n:
+		ops.append({"op": "del", "text": old[i]})
+		i += 1
+	while j < m:
+		ops.append({"op": "add", "text": new[j]})
+		j += 1
+	return ops
+
+
+## §14's Compare dialog: the diff, and nothing to confirm. Looking cannot
+## lose work by construction (see `_compare_link`'s own header), so the only
+## actions are dismissing and the same Reload the stale row already offers,
+## wired through the shared `_reload_link` rather than a second copy of it.
+func _compare_dialog(lid: String, rel: String, ops: Array, too_large: bool) -> void:
+	var dlg := AcceptDialog.new()
+	dlg.title = "Compare — %s" % rel.get_file()
+	dlg.size = Vector2i(680, 640)
+	dlg.get_ok_button().text = "Close"
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 6)
+	dlg.add_child(col)
+	DccWidgets.note(col,
+		("%s as it reads on disk right now, against your working copy. " % rel.get_file())
+		+ "\"+\" lines are only in your working copy — Reload source would discard them. "
+		+ "\"-\" lines are only in the file — Reload source would bring them in.")
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	var diff_col := VBoxContainer.new()
+	diff_col.add_theme_constant_override("separation", 0)
+	diff_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(diff_col)
+	var has_diff := false
+	for o in ops:
+		if String((o as Dictionary).get("op", "")) != "eq":
+			has_diff = true
+			break
+	if too_large:
+		DccWidgets.note(diff_col,
+			"This note is too large to diff line by line in this view. Reload source, or compare it in your own editor.")
+	elif not has_diff:
+		DccWidgets.note(diff_col,
+			"No difference in what this link covers — the file changed somewhere else, or only its timestamp moved.")
+	else:
+		_build_diff_rows(diff_col, ops)
+	var footer := HBoxContainer.new()
+	footer.add_theme_constant_override("separation", 8)
+	col.add_child(footer)
+	var reload := DccWidgets.action(footer, "Reload source", func():
+		dlg.queue_free()
+		_reload_link(lid))
+	reload.tooltip_text = "Discards the Cartalith working copy and re-reads the section from the vault. The vault is not written."
+	dlg.confirmed.connect(dlg.queue_free)
+	dlg.canceled.connect(dlg.queue_free)
+	app.add_child(dlg)
+	if _phone:
+		app.phone_fit(dlg, 1.0)
+	dlg.popup_centered()
+
+
+## `ops` collapsed to context around each change — `diff -U3`'s own idea: a
+## run of unchanged lines longer than `DIFF_CONTEXT` on both sides shows only
+## its two edges, with a count standing in for the rest.
+func _build_diff_rows(container: Control, ops: Array) -> void:
+	var n := ops.size()
+	var i := 0
+	while i < n:
+		var d: Dictionary = ops[i]
+		if String(d.get("op", "")) != "eq":
+			_diff_row(container, d)
+			i += 1
+			continue
+		var j := i
+		while j < n and String((ops[j] as Dictionary).get("op", "")) == "eq":
+			j += 1
+		var run := j - i
+		if run <= DIFF_CONTEXT * 2:
+			for k in range(i, j):
+				_diff_row(container, ops[k])
+		else:
+			for k in range(i, i + DIFF_CONTEXT):
+				_diff_row(container, ops[k])
+			var hidden := run - DIFF_CONTEXT * 2
+			DccWidgets.note(container, "    %s %d unchanged line%s" % [
+				DccIcons.SYMBOLS["overflow"], hidden, "" if hidden == 1 else "s"])
+			for k in range(j - DIFF_CONTEXT, j):
+				_diff_row(container, ops[k])
+		i = j
+
+
+## One diff line. `block` carries the risk side — content only in the
+## working copy, which Reload source would throw away — because this
+## palette has no green to pair with a red the way a version-control diff
+## usually would: `DccTheme`'s own header records that `--good` is declared
+## in the design canvas and used nowhere in it, so it was never imported
+## here. `accent` marks the opposite case (only in the file) rather than a
+## colour this shell does not have, and the leading `+`/`-` plus the dialog's
+## own legend above carry the meaning too, so it is not colour-only.
+func _diff_row(container: Control, d: Dictionary) -> void:
+	var op := String(d.get("op", "eq"))
+	var text := String(d.get("text", ""))
+	var prefix := "  "
+	var token := "text_dim"
+	match op:
+		"add":
+			prefix = "+ "
+			token = "block"
+		"del":
+			prefix = "- "
+			token = "accent"
+	var lbl := DccTheme.mono_label(prefix + text, token, DccTheme.FS_SMALL)
+	lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if op == "eq":
+		container.add_child(lbl)
+		return
+	var wrap := PanelContainer.new()
+	var sb := DccTheme.flat(Color(DccTheme.c(token), 0.09))
+	sb.content_margin_left = 4
+	sb.content_margin_right = 4
+	sb.content_margin_top = 1
+	sb.content_margin_bottom = 1
+	wrap.add_theme_stylebox_override("panel", sb)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.add_child(lbl)
+	container.add_child(wrap)
 
 
 # -- Reader / working copy (§29) -------------------------------------------
@@ -1108,9 +1338,10 @@ func _build_footer() -> void:
 	DccWidgets.note(_body,
 		"Not built here, each for a stated reason: the map snapshot (§21) — it needs a crop of "
 		+ "the live renderer at three radii, held as its own milestone rather than shipped as a "
-		+ "broken image link; Compare-with-source (§14) — no diff view exists in this shell yet, "
-		+ "so a changed source offers Reload or Keep, which are the two actions that cannot lose "
-		+ "work; two-way sync and an Obsidian plugin — an explicit V1 non-goal and a deferred "
-		+ "wish. Links are stored beside your Cartalith profile, not inside the .zip save: the "
-		+ "save format carries no civilisation layer, so a link inside one would come back "
-		+ "pointing at settlements that no longer exist.")
+		+ "broken image link; two-way sync and an Obsidian plugin — an explicit V1 non-goal and a "
+		+ "deferred wish. Compare-with-source (§14) is built now — the diff sits beside a stale "
+		+ "link's Reload source button. Links themselves ride inside a saved project: File ▸ Save "
+		+ "writes them into the project archive's own vault.json, beside the settlements and "
+		+ "factions the same archive already carries, and opening that project restores them "
+		+ "working. A copy is also kept beside your Cartalith profile, as the fallback for links "
+		+ "made before anything has been saved.")

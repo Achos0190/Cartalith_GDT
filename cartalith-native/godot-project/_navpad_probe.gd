@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY verification harness for the touch navpad (`GUI_GAP_REGISTER.md`
+## Committed verification harness for the touch navpad (`GUI_GAP_REGISTER.md`
 ## SH-14) and the cover-semantics `reset_view()` the ⟳ button calls.
 ##
 ##   godot4 --path . --resolution 393x852 _navpad_probe.tscn -- --force-touch --nowelcome
@@ -7,6 +7,11 @@ extends Node
 ## Measures rather than eyeballs: the reset's zoom against the cover scale
 ## computed independently from the fit rect, the two step buttons against
 ## 1.35, and a real synthetic one-finger drag with pan mode off then on.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var app: Node
 var vp: Control

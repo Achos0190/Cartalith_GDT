@@ -9,7 +9,9 @@ extends Node
 ## work area and boots the shell into *tablet* mode. `gui_embed_subwindows`
 ## keeps dialogs and `PopupMenu`s in the captured texture.
 ##
-## Untracked, like every other probe in this folder.
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them.
 
 var app: Node
 var _vp: SubViewport

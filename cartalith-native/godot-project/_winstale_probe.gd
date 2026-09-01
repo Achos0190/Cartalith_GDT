@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for the 2026-08-25 "is every control wired" pass.
+## Committed probe for the 2026-08-25 "is every control wired" pass.
 ##
 ## RF-01's other half. §23 asked "what re-runs this, and on which signal?" of
 ## every panel built at launch. This asks it of every WINDOW **left open while
@@ -14,6 +14,11 @@ extends Node
 ## mode with a different trigger.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _winstale_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

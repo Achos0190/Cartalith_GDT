@@ -1,5 +1,14 @@
 # GUI gap register — every disconnected control, its design, and where none exists
 
+> **Read this document as history, not as status.** It is a register of what
+> each audit and device pass *found and decided on its own date* — the design
+> research, the root causes, the measurements and the rulings, all of which stay
+> useful. It is not a statement of where any of it stands now: a row reading
+> "done" or "not fixed" records the pass that wrote it, not the tree today.
+> **Current status lives in `cartalith-native/docs/STATUS.md`**, the only place
+> progress is recorded, and the live successor to this register's open half is
+> `UNWIRED_FUNCTIONS.md`.
+
 > Owner request, 2026-08-19, verbatim: *"verify that all GUI elements are tested,
 > connected and where it doesn't connect to other menus or functions designs have
 > been made to be implemented. If not, research the menu naming, documentation in

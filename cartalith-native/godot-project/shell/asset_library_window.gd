@@ -110,11 +110,16 @@ class_name AssetLibraryWindow
 ##   `as_slicer_move_line`); and cell-scoped slicing, `as_slice_apply`'s new
 ##   `only_cell` narrowing a slice to the one selected cell instead of the
 ##   whole sheet.
-## - **Disclosed gap, still honest**: dragging a file from OUTSIDE Godot onto a
-##   slot to fill it -- Godot's own drag-and-drop is two unrelated systems, and
-##   OS-external file drops only ever reach `Window.files_dropped`, never a
-##   Control's `_can_drop_data`/`_drop_data`, so a slot cannot structurally be
-##   that kind of drop target (use Import image… instead); there is no engine
+## - **Disclosed gap**: dragging a file from OUTSIDE Godot onto a slot to fill
+##   it. Godot's two drag-and-drop systems really are unrelated -- an OS file
+##   drop reaches `Window.files_dropped` and never a Control's
+##   `_can_drop_data`/`_drop_data` -- but that makes a slot the wrong *listener*,
+##   not an impossible target: `open_project_dialog.gd`, an `AcceptDialog`
+##   subclass exactly like this window, already accepts OS drops through
+##   `files_dropped`. What is missing is the second half: hit-testing the drop
+##   position against the slot grid and choosing between the focused slot and
+##   Unassigned imports. Unscheduled, so the hint still points at Import
+##   image…, but it is a nameable job rather than a wall; there is no engine
 ##   primitive to *move* an already-assigned item into Unassigned imports
 ##   (only into/out of a Collection), so that bucket is reachable from imports
 ##   only, not from reassigning existing art.
@@ -1594,22 +1599,30 @@ func _on_drop_uids_on_collection(coll_name: String, uids: Array) -> void:
 	_refresh_status_line()
 
 ## The Collections header's "Delete…" button (`PARITY_AUDIT.md` §23 F13):
-## drops the rail's currently-selected collection. Calls `world_gen` directly
-## rather than through a new `engine_bridge.gd` wrapper -- that file is a
-## concurrently-edited file this pass, the same reasoning `_refresh_collections_rail`'s
-## own comment already gives for `as_collections`.
+## drops the rail's currently-selected collection.
+##
+## **Now through the bridge.** This used to call `world_gen` directly, and the
+## reason it gave -- "that file is a concurrently-edited file this pass" --
+## expired when `EngineBridge.as_drop_collection()` landed. Reaching around
+## the bridge is not free: the wrapper's `_has()` probe is what records a
+## missing binding in `missing_bindings()`, the shell's own staleness
+## fingerprint, so a direct call makes a stale binary look healthy from the
+## one place that reports on it. The local `world_gen == null` test goes with
+## it -- `EngineBridge` constructs `world_gen` at declaration and replaces it
+## in `close_world()`; it is never null.
+##
+## `as_collections` below still calls through, because no wrapper exists for
+## it yet and adding one is an `engine_bridge.gd` change.
 func _on_delete_collection() -> void:
 	if _current_collection == "":
 		_host.set_status("hint", "select a collection first, then Delete…", "text_ghost")
-		return
-	if _bridge.world_gen == null or not _bridge.world_gen.has_method("as_drop_collection"):
 		return
 	var coll_name := _current_collection
 	var d := ConfirmationDialog.new()
 	d.title = "Delete collection \"%s\"?" % coll_name
 	d.dialog_text = "Remove the \"%s\" collection? The assets in it are not deleted -- only the grouping is." % coll_name
 	d.confirmed.connect(func():
-		_bridge.world_gen.as_drop_collection(coll_name)
+		_bridge.as_drop_collection(coll_name)
 		_dirty = true
 		_current_collection = ""
 		_highlight_collection_row("")
@@ -1812,14 +1825,17 @@ func _build_slot_grid() -> Control:
 	## Drag a tile onto a Collections-rail row to add it (real,
 	## `CollectionRow`/`SlotCell._get_drag_data`, AS-12). Drag-onto-a-SLOT
 	## specifically -- i.e. dropping a file from outside Godot to fill it --
-	## stays unwired: Godot's own drag-and-drop is two unrelated systems, and
-	## OS-external file drops only ever reach `Window.files_dropped`, never a
-	## Control's `_can_drop_data`/`_drop_data` (those two are in-app-drag-only,
-	## which is exactly what tile-onto-collection uses). Said plainly rather
-	## than drawn as if a slot accepted a file drop it structurally cannot.
+	## stays unwired. Godot's two drag-and-drop systems are unrelated: an OS file
+	## drop reaches `Window.files_dropped`, never a Control's
+	## `_can_drop_data`/`_drop_data` (those two are in-app-drag-only, which is
+	## exactly what tile-onto-collection uses). That makes the slot the wrong
+	## listener, not an impossible one -- `open_project_dialog.gd` receives OS
+	## drops on `files_dropped` from the same `AcceptDialog` base this window
+	## has. The missing half is hit-testing the drop point against the grid.
+	## Said plainly, and without claiming an impossibility that is not one.
 	var drop_hint := DccTheme.mono_label("drag a tile onto a Collection to add it",
 		"text_faint", DccTheme.FS_TINY)
-	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row (as_batch_collect). Dropping a file from outside Godot to fill a slot stays unwired -- OS file drops reach Window.files_dropped, not a Control's _can_drop_data/_drop_data, so a slot cannot be that kind of drop target; use Import image… for that."
+	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row (as_batch_collect). Dropping a file from outside Godot onto a slot is not wired: an OS file drop arrives at Window.files_dropped, not at the slot's own _can_drop_data/_drop_data, so filling a slot that way needs the window to hit-test the drop point against the grid -- a real, unscheduled job, not an impossibility. Use Import image… meanwhile."
 	drop_hint.mouse_filter = Control.MOUSE_FILTER_STOP
 	## PH-12: both foot hints describe pointer modifiers. `⇧-click ranges ·
 	## Ctrl-click adds` has no touch equivalent at all, and the drop hint's
@@ -1981,12 +1997,32 @@ func _refresh_grid() -> void:
 				continue
 			entries.append({"uid": uid, "id": String(s["id"]), "name": slot_name, "code": code})
 	else:
+		## **The engine owns these names, and this loop used to re-derive them.**
+		##
+		## `_humanize(id)` title-cases the underscore-split id, which agrees with
+		## `cartalith_assets::slot_title()` for about half the frozen vocabulary
+		## and quietly disagrees for the rest -- `mtn_pass` reads "Mtn Pass" where
+		## the engine (and the reference) says "Mountain Pass", `lake_river` reads
+		## "Lake River" against "Lake / River", `cold_desert` drops "/ Badlands".
+		## `library.rs`'s own module doc calls those titles **functionally**
+		## load-bearing, because `AssetValidator.run()`'s "Identical images"
+		## warning renders `slot.name`; a grid captioned differently from the
+		## warning that names the same slot is two names for one thing.
+		##
+		## `as_family_slots` already returns `name` per slot (it emits
+		## `slot.name.as_str()`), and `_slot_state` above is keyed by the same uid
+		## this loop builds -- so the engine's own title is one lookup away.
+		## `_humanize` survives only as the fallback for a slot the live session
+		## does not carry, which is also the only case `_slot_state` can miss.
 		var ids: Array = fam["slots"]
 		for i in ids.size():
 			var id := String(ids[i])
-			var slot_name := _humanize(id)
 			var code := "%s-%02d" % [String(fam["code"]), i + 1]
 			var uid := "%s:%s" % [String(fam["key"]), id]
+			var row: Dictionary = _slot_state.get(uid, {})
+			var slot_name := String(row.get("name", ""))
+			if slot_name == "":
+				slot_name = _humanize(id)
 			if q != "" and id.to_lower().find(q) < 0 and slot_name.to_lower().find(q) < 0 \
 					and code.to_lower().find(q) < 0:
 				continue

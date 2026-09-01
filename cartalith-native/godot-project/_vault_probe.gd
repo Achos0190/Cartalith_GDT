@@ -1,5 +1,5 @@
 extends Node
-## Temporary, untracked verification harness for `MARKDOWN_VAULT_SCOPE.md`
+## Committed verification harness for `MARKDOWN_VAULT_SCOPE.md`
 ## milestones 0 and 1.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _vault_probe.tscn
@@ -24,6 +24,11 @@ extends Node
 ##      confirm the write refuses and changes nothing.
 ##   9. Assert the panels wired up: the place editor's KNOWLEDGE section and
 ##      the Civilization dock's Linked notes rows.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const SEED := 483920
 

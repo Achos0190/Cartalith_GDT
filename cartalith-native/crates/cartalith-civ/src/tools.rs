@@ -53,7 +53,7 @@ use std::collections::HashSet;
 
 use super::{
     NamedSettlement, SettlementKind, SettlementPlacement, TerrainValid, Way, build_travel_cost, civ_apply_settlement_gravity, civ_biome_friction, civ_is_coastal,
-    civ_navigable_river_discount, civ_routing_grid, civ_smooth_path, js_hypot, js_round, road_dijkstra,
+    civ_navigable_river_discount, civ_river_crossing_cost, civ_routing_grid, civ_smooth_path, civ_swamp_penalty, js_hypot, js_round, road_dijkstra,
 };
 
 // ===================== Territory / faction =====================
@@ -348,15 +348,19 @@ pub enum RouteMode {
 /// into one borrowed struct.
 ///
 /// `biome`/`river_order` are `Option` because the reference guards both
-/// (`if(biomeR)` / `if(riverOrder)`) and only [`RouteMode::Mixed`] reads
-/// them at all -- `Land`/`Water` grids ignore them entirely.
+/// (`if(biomeR)` / `if(riverOrder)`).
 pub struct RouteContext<'a> {
     pub field: &'a [f32],
     /// `currentWaterBodies()`: 0 = land, 1 = ocean, 2 = lake.
     pub water_bodies: &'a [u8],
-    /// `buildBiomeRaster()` -- `RouteMode::Mixed` only.
+    /// `buildBiomeRaster()` -- `RouteMode::Mixed` only (biome friction has
+    /// no `_civLandCostGrid` equivalent to extend the way the ford term
+    /// below does; `civ_biome_friction` stays `civ_mixed_cost_grid`'s own).
     pub biome: Option<&'a [u8]>,
-    /// `_riverNet.order` -- `RouteMode::Mixed` only.
+    /// `_riverNet.order` -- read by [`RouteMode::Mixed`]'s navigable-river
+    /// discount (unchanged) **and**, since `DECISIONS.md` §7i's
+    /// ford-vs-bridge term, by [`RouteMode::Land`]'s [`civ_land_cost_grid`]
+    /// too, through [`civ_river_crossing_cost`].
     pub river_order: Option<&'a [i16]>,
     /// `state.places`, for settlement gravity and snapping.
     pub places: &'a [NamedSettlement],
@@ -381,6 +385,27 @@ pub struct RouteContext<'a> {
     /// `None` is byte-for-byte the reference, which is what every golden
     /// fixture passes and why those tests keep meaning "matches v2.10".
     pub corridors: Option<&'a [f32]>,
+    /// `flowField` -- `DECISIONS.md` §7i's own "named as the obvious next
+    /// step" pair (swamp/floodplain penalty, river ford-vs-bridge cost)
+    /// needs this plus `flow_thresh` below; `corridors` above did not, which
+    /// is why this pair arrived one term later. Read by
+    /// [`civ_land_cost_grid`]/[`civ_mixed_cost_grid`] through
+    /// [`civ_swamp_penalty`]/[`civ_river_crossing_cost`] -- the exact same
+    /// functions `civ_enhanced_travel_cost` itself calls, so the formula
+    /// cannot drift between the auto-network builder and the manual
+    /// Route/Way tools.
+    ///
+    /// `None` is byte-for-byte the reference's own `flow` being falsy
+    /// (`typeof flowField!=='undefined'&&flowField`), and is what every
+    /// golden fixture predating this field passes.
+    pub flow: Option<&'a [f32]>,
+    /// `riverFlowThresh(GW,GH)` -- meaningless without `flow` and ignored
+    /// by [`civ_swamp_penalty`]/[`civ_river_crossing_cost`] whenever it is
+    /// `None`, so a caller with no flow field can pass any value (`0.0` by
+    /// convention, matching [`crate::JpWorld::flow_thresh`]'s own
+    /// "supplied rather than recomputed" note -- this crate keeps its
+    /// dependency set here too).
+    pub flow_thresh: f64,
 }
 
 /// How much of a land cell's *slope* penalty a full-strength corridor
@@ -526,6 +551,16 @@ fn civ_pass_relief(corridors: Option<&[f32]>, fi: usize) -> f64 {
 /// `_civLandCostGrid` (reference line 21035): slope cost with ALL water
 /// impassable -- the sea via `build_travel_cost`, above-sea lakes via the
 /// water-body overlay (a bare `field < sea` check misses those).
+///
+/// **Also carries the swamp/floodplain and river ford-vs-bridge terms**
+/// (`DECISIONS.md` §7i's own "named as the obvious next step", now taken):
+/// `_civEnhancedTravelCost` has both and the reference's own
+/// `_civLandCostGrid` has neither, exactly the asymmetry §7i already
+/// documents for the mountain-pass term above -- an owner-requested
+/// terrain-awareness addition to the Route/Way tools' grids, not a literal
+/// port of `_civLandCostGrid` itself. `ctx.flow: None` (every fixture
+/// predating this pair) makes both terms the identity, so this is additive
+/// over every existing caller.
 fn civ_land_cost_grid(ctx: &RouteContext) -> CostGrid {
     let g = civ_routing_grid(ctx.field, ctx.gw, ctx.gh);
     let mut cost = build_travel_cost(&g.dfld, g.rw, g.rh, ctx.sea);
@@ -533,18 +568,30 @@ fn civ_land_cost_grid(ctx: &RouteContext) -> CostGrid {
         for x in 0..g.rw {
             let fx = ((x as f64 / g.sc) as usize).min(ctx.gw - 1);
             let fy = ((y as f64 / g.sc) as usize).min(ctx.gh - 1);
-            if ctx.water_bodies[fy * ctx.gw + fx] != 0 {
-                cost[y * g.rw + x] = f32::INFINITY;
+            let fi = fy * ctx.gw + fx;
+            let i = y * g.rw + x;
+            if ctx.water_bodies[fi] != 0 {
+                cost[i] = f32::INFINITY;
                 continue;
             }
             // `build_travel_cost` wrote exactly `1 + 50*sl^2`, so the slope
             // term is recoverable as `c - 1` and the relief applies to that
             // alone -- identical arithmetic to computing it inline, without
             // a second slope pass.
-            let relief = civ_pass_relief(ctx.corridors, fy * ctx.gw + fx);
-            let i = y * g.rw + x;
+            let relief = civ_pass_relief(ctx.corridors, fi);
             if relief < 1.0 && cost[i].is_finite() {
                 cost[i] = (1.0 + (cost[i] as f64 - 1.0) * relief).max(0.05) as f32;
+            }
+            // Swamp/floodplain + ford-vs-bridge, applied to the same
+            // (now pass-relief-adjusted) cost the way `_civEnhancedTravelCost`
+            // applies them to its own `c` -- immediately after the
+            // slope+pass term, ahead of any multiplicative terrain-type
+            // modifier (this grid has none of its own to order against).
+            if cost[i].is_finite() {
+                let mut c = cost[i] as f64;
+                c *= civ_swamp_penalty(ctx.flow, ctx.flow_thresh, g.dfld[i] as f64, ctx.sea, fi);
+                c += civ_river_crossing_cost(ctx.flow, ctx.flow_thresh, ctx.river_order, fi);
+                cost[i] = c.max(0.05) as f32;
             }
         }
     }
@@ -582,6 +629,11 @@ fn civ_water_cost_grid(ctx: &RouteContext) -> CostGrid {
 /// `build_travel_cost`: the reference does the same, because it must skip
 /// the water branch before the slope read, and `buildTravelCost` would
 /// have already written `Infinity` there.
+///
+/// **Also carries the swamp/floodplain and river ford-vs-bridge terms**
+/// (`DECISIONS.md` §7i), the same addition [`civ_land_cost_grid`] gets and
+/// for the same reason -- see its own doc comment. `ctx.flow: None` (every
+/// fixture predating this pair) makes both terms the identity.
 fn civ_mixed_cost_grid(ctx: &RouteContext) -> CostGrid {
     let g = civ_routing_grid(ctx.field, ctx.gw, ctx.gh);
     let (rw, rh, sc) = (g.rw, g.rh, g.sc);
@@ -606,6 +658,14 @@ fn civ_mixed_cost_grid(ctx: &RouteContext) -> CostGrid {
             // BEFORE biome friction and the river discount -- the order
             // `_civEnhancedTravelCost` itself uses.
             let mut c = 1.0 + 50.0 * sl * sl * civ_pass_relief(ctx.corridors, fi);
+            // Swamp/floodplain + ford-vs-bridge, in the same relative
+            // position `_civEnhancedTravelCost` itself uses: right after
+            // the pass-adjusted slope term, ahead of the multiplicative
+            // biome/river-discount modifiers below (whose own relative
+            // order to EACH OTHER is `_civMixedCostGrid`'s, not
+            // `_civEnhancedTravelCost`'s -- unchanged here).
+            c *= civ_swamp_penalty(ctx.flow, ctx.flow_thresh, d_i, ctx.sea, fi);
+            c += civ_river_crossing_cost(ctx.flow, ctx.flow_thresh, ctx.river_order, fi);
             if let Some(b) = ctx.biome {
                 c *= civ_biome_friction(b[fi]);
             }
@@ -707,7 +767,7 @@ pub fn civ_dijkstra_path(ctx: &RouteContext, sx: f64, sy: f64, ex: f64, ey: f64,
     let rex = js_round(ex * sc).clamp(0.0, rw as f64 - 1.0) as usize;
     let rey = js_round(ey * sc).clamp(0.0, rh as f64 - 1.0) as usize;
 
-    let (_dist, prev) = road_dijkstra(&cost, rw, rh, rsx, rsy, ctx.world);
+    let (_dist, prev) = road_dijkstra(&cost, rw, rh, rsx, rsy, ctx.world, None);
 
     let si = rsy * rw + rsx;
     let target = rey * rw + rex;
@@ -1162,7 +1222,7 @@ mod tests {
     }
 
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], places: &'a [NamedSettlement], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
-        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0 }
+        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
 
     /// `DECISIONS.md` §7i, the discrimination test: the relief scales with
@@ -1195,7 +1255,7 @@ mod tests {
         let mut corr = vec![0.0f32; gw * gh];
         corr[8 * gw + 12] = 1.0;  // a full-strength pass
         corr[7 * gw + 12] = 0.5;  // half strength, one cell north
-        let plain = RouteContext { field: &field, water_bodies: &wb, biome: None, river_order: None, places: &[], ways: &[], gw, gh, sea: 0.42, corridors: None, world: false, map_width_km: 240.0 };
+        let plain = RouteContext { field: &field, water_bodies: &wb, biome: None, river_order: None, places: &[], ways: &[], gw, gh, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 };
         let aware = RouteContext { corridors: Some(&corr), ..plain };
 
         // gw <= 384, so the routing grid is 1:1 and indices map directly.
@@ -1236,6 +1296,72 @@ mod tests {
         let wp = RouteContext { field: &sea_field, water_bodies: &sea_wb, ..plain };
         let wa = RouteContext { field: &sea_field, water_bodies: &sea_wb, ..aware };
         assert_eq!(civ_water_cost_grid(&wp).cost, civ_water_cost_grid(&wa).cost);
+    }
+
+    /// `DECISIONS.md` §7i's "named as the obvious next step" pair, now
+    /// taken: swamp/floodplain and river ford-vs-bridge, reaching
+    /// [`civ_land_cost_grid`]/[`civ_mixed_cost_grid`] through
+    /// `ctx.flow`/`ctx.flow_thresh` exactly the way `ctx.corridors` reaches
+    /// them for the pass-relief term above -- same discrimination shape:
+    /// an untouched control cell, an isolated single-term cell, and a cell
+    /// where both terms legitimately overlap (a swamp is, by the
+    /// reference's own gate, always also above the ford threshold: `flow >
+    /// flowThresh*8` implies `flow > flowThresh`).
+    #[test]
+    fn swamp_and_ford_terms_scale_with_the_flow_field_and_touch_nothing_else() {
+        let (gw, gh) = (24usize, 16usize);
+        let n = gw * gh;
+        let sea = 0.42;
+        // Flat, uniformly low-lying land: slope is zero everywhere, so the
+        // baseline land/mixed cost is a known constant and every change
+        // below is attributable to the new terms alone.
+        let field = vec![0.44f32; n];
+        let wb = vec![0u8; n];
+        let mut flow = vec![0f32; n];
+        let mut river_order = vec![0i16; n];
+        let flow_thresh = 10.0;
+        let (swamp_i, ford_i, dry_i) = (5 * gw + 10, 5 * gw + 15, 5 * gw + 2);
+        flow[swamp_i] = 90.0; // > flow_thresh*8 (80): swamp AND ford both gate true
+        flow[ford_i] = 20.0; // > flow_thresh, < flow_thresh*8: ford only
+        river_order[ford_i] = 1;
+
+        let dry = RouteContext {
+            field: &field, water_bodies: &wb, biome: None, river_order: None, places: &[], ways: &[],
+            gw, gh, sea, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0,
+        };
+        let wet = RouteContext { flow: Some(&flow), flow_thresh, river_order: Some(&river_order), ..dry };
+
+        // gw <= 384, so the routing grid is 1:1 and indices map directly.
+        let g = civ_routing_grid(&field, gw, gh);
+        assert_eq!((g.rw, g.sc), (gw, 1.0));
+
+        let (a, b) = (civ_land_cost_grid(&dry), civ_land_cost_grid(&wet));
+        assert_eq!(a.cost[dry_i], b.cost[dry_i], "a cell with no flow at all is untouched");
+        assert!(b.cost[ford_i] > a.cost[ford_i], "a river crossing must cost more: {} -> {}", a.cost[ford_i], b.cost[ford_i]);
+        assert!(b.cost[swamp_i] > a.cost[swamp_i], "a swamp must cost more: {} -> {}", a.cost[swamp_i], b.cost[swamp_i]);
+        // Exact composition, reusing the same two functions under test --
+        // this is the wiring claim (right cell, right base, both terms
+        // combined the way `civ_enhanced_travel_cost` combines them), not a
+        // second derivation of their own formula (see
+        // `civ_swamp_penalty_and_river_crossing_cost_match_the_reference_
+        // formula` in `lib.rs` for that).
+        let expect = |i: usize, base: f64| -> f32 {
+            (base * civ_swamp_penalty(wet.flow, flow_thresh, field[i] as f64, sea, i)
+                + civ_river_crossing_cost(wet.flow, flow_thresh, wet.river_order, i))
+            .max(0.05) as f32
+        };
+        assert_eq!(b.cost[ford_i], expect(ford_i, a.cost[ford_i] as f64));
+        assert_eq!(b.cost[swamp_i], expect(swamp_i, a.cost[swamp_i] as f64));
+
+        // Mixed grid: the same, through the other code path.
+        let (a, b) = (civ_mixed_cost_grid(&dry), civ_mixed_cost_grid(&wet));
+        assert_eq!(a.cost[dry_i], b.cost[dry_i]);
+        assert!(b.cost[ford_i] > a.cost[ford_i]);
+        assert!(b.cost[swamp_i] > a.cost[swamp_i]);
+
+        // Water grid has no slope/terrain-cost term at all to extend --
+        // untouched, exactly like the corridor field leaves it untouched.
+        assert_eq!(civ_water_cost_grid(&dry).cost, civ_water_cost_grid(&wet).cost);
     }
 
     #[test]

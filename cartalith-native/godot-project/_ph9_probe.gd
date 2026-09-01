@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY verification harness for the nine phone-untreated windows
+## Committed verification harness for the nine phone-untreated windows
 ## (`GUI_GAP_REGISTER.md` PH-12). Opens each one at handset size and measures
 ## it rather than eyeballing a screenshot.
 ##
@@ -16,6 +16,11 @@ extends Node
 ##   - how many tappable Controls fall under §13's 44 dp floor,
 ##   - whether the body actually scrolls (content > viewport in a
 ##     ScrollContainer).
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var app: Node
 var _screen := Vector2.ZERO

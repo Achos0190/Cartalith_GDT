@@ -1,5 +1,5 @@
 extends Node
-## Throwaway probe for the staged generation readout (`ANDROID_BUILD_SCOPE.md`
+## Committed probe for the staged generation readout (`ANDROID_BUILD_SCOPE.md`
 ## Generator: "one Generate button + staged progress readout (10 stages)").
 ## Modelled on `_cmdindex_probe.gd`.
 ##
@@ -14,6 +14,11 @@ extends Node
 ## FAILS loudly -- this repository's most-repeated trap is silently-empty
 ## output, and a probe that quietly accepted "no signals fired" would be
 ## exactly that trap wearing a green checkmark.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _fail := 0
 var _events: Array = []  ## each entry: {"index": int, "name": String, "total": int, "token": int}

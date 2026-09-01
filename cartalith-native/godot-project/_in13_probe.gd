@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for GUI_GAP_REGISTER.md IN-13 (trade flows).
+## Committed probe for GUI_GAP_REGISTER.md IN-13 (trade flows).
 ##
 ## Drives, windowed, against a real 233-settlement world:
 ##   * `civ_trade_flows()` returns real, differentiated flows -- not all-zero,
@@ -15,6 +15,11 @@ extends Node
 ##     byte-identical when switched off.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _in13_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

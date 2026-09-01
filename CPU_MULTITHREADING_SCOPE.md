@@ -2,14 +2,23 @@
 
 Prompted directly by the owner (2026-08-16): "check multithreading
 support for cpus, currently on my system it doesn't seem to fully use the
-cpu." Investigated before writing this — confirmed accurate: `rayon` is
-not a dependency anywhere in the workspace (one comment in
-`cartalith-engine` notes it's "not ported yet for this stage"), and every
-per-cell loop read this entire session (`cartalith-terrain`,
+cpu." Investigated before writing this and confirmed accurate **as the
+workspace stood on 2026-08-16**: `rayon` was not a dependency anywhere in
+it (one comment in `cartalith-engine` noted it was "not ported yet for this
+stage"), and every per-cell loop read that session (`cartalith-terrain`,
 `cartalith-climate`, `cartalith-erosion`, `cartalith-hydrology`,
-`cartalith-civ` — dozens of functions) is a plain sequential `for y in
+`cartalith-civ` — dozens of functions) was a plain sequential `for y in
 0..gh { for x in 0..gw { ... } }`. This machine has 16 logical
-processors; generation uses effectively one.
+processors; generation used effectively one. That starting state is what
+the passes below were written against.
+
+> **This document defines the parallelisation passes, the safe/unsafe
+> classification behind them and what each measured; it does not track how far
+> the work has got.** Every crate census, call-site count and "left sequential"
+> list below is a reading taken on the date of the pass that recorded it.
+> Current status — which passes exist, which functions are parallel today —
+> lives in `cartalith-native/docs/STATUS.md`, the single source of truth for
+> this port.
 
 ## Why this is a better first move than more GPU work
 
@@ -111,7 +120,7 @@ A bounded thread pool / not monopolising every core during interactive
 editing (`HARDWARE_ACCELERATION.md` §19's own caution) — not yet relevant,
 this port has no interactive editing mid-generation to protect against.
 
-## Resolved (2026-08-16): first pass done -- `cartalith-terrain`
+## Pass 1 (2026-08-16) — `cartalith-terrain`
 
 Added `rayon = "1"` to `cartalith-terrain/Cargo.toml`. Parallelized the
 five in-scope items exactly as listed above: `compute_warp`,
@@ -167,7 +176,7 @@ a time" discipline this whole port has used throughout):
    stages) and the integrated-GPU idea below remain separate, GPU-side
    follow-ups, not CPU-multithreading scope.
 
-## Resolved (2026-08-17): second pass done -- `cartalith-civ`
+## Pass 2 (2026-08-17) — `cartalith-civ`
 
 The concurrent forks that blocked this crate during milestone 1 (sea
 routes, memory investigation) both landed (`71da1d5`, `62b9b51`), so
@@ -304,7 +313,7 @@ villages).
 CHANGELOG.md`'s "CPU multithreading milestone 2" entry has the same
 numbers in this project's established changelog style.
 
-## Resolved (2026-08-17): third pass done -- `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology`
+## Pass 3 (2026-08-17) — `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology`
 
 Covers this scope doc's own "Natural follow-up passes" note from
 milestone 1. Read every candidate function's body in full in all three
@@ -440,18 +449,22 @@ doc's own "Out of scope" section from the very first pass.
 ## Separate, lower-priority idea recorded, not scoped: using the integrated GPU too
 
 Also raised by the owner this turn: this machine has an integrated GPU
-alongside the dedicated one, and `cartalith-gpu` currently only ever
-requests a single `PowerPreference::HighPerformance` adapter (correctly
-picks the dedicated GPU, confirmed by the pilot's own results) — the
-integrated GPU is never enumerated or used at all, for anything. This is
-a real, valid idea (running smaller/latency-tolerant workloads on the
-integrated GPU in parallel with the dedicated GPU handling the main
-pipeline) but a genuinely more complex multi-adapter architecture
-question, not scoped here. Recorded in `HARDWARE_ACCELERATION.md` as a
-real idea for later — the CPU-multithreading work above is the higher-
-value, lower-risk win to pursue first, especially given GPU milestone 6's
-own finding that a single dedicated-GPU path already loses to CPU below
-2048² today.
+alongside the dedicated one, and **as `cartalith-gpu` stood on 2026-08-16**
+it requested exactly one `PowerPreference::HighPerformance` adapter
+(correctly picking the dedicated GPU, confirmed by the pilot's own results),
+never enumerating the integrated one for anything. That was the state this
+idea was raised against; whether it still holds is a status question and
+belongs to `cartalith-native/docs/STATUS.md`, not to this document.
+
+The idea itself — running smaller/latency-tolerant workloads on the
+integrated GPU in parallel with the dedicated GPU handling the main pipeline
+— is real and valid, but it is a genuinely more complex multi-adapter
+architecture question and **is deliberately not scoped by this document**.
+It was recorded in `HARDWARE_ACCELERATION.md` as an idea for later, on the
+reasoning that the CPU-multithreading work above is the higher-value,
+lower-risk win to pursue first, especially given GPU milestone 6's own
+finding that a single dedicated-GPU path lost to CPU below 2048² at the
+time.
 
 ## Investigated (2026-08-19): "it seems that there is only gpu active and no parallelisation as we stated at the start"
 
@@ -490,7 +503,8 @@ surprise, no affinity-mask truncation. No fix needed or applied.
 `cartalith-erosion`, `cartalith-hydrology` and `cartalith-godot`'s own
 `Cargo.toml` (six crates, matching every crate milestones 1-3 named).
 Recursive `par_iter`/`into_par_iter`/`par_chunks`/`par_sort` call-site
-counts: `cartalith-terrain` 8, `cartalith-civ` 25, `cartalith-climate` 44,
+counts **as counted on 2026-08-19** (a reading of that day, not a standing
+figure): `cartalith-terrain` 8, `cartalith-civ` 25, `cartalith-climate` 44,
 `cartalith-erosion` 13, `cartalith-hydrology` 5 -- all present, none zero.
 `git log` on each crate's `src/lib.rs` since the milestone-3 commit
 (`47563e8`) shows only new-feature commits (Journey Planner, timeline,
@@ -580,12 +594,13 @@ headroom `PERFORMANCE_BENCHMARKS.md` §5.4 had measured, by row-parallelising
 document's list, on exactly the `output[i] = f(input, i)` bar milestones 1-3
 used: 16–42 ms per tile → 2.82–5.97 ms, see §5.5 there.
 
-**One incidental, unrelated inefficiency found and recorded, not fixed**:
-`WorldGen::absorb()` (`cartalith-godot/src/lib.rs`) calls
+**One incidental, unrelated inefficiency found, and deliberately left to a
+later pass** (the `/ponytail` pass above is the one that took it):
+`WorldGen::absorb()` (`cartalith-godot/src/lib.rs`) called
 `cartalith_civ::build_water_bodies` a **second** time, purely to seed
 `PaintEditor`, even though `compute_civilisation` already computed the
-identical result a few lines above and discards it. Its own doc comment
-calls this "a second, cheap call to the same pure function, not a new
+identical result a few lines above and discarded it. Its own doc comment
+called this "a second, cheap call to the same pure function, not a new
 algorithm" -- measured here at **~440ms at 2048x2048** (a real, entirely
 sequential priority-flood + flood-fill pass, not cheap), which is ~7% of
 total wall-clock time in the `use_gpu=true` run above. Threading

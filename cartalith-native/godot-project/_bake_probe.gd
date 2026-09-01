@@ -1,10 +1,15 @@
 extends Node
-## TEMPORARY verification harness for the bake / atlas / finalize system.
+## Committed verification harness for the bake / atlas / finalize system.
 ## Not committed. Drives the whole thing through EngineBridge exactly as the
 ## shell does -- generate, bake, read a chunk back, finalize, prove the lock
 ## actually refuses, un-finalize, export/import, clear.
 ##
 ##   godot --headless --path . _bake_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var bridge: Node
 var fails := 0

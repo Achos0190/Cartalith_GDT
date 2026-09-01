@@ -31,6 +31,7 @@
 //! | terrain rasters, grid, parameters | `cartalith-io` directly, from `WorldGen`'s own state |
 //! | settlements, factions, ways, provinces, continents, timeline, civ rasters | the DTOs below, from `CivData` |
 //! | labels, icons, region | the DTOs below, from the tool bridges |
+//! | landmark settings | `LandmarksDoc` below, from `WorldGen::landmark_store` |
 //! | vault links | `vault_state_json()`/`vault_restore_state()`, the pair `vault_bridge.rs` already publishes |
 //! | anything GDScript owns | [`WorldGen::project_save_with_documents`]'s dictionary |
 //!
@@ -38,6 +39,54 @@
 //! reason there is no `WorldGen` field holding shell state: a payload the
 //! shell owns travels *through* a save call rather than being mirrored into
 //! the engine first, so adding one needs no engine change at all.
+//!
+//! ## The four documents nothing could produce
+//!
+//! `cartalith-io` has registered `drafts/paint.json`, `drafts/sculpt.json`,
+//! `library/assets.json` and `library/travel.json` since the format was
+//! written, and until 2026-08-31 **nothing anywhere could build one**. The
+//! channel was never the missing piece: the shell may write all four, and
+//! could always have done so. What was missing is that the payloads are
+//! *engine* state -- a sparse paint layer, a `PassBuffer` of sculpt recipes,
+//! an `AssetDB`, a `TravelLibrary` -- and GDScript has no view of any of
+//! them to serialize. Painted biome/terrain/splat layers and the whole
+//! Sculpt draft stack were therefore lost on every save.
+//!
+//! The four `*_document_json()` functions below close that: each builds its
+//! slot's JSON text out of live engine state, through the codec the
+//! subsystem already owns (`PaintLayer::encode_sparse`,
+//! `sculpt_bridge`'s own control-pair pair, `AssetDB::to_library_json`,
+//! `travel_bridge`'s `*_to_pairs`). The shell hands the text straight to
+//! `project_save_with_documents` and gets it back byte for byte from
+//! `project_open`'s `documents`.
+//!
+//! **They stay caller-owned rather than moving to
+//! [`ENGINE_OWNED_SLOTS`]**, and that is the deliberate half. An engine-owned
+//! slot is one the engine writes on *every* save whether the caller wants it
+//! or not; a draft and a library are documents a caller decides about (Save a
+//! copy without my drafts; import a library from another project). The
+//! partition assertion in this file's own tests names all five callers, and
+//! this pass did not change it.
+//!
+//! The return leg is not symmetric, and the asymmetry is structural rather
+//! than unfinished:
+//!
+//! * `library/travel.json` and `library/assets.json` **restore**. Both live
+//!   on `WorldGen` as plain non-`Option` fields that survive `absorb()`, so
+//!   there is always something to restore into.
+//! * `drafts/sculpt.json` restores **only into a live Sculpt editor**, i.e. a
+//!   generated world of the same grid size. `WorldGen::sculpt` is `None`
+//!   after `load_save()`/`project_open` (a loaded save carries no
+//!   `river_mask`/`river_floor` for the water hooks -- that field's own doc),
+//!   so a project opened from disk has no editor to hold a draft.
+//! * `drafts/paint.json` **does not restore at all**, and there is no
+//!   `paint_restore_document` for the same reason there is no way to write
+//!   one honestly: `WorldGen::paint` is likewise `None` on a loaded project,
+//!   and `PaintEditor`'s three committed layers are private to
+//!   `paint_bridge.rs` with no setter. Writing the document ends the data
+//!   loss the row was about; reading it back into a session needs a
+//!   `PaintEditor::restore_layers` in that file plus a decision about where a
+//!   loaded project's paint editor comes from at all.
 //!
 //! It has two return legs, and they answer different questions.
 //! [`WorldGen::project_open`]'s `documents` hands back every caller-owned
@@ -91,6 +140,15 @@ const SLOT_ICONS: &str = "annotations/icons.json";
 const SLOT_REGIONS: &str = "annotations/regions.json";
 const SLOT_APPEARANCE: &str = "appearance.json";
 const SLOT_VAULT: &str = "vault.json";
+const SLOT_LANDMARKS: &str = "entities/landmarks.json";
+
+// The four caller-owned slots this file builds the *contents* of without
+// owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
+// see "The four documents nothing could produce" in this module's own doc.
+const SLOT_PAINT: &str = "drafts/paint.json";
+const SLOT_SCULPT: &str = "drafts/sculpt.json";
+const SLOT_ASSETS: &str = "library/assets.json";
+const SLOT_TRAVEL: &str = "library/travel.json";
 
 /// The slots this file writes and reads itself. A document in one of these
 /// handed to [`WorldGen::project_save_with_documents`] is refused, because
@@ -108,6 +166,14 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     SLOT_REGIONS,
     SLOT_APPEARANCE,
     SLOT_VAULT,
+    // Engine-owned for the reason every other entity table is: the payload
+    // is `WorldGen::landmark_store`, which GDScript has no view of. Added
+    // the day `cartalith-io` registered the slot -- an unclassified slot
+    // falls through to *caller*-owned by default, and
+    // `the_document_channel_partitions_every_registered_slot` exists to make
+    // that arrive as a failing test rather than as a shell that can
+    // overwrite the engine's own document.
+    SLOT_LANDMARKS,
 ];
 
 // ===================== the document schemas =====================
@@ -420,6 +486,98 @@ struct AppearanceDoc {
     overrides: std::collections::HashMap<String, f64>,
     ramp: Option<crate::render::ElevationRamp>,
     npr: crate::render::Npr,
+}
+
+/// `entities/landmarks.json` -- the Landmark Generation dock's **settings**,
+/// and deliberately not its results.
+///
+/// The split is not laziness. `LandmarkStore::last` is the output of
+/// `cartalith_civ::landmark::generate`, a pure function of the world, the
+/// settings and the seed (`LANDMARK_GENERATION_RESEARCH.md` §27), and the
+/// loader clears it on every open for a reason that would still hold if it
+/// were written: placements taken over the previous field must not be shown
+/// against a new one. Re-running the pass is one click and reproduces them
+/// exactly.
+///
+/// The settings are the opposite: hand-entered configuration -- forty-nine
+/// caps, forty-nine armed flags, a crowding factor and four class radii --
+/// that no amount of recomputation brings back. Before this document existed
+/// they were **not saved at all** and were **never cleared**, so they leaked
+/// out of whichever project was open last into the next one, belonging to
+/// neither. Writing them here and resetting to `LandmarkSettings::default()`
+/// in `load_save`'s own reset closes both halves at once.
+///
+/// Every field is `#[serde(default)]`, and `LandmarkSettings`' own
+/// `cap`/`is_armed` accessors already fall back to each kind's spec default
+/// for a key the map has no row for -- so a document written before a new
+/// landmark kind existed loads without inventing a value for it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct LandmarksDoc {
+    settings: LandmarkSettingsDto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct LandmarkSettingsDto {
+    caps: BTreeMap<String, u32>,
+    armed: BTreeMap<String, bool>,
+    crowding: f64,
+    class_radius_km: Vec<f64>,
+    cross_type_competition: bool,
+}
+
+impl Default for LandmarkSettingsDto {
+    fn default() -> Self {
+        Self::from(&cartalith_civ::landmark::LandmarkSettings::default())
+    }
+}
+
+impl From<&cartalith_civ::landmark::LandmarkSettings> for LandmarkSettingsDto {
+    fn from(s: &cartalith_civ::landmark::LandmarkSettings) -> Self {
+        Self {
+            caps: s.caps.clone(),
+            armed: s.armed.clone(),
+            crowding: s.crowding,
+            class_radius_km: s.class_radius_km.to_vec(),
+            cross_type_competition: s.cross_type_competition,
+        }
+    }
+}
+
+impl LandmarkSettingsDto {
+    /// Back to the engine type, **through the bridge's own setters** rather
+    /// than by assigning the fields: `landmark_bridge::set_cap`/`set_armed`
+    /// reject a key `cartalith_civ::landmark::kinds()` does not carry, which
+    /// is the same defence they give the `#[func]` surface and is needed
+    /// here for the same reason -- an archive is untrusted input, and a
+    /// hand-edited `caps` map must not be able to introduce a fiftieth
+    /// landmark type. `crowding` and the class radii go through
+    /// `set_crowding`/`set_class_radius`, so a document carrying a
+    /// nonsensical number is clamped to the documented range rather than
+    /// stored.
+    ///
+    /// A `class_radius_km` array of the wrong length is not an error: each
+    /// entry is applied by index against the class list, and a missing one
+    /// keeps the default. That is §14.3's unknown-member rule pointed at an
+    /// array.
+    fn into_settings(self) -> cartalith_civ::landmark::LandmarkSettings {
+        let mut out = cartalith_civ::landmark::LandmarkSettings::default();
+        for (k, v) in &self.caps {
+            crate::landmark_bridge::set_cap(&mut out, k, i64::from(*v));
+        }
+        for (k, v) in &self.armed {
+            crate::landmark_bridge::set_armed(&mut out, k, *v);
+        }
+        crate::landmark_bridge::set_crowding(&mut out, self.crowding);
+        for (i, class) in cartalith_civ::landmark::LandmarkClass::all().iter().enumerate() {
+            if let Some(km) = self.class_radius_km.get(i) {
+                crate::landmark_bridge::set_class_radius(&mut out, class.as_str(), *km);
+            }
+        }
+        crate::landmark_bridge::set_cross_competition(&mut out, self.cross_type_competition);
+        out
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -934,6 +1092,28 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
     timeline.sort_by_key(|s| s.year);
     timeline.dedup_by_key(|s| s.year);
 
+    // Milestone 4's reseed, at the one place in this port where a recorded
+    // history is attached to a counter that was derived without it.
+    //
+    // `next_tid` above starts from `settlements_doc.next_id`, which carries
+    // `#[serde(default)]` like every other member here -- §14.3's rule in its
+    // constructive direction. An archive written by a second implementation
+    // that omits the member (or by a build that predates it) therefore lands
+    // on `0`, and the loop below rebuilds the counter from the *live*
+    // settlements and ways only. A settlement recorded in `history/
+    // timeline.json` and since deleted is in neither, so the next hand-placed
+    // settlement would be issued an id a snapshot already uses -- and
+    // `civ_year_diff` compares snapshots by `tid`.
+    //
+    // `civ_resync_next_tid_with_timeline`, not `civ_resync_next_tid`: the
+    // milestone-1 twin scans only the live arrays, which is exactly the scan
+    // that has already happened above and would change nothing.
+    next_tid = next_tid.max(cartalith_civ::timeline::civ_resync_next_tid_with_timeline(
+        &settlements,
+        &ways,
+        &timeline,
+    ));
+
     let take_i32 = |path: &str| -> Vec<i32> {
         match data.raster(path) {
             Some(Raster::I32(v)) if v.len() == n => v.clone(),
@@ -954,6 +1134,13 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
     Some(CivData {
         settlements,
         ways,
+        // Deliberately empty, for `explanations`' reason one field below: the
+        // archive stores no channel topology (`SAVEFILE_COMPAT.md` §16.2), and
+        // the raw `RoadEdge` cell paths cannot be recovered from the smoothed
+        // `ways` they were consolidated into. A loaded project's Journey
+        // Planner therefore reads one road source instead of two -- the same
+        // road network, without the un-smoothed router paths.
+        road_edges: Vec::new(),
         sea_routes,
         territory,
         provinces,
@@ -1246,6 +1433,19 @@ impl WorldGen {
             },
         );
 
+        // The Landmark dock's settings. Unconditional, unlike the editors
+        // above: `LandmarkSettings::default()` is not "nothing" -- it is
+        // forty-nine caps and forty-nine armed flags derived from each
+        // kind's own spec -- so "absent" and "at defaults" are the same
+        // state and writing the block costs a few hundred bytes for a
+        // document the user can then diff. The retained *run* is not
+        // written; `LandmarksDoc`'s own doc comment says why.
+        insert_doc(
+            &mut documents,
+            SLOT_LANDMARKS,
+            &LandmarksDoc { settings: LandmarkSettingsDto::from(&self.landmark_store.settings) },
+        );
+
         // The vault's own serialized store, verbatim (§13.3) -- through
         // `LinkStore`'s own `to_json`, so the vault keeps owning its shape
         // and this file never has to know what a knowledge link is. Skipped
@@ -1296,8 +1496,9 @@ impl WorldGen {
     /// Replaces the world outright and then restores everything the archive
     /// carries: the civilisation layer (so `get_settlements()`,
     /// `get_ways()`, the faction roster, territory and the timeline are all
-    /// real for a loaded project), labels, icons, the selected region, and
-    /// the vault links.
+    /// real for a loaded project), labels, icons, hand-drawn ways and
+    /// routes, the selected region, the appearance block, the Landmark
+    /// dock's settings, and the vault links.
     ///
     /// Returns
     /// `{ok, error, layout, format_version, warnings, documents, foreign_entries, restored}`:
@@ -1363,6 +1564,18 @@ impl WorldGen {
             self.civ = Some(civ);
             self.civ_dirty = false;
             restored.push("civ");
+        }
+
+        // Before the editors, because it is the one restore here that is
+        // *replacing a reset value rather than filling an empty slot*:
+        // `load_save` a few dozen lines above put `landmark_store.settings`
+        // back to `LandmarkSettings::default()` precisely so that an archive
+        // with no landmark document opens with defaults instead of the
+        // previous project's tuning. This puts the archive's own back on top
+        // when it has one.
+        if let Some(Ok(doc)) = data.parse::<LandmarksDoc>(SLOT_LANDMARKS) {
+            self.landmark_store.settings = doc.settings.into_settings();
+            restored.push("landmark settings");
         }
 
         if let Some(Ok(doc)) = data.parse::<LabelsDoc>(SLOT_LABELS) {
@@ -1521,7 +1734,23 @@ impl WorldGen {
             // one unrecognised selection type (`SAVEFILE_COMPAT.md` §13.3.6).
             match cartalith_vault::LinkStore::from_json(&text) {
                 Ok(store) => {
-                    self.vault.store = store;
+                    // The links are this project's, wholesale --
+                    // `WorldGen::load_save` (run a few dozen lines above)
+                    // has already emptied the outgoing project's.
+                    self.vault.store.links = store.links;
+                    // The vault *registry* is merged, not replaced. A
+                    // `VaultRef` is `{id, display_name}` and the first entry
+                    // is what `vault_info()` reports as the device's bound
+                    // vault; assigning the archive's list over it used to
+                    // rename the user's own connection to whoever authored
+                    // the project. Appending only ids this device has never
+                    // seen keeps the binding intact and still lets a
+                    // restored link name the vault it wants.
+                    for v in store.vaults {
+                        if !self.vault.store.vaults.iter().any(|e| e.id == v.id) {
+                            self.vault.store.vaults.push(v);
+                        }
+                    }
                     restored.push("vault");
                 }
                 Err(e) => godot_warn!(
@@ -1687,6 +1916,690 @@ impl WorldGen {
     }
 }
 
+
+// ===================== the four caller-owned document schemas =====================
+//
+// Same rules as the engine-owned schemas above: a DTO rather than a derive
+// on the live type, and `#[serde(default)]` on every member so a document
+// from another implementation loses only what it actually omitted.
+
+/// `drafts/paint.json` -- `state.cartoPaint`'s own persistence shape.
+///
+/// Each layer is [`cartalith_spatial::PaintLayer::encode_sparse`]'s flat
+/// `[index, value, index, value, ...]` pair list, which is the reference's
+/// `_paintSyncToState` encoding verbatim rather than a shape invented here.
+/// `gw`/`gh` are carried because an index means nothing without them: a
+/// layer decoded against a different grid is not a smaller picture, it is a
+/// scrambled one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct PaintDoc {
+    #[serde(default)]
+    gw: usize,
+    #[serde(default)]
+    gh: usize,
+    #[serde(default)]
+    biome: Vec<u32>,
+    #[serde(default)]
+    terrain: Vec<u32>,
+    #[serde(default)]
+    splat: Vec<u32>,
+}
+
+/// `drafts/sculpt.json` -- the uncommitted Sculpt draft plus the editor
+/// state that decides what the *next* stroke will be.
+///
+/// A stamp is stored as its recipe (feature key, seed, stroke points, the
+/// shared globals and that feature's own controls), not as a height delta:
+/// that is what `PassBuffer` holds, and it is the whole reason a draft is
+/// non-destructive. `hidden` travels with it because hiding a stamp is an
+/// edit to the draft, not a view setting.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct SculptDoc {
+    #[serde(default)]
+    gw: usize,
+    #[serde(default)]
+    gh: usize,
+    /// The seed the *next* stroke will capture, not any stamp's own.
+    #[serde(default)]
+    seed: u32,
+    #[serde(default)]
+    feature: String,
+    #[serde(default)]
+    globals: BTreeMap<String, f64>,
+    #[serde(default)]
+    params: BTreeMap<String, f64>,
+    /// Freehand's one non-numeric control, which is why it is not in
+    /// `params` (`sculpt_bridge::feature_param_pairs`' own note). Empty for
+    /// every other feature.
+    #[serde(default)]
+    sub_mode: String,
+    #[serde(default)]
+    stamps: Vec<SculptStampDto>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct SculptStampDto {
+    #[serde(default)]
+    feature: String,
+    #[serde(default)]
+    seed: u32,
+    #[serde(default)]
+    sea_level: f64,
+    #[serde(default)]
+    hidden: bool,
+    #[serde(default)]
+    points: Vec<[f64; 2]>,
+    #[serde(default)]
+    globals: BTreeMap<String, f64>,
+    #[serde(default)]
+    params: BTreeMap<String, f64>,
+    #[serde(default)]
+    sub_mode: String,
+}
+
+/// `library/travel.json` -- every **custom** Travel Library entry.
+///
+/// Stock entries are deliberately absent: `EntrySet::get_mut` refuses them,
+/// so they are read-only by construction and `TravelLibrary::new()` rebuilds
+/// exactly the same four sets on every launch. Storing them would be storing
+/// this build's own constants and then having to decide what to do when the
+/// next build changes one.
+///
+/// `fields` is `travel_bridge`'s own `_to_pairs`/`_apply_pairs` flattening --
+/// the same field map `tl_get`/`tl_edit` already speak, rather than a second
+/// wire vocabulary for the same four types.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct TravelDoc {
+    #[serde(default)]
+    animals: Vec<TravelEntryDto>,
+    #[serde(default)]
+    vehicles: Vec<TravelEntryDto>,
+    #[serde(default)]
+    vessels: Vec<TravelEntryDto>,
+    #[serde(default)]
+    presets: Vec<TravelEntryDto>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct TravelEntryDto {
+    #[serde(default)]
+    id: String,
+    /// `AnimalDef::species_key` -- which of `JP_ANIMAL_KEYS` this entry
+    /// stands in for, `""` for none. Carried explicitly because it is the
+    /// one field `animal_apply_pairs` deliberately cannot set (its own doc:
+    /// `id`/`origin`/`species_key` "can never be overwritten by a client
+    /// dictionary"), and losing it would silently stop a custom pack animal
+    /// from affecting a computed journey at all. Empty on the other three
+    /// types, which have no such field.
+    #[serde(default)]
+    species: String,
+    #[serde(default)]
+    fields: BTreeMap<String, serde_json::Value>,
+}
+
+// ---- the flattening both travel halves share ----
+
+fn jp_value_to_json(v: &journey_bridge::JpValue) -> serde_json::Value {
+    match v {
+        journey_bridge::JpValue::Int(i) => serde_json::Value::from(*i),
+        // A non-finite never reaches here (every travel validator and every
+        // `set_*` above rejects one), but `Number::from_f64` has to be
+        // answered anyway; `null` is the honest answer and reads back as
+        // "field absent", not as `0`.
+        journey_bridge::JpValue::Num(n) => serde_json::Number::from_f64(*n)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
+        journey_bridge::JpValue::Str(s) => serde_json::Value::String(s.clone()),
+        journey_bridge::JpValue::Bool(b) => serde_json::Value::Bool(*b),
+    }
+}
+
+/// The exact inverse of [`jp_value_to_json`] for the four shapes it emits.
+/// An integral JSON number comes back as `Int` and a fractional one as
+/// `Num`, which is the same split `serde_json` itself made on the way in --
+/// and the reason this boundary carries text rather than a `Dictionary`
+/// (`project_save_with_documents`' own doc comment: Godot's `JSON` has one
+/// number type and floats every integer it touches).
+fn json_to_jp_value(v: &serde_json::Value) -> Option<journey_bridge::JpValue> {
+    match v {
+        serde_json::Value::Bool(b) => Some(journey_bridge::JpValue::Bool(*b)),
+        serde_json::Value::String(s) => Some(journey_bridge::JpValue::Str(s.clone())),
+        serde_json::Value::Number(n) => match n.as_i64() {
+            Some(i) => Some(journey_bridge::JpValue::Int(i)),
+            None => n.as_f64().map(journey_bridge::JpValue::Num),
+        },
+        _ => None,
+    }
+}
+
+fn travel_pairs_to_fields(
+    pairs: Vec<(String, journey_bridge::JpValue)>,
+) -> BTreeMap<String, serde_json::Value> {
+    pairs.into_iter().map(|(k, v)| (k, jp_value_to_json(&v))).collect()
+}
+
+fn travel_fields_to_pairs(
+    fields: &BTreeMap<String, serde_json::Value>,
+) -> Vec<(String, journey_bridge::JpValue)> {
+    fields
+        .iter()
+        .filter_map(|(k, v)| json_to_jp_value(v).map(|jv| (k.clone(), jv)))
+        .collect()
+}
+
+// ---- the flattening both sculpt halves share ----
+
+fn sculpt_globals_to_map(g: &cartalith_terrain::sculpt::SculptGlobals) -> BTreeMap<String, f64> {
+    crate::sculpt_bridge::global_controls()
+        .into_iter()
+        .filter_map(|c| crate::sculpt_bridge::get_global(g, c.key).map(|v| (c.key.to_string(), v)))
+        .collect()
+}
+
+/// Every recognised key applied over `SculptGlobals::default()`, through
+/// `set_global` so the range clamp and the `octaves` rounding are the same
+/// ones a live edit goes through. An unknown key is dropped rather than
+/// failing the document -- SAVEFILE_COMPAT.md 14.3's unknown-member rule.
+fn sculpt_globals_from_map(m: &BTreeMap<String, f64>) -> cartalith_terrain::sculpt::SculptGlobals {
+    let mut g = cartalith_terrain::sculpt::SculptGlobals::default();
+    for (k, v) in m {
+        let _ = crate::sculpt_bridge::set_global(&mut g, k, *v);
+    }
+    g
+}
+
+fn sculpt_params_to_map(p: &cartalith_terrain::sculpt::FeatureParams) -> BTreeMap<String, f64> {
+    crate::sculpt_bridge::feature_param_pairs(p)
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect()
+}
+
+fn sculpt_sub_mode_of(p: &cartalith_terrain::sculpt::FeatureParams) -> String {
+    match p {
+        cartalith_terrain::sculpt::FeatureParams::Freehand { sub_mode, .. } => {
+            sub_mode.key().to_string()
+        }
+        _ => String::new(),
+    }
+}
+
+/// `feature`'s own defaults with every recognised key applied over them,
+/// through `set_feature_param` for the same reason
+/// [`sculpt_globals_from_map`] uses `set_global`. A key belonging to a
+/// *different* feature is rejected there and dropped here.
+fn sculpt_params_from_map(
+    feature: cartalith_terrain::sculpt::Feature,
+    m: &BTreeMap<String, f64>,
+    sub_mode: &str,
+) -> cartalith_terrain::sculpt::FeatureParams {
+    let mut p = feature.default_params();
+    for (k, v) in m {
+        let _ = crate::sculpt_bridge::set_feature_param(&mut p, feature, k, *v);
+    }
+    if let cartalith_terrain::sculpt::FeatureParams::Freehand { sub_mode: sm, .. } = &mut p
+        && let Some(mode) = cartalith_terrain::sculpt::FreehandMode::from_key(sub_mode)
+    {
+        *sm = mode;
+    }
+    p
+}
+
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Every document this engine can build for a caller-owned slot, keyed
+    /// by slot name and ready to hand straight to
+    /// `project_save_with_documents` -- the four `*_document_json()`
+    /// functions below, called in one pass, with a slot that returned `""`
+    /// left out entirely.
+    ///
+    /// **This is the call a Save command should make.** The four getters
+    /// below hand back text with no slot attached, which means the shell
+    /// types the slot name itself -- and `project_document_slots()` exists
+    /// precisely because a typo there is discovered "as a failed save".
+    /// Naming the slots here, next to the constants that are also what
+    /// `cartalith-io` registered, removes that step rather than documenting
+    /// around it.
+    ///
+    /// Merge it into whatever the shell owns (`entities/journeys.json`) and
+    /// pass the union; the two never collide, since none of these four is a
+    /// slot GDScript writes.
+    #[func]
+    fn project_engine_built_documents(&mut self) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        for (slot, text) in [
+            (SLOT_PAINT, self.paint_document_json()),
+            (SLOT_SCULPT, self.sculpt_document_json()),
+            (SLOT_ASSETS, self.asset_library_document_json()),
+            (SLOT_TRAVEL, self.travel_library_document_json()),
+        ] {
+            if !text.is_empty() {
+                out.set(slot, &text);
+            }
+        }
+        out
+    }
+
+    /// `drafts/paint.json`'s text for the current session, or `""` when
+    /// there is nothing to write (no paint editor, or all three layers still
+    /// unallocated).
+    ///
+    /// **Check for the empty string, not for an empty document.** `""` means
+    /// "do not put this slot in the archive at all", which is what a project
+    /// with no painting should carry -- an empty `drafts/paint.json` and an
+    /// absent one look the same to a reader but differ to anyone diffing two
+    /// saves.
+    ///
+    /// Hand the result to `project_save_with_documents` under
+    /// `"drafts/paint.json"`. There is no matching restore, and this
+    /// module's own doc says why: a project opened from disk has no
+    /// `PaintEditor` to restore into. `project_open`'s `documents` still
+    /// hands the text back, so nothing is *lost* -- it is carried, not yet
+    /// re-applied.
+    #[func]
+    fn paint_document_json(&self) -> GString {
+        let Some(paint) = self.paint.as_ref() else {
+            return GString::new();
+        };
+        // `PaintLayer::encode_sparse`'s own `[index, value, ...]` shape, run
+        // off `layer_cells` because that is the only public view of a
+        // committed layer this boundary has.
+        let layer = |t: crate::paint_bridge::PaintTarget| -> Vec<u32> {
+            paint
+                .layer_cells(t)
+                .map(|cells| {
+                    let mut out = Vec::new();
+                    for (i, &v) in cells.iter().enumerate() {
+                        if v != 0 {
+                            out.push(i as u32);
+                            out.push(u32::from(v));
+                        }
+                    }
+                    out
+                })
+                .unwrap_or_default()
+        };
+        let doc = PaintDoc {
+            gw: self.gw.max(0) as usize,
+            gh: self.gh.max(0) as usize,
+            biome: layer(crate::paint_bridge::PaintTarget::Biome),
+            terrain: layer(crate::paint_bridge::PaintTarget::Terrain),
+            splat: layer(crate::paint_bridge::PaintTarget::Splat),
+        };
+        if doc.biome.is_empty() && doc.terrain.is_empty() && doc.splat.is_empty() {
+            return GString::new();
+        }
+        serde_json::to_string(&doc).map_or_else(|_| GString::new(), |t| GString::from(&t))
+    }
+
+    /// `drafts/sculpt.json`'s text for the current session, or `""` when
+    /// there is no Sculpt editor and nothing to write. Same empty-string
+    /// contract as [`Self::paint_document_json`].
+    ///
+    /// A draft with **no** stamps still writes a document when the editor
+    /// exists: the armed feature, its controls and the next stroke's seed
+    /// are real authoring state, and losing them across a save is the same
+    /// kind of loss as losing the stack.
+    #[func]
+    fn sculpt_document_json(&self) -> GString {
+        let Some(s) = self.sculpt.as_ref() else {
+            return GString::new();
+        };
+        let doc = SculptDoc {
+            gw: self.gw.max(0) as usize,
+            gh: self.gh.max(0) as usize,
+            seed: s.seed,
+            feature: s.feature.meta().key.to_string(),
+            globals: sculpt_globals_to_map(&s.globals),
+            params: sculpt_params_to_map(&s.params),
+            sub_mode: sculpt_sub_mode_of(&s.params),
+            stamps: s
+                .draft
+                .entries()
+                .iter()
+                .map(|e| SculptStampDto {
+                    feature: e.stamp.feature().meta().key.to_string(),
+                    seed: e.stamp.seed,
+                    sea_level: e.stamp.sea_level,
+                    hidden: e.hidden,
+                    points: e.stamp.points.iter().map(|p| [p.x, p.y]).collect(),
+                    globals: sculpt_globals_to_map(&e.stamp.globals),
+                    params: sculpt_params_to_map(&e.stamp.params),
+                    sub_mode: sculpt_sub_mode_of(&e.stamp.params),
+                })
+                .collect(),
+        };
+        serde_json::to_string(&doc).map_or_else(|_| GString::new(), |t| GString::from(&t))
+    }
+
+    /// Restores a `drafts/sculpt.json` into the **live** Sculpt editor.
+    ///
+    /// Returns `{ok, error, stamps}`. Refused, rather than silently partly
+    /// applied, when there is no Sculpt editor (no generated world) or when
+    /// the document's grid is not this world's: a stroke point is a grid-cell
+    /// coordinate, so a draft from a 512x384 world laid over a 256x192 one is
+    /// not a smaller draft, it is the wrong one.
+    ///
+    /// **Replaces the draft**, it does not merge into it, and it clears the
+    /// undo/redo history with it -- `PassBuffer::discard` is what a restore
+    /// starts from, so "undo the restore" is not offered rather than offered
+    /// and wrong.
+    #[func]
+    fn sculpt_restore_document(&mut self, text: GString) -> VarDictionary {
+        let doc: SculptDoc = match serde_json::from_str(&text.to_string()) {
+            Ok(d) => d,
+            Err(e) => return err(format!("drafts/sculpt.json is not valid: {e}")),
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if doc.gw != gw || doc.gh != gh {
+            return err(format!(
+                "this draft was captured on a {}x{} grid and this world is {gw}x{gh}; \
+                 a stroke point is a grid-cell coordinate and does not carry over",
+                doc.gw, doc.gh
+            ));
+        }
+        let Some(s) = self.sculpt.as_mut() else {
+            return err(
+                "there is no Sculpt editor to restore into: one exists only over a freshly \
+                 generated world, never over a loaded save (a save carries no river_mask/\
+                 river_floor for the water hooks to adopt)",
+            );
+        };
+        if let Some(f) = cartalith_terrain::sculpt::Feature::from_key(&doc.feature) {
+            s.feature = f;
+            s.params = sculpt_params_from_map(f, &doc.params, &doc.sub_mode);
+        }
+        s.globals = sculpt_globals_from_map(&doc.globals);
+        s.seed = doc.seed;
+        s.points.clear();
+        s.selected = None;
+        s.draft.discard();
+        let mut restored = 0usize;
+        for d in &doc.stamps {
+            // A stamp naming a feature this build does not have is dropped,
+            // not defaulted: `Mountains` where the file said something else
+            // would be a stroke the user never drew.
+            let Some(f) = cartalith_terrain::sculpt::Feature::from_key(&d.feature) else {
+                continue;
+            };
+            let stamp = cartalith_terrain::sculpt::SculptStamp {
+                seed: d.seed,
+                points: d
+                    .points
+                    .iter()
+                    .map(|p| cartalith_terrain::sculpt::Point::new(p[0], p[1]))
+                    .collect(),
+                globals: sculpt_globals_from_map(&d.globals),
+                params: sculpt_params_from_map(f, &d.params, &d.sub_mode),
+                sea_level: d.sea_level,
+            };
+            let index = s.draft.push(stamp);
+            if d.hidden {
+                s.draft.set_hidden(index, true);
+            }
+            restored += 1;
+        }
+        let mut out = vdict! { "ok" => true, "error" => "" };
+        out.set("stamps", restored as i64);
+        out
+    }
+
+    /// `library/assets.json`'s text -- `cartalith_assets::AssetDB::to_library_json`,
+    /// the reference's own `window._alExportEntries` record. `""` for an
+    /// empty library, matching that builder's own `None` (the reference's
+    /// `if(AssetDB.totalItems()===0) return null`).
+    ///
+    /// **Item pixels are not in it, and cannot be.** The record carries each
+    /// item's `img` index, name and transform; the bytes those indices point
+    /// at live at `assetlib/img/<idx>.png`, and `cartalith-io`'s project
+    /// writer has no channel for a binary entry that is not a registered
+    /// raster. Restoring therefore rebuilds pack info, collections, custom
+    /// slots and every slot's metadata and scatter rules, and restores no
+    /// items -- which is exactly what
+    /// `AssetDB::apply_library_file_with_items` does when handed no bytes,
+    /// rather than something this boundary invented.
+    ///
+    /// `&mut self`: `to_library_json` lazily attaches a scatterable slot's
+    /// preset the first time its rule is read, and the reference does the
+    /// same for every scatterable slot on every export. That real (if
+    /// surprising) side effect is reproduced rather than hidden behind a
+    /// `&self` -- see that function's own doc comment.
+    #[func]
+    fn asset_library_document_json(&mut self) -> GString {
+        match self.asset_library.db.to_library_json() {
+            Some(file) => {
+                serde_json::to_string(&file).map_or_else(|_| GString::new(), |t| GString::from(&t))
+            }
+            None => GString::new(),
+        }
+    }
+
+    /// Restores a `library/assets.json`. Returns `{ok, error, slots, items}`.
+    ///
+    /// `items` is the count `apply_library_file_with_items` actually restored
+    /// and is `0` today for the reason [`Self::asset_library_document_json`]
+    /// gives at length -- reported rather than omitted, so a caller can see
+    /// that a library came back without its pixels instead of inferring it.
+    ///
+    /// Goes through `parse_library_json`, so an unresolvable record (an
+    /// unknown family, or an id outside a frozen family's vocabulary) is
+    /// dropped exactly as the reference's own `if(!uid) continue` drops it,
+    /// and a scatter rule is normalised on load the same way.
+    #[func]
+    fn asset_library_restore_document(&mut self, text: GString) -> VarDictionary {
+        let raw = text.to_string();
+        let file = match cartalith_assets::parse_library_json(raw.as_bytes()) {
+            Ok(f) => f,
+            Err(e) => return err(e),
+        };
+        // Drops the decoded pixels along with the items `apply_library_file`
+        // is about to clear. `AssetDB::clear` alone would leave the session's
+        // parallel image store holding variants for items that no longer
+        // exist.
+        self.asset_library.clear();
+        let items = self
+            .asset_library
+            .db
+            .apply_library_file_with_items(&file, &std::collections::HashMap::new());
+        let mut out = vdict! { "ok" => true, "error" => "" };
+        out.set("slots", file.slots.len() as i64);
+        out.set("items", items as i64);
+        out
+    }
+
+    /// `library/travel.json`'s text -- every custom animal, vehicle, vessel
+    /// and party preset. `""` when the library is still stock-only, which is
+    /// what a project nobody has authored travel content in should carry.
+    #[func]
+    fn travel_library_document_json(&self) -> GString {
+        use cartalith_civ::travel_library::EntryOrigin;
+        let lib = &self.travel_library;
+        let doc = TravelDoc {
+            animals: lib
+                .animals
+                .iter()
+                .filter(|a| a.origin == EntryOrigin::Custom)
+                .map(|a| TravelEntryDto {
+                    id: a.id.clone(),
+                    species: a.species_key.unwrap_or_default().to_string(),
+                    fields: travel_pairs_to_fields(crate::travel_bridge::animal_to_pairs(a)),
+                })
+                .collect(),
+            vehicles: lib
+                .vehicles
+                .iter()
+                .filter(|v| v.origin == EntryOrigin::Custom)
+                .map(|v| TravelEntryDto {
+                    id: v.id.clone(),
+                    species: String::new(),
+                    fields: travel_pairs_to_fields(crate::travel_bridge::vehicle_to_pairs(v)),
+                })
+                .collect(),
+            vessels: lib
+                .vessels
+                .iter()
+                .filter(|v| v.origin == EntryOrigin::Custom)
+                .map(|v| TravelEntryDto {
+                    id: v.id.clone(),
+                    species: String::new(),
+                    fields: travel_pairs_to_fields(crate::travel_bridge::vessel_to_pairs(v)),
+                })
+                .collect(),
+            presets: lib
+                .presets
+                .iter()
+                .filter(|p| p.origin == EntryOrigin::Custom)
+                .map(|p| TravelEntryDto {
+                    id: p.id.clone(),
+                    species: String::new(),
+                    fields: travel_pairs_to_fields(crate::travel_bridge::preset_to_pairs(p)),
+                })
+                .collect(),
+        };
+        if doc.animals.is_empty()
+            && doc.vehicles.is_empty()
+            && doc.vessels.is_empty()
+            && doc.presets.is_empty()
+        {
+            return GString::new();
+        }
+        serde_json::to_string(&doc).map_or_else(|_| GString::new(), |t| GString::from(&t))
+    }
+
+    /// Restores a `library/travel.json`. Returns `{ok, error, restored,
+    /// rejected}` -- `rejected` being every field key the document carried
+    /// that this build's own `*_apply_pairs` did not recognise, this
+    /// codebase's usual "a typo'd key is a bug worth seeing" contract.
+    ///
+    /// **Replaces the custom half and only the custom half.** Every set is
+    /// reset to stock first (`TRAVEL_LIBRARY_SPEC.md`'s own "Reset to stock
+    /// definitions"), then the document's entries are added on top, so
+    /// opening a project cannot leave another project's pack mule behind.
+    /// Stock entries are untouched throughout -- they are read-only by
+    /// construction and the document never carried them.
+    #[func]
+    fn travel_library_restore_document(&mut self, text: GString) -> VarDictionary {
+        use cartalith_civ::travel_library::{AnimalDef, PartyPreset, VehicleDef, VesselDef};
+        let doc: TravelDoc = match serde_json::from_str(&text.to_string()) {
+            Ok(d) => d,
+            Err(e) => return err(format!("library/travel.json is not valid: {e}")),
+        };
+        let lib = &mut self.travel_library;
+        lib.animals.reset_to_stock();
+        lib.vehicles.reset_to_stock();
+        lib.vessels.reset_to_stock();
+        lib.presets.reset_to_stock();
+
+        let mut restored = 0i64;
+        let mut rejected = PackedStringArray::new();
+        // `blank(id, "")` then the field map on top: `name` is one of the
+        // pairs, so the placeholder is always overwritten by the document's
+        // own value and never survives into the library.
+        for d in &doc.animals {
+            if lib.animals.add(AnimalDef::blank(d.id.clone(), String::new())).is_none() {
+                continue;
+            }
+            let Some(base) = lib.animals.get(&d.id).cloned() else {
+                continue;
+            };
+            let (updated, bad) = crate::travel_bridge::animal_apply_pairs(
+                &base,
+                &travel_fields_to_pairs(&d.fields),
+            );
+            if let Some(slot) = lib.animals.get_mut(&d.id) {
+                *slot = updated;
+                // The one field `animal_apply_pairs` deliberately cannot
+                // touch -- see `TravelEntryDto::species`.
+                slot.species_key = cartalith_civ::JP_ANIMAL_KEYS
+                    .iter()
+                    .find(|k| **k == d.species)
+                    .copied();
+                restored += 1;
+            }
+            for k in bad {
+                rejected.push(&GString::from(&k));
+            }
+        }
+        for d in &doc.vehicles {
+            if lib.vehicles.add(VehicleDef::blank(d.id.clone(), String::new())).is_none() {
+                continue;
+            }
+            let Some(base) = lib.vehicles.get(&d.id).cloned() else {
+                continue;
+            };
+            let (updated, bad) = crate::travel_bridge::vehicle_apply_pairs(
+                &base,
+                &travel_fields_to_pairs(&d.fields),
+            );
+            if let Some(slot) = lib.vehicles.get_mut(&d.id) {
+                *slot = updated;
+                restored += 1;
+            }
+            for k in bad {
+                rejected.push(&GString::from(&k));
+            }
+        }
+        for d in &doc.vessels {
+            if lib.vessels.add(VesselDef::blank(d.id.clone(), String::new())).is_none() {
+                continue;
+            }
+            let Some(base) = lib.vessels.get(&d.id).cloned() else {
+                continue;
+            };
+            let (updated, bad) = crate::travel_bridge::vessel_apply_pairs(
+                &base,
+                &travel_fields_to_pairs(&d.fields),
+            );
+            if let Some(slot) = lib.vessels.get_mut(&d.id) {
+                *slot = updated;
+                restored += 1;
+            }
+            for k in bad {
+                rejected.push(&GString::from(&k));
+            }
+        }
+        for d in &doc.presets {
+            if lib.presets.add(PartyPreset::blank(d.id.clone(), String::new())).is_none() {
+                continue;
+            }
+            let Some(base) = lib.presets.get(&d.id).cloned() else {
+                continue;
+            };
+            let (updated, bad) = crate::travel_bridge::preset_apply_pairs(
+                &base,
+                &travel_fields_to_pairs(&d.fields),
+            );
+            if let Some(slot) = lib.presets.get_mut(&d.id) {
+                *slot = updated;
+                restored += 1;
+            }
+            for k in bad {
+                rejected.push(&GString::from(&k));
+            }
+        }
+        // Advance the shared custom-id counter clear of everything just
+        // reinstated, so the next "New blank definition" cannot be handed an
+        // id a restored entry already holds. `TravelLibrary::next_id` is
+        // private and `fresh_id()` is the only thing that moves it, so this
+        // draws ids until one lands free and discards it -- ids only ever
+        // have to be unique, and gaps in them are already normal (deleting a
+        // custom entry leaves one).
+        loop {
+            let id = lib.fresh_id();
+            if lib.animals.get(&id).is_none()
+                && lib.vehicles.get(&id).is_none()
+                && lib.vessels.get(&id).is_none()
+                && lib.presets.get(&id).is_none()
+            {
+                break;
+            }
+        }
+        let mut out = vdict! { "ok" => true, "error" => "" };
+        out.set("restored", restored);
+        out.set("rejected", &rejected);
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1707,6 +2620,7 @@ mod tests {
         village_tids.insert(8u64);
 
         CivData {
+            road_edges: Vec::new(),
             settlements: vec![
                 cartalith_civ::NamedSettlement {
                     tid: 7,
@@ -1856,6 +2770,398 @@ mod tests {
             .expect("read_project should succeed");
         assert!(data.warnings.is_empty(), "{:?}", data.warnings);
         civ_from_project(&data, n).expect("a civ layer that was written must come back")
+    }
+
+
+
+    #[test]
+    fn a_restored_counter_clears_every_id_the_timeline_remembers() {
+        // The collision `civ_resync_next_tid_with_timeline` exists for: a
+        // settlement recorded in a snapshot and since deleted is in neither
+        // live array, so a counter rebuilt from the live arrays alone would
+        // reissue its `tid` -- and `civ_year_diff` matches snapshots by
+        // `tid`.
+        //
+        // Reachable only when `entities/settlements.json` carries no
+        // `next_id` (`#[serde(default)]`, SAVEFILE_COMPAT.md 14.3 -- an
+        // archive from a second implementation, or from a build that
+        // predates the member), which is why the fixture strips it rather
+        // than setting it low.
+        let mut civ = sample_civ();
+        let mut ghost = civ.settlements[0].clone();
+        ghost.tid = 500;
+        ghost.name = "Drowned".into();
+        // A year `sample_civ` does not already record: the reader dedups by
+        // year, so a second snapshot at the same one would be dropped and
+        // the fixture would test nothing.
+        civ.timeline.push(cartalith_civ::timeline::TimelineSnapshot {
+            year: 240,
+            territory: Vec::new(),
+            settlements: vec![ghost],
+            ways: Vec::new(),
+        });
+        civ.next_tid = 501;
+
+        let mut documents = BTreeMap::new();
+        civ_documents(&civ, &mut documents);
+        let settlements = documents
+            .get_mut(SLOT_SETTLEMENTS)
+            .expect("the civ layer always writes its settlements");
+        let mut value: serde_json::Value =
+            serde_json::from_str(settlements).expect("this file just wrote it");
+        value
+            .as_object_mut()
+            .expect("a document is an object")
+            .remove("next_id")
+            .expect("the member being stripped must have been there");
+        *settlements = serde_json::to_string(&value).expect("re-serializes");
+        assert!(
+            !settlements.contains("next_id"),
+            "the fixture only tests anything with the member gone"
+        );
+
+        let params = cartalith_io::SaveParams {
+            gw: 4,
+            gh: 3,
+            seed: 4242,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: vec![0.5; 12],
+            temperature: vec![10.0; 12],
+            rainfall: vec![1.0; 12],
+            volcanic_field: vec![0.0; 12],
+            impact_field: vec![0.0; 12],
+            strahler_order: vec![0; 12],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.documents = documents;
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write)
+            .expect("write_project should succeed");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf))
+            .expect("read_project should succeed");
+        let back = civ_from_project(&data, 12).expect("a civ layer that was written comes back");
+
+        assert!(
+            back.timeline.iter().any(|s| s.settlements.iter().any(|p| p.tid == 500)),
+            "the snapshot has to survive for the counter to have anything to clear"
+        );
+        assert!(
+            back.next_tid > 500,
+            "the counter must clear the deleted settlement the snapshot still remembers, got {}",
+            back.next_tid
+        );
+        // ...and it is the *timeline* that lifted it, not the live arrays:
+        // the milestone-1 twin over the same inputs stops well below.
+        assert!(
+            cartalith_civ::timeline::civ_resync_next_tid(&back.settlements, &back.ways) <= 500,
+            "the fixture must not be one the live-only scan already covers"
+        );
+    }
+
+    // ===================== the four caller-owned documents =====================
+
+    /// One caller-owned document through a **real** archive: written into a
+    /// project `.zip`, read back out, and handed back the way
+    /// `project_open`'s `documents` hands it back -- `text_of`, verbatim,
+    /// not `serde_json::to_string` of the parsed value.
+    ///
+    /// A helper rather than four copies, and deliberately not reusing
+    /// [`round_trip`] above: that one asserts the *engine*-owned civ layer
+    /// survives, and this one asserts the caller-owned channel does not
+    /// touch what it carries.
+    fn document_round_trip(slot: &str, text: &str) -> String {
+        assert!(
+            caller_slot_refusal(slot).is_none(),
+            "{slot} must be a slot the caller may write"
+        );
+        let params = cartalith_io::SaveParams {
+            gw: 4,
+            gh: 3,
+            seed: 4242,
+            map_width_km: 800.0,
+            sea_level: 0.42,
+            world: false,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: vec![0.5; 12],
+            temperature: vec![10.0; 12],
+            rainfall: vec![1.0; 12],
+            volcanic_field: vec![0.0; 12],
+            impact_field: vec![0.0; 12],
+            strahler_order: vec![0; 12],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.document(slot, text);
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write)
+            .expect("write_project should succeed");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf))
+            .expect("read_project should succeed");
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        data.text_of(slot)
+            .unwrap_or_else(|| panic!("{slot} was written and must come back"))
+            .to_string()
+    }
+
+    #[test]
+    fn a_paint_draft_survives_a_real_archive_round_trip() {
+        // Sparse `[index, value, ...]` on two of the three layers and an
+        // unallocated third -- the shape `PaintLayer::encode_sparse` emits,
+        // including its "an unpainted layer is an empty list, not a run of
+        // zeroes" rule.
+        let doc = PaintDoc {
+            gw: 4,
+            gh: 3,
+            biome: vec![0, 5, 7, 2, 11, 13],
+            terrain: Vec::new(),
+            splat: vec![3, 1],
+        };
+        let text = serde_json::to_string(&doc).expect("PaintDoc serializes");
+        let back_text = document_round_trip(SLOT_PAINT, &text);
+        assert_eq!(back_text, text, "the archive must not rewrite the document");
+        let back: PaintDoc = serde_json::from_str(&back_text).expect("PaintDoc parses back");
+        assert_eq!(back.gw, 4);
+        assert_eq!(back.gh, 3);
+        assert_eq!(back.biome, doc.biome);
+        assert!(back.terrain.is_empty());
+        assert_eq!(back.splat, doc.splat);
+        // The pair list really is a decodable layer and not just a list of
+        // numbers that happens to survive: `decode_sparse` is the reader
+        // half `_paintSyncFromState` uses.
+        let layer = cartalith_spatial::PaintLayer::decode_sparse(&back.biome, 12);
+        assert_eq!(layer.cells().expect("a painted layer allocates")[0], 5);
+        assert_eq!(layer.cells().expect("allocated")[7], 2);
+        assert_eq!(layer.cells().expect("allocated")[11], 13);
+        assert_eq!(layer.cells().expect("allocated")[1], 0);
+    }
+
+    #[test]
+    fn a_sculpt_draft_survives_a_real_archive_round_trip() {
+        use cartalith_terrain::sculpt::{Feature, FreehandMode};
+        // Two stamps of *different* features, one hidden, plus a non-default
+        // control on each -- a single-feature fixture would pass even if
+        // `sculpt_params_from_map` ignored the feature key entirely.
+        let mut params = BTreeMap::new();
+        params.insert("mtnHeight".to_string(), 0.31);
+        let mut globals = BTreeMap::new();
+        globals.insert("brush_size".to_string(), 24.0);
+        let mut free_params = BTreeMap::new();
+        free_params.insert("amount".to_string(), 0.2);
+        let doc = SculptDoc {
+            gw: 4,
+            gh: 3,
+            seed: 909,
+            feature: "mountains".to_string(),
+            globals: globals.clone(),
+            params: params.clone(),
+            sub_mode: String::new(),
+            stamps: vec![
+                SculptStampDto {
+                    feature: "mountains".to_string(),
+                    seed: 11,
+                    sea_level: 0.42,
+                    hidden: false,
+                    points: vec![[1.0, 1.0], [2.5, 1.5]],
+                    globals: globals.clone(),
+                    params: params.clone(),
+                    sub_mode: String::new(),
+                },
+                SculptStampDto {
+                    feature: "freehand".to_string(),
+                    seed: 12,
+                    sea_level: 0.42,
+                    hidden: true,
+                    points: vec![[0.0, 0.0]],
+                    globals: BTreeMap::new(),
+                    params: free_params,
+                    sub_mode: "lower".to_string(),
+                },
+            ],
+        };
+        let text = serde_json::to_string(&doc).expect("SculptDoc serializes");
+        let back_text = document_round_trip(SLOT_SCULPT, &text);
+        assert_eq!(back_text, text, "the archive must not rewrite the document");
+        let back: SculptDoc = serde_json::from_str(&back_text).expect("SculptDoc parses back");
+        assert_eq!(back.seed, 909);
+        assert_eq!(back.stamps.len(), 2);
+        assert!(back.stamps[1].hidden);
+        assert_eq!(back.stamps[0].points, vec![[1.0, 1.0], [2.5, 1.5]]);
+
+        // ...and the recipe really rebuilds. This is the half that rots:
+        // the map is keyed by control name, and a renamed control would
+        // round-trip the *document* perfectly while silently rebuilding a
+        // default stamp.
+        let rebuilt = sculpt_params_from_map(
+            Feature::from_key(&back.stamps[0].feature).expect("mountains is a feature"),
+            &back.stamps[0].params,
+            &back.stamps[0].sub_mode,
+        );
+        assert_eq!(sculpt_params_to_map(&rebuilt).get("mtnHeight"), Some(&0.31));
+        assert_eq!(
+            sculpt_globals_to_map(&sculpt_globals_from_map(&back.stamps[0].globals))
+                .get("brush_size"),
+            Some(&24.0)
+        );
+        let free = sculpt_params_from_map(
+            Feature::from_key(&back.stamps[1].feature).expect("freehand is a feature"),
+            &back.stamps[1].params,
+            &back.stamps[1].sub_mode,
+        );
+        match free {
+            cartalith_terrain::sculpt::FeatureParams::Freehand { sub_mode, amount } => {
+                assert_eq!(sub_mode, FreehandMode::Lower, "sub_mode is not a numeric control and would be lost with the params map alone");
+                assert!((amount - 0.2).abs() < 1e-12);
+            }
+            other => panic!("freehand must rebuild as Freehand, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_asset_library_survives_a_real_archive_round_trip() {
+        // A real `to_library_json` record, not a hand-written literal: the
+        // point of the test is that what the *builder* emits is what the
+        // *parser* takes back, and a literal would only pin this file's own
+        // idea of the shape.
+        let mut db = cartalith_assets::AssetDB::new();
+        let uid = db.add_custom_slot("Watchtower", Some("Landmarks")).uid.clone();
+        assert!(db.add_item(&uid, cartalith_assets::LibraryItem::new("tower-a", "deadbeef")));
+        let file = db.to_library_json().expect("a library with an item exports");
+        let text = serde_json::to_string(&file).expect("LibraryFile serializes");
+
+        let back_text = document_round_trip(SLOT_ASSETS, &text);
+        assert_eq!(back_text, text, "the archive must not rewrite the document");
+
+        let parsed = cartalith_assets::parse_library_json(back_text.as_bytes())
+            .expect("what to_library_json wrote must parse");
+        let mut restored = cartalith_assets::AssetDB::new();
+        let items = restored
+            .apply_library_file_with_items(&parsed, &std::collections::HashMap::new());
+        // Zero, and deliberately: the item's pixels live at
+        // `assetlib/img/0.png`, which the project format has no channel for
+        // -- `asset_library_document_json`'s own doc comment. The *slot*
+        // comes back, which is what makes the custom slot and its metadata
+        // survive a save.
+        assert_eq!(items, 0, "no image bytes were supplied, so no item can be restored");
+        assert!(
+            restored.get(&uid).is_some(),
+            "the custom slot itself must be recreated by uid, not merely by name"
+        );
+    }
+
+    #[test]
+    fn a_travel_library_survives_a_real_archive_round_trip() {
+        use cartalith_civ::travel_library::AnimalDef;
+        // A custom animal duplicated from a stock species: the case where
+        // `species_key` is `Some` and therefore the case that would silently
+        // stop affecting a computed journey if the document dropped it.
+        let mut lib = crate::travel_bridge::TravelLibrary::new();
+        let id = lib.fresh_id();
+        lib.animals
+            .duplicate("donkey", id.clone())
+            .expect("donkey is a stock animal");
+        {
+            let a = lib.animals.get_mut(&id).expect("just duplicated, so custom");
+            a.name = "Pack Mule".to_string();
+            a.load_capacity_kg = Some(97.5);
+        }
+        let species = lib.animals.get(&id).expect("present").species_key;
+        assert_eq!(species, Some("donkey"), "a duplicate of a stock species inherits its key");
+
+        let doc = TravelDoc {
+            animals: lib
+                .animals
+                .iter()
+                .filter(|a| a.origin == cartalith_civ::travel_library::EntryOrigin::Custom)
+                .map(|a| TravelEntryDto {
+                    id: a.id.clone(),
+                    species: a.species_key.unwrap_or_default().to_string(),
+                    fields: travel_pairs_to_fields(crate::travel_bridge::animal_to_pairs(a)),
+                })
+                .collect(),
+            vehicles: Vec::new(),
+            vessels: Vec::new(),
+            presets: Vec::new(),
+        };
+        let text = serde_json::to_string(&doc).expect("TravelDoc serializes");
+        let back_text = document_round_trip(SLOT_TRAVEL, &text);
+        assert_eq!(back_text, text, "the archive must not rewrite the document");
+
+        let back: TravelDoc = serde_json::from_str(&back_text).expect("TravelDoc parses back");
+        assert_eq!(back.animals.len(), 1);
+        assert_eq!(back.animals[0].species, "donkey");
+
+        // Rebuild the entry the way `travel_library_restore_document` does,
+        // into a library that has never seen it.
+        let mut fresh = crate::travel_bridge::TravelLibrary::new();
+        let d = &back.animals[0];
+        fresh
+            .animals
+            .add(AnimalDef::blank(d.id.clone(), String::new()))
+            .expect("a fresh library has no custom entries");
+        let base = fresh.animals.get(&d.id).cloned().expect("just added");
+        let (updated, rejected) =
+            crate::travel_bridge::animal_apply_pairs(&base, &travel_fields_to_pairs(&d.fields));
+        assert!(rejected.is_empty(), "every key this file writes must be one apply_pairs knows: {rejected:?}");
+        *fresh.animals.get_mut(&d.id).expect("custom") = updated;
+        let rebuilt = fresh.animals.get(&d.id).expect("present");
+        assert_eq!(rebuilt.name, "Pack Mule");
+        assert_eq!(rebuilt.load_capacity_kg, Some(97.5));
+        // `species_key` is the one field `animal_apply_pairs` cannot set,
+        // which is why the DTO carries it separately.
+        assert_eq!(rebuilt.species_key, None, "apply_pairs must not have set it");
+    }
+
+    #[test]
+    fn every_jp_value_shape_is_an_exact_json_inverse() {
+        // The travel field map's whole fidelity rests on this pair, and its
+        // one real hazard is the integer/float split: an `Int(3)` that came
+        // back as `Num(3.0)` would re-serialize as `3.0`, which is exactly
+        // the coercion `GUI_GAP_REGISTER.md` KV-04 was about.
+        for v in [
+            journey_bridge::JpValue::Int(3),
+            journey_bridge::JpValue::Int(-1),
+            journey_bridge::JpValue::Num(0.5),
+            journey_bridge::JpValue::Str("blocked".to_string()),
+            journey_bridge::JpValue::Str(String::new()),
+            journey_bridge::JpValue::Bool(true),
+            journey_bridge::JpValue::Bool(false),
+        ] {
+            let json = jp_value_to_json(&v);
+            let back = json_to_jp_value(&json).expect("a value this file emitted must parse back");
+            assert_eq!(back, v, "{json}");
+        }
+        // ...and through real JSON text, which is where a float that happens
+        // to be integral would collapse.
+        let text = serde_json::to_string(&jp_value_to_json(&journey_bridge::JpValue::Num(2.0)))
+            .expect("serializes");
+        let parsed: serde_json::Value = serde_json::from_str(&text).expect("parses");
+        assert_eq!(
+            json_to_jp_value(&parsed),
+            Some(journey_bridge::JpValue::Num(2.0)),
+            "an integral float must not come back as an Int: {text}"
+        );
+    }
+
+    #[test]
+    fn the_four_new_slots_are_the_caller_s_and_not_the_engine_s() {
+        // The partition assertion above names all five callers; this one
+        // names the four constants this file added, so that moving one into
+        // `ENGINE_OWNED_SLOTS` has to be deliberate rather than a
+        // side effect of adding a builder for it.
+        for slot in [SLOT_PAINT, SLOT_SCULPT, SLOT_ASSETS, SLOT_TRAVEL] {
+            assert!(
+                cartalith_io::DOCUMENT_SLOTS.contains(&slot),
+                "{slot} must be a slot the format defines"
+            );
+            assert!(
+                caller_slot_refusal(slot).is_none(),
+                "{slot} must stay caller-owned"
+            );
+        }
     }
 
     #[test]
@@ -2033,6 +3339,49 @@ mod tests {
             "the dangling province must not survive"
         );
         assert_eq!(back.province_list[0].id, 1);
+    }
+
+    #[test]
+    fn landmark_settings_survive_a_document_round_trip() {
+        use cartalith_civ::landmark::LandmarkSettings;
+        let mut tuned = LandmarkSettings::default();
+        // A key that really exists, so the setter accepts it -- taken from
+        // the vocabulary rather than typed, so a rename fails this test
+        // instead of silently making it vacuous.
+        let key = cartalith_civ::landmark::kinds()[0].key.to_string();
+        crate::landmark_bridge::set_cap(&mut tuned, &key, 17);
+        let flipped = !tuned.is_armed(&key);
+        crate::landmark_bridge::set_armed(&mut tuned, &key, flipped);
+        crate::landmark_bridge::set_crowding(&mut tuned, 2.25);
+        crate::landmark_bridge::set_class_radius(&mut tuned, "local", 3.5);
+        crate::landmark_bridge::set_cross_competition(&mut tuned, false);
+        assert_ne!(tuned, LandmarkSettings::default(), "the fixture must differ from the default, or this proves nothing");
+
+        let doc = LandmarksDoc { settings: LandmarkSettingsDto::from(&tuned) };
+        let text = serde_json::to_string(&doc).expect("serializes");
+        let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        assert_eq!(back.settings.into_settings(), tuned);
+    }
+
+    #[test]
+    fn a_landmark_document_cannot_smuggle_in_an_unknown_kind() {
+        // An archive is untrusted input. `into_settings` rebuilds from
+        // `LandmarkSettings::default()` through the same rejecting setters
+        // the `#[func]` surface uses, so a hand-edited `caps` map cannot
+        // introduce a fiftieth landmark type -- and an out-of-range crowding
+        // is clamped rather than stored.
+        let dto: LandmarkSettingsDto = serde_json::from_str(
+            r#"{"caps":{"not_a_landmark_kind":9},"crowding":99.0,"class_radius_km":[-4.0]}"#,
+        )
+        .expect("parses");
+        let settings = dto.into_settings();
+        assert!(!settings.caps.contains_key("not_a_landmark_kind"));
+        assert!(
+            settings.crowding <= crate::landmark_bridge::CROWDING_MAX,
+            "crowding {} escaped the clamp",
+            settings.crowding
+        );
+        assert_eq!(settings.class_radius_km[0], 0.0, "a negative radius floors at zero");
     }
 
     #[test]

@@ -1,17 +1,22 @@
 # Military manpower — what a polity can put and keep under arms
 
-Built 2026-08-25, on an owner-supplied specification. This document exists
-because that specification is **design input worth preserving verbatim**: the
-model has no reference implementation to fall back on, so the specification is
-the only ground truth there is, and a paraphrase of it would leave nothing to
-check the code against.
+> **This document carries the specification, the derivation and the record of
+> what was measured; it does not track progress.** MM-1…MM-8 and the four
+> findings of §3.3 are defined here and **tracked only in
+> `cartalith-native/docs/STATUS.md`**.
+
+Written alongside the 2026-08-25 build pass, against an owner-supplied
+specification. This document exists because that specification is **design
+input worth preserving verbatim**: the model has no reference implementation to
+fall back on, so the specification is the only ground truth there is, and a
+paraphrase of it would leave nothing to check the code against.
 
 Four sections, in this order:
 
 1. **The owner's specification**, reproduced as supplied.
 1a. **Owner rulings on it** — decisions made about the specification after the
    fact, kept in their own section so the verbatim text above is never edited.
-   One so far: which population the era table's percentages are a share of.
+   One: which population the era table's percentages are a share of.
 2. **The derivation** — how each part of it maps onto quantities this port
    already computes, and every constant with its grounding.
 3. **Verification** — the two worked examples, the live figures, and the four
@@ -217,7 +222,7 @@ Six of the pieces this model needs were already built and, in two cases, had
 repo's standing rule that the register's stated reasons have been wrong six
 times this session:
 
-| Need | What already exists | Status before this pass |
+| Need | What it maps onto | What that piece was reaching before this pass |
 |---|---|---|
 | Agricultural labour ratio | `roster::AG_TECH_LEVELS`' `farmers_per_urbanite` (reference line 14816, ported verbatim) | **no consumer anywhere** — its own module doc says so |
 | Fiscal capacity | `roster::CIV_GOVERNMENTS` (reference 14794) | **no consumer in either codebase** — its own doc says the reference reads it nowhere either |
@@ -412,7 +417,7 @@ row already carries.
 
 ### 2.6 The citizen / free population — the band's denominator
 
-Built 2026-08-25 on §1a's ruling. **It is a denominator and nothing else**: no
+Derived from §1a's ruling. **It is a denominator and nothing else**: no
 headcount reads it, and the model's calibration is untouched.
 
 **Grepped before inventing.** Nothing in `cartalith-civ` distinguished a
@@ -692,7 +697,7 @@ latter to `empire` moves it to 0.45 %. Rome under Tiberius is 0.21–0.56 %. So
 the model agrees with the specification's *example* and disagrees with its
 *table*, in the same direction and for the same reason as finding 1.
 
-> **Still open after §1a (2026-08-25).** The ruling moved the standing shares
+> **What §1a's ruling did not close (2026-08-25).** It moved the standing shares
 > up by roughly 1.6× and that is enough on dense worlds — the 233-settlement
 > six read 0.68–0.72 % against a 0.5–2 % band, all `within`. On the sparser
 > 33-settlement world they read 0.19–1.20 % against a 1–2.5 % floor and only
@@ -728,7 +733,9 @@ same six factions spread **0.11 … 0.91** and roads carry real weight.
 
 ## 4 · What this deliberately does not build
 
-Unchanged from CV-25's own narrowing, minus the half that is now built:
+CV-25's own narrowing, kept, minus the manpower half this document supersedes.
+These are **declined**, with the reason, rather than deferred — nobody should
+re-propose them without reopening the reasoning:
 
 - **Per-settlement garrisons.** The per-*faction* headcounts are real. Which
   settlement holds which part of a standing army is a placement rule nothing

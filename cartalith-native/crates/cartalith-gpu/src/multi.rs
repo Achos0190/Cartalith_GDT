@@ -635,6 +635,26 @@ pub fn readback_failure_cells(name: &str, vendor: u32, backend: wgpu::Backend) -
     READBACK_FAILURES.read().ok()?.iter().find(|(k, _)| *k == key).map(|(_, at)| *at)
 }
 
+/// Whether *any* readback failure is on record for this session, on any
+/// adapter.
+///
+/// [`readback_failure_cells`] answers for one named adapter; a UI offering
+/// "try the GPU again" has no adapter in hand and only needs to know whether
+/// there is anything to clear. It is the exact predicate for enabling that
+/// affordance: true iff a later [`clear_readback_failures`] would change
+/// something.
+///
+/// **What it does not cover**: the per-device lost flag
+/// (`lib.rs`'s `device_is_unusable`, which checks `ctx.lost()` first). A lost
+/// device is already forgotten when the next `generate_terrain` opens its own
+/// device, so there is nothing session-wide for a user to clear there --
+/// this record is the only thing that outlives a device handle, and so the
+/// only thing that ban-clearing acts on.
+#[must_use]
+pub fn any_readback_failure() -> bool {
+    READBACK_FAILURES.read().is_ok_and(|r| !r.is_empty())
+}
+
 /// Forget every recorded readback failure. For tests that need a clean slate,
 /// and for a "try the GPU again" affordance after the user changes something
 /// (a driver update, a smaller world) that might make it work.
@@ -1007,6 +1027,19 @@ impl RawGpuDevice {
 mod tests {
     use super::*;
 
+    /// `READBACK_FAILURES` is one process-wide static, and `cargo test` runs
+    /// this module's tests on many threads at once. Every test that writes
+    /// it -- and in particular every test that *clears* it -- takes this
+    /// first, so a clear cannot wipe a sibling's record mid-assertion.
+    /// Recovered from poisoning on purpose: a panicking test has already
+    /// failed, and it must not turn every other readback test into a
+    /// secondary failure.
+    static READBACK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn readback_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        READBACK_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn row(name: &str, vendor: u32, device_id: u32, t: wgpu::DeviceType, b: wgpu::Backend) -> AdapterRow {
         AdapterRow {
             name: name.to_string(),
@@ -1186,6 +1219,7 @@ mod tests {
     /// concurrently-running device test's own record.
     #[test]
     fn a_recorded_readback_failure_bans_that_size_and_larger_only() {
+        let _guard = readback_test_guard();
         const NAME: &str = "cartalith test pseudo-adapter";
         const VENDOR: u32 = 0xdead;
         let backend = wgpu::Backend::Noop;
@@ -1205,6 +1239,42 @@ mod tests {
         // A different adapter is untouched by any of it.
         assert_eq!(readback_failure_cells(NAME, VENDOR + 1, backend), None);
         assert_eq!(readback_failure_cells(NAME, VENDOR, wgpu::Backend::Vulkan), None);
+    }
+
+    /// The predicate `menus.gd`'s `Preferences > Performance > Try the GPU
+    /// again` row is enabled by, and the clearer that row calls, over the
+    /// three states the row can be in.
+    ///
+    /// The third case is the one worth a test: the row is drawn disabled when
+    /// nothing is banned, so clearing on an empty record should never be
+    /// reached -- but a menu accelerator, a replayed command or a second click
+    /// can reach a disabled row's handler anyway, and it must be inert rather
+    /// than an error or a panic.
+    #[test]
+    fn any_readback_failure_tracks_the_record_and_clearing_is_idempotent() {
+        let _guard = readback_test_guard();
+        const NAME: &str = "cartalith clear-path pseudo-adapter";
+        const VENDOR: u32 = 0xbeef;
+        let backend = wgpu::Backend::Noop;
+
+        // Clearing with nothing recorded: a harmless no-op, twice over.
+        clear_readback_failures();
+        assert!(!any_readback_failure(), "nothing recorded, so nothing to clear");
+        clear_readback_failures();
+        assert!(!any_readback_failure(), "clearing an empty record stays empty");
+
+        // A recorded failure is what turns the row on.
+        note_readback_failure(NAME, VENDOR, backend, 8192 * 8192);
+        assert!(any_readback_failure(), "a recorded failure is visible without naming the adapter");
+
+        // And clearing turns it back off, per-adapter record and all.
+        clear_readback_failures();
+        assert!(!any_readback_failure());
+        assert_eq!(
+            readback_failure_cells(NAME, VENDOR, backend),
+            None,
+            "the per-adapter ban is gone too, not merely the summary"
+        );
     }
 
     /// The default install must behave exactly as it did before this

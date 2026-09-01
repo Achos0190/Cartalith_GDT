@@ -9,17 +9,13 @@ use super::*;
 use crate::{SettlementKind, SettlementPlacement};
 
 fn place(x: usize, y: usize, coastal: bool, pop: u32) -> NamedSettlement {
+    place_kind(x, y, coastal, pop, SettlementKind::Town)
+}
+
+fn place_kind(x: usize, y: usize, coastal: bool, pop: u32, kind: SettlementKind) -> NamedSettlement {
     NamedSettlement {
         tid: 0,
-        placement: SettlementPlacement {
-            x,
-            y,
-            suit: 0.5,
-            faction: 1,
-            capital: false,
-            kind: SettlementKind::Town,
-            coastal,
-        },
+        placement: SettlementPlacement { x, y, suit: 0.5, faction: 1, capital: false, kind, coastal },
         name: String::new(),
         pop,
     }
@@ -414,4 +410,307 @@ fn degenerate_inputs_are_empty_not_a_panic() {
     assert_eq!(run(&[], &[], &[], 800.0), TradeNetwork::default());
     let s = vec![place(0, 0, false, 100)];
     assert_eq!(run(&s, &[], &[], 800.0), TradeNetwork::default());
+}
+
+// ----------------------------------------------------------- civ_food_shed
+//
+// `ECONOMY_SCOPE.md` milestone 2's own function -- see `civ_food_shed`'s doc
+// comment for the reference lines and what this pass found already ported
+// versus what it built. No golden fixture: pure, branch-complete, no
+// RNG/state, every branch traceable to the reference with no iteration
+// order to get subtly wrong -- the same justification `civ_resource_trade_balance`'s
+// own tests (this crate's `lib.rs`) already used for real unit tests in
+// place of a Node-harness extraction, and it applies here for the same
+// reasons.
+
+fn landlocked_nav() -> Navigability {
+    Navigability { kind: NavKind::None, basis: "test" }
+}
+
+/// Every field this fixture family holds constant: `soil_ref` matches the
+/// uniform `0.5` soil every test below uses (so `foodSurplusRatio` is being
+/// exercised at its own calibration point, not off to one side of it), and
+/// `sea`/`world_wrap` match every `place()`d settlement's own assumptions.
+#[allow(clippy::too_many_arguments)]
+fn shed_input<'a>(
+    settlements: &'a [NamedSettlement],
+    navigability: &'a [Navigability],
+    farmers_per_urbanite: &'a [f64],
+    dens: &'a [f32],
+    soil: &'a [f32],
+    field: &'a [f32],
+    gw: usize,
+    gh: usize,
+    map_width_km: f64,
+) -> FoodShedInput<'a> {
+    FoodShedInput {
+        settlements,
+        navigability,
+        farmers_per_urbanite,
+        dens,
+        soil,
+        soil_ref: 0.5,
+        field,
+        gw,
+        gh,
+        sea: 0.42,
+        world_wrap: false,
+        map_width_km,
+    }
+}
+
+/// `(settlements, farmers_per_urbanite, dens, soil, field)` -- everything
+/// [`whole_grid_is_one_catchment`] builds, named once so its signature
+/// reads rather than a five-tuple of collections.
+type CatchmentFixture = (Vec<NamedSettlement>, [f64; 1], Vec<f32>, Vec<f32>, Vec<f32>);
+
+/// A 5x5 world small enough that a `Metropolis`' own catchment radius (its
+/// own doc comment on `catchment_radius_raw` explains the raw-vs-cells
+/// distinction) covers every cell, including the far corner: `catR ≈ 5.64`
+/// cells against a farthest corner-to-centre distance of `hypot(2,2) ≈
+/// 2.83`. Every cell therefore fails `civ_food_shed`'s own
+/// `dist_cells<=cat_r` hinterland-exclusion test, so `hinterland_capacity`
+/// is `0.0` by construction and `local_capacity` alone is checkable in
+/// closed form.
+fn whole_grid_is_one_catchment(pop: u32, fpu: f64) -> CatchmentFixture {
+    let gw = 5;
+    let field = vec![0.6f32; gw * gw];
+    let dens = vec![10.0f32; gw * gw]; // uniform -> the catchment mean is exactly 10.0
+    let soil = vec![0.5f32; gw * gw]; // == soil_ref, so foodSurplusRatio sits at its own baseline
+    let settlements = vec![place_kind(2, 2, false, pop, SettlementKind::Metropolis)];
+    (settlements, [fpu], dens, soil, field)
+}
+
+/// `local_capacity` in closed form: `civ_catchment_pop` over a uniform
+/// density field is just `density * catchment_km2` (the mean of a constant
+/// is the constant), and at `soil == soil_ref` with the default
+/// `FARMERS_PER_URBANITE`, `foodSurplusRatio` collapses to exactly
+/// `FOOD_BASE_SURPLUS_RATIO = 1/9` (`food_surplus_ratio`'s own doc comment
+/// on `is_default`) -- `civ_catchment_km2(Metropolis) == 2500.0`, so
+/// `local_capacity == 25000/9`. `hinterland_capacity`/`import_capacity` are
+/// both `0.0` (the fixture's own doc comment; `import` because there is
+/// only one settlement), so `supported == local_capacity` exactly, and the
+/// two `pop` values sit either side of `supported` -- the `sustainable`
+/// flag and `over_by`'s rounding both get a real, closed-form assertion
+/// rather than a sign check.
+#[test]
+fn food_shed_local_capacity_closed_form_when_hinterland_and_import_are_both_zero() {
+    let nav = [landlocked_nav()];
+    let expect_local = 25_000.0 / 9.0;
+
+    let (s, fpu, dens, soil, field) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
+    let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, 5, 5, 25.0);
+    let mut rc = RoadComponents::build(1, &[]);
+    let out = civ_food_shed(&input, &mut rc, 0);
+    assert_eq!(out.hinterland_capacity, 0.0, "every cell is inside the settlement's own catchment");
+    assert_eq!(out.import_capacity, 0.0, "one settlement has no possible supplier");
+    assert!(
+        (out.local_capacity - expect_local).abs() < 1e-6,
+        "got {} want {expect_local}",
+        out.local_capacity
+    );
+    assert!((out.supported - out.local_capacity).abs() < 1e-12);
+    assert_eq!(out.limited_by, "local");
+    assert!(out.sustainable, "pop 1000 is well under supported {expect_local}");
+    assert_eq!(out.over_by, 0.0);
+
+    // Same world, pop pushed past `supported` -- deficit, and `overBy` is
+    // `Math.round(pop-supported)` on a genuinely positive value.
+    let (s2, fpu2, dens2, soil2, field2) = whole_grid_is_one_catchment(3000, FARMERS_PER_URBANITE);
+    let input2 = shed_input(&s2, &nav, &fpu2, &dens2, &soil2, &field2, 5, 5, 25.0);
+    let mut rc2 = RoadComponents::build(1, &[]);
+    let out2 = civ_food_shed(&input2, &mut rc2, 0);
+    assert!(!out2.sustainable, "pop 3000 exceeds supported {expect_local}");
+    let expect_over = js_round(3000.0 - expect_local);
+    assert!((out2.over_by - expect_over).abs() < 1e-6, "got {} want {expect_over}", out2.over_by);
+}
+
+/// The money test: the SAME grid, the same population, two different
+/// `farmers_per_urbanite` values -- and `local_capacity` genuinely differs.
+/// This is `AG_TECH_LEVELS`' route to influencing the trade/economy layer;
+/// `roster.rs`'s own module doc used to say no such route was ported.
+#[test]
+fn food_shed_ag_tech_genuinely_changes_local_capacity() {
+    let nav = [landlocked_nav()];
+
+    let (s9, fpu9, dens9, soil9, field9) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
+    let input9 = shed_input(&s9, &nav, &fpu9, &dens9, &soil9, &field9, 5, 5, 25.0);
+    let mut rc9 = RoadComponents::build(1, &[]);
+    let traditional = civ_food_shed(&input9, &mut rc9, 0).local_capacity;
+
+    // farmers_per_urbanite = 1.0 ("Improved Agrarian" in AG_TECH_LEVELS) --
+    // far fewer farmers needed per urbanite, so far more of the catchment's
+    // ceiling is exportable surplus.
+    let (s1, fpu1, dens1, soil1, field1) = whole_grid_is_one_catchment(1000, 1.0);
+    let input1 = shed_input(&s1, &nav, &fpu1, &dens1, &soil1, &field1, 5, 5, 25.0);
+    let mut rc1 = RoadComponents::build(1, &[]);
+    let improved = civ_food_shed(&input1, &mut rc1, 0).local_capacity;
+
+    assert!((traditional - 25_000.0 / 9.0).abs() < 1e-6);
+    assert!((improved - 12_500.0).abs() < 1e-6, "0.5 * 25000 exactly, both operands exact in f64");
+    assert!(
+        improved > traditional * 4.0,
+        "advanced ag-tech must lift the ceiling by more than a rounding error: {improved} vs {traditional}"
+    );
+}
+
+/// A world where `cell_km` is chosen so `MAX_REACH_KM[Land]/cell_km == 1`
+/// exactly, so the hinterland sweep only ever visits the immediate 3x3
+/// block. Of its 8 non-centre cells, the 4 orthogonal ones sit at distance
+/// `1.0` (inside the reach) and the 4 diagonal ones at `sqrt(2)` (just
+/// outside it) -- a discrete geometric fact, not a re-derivation of the
+/// `deliverable` decay curve (which has its own dedicated tests above and
+/// is only ever called here, not recomputed).
+#[test]
+fn food_shed_hinterland_counts_exactly_the_four_orthogonal_neighbours_at_the_reach_cliff() {
+    let gw = 5;
+    let cell_km = 220.0; // == MAX_REACH_KM[Land]
+    let map_width_km = cell_km * gw as f64;
+    let field = vec![0.6f32; gw * gw];
+    let dens = vec![10.0f32; gw * gw];
+    let soil = vec![0.5f32; gw * gw];
+    let s = vec![place_kind(2, 2, false, 1, SettlementKind::Hamlet)];
+    let fpu = [FARMERS_PER_URBANITE];
+    let nav = [landlocked_nav()];
+    let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, gw, gw, map_width_km);
+    let mut rc = RoadComponents::build(1, &[]);
+    let out = civ_food_shed(&input, &mut rc, 0);
+
+    let frac = deliverable(1.0 * cell_km, TradeMode::Land);
+    let sr = food_surplus_ratio(0.5, 0.5, FARMERS_PER_URBANITE);
+    let expect = 4.0 * 10.0 * cell_km * cell_km * frac * sr;
+    assert!(
+        (out.hinterland_capacity - expect).abs() < 1e-6,
+        "got {} want {expect} (4 orthogonal cells, not 8)",
+        out.hinterland_capacity
+    );
+
+    // The same world with every cell OUTSIDE the scanned 3x3 block zeroed
+    // out must read identically -- proving those cells are never visited,
+    // not merely zero-weighted.
+    let mut dens_clipped = vec![0.0f32; gw * gw];
+    for dy in -1i64..=1 {
+        for dx in -1i64..=1 {
+            let (x, y) = (2 + dx, 2 + dy);
+            dens_clipped[y as usize * gw + x as usize] = 10.0;
+        }
+    }
+    let input2 = shed_input(&s, &nav, &fpu, &dens_clipped, &soil, &field, gw, gw, map_width_km);
+    let mut rc2 = RoadComponents::build(1, &[]);
+    let out2 = civ_food_shed(&input2, &mut rc2, 0);
+    assert_eq!(out.hinterland_capacity, out2.hinterland_capacity, "cells past the reach cliff must not matter");
+}
+
+/// A supplier one kilometre away, well inside `LOCAL_RADIUS_KM`, needs no
+/// road at all (`_civFoodConnected`'s own first branch) -- so a zero-pop
+/// neighbour with real catchment capacity shows up as real import capacity.
+#[test]
+fn food_shed_import_draws_from_a_nearby_zero_pop_neighbour_with_no_road_needed() {
+    let gw = 3;
+    let field = vec![0.6f32; gw * gw];
+    let dens = vec![10.0f32; gw * gw];
+    let soil = vec![0.5f32; gw * gw];
+    // 1 km apart: cell_km = map_width_km / gw = 3/3 = 1.0.
+    let s = vec![place(0, 0, false, 500), place(1, 0, false, 0)];
+    let fpu = [FARMERS_PER_URBANITE, FARMERS_PER_URBANITE];
+    let nav = [landlocked_nav(), landlocked_nav()];
+    let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, gw, gw, 3.0);
+    let mut rc = RoadComponents::build(2, &[]);
+    let out = civ_food_shed(&input, &mut rc, 0);
+    assert_eq!(out.suppliers, 1);
+    assert!(out.import_capacity > 0.0);
+    assert_eq!(out.best_mode, TradeMode::Land);
+}
+
+/// The same neighbour, moved past `LOCAL_RADIUS_KM` with no road between
+/// them: `_civFoodConnected` refuses it, so the same spare capacity
+/// contributes nothing, mirroring `connectivity_is_local_radius_then_water_then_road`
+/// above but through `civ_food_shed` rather than `connected` directly.
+#[test]
+fn food_shed_import_is_refused_without_connectivity_even_with_real_spare_capacity() {
+    let gw = 15;
+    let field = vec![0.6f32; gw * gw];
+    let dens = vec![10.0f32; gw * gw];
+    let soil = vec![0.5f32; gw * gw];
+    // 10 cells apart at cell_km = 150/15 = 10 -> 100 km: past LOCAL_RADIUS_KM
+    // (50) and past neither end has water, so no road means no connection.
+    let s = vec![place(0, 0, false, 500), place(10, 0, false, 0)];
+    let fpu = [FARMERS_PER_URBANITE, FARMERS_PER_URBANITE];
+    let nav = [landlocked_nav(), landlocked_nav()];
+    let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, gw, gw, 150.0);
+    let mut rc = RoadComponents::build(2, &[]); // no ways
+    let out = civ_food_shed(&input, &mut rc, 0);
+    assert_eq!(out.suppliers, 0);
+    assert_eq!(out.import_capacity, 0.0);
+}
+
+/// The reference's negated `!(spare>0)` form matters when
+/// `farmers_per_urbanite` itself is `NaN` (a defensive case, not a real
+/// roster value): `js_max`/division propagate the `NaN` into `food_surplus_ratio`'s
+/// own `y_sub`, and that function's OWN negated guard collapses it to a
+/// clean `0.0` ratio rather than a `NaN` surplus -- proved end to end here,
+/// not just at `food_surplus_ratio` in isolation.
+#[test]
+fn food_shed_nan_farmers_per_urbanite_yields_zero_local_capacity_not_nan() {
+    let nav = [landlocked_nav()];
+    let (s, _, dens, soil, field) = whole_grid_is_one_catchment(1000, 0.0);
+    let fpu = [f64::NAN];
+    let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, 5, 5, 25.0);
+    let mut rc = RoadComponents::build(1, &[]);
+    let out = civ_food_shed(&input, &mut rc, 0);
+    assert_eq!(out.local_capacity, 0.0, "must collapse to zero, not propagate NaN");
+    assert!(out.supported.is_finite());
+}
+
+/// `soilAt?soilAt[li]:0.5` -- an empty/mis-sized soil slice reads as
+/// uniform `0.5` everywhere, matching a world with real `0.5` soil exactly.
+#[test]
+fn food_shed_missing_soil_defaults_to_one_half_everywhere() {
+    let nav = [landlocked_nav()];
+    let (s, fpu, dens, soil, field) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
+    let with_soil = {
+        let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, 5, 5, 25.0);
+        let mut rc = RoadComponents::build(1, &[]);
+        civ_food_shed(&input, &mut rc, 0)
+    };
+    let without_soil: Vec<f32> = Vec::new();
+    let missing = {
+        let input = shed_input(&s, &nav, &fpu, &dens, &without_soil, &field, 5, 5, 25.0);
+        let mut rc = RoadComponents::build(1, &[]);
+        civ_food_shed(&input, &mut rc, 0)
+    };
+    assert_eq!(with_soil, missing);
+}
+
+/// A `p_idx` past the settlement slice returns the reference's own baseline
+/// object untouched, matching the reference's `if(!p||...) return out;`
+/// guard rather than panicking.
+#[test]
+fn food_shed_out_of_range_index_returns_the_default() {
+    let nav = [landlocked_nav()];
+    let (s, fpu, dens, soil, field) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
+    let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, 5, 5, 25.0);
+    let mut rc = RoadComponents::build(1, &[]);
+    assert_eq!(civ_food_shed(&input, &mut rc, 1), FoodShed::default());
+    assert_eq!(civ_food_shed(&input, &mut rc, 99), FoodShed::default());
+}
+
+/// `pop<=supported*1.0001` -- the reference's own 0.01% slack, checked on
+/// both sides against the SAME multiplication `civ_food_shed` performs
+/// (not an assumed decimal), since `1.0001` is not exactly representable.
+#[test]
+fn food_shed_sustainable_flag_honours_the_reference_slack() {
+    let nav = [landlocked_nav()];
+    let supported = 12_500.0; // whole_grid_is_one_catchment @ fpu=1.0, from the closed-form test above
+    let boundary = supported * 1.0001;
+
+    let (s_in, fpu, dens, soil, field) = whole_grid_is_one_catchment((boundary - 0.01) as u32, 1.0);
+    let input_in = shed_input(&s_in, &nav, &fpu, &dens, &soil, &field, 5, 5, 25.0);
+    let mut rc_in = RoadComponents::build(1, &[]);
+    assert!(civ_food_shed(&input_in, &mut rc_in, 0).sustainable, "just inside the slack");
+
+    let (s_out, fpu2, dens2, soil2, field2) = whole_grid_is_one_catchment((boundary + 1.0) as u32, 1.0);
+    let input_out = shed_input(&s_out, &nav, &fpu2, &dens2, &soil2, &field2, 5, 5, 25.0);
+    let mut rc_out = RoadComponents::build(1, &[]);
+    assert!(!civ_food_shed(&input_out, &mut rc_out, 0).sustainable, "past the slack");
 }

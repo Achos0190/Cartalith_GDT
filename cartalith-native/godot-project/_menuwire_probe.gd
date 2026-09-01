@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for the 2026-08-25 "is every control wired" pass.
+## Committed probe for the 2026-08-25 "is every control wired" pass.
 ##
 ## The menu bar, driven properly. `_railpress_probe.gd`'s first cut read
 ## `is_item_disabled()` straight off the popup and got four false positives,
@@ -12,9 +12,17 @@ extends Node
 ##      -- the item cannot do anything, whatever its handler says;
 ##   2. press every enabled, non-submenu, non-checkable, non-destructive item
 ##      and report the ones that changed nothing anywhere;
-##   3. report every disabled item with no tooltip that is not a caption row.
+##   3. report every disabled item with no tooltip that is neither a declared
+##      signpost (`DccMenus.META_SIGNPOST`) nor a declared readout
+##      (`DccMenus.META_READOUT`) -- both by the marker their constructor
+##      stamps, never by what the row says. See `_exempt()`.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _menuwire_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge
@@ -26,11 +34,31 @@ const SKIP := [
 	"bake", "unfinalize", "purge", "wipe", "reset",
 ]
 
-## Disabled rows that are *captions*, not capability claims: a section heading
-## and a live stat line inside the asset-pack submenu, and File's own static
-## "imports live elsewhere" note. Named explicitly so a genuinely undisclosed
-## gap cannot hide behind a similar shape.
-const CAPTIONS := ["Active pack", "Schema 2 ·", "Imports live under", "— loading —", "·"]
+## Disabled rows that are *captions*, not capability claims, are exempted by
+## the marker their constructor stamps on them -- never by their wording.
+##
+## **The wording list is gone, and the entry that removed it was a hole, not a
+## nuisance.** `CAPTIONS` held four strings matched with `String.find()`, and
+## one of them was a bare `·`. A substring test for a middle dot exempts every
+## disabled row whose label contains one -- and this shell uses `·` as its
+## label separator throughout ("Pack metadata…   name · author · license",
+## "Sprite sheet slicer…   cols · rows · margin", "Replace · delete slot art"),
+## so check 3's honesty contract was switched off for a large slice of the menu
+## bar by one character. The other three entries had already drifted out of
+## match with the rows they named (the pack heading is an `add_separator()`,
+## which check 3 skips before `_exempt()` is ever consulted; `"Schema 2 ·"` does
+## not occur -- the row reads `"schema   2 · STORED zip"`), so the list was
+## protecting exactly one real row and exempting an unbounded number by accident.
+##
+## Both constructors that mint a legitimately-disabled, silent row already mark
+## it: `menus.gd::_signpost()` stamps `META_SIGNPOST` (prose chrome) and
+## `menus.gd::_readout()` stamps `META_READOUT` (a live value). Every row
+## `CAPTIONS` was there to spare is a `_readout()` row -- `— loading —` at
+## the two `_readout(..., "— loading —", "")` call sites, and
+## `schema   2 · STORED zip` at the third. Reading
+## the two markers covers them exactly, survives the rewording that `_readout()`
+## does to its own text on every `about_to_popup`, and still makes an author
+## opt each row in one at a time -- which is the property the list was for.
 
 
 func _p(s: String) -> void:
@@ -99,11 +127,13 @@ func _skipped(s: String) -> bool:
 	return false
 
 
-func _is_caption(s: String) -> bool:
-	for c in CAPTIONS:
-		if s.find(c) >= 0:
-			return true
-	return false
+## True when this disabled row is not making a capability claim at all, so a
+## missing tooltip is not a missing reason.
+func _exempt(pm: PopupMenu, i: int) -> bool:
+	var meta = pm.get_item_metadata(i)
+	if typeof(meta) != TYPE_STRING:
+		return false
+	return String(meta) == DccMenus.META_SIGNPOST or String(meta) == DccMenus.META_READOUT
 
 
 func _ready() -> void:
@@ -195,7 +225,7 @@ func _ready() -> void:
 			if pm.is_item_separator(i) or not pm.is_item_disabled(i):
 				continue
 			var txt := pm.get_item_text(i)
-			if _is_caption(txt):
+			if _exempt(pm, i):
 				continue
 			if pm.get_item_tooltip(i).strip_edges() == "":
 				noreason += 1

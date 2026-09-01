@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe -- `GUI_GAP_REGISTER.md` SH-11.
+## Committed probe -- `GUI_GAP_REGISTER.md` SH-11.
 ##
 ## The contract `_zoom_at()`'s own doc comment states: *"Zooms so the world
 ## point under `screen_pt` stays under it."* Measure whether it does.
@@ -9,6 +9,11 @@ extends Node
 ## current zoom, in grid cells.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _zoompivot_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

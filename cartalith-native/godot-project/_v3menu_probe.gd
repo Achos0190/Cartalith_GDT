@@ -1,5 +1,5 @@
 extends Node
-## Temporary, untracked verification harness for the v3 left-rail menu pass
+## Committed verification harness for the v3 left-rail menu pass
 ## (`design/Cartalith Menu Structure v3.dc.html`, vendored at 8cef062).
 ##
 ## Run WINDOWED -- a headless boot proves the extension loads and the scripts
@@ -20,6 +20,11 @@ extends Node
 ##      Layers/Political display's split, and Data ▸ Markdown vault.
 ##   5. Assert every disabled row carries a reason (the `_todo` contract).
 ##   6. One screenshot per rail, every category forced open.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 const SEED := 483920
 
@@ -28,11 +33,22 @@ var _bridge
 var _fail := 0
 
 ## v3's own category names, per rail, in v3's own order.
+##
+## One entry is no longer v3's literal string. CIVIL's fifth category was v3's
+## `Points of interest`; the landmark-generation pass RENAMED it to `Landmarks`
+## and replaced its "Not built" stub with a real body. That is a design
+## decision, not drift -- `design/landmark-generation/LANDMARK_UI_DESIGN.md:58`
+## ("the existing v3 category `Points of interest`, renamed"), restated at :273
+## and tracked as owed work at :621, and the 2026-08-31 DCC spec carries the new
+## name too (`design/dcc-environment-2026-08-31/spec/02-rail-and-domains.md:94`).
+## The rail fold's rule -- every pre-existing category stays reachable -- holds:
+## the category is still there, still fifth, only its title moved. The old name
+## is listed in `GONE` below so a revert to the stub is still caught.
 const WANT := {
 	"world": ["Generate", "Terrain", "Geology", "Hydrology", "Climate",
 		"Biomes", "Ecology", "Resources", "World data"],
 	"civilization": ["Civilizations", "Factions", "Territories", "Settlements",
-		"Points of interest", "Routes & ways", "Travel", "Trade", "Economy",
+		"Landmarks", "Routes & ways", "Travel", "Trade", "Economy",
 		"Culture", "Politics", "Military", "Relationships", "Simulation"],
 	"cartography": ["Map style", "Terrain appearance", "Colours", "Layers",
 		"Roads & routes", "Labels", "Assets & landmarks", "Political display",
@@ -42,7 +58,9 @@ const WANT := {
 ## Categories the v3 pass RETIRED. Any of these still on a rail is the
 ## `_dock_hosted` / `_nested` ordering bug coming back.
 const GONE := ["Roads", "Rivers", "Ports", "Logistics", "Layer properties",
-	"Annotation", "Timeline", "Population", "Generation pipeline"]
+	"Annotation", "Timeline", "Population", "Generation pipeline",
+	## Renamed to `Landmarks`, not deleted -- see the note on `WANT` above.
+	"Points of interest"]
 
 
 func _fail_msg(s: String) -> void:
@@ -285,19 +303,37 @@ func _ready() -> void:
 				_app.vault_window.hide()
 			else:
 				_fail_msg("Data ▸ Markdown vault did not open the vault window")
-		## And the two honest gaps beside it.
-		var todo := 0
+		## And the two rows beside it. Both were `_todo` when this probe was
+		## written and both have since been BUILT, so this assertion is now the
+		## inverse of what it used to be: `GUI_GAP_REGISTER.md` VA-02 (create a
+		## note from a template) closed in §39 and VA-01 (the reverse index --
+		## backlinks, missing and orphan notes) closed in §42. They must be LIVE,
+		## and they must reach the same single window the row above just opened
+		## rather than become a second owner of it -- checked by item id, not by
+		## pressing them again, since all three carry `ID_VAULT`.
+		##
+		## The old text match was `Create notes`, which had stopped matching
+		## anything at all: the row reads `Create a note from a template...`.
+		## `idx` is -1 only on the already-reported "no Markdown vault row"
+		## failure; -1 into `get_item_id` is an error, so it degrades here.
+		var want_id := data_popup.get_item_id(idx) if idx >= 0 else -1
+		var live := 0
 		for i in data_popup.item_count:
 			var t := String(data_popup.get_item_text(i))
-			if (t.findn("Create notes") >= 0 or t.findn("orphan notes") >= 0):
-				if data_popup.is_item_disabled(i) and data_popup.get_item_tooltip(i).length() > 40:
-					todo += 1
+			if (t.findn("from a template") >= 0 or t.findn("orphan notes") >= 0):
+				if (not data_popup.is_item_disabled(i)
+						and data_popup.get_item_tooltip(i).length() > 40
+						and data_popup.get_item_id(i) == want_id):
+					live += 1
 				else:
-					_fail_msg("Data ▸ \"%s\" is not a disclosed gap" % t)
-		if todo == 2:
-			_ok("Data ▸ the two unbacked vault rows are disabled with reasons")
+					_fail_msg("Data ▸ \"%s\" is not a live vault row (disabled=%s, tip=%d, id=%d want %d)"
+						% [t, data_popup.is_item_disabled(i),
+						data_popup.get_item_tooltip(i).length(),
+						data_popup.get_item_id(i), want_id])
+		if live == 2:
+			_ok("Data ▸ the template and index rows are live onto the same vault window")
 		else:
-			_fail_msg("Data: expected 2 disclosed vault gaps, found %d" % todo)
+			_fail_msg("Data: expected 2 live vault rows, found %d" % live)
 
 	## 6b. One shot per re-parented category, alone, so the layout of the moved
 	## content can actually be looked at rather than inferred from a wall of
@@ -314,6 +350,7 @@ func _ready() -> void:
 	for want in ["Terrain", "Geology", "Ecology", "World data"]:
 		await _solo_shot("world", world, want)
 
+	_check_bindings()
 	print("V3 RESULT %s (%d failures)" % ["PASS" if _fail == 0 else "FAIL", _fail])
 	get_tree().quit(0 if _fail == 0 else 1)
 
@@ -367,3 +404,28 @@ func _collect_popups(n: Node, out: Array) -> void:
 		out.append(n)
 	for c in n.get_children(true):
 		_collect_popups(c, out)
+
+
+## The staleness fingerprint, read off the shell instead of guessed at.
+##
+## `EngineBridge._has()` (`shell/engine_bridge.gd`) is the one choke point
+## every binding guard in the shell goes through, and it records the name of
+## each method the shell asked for that this build does not export;
+## `EngineBridge.missing_bindings()` hands back the set. Nothing in this probe
+## suite read it -- and a stale `target/debug/cartalith_godot.dll` has twice
+## sent every `_has()` guard in a run down its degraded-fallback branch, which
+## turns a whole sweep into a clean report over code that was never exercised.
+## That is the failure mode this suite is least able to notice on its own, and
+## the shell was already carrying the answer.
+##
+## Called last, after every surface this run drives has been driven: the set
+## only fills as guards are reached, so an early read reports an empty one.
+func _check_bindings() -> void:
+	var mb: PackedStringArray = _bridge.missing_bindings()
+	if mb.is_empty():
+		return
+	_fail_msg("stale extension -- the shell asked for %d binding(s) this build "
+		% mb.size()
+		+ "does not export (%s). " % ", ".join(mb)
+		+ "Every result above was measured against a degraded shell; rebuild "
+		+ "the crates and re-run before believing any of it.")

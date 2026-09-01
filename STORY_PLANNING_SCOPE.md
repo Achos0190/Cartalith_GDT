@@ -1,5 +1,10 @@
 # Story planning layer — settlement timelines, conflicts, journeys
 
+> **This document defines SP-1…SP-5; it does not track them.** Where any of
+> them stands today — built, blocked, or waiting on one of §6's open questions
+> — is recorded only in `cartalith-native/docs/STATUS.md`. Read this file for
+> what a milestone *is* and why it is shaped that way.
+
 Owner-supplied direction, 2026-08-25. Three features asked for in one sentence,
 and they are one subsystem rather than three: each is a different reading of the
 same year cursor the Timeline subsystem already owns.
@@ -21,14 +26,18 @@ was asked:
 
 ## 1. Why this is cheap in the middle and expensive at the ends
 
-The engine work is largely done. What is missing is almost entirely *identity
-and display* — the connective tissue between three subsystems that were each
-built correctly and never introduced to each other.
+This subsystem is cheap in the middle because most of its engine work is
+already someone else's finished milestone. What it asks for that nobody has
+built is almost entirely *identity and display* — the connective tissue
+between three subsystems that were each built correctly and never introduced
+to each other.
 
-**Already built, and load-bearing for all of this:**
+**The inventory this scoping pass took, 2026-08-25 — the reason the milestones
+below are sized the way they are.** It is a record of what the pass found, not
+a claim about today; check anything load-bearing against the code.
 
-- **The whole Timeline subsystem.** All six `TIMELINE_SCOPE.md` milestones
-  shipped (1 and 6 on 2026-08-19, the rest since). `cartalith-civ::timeline`
+- **The whole Timeline subsystem**, defined by `TIMELINE_SCOPE.md`.
+  `cartalith-civ::timeline`
   carries `TimelineSnapshot { year, territory, settlements, ways }`,
   `civ_snapshot_save`/`civ_snapshot_load`, `civ_year_diff` → `YearDiff`, the
   collapse and recovery step functions, proximity adjacency and betweenness.
@@ -55,11 +64,12 @@ built correctly and never introduced to each other.
   `CARTALITH:BEGIN/END` machine block and a backlink index — the natural home
   for authored prose, and the reason §3 below does **not** invent a second one.
 
-**The one thing that does not exist, and the reason the owner's third ask is the
-keystone:** there is no persistent, referenceable journey anywhere in this port.
-The Travel Library's own usage tracking says so honestly — it reports `0` for
-"saved journeys" *by construction*, because `route_get`/`infra.routes` are drawn
-polylines with no attached plan. Everything in §4 hangs off fixing that.
+**The one thing the pass could not find, and the reason the owner's third ask
+is the keystone:** no persistent, referenceable journey existed anywhere in
+this port. The Travel Library's own usage tracking said so honestly — it
+reported `0` for "saved journeys" *by construction*, because
+`route_get`/`infra.routes` are drawn polylines with no attached plan.
+Everything in §4 hangs off fixing that, which is why SP-1 is first.
 
 ## 2. The shared spine
 

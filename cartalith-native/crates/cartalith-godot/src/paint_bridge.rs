@@ -35,22 +35,51 @@
 //! (tile-version bookkeeping has no per-layer meaning of its own — see
 //! [`PaintEditor::commit_all`]'s own doc).
 //!
-//! ## `hardness`/`softness` are accepted, not consumed
+//! ## `hardness`/`softness` feather the disc's own edge (`DECISIONS.md` §7k)
 //!
-//! `cartalith-spatial/src/paint.rs`'s own module doc is unambiguous:
-//! painting is "a hard disc... unlike `sculpt()`/`brushHeight` there's no
-//! soft falloff here" (the reference's own comment, quoted there verbatim).
-//! `DCC_SHELL_SPEC.md` §4.5.2's tool options row nonetheless lists
-//! `hardness`/`softness` on the `PAINT · BIOME` row — almost certainly
-//! carried over from the Sculpt row's own shape rather than a deliberate
-//! new paint behaviour, since nothing in the reference or in
-//! `cartalith-spatial::paint` gives either one a meaning for a categorical
-//! brush. [`Brush`] stores and round-trips both anyway, so a shell built
-//! against that row does not have to special-case two of its own fields —
-//! but [`PaintStamp::apply`] never reads them, and [`PaintEditor::
-//! stroke_at`] never passes them to it. If the design intent turns out to
-//! be real (a soft-edged alpha ramp on top of the hard disc, say), that is
-//! new engine work in `cartalith-spatial`, not something to improvise here.
+//! Until 2026-09-01 this section recorded that these two fields went
+//! nowhere: `cartalith-spatial/src/paint.rs`'s own module doc was
+//! unambiguous that painting is "a hard disc... unlike `sculpt()`/
+//! `brushHeight` there's no soft falloff here" (the reference's own
+//! comment, quoted there verbatim), and neither [`PaintStamp::apply`] nor
+//! [`PaintEditor::stroke_at`] read either field — `DCC_SHELL_SPEC.md`
+//! §4.5.2's tool options row lists them on the `PAINT · BIOME` row almost
+//! certainly carried over from the Sculpt row's own shape, with nothing in
+//! the reference or in `cartalith-spatial::paint` giving either a meaning
+//! for a categorical brush.
+//!
+//! The owner ruled 2026-08-31 (`LARGE_ITEM_RULINGS.md`; `UNWIRED_
+//! FUNCTIONS.md`'s highest-severity row): **bind it** — as a deliberate,
+//! disclosed divergence from the reference, which has no falloff for this
+//! brush at all, recorded in `DECISIONS.md` §7k. [`PaintEditor::
+//! stroke_at`] now calls [`PaintStamp::with_falloff`] with both fields,
+//! verbatim, on every dab. The categorical-blending objection
+//! `cartalith-spatial/src/paint.rs` raises is real and untouched by this:
+//! no palette index is ever blended with another, at any hardness or
+//! softness. What softens is the disc's own *edge* — which cells a dab
+//! touches at all — decided by a deterministic per-cell threshold, never
+//! the *value* a touched cell receives. The mechanism lives entirely in
+//! `cartalith-spatial`, not here — see [`PaintStamp`]'s own doc.
+//!
+//! [`Brush::default`]'s `hardness = 1.0, softness = 0.0` is the exact pair
+//! [`PaintStamp::with_falloff`] treats as a literal zero-width band, so an
+//! untouched brush paints the historical hard disc, bit-for-bit — this is a
+//! strict superset of the old behaviour, not a replacement for it, and
+//! every pre-existing golden/regression test for the hard-disc case (this
+//! module's own, `cartalith-spatial`'s and `cartalith-civ`'s) keeps
+//! passing unchanged.
+//!
+//! **The duplicate `Hardness` slider is resolved, not just this field.**
+//! `UNWIRED_FUNCTIONS.md` also flagged two live copies of the same control
+//! on screen at once — `world_workspace.gd`'s WORLD dock panel and
+//! `tool_bar.gd`'s unified tool options bar both drew one. The dock panel
+//! owns the actual brush state (`world_workspace.gd`'s own `_paint_brush`
+//! dictionary; the tool bar only mirrors it through `_paint_state`/
+//! `_write_paint_state`) and is the one place `Hardness` and `Softness`
+//! already lived side by side, so the tool bar's copy was removed there —
+//! nothing in this crate prescribes which surface keeps a control; that
+//! choice is `world_workspace.gd`'s/`tool_bar.gd`'s own to make and is
+//! recorded in each file's own history, not repeated here.
 //!
 //! ## The land-only gate is a toggle here, not the reference's hard-always
 //!
@@ -208,10 +237,12 @@ impl Default for Brush {
     /// otherwise: `value = 1` (an arbitrary first selection, same
     /// "nothing to port, pick something reasonable" precedent
     /// `SculptEditor::new`'s own doc comment sets for `feature`),
-    /// `hardness = 1.0`/`softness = 0.0` (the pair that actually describes
-    /// what a hard disc with no falloff does, even though neither is read
-    /// — a default that lies about the brush's own behaviour would be
-    /// worse than a merely-arbitrary one), `erase = false`, `land_only =
+    /// `hardness = 1.0`/`softness = 0.0` (this module's own doc: now
+    /// genuinely read, and the exact pair `PaintStamp::with_falloff`
+    /// treats as a zero-width band — an untouched brush paints the
+    /// historical hard disc, which was already the honest description of
+    /// "no falloff" before there was a falloff to make honest, and needed
+    /// no change now that there is one), `erase = false`, `land_only =
     /// true` (the reference's own always-on gate — see this module's own
     /// doc on why it is a toggle here at all). Every layer shares this same
     /// default; there is no per-layer reason to differ.
@@ -388,7 +419,8 @@ impl PaintEditor {
     /// palette size, minimum `1` — there is no legal "paint index 0", that
     /// value means erase and is controlled by the separate `erase` flag.
     /// `radius` clamps to [`PAINT_RADIUS_RANGE`]. `hardness`/`softness`
-    /// clamp to `[0, 1]` (this module's own doc: stored, never read).
+    /// clamp to `[0, 1]` (this module's own doc: now genuinely read, by
+    /// [`PaintEditor::stroke_at`] via [`PaintStamp::with_falloff`]).
     /// A non-finite `radius`/`hardness`/`softness` is rejected outright
     /// (leaves the previous value in place) rather than clamped — the same
     /// "a NaN must never reach a stamp's own math" policy
@@ -427,7 +459,11 @@ impl PaintEditor {
         let radius = self.brush.radius;
         let land_only = self.brush.land_only;
         let mask = Arc::clone(&self.water_mask);
-        let stamp = if land_only { PaintStamp::new(cx, cy, radius, value, mask) } else { PaintStamp::ungated(cx, cy, radius, value) };
+        let stamp = if land_only { PaintStamp::new(cx, cy, radius, value, mask) } else { PaintStamp::ungated(cx, cy, radius, value) }
+            // `DECISIONS.md` §7k. Applied unconditionally -- an eraser dab
+            // (`value == 0`) is geometrically the same disc as a paint dab,
+            // just writing a different value, so it gets the same edge.
+            .with_falloff(self.brush.hardness, self.brush.softness);
         self.active_draft_mut().push(stamp);
     }
 
@@ -567,6 +603,10 @@ fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the falloff tests below call `PaintStamp::apply` directly, to
+    // build a same-shape comparison stamp -- everything else in this module
+    // reaches it indirectly through `PassBuffer`.
+    use cartalith_spatial::Stamp;
 
     fn land_mask(n: usize) -> Arc<[u8]> {
         vec![0u8; n].into()
@@ -725,6 +765,71 @@ mod tests {
         let mut scratch = vec![0u8; n];
         e.draft_biome.preview_into(&base, &mut scratch);
         assert_eq!(scratch[8 * 16 + 8], 5, "the ungated affordance really does bypass the mask");
+    }
+
+    // ---- brush falloff (`DECISIONS.md` §7k) ----
+    //
+    // `cartalith-spatial/src/paint.rs`'s own test module proves the
+    // mechanism directly against `PaintStamp`; these exercise the same two
+    // claims through the real public surface `stroke_at` actually is, using
+    // `Brush`'s own `hardness`/`softness` names end to end.
+
+    #[test]
+    fn stroke_at_with_the_default_brush_paints_the_historical_hard_disc() {
+        // hardness=1.0, softness=0.0 is `Brush::default()`'s own pair --
+        // the exact claim `DECISIONS.md` §7k rests its bit-identity promise
+        // on. A big enough grid/radius that the falloff test below can
+        // reuse the same shape.
+        let n = 40 * 40;
+        let mut e = PaintEditor::new(40, 40, land_mask(n));
+        e.set_brush(5, 20.0, 1.0, 0.0, false, false);
+        e.stroke_at(20.0, 20.0);
+        let base = vec![0u8; n];
+        let mut got = vec![0u8; n];
+        e.draft_biome.preview_into(&base, &mut got);
+
+        let mut want = vec![0u8; n];
+        PaintStamp::ungated(20, 20, 20.0, 5).apply(&mut want, 40, 40);
+        assert_eq!(got, want, "an untouched brush must reproduce PaintStamp's own hard disc exactly");
+    }
+
+    #[test]
+    fn stroke_at_with_hardness_below_one_measurably_feathers_the_edge() {
+        let n = 40 * 40;
+        let mut e = PaintEditor::new(40, 40, land_mask(n));
+        e.set_brush(5, 20.0, 0.4, 0.0, false, false);
+        e.stroke_at(20.0, 20.0);
+        let base = vec![0u8; n];
+        let mut soft = vec![0u8; n];
+        e.draft_biome.preview_into(&base, &mut soft);
+
+        let mut hard = vec![0u8; n];
+        PaintStamp::ungated(20, 20, 20.0, 5).apply(&mut hard, 40, 40);
+
+        assert_ne!(soft, hard, "hardness=0.4 must paint a different set than the hard disc");
+        let soft_count = soft.iter().filter(|&&v| v != 0).count();
+        let hard_count = hard.iter().filter(|&&v| v != 0).count();
+        assert!(soft_count < hard_count, "a feathered edge only ever drops cells, never adds them");
+        assert!(soft_count > 0, "the disc's interior must still paint something");
+    }
+
+    #[test]
+    fn set_brush_round_trips_hardness_and_softness_into_the_next_stamp() {
+        // `set_brush` and `stroke_at` are two calls, not one -- this pins
+        // that the value `set_brush` stores is really what the following
+        // `stroke_at` hands to `PaintStamp::with_falloff`, not a separate
+        // copy that could drift.
+        let n = 40 * 40;
+        let mut e = PaintEditor::new(40, 40, land_mask(n));
+        e.set_brush(5, 20.0, 0.4, 0.0, false, false);
+        e.stroke_at(20.0, 20.0);
+        let base = vec![0u8; n];
+        let mut via_editor = vec![0u8; n];
+        e.draft_biome.preview_into(&base, &mut via_editor);
+
+        let mut via_stamp = vec![0u8; n];
+        PaintStamp::ungated(20, 20, 20.0, 5).with_falloff(0.4, 0.0).apply(&mut via_stamp, 40, 40);
+        assert_eq!(via_editor, via_stamp);
     }
 
     // ---- painted_counts ----

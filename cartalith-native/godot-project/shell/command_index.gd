@@ -37,6 +37,30 @@ class_name CommandIndex
 ## `PARITY_AUDIT.md` §23 has been finding all week, and the reason the Edit
 ## menu spent months telling users deletion was impossible while the Delete key
 ## deleted. A row that cannot run says so where it is read.
+##
+## ## Three states, not two
+##
+## A disabled menu row is one of **three** things, and this file read it as two
+## until 2026-08-31:
+##
+## - **chrome** — a signpost ("imports live under Data ▸ Import", the six
+##   "Rows here read state" lines under Assets ▸ Landmark types) or a
+##   placeholder ("— loading —"). Skipped entirely. `menus.gd::_signpost()`
+##   marks the first kind with `DccMenus.META_SIGNPOST`; the rest are still
+##   recognised the old way, by being disabled and silent.
+## - **a readout** — disabled, tooltipped, and carrying a live *value*:
+##   Working set, the pack schema line, the VRAM estimate, the two GPU memory
+##   lines, "No recent projects". `menus.gd::_readout()` marks these with
+##   `DccMenus.META_READOUT`.
+## - **an unavailable command** — `menus.gd::_todo()`, and only that. A thing
+##   the app will one day do and cannot yet.
+##
+## Only the third belongs in the list as `available: false`. Indexing the five
+## readouts that way put entries in the list that a user could search for, tap,
+## and get nothing from — the exact defect this header opens by describing,
+## reproduced by the fix for it. They are kept, as `kind: "readout"`, because
+## searching "memory" and being shown `Working set 1.6 GB of 12 GB` is the
+## answer, not a dead end: the row IS the result.
 
 ## Actions that are neither a generation parameter nor a menu row. Deliberately
 ## short: anything that belongs in a menu should BE in a menu, where the walk
@@ -126,28 +150,43 @@ func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 			continue
 		var disabled := popup.is_item_disabled(i)
 		var tip := popup.get_item_tooltip(i)
+		## The readout marker, set by `menus.gd::_readout()`. Read off the
+		## metadata rather than guessed from the text, because several of these
+		## rows are rewritten wholesale on every `about_to_popup` and any test
+		## over their wording would be a test over a moving string.
+		var meta = popup.get_item_metadata(i)
+		var marker := String(meta) if typeof(meta) == TYPE_STRING else ""
+		var is_readout := marker == DccMenus.META_READOUT
+		## **A signpost is prose, not a command.** Marked at the source rather
+		## than inferred here, so a reworded sentence cannot turn one back into
+		## an indexed action.
+		if marker == DccMenus.META_SIGNPOST:
+			continue
 		## **A disabled row with no tooltip is chrome, not a command.**
 		## `menus.gd::_todo(p, text, why)` ALWAYS sets a tooltip -- that is its
 		## whole signature -- so a real not-built-yet row is never silent. What
-		## is disabled and silent is a signpost or a placeholder: the File
-		## menu's "imports live under Data > Import" and "asset packs under
-		## Assets" point elsewhere rather than doing anything, and the Assets
-		## menu's "-- loading --" is the pack list mid-fetch. Indexing those as
-		## commands put three entries in the list that a user could search for,
-		## tap, and get nothing from.
+		## is disabled and silent is a placeholder -- the Assets menu's
+		## "-- loading --", which is the pack list mid-fetch. (The signposts
+		## that used to be caught here are caught by the marker above; this
+		## rule stays because a placeholder is not authored one row at a time.)
+		## Indexing those as commands put entries in the list that a user could
+		## search for, tap, and get nothing from.
 		##
 		## Found by the probe rather than by reading: it asserted every
 		## unavailable row carries a reason and reported 26 of 29.
 		if disabled and tip.strip_edges() == "":
 			continue
+		## A readout is available: it has already told the searcher what they
+		## came for, in its own title. `why` stays empty for the same reason —
+		## there is nothing being withheld to explain.
 		_rows.append({
 			"title": text.replace("…", "").strip_edges(),
 			"blurb": tip if (disabled and tip != "") else (menu_name + " menu"),
 			"group": menu_name,
-			"kind": "menu",
+			"kind": "readout" if is_readout else "menu",
 			"key": "",
-			"available": not disabled,
-			"why": tip if disabled else "",
+			"available": is_readout or not disabled,
+			"why": tip if (disabled and not is_readout) else "",
 		})
 
 ## `get_children(true)` -- a MenuButton keeps its popup as an INTERNAL child,

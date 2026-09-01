@@ -197,6 +197,12 @@ var _right_collapsed := false
 var _left_width := float(DccTheme.W_LEFT_DOCK)
 var _right_width := float(DccTheme.W_RIGHT_DOCK)
 var _status_labels: Dictionary = {}    ## slot -> Label
+## §2's three trailing squares (`03-menu-bar.md` §2, children 4/5/8). Held
+## because both undo and redo carry live engine state -- enabled-ness and the
+## operation name in the tooltip -- that does not exist yet when
+## `_build_menu_bar()` runs. `_wire_menu_squares()` is what keeps them true.
+var _menu_undo_btn: Button
+var _menu_redo_btn: Button
 var _collapse_buttons: Dictionary = {} ## "left"/"right" -> Button, so the chevron can flip
 var _dock_readouts: Dictionary = {}    ## "left"/"right" -> the collapsed-state Label
 var _workspace_panels: Dictionary = {} ## domain id -> Control
@@ -297,6 +303,10 @@ const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
 const _TABLET_MIN_DP := 900.0
 var _phone := false
 var _landscape := false
+## The on-screen keyboard's height in physical px, 0 when it is down. Written
+## only by `_process()`, read by every bottom inset -- see that function for why
+## this is polled rather than signalled.
+var _phone_kb_height := 0
 var _phone_scale := 1.0  ## Maps `DccTheme.PHONE_REF_SHORT` phone-px onto the
 	## real device's short side. Clamped to >= 1.0: the mockup's own numbers
 	## already clear the 44 px floor at scale 1, so this only ever scales up,
@@ -373,9 +383,11 @@ var _phone_sheet_tween: Tween          ## Held so a new snap kills the running o
 # reparents them between the chrome column and `_phone_root`, and flips the
 # bar's own box containers with `BoxContainer.vertical`.
 var _phone_chrome_col: VBoxContainer   ## The portrait stack the two nodes above return to.
-var _phone_bar_row: BoxContainer       ## The bottom bar's three nested boxes, held
+var _phone_bar_row: BoxContainer       ## The bottom bar's four nested boxes, held
 var _phone_bar_domains: BoxContainer   ## only so `vertical` can be flipped on them.
 var _phone_bar_cells: BoxContainer
+var _phone_bar_dests: BoxContainer     ## The three destination tabs, MORE excluded
+	## -- `_rail_region` on phone. See `_build_phone_menu_bar()`'s header.
 const W_PHONE_LAND_RAIL := 72.0   ## Prototype, landscape branch: `width:72px;
 	## background:var(--pan2);border-right:1px solid var(--hair2)`, and the map
 	## host moves to `left:72px`.
@@ -425,6 +437,23 @@ var _phone_search_results: VBoxContainer
 var _place_search_index  ## `PlaceSearch` -- untyped, see `_has_place_search()`.
 
 var _phone_undo_chip: Button
+## `06-phone.md` §6.2's edit-history popover and sim strip, and the app bar's
+## `⋮` overflow. All three float in the phone composition and are hidden until
+## something opens them.
+var _phone_undo_pop: Control
+var _phone_sim_strip: Control
+var _phone_sim_year: Label
+var _phone_sim_slider: HSlider
+var _phone_sim_play: Button
+var _phone_sim_speeds: Dictionary = {}   ## multiplier -> Button
+var _phone_sim_transport: Array[Control] = []  ## Everything `tl_available()` gates.
+var _phone_overflow_pop: Control
+var _phone_overflow_saved: Label
+var _phone_overflow_theme: Label
+## `savedAt` (§4.3's own state key). Filled from `EngineBridge.project_saved`,
+## which is the signal `app.gd`'s own save bookkeeping already fires -- so this
+## is the same event, not a second notion of "saved".
+var _phone_saved_at := ""
 var _undo_chip_down := false
 var _undo_chip_hold_fired := false
 const PHONE_UNDO_HOLD_SEC := 0.45  ## Standard mobile long-press threshold
@@ -555,6 +584,9 @@ func _ready() -> void:
 	## `_close_requested()` below carries the obligation to always resolve. See
 	## `DccApp._close_requested()` for the proof that it cannot trap the user.
 	get_tree().auto_accept_quit = false
+	## The six timeline layer toggles, before either composition builds a view
+	## of them -- see the §10a block.
+	_tl_load_layers()
 	if _phone:
 		_build_phone_shell()
 	else:
@@ -739,6 +771,179 @@ func _pscale(px: float) -> int:
 func _ptap(px: float) -> int:
 	return _pscale(maxf(DccTheme.PHONE_TAP_MIN, px))
 
+## -- Dynamic type -------------------------------------------------------------
+##
+## `UNWIRED_FUNCTIONS.md` "No content descriptions, no dynamic type": every
+## phone type size in this file was `_pscale(px)`, which is the *screen's* short
+## side over 412 and says nothing about how large the person using the phone has
+## asked text to be. A user who has turned Android's font size up to its largest
+## step got exactly the same 10 px readouts as one who has never opened that
+## setting.
+##
+## **What this build actually exposes, checked rather than assumed.** A full
+## `ClassDB` sweep of every class in this Godot 4.7.1 build for a method whose
+## name contains `font_scale`, `text_scale` or `oversampl` returns only
+## `Viewport`/`Window` oversampling and `TextServerExtension`'s virtuals --
+## there is **no** font-scale accessor anywhere, on `OS`, on `DisplayServer` or
+## on the `AccessibilityServer` singleton (whose whole method list is
+## `update_set_*` node properties). So the OS setting has to be *derived*.
+##
+## The derivation uses the two `DisplayServer` screen metrics this file already
+## trusts: `_is_tablet_sized()` above reads `screen_get_dpi() / 160.0` as the
+## platform's display **density**, which is Android's own definition. Android's
+## other metric, `DisplayMetrics.scaledDensity`, is density multiplied by the
+## user's font scale, and is what `screen_get_scale()` reports there -- so their
+## ratio is the font scale on its own.
+##
+## **Android only, and disclosed as such.** On a pointer build the two numbers
+## are unrelated (`screen_get_scale()` is the window-manager UI scale and
+## `screen_get_dpi()` is 96 on the desktop this was measured on, giving a
+## meaningless 1.67), and desktop has `DccTheme`'s own density sets for the same
+## job. Everything that is not Android reads 1.0 and this function changes
+## nothing. Clamped to 0.85..1.6 because the shell's phone chrome is a fixed
+## 64/56/28 dp column stack: a 2.0 the platform is entitled to return would
+## overflow rows that have nowhere to grow, and half-honouring a setting beats
+## breaking the layout that carries it.
+##
+## Cached: the value is a system setting, not a per-frame quantity, and this is
+## called from every label built on the phone.
+var _os_text_scale_cache := -1.0
+
+func _os_text_scale() -> float:
+	if _os_text_scale_cache >= 0.0:
+		return _os_text_scale_cache
+	_os_text_scale_cache = 1.0
+	if OS.has_feature("android"):
+		var screen := DisplayServer.window_get_current_screen()
+		var density := float(DisplayServer.screen_get_dpi(screen)) / 160.0
+		var scaled := float(DisplayServer.screen_get_scale(screen))
+		if density > 0.0 and scaled > 0.0:
+			_os_text_scale_cache = clampf(scaled / density, 0.85, 1.6)
+	return _os_text_scale_cache
+
+## Phone-only **type** size: `_pscale()` for the device, times the OS font
+## scale for the person. Every phone font size in this file goes through this
+## rather than `_pscale()`; every phone *box* still goes through `_pscale()` /
+## `_ptap()`, because a tap target is a finger measurement and does not grow
+## when type does.
+func _pfont(px: float) -> int:
+	return maxi(1, int(round(px * _phone_scale * _os_text_scale())))
+
+## -- Real device safe areas ---------------------------------------------------
+##
+## `DccTheme.H_PHONE_TOP_SAFE` (28) and `H_PHONE_GESTURE` (20) are the 412
+## canvas's own figures and nothing in `shell/` ever asked the DEVICE what its
+## insets are, so on a handset whose status cutout is deeper than 28 dp the
+## clock row -- and the app bar under it -- drew beneath the cutout.
+## `BUILD_ANSWERS.md` §4 rules it: *"the mock value is the floor, the real inset
+## wins when it is larger"*, which is the prototype's own
+## `max(env(safe-area-inset-top), 30px)`.
+##
+## `get_display_safe_area()` reports PHYSICAL px in screen coordinates, and
+## `_pscale()` produces physical px too, so the two are directly comparable: the
+## mock is scaled into device px first and the real inset is not scaled at all.
+## On every platform without cutouts the safe area IS the screen, so all four
+## insets come out 0 and only the mock survives -- desktop is untouched.
+func _display_safe_inset(edge: String) -> int:
+	var screen := DisplayServer.screen_get_size()
+	var safe := DisplayServer.get_display_safe_area()
+	## A platform with no notion of a safe area reports an empty rect rather
+	## than the whole screen; either way there is nothing to add to the mock.
+	if screen.x <= 0 or screen.y <= 0 or safe.size.x <= 0 or safe.size.y <= 0:
+		return 0
+	match edge:
+		"top":
+			return maxi(0, safe.position.y)
+		"bottom":
+			return maxi(0, screen.y - safe.end.y)
+		"left":
+			return maxi(0, safe.position.x)
+		_:
+			return maxi(0, screen.x - safe.end.x)
+
+## The portrait status band, and the top inset every phone rect measures from.
+func _safe_top() -> int:
+	return maxi(_pscale(DccTheme.H_PHONE_TOP_SAFE), _display_safe_inset("top"))
+
+## The gesture inset, and with it every "stop above the bottom edge" offset.
+func _safe_bottom() -> int:
+	return maxi(_pscale(DccTheme.H_PHONE_GESTURE), _display_safe_inset("bottom"))
+
+## Landscape's side band. It is drawn from `H_PHONE_TOP_SAFE` because it is the
+## portrait status row rotated (see `_build_phone_side_safe()`), and the device
+## agrees -- the cutout that was at the top is now at one side. WHICH side
+## depends on which way the handset was turned and this band is only ever drawn
+## on the left, so the wider of the two real insets is the honest reserve.
+func _safe_side() -> int:
+	return maxi(_pscale(DccTheme.H_PHONE_TOP_SAFE),
+		maxi(_display_safe_inset("left"), _display_safe_inset("right")))
+
+## -- Haptics ------------------------------------------------------------------
+##
+## `BUILD_ANSWERS.md` §4's one table, transcribed whole: sample 12 ms · detent
+## 8 ms · tool arm 10 ms · verdict `[14, 40, 14]` · back 6 ms · blocked
+## `[20, 60, 20]`. All six are defined even though only three have call sites in
+## this shell today, because the table is the specification and a
+## half-transcribed table is exactly the thing the next person re-derives
+## wrongly. Odd-indexed entries are the gaps BETWEEN buzzes -- the Android
+## `vibrate(long[])` convention minus its leading delay, which is always 0 here.
+const _HAPTIC_MS := {
+	"sample": [12], "detent": [8], "tool_arm": [10],
+	"verdict": [14, 40, 14], "back": [6], "blocked": [20, 60, 20],
+}
+
+## `Input.vibrate_handheld()` is already a no-op off Android/iOS, but the
+## feature test is made here rather than trusted: without it the multi-pulse
+## kinds would still spend a `SceneTreeTimer` per gap on every desktop press.
+func _haptic(kind: String) -> void:
+	if not OS.has_feature("mobile"):
+		return
+	var pattern: Array = _HAPTIC_MS.get(kind, [])
+	if pattern.is_empty():
+		push_warning("Cartalith: no haptic '%s'." % kind)
+		return
+	var at := 0.0
+	for i in pattern.size():
+		var ms := int(pattern[i])
+		if i % 2 == 0:
+			if at <= 0.0:
+				Input.vibrate_handheld(ms)
+			else:
+				get_tree().create_timer(at).timeout.connect(
+					func() -> void: Input.vibrate_handheld(ms))
+		at += float(ms) / 1000.0
+
+## The on-screen keyboard, polled -- Godot raises no notification when the IME
+## opens or closes. The Android window is not resized either (the soft-input
+## mode is `adjustNothing` unless `project.godot` says otherwise, and this file
+## may not edit it), so the keyboard simply draws over the bottom of the frame
+## and everything docked there goes under it: the tool sheet, the timeline and
+## the bottom bar. `BUILD_ANSWERS.md` §4 wires the prototype's `visualViewport`
+## resize into `state.kb` and has `dockBottom` add it;
+## `DisplayServer.virtual_keyboard_get_height()` is that number and a per-frame
+## integer read is the only route to it.
+##
+## Phone-only and change-gated: everywhere else this returns 0 for the life of
+## the process and only the first two lines ever run.
+func _process(_delta: float) -> void:
+	## A one-time self-disable rather than a per-frame branch. `_phone` is fixed
+	## for the life of the process (`_on_window_resized()`'s early-return states
+	## the argument), and a display server either has an IME or never will --
+	## and polling one that does not pushes a "Virtual keyboard not supported"
+	## warning PER CALL, which at 60 fps buries every real message in the log.
+	## Found on the headless `_phonechrome_probe.gd` run, not reasoned about.
+	if not _phone or not DisplayServer.has_feature(
+			DisplayServer.FEATURE_VIRTUAL_KEYBOARD):
+		set_process(false)
+		return
+	var kb := DisplayServer.virtual_keyboard_get_height()
+	if kb == _phone_kb_height:
+		return
+	_phone_kb_height = kb
+	## `_apply_phone_orientation()` owns every phone inset there is, keyboard
+	## included, so the height lands in one place instead of two.
+	_apply_phone_orientation()
+
 # -- §2 Menu bar: program scope only ------------------------------------------
 
 func _build_menu_bar() -> Control:
@@ -769,6 +974,36 @@ func _build_menu_bar() -> Control:
 	menu_bar_row.add_theme_constant_override("separation", 0)
 	row.add_child(menu_bar_row)
 
+	## Design children 3-5 (`03-menu-bar.md` §2): a `1x16` `var(--div)` rule
+	## with `margin:0 6px`, then the undo and redo squares. Until this pass undo
+	## was reachable only from `Edit ▸ Undo` and Ctrl+Z, so the bar's own
+	## most-used control was one the design draws and this shell did not.
+	var div_pad := MarginContainer.new()
+	div_pad.add_theme_constant_override("margin_left", 6)
+	div_pad.add_theme_constant_override("margin_right", 6)
+	var div := DccTheme.rule(true)
+	div.custom_minimum_size = Vector2(1, 16)
+	div.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	div_pad.add_child(div)
+	row.add_child(div_pad)
+
+	_menu_undo_btn = _menu_square(DccIcons.SYMBOLS["undo"], _menu_bar_undo)
+	## `↶`/`↷` are the whole control. Their *tooltips* are rewritten every
+	## refresh (`_refresh_menu_squares()`) because they carry the step's name and
+	## the disabled reason; the accessible NAME is the fixed verb, and the
+	## changing half rides `accessibility_description` there.
+	_menu_undo_btn.accessibility_name = "Undo"
+	row.add_child(_menu_undo_btn)
+	_menu_redo_btn = _menu_square(DccIcons.SYMBOLS["redo"], _menu_bar_redo)
+	_menu_redo_btn.accessibility_name = "Redo"
+	row.add_child(_menu_redo_btn)
+	## Both start disabled, and stay that way on a bare `DccShell` -- the
+	## screenshot probes build one with no `DccApp` and no engine under it.
+	## That is this shell's own rule rather than a special case here: a square
+	## that can do nothing is drawn dead, with the reason in its tooltip.
+	_refresh_menu_squares()
+	_wire_menu_squares()
+
 	row.add_child(DccTheme.spacer())
 
 	## The readout cluster: world, pass state, and the three cost meters. §11
@@ -781,7 +1016,177 @@ func _build_menu_bar() -> Control:
 		var gap := Control.new()
 		gap.custom_minimum_size.x = 22
 		row.add_child(gap)
+
+	## Design child 8: `◐`, the same `var(--ctl)` square, `color:var(--sec)`,
+	## `margin-left:8px`. The 22 px gap the readout loop above emits after its
+	## last cell stands in for that margin, so nothing extra is added here.
+	##
+	## Not a third source of truth for the theme: `toggle_theme()` is the same
+	## `DccTheme.apply_theme()` + `rebuild_theme()` pair `Preferences ▸ Theme`
+	## drives, so the square and the menu row move one piece of state.
+	var theme_sq := _menu_square(GLYPH_THEME, toggle_theme)
+	theme_sq.accessibility_name = "Switch theme"
+	theme_sq.tooltip_text = ("Switch between the dark and light palettes. The same two "
+		+ "palettes Preferences > Theme picks from; this square is the one-tap form of "
+		+ "it and does not change the dark/light/follow-system mode stored there.")
+	row.add_child(theme_sq)
 	return bar
+
+## `◐` U+25D0. Not added to `DccIcons.SYMBOLS`, which is the shared table and
+## not this file's to extend; it resolves through the same `SystemFont` fallback
+## chain `DccTheme.mono()` installs for the 19 entries of that table Plex Mono
+## has no glyph for, so it draws exactly like the `↶` and `↷` beside it.
+const GLYPH_THEME := "\u25d0"
+
+## `--ctl`, the square-button box: 24 px at `ENV:25`, 36 px in `densStr`
+## (`ENV:1819`). A literal pair rather than `_scaled()`, because
+## `DccTheme.TABLET` does not name 24 and the 44 px floor its fallback applies
+## would draw a 44 px square where the prototype draws 36.
+const MENU_CTL := [24, 36]
+
+## One `var(--ctl)` square: `width/height:var(--ctl); border-radius:8px;
+## background:var(--ins); display:grid; place-items:center`.
+##
+## `undoCol`/`redoCol` were inside the prototype's truncated tail and do not
+## exist to read (`03-menu-bar.md`'s own file-integrity header). The `ROLE`
+## equivalents stand in, and they are the pair every other quiet control in this
+## bar already uses: `--sec` (`text_secondary`) live, `--dis` (`text_ghost`)
+## dead. `_paint_menu_square()` swaps between them, so "can I press this" is
+## carried by ink as well as by the `disabled` flag.
+func _menu_square(glyph: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = glyph
+	b.focus_mode = Control.FOCUS_NONE
+	## Not `flat` -- `add_menu()`, `_phone_bar_button()` and `_phone_list_row()`
+	## all carry the same note: a flat `Button` skips its `normal`/`hover`/
+	## `pressed` styleboxes outright, so the `--ins` ground and the press
+	## feedback set below would never once draw.
+	b.flat = false
+	var d: int = MENU_CTL[1] if _touch else MENU_CTL[0]
+	b.custom_minimum_size = Vector2(d, d)
+	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	b.add_theme_font_override("font", DccTheme.mono())
+	b.add_theme_font_size_override("font_size", DccTheme.menu("fs_bar", _touch))
+	b.add_theme_color_override("font_color", DccTheme.c("text_secondary"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var ground := DccTheme.flat(DccTheme.c("sunken"), 8)
+	b.add_theme_stylebox_override("normal", ground)
+	b.add_theme_stylebox_override("disabled", ground)
+	b.add_theme_stylebox_override("focus", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("raised"), 8))
+	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft"), 8))
+	b.pressed.connect(on_press)
+	return b
+
+## The dark/light flip behind design child 8, and behind the phone overflow's
+## `Theme` row. Exactly what `DccMenus._on_theme_choice()` does for its own two
+## explicit rows: repoint the palette, then walk the tree and re-derive every
+## colour already baked off the old one.
+##
+## **It does not write `DccSettings.set_theme_mode()`, and neither does the
+## Preferences row.** Nothing in this shell reads `theme_mode()` back -- checked
+## this session, `grep -rn "theme_mode()" shell/` finds only its own definition
+## in `dcc_settings.gd` -- so the theme is a session choice in both places.
+## Persisting it from here alone would make the square survive a restart and the
+## menu not, which is worse than either.
+##
+## `DccMenus._theme_mode` (its radio marks) is not updated by this call and goes
+## stale after it -- that submenu builds its checks once and never re-reads them.
+## Stated rather than silently left: the fix belongs in that file, which this
+## pass does not own.
+func toggle_theme() -> void:
+	var was_dark := DccTheme.is_dark()
+	DccTheme.apply_theme(not was_dark)
+	rebuild_theme(was_dark)
+
+## `DccApp.undo_last()`/`redo_last()` are this shell's single undo and redo
+## paths -- each repaints the map without resetting the camera, writes the
+## status line and refreshes the History dock -- and both live one class down,
+## in the subclass this file is the base of. Reached by name rather than
+## reimplemented here: a bare `DccShell` (the screenshot probes build one) has
+## neither, and must degrade to doing nothing rather than reach a null bridge.
+func _menu_bar_undo() -> void:
+	if has_method("undo_last"):
+		call("undo_last")
+	_refresh_menu_squares()
+
+func _menu_bar_redo() -> void:
+	if has_method("redo_last"):
+		call("redo_last")
+	_refresh_menu_squares()
+
+## Same deferred wiring, and for the same reason, as `_wire_phone_undo_chip()`:
+## `bridge` is built by `DccApp._ready()` in the lines *after* the
+## `super._ready()` that runs this file's builders, so there is nothing to ask
+## until the next idle frame. The four signals are that function's four, chosen
+## the same way -- a commit to the height field can arrive through any of them,
+## and none of the others moves the undo stack.
+func _wire_menu_squares() -> void:
+	(func() -> void:
+		var bridge := _find_engine_bridge()
+		if bridge == null:
+			return
+		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+			bridge.connect(sig, func(_a = null): _refresh_menu_squares())
+		_refresh_menu_squares()
+	).call_deferred()
+
+## Enabled-ness and the reason, for both squares.
+##
+## Redo is the one that can be *missing* rather than merely empty, so it is
+## asked in two steps, the way `menus.gd`'s own `Redo` row asks it:
+## `world_gen.has_method()` first (is the binding there at all), then
+## `redo_available()` (is there a step to take). A shell newer than the
+## `libcartalith_godot` beside it gets the first reason; a shell sitting at the
+## top of its ledger gets the second. Neither is invented -- each names the call
+## that was actually made.
+func _refresh_menu_squares() -> void:
+	if _menu_undo_btn == null or _menu_redo_btn == null:
+		return
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		for b in [_menu_undo_btn, _menu_redo_btn]:
+			b.disabled = true
+			b.tooltip_text = "No engine is loaded in this window."
+			b.accessibility_description = b.tooltip_text
+			_paint_menu_square(b, false)
+		return
+
+	var can_undo: bool = bridge.can_undo()
+	_menu_undo_btn.disabled = not can_undo
+	_menu_undo_btn.tooltip_text = ("Undo %s (Ctrl+Z)" % bridge.undo_label()) if can_undo \
+		else ("Nothing to undo. This is the global height undo -- a Sculpt or Paint "
+			+ "commit, a carve, a generate -- not the Sculpt draft's own stamp history, "
+			+ "which has its own Undo in the right dock.")
+	_paint_menu_square(_menu_undo_btn, can_undo)
+
+	var bound: bool = bridge.world_gen != null \
+		and bridge.world_gen.has_method("redo_available")
+	var can_redo: bool = bound and bridge.redo_available()
+	_menu_redo_btn.disabled = not can_redo
+	if not bound:
+		_menu_redo_btn.tooltip_text = ("Redo. This GDExtension build predates the global "
+			+ "redo binding (WorldGen.redo_available is missing) -- almost always a native "
+			+ "library older than this shell. Rebuild it.")
+	elif can_redo:
+		_menu_redo_btn.tooltip_text = "Redo %s (Ctrl+Shift+Z)" % bridge.redo_label()
+	else:
+		_menu_redo_btn.tooltip_text = ("Nothing to redo (WorldGen.redo_available() is "
+			+ "false). Edit > Undo history... shows what the ledger is holding.")
+	_paint_menu_square(_menu_redo_btn, can_redo)
+	## The reason each square is live or dead, carried to a screen reader as
+	## well as to a pointer. Written from the tooltips just set above rather
+	## than restated, so the two cannot say different things.
+	for b in [_menu_undo_btn, _menu_redo_btn]:
+		b.accessibility_description = b.tooltip_text
+
+## `--sec` live, `--dis` dead. `font_disabled_color` already resolves to
+## `text_ghost`, so this exists for the enabled half; writing both keeps the
+## square right for the frame between the two states.
+func _paint_menu_square(b: Button, live: bool) -> void:
+	b.add_theme_color_override("font_color",
+		DccTheme.c("text_secondary" if live else "text_ghost"))
 
 ## Register a program menu. The caller fills the PopupMenu through `on_built`,
 ## so this file never has to know what File contains.
@@ -1683,6 +2088,42 @@ func phone_scale() -> float:
 func rail_region() -> Control:
 	return _rail_region if _rail_region != null else rail_column
 
+## `Window ▸ Status bar` on the phone. **Not** a node in `DccApp`'s region map,
+## which is why this is a setter pair rather than a `status_region()` twin of
+## `rail_region()` above.
+##
+## Two reasons it cannot be a node. The first is the defect
+## `UNWIRED_FUNCTIONS.md` registered: on a phone the desktop status bar is built
+## into the hidden `PhoneMenuModel` host (`_build_phone_shell()`), where it is
+## the *data model* `phone_menu.gd` reads and not a drawn surface at all, so the
+## menu row moved a check mark over a node that was already permanently
+## invisible. The second is that the surface it should act on is **two** nodes,
+## not one: `_phone_top_safe` in portrait and `_phone_side_safe` in landscape,
+## swapped by `_apply_phone_orientation()` on every rotation. A single captured
+## node would be wrong in one orientation and would be overwritten by the next
+## rotation in the other -- the same write-the-node-behind-the-flag's-back fault
+## that made `Window ▸ Left dock` desync the phone sheets.
+##
+## **What it hides.** On the phone composition the shell's status *readouts*
+## (pass, hint, stale, autosave) are not drawn as a strip at all -- `top_world`
+## is the app bar's subtitle and the rest are rows inside MORE -- so there is no
+## app status strip for this row to act on. What is drawn, and is what "status
+## bar" names on this platform, is the 28 dp clock/battery row the 412 canvas
+## puts across the top (`_build_phone_top_safe()`) and its landscape column.
+## Unchecking the row hides that and gives the map the band back; nothing the
+## user can read anywhere else disappears with it.
+var _phone_status_shown := true
+
+func is_status_region_shown() -> bool:
+	return _phone_status_shown
+
+func set_status_region_shown(shown: bool) -> void:
+	_phone_status_shown = shown
+	## Routed through the orientation pass rather than written here, so the
+	## portrait/landscape half of each node's visibility stays stated in exactly
+	## one place.
+	_apply_phone_orientation()
+
 # -- §3 Domain rail -----------------------------------------------------------
 
 ## **The rail has two states again, and this time the canvas draws both.**
@@ -1760,6 +2201,7 @@ func _build_rail() -> Control:
 	chev_btn.focus_mode = Control.FOCUS_NONE
 	chev_btn.custom_minimum_size.y = _scaled(30)
 	chev_btn.tooltip_text = "Show or hide the node list"
+	chev_btn.accessibility_name = "Show or hide the node list"
 	chev_btn.add_theme_stylebox_override("normal", DccTheme.empty())
 	chev_btn.add_theme_stylebox_override("focus", DccTheme.empty())
 	chev_btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
@@ -2112,6 +2554,17 @@ func _select_domain(id: String) -> void:
 	## two call sites that reach `_select_domain()`.
 	_paint_rail_nodes()
 	set_rail_expanded(false)
+	## The phone's bottom bar names four TASKS, not the three domains, so a
+	## domain change that did not come from a tab press used to leave it lit on
+	## wherever the user last WAS -- most visibly MORE, which stayed lit after
+	## Civilization was picked out of it, since `PHONE_TABS` has no
+	## `civilization` entry at all to light instead. Done here, at the one choke
+	## point every route reaches (`select_domain()`, `select_domain_mode()`,
+	## `select_domain_category()`, `Window ▸ Workspace`, and every in-shell
+	## "→ Cartography ▸ ..." jump), rather than at each of those callers.
+	if _phone:
+		_phone_tab = _phone_tab_for_domain(id)
+		_refresh_phone_tabs()
 	workspace_changed.emit(id)
 
 ## The active mode of one domain -- `worldMode` / `cc()` / `ct()` behind one
@@ -2457,6 +2910,10 @@ func _collapse_button(is_left: bool) -> Button:
 	b.flat = true
 	b.focus_mode = Control.FOCUS_NONE
 	b.text = DccIcons.SYMBOLS["collapse"] if is_left else DccIcons.SYMBOLS["expand"]
+	## Glyph-only, and it had no tooltip either -- so this square was unnamed to
+	## a pointer as well as to a screen reader. Both, now.
+	b.tooltip_text = "Collapse or expand the %s dock" % ("left" if is_left else "right")
+	b.accessibility_name = b.tooltip_text
 	b.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 	b.custom_minimum_size = Vector2(_scaled(20), _scaled(20))
 	b.pressed.connect(_toggle_dock.bind(is_left))
@@ -2542,7 +2999,14 @@ func _build_viewport() -> Control:
 
 func _build_timeline() -> Control:
 	var bar := PanelContainer.new()
-	bar.custom_minimum_size.y = _scaled(DccTheme.H_TIMELINE)
+	## **No fixed height any more.** `01-frame-and-tokens.md` §3.7 gives the strip
+	## two forms with two different heights -- collapsed is
+	## `calc(var(--sbH) - 2px)` and expanded is explicitly *auto* -- so a single
+	## `H_TIMELINE` could only ever be right for one of them. It was right for
+	## neither: the region drew 70 px of blank panel in CIVIL
+	## (`app.gd::_fill_timeline_strip`'s own measurement), and the journey
+	## planner's day band, which is 20 px of labels, got the same 70.
+	## Content-driven, both forms and the band land on their own height.
 	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
 	timeline_row = HBoxContainer.new()
 	timeline_row.add_theme_constant_override("separation", 14)
@@ -2554,6 +3018,184 @@ func _build_timeline() -> Control:
 	pad.add_child(timeline_row)
 	bar.add_child(pad)
 	return bar
+
+# -- §10a The timeline model ------------------------------------------------
+#
+# **One cursor, two views.** The year cursor already existed before this strip
+# did: it is `CivData::year`, reached through `civ_goto_year()`/`get_civ_year()`,
+# and the CIVIL dock's Politics category has drawn it as a row of recorded-year
+# pills since the timeline milestone landed. `01-frame-and-tokens.md` §3.7 and
+# `05-right-dock-and-bars.md` §4.2 add a second *view* of it -- the desktop
+# strip -- and `06-phone.md` §6.2 a third, the phone sim strip. All three read
+# and write the engine's own cursor through the four functions below and keep no
+# year of their own, which is the only arrangement in which they cannot drift.
+#
+# What is *not* the engine's, and therefore lives here: whether playback is
+# running, the speed multiplier, and the six layer toggles. None of the three
+# has an engine counterpart to defer to.
+#
+# The two figures the prototype leaves `UNSPECIFIED` and this file has to
+# choose, both chosen so the speed pill means one thing rather than two:
+#   - **step size** is `tl_speed` years. `hTlStep`'s own step is truncated out
+#     of the delivered file.
+#   - **playback** advances the cursor by `tl_speed` years every `TL_TICK_SEC`,
+#     which is §6.2's rule for the phone strip stated literally ("playing
+#     advances the year by `speed` every 600 ms") and is applied to both views.
+#
+# `civ_goto_year(y)` accepts any year: it writes `CivData::year` unconditionally
+# and then loads a snapshot only if one was recorded for exactly that year
+# (`cartalith-godot/src/lib.rs:400 CivData::civ_goto_year` -- note there are
+# TWO `civ_goto_year` in that file; this is the inner one, on `CivData`, not
+# the `#[func]` wrapper on `WorldGen` cited further down). So the -400..1200
+# track is continuous and
+# honest -- the cursor really does land where the playhead is -- and the
+# territory under it changes only at the years the dock has recorded.
+
+## `05-right-dock-and-bars.md` §4.2: "the scrub range is therefore fixed at
+## year -400 ... year 1200 (1600 years)", and `06-phone.md` §6.2's slider is
+## `min=-400 max=1200 step=1`. The same two numbers, in both canvases.
+const TL_YEAR_MIN := -400
+const TL_YEAR_MAX := 1200
+## `tlSpeeds` is truncated out of the prototype; §4.3 records that its markup
+## says three options and that `×10` is the surviving default. `06-phone.md`
+## §6.2 has the other two verbatim -- `×1 ×10 ×100` -- so the ladder is
+## recovered from the phone canvas rather than guessed.
+const TL_SPEEDS := [1, 10, 100]
+const TL_TICK_SEC := 0.6
+## §4.3's `tlTog`, in its order, with its defaults. The markup renders the id
+## as the pill's text, so these strings are the visible labels verbatim.
+const TL_LAYERS := [
+	["Climate", true], ["Population", true], ["Economy", false],
+	["Politics", true], ["Infrastructure", false], ["Warfare", false],
+]
+## `BUILD_ANSWERS.md` §3, verbatim and quoted rather than paraphrased: the six
+## toggles are *intended* rather than an oversight, and the owner fixed both the
+## note and where it has to sit ("note on the timeline"). Drawn on the strip by
+## `app.gd::_fill_timeline_strip()` and repeated as each pill's tooltip.
+const TL_LAYER_NOTE := "they record which layer you want; no layer renders yet"
+
+## Emitted whenever the cursor, the speed, the run state or a layer toggle
+## moves -- the one notification both views rebuild on, so neither has to know
+## the other exists.
+##
+## **`workspaces/civilization_workspace.gd` should connect to this too**: its
+## year pills and its `_refresh_civ_data()` are the third view of the same
+## cursor, and a scrub from the strip leaves them a frame behind until it does.
+## Named here rather than left silent; that file is not this pass's to edit.
+signal timeline_changed()
+
+var tl_speed := 10            ## `tlSpeed:'×10'`.
+var tl_playing := false       ## `tlRun:false`.
+var tl_layers: Dictionary = {}  ## label -> bool. Loaded in `_ready()`.
+var _tl_timer: Timer          ## Playback. Built on first play, never before.
+
+## Whether the cursor can be moved at all -- **not merely whether moving it is
+## interesting**. `WorldGen::civ_goto_year` is `if let Some(civ) = self.civ`
+## (`cartalith-godot/src/lib.rs:11062 WorldGen::civ_goto_year` -- the
+## `#[func]` wrapper, not the `CivData` method of the same name at `:391`)
+## and `self.civ` is `None` until a `generate()` has run, so
+## before one every transport control here is a control with nothing behind it.
+## Measured, not assumed: a probe run of this strip against a world-less shell
+## set the cursor to 412, to 99999 and to -99999 and read back `0` all three
+## times. Every view draws its transport disabled, carrying `TL_UNAVAILABLE`,
+## when this is false.
+func tl_available() -> bool:
+	var bridge := _find_engine_bridge()
+	return bridge != null and bridge.has_world
+
+const TL_UNAVAILABLE := "Generate a world first. The year cursor is civilisation state, and civ_goto_year is a no-op before any generate -- moving it now would silently do nothing."
+
+## The cursor. `0` with no engine and before any generate, which is
+## `CivData::year`'s own init value rather than a stand-in for it.
+func tl_year() -> int:
+	var bridge := _find_engine_bridge()
+	return 0 if bridge == null else bridge.get_civ_year()
+
+## Move the cursor. Clamped to the track, because both canvases draw a fixed
+## -400..1200 axis and a playhead outside it has nowhere to be.
+func tl_set_year(year: int) -> void:
+	if not tl_available():
+		return
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		return
+	bridge.civ_goto_year(clampi(year, TL_YEAR_MIN, TL_YEAR_MAX))
+	timeline_changed.emit()
+
+func tl_step(direction: int) -> void:
+	tl_set_year(tl_year() + direction * tl_speed)
+
+func tl_set_speed(mult: int) -> void:
+	if not TL_SPEEDS.has(mult):
+		return
+	tl_speed = mult
+	if _tl_timer != null:
+		_tl_timer.wait_time = TL_TICK_SEC
+	timeline_changed.emit()
+
+## §6.2: playback stops at the top of the track rather than wrapping -- "capped
+## at 1200". The desktop canvas states no wrap either.
+func tl_toggle_play() -> void:
+	if not tl_available():
+		return
+	tl_playing = not tl_playing
+	if tl_playing and tl_year() >= TL_YEAR_MAX:
+		tl_playing = false
+	if _tl_timer == null:
+		_tl_timer = Timer.new()
+		_tl_timer.name = "TimelinePlayback"
+		_tl_timer.wait_time = TL_TICK_SEC
+		_tl_timer.timeout.connect(_tl_tick)
+		add_child(_tl_timer)
+	if tl_playing:
+		_tl_timer.start()
+	else:
+		_tl_timer.stop()
+	timeline_changed.emit()
+
+func _tl_tick() -> void:
+	var next := tl_year() + tl_speed
+	if next >= TL_YEAR_MAX:
+		tl_set_year(TL_YEAR_MAX)
+		tl_playing = false
+		_tl_timer.stop()
+		timeline_changed.emit()
+		return
+	tl_set_year(next)
+
+## The running/paused string §4.2 binds as `{{ tlState }}` and leaves
+## `UNSPECIFIED`. It says which of the two states is live and, when playing, at
+## what rate -- the speed pill is a set of three and only one of them is what is
+## actually happening.
+func tl_state_text() -> String:
+	return ("playing ×%d" % tl_speed) if tl_playing else "paused"
+
+func tl_toggle_layer(id: String) -> void:
+	if not tl_layers.has(id):
+		return
+	tl_layers[id] = not bool(tl_layers[id])
+	_tl_save_layers()
+	timeline_changed.emit()
+
+## The six toggles persist, which is the half of `BUILD_ANSWERS.md` §3 that is
+## real: they record a choice, and a choice that forgot itself on restart would
+## record nothing. Written straight through `ConfigFile` on
+## `DccSettings.CONFIG_PATH` rather than through a `DccSettings` accessor, the
+## same way `_set_coach_mark_seen()` a few hundred lines below does -- and for
+## the same reason, that `dcc_settings.gd` is not this pass's file to extend.
+func _tl_load_layers() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(DccSettings.CONFIG_PATH)
+	tl_layers = {}
+	for row in TL_LAYERS:
+		tl_layers[row[0]] = bool(cfg.get_value("timeline", String(row[0]), row[1]))
+
+func _tl_save_layers() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(DccSettings.CONFIG_PATH)
+	for id in tl_layers:
+		cfg.set_value("timeline", String(id), bool(tl_layers[id]))
+	cfg.save(DccSettings.CONFIG_PATH)
 
 # -- §11 Status bar -----------------------------------------------------------
 
@@ -2578,14 +3220,28 @@ func _build_status_bar() -> Control:
 		var l := DccTheme.mono_label("", "text_faint", DccTheme.FS_SMALL, 0)
 		_status_labels[slot] = l
 		status_row.add_child(l)
+		## **`autosave` is registered and not drawn.** `BUILD_ANSWERS.md` §2.2
+		## folds the autosave field into `statusMid`, and a bar carrying the same
+		## clock twice is exactly the "four independent slots" this pass was told
+		## to compose. The slot itself stays: four writers in `app.gd` address it
+		## by name, and `phone_menu.gd` re-presents it as a row on a handset,
+		## where there is no status bar to fold anything into.
+		l.visible = slot != "autosave"
 	status_row.add_child(DccTheme.spacer())
+	## `statusMid` (`05-right-dock-and-bars.md` §3.3, `BUILD_ANSWERS.md` §2.2):
+	## `var(--dis)`, between the spacer and the key hints. Composed in
+	## `app.gd::_refresh_status_mid()` -- this file only reserves the slot, the
+	## same as every other one here.
+	var mid := DccTheme.mono_label("", "text_ghost", DccTheme.FS_SMALL, 0)
+	_status_labels["mid"] = mid
+	status_row.add_child(mid)
 	var hint := DccTheme.mono_label("", "text_faint", DccTheme.FS_SMALL, 0)
 	_status_labels["hint"] = hint
 	status_row.add_child(hint)
 	return bar
 
-## Set one status slot. Slots: pass, stale, autosave, atlas, hint, and the menu
-## bar's top_world / top_pass / top_cpu / top_gpu / top_mem.
+## Set one status slot. Slots: pass, stale, autosave, atlas, mid, hint, and the
+## menu bar's top_world / top_pass / top_cpu / top_gpu / top_mem.
 func set_status(slot: String, text: String, token: String = "text_faint") -> void:
 	if not _status_labels.has(slot):
 		push_error("DccShell: no status slot '%s'" % slot)
@@ -2827,7 +3483,26 @@ func _build_phone_shell() -> void:
 	## tool sheet, at `right: NAVPAD_EDGE`).
 	_phone_undo_chip = _build_phone_undo_chip()
 	_phone_content_gap.add_child(_phone_undo_chip)
+	## §6.2's edit-history popover, in the same container and anchored off the
+	## same corner, so the two move together whatever the tool sheet is doing.
+	_phone_undo_pop = _build_phone_undo_popover()
+	_phone_content_gap.add_child(_phone_undo_pop)
 	_wire_phone_undo_chip()
+
+	## §6.2's sim strip. In `_phone_content_gap` for the undo chip's reason --
+	## it is the container that already excludes the bottom nav and the tool
+	## sheet by construction -- and hidden until the timeline strip's own row
+	## opens it.
+	_phone_sim_strip = _build_phone_sim_strip()
+	_phone_content_gap.add_child(_phone_sim_strip)
+	timeline_changed.connect(_refresh_phone_sim_strip)
+
+	## §4.3's `⋮` popover. On `_phone_root` rather than in the chrome column:
+	## it is anchored to the screen (`right:10px; top:86px`), and it carries a
+	## scrim that has to cover the map.
+	_phone_overflow_pop = _build_phone_overflow()
+	_phone_root.add_child(_phone_overflow_pop)
+	_wire_phone_overflow()
 
 	_maybe_show_coach_marks()
 
@@ -2850,17 +3525,17 @@ func _build_phone_top_safe() -> Control:
 	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	ground.add_child(pad)
 	var row := HBoxContainer.new()
-	row.custom_minimum_size.y = _pscale(DccTheme.H_PHONE_TOP_SAFE)
+	row.custom_minimum_size.y = _safe_top()
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.add_child(row)
 
 	## Both spans are `#8d9296` in the canvas -- the right one was `text_faint`
 	## here, one ink step quiet, and both were 11 px against the canvas's 10.
-	_phone_clock_label = DccTheme.mono_label("", "text_dim", _pscale(10))
+	_phone_clock_label = DccTheme.mono_label("", "text_dim", _pfont(10))
 	_phone_clock_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_phone_clock_label)
 	row.add_child(DccTheme.spacer())
-	_phone_battery_label = DccTheme.mono_label("", "text_dim", _pscale(10), 1)
+	_phone_battery_label = DccTheme.mono_label("", "text_dim", _pfont(10), 1)
 	_phone_battery_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(_phone_battery_label)
 
@@ -2903,7 +3578,7 @@ func _build_phone_side_safe() -> Control:
 	var wrap := Control.new()
 	wrap.set_anchors_preset(Control.PRESET_LEFT_WIDE)
 	wrap.offset_left = 0
-	wrap.offset_right = _pscale(DccTheme.H_PHONE_TOP_SAFE)
+	wrap.offset_right = _safe_side()
 	wrap.offset_top = 0
 	wrap.offset_bottom = 0
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -2922,7 +3597,7 @@ func _build_phone_side_safe() -> Control:
 
 	var top_pad := MarginContainer.new()
 	top_pad.add_theme_constant_override("margin_top", _pscale(10))
-	_phone_side_clock_label = DccTheme.mono_label("", "text_dim", _pscale(10))
+	_phone_side_clock_label = DccTheme.mono_label("", "text_dim", _pfont(10))
 	_phone_side_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	top_pad.add_child(_phone_side_clock_label)
 	col.add_child(top_pad)
@@ -2935,7 +3610,7 @@ func _build_phone_side_safe() -> Control:
 	col.add_child(DccTheme.spacer())
 	var bot_pad := MarginContainer.new()
 	bot_pad.add_theme_constant_override("margin_bottom", _pscale(10))
-	_phone_side_battery_label = DccTheme.mono_label("", "text_faint", _pscale(9))
+	_phone_side_battery_label = DccTheme.mono_label("", "text_faint", _pfont(9))
 	_phone_side_battery_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	bot_pad.add_child(_phone_side_battery_label)
 	col.add_child(bot_pad)
@@ -2949,13 +3624,17 @@ func _build_phone_side_safe() -> Control:
 ## One of the canvas's four cells is still not built, for a stated reason, and
 ## a second is now live where this comment used to say it could not be:
 ##
-##   - **`⋮`** is drawn in the app bar *and* as the bottom bar's fifth tab, and
-##     that canvas's own note ("More is a grouped list, not a duplicate menu
-##     bar") rules out carrying one destination twice. In the canvas the bar's
-##     `⋮` is a *contextual* overflow -- it reappears on the L2 and L3 drill
-##     headers, where it can only mean "this screen's own menu". This shell has
-##     no per-screen overflow to put behind it, and a connected affordance with
-##     nothing behind it is exactly what `GUI_GAP_REGISTER.md` exists to catch.
+##   - **`⋮` is built now.** It used to be declined here, on the reasoning that
+##     the 2026-08-30 canvas drew it as a *contextual* overflow with nothing
+##     per-screen to put behind it. **That reason expired on 2026-08-31**, when
+##     `design/dcc-environment-2026-08-31/Cartalith Android.dc.html` defined it
+##     exactly: `hMenu` (`:89-95`, `:897`) opens a 230 dp popover carrying
+##     `Save project` + `savedAt`, `Theme` + `themeLabel`, and `Close world`.
+##     All three destinations already exist in this shell, and `CLAUDE.md`'s
+##     "the newer canvas wins" settles which drawing to build. It is *not* a
+##     duplicate of the MORE tab: MORE is the program-menu tree, this is three
+##     document-level actions, which is the split the canvas itself draws by
+##     giving the phone both.
 ##   - **`⌕` is built now.** This comment used to say it had "no destination"
 ##     because `menus.gd`'s Edit ▸ Find on map… was a disabled `_todo()` row
 ##     reasoning "no search index yet" -- true when it was written and false
@@ -3001,13 +3680,13 @@ func _build_phone_app_bar() -> PanelContainer:
 	title_col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	## `font:500 12px 'IBM Plex Mono';letter-spacing:.2em;color:#e8ebec` -- .2em
 	## of 12 px is 2.4 px, and `spacing_glyph` is whole pixels, so 2. This was 3.
-	title_col.add_child(DccTheme.mono_label("CARTALITH", "text_bright", _pscale(12), 2, true))
+	title_col.add_child(DccTheme.mono_label("CARTALITH", "text_bright", _pfont(12), 2, true))
 	## Reuses the same "top_world" status slot the desktop menu bar's readout
 	## cluster fills (`_wire_status()` in `app.gd` calls
 	## `set_status("top_world", "ELDRA · %d" % seed)`) -- no phone-aware
 	## branch needed in `app.gd` for this to stay live. `font:10px 'IBM Plex
 	## Mono';color:#6f7478`, untracked in the canvas.
-	var subtitle := DccTheme.mono_label("", "text_faint", _pscale(10), 0)
+	var subtitle := DccTheme.mono_label("", "text_faint", _pfont(10), 0)
 	_status_labels["top_world"] = subtitle
 	title_col.add_child(subtitle)
 	row.add_child(title_col)
@@ -3034,7 +3713,20 @@ func _build_phone_app_bar() -> PanelContainer:
 	## fix and the spec agree.
 	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["panels"], "Panels",
 		func(): _set_panel_picker_open(true)))
+
+	## `⋮`. See this function's own header for why it is here now and was not
+	## before. `overflow` is `⋯` in `DccIcons.SYMBOLS` -- the horizontal
+	## ellipsis the *bottom bar's* MORE cell traces -- so the vertical one the
+	## app bar draws is a literal, the same way `GLYPH_THEME` is.
+	row.add_child(_phone_bar_button(GLYPH_OVERFLOW, "More actions",
+		func(): _set_phone_overflow_open(true)))
 	return bar
+
+## `⋮` U+22EE. Not in `DccIcons.SYMBOLS`, which carries `⋯` (`overflow`) for
+## the bottom bar's MORE cell; the two are different marks on the same canvas
+## and the table is not this file's to extend. Resolves through `mono()`'s
+## `SystemFont` fallback like every other entry that Plex Mono has no glyph for.
+const GLYPH_OVERFLOW := "\u22ee"
 
 ## One app-bar glyph cell. The canvas draws a `40x40` box at `color:#c8cbcd`
 ## (`text`, not the `text_dim` this used) with `font:16px 'IBM Plex Mono'`; the
@@ -3063,7 +3755,18 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 	var b := Button.new()
 	b.flat = false
 	b.focus_mode = Control.FOCUS_NONE
+	## **`accessibility_name`, not just a tooltip.** Godot raises a tooltip on
+	## hover, and a handset has no hover -- so on the one composition where these
+	## four cells (`☰`, `⌕`, `▤`, `⋮`) are the app's whole top bar, `tip` reached
+	## nobody at all, and to a screen reader the button was a bare glyph or, for
+	## `⌕`, a `TextureRect` child with no text of any kind. `Control` carries
+	## `accessibility_name` in this Godot 4.7.1 build (checked against
+	## `ClassDB.class_get_property_list("Control")`, which lists it beside
+	## `accessibility_description` and the five `*_nodes` relations), and it is
+	## the one channel that does reach a touch user. Same string: the tooltip is
+	## already the control's name and duplicating it here would let the two drift.
 	b.tooltip_text = tip
+	b.accessibility_name = tip
 	b.custom_minimum_size = Vector2(_ptap(DccTheme.PHONE_ICON_BOX),
 		_ptap(DccTheme.PHONE_ICON_BOX))
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -3073,7 +3776,7 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 		b.add_child(ic)
 	else:
 		b.text = glyph
-	b.add_theme_font_size_override("font_size", _pscale(16))
+	b.add_theme_font_size_override("font_size", _pfont(16))
 	b.add_theme_font_override("font", DccTheme.mono())
 	b.add_theme_color_override("font_color", DccTheme.c(token))
 	b.add_theme_stylebox_override("normal", DccTheme.empty())
@@ -3126,14 +3829,23 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 ## `rail_column` stays the container the domain cells sit in, so
 ## `set_rail_foot()`/`_select_domain()` and anything else that already knows
 ## that name keeps working. What `Window ▸ Domain rail` hides is `_rail_region`,
-## which here is **only the three domain cells** -- PANELS and MENU stay. Hiding
-## the whole bar would hide the MENU cell, and the menu is the only place the
-## row that un-hides it lives: a one-way door.
+## which here is **only the three destination cells** -- MAP, GENERATE and PLAN.
+## MORE stays, because the menu is the only place the row that un-hides the rail
+## lives: hide MORE with the rest and the row becomes a one-way door.
+##
+## That was the rule all along, and the bar broke it silently. This paragraph
+## used to read "PANELS and MENU stay", naming the pre-`PHONE_TABS` five-cell
+## bar, while the loop below added every cell it had -- MORE included -- under
+## `_rail_region`. Unchecking the row therefore built exactly the door the rule
+## forbids, and left `_phone_menu_bar.visible` true behind it, so
+## `_phone_nav_reserve()` went on reserving 64 dp for an empty strip. Fixed by
+## giving the destination tabs a box of their own (`_phone_bar_dests`) and
+## leaving MORE outside it -- so the bar the reserve pays for is never empty.
 func _build_phone_menu_bar() -> Control:
 	var bar := PanelContainer.new()
 	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
 
-	## **`BoxContainer`, not `HBoxContainer`** -- for all three of the boxes this
+	## **`BoxContainer`, not `HBoxContainer`** -- for all four of the boxes this
 	## bar nests, and for no other reason than landscape. `HBoxContainer` is not
 	## merely a `BoxContainer` with `vertical = false` preset: its `set_vertical`
 	## *refuses* the write outright (`Can't change orientation of
@@ -3151,7 +3863,6 @@ func _build_phone_menu_bar() -> Control:
 	domains.add_theme_constant_override("separation", 0)
 	domains.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	domains.size_flags_stretch_ratio = float(PHONE_TABS.size())
-	_rail_region = domains
 	row.add_child(domains)
 
 	rail_column = VBoxContainer.new()
@@ -3164,17 +3875,30 @@ func _build_phone_menu_bar() -> Control:
 	cells.add_theme_constant_override("separation", 0)
 	rail_column.add_child(cells)
 
+	## The three destination tabs and only those -- see this function's header
+	## for why MORE may not be in here. Stretch ratios keep all four cells the
+	## same size: three shares for this box against MORE's own one, so nothing
+	## about the bar's geometry changes, only what `Window ▸ Domain rail` reaches.
+	var dests := BoxContainer.new()   ## See `row` above for why not `HBox`.
+	dests.vertical = false
+	dests.add_theme_constant_override("separation", 0)
+	dests.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dests.size_flags_stretch_ratio = float(PHONE_TABS.size() - 1)
+	cells.add_child(dests)
+	_rail_region = dests
+
 	## Landscape turns this bar on its side (`docs/ANDROID_UI_SPEC.md`: "nav
-	## becomes left rail"). Every one of these three is an `HBoxContainer`,
+	## becomes left rail"). Every one of these four is an `HBoxContainer`,
 	## which in Godot 4 is a `BoxContainer` with `vertical = false` -- so the
 	## rotation is a property flip on the *same nodes*, not a second bar built
 	## alongside this one. Held here because `_apply_phone_orientation()` has no
 	## other route to them: `rail_column` is a documented public-ish name that
-	## `set_rail_foot()`/`_select_domain()` already rely on, and the other three
+	## `set_rail_foot()`/`_select_domain()` already rely on, and the other four
 	## were locals.
 	_phone_bar_row = row
 	_phone_bar_domains = domains
 	_phone_bar_cells = cells
+	_phone_bar_dests = dests
 
 	## **`PHONE_TABS`, not `DOMAINS`.** The bar used to mirror the desktop's
 	## three workspaces plus PANELS and MORE, which is how a phone ended up
@@ -3191,7 +3915,9 @@ func _build_phone_menu_bar() -> Control:
 			_domain_buttons[String(t.domain)] = cell["button"]
 			_domain_marks[String(t.domain)] = {"label": cell["label"], "icon": cell["icon"],
 				"off": "text_dim", "box": false}
-		cells.add_child(cell["button"] as Control)
+		## MORE is `cells`' own second child; every other tab goes in the box
+		## `Window ▸ Domain rail` hides.
+		(cells if key == "more" else dests).add_child(cell["button"] as Control)
 	return bar
 
 ## The phone's four task tabs (`docs/ANDROID_UI_SPEC.md`: "bottom bar, task tabs
@@ -3262,6 +3988,17 @@ func _pick_phone_tab(id: String) -> void:
 			_set_phone_detent("half")
 	_refresh_phone_tabs()
 
+## Which of `PHONE_TABS` a domain lights. A domain with no tab of its own lives
+## under MORE and lights MORE -- except when the tab already lit is itself not a
+## workspace, which means THAT tab is what opened this domain (PLAN selects
+## Civilization) and re-pointing the bar at MORE would name a screen the user is
+## not on.
+func _phone_tab_for_domain(id: String) -> String:
+	for t in PHONE_TABS:
+		if String(t.domain) == id:
+			return String(t.id)
+	return "more" if _phone_tab_drives_sheet(_phone_tab) else _phone_tab
+
 ## Whether a tab's destination is the tool sheet itself. `domain` is `""` for
 ## exactly the two tabs that open an overlay instead -- see `PHONE_TABS`.
 func _phone_tab_drives_sheet(id: String) -> bool:
@@ -3305,6 +4042,11 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 		on_press: Callable) -> Dictionary:
 	var b := Button.new()
 	b.tooltip_text = tip
+	## The caption below is a child `Label`, not `b.text`, so this `Button`
+	## carries no accessible name of its own -- see `_phone_bar_button()`'s note.
+	## `tip` rather than `caption`: the caption is a five-letter tracked word
+	## ("WORLD"), the tip is the sentence that says what tapping it does.
+	b.accessibility_name = tip
 	## Not flat: a flat `Button` draws no stylebox, so both boxes below would be
 	## comments. Same trap as `add_menu()`, `_build_rail()` and
 	## `_phone_list_row()` -- see `GUI_GAP_REGISTER.md` MN-13.
@@ -3356,7 +4098,7 @@ func _phone_bar_cell(caption: String, glyph: String, tip: String,
 	## is 1. This was 9 px at 2 (≈.22em) in Medium: a size down, tracking up and
 	## weight up all at once, the same three-error compound `_build_rail()`
 	## records for the desktop rail's own caption.
-	var l := DccTheme.mono_label(caption.to_upper(), "text_dim", _pscale(9.5), 1, false)
+	var l := DccTheme.mono_label(caption.to_upper(), "text_dim", _pfont(9.5), 1, false)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -3484,7 +4226,7 @@ func _phone_sheet_box(docked: bool) -> StyleBoxFlat:
 ## prototype has no row for) the timeline when it is up. The prototype folds the
 ## first two into one `navH = 84` literal.
 func _phone_nav_reserve() -> float:
-	var r := float(_pscale(DccTheme.H_PHONE_GESTURE))
+	var r := float(_safe_bottom())
 	if _phone_menu_bar != null and _phone_menu_bar.visible:
 		## `_ptap()` rather than the bar's measured `size.y`, for the same
 		## reason `_apply_phone_orientation()` gives: this can run before the
@@ -3511,11 +4253,41 @@ func _phone_detent_height(det: String) -> float:
 		_:
 			return maxf(peek, round(fh * PHONE_DETENT_HALF_FRAC))
 
+## The phone tool sheet's current detent, and the way back to one.
+##
+## `menus.gd`'s `_capture_layout()`/`_apply_layout()` have guarded on
+## `has_method("phone_detent")` and `has_method("set_phone_detent")` since
+## saved layouts existed, and both guards were dead: neither name was ever
+## declared here, so `Window ▸ Layouts ▸ Save layout as…` silently stored no
+## detent and restoring one silently left the sheet where it was -- while the
+## submenu's own tooltip promised "plus the tool sheet's detent on the phone".
+## Two accessors, no new state (2026-09-01).
+##
+## The setter clamps to the three detents `_phone_detent_height()` actually
+## knows, so a hand-edited or older config cannot leave `_phone_detent`
+## naming a height that does not exist -- the match there would silently
+## treat it as "half" while every string comparison elsewhere
+## (`_pick_phone_tab`'s `!= "peek"`) read it as something else again.
+func phone_detent() -> String:
+	return _phone_detent
+
+func set_phone_detent(det: String) -> void:
+	if det != "peek" and det != "half" and det != "full":
+		return
+	_set_phone_detent(det)
+
 ## Move to a detent. `animate` is false for the two cases where a transition
 ## would be wrong: the initial layout, and a rotation (where the whole chrome
 ## re-lays out in one frame anyway).
 func _set_phone_detent(det: String, animate: bool = true) -> void:
 	_phone_detent = det
+	## `BUILD_ANSWERS.md` §4's "detent snap", 8 ms -- and only on the animated
+	## calls. `animate` is false for exactly the two cases that are not a snap
+	## the user performed: the initial layout and a rotation. Buzzing on those
+	## would fire a detent haptic at launch, before a finger has touched
+	## anything.
+	if animate:
+		_haptic("detent")
 	_snap_phone_sheet(animate)
 
 ## The prototype's `_snapSheet()`: writes the current detent's height onto the
@@ -3653,7 +4425,7 @@ func _on_phone_sheet_grab_input(event: InputEvent) -> void:
 ## here a tap could hit even by accident.
 func _build_phone_gesture_inset() -> Control:
 	var wrap := Control.new()
-	wrap.custom_minimum_size.y = _pscale(DccTheme.H_PHONE_GESTURE)
+	wrap.custom_minimum_size.y = _safe_bottom()
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var bg := ColorRect.new()
 	bg.color = Color(DccTheme.c("bg"), 0.9)
@@ -3711,6 +4483,9 @@ func _sheet_close_button(on_press: Callable) -> Button:
 	b.flat = true
 	b.focus_mode = Control.FOCUS_NONE
 	b.tooltip_text = "Close"
+	## `✕` is the whole control; see `_phone_bar_button()` for why a tooltip is
+	## not a name on a touch build.
+	b.accessibility_name = "Close"
 	b.custom_minimum_size = Vector2(_ptap(44), _ptap(44))
 	b.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 	b.add_theme_stylebox_override("normal", DccTheme.empty())
@@ -3741,8 +4516,21 @@ func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Con
 	var rc := VBoxContainer.new()
 	rc.add_theme_constant_override("separation", 1)
 	rc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rc.add_child(DccTheme.mono_label(title.to_upper(), "text_bright", _pscale(11), 1, true))
-	rc.add_child(DccTheme.label(subtitle, "text_faint", _pscale(9)))
+	rc.add_child(DccTheme.mono_label(title.to_upper(), "text_bright", _pfont(11), 1, true))
+	rc.add_child(DccTheme.label(subtitle, "text_faint", _pfont(9)))
+	## The row's two lines are child `Label`s of a `Button` carrying no `text`
+	## of its own, so the control a screen reader lands on is nameless -- the
+	## same defect `_phone_bar_button()` fixes for a glyph cell, arrived at
+	## from the other side: there the name was drawn and unreadable, here it
+	## is readable and unreachable. Measured, not assumed -- a walk of the
+	## built phone tree listed both panel-picker rows and all three drawer
+	## rows with an empty `accessibility_name`.
+	##
+	## `title` un-cased, not the drawn `to_upper()`: the capitals are
+	## typography (`mono_label`'s tracked caps) and a reader that spells out
+	## an all-caps string would be reading the styling, not the name.
+	row.accessibility_name = title
+	row.accessibility_description = subtitle
 	var rpad := MarginContainer.new()
 	rpad.add_theme_constant_override("margin_left", _pscale(14))
 	rpad.add_child(rc)
@@ -3777,7 +4565,7 @@ func _build_phone_panel_picker() -> Control:
 	panel.offset_left = 0
 	panel.offset_right = 0
 	panel.offset_top = -_pscale(160)
-	panel.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
+	panel.offset_bottom = -_safe_bottom()
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -3804,6 +4592,10 @@ func _close_all_phone_overlays() -> void:
 		_phone_panel_picker.visible = false
 	if _phone_search_overlay != null:
 		_phone_search_overlay.visible = false
+	if _phone_overflow_pop != null:
+		_phone_overflow_pop.visible = false
+	if _phone_undo_pop != null:
+		_phone_undo_pop.visible = false
 	if _phone_menu != null:
 		_phone_menu.close()
 	if left_dock != null:
@@ -3835,6 +4627,140 @@ func _close_all_phone_overlays() -> void:
 func _set_panel_picker_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	_phone_panel_picker.visible = open
+
+# -- ⋮ App-bar overflow (`06-phone.md` §4.3) --------------------------------
+#
+# `position:absolute; right:10px; top:86px; width:230px; border-radius:18px;
+# background:var(--pan); border:1px solid var(--bord); box-shadow:0 14px 34px
+# rgba(0,0,0,.45); padding:6px 0`, three rows at `min-height:44px; padding:0
+# 16px`, each a label on the left and a `9.5px` mono value on the right.
+#
+# Three rows, three destinations that already existed:
+#   - `Save project` -> `DccApp.save_project()`, which falls through to Save
+#     as... on a world that has never been written. The right-hand value is
+#     `savedAt`, filled from `EngineBridge.project_saved`.
+#   - `Theme` -> `toggle_theme()`, the same palette flip design child 8 in the
+#     desktop menu bar drives. The value is the palette that is live now, which
+#     is what `themeLabel` binds.
+#   - `Close world` -> `DccApp.close_project()`, which is already the shell's
+#     one unsaved-work gate (`confirm_unsaved_world()`).
+#
+# All three are reached by name, and each row is drawn disabled with its reason
+# when the method behind it is not there -- a bare `DccShell` probe has none of
+# them, and this file's rule is that a drawn row can always be pressed or says
+# why not.
+func _build_phone_overflow() -> Control:
+	var overlay := _phone_overlay_scrim(func(): _set_phone_overflow_open(false))
+
+	var panel := PanelContainer.new()
+	var box := DccTheme.panel("raised")
+	box.set_corner_radius_all(_pscale(18))
+	box.border_color = DccTheme.c("border")
+	box.set_border_width_all(1)
+	box.content_margin_top = _pscale(6)
+	box.content_margin_bottom = _pscale(6)
+	panel.add_theme_stylebox_override("panel", box)
+	panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	## Grows downward off a zero-height rect: a `Control` outside a container is
+	## still clamped up to its own combined minimum size, and `grow_vertical`
+	## picks which edge stays put while it grows. That is what keeps `top:86px`
+	## exact while the row heights decide the rest.
+	panel.grow_vertical = Control.GROW_DIRECTION_END
+	panel.offset_top = _pscale(86)
+	panel.offset_bottom = _pscale(86)
+	panel.offset_right = -_pscale(10)
+	panel.offset_left = -_pscale(10) - _pscale(230)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+	_phone_overflow_saved = _phone_overflow_row(col, "Save project", "save_project",
+		"There is no save path on this build (DccApp.save_project is missing).")
+	_phone_overflow_theme = _phone_overflow_row(col, "Theme", "toggle_theme", "")
+	_phone_overflow_row(col, "Close world", "close_project",
+		"There is no close path on this build (DccApp.close_project is missing).")
+
+	overlay.add_child(panel)
+	overlay.visible = false
+	return overlay
+
+## One row. `method` is called on `self` -- `DccApp` is the subclass this file
+## is the base of, so `save_project`/`close_project` resolve there and
+## `toggle_theme` here. Returns the right-hand value `Label` so
+## `_set_phone_overflow_open()` can refresh it; the caller ignores it for the
+## row that has no value.
+func _phone_overflow_row(parent: Control, text: String, method: String,
+		absent_reason: String) -> Label:
+	var row := Button.new()
+	row.flat = false
+	row.focus_mode = Control.FOCUS_NONE
+	row.custom_minimum_size.y = _ptap(44)
+	row.add_theme_stylebox_override("normal", DccTheme.empty())
+	row.add_theme_stylebox_override("focus", DccTheme.empty())
+	row.add_theme_stylebox_override("disabled", DccTheme.empty())
+	row.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	row.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
+
+	var line := HBoxContainer.new()
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_theme_constant_override("separation", _pscale(10))
+	line.add_child(DccTheme.label(text, "text", _pfont(12)))
+	line.add_child(DccTheme.spacer())
+	## `9.5px 'IBM Plex Mono'` -- `var(--faint)` on `savedAt`, `var(--acc)` on
+	## `themeLabel`. Theme is the one that reports a live choice rather than a
+	## timestamp, which is why the canvas gives it the accent.
+	var value := DccTheme.mono_label("", "accent" if method == "toggle_theme" else "text_faint",
+		_pscale(10), 0)
+	line.add_child(value)
+	var lpad := MarginContainer.new()
+	lpad.add_theme_constant_override("margin_left", _pscale(16))
+	lpad.add_theme_constant_override("margin_right", _pscale(16))
+	lpad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lpad.add_child(line)
+	row.add_child(lpad)
+	lpad.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	## Nameless for the same reason `_phone_list_row()` was: the label is a
+	## child of a text-less `Button`.
+	row.accessibility_name = text
+	if has_method(method):
+		row.pressed.connect(func():
+			_set_phone_overflow_open(false)
+			call(method))
+	else:
+		row.disabled = true
+		## A dead control carries its reason -- and on a handset `tooltip_text`
+		## carries it nowhere, because there is no hover to raise it. Both, so
+		## the 412-wide desktop window this composition is developed in keeps
+		## the tooltip it does show.
+		row.tooltip_text = absent_reason
+		row.accessibility_description = absent_reason
+	parent.add_child(row)
+	return value
+
+func _set_phone_overflow_open(open: bool) -> void:
+	_close_all_phone_overlays()
+	if _phone_overflow_pop == null:
+		return
+	if open:
+		## `savedAt` reads `—` until this session has actually written a
+		## project, rather than the canvas's mock `14:02`: a time nothing
+		## produced is a fabricated record, and the row beside it still works.
+		_phone_overflow_saved.text = _phone_saved_at if _phone_saved_at != "" else "—"
+		_phone_overflow_theme.text = "dark" if DccTheme.is_dark() else "light"
+	_phone_overflow_pop.visible = open
+
+## `project_saved` carries the path; the canvas's `hMenuSave` stamps `HH:MM`.
+## Deferred for `_wire_phone_undo_chip()`'s reason exactly -- `bridge` is built
+## after the frame this runs in.
+func _wire_phone_overflow() -> void:
+	(func() -> void:
+		var bridge := _find_engine_bridge()
+		if bridge == null:
+			return
+		bridge.project_saved.connect(func(_path: String):
+			_phone_saved_at = Time.get_time_string_from_system().substr(0, 5))
+	).call_deferred()
 
 # -- ⌕ Find on map --------------------------------------------------------------
 #
@@ -3898,7 +4824,7 @@ func _fill_search_results(container: VBoxContainer, rows, close_fn: Callable) ->
 		var pad := MarginContainer.new()
 		pad.add_theme_constant_override("margin_left", _pscale(14))
 		pad.add_theme_constant_override("margin_top", _pscale(12))
-		pad.add_child(DccTheme.label("No matches", "text_faint", _pscale(10)))
+		pad.add_child(DccTheme.label("No matches", "text_faint", _pfont(10)))
 		container.add_child(pad)
 		return
 	for row in rows:
@@ -3973,7 +4899,7 @@ func _build_phone_search_overlay() -> Control:
 	_phone_search_field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_phone_search_field.custom_minimum_size.y = _ptap(40)
 	DccWidgets.well(_phone_search_field, _pscale(12), _pscale(8))
-	_phone_search_field.add_theme_font_size_override("font_size", _pscale(12))
+	_phone_search_field.add_theme_font_size_override("font_size", _pfont(12))
 	_phone_search_field.text_changed.connect(func(q: String):
 		_fill_search_results(_phone_search_results, _run_place_search(q),
 			func(): _set_search_open(false)))
@@ -4116,8 +5042,10 @@ func _build_phone_undo_chip() -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.text = DccIcons.SYMBOLS["undo"]  ## "↶" -- the spec's own "↶ chip".
 	b.tooltip_text = "Undo (hold to see what it would undo)"
+	b.accessibility_name = "Undo"
+	b.accessibility_description = "Hold to see what the next undo would revert."
 	b.add_theme_font_override("font", DccTheme.mono())
-	b.add_theme_font_size_override("font_size", _pscale(18))
+	b.add_theme_font_size_override("font_size", _pfont(18))
 	var d := _ptap(DccTheme.H_PHONE_PILL)
 	var r := d / 2
 	var rest := DccTheme.pill(true, r, _pscale(4), _pscale(4))
@@ -4193,39 +5121,195 @@ func _on_phone_undo_chip_down() -> void:
 		_check_phone_undo_chip_hold)
 
 ## Fires once, `PHONE_UNDO_HOLD_SEC` after a press starts. If the finger is
-## still down, this IS the hold -- "Hold: history."
+## still down, this IS the hold -- §6.2's "a 520 ms hold opens a popover".
 ##
-## `EngineBridge` has no per-step history LIST -- only `undo_label()` (the
-## single next label) and `undo_stats()`'s `depth`/`max_steps`/`bytes`/
-## `budget_bytes`/`step_bytes`/`label` (`engine_bridge.gd`'s own "Global
-## heightmap undo" block, checked, not assumed), none of which is an array of
-## past operations. A real history view would need something like an
-## `undo_history() -> Array[String]` binding, which does not exist. So hold
-## shows the one thing that IS bound -- what tapping right now would revert --
-## rather than fabricating a multi-step list this build cannot back.
+## **This used to show a one-line toast, on a reason that was true and narrower
+## than it read.** `EngineBridge` really does expose no per-step history among
+## `undo_label()`/`undo_stats()` -- but it exposes `undo_ledger()` and
+## `undo_revert_to()` a thousand lines further down, which is exactly the array
+## and the roll-back this popover needs, and which the desktop right dock has
+## drawn as a multi-step history (`right_dock.gd::_build_history`) since ED-02.
+## So no new binding was needed and none is added; this is the same path, in the
+## phone's shape.
 func _check_phone_undo_chip_hold() -> void:
 	if not _undo_chip_down:
 		return  ## Already released -- a tap, not a hold; `_on_phone_undo_chip_up()` handled it.
 	_undo_chip_hold_fired = true
-	var bridge := _find_engine_bridge()
-	if bridge == null:
-		return
-	var label: String = bridge.undo_label()
-	if label == "":
-		return
-	var stats: Dictionary = bridge.undo_stats()
-	var msg := "Next undo: %s" % label
-	if stats.has("depth"):
-		var depth := int(stats["depth"])
-		msg = "Next undo: %s (%d step%s saved)" % [label, depth, "" if depth == 1 else "s"]
-	_show_phone_toast(msg, _phone_undo_chip, 2.4)
+	_haptic("detent")
+	_open_phone_undo_popover()
 
 func _on_phone_undo_chip_up() -> void:
 	var was_hold := _undo_chip_hold_fired
 	_undo_chip_down = false
 	_undo_chip_hold_fired = false
-	if not was_hold:
-		_do_phone_undo()
+	if was_hold:
+		return
+	## §6.2: "a short tap (no hold) on the chip undoes one step; if the popover
+	## is open, a short tap closes it."
+	if _phone_undo_pop != null and _phone_undo_pop.visible:
+		_phone_undo_pop.visible = false
+		return
+	_do_phone_undo()
+
+# -- ↶ Edit-history popover (`06-phone.md` §6.2) ------------------------------
+#
+# `position:absolute; left:0; bottom:52px; width:220px`, radius 16,
+# `background:var(--pan)`, `border:1px solid var(--bord)`, `padding:4px 0`.
+# Header `EDIT HISTORY · TAP TO ROLL BACK` at `9px` mono `.18em` `var(--dim)`;
+# rows `min-height:40px; padding:0 14px; font:10.5px mono; var(--body)`, label
+# `{index+1} · {action}`, newest first, at most six.
+#
+# The ledger is read fresh on every open, never cached, for `right_dock.gd`'s
+# own stated reason: `reversible` is a property of the live undo stack, which
+# evicts on its own byte budget, so a cached row would go stale in silence.
+#
+# **A row that cannot be reverted is drawn dead and says why.** `undo_ledger()`
+# reports one row per commit whether or not a height snapshot is still held for
+# it, and each such row carries the engine's own `reason`. §6.2 draws every row
+# as tappable because its mock stack is uniform; this one is not, and inventing
+# a tap that would silently do nothing is the fault this shell's rules exist to
+# prevent.
+func _build_phone_undo_popover() -> Control:
+	var panel := PanelContainer.new()
+	panel.name = "PhoneUndoHistory"
+	var box := DccTheme.panel("raised")
+	box.set_corner_radius_all(_pscale(16))
+	box.border_color = DccTheme.c("border")
+	box.set_border_width_all(1)
+	box.content_margin_top = _pscale(4)
+	box.content_margin_bottom = _pscale(4)
+	panel.add_theme_stylebox_override("panel", box)
+	panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	## Grows upward off a zero-height rect -- see `_build_phone_overflow()`'s
+	## own note on `grow_vertical`; here the bottom edge is the fixed one, so
+	## the list rises off the chip instead of sinking behind the tool sheet.
+	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	panel.offset_left = _pscale(16)
+	panel.offset_right = _pscale(16) + _pscale(220)
+	## The chip's own box plus §6.2's `bottom:52px` measured from the chip, not
+	## from the screen: the chip is `_ptap(H_PHONE_PILL)` tall and sits
+	## `_pscale(16)` off the bottom of this container.
+	var lift := _pscale(16) + _ptap(DccTheme.H_PHONE_PILL) + _pscale(8)
+	panel.offset_top = -lift
+	panel.offset_bottom = -lift
+	panel.visible = false
+	return panel
+
+## Rebuilt on every open rather than kept in sync: six rows off a ledger read is
+## cheaper than a subscription, and it is the only moment the list is looked at.
+func _open_phone_undo_popover() -> void:
+	if _phone_undo_pop == null:
+		return
+	for c in _phone_undo_pop.get_children():
+		_phone_undo_pop.remove_child(c)
+		c.queue_free()
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	_phone_undo_pop.add_child(col)
+
+	var head := DccTheme.mono_label("EDIT HISTORY · TAP TO ROLL BACK", "text_dim",
+		_pscale(9), 2, false)
+	var hpad := MarginContainer.new()
+	hpad.add_theme_constant_override("margin_left", _pscale(14))
+	hpad.add_theme_constant_override("margin_right", _pscale(14))
+	hpad.add_theme_constant_override("margin_top", _pscale(8))
+	hpad.add_theme_constant_override("margin_bottom", _pscale(8))
+	hpad.add_child(head)
+	col.add_child(hpad)
+
+	var bridge := _find_engine_bridge()
+	var rows: Array = bridge.undo_ledger() if bridge != null else []
+	if rows.is_empty():
+		var empty := DccTheme.label(
+			"Nothing committed this session. A generate, a load, a Sculpt or Paint commit, "
+			+ "a carve or a territory commit all enter here.", "text_ghost", _pscale(10))
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var epad := MarginContainer.new()
+		epad.add_theme_constant_override("margin_left", _pscale(14))
+		epad.add_theme_constant_override("margin_right", _pscale(14))
+		epad.add_theme_constant_override("margin_bottom", _pscale(8))
+		epad.add_child(empty)
+		col.add_child(epad)
+	else:
+		## Newest first and capped at six, both §6.2's. `i` is the position in
+		## the drawn list, so the label numbers what the reader sees rather than
+		## the engine's own oldest-first sequence.
+		var shown := 0
+		for k in range(rows.size() - 1, -1, -1):
+			if shown >= 6:
+				break
+			col.add_child(_phone_undo_row(shown, rows[k]))
+			shown += 1
+
+	_close_all_phone_overlays()
+	_phone_undo_pop.visible = true
+
+func _phone_undo_row(index: int, entry: Variant) -> Control:
+	var d: Dictionary = entry
+	var reversible := bool(d.get("reversible", false))
+	var seq := int(d.get("seq", 0))
+	var steps := int(d.get("steps", 0))
+	var row := Button.new()
+	row.flat = false
+	row.focus_mode = Control.FOCUS_NONE
+	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	row.custom_minimum_size.y = _pscale(40)
+	row.text = "%d · %s" % [index + 1, String(d.get("label", "?"))]
+	row.clip_text = true
+	row.add_theme_font_override("font", DccTheme.mono())
+	row.add_theme_font_size_override("font_size", _pfont(10))
+	row.add_theme_color_override("font_color", DccTheme.c("text"))
+	row.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	row.add_theme_stylebox_override("normal", DccTheme.inset(_pscale(14), 0, _pscale(14), 0))
+	row.add_theme_stylebox_override("disabled", DccTheme.inset(_pscale(14), 0, _pscale(14), 0))
+	row.add_theme_stylebox_override("focus", DccTheme.empty())
+	row.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	row.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
+	if reversible:
+		row.tooltip_text = ("%s · %s. Reverts the height field to the state before this "
+			+ "operation, discarding the %d step%s after it as well -- history here is "
+			+ "linear, so there is no branch to come back to.") % [
+				String(d.get("subsystem", "")), String(d.get("detail", "")),
+				steps - 1, "" if steps == 2 else "s"]
+		row.pressed.connect(func(): _phone_revert_history(seq))
+	else:
+		row.disabled = true
+		var why := String(d.get("reason", ""))
+		row.tooltip_text = ("%s · %s. No height snapshot is still held for this step%s" % [
+			String(d.get("subsystem", "")), String(d.get("detail", "")),
+			(" -- %s." % why) if why != "" else "."])
+	return row
+
+## The phone half of `right_dock.gd::_do_revert()`, and the same two lines of
+## repaint for the same reason: write `map_view.texture` directly rather than
+## calling `ViewportHost.refresh()`, which would also reset the camera. Rolling
+## back should leave you looking at exactly where you were looking.
+##
+## No confirmation dialog in front of it, unlike the desktop's: §6.2 states the
+## interaction as a single tap that "reverts every entry above index i", and a
+## modal over a 220 dp popover on a handset is a different design, not a
+## translation of this one. The row's own label is what says how far back it
+## goes, and the toast below reports what actually happened.
+func _phone_revert_history(seq: int) -> void:
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		return
+	var done: int = bridge.undo_revert_to(seq)
+	if _phone_undo_pop != null:
+		_phone_undo_pop.visible = false
+	if done <= 0:
+		_show_phone_toast(
+			"That step is no longer available -- its snapshot was dropped to stay inside "
+			+ "the undo budget.", _phone_undo_chip, 3.2)
+		return
+	var host := _find_viewport_host()
+	if host != null:
+		host.map_view.texture = bridge.color_texture()
+		host.set_preview_texture(null)
+	_refresh_phone_undo_chip()
+	_show_phone_toast("Reverted %d step%s" % [done, "" if done == 1 else "s"],
+		_phone_undo_chip, 2.4)
 
 ## Tap. "Undo: ... map edits only" -- `can_undo()`/`undo_last()` are the
 ## GLOBAL heightmap undo (`engine_bridge.gd`'s "Global heightmap undo" block:
@@ -4242,6 +5326,184 @@ func _do_phone_undo() -> void:
 	_refresh_phone_undo_chip()
 	if reverted != "":
 		_show_phone_toast("Undid: %s" % reverted, _phone_undo_chip, 2.4)
+
+# -- ▶ Sim strip (`06-phone.md` §6.2) ------------------------------------------
+#
+# `bottom:98px` portrait / `bottom:14px` landscape, `z:10`, `padding:0 10px`;
+# inner `padding:8px 12px`, radius 18, `background:pillBg`, `border:1px solid
+# var(--hair)`. Left to right: play/pause in a `38x38` radius-19 `var(--wash)`
+# circle at `13px` mono `var(--acc)`; `YEAR {n}` at `11px` mono `var(--ink)`;
+# a `min=-400 max=1200 step=1` slider taking the rest of the width; the three
+# speed labels at `9.5px` mono, lit `var(--acc)` and quiet `var(--faint)`; and
+# `✕` at `11px` mono `var(--sec)`, which stops playback and hides the strip.
+#
+# **This is the desktop timeline strip's cursor, not a second one.** Every
+# control here goes through the §10a block -- `tl_year()`, `tl_set_year()`,
+# `tl_toggle_play()`, `tl_set_speed()` -- which reads and writes the engine's
+# `CivData::year` directly. `timeline_changed` is what keeps this view and
+# `app.gd`'s desktop strip agreeing; neither holds a year of its own.
+#
+# There is no entry point in `phone_menu.gd` for it (that file routes
+# MORE ▸ Simulation to the CIVIL Simulation category, which is a different
+# destination and stays as it is). The phone's own timeline strip row opens it
+# -- `app.gd::_fill_timeline_strip()`'s collapsed form -- which is the surface
+# the desktop expands in place and the phone has no room to.
+func _build_phone_sim_strip() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.name = "PhoneSimStrip"
+	var box := DccTheme.panel("raised")
+	box.set_corner_radius_all(_pscale(18))
+	box.border_color = DccTheme.c("line")
+	box.set_border_width_all(1)
+	box.content_margin_left = _pscale(12)
+	box.content_margin_right = _pscale(12)
+	box.content_margin_top = _pscale(8)
+	box.content_margin_bottom = _pscale(8)
+	wrap.add_theme_stylebox_override("panel", box)
+	wrap.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	wrap.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	wrap.offset_left = _pscale(10)
+	wrap.offset_right = -_pscale(10)
+	## Measured off `_phone_content_gap`'s own bottom edge, which already ends
+	## above the tool sheet and the bottom bar -- the same bound the undo chip
+	## takes, and the reason neither has to redo `_phone_nav_reserve()`'s
+	## arithmetic. §6.2's `bottom:98px` is measured from the screen, where the
+	## bar and the sheet are still below it.
+	wrap.offset_top = -_pscale(14)
+	wrap.offset_bottom = -_pscale(14)
+	wrap.visible = false
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _pscale(10))
+	wrap.add_child(row)
+
+	## The `38x38` accent circle. `▶`/`⏸` swap in `_refresh_phone_sim_strip()`.
+	_phone_sim_play = Button.new()
+	_phone_sim_play.focus_mode = Control.FOCUS_NONE
+	_phone_sim_play.flat = false
+	## Kept in step with the glyph by `_refresh_phone_sim_strip()`; this is the
+	## resting state it is built in.
+	_phone_sim_play.accessibility_name = "Play"
+	var d := _ptap(38)
+	_phone_sim_play.custom_minimum_size = Vector2(d, d)
+	_phone_sim_play.add_theme_font_override("font", DccTheme.mono())
+	_phone_sim_play.add_theme_font_size_override("font_size", _pfont(13))
+	_phone_sim_play.add_theme_color_override("font_color", DccTheme.c("accent"))
+	_phone_sim_play.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	_phone_sim_play.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	## `var(--wash)`, not a filled amber slab: the canvas draws the circle at
+	## `background:var(--wash)` with accent *ink*, which is the quiet form.
+	var circle := DccTheme.flat(DccTheme.c("accent_wash"), d / 2)
+	_phone_sim_play.add_theme_stylebox_override("normal", circle)
+	_phone_sim_play.add_theme_stylebox_override("disabled", circle)
+	_phone_sim_play.add_theme_stylebox_override("focus", DccTheme.empty())
+	_phone_sim_play.add_theme_stylebox_override("hover",
+		DccTheme.flat(DccTheme.c("accent_wash_2"), d / 2))
+	_phone_sim_play.add_theme_stylebox_override("pressed",
+		DccTheme.flat(DccTheme.c("accent_wash_2"), d / 2))
+	_phone_sim_play.pressed.connect(tl_toggle_play)
+	row.add_child(_phone_sim_play)
+	_phone_sim_transport.append(_phone_sim_play)
+
+	_phone_sim_year = DccTheme.mono_label("", "text_bright", _pfont(11), 0)
+	row.add_child(_phone_sim_year)
+
+	_phone_sim_slider = HSlider.new()
+	_phone_sim_slider.min_value = TL_YEAR_MIN
+	_phone_sim_slider.max_value = TL_YEAR_MAX
+	_phone_sim_slider.step = 1
+	_phone_sim_slider.focus_mode = Control.FOCUS_NONE
+	_phone_sim_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_phone_sim_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	DccWidgets.phone_slider(_phone_sim_slider, _phone_scale)
+	## `value_changed` and not `drag_ended`: the readout beside it has to follow
+	## the finger, and `tl_set_year()` is a cursor write plus a snapshot load
+	## keyed on an exact year -- cheap at every year the timeline never
+	## recorded, which is almost all of them.
+	_phone_sim_slider.value_changed.connect(func(v: float):
+		if int(v) != tl_year():
+			tl_set_year(int(v)))
+	row.add_child(_phone_sim_slider)
+	_phone_sim_transport.append(_phone_sim_slider)
+
+	for mult in TL_SPEEDS:
+		var b := Button.new()
+		b.text = "×%d" % mult
+		b.flat = false
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(_ptap(0), _ptap(0))
+		b.add_theme_font_override("font", DccTheme.mono())
+		b.add_theme_font_size_override("font_size", _pfont(10))
+		b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+		b.add_theme_stylebox_override("normal", DccTheme.inset(_pscale(3), 0, _pscale(3), 0))
+		b.add_theme_stylebox_override("disabled", DccTheme.inset(_pscale(3), 0, _pscale(3), 0))
+		b.add_theme_stylebox_override("focus", DccTheme.empty())
+		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+		b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("line_soft")))
+		b.tooltip_text = ("How far the year cursor moves per step, and per 600 ms of "
+			+ "playback: %d year%s." % [mult, "" if mult == 1 else "s"])
+		b.pressed.connect(tl_set_speed.bind(mult))
+		_phone_sim_speeds[mult] = b
+		_phone_sim_transport.append(b)
+		row.add_child(b)
+
+	row.add_child(_sheet_close_button(func():
+		if tl_playing:
+			tl_toggle_play()
+		_phone_sim_strip.visible = false))
+	return wrap
+
+## Open or close the strip. Called by the phone's own timeline row; `✕` closes
+## it from the inside.
+func set_phone_sim_strip_open(open: bool) -> void:
+	if _phone_sim_strip == null:
+		return
+	if not open and tl_playing:
+		tl_toggle_play()
+	_phone_sim_strip.visible = open
+	if open:
+		_refresh_phone_sim_strip()
+
+func is_phone_sim_strip_open() -> bool:
+	return _phone_sim_strip != null and _phone_sim_strip.visible
+
+## Repaints the strip from the one model. Wired to `timeline_changed`, so a
+## scrub on the desktop strip -- or a year jump from the CIVIL dock's pills once
+## that file connects too -- moves this slider without either knowing about the
+## other.
+func _refresh_phone_sim_strip() -> void:
+	if _phone_sim_strip == null or not _phone_sim_strip.visible:
+		return
+	## Nothing here can move the cursor before a generate -- see
+	## `tl_available()` -- so the whole transport goes dead and carries the
+	## reason rather than answering a tap with silence.
+	var live := tl_available()
+	for c in _phone_sim_transport:
+		if c is Button:
+			(c as Button).disabled = not live
+		elif c is HSlider:
+			(c as HSlider).editable = live
+		if not live:
+			c.tooltip_text = TL_UNAVAILABLE
+	var year := tl_year()
+	_phone_sim_year.text = ("YEAR %d" % year) if live else "NO WORLD"
+	if not live:
+		return
+	## `set_value_no_signal`: this is the *echo* of a cursor that has already
+	## moved, and letting it re-enter `value_changed` would write the year back
+	## to the engine on every refresh.
+	_phone_sim_slider.set_value_no_signal(float(year))
+	_phone_sim_play.text = DccIcons.SYMBOLS["pause"] if tl_playing \
+		else DccIcons.SYMBOLS["play"]
+	_phone_sim_play.tooltip_text = ("Pause" if tl_playing else "Play") \
+		+ " -- %s. The cursor is the CIVIL timeline's own year (civ_goto_year); the map's territory changes only at the years CIVIL > Politics has recorded." % tl_state_text()
+	## The glyph swaps between `▶` and `⏸`, so the name has to swap with it --
+	## a fixed "Play" would be wrong for half the button's life.
+	_phone_sim_play.accessibility_name = "Pause" if tl_playing else "Play"
+	for mult in _phone_sim_speeds:
+		var b: Button = _phone_sim_speeds[mult]
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent" if int(mult) == tl_speed else "text_faint"))
 
 # -- Toasts: the undo chip's own feedback, and the two coach marks ------------
 
@@ -4266,7 +5528,7 @@ func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> voi
 	box.content_margin_top = _pscale(9)
 	box.content_margin_bottom = _pscale(9)
 	wrap.add_theme_stylebox_override("panel", box)
-	var l := DccTheme.mono_label(text, "text_bright", _pscale(10.5))
+	var l := DccTheme.mono_label(text, "text_bright", _pfont(10.5))
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD
 	l.custom_minimum_size.x = _pscale(220)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -4309,8 +5571,12 @@ func _position_phone_toast(wrap: Control, near: Control) -> void:
 ## this pass does not own and has no node handle on, so a toast pointed at it
 ## would be a guess rather than an anchored hint.
 const _COACH_MARKS := [
+	## Rewritten against `PHONE_TABS`, which is what the bar has actually drawn
+	## since the tab migration. The old text named WORLD/CIVIL/CARTO and PANELS
+	## -- three captions the bar no longer carries and one that was never a tab
+	## at all -- and so pointed a first-run hint at a bar that does not exist.
 	{"id": "bottombar_tabs",
-		"text": "WORLD · CIVIL · CARTO switch domains here — PANELS and MORE reach everything else."},
+		"text": "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."},
 	{"id": "sheet_handle", "text": "Drag this handle to expand tool options."},
 ]
 
@@ -4340,6 +5606,15 @@ func _show_next_coach_mark(i: int) -> void:
 	var mark: Dictionary = _COACH_MARKS[i]
 	var id := String(mark.get("id", ""))
 	if _coach_mark_seen(id):
+		_show_next_coach_mark(i + 1)
+		return
+	## The sheet-handle mark points at a control that is hidden and inert in
+	## landscape -- `_on_phone_sheet_grab_input()` returns immediately there and
+	## `_apply_phone_nav_orientation()` now hides the bar it names. Skipped
+	## WITHOUT being marked seen, so a handset that boots landscape still gets
+	## the hint the first time it is turned upright, rather than silently
+	## burning it against a control that was never on screen.
+	if id == "sheet_handle" and _landscape:
 		_show_next_coach_mark(i + 1)
 		return
 	var near: Control = _phone_menu_bar if id == "bottombar_tabs" else _phone_sheet_grab
@@ -4453,16 +5728,23 @@ func _notification(what: int) -> void:
 	## menu must not eat the gesture while one is open. Hidden rather than
 	## freed: every dialog in this shell already frees itself from
 	## `visibility_changed`, and hiding is precisely what its Cancel does.
+	## `BUILD_ANSWERS.md` §4's "back", 6 ms, on each of the three levels a press
+	## actually LEAVES -- and deliberately not on `_back_exhausted()`, which is
+	## not a level left but the exit gate, and which `DccApp` answers with a
+	## dialog of its own.
 	var top := _topmost_subwindow(get_tree().root)
 	if top != null:
 		top.hide()
+		_haptic("back")
 		return
 	if _phone_menu != null and _phone_menu.go_back():
+		_haptic("back")
 		return
 	if (_phone_panel_picker != null and _phone_panel_picker.visible) \
 			or (_phone_search_overlay != null and _phone_search_overlay.visible) \
 			or _left_sheet_open or _right_sheet_open:
 		_close_all_phone_overlays()
+		_haptic("back")
 		return
 	_back_exhausted()
 
@@ -4540,13 +5822,16 @@ func _reset_dock_scroll(scroll: ScrollContainer) -> void:
 func _apply_phone_orientation() -> void:
 	if _phone_top_safe == null:
 		return  ## Not built yet -- called once more at the end of `_build_phone_shell()`.
-	_phone_top_safe.visible = not _landscape
-	_phone_side_safe.visible = _landscape
+	## `and _phone_status_shown`: `Window ▸ Status bar` is the other input to
+	## these two, and it has to survive a rotation -- see
+	## `set_status_region_shown()` for what the row means on this composition.
+	_phone_top_safe.visible = (not _landscape) and _phone_status_shown
+	_phone_side_safe.visible = _landscape and _phone_status_shown
 
 	## "The chrome shifts inward" (inset rule, LANDSCAPE): everything below the
 	## safe area lives inside this margin, so growing it by the side safe area's
 	## own width is the entire mechanism.
-	var side_reserve := _pscale(DccTheme.H_PHONE_TOP_SAFE) if _landscape else 0
+	var side_reserve := _safe_side() if _landscape else 0
 	## ...and in landscape two more regions now live at the edges: the nav rail
 	## on the left and the docked sheet on the right
 	## (`docs/ANDROID_UI_SPEC.md`: "nav becomes left rail, sheet docks right,
@@ -4564,10 +5849,21 @@ func _apply_phone_orientation() -> void:
 	_phone_chrome_margin.add_theme_constant_override("margin_left",
 		side_reserve + rail_w)
 	_phone_chrome_margin.add_theme_constant_override("margin_right", sheet_w)
+	## ...and up, by whatever the on-screen keyboard is currently covering. In
+	## portrait this column IS the bottom dock -- the tool sheet, the timeline
+	## and the bottom bar are its last three children -- so one margin lifts all
+	## of them clear of the IME, which is `dockBottom`'s whole job in the
+	## prototype (`BUILD_ANSWERS.md` §4). In landscape those two are reparented
+	## out to `_phone_root` and are handled by `gesture` in
+	## `_apply_phone_nav_orientation()` instead; the margin still applies here,
+	## harmlessly, because the app bar it does still contain is anchored to the
+	## top.
+	_phone_chrome_margin.add_theme_constant_override("margin_bottom",
+		_phone_kb_height)
 
 	_apply_phone_nav_orientation(side_reserve, rail_w, sheet_w)
 
-	var safe_top := 0 if _landscape else _pscale(DccTheme.H_PHONE_TOP_SAFE)
+	var safe_top := 0 if _landscape else _safe_top()
 	for sheet in [left_dock, right_dock]:
 		if sheet == null:
 			continue
@@ -4578,7 +5874,7 @@ func _apply_phone_orientation() -> void:
 		sheet.offset_left = side_reserve + rail_w
 		sheet.offset_right = 0
 		sheet.offset_top = safe_top
-		sheet.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
+		sheet.offset_bottom = -_safe_bottom()
 
 	## The menu takes the same rect as a dock sheet: over the app bar (its own
 	## header replaces it, per the canvas's L2/L3 artboards), never over the
@@ -4606,7 +5902,7 @@ func _apply_phone_orientation() -> void:
 		bar_reserve = _ptap(DccTheme.H_PHONE_BOTTOM_NAV)
 	if _phone_menu != null:
 		_phone_menu.apply_insets(float(safe_top), float(side_reserve + rail_w),
-			float(_pscale(DccTheme.H_PHONE_GESTURE) + bar_reserve))
+			float(_safe_bottom() + bar_reserve))
 
 	phone_insets_changed.emit()
 
@@ -4633,7 +5929,12 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 	if _phone_menu_bar == null or _phone_tool_sheet == null \
 			or _phone_chrome_col == null:
 		return
-	var gesture := _pscale(DccTheme.H_PHONE_GESTURE)
+	## The two nodes this function places in landscape sit on `_phone_root`,
+	## OUTSIDE `_phone_chrome_margin` and so outside the keyboard margin it
+	## carries -- which is why the IME height is folded in here as well. In
+	## portrait `gesture` is unused (both readers below are inside `if
+	## _landscape`), so this cannot double-count against that margin.
+	var gesture := _safe_bottom() + _phone_kb_height
 
 	## `_phone_root` is a plain `Control`, so a child of it keeps whatever
 	## anchors it is given -- the two dock sheets already rely on exactly that.
@@ -4671,15 +5972,21 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 			_phone_chrome_col.move_child(order[i], order[i - 1].get_index() + 1)
 
 	## -- the bar --------------------------------------------------------
-	for box in [_phone_bar_row, _phone_bar_domains, _phone_bar_cells]:
+	for box in [_phone_bar_row, _phone_bar_domains, _phone_bar_cells,
+			_phone_bar_dests]:
 		if box != null:
 			box.vertical = _landscape
-	if _phone_bar_domains != null:
+	## Both stretch boxes, not just the outer one: `_phone_bar_dests` carries
+	## the three destination cells' share of exactly the same stretch, so a flip
+	## that skipped it would leave them sharing the bar's OLD axis.
+	for box in [_phone_bar_domains, _phone_bar_dests]:
+		if box == null:
+			continue
 		## The stretch that makes the four cells share the bar has to change
 		## axis with it; `size_flags_stretch_ratio` is axis-agnostic and stays.
-		_phone_bar_domains.size_flags_horizontal = \
+		box.size_flags_horizontal = \
 			Control.SIZE_FILL if _landscape else Control.SIZE_EXPAND_FILL
-		_phone_bar_domains.size_flags_vertical = \
+		box.size_flags_vertical = \
 			Control.SIZE_EXPAND_FILL if _landscape else Control.SIZE_FILL
 	if _phone_bar_cells != null:
 		## Prototype rail: `gap:6` between cells. Its `padding-top:40` is not
@@ -4689,6 +5996,11 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 		## and the rail already starts to the right of it.
 		_phone_bar_cells.add_theme_constant_override("separation",
 			_pscale(6) if _landscape else 0)
+		## And the same gap inside the destination box, or the three cells it
+		## holds would sit flush against one another while MORE alone stood off.
+		if _phone_bar_dests != null:
+			_phone_bar_dests.add_theme_constant_override("separation",
+				_pscale(6) if _landscape else 0)
 	## `border-right:1px solid var(--hair2)` on `var(--pan2)` -- and `--pan2` is
 	## `#121314`, which is the `panel` token the bar already draws in, so only
 	## the edge moves.
@@ -4705,6 +6017,17 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 		_phone_menu_bar.custom_minimum_size = Vector2.ZERO
 
 	## -- the sheet ------------------------------------------------------
+	## The grab handle is a PORTRAIT affordance only.
+	## `_on_phone_sheet_grab_input()` returns immediately in landscape, because
+	## `BUILD_ANSWERS.md` §4 rules that the landscape drawer has no detents to
+	## re-snap to -- correct, and correctly implemented. What was missing is the
+	## disclosure: a 40x4 bar was still drawn over a 24 dp row that could not be
+	## dragged, and coach mark #2 told the user to drag it. Hidden rather than
+	## dimmed, because there is no disabled state for a drag target and no hover
+	## surface on a phone to carry the reason in a tooltip -- the coach mark is
+	## skipped in landscape instead (`_show_next_coach_mark()`).
+	if _phone_sheet_grab != null:
+		_phone_sheet_grab.visible = not _landscape
 	if _landscape:
 		_phone_tool_sheet.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
 		_phone_tool_sheet.offset_left = -sheet_w
@@ -4744,7 +6067,7 @@ func phone_content_insets() -> Dictionary:
 	var left := 0.0
 	var right := 0.0
 	if _landscape:
-		left += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
+		left += float(_safe_side())
 		## Landscape's two new edge regions: the nav rail on the left, the
 		## docked sheet on the right (`docs/ANDROID_UI_SPEC.md`). Both are
 		## opaque, so `ViewportHost`'s floating chrome has to clear them the
@@ -4754,7 +6077,7 @@ func phone_content_insets() -> Dictionary:
 		right = float(_phone_land_sheet_width())
 	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
 	if not _landscape:
-		top += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
+		top += float(_safe_top())
 	## `scale` rides along because it is the one number `ViewportHost` needs and
 	## has no other route to (`GUI_GAP_REGISTER.md` HD-03). Its floating chrome
 	## -- the Layers button and the four navpad pills -- is authored at a raw
@@ -4773,7 +6096,11 @@ func phone_content_insets() -> Dictionary:
 	## which is the same trade `_phone_bottom_reserve()` already documents in
 	## the other direction.
 	var band: float = get_viewport_rect().size.y - top - float(_ptap(DccTheme.PHONE_TAP_MIN))
-	var bottom: float = clampf(_phone_bottom_reserve(), 0.0, maxf(0.0, band))
+	## `+ _phone_kb_height`: `ViewportHost`'s floating chrome has to clear the
+	## IME for the same reason the docked chrome does -- the keyboard draws over
+	## the frame rather than resizing it, so nothing else moves out of its way.
+	var bottom: float = clampf(_phone_bottom_reserve() + float(_phone_kb_height),
+		0.0, maxf(0.0, band))
 	return {"left": left, "top": top, "right": right,
 		"bottom": bottom, "scale": _phone_scale}
 
@@ -4793,7 +6120,7 @@ func _phone_bottom_reserve() -> float:
 		## the left rail and the right dock. Only the gesture inset and the
 		## timeline still are, and both are reported to the caller as `left`
 		## and `right` instead (see `phone_content_insets()`).
-		var b := float(_pscale(DccTheme.H_PHONE_GESTURE))
+		var b := float(_safe_bottom())
 		if timeline_bar != null and timeline_bar.visible:
 			b += timeline_bar.size.y
 		return b
@@ -4802,8 +6129,8 @@ func _phone_bottom_reserve() -> float:
 		bar = _phone_menu_bar.size.y if _phone_menu_bar.size.y > 0.0 \
 			else float(_ptap(64))
 	if _phone_tool_sheet != null and _phone_tool_sheet.size.y > 0.0:
-		var h := _phone_tool_sheet.size.y + float(_pscale(DccTheme.H_PHONE_GESTURE))
+		var h := _phone_tool_sheet.size.y + float(_safe_bottom())
 		if timeline_bar != null and timeline_bar.visible:
 			h += timeline_bar.size.y
 		return h + bar + float(_pscale(8))
-	return float(_pscale(20 + 90 + DccTheme.H_PHONE_GESTURE)) + bar
+	return float(_pscale(20 + 90) + _safe_bottom()) + bar

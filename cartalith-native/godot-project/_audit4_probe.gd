@@ -1,8 +1,30 @@
 extends Node
-## Audit pass 4 boot probe. Confirms the extension the shell actually loads is
-## the one the crates were just built from, and boots the real shell windowed.
+## Audit pass 4 boot probe. Boots the real shell, checks the extension it loads
+## is not older than the shell, and takes a census of the dead controls left in
+## it.
 ##
 ##   godot --path . --resolution 1600x900 _audit4_probe.tscn
+##
+## **The freshness claim used to be a sentence, not a test.** This header said
+## it confirmed the loaded extension was "the one the crates were just built
+## from", and the whole implementation of that was
+## `ClassDB.class_exists("WorldGen")` plus a printed method count -- which is
+## satisfied by any `.dll` that ever exported the class, including one 21
+## commits behind. That is the exact condition this project has twice had
+## silently invalidate a verification pass, so a probe whose stated job was to
+## catch it and did not was worse than no probe.
+##
+## It is a test now, and the evidence is the shell's own:
+## `EngineBridge._has()` records every binding the shell asked for and this
+## build does not export, and `missing_bindings()` returns the set. A non-empty
+## set is a `.dll` older than the shell. That is the only freshness evidence
+## available without a build stamp compiled into the crate, and it is checked
+## after the shell has booted and its guards have run, so the set is filled.
+##
+## What this probe still cannot see: a `.dll` that is stale in an *implementation*
+## the shell never guards on -- same bindings, different behaviour behind them.
+## Nothing here detects that; a `build_stamp()` `#[func]` on `WorldGen` compared
+## against a value the caller passes in would, and would need a crate change.
 ##
 ## Hosted in a `SubViewport` for the reason `_hidpi_probe.gd` documents: the
 ## real window is clamped to the desktop work area, so any measurement taken
@@ -18,6 +40,8 @@ func _frames(n: int) -> void:
 
 func _ready() -> void:
 	await _frames(2)
+
+	var fails := 0
 
 	# 1. The extension, before anything else touches it.
 	var have := ClassDB.class_exists("WorldGen")
@@ -72,10 +96,38 @@ func _ready() -> void:
 				lbl = (b as Button).text
 			print("[DEAD] ", lbl, " || ", str((b as Control).tooltip_text).replace("\n", " "))
 
+	## 4. Freshness, checked last so every `_has()` guard the boot runs has
+	##    already been asked. See the header for why this is the check and the
+	##    class-exists test above is not.
+	var bridge = _app_bridge(app)
+	var mb: PackedStringArray
+	if bridge == null:
+		mb = PackedStringArray(["<no EngineBridge on the shell -- app.bridge is null>"])
+	else:
+		mb = bridge.missing_bindings()
+	if mb.is_empty():
+		print("[EXT] bindings missing: none -- the library is not older than the shell")
+	else:
+		fails += 1
+		print("[EXT] FAIL stale extension: the shell asked for %d binding(s) this "
+			% mb.size()
+			+ "build does not export (%s). " % ", ".join(mb)
+			+ "The census below was taken against a degraded shell.")
+
 	var img: Image = _vp.get_texture().get_image()
 	img.save_png("user://_audit4_boot.png")
 	print("[SHOT] user://_audit4_boot.png ", img.get_width(), "x", img.get_height())
-	get_tree().quit(0)
+	## Was `quit(0)` unconditionally, which is what let the freshness sentence
+	## above stand unchallenged for as long as it did.
+	print("[EXT] DONE fail=%d" % fails)
+	get_tree().quit(1 if fails > 0 else 0)
+
+
+## `app.bridge` without assuming it: the shell builds it in `_ready`, and a
+## boot that failed early leaves it null, which is a different report from
+## "no bindings missing".
+func _app_bridge(app: Node):
+	return app.get("bridge")
 
 func _count(n: Node) -> int:
 	var c := 1

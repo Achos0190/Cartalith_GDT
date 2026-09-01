@@ -134,6 +134,8 @@ const ID_LOD_DBG_LABELS := 76
 ## looking a row up by number would find the wrong menu's. Cheap to avoid.
 const ID_LOD_TILE_BORDERS := 80
 const ID_LOD_REFINE_VIEW := 81
+const ID_LOD_EXPORT_ATLAS := 82
+const ID_LOD_IMPORT_ATLAS := 83
 
 ## §2.3's `Assets ▸ Landmark types ▸` cascade
 ## (`design/landmark-generation/LANDMARK_UI_DESIGN.md` §6). A fresh 500 block:
@@ -144,6 +146,48 @@ const ID_LM_ICONS := 500
 const ID_LM_LABELS := 501
 const ID_LM_HAND := 502
 const ID_LM_FAMILY_FIRST := 510   ## family i's "open in the dock" row is +i
+
+## The 2026-08-31 `UNWIRED_FUNCTIONS.md` batch. A fresh 600 block, allocated
+## above everything else the way the 500 block was: `ID_DATA_ROUTE_FIRST`'s run
+## is fourteen long (400-413) and `ID_LM_FAMILY_FIRST`'s is one per landmark
+## family, so 600 clears both with room to spare. Grepped the whole file for
+## every `ID_`/`_FIRST` value before picking it -- `78` was issued twice once
+## (`ID_HELP_DOCS` and what is now `ID_LOD_TILE_BORDERS`), and this file's own
+## note on that says why a number must be free everywhere, not just in its own
+## popup.
+const ID_EDIT_RESET_PARAMS := 600
+const ID_PREF_GPU_RETRY := 601
+const ID_WIN_SAVE_LAYOUT := 602
+const ID_WIN_FORGET_LAYOUT := 603
+const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
+const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
+const ID_GFX_EXAG_ENGINE := 623
+const ID_ATLAS_CAP_FIRST := 630     ## rung i is +i (630-636)
+## The built-in `Default` is `ID_WIN_LAYOUT_FIRST`; saved layout i is +1+i.
+const ID_WIN_LAYOUT_FIRST := 640
+
+## Marks a popup row as a **readout**: disabled, carrying a live value, and not
+## a command at all. `command_index.gd`'s walk reads it -- without it, a row
+## that exists to print `1.6 GB of 12 GB` was indexed as an action a user could
+## search for, tap, and get nothing from, which is the exact defect that file's
+## own header says it was built to prevent. Only `_todo()` mints an unavailable
+## command; `_readout()` mints one of these.
+const META_READOUT := "readout"
+
+## Marks a popup row as a **signpost**: prose that points somewhere else, or
+## states what the rows around it do. Disabled because there is nothing to
+## press, and deliberately without a tooltip -- a tooltip on a sentence is a
+## second copy of the sentence.
+##
+## The marker exists because "disabled and silent" is not, on its own, a
+## distinguishable claim. `_menuwire_probe.gd` asserts that every disabled row
+## states a reason, and it was matching the three signposts by their wording;
+## the day one of those sentences is reworded, the probe either fails on a row
+## that is fine or -- far worse -- a genuinely undisclosed gap slips through by
+## resembling one. An author has to opt a row in here, which is the same
+## explicitness the probe's old hand-written caption list had, minus the
+## dependence on prose that moves.
+const META_SIGNPOST := "signpost"
 
 var _shell: DccShell
 var _bridge: EngineBridge
@@ -208,10 +252,13 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
 var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
-	## radio rows shows checked. Not persisted (`DccSettings` carries no theme
-	## key yet): §2.5's "follow system" is explicitly a one-shot resolve, not a
-	## live subscription, so there is no ongoing mode to save beyond the plain
-	## dark/light bit `DccTheme.is_dark()` already is.
+	## radio rows shows checked. **Persisted since 2026-08-31**
+	## (`DccSettings.theme_mode()`); the note that stood here said there was
+	## "no ongoing mode to save beyond the plain dark/light bit", which was
+	## wrong in exactly the way that mattered: `system` is a third mode, and
+	## dropping it on exit meant a user who chose Follow system got Dark back
+	## every launch. `BUILD_ANSWERS.md:98-99`: "Device, theme and units persist
+	## ... and restore on load."
 ## §2.5 Tiles & LOD. `_atlas_popup`'s first row is a live status readout, so
 ## its index is kept the way `_ap_stats_idx` keeps the Asset pack one.
 var _tile_size_popup: PopupMenu
@@ -222,6 +269,10 @@ var _light_az_popup: PopupMenu
 var _light_alt_popup: PopupMenu
 var _light_amb_popup: PopupMenu
 var _light_num_popup: PopupMenu
+## The rig submenu's own provenance readout -- which of the four keys the user
+## has stored and which are following the engine. Tracked by index because,
+## like the atlas stats row, it carries no id.
+var _light_source_idx: int = -1
 var _atlas_popup: PopupMenu
 var _atlas_stats_idx: int = -1
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
@@ -231,6 +282,23 @@ var _undo_budget_popup: PopupMenu
 var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own row; a
 	## submenu row carries no id, so its index is the only handle there is --
 	## the same reason `_track_gpu_pref_row` below keeps indices.
+## `Edit ▸ Reset one stage`, `Preferences ▸ Graphics ▸ Relief exaggeration`,
+## `Preferences ▸ Tiles & LOD ▸ Atlas cache ▸ Size cap` and `Window ▸ Layouts` --
+## the 2026-08-31 batch. `_layout_names` is index-parallel to the saved rows of
+## `_layouts_popup` (which is rebuilt on every popup, since saving adds to it);
+## `_window_popup` is held because the five region flags a layout captures live
+## as that popup's own check state and nothing else publishes them.
+var _reset_stage_popup: PopupMenu
+var _exag_popup: PopupMenu
+var _atlas_cap_popup: PopupMenu
+var _layouts_popup: PopupMenu
+var _layout_names: Array[String] = []
+var _window_popup: PopupMenu
+## `Preferences ▸ Performance ▸ Try the GPU again`. Enabled only while a
+## readback failure is on record, so its index is tracked the way
+## `_working_set_row` is -- it carries an id, but the refresh needs the row
+## whether or not `get_item_index` is cheap on a menu opened by hover.
+var _gpu_retry_row := -1
 var _workspace_popup: PopupMenu
 var _windows_popup: PopupMenu
 var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popup`, index-parallel to its items
@@ -239,7 +307,12 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	_shell = shell
 	_bridge = bridge
 	_host = host
-	_theme_mode = "dark" if DccTheme.is_dark() else "light"
+	## **The stored choice, not whatever `DccTheme` booted with.** This line
+	## read `"dark" if DccTheme.is_dark() else "light"`, which could only ever
+	## answer "dark": `DccTheme._dark` is a static initialised to `true` and
+	## nothing writes it before this point. So the radio described the boot
+	## palette rather than a setting, and there was no setting.
+	_theme_mode = DccSettings.theme_mode()
 	shell.add_menu("File", _file)
 	shell.add_menu("Edit", _edit)
 	shell.add_menu("Assets", _assets)
@@ -247,6 +320,12 @@ func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	shell.add_menu("Preferences", _preferences)
 	shell.add_menu("Window", _window)
 	shell.add_menu("Help", _help)
+	## After the seven menus, never before: `_apply_theme_mode()` repaints the
+	## whole tree through `DccShell.rebuild_theme()`, and the menu bar built
+	## above is part of that tree. Everything created *later* -- every dialog
+	## in `app.gd`'s `_ready` -- is built straight from the palette this has
+	## already swapped, so one pass here covers both halves.
+	_apply_theme_mode(_theme_mode)
 
 ## Add an item the port cannot yet honour. Disabled, with the reason attached,
 ## so the menu never promises behaviour that does not exist.
@@ -255,6 +334,52 @@ func _todo(p: PopupMenu, text: String, why: String) -> void:
 	var i := p.item_count - 1
 	p.set_item_disabled(i, true)
 	p.set_item_tooltip(i, why)
+
+## Add a row that **prints something** rather than doing something: disabled,
+## with its live value as the text and the explanation as the tooltip.
+##
+## Distinct from `_todo()`, which is disabled for the opposite reason -- a
+## command that cannot run yet. The two look identical on screen and are not
+## the same claim, and `command_index.gd` was reading all five of this shell's
+## readouts as unavailable *commands* because nothing told them apart. The
+## marker is the metadata, not the tooltip: several of these have their text
+## and tooltip rewritten on every `about_to_popup`, and metadata survives that.
+##
+## Returns the row index, since every caller refreshes it later.
+func _readout(p: PopupMenu, text: String, why: String) -> int:
+	p.add_item(text)
+	var i := p.item_count - 1
+	p.set_item_disabled(i, true)
+	p.set_item_tooltip(i, why)
+	p.set_item_metadata(i, META_READOUT)
+	return i
+
+## Add a line of **signposting prose**: disabled, silent, and marked as chrome.
+##
+## Not a command and not a claim about one, so `_todo()`'s tooltip would have
+## nothing to say that the text does not already say. See `META_SIGNPOST`.
+##
+## Returns the row index; a caller that rewrites the line later needs it.
+func _signpost(p: PopupMenu, text: String) -> int:
+	p.add_item(text)
+	var i := p.item_count - 1
+	p.set_item_disabled(i, true)
+	p.set_item_metadata(i, META_SIGNPOST)
+	return i
+
+## Whether the loaded **native library** exports `method` -- which is not the
+## same question as whether `EngineBridge` has a wrapper for it, and only the
+## first one can decide whether a row is honest.
+##
+## Every wrapper in `engine_bridge.gd` degrades to a safe default on an older
+## cdylib (`_has()` warns once and returns a zero/false/empty), so
+## `_bridge.has_method()` goes on answering `true` long after the feature is
+## gone -- and a row gated on it would sit enabled over a call that quietly
+## does nothing, which is precisely what this file's honesty rule forbids.
+## Both are asked, because a shell can also be older than its own bridge.
+## `app.gd` reaches the same way (`bridge.world_gen.has_method(...)`).
+func _engine_has(method: String) -> bool:
+	return _bridge != null and _bridge.world_gen != null and _bridge.world_gen.has_method(method)
 
 func _live(p: PopupMenu, text: String, id: int, accel: Key = KEY_NONE) -> void:
 	p.add_item(text, id)
@@ -364,8 +489,7 @@ func _file(p: PopupMenu) -> void:
 	## canvas's own two lines, at the canvas's own width.
 	for line in ["imports live under Data ▸ Import",
 			"asset packs under Assets"]:
-		p.add_item(line)
-		p.set_item_disabled(p.item_count - 1, true)
+		_signpost(p, line)
 
 	p.about_to_popup.connect(func():
 		_refresh_recent_worlds()
@@ -457,9 +581,8 @@ func _refresh_recent_worlds() -> void:
 	_recent_popup.clear()
 	var recents: Array = DccSettings.recent_projects()
 	if recents.is_empty():
-		_recent_popup.add_item("No recent projects")
-		_recent_popup.set_item_disabled(0, true)
-		_recent_popup.set_item_tooltip(0, "Projects are opened by path -- this fills in as File ▸ Open project… is used.")
+		_readout(_recent_popup, "No recent projects",
+			"Projects are opened by path -- this fills in as File ▸ Open project… is used.")
 		return
 	for i in recents.size():
 		var path := String(recents[i])
@@ -501,11 +624,27 @@ func _edit(p: PopupMenu) -> void:
 	## clicks away in the dock beside the stack it edits.
 	_live(p, "Undo", ID_UNDO, KEY_MASK_CTRL | KEY_Z)
 	var undo_idx := p.item_count - 1
-	_todo(p, "Redo",
-		"Global undo has no redo, in this port or the reference: undoLast() pops the snapshot " +
-		"rather than moving a cursor through a history, so an undone step is gone. " +
-		"The Sculpt draft's own stamp history (right dock, while the Sculpt tool is active) " +
-		"does have a real Redo.")
+	## **The reason on this row expired on 2026-08-31.** It said "global undo
+	## has no redo, in this port or the reference", which was true of a ledger
+	## that popped rather than cursored -- and the engine grew `redo_available`
+	## / `redo_label` / `redo_last` that same day. A reason that outlives its
+	## gap is the same defect as wiring that does not work.
+	##
+	## Guarded on the binding rather than assumed present, exactly as every
+	## other row here that reaches a young `#[func]` is: a shell newer than the
+	## `libcartalith_godot` beside it must go back to being disabled and say
+	## which half is missing (`engine_bridge.gd`'s `_has()` block).
+	var redo_idx := -1
+	if _bridge.has_method("redo_available") and _engine_has("redo_available"):
+		_live(p, "Redo", ID_REDO, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_Z)
+		redo_idx = p.item_count - 1
+	else:
+		_todo(p, "Redo",
+			"This GDExtension build predates the global redo binding (WorldGen.redo_available " +
+			"is missing) -- almost always a native library older than this shell. Rebuild it. " +
+			"The Sculpt draft's own stamp history (right dock, while the Sculpt tool is active) " +
+			"has a Redo either way, and is a different stack: it steps back through an " +
+			"uncommitted draft's stamps rather than through committed height operations.")
 	## `GUI_GAP_REGISTER.md` **ED-02**, built 2026-08-25 as the *ledger* §7.1
 	## asked for rather than the five-row list a previous pass declined to
 	## ship. It records every commit and reverses the ones it can, saying per
@@ -595,6 +734,21 @@ func _edit(p: PopupMenu) -> void:
 	## method yet.
 	_live(p, "Find on map…", ID_FIND_ON_MAP, KEY_MASK_CTRL | KEY_F)
 
+	p.add_separator()
+	## `reset_params()` has been on the bridge (`engine_bridge.gd`) and bound
+	## in `lib.rs` since the parameter table landed, in **both** of its forms --
+	## the whole table, or a named subset -- and the shell called neither. The
+	## two rows here are those two forms and nothing more.
+	##
+	## Neither regenerates. The engine reads the table once at the start of a
+	## run, so a reset is a change to what the *next* Generate will build, and
+	## saying otherwise on the row would be the same overclaim `param_set`'s own
+	## comment warns about.
+	_live(p, "Reset generation parameters", ID_EDIT_RESET_PARAMS)
+	var reset_idx := p.item_count - 1
+	p.set_item_tooltip(reset_idx, RESET_ALL_TIP)
+	_build_reset_stage_menu(p)
+
 	## The row's label carries the operation name and the live cost, the way
 	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
 	## "N steps saved · M MB". Rebuilt on every popup because both change
@@ -609,8 +763,132 @@ func _edit(p: PopupMenu) -> void:
 				_undo_depth_text(stats), _mb(int(stats.get("bytes", 0)))])
 		else:
 			p.set_item_text(undo_idx, "Undo")
-			p.set_item_tooltip(undo_idx, _undo_empty_reason()))
+			p.set_item_tooltip(undo_idx, _undo_empty_reason())
+		if redo_idx >= 0:
+			var can_redo: bool = _bridge.redo_available()
+			p.set_item_disabled(redo_idx, not can_redo)
+			p.set_item_text(redo_idx,
+				("Redo %s" % _bridge.redo_label()) if can_redo else "Redo")
+			## The empty-state reason says only what was actually checked --
+			## `redo_available()` came back false -- and points at the ledger
+			## rather than describing a stack shape this file has not read.
+			p.set_item_tooltip(redo_idx,
+				"Puts back the step Undo took off. Edit ▸ Undo history… shows the whole ledger." if can_redo
+				else "Nothing to redo (WorldGen.redo_available() is false). Edit ▸ Undo history… shows what the ledger is holding.")
+		## Both reset rows go dark for a generation, for `param_set`'s own
+		## reason: the worker thread holds the engine object mutably borrowed,
+		## and reaching a `#[func]` anyway is the `Gd<T>::bind() failed, already
+		## bound` failure `engine_bridge.gd`'s multi-GPU block documents.
+		var params_busy: bool = _bridge.generating or not _bridge.params_available()
+		p.set_item_disabled(reset_idx, params_busy)
+		p.set_item_tooltip(reset_idx, RESET_BUSY_TIP if params_busy else RESET_ALL_TIP))
 	p.id_pressed.connect(_on_edit)
+
+const RESET_ALL_TIP := "Puts every generation parameter back to the engine's own default (WorldGen.reset_params). It does not regenerate: the engine reads the table once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
+const RESET_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and a reset landing mid-run could not have affected the world being built anyway."
+
+## §2.2's Redo, and the mirror of `app.gd`'s `undo_last()`.
+##
+## Kept here rather than added there because `app.gd` belongs to another pass:
+## the engine reverts the height field and deliberately does **not** re-run
+## flow, rivers or climate (`undo.rs`), so repainting is the caller's job and
+## somebody has to do it. Collapses to one `_host.redo_last()` call the day
+## that twin exists.
+func _redo_last() -> void:
+	if not (_bridge.has_method("redo_last") and _engine_has("redo_last")):
+		return
+	var label := String(_bridge.redo_label())
+	if not _bridge.redo_last():
+		_host.set_status("hint", "Nothing to redo.", "text_ghost")
+		return
+	if _host.viewport != null:
+		_host.viewport.map_view.texture = _bridge.color_texture()
+		_host.viewport.set_preview_texture(null)
+	_host.set_status("pass", "redid %s" % label.to_lower(), "text_dim")
+	## ED-02: the ledger moved, so the panel showing it is stale. A no-op
+	## unless History is the live right-dock context.
+	if _host.right_dock_ctrl != null:
+		_host.right_dock_ctrl.refresh_history()
+
+## `Edit ▸ Reset one stage` -- the `keys` half of `reset_params(keys)`.
+##
+## The stage list is `WorldWorkspace.STAGES`, **read and never copied**: that
+## table already carries each stage's parameter `groups` and its loose `keys`,
+## and a second copy of a ten-stage mapping here is exactly the
+## hand-maintained catalogue `command_index.gd`'s header calls "the most
+## reliably stale document a project can own". A stage the engine does not
+## parameterise resolves to no keys and is drawn disabled carrying that stage's
+## own `gap` prose, which is the true reason rather than an invented one.
+func _build_reset_stage_menu(p: PopupMenu) -> void:
+	_reset_stage_popup = PopupMenu.new()
+	_reset_stage_popup.name = "ResetStage"
+	_shell.style_popup(_reset_stage_popup)
+	for i in WorldWorkspace.STAGES.size():
+		var stage: Dictionary = WorldWorkspace.STAGES[i]
+		_reset_stage_popup.add_item("%02d %s" % [i + 1, String(stage.get("name", "?"))],
+			ID_RESET_STAGE_FIRST + i)
+	_reset_stage_popup.id_pressed.connect(_on_reset_stage)
+	_reset_stage_popup.about_to_popup.connect(_refresh_reset_stage_menu)
+	p.add_child(_reset_stage_popup)
+	p.add_submenu_item("Reset one stage", "ResetStage")
+	p.set_item_tooltip(p.item_count - 1,
+		"The same reset narrowed to one pipeline stage's own parameters -- reset_params(keys), the binding's second form. Stage numbering is WORLD's own 01-10.")
+	_refresh_reset_stage_menu()
+
+## Which parameter keys a stage owns: everything in its `groups`, by the
+## engine's own `param_info(key).group`, plus the loose `keys` the table lists
+## for stages whose controls do not share a group. A listed key the running
+## cdylib does not publish is dropped rather than counted -- `reset_params`
+## would skip it anyway, and a count that overstates what a click does is the
+## same lie as an inert control.
+func _stage_param_keys(stage: Dictionary) -> Array:
+	var out: Array = []
+	var groups: Array = stage.get("groups", [])
+	if not groups.is_empty():
+		for k in _bridge.param_keys():
+			var info: Dictionary = _bridge.param_info(String(k))
+			if groups.has(String(info.get("group", ""))):
+				out.append(String(k))
+	for k in stage.get("keys", []):
+		var key := String(k)
+		if out.has(key) or _bridge.param_info(key).is_empty():
+			continue
+		out.append(key)
+	return out
+
+func _refresh_reset_stage_menu() -> void:
+	if _reset_stage_popup == null:
+		return
+	var busy: bool = _bridge.generating or not _bridge.params_available()
+	for i in WorldWorkspace.STAGES.size():
+		var idx := _reset_stage_popup.get_item_index(ID_RESET_STAGE_FIRST + i)
+		if idx < 0:
+			continue
+		var stage: Dictionary = WorldWorkspace.STAGES[i]
+		var keys := _stage_param_keys(stage)
+		_reset_stage_popup.set_item_disabled(idx, busy or keys.is_empty())
+		if keys.is_empty():
+			_reset_stage_popup.set_item_tooltip(idx,
+				"This stage exposes no parameters to reset. " + String(stage.get("gap", "")))
+		elif busy:
+			_reset_stage_popup.set_item_tooltip(idx, RESET_BUSY_TIP)
+		else:
+			_reset_stage_popup.set_item_tooltip(idx,
+				"Puts this stage's %d parameter%s back to the engine's default. Takes effect on the next Generate." % [
+					keys.size(), "" if keys.size() == 1 else "s"])
+
+func _on_reset_stage(id: int) -> void:
+	var i := id - ID_RESET_STAGE_FIRST
+	if i < 0 or i >= WorldWorkspace.STAGES.size():
+		return
+	var stage: Dictionary = WorldWorkspace.STAGES[i]
+	var keys := _stage_param_keys(stage)
+	if keys.is_empty() or _bridge.generating:
+		return
+	_bridge.reset_params(keys)
+	_host.set_status("hint", "%s: %d parameter%s back to default (next Generate)" % [
+		String(stage.get("name", "?")), keys.size(),
+		"" if keys.size() == 1 else "s"], "text_dim")
 
 ## Why there is nothing to undo -- three genuinely different situations, and
 ## saying "nothing to undo" for all three would hide the interesting one (a
@@ -653,6 +931,12 @@ func _on_edit(id: int) -> void:
 		ID_FIND_ON_MAP:
 			if _host.has_method("open_find_on_map"):
 				_host.open_find_on_map()
+		ID_REDO: _redo_last()
+		ID_EDIT_RESET_PARAMS:
+			if not _bridge.generating and _bridge.params_available():
+				_bridge.reset_params()
+				_host.set_status("hint",
+					"every generation parameter back to default (next Generate)", "text_dim")
 
 # -- §2.3 Assets --------------------------------------------------------------
 
@@ -824,10 +1108,23 @@ func _build_landmark_types_menu(p: PopupMenu) -> void:
 	## document a project can own".
 	var kinds := _landmark_kinds()
 	if kinds.is_empty():
+		## **Re-worded 2026-08-31, and it was a false reason, not a stale one.**
+		## It read "EngineBridge carries no landmark_kinds(), so there is no
+		## vocabulary to list" -- but `landmark_kinds()` is bound (`lib.rs`),
+		## its own doc says it needs no generated world, and the bridge fills
+		## its cache at init, before `build()` runs. So the branch was
+		## unreachable *and* wrong, which is the worse pair: it could never be
+		## seen, never be corrected, and read to the next auditor as a live gap.
+		##
+		## Kept rather than deleted, because one thing genuinely does empty
+		## this list -- a native library older than this shell -- and that is
+		## what it now says. Same guard, true reason.
 		_todo(_landmark_popup, "No landmark types",
-			"EngineBridge carries no landmark_kinds(), so there is no vocabulary "
-			+ "to list. CIVIL ▸ Landmarks says the same thing at greater length. "
-			+ "Neither invents a list to fill the gap.")
+			"This GDExtension build returned no landmark vocabulary. That means a "
+			+ "libcartalith_godot older than this shell, one predating "
+			+ "landmark_kinds() -- rebuild the native library. CIVIL ▸ Landmarks "
+			+ "says the same thing at greater length. Neither invents a list to "
+			+ "fill the gap.")
 	else:
 		var order: Array[String] = []
 		var by_fam := {}
@@ -896,8 +1193,7 @@ func _build_landmark_family(family: String, kinds: Array, index: int) -> void:
 	## `command_index.gd`'s walk classifies it as chrome rather than indexing it
 	## as an action a user could search for and get nothing from (its own comment
 	## on the File menu's two "imports live under…" rows).
-	sub.add_item("Rows here read state; they do not arm a type.")
-	sub.set_item_disabled(sub.item_count - 1, true)
+	_signpost(sub, "Rows here read state; they do not arm a type.")
 	## Every leaf is a destination, so which one was picked does not change what
 	## happens -- §6.3's whole point. The id is taken and dropped.
 	sub.id_pressed.connect(func(_id: int): _open_landmark_dock(family))
@@ -1055,17 +1351,19 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	## refreshed on every `about_to_popup` (the same pattern `_quality_popup`'s
 	## own live-check row and `_refresh_recent_worlds()` already use).
 	ap.add_separator("ACTIVE PACK")
+	## Marked a readout even though it opens with no tooltip: the first
+	## `_refresh_asset_pack_stats()` gives it one, and by the time
+	## `CommandIndex` walks these menus it looks exactly like the five
+	## permanent readouts. The marker is what stops it being indexed as a
+	## command the moment it stops being silent chrome.
 	_ap_stats_idx = ap.item_count
-	ap.add_item("— loading —")
-	ap.set_item_disabled(ap.item_count - 1, true)
+	_readout(ap, "— loading —", "")
 	## `schema   2 · STORED zip` is the canvas's own row, verbatim. The longer
 	## "(frozen timestamps, byte-reproducible)" gloss this used to carry made
 	## this popup 512 px wide against the canvas's 306 -- a `PopupMenu` sizes
 	## itself to its widest item, and that one row was setting the width of the
 	## whole panel. The gloss is on the tooltip.
-	ap.add_item("schema   2 · STORED zip")
-	ap.set_item_disabled(ap.item_count - 1, true)
-	ap.set_item_tooltip(ap.item_count - 1,
+	_readout(ap, "schema   2 · STORED zip",
 		"Frozen timestamps, byte-reproducible: the same library exports to the same bytes.")
 	ap.add_item("Pack metadata…   name · author · license", ID_AP_PACK_META)
 	ap.set_item_tooltip(ap.item_count - 1,
@@ -1407,6 +1705,7 @@ func _preferences(p: PopupMenu) -> void:
 				p.set_item_tooltip(row, why if busy else _gpu_pref_tips[i])
 		if _undo_pref_row >= 0 and _undo_pref_row < p.item_count:
 			p.set_item_tooltip(_undo_pref_row, _undo_pref_tip())
+		_refresh_gpu_retry_row(p)
 		_refresh_working_set_row(p))
 	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
 	## backs. Each is a submenu rather than a dialog -- every one of them is a
@@ -1426,6 +1725,15 @@ func _preferences(p: PopupMenu) -> void:
 	else:
 		_todo(p, "VRAM budget", "Same -- this build predates the multi-GPU API.")
 		_todo(p, "Fallback when VRAM full", "Same.")
+	## `cartalith-gpu`'s own `multi.rs::clear_readback_failures()`, whose doc
+	## asks for exactly this row: *"for a 'try the GPU again' affordance after
+	## the user changes something (a driver update, a smaller world) that might
+	## make it work."* A failed readback records that grid size against the
+	## adapter and every later dispatch at that size or larger is refused
+	## (`cartalith-gpu/src/lib.rs:1217 multi::readback_failure_cells` decides,
+	## recorded at `:1240 multi::note_readback_failure`) -- for the rest of
+	## the session, with no way back short of restarting the app.
+	_build_gpu_retry_row(p)
 	p.add_separator("GRAPHICS")
 
 	## Render quality is real: the engine ships named tiers and recommends one.
@@ -1460,6 +1768,17 @@ func _preferences(p: PopupMenu) -> void:
 	## menu destroying data on the user's behalf. `app.gd`'s
 	## `_apply_lighting_defaults()` carries that reasoning at the call site.
 	_build_lighting_menu(p)
+	## §2.5 Graphics, and `BUILD_ANSWERS.md` §3's own destination for the
+	## phone's 2D/3D FAB toast -- which had nowhere real to point.
+	##
+	## **The same shape as the lighting rig above, for the same reason.** `exag`
+	## is a `render.rs` tunable the engine has bound all along and
+	## `render_workspace.gd` already renders live per world; what was missing is
+	## only the project-level default a fresh Generate starts from, which is a
+	## settings key rather than new rendering. No 3D viewport is involved: this
+	## is the 2D relief the hillshade is computed from, exactly as the
+	## reference's own Relief slider was.
+	_build_relief_exag_menu(p)
 	p.add_separator("TILES & LOD")
 	## **§2.5's Tiles & LOD group is four items, and this menu shipped all four
 	## behind one disabled row** reading `Tiled LOD · tile size · LOD level ·
@@ -1531,9 +1850,8 @@ func _preferences(p: PopupMenu) -> void:
 	## inline readout; this menu had only the dialog below it, so the one number
 	## §2.5 wanted on the row itself was two clicks away. Both now: the row is
 	## the spec's line, the dialog is `PerformanceWindow`, which carries more.
-	p.add_item("Working set")
-	_working_set_row = p.item_count - 1
-	p.set_item_disabled(_working_set_row, true)
+	_working_set_row = _readout(p, "Working set",
+		"This process's own allocations against the machine's physical RAM. Refreshed on every popup.")
 	_refresh_working_set_row(p)
 	_live(p, "Working set…", ID_PREF_WORKING_SET)
 	## PR-12, live 2026-08-24. There is now a real cache to clear: the
@@ -1558,6 +1876,16 @@ func _preferences(p: PopupMenu) -> void:
 	_theme_popup.name = "ThemeChoice"
 	_theme_popup.add_radio_check_item("Dark", ID_PREF_THEME_DARK)
 	_theme_popup.add_radio_check_item("Light", ID_PREF_THEME_LIGHT)
+	## **The map does not follow the theme, and nothing said so.**
+	## `BUILD_ANSWERS.md:106-107` rules that the canvas deliberately stays dark
+	## under Light -- *"a light map is a style preset, not a theme
+	## consequence"* -- and the product disclosed it nowhere, so Light read as
+	## a half-broken repaint rather than a decision. Verified in the code this
+	## session rather than taken from the answer: `viewport_host.gd` contains no
+	## `is_dark`, no `rebuild_theme` and no palette reference at all, so the map
+	## genuinely cannot follow.
+	_theme_popup.set_item_tooltip(1,
+		"Repaints the shell chrome. The map canvas stays dark either way -- a light map is a style preset, not a theme consequence. The map's own palette is chosen in RENDER, on the style chips (Antique, Ink, Watercolor, Print) and the Base look beside them.")
 	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
 	if not DisplayServer.is_dark_mode_supported():
 		_theme_popup.set_item_disabled(2, true)
@@ -1578,6 +1906,113 @@ func _preferences(p: PopupMenu) -> void:
 	_todo(p, "Keyboard shortcuts…",
 		"SS2.5 asks for an editable, per-context table. Help > Keyboard shortcuts... already lists every binding, read-only, by walking these menus -- so the list exists and what is missing is rebinding: a per-context store in DccSettings that both the menu accelerators here and app.gd's own key handlers read back instead of hard-coding.")
 	p.id_pressed.connect(_on_preferences.bind(p))
+
+const GPU_RETRY_NONE_TIP := "Nothing to clear: no GPU readback has failed this session, so nothing is banned. When one does fail, that grid size and every larger one are refused on that adapter until the app restarts -- and this row is what lifts it, after a driver update or on a smaller world."
+const GPU_RETRY_READY_TIP := "A GPU readback failed this session, so that grid size and every larger one are being refused on that adapter and the work is falling back to the CPU. Clearing the record lets the next generate try the GPU again."
+
+## `Preferences ▸ Performance ▸ Try the GPU again`.
+##
+## Both halves of the binding are required before the row goes live: one to ask
+## whether anything is banned, one to clear it. With only the clearer, the row
+## could never be honestly enabled -- it would be permanently dark under a
+## reason nothing had checked.
+func _build_gpu_retry_row(p: PopupMenu) -> void:
+	## Both halves are asked of the **native library**, not of `EngineBridge`:
+	## its wrappers exist unconditionally and degrade to a safe default, so
+	## `_bridge.has_method()` only answers whether this shell is new enough to
+	## have them at all. `_engine_has()` is the half that can say no.
+	var can_clear: bool = (_bridge.has_method("gpu_clear_readback_failures")
+			and _engine_has("gpu_clear_readback_failures"))
+	var can_ask: bool = (_bridge.has_method("gpu_readback_failed")
+			and _engine_has("gpu_readback_failed"))
+	if not (can_clear and can_ask):
+		var missing := "neither #[func] over it"
+		if can_ask:
+			missing = "no #[func] to clear the record"
+		elif can_clear:
+			missing = "no #[func] to ask whether anything is banned, so the row could only ever sit dark"
+		_todo(p, "Try the GPU again",
+			"cartalith-gpu records the ban and can lift it (multi.rs, clear_readback_failures), and this "
+			+ "GDExtension build exposes " + missing
+			+ ". Rebuild the native library.")
+		return
+	_live(p, "Try the GPU again", ID_PREF_GPU_RETRY)
+	_gpu_retry_row = p.item_count - 1
+	p.set_item_disabled(_gpu_retry_row, true)
+	p.set_item_tooltip(_gpu_retry_row, GPU_RETRY_NONE_TIP)
+
+func _refresh_gpu_retry_row(p: PopupMenu) -> void:
+	if _gpu_retry_row < 0 or _gpu_retry_row >= p.item_count:
+		return
+	## Dark for the duration of a generation, like every other row in this
+	## group: the clearer is a `#[func]` on `WorldGen` whatever it reaches
+	## inside `cartalith-gpu`, so calling it while the worker thread holds the
+	## object mutably borrowed is the same `Gd<T>::bind()` failure. Not routed
+	## through `_track_gpu_pref_row`, which only tracks submenu rows whose one
+	## tooltip never changes; this row has two.
+	var busy: bool = _bridge.gpu_settings_locked()
+	var banned: bool = _bridge.gpu_readback_failed()
+	p.set_item_disabled(_gpu_retry_row, busy or not banned)
+	if busy:
+		p.set_item_tooltip(_gpu_retry_row,
+			"A generation is running. The engine object belongs to the worker thread until it finishes.")
+		return
+	p.set_item_tooltip(_gpu_retry_row, GPU_RETRY_READY_TIP if banned else GPU_RETRY_NONE_TIP)
+
+# -- §2.5 Graphics ▸ relief exaggeration default -----------------------------
+
+func _build_relief_exag_menu(p: PopupMenu) -> void:
+	_exag_popup = PopupMenu.new()
+	_exag_popup.name = "ReliefExag"
+	_shell.style_popup(_exag_popup)
+	for i in DccSettings.RELIEF_EXAG_CHOICES.size():
+		_exag_popup.add_radio_check_item("%dx" % int(DccSettings.RELIEF_EXAG_CHOICES[i]),
+			ID_GFX_EXAG_FIRST + i)
+	_exag_popup.add_separator()
+	## The engine's own 3.4 is deliberately **not** a rung -- see
+	## `DccSettings.RELIEF_EXAG_ENGINE_DEFAULT`. This row is how a user gets
+	## back to it, and it erases the key rather than storing 3.4, so a later
+	## change to the engine's default still reaches anyone who has reset. Same
+	## reasoning as `Reset to the reference rig` one submenu up.
+	_exag_popup.add_item("Use the engine's own %.1fx" % DccSettings.RELIEF_EXAG_ENGINE_DEFAULT,
+		ID_GFX_EXAG_ENGINE)
+	_exag_popup.set_item_tooltip(_exag_popup.item_count - 1,
+		"render.rs's own exag: 3.4, which is what this build renders with when nothing is stored here. It is not one of the three rungs on purpose -- rounding the shipped default onto the nearest one would change every untouched install's render the moment this preference existed.")
+	_exag_popup.id_pressed.connect(_on_relief_exag)
+	_exag_popup.about_to_popup.connect(_refresh_relief_exag_menu)
+	p.add_child(_exag_popup)
+	p.add_submenu_item("Relief exaggeration", "ReliefExag")
+	p.set_item_tooltip(p.item_count - 1,
+		"The vertical exaggeration a fresh Generate starts from -- the relief the hillshade is computed from, the reference's own Relief slider. Per world it stays live under RENDER; this is only where a new world begins. Applied on Generate and never on opening a project, which carries its own stored appearance.")
+	_refresh_relief_exag_menu()
+
+func _refresh_relief_exag_menu() -> void:
+	if _exag_popup == null:
+		return
+	## Nothing checked when the key has never been written: the stored value is
+	## then the engine's 3.4, which is not on the ladder, and rounding it onto a
+	## rung would report a choice the user did not make. Same rule the autosave
+	## interval submenu states for its own off-ladder default.
+	var chosen := DccSettings.has_relief_exaggeration_default()
+	var cur := DccSettings.relief_exaggeration_default()
+	for i in DccSettings.RELIEF_EXAG_CHOICES.size():
+		_exag_popup.set_item_checked(i,
+			chosen and is_equal_approx(DccSettings.RELIEF_EXAG_CHOICES[i], cur))
+
+func _on_relief_exag(id: int) -> void:
+	if id == ID_GFX_EXAG_ENGINE:
+		DccSettings.clear_relief_exaggeration_default()
+		_refresh_relief_exag_menu()
+		_host.set_status("hint", "relief exaggeration back to the engine's %.1fx (next Generate)" % [
+			DccSettings.RELIEF_EXAG_ENGINE_DEFAULT], "text_dim")
+		return
+	var i := id - ID_GFX_EXAG_FIRST
+	if i < 0 or i >= DccSettings.RELIEF_EXAG_CHOICES.size():
+		return
+	DccSettings.set_relief_exaggeration_default(DccSettings.RELIEF_EXAG_CHOICES[i])
+	_refresh_relief_exag_menu()
+	_host.set_status("hint", "relief exaggeration default %dx (next Generate)" % [
+		int(DccSettings.RELIEF_EXAG_CHOICES[i])], "text_dim")
 
 # -- §2.5 Performance ▸ multi-GPU ---------------------------------------------
 
@@ -1684,16 +2119,12 @@ func _refresh_gpu_devices_menu() -> void:
 	## The honest memory readout, in place of §2.5's un-obtainable percentage.
 	var usage := _bridge.gpu_last_device_usage()
 	if usage.is_empty():
-		pm.add_item("Memory: not measured yet")
-		pm.set_item_disabled(pm.item_count - 1, true)
-		pm.set_item_tooltip(pm.item_count - 1,
+		_readout(pm, "Memory: not measured yet",
 			"Measured during a GPU generation, not polled. Generate once with GPU acceleration on and this shows real numbers.")
 	else:
 		for u in usage:
-			pm.add_item("%s: %d MB allocated (%d MB reserved)" % [
-				String(u.get("name", "?")), int(u.get("allocated_mb", 0)), int(u.get("reserved_mb", 0))])
-			pm.set_item_disabled(pm.item_count - 1, true)
-			pm.set_item_tooltip(pm.item_count - 1,
+			_readout(pm, "%s: %d MB allocated (%d MB reserved)" % [
+				String(u.get("name", "?")), int(u.get("allocated_mb", 0)), int(u.get("reserved_mb", 0))],
 				"This application's own GPU memory at the end of the last GPU generation, from wgpu's allocator. Not system-wide VRAM use, and not a utilisation percentage -- neither is queryable through wgpu on any backend. Read the two together: every dispatch frees its buffers as it returns, so allocated falls back to the idle baseline while reserved is what the allocator still holds from the driver -- reserved is the number that answers how much of the card this app is occupying.")
 	pm.add_separator()
 	pm.add_item("Rescan devices…", GPU_DEV_RESCAN)
@@ -1801,11 +2232,11 @@ func _refresh_gpu_vram_menu() -> void:
 			int(est.get("gw", 0)), int(est.get("gh", 0)), int(est.get("estimate_mb", 0))]
 		if int(est.get("gw", 0)) <= 0:
 			label = "Estimate available after the first generate"
-		_gpu_vram_popup.add_item(label, GPU_VRAM_CHOICES.size())
-		var i2 := _gpu_vram_popup.item_count - 1
-		_gpu_vram_popup.set_item_disabled(i2, true)
-		_gpu_vram_popup.set_item_tooltip(i2,
+		## Carries an id (so the removal above can find it) and is still a
+		## readout, not a command: `_readout()` marks it, then the id is set.
+		var i2 := _readout(_gpu_vram_popup, label,
 			"An upper bound on what this pipeline's own GPU buffers need, not a measurement of card occupancy: ten f32 grids, the count the heaviest stage (plate assignment) binds plus its staging buffers. Over budget, the fallback below decides what happens.")
+		_gpu_vram_popup.set_item_id(i2, GPU_VRAM_CHOICES.size())
 
 func _on_gpu_vram_choice(id: int) -> void:
 	if id < 0 or id >= GPU_VRAM_CHOICES.size():
@@ -1933,6 +2364,12 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	_lighting_popup = PopupMenu.new()
 	_lighting_popup.name = "LightingRig"
 	_shell.style_popup(_lighting_popup)
+	## Which of the four keys are actually stored, refreshed on every open.
+	## Needed since 2026-09-01, when this menu stopped sending an untouched
+	## key: a checked rung no longer proves the user picked it, so the menu
+	## has to say which reading it is. Silent chrome for one frame, exactly
+	## like the atlas stats row.
+	_light_source_idx = _readout(_lighting_popup, "— loading —", "")
 	_light_az_popup = _light_ladder("LightAz", "Azimuth", LIGHT_AZ_STEPS,
 		ID_LIGHT_AZ_FIRST, "sun_az_deg",
 		"Compass bearing the light comes from. 315 deg (north-west) is the cartographic convention -- lighting from the south-east makes ridges read as valleys.")
@@ -1946,9 +2383,28 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 		ID_LIGHT_NUM_FIRST, "relief_lights",
 		"Hillshade light directions, evenly spaced from the azimuth. 1 is the reference's exact single-sun shading; more reveals ridges running parallel to the primary sun.")
 	_lighting_popup.add_separator()
-	_lighting_popup.add_item("Reset to the reference rig", ID_LIGHT_RESET)
+	## Named the way `Relief exaggeration`'s own `Use the engine's own 3.4x` is
+	## named, and for the same reason: it erases the stored keys rather than
+	## writing values over them, so a later change to the engine's own rig
+	## still reaches anyone who has reset.
+	##
+	## **It forgets a default; it does not undo one already sent.** Checked
+	## against `lib.rs` 2026-09-01: `set_appearance()` writes into
+	## `appearance_over`, which nothing clears on Generate -- only
+	## `reset_appearance()` and a preset load do. So a rung sent by an earlier
+	## Generate is still overriding the tier after this row runs, and the
+	## control that takes it back is RENDER's own `Reset to quality tier`. The
+	## tooltip says so rather than claiming a reach this row does not have.
+	##
+	## It used to be called `Reset to the reference rig` and its tooltip said
+	## "315 deg / 45 deg / 0.35 ambient / 1 light -- what this build renders
+	## with out of the box", which was false in both halves: those four were
+	## being *sent* on every Generate even when untouched, and they are not
+	## what the engine renders with -- `render.rs` ships 40 deg, 0.34 ambient
+	## and 6 lights (10 on Ultra).
+	_lighting_popup.add_item("Use the engine's own rig", ID_LIGHT_RESET)
 	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1,
-		"315 deg / 45 deg / 0.35 ambient / 1 light -- what this build renders with out of the box.")
+		"Forgets all four stored rungs, so this menu stops sending them and a new world takes the engine's own rig instead. That is NOT the reference HTML's single-sun shading: render.rs ships six light directions (ten on Ultra), 40 deg elevation and 0.34 ambient. It does NOT undo a rung already applied -- once sent, a value stays an override until RENDER > Reset to quality tier hands it back.")
 	_lighting_popup.id_pressed.connect(_on_lighting)
 	_lighting_popup.about_to_popup.connect(_refresh_lighting_menu)
 	p.add_child(_lighting_popup)
@@ -1985,31 +2441,80 @@ func _light_ladders() -> Array:
 		[_light_num_popup, LIGHT_NUM_STEPS, ID_LIGHT_NUM_FIRST, "relief_lights"],
 	]
 
+## What a new world would actually start its rig from, per key: the stored
+## rung if there is one, otherwise the engine's own live value, otherwise
+## `LIGHTING_DEFAULTS`' label.
+##
+## The middle term is the one that matters and is why this is not just
+## `DccSettings.lighting_defaults()` any more. Since 2026-09-01 that call
+## returns *only* stored keys, so an untouched install would leave every
+## `cur.get(key, 0.0)` at zero and check the wrong rung in all four ladders --
+## azimuth 0 deg, ambient 0.00 -- while the engine went on rendering at 315,
+## 40, 0.34 and 6 lights. `_bridge.appearance()` is the merged tier value the
+## engine will really use, and degrades to `{}` on a build with no appearance
+## API, which is what the third term is for.
+func _effective_lighting() -> Dictionary:
+	var out: Dictionary = {}
+	for k in DccSettings.LIGHTING_DEFAULTS:
+		out[k] = float(DccSettings.LIGHTING_DEFAULTS[k])
+	if _bridge != null:
+		var live: Dictionary = _bridge.appearance()
+		for k in DccSettings.LIGHTING_DEFAULTS:
+			if live.has(k):
+				out[k] = float(live[k])
+	out.merge(DccSettings.lighting_defaults(), true)
+	return out
+
 func _refresh_lighting_menu() -> void:
 	if _lighting_popup == null:
 		return
-	var cur: Dictionary = DccSettings.lighting_defaults()
+	var cur: Dictionary = _effective_lighting()
+	var following := PackedStringArray()
 	for row in _light_ladders():
 		var sub: PopupMenu = row[0]
 		var steps: Array = row[1]
 		var key := String(row[3])
+		if not DccSettings.has_lighting_default(key):
+			following.append(key)
 		if sub == null:
 			continue
 		var v := float(cur.get(key, 0.0))
 		## Nearest rung, not equality: a value stored before a rung list changed
 		## must still read as checked somewhere rather than as nothing checked.
+		## It also lands an unstored key on the rung nearest whatever the engine
+		## is really using, which is the honest reading of "where a new world
+		## starts" -- the readout above says which of the two it is.
 		var best := 0
 		for i in steps.size():
 			if absf(float(steps[i]) - v) < absf(float(steps[best]) - v):
 				best = i
 		for i in steps.size():
 			sub.set_item_checked(i, i == best)
+	if _light_source_idx >= 0 and _light_source_idx < _lighting_popup.item_count:
+		var stored := 4 - following.size()
+		_lighting_popup.set_item_text(_light_source_idx,
+			"Following the engine" if stored == 0
+			else ("All four stored here" if stored == 4
+			else "%d of 4 stored here" % stored))
+		_lighting_popup.set_item_tooltip(_light_source_idx,
+			("Nothing is stored, so this menu sends the engine nothing on the next Generate. "
+				+ "Every rung checked below is the one nearest what the engine is rendering "
+				+ "with right now, not a choice made here."
+				if stored == 0 else
+			"A stored rung is sent on the next Generate and overrides the engine's own value. "
+				+ "Still following the engine (checked against what it renders with right now): "
+				+ " · ".join(following)
+				+ ". Use the engine's own rig below forgets the stored ones."
+				if stored < 4 else
+			"All four rungs are stored here and are sent on the next Generate, overriding the "
+				+ "engine's own values. Use the engine's own rig below forgets them."))
 
 func _on_lighting(id: int) -> void:
 	if id == ID_LIGHT_RESET:
 		DccSettings.reset_lighting_defaults()
 		_refresh_lighting_menu()
-		_host.set_status("hint", "lighting rig back to 315/45/0.35/1 light", "text_dim")
+		_host.set_status("hint",
+			"lighting rig defaults forgotten — nothing is sent on the next Generate; RENDER ▸ Reset to quality tier takes back one already applied", "text_dim")
 		return
 	for row in _light_ladders():
 		var steps: Array = row[1]
@@ -2212,15 +2717,31 @@ func _on_tile_size(id: int) -> void:
 ## `Storage locations…` already has in File and Preferences, not a second
 ## clearer. The cap and the reference's Refine pass are both real gaps and say
 ## which kind of gap each is.
+##
+## # The atlas is still write-only, and every row here says so (2026-08-31)
+##
+## Bake fills the store; nothing reads it back at draw time. That is not an
+## oversight that a one-line branch closes: a baked chunk is a stored *picture*
+## (`atlas_tile_png` -> PNG bytes), while the tile `_build_lod_tile()` draws is
+## a relief-detail **shade ratio** that `LOD_TILE_SHADER` multiplies into the
+## base raster's own colour, sampled over the tile's footprint
+## (`viewport_host.gd`, and `lod_bridge.rs`'s "What a tile actually contains").
+## Substituting one for the other would put a second, disagreeing picture on
+## top of the map -- exactly the pre-2026-08-23 defect that shader was written
+## to end. Closing it needs either a second material path that draws a baked
+## chunk as colour and bypasses the multiply, or a bake that stores the ratio
+## rather than the picture. Until one of those exists, the honest thing is what
+## these tooltips now do: describe the cache, the skip and the finalize lock,
+## and promise no read.
 func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	_atlas_popup = PopupMenu.new()
 	_atlas_popup.name = "AtlasCache"
 	_shell.style_popup(_atlas_popup)
 	_atlas_stats_idx = 0
-	_atlas_popup.add_item("— loading —")
-	_atlas_popup.set_item_disabled(0, true)
-	_todo(_atlas_popup, "Size cap · GB",
-		"The store is real and measured (atlas_status() reports chunks and bytes), but nothing evicts: bake_bridge writes chunks and only atlas_clear() removes them, all of them at once. A cap needs an eviction policy -- which chunk goes when the cap is hit -- and there is no access order or level priority recorded to choose by. The GB ladder itself would mirror Performance > VRAM budget, which already solves the presentation half.")
+	## Same as the Asset pack stats row above: silent chrome for one frame,
+	## then a live store readout with its own tooltip.
+	_readout(_atlas_popup, "— loading —", "")
+	_build_atlas_cap_menu(_atlas_popup)
 	## The reference's `#lodRefineBtn`. Live since 2026-08-30: the accessor
 	## that was owed -- `ViewportHost.visible_grid_rect()` -- now returns the
 	## grid rectangle the camera is showing plus the pyramid level that
@@ -2228,8 +2749,47 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	## arguments and nothing more. Measured on a 256x192 world at 6x zoom:
 	## 16 chunks baked in 0.26 s.
 	_atlas_popup.add_item("Refine detail for the current view", ID_LOD_REFINE_VIEW)
+	## **The read side is not wired, and this tooltip no longer says it is.**
+	## Until 2026-08-31 this row promised "panning back over this area reads
+	## from disk instead of synthesizing", which no draw path performs:
+	## `viewport_host.gd`'s `_build_lod_tile()` calls
+	## `_bridge.lod_synthesize_tile()` unconditionally with no atlas branch,
+	## and `atlas_tile_png()` -- the reader -- is wrapped in
+	## `engine_bridge.gd` (`func atlas_tile_png`, cited by name rather than by
+	## line: the number moved under a concurrent edit within one session of
+	## being written) and called by no shell file. What a refine
+	## actually buys is listed instead; see `_build_atlas_cache_menu`'s own
+	## header for why the read cannot simply be switched on.
 	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
-		"Bakes the pyramid chunks the current view touches, at the level this zoom resolves to, into the atlas cache -- so panning back over this area reads from disk instead of synthesizing. Zoom in first: at a fitted view the pyramid is not up and there is nothing to refine.")
+		"Bakes the pyramid chunks the current view touches, at the level this zoom resolves to, into the atlas cache: already-baked chunks are skipped, the store persists across sessions, and Preferences > Tiles & LOD > Chunk debug overlay marks which chunks it covers. It does NOT speed up panning back -- the deep-zoom layer still synthesizes every tile it draws, because nothing reads the cache at draw time yet. Zoom in first: at a fitted view the pyramid is not up and there is nothing to refine.")
+	_atlas_popup.add_separator()
+	## **The portable pair, wired 2026-09-01.** `atlas_export_zip(gzip)` and
+	## `atlas_import_zip(bytes)` have been bound, wrapped in
+	## `engine_bridge.gd` and exercised by `_bake_probe.gd` since the store
+	## existed, with no row anywhere -- so a bake that costs minutes could
+	## not be moved to a second machine even though the engine could do it
+	## in one call. `atlas_export_zip`'s own doc comment names this submenu
+	## as where the two rows belong; this is that.
+	##
+	## **These move the cache, not the world.** An imported archive is filed
+	## under the world key it was baked from, never this session's
+	## (`atlas_import_zip`'s own note), so importing someone else's atlas
+	## cannot silently serve their terrain as yours. `matches_current` is
+	## what says whether the two agree, and the status line reports it.
+	if _engine_has("atlas_export_zip"):
+		_atlas_popup.add_item("Export atlas…", ID_LOD_EXPORT_ATLAS)
+		_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
+			"Writes this world's baked chunks to one portable .zip -- the archive another machine can import to skip the bake. It carries the cache only: the world, its parameters and every edit live in the project .zip and are not in this file.")
+	else:
+		_todo(_atlas_popup, "Export atlas…",
+			"This GDExtension build has no atlas_export_zip(). Rebuild the native library.")
+	if _engine_has("atlas_import_zip"):
+		_atlas_popup.add_item("Import atlas…", ID_LOD_IMPORT_ATLAS)
+		_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
+			"Reads a portable atlas .zip into this machine's store. It is filed under the world key it was baked from, not this session's -- so it only speeds up a world whose key matches, and the status line says whether this one does.")
+	else:
+		_todo(_atlas_popup, "Import atlas…",
+			"This GDExtension build has no atlas_import_zip(). Rebuild the native library.")
 	_atlas_popup.add_separator()
 	_atlas_popup.add_item("Clear atlas cache now…", ID_LOD_CLEAR_ATLAS)
 	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
@@ -2238,11 +2798,86 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 		if id == ID_LOD_CLEAR_ATLAS:
 			_clear_caches()
 		elif id == ID_LOD_REFINE_VIEW:
-			_refine_current_view())
+			_refine_current_view()
+		elif id == ID_LOD_EXPORT_ATLAS:
+			_export_atlas()
+		elif id == ID_LOD_IMPORT_ATLAS:
+			_import_atlas())
 	_atlas_popup.about_to_popup.connect(_refresh_atlas_cache_menu)
 	p.add_child(_atlas_popup)
 	p.add_submenu_item("Atlas cache", "AtlasCache")
 	_refresh_atlas_cache_menu()
+
+## §2.5's `Atlas cache ▸ Size cap · GB`, live since 2026-08-31.
+##
+## The reason that stood on this row was true and named its own blocker
+## exactly -- *"a cap needs an eviction policy … there is no access order or
+## level priority recorded to choose by"* -- and the engine grew one:
+## `atlas_evict_to(max_bytes)`, which returns the bytes it freed. What is left
+## here is the ladder and the key, which is what that reason predicted the GB
+## half would be (*"would mirror Performance ▸ VRAM budget"*), so the ladder
+## is that one's shape.
+##
+## Guarded on the binding: on an older native library the row goes back to
+## being disabled, because a cap nothing enforces is a number pretending to be
+## a setting.
+func _build_atlas_cap_menu(p: PopupMenu) -> void:
+	if not (_bridge.has_method("atlas_evict_to") and _engine_has("atlas_evict_to")):
+		_todo(p, "Size cap · GB",
+			"The store is real and measured (atlas_status reports chunks and bytes) and this GDExtension build has no atlas_evict_to(), so a cap set here would be a number nothing enforces. Rebuild the native library.")
+		return
+	_atlas_cap_popup = PopupMenu.new()
+	_atlas_cap_popup.name = "AtlasSizeCap"
+	_shell.style_popup(_atlas_cap_popup)
+	for i in DccSettings.ATLAS_CAP_CHOICES.size():
+		var gb: float = DccSettings.ATLAS_CAP_CHOICES[i]
+		var text := "No cap"
+		if gb > 0.0:
+			text = ("%.1f GB" % gb) if gb < 1.0 else ("%d GB" % int(gb))
+		_atlas_cap_popup.add_radio_check_item(text, ID_ATLAS_CAP_FIRST + i)
+	_atlas_cap_popup.set_item_tooltip(0,
+		"The default, and what the atlas did before a cap existed: it grows until Clear atlas cache now, and nothing trims it.")
+	_atlas_cap_popup.id_pressed.connect(_on_atlas_cap)
+	_atlas_cap_popup.about_to_popup.connect(_refresh_atlas_cap_menu)
+	p.add_child(_atlas_cap_popup)
+	p.add_submenu_item("Size cap · GB", "AtlasSizeCap")
+	p.set_item_tooltip(p.item_count - 1,
+		"A ceiling on the baked tile store. Enforced when the cap is set and whenever this menu is opened -- a cap the app honoured only at the moment it was typed would let the very next bake walk past it. Nothing is lost that cannot be rebuilt: every evicted chunk is re-bakeable from WORLD > Finalize, which is why this trims without asking and Clear atlas cache now (which also releases the finalize lock) asks first.")
+	_refresh_atlas_cap_menu()
+
+func _refresh_atlas_cap_menu() -> void:
+	if _atlas_cap_popup == null:
+		return
+	var cur := DccSettings.atlas_cap_gb()
+	for i in DccSettings.ATLAS_CAP_CHOICES.size():
+		_atlas_cap_popup.set_item_checked(i,
+			is_equal_approx(DccSettings.ATLAS_CAP_CHOICES[i], cur))
+
+func _on_atlas_cap(id: int) -> void:
+	var i := id - ID_ATLAS_CAP_FIRST
+	if i < 0 or i >= DccSettings.ATLAS_CAP_CHOICES.size():
+		return
+	DccSettings.set_atlas_cap_gb(DccSettings.ATLAS_CAP_CHOICES[i])
+	_refresh_atlas_cap_menu()
+	var freed := _enforce_atlas_cap()
+	if freed > 0:
+		_host.set_status("hint", "atlas trimmed to the cap -- %s freed" % _gb(freed), "text_dim")
+	else:
+		_host.set_status("hint",
+			"atlas cap off" if DccSettings.ATLAS_CAP_CHOICES[i] <= 0.0
+			else "atlas cap set -- the store is already under it", "text_dim")
+	_refresh_atlas_cache_menu()
+
+## Trim the store to the stored cap; returns the bytes freed. Zero for "no
+## cap", zero when the store is already under it, and zero on a build with no
+## `atlas_evict_to` -- so every caller can treat a zero as "say nothing".
+func _enforce_atlas_cap() -> int:
+	if not (_bridge.has_method("atlas_evict_to") and _engine_has("atlas_evict_to")):
+		return 0
+	var gb := DccSettings.atlas_cap_gb()
+	if gb <= 0.0:
+		return 0
+	return int(_bridge.atlas_evict_to(int(gb * 1073741824.0)))
 
 ## The live store, from `atlas_status()` -- the same dictionary the status
 ## bar's `atlas` slot already reads, so the menu cannot report a different
@@ -2250,6 +2885,12 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 func _refresh_atlas_cache_menu() -> void:
 	if _atlas_stats_idx < 0:
 		return
+	## Enforce first, then read: otherwise this menu would print a size the cap
+	## is about to invalidate, which is the one thing a status readout must not
+	## do. Silent when it frees nothing.
+	var freed := _enforce_atlas_cap()
+	if freed > 0:
+		_host.set_status("hint", "atlas trimmed to the cap -- %s freed" % _gb(freed), "text_dim")
 	var st: Dictionary = _bridge.atlas_status()
 	if st.is_empty():
 		_atlas_popup.set_item_text(_atlas_stats_idx, "No atlas in this build")
@@ -2266,6 +2907,91 @@ func _refresh_atlas_cache_menu() -> void:
 	var clear_idx := _atlas_popup.get_item_index(ID_LOD_CLEAR_ATLAS)
 	if clear_idx >= 0:
 		_atlas_popup.set_item_disabled(clear_idx, chunks <= 0)
+	## Export has exactly the same precondition Clear does -- an empty store
+	## exports an empty `PackedByteArray`, which would write a .zip holding
+	## nothing -- so it takes the same gate and, unlike Clear, has to say so:
+	## a user who has not baked yet needs to be told that, not left guessing.
+	## Import is deliberately NOT gated on `chunks`: reading an archive in is
+	## the one atlas action that is useful precisely when the store is empty.
+	var exp_idx := _atlas_popup.get_item_index(ID_LOD_EXPORT_ATLAS)
+	if exp_idx >= 0:
+		_atlas_popup.set_item_disabled(exp_idx, chunks <= 0)
+		_atlas_popup.set_item_tooltip(exp_idx,
+			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels in the WORLD dock, or Refine detail for the current view above, first."
+			if chunks <= 0 else
+			"Writes this world's %d baked chunk%s (%s) to one portable .zip -- the archive another machine can import to skip the bake. It carries the cache only: the world, its parameters and every edit live in the project .zip and are not in this file." % [
+				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])
+
+## `Atlas cache ▸ Export atlas…`. One engine call, one file write.
+##
+## `DccBrowseDialog.choose_save_path`, not a stock `FileDialog`, for the
+## reason `app.gd`'s Save-as already gives; and `exports` is the storage
+## root this belongs under rather than `atlas_cache`, which names where
+## the LIVE store is and is not somewhere a user should be steered to
+## drop an archive.
+##
+## `gzip` is true: the chunk `rg16` payloads compress and the PNGs are
+## stored either way (`atlas_export_zip`'s own note), so the flag costs
+## nothing and the archive is the one worth moving over a network.
+##
+## An empty return is "nothing baked", not a failure -- but the row is
+## disabled in that case, so reaching it here means the export itself
+## failed and it is reported as one.
+func _export_atlas() -> void:
+	var st: Dictionary = _bridge.atlas_status()
+	if int(st.get("chunks", 0)) <= 0:
+		_host.set_status("hint", "nothing baked for this world — nothing to export", "text_dim")
+		return
+	var start := DccSettings.storage_root("exports")
+	DccBrowseDialog.choose_save_path(_host, "Export atlas cache", "zip", start,
+		"The baked tile pyramid only. The world itself is saved from File > Save project.",
+		"atlas.zip", func(path: String):
+			var bytes: PackedByteArray = _bridge.atlas_export_zip(true)
+			if bytes.is_empty():
+				_host.set_status("hint", "atlas export produced no data", "warn")
+				return
+			var f := FileAccess.open(path, FileAccess.WRITE)
+			if f == null:
+				_host.set_status("hint", "could not write %s (error %d)" % [
+					path.get_file(), FileAccess.get_open_error()], "warn")
+				return
+			f.store_buffer(bytes)
+			f.close()
+			_host.set_status("hint", "atlas exported — %s, %s" % [
+				path.get_file(), _gb(bytes.size())], "text_dim"))
+
+## `Atlas cache ▸ Import atlas…`, the read half.
+##
+## The status line reports `matches_current` because that is the only
+## thing distinguishing a useful import from an inert one: the archive is
+## always filed under the world key it was baked from, so importing one
+## from a different world stores chunks this session will never read.
+## Saying "for a different world" is the honest report of a call that did
+## exactly what it promised and still bought this world nothing.
+func _import_atlas() -> void:
+	var start := DccSettings.storage_root("exports")
+	DccBrowseDialog.choose_file(_host, "Import atlas cache", PackedStringArray(["zip"]),
+		start, "A portable atlas archive, as written by Export atlas…. Not a project .zip.",
+		func(path: String):
+			var f := FileAccess.open(path, FileAccess.READ)
+			if f == null:
+				_host.set_status("hint", "could not read %s (error %d)" % [
+					path.get_file(), FileAccess.get_open_error()], "warn")
+				return
+			var bytes := f.get_buffer(f.get_length())
+			f.close()
+			var r: Dictionary = _bridge.atlas_import_zip(bytes)
+			if not bool(r.get("ok", false)):
+				_host.set_status("hint", "atlas import failed: %s" % String(r.get("error", "unknown")), "warn")
+				return
+			var n := int(r.get("chunks", 0))
+			_host.set_status("hint", "imported %d chunk%s %s" % [n, "" if n == 1 else "s",
+				"for this world" if bool(r.get("matches_current", false))
+				else "— baked from a DIFFERENT world, so this one still synthesizes"],
+				"text_dim")
+			if _host.has_method("refresh_atlas_status"):
+				_host.refresh_atlas_status()
+			_refresh_atlas_cache_menu())
 
 ## §2.5: "Clear caches… — **Confirmation**; clears atlas + field caches, never
 ## project data."
@@ -2315,6 +3041,20 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		return
 	if id == ID_PREF_WORKING_SET:
 		_host.open_performance()
+		return
+	if id == ID_PREF_GPU_RETRY:
+		## The status line reports what the call answered, not what the row
+		## intended: `EngineBridge.gpu_clear_readback_failures()` refuses while
+		## a generation owns the engine, and this row's gating is only as fresh
+		## as the last `about_to_popup`.
+		if _bridge.gpu_clear_readback_failures():
+			_host.set_status("hint",
+				"GPU readback failures cleared -- the next generate will try the GPU again",
+				"text_dim")
+		else:
+			_host.set_status("hint",
+				"Could not clear the GPU readback record -- a generation is running.",
+				"text_dim")
 		return
 	if id == ID_PREF_CLEAR_CACHES:
 		_clear_caches()
@@ -2399,25 +3139,38 @@ func _refresh_theme_menu() -> void:
 ## nothing here re-checks it if the OS preference changes later, matching the
 ## owner's own "does not need to live-watch it".
 func _on_theme_choice(id: int) -> void:
-	var want_dark: bool
 	match id:
-		ID_PREF_THEME_DARK:
-			_theme_mode = "dark"
-			want_dark = true
-		ID_PREF_THEME_LIGHT:
-			_theme_mode = "light"
-			want_dark = false
-		ID_PREF_THEME_SYSTEM:
-			_theme_mode = "system"
+		ID_PREF_THEME_DARK: _theme_mode = "dark"
+		ID_PREF_THEME_LIGHT: _theme_mode = "light"
+		ID_PREF_THEME_SYSTEM: _theme_mode = "system"
+		_:
+			return
+	DccSettings.set_theme_mode(_theme_mode)
+	_refresh_theme_menu()
+	_apply_theme_mode(_theme_mode)
+
+## Resolve a mode to a palette and put it on screen if it differs from what is
+## drawn. Shared by the radio above and by `build()`'s boot restore, so the
+## click path and the launch path cannot drift -- the only difference between
+## them is that the boot path does not write the setting back.
+##
+## `system` is resolved **once**, here, per §2.5: not a live subscription, and
+## nothing re-checks it if the OS preference changes later.
+func _apply_theme_mode(mode: String) -> void:
+	var want_dark: bool
+	match mode:
+		"dark": want_dark = true
+		"light": want_dark = false
+		"system":
 			want_dark = DisplayServer.is_dark_mode() if DisplayServer.is_dark_mode_supported() \
 				else DccTheme.is_dark()
 		_:
 			return
-	_refresh_theme_menu()
-	if want_dark != DccTheme.is_dark():
-		var was_dark := DccTheme.is_dark()
-		DccTheme.apply_theme(want_dark)
-		_shell.rebuild_theme(was_dark)
+	if want_dark == DccTheme.is_dark():
+		return
+	var was_dark := DccTheme.is_dark()
+	DccTheme.apply_theme(want_dark)
+	_shell.rebuild_theme(was_dark)
 
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()
@@ -2431,6 +3184,10 @@ func _on_quality(id: int) -> void:
 # -- §2.6 Window --------------------------------------------------------------
 
 func _window(p: PopupMenu) -> void:
+	## Held for `_capture_layout()`/`_apply_layout()`: the five region flags a
+	## layout records live as this popup's own check state (kept honest by
+	## `_sync_region_checks`), and `DccApp` publishes no reader for them.
+	_window_popup = p
 	for entry in [
 		["Left dock", ID_WIN_LEFT], ["Right dock", ID_WIN_RIGHT],
 		["Timeline", ID_WIN_TIMELINE], ["Status bar", ID_WIN_STATUS],
@@ -2486,11 +3243,217 @@ func _window(p: PopupMenu) -> void:
 
 	p.add_separator()
 	_live(p, "Reset layout", ID_WIN_RESET)
-	_todo(p, "Save layout as…",
-		"SS2.6 lists it beside Reset layout. Every ingredient already exists and none of them is collected: dock widths, each dock's collapsed state, the five region toggles above and the active domain are all live on DccShell, and DccSettings already persists machine-scoped state (storage roots, GPU selection, autosave). What is owed is a named-preset section over data the shell is already holding, plus the read side that applies one.")
+	## §2.6's `Save layout as…`, live since 2026-08-31. The reason that stood
+	## on it was true and inventoried its own fix: *"a named-preset section over
+	## data the shell is already holding, plus the read side that applies one."*
+	## That is all this is -- `DccSettings`' `layout` section and the two
+	## functions below it. Nothing new was needed on `DccShell`.
+	_build_layouts_menu(p)
 	p.id_pressed.connect(func(id: int):
 		_host.toggle_region(id)
 		_sync_region_checks(p, id))
+
+## §2.6's named layouts. Rebuilt on every popup, like `Recent worlds` and for
+## the same reason: saving adds to the list while the menu that lists it is
+## alive.
+##
+## **`Reset layout` is the built-in first entry and is not a stored snapshot.**
+## It is code (`DccApp.toggle_region`'s own `ID_WIN_RESET` branch, which
+## re-shows every region and collapses the rail), so a saved copy of it could
+## go stale against the shell it resets -- the same reasoning
+## `DccSettings.reset_lighting_defaults()` gives for erasing keys rather than
+## writing default values over them.
+func _build_layouts_menu(p: PopupMenu) -> void:
+	_layouts_popup = PopupMenu.new()
+	_layouts_popup.name = "Layouts"
+	_shell.style_popup(_layouts_popup)
+	_layouts_popup.id_pressed.connect(_on_layout)
+	_layouts_popup.about_to_popup.connect(_refresh_layouts_menu)
+	p.add_child(_layouts_popup)
+	p.add_submenu_item("Layouts", "Layouts")
+	p.set_item_tooltip(p.item_count - 1,
+		"Named snapshots of the five region toggles above, the active domain and its mode, and the domain rail's expansion -- plus the tool sheet's detent on the phone, which is recorded and restored for real since 2026-09-01. Reset layout is the built-in first entry; Save layout as… adds one and Forget layout… removes one.")
+	_refresh_layouts_menu()
+
+func _refresh_layouts_menu() -> void:
+	if _layouts_popup == null:
+		return
+	_layouts_popup.clear()
+	_layout_names.clear()
+	_layouts_popup.add_item("Default (reset layout)", ID_WIN_LAYOUT_FIRST)
+	_layouts_popup.set_item_tooltip(0,
+		"Every region shown and the rail collapsed -- the layout the shell boots into. The same act as Reset layout above.")
+	for name in DccSettings.layout_names():
+		_layout_names.append(String(name))
+		_layouts_popup.add_item(String(name), ID_WIN_LAYOUT_FIRST + _layout_names.size())
+	_layouts_popup.add_separator()
+	_layouts_popup.add_item("Save layout as…", ID_WIN_SAVE_LAYOUT)
+	_layouts_popup.set_item_tooltip(_layouts_popup.item_count - 1,
+		"Stores what is on screen now under a name, in DccSettings beside the storage roots and the GPU selection. Machine state, not world state: a layout is which docks this screen has room for, which says nothing about the world and does not belong in its .zip.")
+	## The prune half. `DccSettings.forget_layout()` has existed alongside
+	## `save_layout`/`layout` since layouts did and had no caller, so a
+	## mistyped or obsolete name stayed in the config file forever and the
+	## list this submenu draws could only ever grow. It is the settings
+	## store's only prune path, so it is wired rather than deleted
+	## (2026-09-01).
+	if _layout_names.is_empty():
+		_todo(_layouts_popup, "Forget layout…",
+			"No saved layouts to forget. Save layout as… above makes the first one; Default is built in and is not stored.")
+	else:
+		_layouts_popup.add_item("Forget layout…", ID_WIN_FORGET_LAYOUT)
+		_layouts_popup.set_item_tooltip(_layouts_popup.item_count - 1,
+			"Deletes one saved layout from DccSettings. It does not change what is on screen -- a layout is a stored snapshot, not the live arrangement -- and Default cannot be forgotten because it is built in rather than stored.")
+
+## Everything §2.6 names, off the live shell. **No new API was added for
+## this**: the five region flags are the Window menu's own check state, and the
+## rest are `DccShell` accessors that already existed.
+func _capture_layout() -> Dictionary:
+	var regions := {}
+	if _window_popup != null:
+		for rid in WIN_REGION_IDS:
+			var i := _window_popup.get_item_index(rid)
+			if i >= 0:
+				regions[rid] = _window_popup.is_item_checked(i)
+	var out := {
+		"regions": regions,
+		"domain": _shell.active_domain(),
+		"mode": _shell.active_mode(),
+		"rail_expanded": _shell.is_rail_expanded(),
+	}
+	## The phone tool sheet's detent. `DccShell.phone_detent()` publishes it
+	## since 2026-09-01; until then this guard and its partner in
+	## `_apply_layout()` named two methods that did not exist anywhere, so the
+	## key was never written and never read while the submenu tooltip promised
+	## it. The guard stays, and is now doing what it always claimed: the
+	## capture probes instantiate `DccShell` bare, and an absent key restores
+	## nothing -- the right answer on desktop, where there is no sheet.
+	if _shell.has_method("phone_detent"):
+		out["detent"] = String(_shell.phone_detent())
+	return out
+
+func _apply_layout(data: Dictionary) -> void:
+	var regions: Dictionary = data.get("regions", {})
+	if _window_popup != null:
+		for rid in WIN_REGION_IDS:
+			if not regions.has(rid):
+				continue
+			var i := _window_popup.get_item_index(rid)
+			if i < 0 or bool(regions[rid]) == _window_popup.is_item_checked(i):
+				continue
+			## `toggle_region` flips; there is no set-visible entry point, so a
+			## difference is closed by one toggle and the menu's own check is
+			## moved with it, exactly as a click on that row would.
+			_host.toggle_region(rid)
+			_sync_region_checks(_window_popup, rid)
+	var domain := String(data.get("domain", ""))
+	if domain != "" and domain != _shell.active_domain():
+		_shell.select_domain(domain)
+	var mode := String(data.get("mode", ""))
+	if mode != "" and mode != _shell.active_mode():
+		_shell.select_domain_mode(_shell.active_domain(), mode)
+	_shell.set_rail_expanded(bool(data.get("rail_expanded", false)))
+	if data.has("detent") and _shell.has_method("set_phone_detent"):
+		_shell.set_phone_detent(String(data["detent"]))
+
+func _on_layout(id: int) -> void:
+	if id == ID_WIN_SAVE_LAYOUT:
+		_prompt_save_layout()
+		return
+	if id == ID_WIN_FORGET_LAYOUT:
+		_prompt_forget_layout()
+		return
+	var i := id - ID_WIN_LAYOUT_FIRST
+	if i == 0:
+		_host.toggle_region(ID_WIN_RESET)
+		if _window_popup != null:
+			_sync_region_checks(_window_popup, ID_WIN_RESET)
+		return
+	i -= 1
+	if i < 0 or i >= _layout_names.size():
+		return
+	var name := _layout_names[i]
+	_apply_layout(DccSettings.layout(name))
+	_host.set_status("hint", "layout \"%s\"" % name, "text_dim")
+
+## Name-and-save. Same modal shape as `Pack metadata…` above, phone presentation
+## included -- one `LineEdit`, and a same-named entry is overwritten rather than
+## duplicated (`DccSettings.save_layout`), which the note says so a user is not
+## surprised by it.
+func _prompt_save_layout() -> void:
+	var d := ConfirmationDialog.new()
+	d.title = "Save layout as"
+	d.min_size = Vector2i(360, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 8)
+	body.add_child(DccTheme.label("Name", "text_dim", DccTheme.FS_SMALL))
+	var le := LineEdit.new()
+	le.text = "Layout %d" % (DccSettings.layout_names().size() + 1)
+	le.select_all_on_focus = true
+	DccWidgets.well(le)
+	body.add_child(le)
+	DccWidgets.note(body,
+		"Records the five Window region toggles, the active domain and its mode, and the rail's expansion. An existing name is replaced, not duplicated.")
+	d.add_child(body)
+	d.ok_button_text = "Save"
+	d.confirmed.connect(func():
+		var name := le.text.strip_edges()
+		if name != "":
+			DccSettings.save_layout(name, _capture_layout())
+			_refresh_layouts_menu()
+			_host.set_status("hint", "layout \"%s\" saved" % name, "text_dim")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	if _host.is_phone():
+		DccWidgets.phone_window(d, _host)
+	_host.add_child(d)
+	if not DccWidgets.phone_present(d, _host):
+		d.popup_centered()
+	le.grab_focus.call_deferred()
+
+## Pick-and-forget, the mirror of `_prompt_save_layout()` above and built to
+## the same shape: one modal, one control, one note, the phone presentation
+## the rest of this file's dialogs already get.
+##
+## An `OptionButton` rather than a `LineEdit`: forgetting is destructive and
+## the set of valid answers is finite and already known, so there is no
+## reason to let a typo name something that does not exist -- and no reason
+## for a second confirmation on top of a modal whose OK button says Forget.
+##
+## The list is re-read at open rather than reusing `_layout_names`, which is
+## only as fresh as the last `_refresh_layouts_menu()`.
+func _prompt_forget_layout() -> void:
+	var names := DccSettings.layout_names()
+	if names.is_empty():
+		return
+	var d := ConfirmationDialog.new()
+	d.title = "Forget layout"
+	d.min_size = Vector2i(360, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 8)
+	body.add_child(DccTheme.label("Layout", "text_dim", DccTheme.FS_SMALL))
+	var ob := OptionButton.new()
+	for n in names:
+		ob.add_item(String(n))
+	ob.selected = 0
+	body.add_child(ob)
+	DccWidgets.note(body,
+		"Removes the stored snapshot only. Nothing on screen moves, and the built-in Default is unaffected.")
+	d.add_child(body)
+	d.ok_button_text = "Forget"
+	d.confirmed.connect(func():
+		var i := ob.selected
+		if i >= 0 and i < names.size():
+			var name := String(names[i])
+			DccSettings.forget_layout(name)
+			_refresh_layouts_menu()
+			_host.set_status("hint", "layout \"%s\" forgotten" % name, "text_dim")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	if _host.is_phone():
+		DccWidgets.phone_window(d, _host)
+	_host.add_child(d)
+	if not DccWidgets.phone_present(d, _host):
+		d.popup_centered()
 
 ## The five region rows were checked once at build time and never again, so a
 ## toggle left the checkmark saying the opposite of the truth until the next
@@ -2539,8 +3502,14 @@ func _refresh_open_windows() -> void:
 			_windows_popup.set_item_checked(_open_windows.size(), true)
 			_open_windows.append(dlg)
 	if _open_windows.is_empty():
-		_windows_popup.add_item("No windows open")
-		_windows_popup.set_item_disabled(0, true)
+		## The same empty state as `Open recent`'s "No recent projects", and
+		## built the same way: a readout, not a silent dark row. It said
+		## nothing at all until 2026-08-31, which `_menuwire_probe.gd` reported
+		## as the one genuine disabled-without-a-reason row left in the bar.
+		_readout(_windows_popup, "No windows open",
+			"Nothing to raise: none of the dialogs this menu tracks is open. "
+			+ "It fills in as they are opened, and picking a row brings that "
+			+ "window back to the front.")
 
 ## Brings an already-open window to front. `popup_centered()` on a `Window`
 ## that's already visible re-centres and raises it -- there is no separate

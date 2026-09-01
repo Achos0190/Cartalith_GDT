@@ -273,6 +273,27 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// `history/territory/<year>.i32` is **not** here: its name carries a year,
 /// so it is validated structurally rather than by lookup (see
 /// [`ProjectWrite::history_territory`]).
+///
+/// # `entities/landmarks.json` carries the dock's settings, not its results
+///
+/// Registered 2026-09-01. Before that the landmark layer was in no slot at
+/// all, and `write_project` rejects an unregistered slot outright, so the name
+/// had to exist here before a writer could exist anywhere.
+/// `cartalith-godot`'s `project_bridge.rs` supplies that writer
+/// (`LandmarksDoc`, written from `WorldGen::landmark_store.settings` and
+/// parsed back on open), and lists the slot in its own `ENGINE_OWNED_SLOTS`
+/// so the shell cannot overwrite a document it has no view of.
+///
+/// **The split is deliberate and the two halves are not symmetric.** The
+/// authored settings — per-kind caps, armed flags, crowding, the four class
+/// radii — are hand-entered configuration that no recomputation brings back,
+/// and until this slot existed they were never written *and* never cleared,
+/// so they followed the user out of whichever project was open last into the
+/// next one. The retained *run* is not written, because
+/// `cartalith_civ::landmark::generate` is a pure function of the world, the
+/// settings and the seed: reproducing it is one click, and showing placements
+/// taken over the previous field against a new one would be wrong, which is
+/// why `load_save` invalidates it either way.
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
@@ -280,6 +301,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/provinces.json",
     "entities/continents.json",
     "entities/journeys.json",
+    "entities/landmarks.json",
     "history/timeline.json",
     "annotations/labels.json",
     "annotations/icons.json",
@@ -1274,6 +1296,41 @@ mod tests {
         // shape every existing consumer of `SaveData` reads.
         assert_eq!(back.save.state["tect"]["plates"], 9);
         assert_eq!(back.save.state["cartalith"]["tect.seed"], 4242);
+    }
+
+    /// The landmark slot end to end at *this* crate's boundary: registered,
+    /// writable, and read back as a document rather than counted a foreign
+    /// entry. `cartalith-godot` owns the payload's shape and pins that
+    /// separately; what is asserted here is the gate it depends on, since
+    /// un-registering the slot would make `write_project` refuse a landmark
+    /// document outright and the failure would surface over there instead.
+    #[test]
+    fn the_landmarks_slot_is_open_and_round_trips() {
+        assert!(
+            DOCUMENT_SLOTS.contains(&"entities/landmarks.json"),
+            "the landmarks slot must stay registered; unregistering it makes              write_project reject a landmark document outright"
+        );
+
+        let (params, fields) = sample(6, 4);
+        let mut p = ProjectWrite::new(&params, &fields);
+        p.document(
+            "entities/landmarks.json",
+            r#"{"settings":{"crowding":1.25},"sites":[{"kind":"shrine","x":2,"y":3}]}"#,
+        );
+
+        let buf = write_to_vec(&p);
+        let back = read_project(Cursor::new(&buf)).expect("read_project should succeed");
+
+        assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+        let doc = back
+            .document("entities/landmarks.json")
+            .expect("a registered slot must come back as a document");
+        assert_eq!(doc["settings"]["crowding"], 1.25);
+        assert_eq!(doc["sites"][0]["kind"], "shrine");
+        assert!(
+            !back.foreign_entries.contains(&"entities/landmarks.json".to_string()),
+            "a registered slot must never be reported as a foreign entry"
+        );
     }
 
     #[test]

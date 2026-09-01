@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for the 2026-08-25 conformance sweep.
+## Committed probe for the 2026-08-25 conformance sweep.
 ##
 ##   1. WW-13 -- paint Commit / Discard gate on the pending draft, not on the
 ##      committed-plus-pending composite. Driven with real dabs and a real
@@ -10,6 +10,11 @@ extends Node
 ##      cross-checking against the real v3 structure.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _conform_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge
@@ -181,7 +186,9 @@ func _ready() -> void:
 	var world_texts := _texts(ws)
 	var found := false
 	for t in world_texts:
-		if String(t).find("No hydrological river entity is exposed to Godot") >= 0:
+		## Anchored on `rivers_note()`, the single owner of this text since
+		## 2026-09-01 — see the note in `_jump_probe.gd`.
+		if String(t).find(InfrastructureWorkspace.rivers_note().substr(0, 32)) >= 0:
 			found = true
 	if found:
 		_p("PASS  the IN-01 note is drawn in the WORLD dock")
@@ -192,7 +199,7 @@ func _ready() -> void:
 	_p("=== every rendered A ▸ B pointer ===")
 	var seen := {}
 	var re := RegEx.new()
-	re.compile("[A-Za-z][A-Za-z&/ ']{0,26} ▸ [A-Za-z][A-Za-z&/ '\\u2026]{0,26}( ▸ [A-Za-z][A-Za-z&/ '\\u2026]{0,26})?")
+	re.compile("[A-Za-z][A-Za-z&/ ']{0,26} ▸ [A-Za-z][A-Za-z&/ '…]{0,26}( ▸ [A-Za-z][A-Za-z&/ '…]{0,26})?")
 	var everything: Array = _texts(_app)
 	for t in everything:
 		for m in re.search_all(String(t)):
@@ -203,6 +210,7 @@ func _ready() -> void:
 	for k in keys:
 		_p("   PTR  %s" % k)
 
+	_check_bindings()
 	_p("DONE fail=%d" % _fail)
 	get_tree().quit(1 if _fail > 0 else 0)
 
@@ -213,3 +221,28 @@ func func_state(when: String, dc: Array, dd: Array, bc: Array) -> void:
 		"disabled" if (dc.size() > 0 and dc[0].disabled) else ("enabled" if dc.size() > 0 else "-"),
 		"disabled" if (dd.size() > 0 and dd[0].disabled) else ("enabled" if dd.size() > 0 else "-"),
 		"disabled" if (bc.size() > 0 and bc[0].disabled) else ("enabled" if bc.size() > 0 else "-")])
+
+
+## The staleness fingerprint, read off the shell instead of guessed at.
+##
+## `EngineBridge._has()` (`shell/engine_bridge.gd`) is the one choke point
+## every binding guard in the shell goes through, and it records the name of
+## each method the shell asked for that this build does not export;
+## `EngineBridge.missing_bindings()` hands back the set. Nothing in this probe
+## suite read it -- and a stale `target/debug/cartalith_godot.dll` has twice
+## sent every `_has()` guard in a run down its degraded-fallback branch, which
+## turns a whole sweep into a clean report over code that was never exercised.
+## That is the failure mode this suite is least able to notice on its own, and
+## the shell was already carrying the answer.
+##
+## Called last, after every surface this run drives has been driven: the set
+## only fills as guards are reached, so an early read reports an empty one.
+func _check_bindings() -> void:
+	var mb: PackedStringArray = _bridge.missing_bindings()
+	if mb.is_empty():
+		return
+	_bad("stale extension -- the shell asked for %d binding(s) this build "
+		% mb.size()
+		+ "does not export (%s). " % ", ".join(mb)
+		+ "Every result above was measured against a degraded shell; rebuild "
+		+ "the crates and re-run before believing any of it.")

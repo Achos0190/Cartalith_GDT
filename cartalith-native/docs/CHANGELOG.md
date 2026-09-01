@@ -1,3 +1,51 @@
+> # ⛔ RETIRED — 2026-08-31. Historical narrative only. Do not append. Do not trust as state.
+>
+> **This file is frozen.** It is kept because 29 534 lines of per-milestone
+> reasoning — what a function turned out to actually do, which fixture shape
+> reached the code, why a tolerance was allowed — is worth more than the disk it
+> occupies, and git commit messages do not carry it. Nothing below has been
+> deleted and nothing below will be added.
+>
+> **Where the answers moved:**
+>
+> | Question | Answer lives in |
+> |---|---|
+> | What is done, what is left, what state is a milestone in? | **`cartalith-native/docs/STATUS.md`** — the single source of truth |
+> | What happened, in order, and when? | **`git log`** |
+> | What is a milestone *defined* as, and why was it designed that way? | the owning `*_SCOPE.md` |
+> | Why was this specific line of Rust written this way? | here, if it predates 2026-08-26 — and it is still cited from source comments for exactly that |
+>
+> **It stops short of the working tree, deliberately.** The last entry heading is
+> `## 2026-08-26 (12)`; the last commit that wrote to this file was `bcabd5a`
+> (2026-08-29), a catch-up. **51 commits have landed since `bcabd5a` and none of
+> them is recorded here** — among them landmark generation shipping end to end
+> (~3 730 lines), the 49 glyphs, `DESIGN_HANDOFF.md`, the GUI replacement spec
+> and its stages 1-2, and the `UNWIRED_FUNCTIONS.md` re-cut. **Those 51 commits
+> are not going to be backfilled.** Backfilling them would rebuild the exact
+> problem this retirement solves: a second place to look for state, guaranteed to
+> fall behind again. `git log` already has them.
+>
+> **So, plainly:**
+>
+> - **Append nothing to this file.** A new milestone updates `STATUS.md` and
+>   writes a commit message. If it needs a design record, that goes in the
+>   owning scope document.
+> - **Trust nothing here as current state.** Every "done", "open", "next" and
+>   "not yet ported" below was true on the day it was written and many are not
+>   true now. Check `STATUS.md`, or check the code.
+> - **Citations to this file from source comments and scope documents remain
+>   valid** — they point at a *disclosure*, which is a historical fact and does
+>   not go stale. `cartalith-climate/src/lib.rs`, `staleness.rs`, several
+>   `golden_parity_*.rs` headers and most of `PHASE2_SCOPE.md` cite it this way.
+>   Leave those alone; they are reading history, not asking for status.
+>
+> *Retired by owner decision, 2026-08-31, alongside `STATUS.md`'s rewrite from an
+> 8 122-line narrative into a verified ledger. The two changes are one decision:
+> one place holds state, one place holds history, and neither pretends to be the
+> other.*
+
+---
+
 # Changelog
 
 One entry per milestone: what was ported or built, how it was verified, and

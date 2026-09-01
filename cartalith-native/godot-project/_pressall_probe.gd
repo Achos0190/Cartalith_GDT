@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe -- the generic form of the failure this session
+## Committed probe -- the generic form of the failure this session
 ## keeps finding: **a control that exists and does nothing.**
 ##
 ## For one window at a time: snapshot every rendered string in the whole app,
@@ -12,9 +12,16 @@ extends Node
 ## a probe that deletes the roster it is auditing proves nothing.
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _pressall_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge
+## Only `_check_bindings()` raises this today -- see its header.
+var _fail := 0
 var _big_town := 0
 
 const SKIP := [
@@ -27,6 +34,11 @@ const SKIP := [
 
 func _p(s: String) -> void:
 	print("PRESSALL  %s" % s)
+
+
+func _bad(s: String) -> void:
+	_fail += 1
+	_p("FAIL  %s" % s)
 
 
 func _frames(n: int) -> void:
@@ -177,5 +189,36 @@ func _ready() -> void:
 			w.hide()
 		await _frames(3)
 
-	_p("DONE")
-	get_tree().quit(0)
+	_check_bindings()
+	## Was `quit(0)` unconditionally. This probe reports rather than asserts,
+	## so `_fail` is only ever set by `_check_bindings()` -- but that one check
+	## is the difference between a census of the real shell and a census of a
+	## shell running against a stale library, and a census taken against the
+	## wrong binary is worse than no census.
+	_p("DONE fail=%d" % _fail)
+	get_tree().quit(1 if _fail > 0 else 0)
+
+
+## The staleness fingerprint, read off the shell instead of guessed at.
+##
+## `EngineBridge._has()` (`shell/engine_bridge.gd`) is the one choke point
+## every binding guard in the shell goes through, and it records the name of
+## each method the shell asked for that this build does not export;
+## `EngineBridge.missing_bindings()` hands back the set. Nothing in this probe
+## suite read it -- and a stale `target/debug/cartalith_godot.dll` has twice
+## sent every `_has()` guard in a run down its degraded-fallback branch, which
+## turns a whole sweep into a clean report over code that was never exercised.
+## That is the failure mode this suite is least able to notice on its own, and
+## the shell was already carrying the answer.
+##
+## Called last, after every surface this run drives has been driven: the set
+## only fills as guards are reached, so an early read reports an empty one.
+func _check_bindings() -> void:
+	var mb: PackedStringArray = _bridge.missing_bindings()
+	if mb.is_empty():
+		return
+	_bad("stale extension -- the shell asked for %d binding(s) this build "
+		% mb.size()
+		+ "does not export (%s). " % ", ".join(mb)
+		+ "Every result above was measured against a degraded shell; rebuild "
+		+ "the crates and re-run before believing any of it.")

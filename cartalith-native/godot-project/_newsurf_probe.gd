@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY, untracked probe for the 2026-08-25 "is every control wired" pass.
+## Committed probe for the 2026-08-25 "is every control wired" pass.
 ##
 ## The surfaces that landed last are the least verified, so they get driven
 ## rather than read: the trade-flow match (§42 IN-13), the undo ledger (§42
@@ -12,6 +12,11 @@ extends Node
 ## control go back to a state that matches the new world, or keep the old one's?
 ##
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _newsurf_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var _app: Node
 var _bridge

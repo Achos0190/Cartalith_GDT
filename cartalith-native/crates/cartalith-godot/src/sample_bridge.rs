@@ -63,12 +63,22 @@
 //!   flipped by hemisphere), not a compass bearing. [`aspect_deg`] is the
 //!   standard GIS downslope azimuth computed from the same central
 //!   difference `slope_at` uses. No parity claim is made for it.
-//! - The **Slope**, **Aspect**, **Resistance** and **Elevation** debug views
-//!   have no reference counterpart either (the reference's base map *is*
-//!   elevation, and it never drew slope, aspect or resistance). Their
+//! - The **Slope**, **Aspect**, **Resistance**, **Elevation**, **Local
+//!   relief** and **Topographic position** debug views have no reference
+//!   counterpart either (the reference's base map *is* elevation, and it
+//!   never drew slope, aspect, resistance or either morphometric field). Their
 //!   ramps are this port's own; every other view's ramp is ported from the
 //!   reference's own debug-overlay pixel loop (lines 8470-8530) and its
 //!   palette constants, so a view that exists in both looks the same.
+//! - **Route corridors** and **Travel cost** are a third case again: the
+//!   *fields* are straight golden-verified ports
+//!   ([`cartalith_civ::build_route_corridors`], reference line 5903;
+//!   [`cartalith_civ::build_travel_cost`], reference line 3257), but the
+//!   reference computes both purely as inputs — to settlement scoring
+//!   (`currentRouteCorridors`, line 5950) and to the road/territory
+//!   Dijkstra (line 20668) — and its own `LAYER_GROUPS` (line 13639) has no
+//!   row for either. Only the drawing is new, so only the ramps are this
+//!   port's own; the numbers under them are not.
 //!
 //! ## The layer-visualization audit (2026-08-19)
 //!
@@ -93,34 +103,48 @@
 //! technique is the faithful port, not a `_draw()` glyph layer this
 //! reference view never had.
 //!
-//! **The remaining eighteen reference rows are genuine engine gaps, not
-//! unexposed data**, confirmed by grepping every subsystem crate for the
-//! reference's own algorithm name and finding none: Köppen classification,
-//! Orogeny (the *signed* preview value needs the boundary-polyline
-//! structure `generate_terrain` folds into height and never retains —
-//! distinct from `crust_field`/`boundary_type`, which *are* retained),
-//! Geoid, Tides (both `PlanetParams`' own doc comment already says are
-//! unported, matching the reference's own `enabled:false` default),
-//! river Velocity-erosion ("Pillar 2", `cartalith-erosion` has no velocity
-//! field at all), Fjord probability, Landform classification (R5),
-//! regional Population density, the Site-profile composite, Wildlife
-//! ecoregions, and Wind-throw hazard. `LAYER_GROUPS` lists all eighteen, in
-//! the reference's own relative order, `available: false` with the real
-//! reason in each row's hint — disclosed, not omitted, per this shell's
-//! `_todo()` convention (`menus.gd`).
+//! **Four reference rows are genuine engine gaps, not unexposed data**,
+//! confirmed by grepping every subsystem crate for the reference's own
+//! algorithm name and finding none: Orogeny (the *signed* preview value
+//! needs the boundary-polyline structure `generate_terrain` folds into
+//! height and never retains — distinct from `crust_field`/`boundary_type`,
+//! which *are* retained), river Velocity-erosion ("Pillar 2",
+//! `cartalith-erosion` has no velocity field at all), regional Population
+//! density and the Site-profile composite. Those four are [`GAP_LAYERS`],
+//! `available: false` on every world, with the real reason in each row's
+//! hint — disclosed, not omitted, per this shell's `_todo()` convention
+//! (`menus.gd`).
+//!
+//! **Two counts, because the older one is still quoted around this file's
+//! history and is not this one.** *Eleven* rows can report unavailable: the
+//! four above plus seven whose refusal is per-world rather than permanent
+//! (`strahler` needs river extraction; `bclass`, `cterrain`, `windthrow`
+//! and `wildlife` need the civilisation layer's water bodies; `control`
+//! needs territory; `contested` needs at least one capital) — see
+//! [`layer_available`]. Eleven was also the *permanent* gap count when this
+//! audit was written; Köppen, Geoid, Tides, Fjord probability, Landform
+//! classification, Wildlife ecoregions and Wind-throw hazard all became real
+//! golden-verified ports on 2026-08-23, and [`GAP_LAYERS`]' own comment
+//! records which crate each landed in. *Eighteen* counted neither: it was
+//! the view count of the Layers-popover pass that preceded the audit
+//! (commit b7765c4's own message: "the prior 18-view Layers popover pass"),
+//! and that number was copied onto the gap list by mistake at the time. The
+//! audit's own verification line in the same message says the truth —
+//! "confirmed all 11 gap views report unavailable".
 
 use cartalith_civ::wildlife::current_wildlife;
 use cartalith_civ::{
     build_biome_raster, build_cart_biome, build_cart_terrain, build_carrying_capacity, build_coast_sdf, build_flood_field,
-    build_lithology, build_raw_slope_field, build_resource_potentials, build_settlement_suitability, build_slope_field,
-    build_soil_fertility, build_water_access, classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES,
-    CART_TERRAINS, LITH_NAMES,
+    build_lithology, build_raw_slope_field, build_resource_potentials, build_route_corridors,
+    build_settlement_suitability, build_slope_field, build_soil_fertility, build_travel_cost, build_water_access,
+    classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES, CART_TERRAINS, LITH_NAMES,
 };
 use cartalith_climate::geoid::current_geoid_preview;
 use cartalith_climate::koppen::{KOPPEN_KEYS, KoppenParams, compute_seasons, koppen_color};
 use cartalith_climate::tides::{TideParams, current_tide_field};
 use cartalith_climate::windthrow::build_wind_throw_field;
 use cartalith_climate::{ClimateParams, WeatherParams};
+use cartalith_terrain::analysis::{local_relief, tpi_multiscale};
 use cartalith_terrain::fjord::{build_fjord_mask, FjordMaskOpts};
 use cartalith_terrain::infer::chamfer_dist;
 use cartalith_terrain::landform::{build_landform_field, LANDFORM_COLS, LANDFORM_NAMES};
@@ -132,6 +156,33 @@ const FJORD_HI: Rgb = (60.0, 200.0, 240.0);
 /// The Wind-throw view's maximum-risk colour (reference line 8506 at
 /// `u = 1`), same reason.
 const WINDTHROW_HI: Rgb = (255.0, 50.0, 50.0);
+
+/// The Route-corridors view's two ramp stops: a corridor that has *just*
+/// cleared [`cartalith_civ::CORRIDOR_KNEE`] (`0.45`, reference line 5902)
+/// and a full one. The high stop is the reference's own primary-trade-
+/// corridor ochre (line 15518, `rgba(210,145,55,.98)`), so the field that
+/// says where a road *wants* to run and the roads the reference actually
+/// strokes share one colour rather than two.
+///
+/// [`legend`] and [`debug_raster`] both read this array, so a swatch cannot
+/// drift from the raster it captions — the pinning [`FJORD_HI`] and
+/// [`WINDTHROW_HI`] above get from a test, got structurally instead.
+const CORRIDOR_STOPS: [Rgb; 2] = [(78.0, 58.0, 34.0), (210.0, 145.0, 55.0)];
+
+/// The Travel-cost view's ramp, flat ground to this world's dearest land
+/// cell. Violet rather than the olive/gold/red the Slope view uses:
+/// [`cartalith_civ::build_travel_cost`] is `1 + 50·slope²`, monotonic in
+/// slope but *quadratic* in it, so borrowing Slope's own colours would
+/// invite reading two very differently-distributed fields as one. Read by
+/// [`legend`] as well as [`debug_raster`], same no-drift reason as above.
+const TRAVEL_COST_STOPS: [Rgb; 3] = [(236.0, 232.0, 240.0), (150.0, 96.0, 178.0), (44.0, 14.0, 62.0)];
+
+/// The Travel-cost view's water colour. [`cartalith_civ::build_travel_cost`]
+/// writes `f32::INFINITY` over water — impassable, which is a *value* rather
+/// than an exclusion, so unlike Local relief's water this one is named in the
+/// legend. The swatch itself is the one Rainfall, Local relief and
+/// Topographic position already paint their water with.
+const TRAVEL_COST_WATER: Rgb = (18.0, 34.0, 64.0);
 
 /// How far a boundary-distance query searches before giving up. A ring
 /// search is O(d²); at 96 that is ~37k cell reads worst case, which is
@@ -646,6 +697,16 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "Aspect",
                 "Downslope bearing as hue, steepness as brightness. New view and new work: the reference's aspectFactor is a shading scalar, not a bearing.",
             ),
+            (
+                "relief",
+                "Local relief",
+                "analysis::local_relief(): max - min height over the landmark pass's own 25 km window, normalised to this world's greatest land relief. Land only. New view: its own doc calls it section 2.2's first named ingredient for \"is this a landmark\", and until now it was drawn nowhere.",
+            ),
+            (
+                "tpi_multi",
+                "Topographic position",
+                "analysis::tpi_multiscale(): the two-scale RMS-normalised TPI, signed - warm above the local mean (summit, crest), cool below it (basin, hollow). Land only. New view: the form build_ao arrived at for ambient occlusion, exposed as an analysis field rather than a shading term, at the same window Local relief uses.",
+            ),
         ],
     ),
     (
@@ -665,7 +726,7 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "settle",
                 "Settlement suitability",
-                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term, which this engine doesn't compute.",
+                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term: build_route_corridors is a real, golden-verified field (see the Route corridors row below) but this scoring context doesn't thread it in -- a disclosed gap, not a missing computation.",
             ),
             (
                 "siteprofile",
@@ -687,6 +748,16 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "contested",
                 "Contested borders",
                 "territory_influence(): how evenly the owner and its nearest rival faction reach each cell, in effective cost-distance. Secure interiors keep a dim owner tint; frontiers glow amber. Built on demand from the capitals (nothing holds an influence grid) — the slowest Civilization view here, one Dijkstra per capital.",
+            ),
+            (
+                "corridor",
+                "Route corridors",
+                "build_route_corridors(): natural crossroads -- passes, fords, isthmuses -- cheap to cross with expensive flanks on both sides of at least one axis (a MIN across two flanking maxima, not a MAX). Land only. New view: the reference computes this purely as a settlement-scoring input (currentRouteCorridors, line 5950) and never drew it, though the field itself is a straight golden-verified port.",
+            ),
+            (
+                "travel_cost",
+                "Travel cost",
+                "build_travel_cost(): 1 + 50·slope² per cell, the same field the road/territory Dijkstra (line 20668) and the right dock's per-settlement readout already use. Water is impassable (infinite cost), drawn as its own colour rather than excluded. New view: the reference never drew this field either.",
             ),
         ],
     ),
@@ -943,6 +1014,16 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
         "age" => vec![sw((30.0, 32.0, 33.0), "young (near boundary)"), sw((216.0, 228.0, 235.0), "old / eroded")],
         "resistance" => vec![sw((60.0, 62.0, 74.0), "weak rock"), sw((236.0, 226.0, 196.0), "hard basement")],
         "slope" => vec![sw((52.0, 74.0, 60.0), "flat"), sw((222.0, 196.0, 96.0), "~25 deg"), sw((214.0, 78.0, 62.0), "45 deg+")],
+        "relief" => vec![
+            sw((38.0, 44.0, 42.0), "flat"),
+            sw((198.0, 178.0, 104.0), "broken"),
+            sw((240.0, 236.0, 226.0), "greatest relief in this world"),
+        ],
+        "tpi_multi" => vec![
+            sw((246.0, 232.0, 200.0), "+2.5 RMS (summit / crest)"),
+            sw((44.0, 48.0, 54.0), "at the local mean"),
+            sw((30.0, 58.0, 104.0), "-2.5 RMS (basin / hollow)"),
+        ],
         "flow" => vec![sw((28.0, 96.0, 205.0), "high discharge"), sw((120.0, 138.0, 120.0), "dry land")],
         // hue-by-bearing legends read as a compass ring, not three swatches
         // -- the ramp caption ("hue = bearing, brightness = speed") already
@@ -958,6 +1039,20 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
             .collect(),
         "carry" => vec![sw((30.0, 80.0, 30.0), "low"), sw((60.0, 220.0, 60.0), "high carrying capacity")],
         "settle" => vec![sw((80.0, 40.0, 20.0), "poor"), sw((240.0, 140.0, 50.0), "highly suitable")],
+        // Both swatches are `CORRIDOR_STOPS`/`TRAVEL_COST_STOPS` entries
+        // themselves, not restated literals -- the same structural no-drift
+        // those constants' own doc comments describe, `FJORD_HI`/
+        // `WINDTHROW_HI`'s single-colour version of the same rule.
+        "corridor" => vec![
+            sw(CORRIDOR_STOPS[0], "just clears the corridor knee (0.45)"),
+            sw(CORRIDOR_STOPS[1], "primary corridor"),
+        ],
+        "travel_cost" => vec![
+            sw(TRAVEL_COST_STOPS[0], "flat ground"),
+            sw(TRAVEL_COST_STOPS[1], "moderate slope"),
+            sw(TRAVEL_COST_STOPS[2], "this world's dearest land cell"),
+            sw(TRAVEL_COST_WATER, "water (impassable)"),
+        ],
         "fjord" => vec![sw(FJORD_HI, "fjord-prone coast"), sw((30.0, 40.0, 46.0), "no fjord")],
         // Class swatches, so the palette is the legend -- the same shape
         // `lith`/`btype` already use. Class 0 ("none") is dropped: it is the
@@ -1698,6 +1793,19 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
         }
     };
     let mut out: Vec<u8> = Vec::with_capacity(n * 4);
+    // The broad analysis window the landmark pass itself reasons at:
+    // `cartalith_civ::landmark`'s `SCALE_BROAD_KM` (25 km) through this
+    // world's own cell size, clamped to `SCALE_MIN_CELLS..=SCALE_MAX_CELLS`
+    // (2..=40 cells). Restated here rather than imported because all four of
+    // those constants are crate-private there -- the same duplicate-for-a-
+    // stated-reason call `slope_at` and `lat_at` already make in this module.
+    // Both new morphometric views below take it, so Local relief is drawn at
+    // the window the landmark pass judged relief at, and Topographic position
+    // is read at that same window instead of a second arbitrary one.
+    let landmark_r_broad = || -> i64 {
+        let cell_m = f.cell_m();
+        if cell_m > 0.0 { ((25_000.0 / cell_m).round() as i64).clamp(2, 40) } else { 2 }
+    };
 
     match id {
         "elevation" => {
@@ -1903,6 +2011,54 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                         }
                         None => push(&mut out, (34.0, 36.0, 42.0)),
                     }
+                }
+            }
+        }
+        // ---- The two computed-but-undrawn analysis fields (2026-08-31). ----
+        // Both are plain `cartalith_terrain::analysis` calls over `field`
+        // alone -- no new retained state, so the module's own memory rule
+        // holds. Until now each was reachable only from that crate's tests.
+        "relief" => {
+            let lr = local_relief(f.field, f.gw, f.gh, landmark_r_broad(), f.world);
+            // Normalised to this world's own greatest *land* relief rather
+            // than to a fixed metre ceiling: `peak_m` is a per-world knob, so
+            // a fixed ceiling would draw two worlds of identical shape at
+            // different intensities. Water is excluded from both the maximum
+            // and the drawing -- shelf and trench relief would otherwise set
+            // the scale and flatten every land value against it, the same
+            // land-only restriction `tpi_multiscale`'s own RMS makes.
+            let hi = (0..n).filter(|&i| !is_water(i)).fold(0.0f32, |a, i| a.max(lr[i]));
+            let inv = if hi > 0.0 { 1.0 / hi as f64 } else { 0.0 };
+            const STOPS: [Rgb; 4] =
+                [(38.0, 44.0, 42.0), (96.0, 110.0, 78.0), (198.0, 178.0, 104.0), (240.0, 236.0, 226.0)];
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 64.0));
+                } else {
+                    push(&mut out, ramp(&STOPS, lr[i] as f64 * inv));
+                }
+            }
+        }
+        "tpi_multi" => {
+            let t = tpi_multiscale(f.field, f.gw, f.gh, sea, landmark_r_broad(), f.world);
+            // Signed, and already divided by its own land RMS by the time it
+            // gets here -- so the ramp is diverging and its domain is stated
+            // in RMS units, not metres. +-2.5 is the tail of a normalised
+            // field; the legend captions it that way rather than implying a
+            // height. Neutral grey at the local mean, deliberately the same
+            // "nothing here" darkness the Aspect view's flat cells use.
+            const STOPS: [Rgb; 5] = [
+                (30.0, 58.0, 104.0),
+                (74.0, 104.0, 130.0),
+                (44.0, 48.0, 54.0),
+                (176.0, 150.0, 96.0),
+                (246.0, 232.0, 200.0),
+            ];
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 64.0));
+                } else {
+                    push(&mut out, ramp(&STOPS, 0.5 + t[i] as f64 / 5.0));
                 }
             }
         }
@@ -2160,6 +2316,41 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
             for &sv in suit.iter().take(n) {
                 let v = (sv as f64).clamp(0.0, 1.0);
                 push(&mut out, (80.0 + 160.0 * v, 40.0 + 100.0 * (1.0 - v), 20.0 + 30.0 * (1.0 - v)));
+            }
+        }
+        // ---- Route corridors and Travel cost: golden-verified fields the
+        // reference itself never drew (module doc's own "a third case
+        // again" section) -- computed-but-undrawn until now, the same gap
+        // Local relief and Topographic position above were closed from.
+        "corridor" => {
+            let raw_slope = build_raw_slope_field(f.field, f.gw, f.gh, f.world);
+            let flow_thresh = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km);
+            let corridor =
+                build_route_corridors(f.field, &raw_slope, Some(f.flow_discharge), f.gw, f.gh, sea, f.world, flow_thresh);
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 64.0));
+                } else {
+                    push(&mut out, ramp(&CORRIDOR_STOPS, corridor[i] as f64));
+                }
+            }
+        }
+        "travel_cost" => {
+            let cost = build_travel_cost(f.field, f.gw, f.gh, sea);
+            // `hi` is this world's own measured land-only ceiling -- there
+            // is no fixed one, since an unbounded metre-per-cell rise gives
+            // an unbounded cost. The floor is the opposite: `1.0` is the
+            // exact value `1 + 50*slope^2` reaches at zero slope, so it is
+            // used as-is rather than re-derived from this world's own
+            // (possibly-nonexistent) flattest cell.
+            let hi = (0..n).filter(|&i| !is_water(i)).fold(1.0f64, |a, i| a.max(cost[i] as f64));
+            let span = if hi > 1.0 { hi - 1.0 } else { 1.0 };
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, TRAVEL_COST_WATER);
+                } else {
+                    push(&mut out, ramp(&TRAVEL_COST_STOPS, (cost[i] as f64 - 1.0) / span));
+                }
             }
         }
         // The exact chain `currentFjordMask()` (reference line 3240) runs:
@@ -2947,11 +3138,39 @@ mod tests {
             assert!(!label.is_empty());
             assert!(LITH_COLS.contains(&(r, g, b)));
         }
+        // Route corridors and Travel cost take the structural version of the
+        // same rule: their legend swatches are `CORRIDOR_STOPS`/
+        // `TRAVEL_COST_STOPS`/`TRAVEL_COST_WATER` entries themselves (see
+        // `legend()`'s own comment there), not restated literals, so a typo
+        // cannot desync a swatch from the raster it captions the way a
+        // single-colour constant like `FJORD_HI` could.
+        let u8_of = |c: Rgb| (c.0 as u8, c.1 as u8, c.2 as u8);
+        let corridor_u8: Vec<(u8, u8, u8)> = CORRIDOR_STOPS.iter().map(|&c| u8_of(c)).collect();
+        assert_eq!(legend("corridor").len(), 2);
+        for (r, g, b, label) in legend("corridor") {
+            assert!(!label.is_empty());
+            assert!(corridor_u8.contains(&(r, g, b)), "corridor legend swatch must be a real CORRIDOR_STOPS entry");
+        }
+        let travel_u8: Vec<(u8, u8, u8)> =
+            TRAVEL_COST_STOPS.iter().chain(std::iter::once(&TRAVEL_COST_WATER)).map(|&c| u8_of(c)).collect();
+        assert_eq!(legend("travel_cost").len(), 4);
+        for (r, g, b, label) in legend("travel_cost") {
+            assert!(!label.is_empty());
+            assert!(
+                travel_u8.contains(&(r, g, b)),
+                "travel_cost legend swatch must be a real TRAVEL_COST_STOPS/TRAVEL_COST_WATER entry"
+            );
+        }
     }
 
-    /// The eighteen genuine engine gaps (`GAP_LAYERS`) must never advertise
+    /// The four genuine engine gaps (`GAP_LAYERS`) must never advertise
     /// as available, and must never draw -- with or without a civilisation
-    /// layer, with or without river extraction. A gap that silently became
+    /// layer, with or without river extraction. (Four, not the "eighteen"
+    /// this comment claimed until 2026-08-31: `GAP_LAYERS` has held four ids
+    /// since 2026-08-23, and never held eighteen -- see this module's header
+    /// for where that number actually came from and for the *eleven* rows
+    /// that can report unavailable once the seven per-world refusals in
+    /// `layer_available` are counted alongside these four.) A gap that silently became
     /// "available" (e.g. because some future match arm's id collided) would
     /// be exactly the kind of faked-looking-real regression this pass was
     /// commissioned to fix in the first place.
@@ -2985,16 +3204,128 @@ mod tests {
     /// genuinely do need one. Settlement suitability also works without a
     /// civ layer (its own `ctx.water_bodies` is simply `None` then, the
     /// same graceful-degradation `build_settlement_suitability` already
-    /// documents for a `None` `ctx` entirely).
+    /// documents for a `None` `ctx` entirely). Route corridors and Travel
+    /// cost join the list for the same reason: both read only `field` (plus
+    /// `flow_discharge`, also never `Option`), never `water_bodies`.
     #[test]
     fn new_hydrology_and_civ_affordance_views_work_without_a_civ_layer() {
         let o = owned(14, 10);
         let f = view(&o, false);
-        for id in ["wind", "ocean", "water", "flood", "rsrc", "carry", "settle"] {
+        for id in ["wind", "ocean", "water", "flood", "rsrc", "carry", "settle", "corridor", "travel_cost"] {
             assert!(layer_available(&f, id), "{id} should not require a civilisation layer");
             let px = debug_raster(&f, id).unwrap_or_else(|| panic!("{id} produced no raster without a civ layer"));
             assert_eq!(px.len(), o.gw * o.gh * 4, "{id} wrong buffer size");
         }
+    }
+
+    /// `owned()`'s own diagonal ramp is a bad fixture for either of these
+    /// two views: its slope is uniform along every axis (a linear function
+    /// of `x+y`), so `build_route_corridors`'s flank-vs-centre gap never
+    /// clears the knee anywhere, and `build_travel_cost`'s land-only ceiling
+    /// sits at (near enough) every land cell at once -- both would still
+    /// produce a non-empty, correctly-sized raster and so would pass a
+    /// shallower test while silently never exercising the ramp's interior.
+    /// `pass_relief_measure.rs` makes the identical argument for testing
+    /// `build_route_corridors` on real generated terrain rather than a
+    /// synthetic ridge; this fixture is smaller and simpler because it only
+    /// has to prove `sample_bridge.rs`'s own wiring, not the algorithm
+    /// (`build_route_corridors`/`build_travel_cost` are both already
+    /// golden-verified elsewhere).
+    ///
+    /// A symmetric valley -- flat at the centre column, walls two cells out
+    /// on both sides -- is exactly the shape both functions are built to
+    /// tell apart from open ground.
+    fn valley(gw: usize, gh: usize) -> Owned {
+        let mut o = owned(gw, gh);
+        let v = |x: usize| 1.0 + (x as isize - (gw as isize) / 2).unsigned_abs() as f32 * 2.0;
+        for y in 0..gh {
+            for x in 0..gw {
+                o.field[y * gw + x] = v(x);
+            }
+        }
+        o
+    }
+
+    #[test]
+    fn corridor_view_reaches_a_real_pass_and_marks_water_distinctly() {
+        // Water: `build_route_corridors` leaves a water cell's output at its
+        // initial `0.0`, identical to a flat land cell with no corridor at
+        // all -- so the *raw field* cannot tell the two apart, and this view
+        // has to be checked separately for drawing water distinctly rather
+        // than trusted to fall out of the ramp.
+        let o0 = owned(10, 8);
+        let f0 = view(&o0, false);
+        let buf0 = debug_raster(&f0, "corridor").expect("corridor must draw without a civ layer");
+        let water_i =
+            (0..o0.gw * o0.gh).find(|&i| (o0.field[i] as f64) < f0.sea_level).expect("fixture has water by construction");
+        let wc = (buf0[water_i * 4] as f64, buf0[water_i * 4 + 1] as f64, buf0[water_i * 4 + 2] as f64);
+        assert!(
+            (wc.0 - 18.0).abs() <= 1.0 && (wc.1 - 34.0).abs() <= 1.0 && (wc.2 - 64.0).abs() <= 1.0,
+            "water must draw the shared water colour on its own code path, not fall out of ramp(&CORRIDOR_STOPS, 0.0) \
+             (which happens to be a similarly dark brown): got {wc:?}"
+        );
+
+        let (gw, gh) = (9, 3);
+        let mut o = valley(gw, gh);
+        o.flow = vec![0.0; gw * gh]; // no river bonus muddying the slope-only shape
+        let f = view(&o, false);
+        let raw_slope = build_raw_slope_field(&o.field, gw, gh, false);
+        let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, f.map_width_km);
+        let corridor = build_route_corridors(&o.field, &raw_slope, Some(&o.flow), gw, gh, f.sea_level, false, flow_thresh);
+        let notch = gw + gw / 2; // row 1, the valley floor
+        assert!(corridor[notch] > 0.5, "the fixture's own pass must clear the knee with room to spare: {}", corridor[notch]);
+
+        let buf = debug_raster(&f, "corridor").expect("corridor must draw without a civ layer");
+        assert_eq!(buf.len(), gw * gh * 4);
+        let want = ramp(&CORRIDOR_STOPS, corridor[notch] as f64);
+        let got = (buf[notch * 4] as f64, buf[notch * 4 + 1] as f64, buf[notch * 4 + 2] as f64);
+        assert!(
+            (got.0 - want.0).abs() <= 1.0 && (got.1 - want.1).abs() <= 1.0 && (got.2 - want.2).abs() <= 1.0,
+            "the drawn pixel must be the ramp at the real, freshly-computed corridor value: got {got:?}, want {want:?}"
+        );
+        let wall = gw + gw - 2; // row 1, two cells from the right edge -- steep enough to return early at 0.0
+        let flank = ramp(&CORRIDOR_STOPS, corridor[wall] as f64);
+        assert!(
+            (flank.0 - want.0).abs() + (flank.1 - want.1).abs() + (flank.2 - want.2).abs() > 20.0,
+            "the pass and the open wall beside it must read as visibly different colours, not one flat wash"
+        );
+    }
+
+    #[test]
+    fn travel_cost_view_spans_its_ramp_and_marks_water_impassable() {
+        // Water: `build_travel_cost` writes `f32::INFINITY`, a real value
+        // (`TRAVEL_COST_WATER`'s own doc comment) rather than an exclusion --
+        // checked directly rather than assumed from the ramp's own low end.
+        let o0 = owned(10, 8);
+        let f0 = view(&o0, false);
+        let buf0 = debug_raster(&f0, "travel_cost").expect("travel_cost must draw without a civ layer");
+        let water_i =
+            (0..o0.gw * o0.gh).find(|&i| (o0.field[i] as f64) < f0.sea_level).expect("fixture has water by construction");
+        let wc = (buf0[water_i * 4] as f64, buf0[water_i * 4 + 1] as f64, buf0[water_i * 4 + 2] as f64);
+        assert!(
+            (wc.0 - TRAVEL_COST_WATER.0).abs() <= 1.0
+                && (wc.1 - TRAVEL_COST_WATER.1).abs() <= 1.0
+                && (wc.2 - TRAVEL_COST_WATER.2).abs() <= 1.0,
+            "water must draw TRAVEL_COST_WATER: got {wc:?}"
+        );
+
+        let (gw, gh) = (9, 3);
+        let o = valley(gw, gh);
+        let f = view(&o, false);
+        let cost = build_travel_cost(&o.field, gw, gh, f.sea_level);
+        let (flat, steep) = (gw + gw / 2, gw + gw - 2);
+        assert_eq!(cost[flat], 1.0, "zero slope must sit at the exact floor `1 + 50*slope^2` guarantees");
+        assert!(cost[steep] > cost[flat] * 10.0, "the fixture's own wall must be far dearer than its floor");
+
+        let buf = debug_raster(&f, "travel_cost").expect("travel_cost must draw without a civ layer");
+        assert_eq!(buf.len(), gw * gh * 4);
+        let hi = (0..gw * gh).fold(1.0f64, |a, i| a.max(cost[i] as f64));
+        let want = |i: usize| ramp(&TRAVEL_COST_STOPS, (cost[i] as f64 - 1.0) / (hi - 1.0));
+        let px = |i: usize| (buf[i * 4] as f64, buf[i * 4 + 1] as f64, buf[i * 4 + 2] as f64);
+        let close = |a: (f64, f64, f64), b: Rgb| (a.0 - b.0).abs() <= 1.0 && (a.1 - b.1).abs() <= 1.0 && (a.2 - b.2).abs() <= 1.0;
+        assert!(close(px(flat), want(flat)), "the flat cell must sit at the ramp floor: got {:?}", px(flat));
+        assert!(close(px(steep), want(steep)), "the steep cell must sit at its real, normalised position: got {:?}", px(steep));
+        assert!(want(flat) != want(steep), "the fixture must actually span the ramp, not collapse to one colour");
     }
 
     /// Wind's hue-by-bearing raster must actually vary with speed/direction

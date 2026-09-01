@@ -4,11 +4,18 @@ class_name CivilizationWorkspace
 ## CIVIL domain (§3): settlements, population, economy, politics, culture,
 ## and (§4.5.3) the Settlement and Territory tools.
 ##
-## The engine backs four of the five browsing categories as *readable* data
-## (`get_settlements`, `get_provinces`, `get_trade_balances`). Culture has no
-## GDExtension binding at all -- `cartalith-civ` computes culture profiles
-## internally (`STATUS.md`'s "generation rules and culture profiles"
-## milestone) but nothing exports them.
+## The engine backs all five browsing categories as *readable* data
+## (`get_settlements`, `get_provinces`, `get_trade_balances`,
+## `get_factions`, `get_cultures`).
+##
+## **Culture was the exception until 2026-09-01, and had stopped being one
+## on 2026-08-25.** This doc, and a note on screen in the panel itself, both
+## said "there is no `get_cultures()` to read one from". There is: `lib.rs`'s
+## `#[func] fn get_cultures()` closed `GUI_GAP_REGISTER.md` CV-02 and returns
+## `{id, key, name, terrain_affinity, faction_count, factions,
+## settlement_count, population}` per culture. Nothing called it -- not this
+## file, and not `engine_bridge.gd`, which still has no wrapper for it (see
+## `_cultures()` below for how this file reaches it in the meantime).
 ##
 ## `civ_tools_bridge.rs` (`UNIFIED_TOOL_PLAN.md` milestone F) now backs
 ## placing a settlement and painting territory too -- `STRANDED_TOOLS.md`
@@ -124,9 +131,10 @@ var _ctx_hit := -1
 ## body, both refreshed after any place/roster edit.
 var _settlements_body: Control
 ## The other data-backed categories' own bodies, held for the same
-## reason and cleared/refilled by the same `_rebuild_readouts()`. Culture has
-## no body field because it has no data behind it: `_build_culture()` writes
-## one fixed note about the missing binding, which a world does not change.
+## reason and cleared/refilled by the same `_rebuild_readouts()`. Culture
+## joined them on 2026-09-01: its seven rows exist without a world (they are
+## `CIV_CULTURES`, compile-time constants) but their faction, settlement and
+## population counts do not, so the category has to refill like the rest.
 ## `_tl_body` (Politics) and `_sim_body` (Simulation) are declared with the
 ## rest of the timeline state above, because they also carry playback and
 ## simulation state to reset.
@@ -137,6 +145,7 @@ var _settlements_body: Control
 ## time-varying half (v3: "political change over time").
 var _population_body: Control
 var _economy_body: Control
+var _culture_body: Control
 var _factions_body: Control
 var _territories_body: Control
 ## CV-25's and CV-26's category bodies. Both refill on `_rebuild_readouts()`
@@ -206,8 +215,12 @@ func _build() -> void:
 	_infra._nested = true
 	## Both flags have to be set before `setup()`, because `setup()` runs
 	## `_infra._build()` and `_build()` reads them: `_nested` suppresses the
-	## duplicate TOOLS row, `_dock_hosted` suppresses the five categories this
-	## dock now draws itself (v3). Setting `_dock_hosted` inside
+	## duplicate TOOLS row, `_dock_hosted` suppresses the categories this dock
+	## now draws itself (v3): FOUR of `InfrastructureWorkspace`'s old five are
+	## redrawn here as Routes & ways / Travel / Trade, through its own
+	## `build_*_into()` entry points, and the fifth -- Rivers -- left this dock
+	## entirely for WORLD ▸ Hydrology, which draws its one disclosure from the
+	## same `InfrastructureWorkspace.rivers_note()`. Setting `_dock_hosted` inside
 	## `build_ways_into()` alone was not enough -- that call happens *after*
 	## `setup()`, so the old Roads/Rivers/Ports/Trade/Logistics categories
 	## still got built once, under the wrong parent, before it ran.
@@ -242,6 +255,16 @@ func _build() -> void:
 	_build_military()                                                     ## 12
 	_build_relationships()                                                ## 13
 	_build_simulation()                                                   ## 14
+
+	## `04-left-dock.md` §6: "Landmarks is the floor." All fourteen categories
+	## above (`_infra`'s three included -- they share this same `categories`
+	## array, per its own header comment) now exist, so this is the one place
+	## to attach the floor to every one of their headers at once. See
+	## `_lm_enforce_floor()`'s own doc comment for the mechanism.
+	for cat_entry: Dictionary in categories:
+		var cat_btn: Button = cat_entry.get("button")
+		if cat_btn != null and is_instance_valid(cat_btn):
+			cat_btn.pressed.connect(_lm_enforce_floor)
 
 	## Both windows are owned by `app` (long-lived, opened from four places
 	## between them); this workspace is the one that knows how to put the
@@ -333,6 +356,9 @@ func _rebuild_readouts() -> void:
 	if _economy_body != null and is_instance_valid(_economy_body):
 		_clear_body(_economy_body)
 		_fill_economy(_economy_body)
+	if _culture_body != null and is_instance_valid(_culture_body):
+		_clear_body(_culture_body)
+		_fill_culture(_culture_body)
 	if _factions_body != null and is_instance_valid(_factions_body):
 		_clear_body(_factions_body)
 		_fill_factions(_factions_body)
@@ -351,6 +377,13 @@ func _rebuild_readouts() -> void:
 ## while the refill runs and would draw twice for one frame. Same teardown
 ## `_rebuild_timeline` performs inline, factored out here because four
 ## categories now need it.
+## Biggest population first, for CIVIL ▸ Population's per-faction breakdown.
+## A named function rather than an inline lambda: a lambda body cannot be
+## wrapped across lines inside a call's argument list, and this comparison
+## does not fit one.
+static func _by_population_desc(a: Variant, b: Variant) -> bool:
+	return int((a as Dictionary).get("population", 0)) > int((b as Dictionary).get("population", 0))
+
 static func _clear_body(node: Control) -> void:
 	for c in node.get_children():
 		node.remove_child(c)
@@ -469,8 +502,18 @@ func _on_ctx_id(id: int) -> void:
 				app.right_dock_ctrl.on_settlement_selected(bridge.settlements()[_ctx_hit], _ctx_hit)
 				app.set_status("hint", "Pinned in the right dock — the reference's _civInfoAt readout.", "text_ghost")
 			else:
+				## **Both halves ARE bound, and this message said they were not**
+				## (corrected 2026-09-01). Biome: `sample_cell()` sets a `biome`
+				## key and `right_dock.gd`'s Sample panel has drawn a Biome row
+				## off it for as long as the panel has existed. Wildlife:
+				## `wildlife_region_at()` is bound, wrapped, and already called
+				## by `app.gd`'s cursor handler whenever the Wildlife view is the
+				## drawn layer -- the reference's own `state.debug === 'wildlife'`
+				## gate. The real limitation is narrower and is what this now
+				## says: the biome raster needs the civilisation layer's water
+				## bodies, which a loaded `.zip` save does not carry.
 				app.set_status("hint",
-					"Nothing here. _civInfoAt's ecology half (biome/wildlife at a cell) has no binding — see the Layers popover's own debug views.",
+					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included, on a generated world; a loaded save carries no civilisation layer, so Biome reads — there. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
 					"text_ghost")
 
 ## `PARITY_AUDIT.md` §5 item 4 / reference block 2's keydown at line 26096:
@@ -820,8 +863,17 @@ func _discard_territory() -> void:
 ## `compute_civilisation` runs *inside* `generate()` and no `#[func]` runs it
 ## alone. The placement model's own dials do exist, in File ▸ New world ▸
 ## Generation, and the note says where.
+##
+## **No longer built open.** It was, before `_build_landmarks()` existed --
+## the only category CIVIL had an opinion about opening was whichever one
+## happened to be first. `04-left-dock.md` §6 states a default now
+## ("`Default civCat = 'landmarks'`") and treats Landmarks as CIVIL's floor
+## (`_lm_enforce_floor()`); leaving Civilizations open on first paint while
+## every later fall-back lands on Landmarks would make the category CIVIL
+## opens with different from the one it always returns to, for no reason
+## either default is right. `_build_landmarks()` now carries the `true`.
 func _build_civilizations() -> void:
-	var cat := DccWidgets.category(self, "Civilizations", categories, true)
+	var cat := DccWidgets.category(self, "Civilizations", categories)
 	DccWidgets.note(DccWidgets.section(cat, "How people get placed"),
 		"Settlement placement is not a separate pass in this port: "
 		+ "compute_civilisation runs inside generate(), reading the finished "
@@ -1197,14 +1249,26 @@ func _recompute_civ() -> void:
 	if b != null and is_instance_valid(b):
 		b.disabled = false
 		b.text = "Recompute civilisation"
+	## **The outcome now also reaches the status bar** (2026-09-01).
+	## `_recompute_note` lives in CIVIL ▸ Settlements ▸ Recompute, but this
+	## same handler is what CIVIL ▸ Territories' own "Recalculate territories"
+	## and "Generate provinces" buttons call -- and these are accordion
+	## categories, one open at a time, so pressing either of those wrote the
+	## only feedback into a panel that was necessarily closed. That included
+	## the failure branch: a refusal reported nowhere the presser could see.
+	## One line onto a surface that is visible from every category, rather
+	## than a second note node per button to keep in sync.
+	var outcome := ""
+	if not bool(r.get("ok", false)):
+		outcome = "Not recomputed. %s" % String(r.get("reason", "Unknown reason."))
+	else:
+		outcome = ("Recomputed in %.1f s: %d settlements kept, %d ways and %d "
+			+ "provinces rebuilt against the current terrain.") % [
+			float(r.get("ms", 0.0)) / 1000.0, int(r.get("settlements", 0)),
+			int(r.get("ways", 0)), int(r.get("provinces", 0))]
 	if _recompute_note != null and is_instance_valid(_recompute_note):
-		if not bool(r.get("ok", false)):
-			_recompute_note.text = "Not recomputed. %s" % String(r.get("reason", "Unknown reason."))
-		else:
-			_recompute_note.text = ("Recomputed in %.1f s: %d settlements kept, %d ways and %d "
-				+ "provinces rebuilt against the current terrain.") % [
-				float(r.get("ms", 0.0)) / 1000.0, int(r.get("settlements", 0)),
-				int(r.get("ways", 0)), int(r.get("provinces", 0))]
+		_recompute_note.text = outcome
+	app.set_status("hint", outcome, "text" if bool(r.get("ok", false)) else "accent")
 	## Territory and the pins/roads overlay both moved. Same direct writes
 	## `_commit_territory` and `_refresh_civ_data` use, for the same reason
 	## (no camera reset), and `_on_civ_edited` rebuilds the roster readouts --
@@ -1259,9 +1323,19 @@ func _build_pop_estimate(parent: Control) -> void:
 ## fraction of what `Recompute civilisation` costs. Auto-running it on every
 ## roster refresh (a place edit) would put that cost on a path that today
 ## costs nothing.
+## **Reaches `bridge`, not `bridge.world_gen`** (2026-09-01). Both halves of
+## this pair used to test `bridge.world_gen.has_method(...)` and then call
+## `bridge.world_gen.civ_regional_population()` directly, past the wrapper
+## `engine_bridge.gd` already carries -- which meant the shell's one
+## missing-binding warning never fired for this call, and the wrapper read
+## as dead code. The wrapper performs the same guard and answers `{}`, so
+## the local test is not merely redundant, it is the deviation.
+##
+## The button is drawn unconditionally now: `_build_pop_estimate` above only
+## reaches here when `civ_agrarian_regional_total()` came back non-empty,
+## which needs a world, so there is no state in which this row appears over
+## nothing. A binary too old to answer says so when pressed, in the handler.
 func _build_regional_population(parent: Control) -> void:
-	if bridge.world_gen == null or not bridge.world_gen.has_method("civ_regional_population"):
-		return
 	var btn := DccWidgets.action(parent, "Compute regional population (persons/km²)…",
 		_on_compute_regional_population)
 	btn.tooltip_text = ("The reference's OTHER modeled-population figure (currentPopulationDensity's "
@@ -1273,11 +1347,13 @@ func _build_regional_population(parent: Control) -> void:
 func _on_compute_regional_population() -> void:
 	if _regional_pop_note == null or not is_instance_valid(_regional_pop_note):
 		return
-	if bridge.world_gen == null or not bridge.world_gen.has_method("civ_regional_population"):
-		return
-	var r: Dictionary = bridge.world_gen.civ_regional_population()
+	var r: Dictionary = bridge.civ_regional_population()
 	if r.is_empty():
-		_regional_pop_note.text = "No world yet."
+		## Two different causes, and the old text asserted the wrong one
+		## whenever the binding was the missing half rather than the world.
+		_regional_pop_note.text = ("No world yet." if not bridge.has_world
+			else "This build's engine has no civ_regional_population binding -- the "
+				+ "native library is older than this shell.")
 		return
 	var total := int(r.get("total", 0))
 	var land := int(r.get("land_km2", 0))
@@ -1304,13 +1380,21 @@ func _build_settlement_gaps(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Not built")
 	var pop := DccWidgets.action(sec, "Auto-populate world", func(): pass)
 	pop.disabled = true
-	pop.tooltip_text = "The reference's #civAutoPopulateBtn, plus its capitals / towns / hamlets count sliders. In this port settlement placement is not a separate pass: compute_civilisation runs inside generate() and there is no civ_populate #[func] to call on its own, nor any parameter for the three counts (params.rs has 58 entries, none of them civ). Re-generate from World ▸ Generate to re-place everything."
+	pop.tooltip_text = "The reference's #civAutoPopulateBtn, plus its capitals / towns / hamlets count sliders. In this port settlement placement is not a separate pass: compute_civilisation runs inside generate() and there is no civ_populate #[func] to call on its own, nor any parameter for the three counts (params.rs exposes no civ parameters at all). Re-generate from World ▸ Generate to re-place everything."
 	var clear := DccWidgets.action(sec, "Clear places & routes", func(): pass)
 	clear.disabled = true
 	clear.tooltip_text = "The reference's #civClearPlacesBtn. Same shape: no civ_clear_places #[func] exists, and CivData is rebuilt wholesale by generate() rather than mutated in place, so there is no partial teardown to expose. Individual manual drops can still be undone by re-generating."
 	var diag := DccWidgets.action(sec, "Settlement diagnostics overlay", func(): pass)
 	diag.disabled = true
-	diag.tooltip_text = "The reference's #civDiagnosticsChk (drawCivLayer §2.6). Every line of the card it draws is urban-morphology data: _umWallSpec's wall ladder, _umSiteProfile's river classification, and a peek into _umModelCache for bridge/ford/harbour validity, inside a SITE_WM×SITE_HM footprint box. None of those exist in this port -- cartalith-urban milestones 8-17 are unported and the crate has no consumer at all -- so the overlay would have nothing to draw. PARITY_AUDIT.md §5 item 13."
+	## Rewritten 2026-08-31. The previous wording ended "the crate has no
+	## consumer at all", which was false and had been for a week:
+	## `cartalith-civ` depends on `cartalith-urban` (its Cargo.toml) and
+	## `urban_adapter.rs` uses it, `cartalith-godot/src/urban_bridge.rs`
+	## consumes that adapter, and milestones 1-7, 8a, 12 and 17a are done.
+	## The real blocker is narrower and per-line, so the reason now names the
+	## card's four lines and which milestone owes each -- checked against
+	## `URBAN_MORPHOLOGY_SCOPE.md`'s milestone headings, not remembered.
+	diag.tooltip_text = "The reference's #civDiagnosticsChk (drawCivLayer §2.6). Per settlement it draws a SITE_WM×SITE_HM footprint box and a fact card of at most three lines: specialisation + _umWallSpec's wall rung on the first, _umSiteProfile's river classification on the second, and -- only when a layout is already in _umModelCache -- bridge/ford/harbour validity on the third. Two of those five values this port can produce: SITE_WM/SITE_HM and um_wall_spec are both ported (cartalith-civ's urban_adapter and military), and cartalith-urban IS consumed, by that adapter and through it by cartalith-godot's urban_bridge. The other three have nothing behind them: settlements carry no specialisation, _umSiteProfile is unported because its own consumers are unbuilt, harbours/bridges/fords are URBAN_MORPHOLOGY_SCOPE.md milestone 9, the wall builder is milestone 10 and districts are 13 -- and _umModelCache is out of scope for every milestone (this port keys layouts GDScript-side instead). So the overlay would draw a box, a rung and three blanks, which is worse than not drawing it. Blocked on urban milestones 9, 10 and 13. PARITY_AUDIT.md §5 item 13."
 	DccWidgets.note(sec,
 		"The biome carrying-capacity residual IS exposed now (File ▸ New world ▸ Generation -- "
 		+ "the reference's own #civBiomeKChk, default off). Urban morphology layouts remain a "
@@ -1318,12 +1402,18 @@ func _build_settlement_gaps(parent: Control) -> void:
 		+ "Village seeding, the imperial-seat (metropolis) tier and the post-collapse recovery "
 		+ "phase are exposed in the same place.")
 
+## `04-left-dock.md` §6b's `hCivPlaceSel`: "selects the place, arms inspect,
+## and opens the right dock." `arm_tool()` no-ops when Inspect is already
+## armed (`app.gd`'s own early return), so this costs nothing on the common
+## path and only matters when the row is clicked with Territory, Way or
+## Route still armed from a previous action.
 func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
 	var text := "%s -- %s, pop %d" % [data.get("name", "?"), String(data.get("kind", "?")).capitalize(), int(data.get("population", 0))]
 	var b := DccWidgets.action(row, text, func():
 		_selected_index = index
+		app.arm_tool("inspect")
 		app.right_dock_ctrl.on_settlement_selected(data, index))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1426,10 +1516,39 @@ func _fill_population(parent: Control) -> void:
 			largest_name = String(d.get("name", "?"))
 	DccWidgets.note(sec, "Total population %d across %d settlements. Largest: %s (%d)." % [
 		total, settlements.size(), largest_name, largest_pop])
+	## **The faction half of the sentence that used to be here was false, and
+	## had been since the roster shipped** (found 2026-09-01). It said
+	## "faction- or province-level population aggregation has no binding".
+	## `get_factions()` sums `s.pop` over each faction's own settlements and
+	## emits it as `population` (`lib.rs`), and the roster window has been
+	## drawing that number all along. The PROVINCE half is true and is kept:
+	## `get_provinces()` carries `{id, faction, name,
+	## capital_settlement_index}` and nothing more, and a settlement's `tid` is
+	## its timeline stable id, not a province id -- so there is no membership
+	## to group by from this side either.
+	var factions := bridge.get_factions()
+	if not factions.is_empty():
+		var by_faction := DccWidgets.group(sec, "By faction")
+		var rows: Array = factions.duplicate()
+		rows.sort_custom(_by_population_desc)
+		for f in rows:
+			var fd: Dictionary = f
+			var fpop := int(fd.get("population", 0))
+			var share := (100.0 * float(fpop) / float(total)) if total > 0 else 0.0
+			var sc := int(fd.get("settlement_count", 0))
+			var b := DccWidgets.action(by_faction,
+				"%s -- %s over %d settlement%s (%.1f%%)" % [
+					String(fd.get("name", "?")), FactionRosterWindow._thousands(fpop),
+					sc, "" if sc == 1 else "s", share],
+				func(): app.right_dock_ctrl.show_faction(int(fd.get("id", 0))))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.tooltip_text = "get_factions()'s own population field -- the sum of this faction's settlements' pop. Opens the faction in the right dock."
 	DccWidgets.note(sec,
-		"Per-settlement population is real (get_settlements()'s own field). Faction- or " +
-		"province-level population aggregation has no binding -- see Factions above for " +
-		"what get_provinces() does carry.")
+		"Per-settlement population is real (get_settlements()'s own field) and "
+		+ "faction-level aggregation is get_factions()'s. Province-level is the one "
+		+ "that has no binding: get_provinces() carries a name, a faction and a "
+		+ "capital index, and no settlement belongs to a province in anything that "
+		+ "crosses the boundary, so there is nothing here to sum.")
 
 # -- Economy ----------------------------------------------------------------
 
@@ -1547,14 +1666,89 @@ func _knowledge_row(parent: Control, kind: String, entity_id: int, label: String
 # -- Culture ----------------------------------------------------------------
 
 func _build_culture() -> void:
-	var cat := DccWidgets.category(self, "Culture", categories)
-	var sec := DccWidgets.section(cat, "Profiles")
+	_culture_body = DccWidgets.category(self, "Culture", categories)
+	_fill_culture(_culture_body)
+
+## `get_cultures()` (`GUI_GAP_REGISTER.md` CV-02, closed 2026-08-25), reached
+## without an `engine_bridge.gd` wrapper because this pass does not own that
+## file.
+##
+## Prefers a wrapper if one lands, so the day it does this function keeps
+## working and the fallback becomes dead weight to delete rather than a
+## second path to reconcile. The direct `world_gen` call underneath is the
+## deviation, not the shape to copy: every other reader in this dock goes
+## through `bridge`, and this one should too as soon as it can.
+func _cultures() -> Array:
+	if bridge.has_method("get_cultures"):
+		return bridge.get_cultures()
+	if bridge.world_gen != null and bridge.world_gen.has_method("get_cultures"):
+		return bridge.world_gen.get_cultures()
+	return []
+
+## The seven naming cultures as rows, replacing the note that told the user
+## the binding did not exist.
+##
+## **No "generate a world first" empty state, deliberately.** Unlike every
+## other category in this dock, these seven rows are real before any
+## `generate()`: they are `cartalith_civ::CIV_CULTURES`, compile-time
+## constants, and `get_cultures()`'s own doc calls that "the honest answer
+## rather than an inconsistency". Only the aggregates need a world, and they
+## come back zero -- so the counts line says which world it is counting over
+## rather than the panel pretending to be empty.
+##
+## `terrain_affinity` is `""` for `common` and `imperial` by design (they are
+## identity-flavoured, not terrain-themed, and `civ_culture_terrain_fit`
+## refuses to invent a verdict for them), so those two rows say so instead of
+## showing a blank column.
+func _fill_culture(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Profiles")
+	var cultures := _cultures()
+	if cultures.is_empty():
+		DccWidgets.note(sec,
+			"This build's engine has no get_cultures() binding -- the native library "
+			+ "is older than this shell. Rebuild and re-export before treating the "
+			+ "empty list as a missing feature.")
+		return
+
+	var placed := 0
+	for c in cultures:
+		placed += int((c as Dictionary).get("settlement_count", 0))
+	if placed > 0:
+		DccWidgets.note(sec,
+			"%d cultures; %d settlements carry one through the faction that holds them."
+			% [cultures.size(), placed])
+	else:
+		DccWidgets.note(sec,
+			"%d cultures. They exist without a world -- CIV_CULTURES is a compile-time "
+			% cultures.size()
+			+ "table and a culture id survives both a regenerate and a save/load, which "
+			+ "is why a linked note below stays attached to the right one. The faction, "
+			+ "settlement and population counts are zero until a world is generated.")
+
+	for c in cultures:
+		var d: Dictionary = c
+		var affinity := String(d.get("terrain_affinity", ""))
+		var terrain := affinity.capitalize() if not affinity.is_empty() else "no terrain theme"
+		var fc := int(d.get("faction_count", 0))
+		var detail := "%s · %d faction%s" % [terrain, fc, "" if fc == 1 else "s"]
+		if fc > 0:
+			detail += " (%s) · %d settlements · %s people" % [
+				String(d.get("factions", "")), int(d.get("settlement_count", 0)),
+				FactionRosterWindow._thousands(int(d.get("population", 0)))]
+		_knowledge_row(sec, "culture", int(d.get("id", 0)), String(d.get("name", "?")), detail)
+
 	DccWidgets.note(sec,
-		"cartalith-civ generates culture profiles internally (generation rules + culture " +
-		"profiles milestone, STATUS.md), but no GDExtension method exports them -- " +
-		"get_settlements()/get_provinces() carry no culture field, and there is no " +
-		"get_cultures() to read one from. Nothing here can be honest until that binding " +
-		"lands.")
+		"A culture is set per FACTION, in the roster window's own Culture picker; "
+		+ "a settlement takes its faction's and has no override of its own, which "
+		+ "is why the counts above are counts of factions and of what they hold. "
+		+ "Three things read it: the settlement name pool (_civSettleName), the "
+		+ "roster's Territory fit verdict, and faction relations -- two factions "
+		+ "sharing a culture score one point of affinity toward each other "
+		+ "(relations.rs), which is what puts a culture in Relationships below.")
+	var roster := DccWidgets.action(sec, "Which faction has which culture → Faction roster…",
+		func(): app.open_faction_roster())
+	roster.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	roster.tooltip_text = "The roster window's inspector carries the per-faction Culture picker this category counts over."
 
 # -- Timeline (`TIMELINE_SCOPE.md` milestone 6) --------------------------------
 #
@@ -1601,18 +1795,16 @@ func _build_culture() -> void:
 # only). Real, disclosed remaining gap -- see `_build_timeline_filters`'s own
 # note, not silently faked.
 
-## Opens this dock's Timeline category from outside — `app.gd`'s reserved
-## timeline strip is the one caller (see its own comment there for why that
-## strip carries a pointer rather than the controls). Presses the category's
-## real header button rather than flipping `visible` directly, so the
-## accordion's "one open at a time" contract and the header's own caret/accent
-## state are applied by the code that owns them.
-func open_timeline_category() -> void:
-	## `Workspace.open_category()` is the shared version of the search this
-	## function used to spell out; kept as a named entry point because the
-	## timeline strip is the only caller and "Politics" is a v3 name that this
-	## file, not `app.gd`, should own.
-	open_category("Politics")
+## `open_timeline_category()` stood here until 2026-09-01 and had no caller.
+## Its own doc named one twice -- `app.gd`'s timeline strip, which pressed
+## this dock's Politics accordion from a button the 2026-08-31 strip rewrite
+## removed. `app.gd`'s §10 header records that removal and why: the strip that
+## replaced it is a transport, a speed pill group, six layer toggles and a
+## scrub track, not a pointer at this panel. Deleted rather than kept as a
+## named entry point, because the argument for keeping it was ownership of the
+## string "Politics", and its own body already conceded that
+## `Workspace.open_category("Politics")` -- which every cross-domain jump in
+## this shell uses -- is the shared version of the same search.
 
 ## v3 CIVIL ▸ POLITICS: *"Political change over time · #civTlAddYearBtn"*.
 ##
@@ -1673,6 +1865,44 @@ func _build_simulation() -> void:
 # draws a disclosed empty state (`_lm_not_built`) rather than a list this file
 # invented -- the same rule `menus.gd:233`'s `_todo` follows, one level up.
 #
+# **Cross-checked against GUI replacement stage 4's own authority,
+# `design/dcc-environment-2026-08-31/spec/04-left-dock.md` §6a, 2026-09-01.**
+# The two documents describe the same feature independently -- different
+# section numbers, same ladder (`0,1,2,3,5,8,12,20,30,50,80,120,200`), same
+# crowding range (0.25-2.00), same class set (CON/REG/LOC/CUL), same "types
+# compete" toggle, same family bulk arm-all/off, same five-integer funnel --
+# and every place they could conflict on a NUMBER, this file already reads
+# the number from the bridge rather than copying either document's, which is
+# what let one specific check settle clean: §6a.1 prints example class radii
+# of 120/34/12/8 km, this port's real default is 200/34/10/6 km
+# (`landmark.rs::DEFAULT_CLASS_RADIUS_KM`), and the two agree only on
+# Regional -- because §6a's own table is illustrative UI-mockup arithmetic,
+# not this engine's ground truth, and `_lm_class_radius()` below was already
+# built to read the live value instead of either spec's number. Nothing in
+# this pass changed a value for that reason. Two header-level rules this
+# check found needed a decision of their own:
+#
+# - §6's "Landmarks is the floor" (closing whichever CIVIL category is open
+#   falls back to Landmarks, never to nothing) is real accordion behaviour,
+#   not styling, and this port's 14-category CIVIL accordion needs a floor
+#   even more than the design's own four-wide one did -- an all-collapsed
+#   CIVIL dock is a worse empty state than the prototype ever had to defend
+#   against. Built: `_lm_enforce_floor()`, wired once at the foot of
+#   `_build()` after every category in the shared `categories` group exists.
+# - §6's `{{ lmCatCount }}` (an "N armed · N on the map" readout ON the
+#   category header, visible before the accordion opens) is NOT built.
+#   `DccWidgets.category()` returns only the body VBox and has no parameter
+#   for one (its own doc comment names a `header_extra` the function it sits
+#   above does not actually take), and the entry it appends to `categories`
+#   reuses one `title` field as both the button's redraw source AND the
+#   exact string `Workspace.open_category()` matches to jump here from
+#   outside this file -- so writing a live count into it would silently
+#   break every cross-domain "open Landmarks" jump the moment a sibling
+#   category's own toggle next repainted this button from that same
+#   (now-wrong) title. That factory is not this pass's to edit; disclosed
+#   here rather than shipped as a readout that goes stale the instant a
+#   neighbour is clicked.
+#
 # Places the design and what is buildable disagreed are marked **DIVERGENCE**
 # in place, with the reason, rather than left for a reader to find by holding
 # the artboard next to the running dock.
@@ -1714,9 +1944,12 @@ const LM_QUOTED_CLASS := 1
 const LM_LIMIT_WORD := {
 	"at_cap": "at cap", "spacing": "spacing", "no_terrain": "no terrain",
 	"candidates": "candidates", "disarmed": "off", "not_buildable": "not buildable",
-	## Not in the locked contract's six; the engine that landed returns it for
-	## every type whose generator does not exist yet. See `_lm_limit_key()`.
-	"not_generated": "not generated",
+	## `not_generated` had a row here until 2026-09-01. `LandmarkLimit` has six
+	## variants and no seventh: nothing in `landmark.rs` ever emitted that token,
+	## and the case it was written for -- a declared type with no generator --
+	## reports `not_buildable`. Dropped rather than kept defensively, because
+	## `_lm_limit_word`/`_lm_limit_why` below already answer an unknown token
+	## honestly, by echoing it and saying this panel has no wording for it.
 }
 ## The same four rows of §2.2's table, as the tooltip each token carries. Every
 ## reason other than `at cap` is the panel saying *the cap is not what is
@@ -1728,24 +1961,26 @@ const LM_LIMIT_WHY := {
 	"no_terrain": "Every remaining candidate failed this type's own constraints. The cap is not what is limiting you.",
 	"candidates": "The candidate pool ran out before the cap or the spacing did. The world is too small or too coarse for more of these.",
 	"disarmed": "Disarmed. The cap is retained and the row says what it was.",
-	"not_buildable": "The engine reports no placement rule for this type yet, so it is listed and disabled rather than quietly omitted.",
-	"not_generated": "This type has no generator in this build. It is listed and disabled rather than quietly omitted, so a reader can tell 'unimplemented' from 'hidden'.",
+	"not_buildable": "The engine reports no placement rule for this type yet, so it is listed and disabled rather than quietly omitted -- a reader can tell 'unimplemented' from 'hidden'.",
 }
 
 ## The engine's `limit` token, normalised before it is looked up.
 ##
-## The locked contract says `limit` is one of `at_cap` / `spacing` /
-## `no_terrain` / `candidates` / `disarmed` / `not_buildable`. **The engine that
-## landed emits the same reasons spelled with spaces** -- `"at cap"`,
-## `"not generated"` -- and a bare dictionary lookup misses every one of them in
-## the worst possible way: `at cap` still *reads* correctly, because the
-## fallback prints the raw token, while the accent §2.2 makes this panel's whole
-## signal never fires and the tooltip goes blank. Found by
-## `_landmark_probe.gd` half E against a real 384x288 world, not by reading.
+## **The deviation this was written for is gone**, and this comment had not
+## caught up (re-checked 2026-09-01). It landed because the engine shipped its
+## reasons as display words -- `"at cap"`, `"no terrain"`, `"off"` -- against a
+## contract that says machine keys, and a bare dictionary lookup missed every
+## one in the worst available way: the row still *read* correctly, because the
+## fallback echoes an unrecognised token, while §2.2's accent and the whole
+## tooltip were silently dead. Found by `_landmark_probe.gd` half E asserting
+## the styling rather than the text, against a real 384x288 world.
 ##
-## Normalising here accepts both spellings and keeps working when the engine is
-## corrected to the contract, so this is a widened door rather than a patch over
-## one build's behaviour. The deviation itself is the engine's to fix.
+## `LandmarkLimit::as_str()` emits `at_cap` / `spacing` / `no_terrain` /
+## `candidates` / `disarmed` / `not_buildable` now, and `landmark.rs`'s
+## `limit_tokens_are_the_wire_format_the_shell_keys_off` test pins all six --
+## a rename there fails there rather than three files away, under a probe that
+## thinks to assert on styling. So this is kept only as a widened door for a
+## binary older than that fix, not as a patch over live behaviour.
 static func _lm_limit_key(raw: String) -> String:
 	return raw.strip_edges().to_lower().replace(" ", "_").replace("-", "_")
 
@@ -1773,8 +2008,12 @@ static func _lm_limit_why(raw: String) -> String:
 ## disclosure levels, never six (§3: domain / category / section / family /
 ## the row's own fold), which is why the class is a badge on the row and not a
 ## second tree over the family one.
+##
+## Built open (`04-left-dock.md` §6: `Default civCat = 'landmarks'`) -- see
+## `_build_civilizations()`'s own comment for why this moved here, and
+## `_lm_enforce_floor()` for the rest of §6's rule.
 func _build_landmarks() -> void:
-	_landmarks_body = DccWidgets.category(self, "Landmarks", categories)
+	_landmarks_body = DccWidgets.category(self, "Landmarks", categories, true)
 	_fill_landmarks(_landmarks_body)
 
 ## `Assets ▸ Landmark types ▸ <family> ▸ Open … in the dock` lands here
@@ -1799,6 +2038,44 @@ func open_landmark_family(family: String) -> void:
 		return
 	if not body.visible:
 		btn.pressed.emit()
+
+## `04-left-dock.md` §6, verbatim: *"clicking the open Landmarks header does
+## nothing… clicking any other open header collapses back to Landmarks…
+## Landmarks is the floor — one category is always open, and it is never
+## zero."* `DccWidgets.category()`'s own accordion has no floor: re-clicking
+## whichever header is open always leaves the whole group closed, CIVIL
+## included, and that all-collapsed state is what this corrects, once, right
+## after it happens.
+##
+## Connected to every CIVIL category button's `pressed` (the loop at the foot
+## of `_build()`) rather than only to Landmarks' own: the spec's rule fires
+## on re-clicking ANY open header, not just Landmarks', and a listener added
+## after `category()`'s own `pressed.connect()` runs SECOND on every press
+## (Godot fires a signal's connections in connection order) -- so by the time
+## this runs, the built-in toggle has already produced whatever the click
+## caused, and this only ever has to detect and correct the one outcome the
+## spec forbids, never race it.
+##
+## Calls `DccWidgets._toggle_category()` directly rather than re-emitting a
+## button press, for two reasons: it cannot recurse into this same handler
+## (`_toggle_category` sets properties; it never re-fires `pressed`), and it
+## never touches `entry["title"]` -- seen live-mutated by
+## `Workspace.open_category()`'s own string match, one more reason that field
+## has to stay exactly `"Landmarks"` (see the header comment above this
+## section for the readout this same constraint already ruled out).
+func _lm_enforce_floor() -> void:
+	var landmarks_entry: Dictionary = {}
+	var any_open := false
+	for e: Dictionary in categories:
+		var body: Control = e.get("body")
+		if body == null or not is_instance_valid(body):
+			continue
+		if String(e.get("title", "")) == "Landmarks":
+			landmarks_entry = e
+		if body.visible:
+			any_open = true
+	if not any_open and not landmarks_entry.is_empty():
+		DccWidgets._toggle_category(landmarks_entry, categories)
 
 ## Rebuild the category from the bridge. Called on a new world and after a
 ## settings reset -- NOT from `_rebuild_readouts()`, because a place edit does
@@ -1977,17 +2254,23 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 
 	## §9.3, and the rule this panel is held to: the viewshed gap shows on the
 	## ROW, not in a footnote. The engine computes no visibility term at all --
-	## no line of sight, no horizon march, no sky-view factor -- and the research
-	## weights it at 0.20, the joint-largest term in its castle model. So the
-	## types that lean on it carry `[no viewshed]` beside their name and this
-	## line says how many there are and what it costs them.
+	## no line of sight, no horizon march, no sky-view factor -- so the types that
+	## lean on it carry `[no viewshed]` beside their name and this line says how
+	## many there are and what it costs them.
+	##
+	## The weight quoted here was the research's 0.20 until 2026-08-31, when
+	## `BUILD_ANSWERS.md` §3 replaced it with the owner's own formula. Text only:
+	## the design asks for the gap to be *stated on the panel* and this port
+	## already puts it on every affected row too, which is the stricter of the
+	## two, so the placement stands and only the number moved.
 	if viewshed > 0:
 		DccWidgets.note(sec,
 			"%d of them carry [no viewshed]: this engine computes no visibility " % viewshed
-			+ "term, which the research weights at 0.20 -- its joint-largest. "
-			+ "Those types score on the model minus its biggest piece, and the "
-			+ "panel says so on the row rather than presenting a score it cannot "
-			+ "honestly compute.")
+			+ "term. Once visibility analysis lands the owner's formula is "
+			+ "score = 0.6 × prominence + 0.4 × visible land area inside 30 km, "
+			+ "caps unchanged; until then the second half of that score has nothing "
+			+ "behind it, and the panel says so on the row rather than presenting a "
+			+ "score it cannot honestly compute.")
 	if unbuildable > 0:
 		DccWidgets.note(sec,
 			"%d are listed and disabled: the engine reports no placement rule for " % unbuildable
@@ -2094,9 +2377,10 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 
 	var tip := "%s -- %s class." % [label, String(LM_CLASS_LABEL.get(cls, cls))]
 	if needs_vs:
-		tip += (" [no viewshed]: this engine computes no visibility term, which "
-			+ "the research weights at 0.20 -- its joint-largest -- so this "
-			+ "type's score is the model minus its biggest piece.")
+		tip += (" [no viewshed]: this engine computes no visibility term. Once "
+			+ "visibility analysis lands the owner's formula is score = 0.6 × "
+			+ "prominence + 0.4 × visible land area inside 30 km, caps unchanged; "
+			+ "until then this type scores without that second half.")
 	if not buildable:
 		tip += " " + String(LM_LIMIT_WHY["not_buildable"])
 	else:

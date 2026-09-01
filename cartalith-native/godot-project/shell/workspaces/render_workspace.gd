@@ -849,8 +849,16 @@ func _build_look_presets() -> void:
 	DccWidgets.well(_preset_name)
 	body.add_child(_preset_name)
 	DccWidgets.action(body, "Save look", _on_save_look, true)
-	_preset_pick = DccWidgets.choice(body, "Saved", [], -1, func(_i: int): pass,
-		"Looks saved on this machine.")
+	## Picking is deliberately not loading: a look replaces every value in this
+	## panel, so it is not something to trigger by scrolling a dropdown past the
+	## wrong entry, and `_on_save_look` selects the look it just wrote without
+	## wanting to re-apply it. What the two-step owed the user was saying so --
+	## the picker moved and nothing happened, with no hint that a second press
+	## finishes the job. The tooltip goes on the `OptionButton` as well as its
+	## row, since `_row` puts it on the row and the button covers most of it.
+	const PICK_TIP := "Looks saved on this machine. Picking one only selects it -- press Load look below to apply it."
+	_preset_pick = DccWidgets.choice(body, "Saved", [], -1, func(_i: int): pass, PICK_TIP)
+	_preset_pick.tooltip_text = PICK_TIP
 	DccWidgets.action(body, "Load look", _on_load_look)
 	DccWidgets.note(body,
 		"A look is every value in this panel -- Map view, Rendering-advanced, the "
@@ -1045,3 +1053,80 @@ func _build_owed_inventory() -> void:
 	DccWidgets.note(sec,
 		"None of it is presentation-unsafe: every control here updates visible "
 		+ "tiles only and never marks a generation stage stale.")
+
+
+# -- A world arriving underneath these panels ---------------------------------
+
+## Re-read every control in this file from the engine, because a project open
+## replaced what the engine holds without any control here moving.
+##
+## **This was a real data loss, not a cosmetic staleness** (`GUI_GAP_REGISTER`
+## shape, found 2026-09-01). `project_bridge.rs`'s `AppearanceDoc` round-trips
+## six things -- quality, look, territory opacity, the appearance overrides,
+## the colour ramp and the NPR block -- and restores all six into the engine on
+## File ▸ Open. This file draws five of them and subscribed to nothing, so
+## every row still showed launch-time values afterwards.
+##
+## The ramp made that destructive rather than merely wrong. `_ramp` is a
+## shell-side copy, and `_push_ramp()` sends **the whole list**: with `_ramp`
+## still holding the launch-time ramp, the first colour swatch, stop drag,
+## delete, Add stop or Reverse after a project open would overwrite the ramp
+## that was just restored from the file with the one from before it was opened.
+## Nothing warned, and the file on disk still held the good ramp until the next
+## save wrote the bad one over it.
+##
+## Named `on_world_changed` to match the method `app.gd`'s own
+## `_refresh_world_dependent()` broadcasts over the registered workspaces, so a
+## future standalone registration of this class needs no new wiring. Today it
+## is nested, so `cartography_workspace.gd`'s `_on_world_changed()` -- already
+## connected to both `generation_finished` and `world_loaded` -- forwards it.
+##
+## Every half is guarded on whether that block was actually drawn rather than
+## on the binary's `*_api` flags, which is the stricter of the two: an older
+## cdylib leaves a block undrawn, and so does a future reordering of
+## `_build()`, and only the node itself knows.
+func on_world_changed() -> void:
+	if not _app_rows.is_empty():
+		_sync_appearance()
+	if _look_pick != null:
+		_sync_look_pick()
+	## `_ramp_host` rather than `bridge.ramp_api`: it is non-null exactly when
+	## `_build_ramp()` actually drew the editor, which is the thing `_sync_ramp`
+	## refills.
+	if _ramp_host != null:
+		_sync_ramp()
+	if not _npr_rows.is_empty():
+		_sync_npr()
+
+## The Painter block's own half of `on_world_changed()`.
+##
+## `set_pressed_no_signal` / a plain `value` write, deliberately asymmetric:
+## a checkbox's handler calls `_push()`, which would write the value straight
+## back to the engine it was just read from and mark the look Custom, so the
+## two toggles are set silently. A slider's `value_changed` handler only
+## updates the closure's own `pending` array -- the engine write is on
+## `drag_ended` -- so letting it fire is not merely harmless, it is required:
+## `pending` is unreachable from here, and leaving it stale would make the
+## next drag of a *different* row push this row's old value back.
+func _sync_npr() -> void:
+	var npr: Dictionary = bridge.npr_settings()
+	if npr.is_empty():
+		return
+	## Matching `_build_npr`: 0 *is* 1x in the engine (the reference's own
+	## `waveDist>0?waveDist:1`), so the row shows the reach that is actually
+	## drawn rather than a 0.00x that renders as 1x.
+	if float(npr.get("wave_dist", 0.0)) <= 0.0:
+		npr["wave_dist"] = 1.0
+	for key in _npr_rows:
+		if not npr.has(key):
+			continue
+		var row: Dictionary = _npr_rows[key]
+		if row.has("check"):
+			(row["check"] as CheckBox).set_pressed_no_signal(bool(npr[key]))
+		elif row.has("slider"):
+			(row["slider"] as Range).value = float(npr[key])
+	## Not in `_npr_rows`: `_build_npr` keeps this one out of the table because
+	## its handler is `_on_animate_water`, which owns the shader overlay as well
+	## as the flag. Silent for the same reason the two toggles above are.
+	if _anim_check != null:
+		_anim_check.set_pressed_no_signal(bool(npr.get("animate_water", false)))

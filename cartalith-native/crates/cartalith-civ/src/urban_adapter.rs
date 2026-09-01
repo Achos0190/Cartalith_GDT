@@ -1024,7 +1024,10 @@ pub struct UrbanLayout {
     pub block_plaza: Vec<bool>,
     /// Milestone 8's market place, when the site had a primary to widen.
     /// [`Plaza::poly`] is the square's own outline, which the reference strokes
-    /// over the block fill (`_umDrawLayoutDetailed`, line 23046).
+    /// over the block fill (`_cvDrawCity`, declared at reference line 23021;
+    /// the plaza stroke itself is line 23046). `_umDrawLayoutDetailed`, cited
+    /// here until 2026-08-31, exists nowhere in the reference -- the line
+    /// number was right and the name was invented.
     pub plaza: Option<Plaza>,
     /// Milestone 12's strip parcels.
     pub parcels: Vec<LayoutParcel>,

@@ -7,6 +7,11 @@ scoped Phase 1 before any terrain code was ported. Anything not listed in
 scope is out until this pilot's own findings — real measured numbers, not
 assumption — justify widening it.
 
+> **This document defines the pilot's boundary and its acceptance criteria; it
+> does not track them.** Whether each "Done means" criterion below is met, and
+> which symbol met it, lives in `cartalith-native/docs/STATUS.md` — the single
+> source of truth for status across this port.
+
 ## Why noise first
 
 `vnoise`/`hash` (`cartalith-noise`) are pure per-cell functions: given `(x,

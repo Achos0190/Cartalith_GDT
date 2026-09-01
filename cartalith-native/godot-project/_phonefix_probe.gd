@@ -1,5 +1,5 @@
 extends Node
-## TEMPORARY verification harness for the four phone-only findings fixed in
+## Committed verification harness for the four phone-only findings fixed in
 ## this pass. Drives the *real shell* at handset size and measures the four
 ## controls rather than eyeballing a screenshot.
 ##
@@ -7,6 +7,11 @@ extends Node
 ##
 ## `--force-touch` is `dcc_shell.gd`'s own testing override; without it the
 ## phone composition is unreachable on a dev box with no touch hardware.
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var app: Node
 

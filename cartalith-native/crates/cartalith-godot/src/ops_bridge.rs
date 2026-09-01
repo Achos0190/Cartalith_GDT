@@ -17,25 +17,59 @@
 //! inherent method is a hard `E0592` rather than anything silent. Recorded so
 //! the next reader does not go looking for it under F13.
 //!
-//! **Four of the listed items are deliberately still unwired**, and the reason
-//! is the same in each case: closing them properly needs a file this pass did
-//! not own, and a half-wired control is worse than an unwired function because
-//! it looks finished.
+//! **Two of the listed items are still unwired**, and the reason is the same
+//! in each case: closing them properly needs a file this pass did not own, and
+//! a half-wired control is worse than an unwired function because it looks
+//! finished.
 //!
 //! * `extract_region_as_world` — its own doc comment says the orchestration
 //!   around it (`allocate`, clearing the warp fields, cache invalidation,
 //!   climate refresh, emptying the civ layer) is deliberately not ported. That
 //!   is new `WorldGen` state in `lib.rs`.
-//! * `icon_brush_rule` / `icon_brush_stamp` — there is no manual-icon tool in
-//!   the shell at all: nothing arms it, nothing renders `state.mapIcons`, and
-//!   nothing stores them. These two are the *inside* of a tool that does not
-//!   exist yet (`UNIFIED_TOOL_PLAN.md` milestone E).
-//! * `to_library_json` / `apply_library_file_with_items` — `asset_bridge.rs`'s
-//!   own module doc already discloses them as save-format-adjacent; they need
-//!   `project_bridge.rs` to read and write the section.
 //! * `referenced_files` / `slot_paths` — their one real consumer,
 //!   `pack::load_pack_from_bytes`, iterates `manifest.icons`/`manifest.textures`
 //!   by hand instead of calling them. Worth consolidating, in that file.
+//!
+//! ## Two of them stopped being unwired (re-read 2026-08-31)
+//!
+//! Both entries below used to sit in the list above. They were re-read against
+//! the working tree rather than trusted, because a decline that has gone stale
+//! is not a neutral comment: the icon-brush one was quoted into an owner ruling
+//! that sized `UNIFIED_TOOL_PLAN.md` milestone E as three gaps when two of the
+//! three had already shipped.
+//!
+//! * **`icon_brush_rule` / `icon_brush_stamp` — the decline claimed "there is
+//!   no manual-icon tool in the shell at all: nothing arms it, nothing renders
+//!   `state.mapIcons`, and nothing stores them". All three clauses are false.**
+//!   Arming: `cartography_workspace.gd::_arm_icon_from_ui` calls
+//!   `bridge.icon_arm(fam.key, ...)` against `icon_bridge`'s `#[func] icon_arm`.
+//!   Rendering: `viewport_host.gd::refresh_annotations` calls
+//!   `overlay.set_manual_icons(_bridge.icon_list())`, and `map_overlay.gd`
+//!   draws that list. Storing: `project_bridge.rs` writes every placed icon to
+//!   `annotations/icons.json` (`SLOT_ICONS`, in `project_save_with_documents`)
+//!   and parses it back in `project_open` through `IconsDoc`/`IconDto`.
+//!   Click-placement, selection, resize and delete are all live too
+//!   (`icon_place`/`icon_hit_test`/`icon_handles`/`icon_resize`/`icon_delete`).
+//!
+//!   What is genuinely missing is **the brush, not the tool**: no `#[func]`
+//!   calls `icon_brush_rule` + `icon_brush_stamp` against `self.icons` on a
+//!   drag sample, and the Icon tool-options row has no radius or density
+//!   control to drive [`cartalith_assets::manual::IconBrush`]'s
+//!   `r`/`density` — `cartography_workspace.gd` builds exactly three
+//!   sliders there -- `Scale`, `Rotation` and `Jitter` -- all three of
+//!   which `_arm_icon_from_ui` feeds to
+//!   `icon_arm` and none of which is a brush parameter. That is one
+//!   remaining gap, over an existing tool — not the inside of a tool that
+//!   does not exist.
+//! * **`to_library_json` / `apply_library_file_with_items` — the decline said
+//!   "they need `project_bridge.rs` to read and write the section". It does
+//!   now.** `project_bridge.rs::asset_library_document_json` calls
+//!   `to_library_json` and `asset_library_restore_document` calls
+//!   `apply_library_file_with_items`, both `#[func]`, both over the
+//!   `library/assets.json` slot. The one real limitation left is the one those
+//!   two carry in their own doc comments and not this list's: item *pixels*
+//!   have no channel in the project writer, so a restored library comes back
+//!   with its slots, collections and scatter rules and `items == 0`.
 //!
 //! And one was judged **not a gap at all**: `filled_count` is already derived
 //! from real engine data by `asset_library_window.gd`'s `_refresh_rail_counts`,

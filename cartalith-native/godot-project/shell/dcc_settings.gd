@@ -30,6 +30,20 @@ const _SEC_GPU := "gpu"
 const _SEC_AUTOSAVE := "autosave"
 const _SEC_LOD := "tiles_lod"
 const _SEC_LIGHT := "lighting"
+## `DCC_SHELL_SPEC.md` §2.5's Theme radio (`BUILD_ANSWERS.md:98-99`: "Device,
+## theme and units persist ... and restore on load"). Machine state for the
+## same reason the GPU block is: which palette *this install* boots into says
+## nothing about the world, and a `.zip` carrying it would impose one user's
+## eyes on everyone who opens the file.
+const _SEC_THEME := "theme"
+## §2.5's Graphics group. Today one key -- the project-level relief
+## exaggeration a fresh Generate starts from; see `appearance_defaults()`.
+const _SEC_GRAPHICS := "graphics"
+## §2.6's `Save layout as...` -- the named list, and nothing else: the shell's
+## live layout is not mirrored here, only the snapshots a user asked to keep.
+const _SEC_LAYOUT := "layout"
+## §2.5 Tiles & LOD > Atlas cache > Size cap.
+const _SEC_ATLAS := "atlas"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -76,6 +90,19 @@ static func set_storage_root(key: String, path: String) -> void:
 	_cfg.set_value(_SEC_ROOTS, key, path)
 	_save()
 
+## Every root at once. **No code caller** (checked repo-wide 2026-09-01),
+## and kept rather than deleted for one reason: `GUI_GAP_REGISTER.md`
+## cites it by name as the evidence that the four storage roots are real.
+##
+## That citation is already one step off -- both surfaces that show the
+## roots (`app.gd`'s Storage locations modal and `menus.gd`'s File-menu
+## readout rows) walk `ROOT_KEYS` and call `storage_root(k)` per row,
+## because each needs the KEY as well as the path: one to label the row,
+## the other to hand `_browse_root()` something to write back. A Dictionary
+## of key->path would serve either of them no better, so this is surplus
+## rather than the missing link it is cited as. Deleting it is the right
+## call the moment that document is corrected; deleting it now would leave
+## the document pointing at nothing.
 static func all_roots() -> Dictionary:
 	var out := {}
 	for k in ROOT_KEYS:
@@ -236,11 +263,21 @@ static func set_lod_auto(on: bool) -> void:
 ## rendering — it was the project-level DEFAULT those per-world values start
 ## from, which is a settings key.
 ##
-## The four defaults below are the reference's own: 315° is the cartographic
-## convention (lighting from the south-east makes ridges read as valleys, as
-## `render_workspace.gd`'s own tooltip says), 45° its companion, and
-## `relief_lights` 1 is the reference's exact single-sun shading — so an
-## untouched install renders exactly as it did before this key existed.
+## The four values below are the reference HTML's own rig -- 315° the
+## cartographic convention (lighting from the south-east makes ridges read as
+## valleys, as `render_workspace.gd`'s own tooltip says), 45° its companion,
+## and `relief_lights` 1 its exact single-sun shading.
+##
+## **They are the ladder's fallback labels, not values this file sends**
+## (corrected 2026-09-01). Until then `appearance_defaults()` emitted all four
+## unconditionally, so a fresh install overwrote the engine's own tier on every
+## Generate: `render.rs`'s `TerrainAppearance::default()` is `sun_alt_deg` 40,
+## `relief_ambient` 0.34 and `relief_lights` **6** (10 on Ultra), and this dict
+## shipped 45 / 0.35 / **1** over it -- turning the multi-light relief rig off
+## on a machine whose owner had never opened this menu, while the comment here
+## claimed the opposite ("renders exactly as it did before this key existed").
+## `appearance_defaults()` now sends a key only once the user has stored one,
+## which is what that sentence always promised.
 const LIGHTING_DEFAULTS := {
 	"sun_az_deg": 315.0,
 	"sun_alt_deg": 45.0,
@@ -248,12 +285,47 @@ const LIGHTING_DEFAULTS := {
 	"relief_lights": 1.0,
 }
 
-static func lighting_defaults() -> Dictionary:
+## **Every project-level appearance default, not only the rig.** `set_appearance
+## ()` takes any `render.rs` tunable, and the one caller -- `app.gd`'s
+## `_apply_lighting_defaults()` -- hands it whatever this returns, so a second
+## dict for the second key would have needed a second call site in a file this
+## pass does not own. `exag` joins the four rig values here instead.
+##
+## **Every key here is one the user actually stored.** `exag` always worked
+## that way (see `relief_exaggeration_default()`); since 2026-09-01 the four
+## rig keys do too. An untouched install returns `{}`, `app.gd`'s
+## `_apply_lighting_defaults()` hands the engine an empty dict, and the active
+## quality tier's own rig stands -- which is what an install nobody has
+## configured should render with, and what this comment used to claim while
+## the loop below did the opposite.
+##
+## A stored key still wins over the tier, at every value including one equal to
+## the tier's: choosing 6 lights explicitly and having the engine happen to
+## agree are the same picture but not the same statement, and only the first
+## survives a tier change.
+static func appearance_defaults() -> Dictionary:
 	_ensure_loaded()
 	var out: Dictionary = {}
 	for k in LIGHTING_DEFAULTS:
-		out[k] = float(_cfg.get_value(_SEC_LIGHT, String(k), LIGHTING_DEFAULTS[k]))
+		if _cfg.has_section_key(_SEC_LIGHT, String(k)):
+			out[k] = float(_cfg.get_value(_SEC_LIGHT, String(k), LIGHTING_DEFAULTS[k]))
+	if has_relief_exaggeration_default():
+		out["exag"] = relief_exaggeration_default()
 	return out
+
+## Whether the user has stored a rung for one rig key, so a menu can tell
+## "chosen" from "following the engine" -- the distinction
+## `appearance_defaults()` now makes and its return value alone cannot show.
+static func has_lighting_default(key: String) -> bool:
+	_ensure_loaded()
+	return _cfg.has_section_key(_SEC_LIGHT, key)
+
+## The name `app.gd`'s `_apply_lighting_defaults()` and `menus.gd`'s rig ladder
+## both call. Kept as a delegate rather than renamed at those two call sites:
+## one of them is another pass's file, and a rename that lands in only one of
+## the two is worse than a name one word narrower than its answer.
+static func lighting_defaults() -> Dictionary:
+	return appearance_defaults()
 
 static func set_lighting_default(key: String, value: float) -> void:
 	if not LIGHTING_DEFAULTS.has(key):
@@ -262,12 +334,140 @@ static func set_lighting_default(key: String, value: float) -> void:
 	_cfg.set_value(_SEC_LIGHT, key, value)
 	_save()
 
-## Back to the reference's rig. Erases the keys rather than writing the default
-## values over them, so `lighting_defaults()` falls through to
-## `LIGHTING_DEFAULTS` and a later change to those constants reaches anyone who
-## has reset -- a stored copy of a default is a default that cannot move.
+## Back to sending nothing. Erases the keys rather than writing values over
+## them, which since 2026-09-01 is the whole act: with no stored key
+## `appearance_defaults()` omits it, so the next Generate leaves the engine's
+## own rig alone instead of transcribing one over it.
+##
+## **It does not un-send.** `set_appearance()` writes into `lib.rs`'s
+## `appearance_over`, which only `reset_appearance()` and a preset load clear
+## -- so a value an earlier Generate already applied is still overriding the
+## tier after this runs. RENDER's `Reset to quality tier` is the control that
+## takes those back; `menus.gd`'s row says so.
 static func reset_lighting_defaults() -> void:
 	_ensure_loaded()
 	if _cfg.has_section(_SEC_LIGHT):
 		_cfg.erase_section(_SEC_LIGHT)
+	_save()
+
+# -- §2.5 Application > Theme --------------------------------------------------
+
+## `dark` / `light` / `system`, `Preferences > Theme`'s own three rows.
+##
+## `system` is stored as the *mode*, not as the palette it resolved to:
+## §2.5 calls Follow system a one-shot resolve rather than a live
+## subscription, and storing the resolved bit instead would silently demote the
+## choice to whichever palette the OS happened to be in the day it was picked.
+const THEME_MODES: Array[String] = ["dark", "light", "system"]
+
+static func theme_mode() -> String:
+	_ensure_loaded()
+	var m := String(_cfg.get_value(_SEC_THEME, "mode", "dark"))
+	return m if THEME_MODES.has(m) else "dark"
+
+static func set_theme_mode(mode: String) -> void:
+	if not THEME_MODES.has(mode):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_THEME, "mode", mode)
+	_save()
+
+# -- §2.5 Graphics > relief exaggeration default -------------------------------
+
+## The three rungs `Preferences > Graphics` offers. `render.rs`'s own tunable
+## range is 0..12; these are the round multipliers the design asks for, not the
+## full span -- the per-world slider (`render_workspace.gd`'s `exag`) is where
+## a value between them is chosen.
+const RELIEF_EXAG_CHOICES: Array[float] = [1.0, 2.0, 4.0]
+## `render.rs`'s own `exag: 3.4`, which is what an install renders with when
+## this key has never been written. **Not one of the rungs**, deliberately: a
+## default that silently rounded itself onto the nearest rung would change the
+## shipped render the moment this preference existed, which is the opposite of
+## what a default is for. Unset therefore reads as "the engine's", and the
+## Graphics submenu says so on its own parent row.
+const RELIEF_EXAG_ENGINE_DEFAULT := 3.4
+
+static func has_relief_exaggeration_default() -> bool:
+	_ensure_loaded()
+	return _cfg.has_section_key(_SEC_GRAPHICS, "exag")
+
+static func relief_exaggeration_default() -> float:
+	_ensure_loaded()
+	return float(_cfg.get_value(_SEC_GRAPHICS, "exag", RELIEF_EXAG_ENGINE_DEFAULT))
+
+static func set_relief_exaggeration_default(v: float) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_GRAPHICS, "exag", clampf(v, 0.0, 12.0))
+	_save()
+
+## Erases the key rather than writing 3.4 over it, for `reset_lighting_defaults
+## ()`'s reason: a stored copy of a default is a default that cannot move.
+static func clear_relief_exaggeration_default() -> void:
+	_ensure_loaded()
+	if _cfg.has_section_key(_SEC_GRAPHICS, "exag"):
+		_cfg.erase_section_key(_SEC_GRAPHICS, "exag")
+	_save()
+
+# -- §2.5 Tiles & LOD > Atlas cache > Size cap ---------------------------------
+
+## GB, `0` for no cap -- the default, and what the atlas did before a cap
+## existed. A ladder rather than a spinner for `GPU_VRAM_CHOICES`' reason: the
+## number only ever gates whole baked chunks, so a free-form field would offer
+## a precision the decision does not have.
+const ATLAS_CAP_CHOICES: Array[float] = [0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0]
+
+static func atlas_cap_gb() -> float:
+	_ensure_loaded()
+	return maxf(0.0, float(_cfg.get_value(_SEC_ATLAS, "cap_gb", 0.0)))
+
+static func set_atlas_cap_gb(gb: float) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_ATLAS, "cap_gb", maxf(0.0, gb))
+	_save()
+
+# -- §2.6 Window > Save layout as... -------------------------------------------
+
+## Named layout snapshots: `name -> {regions, domain, mode, rail_expanded,
+## detent}`, exactly the dictionary `menus.gd` collects off the live shell.
+##
+## Machine state again, and more obviously so than the rest of this file: a
+## layout is which docks *this screen* has room for. The built-in entry is not
+## stored here at all -- `Reset layout` is code (`DccApp.toggle_region`'s
+## `ID_WIN_RESET` branch), and a saved copy of it could go stale against the
+## shell it resets.
+static func layouts() -> Dictionary:
+	_ensure_loaded()
+	var raw = _cfg.get_value(_SEC_LAYOUT, "named", {})
+	return raw if raw is Dictionary else {}
+
+## Sorted, so menu order does not depend on save order -- a list that
+## reshuffles itself as it grows cannot be used by muscle memory.
+static func layout_names() -> Array:
+	var names: Array = layouts().keys()
+	names.sort()
+	return names
+
+static func layout(name: String) -> Dictionary:
+	var d = layouts().get(name, {})
+	return d if d is Dictionary else {}
+
+## Overwrites a same-named entry rather than duplicating it, the way
+## `remember_project()` moves a repeat instead of appending one.
+static func save_layout(name: String, data: Dictionary) -> void:
+	var trimmed := name.strip_edges()
+	if trimmed == "":
+		return
+	_ensure_loaded()
+	var all := layouts()
+	all[trimmed] = data
+	_cfg.set_value(_SEC_LAYOUT, "named", all)
+	_save()
+
+static func forget_layout(name: String) -> void:
+	_ensure_loaded()
+	var all := layouts()
+	if not all.has(name):
+		return
+	all.erase(name)
+	_cfg.set_value(_SEC_LAYOUT, "named", all)
 	_save()

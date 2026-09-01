@@ -26,6 +26,19 @@
 //! gated by `_civGoodReach`, which the reference wrote for exactly that
 //! purpose and then only ever used for display.
 //!
+//! ## `_civFoodShed` itself is *also* ported directly (2026-09-01)
+//!
+//! The generalisation above is real but it is not a substitute for this:
+//! `CIV_RESOURCE_KEYS` does not include `food`, so the fifteen-good match
+//! gives `food` no route through this file at all. `ECONOMY_SCOPE.md`
+//! milestone 2 named `_civFoodShed` as its one still-missing symbol, and an
+//! audit (`OUTSTANDING_WORK.md` §1) found it genuinely missing rather than
+//! subsumed: [`crate::trade::civ_food_shed`] below is the direct port,
+//! closing that milestone. See its own doc comment for what this pass found
+//! already ported (`_civPlaceFoodSurplus`/`foodSurplusRatio`, both in
+//! `crate::timeline`, present but with zero callers and zero tests before
+//! this pass) and what it built.
+//!
 //! ## Two deliberate divergences, both recorded rather than silent
 //!
 //! 1. **Road connectivity uses [`Way::a_idx`]/[`Way::b_idx`] directly**
@@ -54,9 +67,10 @@
 //! nothing is saved, and a second call on an unchanged world returns the
 //! same answer because every input is already-computed world state.
 
+use crate::timeline::{civ_catchment_pop, food_surplus_ratio, FARMERS_PER_URBANITE};
 use crate::urban_adapter::{um_site_kind_from_terrain, UrbanWorld};
-use crate::{NamedSettlement, TradeBalance, Way, CIV_RESOURCE_KEYS};
-use cartalith_jsmath::{js_hypot, js_max, js_min};
+use crate::{civ_catchment_km2, NamedSettlement, TradeBalance, Way, CIV_RESOURCE_KEYS};
+use cartalith_jsmath::{js_hypot, js_max, js_min, js_round};
 
 // ---------------------------------------------------------------- constants
 
@@ -535,6 +549,311 @@ pub fn trade_flows(input: &TradeInput, w: &UrbanWorld) -> TradeNetwork {
         + out.way_load.len() * std::mem::size_of::<f64>()
         + out.flows.capacity() * std::mem::size_of::<TradeFlow>()
         + out.unmet.capacity() * std::mem::size_of::<UnmetNeed>();
+    out
+}
+
+// ------------------------------------------------------------ the food shed
+
+/// `_civCatchmentRadiusRaw` (reference line 23477): the continuous catchment
+/// radius in cells -- area of a circle -> radius, km converted to cells.
+/// `crate::civ_catchment_radius_cells` is its `Math.round`ed, `.max(1)`
+/// sibling (reference line 23481) that every disc-scan *loop bound* in this
+/// port uses; [`civ_food_shed`]'s hinterland sweep needs this one instead,
+/// for the reference's own stated reason (comment at line 23474): *"some
+/// callers need a continuous distance for a `dist<=radius` comparison, not
+/// a discrete loop bound."* Colocated here with its only caller in this
+/// port rather than beside `civ_catchment_radius_cells` in `lib.rs`, a file
+/// this module does not own.
+fn catchment_radius_raw(cat_km2: f64, map_width_km: f64, gw: usize) -> f64 {
+    let cell_km = map_width_km / gw as f64;
+    (cat_km2 / std::f64::consts::PI).sqrt() / js_max(1e-6, cell_km)
+}
+
+/// Everything [`civ_food_shed`] reads beyond the one settlement it is asked
+/// about. `dens`/`soil`/`field` are grid-shaped `Float32Array` equivalents,
+/// `gw*gh` long.
+pub struct FoodShedInput<'a> {
+    pub settlements: &'a [NamedSettlement],
+    /// Parallel to `settlements` -- [`place_navigability`]'s result for
+    /// each one, precomputed once by the caller exactly the way
+    /// [`trade_flows`] precomputes its own `TradeNetwork::navigability`.
+    /// Recomputing it inside a per-settlement function that itself runs
+    /// once per settlement would cost `O(n^2)` navigability sweeps for one
+    /// `O(n)` reconciliation pass.
+    pub navigability: &'a [Navigability],
+    /// Parallel to `settlements` -- each settlement's OWN faction's
+    /// `AgTechLevel::farmers_per_urbanite`
+    /// ([`crate::roster::civ_ag_tech_by_key`], resolved by the caller: this
+    /// crate holds no faction roster, `ARCHITECTURE.md`). A missing or
+    /// out-of-range entry falls back to [`FARMERS_PER_URBANITE`], matching
+    /// the reference's own `_civFarmersPerUrbanite` fallback for an
+    /// unclaimed or missing faction (reference line 14839).
+    pub farmers_per_urbanite: &'a [f64],
+    /// [`crate::timeline::civ_current_agrarian_density`]'s output. An empty
+    /// or mis-sized slice reads as absent, matching the reference's
+    /// `if(dens)` guard -- `hinterland_capacity` is `0.0`.
+    pub dens: &'a [f32],
+    /// The soil-fertility field. An empty or mis-sized slice falls back to
+    /// `0.5` for every cell, matching the reference's
+    /// `soilAt?soilAt[li]:0.5`.
+    pub soil: &'a [f32],
+    /// [`crate::timeline::civ_soil_reference`]'s result, computed ONCE by
+    /// the caller over the whole field -- that function's own doc comment
+    /// is explicit about why (it sorts every land cell; this function may
+    /// be called once per settlement).
+    pub soil_ref: f64,
+    pub field: &'a [f32],
+    pub gw: usize,
+    pub gh: usize,
+    pub sea: f64,
+    pub world_wrap: bool,
+    pub map_width_km: f64,
+}
+
+/// `_civFoodShed`'s return (reference line 24051).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FoodShed {
+    /// The settlement's own catchment ceiling, less what its own farmers
+    /// eat -- `_civPlaceCatchmentCeiling(p) * foodSurplusRatio(...)`.
+    pub local_capacity: f64,
+    /// The surrounding countryside within [`MAX_REACH_KM`]'s land reach,
+    /// beyond the settlement's own catchment, decayed by distance and
+    /// gated by each cell's own [`food_surplus_ratio`].
+    pub hinterland_capacity: f64,
+    /// Genuine spare capacity drawn from other settlements' own catchments,
+    /// over the cheapest mode both ends share.
+    pub import_capacity: f64,
+    /// `local_capacity + hinterland_capacity + import_capacity`.
+    pub supported: f64,
+    /// How many other settlements contributed to `import_capacity`.
+    pub suppliers: u32,
+    /// The best (cheapest) mode any import used -- `Land` if none did.
+    pub best_mode: TradeMode,
+    /// `"trade"` when hinterland+import exceeds local capacity, else
+    /// `"local"` -- the reference's own two literal strings, kept as
+    /// `&'static str` rather than a two-variant enum since nothing else in
+    /// this port needs to match on it.
+    pub limited_by: &'static str,
+    /// `actual pop <= supported * 1.0001` -- the 0.01% slack the reference
+    /// itself writes, tested on the unrounded values.
+    pub sustainable: bool,
+    /// `round(pop - supported)` when not sustainable, else `0.0`.
+    pub over_by: f64,
+}
+
+impl Default for FoodShed {
+    /// The reference's own baseline object (reference lines 24051-24052),
+    /// returned unchanged for a `p_idx` past the settlement slice -- the
+    /// reference's own `if(!p||p.category!=='settlement') return out;`
+    /// guard, which this port's settlement slice makes unreachable except
+    /// by an out-of-range index.
+    fn default() -> Self {
+        FoodShed {
+            local_capacity: 0.0,
+            hinterland_capacity: 0.0,
+            import_capacity: 0.0,
+            supported: 0.0,
+            suppliers: 0,
+            best_mode: TradeMode::Land,
+            limited_by: "local",
+            sustainable: true,
+            over_by: 0.0,
+        }
+    }
+}
+
+/// `_civFoodShed` (reference lines 24050-24132, v1.34's structural fix): the
+/// population this settlement's food logistics can actually sustain -- its
+/// own catchment ceiling, the surrounding countryside within reach overland,
+/// and genuine spare capacity imported from other settlements over the
+/// cheapest mode both ends share.
+///
+/// **This closes `ECONOMY_SCOPE.md`'s milestone 2.**
+/// [`crate::roster::AG_TECH_LEVELS`]' `farmers_per_urbanite` reaches the
+/// trade/economy layer through exactly this function and
+/// [`food_surplus_ratio`] -- the reference's own module-load comment
+/// (line 14811) names both by name as the pair that *"genuinely changes a
+/// faction's urbanisation ceiling."* [`crate::timeline::civ_place_food_surplus`]
+/// does **not** read ag-tech (it multiplies the same catchment ceiling by a
+/// fixed per-tier constant, [`crate::timeline::civ_surplus_fraction`]), and
+/// [`trade_flows`] does not either -- the fifteen
+/// [`CIV_RESOURCE_KEYS`](crate::CIV_RESOURCE_KEYS) it matches do not
+/// include food. Before this function existed, ag-tech's only real
+/// consumer anywhere in this port was `crate::manpower`'s military-manpower
+/// model, which reads the same [`crate::roster::civ_ag_tech_by_key`] value
+/// for an unrelated purpose (the agricultural labour ratio behind an army's
+/// headcount, not food logistics); this is the route the reference itself
+/// names.
+///
+/// Every nullable/global reference read is caller-supplied here, the same
+/// convention `civ_settlement_population`'s `norm_b` and
+/// [`food_surplus_ratio`]'s own two arguments already use --
+/// [`FoodShedInput`]'s own field docs say which reference global each one
+/// replaces.
+///
+/// Not world-wrap aware on either the hinterland sweep or the import
+/// distance -- matching the reference exactly. `_civFoodShed`'s own two
+/// loops use a plain `xx=x0+dx` and `Math.hypot(q.x-p.x,q.y-p.y)` with no
+/// wrap correction, unlike [`crate::timeline::civ_catchment_density_mean`]'s
+/// explicit wrap (which the [`civ_catchment_pop`] calls inside this
+/// function still respect via `world_wrap`, for each settlement's own small
+/// catchment disc -- the inconsistency is the reference's, between its
+/// broad sweep and its narrow one, not introduced here). Ported as written
+/// rather than "fixed" (`cartalith-porting-discipline`: match the
+/// reference, do not improve on it).
+///
+/// `rc` is threaded through rather than rebuilt, matching [`trade_flows`]'s
+/// own choice: a real caller invokes this once per settlement (the
+/// reference's own `_civApplyFoodShedCeilings` does, across several
+/// reconciliation passes), and rebuilding the union-find every time would
+/// be an `O(ways)` cost paid once per settlement per pass instead of once
+/// per pass.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_food_shed(
+    input: &FoodShedInput,
+    rc: &mut RoadComponents,
+    p_idx: usize,
+) -> FoodShed {
+    let mut out = FoodShed::default();
+    let n = input.settlements.len();
+    if p_idx >= n || input.field.len() != input.gw * input.gh {
+        return out;
+    }
+    const NO_WATER: Navigability = Navigability { kind: NavKind::None, basis: "no water in reach" };
+    let nav_at = |i: usize| input.navigability.get(i).copied().unwrap_or(NO_WATER);
+    let fpu_at = |i: usize| {
+        input.farmers_per_urbanite.get(i).copied().unwrap_or(FARMERS_PER_URBANITE)
+    };
+    let soil_present = input.soil.len() == input.gw * input.gh;
+    let soil_at = |i: usize| if soil_present { f64::from(input.soil[i]) } else { 0.5 };
+    let dens_present = input.dens.len() == input.gw * input.gh;
+
+    let p = &input.settlements[p_idx];
+    let fpu_p = fpu_at(p_idx);
+
+    // Local: `_civPlaceCatchmentCeiling(p) * foodSurplusRatio(...)`.
+    let li = (p.placement.y * input.gw + p.placement.x).min(input.gw * input.gh - 1);
+    let raw = civ_catchment_pop(
+        p.placement.x,
+        p.placement.y,
+        p.placement.kind,
+        input.dens,
+        input.field,
+        input.gw,
+        input.gh,
+        input.sea,
+        input.world_wrap,
+        input.map_width_km,
+    );
+    out.local_capacity = raw * food_surplus_ratio(soil_at(li), input.soil_ref, fpu_p);
+
+    let nav_a = nav_at(p_idx);
+    let cell_km = js_max(1e-6, input.map_width_km / js_max(1.0, input.gw as f64));
+
+    // (a) Hinterland -- the countryside within reach, less the settlement's
+    // own catchment (already counted above, so `rc_dist<=cat_r` is skipped
+    // here -- "no double-count, in range" in the reference's own words).
+    if dens_present {
+        let cat_km2 = civ_catchment_km2(p.placement.kind);
+        let cat_r = catchment_radius_raw(cat_km2, input.map_width_km, input.gw);
+        let reach_cells = js_min(
+            js_max(input.gw as f64, input.gh as f64),
+            (MAX_REACH_KM[TradeMode::Land as usize] / js_max(1e-6, cell_km)).ceil(),
+        );
+        let reach_i = reach_cells as i64;
+        let (x0, y0) = (p.placement.x as i64, p.placement.y as i64);
+        let mut sum = 0.0f64;
+        for dy in -reach_i..=reach_i {
+            let yy = y0 + dy;
+            if yy < 0 || yy >= input.gh as i64 {
+                continue;
+            }
+            for dx in -reach_i..=reach_i {
+                let xx = x0 + dx;
+                if xx < 0 || xx >= input.gw as i64 {
+                    continue;
+                }
+                let dist_cells = js_hypot(dx as f64, dy as f64);
+                if dist_cells <= cat_r || dist_cells > reach_cells {
+                    continue;
+                }
+                let i = yy as usize * input.gw + xx as usize;
+                if (input.field[i] as f64) < input.sea {
+                    continue;
+                }
+                let frac = deliverable(dist_cells * cell_km, TradeMode::Land);
+                if frac <= DELIVERABLE_FLOOR {
+                    continue;
+                }
+                let sr = food_surplus_ratio(soil_at(i), input.soil_ref, fpu_p);
+                if sr <= 0.0 {
+                    continue;
+                }
+                sum += f64::from(input.dens[i]) * cell_km * cell_km * frac * sr;
+            }
+        }
+        out.hinterland_capacity = sum;
+    }
+
+    // (b) Long-range import -- other settlements' genuine spare capacity,
+    // over the cheapest mode both ends share.
+    let mut imported = 0.0f64;
+    let mut suppliers = 0u32;
+    let mut best = TradeMode::Land;
+    for q_idx in 0..n {
+        if q_idx == p_idx {
+            continue;
+        }
+        let q = &input.settlements[q_idx];
+        let cap = civ_catchment_pop(
+            q.placement.x,
+            q.placement.y,
+            q.placement.kind,
+            input.dens,
+            input.field,
+            input.gw,
+            input.gh,
+            input.sea,
+            input.world_wrap,
+            input.map_width_km,
+        );
+        let qi = (q.placement.y * input.gw + q.placement.x).min(input.gw * input.gh - 1);
+        let spare = cap * food_surplus_ratio(soil_at(qi), input.soil_ref, fpu_at(q_idx)) - q.pop as f64;
+        // Kept in the reference's negated form -- see `deliverable`'s own
+        // doc comment for why, and `civ_food_shed`'s own tests for the
+        // reachable case (a NaN `farmers_per_urbanite`, not a NaN `soil`,
+        // which `food_surplus_ratio` already absorbs before this point).
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(spare > 0.0) {
+            continue;
+        }
+        let mode = trade_mode(nav_a, nav_at(q_idx));
+        let dist_km = js_hypot(
+            q.placement.x as f64 - p.placement.x as f64,
+            q.placement.y as f64 - p.placement.y as f64,
+        ) * cell_km;
+        if !connected(rc, p_idx, q_idx, dist_km, mode) {
+            continue;
+        }
+        let frac = deliverable(dist_km, mode);
+        if frac <= DELIVERABLE_FLOOR {
+            continue;
+        }
+        imported += spare * frac * SUPPLIER_SHARE;
+        suppliers += 1;
+        if mode == TradeMode::Sea || (mode == TradeMode::River && best == TradeMode::Land) {
+            best = mode;
+        }
+    }
+    out.import_capacity = imported;
+    out.suppliers = suppliers;
+    out.best_mode = best;
+    out.supported = out.local_capacity + out.hinterland_capacity + out.import_capacity;
+    out.limited_by =
+        if out.hinterland_capacity + out.import_capacity > out.local_capacity { "trade" } else { "local" };
+    let pop = p.pop as f64;
+    out.sustainable = pop <= out.supported * 1.0001;
+    out.over_by = if out.sustainable { 0.0 } else { js_round(pop - out.supported) };
     out
 }
 

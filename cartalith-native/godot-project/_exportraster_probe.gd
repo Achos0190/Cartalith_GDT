@@ -1,10 +1,15 @@
 extends Node
-## TEMPORARY verification harness for the export raster + channel atlas
+## Committed verification harness for the export raster + channel atlas
 ## (PARITY_AUDIT.md §5 item 14). Not committed. Drives the real bindings
 ## through EngineBridge exactly as the Data manager pane does, writes real
 ## files, and reads them back off disk.
 ##
 ##   godot --headless --path . _exportraster_probe.tscn
+##
+## Committed, like every probe scene in this folder -- `STATUS.md`'s F8 row
+## (`e1f18ca`, "Test harnesses committed"): these are kept as the evidence for
+## the passes that wrote them, not deleted after them. Copy this line rather
+## than the disposable-scratch-file boilerplate the earlier headers carried.
 
 var bridge: Node
 var fails := 0

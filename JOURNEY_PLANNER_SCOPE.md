@@ -8,7 +8,16 @@ This doc breaks it into real, sequential milestones, the same discipline
 `CPU_MULTITHREADING_SCOPE.md`/`GPU_LAYER_INTEGRATION_SCOPE.md`/
 `LOD_TILING_BASE_SCOPE.md` already applied to their own subsystems.
 
-## Milestone 1 — physical-modeling primitives + seasonal/closure cluster: done
+> **This document defines the six milestones, the 74-function census and the
+> five integration steps; it does not track them.** Where any of them stands is
+> recorded only in `cartalith-native/docs/STATUS.md`. Everything below is
+> either a definition — what a milestone covers, what it must not invent, what
+> "done" would mean — or a **dated record of what a pass read, built and
+> decided**. Read the dated sections as history: several are corrected by a
+> later dated section further down, and that succession is deliberately
+> preserved rather than edited away.
+
+## Milestone 1 — physical-modeling primitives + seasonal/closure cluster
 
 The two fully self-contained categories: no dependency on a `plan`/route/
 vessel context object, no dependency on any other unported `jp*` function.
@@ -33,19 +42,18 @@ animal-paced-vs-foot distinction in both `jp_surface_gain` and
 precedent as `civ_resource_trade_balance`/`civ_culture_terrain_fit` — small,
 pure, branch-complete functions with no RNG/iteration-order risk.
 
-**Not wired to any caller yet** — same "ship the primitive ahead of the
-orchestration" precedent this session has used repeatedly. `jpJourneyCost`
+**This pass added no caller** — same "ship the primitive ahead of the
+orchestration" precedent this session used repeatedly. `jpJourneyCost`
 and the actual route/plan orchestration (milestones 2+ below) are what would
 call these.
 
-## Milestone 2 — transport mode selection: done (2026-08-17); **fully complete 2026-08-18**
+## Milestone 2 — transport mode selection
 
 **Its last two landed with milestone 6's pass**, where the build-order table
-sent them: `jp_auto_pick_transport` and `_jp_best_package_for_stage` are
-ported and golden-verified. (`jp_auto_pick_vessel` had already shipped with
-milestone 5 and `_jp_best_land_transport_for_stage` with milestone 4.) Nothing
-from milestone 2 remains outstanding. The section below is the original
-write-up, unedited apart from this note.
+sent them: `jp_auto_pick_transport` and `_jp_best_package_for_stage` were
+ported and golden-verified there. (`jp_auto_pick_vessel` had already shipped
+with milestone 5 and `_jp_best_land_transport_for_stage` with milestone 4.)
+The section below is the original write-up, unedited apart from this note.
 
 **Real finding, not assumed**: of the 10 functions this milestone originally
 listed, four turned out to have a genuine, load-bearing dependency this
@@ -105,18 +113,18 @@ Coastal Waters = 10 × 11 × 0.60 = 66.0 km/day).
 --lib` (127 tests, 0 failures, 15 new), `cargo clippy -p cartalith-civ --lib`
 clean (one real `collapsible_if` in the new `jp_vessel_matrix` code, fixed;
 the two remaining lib warnings are pre-existing, unrelated to this
-milestone), `cargo test --workspace` (0 regressions). **Not wired to any
+milestone), `cargo test --workspace` (0 regressions). **This pass added no
 caller** — same "ship the primitive ahead of the orchestration" precedent
 milestone 1 and `civ_resource_trade_balance`/`civ_culture_terrain_fit` all
 set; no `#[func]`, no `compute_civilisation()` integration, per this doc's
 own "Out of scope for all milestones" section below.
 
-## Milestone 3 — physical travel cost: done (2026-08-17); **fully complete 2026-08-18**
+## Milestone 3 — physical travel cost
 
 **Its two deferrals landed with milestone 4**, which is where the build-order
-table below sent them: `jp_calc_land`/`jp_calc_water` are ported and
-golden-verified. Nothing from milestone 3 remains outstanding. The section
-below is the original write-up, unedited apart from this note.
+table below sent them: `jp_calc_land`/`jp_calc_water` were ported and
+golden-verified there. The section below is the original write-up, unedited
+apart from this note.
 
 
 
@@ -155,8 +163,8 @@ assumed**: it was **not** ported. Milestone 2 deliberately narrowed its
 (`desertLike`/`bestAnimals`) and said so in its own doc comment. The weather
 distributions (12 biomes × 4 seasons × 5 conditions) are ported here,
 alongside the two functions that consume them. The remaining `JP_BIOMES`
-columns (`water`/`forage`/`waterForage`/`grazing`) are still unported and
-belong to milestone 4.
+columns (`water`/`forage`/`waterForage`/`grazing`) this pass left unported;
+they belong to milestone 4.
 
 **`jp_journey_cost` turned out portable**, confirmed by reading its real
 signature rather than assuming: the reference's own comment calls it "pure
@@ -198,11 +206,11 @@ swallowing the next slice.
 --all-targets` (two real findings in the new code fixed — a `manual_clamp`
 and an `inconsistent_digit_grouping`; the lib is back to the same two
 pre-existing, unrelated warnings milestone 2 recorded, and the new test code
-adds none), `cargo test --workspace` (0 regressions). **Not wired to any
+adds none), `cargo test --workspace` (0 regressions). **This pass added no
 caller** — no `#[func]`, no `compute_civilisation()` integration, per this
 doc's own "Out of scope for all milestones" section.
 
-## Milestone 4 — consumption/resupply: done (2026-08-18)
+## Milestone 4 — consumption/resupply
 
 Built first, per the build-order table below — and it closed milestone 3 and
 part of milestone 2 on the way, exactly as that table predicted.
@@ -250,9 +258,9 @@ rather than assuming new plumbing: `build_npp` and `build_carrying_capacity`
 richness model — but they are not the same quantity. `richness` is a
 per-ecoregion **species count** (`assignWildlife`'s `present.length`: a biome
 species roster clipped by `regionRichness`'s species-area × energy ×
-heterogeneity × latitude curve), and the ecoregion-segmentation + species-
-roster subsystem behind it (`buildEcoregions`/`regionRichness`/
-`assignWildlife`/`WILD_ROSTERS`) is unported, on **no** milestone in this
+heterogeneity × latitude curve), and at this pass the ecoregion-segmentation +
+species-roster subsystem behind it (`buildEcoregions`/`regionRichness`/
+`assignWildlife`/`WILD_ROSTERS`) was unported, on **no** milestone in this
 document, and larger than this one.
 
 So the input is genuinely new, and it is **caller-supplied**, matching
@@ -287,11 +295,11 @@ the `_jpStageDryKm` transect and the `_jpResupplyReach` gap measurement.
 pre-existing ones milestones 2 and 3 recorded), `cargo test --workspace` (0
 regressions). One new workspace dependency: `cartalith-civ` → `cartalith-
 terrain`, for `river_coarse_ease`, which `jp_stage_dry_km` divides back out to
-substitute JP's own uncapped ease. **Not wired to any caller** — no `#[func]`,
-no `compute_civilisation()` integration, per this doc's own "Out of scope for
-all milestones".
+substitute JP's own uncapped ease. **This pass added no caller** — no
+`#[func]`, no `compute_civilisation()` integration, per this doc's own "Out of
+scope for all milestones".
 
-## Milestone 5 — route/stage derivation: done (2026-08-18), as three sub-milestones
+## Milestone 5 — route/stage derivation, in three sub-milestones
 
 This doc called it "almost certainly the largest single milestone in this
 whole plan" and that held: it did not survive as one flat pass. It is
@@ -355,8 +363,8 @@ Rust functions, each for a real reason rather than an omission:**
   `civ_seed_villages` already typed as settlements, so the filter has no work
   left to do. Building the `JpPlace` list *is* the filter.
 - **`_jp_reroute_for_mode`** was genuinely **blocked**, and this was the one
-  real carry-over out of milestone 5. (**Unblocked 2026-08-18** — see
-  "Closing status".) Its whole body is `_civDijkstraPath(s,
+  real carry-over out of milestone 5. (**Unblocked 2026-08-18** — see the
+  closeout census below.) Its whole body is `_civDijkstraPath(s,
   e, domain)` — and `_civDijkstraPath` (25957) with `_civWaterCostGrid`
   (21051) and `_civMixedCostGrid` (21090) were **unported**, on no milestone
   in this document, and are the interactive Route tool's own multi-modal
@@ -443,11 +451,11 @@ first/seventh/last day and their camps), plus isolated probes of every
 --all-targets` (the new code adds **no** warnings; the remaining ones are
 pre-existing and unrelated — two `needless_range_loop`s in `civ_sea_routes`
 and some float-precision literals in two older golden test files), `cargo
-test --workspace` (0 regressions). **Not wired to any caller** — no `#[func]`,
-no `compute_civilisation()` integration, per this doc's own "Out of scope for
-all milestones".
+test --workspace` (0 regressions). **This pass added no caller** — no
+`#[func]`, no `compute_civilisation()` integration, per this doc's own "Out of
+scope for all milestones".
 
-## Milestone 6 — verdict/reporting: done (2026-08-18), with milestone 2's remainder
+## Milestone 6 — verdict/reporting
 
 Both of this document's last two open milestones landed in one pass, in the
 order the build-order table set: 6 first (it needed milestone 5's plan output
@@ -547,11 +555,11 @@ its rounding edges, all four `risk` tiers, nine `jpAutoPickTransport`
 configurations and thirteen `_jpBestPackageForStage` cases;
 `cargo clippy -p cartalith-civ --all-targets` (the new code adds no warnings;
 the remaining ones are the same pre-existing, unrelated set milestones 2-5 each
-recorded); `cargo test --workspace` (0 regressions). **Not wired to any
+recorded); `cargo test --workspace` (0 regressions). **This pass added no
 caller** — no `#[func]`, no `compute_civilisation()` integration, per this
 doc's own "Out of scope for all milestones".
 
-## Original milestone breakdown (all six now done — kept for cross-reference)
+## Original milestone breakdown — kept for cross-reference
 
 ### Build order — read this before the numbers below
 
@@ -560,30 +568,26 @@ order.** They were assigned by `ECONOMY_SCOPE.md`'s original categorization,
 before anyone had read the real reference code; milestone 3's own
 investigation then found a genuine dependency inversion (its two stage
 calculators need milestone 4's mass model). The numbers are deliberately
-**not** renumbered — they are referenced by name across `CHANGELOG.md`,
-`STATUS.md`, several commit messages, and this document's own prose, and
-renumbering would invalidate all of it to fix a problem a single table
-solves.
+**not** renumbered — they are referenced by name across
+`cartalith-native/docs/STATUS.md`, the retired `CHANGELOG.md`, several commit
+messages, and this document's own prose, and renumbering would invalidate all
+of it to fix a problem a single table solves.
 
-| Build order | Milestone | Why this position |
+| Build order | Milestone | Why this position, and what the pass found |
 |---|---|---|
-| ~~1st~~ **done** | ~~**4 — Consumption/resupply**~~ | Done 2026-08-18. It did unblock milestone 3's tail and part of milestone 2's, exactly as this row predicted; `jp_fmt_kg` came with it; the wildlife-richness piece was indeed the one real decision (see the milestone 4 section above). |
-| ~~2nd~~ **done** | ~~**3 (tail) + 2 (partial)**~~ | Folded into 4's own verification pass, as this row said to. `jp_calc_land`/`jp_calc_water` and `_jp_best_land_transport_for_stage` all shipped there. |
-| ~~3rd~~ **done** | ~~**5 — Route/stage derivation**~~ | Done 2026-08-18, as three sub-milestones (5a world sampling / 5b `_jpDeriveStages` / 5c `_jpPlan`) — see the milestone 5 section above. `_civTransshipments` came with it as predicted, along with three *other* helpers on no list (`buildCartBiome`/`buildCartTerrain`, `_civWalkWayCells`, `_civPassedSettlements`). One function carried over: `_jp_reroute_for_mode`, blocked on the unported interactive Route-tool pathfinder. |
-| ~~4th~~ **done** | ~~**6 — Verdict/reporting**~~ | Done 2026-08-18. `_jpVerdict`/`_jpConfidence`/`_jpPackRange`/`jpFmtDays`, plus the `risk` advisory correction (b) below. It did need 5's plan output, exactly as this row said, and 5's own fixture drove it unchanged. |
-| ~~5th~~ **done** | ~~**2 (remainder)**~~ | Done 2026-08-18, in the same pass as 6. Both were unblocked as this row predicted; `jp_auto_pick_transport` needed one `_jpEnsurePlan` default milestone 5 had not built (`plan.autoPromote`). |
-| unscheduled | **`_jp_reroute_for_mode`** | Not a milestone of its own; it needed `_civDijkstraPath`/`_civWaterCostGrid`/`_civMixedCostGrid` (the Route tool's multi-modal pathfinder). **Unblocked 2026-08-18**: `UNIFIED_TOOL_PLAN.md` milestone D ported all three as `cartalith_civ::tools::civ_dijkstra_path`, with the `reachable` flag this function exists to check. What is left is a `reachable` check, a call and three field assignments — still a UI action, so still unscheduled here. |
-
-**Every milestone is done**; see their own sections above. The one function
-still unported, `_jp_reroute_for_mode`, was never on a milestone list — see
-"Closing status" at the end of this document.
+| 1st | **4 — Consumption/resupply** | It unblocks milestone 3's tail and part of milestone 2's — which it did, exactly as this row predicted; `jp_fmt_kg` came with it; the wildlife-richness piece was indeed the one real decision (see the milestone 4 section above). |
+| 2nd | **3 (tail) + 2 (partial)** | Folded into 4's own verification pass, as this row said to. `jp_calc_land`/`jp_calc_water` and `_jp_best_land_transport_for_stage` all shipped there. |
+| 3rd | **5 — Route/stage derivation** | Split on contact into three sub-milestones (5a world sampling / 5b `_jpDeriveStages` / 5c `_jpPlan`) — see the milestone 5 section above. `_civTransshipments` came with it as predicted, along with three *other* helpers on no list (`buildCartBiome`/`buildCartTerrain`, `_civWalkWayCells`, `_civPassedSettlements`). One function carried over: `_jp_reroute_for_mode`, blocked at the time on the unported interactive Route-tool pathfinder. |
+| 4th | **6 — Verdict/reporting** | `_jpVerdict`/`_jpConfidence`/`_jpPackRange`/`jpFmtDays`, plus the `risk` advisory correction (b) below. It did need 5's plan output, exactly as this row said, and 5's own fixture drove it unchanged. |
+| 5th | **2 (remainder)** | Landed in the same pass as 6. Both were unblocked as this row predicted; `jp_auto_pick_transport` needed one `_jpEnsurePlan` default milestone 5 had not built (`plan.autoPromote`). |
+| unscheduled | **`_jp_reroute_for_mode`** | Not a milestone of its own; it needed `_civDijkstraPath`/`_civWaterCostGrid`/`_civMixedCostGrid` (the Route tool's multi-modal pathfinder). **Unblocked 2026-08-18**: `UNIFIED_TOOL_PLAN.md` milestone D ported all three as `cartalith_civ::tools::civ_dijkstra_path`, with the `reachable` flag this function exists to check. That left a `reachable` check, a call and three field assignments — and a UI action, which is why this row was never given a milestone number of its own. |
 
 The numbered list that follows preserves the original numbering for
 cross-reference:
 
-2. ~~**Transport mode selection**~~ — see "Milestone 2" above. **Complete as
-   of 2026-08-18.** The two functions this entry recorded as remaining shipped
-   with milestone 6's pass; the history below is kept as written:
+2. **Transport mode selection** — see "Milestone 2" above. The two functions
+   this entry recorded as remaining shipped with milestone 6's pass; the
+   history below is kept as written:
    - `_jp_best_land_transport_for_stage` shipped with milestone 4.
    - `jp_auto_pick_vessel` shipped with **milestone 5** — `_jpEnsurePlan`
      calls it on first plan creation, so milestone 5 could not be finished
@@ -604,16 +608,16 @@ cross-reference:
      waiting on: **unblocked, not ported**.
 
    Both shipped with milestone 6's pass (2026-08-18) — see "Milestone 6"
-   below. Milestone 2 is complete.
+   below.
 
-3. ~~**Physical travel cost**~~ — see "Milestone 3" above. **Complete as of
-   2026-08-18**: seven of eleven shipped in the milestone itself, two
+3. **Physical travel cost** — see "Milestone 3" above. Seven of eleven
+   shipped in the milestone itself, two
    (`jp_water_window`, `jp_animal_terrain_mod`) had already shipped with
    milestone 2, and the last two (`jp_calc_land`/`jp_calc_water`) shipped
    with milestone 4, which this list orders after them — the real ordering
    error the build-order table above exists to fix.
 
-4. ~~**Consumption/resupply**~~ — see "Milestone 4" above. All thirteen
+4. **Consumption/resupply** — see "Milestone 4" above. All thirteen
    functions shipped, plus `jp_calc_land`/`jp_calc_water` (closing milestone
    3), `jp_fmt_kg` (from 6), `_jp_best_land_transport_for_stage` (from 2),
    `_jp_water_reach_cells` (listed under 5 below, but `_jpStageDryKm` calls
@@ -622,8 +626,8 @@ cross-reference:
    rather than new world-state plumbing — the reasoning, and why it costs no
    fidelity, is in the milestone 4 section above.
 
-5. ~~**Route/stage derivation**~~ — see "Milestone 5" above. **Done
-   2026-08-18** as three sub-milestones. All of the list below shipped except
+5. **Route/stage derivation** — see "Milestone 5" above. Built as three
+   sub-milestones. All of the list below shipped except
    `_jp_reroute_for_mode` (blocked on the unported Route-tool pathfinder),
    plus `_jp_layovers` and `_jp_settlements`, which are JS idioms with no
    Rust function to write — reasons in the milestone 5 section. Four helpers
@@ -637,8 +641,8 @@ cross-reference:
    plan`, `_jp_plan`, `_jp_ensure_plan`, `_jp_layovers`, `_jp_stop_key`,
    `_jp_road_cells`, `_jp_settlements`, `_jp_infra_context`,
    `_jp_claimed_at`, `_jp_stage_infra`, `_jp_river_condition`,
-   `_jp_sea_condition`, `_jp_coarse_idx`, ~~`_jp_water_reach_cells`~~
-   (shipped with milestone 4 — `_jpStageDryKm` calls it),
+   `_jp_sea_condition`, `_jp_coarse_idx`, `_jp_water_reach_cells`
+   (shipped with milestone 4 instead — `_jpStageDryKm` calls it),
    `_jp_mode_for_route`, `_jp_reroute_for_mode`. The real orchestration
    layer — needs milestones 2-4 done first, needs this port's road network
    (`civ_hierarchical_network_topology`/`civ_consolidate_and_smooth_ways`,
@@ -672,10 +676,10 @@ cross-reference:
    for the fields milestone 4 reads; what milestone 5 still owes it is the
    route-aware vessel correction (`jpAutoPickVessel` on first creation).
 
-6. ~~**Verdict/reporting**~~ — see "Milestone 6" below. **Done 2026-08-18**,
-   together with milestone 2’s remainder. Original list, for cross-reference:
+6. **Verdict/reporting** — see "Milestone 6" below. Built together with
+   milestone 2’s remainder. Original list, for cross-reference:
    `_jp_verdict`, `_jp_confidence`, `_jp_pack_range`,
-   ~~`jp_fmt_kg`~~ (shipped with milestone 4, as planned — both stage
+   `jp_fmt_kg` (shipped with milestone 4, as planned — both stage
    calculators format their overload/hold text with it), `jp_fmt_days`.
    Small, needs milestone 5's plan output to verify against. One correction
    milestone 4's reading adds: `jp_fmt_kg`'s port carries a `js_fixed`
@@ -715,15 +719,17 @@ not a data-flow wiring task the way settlements/roads/territory were.
 
 Every real `jp*`/`_jp*` function (UI-only ones excluded) ported and tested
 in `cartalith-civ`, reachable from a real `#[func]` taking a journey request
-(origin, destination, party composition) and returning a real plan —
-distant future scope, tracked here milestone by milestone rather than
-attempted in one pass.
+(origin, destination, party composition) and returning a real plan — broken
+into the milestones above rather than attempted in one pass.
 
-## Closing status (2026-08-18) — what is done, what is not, and what "done" is still missing
+## Closeout, 2026-08-18 — the function census
 
-**All six milestones are complete.** The engine half of the bar above is met:
-every real `jp*`/`_jp*` function is ported and tested in `cartalith-civ`,
-bar one. The `#[func]` half is not, and deliberately so — see below.
+The census below is what makes "every real `jp*`/`_jp*` function" a checkable
+bar rather than a slogan: it fixes the denominator at 74 and says which of
+those are deliberately not Rust functions at all. **The denominator and the
+exclusions are the durable part; the ported count is not** — it moved once
+after this section was written (see the 2026-08-23 update), and it is tracked
+in `cartalith-native/docs/STATUS.md` rather than here.
 
 ### The count, honestly
 
@@ -731,9 +737,9 @@ bar one. The `#[func]` half is not, and deliberately so — see below.
 exactly rather than re-estimated, the frozen reference defines **74**
 `jp*`/`_jp*` functions. Against that:
 
-- **Ported: 65 of 74**, i.e. everything the four exclusions below do not
-  account for — verified mechanically by mapping each reference name to its
-  snake_case port and checking every one resolves, not by counting the
+- **Ported at closeout: 65 of 74**, i.e. everything the four exclusions below
+  did not account for — verified mechanically by mapping each reference name to
+  its snake_case port and checking every one resolved, not by counting the
   milestone write-ups. Plus their data tables (`JP_ANIMALS`, `JP_SHIPS`,
   `JP_TERRAIN`, `JP_BIOMES` including its weather distributions, `JP_RIG`,
   `JP_INFRA_TIERS`, `JP_LAND_TRANSPORTS`, the seasonal/grazing/desert tables,
@@ -751,7 +757,7 @@ exactly rather than re-estimated, the frozen reference defines **74**
   already typed, so building the `JpPlace` list **is** the filter).
 - **Blocked at closeout, unblocked 2026-08-18: one.** `_jpRerouteForMode` —
   its dependency, the Route tool's multi-modal pathfinder, was ported by
-  `UNIFIED_TOOL_PLAN.md` milestone D. See "Closing status" below.
+  `UNIFIED_TOOL_PLAN.md` milestone D. See "The one gap at closeout" below.
 
 65 + 6 + 2 + 1 = 74, with nothing unaccounted for.
 
@@ -764,12 +770,12 @@ single finding of the whole sub-phase),
 `_civPassedSettlements`. Those are real additions to this port, not Journey
 Planner overhead.
 
-### The one remaining gap
+### The one gap at closeout, and how it was unblocked
 
-**`_jp_reroute_for_mode` was blocked; it is UNBLOCKED as of 2026-08-18
-(`UNIFIED_TOOL_PLAN.md` milestone D).** What follows is the closeout's original
-finding, kept because it was correct and because the resolution only makes
-sense against it:
+**`_jp_reroute_for_mode` was blocked at closeout; it was unblocked the same
+day (`UNIFIED_TOOL_PLAN.md` milestone D).** What follows is the closeout's
+original finding, kept because it was correct and because the resolution only
+makes sense against it:
 
 > **`_jp_reroute_for_mode` is unported and stays unported.** Milestone 6
 re-checked the finding rather than inheriting it, and it holds: the function's
@@ -805,32 +811,37 @@ gravity, wrap-aware smoothing and the `reachable` flag are all in the wrapper.
 Anyone who read this doc's "unported pathfinder" note as "one function" was
 reading it correctly by name and by an order of magnitude too small by volume.
 
-**What is left for `_jp_reroute_for_mode` is no longer a pathfinder.** It is:
-`jp_mode_for_route` (already shipped with milestone 5), a `reachable` check, a
-call, and the assignment of `jn.pts`/`jn.km`/`jn.brks` — plus the `forceMode`
-override and the two failure messages. All of that is small and none of it is
-blocked. It remains a **UI action**, so it still sits on the far side of this
-doc's "Out of scope for all milestones" line — but only once over now, not
-twice.
+**What that left for `_jp_reroute_for_mode` was no longer a pathfinder.** It
+was: `jp_mode_for_route` (already shipped with milestone 5), a `reachable`
+check, a call, and the assignment of `jn.pts`/`jn.km`/`jn.brks` — plus the
+`forceMode` override and the two failure messages. All of that is small and
+none of it was blocked. It is a **UI action**, which is why it sat on the far
+side of this doc's "Out of scope for all milestones" line — but only once over
+from here, not twice.
 
-Two quality ceilings, both disclosed where they were found, neither a blocker:
+**The declared quality ceilings.** Each is a place where this port's answer is
+the reference's own answer on a world missing a layer — deliberately, with the
+argument recorded — rather than a defect. They are declared here and tracked in
+`cartalith-native/docs/STATUS.md`:
 
 - **Wildlife richness** (`jp_foraging` via `_jpWildlifeForageMod`) is
-  caller-supplied, because the ecoregion-segmentation and species-roster
-  subsystem behind it (`buildEcoregions`/`regionRichness`/`assignWildlife`/
-  `WILD_ROSTERS`) is unported and on no milestone anywhere. `1.0` is the
-  reference's **own** answer on a world with no wildlife layer, and also what
-  an exactly-average region gives — so this costs no fidelity today, and the
-  flat `JP_BIOMES.forage` table stays the anchor it was designed to be.
-- **`_civSeaTimeEdgeCost`** (v1.98 current/wind-costed sea lanes) was already
-  flagged unported by Phase 2 milestone 13, for the same reason; the Journey
-  Planner reads sea *conditions* from the real fields and is unaffected.
+  caller-supplied, because at closeout the ecoregion-segmentation and
+  species-roster subsystem behind it (`buildEcoregions`/`regionRichness`/
+  `assignWildlife`/`WILD_ROSTERS`) was unported and on no milestone anywhere.
+  `1.0` is the reference's **own** answer on a world with no wildlife layer,
+  and also what an exactly-average region gives — so a caller-supplied `1.0`
+  costs no fidelity, and the flat `JP_BIOMES.forage` table stays the anchor it
+  was designed to be. Closing the ceiling means supplying a real richness
+  field, not changing `jp_foraging`.
+- **`_civSeaTimeEdgeCost`** (v1.98 current/wind-costed sea lanes) was flagged
+  unported by Phase 2 milestone 13, for the same reason; the Journey Planner
+  reads sea *conditions* from the real fields and is unaffected.
 
-### What integration would actually mean
+### What integration would actually mean — the five steps
 
-None of this is wired to anything. **That is the standing boundary this
-document set before milestone 1, not a shortcut taken at the end**, and the
-"Out of scope for all milestones" section above states why: the reference's
+At closeout none of this was wired to anything. **That was the standing
+boundary this document set before milestone 1, not a shortcut taken at the
+end**, and the "Out of scope for all milestones" section above states why: the reference's
 own Journey Planner is a form the player fills in per journey — origin,
 destination, party composition, season, transport, supply days, grazing,
 per-stage overrides — not something a generator can auto-compute for every
@@ -842,18 +853,16 @@ Making it a real user-facing feature therefore needs, in order:
 1. **A route to plan.** `jp_plan` takes a polyline. The reference gets one
    from the interactive Route tool. Its *pathfinder* is now ported
    (`civ_dijkstra_path`, `UNIFIED_TOOL_PLAN.md` milestone D — the same
-   function `_jpRerouteForMode` was blocked on), and so is way commitment
-   (`civ_commit_way`); what is still missing is the **waypoint-capture
+   function `_jpRerouteForMode` was blocked on), and so was way commitment
+   (`civ_commit_way`); what this step was missing was the **waypoint-capture
    interaction** and `_civCommitRoute`'s own `civJourneys` push, both
-   milestone F. Until a user can draw or
-   solve a route, there is no input.
+   milestone F. Until a user can draw or solve a route, there is no input.
 2. **A `JpWorld` assembled from live state.** Every field it borrows is real
    and already computed by this port — `field`, `temp`, `rain`, flow, water
    bodies, territory, settlements, the consolidated way network, the ocean and
-   wind coarse fields — but nothing currently gathers them into one struct at
-   the `cartalith-godot` boundary, and two of them (`cart_biome`/
-   `cart_terrain`) are built by functions milestone 5 added that no pipeline
-   stage calls yet.
+   wind coarse fields — but nothing gathered them into one struct at the
+   `cartalith-godot` boundary, and two of them (`cart_biome`/`cart_terrain`)
+   are built by functions milestone 5 added that no pipeline stage called.
 3. **A party form.** `JpPlan` is ~20 fields plus a sparse per-stage override
    map. That is a real GUI surface, not a `#[func]` signature —
    `GUI_SHELL_SCOPE.md`'s "Simulate → Logistics" section already names it.
@@ -866,17 +875,17 @@ Making it a real user-facing feature therefore needs, in order:
    every `formula` trace, and the elevation profile chart are Godot's to draw;
    the values they print are all fields on the returned structs.
 
-Steps 1 and 3 are the substantial ones, and both are GUI work. **The engine is
-done; the feature is not, and the gap between them is a user interface.**
+Steps 1 and 3 are the substantial ones, and both are GUI work. **The gap
+between a finished engine and a finished feature is a user interface.**
 
-## Update (2026-08-19) — steps 1, 2 and 4 are done; "none of this is wired to anything" no longer holds
+## Update (2026-08-19) — steps 1, 2 and 4
 
-The section above ends with *"None of this is wired to anything"* and a five-step
-list of what making it a real feature would need. Three of those five are now
-built, and this section records exactly which, so the list above is read as
-history rather than as current state.
+The section above ends with *"none of this was wired to anything"* and a
+five-step list of what making it a real feature would need. Three of those five
+were built in this pass, and this section records exactly which, so the list
+above is read as history rather than as current state.
 
-**Step 1 — a route to plan: done.** `UNIFIED_TOOL_PLAN.md` milestone F built the
+**Step 1 — a route to plan.** `UNIFIED_TOOL_PLAN.md` milestone F built the
 INFRA domain's Route tool (`route_begin`/`route_append_stop`/`route_commit`/
 `route_discard`), which is the waypoint-capture interaction this section named as
 the missing half. It committed routes into `infra_tools_bridge::InfraTools::
@@ -885,7 +894,7 @@ that milestone disclosed rather than papering over. `route_count()` and
 `route_get(index) -> {points, brks, km, mode, unreachable_legs}` close it, and
 `jp_compute`'s own `route` key is the first consumer.
 
-**Step 2 — a `JpWorld` assembled from live state: done, and this section's claim
+**Step 2 — a `JpWorld` assembled from live state, and this section's claim
 about it was correct.** Every field it borrows really was already computed:
 `field`/`temp`/`rain`/`flow_field` from `WorldState`, `water_bodies`/`territory`/
 `ways`/`settlements` from `CivData`, `peak_m` from `WorldParams`, `flow_thresh`
@@ -927,7 +936,7 @@ every cell reads as claimed. That is precisely what the reference does — its
 is passed through unchanged; "correcting" it at this boundary would have been a
 silent divergence from a golden-verified consumer.
 
-**Step 4 — `#[func]`s over the boundary: done.** A new `journey_bridge.rs`
+**Step 4 — `#[func]`s over the boundary.** A new `journey_bridge.rs`
 (`godot`-free, same isolation `sculpt_bridge`/`civ_tools_bridge`/
 `infra_tools_bridge` established) owns the plan/party form parser, its inverse,
 the `JourneyWorld` buffers and the option tables; `lib.rs` owns the `Variant`
@@ -988,16 +997,15 @@ deleted and replaced by `journey_planner_view.gd`: Journey is now a third
 INFRA tool (`DCC_SHELL_SPEC.md` §4.5.4's own addition), arming a full
 in-shell takeover of the viewport region — map, both docks, tool options bar
 — for the distance-spine layout this spec's §3 lays out, rather than staying
-a dialog or drawing a map overlay. Full build record, including exactly
-what's real vs. disclosed, in `cartalith-native/docs/CHANGELOG.md`'s "Journey
-Planner — distance-spine takeover" entry and `STATUS.md`'s matching section.
+a dialog or drawing a map overlay. The full build record, including exactly
+what is real vs. disclosed, is the "Journey Planner — distance-spine takeover"
+entry in the retired `cartalith-native/docs/CHANGELOG.md`.
 
 Two things worth recording here specifically, since they concern this
 document's own numbers rather than the shell:
 
 - **§5's "all 26" party fields is a undercount.** The live `jp_default_plan()`
-  call returns 28 real fields (`plan_to_pairs`' own list; `STATUS.md`'s
-  Journey Planner Godot boundary section already had this right). The
+  call returns 28 real fields (`plan_to_pairs`' own list). The
   mockup's own left dock (`design/Journey Planner DCC.dc.html` lines
   238-297) groups them into four sections — Traveler, Season & weather,
   Carriage, Route conditions — with **no fifth "Stops" group**; Stops is
@@ -1006,16 +1014,17 @@ document's own numbers rather than the shell:
   this note and this document's own discipline is to record a correction
   rather than silently edit history) but the real count is 28, verified
   against the live boundary rather than assumed.
-- **§10's "still to build" list is unchanged by this pass**: light theme,
+- **§10's "still to build" list was unchanged by this pass**: light theme,
   blocked-stage inspector state, journey list/picker (the redesign's
-  "Journeys" section lists *committed routes*, since no persisted named-
-  journey registry exists engine-side — a real, disclosed simplification,
+  "Journeys" section listed *committed routes*, since no persisted named-
+  journey registry existed engine-side — a real, disclosed simplification,
   not the list §10 has in mind), and the 2560 tablet breakpoint. Also newly
   disclosed by this pass: Carriage Auto mode's own picker
-  (`jpAutoPickTransport`) and re-route-for-mode (`_jpRerouteForMode`) have
+  (`jpAutoPickTransport`) and re-route-for-mode (`_jpRerouteForMode`) had
   no Rust port at all — checked against `cartalith-civ` and
-  `journey_bridge.rs` directly, not assumed — so both controls exist in the
-  tool options bar but are disabled with that reason stated.
+  `journey_bridge.rs` directly, not assumed — so both controls shipped in the
+  tool options bar disabled, with that reason stated on them. Both were
+  closed later; see the 2026-08-23 update.
 
 ## Update (2026-08-20) — the party form now offers the Travel Library
 
@@ -1035,13 +1044,13 @@ changes about *this* document's own claims.
   four new per-species *animal definition* pickers were added beside the
   counts. Selecting a custom animal re-plans the journey for real, through
   `jp_compute`'s new `animal_entries` request key. Gap-register IN-06 closed
-  for animals; the Vessel picker lists custom vessels but disables them,
-  because `jp_ship_stats` is still a fixed built-in table.
-- **Carriage Auto mode and re-route-for-mode remain unported.**
-  `jpAutoPickTransport`/`_jpRerouteForMode` still have no `cartalith-civ`
-  equivalent — re-checked this pass, not inherited — so both controls stay
-  disabled with that reason. §10's remaining "still to build" list is
-  otherwise unchanged.
+  for animals; the Vessel picker listed custom vessels but disabled them,
+  because `jp_ship_stats` was still a fixed built-in table.
+- **Carriage Auto mode and re-route-for-mode were still unported at this
+  pass.** `jpAutoPickTransport`/`_jpRerouteForMode` had no `cartalith-civ`
+  equivalent — re-checked this pass, not inherited — so both controls stayed
+  disabled with that reason, and §10's remaining "still to build" list was
+  otherwise unchanged. Both closed in the next pass; see below.
 
 ### The `JpParty` widening was re-examined and deliberately declined
 
@@ -1066,22 +1075,23 @@ from the substituted species is precisely what §3.1 has no fields for, and the
 party form says so by name. `TRAVEL_LIBRARY_SPEC.md` §6 carries the full
 evidence and the four-point cost breakdown.
 
-## Update (2026-08-23) — the count reaches 66 of 74, and the last of the GUI gaps close
+## Update (2026-08-23) — the census closes, and the last of the GUI gaps
 
 This pass took the Journey Planner's remaining rows in `GUI_GAP_REGISTER.md`
-§6.9. Six closed, two closed as far as they honestly can, and the count above
-moves for the first time since closeout.
+§6.9. Six closed, two closed as far as they honestly could, and the closeout
+census moved for the first time.
 
-### The count is now 66 of 74
+### The census closes
 
-**`_jpRerouteForMode` is ported.** "The one remaining gap" above recorded it as
-unblocked on 2026-08-18 and then left it unported for five days; it is now
-`cartalith_civ::jp_reroute_for_mode`, and it turned out to be exactly what that
-section predicted — a `civ_dijkstra_path` call plus v1.100's `forceMode`
-override and two refusal strings. So:
+**`_jpRerouteForMode` was ported here.** "The one gap at closeout" above
+recorded it as unblocked on 2026-08-18 and then left it unported for five days;
+this pass built `cartalith_civ::jp_reroute_for_mode`, and it turned out to be
+exactly what that section predicted — a `civ_dijkstra_path` call plus v1.100's
+`forceMode` override and two refusal strings. So the closeout's arithmetic
+resolved to:
 
-**66 ported + 6 unportable (DOM) + 2 not-Rust-functions = 74.** The
-"blocked at closeout" line is now empty, and nothing is unaccounted for.
+**66 ported + 6 unportable (DOM) + 2 not-Rust-functions = 74**, with the
+"blocked at closeout" line empty and nothing unaccounted for.
 
 The engine gained four things that are *not* among the 74, because the
 reference has no counterpart for any of them — stated plainly rather than
@@ -1116,13 +1126,13 @@ counted as ports:
 - **IN-06's remainder** — the vessel resolver.
 - **JP-06 / JP-08 save + journeys list — partly, and the limit is named.** A
   journey can be named, saved and reloaded *within a session*. Persisting one
-  needed FI-01's `.zip` save-**writer** — **which landed 2026-08-23**; what is
-  still missing is narrower: a way for GDScript-owned state to reach the save's
-  `state` object, which `save_project` builds from the parameter table alone;
-  it was not built as a side effect of a planner button, and the list is
-  GDScript-owned precisely because with no writer behind it there is nothing
-  for the engine to own — a saved journey is exactly the request `jp_compute`
-  already takes.
+  needed FI-01's `.zip` save-**writer** — **which landed 2026-08-23**; what
+  this pass left missing was narrower: a way for GDScript-owned state to reach
+  the save's `state` object, which `save_project` built from the parameter
+  table alone. It was not built as a side effect of a planner button, and the
+  list was GDScript-owned precisely because with no writer behind it there was
+  nothing for the engine to own — a saved journey is exactly the request
+  `jp_compute` already takes.
 
 ### One deliberate non-coupling
 
@@ -1199,7 +1209,7 @@ The missing input was `_civPathWaterFrac` (reference 21142), never ported —
 `RouteInputs::build` derives the biome raster and river orders for `Mixed`
 only, so a river re-route of a route not itself committed mixed would have got
 a cost grid with no `_civNavigableRiverDiscount` in it at all — a silently
-worse path, not an error. Unreachable today (the shell hardcodes
+worse path, not an error. Unreachable at the time (the shell hardcoded
 `route_begin("mixed")`), which is exactly why it would have rotted. Fixed by
 exposing `jp_reroute_mode(transport, force_mode)` and sizing the inputs from
 that. A successful re-route now also rewrites `CommittedRoute::mode`, so

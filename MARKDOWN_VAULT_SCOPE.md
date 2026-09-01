@@ -1,4 +1,11 @@
-# Markdown Vault: investigation, entity audit, and milestone 1
+# Markdown Vault: investigation, entity audit, and the milestones
+
+> **This document defines milestones 0-6 and records what each pass found; it
+> does not track them.** Where any milestone stands, and whether a blocker
+> named below still holds, is recorded only in
+> `cartalith-native/docs/STATUS.md`. Read this file for what a milestone *is*,
+> what it must not break, and why §2's seven disagreements were resolved the
+> way they were.
 
 `ROADMAP.md` carried the Markdown Vault under "Options kept open, not
 scheduled" and required this document before any code, for a specific reason
@@ -107,7 +114,7 @@ resolved rather than left open.
 | Design | This port | Resolution |
 |---|---|---|
 | §3 entity scope includes **POIs** and **region labels** | Neither is a ported concept | Not built. `EntityKind` covers settlement/province/continent, and **faction** (CV-22) and **culture** (CV-02) were both added on 2026-08-25 — §3's own "add a kind later without redesigning the storage model" requirement is therefore not a claim but a measured one: each was a variant, an `as_str` arm, a `parse` arm and an `entity_values` arm. |
-| §26 puts `knowledgeLinks` **inside the Cartalith project save** | `cartalith-io` writes the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in `user://markdown_vault.json` (`vault_store.gd`). A link written into a save would come back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible. |
+| §26 puts `knowledgeLinks` **inside the Cartalith project save** | *When this audit was taken*, the only save path was the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in `user://markdown_vault.json` (`vault_store.gd`). A link written into a save that carries no civ layer comes back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible — and its precondition is a save format that carries the layer, which is a property of whichever format is current, not of the one recorded here. |
 | §23 rule 2: *"user content outside the block is immutable"* | The owner's 2026-08-18 amendment adds field population into the author's own template | Both mechanisms exist and are separated by policy, not by hope: the delimited block is machine-owned and regenerated unattended; author-field population is `FieldFill::OnlyIfEmpty` by default, previewed, confirmed, and **reports "skipped, you had already filled it"** rather than overwriting. `markdown::fill_field` is the one place that can write outside the block, and it refuses an occupied field. This is the reconciliation the design's header asked whoever wrote this document to make. |
 | §11 offers `TextRange` and `MarkdownBlock` selections | — | Not built, and this is a correctness decision rather than a scope cut. A byte offset stops pointing at the right paragraph the moment the author edits the text above it, and a block reference (`^abc123`) is an Obsidian construct the owner's clarification put out of core. V1 ships the two selections §11 itself prioritises: whole document and heading section. |
 | §19's Geography group wants a **continent** field on a settlement | Answering "which landmass is this cell on" needs the per-cell component raster | Not offered. `civ_continents` deliberately keeps no raster — 268 MB at this port's 8192² ceiling for a lookup nothing else performs (`MEMORY_OPTIMIZATION_SCOPE.md`'s standing objection to exactly that shape). Filling it from bounding-box containment would be a guess, and a wrong one wherever two boxes overlap. |
@@ -157,6 +164,13 @@ Three entity kinds, three different strengths of id:
 | Faction | roster row index | Yes | Yes | No | No |
 | Culture | `CIV_CULTURES` index | **Yes** | **Yes** | **Yes** | **Yes** |
 
+**The last column was answered against the save path of the day** — the
+reference HTML app's `.zip`, which carries no civ layer, so nothing keyed on a
+generated entity could survive it. That column is a property of whatever save
+format is current rather than of the id designs beside it, and it is the one
+column here to re-read against the code instead of against this page. The other
+four are properties of the ids themselves and do not move.
+
 The last row is the exception that proves the rule: a culture's id is an index
 into a **compile-time** table of seven, identical in every world, so a culture
 link is the only one here that a regenerate and a save/load both leave intact.
@@ -175,7 +189,7 @@ ask the user rather than guessing" applied to identity rather than to content.
 
 ## 5. Milestones
 
-### Milestone 0 — the addressable continent · **done, 2026-08-24**
+### Milestone 0 — the addressable continent
 
 `cartalith_civ::Continent` and `civ_continents()`. `build_landmass_quality`'s
 existing golden-verified 8-neighbour flood fill, with its component
@@ -204,7 +218,7 @@ reference quirk (`state.seed||12345` — see its own doc comment) and both were
 drawing its first value. Continents now have their own stream,
 `civ_continent_name_rng`, and a test named after the failure.
 
-### Milestone 1 — link, read, section-aware write-back · **done, 2026-08-24**
+### Milestone 1 — link, read, section-aware write-back
 
 The `cartalith-vault` crate, its bridge, and the panels. Specifically:
 
@@ -237,26 +251,32 @@ The `cartalith-vault` crate, its bridge, and the panels. Specifically:
   value never reaches a checkbox and therefore never reaches a note as a blank
   row.
 
-### Milestone 2 — the map snapshot (§21, §22) · **not started**
+### Milestone 2 — the map snapshot (§21, §22)
 
 Reuse the current renderer at immediate/local/regional radii; store under a
-user-accepted location; reference it from the block. Blocked on nothing —
-`export_raster.rs` already crops — but it is a separate, self-contained piece
-of work and bundling it would have made milestone 1 unreviewable.
+user-accepted location; reference it from the block. It depends on nothing
+milestone 1 did not already have — `export_raster.rs` crops — and was split
+out because it is a separate, self-contained piece of work whose inclusion
+would have made milestone 1 unreviewable.
 
-### Milestone 3 — project-scoped links (§26) · **blocked**
+### Milestone 3 — project-scoped links (§26)
 
-Requires the save format to carry the civ layer. Until it does, a link inside
-a save points at settlements a loaded world does not have. `vault_store.gd` is
-the one file that has to move when this lands.
+**The requirement**: the save format has to carry the civ layer, because a
+link written into a save that does not is a link pointing at settlements the
+loaded world will not have. When this document was written the only save path
+was the reference HTML app's `.zip`, which carries no civ layer at all — that
+is the reason recorded in §2's table, and it is the condition to re-check
+against the current save format rather than to assume still holds.
+`vault_store.gd` is the one file that has to move when this lands: it is what
+owns `user://markdown_vault.json` as the live store.
 
-### Milestone 4 — the Android provider (§6) · **not started**
+### Milestone 4 — the Android provider (§6)
 
 Storage Access Framework: a tree URI, a persisted permission grant, and a
 provider implementation beside `FsVault`. Cross-device vault identity (§35
 criterion 2) is designed for and unverified until this exists.
 
-### Milestone 6 — search, the note as data, culture, and "confirm always" · **engine half done, 2026-08-25**
+### Milestone 6 — search, the note as data, culture, and "confirm always"
 
 The owner's direction, verbatim:
 
@@ -437,41 +457,50 @@ Twelve new tests, each shaped to reach the code rather than to pass:
    is a much larger question — it would make the vault a second source of truth
    for world state, which §36 explicitly forbids ("neither side should silently
    become the other") — and it is not what the owner asked for.
-5. **The UI half is not built**, and until it is, none of this is reachable by
-   a user. The `#[func]` list is in `cartalith-native/docs/CHANGELOG.md`.
+5. **This pass built the Rust half only.** The panel work — a search field, a
+   culture picker, a "note says" readout and the *don't ask again* checkbox —
+   was scoped as a separate pass, so nothing this milestone added was reachable
+   by a user when it landed. The `#[func]` list it produced is in the retired
+   `cartalith-native/docs/CHANGELOG.md`.
 
-### Milestone 5 — the conflict UI (§14's *Compare*) · **not started**
+### Milestone 5 — the conflict UI (§14's *Compare*)
 
-`Reload source` and `Keep current copy` both ship; a diff view does not,
-because this shell has no diff widget. The two shipped actions are the two
-that cannot lose work, which is the right subset to ship first.
+§14's three-way prompt is *Compare*, *Reload source* and *Keep current copy*.
+Milestone 1 built the latter two and deliberately left Compare here, because
+this shell has no diff widget to build it on. The two it built are the two
+that cannot lose work, which is the right subset to have first.
 
 ---
 
 ## 6. `MARKDOWN_VAULT_INTEGRATION.md` §35, criterion by criterion
 
-| # | Criterion | Status |
+**Which milestone owns which acceptance criterion**, and the two the design
+asks for that this port cannot satisfy at all. This is the map, not a
+scoreboard — whether a milestone has met its criteria is in
+`cartalith-native/docs/STATUS.md`.
+
+| # | Criterion | Owned by |
 |---|---|---|
-| 1 | Connect a vault on Windows | **Done** |
-| 2 | Connect the same logical vault on Android | **Milestone 4.** Vault identity is display-name-derived and portable; the provider is not. |
-| 3 | Browse Markdown files | **Done** |
-| 4 | Open a Markdown file | **Done** |
-| 5 | Attach a complete file to a settlement | **Done** |
-| 6 | Attach a specific section to a **POI** | **Not possible** — POI is not a ported concept. Sections attach to settlements, provinces, continents, factions and cultures. |
-| 7 | Attach a region document to a **region** | **Not possible as written** — no "region" entity. Provinces and continents are this port's nearest real equivalents and both are supported. |
-| 8 | Import text into Cartalith | **Done**, and since milestone 6 the note's **frontmatter and template fields** are imported as data too, not only as prose |
-| 9 | Edit the imported text locally | **Done** |
-| 10 | Detect a changed source by timestamp | **Done**, with a content hash outranking it |
-| 11 | Compare **or** reload changed source | **Reload done; Compare is milestone 5** |
-| 12 | Explicitly insert an edited section back | **Done** |
-| 13 | Select information groups for export | **Done** |
+| 1 | Connect a vault on Windows | Milestone 1 |
+| 2 | Connect the same logical vault on Android | **Milestone 4.** Vault identity is display-name-derived and portable; the provider is not, and cannot be verified until a SAF provider exists |
+| 3 | Browse Markdown files | Milestone 1 |
+| 4 | Open a Markdown file | Milestone 1 |
+| 5 | Attach a complete file to a settlement | Milestone 1 |
+| 6 | Attach a specific section to a **POI** | **Not satisfiable in this port** — POI is not a ported concept (§1). Sections attach to settlements, provinces, continents, factions and cultures instead |
+| 7 | Attach a region document to a **region** | **Not satisfiable as written** — there is no "region" entity. Provinces and continents are this port's nearest real equivalents and both are addressable |
+| 8 | Import text into Cartalith | Milestone 1 for the prose; **milestone 6** widens it so the note's frontmatter and template fields import as *data* too, not only as prose |
+| 9 | Edit the imported text locally | Milestone 1 |
+| 10 | Detect a changed source by timestamp | Milestone 1 — with a content hash outranking the timestamp, per §27 |
+| 11 | Compare **or** reload changed source | Reload and Keep: milestone 1. **Compare: milestone 5** |
+| 12 | Explicitly insert an edited section back | Milestone 1 |
+| 13 | Select information groups for export | Milestone 1 |
 | 14 | Generate a snapshot with the existing renderer | **Milestone 2** |
-| 15 | Preview the generated block | **Done** |
-| 16 | Explicitly write it | **Done** |
-| 17 | Update a block without altering surrounding content | **Done**, and asserted three ways |
-| 18 | Open the project when the vault is unavailable | **Done** — every link reports Unbound, cached text stays readable, the map is untouched |
-| 19 | Show what is cached/stale/missing/connected | **Done** |
-| 20 | Keep vault data and world data logically separated | **Done** — separate crate, separate store, separate file |
+| 15 | Preview the generated block | Milestone 1 |
+| 16 | Explicitly write it | Milestone 1 |
+| 17 | Update a block without altering surrounding content | Milestone 1 — the crate's central invariant, asserted three ways (§7) |
+| 18 | Open the project when the vault is unavailable | Milestone 1 — every link reports Unbound, cached text stays readable, the map is untouched |
+| 19 | Show what is cached/stale/missing/connected | Milestone 1 — the six status states of §27 |
+| 20 | Keep vault data and world data logically separated | Milestone 1 — separate crate, separate store, separate file |
 
 ---
 
@@ -526,17 +555,37 @@ in the Civilization dock that no unit test could have reached.
 
 ---
 
-## 8. Known limitations, stated rather than discovered
+## 8. Limitations, and which of them a milestone closes
 
-1. **Links are profile-scoped, not project-scoped** (§2's table, milestone 3).
-2. **Continent and province ids are derived**, not persistent (§4).
-3. **A settlement's `tid` does not survive save/load**, because the save format
-   carries no civ layer. Every link to a loaded world's settlement is Unbound
-   in practice.
-4. **No `continent` field on a settlement's export block** (§2's table).
-5. **No Compare view** for a stale source; Reload and Keep only.
-6. **No map snapshot**; the block is text.
-7. **Android is unimplemented**, and cross-device vault identity is therefore
-   designed-for and unverified.
-8. **Setext headings (`Title\n====`) are not recognised.** ATX only, because
+Two kinds, kept apart because they behave differently. The first four are
+**decisions**: they are the shape V1 was designed to have, and no amount of
+further work closes them. The rest are **milestone-shaped**: each names the
+milestone that closes it, and whether it is still open is in
+`cartalith-native/docs/STATUS.md`, not here.
+
+**Decided, not deferred:**
+
+1. **Continent and province ids are derived**, not persistent (§4). No amount
+   of wanting one makes the data carry a persistent id; `entity_label` is what
+   the design does about it instead.
+2. **No `continent` field on a settlement's export block** (§2's table) —
+   refused because filling it from bounding-box containment would be a guess,
+   and a wrong one wherever two boxes overlap.
+3. **Setext headings (`Title\n====`) are not recognised.** ATX only, because
    that is what all four of the owner's real templates use.
+4. **No `TextRange`/`MarkdownBlock` selections** (§2's table) — a byte offset
+   stops pointing at the right paragraph the moment the author edits above it.
+   A correctness decision, not a scope cut.
+
+**Owned by a milestone:**
+
+5. **Links profile-scoped rather than project-scoped**, and with it whether a
+   link into a saved world resolves at all — **milestone 3**, whose
+   precondition is a save format that carries the civ layer.
+6. **No Compare view** for a stale source. Reload and Keep are milestone 1's
+   two, chosen because they are the two that cannot lose work —
+   **milestone 5**.
+7. **No map snapshot**; the block is text — **milestone 2**.
+8. **Android**, and with it the cross-device vault identity §35 criterion 2
+   asks for, which is designed-for and unverifiable until a provider exists —
+   **milestone 4**.

@@ -363,9 +363,12 @@ const FS_READOUT := 11 ## Mono numerics.
 ## `ENV:25`, unchanged at this density -- but it is a *pair* now: 30 px on
 ## touch (`ENV:1819`), which BUILD_ANSWERS §2.4 added because the readout used
 ## to be a bare literal that did not scale with the 11 px mono around it. This
-## constant is the desktop half and keeps its name and its one consumer
-## (`right_dock.gd:1654`); the pair lives in `ROLE` as `fs_hero`, beside
-## `fs_hero_2` for `--hero2` (22 / 26), which this file had no name for at all.
+## constant is the desktop half and keeps its name; the pair lives in `ROLE`
+## as `fs_hero`, beside `fs_hero_2` for `--hero2` (22 / 26), which this file
+## had no name for at all. **`hero()` reads the pair, not this constant** --
+## it hard-coded `26` until 2026-08-31, which is how the token stayed
+## unconsumed while looking done. What is left here is the desktop figure's
+## documented origin and `right_dock.gd`'s own citation of it.
 const FS_HERO := 26
 ## The one size the shell's *modal* screens set their own title in -- both the
 ## "Open project dialog 1920" and "Select folder dialog 1920" cards in
@@ -760,18 +763,19 @@ const ROLE := {
 	## oversights". No consumer: `dcc_shell.gd::_build_rail()` builds the
 	## collapsed rail only, and the expansion column (`ENV:294`) is stage 2.
 	"w_rail_expanded": [200, 264],
-	## `--popW`, 238 -> **300**. The layers popover (`ENV:902`). Same §2.4
-	## ruling, same absence of a consumer -- `layers_popover.gd` sizes itself
-	## from its content today.
+	## `--popW`, 238 -> **300**. The layers popover (`ENV:902`), which is its
+	## one consumer: `layers_popover.gd` reads it for the outer column, the
+	## scroll and the `popup()` rect. It sized itself from its content, and
+	## from a bare `228`, until 2026-08-31.
 	"w_popover": [238, 300],
 	## `--pop`, 300 -> **380**, and 280 on the LAPTOP band. The menu dropdown
 	## (`ENV:62`). Unconsumed because Godot's `PopupMenu` widths are
 	## content-driven; carried so the structural stage can pin them.
 	"w_menu_popup": [300, 380],
-	## `--hero` / `--hero2` (`ENV:1819`), the two large accent readouts.
-	## `FS_HERO` above is the desktop half of the first and keeps its name and
-	## its consumer (`right_dock.gd:1654`); this pair adds the touch halves that
-	## §2.4 says were missing. `--hero` is the sample elevation, the measure
+	## `--hero` / `--hero2` (`ENV:1819`), the two large accent readouts, read by
+	## `hero()` and `hero2()` below. `FS_HERO` above is the desktop half of the
+	## first and keeps its name; this pair adds the touch halves that §2.4 says
+	## were missing. `--hero` is the sample elevation, the measure
 	## total and the paint count (`ENV:957`, `:973`, `:1041`); `--hero2` is the
 	## planner verdict (`ENV:1144`), which is smaller because it sits inside a
 	## dock rather than at the top of one.
@@ -1147,8 +1151,24 @@ static func header(text: String, sigil: String = "§") -> Label:
 	return l
 
 ## The one large accent number a context is collapsed down to (§6's elevation).
+##
+## `--hero` through `ROLE`, not the bare `FS_HERO` it hard-coded until
+## 2026-08-31: BUILD_ANSWERS §2.4 makes the readout one of "three unscaled
+## values -- all three now scale. They were oversights." Nothing moves on a
+## pointer, since `role_px()` returns the same 26 there and `LAPTOP` leaves
+## `--hero` at base on purpose; a tablet finally gets the 30 the token has
+## carried, unread, since it landed.
 static func hero(text: String) -> Label:
-	return mono_label(text, "accent", FS_HERO, 0, true)
+	return mono_label(text, "accent", role_px("fs_hero"), 0, true)
+
+## `--hero2` (22 / 26): the second, smaller accent readout -- the planner
+## verdict (`ENV:1144`), which is a rung down from `hero()` because it sits
+## inside a dock rather than at the top of one. Built here rather than left to
+## each caller's own literal, for the reason `hero()` above just had to be
+## fixed for: a size written at the call site is a size no density table can
+## reach.
+static func hero2(text: String) -> Label:
+	return mono_label(text, "accent", role_px("fs_hero_2"), 0, true)
 
 static func rule(vertical: bool = false) -> Control:
 	var r := ColorRect.new()

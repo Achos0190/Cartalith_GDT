@@ -12,19 +12,43 @@ class_name VaultStore
 ## | `store` | The link store — vault ids, knowledge links, imported text | **Yes.** Copy it to another machine and the links come with it. |
 ## | `binding` | The absolute folder path this device resolved the vault to | **No.** Device-local, and the reason §5 insists a vault's identity is not its path. |
 ##
-## ## Why `user://` and not the project `.zip`
+## ## What this file is now, and what it stopped being (corrected 2026-09-01)
 ##
-## §26's model puts knowledge links in the Cartalith project. This port cannot
-## honour that yet, and the reason is a property of the save format rather
-## than a shortcut: `cartalith-io` writes the reference HTML app's own `.zip`
-## (`SAVEFILE_COMPAT.md`), which carries **no civilisation layer at all** —
-## `WorldGen::load_save` produces a world whose `get_settlements()` is empty by
-## design. A link written into a save would come back pointing at a settlement
-## `tid` that no longer exists in the loaded world.
+## Until today this header said links live here **because the save format
+## cannot carry them** — *"`cartalith-io` writes the reference HTML app's own
+## `.zip` … which carries no civilisation layer at all"*. That sentence is
+## false, and has been since 2026-08-25. `DECISIONS.md` §7h replaced the flat
+## reference archive with the project tree, and its own closing paragraph names
+## the difference: *"the format now carrying the civilisation layer, history
+## and annotations that the flat one dropped on the floor"*. `cartalith-io`'s
+## `DOCUMENT_SLOTS` (`project.rs`) lists `entities/settlements.json` and its
+## eleven siblings — and `vault.json` beside them.
 ##
-## So links live beside the profile until the save format carries civ data.
-## `MARKDOWN_VAULT_SCOPE.md` milestone 3 is that change; this file is the one
-## place that has to move when it lands.
+## §26's project-scoped link store is **built and shipping**, and not by this
+## file: `project_bridge.rs`'s `WorldGen::project_save_with_documents` writes
+## `SLOT_VAULT` (`"vault.json"`) from `LinkStore::to_json()` whenever the store
+## is non-empty; `WorldGen::project_open` parses it back and reports a store it
+## cannot read rather than clearing what is in memory; and `WorldGen::load_save`
+## (`lib.rs`) clears the outgoing project's links first, so one project's notes
+## cannot follow the user into the next.
+##
+## So this file is **no longer the project's link store**. What it still is:
+##
+## - **The device binding.** Genuinely not portable and never was — an
+##   absolute folder path that means nothing on another machine. That is §5's
+##   reason a vault's identity is not its path, and it is untouched by §7h.
+## - **The fallback for a session with no project open.** Notes can be attached
+##   before a project is ever saved, and a boot restores them from here so they
+##   are not lost. A project opened afterwards replaces the links wholesale,
+##   which is `project_open`'s documented behaviour and the right precedence:
+##   the archive is the record, this is the scratch that survives a quit.
+##
+## Whether the fallback should keep the `store` half **at all**, now that the
+## archive carries it, is a question this file cannot settle alone — the writer
+## is `app.gd`'s `store_changed` → `save_from` wiring, and simply dropping it
+## would lose links for anyone who has not adopted projects. Recorded here
+## rather than acted on; `MARKDOWN_VAULT_SCOPE.md` milestone 3 is the row, and
+## its remaining half is this decision and not a blocked format.
 ##
 ## ## It never blocks and never throws
 ##

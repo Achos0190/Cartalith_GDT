@@ -36,6 +36,47 @@ const ADVANCED_KEYS: Array[String] = [
 	"climate.current_k", "climate.terrain_wind_deflection", "climate.ocean_hum", "climate.bulk_evap",
 ]
 
+## The only three tectonics/volcanism dials `deriveFromWorldStructure()`
+## (reference HTML lines 2528-2538, ported at `generate_terrain_inner`,
+## `cartalith-engine/src/lib.rs:676-684`) overrides -- verified live against
+## that function's own body, not assumed from the World structure group's
+## field names. Once `world_structure.enabled` is true, `tect.plates`,
+## `tect.vel` and `volc.count` are ALWAYS replaced by the archetype's own
+## fragmentation/tectonic_energy/hotspot_density, every Generate; this is a
+## faithful port of the reference, not an engine bug, but until now nothing
+## disclosed it, and `world_structure.enabled` defaults to `false`
+## (`WorldParams::default()`, lib.rs:554) so most sessions never see the
+## three sliders start moving and doing nothing.
+##
+## The rest of the tectonics/volcanism keys -- `tect.warp`, `tect.blur_r`,
+## `tect.alpha`, `tect.beta`, `tect.age_inf`, `tect.ridged`, `tect.flexure`,
+## `tect.hetero`, `tect.resist`, `tect.dynamic_lithology`, `tect.lloyd`,
+## `volc.age`, `volc.provinces`, `crater.count`, `crater.age` -- are untouched
+## by that override block and stay fully live regardless of World structure,
+## so only these three are ever gated by it.
+const WS_OVERRIDDEN_KEYS: Array[String] = ["tect.plates", "tect.vel", "volc.count"]
+
+## Prefixed onto a `WS_OVERRIDDEN_KEYS` row's tooltip whenever
+## `world_structure.enabled` is on, both at build time (`_build_param_row`)
+## and live (`_refresh_ws_override_rows`). Names the toggle by the label its
+## own row actually draws ("Enable continental steering",
+## `params.rs`' `world_structure.enabled` -- World structure category, above)
+## rather than its dotted key.
+const WS_OVERRIDE_REASON := "World Structure is on (Enable continental steering, above) -- deriveFromWorldStructure() replaces this value from the archetype every Generate, so this dial has no effect until World Structure is turned off."
+
+## `editable = false` stops the drag; it does not reliably say so -- this
+## dock's own slider skin (`DccWidgets._style_slider`) draws the filled
+## portion of the track in full accent colour whether or not the control is
+## editable, since Godot's stock `Slider` theme has no separate disabled
+## stylebox for `grabber_area`. `cartography_workspace.gd`'s `_mark_inert` /
+## `INERT_DIM` hit the same gap first and fixed it the same way: a `modulate`
+## over the whole row is the cheapest signal that reaches every child control
+## at once. Reused here at the same 0.55 ratio -- `DccTheme`'s own
+## `text_ghost`/`text` step against `panel` -- rather than inventing a fourth
+## ink level; that helper is `cartography_workspace.gd`-private so this is a
+## local copy of the ratio, not a shared call.
+const WS_OVERRIDE_DIM := 0.55
+
 ## Section headings for a stage's `groups`, matching the reference HTML's own
 ## panel headings (main.gd's GROUP_TITLES).
 const GROUP_TITLES := {
@@ -61,11 +102,32 @@ const KEYS_SECTION_TITLES := {
 ## the "world" group. `use_gpu` (also in "world") appears in neither list --
 ## it is the NOT-A-GENERATION-STAGE block's GPU row, per Preferences ▸
 ## Performance, not a pipeline parameter.
+##
+## **This table is index-coupled to the engine's own
+## `cartalith-engine/src/progress.rs::STAGE_NAMES`, and both sides used to
+## leave that unsaid.** `bridge.generation_stage` reports a stage as an
+## *index*, and `_paint_stage_rows`/`_log_stage`/`_stale_note_text` all turn
+## that index into a name by reading `STAGES[i]["name"]` here -- so a stage
+## inserted, removed or renamed in `progress.rs` would relabel every row
+## below it with no error anywhere. `_on_generation_stage` now checks the
+## engine's own `stage_name` against this row on the first tick of each
+## stage (see `_assert_stage_names()`), which costs one string compare and
+## turns that silent relabelling into a `push_error` naming the index.
 const STAGES: Array = [
 	{"name": "Planet", "needs": "—",
 	 "produces": "gravity, rotation, tilt, geoid, tides → 02 Extent & scale, 08 Climate",
 	 "groups": ["planet"], "keys": [],
-	 "gap": "Geoid sea level and tides (moon mass, distance, k₂) are default-off reference sub-systems with no cartalith-engine equivalent yet."},
+	 ## The old note here said "geoid AND tides ... with no cartalith-engine
+	 ## equivalent yet" and was only half true, which is why it is now two
+	 ## sentences. Geoid: still nothing -- `params.rs` carries no geoid entry
+	 ## and `cartalith-climate::geoid::refresh_geoid` (geoid.rs:135) has no
+	 ## caller outside its own tests. Tides: ported and live, just not under
+	 ## this stage -- `passes.tidal_flats` IS the tides enable (its own engine
+	 ## doc, cartalith-engine/src/lib.rs, says "This port has no separate
+	 ## enable: this toggle is it, and turning it on computes the tide
+	 ## field"), so the honest thing is to name where the row actually is
+	 ## rather than deny it exists.
+	 "gap": "Geoid sea level is a default-off reference sub-system with no cartalith-engine equivalent yet. Tides ARE ported: there is no separate enable here because `passes.tidal_flats` is it -- turning that toggle on (06 Erosion ▸ Stream-power carve) computes the tide field, and Layers ▸ Tides previews it. The moon roster (mass, distance, k₂) is what is not exposed: `PlanetParams` carries none, so the field is built with a single Earth-Moon-equivalent companion at this world's own gravity."},
 	{"name": "Extent & scale", "needs": "01 Planet",
 	 "produces": "land/sea split, all distances → every later stage",
 	 "groups": [], "keys": ["world", "sea_level", "peak_m"],
@@ -153,6 +215,15 @@ var _ecology_body: VBoxContainer
 ## first one there is no frame at all.
 var _crs_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
+## The other three columns of `04-left-dock.md` §4.1's stage row -- the
+## zero-padded number, the state dot and the stage name -- held so
+## `_paint_stage_rows()` can recolour them per state. The spec colours all four
+## elements of the row, not just the trailing label: the number and the name go
+## accent/bright the moment a stage is editing, stale or running, and back to
+## faint/secondary when it resolves.
+var _stage_dot_labels: Array = []
+var _stage_name_labels: Array = []
+var _stage_number_labels: Array = []
 ## Per-stage wall-clock timing for the readout above, indexed the same way as
 ## `_stage_state_labels` and rebuilt alongside it every `_build_generate_head`
 ## call. `-1` means "not reached yet" (`_stage_start_msec`) / "not finished
@@ -164,6 +235,10 @@ var _stage_elapsed_ms: Array = []
 ## the ten rows -- the spec's own "per-stage progress + log".
 var _stage_log: Array = []
 const STAGE_LOG_MAX := 12
+## Which stage indices `_assert_stage_names()` has already judged this run,
+## so one real disagreement is reported once rather than on every tick.
+## Cleared by `_reset_stage_progress()`, which is what a new run calls.
+var _stage_name_checked := {}
 var _stage_log_label: Label
 ## The earliest stage index a live-edited parameter touched since the last
 ## finished generate, or `-1` when the world is not stale. Cleared on
@@ -228,18 +303,70 @@ var _paint_brush := {
 ## release instead -- the same one call site `_on_generate_pressed` already
 ## used, now fired automatically rather than waiting for a button.
 
+## Every `STAGES` group name, checked once against the engine's own
+## `get_param_groups()` before the dock is built.
+##
+## `_build_group_section()` and `_build_erosion_passes()` both find their rows
+## by filtering `param_keys()` on `info["group"] == <a name hardcoded above>`.
+## A filter that matches nothing is not an error in GDScript -- it is an empty
+## loop -- so renaming a group in `params.rs` would leave that stage section
+## rendering as a heading with no rows under it, silently, on every world.
+## That is exactly the silent-degradation shape `audit_wiring.py`'s question C
+## exists to catch, and it is cheap to catch here instead: one pass over a
+## ten-row table at first paint.
+##
+## `push_error` rather than `assert()`: `assert` is stripped from a release
+## build, and a stale name is precisely the kind of drift that survives to a
+## release build unnoticed. It names the offending group and what the engine
+## does offer, so the fix is the next line of the message rather than a hunt.
+##
+## Silent when the probe itself is unavailable: `param_groups()` answers with
+## an empty `PackedStringArray` on an older GDExtension with no
+## `get_param_groups()` (`EngineBridge._has` has already warned about that
+## once by then), and treating "I could not ask" as "every group is missing"
+## would fire ten false errors for one real cause.
+func _assert_stage_groups() -> void:
+	var known := bridge.param_groups()
+	if known.is_empty():
+		return
+	for stage: Dictionary in STAGES:
+		for group_name: String in stage["groups"]:
+			if known.has(group_name):
+				continue
+			push_error(
+				"Cartalith: stage \"%s\" filters params on group \"%s\", which params.rs no longer defines. "
+				% [String(stage["name"]), group_name]
+				+ "That section would have rendered EMPTY with no other symptom. "
+				+ "The engine's own groups are: %s." % ", ".join(known))
+
 func _build() -> void:
-	## §4.5: every left dock opens with the TOOLS block, the four global tools
-	## then the domain's own. WORLD's own row per §4.5.2's table is really
-	## three: "Sculpt features (13)", "Freehand" and "Biome paint" -- but the
-	## first two arm through the Sculpt panel's own feature picker instead of
-	## a TOOLS-block button (`_build_feature_picker` below): each of its 13
-	## icon buttons both selects that feature AND arms the same shared
-	## "sculpt" tool id, since Freehand is simply the 13th entry in
-	## `FEATURE_KEYS`/`get_sculpt_features()` -- a different `FeatureParams`
-	## variant plus an extra sub-mode row, not a structurally separate record
-	## the way Settlement/POI are in CIVIL. So the only button that belongs
-	## here is Biome paint.
+	## Before anything reads a group name: see `_assert_stage_groups()` for
+	## why a hardcoded group that params.rs dropped is a silent failure.
+	_assert_stage_groups()
+
+	## Every left dock opens with the TOOLS block, the four global tools then
+	## the domain's own (`04-left-dock.md` §2.4). Its own WORLD row is three
+	## pills -- `Sculpt` (no key), `Freehand` **F**, `Biome paint` **B** -- and
+	## this stage (GUI replacement stage 4) re-examined rather than inherited
+	## that gap: only Biome paint is a TOOLS-block button here, deliberately.
+	##
+	## `Sculpt` and `Freehand` both arm the one shared "sculpt" tool id, and
+	## the *only* place that id's granularity is chosen -- which of the 13
+	## `get_sculpt_features()` entries, Freehand's 13th among them -- is the
+	## feature-picker grid below (`_build_feature_picker`), which already
+	## shares `app.tool_group` with everything else this dock arms. A second,
+	## coarser "Sculpt" pill in the same `ButtonGroup` would either duplicate
+	## that grid's own pressed-state bookkeeping (`set_pressed_no_signal`,
+	## chosen there specifically to avoid re-firing `toggled` and resetting
+	## the live feature's parameters) or drift from it -- correct sculpting
+	## either way, since the tool id and its parameters are unaffected by
+	## which button drew the click, but a second indicator of the same state
+	## that can show a coarser answer than the fine-grained one sitting next
+	## to it is the kind of two-state-computations bug this project has paid
+	## for before (the bake button, the recompute rows). Reachability through
+	## the existing grid costs one extra click (open Terrain) beyond what a
+	## TOOLS-block pill would; `F` closes the one real gap that click cost
+	## has -- see `_build_feature_picker`'s own Freehand `Shortcut` below.
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)"},
 	])
@@ -312,6 +439,15 @@ func _on_generation_finished(ok: bool) -> void:
 	if _stale_note_label != null:
 		_stale_note_label.text = _stale_note_text()
 	_paint_stage_rows()
+	## Covers the OTHER way `world_structure.enabled` reaches true besides a
+	## live click on its own row: File ▸ New world applying a World-Structure
+	## archetype preset sets the params THEN generates, so this signal is the
+	## first point back in this workspace where the three overridden rows can
+	## be re-gated against what a preset just changed -- `_on_bool_row_changed`
+	## alone never fires for that path. Cheap even when nothing changed: three
+	## property writes per row, no rebuild, and `world_structure.enabled` is
+	## re-read live rather than trusted from any argument here.
+	_refresh_ws_override_rows()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 	_fill_ecology(_ecology_body)
@@ -322,6 +458,15 @@ func _on_world_loaded() -> void:
 	## at all, so any timing left over from a previous run is stale and the
 	## readout should show a plain "resolved" for every row.
 	_reset_stage_progress()
+	## A loaded save can carry `world_structure.enabled == true` too --
+	## `EngineBridge.load_save`'s own comment: "The dials moved to whatever
+	## the save carried, so anything reading param_get has to re-read them."
+	## Re-gate the three overridden rows against it for the same reason
+	## `_on_generation_finished` does. Every OTHER parameter row in this panel
+	## does not resync its displayed value against a loaded save at all -- a
+	## real, separate gap this call does not attempt to close; see this file's
+	## `_ws_override_sliders` doc for why only these three are handled here.
+	_refresh_ws_override_rows()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 	_fill_ecology(_ecology_body)
@@ -403,17 +548,36 @@ func _build_generate_head(parent: Control) -> void:
 	_stage_state_labels = []
 	_stage_start_msec.clear()
 	_stage_elapsed_ms.clear()
+	## `04-left-dock.md` §4.1's stage header row, four elements wide: an 18px
+	## zero-padded number, the state dot, the name, then the state label. Built
+	## as four Labels rather than one string, because the spec colours each of
+	## them independently per state and one string cannot carry three colours
+	## (see `_paint_stage_rows()` for the table).
+	_stage_dot_labels = []
+	_stage_name_labels = []
+	_stage_number_labels = []
 	for i in STAGES.size():
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
 		status.add_child(row)
-		var name_label := DccTheme.mono_label("%02d %s" % [i + 1, String(STAGES[i]["name"])],
-			"text_dim", DccTheme.FS_MICRO, 1)
-		name_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+		var number_label := DccTheme.mono_label("%02d" % (i + 1),
+			"text_faint", DccTheme.FS_MICRO, 1)
+		number_label.custom_minimum_size.x = 18
+		row.add_child(number_label)
+		var dot_label := DccTheme.mono_label(DccIcons.SYMBOLS["off"],
+			"text_ghost", DccTheme.FS_MICRO, 0)
+		dot_label.custom_minimum_size.x = 9
+		row.add_child(dot_label)
+		var name_label := DccTheme.mono_label(String(STAGES[i]["name"]),
+			"text_secondary", DccTheme.FS_MICRO, 1)
+		name_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W - 33
 		row.add_child(name_label)
 		var state_label := DccTheme.mono_label("pending", "text_ghost", DccTheme.FS_MICRO, 1)
 		state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(state_label)
+		_stage_number_labels.append(number_label)
+		_stage_dot_labels.append(dot_label)
+		_stage_name_labels.append(name_label)
 		_stage_state_labels.append(state_label)
 		_stage_start_msec.append(-1)
 		_stage_elapsed_ms.append(-1)
@@ -696,7 +860,18 @@ func _build_finalize(parent: Control) -> void:
 		"How deep the pyramid is baked. Level z holds 2^z x 2^z tiles, so the total is (4^(depth+1)-1)/3. Already-baked chunks are skipped, so raising the depth later only fills the gaps. The same setting lives in Preferences > Tiles & LOD > LOD levels -- one store, two entry points.")
 
 	_bake_button = DccWidgets.action(foot, "Bake ALL levels & finalize", _on_bake_all, true)
-	_bake_button.tooltip_text = "Pre-render every tile of the pyramid to the on-disk atlas, then lock the world. Deep zoom then reads bytes instead of re-synthesising octaves. Already-baked chunks are skipped. This blocks the UI while it runs -- see the size and tile count above before committing."
+	## **The read side is not wired, and this tooltip no longer says it is**
+	## (2026-09-01). It promised "deep zoom then reads bytes instead of
+	## re-synthesising octaves", which no draw path performs:
+	## `viewport_host.gd`'s `_build_lod_tile()` opens with an unconditional
+	## `_bridge.lod_synthesize_tile()` and has no atlas branch, and
+	## `atlas_tile_png()` -- the reader -- is wrapped in `engine_bridge.gd`
+	## and called by no shell file. `menus.gd`'s `_build_atlas_cache_menu`
+	## header carries why that is not a one-line branch (a baked chunk is a
+	## stored picture; a drawn tile is a shade ratio the LOD shader
+	## multiplies in). What the bake really buys -- a persistent store, the
+	## skip, and the finalize lock -- is what this now says instead.
+	_bake_button.tooltip_text = "Pre-render every tile of the pyramid to the on-disk atlas, then lock the world. The store persists across sessions and already-baked chunks are skipped, so a later re-bake or a deeper one only fills the gaps. It does NOT speed up panning: nothing reads the atlas at draw time yet, so the deep-zoom layer still synthesises every tile it draws. This blocks the UI while it runs -- see the size and tile count above before committing."
 	_unfinalize_button = DccWidgets.action(foot, "Un-finalize", func():
 		bridge.set_finalized(false)
 		_refresh_finalize()
@@ -786,7 +961,7 @@ func _refresh_finalize() -> void:
 	if not has_world:
 		_bake_status.text = "No world yet: generate one before baking."
 	elif finalized:
-		_bake_status.text = "FINALIZED. %s Generation parameters and sculpting are locked; Cartography and the 3D view stay live." % String(st.get("text", ""))
+		_bake_status.text = "FINALIZED. %s Generation parameters and sculpting are locked; Cartography stays live." % String(st.get("text", ""))
 	else:
 		## The byte figure leads, because it is the one that binds: a depth-3
 		## bake of a 2048x1311 world at 1024 px tiles is 234 MiB (measured),
@@ -947,13 +1122,25 @@ func _build_erosion_passes(body: VBoxContainer, stage_index: int) -> void:
 # library, and F14 records what a silently-missing binding costs. It resolves
 # true against this build.
 
-## `state.erosion`'s own literal defaults (reference HTML line 2268), limited
-## to the FIVE knobs the reference's own Erosion panel actually exposes
+## The shell's transcription of `ErodeOpts::default()`
+## (`cartalith-engine/src/erode_op.rs`), which is what actually runs:
+## `erode_opts_from` in `erode_bridge.rs` fills every key this dictionary
+## omits from it, so a number that drifted from the engine's would be a lie
+## the sliders told and the op ignored. It has to be transcribed. `ErodeOpts`
+## is a separate struct from `WorldParams` -- droplet erosion is an op over
+## the finished field, not a generation stage -- so none of these five keys is
+## a row in `cartalith-godot/src/params.rs`' `PARAMS` table, and the engine
+## exposes no getter for the struct either. `_erode_defaults()` still asks
+## `param_default(key)` first, so the day a key does become a table row the
+## engine wins without this table moving; today it answers `null` for all
+## five and these literals stand.
+##
+## The five keys are the ones the reference's own Erosion panel exposes
 ## (`#drops`/`#estr`/`#edep`/`#ethr`/`#etal`, bound by `eparam()` at reference
-## lines 12922-12926). The other nine `dropletParams()` fields -- inertia,
-## capacity, minSlope, evaporate, gravity, maxLifetime, initSpeed, initWater,
-## radius -- have no reference control and stay at the engine's own defaults;
-## the op fills in anything this dictionary omits.
+## lines 12922-12926), and the literals are `state.erosion`'s (reference HTML
+## line 2268). The other nine `dropletParams()` fields -- inertia, capacity,
+## minSlope, evaporate, gravity, maxLifetime, initSpeed, initWater, radius --
+## have no reference control and are never named here at all.
 const ERODE_DEFAULTS := {
 	"droplets": 60000,        ## #drops, slider 0..100 x1500, default 40
 	"erode": 0.35,            ## #estr,  slider 0..100 /100,  default 35
@@ -965,10 +1152,49 @@ const ERODE_DEFAULTS := {
 ## Live op parameters. NOT world parameters: `erode()` is an op over the
 ## finished field, `generate()` never runs it, and nothing here reaches
 ## `WorldParams` or any generation-derived hash.
+##
+## Seeded from `ERODE_DEFAULTS` directly, because a member initialiser runs
+## at instantiation -- before `setup()` has assigned a `bridge`.
+## `_build_droplet_erosion` re-seeds it from `_erode_defaults()` on the first
+## build, which is the earliest moment `param_default()` can be consulted at
+## all; today that returns the same five literals.
 var _erode_op: Dictionary = ERODE_DEFAULTS.duplicate()
+var _erode_defaults_cache: Dictionary = {}
+## True once `_erode_defaults()` has found at least one of the five keys in
+## the engine's parameter table. Set by that call, read only by the Reset
+## button's tooltip, so the tooltip states the source it actually got.
+var _erode_defaults_from_engine := false
+var _erode_op_seeded := false
+
+## The five exposed keys' defaults: `param_default(key)` where the engine's
+## parameter table carries the key, `ERODE_DEFAULTS` where it does not.
+## Today that is all five -- see `ERODE_DEFAULTS` for why -- so this resolves
+## to the transcription; the lookup stays because it is the one accessor that
+## would answer if an `ErodeOpts` key were ever added to `PARAMS`, and because
+## `_erode_defaults_from_engine` reports which source was used rather than
+## letting the Reset tooltip guess.
+##
+## Cached: the answer is static for the session (a Rust `Default` impl, not
+## world state), and this is read once per panel build plus once per Reset.
+func _erode_defaults() -> Dictionary:
+	if _erode_defaults_cache.is_empty():
+		var d: Dictionary = ERODE_DEFAULTS.duplicate()
+		for k in d:
+			var v = bridge.param_default(String(k))
+			if v != null:
+				d[k] = v
+				_erode_defaults_from_engine = true
+		_erode_defaults_cache = d
+	return _erode_defaults_cache
 
 func _build_droplet_erosion(grp: Control) -> void:
 	var live := bridge._has("erode_op")
+	## First build only. Later builds must NOT re-seed: this panel is rebuilt
+	## wholesale after every generate, and overwriting `_erode_op` there would
+	## silently discard whatever the person had dialled in.
+	if not _erode_op_seeded:
+		_erode_op_seeded = true
+		_erode_op = _erode_defaults().duplicate()
 	DccWidgets.note(grp,
 		"The reference's #erodeBtn. Particle hydraulic erosion over the finished surface: " +
 		"droplets follow the inertia-blended gradient, erode or deposit against carrying " +
@@ -1012,9 +1238,17 @@ func _build_droplet_erosion(grp: Control) -> void:
 	## same path a drag uses, not by a second assignment that could disagree
 	## with what is drawn.
 	var reset := DccWidgets.action(grp, "Reset dials", func():
+		var d := _erode_defaults()
 		for i in rows.size():
-			(sliders[i] as HSlider).value = float(ERODE_DEFAULTS[String((rows[i] as Array)[0])]))
-	reset.tooltip_text = "Back to state.erosion's own defaults (reference HTML line 2268)."
+			(sliders[i] as HSlider).value = float(d[String((rows[i] as Array)[0])]))
+	if _erode_defaults_from_engine:
+		reset.tooltip_text = ("Back to ErodeOpts::default() -- read from the engine's own "
+			+ "parameter table.")
+	else:
+		reset.tooltip_text = ("Back to ErodeOpts::default(), which is state.erosion's own "
+			+ "defaults (reference HTML line 2268). ErodeOpts is not part of the engine's "
+			+ "parameter table -- droplet erosion is an op over the finished field, not a "
+			+ "generation stage -- so these are the shell's transcribed copies.")
 
 func _on_erode_param(v: float, key: String, is_int: bool) -> void:
 	_erode_op[key] = int(round(v)) if is_int else v
@@ -1066,6 +1300,22 @@ func _carve_fjords() -> void:
 	if carved == 0:
 		push_warning("Carve fjords: %d cells are fjord-eligible, none deep enough to carve -- this world's coast is too warm, too flat or too weak." % int(r.get("cells_masked", 0)))
 
+## `WS_OVERRIDDEN_KEYS` -> its live `HSlider`, so `_refresh_ws_override_rows`
+## can re-gate editable/tooltip/modulate the moment `world_structure.enabled`
+## itself flips, without a full panel rebuild -- the same bound-Control
+## pattern `_sculpt_commit_btn` etc. use. Populated once, by `_build_param_row`
+## during the ONE `_build_categories()` pass `setup()` runs: unlike the
+## Sculpt/Paint/Ecology/CRS panels below, this dock's parameter rows are never
+## rebuilt after the first `_build()` -- a live drag or toggle writes straight
+## through `bridge.param_set`, so there is nothing here for a generate to
+## resync.
+var _ws_override_sliders: Dictionary = {}
+## The same three keys -> their tooltip text with `WS_OVERRIDE_REASON` left
+## out -- what the row reads while World Structure is off. Kept alongside the
+## slider so the live re-gate needs no second call to `param_info` /
+## `param_default` to rebuild it.
+var _ws_override_base_hint: Dictionary = {}
+
 ## One row for one parameter. `bridge.param_info(key)`'s `type` field decides
 ## the control (`toggle` for bool, `slider` for int/float); nothing about the
 ## range, step, label or unit is guessed here.
@@ -1080,13 +1330,42 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 		"Not exposed by the reference app — surfaced here as a superset, at the engine's own default."
 	var kind := String(info.get("type", "float"))
 
+	## Per-row "back to the engine's default", off `param_default(key)` --
+	## the accessor `EngineBridge` has filled since `_read_param_table()` was
+	## written and which, until now, nothing read. Named in the tooltip
+	## because a right-click that is not advertised is not a feature; the
+	## default itself is printed there too, so the row answers "what would
+	## this go back to?" without being clicked.
+	var reset_to = bridge.param_default(key)
+	if reset_to != null:
+		hint += " Right-click the row to reset to the engine's default (%s)." % str(reset_to)
+
+	## Tectonics: World-Structure archetype override -- see `WS_OVERRIDDEN_KEYS`
+	## for what this is and why. `_ws_override_base_hint` is recorded whether
+	## or not the toggle is on right now: `_refresh_ws_override_rows` needs the
+	## "off" text back the moment World Structure flips off again.
+	var ws_overridden := false
+	if WS_OVERRIDDEN_KEYS.has(key):
+		_ws_override_base_hint[key] = hint
+		ws_overridden = bool(bridge.param_get("world_structure.enabled"))
+		if ws_overridden:
+			hint = "%s %s" % [WS_OVERRIDE_REASON, hint]
+
 	if kind == "bool":
 		## A checkbox toggle is atomic -- there is no "dragging" phase to defer
 		## past -- so it regenerates immediately, matching the reference's own
 		## `<input type=checkbox>` `change` handlers (fired on click, not on a
 		## release distinct from a press).
-		DccWidgets.toggle(parent, label, bool(bridge.param_get(key)),
+		var cb := DccWidgets.toggle(parent, label, bool(bridge.param_get(key)),
 			_on_bool_row_changed.bind(key, stage_index), hint)
+		if reset_to != null:
+			## Writing `button_pressed` re-emits `toggled`, so the reset lands
+			## through `_on_bool_row_changed` -- the same one path a click uses.
+			## Guarded on "already there" so a right-click on an untouched row
+			## is a no-op rather than a full regenerate for no change.
+			_wire_row_reset(cb, func():
+				if cb.button_pressed != bool(reset_to):
+					cb.button_pressed = bool(reset_to))
 		return
 
 	var is_int := kind == "int"
@@ -1094,15 +1373,109 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 	## value; `change` (release) applies it and regenerates. `DccWidgets.slider`
 	## already gives the continuous half via `on_change` -- `on_release` is new,
 	## wired to `HSlider.drag_ended`, which is Godot's one-shot release signal.
-	DccWidgets.slider(parent, label, float(info.get("min", 0.0)), float(info.get("max", 1.0)),
+	var made := DccWidgets.slider(parent, label, float(info.get("min", 0.0)), float(info.get("max", 1.0)),
 		float(info.get("step", 0.01)), float(bridge.param_get(key)), unit,
 		_on_float_row_input.bind(key, is_int), hint,
 		_on_float_row_released.bind(key, is_int, stage_index))
+	var s := made["slider"] as HSlider
+	if WS_OVERRIDDEN_KEYS.has(key):
+		## Held for `_refresh_ws_override_rows`; see that dictionary's own doc.
+		_ws_override_sliders[key] = s
+		if ws_overridden:
+			s.editable = false
+			## The WHOLE row, not just the slider -- label and readout dim
+			## too, matching `_mark_inert`'s own reasoning (this block's doc
+			## comment on `WS_OVERRIDE_DIM`): a dimmed slider next to a
+			## full-brightness number and name would still read as live.
+			(made["row"] as Control).modulate = Color(1.0, 1.0, 1.0, WS_OVERRIDE_DIM)
+		## `_row()` sets `tooltip_text` only on the row `HBoxContainer` it
+		## returns; the slider is its own `Control` with the default
+		## `MOUSE_FILTER_STOP`, so a hover landing on the grip/track itself
+		## shows nothing unless the slider carries its own copy --
+		## `_dead_slider`'s own precedent (`cartography_workspace.gd`).
+		s.tooltip_text = hint
+	if reset_to != null:
+		## Writing `HSlider.value` re-emits `value_changed`, which is what
+		## repaints the readout AND calls `_on_float_row_input` -- so only the
+		## release half has to be fired by hand here. `drag_ended` never fires
+		## for a programmatic write, which is exactly why `_build_droplet_
+		## erosion`'s own Reset gets away without it: that one writes no engine
+		## parameter and needs no regenerate.
+		##
+		## `if not s.editable: return` makes the reset a no-op on a
+		## World-Structure-overridden row exactly like the drag it stands in
+		## for -- left generic rather than special-cased to
+		## `WS_OVERRIDDEN_KEYS`, because `s.editable` is live: it already
+		## reflects whatever `_refresh_ws_override_rows` last set, so this
+		## closure needs no second copy of that state to go stale against.
+		_wire_row_reset(s, func():
+			if not s.editable:
+				return
+			if is_equal_approx(s.value, float(reset_to)):
+				return
+			s.value = float(reset_to)
+			_on_float_row_released(key, is_int, stage_index))
+
+## Right-click on a parameter row -> `revert`. Connected to the CONTROL rather
+## than to the row `HBoxContainer`: `HSlider` and `CheckBox` both default to
+## `MOUSE_FILTER_STOP`, so an event over them stops there whether or not they
+## accepted it, and a handler on the row alone would be dead over the half of
+## the row a person actually aims at. The row is wired as well so the label
+## side works too.
+##
+## `MOUSE_BUTTON_RIGHT` and not a context `PopupMenu`: every other reset in
+## this dock is a single act with a single outcome, and a one-item popup to
+## reach it would be the only such menu in the workspace.
+func _wire_row_reset(control: Control, revert: Callable) -> void:
+	var on_input := func(event: InputEvent):
+		var mb := event as InputEventMouseButton
+		if mb != null and mb.pressed and mb.button_index == MOUSE_BUTTON_RIGHT:
+			revert.call()
+	control.gui_input.connect(on_input)
+	var row := control.get_parent() as Control
+	if row != null:
+		row.gui_input.connect(on_input)
 
 func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
 	bridge.param_set(key, v)
+	if key == "world_structure.enabled":
+		_refresh_ws_override_rows()
 	_mark_stale_from(stage_index)
 	_regenerate_live()
+
+## Live counterpart to `_build_param_row`'s own gate, re-applied to whichever
+## `WS_OVERRIDDEN_KEYS` rows survived from the one `_build_categories()` pass
+## -- three property writes per row, no rebuild, the same "cheap enough to
+## run on every change" discipline `_refresh_sculpt_draft` already uses for
+## the Sculpt panel's Draft section.
+##
+## Reads `world_structure.enabled` itself rather than taking it as an
+## argument, so every caller -- a live click on that row
+## (`_on_bool_row_changed`), a generate that followed a File ▸ New world
+## archetype preset (`_on_generation_finished`), or a loaded save that
+## carried a different value (`_on_world_loaded`) -- re-gates against
+## whatever is actually true now, not against whichever of the three paths
+## happened to call this.
+##
+## `is_instance_valid` rather than trusting the dictionary: a row this dock
+## built once could in principle have been freed from under it by then, and a
+## dead `HSlider` reference is a crash, not a silent no-op, without the guard.
+func _refresh_ws_override_rows() -> void:
+	var enabled := bool(bridge.param_get("world_structure.enabled"))
+	for key in _ws_override_sliders:
+		var s := _ws_override_sliders[key] as HSlider
+		if not is_instance_valid(s):
+			continue
+		s.editable = not enabled
+		var base := String(_ws_override_base_hint.get(key, ""))
+		var text := ("%s %s" % [WS_OVERRIDE_REASON, base]) if enabled else base
+		s.tooltip_text = text
+		var row := s.get_parent() as Control
+		if row != null:
+			## The whole row dims, not just the slider -- see the matching
+			## build-time comment in `_build_param_row`.
+			row.modulate = Color(1.0, 1.0, 1.0, WS_OVERRIDE_DIM) if enabled else Color.WHITE
+			row.tooltip_text = text
 
 ## Writes the value continuously (cheap: `param_set` is an in-memory Rust
 ## write, no recompute) but does not regenerate -- matches `tparam()`'s
@@ -1137,10 +1510,106 @@ func _stale_note_text() -> String:
 ## world, from stage 01, with whatever the dock's sliders currently say. No
 ## staleness to track -- by the time this returns, the map matches the dials
 ## again, same as it always did in the app being ported.
+##
+## **Guarded since 2026-09-01, because it is destructive and did not say so.**
+## `WorldGen::absorb` (`lib.rs`) replaces `self.icons`, `self.labels`,
+## `self.paint`, `self.infra`, `self.civ_tools` and `self.sculpt` with fresh,
+## empty editors on every `generate()` -- deliberately, since grid coordinates
+## from a previous generation mean nothing over a new one. That is defensible
+## for File ▸ New world. It was not defensible here: releasing a slider is not
+## an action a person reads as "throw away every icon, label, painted cell,
+## hand-drawn way and route on this map", and nothing asked them first.
+##
+## So the prompt fires only when there is something to lose, which makes it
+## self-limiting: once the user accepts, the layers are gone and the count is
+## zero, so the next twenty slider drags are silent again.
+##
+## **Cancel leaves the parameter written and the world not rebuilt**, which
+## is a state this dock already has a name and a readout for: the value went
+## into the engine on `param_set` during the drag, `_mark_stale_from()` ran
+## before this call, and the badge reads "Stale from NN -- edited since the
+## last Generate" until a Generate actually happens. Reverting the dial on
+## Cancel would be the surprising behaviour, not this one.
+##
+## **One Generate button is still outside this guard**, and it is not in this
+## file: `app.gd`'s tool-options row calls its own `_run_pipeline()`, which
+## reaches `bridge.generate()` directly. `_on_generate_pressed()` -- the
+## dock's own copy of that button -- routes through here and does prompt.
 func _regenerate_live() -> void:
 	if app == null or app.new_world_dialog == null or bridge.generating:
 		return
+	var at_stake := _authored_inventory()
+	if at_stake.is_empty():
+		_regenerate_now()
+		return
+	_confirm_discard(at_stake)
+
+func _regenerate_now() -> void:
+	if app == null or app.new_world_dialog == null or bridge.generating:
+		return
 	bridge.generate(app.new_world_dialog.request())
+
+## What a regenerate would destroy, as ready-to-print phrases. Empty when the
+## world carries no hand-authored work at all.
+##
+## **Not exhaustive, and the prompt is worded so that it does not have to be.**
+## `paint_painted_counts()` reports the *active* paint layer only
+## (`paint_bridge::PaintEditor::painted_counts` reads `active_layer()`), so
+## committed dabs on a layer the panel is not currently showing are not counted
+## here; `paint_draft_count()` covers all three layers but only their pending
+## halves. Iterating the layers to close that would mean calling
+## `paint_set_layer()` three times as a side effect of a read, and `set_layer`
+## clamps the brush value -- a read that quietly edits the brush is worse than
+## an undercount. The dialog therefore names every category in prose and counts
+## the ones it can count.
+func _authored_inventory() -> PackedStringArray:
+	var out := PackedStringArray()
+	if not bridge.has_world:
+		return out
+	var stamps := bridge.sculpt_stamp_count()
+	if stamps > 0:
+		out.append("%d sculpt stamp%s on the draft" % [stamps, "" if stamps == 1 else "s"])
+	var icons := bridge.icon_list().size()
+	if icons > 0:
+		out.append("%d placed map icon%s" % [icons, "" if icons == 1 else "s"])
+	var labels := bridge.label_list().size()
+	if labels > 0:
+		out.append("%d map label%s" % [labels, "" if labels == 1 else "s"])
+	var painted := int(bridge.paint_painted_counts().get("total", 0)) + bridge.paint_draft_count()
+	if painted > 0:
+		out.append("%d painted cell%s" % [painted, "" if painted == 1 else "s"])
+	var routes := bridge.route_count()
+	if routes > 0:
+		out.append("%d route%s" % [routes, "" if routes == 1 else "s"])
+	var ways := 0
+	for w in bridge.roads():
+		if (w as Dictionary).get("manual", false):
+			ways += 1
+	for w in bridge.sea_routes():
+		if (w as Dictionary).get("manual", false):
+			ways += 1
+	if ways > 0:
+		out.append("%d hand-drawn way%s" % [ways, "" if ways == 1 else "s"])
+	return out
+
+## The destructive answer is named after what it does, never "OK" -- the same
+## wording rule `app.gd`'s own `_confirm()` follows. Built here rather than
+## borrowed from `app.gd` because that helper is private to that file and this
+## pass does not own it.
+func _confirm_discard(at_stake: PackedStringArray) -> void:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Regenerate this world?"
+	dlg.dialog_text = ("Generating rebuilds the world from stage 01 and starts every "
+		+ "hand-authored layer over it empty again: sculpt drafts, painted cells, map "
+		+ "icons and labels, hand-drawn ways and routes. None of it is recoverable -- "
+		+ "there is no undo across a generate.\n\nOn this world right now:\n  • "
+		+ "\n  • ".join(at_stake)
+		+ "\n\nSave the project first if you want to keep it.")
+	dlg.ok_button_text = "Regenerate and discard"
+	dlg.confirmed.connect(_regenerate_now)
+	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
+	add_child(dlg)
+	dlg.popup_centered()
 
 ## Clears per-stage timing and the log, then repaints -- for the start of a
 ## NEW run (`generation_started`) or a freshly loaded world (`world_loaded`),
@@ -1149,6 +1618,7 @@ func _regenerate_live() -> void:
 ## a stage that already finished is never wiped by a later stage's own
 ## signal arriving.
 func _reset_stage_progress() -> void:
+	_stage_name_checked.clear()
 	for i in _stage_start_msec.size():
 		_stage_start_msec[i] = -1
 		_stage_elapsed_ms[i] = -1
@@ -1201,9 +1671,10 @@ func _paint_stage_rows() -> void:
 ## & scale -- `cartalith-engine/src/progress.rs`'s own doc comment) can tick
 ## through between two polls, so every not-yet-closed stage below `index` is
 ## closed out here too, not just `index` itself.
-func _on_generation_stage(index: int, _stage_name: String, _total: int) -> void:
+func _on_generation_stage(index: int, stage_name: String, total: int) -> void:
 	if index < 0 or index >= _stage_state_labels.size():
 		return
+	_assert_stage_names(index, stage_name, total)
 	var now := Time.get_ticks_msec()
 	for i in index:
 		if _stage_elapsed_ms[i] < 0:
@@ -1225,8 +1696,40 @@ func _log_stage(i: int) -> void:
 		_stage_log.pop_front()
 	if _stage_log_label != null:
 		_stage_log_label.text = "\n".join(_stage_log)
-	if _stage_log_label != null:
-		_stage_log_label.text = "\n".join(_stage_log)
+
+## The other half of `_assert_stage_groups()`, and the one it could not do:
+## group names can be checked before a run, but a stage's *name* only
+## crosses the boundary while one is happening, on `generation_stage`'s own
+## second argument. That argument was received as `_stage_name` and thrown
+## away, which left `STAGES` free to disagree with `progress::STAGE_NAMES`
+## silently -- the rows would carry the wrong labels and the "stale from NN"
+## badge would name the wrong stage, with nothing anywhere to say so.
+##
+## At most one report per index per run: a `push_error` on every stage tick
+## would bury the first, real message under repeats of itself.
+##
+## `push_error` rather than `assert()`, for `_assert_stage_groups()`'s own
+## stated reason -- `assert` is stripped from a release build, and this is
+## precisely the drift that survives to one unnoticed.
+func _assert_stage_names(index: int, stage_name: String, total: int) -> void:
+	if stage_name.is_empty() or _stage_name_checked.has(index):
+		return
+	_stage_name_checked[index] = true
+	if total > 0 and total != STAGES.size():
+		push_error(
+			"Cartalith: this dock draws %d generation stages; the engine reports %d "
+			% [STAGES.size(), total]
+			+ "(cartalith-engine/src/progress.rs STAGE_NAMES/STAGE_COUNT). Every row "
+			+ "below the first difference is labelled with the wrong stage.")
+	var mine := String(STAGES[index]["name"])
+	if mine == stage_name:
+		return
+	push_error(
+		"Cartalith: stage %02d is \"%s\" in this dock's STAGES table and \"%s\" "
+		% [index + 1, mine, stage_name]
+		+ "in the engine's own progress::STAGE_NAMES. The two are index-coupled: "
+		+ "the progress rows, the per-stage log and the \"stale from NN\" badge "
+		+ "are all naming the wrong stage until STAGES is brought back in line.")
 
 ## §3's rail-foot stage counter ("04 / 10"), repurposed as the collapsed left
 ## dock's own primary readout (§6: a collapsed dock keeps its one essential
@@ -1313,6 +1816,24 @@ func _build_feature_picker(parent: Control) -> void:
 		## discarding whatever the user had just tuned.
 		if app.armed_tool == "sculpt" and current == key:
 			btn.set_pressed_no_signal(true)
+		## `04-left-dock.md` §2.4's global keydown map is `{v,m,r,b,l,i,f}` --
+		## `f` is Freehand, and unlike the five broken CIVIL letters the spec's
+		## own defect note calls out, this one names a real chip. Wired here,
+		## on the chip itself, rather than as a second TOOLS-block button (see
+		## this function's own header comment for why a coarse "Freehand"
+		## pill was not added): `DccWidgets.tool_button()`'s `Shortcut` only
+		## fires while its button `is_visible_in_tree()`, so `F` arms Freehand
+		## exactly when this grid is on screen (world domain, Terrain category
+		## open, a world generated) and is inert everywhere else -- narrower
+		## than the spec's apparently-global binding, but never claims a reach
+		## this chip does not actually have.
+		if key == "freehand":
+			var freehand_key := InputEventKey.new()
+			freehand_key.keycode = KEY_F
+			var freehand_shortcut := Shortcut.new()
+			freehand_shortcut.events = [freehand_key]
+			btn.shortcut = freehand_shortcut
+			btn.shortcut_in_tooltip = false
 	if not hint.is_empty():
 		DccWidgets.note(sec, hint)
 
@@ -1441,40 +1962,77 @@ func _on_sculpt_seed_dice() -> void:
 	bridge.sculpt_set_seed(randi())
 	_build_sculpt(_sculpt_body)
 
-## Spec header correction #3: Brush shape, Stroke & grid and Actions have no
-## engine behind them and are not in the reference HTML either -- honest
-## prose instead of building fake controls for them.
+## GUI replacement stage 4 re-verified this against the current authority,
+## `04-left-dock.md` §5.5 (Brush shape: 8 shape chips, Import brush, operation,
+## falloff, mirror) and §5.6 (Stroke & grid: 13 stamp-geometry chips) --
+## neither `cartalith-terrain::sculpt` nor `sculpt_bridge.rs` exposes a shape,
+## an operation override, a falloff curve, a mirror flag, or any per-stamp
+## control-point edit (`grep`-checked this pass: the bridge's sculpt surface
+## is feature/preset/globals/freehand-mode/seed/stroke/stamp-stack only).
+##
+## That absence is not a reason to build them as decoration -- §5.5/§5.6's own
+## text says the *prototype itself* mocks them ("every one of the 13 is a
+## mock", `Import brush -- ... (mock)`), so a toast-only build here would be
+## copying a mock, not closing a gap. Honest "not built" prose stays the
+## right call under this port's own rule that a control doing nothing is
+## drawn disabled with its real reason, not drawn as a working-looking button
+## that silently does less than it appears to.
 func _build_sculpt_unbuilt_note(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(sec,
 		"Brush shape (8 falloff shapes, Import brush, custom Falloff), Stroke & grid " +
 		"(Add point / Duplicate / Rotate / Scale / Tilt / Push / Pull / Align control-point " +
-		"editing) and Actions (Flip X/Y, Rot Left/Right, Flatten) have no engine behind them " +
-		"and are not in the reference HTML either -- DCC_SHELL_SPEC.md header correction #3. " +
-		"New, unscoped design work, not a port gap.")
+		"editing) and Actions (Flip X/Y, Rot Left/Right, Flatten) have no engine behind them. " +
+		"The design's own prototype mocks these too (04-left-dock.md §5.5-§5.6: every one of " +
+		"its 13 Stroke & grid chips just toasts \"edits the stamp control points, not the " +
+		"heightfield (mock)\") -- new, unscoped design work, not a port gap.")
 
 ## The draft/stamp-stack summary and Commit/Discard -- §5.2 places these at
 ## the foot of the left dock (`#sculptCommitBtn`/`#sculptDiscardBtn`); the
 ## full stamp-by-stamp list with its own Undo/Redo lives in the right dock
 ## (§6, `right_dock.gd`'s `_build_sculpt`) since that is where §6 puts it.
+## Held so `_refresh_sculpt_draft()` can re-gate them when the stack changes.
+## Before 2026-09-01 this section read the count once and never again, so a
+## stroke drawn while the panel was already built left Commit and Discard
+## greyed over a non-empty draft. The right dock never had the bug because
+## `show_sculpt_stack()` rebuilds it wholesale.
+var _sculpt_count_note: Label
+var _sculpt_commit_btn: Button
+var _sculpt_discard_btn: Button
+
 func _build_sculpt_draft(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Draft")
 	var count := bridge.sculpt_stamp_count()
-	DccWidgets.note(sec, "%d stamp%s on the draft." % [count, "" if count == 1 else "s"])
+	_sculpt_count_note = DccWidgets.note(sec, "%d stamp%s on the draft." % [count, "" if count == 1 else "s"])
 
 	var actions := DccWidgets.group(sec, "Commit")
 	var commit_btn := DccWidgets.action(actions, "%s Commit to map" % DccIcons.SYMBOLS["tick"], _on_sculpt_commit, true)
 	commit_btn.disabled = count == 0
 	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_sculpt_discard)
 	discard_btn.disabled = count == 0
+	_sculpt_commit_btn = commit_btn
+	_sculpt_discard_btn = discard_btn
+	if not bridge.sculpt_draft_changed.is_connected(_refresh_sculpt_draft):
+		bridge.sculpt_draft_changed.connect(_refresh_sculpt_draft)
 	DccWidgets.note(sec,
 		"Commit bakes the whole stamp stack into the heightfield in one pass and marks the " +
 		"tiles it touched stale -- it deliberately does not re-run erosion, hydrology or " +
 		"climate (measured ~7s/stroke at 2048² and rejected on that ground; " +
-		"DCC_SHELL_SPEC.md header correction #1). No finalize/lock state exists to note here " +
-		"either -- see the Finalize section above: no bake/LOD pipeline exists yet.")
+		"DCC_SHELL_SPEC.md header correction #1). A draft carries no lock state of its " +
+		"own: the lock is per-world and lives in the Finalize section above, which bakes " +
+		"the LOD pyramid and then refuses further sculpting until it is un-finalized.")
 	_build_force_lake_row(sec)
 
+## Re-gate the Draft section against the live stack. Cheap enough to run on
+## every change: three property writes, no rebuild.
+func _refresh_sculpt_draft() -> void:
+	if not is_instance_valid(_sculpt_commit_btn):
+		return
+	var count := bridge.sculpt_stamp_count()
+	_sculpt_commit_btn.disabled = count == 0
+	_sculpt_discard_btn.disabled = count == 0
+	if is_instance_valid(_sculpt_count_note):
+		_sculpt_count_note.text = "%d stamp%s on the draft." % [count, "" if count == 1 else "s"]
 ## `buildWaterBodies`' `opts.forceLake` (reference HTML lines 5808-5809) --
 ## `PARITY_AUDIT.md` §23 F13. The Lake stamp already accumulates a mask on every
 ## commit (`WaterState::lake_mask`) and `cartalith_civ::apply_force_lake` has
@@ -1680,10 +2238,19 @@ func _build_paint(parent: Control) -> void:
 		DccWidgets.choice(sec, "Value", value_options, value_index, _on_paint_value_changed.bind(palette))
 
 	DccWidgets.slider(sec, "Radius", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells", _on_paint_radius_changed)
+	## `DECISIONS.md` §7k -- bound 2026-08-31 (`LARGE_ITEM_RULINGS.md`). Both
+	## feather the dab's own edge (which cells get touched, never which
+	## palette index a touched one receives -- painting is still a hard
+	## disc's worth of *values*, just not of *coverage*). This is the sole
+	## surviving copy of Hardness: `tool_bar.gd`'s own row used to draw a
+	## second one live at the same time, and `UNWIRED_FUNCTIONS.md` flagged
+	## that as its own defect on top of the falloff being unwired -- resolved
+	## by deleting that copy rather than this one, since this dock owns the
+	## actual `_paint_brush` state and is where Softness already lived too.
 	DccWidgets.slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
-		"Stored and echoed back but never consumed -- painting is a hard disc with no soft falloff (paint_bridge.rs's own module doc).")
+		"At 1.0, with Softness at 0.0, every cell inside Radius paints solid -- the historical hard disc, unchanged. Lower it to open a mottled, probabilistic edge band instead of a sharp circle; no palette index is ever blended (paint_bridge.rs's own module doc, DECISIONS.md §7k).")
 	DccWidgets.slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed,
-		"Stored and echoed back but never consumed, same as Hardness above.")
+		"The same edge band as Hardness, from the other side: raising this alone still feathers the rim even with Hardness held at 1.0 -- the two add together, clamped to how wide the band can get.")
 	DccWidgets.toggle(sec, "Erase", bool(_paint_brush["erase"]), _on_paint_erase_changed,
 		"Every dab writes 0 (unpainted) regardless of Value. Holding Shift while painting does the same without changing this switch.")
 	DccWidgets.toggle(sec, "Land only", bool(_paint_brush["land_only"]), _on_paint_land_only_changed,
