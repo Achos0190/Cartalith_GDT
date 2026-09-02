@@ -1241,7 +1241,7 @@ pub fn civ_salt_access(w: &PlaceWorld, x: usize, y: usize, nav: NavKind) -> Salt
     if w.field.len() == n && w.res.salt.len() == n {
         let radius = js_max(3.0, js_round(w.gw as f64 / 128.0)) as usize;
         let mean =
-            civ_place_resource_context(w.res, w.field, w.gw, w.gh, w.sea, x, y, radius, false);
+            civ_place_resource_context(w.res, w.field, w.gw, w.gh, w.sea, x as i64, y as i64, radius, false);
         if mean.get("salt").copied().unwrap_or(0.0) > SALT_DEPOSIT_MEAN {
             return SaltAccess { has: true, source: "salt deposit" };
         }
@@ -1739,7 +1739,7 @@ pub fn civ_place_trade(
     let radius = js_max(3.0, js_round(world.gw as f64 / 128.0)) as usize;
     let mean: std::collections::HashMap<&str, f64> = if world.field.len() == n {
         civ_place_resource_context(
-            world.res, world.field, world.gw, world.gh, world.sea, x, y, radius, false,
+            world.res, world.field, world.gw, world.gh, world.sea, x as i64, y as i64, radius, false,
         )
     } else {
         std::collections::HashMap::new()

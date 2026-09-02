@@ -415,7 +415,7 @@ fn check(c: &Case, expect: &[Expect], label: &str) {
         // caught here rather than only through a flipped verdict.
         let radius = (3.0f64).max((c.gw as f64 / 128.0).round()) as usize;
         let mean = cartalith_civ::civ_place_resource_context(
-            &c.res, &c.field, c.gw, c.gh, c.sea, e.x, e.y, radius, false,
+            &c.res, &c.field, c.gw, c.gh, c.sea, e.x as i64, e.y as i64, radius, false,
         );
         near(mean["salt"], e.salt_mean, &what("resource-context salt mean"));
 

@@ -48,30 +48,25 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 
 ## Constraints
 
-- **Do not edit `reference/Cartalith Gen1 v2.10.html`.** It is the frozen
-  snapshot every other document was written against. Re-freezing to a newer
-  version is fine — regenerate `FUNCTION_INDEX.md` in the same pass, so the two
+- **`reference/` holds two frozen snapshots. Do not edit either.** Re-freezing
+  to a newer version is fine — regenerate the index in the same pass, so the two
   never drift.
 
-  **The freeze has drifted, and the old "no drift" note here was wrong.** This
-  bullet asserted *"Checked 2026-08-18: the live `Cartalith_RC` repo is still at
-  v2.10; no drift"* until 2026-08-31. What is verified as of 2026-09-01:
+  - **`Cartalith Gen1 v2.10.html`**, indexed by `FUNCTION_INDEX.md`. **Every
+    line range in every scope document resolves against this file.** Do not
+    delete it: that is why the re-freeze added a file instead of replacing one.
+  - **`Cartalith Gen1 v2.11.html`**, indexed by `FUNCTION_INDEX_v2.11.md` — the
+    version this repository ships (also at the root, where the owner committed
+    it 2026-08-26). Read this one when you are reading the reference.
+  - **`REFERENCE_DRIFT_v2.10_to_v2.11.md`** maps between them: the exact
+    line-offset segments, the 14 functions added, and the changes that carry
+    porting consequences. Follow a scope document's citation into v2.10, or
+    offset it with that table — do not guess which file a line number means.
 
-  - `Cartalith Gen1 v2.11.html` (2 374 691 bytes) **is tracked and committed at
-    this repository's root** — added 2026-08-26 in `4b2c95a`, modified again in
-    `b576d56`. So a v2.11 demonstrably exists, and it is in this repository.
-  - `reference/Cartalith Gen1 v2.10.html` is untouched since 2026-08-11, and
-    `reference/FUNCTION_INDEX.md`'s own first line still reads *"Built against
-    `reference/Cartalith Gen1 v2.10.html`"*. The port is measured against a
-    reference one version behind the HTML this repository ships.
-  - **Unresolved, and stated rather than guessed:** whether that root v2.11 *is*
-    the live `Cartalith_RC` head or a copy that repository has since moved past.
-    `Cartalith_RC` is not present on this machine and is not a remote of this
-    one, so it could not be checked. Do not assert either way without opening it.
-
-  The re-freeze itself is real outstanding work, tracked in
-  `OUTSTANDING_WORK.md` §2.8 — not here. **Do not record its status in this
-  file**; that is exactly the second-source habit the section above forbids.
+  **Unresolved, and stated rather than guessed:** whether the v2.11 here is the
+  live `Cartalith_RC` head or a copy that repository has since moved past.
+  `Cartalith_RC` is not present on this machine and is not a remote of this one,
+  so it could not be checked. Do not assert either way without opening it.
 - **Do not deviate from `DECISIONS.md` silently.** Architecture decided before
   code exists sometimes needs revision. Raise it, then record the new reasoning —
   the same way the *HTML project's own* CHANGELOG — a different file, in
@@ -161,7 +156,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | **Directories** | |
 | `cartalith-native/` | the Cargo workspace (16 crates) and the Godot project |
 | `cartalith-native/docs/` | **`STATUS.md`** — the single source of truth for progress. Also the **retired** `CHANGELOG.md` (frozen 2026-08-31, history only) and `3D_TERRAIN_RENDER_RESEARCH.md` |
-| `reference/` | the frozen HTML snapshot and its function index |
+| `reference/` | the two frozen HTML snapshots (v2.10, v2.11) and their function indexes |
 | `docs/` | **the source project's** documentation — see `docs/README.md` |
 | `design/` | owner-supplied UI mockups, imported verbatim |
 | `skills/` | vendored skills (also installed under `.claude/skills/`) |

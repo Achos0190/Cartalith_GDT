@@ -36,6 +36,11 @@ const _SEC_LIGHT := "lighting"
 ## nothing about the world, and a `.zip` carrying it would impose one user's
 ## eyes on everyone who opens the file.
 const _SEC_THEME := "theme"
+## `DCC_SHELL_SPEC.md` §2.5's Units row (`GUI_GAP_REGISTER.md` §10 / PR-15,
+## `OUTSTANDING_WORK.md`). Machine state for the same reason theme is:
+## `#calUnitSeg` is display-only in the reference (13711-13713) and stays that
+## way here -- see `dcc_units.gd`'s own header.
+const _SEC_UNITS := "units"
 ## §2.5's Graphics group. Today one key -- the project-level relief
 ## exaggeration a fresh Generate starts from; see `appearance_defaults()`.
 const _SEC_GRAPHICS := "graphics"
@@ -370,6 +375,30 @@ static func set_theme_mode(mode: String) -> void:
 		return
 	_ensure_loaded()
 	_cfg.set_value(_SEC_THEME, "mode", mode)
+	_save()
+
+# -- §2.5 Application > Units --------------------------------------------------
+
+## `dcc_units.gd`'s `DccUnits` is the formatter; this is only the persisted
+## choice, the same split `theme_mode()`/`DccTheme` above has.
+##
+## `DCC_SHELL_SPEC.md` §2.5's own table offers two (`km · mi`, `#calUnitSeg`);
+## a third is here because the owner's ruling on `OUTSTANDING_WORK.md`'s
+## PR-15 (`LARGE_ITEM_RULINGS.md`: "Build, and add nautical miles") asked for
+## it outright -- a deviation from the spec's own row, recorded rather than
+## made silently (`CLAUDE.md`).
+const UNIT_MODES: Array[String] = ["km", "mi", "nmi"]
+
+static func units_mode() -> String:
+	_ensure_loaded()
+	var m := String(_cfg.get_value(_SEC_UNITS, "mode", "km"))
+	return m if UNIT_MODES.has(m) else "km"
+
+static func set_units_mode(mode: String) -> void:
+	if not UNIT_MODES.has(mode):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_UNITS, "mode", mode)
 	_save()
 
 # -- §2.5 Graphics > relief exaggeration default -------------------------------

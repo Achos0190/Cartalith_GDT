@@ -41,61 +41,87 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**136 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-02**, after a pass left four different totals in this
-file at once (a headline of 142, a table summing to 143, and a report claiming
-145). That is §6.8's own "counts that disagree with themselves", reintroduced;
-the fix is the count, and the lesson is that the arithmetic here is not safe to
-delegate.
+**128 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-02 (third pass)**, after an earlier pass left four
+different totals in this file at once (a headline of 142, a table summing to 143,
+and a report claiming 145). That is §6.8's own "counts that disagree with
+themselves", reintroduced; the fix is the count, and the lesson is that the
+arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
-outside it. Two independent cross-checks say the recount is right: §3.1 comes
-out at **14**, matching this file's own long-standing claim that exactly 14 rows
-are blocked on an owner decision, and §4 at **19**, matching the count after the
-Units question was answered. Of those:
+outside it. A five-lane verification wave closed five rows on 2026-09-02 and
+they are deleted: CARTO ▸ Labels, all three steps (§2.2, built and verified
+against the code); the reference re-freeze to v2.11 (§2.8, done — `reference/`
+now holds v2.11 and a regenerated `FUNCTION_INDEX_v2.11.md`); and
+`_civPlaceSmelting`, `_civSaltAccess`, and `_civFactionAggregates`'s resource-
+and density-fed half (all three §2.3, all found already built). One row was
+added — whether the committed v2.11 is `Cartalith_RC`'s actual live head,
+unresolved and unverifiable from this machine (§3.3). **A sixth row went in the
+same pass**: *Label collision culling*'s §3.2 entry, one half of a
+duplicate-classification defect this section has carried for days. It was filed
+as blocked on the labelling pass; that pass landed in this wave, so the row was
+not merely misclassified any more, it was false. The §2.2 half stands. Net,
+taking 133 → **128**.
+*Earlier the same day, a separate pass closed three rows taking 136 → 133: the
+urban **17a caveat** (§2.1, which is now empty), and
+`TERRAIN_APPEARANCE_SCOPE.md` **§16** and **§19** (§2.5).*
 
 | | Count | Meaning |
 |---|---:|---|
 | In flight | 3 | Code exists, committed but partial (§1) |
-| Ready to start | 80 | Nothing blocks them; someone has to pick them up (§2) |
+| Ready to start | 72 | Nothing blocks them; someone has to pick them up (§2) |
 | Blocked | 34 | A named blocker, listed in §3 |
 | Open decisions | 19 | Not work yet — the owner owes an answer first (§4) |
 | Declined / shelved | 25 entries | §5, kept so nobody re-proposes them |
 
-Of the 33 blocked, **14 are blocked on an owner decision and nothing else** —
+Of the 35 blocked, **14 are blocked on an owner decision and nothing else** —
 that is the largest single category of stalled work in the project, and §4 is
 the shortest path to unsticking it. That 14 is checkable and checks out: §3.1
 holds exactly 14 rows.
 
-**Every count above was re-derived by counting table rows, 2026-09-01,** and
-they hold: §1 3; §2 8+17+9+7+13+27+9+8 = 98; §3 14+10+9 = 33; §4 19. One thing
-does not, and it is a classification defect rather than an arithmetic one:
-**two items are listed twice, once as ready and once as blocked.** *Saved
-measurements + CSV* and *Label collision culling* each appear in §2.2 **and**
-in §3.2, and a row cannot be both. Whichever half is wrong, the count of
-unique items is **151**. Left as found: deciding which classification to drop
-is a judgement about sequencing, not a text fix.
+**Every count above was re-derived by counting table rows mechanically,
+2026-09-02,** and the per-section figures are: §1 **3**; §2 0+16+5+6+11+22+9+3 =
+**72**; §3 14+10+11 = **35**; §4 **19**. *The previous version of this paragraph
+gave §2 as 98 and §3 as 33 while the table beside it said 80 and 34 — the
+document reproducing, in its own count section, the exact defect §6.8 exists to
+record. Both are now derived by the same script that produced the table, so they
+cannot disagree.*
+
+One thing does not reconcile, and it is a classification defect rather than an
+arithmetic one: **one item is still listed twice, once as ready and once as
+blocked.** *Saved measurements + CSV* appears in §2.2 **and** in §3.2, and a row
+cannot be both, so the count of unique items is **127**. Left as found: deciding
+which half to drop is a judgement about sequencing, not a text fix.
+
+*This paragraph named **two** such duplicates until 2026-09-02. The other,
+**Label collision culling**, is resolved rather than reclassified: its §3.2 entry
+said it was blocked on the labelling pass, that pass landed in this wave, and a
+blocked-row whose blocker has shipped is false rather than merely misfiled. It is
+deleted and counted in the headline above.*
 
 Four caveats on that number, stated rather than buried:
 
 1. **It counts rows, not effort.** Urban milestone 10 is one row and ~407
    reference lines; "delete three probe files" is also one row. Sizes are on
-   every row for this reason. The **134** rows that carry a size (everything
-   except §4's decisions) split **40 large, 54 medium, 40 small** — re-derived
-   2026-09-01 by counting the size cells themselves, which is how the figures
-   this caveat carried until then (142 rows, 42/56/44) were found to be
-   overstated in all three columns before that pass deleted its own three
-   small rows.
+   every row for this reason. The **109** rows that carry a size (everything
+   except §4's 19 decisions — and 128 − 19 = 109, so the split is checkable
+   against the headline) divide **36 large, 44 medium, 29 small**, re-derived
+   2026-09-02 by the same script that counts the rows. *This caveat has now been
+   overstated twice: it read "142 rows, 42/56/44" until 2026-09-01 and "134 rows,
+   40/54/40" until today, both times because the sizes were counted by hand
+   separately from the rows.*
 2. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
    not many** — that document is itself a live backlog with a `file:line` per
    row, and re-counting it here would guarantee the two drift (this
    corrects an earlier version of this caveat, which pointed at "the 106
    ready" — the row has only ever lived in §1). It carries **21** open rows
    as of the 2026-09-01 third pass (22 after the second pass, 23 after the
-   morning re-cut, 75 before it). Counted individually the true total is
-   **173** — this one row swapped for its 21 — not 153. (The figures here
-   were "177, not 155" until 2026-09-01; both were arithmetic against a
-   headline that has since moved twice.)
+   morning re-cut, 75 before it), **re-verified unchanged at 21 by a second
+   full re-cut on 2026-09-02**. Counted individually the true total is
+   **148** — this one row swapped for its 21 (128 − 1 + 21). (The figures here
+   were "177, not 155" until 2026-09-01, "173" until 2026-09-02, and "153"
+   against the 133 headline earlier the same day; each was arithmetic against a
+   headline that has since moved, which is why the working is shown.)
 3. **Six surveyors returned 487 rows; roughly 300 were `done` or `declined`,**
    and the rest deduplicated heavily — the urban milestones, the landmark
    viewshed and the vault's §26 each arrived from two or three surveys
@@ -108,13 +134,15 @@ Four caveats on that number, stated rather than buried:
 
 If you stop reading here:
 
-1. **Urban morphology milestone 16 and half of 17** — Milestones 8-15 shipped in
-   `4ec07f5` (6 077 lines of module source, 7 251 test lines). What remains:
-   milestone 16 (`generate()` orchestration + `hashModel`), the block-2 capture
-   harness, and three `_um*` adapter functions (`_umHarbourScale`,
-   `_umSiteProfile`, `_umOreBearing`). Milestone 16 is ready: its blocker
-   (milestones 8-15 existing) has lifted. This is the largest single block of
-   work in the project.
+1. **Urban morphology milestone 16** — and only 16, as of 2026-09-02. Milestones
+   8-15 shipped in `4ec07f5` (6 077 lines of module source, 7 251 test lines);
+   the three `_um*` adapters (`_umHarbourScale`, `_umSiteProfile`,
+   `_umOreBearing`) and their downstream wiring landed in `cff1edc`; and the
+   **block-2 capture harness this entry named as remaining is built and its
+   fixtures are golden-verified** (§2.1, which closed the row as *wrong* rather
+   than stale, and found two real port bugs doing it). What remains is milestone
+   16 alone — `generate()` orchestration + `hashModel` — which is blocked by
+   definition on the stages it hashes and therefore sits in §3.2, not §2.
 2. **The GUI/shell replacement, stages 3, 5, 6 and 7** — `00-REPLACEMENT-PLAN.md`
    still opens with a truncated-prototype blocker that was resolved the same
    day (`BUILD_ANSWERS.md` §1). Stages 1, 2 and (as of 2026-09-01, second
@@ -181,8 +209,8 @@ been reduced to.
 
 | Item | Owns it | Size | Where it stands / next step |
 |---|---|---|---|
-| **The `UNWIRED_FUNCTIONS.md` backlog** — 21 open rows (1 small · 3 medium · 17 large), down from 75, plus 1 dangerous-class entry, down from 25 | `UNWIRED_FUNCTIONS.md` | large | Re-cut from scratch 2026-09-01 morning, not patched: all 75 previously-open rows re-opened at their cited symbol and independently re-verified; 52 closed that pass (17 of 17 trivial, 24 of 25 small, 13 of 17 medium). **Same-day second pass**: one more of the 18 Large rows — Paint brush falloff, the row the morning cut named highest-severity — independently re-verified as built and closed, taking Large to 17 open (of `LARGE_ITEM_RULINGS.md`'s eighteen 2026-08-31 **build** rulings, tracked individually in §2.2 below) and the dangerous class from 3 entries to 1 (the 2 genuinely-dangerous Paint entries close; 1 documented non-defect remains, kept for contrast). **Same-day third pass**: one more Medium row — "Manual road tool / `road_edges` never retained" — independently re-verified as already false (`CivData::road_edges` genuinely retains `civ_hierarchical_network_topology`'s output) and closed alongside the wider journey/route cluster in §2.3. **Committed in `fd9de7c`** (this row said "still uncommitted" until 2026-09-01); the re-verification of every closed row that the commit was the precondition for is now due |
-| **Landmark M8 residual** — 35 of 49 declared kinds still ship `buildable:false` (was 36) | `LANDMARK_GENERATION_SCOPE.md` | large | Fourteen generate today (`landmark.rs::kinds()`, each unbuilt kind carrying a `not_built:` reason). `resource_extraction_site` went buildable 2026-09-01 — it reads the three resource-potential fields (`timber`, `sulfur`, `alum`) that Mine and Quarry's own resource lists don't, through their identical already-validated detector, so it claims no cell either of them already does. The other 35 reasons were individually re-verified against the code this pass, not just re-read; six were rewritten for precision (`volcanic_feature`, `rock_formation`, `glacial_feature`, `salt_works`, `ruin`, `abandoned_settlement`) with no change to their blocked conclusion. Six still need M7's viewshed; several need §13's route load; the military family is downstream of Fort |
+| **The `UNWIRED_FUNCTIONS.md` backlog** — 21 open rows (1 small · 3 medium · 17 large), down from 75, plus **2** dangerous-class entries (1 real, 1 documented non-defect kept for contrast) | `UNWIRED_FUNCTIONS.md` | large | **Re-cut again 2026-09-02** — all 21 rows re-opened at their cited symbol and independently re-verified against `cff1edc`; **0 closed, the count holds at 21**, which is itself the finding. One **new dangerous-class entry**: the Settlement diagnostics overlay's tooltip is now a *false reason* — it disables the control citing a blocker that no longer holds, the class `tools/audit_wiring.py` structurally cannot see because the binding *is* called and it is the prose that lies. The right-dock "follow the armed tool" Medium row narrowed by four newly-landed tool-driven contexts. Re-cut from scratch 2026-09-01 morning, not patched: all 75 previously-open rows re-opened at their cited symbol and independently re-verified; 52 closed that pass (17 of 17 trivial, 24 of 25 small, 13 of 17 medium). **Same-day second pass**: one more of the 18 Large rows — Paint brush falloff, the row the morning cut named highest-severity — independently re-verified as built and closed, taking Large to 17 open (of `LARGE_ITEM_RULINGS.md`'s eighteen 2026-08-31 **build** rulings, tracked individually in §2.2 below) and the dangerous class from 3 entries to 1 (the 2 genuinely-dangerous Paint entries close; 1 documented non-defect remains, kept for contrast). **Same-day third pass**: one more Medium row — "Manual road tool / `road_edges` never retained" — independently re-verified as already false (`CivData::road_edges` genuinely retains `civ_hierarchical_network_topology`'s output) and closed alongside the wider journey/route cluster in §2.3. **Committed in `fd9de7c`** (this row said "still uncommitted" until 2026-09-01); the re-verification of every closed row that the commit was the precondition for is now due |
+| **Landmark M8 residual** — 30 of 50 declared kinds still ship `buildable:false` (was 35) | `LANDMARK_GENERATION_SCOPE.md` | large | **Twenty** generate today (`landmark.rs::kinds()`, each unbuilt kind carrying a `not_built:` reason). *Two counting errors in this row are corrected 2026-09-02 against the code, not against the previous report: the denominator is **50**, never 49 (`grep -c "KindSpec {"`), and the buildable count at `HEAD` was **15**, so "fourteen" was low by one.* **2026-09-02: the five way-graph kinds landed** — `market_site`, `trade_depot`, `caravan_station`, `bridge_site`, `road_junction` — taking buildable 15 → 20. The `LandmarkInputs::ways` thread a prior lane left dead is now read end to end, from the `WayGrid` through five detectors to the gdext caller; each kind was verified placing on a real `generate_terrain` world rather than by flipping its flag. `JUNCTION_MIN_WAYS` was corrected 3 → 2 in the same pass, its inherited rationale shown false. `resource_extraction_site` went buildable 2026-09-01 — it reads the three resource-potential fields (`timber`, `sulfur`, `alum`) that Mine and Quarry's own resource lists don't, through their identical already-validated detector, so it claims no cell either of them already does. The other 30 reasons were individually re-verified against the code this pass, not just re-read; six were rewritten for precision (`volcanic_feature`, `rock_formation`, `glacial_feature`, `salt_works`, `ruin`, `abandoned_settlement`) with no change to their blocked conclusion. Six still need M7's viewshed; several need §13's route load; the military family is downstream of Fort |
 | **Economy milestone 2** — the food-surplus cluster | `ECONOMY_SCOPE.md` | small | **Crate-complete and Godot-wired as of 2026-09-01 second pass; the remaining gap is a UI surface, not a binding or a port.** `civ_trade_bridge.rs`'s `food_shed_rows()` builds one shared `RoadComponents`, resolves each settlement's `farmers_per_urbanite` via the `civ_ag_tech_by_key` route the manpower model already uses, and calls `civ_food_shed` once per settlement; the `#[func] civ_food_shed` reads it out; `engine_bridge.gd` and `trade_store.gd` (caching alongside `civ_trade_flows`) complete the chain, triggered by the existing "Match trade flows" button — no new UI entry point was needed for the data to compute and cache. **What remains:** no dock or window calls `TradeStore.food_shed_for(index)` — confirmed by direct search, `place_editor_window.gd:385` still reads only `navigability`; the natural landing spot is right beside it, in the Trade tab. Two small residuals disclosed but not fixed this pass: `food_shed_rows()` recomputes `lithology`/`soil` per call rather than reading a `CivData` field (an efficiency nicety for whoever next touches `lib.rs`'s `compute_civilisation`, not a correctness gap); and a stale self-claim in the crate's own docs — **half of that second residual is now closed** (2026-09-01): `roster.rs`'s module doc did assert *"nobody at the `cartalith-godot` boundary calls `civ_food_shed`"* and has been corrected against `civ_trade_bridge.rs::food_shed_rows`, while the `trade.rs` half was re-checked line by line and **no such claim is there** — the citation was wrong, not the file |
 
 ---
@@ -195,16 +223,34 @@ groups are ordered by how much of the remaining project they represent.
 ### 2.1 Urban morphology — what remains
 
 Phase 5. Milestones 8-15 are **built and committed** in `4ec07f5`. Milestone 16
-(`generate()` + `hashModel`), milestone 17's last three `_um*` adapters
-(`_umHarbourScale`, `_umSiteProfile`, `_umOreBearing`) and the downstream wiring
-into `run_layout`, `urban_bridge.rs` and `urban_layout_draw.gd` are **built and
-uncommitted** — `git log 4ec07f5..HEAD` returns nothing, so a clean checkout
-still loses them. The remaining unbuilt work is the block-2 capture harness
-needed to golden-verify the `_um*` adapter.
+(`generate()` + `hashModel`) is the only remaining milestone, and it is **not in
+this section** — it is blocked by definition and sits in §3.2.
 
-| Milestone | What it is | Size | Note |
-|---|---|---|---|
-| **17a caveat** | Golden-verify the block-2 `_um*` adapter | medium | The one live exception to `PARITY_TESTING.md`'s stage-by-stage rule not covered by `DECISIONS.md` §7a. Covered by 11 unit tests over synthetic fields. Needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only |
+**This section is empty as of 2026-09-02, and the row it held closed as *wrong*
+rather than merely stale.** The 17a caveat — golden-verify the block-2 `_um*`
+adapter — recorded its blocker as *"needs a block-2 capture harness that can run
+`_um*` inside the host's full civ scope; the existing harness slices block 4
+only"*. That premise is disproved by a running counter-example:
+`cartalith-native/tools/um_block2_capture.js` drives the unmodified reference
+under Node and `crates/cartalith-civ/tests/golden_parity_urban_adapter.rs` now
+holds the extracted fixtures. Mutation matrix **22/22 killed**, and an
+independent verifier confirmed the fixtures are genuinely reference-extracted
+rather than replayed from the Rust port.
+
+**The pass found two real port bugs the 11 synthetic-field unit tests could not
+see** — which is the argument for golden-verification, stated concretely:
+
+- `slope_at` used `f64::hypot` where the reference uses `Math.hypot`. This is
+  the exact V8-libm divergence `CLAUDE.md` warns about and `geom::js_hypot`
+  exists for.
+- `um_site_profile` clamped the resource-context centre where the reference does
+  not.
+
+A third defect was in the fixture itself (`background_pots` never mirrored the
+harness's one iron deposit), caught before it could be committed as truth.
+
+*The "built and uncommitted — `git log 4ec07f5..HEAD` returns nothing" note this
+section carried is history: `cff1edc` landed the downstream wiring.*
 
 > **Before executing any ruling that says "add `cartalith-urban` as a dependency
 > of `cartalith-godot`": the substance is already done.** `urban_bridge.rs`
@@ -219,28 +265,40 @@ needed to golden-verify the `_um*` adapter.
 ### 2.2 The owner's 2026-08-31 Large rulings
 
 Eighteen rows, all ruled **build** on 2026-08-31 in `LARGE_ITEM_RULINGS.md`.
-**Seventeen remain not started; one — Paint brush falloff — closed
-2026-09-01, second pass**, verified against the code (`paint.rs`,
-`paint_bridge.rs`, the two touched `.gd` files, `DECISIONS.md` §7k; full
-evidence in `UNWIRED_FUNCTIONS.md`'s Large section and `STATUS.md`) and is
-deleted from the table below. Two of the seventeen still carry costs the
+**Sixteen remain not started; two have closed and are deleted from the table
+below.** Paint brush falloff closed 2026-09-01, second pass, verified against
+the code (`paint.rs`, `paint_bridge.rs`, the two touched `.gd` files,
+`DECISIONS.md` §7k; full evidence in `UNWIRED_FUNCTIONS.md`'s Large section
+and `STATUS.md`). CARTO ▸ Labels closed 2026-09-02, all three steps verified
+against the code: `LabelClass` (5 variants) and `label_class` on `LabelDto`
+(`crates/cartalith-godot/src/project_bridge.rs`, `#[serde(default)]` so an
+older archive still opens), `labels::label_candidates`/`generate_labels`
+(`crates/cartalith-civ/src/labels.rs`) over five sources kept beside the
+hand-placed list, and `LABEL_TYPOGRAPHY_DEFAULTS` transcribed from
+`parts.js:363` (26/2.5/.28, 18/2/.20, 13/1.5/.06, 15/1.5/.14 italic,
+11/1.2/.06), drawn by `map_overlay.gd::_draw_labels`. The Water class had no
+entity at all; `labels::lake_features()` fills it. **One correction on the
+way out**: the ruling's own "halo and tracking do not exist in the engine
+today" was half true — tracking, yes; halo was not, since
+`labels::arc_label_line_width` already existed, golden-pinned; what was
+missing was a halo any label class could actually *set*, which
+`LabelTypography::halo_px` now is. Two of the sixteen still carry costs the
 build must honour, and one more is excluded pending an owner answer (§3.1).
 *`LARGE_ITEM_RULINGS.md` was untracked when this section was written; it is
 tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Size | Note |
 |---|---|---|
-| CARTO ▸ Labels — all three steps: a `label_class` field, a generated labelling pass, a per-class typography record | large | Halo and tracking do not exist in the engine today. Sequenced first: two other rows wait on it |
-| Civilisation authoring operations — five re-entrant civ stages plus a civ PARAMS group | large | "The single largest CIVIL gap, taken whole rather than split" |
+| Civilisation authoring operations — five re-entrant civ stages plus a civ PARAMS group | large | **Built 2026-09-02** — `enum CivRebuild` (`Downstream`/`Routes`/`Replace`), `fn civ_rebuild` and a civ PARAMS group all landed; `recompute_civilisation` is now a one-line delegate to `civ_rebuild(CivRebuild::Downstream)`. **A live bug survives and is the real remaining work.** `CivRebuild::Routes` (reached from `civ_auto_routes`, the Generate Roads button) restores only `ways`/`road_edges`/`sea_routes`/`next_tid` from the fresh recompute and discards the rest of it (`fresh = old`), leaving `territory`, `provinces`, `province_list`, `trade_balances`, `explanations` and `dens` stale — then the function unconditionally sets `self.civ_dirty = false` and calls `self.stages.mark_recomputed(PipelineStage::Civ.id(), "civ_recomputed")` under a comment reading "everything derived from the settlement list has just been re-derived from the settlement list", which is false for this branch. Before this landed, that unconditional tail only ever ran for `Downstream`. Reachable from `civ_drop_settlement`, `civ_edit_settlement` and `civ_delete_settlement` (`crates/cartalith-godot/src/lib.rs`), all of which set `civ_dirty = true`; `self.civ_dirty` is read in exactly one place, `stale_stages()` (`:3932`), which drives SG-02's "Recompute now" indicator — so clicking Generate Roads after a hand-edit silently clears the stale indicator while territory/trade/provinces stay wrong until a full recompute. Fix: gate the unconditional tail on `mode`, or give `Routes` its own narrower staleness clear |
 | CARTO ▸ Icons — generated placement plus a fourth sea-marks asset family | large | New slots, new glyphs, a coastline snap test. Answers owner question 4 |
 | Label collision culling (measure-and-suppress) | large | Explicitly *not* standalone — build inside the labelling pass. Culling a set nothing generates is half a feature |
 | Cut · Copy · Paste · Select all | large | Selection sets → clipboard → commands, in that order. Step one — replacing the three unrelated single-`i64` selections — is independently valuable |
-| The river entity — a `get_rivers()` binding plus viewport river hit-testing | large | Also settles whether `right_dock.gd`'s River context is reachable at all |
-| Settlement diagnostics overlay | large | **Carries a scoped authorisation to edit `crates/cartalith-godot/Cargo.toml`** — one dependency line, against the standing rule that Cargo.toml is off limits. The owner accepted the half-populated-card risk *on condition that every field with no data is dashed with its reason, not left blank* |
+| The river entity — a `get_rivers()` binding plus viewport river hit-testing | large | **Built 2026-09-02** — `get_rivers(min_order)` and `river_at(gx, gy, radius_cells, min_order)` (viewport hit-testing) both ship (`crates/cartalith-godot/src/lib.rs:5852`, `:5879`), and `right_dock.gd`'s River context is reachable (`_on_map_clicked_river` → `river_at()`). `river_entities()` reuses `split_river_polylines(&trace_river_polylines(..))`, byte-identical to `geojson_bridge.rs:96`. Two real parity bugs were found and fixed in the pass that built it: a `mag` lower clamp the reference does not have (now `js_min(1.0, (f/thresh).ln()/lmax)`, matching `Math.min(1,Math.log(f/thresh)/lmax)` with no `.max(0)`), and two `f64::hypot` → `js_hypot` corrections. **Three things survive, unfixed.** A third live `f64::hypot` at `crates/cartalith-hydrology/src/lib.rs:843`, inside `enforce_channel_descent` (`enforceChannelDescent()`, reference HTML 8725-8737, `Math.hypot` at line 8733) — measured 108 of 400 integer offset pairs differ, and it is worse than the two fixed instances because here `d` feeds `t = d/half_w` and `target = floor + (fld[i]-floor)*t*t`, written straight into the terrain field, not just a branch test. Four survived mutants in `channel_disc` (`:938`): reverting `js_hypot(gx, gy)` back to `gx.hypot(gy)` scores green because the test measuring the JS/Rust divergence never asserts the call site actually uses it, and the other three are `channel_lmax`'s `0.05` → `0.06`, `half_w`'s floor `0.5` → `0.4`, and `slope_fac`'s `5.0` → `6.0`. And a doc comment at `:903-904` cites "reference HTML lines 4534-4540" for `channel_disc`'s geometry, while the `mag` line the nearby "not floored at zero" fix note is about is reference line **4532** (`reference/Cartalith Gen1 v2.10.html:4532`), outside that cited range |
+| Settlement diagnostics overlay | large | **Corrected 2026-09-02 — this cell asserted the opposite of the ruling it cites.** It read *"carries a scoped authorisation to edit `crates/cartalith-godot/Cargo.toml`"*. `LARGE_ITEM_RULINGS.md` says in bold: **"The scoped `Cargo.toml` authorisation is therefore withdrawn as unnecessary — not exercised."** No Cargo edit is needed and none should be made: `urban_bridge.rs:44` already reaches the crate via `cartalith_civ::urban_adapter`, and `cartalith-civ/Cargo.toml:22` records that indirection as **deliberate layering**, kept so `cartalith-urban`'s only dependency stays `cartalith-rng`. A direct edge buys nothing and breaks a defended decision — this is §6.9's stale-quotation defect reaching a second file. What the owner *did* choose stands: surface urban data now, and **every field with no data is dashed with its reason, never left blank**. **A second correction, same day**: the disabled control's own tooltip (`civilization_workspace.gd:1586`) still says "Blocked on urban milestones 9, 10 and 13" — stale now, since all three shipped (§2.1: milestones 8-15 in `4ec07f5`, the `_um*` adapters and their wiring in `cff1edc`). `um_site_profile`, `um_harbour_scale` and `um_ore_bearing` are ported pure functions in `crates/cartalith-civ/src/urban_adapter.rs`. The real gap is narrower: no `#[func]` in `cartalith-godot` exposes any of the three cheaply — `urban_layouts()` is the only urban binding that crosses, and it runs the reference's whole `generate()` per settlement (site, streets, blocks, lots, buildings, walls, farmland) to build a City Viewer town, not this control's three-line fact card. Next step is a lightweight `#[func]` over the already-ported pure functions, not waiting on milestones that are already built |
 | Landmark funnel — a crowding parameter plus rejected-candidate coordinates and an overlay layer | large | `landmark_funnels()` returns eight scalars and no coordinates, so the dictionary grows |
 | Colour management — a colour space on the render target, threaded to the texture | large | **The owner overrode the recommendation to defer.** Stated and accepted cost: every golden-parity fixture is sRGB. Must ship behind a default that leaves sRGB byte-identical, or be re-baselined deliberately and said so |
 | Rebindable keyboard shortcuts — a per-context binding table in `DccSettings` with conflict detection | large | The read-only list already ships; what is missing is rebinding, applied over the menu accelerators at build time |
-| Units (km / mi / nautical miles) — one formatter ahead of five hard-coded call sites | large | The owner added nautical miles. Closes the written promise at `phone_menu.gd:84-85` and the `PR-15` row. **This row now carries the whole of PR-15**: the *which units* question left §4 on 2026-09-01, answered by the ruling; what survives it is the `_todo` at `menus.gd` (`_todo(p, "Units", …)`, still describing the shell as km-only and offering km/mi), which must be replaced by the real setting rather than reworded |
+| Units (km / mi / nautical miles) — one formatter ahead of five hard-coded call sites | large | **Built 2026-09-02.** `DccUnits` (`godot-project/shell/dcc_units.gd`) formats km/mi/nmi (`KM_PER_MI := 1.609344`, `KM_PER_NMI := 1.852`, the owner's added nautical miles); `DccSettings.units_mode()`/`set_units_mode()` persist the choice; `menus.gd`'s Preferences ▸ Units `_todo` is now a live three-way radio; the `phone_menu.gd:84-85` promise ("units km/mi wired") is real. **What remains is narrower than "five call sites".** `menus.gd`'s own note on the row (`:1911-1933`) re-grepped its old five-site claim rather than trusting it, and found it wrong: two sites are wired (`viewport_host.gd`'s scale bar and cursor-coordinate readout, both through `DccUnits.format_adaptive()`/`format_thousands()`), two are real and still hard-coded `"%.1f km"`/`"%.0f km"` literals in `right_dock.gd` (Measure's running total/per-segment lengths, e.g. `:1586`, `:1615`, `:1627`; and Region select's km column, e.g. `:2952`), and the fifth (Sculpt's `#sBrushKm` hint) was never built at all — `world_workspace.gd`'s `_build_brush_globals()` shows brush size in px only, so there is nothing there to convert. Two real sites left, not five |
 | Saved measurements + CSV, as a fifth caller-owned save slot | large | Deliberately *not* a second persistence mechanism — rides the `project_bridge.rs` slot work |
 | CPU worker threads — a configurable Rayon pool at engine init plus a `#[func]` to read and set it | large | `ThreadPoolBuilder` has no call site today |
 | Report an issue → a local save-diagnostic-report action | large | No endpoint required: dump generation info, missing bindings, project format version, GPU state and the last error to a file the user attaches themselves |
@@ -255,10 +313,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Story planning **SP-3** — the settlement timeline strip (simulated history + authored vault events + journey passes) | `STORY_PLANNING_SCOPE.md` | large | No per-settlement history accessor in `timeline.rs`; `civilization_workspace.gd:1633` is the world-level strip, not a per-settlement one |
 | Story planning **SP-4** — the conflict overlay in CIVIL, reading real manpower figures | `STORY_PLANNING_SCOPE.md` | large | Blocks landmark M9. Its attachment model is undecided (§4) |
 | **CV-23** — historical territorial occupation over time | `STATUS.md` | large | Timeline work, not territory work |
-| `_civPlaceSmelting` | `ECONOMY_SCOPE.md` m1 | medium | "A clean, unblocked first slice." No `place_smelting` symbol anywhere under `crates/` |
 | **VA-01** — the vault scan *index* (not the scan) | `STATUS.md` | medium | |
-| `_civSaltAccess` | `ECONOMY_SCOPE.md` | small | |
-| `_civFactionAggregates`' resource- and density-fed half, as a *surfaced* readout | `ECONOMY_SCOPE.md` | small | The aggregate is ported and has three callers; nothing shows this half |
 | The `wantCounts` / user-fixed-tier-count branch of `_civIterativeAutoWorld` | `PHASE2_SCOPE.md` m8 | small | Deferred at the time as "separate future work"; `cartalith-godot/src/lib.rs:911` records its absence |
 
 ### 2.4 Vault, project archive and save format
@@ -278,8 +333,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 |---|---|---|---|
 | The stage-by-stage `WorldParams`-field audit against every stage-01…11 slider | `GUI_FEATURE_PARITY_SCOPE.md` | large | The document's own closing "honest size statement": the Generate pipeline's ~60-80 individual stage sliders, "none of which are individually scoped anywhere yet". No such audit document exists |
 | §20 — the high-precision display pipeline | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render.rs` still composites into a `u8` RGB buffer (`apply_local_contrast(… rgb: &mut [u8] …)`, `:3646`) |
-| §16 — multi-scale detail as an explicit control set | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render_workspace.gd`'s `APPEARANCE_GROUPS` has no multi-scale group; `local_contrast` is the single band-limited knob and sits under "Materials" |
-| §19 — atmospheric / distance effects | `TERRAIN_APPEARANCE_SCOPE.md` | medium | Half shipped: one `haze_strength` knob (`render.rs:973`), not a distance-effect set |
 | Geology microtexture / dune ripples | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | On `render.rs`'s own "deliberately excludes" list (`:16`) |
 | Sky-view-factor and cast-shadow fields, and their toggles | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | `render.rs:17`. AO itself has shipped, so the summary row overstates the gap |
 | SDF coast/river/biome tinting and the vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | `render.rs:17-21` — depends on subsystems the renderer's own doc says are not built |
@@ -309,7 +362,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Per-segment culling for one long way whose bounding box crosses the window | `MEMORY_OPTIMIZATION_SCOPE.md`, `GUI_GAP_REGISTER.md` §54 | medium | The zoom-bound overlay lever shipped (-87.5% gfx dev); this residue did not |
 | Previews re-upload the whole texture — `touched_tiles`/`touched_bounds` unused | `UNWIRED_FUNCTIONS.md` | medium | Producer at `cartalith-spatial/src/pass.rs:193/199`; zero consumers |
 | Integrate `QuadTree` and `TiledField` into a real caller, or retire them | `LOD_TILING_BASE_SCOPE.md` | medium | **Two of the crate's three data structures are unconsumed** three weeks and six dependent crates later — every external reference is a doc comment, and `lod_bridge.rs:54-63` argues at length why using `QuadTree` there "would be strictly worse than not using it". `DirtyTracker` does have real callers. Also leaves the deferred `tile_size` benchmark with no workload |
-| Rayon across `road_dijkstra`'s independent sources | `GPU_LAYER_INTEGRATION_SCOPE.md` m9 | small | **The cheapest real win adjacent to the four hard-hazard algorithms.** All three call sites are still plain `.iter().map()` (`cartalith-civ/src/lib.rs:5901`, `:5972`, `:7709` — shifted from `:5834`/`:5905`/`:7486` by the 2026-09-01 journey/route cluster edits; re-verified at the new locations) |
+| Rayon across `road_dijkstra`'s independent sources — **residue only** | `GPU_LAYER_INTEGRATION_SCOPE.md` m9 | small | **Corrected 2026-09-02: the three call sites this row named are done.** It claimed *"all three call sites are still plain `.iter().map()`"*; at `cartalith-civ/src/lib.rs:5984`, `:6067` and `:7815` all three are now `rp.par_iter()`, each carrying a comment explaining that `par_iter().collect()` over the indexed source list preserves order so Prim's `best[i] < bd` tie-breaks — and therefore the goldens — stay identical. Landed with the R7/R8 memory work. **What is actually left is one site the row never named**: `build_road_network` (`:5515`) still runs `for place in places` sequentially. A second site, `:6358`, is deliberately sequential and must stay so — its own comment records that the running per-cell min is *meant* to compare across capitals in order |
 | Per-pipeline caching across repeated `generate_terrain` calls | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | Milestone 8 shares the device within one call only |
 | Average the GPU-vs-CPU benchmark over multiple runs | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | The 2048² ratio moved 1.19×→0.98× with no code change; single-run variance is currently indistinguishable from a result |
 | Investigate the `gpu_height` throughput drop from 1024² (8.13×) to 2048² (4.84×) | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | A plausible cause (memory-bandwidth-bound at 9 buffers) is stated and untested |
@@ -340,7 +393,6 @@ measurement.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **Re-freeze the reference to v2.11 and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | medium | `Cartalith Gen1 v2.11.html` (2.37 MB) is committed at this repository's root while `reference/` holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is now measured against a reference one version behind the one this project ships.** `CLAUDE.md` requires both to move together |
 | **21 menu commands still unavailable**, each carrying a stated reason | `STATUS.md` | medium | 356 total entries, 21 unavailable (was 245 / 24) |
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
 | Five "left undetermined" questions from the unwired re-cut — light-theme inertness of the CARTO panels, the phone measure strip / label bar / way card, the 44 vs 48 dp target sweep, whether `sculpt_stroke_point` can reject an appended point, landscape composition beyond the sheet handle, and whether any `_todo` reason cites a `PARITY_AUDIT.md` section number that has moved | `UNWIRED_FUNCTIONS.md` | small | Three of the six need a handset or a light-theme capture, not a read |
@@ -381,7 +433,6 @@ owner answer, the question itself is in §4.
 | Story planning **SP-2** — journey progression over the cursor | `STORY_PLANNING_SCOPE.md` | large | §6's regenerate-semantics question explicitly gates it: whether a journey's route polyline is invalidated, re-snapped, or kept with a staleness mark "needs a ruling before SP-2 ships". The grain question (real date vs fraction of a year) is also unresolved |
 | Story planning **SP-5** — the planning aid, joined up | `STORY_PLANNING_SCOPE.md` | medium | Deliberately last: worth nothing until at least two of SP-1…SP-4 exist. Only SP-1 is partly real |
 | Saved measurements + CSV | `LARGE_ITEM_RULINGS.md` | large | Rides the `project_bridge.rs` caller-owned slot read/write work being built for the other four slots |
-| Label collision culling | `LARGE_ITEM_RULINGS.md` | large | Sequenced behind the labelling pass; it in turn unblocks icon placement rule 1 |
 | **CA-03 / CA-04 / RD-10** — per-layer blend mode and layer reorder | `FUNCTIONAL_CONTRACT.md`, `GUI_FEATURE_PARITY_SCOPE.md` 7b | large | `render.rs` bakes the three overlay categories into one per-pixel pass. Needs the single colour pass to become separable outputs — an architecture change, not a control. Opacity shipped; this did not, and the precondition has not moved |
 | Religion-diffusion screens | `GUI_GAP_REGISTER.md` §57 | large | `cartalith-civ::belief` and its Godot bridge do not exist. `get_settlements()` emits no religion field and no adherent counts. Recorded lesson: the surfaces cannot be designed before the engine half exists |
 | The **GUI_GAP_REGISTER §3** A/B/C/D open/closed split, never re-derived | `GUI_GAP_REGISTER.md` | medium | Recovering each dropped class letter is "a judgment per row, not arithmetic" — declined by three consecutive audit passes. The register cannot currently say how many of its 300 IDs are open. `UNWIRED_FUNCTIONS.md` is the live successor; read the register as history |
@@ -400,6 +451,7 @@ owner answer, the question itself is in §4.
 | Owner question 3 — should the WORLD left-dock A/B switch come back? | `UNWIRED_FUNCTIONS.md` | small | Doubly blocked: an owner call, *and* the captions and gate (`ldSwitch`/`ldSwA`/`ldSwB`) are in the truncated tail of `02-rail-and-domains.md` §8, so there is no label to build it with |
 | The 3D research's three commissioned questions (`gl_compatibility` rationale; wgpu/Godot GPU coexistence; what a raised device floor buys) | `3D_TERRAIN_RENDER_RESEARCH.md` | medium | Parked with the 3D viewport. Question 2 is named the highest-value unanswered question and gates `RenderingDevice`, compute shaders and GPU-driven culling. Resuming is cheap — the research is complete at 1 530 lines |
 | Vault **milestone 4** — device pass verifying the Android SAF provider (folder picker, persisted grant, revocation) | `MARKDOWN_VAULT_SCOPE.md` | large | Needs a real Android device |
+| Whether the root `Cartalith Gen1 v2.11.html` (now also mirrored into `reference/`) is `Cartalith_RC`'s live head, or a copy that repository has since moved past | `CLAUDE.md`, `REFERENCE_DRIFT_v2.10_to_v2.11.md` | small | `Cartalith_RC` is not present on this machine and is not a remote of this repository, so it cannot be checked without opening it — do not assert either way without doing so. Left open by the 2026-09-02 re-freeze pass, which froze `reference/` to v2.11 without resolving it |
 
 ---
 
@@ -650,19 +702,46 @@ recording corrections on 2026-08-23, -24 and -25.
 - Capability 13's body says urban milestones 8-17 "remain entirely unbuilt";
   8a and 12 landed 2026-08-24.
 
-### 6.6 The reference freeze has actually drifted
+### 6.6 The reference freeze has actually drifted — the re-freeze itself closed 2026-09-02, the stale sentence survives
 
 `FUNCTIONAL_CONTRACT.md:16-24` asserts the frozen v2.10 is the live repository's
-latest and there is *"no re-freeze question to raise"*. `Cartalith Gen1
-v2.11.html` (2 374 691 bytes) is committed at this repository's root while
-`reference/` holds only `Cartalith Gen1 v2.10.html` and `FUNCTION_INDEX.md`
-indexes v2.10's 1 094 functions. This is the one stale sentence in this section
-that is also **real outstanding work** — it is listed in §2.8, and `CLAUDE.md`
-requires the index be regenerated in the same pass.
+latest and there is *"no re-freeze question to raise"*. That sentence is still
+there, unedited — scope documents were deliberately not mass-edited in the
+re-freeze pass — and it is still wrong.
 
-### 6.7 Four documents claim a blocker that has already lifted
+**What is fixed:** `reference/` now holds `Cartalith Gen1 v2.11.html` (2 374 691
+bytes) alongside v2.10 (untouched, byte-unmodified), `reference/FUNCTION_INDEX_v2.11.md`
+was generated mechanically, and `REFERENCE_DRIFT_v2.10_to_v2.11.md` records the
+drift. This was §2.8's row; it is done and deleted from that list, so
+`FUNCTIONAL_CONTRACT.md`'s capability tags now have a v2.11 index to be checked
+against, even though nothing has re-checked them yet.
+
+**What is not fixed:** `FUNCTIONAL_CONTRACT.md`'s own sentence — a documentation
+defect independent of the index it was excused by. And a question the re-freeze
+raised rather than closed: whether the root `Cartalith Gen1 v2.11.html` is
+`Cartalith_RC`'s actual live head, or a copy that repository has since moved
+past, is unverified and unverifiable from this machine — see §3.3.
+
+### 6.7 Five documents claim a blocker that has already lifted
 
 Each of these will cause someone to skip real, startable work:
+
+**A fifth instance was found and fixed 2026-09-02, and it is the most expensive
+one yet recorded — it cost a dispatched wave.** Three live test headers stated
+that golden fixtures *"could not be extracted because the environment has no JS
+runtime"*. `node` is v24.19.0 and has been available for weeks; the retired
+`CHANGELOG.md` even notes at its line 2000 that *"Node is installed now"*. Worse,
+everything the claim gated had **already shipped on 2026-08-15**:
+`stamp_volcanoes_provinces` was golden-verified in `713e0b1`, and `555b753` /
+`3fd2fef` flipped `volc.provinces`, `terrain_wind_deflection` and `currents` to
+`true`. Nothing in this port was ever off-by-default because of it; only the
+prose lagged, for eighteen days. `tools/jsruntime_probe.js` now settles it two
+ways — it proves the runtime executes the frozen reference *and* that the
+committed fixtures are genuinely its output rather than the Rust port's, with
+4/4 mutants killed. Three further stale claims in the same family
+(`cartalith-climate/src/lib.rs`, `golden_parity_weather.rs`, and
+`cartalith-engine/src/lib.rs`'s own `WorldParams::defaults` comment) are
+recorded but **not yet swept**.
 
 | Claim | Reality |
 |---|---|

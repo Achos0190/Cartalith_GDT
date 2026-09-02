@@ -15,10 +15,14 @@
 //! [`kinds`] declares all 49 landmark types of research §29 — which family
 //! (§29), which class (§23), a default cap, whether the type leans on the
 //! viewshed field this port does not have (§9.3 of the UI design names exactly
-//! six), and whether the type is **actually generated**. Fourteen are, as of
-//! the M8 residual pass that added Resource extraction site — see
-//! [`EXTRACTION_RESOURCES`] for why that one is not the duplicate its name
-//! suggests.
+//! six), and whether the type is **actually generated**. Twenty are: fifteen
+//! off the terrain and hydrology rasters, plus the five M8 closed by threading
+//! the **routed way graph** in as [`LandmarkInputs::ways`] — Road junction,
+//! Bridge site, Market site, Caravan station and Trade depot, each of which
+//! named exactly that missing input in the `not_built` reason it used to
+//! carry. See [`EXTRACTION_RESOURCES`] for why Resource extraction site is not
+//! the duplicate its name suggests, and `pool_trade_road` for why the last two
+//! of the five are one function.
 //! [`generate`] runs research §30's twelve steps over whichever inputs the
 //! caller really has, and returns both the landmarks and — the part the UI
 //! actually needs — a [`LandmarkFunnel`] per kind saying how many candidates
@@ -224,8 +228,9 @@ pub struct LandmarkKindSpec {
     /// NOT generated" is only honest if the panel can say *why*, and the
     /// alternative was three dozen-odd reasons living in GDScript where they
     /// would drift from the engine that owns them (36 at the time this field
-    /// was added; 35 after the M8 residual pass built Resource extraction
-    /// site). Purely additive.
+    /// was added; 34 after the M8 residual pass built Resource extraction
+    /// site; 29 once the way graph closed the five that named it). Purely
+    /// additive.
     pub not_built: &'static str,
 }
 
@@ -272,14 +277,11 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         // ---------------- Transportation (8) ----------------
         LandmarkKindSpec { key: "mountain_pass", label: "Mountain pass", family: F::Transport, class: C::Regional, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "river_crossing", label: "River crossing", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "A crossing is a route crossing a river. Without a routed way network the physical half is exactly the Ford, which is generated; generating both would double-count the same cells." },
+            not_built: "A crossing is a route crossing a river, and now that the routed way graph reaches this pass that is exactly what Ford and Bridge site already are — the same channel cells, partitioned at the flow a traveller can wade. A third record on them would be a rename, not a detection. (This reason used to read 'without a routed way network'; that blocker is gone, the double-count is not.)" },
         LandmarkKindSpec { key: "ford", label: "Ford", family: F::Transport, class: C::Local, default_cap: 24, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "bridge_site", label: "Bridge site", family: F::Transport, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "Needs the way network as a routed graph — §12's least-cost saving from spanning the water. A per-cell road mask cannot answer what a bridge would save." },
-        LandmarkKindSpec { key: "road_junction", label: "Road junction", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "A property of the way graph, not of terrain. Reading it off a rasterised mask would invent a junction at every crossing pixel." },
-        LandmarkKindSpec { key: "caravan_station", label: "Caravan station", family: F::Transport, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: false,
-            not_built: "Needs §13's route load — how much traffic actually passes. Trade flow exists in this crate but is not an input to this pass, and spacing stations along a road without it is decoration." },
+        LandmarkKindSpec { key: "bridge_site", label: "Bridge site", family: F::Transport, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "road_junction", label: "Road junction", family: F::Transport, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "caravan_station", label: "Caravan station", family: F::Transport, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "portage", label: "Portage", family: F::Transport, class: C::Local, default_cap: 8, needs_viewshed: false, buildable: false,
             not_built: "Needs labelled drainage basins to know that two navigable waters belong to different ones. The scope inventory confirmed no basin entity exists." },
         LandmarkKindSpec { key: "harbour", label: "Harbour", family: F::Transport, class: C::Regional, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
@@ -293,10 +295,8 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
         // test those two use. See EXTRACTION_RESOURCES's own doc for why this
         // is not the duplicate the name suggests.
         LandmarkKindSpec { key: "resource_extraction_site", label: "Resource extraction site", family: F::Economic, class: C::Local, default_cap: 16, needs_viewshed: false, buildable: true, not_built: "" },
-        LandmarkKindSpec { key: "market_site", label: "Market site", family: F::Economic, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: false,
-            not_built: "Needs §13's spatial interaction over least-cost distance. Straight-line settlement proximity is not the same claim and would put markets on the wrong side of mountains." },
-        LandmarkKindSpec { key: "trade_depot", label: "Trade depot", family: F::Economic, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: false,
-            not_built: "The same gap as Market site: it is a function of trade flow, which this pass does not read." },
+        LandmarkKindSpec { key: "market_site", label: "Market site", family: F::Economic, class: C::Local, default_cap: 12, needs_viewshed: false, buildable: true, not_built: "" },
+        LandmarkKindSpec { key: "trade_depot", label: "Trade depot", family: F::Economic, class: C::Local, default_cap: 10, needs_viewshed: false, buildable: true, not_built: "" },
         // ---------------- Military (6) ----------------
         LandmarkKindSpec { key: "fort", label: "Fort", family: F::Military, class: C::Regional, default_cap: 16, needs_viewshed: true, buildable: false,
             not_built: "§18's own model puts F_visibility at 0.20 — the joint-largest term — and there is no viewshed field anywhere in this workspace. A fort scored without it is a defensible hill, not a fort." },
@@ -822,6 +822,25 @@ pub struct LandmarkInputs<'a> {
     /// Settlements, for §13's gravity term. Empty is legal: the term is then
     /// simply not part of the weighted sum, rather than contributing zero.
     pub settlements: &'a [LandmarkSite],
+    /// **The routed way network** — `civ_consolidate_and_smooth_ways`' output,
+    /// the same `Vec<Way>` the map draws. Empty is legal and disarms every
+    /// kind that reads it.
+    ///
+    /// This is the graph §12 asks for, not a rasterised road mask, and the
+    /// distinction is the whole reason five kinds were unbuildable until it
+    /// was threaded in: a way carries its own classification
+    /// ([`crate::WayType`], which `civ_classify_way` derives from **peak
+    /// corridor usage** — §13's "transportation demand", already measured by
+    /// the network pass) and its own endpoints, and a cell's junction-ness is
+    /// how many distinct polylines pass through it rather than how many
+    /// stroke pixels overlap.
+    ///
+    /// `Way::hidden` entries are skipped, matching every other consumer:
+    /// a hidden way is not on the map and cannot put a landmark anywhere.
+    /// `pts` are in whole-grid cell coordinates — see
+    /// `civ_consolidate_and_smooth_ways`, which anchors a run's ends on
+    /// `placement.x`/`.y` directly.
+    pub ways: &'a [crate::Way],
 }
 
 /// `RESOURCE_KEYS` entries a Mine is generated from — the metallic and
@@ -885,6 +904,7 @@ impl<'a> LandmarkInputs<'a> {
             resistance: None,
             resources: &[],
             settlements: &[],
+            ways: &[],
         }
     }
 
@@ -981,27 +1001,36 @@ struct Needs {
     curv: bool,
     tpi: bool,
     extrema: bool,
+    /// The [`WayGrid`], which is one pass over the polylines rather than over
+    /// the grid — cheap, but still not built when nothing reads it.
+    ways: bool,
 }
 
 impl Needs {
     fn of(key: &str) -> Needs {
-        let (slope, curv, tpi, extrema) = match key {
-            "peak" => (false, false, true, true),
-            "ridge" => (true, false, true, true),
-            "cliff" => (true, true, false, true),
-            "gorge" => (true, false, true, true),
-            "rock_formation" => (false, false, true, true),
-            "waterfall" => (true, false, false, true),
-            "spring" => (false, false, false, true),
-            "river_confluence" => (false, false, false, true),
-            "lake" => (false, false, false, true),
-            "mountain_pass" => (true, false, false, true),
-            "ford" => (true, false, false, false),
-            "harbour" => (true, false, false, false),
-            "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false),
-            _ => (false, false, false, false),
+        let (slope, curv, tpi, extrema, ways) = match key {
+            "peak" => (false, false, true, true, false),
+            "ridge" => (true, false, true, true, false),
+            "cliff" => (true, true, false, true, false),
+            "gorge" => (true, false, true, true, false),
+            "rock_formation" => (false, false, true, true, false),
+            "waterfall" => (true, false, false, true, false),
+            "spring" => (false, false, false, true, false),
+            "river_confluence" => (false, false, false, true, false),
+            "lake" => (false, false, false, true, false),
+            "mountain_pass" => (true, false, false, true, false),
+            "ford" => (true, false, false, false, false),
+            "harbour" => (true, false, false, false, false),
+            "mine" | "quarry" | "resource_extraction_site" => (true, false, false, false, false),
+            // Road junction reads the graph and nothing else — not even the
+            // slope the other four want for their "workable ground" term.
+            "road_junction" => (false, false, false, false, true),
+            "bridge_site" | "market_site" | "caravan_station" | "trade_depot" => {
+                (true, false, false, false, true)
+            }
+            _ => (false, false, false, false, false),
         };
-        Needs { slope, curv, tpi, extrema }
+        Needs { slope, curv, tpi, extrema, ways }
     }
 
     fn merge(self, o: Needs) -> Needs {
@@ -1010,6 +1039,7 @@ impl Needs {
             curv: self.curv || o.curv,
             tpi: self.tpi || o.tpi,
             extrema: self.extrema || o.extrema,
+            ways: self.ways || o.ways,
         }
     }
 }
@@ -1178,6 +1208,134 @@ fn sep_min_max(field: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> (V
     );
     (hmin, hmax)
 }
+
+// ===========================================================================
+// §12 — the way network, as a graph rather than a mask
+// ===========================================================================
+
+/// A way's class as a `0..=3` load rank. **Not Category C**: `civ_classify_way`
+/// already draws these four lines at peak corridor usage 8 / 5 / 3, and that
+/// usage count is §13's "transportation demand" as the network pass itself
+/// measured it. This function only orders what that one decided.
+fn way_rank(t: crate::WayType) -> u8 {
+    match t {
+        crate::WayType::Track => 0,
+        crate::WayType::Road => 1,
+        crate::WayType::Regional => 2,
+        crate::WayType::Highway => 3,
+    }
+}
+
+/// [`way_rank`]'s inverse, for a causal chain. The four words are
+/// `civ_classify_way`'s own class names, so a chain that says "a regional road"
+/// names the class the network pass actually assigned rather than a second
+/// vocabulary invented here.
+fn rank_label(r: u8) -> &'static str {
+    match r {
+        3 => "highway",
+        2 => "regional road",
+        1 => "road",
+        _ => "track",
+    }
+}
+
+/// Per-cell facts read off [`LandmarkInputs::ways`], built once.
+///
+/// **Two arrays, and the first one is the point.** `ways_here` counts
+/// *distinct polylines*, not stroke pixels — which is exactly what
+/// `road_junction`'s own `not_built` reason demanded when it refused "a
+/// junction at every crossing pixel". A way that doubles back through a cell
+/// still counts once; two ways sharing a cell count twice.
+struct WayGrid {
+    /// Distinct ways through this cell. `0` means no way runs here, and is the
+    /// presence test every way-reading detector uses for its domain.
+    ways_here: Vec<u8>,
+    /// [`way_rank`] of the busiest way on this cell. Meaningless where
+    /// `ways_here` is `0`.
+    rank: Vec<u8>,
+}
+
+impl WayGrid {
+    /// Walks each polyline and stamps the cells it crosses.
+    ///
+    /// The polylines are **sparse** — `civ_smooth_path` emits a Catmull-Rom
+    /// control set, and the road-consolidation golden's own case-1 ways are
+    /// three points spanning a whole map — so a segment is stepped at
+    /// [`WAY_STEP_CELLS`] rather than taken as two endpoints. The step is a
+    /// sampling rate, not a threshold: any value below one cell visits every
+    /// cell the segment crosses.
+    fn build(ways: &[crate::Way], gw: usize, gh: usize, world: bool) -> WayGrid {
+        let n = gw.saturating_mul(gh);
+        let mut g = WayGrid { ways_here: vec![0u8; n], rank: vec![0u8; n] };
+        if n == 0 {
+            return g;
+        }
+        // One stamp per cell, so a way that revisits a cell is counted once.
+        let mut stamp = vec![u32::MAX; n];
+        for (wi, w) in ways.iter().enumerate() {
+            if w.hidden || w.pts.len() < 2 {
+                continue;
+            }
+            let rank = way_rank(w.way_type);
+            let mut mark = |x: f64, y: f64| {
+                if !x.is_finite() || !y.is_finite() {
+                    return;
+                }
+                let yy = y.floor();
+                if !(yy >= 0.0) || yy >= gh as f64 {
+                    return;
+                }
+                let mut xx = x.floor() as i64;
+                if world {
+                    xx = xx.rem_euclid(gw as i64);
+                } else if xx < 0 || xx >= gw as i64 {
+                    return;
+                }
+                let i = yy as usize * gw + xx as usize;
+                if stamp[i] != wi as u32 {
+                    stamp[i] = wi as u32;
+                    g.ways_here[i] = g.ways_here[i].saturating_add(1);
+                }
+                if rank > g.rank[i] {
+                    g.rank[i] = rank;
+                }
+            };
+            for pair in w.pts.windows(2) {
+                let (ax, ay) = pair[0];
+                let (bx, by) = pair[1];
+                let mut dx = bx - ax;
+                let dy = by - ay;
+                // The same seam rule `Ctx::influence` uses: on a wrapping
+                // world the short way round the cylinder is the real segment.
+                if world {
+                    let gwf = gw as f64;
+                    if dx > gwf * 0.5 {
+                        dx -= gwf;
+                    } else if dx < -gwf * 0.5 {
+                        dx += gwf;
+                    }
+                }
+                let len = (dx * dx + dy * dy).sqrt();
+                if !len.is_finite() {
+                    continue;
+                }
+                let steps = ((len / WAY_STEP_CELLS).ceil() as i64).clamp(1, WAY_MAX_STEPS);
+                for s in 0..=steps {
+                    let t = s as f64 / steps as f64;
+                    mark(ax + dx * t, ay + dy * t);
+                }
+            }
+        }
+        g
+    }
+}
+
+/// **Category C, and a sampling rate rather than a claim.** Half a cell, so no
+/// cell a segment passes through is skipped.
+const WAY_STEP_CELLS: f64 = 0.5;
+/// **A compute budget, not a geography.** A single corrupt or absurd control
+/// point cannot turn one segment into an unbounded loop.
+const WAY_MAX_STEPS: i64 = 100_000;
 
 // ===========================================================================
 // §30 step 8 — spatial competition
@@ -1391,6 +1549,12 @@ fn fmt_pct(v: f64) -> String {
     format!("{:.0} %", v * 100.0)
 }
 
+/// Only ever asked of a distance to a settlement that exists — every caller
+/// is behind a non-empty-settlements test — so there is no infinity to handle.
+fn fmt_km(v: f64) -> String {
+    format!("{} km", thousands(v))
+}
+
 // ===========================================================================
 // §27 — determinism
 // ===========================================================================
@@ -1602,6 +1766,74 @@ const FORD_TERMS: [(&str, f64); 4] = [
     ("route demand", 0.15),
 ];
 
+/// Two or more distinct **visible** way polylines on one cell.
+///
+/// **Category C in the number only**: that a junction is a graph property
+/// rather than a raster crossing is [`WayGrid`]'s design. The number is `2`,
+/// and it was `3` first — the argument for `3` was that "two is a corridor two
+/// strokes happen to share", and that argument is wrong for the output this
+/// pass actually reads, which is worth stating rather than quietly fixing.
+///
+/// `civ_consolidate_and_smooth_ways` claims cells **busiest-corridor-first**
+/// and emits only each edge's unclaimed sub-runs, plus one already-claimed
+/// connector cell at each cut. An edge whose whole path a busier one already
+/// claimed emits a two-point way flagged `hidden`, which [`WayGrid`] skips
+/// like every other consumer. So two *visible* strokes never merely share a
+/// corridor: they touch only at a cut, and a cut is a branch leaving or
+/// rejoining the trunk — a junction. Measured, on a world
+/// `cartalith_engine::generate_terrain` really made (15 settlements, 31 ways
+/// of which 15 hidden): 447 cells carry a way, **13** carry two and **2**
+/// carry three. At `3` this kind placed two landmarks against a cap of twenty,
+/// which is the "flag flipped, nothing generated" failure the funnel exists to
+/// expose.
+const JUNCTION_MIN_WAYS: usize = 2;
+const JUNCTION_TERMS: [(&str, f64); 3] =
+    [("roads meeting", 0.45), ("busiest road", 0.30), ("settlement access", 0.25)];
+
+/// **Category C.** [`way_rank`] a way must reach before a market or a caravan
+/// station is worth siting on it: `1` is `WayType::Road`, `civ_classify_way`'s
+/// own peak-usage-3 line. A track carries no trade.
+const TRADE_MIN_WAY_RANK: u8 = 1;
+
+/// **Category C.** A market serves a catchment it sits inside: this is how far
+/// from the nearest settlement a cell on a trade road can be and still be that
+/// settlement's market rather than open road.
+const MARKET_MAX_SETTLEMENT_KM: f64 = 40.0;
+const MARKET_TERMS: [(&str, f64); 3] =
+    [("settlement access", 0.45), ("road class", 0.30), ("workable ground", 0.25)];
+
+/// **Category C, and deliberately more than [`MARKET_MAX_SETTLEMENT_KM`].**
+/// §14's chain is `trade route → caravan station → market town`, so the two
+/// are the same measurement with opposite senses: a market is inside a
+/// settlement's reach, a station is in the gap between them. The 20 km band
+/// between the two is neither, and is left empty on purpose — road that needs
+/// no waystation and serves no market.
+const CARAVAN_MIN_SETTLEMENT_KM: f64 = 60.0;
+const CARAVAN_TERMS: [(&str, f64); 3] =
+    [("distance from any settlement", 0.40), ("road class", 0.35), ("workable ground", 0.25)];
+
+/// **Category C.** How many times the canonical channel-initiation threshold a
+/// river must carry before a boat can work it, and therefore before a road
+/// reaching it is a transhipment point rather than a bank. Well above
+/// [`FORD_MAX_FLOW_MULT`]: water you can wade is not water you can ship on.
+const DEPOT_NAVIGABLE_FLOW_MULT: f64 = 20.0;
+const DEPOT_TERMS: [(&str, f64); 3] =
+    [("road class", 0.40), ("settlement access", 0.35), ("workable ground", 0.25)];
+
+/// §12's own worked example: "a bridge located at a major river bottleneck can
+/// score highly because it reduces travel cost between otherwise separated
+/// regions". The bottleneck test needs no new constant — the boundary is
+/// [`FORD_MAX_FLOW_MULT`], read from the other side. Below it the road wades
+/// across and the landmark is a Ford; above it the road needs a bridge, and
+/// the two kinds partition the same channel by the one number that separates
+/// them rather than double-counting the cells.
+const BRIDGE_TERMS: [(&str, f64); 4] = [
+    ("flow to be spanned", 0.35),
+    ("road class", 0.30),
+    ("abutment ground", 0.20),
+    ("settlement access", 0.15),
+];
+
 /// §13's distance-decay exponent `β`.
 const GRAVITY_BETA: f64 = 1.5;
 
@@ -1651,6 +1883,10 @@ struct Ctx<'a> {
     lithology: Option<&'a [u8]>,
     resistance: Option<&'a [f32]>,
     up: Option<Upstream>,
+    /// `None` when nothing armed reads the way network, or when the caller
+    /// passed no ways at all — the same "absent input, honest `NoTerrain`"
+    /// contract every optional raster here has.
+    ways: Option<WayGrid>,
     flow_thresh: f64,
     cell_km: f64,
     n: usize,
@@ -1711,6 +1947,11 @@ impl<'a> Ctx<'a> {
             lithology: inp.grid(inp.lithology),
             resistance: inp.grid(inp.resistance),
             up,
+            ways: if need.ways && !inp.ways.is_empty() {
+                Some(WayGrid::build(inp.ways, inp.gw, inp.gh, inp.world))
+            } else {
+                None
+            },
             flow_thresh: if flow_thresh.is_finite() && flow_thresh > 0.0 { flow_thresh } else { 1.0 },
             cell_km: inp.cell_km(),
             n,
@@ -1778,6 +2019,40 @@ impl<'a> Ctx<'a> {
             acc += p / d_km.powf(GRAVITY_BETA);
         }
         acc
+    }
+
+    /// Straight-line km to the nearest settlement, `f64::INFINITY` when there
+    /// are none.
+    ///
+    /// **Deliberately straight-line, and only ever asked of a cell that is
+    /// already on a way.** The objection `market_site`'s own `not_built`
+    /// reason raised — that straight-line proximity "would put markets on the
+    /// wrong side of mountains" — is answered by the domain, not by the
+    /// metric: a cell on a routed way is by construction on a least-cost path
+    /// the network pass already laid down, so there is no mountain between it
+    /// and the network. Running a Dijkstra per candidate to refine the last
+    /// few km is the cost `Ctx::influence` already declines for the same
+    /// reason.
+    fn nearest_settlement_km(&self, x: usize, y: usize) -> f64 {
+        let cell = if self.cell_km > 0.0 { self.cell_km } else { 1.0 };
+        let mut best = f64::INFINITY;
+        for s in self.inp.settlements {
+            let mut dx = s.x as f64 - x as f64;
+            if self.inp.world {
+                let gw = self.inp.gw as f64;
+                if dx > gw * 0.5 {
+                    dx -= gw;
+                } else if dx < -gw * 0.5 {
+                    dx += gw;
+                }
+            }
+            let dy = s.y as f64 - y as f64;
+            let d = (dx * dx + dy * dy).sqrt() * cell;
+            if d < best {
+                best = d;
+            }
+        }
+        best
     }
 
     fn elev_m(&self, i: usize) -> f64 {
@@ -2538,6 +2813,253 @@ fn pool_ford(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+// ---------------------------------------------------------------------------
+// The five way-graph kinds
+// ---------------------------------------------------------------------------
+//
+// All five read [`Ctx::ways`] and nothing else can substitute for it: each one
+// was unbuildable until `LandmarkInputs::ways` carried the **routed graph**
+// here, and each one's own `not_built` reason said exactly that. `c.ways`
+// is `None` when the caller passed no ways, so all five degrade to
+// `NoTerrain` with `candidates: 0` on a world whose network has not been
+// built — the same contract every optional raster above has.
+//
+// **They partition the way network rather than sharing it.** A cell is a
+// Bridge site only if a channel runs through it, a Trade depot only if one
+// does *not* and a navigable one runs beside it, and Market site and Caravan
+// station split the remaining trade road by the one measurement that
+// distinguishes them (`MARKET_MAX_SETTLEMENT_KM` vs
+// `CARAVAN_MIN_SETTLEMENT_KM`, with a deliberate empty band between). Only
+// Road junction is free to coincide with another, and only where three ways
+// meet.
+
+/// Three or more distinct ways on one cell.
+///
+/// The domain is the way network itself, so `rejected_constraint` counts road
+/// cells that are road and not junction — which is the honest funnel: "there
+/// are this many cells of road, and this few of them are junctions".
+fn pool_junction(c: &Ctx<'_>) -> Option<Pool> {
+    let ways = c.ways.as_ref()?;
+    let gw = c.inp.gw;
+    let mut p = Pool::new();
+    let (mut t_j, mut t_r, mut t_s) = (vec![], vec![], vec![]);
+    let has_settle = !c.inp.settlements.is_empty();
+    for i in 0..c.n {
+        if ways.ways_here[i] == 0 || !c.is_land(i) {
+            continue;
+        }
+        let meeting = ways.ways_here[i] as usize;
+        if meeting < JUNCTION_MIN_WAYS {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let rank = ways.rank[i];
+        let inf = c.influence(x, y);
+        let mut facts = vec![
+            format!("{} separate ways meet on one cell", meeting),
+            format!("the busiest of them is a {}", rank_label(rank)),
+        ];
+        if has_settle {
+            facts.push(format!(
+                "nearest settlement {}",
+                fmt_km(c.nearest_settlement_km(x, y))
+            ));
+        }
+        p.cands.push(Cand { i, x, y, facts });
+        t_j.push(meeting as f32);
+        t_r.push(rank as f32);
+        t_s.push(inf as f32);
+    }
+    p.terms = vec![
+        (JUNCTION_TERMS[0].0, JUNCTION_TERMS[0].1, t_j),
+        (JUNCTION_TERMS[1].0, JUNCTION_TERMS[1].1, t_r),
+    ];
+    if has_settle {
+        p.terms.push((JUNCTION_TERMS[2].0, JUNCTION_TERMS[2].1, t_s));
+    }
+    Some(p)
+}
+
+/// §12's bottleneck: a routed way meeting water too big to wade.
+///
+/// The constraint is [`FORD_MAX_FLOW_MULT`] read from the other side, so the
+/// same channel cells become Fords below it and Bridge sites above it and
+/// neither kind double-counts the other's.
+fn pool_bridge(c: &Ctx<'_>) -> Option<Pool> {
+    let ways = c.ways.as_ref()?;
+    let chan = c.chan?;
+    let flow = c.flow?;
+    let gw = c.inp.gw;
+    let mut p = Pool::new();
+    let (mut t_q, mut t_r, mut t_g, mut t_s) = (vec![], vec![], vec![], vec![]);
+    let has_settle = !c.inp.settlements.is_empty();
+    let min_flow = c.flow_thresh * FORD_MAX_FLOW_MULT;
+    for i in 0..c.n {
+        // Domain: where the routed network crosses a channel.
+        if ways.ways_here[i] == 0 || chan[i] == 0 || !c.is_land(i) {
+            continue;
+        }
+        let q = flow[i] as f64;
+        if !(q > min_flow) {
+            // Wadeable. This is a Ford, and Ford generates it.
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let rank = ways.rank[i];
+        let grad = c.gradient(i);
+        let inf = c.influence(x, y);
+        let mut facts = vec![
+            format!("a {} meets a channel too big to wade", rank_label(rank)),
+            format!("flow {} cells", thousands(q)),
+            format!("abutments at {}", fmt_pct(grad)),
+        ];
+        if has_settle {
+            facts.push(format!("{} settlements within reach", c.inp.settlements.len()));
+        }
+        p.cands.push(Cand { i, x, y, facts });
+        t_q.push(q as f32);
+        t_r.push(rank as f32);
+        t_g.push(-grad as f32);
+        t_s.push(inf as f32);
+    }
+    p.terms = vec![
+        (BRIDGE_TERMS[0].0, BRIDGE_TERMS[0].1, t_q),
+        (BRIDGE_TERMS[1].0, BRIDGE_TERMS[1].1, t_r),
+        (BRIDGE_TERMS[2].0, BRIDGE_TERMS[2].1, t_g),
+    ];
+    if has_settle {
+        p.terms.push((BRIDGE_TERMS[3].0, BRIDGE_TERMS[3].1, t_s));
+    }
+    Some(p)
+}
+
+/// Market site and Caravan station, which are one measurement with opposite
+/// senses — see [`CARAVAN_MIN_SETTLEMENT_KM`].
+///
+/// `near` selects which: `true` keeps the trade road inside a settlement's
+/// catchment (Market), `false` keeps only the road in the gap between
+/// settlements (Caravan station). The `bound` is the km line each is stated
+/// against, and the first suitability term is the settlement distance itself,
+/// signed so that "better" is always larger.
+///
+/// **Both return `None` without settlements**, rather than degrading: with no
+/// settlement anywhere `nearest_settlement_km` is infinite, which would reject
+/// every cell for a market and accept every cell for a caravan station. The
+/// second is the fabrication this module refuses everywhere else — a waystation
+/// between two towns that do not exist.
+fn pool_trade_road(
+    c: &Ctx<'_>,
+    near: bool,
+    bound: f64,
+    terms: &[(&'static str, f64); 3],
+) -> Option<Pool> {
+    let ways = c.ways.as_ref()?;
+    if c.inp.settlements.is_empty() {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let mut p = Pool::new();
+    let (mut t_d, mut t_r, mut t_g) = (vec![], vec![], vec![]);
+    for i in 0..c.n {
+        if ways.ways_here[i] == 0 || !c.is_land(i) {
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let rank = ways.rank[i];
+        let d = c.nearest_settlement_km(x, y);
+        let in_band = if near { d <= bound } else { d >= bound };
+        if rank < TRADE_MIN_WAY_RANK || !in_band {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let grad = c.gradient(i);
+        p.cands.push(Cand {
+            i,
+            x,
+            y,
+            facts: vec![
+                format!("on a {}", rank_label(rank)),
+                format!("nearest settlement {}", fmt_km(d)),
+                format!("workable ground at {}", fmt_pct(grad)),
+            ],
+        });
+        // A market wants to be close, a station wants to be far.
+        t_d.push(if near { -d as f32 } else { d as f32 });
+        t_r.push(rank as f32);
+        t_g.push(-grad as f32);
+    }
+    p.terms = vec![
+        (terms[0].0, terms[0].1, t_d),
+        (terms[1].0, terms[1].1, t_r),
+        (terms[2].0, terms[2].1, t_g),
+    ];
+    Some(p)
+}
+
+/// A transhipment point: a trade road on the **bank** of water a boat can work.
+///
+/// Deliberately not on the channel cell itself — that cell is where the road
+/// crosses, which is a Ford or a Bridge site. Goods come off the road and onto
+/// the water beside it, so the depot is the land cell and the navigability test
+/// is asked of its channel neighbour.
+fn pool_depot(c: &Ctx<'_>) -> Option<Pool> {
+    let ways = c.ways.as_ref()?;
+    let chan = c.chan?;
+    let flow = c.flow?;
+    let gw = c.inp.gw;
+    let mut p = Pool::new();
+    let (mut t_r, mut t_s, mut t_g) = (vec![], vec![], vec![]);
+    let has_settle = !c.inp.settlements.is_empty();
+    let navigable = c.flow_thresh * DEPOT_NAVIGABLE_FLOW_MULT;
+    for i in 0..c.n {
+        if ways.ways_here[i] == 0 || chan[i] != 0 || !c.is_land(i) {
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        // The busiest channel touching this cell.
+        let mut beside = 0f64;
+        for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1), (-1, -1), (1, -1), (-1, 1), (1, 1)]
+        {
+            if let Some(j) = c.nb(x, y, dx, dy)
+                && chan[j] != 0
+                && (flow[j] as f64) > beside
+            {
+                beside = flow[j] as f64;
+            }
+        }
+        let rank = ways.rank[i];
+        if rank < TRADE_MIN_WAY_RANK || !(beside >= navigable) {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let grad = c.gradient(i);
+        let inf = c.influence(x, y);
+        let mut facts = vec![
+            format!("a {} on the bank of navigable water", rank_label(rank)),
+            format!("the channel beside it carries {} cells", thousands(beside)),
+            format!("workable ground at {}", fmt_pct(grad)),
+        ];
+        if has_settle {
+            facts.push(format!(
+                "nearest settlement {}",
+                fmt_km(c.nearest_settlement_km(x, y))
+            ));
+        }
+        p.cands.push(Cand { i, x, y, facts });
+        t_r.push(rank as f32);
+        t_s.push(inf as f32);
+        t_g.push(-grad as f32);
+    }
+    p.terms = vec![(DEPOT_TERMS[0].0, DEPOT_TERMS[0].1, t_r)];
+    if has_settle {
+        p.terms.push((DEPOT_TERMS[1].0, DEPOT_TERMS[1].1, t_s));
+    }
+    p.terms.push((DEPOT_TERMS[2].0, DEPOT_TERMS[2].1, t_g));
+    Some(p)
+}
+
 /// The one place a key becomes a detector. A key with no arm here is not
 /// buildable, and [`kinds`] must say so.
 fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
@@ -2561,6 +3083,15 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
         }
         "harbour" => pool_harbour(c),
         "ford" => pool_ford(c),
+        "road_junction" => pool_junction(c),
+        "bridge_site" => pool_bridge(c),
+        "market_site" => {
+            pool_trade_road(c, true, MARKET_MAX_SETTLEMENT_KM, &MARKET_TERMS)
+        }
+        "caravan_station" => {
+            pool_trade_road(c, false, CARAVAN_MIN_SETTLEMENT_KM, &CARAVAN_TERMS)
+        }
+        "trade_depot" => pool_depot(c),
         _ => None,
     }
 }
@@ -2974,6 +3505,39 @@ mod tests {
         /// domain; nothing else reads this field.
         resistance: Vec<f32>,
         settlements: Vec<LandmarkSite>,
+        /// The **routed** way network over this same terrain, produced by the
+        /// engine's own `civ_hierarchical_network_topology` +
+        /// `civ_consolidate_and_smooth_ways` rather than by hand-drawn
+        /// polylines — the five way-graph kinds read a graph, so a fixture
+        /// that faked one would test nothing they will meet in the shell.
+        ways: Vec<crate::Way>,
+    }
+
+    /// The fixture's towns, in one place because three things read them: the
+    /// landmark pass's own gravity term, the network pass that routes roads
+    /// between them, and Market/Caravan/Depot, whose whole constraint is the
+    /// distance from one.
+    ///
+    /// Eight rather than the two this fixture began with, and the reason is
+    /// [`JUNCTION_MIN_WAYS`]: a two-settlement world routes one edge and has
+    /// no junction anywhere, so `road_junction` could never fire and the
+    /// "flag flipped, places nothing" failure would ship. All eight sit on the
+    /// western land strip (`test_field` runs to sea at about `fx = 0.38`) and
+    /// clear of the closed basin at `(0.20, 0.50)` that floods into the lake.
+    fn towns(gw: usize, gh: usize) -> Vec<(usize, usize, u32)> {
+        // The first two are this fixture's original pair, spelled the way they
+        // were spelled before (`gw / 4, gh / 3` and `gw / 3, gh * 2 / 3`), so
+        // the six added for the network do not silently move them.
+        vec![
+            (gw / 4, gh / 3, 12_000u32),
+            (gw / 3, gh * 2 / 3, 4_000),
+            (gw * 9 / 100, gh * 12 / 100, 9_000),
+            (gw * 11 / 100, gh * 52 / 100, 6_000),
+            (gw * 8 / 100, gh * 83 / 100, 5_000),
+            (gw * 27 / 100, gh / 10, 7_000),
+            (gw * 21 / 100, gh * 89 / 100, 3_000),
+            (gw * 34 / 100, gh * 47 / 100, 8_000),
+        ]
     }
 
     /// The fixture wired through the engine's own hydrology and corridor
@@ -2998,6 +3562,56 @@ mod tests {
             SEA,
             false,
             thresh,
+        );
+        // The real routed network, over this same terrain: the engine's own
+        // MST/Dijkstra topology pass, then the busiest-first consolidation
+        // that is what puts three strokes through one cell and makes a
+        // junction exist at all. `biome` is a uniform `0`, whose
+        // `civ_biome_friction` is exactly `1.0` — the neutral choice, stated
+        // rather than a fabricated vegetation map; `order` is the same
+        // Strahler field this fixture already computes.
+        let places: Vec<crate::NamedSettlement> = towns(gw, gh)
+            .iter()
+            .enumerate()
+            .map(|(k, (x, y, pop))| crate::NamedSettlement {
+                tid: 0,
+                placement: crate::SettlementPlacement {
+                    x: *x,
+                    y: *y,
+                    suit: 0.0,
+                    faction: k as i32 + 1,
+                    capital: true,
+                    kind: crate::SettlementKind::Capital,
+                    coastal: false,
+                },
+                name: format!("T{}", k),
+                pop: *pop,
+            })
+            .collect();
+        let placements: Vec<crate::SettlementPlacement> =
+            places.iter().map(|p| p.placement).collect();
+        let biome = vec![0u8; gw * gh];
+        let topology = crate::civ_hierarchical_network_topology(
+            &placements,
+            gw,
+            gh,
+            SEA,
+            &field,
+            &flow,
+            &order,
+            &biome,
+            &wb.classification,
+            false,
+            width_km,
+        );
+        let ways = crate::civ_consolidate_and_smooth_ways(
+            &topology,
+            &places,
+            &field,
+            &wb.classification,
+            gw,
+            gh,
+            width_km,
         );
         World {
             gw,
@@ -3062,10 +3676,15 @@ mod tests {
                 }
                 v
             },
-            settlements: vec![
-                LandmarkSite { x: gw / 4, y: gh / 3, population: 12_000.0 },
-                LandmarkSite { x: gw / 3, y: (gh * 2) / 3, population: 4_000.0 },
-            ],
+            settlements: towns(gw, gh)
+                .iter()
+                .map(|(x, y, pop)| LandmarkSite {
+                    x: *x,
+                    y: *y,
+                    population: *pop as f64,
+                })
+                .collect(),
+            ways,
         }
     }
 
@@ -3081,6 +3700,246 @@ mod tests {
         i.resistance = Some(&w.resistance);
         i.resources = res;
         i.settlements = &w.settlements;
+        i.ways = &w.ways;
+        i
+    }
+
+    /// The whole shipped civilisation pipeline, on a world
+    /// `cartalith_engine::generate_terrain` really produced — not this
+    /// module's hand-shaped fixture.
+    ///
+    /// `compute_civilisation` (`cartalith-godot/src/lib.rs`) is a private
+    /// function in a cdylib, so its call sequence is reproduced here, the same
+    /// way `examples/_peakaudit_peak.rs` already reproduces it.
+    struct RealWorld {
+        gw: usize,
+        gh: usize,
+        width_km: f64,
+        sea: f64,
+        world: bool,
+        ws: cartalith_engine::WorldState,
+        wb: Vec<u8>,
+        corridors: Vec<f32>,
+        lithology: Vec<u8>,
+        order: Vec<i16>,
+        sites: Vec<LandmarkSite>,
+        ways: Vec<crate::Way>,
+        resources: crate::ResourcePotentials,
+    }
+
+    fn real_world(gw: usize, gh: usize, seed: i32) -> RealWorld {
+        let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
+        p.world = false;
+        let ws = cartalith_engine::generate_terrain(&p);
+        let (sea, world, width_km) = (ws.sea_level, p.world, p.map_width_km);
+        let wb = crate::build_water_bodies(&ws.field, gw, gh, sea, world, Some(&ws.rainfall));
+        let biome = crate::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
+        let soil_slope = crate::build_slope_field(&ws.field, gw, gh, world);
+        let lithology = crate::build_lithology(
+            &ws.field,
+            &ws.age_field,
+            &ws.volcanic_field,
+            &ws.crust_field,
+            &ws.resistance_field,
+            &ws.rainfall,
+            sea,
+        );
+        let soil = crate::build_soil_fertility(
+            &lithology,
+            &ws.temperature,
+            &ws.rainfall,
+            &soil_slope,
+            &ws.age_field,
+        );
+        let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, width_km);
+        let water_access =
+            crate::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, sea, flow_thresh);
+        let carrying_cap = crate::build_carrying_capacity(
+            &soil,
+            &water_access,
+            Some(&biome),
+            &ws.temperature,
+            &ws.field,
+            sea,
+            0.0,
+            None,
+        );
+        let resources = crate::build_resource_potentials(
+            &lithology,
+            Some(&ws.boundary_type),
+            Some(&ws.shear_field),
+            Some(&ws.flow_discharge),
+            Some(&biome),
+            &ws.field,
+            &ws.rainfall,
+            &ws.age_field,
+            gw,
+            gh,
+            sea,
+            Some(&ws.volcanic_field),
+            true,
+            false,
+        );
+        let raw_slope = crate::build_raw_slope_field(&ws.field, gw, gh, world);
+        let corridors = crate::build_route_corridors(
+            &ws.field,
+            &raw_slope,
+            Some(&ws.flow_discharge),
+            gw,
+            gh,
+            sea,
+            world,
+            flow_thresh,
+        );
+        let landmass =
+            crate::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea, world);
+        let coast_sdf = crate::build_coast_sdf(&ws.field, gw, gh, sea);
+        let flood =
+            crate::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea);
+        let order = crate::fresh_river_order(
+            &ws.field,
+            &ws.flow_discharge,
+            gw,
+            gh,
+            sea,
+            world,
+            p.river_density,
+            width_km,
+        );
+        let ctx = crate::SuitabilityCtx {
+            water_bodies: Some(&wb.classification),
+            corridor: Some(&corridors),
+            landmass: Some(&landmass.quality),
+            flow: Some(&ws.flow_discharge),
+            river_order: Some(&order),
+            coast_sdf: Some(&coast_sdf),
+            resources: Some(&resources),
+            rain: Some(&ws.rainfall),
+            flood: Some(&flood),
+            slope_raw: Some(&raw_slope),
+            flow_thresh,
+        };
+        let suit = crate::build_settlement_suitability(
+            &soil,
+            &water_access,
+            &carrying_cap,
+            &ws.field,
+            &soil_slope,
+            gw,
+            gh,
+            sea,
+            Some(&ctx),
+        );
+        let seeds = crate::find_settlement_seeds(
+            &suit,
+            gw,
+            gh,
+            0.42,
+            (gw as f64 / 22.0).floor().max(6.0),
+        );
+        let placements = crate::place_settlements_with_water_edge_snap(
+            &seeds,
+            &suit,
+            &ws.field,
+            &wb.classification,
+            &wb.fill_level,
+            gw,
+            gh,
+            sea,
+            world,
+            6,
+            &flood,
+            &ws.flow_discharge,
+            flow_thresh,
+            width_km,
+        );
+        let topology = crate::civ_hierarchical_network_topology(
+            &placements,
+            gw,
+            gh,
+            sea,
+            &ws.field,
+            &ws.flow_discharge,
+            &order,
+            &biome,
+            &wb.classification,
+            world,
+            width_km,
+        );
+        let mut rng = crate::civ_name_rng();
+        let settlements = crate::name_and_populate_settlements_with_rng(&placements, &mut rng);
+        let ways = crate::civ_consolidate_and_smooth_ways(
+            &topology,
+            &settlements,
+            &ws.field,
+            &wb.classification,
+            gw,
+            gh,
+            width_km,
+        );
+        let sites = settlements
+            .iter()
+            .map(|s| LandmarkSite {
+                x: s.placement.x,
+                y: s.placement.y,
+                population: s.pop as f64,
+            })
+            .collect();
+        RealWorld {
+            gw,
+            gh,
+            width_km,
+            sea,
+            world,
+            wb: wb.classification,
+            corridors,
+            lithology,
+            order,
+            sites,
+            ways,
+            resources,
+            ws,
+        }
+    }
+
+    fn real_resource_pairs(rp: &crate::ResourcePotentials) -> Vec<(&str, &[f32])> {
+        vec![
+            ("copper", rp.copper.as_slice()),
+            ("tin", rp.tin.as_slice()),
+            ("iron", rp.iron.as_slice()),
+            ("gold", rp.gold.as_slice()),
+            ("salt", rp.salt.as_slice()),
+            ("timber", rp.timber.as_slice()),
+            ("lead", rp.lead.as_slice()),
+            ("silver", rp.silver.as_slice()),
+            ("gems", rp.gems.as_slice()),
+            ("clay", rp.clay.as_slice()),
+            ("buildstone", rp.buildstone.as_slice()),
+            ("flint", rp.flint.as_slice()),
+            ("obsidian", rp.obsidian.as_slice()),
+            ("sulfur", rp.sulfur.as_slice()),
+            ("alum", rp.alum.as_slice()),
+        ]
+    }
+
+    fn real_inputs<'a>(
+        r: &'a RealWorld,
+        res: &'a [(&'a str, &'a [f32])],
+    ) -> LandmarkInputs<'a> {
+        let mut i =
+            LandmarkInputs::new(&r.ws.field, r.gw, r.gh, r.sea, r.world, r.width_km);
+        i.flow = Some(&r.ws.flow_discharge);
+        i.channel = r.ws.channels.as_ref().map(|c| c.chan.as_slice());
+        i.recv = r.ws.channels.as_ref().map(|c| c.recv.as_slice());
+        i.order = Some(&r.order);
+        i.water = Some(&r.wb);
+        i.corridors = Some(&r.corridors);
+        i.lithology = Some(&r.lithology);
+        i.volcanism = Some(&r.ws.volcanic_field);
+        i.resistance = Some(&r.ws.resistance_field);
+        i.resources = res;
+        i.settlements = &r.sites;
+        i.ways = &r.ways;
         i
     }
 
@@ -3134,11 +3993,14 @@ mod tests {
         assert_eq!(
             built,
             vec![
+                "bridge_site",
+                "caravan_station",
                 "cliff",
                 "ford",
                 "gorge",
                 "harbour",
                 "lake",
+                "market_site",
                 "mine",
                 "mountain_pass",
                 "peak",
@@ -3146,11 +4008,13 @@ mod tests {
                 "resource_extraction_site",
                 "ridge",
                 "river_confluence",
+                "road_junction",
                 "rock_formation",
                 "spring",
+                "trade_depot",
                 "waterfall",
             ],
-            "the fifteen kinds this engine actually generates"
+            "the twenty kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -3175,6 +4039,11 @@ mod tests {
                         | "resource_extraction_site"
                         | "harbour"
                         | "ford"
+                        | "road_junction"
+                        | "bridge_site"
+                        | "market_site"
+                        | "caravan_station"
+                        | "trade_depot"
                 ),
                 "{} disagrees with `detect`",
                 k.key
@@ -3342,11 +4211,29 @@ mod tests {
         assert!(r.seconds >= 0.0);
     }
 
-    /// **Every one of the fourteen detectors must be able to place something.**
-    /// Run with cross-type competition off, because with it on a gorge and a
-    /// waterfall at the same river crossing are one landmark by design and the
-    /// second reports `spacing` — which is correct behaviour and would
-    /// otherwise hide a detector that never fires at all.
+    /// The two kinds this file's hand-shaped fixture **cannot** reach, stated
+    /// as a constant so no third can join them silently.
+    ///
+    /// Both want a trunk river, and `test_field` has none: measured on it, the
+    /// largest channel anywhere carries 18.5x the channel-initiation threshold
+    /// and the largest a routed way crosses carries 4.6x. Bridge site needs
+    /// more than [`FORD_MAX_FLOW_MULT`] (8x) at a crossing and Trade depot
+    /// needs [`DEPOT_NAVIGABLE_FLOW_MULT`] (20x) beside one, so neither can
+    /// fire there.
+    ///
+    /// **Bending the fixture or the constants until they did would be
+    /// backwards.** Both are verified instead where the shell will really run
+    /// them, by
+    /// `every_way_graph_kind_places_on_a_world_generate_terrain_really_made`,
+    /// and that test asserts exactly this list — so a kind cannot be exempted
+    /// here and left unverified there.
+    const FIXTURE_HAS_NO_TRUNK_RIVER: [&str; 2] = ["bridge_site", "trade_depot"];
+
+    /// **Every detector must be able to place something.** Run with cross-type
+    /// competition off, because with it on a gorge and a waterfall at the same
+    /// river crossing are one landmark by design and the second reports
+    /// `spacing` — which is correct behaviour and would otherwise hide a
+    /// detector that never fires at all.
     #[test]
     fn every_buildable_kind_can_actually_place_one() {
         let w = world(256, 192, 1000.0);
@@ -3359,6 +4246,9 @@ mod tests {
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
         let r = generate(&inp, &s, 7);
         for k in kinds().iter().filter(|k| k.buildable) {
+            if FIXTURE_HAS_NO_TRUNK_RIVER.contains(&k.key) {
+                continue;
+            }
             assert!(
                 r.placed(k.key) > 0,
                 "{} placed nothing: {:?}",
@@ -3366,6 +4256,344 @@ mod tests {
                 r.funnel(k.key)
             );
         }
+    }
+
+    /// **The five kinds M8 closed, on a world nobody shaped for them.**
+    ///
+    /// `real_world` reproduces `compute_civilisation`'s own call sequence over
+    /// `cartalith_engine::generate_terrain`'s output, so the way graph these
+    /// read is the one the shell hands them — real settlement placement, real
+    /// MST/Dijkstra routing, real busiest-first consolidation. A flag flipped
+    /// to `buildable` on a kind that then places nothing is the failure this
+    /// project keeps `UNWIRED_FUNCTIONS.md` for; this is what stops it.
+    #[test]
+    fn every_way_graph_kind_places_on_a_world_generate_terrain_really_made() {
+        let r = real_world(256, 192, 24601);
+        assert!(r.sites.len() >= 5, "only {} settlements placed", r.sites.len());
+        assert!(r.ways.len() >= 5, "only {} ways routed", r.ways.len());
+        let pairs = real_resource_pairs(&r.resources);
+        let inp = real_inputs(&r, &pairs);
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let out = generate(&inp, &s, 7);
+        for key in
+            ["road_junction", "bridge_site", "market_site", "caravan_station", "trade_depot"]
+        {
+            let f = out.funnel(key).expect("every kind has a funnel");
+            println!("{:18} placed {:3} of {:3}  {:?}", key, f.placed, f.cap, f);
+            assert!(f.placed > 0, "{} placed nothing on a real world: {:?}", key, f);
+        }
+        // The exemption above may not hide a kind from this test.
+        for key in FIXTURE_HAS_NO_TRUNK_RIVER {
+            assert!(out.placed(key) > 0, "{} is exempted and unverified", key);
+        }
+        // Every placement is on a cell a way really runs through — the domain
+        // all five share, and the one claim a rasterised road mask could not
+        // have made.
+        let g = WayGrid::build(&r.ways, r.gw, r.gh, r.world);
+        for l in out.landmarks.iter().filter(|l| {
+            matches!(
+                l.kind.as_str(),
+                "road_junction"
+                    | "bridge_site"
+                    | "market_site"
+                    | "caravan_station"
+                    | "trade_depot"
+            )
+        }) {
+            assert!(
+                g.ways_here[l.y * r.gw + l.x] > 0,
+                "{} at ({}, {}) is not on the way network",
+                l.kind,
+                l.x,
+                l.y
+            );
+        }
+    }
+
+    /// Ford and Bridge site **partition** the channel cells a way crosses;
+    /// they never both claim one. That is the whole content of
+    /// [`FORD_MAX_FLOW_MULT`] being read from both sides, and the reason
+    /// `river_crossing` stays unbuilt.
+    #[test]
+    fn a_way_crossing_a_channel_is_a_ford_or_a_bridge_and_never_both() {
+        let r = real_world(256, 192, 24601);
+        let pairs = real_resource_pairs(&r.resources);
+        let inp = real_inputs(&r, &pairs);
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let out = generate(&inp, &s, 7);
+        let cells = |k: &str| -> std::collections::BTreeSet<(usize, usize)> {
+            out.landmarks.iter().filter(|l| l.kind == k).map(|l| (l.x, l.y)).collect()
+        };
+        let fords = cells("ford");
+        let bridges = cells("bridge_site");
+        assert!(!fords.is_empty() && !bridges.is_empty(), "one of the two never fired");
+        assert!(
+            fords.intersection(&bridges).next().is_none(),
+            "a cell is both a Ford and a Bridge site: {:?}",
+            fords.intersection(&bridges).collect::<Vec<_>>()
+        );
+        // And a Trade depot is never on a channel at all — it is the bank.
+        let chan = r.ws.channels.as_ref().expect("a real world has channels");
+        for (x, y) in cells("trade_depot") {
+            assert_eq!(chan.chan[y * r.gw + x], 0, "a depot sits in the channel at ({x}, {y})");
+        }
+    }
+
+    /// The honest-degradation contract, for the one input all five share: a
+    /// caller that passes no ways gets `NoTerrain` and zero candidates from
+    /// every one of them, not a fabricated placement off some other field.
+    #[test]
+    fn the_way_graph_kinds_degrade_when_no_ways_are_passed() {
+        let w = world(256, 192, 1000.0);
+        let mut inp = inputs(&w, &[]);
+        inp.ways = &[];
+        let r = generate(&inp, &LandmarkSettings::default(), 11);
+        for key in
+            ["road_junction", "bridge_site", "market_site", "caravan_station", "trade_depot"]
+        {
+            let f = r.funnel(key).expect("every kind has a funnel");
+            assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}: {:?}", key, f);
+            assert_eq!(f.candidates, 0, "{}: {:?}", key, f);
+            assert_eq!(f.placed, 0, "{}: {:?}", key, f);
+        }
+        // The rest of the pass is unaffected — an absent way graph is not a
+        // reason for the terrain kinds to stop.
+        assert!(r.placed("waterfall") + r.placed("peak") > 0);
+    }
+
+    /// Market site and Caravan station are the same measurement with opposite
+    /// senses, so with settlements gone the first must not simply fall silent
+    /// while the second fires **everywhere** on an infinite distance. Both
+    /// refuse instead — `pool_trade_road`'s early return.
+    #[test]
+    fn a_trade_road_kind_refuses_rather_than_fabricating_without_settlements() {
+        let w = world(256, 192, 1000.0);
+        let mut inp = inputs(&w, &[]);
+        inp.settlements = &[];
+        let r = generate(&inp, &LandmarkSettings::default(), 11);
+        for key in ["market_site", "caravan_station"] {
+            let f = r.funnel(key).expect("every kind has a funnel");
+            assert_eq!(f.limit, LandmarkLimit::NoTerrain, "{}: {:?}", key, f);
+            assert_eq!(f.candidates, 0, "{}: {:?}", key, f);
+        }
+        // Road junction needs no settlement and must be unaffected.
+        assert!(r.placed("road_junction") > 0, "{:?}", r.funnel("road_junction"));
+    }
+
+    /// A straight way of a stated class through whole-cell coordinates, for
+    /// the two geometry tests below. `civ_consolidate_and_smooth_ways` anchors
+    /// a run's ends on `placement.x`/`.y` directly, so whole numbers are the
+    /// real coordinate convention rather than a test shortcut.
+    fn straight(
+        (ax, ay): (usize, usize),
+        (bx, by): (usize, usize),
+        t: crate::WayType,
+    ) -> crate::Way {
+        crate::Way {
+            tid: 0,
+            pts: vec![(ax as f64, ay as f64), (bx as f64, by as f64)],
+            brks: Vec::new(),
+            km: 0.0,
+            name: String::new(),
+            way_type: t,
+            a_idx: 0,
+            b_idx: 1,
+            hidden: false,
+        }
+    }
+
+    /// 128 x 64 at 512 km — a 4 km cell, flat and entirely above sea, so the
+    /// only thing under test is the way graph and the distance to the one
+    /// settlement. Every terrain kind degrades to nothing here, which is the
+    /// point.
+    fn flat(gw: usize, gh: usize) -> Vec<f32> {
+        vec![0.60f32; gw * gh]
+    }
+
+    /// **The 20 km band between [`MARKET_MAX_SETTLEMENT_KM`] and
+    /// [`CARAVAN_MIN_SETTLEMENT_KM`] is empty on purpose**, and
+    /// [`TRADE_MIN_WAY_RANK`] really is the line at `Road`. Four short ways at
+    /// measured distances from one settlement, on a flat map where nothing
+    /// else can fire:
+    ///
+    /// | way | distance | class | expected |
+    /// |---|---|---|---|
+    /// | A | 16-28 km | road | markets, no stations |
+    /// | B | 44-56 km | road | **neither** — the empty band |
+    /// | C | 84-96 km | road | stations, no markets |
+    /// | D | 23-32 km | track | neither — a track carries no trade |
+    #[test]
+    fn a_market_sits_inside_a_settlements_reach_and_a_caravan_station_between_two() {
+        let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
+        let field = flat(gw, gh);
+        let sites = vec![LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
+        let ways = vec![
+            straight((14, 32), (17, 32), crate::WayType::Road),
+            straight((21, 32), (24, 32), crate::WayType::Road),
+            straight((31, 32), (34, 32), crate::WayType::Road),
+            straight((14, 36), (17, 36), crate::WayType::Track),
+        ];
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.settlements = &sites;
+        inp.ways = &ways;
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let r = generate(&inp, &s, 3);
+
+        let at = |k: &str| -> Vec<(usize, usize)> {
+            r.landmarks.iter().filter(|l| l.kind == k).map(|l| (l.x, l.y)).collect()
+        };
+        let markets = at("market_site");
+        let stations = at("caravan_station");
+        assert!(!markets.is_empty(), "no market on a road inside the catchment: {:?}", r.funnel("market_site"));
+        assert!(!stations.is_empty(), "no station on the far road: {:?}", r.funnel("caravan_station"));
+        for (x, y) in &markets {
+            assert_eq!(*y, 32, "a market left way A for the track at y = 36");
+            assert!((14..=17).contains(x), "a market at x = {} is outside way A", x);
+        }
+        for (x, y) in &stations {
+            assert_eq!(*y, 32, "a station left way C for the track at y = 36");
+            assert!((31..=34).contains(x), "a station at x = {} is outside way C", x);
+        }
+    }
+
+    /// **A junction is where a branch leaves a trunk, and nowhere else.** One
+    /// T on a flat map: 41 cells of trunk and 23 of branch, and exactly one
+    /// cell carrying both. [`JUNCTION_MIN_WAYS`] at `1` would make every one
+    /// of the 63 a junction; at `3` it would find none.
+    #[test]
+    fn a_road_junction_is_the_one_cell_two_ways_share() {
+        let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
+        let field = flat(gw, gh);
+        let sites = vec![LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
+        let ways = vec![
+            straight((20, 32), (60, 32), crate::WayType::Road),
+            straight((40, 32), (40, 10), crate::WayType::Road),
+        ];
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.settlements = &sites;
+        inp.ways = &ways;
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let r = generate(&inp, &s, 3);
+        let junctions: Vec<(usize, usize)> =
+            r.landmarks.iter().filter(|l| l.kind == "road_junction").map(|l| (l.x, l.y)).collect();
+        assert_eq!(
+            junctions,
+            vec![(40, 32)],
+            "the T's own crossing is the only junction on this map: {:?}",
+            r.funnel("road_junction")
+        );
+        // And the funnel must say the other 62 road cells were road, not
+        // junction — the `1` mutant's tell.
+        let f = r.funnel("road_junction").unwrap();
+        assert!(f.rejected_constraint >= 60, "road cells not counted as road: {:?}", f);
+    }
+
+    /// The three flow lines the way-graph kinds draw on one channel, pinned
+    /// against a hand-built hydrology so each is a number rather than a
+    /// hope: **4x** the channel-initiation threshold is a Ford, **10x** is a
+    /// Bridge site, and only **30x** — over
+    /// [`DEPOT_NAVIGABLE_FLOW_MULT`]'s 20 — puts a Trade depot on the bank.
+    #[test]
+    fn ford_bridge_and_depot_split_one_road_by_how_much_water_it_meets() {
+        let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
+        let field = flat(gw, gh);
+        let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, width_km);
+        let mut chan = vec![0u8; gw * gh];
+        let mut flow = vec![0f32; gw * gh];
+        // Three north-south channels, at 4x, 10x and 30x the threshold.
+        for (x, mult) in [(40usize, 10.0f64), (60, 4.0), (80, 30.0)] {
+            for y in 0..gh {
+                chan[y * gw + x] = 1;
+                flow[y * gw + x] = (thresh * mult) as f32;
+            }
+        }
+        let sites = vec![LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
+        let ways = vec![
+            straight((30, 32), (90, 32), crate::WayType::Road),
+            // A track reaching the same navigable water. A bridge is still a
+            // bridge on it — spanning the river is a physical fact — but no
+            // depot, because [`TRADE_MIN_WAY_RANK`] says a track carries no
+            // trade to tranship.
+            straight((70, 40), (90, 40), crate::WayType::Track),
+        ];
+        let mut inp = LandmarkInputs::new(&field, gw, gh, SEA, false, width_km);
+        inp.channel = Some(&chan);
+        inp.flow = Some(&flow);
+        inp.settlements = &sites;
+        inp.ways = &ways;
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+        let r = generate(&inp, &s, 3);
+        let at = |k: &str| -> Vec<(usize, usize)> {
+            r.landmarks.iter().filter(|l| l.kind == k).map(|l| (l.x, l.y)).collect()
+        };
+
+        let fords = at("ford");
+        assert!(!fords.is_empty(), "the 4x channel produced no ford: {:?}", r.funnel("ford"));
+        for (x, _) in &fords {
+            assert_eq!(*x, 60, "a ford on a channel too big to wade");
+        }
+
+        let mut bridges = at("bridge_site");
+        bridges.sort_unstable();
+        assert_eq!(
+            bridges,
+            vec![(40, 32), (80, 32), (80, 40)],
+            "one bridge per unwadeable crossing, on the track as well as the road"
+        );
+
+        let depots = at("trade_depot");
+        assert!(!depots.is_empty(), "no depot beside the 30x channel: {:?}", r.funnel("trade_depot"));
+        for (x, y) in &depots {
+            assert_eq!(*y, 32, "a depot on the track at y = 40 — a track carries no trade");
+            assert!(
+                *x == 79 || *x == 81,
+                "a depot at x = {} — only the 30x channel is navigable, and the bank is not the crossing",
+                x
+            );
+        }
+    }
+
+    /// [`WayGrid`] counts **distinct polylines**, not stroke pixels — the
+    /// claim `road_junction`'s old `not_built` reason made a condition of
+    /// being built at all. Pinned on a way that doubles back through one cell:
+    /// it must count once, and a second way through it must count twice.
+    #[test]
+    fn a_way_grid_counts_polylines_and_not_pixels() {
+        let way = |pts: Vec<(f64, f64)>, t: crate::WayType, hidden: bool| crate::Way {
+            tid: 0,
+            pts,
+            brks: Vec::new(),
+            km: 0.0,
+            name: String::new(),
+            way_type: t,
+            a_idx: 0,
+            b_idx: 1,
+            hidden,
+        };
+        // One way that leaves cell (2,2), turns around and comes back.
+        let doubling = way(
+            vec![(2.5, 2.5), (6.5, 2.5), (2.5, 2.5)],
+            crate::WayType::Track,
+            false,
+        );
+        let g = WayGrid::build(std::slice::from_ref(&doubling), 8, 8, false);
+        assert_eq!(g.ways_here[2 * 8 + 2], 1, "one polyline counted twice");
+        assert_eq!(g.rank[2 * 8 + 2], 0, "a track is rank 0");
+        // A second, busier way through the same cell counts separately and
+        // raises the rank; a hidden third is not on the map and counts not at
+        // all.
+        let g = WayGrid::build(
+            &[
+                doubling.clone(),
+                way(vec![(2.5, 0.5), (2.5, 6.5)], crate::WayType::Highway, false),
+                way(vec![(2.5, 0.5), (2.5, 6.5)], crate::WayType::Highway, true),
+            ],
+            8,
+            8,
+            false,
+        );
+        assert_eq!(g.ways_here[2 * 8 + 2], 2, "two visible ways, and only two");
+        assert_eq!(g.rank[2 * 8 + 2], 3, "the busiest way on the cell sets the rank");
     }
 
     /// **The whole justification for closing `rock_formation`'s `not_built`

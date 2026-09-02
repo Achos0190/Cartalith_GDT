@@ -2094,6 +2094,51 @@ func civ_recompute() -> Dictionary:
 	mark_world_dirty()
 	return world_gen.recompute_civilisation()
 
+## The other four re-entrant civ stages (`LARGE_ITEM_RULINGS.md`, owner
+## 2026-08-31: "five re-entrant `#[func]`s over an existing world"). Every one
+## of them carries the same two guards `civ_recompute` above does and for the
+## same reasons -- a missing binding in an older extension, and the worker
+## thread holding `world_gen` mid-generation -- so they are written the same
+## way rather than each inventing its own refusal shape.
+##
+## `civ_populate` and `civ_auto_routes` return `civ_recompute`'s dictionary
+## (`ok`/`ms`/`settlements`/`ways`/`provinces`/`recomputed`/`still_stale`/
+## `reason`). The two clear operations return counts of what they removed and
+## cannot fail, so they answer with zeroes rather than an `ok` flag.
+func civ_populate() -> Dictionary:
+	if not _has("civ_populate"):
+		return {"ok": false, "reason": "This build's extension has no civ_populate."}
+	if generating:
+		return {"ok": false, "reason": "A generation or landmark pass is still running."}
+	mark_world_dirty()
+	return world_gen.civ_populate()
+
+func civ_auto_routes() -> Dictionary:
+	if not _has("civ_auto_routes"):
+		return {"ok": false, "reason": "This build's extension has no civ_auto_routes."}
+	if generating:
+		return {"ok": false, "reason": "A generation or landmark pass is still running."}
+	mark_world_dirty()
+	return world_gen.civ_auto_routes()
+
+func civ_clear_places() -> Dictionary:
+	if not _has("civ_clear_places") or generating:
+		return {}
+	mark_world_dirty()
+	return world_gen.civ_clear_places()
+
+func civ_clear_ways() -> Dictionary:
+	if not _has("civ_clear_ways") or generating:
+		return {}
+	mark_world_dirty()
+	return world_gen.civ_clear_ways()
+
+func civ_clear_territory() -> Dictionary:
+	if not _has("civ_clear_territory") or generating:
+		return {}
+	mark_world_dirty()
+	return world_gen.civ_clear_territory()
+
 ## `GUI_GAP_REGISTER.md` SG-01: which pipeline stages are stale right now, and
 ## why -- read straight off the engine's own `StageGraph`, so this is the real
 ## dirty state and not a flag this script keeps in parallel.
@@ -2174,6 +2219,15 @@ func civ_faction_terrain_fits() -> Array:
 	if not _has("civ_faction_terrain_fits"):
 		return []
 	return world_gen.civ_faction_terrain_fits()
+
+## `OUTSTANDING_WORK.md` §2.3's "`_civFactionAggregates`' resource- and
+## density-fed half, as a *surfaced* readout". Two full-grid passes on the
+## engine side (see the `#[func]`'s own doc), so this is a category-open call,
+## never a per-frame one.
+func civ_faction_economy() -> Array:
+	if not _has("civ_faction_economy"):
+		return []
+	return world_gen.civ_faction_economy()
 
 ## CIVIL ▸ Military (`GUI_GAP_REGISTER.md` CV-25). `{"factions": [...],
 ## "settlements": [...]}` -- per-faction military power and fortification
@@ -2477,6 +2531,64 @@ func export_geojson() -> String:
 	if not _has("export_geojson"):
 		return ""
 	return world_gen.export_geojson()
+
+
+# label_bridge/generate.rs -- CARTO's generated labelling pass
+# (LARGE_ITEM_RULINGS.md, owner ruling 2026-08-31, all three steps).
+#
+# None of the four below marks the world dirty except `label_set_class`, and
+# the asymmetry is the point: only the class field is written into the project
+# archive (`project_bridge.rs`'s LabelDto). The generated run and the class
+# typography table are derived from the world and are rebuilt on demand, so
+# refreshing them must not make an untouched project look edited.
+
+## The five label classes, their type specs (size/halo/tracking/italic/ink) and
+## the three slider domains. Available before any generate() -- it is a design
+## table, not world data. `{}` on a cdylib that predates the binding, which
+## every caller must read as "draw the panel's own fallback", not as "no
+## classes exist".
+func label_class_table() -> Dictionary:
+	if not _has("label_class_table"):
+		return {}
+	return world_gen.label_class_table()
+
+## Run the pass and retain it. `options` is documented on the Rust side; every
+## key is optional and an absent one keeps the last run's value.
+func labels_generate(options: Dictionary) -> Dictionary:
+	if not _has("labels_generate"):
+		return {}
+	return world_gen.labels_generate(options)
+
+## The last run's per-class counts without re-running it. `[]` before the first
+## run -- which the panel draws as `--`, not as `0`.
+func labels_generated_counts() -> Array:
+	if not _has("labels_generated_counts"):
+		return []
+	return world_gen.labels_generated_counts()
+
+## Everything the map should draw: the generated run first, hand-placed labels
+## over it, each row carrying its class's resolved type spec.
+##
+## Falls back to `label_list()` rather than to `[]` on an older cdylib: losing
+## the generated pass is a degrade, losing the user's own labels is a defect.
+func labels_render_list() -> Array:
+	if not _has("labels_render_list"):
+		return label_list()
+	return world_gen.labels_render_list()
+
+## One hand-placed label's class key, or `""` out of range / on an older
+## cdylib -- which the panel resolves to the design's own default class.
+func label_class_of(index: int) -> String:
+	if not _has("label_class_of"):
+		return ""
+	return world_gen.label_class_of(index)
+
+## Reclass one hand-placed label. Writes a saved field, so it dirties.
+func label_set_class(index: int, key: String) -> bool:
+	if not _has("label_set_class"):
+		return false
+	mark_world_dirty()
+	return world_gen.label_set_class(index, key)
 
 
 # label_bridge.rs

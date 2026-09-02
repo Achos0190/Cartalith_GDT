@@ -34,8 +34,23 @@ insertions(+), 10 481 deletions(-)** — the same uncommitted working tree the
 cites was opened fresh today; none of the 2026-08-31 cut's file:line pairs
 were trusted forward.
 
+**Correction, 2026-09-02: no longer true.** That tree is committed now —
+`4ec07f5` (urban milestones 8-15, the Vulkan/DX12 answer, `_civPlaceSmelting`/
+`_civSaltAccess`) and `cff1edc` (crater/volcano/hillslope physics, urban
+milestone 16-17, the Vault SAF provider, four right-dock contexts,
+`_civPlaceTrade`, `deny.toml`) — so every row this document calls closed
+above is real history on `main`'s ancestry, not staged work. `git status` at
+this cut shows one uncommitted file, `crates/cartalith-civ/src/landmark.rs`
+(+252/-16): a different lane's in-flight work threading the routed way
+network into five new landmark kinds
+(`road_junction`/`bridge_site`/`market_site`/`caravan_station`/`trade_depot`).
+Checked and excluded: none of those five names, nor anything else in that
+diff, appears in any row of this document.
+
 **The headline change: 75 → 23 open rows, then 22 after a same-day second
-pass, then 21 after a same-day third pass.** The 2026-08-31 cut's own count —
+pass, then 21 after a same-day third pass — and still 21 after a fourth pass
+the next day (2026-09-02), which closed nothing but corrected two rows and
+found one new dangerous-class entry.** The 2026-08-31 cut's own count —
 stated honestly in its own text — was 75, not the 77 its header printed,
 because two rows (State religion, `_refresh_phone_bar_lit()`) were already
 closed in-audit when that cut was written. Re-opening every one of those 75
@@ -66,6 +81,27 @@ rows against today's tree:
 > as part of reconciling `OUTSTANDING_WORK.md` §2.3's journey/route cluster;
 > see the Closed table below for the evidence. The table above reflects it;
 > the "Open now" column elsewhere is the first cut's, unchanged.
+>
+> **Fourth pass, next day (2026-09-02), against HEAD `cff1edc`.** Re-opened
+> all 21 open rows plus the dangerous-class entry at their cited symbols,
+> against a tree where the previous cut's own giant diff is now committed
+> history (see the correction above). **Zero rows closed outright — the
+> count holds at 21 (1/3/17).** Two things changed: **(1)** the right-dock
+> Medium row is narrower than stated — `cff1edc` landed four more
+> tool-arm-driven dock contexts (paint/stops/anno/territory), so most tools
+> now push dock content on arming by hand-written precedent, just not
+> through a general mechanism; see that row and Owner question 1, both
+> updated below. **(2)** the Settlement diagnostics overlay Large row's own
+> tooltip went from true to false in exactly the way §b is built to catch:
+> it still cites "urban milestones 9, 10 and 13" as its blocker, and all
+> three shipped in `4ec07f5`. **1 new dangerous-class row, not carried
+> forward from any prior cut** — see the dangerous class section and its
+> own Large-table entry, both updated below. Several `file:line` citations
+> across every tier had drifted (a moved binding at `engine_bridge.gd:2554`,
+> not `:2486`; five workspace scripts now live under `shell/workspaces/`
+> rather than `shell/` — cited here by basename only, per this document's
+> own convention, so that move costs nothing) and are refreshed in place
+> without a separate log; none changed a row's substance.
 
 Every trivial and small row is closed except one (`label_glyph_layout`, still
 partly open — see below); every medium row is closed except three, each with
@@ -81,6 +117,12 @@ fixed outright in the first cut, 1 was already a deliberately-disclosed
 non-defect kept for contrast, and the remaining 2 — both symptoms of Paint
 brush falloff — closed in the same-day second pass, verified against the
 code rather than the report. **0 genuinely dangerous rows remain.**
+
+**Addendum, 2026-09-02: no longer current.** Re-verifying all 21 open rows
+against `cff1edc` found one new false reason that did not exist at the
+2026-09-01 cut, because the milestones it now falsely blames had not landed
+yet at that point. **1 genuinely dangerous row stands, not 0** — see the
+dangerous class section below.
 
 **Method.** Every row below was re-opened at its cited symbol, not its old
 line number — line numbers had already drifted inside single days on this
@@ -123,7 +165,7 @@ Every trivial row from the 2026-08-31 cut is fixed in the working tree.
 
 | Item | Where (`file:line`) | Current state | Size |
 |---|---|---|---|
-| `label_glyph_layout` is re-implemented in GDScript | `map_overlay.gd:450-492`; binding `engine_bridge.gd:2486` | **Partly closed, and re-scoped honestly rather than left stale.** The minimum the 2026-08-31 proposal allowed for — pin the three constants with a comment naming `labels.rs` — is done: `ARC_STRAIGHT_THRESHOLD`, the `1.2` radius floor and the `2.2` spread divisor are now named constants, checked against `labels.rs:150,176`. The full fix (call the binding once per label) is still not done, and the comment explains why in more depth than before: `map_overlay.gd` has no bridge handle to call through (a `viewport_host.gd` decision, not this file's), **and** a second, previously-unstated reason — this file's own px-per-cell font-sizing model differs from the engine's `label_font_size`, so swapping the loop for the binding would silently reshape every arched label, not just relocate arithmetic. **New, named 2026-09-01:** this unreconciled pair already costs something observable — `label_box_at`/`label_handles` (the resize/rotate/arc drag handles `cartography_workspace.gd` hit-tests) size themselves off the engine's `label_font_size`, while the glyph the user sees is sized by this file's own model. The fix direction is named (feed this file's px-per-cell into `LabelViewEnv` so the two models produce the same number, then delete the local copy) but is explicitly left undone rather than half-done. | small |
+| `label_glyph_layout` is re-implemented in GDScript | `map_overlay.gd:450-492`; binding `engine_bridge.gd:2554` (drifted from `:2486`, re-verified 2026-09-02; `map_overlay.gd`'s own citation is unmoved) | **Partly closed, and re-scoped honestly rather than left stale.** The minimum the 2026-08-31 proposal allowed for — pin the three constants with a comment naming `labels.rs` — is done: `ARC_STRAIGHT_THRESHOLD`, the `1.2` radius floor and the `2.2` spread divisor are now named constants, checked against `labels.rs:150,176`. The full fix (call the binding once per label) is still not done, and the comment explains why in more depth than before: `map_overlay.gd` has no bridge handle to call through (a `viewport_host.gd` decision, not this file's), **and** a second, previously-unstated reason — this file's own px-per-cell font-sizing model differs from the engine's `label_font_size`, so swapping the loop for the binding would silently reshape every arched label, not just relocate arithmetic. **New, named 2026-09-01:** this unreconciled pair already costs something observable — `label_box_at`/`label_handles` (the resize/rotate/arc drag handles `cartography_workspace.gd` hit-tests) size themselves off the engine's `label_font_size`, while the glyph the user sees is sized by this file's own model. The fix direction is named (feed this file's px-per-cell into `LabelViewEnv` so the two models produce the same number, then delete the local copy) but is explicitly left undone rather than half-done. | small |
 
 ### Closed
 
@@ -162,9 +204,9 @@ Every trivial row from the 2026-08-31 cut is fixed in the working tree.
 
 | Item | Where (`file:line`) | Current state | Size |
 |---|---|---|---|
-| `statusMid` composite | `app.gd:698-720`; `dcc_shell.gd:3231-3237` | **~90% built, one field genuinely blocked.** Stage name (last `resolved` stage), pass duration and autosave state are all live and correct. `repaint NN ms` remains deliberately absent — the code says so at its own call site — because this shell composites through `ViewportHost` + `map_overlay.gd` + overlays with no single-pass timer to read, and the prototype's one-canvas-pass model doesn't transfer. **Still blocked on Owner question 2.** | medium |
-| The right dock does not follow the armed tool (`rdExtraMode()`) | `right_dock.gd:554-570` | Unchanged: `_dispatch()` still keys off `_context` (a selection event), not the armed tool. **Still blocked on Owner question 1** — merging the two naively flips the dock away from a selected settlement the instant a tool arms, and no ruling has resolved which model wins. | medium |
-| Previews re-upload the whole texture | `pass.rs:193,199`; consumer `lib.rs:5895-5925` | **Investigated and honestly declined for this pass, not silently skipped.** The doc at the sculpt/paint preview's own binding now explains in detail why a bounded preview needs `render.rs`'s AO/wetness/sea passes reworked to run over a caller-supplied window — real surgery on code `golden_parity_render.rs` pins bit-for-bit — and says explicitly that restricting only the final pixel loop "would shrink the returned image without touching the dominant cost, which would be a cosmetic optimisation reported as a real one." Correctly left for a dedicated live-preview pass rather than half-built here. | medium |
+| `statusMid` composite | `app.gd:739-791` (drifted from `:698-720`); `dcc_shell.gd:3231-3237` (unmoved) | **~90% built, one field genuinely blocked.** Stage name (last `resolved` stage), pass duration and autosave state are all live and correct. `repaint NN ms` remains deliberately absent — the code says so at its own call site — because this shell composites through `ViewportHost` + `map_overlay.gd` + overlays with no single-pass timer to read, and the prototype's one-canvas-pass model doesn't transfer. **Still blocked on Owner question 2.** | medium |
+| The right dock does not follow the armed tool (`rdExtraMode()`) | `right_dock.gd:688-712` (`_dispatch()`); `:506-572` (the per-tool `show_*`/`leave_*_context()` pairs) | **Narrower than stated, re-checked 2026-09-02.** The structural claim still holds: `_dispatch()` keys off one `_context` field, with no general "follow the armed tool" mechanism. But `cff1edc` landed four more tool-arm-driven contexts (`show_paint`, `show_stops`, `show_anno`, `show_territory` — each called from its owning workspace's own tool-armed handler) alongside the pre-existing Sculpt/Journey pair, so most of `UNIFIED_TOOL_PLAN.md`'s ten tools now push dock content on arming. Each call site hand-decides whether that overrides a live selection (`leave_sculpt_context()`/`leave_paint_context()` reset only from their own context, documented as deliberate). That is a real, working answer to the practical worry Owner question 1 raised — arming any of these four tools does override a selected settlement, and nothing has broken — just precedent rather than the generic `rdExtraMode()` binding this row asked for. **Owner question 1 itself is still open**: no ruling records "tool wins, per call site" as the adopted model, so the next tool added still has to guess which way to fall. | medium |
+| Previews re-upload the whole texture | `pass.rs:193,199` (unmoved); consumers `lib.rs:6128-6179` (sculpt, drifted from `:5895-5925`), `:7000-7023` (paint) | **Investigated and honestly declined for this pass, not silently skipped. Re-verified 2026-09-02, unchanged in substance.** `build_sculpt_preview_texture`'s own doc explains in detail why a bounded preview needs `render.rs`'s AO/wetness/sea passes reworked to run over a caller-supplied window — real surgery on code `golden_parity_render.rs` pins bit-for-bit — and says explicitly that restricting only the final pixel loop "would shrink the returned image without touching the dominant cost, which would be a cosmetic optimisation reported as a real one." **New: `build_paint_preview_texture`'s own doc argues paint doesn't need this at all** — its preview is a flat per-cell colour lookup with no derived whole-grid rasters underneath (no AO/wetness/hillshade), so the cost a bounded variant would save is "negligible" there, unlike sculpt's. Correctly left for a dedicated live-preview pass rather than half-built here. | medium |
 
 ### Closed
 
@@ -197,40 +239,53 @@ was the 59 trivial/small/medium rows. **That remains true today for 16 of the
 | Item | Where (`file:line`) | Proposal / ruling | State |
 |---|---|---|---|
 | **Paint brush falloff** | `cartalith-spatial/src/paint.rs:143-320`; `paint_bridge.rs:38-65,219-466`; UI `world_workspace.gd:2098-2106`; `tool_bar.gd:433-442`; `DECISIONS.md` §7k | Ruled: **bind it** — a deliberate, disclosed divergence from the reference, recorded in `DECISIONS.md` when it lands. | **Fully built and verified, second pass 2026-09-01.** `PaintStamp::hardness`/`softness` (`paint.rs:143-144`), the `with_falloff` builder (`:180`), `feather_width` (`:199`), `passes_falloff` (`:219`) and `cell_dither` (`:249`) all exist and are exercised by `Stamp::apply` (`:299-319`). `paint_bridge.rs::stroke_at` (`:466`) calls `.with_falloff(self.brush.hardness, self.brush.softness)` on every dab. `DECISIONS.md` §7k records the divergence as ruled. The duplicate slider is resolved: `tool_bar.gd:433-442` deletes its copy in favour of `world_workspace.gd`'s, which carries both Hardness (`:2103`) and Softness (`:2105`) with tooltips naming the real mechanism. Verified independently, not carried from the report: `cargo test -p cartalith-spatial --lib` (148/148, 4 new), `--test golden_parity_paint` (7/7, unchanged — the hard-disc reference case is bit-identical), `cargo test -p cartalith-godot --lib` (409/409, 6 pre-existing ignores, 3 new tests) after a fresh `cargo build -p cartalith-godot` (the dll was stale against exactly these files), `cargo test -p cartalith-civ --lib` (513/513, proving the territory brush's separate `PaintStamp::ungated` use is unaffected), `cargo check --workspace` clean, and `--headless --check-only` clean on all four touched `.gd`/`.rs`-adjacent scripts. **One disclosed residual, not this row's to close:** `lib.rs:6704-6705`'s `paint_set_brush` doc comment still says hardness/softness are "never consumed" — confirmed still present, now stale, owned by whoever next touches `lib.rs`. |
-| **Landmark funnel: crowding and rejected candidates** | `landmark.rs:475-524,580-646`; UI `civilization_workspace.gd:2059-2068,2589-2607` | Ruled **both halves**: a crowding parameter on the placement pass, plus a rejected-candidate coordinate list and an overlay layer. | **Half built.** `LandmarkSettings::crowding` is fully live: clamped `[0.05, 3.0]`, scales every class's exclusion radius, tested (`crowding_higher_packs_tighter`, NaN/zero guarded), and driven by a real, wired `Crowding` slider (0.25×–2.00×) with a live km-clear readout — not a `_todo`. **Not built:** `LandmarkFunnel` still carries counts only (`candidates, rejected_constraint, rejected_score, rejected_spacing, rejected_cap, cap, placed`), no coordinates. "Lower crowding to fit" and "Show rejected" stay disabled with accurate, current reasons naming exactly what's missing. |
+| **Landmark funnel: crowding and rejected candidates** | `landmark.rs:475-524,580-646` (unmoved — the uncommitted way-network landmark-kind work in this file inserts only after line 646); UI `civilization_workspace.gd:2183-2192,2728-2740` (drifted from `:2059-2068,2589-2607`) | Ruled **both halves**: a crowding parameter on the placement pass, plus a rejected-candidate coordinate list and an overlay layer. | **Half built, re-verified 2026-09-02 — unchanged.** `LandmarkSettings::crowding` is fully live: clamped `[0.05, 3.0]`, scales every class's exclusion radius, tested (`crowding_higher_packs_tighter`, NaN/zero guarded), and driven by a real, wired `Crowding` slider (0.25×–2.00×) with a live km-clear readout — not a `_todo`. **Not built:** `LandmarkFunnel` still carries counts only (`candidates, rejected_constraint, rejected_score, rejected_spacing, rejected_cap, cap, placed`), no coordinates. "Lower crowding to fit" and "Show rejected" stay disabled `Callable()` chips with accurate, current reasons naming exactly what's missing. |
 
 The other 16, re-verified rather than assumed unchanged:
 
 | Item | Where (`file:line`) | Proposal / ruling | Size |
 |---|---|---|---|
-| `Cut` · `Copy` · `Paste` · `Select all` | `menus.gd:686-708,717-721` | Ruled: selection sets → clipboard → commands, in that order. Still `_todo`; still three unrelated single-`i64` selections (`icon_get_selected`, `label_get_selected`), still no clipboard model. Reasons verified current and true. | large |
-| CARTO ▸ Labels: the whole panel | `cartography_workspace.gd:1118-1294` | Ruled: all three steps (label_class field; a generated labelling pass; a per-class typography record). No `label_class` symbol exists anywhere in `crates/` (checked repo-wide). Panel still reads counts as `--`, sliders still `_dead_slider`. | large |
-| Label collision culling | `cartography_workspace.gd:1249-1255` | Ruled: build with the labelling pass, not standalone. Toggle still drawn checked-and-disabled with the true reason ("label boxes are never measured against each other"). | large |
-| CARTO ▸ Icons: generated placement | `cartography_workspace.gd:1377-1412` | Ruled: build, plus a new sea-marks asset family (answers owner question 4). No generated placement pass exists; `_icon_placement_family` is still read-only; the sea-marks family is not in `ICON_FAMILIES`. | large |
-| The river entity | `right_dock.gd:930-987` | Ruled: one `get_rivers()` binding plus viewport hit-testing. Still zero `get_rivers`/`river_*` in `cartalith-godot`; still unreachable (nothing in the viewport can select a river — confirmed again this cut, see "Left undetermined" below). The dock's own note and all seven dashed fields were rewritten 2026-09-01 for accuracy (correcting an over-claim that *no* river data crosses the boundary — per-cell Strahler order and discharge do), but the entity itself, and therefore this row, is unchanged. | large |
-| Civilisation authoring operations | `civilization_workspace.gd:1362-1378`; `infrastructure_workspace.gd` (roads) | Ruled: five re-entrant `#[func]`s over an existing world, plus a civ `PARAMS` group. All five (`civ_clear_territory`, `civ_populate`/Auto-populate, `civ_clear_places`, road generate/clear) remain `func(): pass` + disabled; no such symbols exist anywhere in `cartalith-godot`. **The single largest CIVIL gap, unchanged.** | large |
-| Settlement diagnostics overlay | `civilization_workspace.gd:1368-1378` | Ruled: surface the data now — no Cargo edit needed, `cartalith-urban` is already reached through `urban_adapter`. The control is still `func(): pass` + disabled, but its reason is now precise rather than the stale "no consumer at all": it names exactly which of the reference card's fields are available (2 of 5: footprint size, wall rung) versus blocked on urban milestones 9/10/13. The *ruling* — surface what exists — has not yet been executed in this control. | large |
-| The 3D viewport | `menus.gd:1754-1756` | Ruled: **deferred**, research first. `3D_TERRAIN_RENDER_RESEARCH.md` (1 530 lines) exists, complete, per `LARGE_ITEM_RULINGS.md`; three commissioned questions parked. No 3D work scheduled — correctly still absent (`grep` for `Camera3D`/`MeshInstance3D` in `shell/` and `.tscn` files: nothing). | large |
-| Colour management | `menus.gd:1754-1755` | Ruled: **build it**, behind an sRGB-identical default or a deliberate re-baseline. Still `_todo`, same reasoning as before the ruling ("The renderer is sRGB-only end to end... A three-row radio that always resolves to sRGB is exactly the enabled-and-inert row this menu forbids"). No colour-space symbol anywhere in `lib.rs`. | large |
-| `Region ▸ New world from selection` | `ops_bridge.rs:1-28` | Ruled: a scoped parity pass, kept separate from GUI work. `extract_region_as_world` still has no `#[func]` and no menu row; `ops_bridge.rs`'s own doc still lists it first among ported-and-unexposed capability. Correctly untouched. | large |
-| Saved measurements + CSV | `right_dock.gd:1285-1299` | Ruled: fold into the caller-owned save slots as a fifth. The other four slots were built this pass (see Medium, closed); **this fifth was not added** — no measurement-store slot exists in `project_bridge.rs`'s four `SLOT_*` constants. Copy-as-TSV remains the only export. | large |
-| The manual-icon tool | `manual.rs` (`icon_brush_rule`, `icon_brush_stamp`); `ops_bridge.rs:1-8` | Ruled: schedule separately as `UNIFIED_TOOL_PLAN.md` Milestone E. Still correctly untouched — no icon-brush arming anywhere in `shell/` (repo-wide check). | large |
-| Rebindable keyboard shortcuts | `menus.gd:1901-1907` | Ruled: a per-context table in `DccSettings` with conflict detection. `_todo` unchanged; `Help ▸ Keyboard shortcuts…` is still read-only; no per-context store exists. | large |
-| `Units` (km / mi) | `menus.gd:1899-1900` | Ruled: build, plus nautical miles as a third unit. `_todo` unchanged; still km-only at all five call sites the reason names. | large |
-| CPU worker threads | `menus.gd:1714-1721` | Ruled: build a configurable pool. `_todo` unchanged; `ThreadPoolBuilder` still appears nowhere in the workspace outside one benchmark printout. | large |
-| `Report an issue` | `menus.gd:3545-3555` | Ruled: replace with a local diagnostic-dump action (no endpoint needed). Still the original `_todo`, unchanged — even though three of the five readouts the replacement would bundle (format version, missing-bindings fingerprint, generation info) were built this pass as Trivial rows and are sitting right there to be reused. | large |
+| `Cut` · `Copy` · `Paste` · `Select all` | `menus.gd:686-691,707-710` (drifted from `:686-708,717-721`) | Ruled: selection sets → clipboard → commands, in that order. Still `_todo`; still three unrelated single-`i64` selections (`icon_get_selected`, `label_get_selected`), still no clipboard model. Reasons verified current and true, 2026-09-02. | large |
+| CARTO ▸ Labels: the whole panel | `cartography_workspace.gd:1217-1338` (drifted from `:1118-1294`, and the file moved under `shell/workspaces/`) | Ruled: all three steps (label_class field; a generated labelling pass; a per-class typography record). No `label_class` symbol exists anywhere in `crates/` (re-checked repo-wide, 2026-09-02). Panel still reads counts as `--`, sliders still `_dead_slider`. | large |
+| Label collision culling | `cartography_workspace.gd:1285-1298` (drifted from `:1249-1255`) | Ruled: build with the labelling pass, not standalone. Toggle still drawn checked-and-disabled with the true reason ("label boxes are never measured against each other"). | large |
+| CARTO ▸ Icons: generated placement | `cartography_workspace.gd:1359-1428` (drifted from `:1377-1412`) | Ruled: build, plus a new sea-marks asset family (answers owner question 4). No generated placement pass exists; `_icon_placement_family` is still read-only; the sea-marks family is not in `ICON_FAMILIES` (still 3: settlement/feature/poi). | large |
+| The river entity | `right_dock.gd:1072-1122` (drifted from `:930-987`) | Ruled: one `get_rivers()` binding plus viewport hit-testing. Still zero `get_rivers`/`river_*` in `cartalith-godot` (re-checked 2026-09-02); still unreachable (nothing in the viewport can select a river — see "Left undetermined" below). The dock's own note and all seven dashed fields were rewritten 2026-09-01 for accuracy (correcting an over-claim that *no* river data crosses the boundary — per-cell Strahler order and discharge do), but the entity itself, and therefore this row, is unchanged. | large |
+| Civilisation authoring operations | `civilization_workspace.gd:1041-1043,1397-1404` (drifted from `:1362-1378`); `infrastructure_workspace.gd:1115-1122` (roads) | Ruled: five re-entrant `#[func]`s over an existing world, plus a civ `PARAMS` group. All five (`civ_clear_territory`, `civ_populate`/Auto-populate, `civ_clear_places`, road generate/clear) remain `func(): pass` + disabled; re-checked 2026-09-02, no such symbols exist anywhere in `cartalith-godot`. **The single largest CIVIL gap, unchanged** — landing urban milestones 8-17 (`4ec07f5`/`cff1edc`) touched none of these five; that work is settlement *layout*, not settlement *placement/clearing*. | large |
+| Settlement diagnostics overlay | `civilization_workspace.gd:1405-1415` (drifted from `:1368-1378`) | Ruled: surface the data now — no Cargo edit needed, `cartalith-urban` is already reached through `urban_adapter`. **Re-verified 2026-09-02: the control is unchanged (`func(): pass`, disabled), but its own tooltip is now the stale item — see the dangerous class below.** It still reads "blocked on urban milestones 9, 10 and 13" and "`_umSiteProfile` is unported because its own consumers are unbuilt." Both are false at HEAD `cff1edc`: `water.rs`/`fortify.rs`/`districts.rs` (m9/10/13) are built (STATUS.md UM-9/UM-10/UM-13 "done", 693/1288/1307 lines), and `urban_adapter.rs`'s own doc table (`:41-42`) now calls `um_site_profile`/`um_harbour_scale` **"ported,"** naming three of `_umSiteProfile`'s four one-time blockers as resolved — only a Settlement Inspector still doesn't exist. **The real blocker moved, it didn't close**: zero `#[func]` anywhere exposes `um_site_profile`/`um_harbour_scale`/a per-settlement wall rung (checked fresh); the one urban binding that does cross the boundary, `urban_layouts()` (`urban_bridge.rs:320`), returns a whole generated Town — walls, districts, markets, farmland — for the City Viewer, not this control's cheap three-line card. Settlements still carry no `specialisation` (unchanged, `urban_adapter.rs:1472`), and the third line's own gate, `_umModelCache`, stays out of scope for every milestone by the adapter's own design (`:45`) — unrelated to any milestone number. So the *ruling* — surface what exists — still has not been executed, and the honest next step is now "add a lightweight `#[func]` over the ported pure functions," not "wait for milestones 9/10/13." | large |
+| The 3D viewport | `menus.gd:1756-1757` (drifted from `:1754-1756`) | Ruled: **deferred**, research first. `3D_TERRAIN_RENDER_RESEARCH.md` (1 530 lines) exists, complete, per `LARGE_ITEM_RULINGS.md`; three commissioned questions parked. No 3D work scheduled — correctly still absent (`grep` for `Camera3D`/`MeshInstance3D` in `shell/` and `.tscn` files, re-run 2026-09-02: nothing). | large |
+| Colour management | `menus.gd:1754-1755` (unmoved) | Ruled: **build it**, behind an sRGB-identical default or a deliberate re-baseline. Still `_todo`, same reasoning as before the ruling ("The renderer is sRGB-only end to end... A three-row radio that always resolves to sRGB is exactly the enabled-and-inert row this menu forbids"). No colour-space symbol anywhere in `lib.rs`. | large |
+| `Region ▸ New world from selection` | `ops_bridge.rs:1-28` (unmoved) | Ruled: a scoped parity pass, kept separate from GUI work. `extract_region_as_world` still has no `#[func]` and no menu row; `ops_bridge.rs`'s own doc still lists it first among ported-and-unexposed capability. Correctly untouched (re-checked 2026-09-02). | large |
+| Saved measurements + CSV | `right_dock.gd:1435-1448` (drifted from `:1285-1299`) | Ruled: fold into the caller-owned save slots as a fifth. The other four slots were built in the 2026-09-01 pass (see Medium, closed); **this fifth was still not added, re-checked 2026-09-02** — `project_bridge.rs`'s `SLOT_*` constants now number sixteen (not four; twelve pre-existing entity/annotation slots plus the four this document tracked), and none of the sixteen is a measurement store. Copy-as-TSV remains the only export. | large |
+| The manual-icon tool | `manual.rs` (`icon_brush_rule:189`, `icon_brush_stamp:211`); `ops_bridge.rs:1-8` | Ruled: schedule separately as `UNIFIED_TOOL_PLAN.md` Milestone E. Still correctly untouched — no icon-brush arming anywhere in `shell/` (repo-wide check, re-run 2026-09-02). | large |
+| Rebindable keyboard shortcuts | `menus.gd:1902-1907` | Ruled: a per-context table in `DccSettings` with conflict detection. `_todo` unchanged; `Help ▸ Keyboard shortcuts…` is still read-only; no per-context store exists. | large |
+| `Units` (km / mi) | `menus.gd:1899-1900` (unmoved) | Ruled: build, plus nautical miles as a third unit. `_todo` unchanged; still km-only at all five call sites the reason names. | large |
+| CPU worker threads | `menus.gd:1720-1721` | Ruled: build a configurable pool. `_todo` unchanged; `ThreadPoolBuilder` still appears nowhere in the workspace outside one benchmark printout (re-checked 2026-09-02). | large |
+| `Report an issue` | `menus.gd:3554-3555` | Ruled: replace with a local diagnostic-dump action (no endpoint needed). Still the original `_todo`, unchanged — even though three of the five readouts the replacement would bundle (format version, missing-bindings fingerprint, generation info) were built in the 2026-09-01 pass as Trivial rows and are sitting right there to be reused. | large |
 
 ---
 
-## The dangerous class — 1 entry, down from 25
+## The dangerous class — 2 entries: 1 non-defect kept for contrast, 1 real
 
 A disabled row with an honest tooltip costs a user nothing. These cost them
 trust. **Re-verified at the code, not carried forward.** All 9 false-reason
-rows and all 9 misleading-presentation rows from the 2026-08-31 cut are now
-closed. Of the 7 enabled-and-inert rows, 6 closed (4 in the first cut, 2 —
-both Paint falloff symptoms — in the same-day second pass) and **1 was never
-a defect** and is kept in the table for contrast. **0 genuinely dangerous
-rows remain.**
+rows and all 9 misleading-presentation rows from the 2026-08-31 cut are still
+closed, re-checked rather than assumed. Of the 7 enabled-and-inert rows, 6
+closed (4 in the first cut, 2 — both Paint falloff symptoms — in the same-day
+second pass) and **1 was never a defect** and is kept in the table for
+contrast.
+
+**1 real, newly found this cut (2026-09-02) — not carried forward from any
+prior cut, because it did not exist yet.** Settlement diagnostics overlay's
+own tooltip (`civilization_workspace.gd:1405-1415`) names "urban milestones
+9, 10 and 13" and an unported `_umSiteProfile` as its blocker. Both are false
+at HEAD `cff1edc`: all three milestones shipped (`water.rs`/`fortify.rs`/
+`districts.rs`, landed `4ec07f5`), and `urban_adapter.rs`'s own doc table
+now marks `um_site_profile`/`um_harbour_scale` **"ported."** The control
+itself stays correctly disabled — see its own Large-table entry above for
+the corrected, narrower blocker (no `#[func]` exposes either function; the
+only urban binding, `urban_layouts()`, builds a whole Town, not this
+control's three-line card) — but the words a user reads blame milestones
+that no longer block anything. See §(b) below.
 
 ### (a) Drawn ENABLED, does nothing meaningful — 0 remain (6 closed, 1 kept as a documented non-defect)
 
@@ -242,22 +297,42 @@ rows remain.**
 | ~~`Preferences ▸ Theme` does not persist~~ | `dcc_settings.gd:361-372` | **Closed.** Persisted through `DccSettings.theme_mode()`/`set_theme_mode()`. | — |
 | ~~`Window ▸ Status bar` on phone~~ | `dcc_shell.gd:2117-2122` | **Closed.** Routed through `set_status_region_shown()`. | — |
 | ~~`Window ▸ Left/Right dock` and `Reset layout` on phone~~ | `app.gd:2727-2755` | **Closed.** Routed through `_set_sheet_open()`; `Reset layout` now closes both sheets on phone. | — |
-| CARTO ▸ Labels `Class` dropdown | `cartography_workspace.gd:1191-1216` | **Unchanged, and still not a defect.** Live and panel-local: repaints the class list, the title, and re-seats the three still-inert sliders on that class's design defaults. Writes nothing any renderer reads, and its own tooltip discloses that. Kept in the table for the same reason as last cut — it is the one control in this panel that costs the engine nothing and was deliberately left live so the frozen half reads as intentional. | low, disclosed |
+| CARTO ▸ Labels `Class` dropdown | `cartography_workspace.gd:1271-1276` (drifted from `:1191-1216`, re-verified 2026-09-02) | **Unchanged, and still not a defect.** Live and panel-local: repaints the class list, the title, and re-seats the three still-inert sliders on that class's design defaults. Writes nothing any renderer reads, and its own tooltip discloses that. Kept in the table for the same reason as last cut — it is the one control in this panel that costs the engine nothing and was deliberately left live so the frozen half reads as intentional. | low, disclosed |
 
-### (b) The stated reason is FALSE — 0 remain (9 of 9 closed)
+### (b) The stated reason is FALSE — 1 found (9 of 9 carried-forward still closed)
 
-Every row in this section from the 2026-08-31 cut now has a true reason,
-verified at the code: **State religion** (closed pre-cut, unchanged — reads
-the `roster` dict directly); **`pack.rs` painted layers** (module doc
-rewritten, names the real producer and the real remaining gap);
-**`_refresh_phone_bar_lit()`** (deleted, pre-cut, confirmed still gone);
-**`Window ▸ Domain rail` on phone** (`_rail_region` now points at exactly
-the three domain cells, not every `PHONE_TABS` cell); **the first-run coach
-mark** (rewritten against `PHONE_TABS`); **`No landmark types`** (reworded to
-a true stale-build reason); **the hero readout** (`fs_hero`/`fs_hero_2` are
-now consumed by `DccTheme.hero()`/`hero2()`); **tides** (split from geoid,
-correctly marked live); **the app-bar `⋮`** (built to the 2026-08-31 canvas's
-`hMenu` — Save project / Theme / Close world).
+Every row carried forward from the 2026-08-31 cut still has a true reason,
+re-verified at the code rather than assumed: **State religion** (closed
+pre-cut, unchanged — reads the `roster` dict directly); **`pack.rs` painted
+layers** (module doc rewritten, names the real producer and the real
+remaining gap); **`_refresh_phone_bar_lit()`** (deleted, pre-cut, confirmed
+still gone); **`Window ▸ Domain rail` on phone** (`_rail_region` now points
+at exactly the three domain cells, not every `PHONE_TABS` cell); **the
+first-run coach mark** (rewritten against `PHONE_TABS`); **`No landmark
+types`** (reworded to a true stale-build reason); **the hero readout**
+(`fs_hero`/`fs_hero_2` are now consumed by `DccTheme.hero()`/`hero2()`);
+**tides** (split from geoid, correctly marked live); **the app-bar `⋮`**
+(built to the 2026-08-31 canvas's `hMenu` — Save project / Theme / Close
+world).
+
+**Newly found, 2026-09-02: Settlement diagnostics overlay.** Its tooltip
+(`civilization_workspace.gd:1405-1415`) reads "blocked on urban milestones
+9, 10 and 13" and "`_umSiteProfile` is unported because its own consumers
+are unbuilt." Both are now false, not merely stale-flavoured: `water.rs`
+(m9, 693 lines), `fortify.rs` (m10, 1 288 lines) and `districts.rs` (m13,
+1 307 lines) are all built and committed (`4ec07f5`; `STATUS.md` UM-9/
+UM-10/UM-13 all "done"), and `urban_adapter.rs`'s own module-doc table
+(`:41-42`) calls `um_site_profile`/`um_harbour_scale` **"ported"** outright,
+naming three of `_umSiteProfile`'s four one-time blockers as now built —
+only a Settlement Inspector still doesn't exist. The control itself is
+unaffected: still `func(): pass`, still correctly disabled, since
+(re-checked fresh, not carried from any prior claim) zero `#[func]` anywhere
+exposes either function, and the one urban binding that does cross the
+boundary, `urban_layouts()`, builds a whole generated Town rather than this
+control's three-line card. So the disabling is still right — only the words
+explaining it are wrong. Not fixed here (`civilization_workspace.gd` is not
+this lane's file); recorded so the next pass corrects the string instead of
+re-deriving why it's disabled.
 
 ### (c) Reason true, but the presentation misleads — 0 remain (9 of 9 closed)
 
@@ -271,7 +346,7 @@ is tagged `(design figures)`; the viewshed note carries the owner's current
 formula; the landscape drag handle is hidden rather than left visible-and-
 inert; the disabled phone radios keep their mark; and — closed this cut,
 found by re-checking rather than assumed fixed alongside its siblings — **the
-three river Actions** (`right_dock.gd:966-987`) each now carry their own
+three river Actions** (`right_dock.gd:1103-1130`, drifted from `:966-987`, re-verified 2026-09-02) each now carry their own
 specific tooltip (Hydrology / Edit geometry / Analyse catchment, each naming
 a different missing binding) instead of one seven-word sentence repeated
 three times.
@@ -324,8 +399,13 @@ spot-checking a sample (`Undo depth 1-50`'s substitution note,
 ## Owner questions
 
 1. **Does `rdExtraMode()` replace the right dock's selection contexts, or sit
-   beside them?** **Still open.** Still blocks the right-dock Medium row
-   above; `_dispatch()` is unchanged.
+   beside them?** **Still formally open, narrower after `cff1edc`
+   (2026-09-02).** Four more tools (paint/stops/anno/territory) now push dock
+   content on arming, each by its own hand-written call-site judgment about
+   overriding a live selection — sitting beside, in practice, for most of
+   `UNIFIED_TOOL_PLAN.md`'s ten tools now. No ruling has generalised that
+   pattern into policy, so it is precedent rather than an answer the next
+   tool can rely on. See the right-dock Medium row above.
 2. **What should `statusMid`'s `repaint NN ms` measure?** **Still open.**
    Still the one field blocking full closure of the `statusMid` Medium row.
 3. **Should the WORLD left-dock A/B switch come back?** **Still open.** No
@@ -389,9 +469,10 @@ spot-checking a sample (`Undo depth 1-50`'s substitution note,
   undetermined — confirmed unreachable.** The code's own comment now states
   it plainly: "No `get_rivers()` exists and nothing in the viewport can
   select one ... this context has no live trigger today"
-  (`right_dock.gd:932-936`). Implemented anyway, for the same reason it was
-  before — `_dispatch()` stays complete and honest rather than silently
-  dropping the branch.
+  (`right_dock.gd:1074-1075`, drifted from `:932-936`, re-verified
+  2026-09-02 — same wording, same conclusion). Implemented anyway, for the
+  same reason it was before — `_dispatch()` stays complete and honest rather
+  than silently dropping the branch.
 - Landscape composition beyond the sheet handle. Not re-checked this cut.
 - Whether any `_todo` reason cites a `PARITY_AUDIT.md` section number that
   has since moved. Not re-checked this cut.

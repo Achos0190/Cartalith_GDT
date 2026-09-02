@@ -739,6 +739,27 @@ pub struct TerrainAppearance {
     /// Gain of the light curve — see `relief_ambient`.
     pub relief_gain: f64,
 
+    // ---- §16 (`TERRAIN_APPEARANCE_SCOPE.md`): multi-scale detail, as an
+    //      explicit control set (`OUTSTANDING_WORK.md` §2.5) ----
+    //
+    // `land_color` already blends three hillshade bands -- `ctx.macro_shade`,
+    // `ctx.meso_shade` and a per-pixel micro band synthesised from high-
+    // frequency `vnoise` jitter over the macro band -- into one `sh_combined`
+    // that drives the light curve. The three weights below were the hardcoded
+    // literals `0.40`/`0.40`/`0.20` in that blend; hoisting them here does not
+    // change what the blend computes; it exposes the same three numbers.
+    /// Weight of the **macro** band -- `ctx.macro_shade`, the broad relief
+    /// silhouette a multidirectional hillshade already computes.
+    pub detail_macro_weight: f64,
+    /// Weight of the **meso** band -- `ctx.meso_shade`, the same hillshade at
+    /// a smoothed/coarser scale, which is what keeps large landforms legible
+    /// once the macro band starts responding to per-cell noise.
+    pub detail_meso_weight: f64,
+    /// Weight of the **micro** band -- a per-pixel jitter of the macro band
+    /// by high-frequency coherent noise (`land_color`'s own `n_hi`), which is
+    /// what reads as fine surface grain rather than a smooth gradient.
+    pub detail_micro_weight: f64,
+
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
     /// `0.0` disables AO entirely (and skips its precompute); the
@@ -976,6 +997,31 @@ pub struct TerrainAppearance {
     /// reference's, since it is the sky it fades toward rather than a taste.
     pub haze_strength: f64,
 
+    // ---- §19 (`TERRAIN_APPEARANCE_RESEARCH.md`): atmospheric / distance
+    //      effects (`OUTSTANDING_WORK.md` §2.5) ----
+    //
+    // §19, in full: "far terrain: slightly lower contrast, slightly reduced
+    // saturation, increased atmospheric tint / near terrain: retain full
+    // material contrast... this should be optional for 2D cartographic maps.
+    // Do not impose a 3D-game aesthetic on the default Cartalith map." The
+    // third clause is `haze_strength` above, already reading a radial
+    // distance-from-plate-centre factor. These two read the identical
+    // factor -- there is no camera, so "far" is this plate-relative
+    // distance, exactly as `haze_strength` already treats it -- and supply
+    // the other two clauses research §19 named. Both `0.0` at rest: an
+    // *added* stage, not a retuned one, so the shipped look and every
+    // golden are unmoved until a caller asks for either.
+    /// Saturation lost at the plate edge, as a fraction of full desaturation
+    /// (`land_color`'s own [`saturate`] with `k = 1 - atmo_desaturation *
+    /// distance`). Near the centre `distance` is ~0 and this is a no-op;
+    /// only the outer plate loses chroma.
+    pub atmo_desaturation: f64,
+    /// Contrast lost at the plate edge, about the same 128 mid-grey pivot
+    /// [`grade_contrast`](Self::grade_contrast) uses, scaled by the same
+    /// distance factor. Only ever *reduces* contrast (§19 has no "far
+    /// terrain gains contrast" case), so this cannot invert or boost.
+    pub atmo_contrast: f64,
+
     // ---- The colour-grade stage (2026-08-24) ----
     //
     // A final, restrained grade over the **finished raster**, in
@@ -1091,6 +1137,12 @@ impl Default for TerrainAppearance {
             relief_directionality: 0.62,
             relief_ambient: 0.34,
             relief_gain: 1.16,
+            // §16: the exact literals `sh_combined` always used, now named
+            // rather than hardcoded -- `default()` and `js_reference()` both
+            // render the identical image this blend always produced.
+            detail_macro_weight: 0.40,
+            detail_meso_weight: 0.40,
+            detail_micro_weight: 0.20,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -1125,6 +1177,9 @@ impl Default for TerrainAppearance {
             biome_sat: 0.0,
             relief_chroma: 0.0,
             haze_strength: 0.18,
+            // §19: an added stage, at rest -- see the field doc comments.
+            atmo_desaturation: 0.0,
+            atmo_contrast: 0.0,
             grade_exposure: 0.0,
             grade_contrast: 0.0,
             grade_saturation: 0.0,
@@ -1511,6 +1566,11 @@ tunables! {
     "relief_directionality" => relief_directionality, 0.0,   1.0,  "Directionality";
     "relief_ambient"        => relief_ambient,        0.0,   1.0,  "Ambient floor";
     "relief_gain"           => relief_gain,           0.0,   2.0,  "Light gain";
+    // -- §16: the multi-scale detail blend's three band weights (no
+    //    reference counterpart -- the reference's own hillshade is one band) --
+    "detail_macro_weight"   => detail_macro_weight,   0.0,   1.0,  "Macro detail";
+    "detail_meso_weight"    => detail_meso_weight,    0.0,   1.0,  "Meso detail";
+    "detail_micro_weight"   => detail_micro_weight,   0.0,   1.0,  "Micro detail";
     // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
     "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
     "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
@@ -1544,6 +1604,10 @@ tunables! {
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
     "relief_chroma"         => relief_chroma,         0.0,   1.0,  "Chroma-preserving light";
     "haze_strength"         => haze_strength,         0.0,   0.6,  "Atmospheric haze";
+    // -- §19: the other two atmospheric-perspective axes research asked for,
+    //    over the same plate-edge distance factor as the haze above --
+    "atmo_desaturation"     => atmo_desaturation,     0.0,   1.0,  "Distance desaturation";
+    "atmo_contrast"         => atmo_contrast,         0.0,   1.0,  "Distance contrast loss";
     // -- The colour grade (presentation-only post-process) --
     "grade_exposure"        => grade_exposure,       -1.0,   1.0,  "Exposure";
     "grade_contrast"        => grade_contrast,       -1.0,   1.0,  "Contrast";
@@ -3011,7 +3075,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     }
 
     let sh_micro = clamp01(sh + (n_hi - 0.5) * 0.20);
-    let sh_combined = 0.40 * sh + 0.40 * sh_m + 0.20 * sh_micro;
+    let sh_combined = appearance.detail_macro_weight * sh + appearance.detail_meso_weight * sh_m + appearance.detail_micro_weight * sh_micro;
     let light = appearance.relief_ambient + appearance.relief_gain * clamp01(sh_combined).powf(0.85);
     let mut l = (c.0 * light, c.1 * light, c.2 * light);
     if appearance.bio_blend < 1.0 {
@@ -3060,7 +3124,21 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
 
     let dx = x / gw as f64 - 0.5;
     let dy = y / gh as f64 - 0.5;
-    let haze = clamp01(dx.hypot(dy) * 1.9).powf(2.2) * appearance.haze_strength;
+    // Plate-relative distance from centre, 0 at the middle and 1 at the
+    // corner -- the one "how far is this pixel" signal `haze_strength` has
+    // always read. §19's other two axes share it rather than inventing a
+    // second notion of "far".
+    let dist = clamp01(dx.hypot(dy) * 1.9).powf(2.2);
+    if appearance.atmo_contrast > 0.0 {
+        // Same "pivot about 128" `grade_contrast` uses, but only ever the
+        // contrast-losing branch -- distance never sharpens.
+        let factor = (1.0 - appearance.atmo_contrast * dist * 0.75).max(0.1);
+        l = (128.0 + (l.0 - 128.0) * factor, 128.0 + (l.1 - 128.0) * factor, 128.0 + (l.2 - 128.0) * factor);
+    }
+    if appearance.atmo_desaturation > 0.0 {
+        l = saturate(l, 1.0 - appearance.atmo_desaturation * dist);
+    }
+    let haze = dist * appearance.haze_strength;
     let mut l = (l.0 + (208.0 - l.0) * haze, l.1 + (218.0 - l.1) * haze, l.2 + (230.0 - l.2) * haze);
 
     // Milestone 3: ambient "near water" tint (`TERRAIN_APPEARANCE_RESEARCH.md`

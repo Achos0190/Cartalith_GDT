@@ -157,6 +157,13 @@ var _selected_route := -1
 ## is no longer a category of this class at all: it moved to WORLD ▸ Hydrology
 ## with v3, and `rivers_note()` below is the one owner of its disclosure.
 var _roads_body: Control
+## The civ-authoring ruling's Network row (`LARGE_ITEM_RULINGS.md`,
+## 2026-08-31). Held as fields because `_generate_roads_now` is a coroutine
+## that has to find its own button again after the blocking engine call --
+## the same reason `civilization_workspace.gd`'s `_recompute_btn` is a field.
+var _gen_roads_btn: Button
+var _clear_ways_btn: Button
+var _roads_note: Label
 var _ports_body: Control
 var _trade_body: Control
 var _logistics_body: Control
@@ -1108,18 +1115,103 @@ func _delete_route(index: int) -> void:
 	app.set_status("hint", "Route #%d deleted -- later routes renumbered." % index, "text_ghost")
 
 
-## The reference's two whole-network road operations. Same split as CIVIL's
-## Settlements category: route generation runs inside `generate()`, so there
-## is neither a "build the network now" button nor a partial teardown -- said
-## rather than left as an unexplained absence, per `menus.gd`'s honesty rule.
+## The reference's two whole-network road operations, **both wired
+## 2026-09-02** (`LARGE_ITEM_RULINGS.md`'s civ-authoring ruling, stages 2 and
+## 3 of 5).
+##
+## They sat disabled under "Not built" saying route generation "is part of
+## compute_civilisation inside generate(); no civ_auto_routes #[func] runs it
+## on its own", and that clearing had "nothing here that could honestly claim
+## to clear both" generated and manual ways. Both statements were true and
+## both are now false: `civ_auto_routes` rebuilds the network alone, and
+## `civ_clear_ways` empties CivData's ways and sea lanes *and* InfraTools'
+## manual ways and committed journeys in one press -- which is what the
+## reference's own single handler does (`civWays=[]; civJourneys=[]`).
 func _build_road_gaps(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Not built")
-	var gen := DccWidgets.action(sec, "Generate roads", func(): pass)
-	gen.disabled = true
-	gen.tooltip_text = "The reference's #civAutoRoutesBtn. Route generation is part of compute_civilisation inside generate(); no civ_auto_routes #[func] runs it on its own, and there is no parameter for road density or which tiers get connected (params.rs carries no civ entries). Drawing a way by hand is the wired alternative -- the Way and Route tools in the TOOLS block above."
-	var clear := DccWidgets.action(sec, "Clear ways & journeys", func(): pass)
-	clear.disabled = true
-	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func], and InfraTools::ways (where committed manual ways live -- readable since GUI_GAP_REGISTER.md IN-02, but read-only) has no clear either, so there is nothing here that could honestly claim to clear both. Journeys alone CAN now be cleared, one at a time, by the × on each row of Routes committed this session (route_delete, IN-09)."
+	var sec := DccWidgets.section(parent, "Network")
+	_gen_roads_btn = DccWidgets.action(sec, "Generate roads", _generate_roads)
+	_gen_roads_btn.disabled = not bridge.has_world
+	_gen_roads_btn.tooltip_text = ("The reference's #civAutoRoutesBtn. Rebuilds the whole route "
+		+ "network over the settlements that exist right now: the hierarchical land topology, the "
+		+ "smoothed and classified ways it becomes, and the port-to-port sea lanes. Settlements, "
+		+ "territory, provinces and the timeline are left alone.\n\n"
+		+ "Needs settlements to connect -- Auto-populate the world first (CIVIL ▸ Settlements). "
+		+ "Seconds, not milliseconds, on the main thread: the road builder reads river order, "
+		+ "biome and the water-body map, so it costs a full civilisation pass even though only "
+		+ "the network is kept.\n\n"
+		+ "Manual ways drawn with the Way tool are not touched, and the network prefers no "
+		+ "particular route through them -- draw one and it stays.")
+	_roads_note = DccWidgets.note(sec,
+		"Drawing a way or a journey by hand stays available in the TOOLS block above; this is "
+		+ "the whole-network pass.")
+	_clear_ways_btn = DccWidgets.action(sec, "Clear ways & journeys", _clear_ways)
+	_clear_ways_btn.disabled = not bridge.has_world
+	_clear_ways_btn.tooltip_text = ("The reference's #civClearRoadsBtn. Empties both networks in "
+		+ "one press: the generated ways and sea lanes, and the manual ways and committed "
+		+ "journeys from this session. Settlements stay where they are.\n\n"
+		+ "Not undoable -- Generate roads builds a new network rather than restoring this one. "
+		+ "To remove a single journey instead, use the × on its row in Routes.")
+
+## Stage 2 of the civ-authoring ruling's five. Same progress affordance as
+## `civilization_workspace.gd`'s `_recompute_civ`, and for the same reason:
+## a synchronous engine call with no progress signal, so relabel, disable, let
+## two frames actually paint that, then block.
+func _generate_roads() -> void:
+	var b := _gen_roads_btn
+	if b != null and is_instance_valid(b):
+		b.text = "Generating…"
+		b.disabled = true
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var r: Dictionary = bridge.civ_auto_routes()
+	if b != null and is_instance_valid(b):
+		b.disabled = false
+		b.text = "Generate roads"
+	var ok := bool(r.get("ok", false))
+	var outcome := ""
+	if not ok:
+		outcome = "No roads generated. %s" % String(r.get("reason", "Unknown reason."))
+	else:
+		outcome = "Network rebuilt in %.1f s: %d ways over %d settlements." % [
+			float(r.get("ms", 0.0)) / 1000.0, int(r.get("ways", 0)), int(r.get("settlements", 0))]
+	if _roads_note != null and is_instance_valid(_roads_note):
+		_roads_note.text = outcome
+	app.set_status("hint", outcome, "text" if ok else "accent")
+	_refresh_map_ways()
+
+## Stage 3. Destructive and irreversible, so it confirms first -- reusing
+## CIVIL's own `_confirm_destructive` rather than building a second dialog
+## helper, since this class is always composed as that workspace's child
+## (see `_refresh_map_ways` for the same guarded `get_parent()` cast and why
+## a future recomposition must cost a feature, never a crash).
+func _clear_ways() -> void:
+	var civ := get_parent() as CivilizationWorkspace
+	var n := bridge.roads().size()
+	if civ == null:
+		_clear_ways_now()
+		return
+	civ._confirm_destructive(
+		"Clear all ways and journeys?",
+		"Removes %d generated way%s plus every sea lane, every hand-drawn way and every "
+			% [n, "" if n == 1 else "s"]
+			+ "committed journey. Settlements are untouched.\n\nThis cannot be undone.",
+		"Clear",
+		n == 0 and bridge.route_count() == 0,
+		func(): _clear_ways_now())
+
+func _clear_ways_now() -> void:
+	var r: Dictionary = bridge.civ_clear_ways()
+	_selected_route = -1
+	app.viewport.overlay.set_selected_manual_route(-1)
+	var outcome := "Cleared %d way(s), %d sea lane(s), %d hand-drawn way(s) and %d journey(s)." % [
+		int(r.get("ways", 0)), int(r.get("sea_routes", 0)),
+		int(r.get("manual_ways", 0)), int(r.get("journeys", 0))]
+	if _roads_note != null and is_instance_valid(_roads_note):
+		_roads_note.text = outcome + " Generate roads builds a new network."
+	app.set_status("hint", outcome, "text")
+	_refresh_map_ways()
+	_refresh_map_routes()
+	_refresh_manual_routes()
 
 # -- Ports ------------------------------------------------------------------
 

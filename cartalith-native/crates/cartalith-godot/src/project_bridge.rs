@@ -442,6 +442,13 @@ struct LabelDto {
     color: Option<String>,
     #[serde(default)]
     size_mode: String,
+    /// A `LabelClass::key`. `#[serde(default)]` so an archive written before
+    /// the class field existed deserialises to the empty string, which
+    /// `LabelClass::from_key` rejects and the reader below resolves to the
+    /// default class — the same "an older archive opens, it does not fail"
+    /// contract every other field here ships on.
+    #[serde(default)]
+    class: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1393,6 +1400,7 @@ impl WorldGen {
                             font: l.font.clone(),
                             color: l.color.clone(),
                             size_mode: label_size_mode_key(l.size_mode).to_string(),
+                            class: l.class.key().to_string(),
                         })
                         .collect(),
                 },
@@ -1593,6 +1601,7 @@ impl WorldGen {
                     font: d.font.clone(),
                     color: d.color.clone(),
                     size_mode: label_size_mode_from(&d.size_mode),
+                    class: cartalith_civ::labels::LabelClass::from_key(&d.class).unwrap_or_default(),
                 })
                 .collect();
             self.labels = Some(bridge);

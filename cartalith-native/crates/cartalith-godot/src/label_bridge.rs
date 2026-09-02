@@ -74,9 +74,23 @@
 //!   doc comment for the exact contract a caller must satisfy.
 
 use cartalith_civ::labels::{
-    arc_label_layout, civ_zoom_k, label_box, label_font_size, ArcLayout, HandleCircle, LabelBox, LabelEditSession,
-    LabelHandles, LabelSizeMode, LabelViewEnv, MapLabel, LABEL_SIZE_MAX, LABEL_SIZE_MIN,
+    arc_label_layout, civ_zoom_k, label_box, label_cull_rect, label_font_size, ArcLayout, GeneratedLabels,
+    HandleCircle, LabelBox, LabelCullMetrics, LabelEditSession, LabelGenSettings, LabelHandles, LabelRect,
+    LabelSizeMode, LabelTypography, LabelViewEnv, MapLabel, LABEL_SIZE_MAX, LABEL_SIZE_MIN,
+    LABEL_TYPOGRAPHY_DEFAULTS,
 };
+
+/// The generated labelling pass's own `#[godot_api(secondary)]` surface.
+///
+/// **A submodule rather than a block in this file, and rather than a new
+/// top-level module.** This file's header promises it is "deliberately free of
+/// any `godot` dependency", the same isolation `sculpt_bridge.rs`/
+/// `icon_bridge.rs` argue for, and that promise is worth keeping: the state
+/// below is exercised by an ordinary unit-test pass with no Godot runtime. A
+/// sibling of `label_bridge.rs` would have to be registered in `lib.rs`, which
+/// two other agents are editing on this date. A child module is neither: it is
+/// a new file, `label_bridge/generate.rs`, declared here.
+mod generate;
 
 // Re-exported so `lib.rs` can build a drag loop (`label_resize_size`/
 // `label_rotate_deg`/`label_arc_value` are pure per-call math, no session to
@@ -100,10 +114,44 @@ pub enum Outcome {
 }
 
 /// The placed-label list plus the edit session — the reference's
-/// `state.labels` and `_civSelectedLabel`/`_civLabelEditSnapshot`, together.
+/// `state.labels` and `_civSelectedLabel`/`_civLabelEditSnapshot`, together —
+/// **plus** the generated pass's own output beside them.
+///
+/// ## Two lists, not one
+///
+/// `labels` is what the Label tool created and what `label_select`/
+/// `label_set`/`label_delete` edit; [`generated`](Self::generated) is what
+/// [`cartalith_civ::labels::generate_labels`] last produced from the world's
+/// own named features. They are kept apart deliberately. Appending generated
+/// labels to `labels` would make every index the edit session, the undo trail
+/// and `place_search.gd` hold shift the next time the pass ran, and a
+/// hand-edited label would be silently replaced by a regenerate. The renderer
+/// sees one list — [`WorldGen::labels_render_list`] concatenates them — and
+/// nothing else does.
 pub struct LabelBridge {
     pub labels: Vec<MapLabel>,
     pub session: LabelEditSession,
+    /// The last generated run, or `None` if the pass has never been run over
+    /// this world. `None` and "ran and placed nothing" are different claims —
+    /// [`cartalith_civ::landmark::LandmarkStore::last`]'s own distinction, for
+    /// the same reason: the panel must read `--`, not `0`.
+    pub generated: Option<GeneratedLabels>,
+    /// The five class type specs in force, [`LABEL_TYPOGRAPHY_DEFAULTS`] until
+    /// a caller overrides them.
+    ///
+    /// **Reset with the rest of this struct on every `generate()`**, because
+    /// `WorldGen::absorb` replaces the whole `LabelBridge`. That is not a lost
+    /// setting in practice and the shape is deliberate: the CARTO panel must
+    /// call [`WorldGen::labels_generate`] after a world change anyway (the old
+    /// world's continents and settlements no longer exist), and that call
+    /// carries the panel's own dial values, so the table is restored by the one
+    /// action that has to happen regardless. Holding it anywhere that survived
+    /// `absorb` would mean a second source of truth for a design value.
+    pub typography: [LabelTypography; 5],
+    /// What the last [`WorldGen::labels_generate`] was asked for. Retained so
+    /// a re-run without options repeats the last one rather than silently
+    /// reverting to defaults.
+    pub gen_settings: LabelGenSettings,
 }
 
 impl LabelBridge {
@@ -116,7 +164,73 @@ impl LabelBridge {
     /// already absolute grid coordinates, and every geometry call below
     /// takes the current `grid_w` as a parameter rather than storing it.
     pub fn new() -> Self {
-        LabelBridge { labels: Vec::new(), session: LabelEditSession::new() }
+        LabelBridge {
+            labels: Vec::new(),
+            session: LabelEditSession::new(),
+            generated: None,
+            typography: LABEL_TYPOGRAPHY_DEFAULTS,
+            // **Culling on, where `LabelGenSettings::default()` has it off.**
+            // The workspace's standing rule for anything that changes what the
+            // engine emits: off in the engine's own defaults, on at the shell's
+            // boundary. Here the shell side is also the design's — the toggle
+            // is drawn checked (`parts.js:387`) — and `_regenerate_labels()`
+            // sends the panel's own state on every run, so this is what a
+            // freshly generated world looks like before the panel speaks.
+            gen_settings: LabelGenSettings { cull: Some(LabelCullMetrics::default()), ..Default::default() },
+        }
+    }
+
+    /// Run the generated pass over already-swept candidates and retain the
+    /// result, replacing any previous run. Mirrors
+    /// [`cartalith_civ::landmark::LandmarkStore::run`].
+    ///
+    /// Takes candidates rather than a
+    /// [`cartalith_civ::labels::LabelWorld`] on purpose: the sweep reads
+    /// `WorldGen`'s own fields and this writes one of them, so a caller that
+    /// passed a world would be holding `&self` and `&mut self` at once. Sweep,
+    /// then place.
+    ///
+    /// **The hand-placed list is handed to the pass as reservations**, which is
+    /// the whole of "a hand-placed label is never culled by a generated one" on
+    /// this side of the wall: `generate_labels` may suppress a generated label
+    /// that lands on one, and can do nothing else with them. This is also why
+    /// they are measured here rather than in the pass — a reservation's
+    /// tracking comes from *this* bridge's live typography table, the same
+    /// table `labels_render_list` stamps on the label when it draws it.
+    pub fn place(&mut self, candidates: &[cartalith_civ::labels::LabelCandidate]) -> &GeneratedLabels {
+        let reserved = self.reserved_rects();
+        let g = cartalith_civ::labels::generate_labels(candidates, &self.gen_settings, &self.typography, &reserved);
+        self.generated = Some(g);
+        self.generated.as_ref().expect("just assigned")
+    }
+
+    /// Every hand-placed label's estimated footprint, or an empty list when
+    /// culling is off — measuring boxes nothing will compare against is work
+    /// nobody asked for, and `generate_labels` ignores the slice in that case
+    /// anyway.
+    fn reserved_rects(&self) -> Vec<LabelRect> {
+        let Some(m) = self.gen_settings.cull.as_ref() else { return Vec::new() };
+        self.labels
+            .iter()
+            .filter(|lb| !lb.name.is_empty())
+            .map(|lb| label_cull_rect(lb, self.typography[lb.class.index()].tracking, m))
+            .collect()
+    }
+
+    /// Drop the generated run. Call when the world moves underneath it, so the
+    /// panel reads `--` rather than counts from a world that no longer exists.
+    pub fn invalidate_generated(&mut self) {
+        self.generated = None;
+    }
+
+    /// Generated labels first, hand-placed ones second — the order the renderer
+    /// draws in, so a name the user typed is never buried under a generated
+    /// one.
+    pub fn render_order(&self) -> impl Iterator<Item = (&MapLabel, bool)> {
+        self.generated
+            .iter()
+            .flat_map(|g| g.labels.iter().map(|lb| (lb, true)))
+            .chain(self.labels.iter().map(|lb| (lb, false)))
     }
 
     /// `state.labels.push({...}); _civSelectLabel(lb)` — the click-on-empty-
@@ -632,6 +746,130 @@ mod tests {
         assert_eq!(set_size_mode(&mut lb, "zoom"), Outcome::Applied);
         assert_eq!(lb.size_mode, LabelSizeMode::Zoom);
         assert_eq!(set_size_mode(&mut lb, "nope"), Outcome::Rejected);
+    }
+
+    // ---- the generated list beside the hand-placed one ----
+
+    fn gen_cand(class: cartalith_civ::labels::LabelClass, name: &str, x: f64) -> cartalith_civ::labels::LabelCandidate {
+        cartalith_civ::labels::LabelCandidate { class, name: name.to_string(), x, y: 0.0, weight: 1.0 }
+    }
+
+    #[test]
+    fn a_fresh_bridge_has_not_run_the_pass_and_says_so() {
+        let b = LabelBridge::new();
+        assert!(b.generated.is_none(), "`--`, not `0` -- see the field's own doc comment");
+        assert_eq!(b.typography, LABEL_TYPOGRAPHY_DEFAULTS);
+        assert_eq!(b.render_order().count(), 0);
+    }
+
+    #[test]
+    fn placing_generated_labels_never_touches_the_hand_placed_list() {
+        let mut b = LabelBridge::new();
+        // Culling off: this pins the *list separation*, and a hand-placed
+        // label's box reaching the pass is the one legitimate way the two
+        // lists touch. `a_hand_placed_label_takes_space_from_the_pass_and_never
+        // _the_reverse` below is where that coupling is pinned instead.
+        b.gen_settings.cull = None;
+        b.create(1.0, 1.0, "Mine");
+        assert_eq!(b.session.selected(), Some(0));
+        let g = b.place(&[
+            gen_cand(cartalith_civ::labels::LabelClass::Continental, "Landmass", 5.0),
+            gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Town", 6.0),
+        ]);
+        assert_eq!(g.labels.len(), 2);
+        // The three things a second list must not disturb: the edit list, its
+        // indices, and the live edit session.
+        assert_eq!(b.labels.len(), 1);
+        assert_eq!(b.labels[0].name, "Mine");
+        assert_eq!(b.session.selected(), Some(0));
+    }
+
+    #[test]
+    fn the_render_order_puts_hand_placed_labels_over_generated_ones() {
+        let mut b = LabelBridge::new();
+        b.gen_settings.cull = None; // ordering, not culling -- see the test above.
+        b.create(1.0, 1.0, "Mine");
+        b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]);
+        let seq: Vec<(String, bool)> = b.render_order().map(|(lb, g)| (lb.name.clone(), g)).collect();
+        assert_eq!(seq, vec![("Auto".to_string(), true), ("Mine".to_string(), false)]);
+    }
+
+    /// The lane's second hard rule, at the boundary that actually supplies the
+    /// reservations. The engine-side half is
+    /// `labels::tests::a_hand_placed_label_is_never_culled_by_a_generated_one`;
+    /// this pins that `place` really hands them over, which is the wiring that
+    /// could silently go missing.
+    #[test]
+    fn a_hand_placed_label_takes_space_from_the_pass_and_never_the_reverse() {
+        let mut b = LabelBridge::new();
+        assert!(b.gen_settings.cull.is_some(), "the shell's own default is culling on");
+        b.create(5.0, 0.0, "Author's own name");
+        let g = b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]);
+        assert!(g.labels.is_empty(), "the generated label lands on the hand-placed one and yields");
+        assert_eq!(g.counts[cartalith_civ::labels::LabelClass::Settlement.index()].suppressed, 1);
+        // The hand-placed label is untouched -- still there, still index 0.
+        assert_eq!(b.labels.len(), 1);
+        assert_eq!(b.labels[0].name, "Author's own name");
+        // Move it out of the way and the same candidate is placed.
+        b.move_to(0, 400.0, 400.0);
+        let g2 = b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]);
+        assert_eq!(g2.labels.len(), 1);
+        assert_eq!(g2.counts[cartalith_civ::labels::LabelClass::Settlement.index()].suppressed, 0);
+    }
+
+    /// An unnamed hand-placed label draws nothing (`_draw_labels` skips an
+    /// empty string), so it must not reserve anything either — otherwise a
+    /// label the user created and has not typed into yet silently blanks a
+    /// patch of the map.
+    #[test]
+    fn an_empty_hand_placed_label_reserves_no_space() {
+        let mut b = LabelBridge::new();
+        b.create(5.0, 0.0, "");
+        assert!(b.reserved_rects().is_empty());
+        assert_eq!(b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]).labels.len(), 1);
+    }
+
+    /// Measuring boxes for a comparison that will not happen is work nobody
+    /// asked for, and the pass ignores the slice anyway.
+    #[test]
+    fn no_reservations_are_measured_while_culling_is_off() {
+        let mut b = LabelBridge::new();
+        b.create(5.0, 0.0, "Mine");
+        assert_eq!(b.reserved_rects().len(), 1);
+        b.gen_settings.cull = None;
+        assert!(b.reserved_rects().is_empty());
+    }
+
+    #[test]
+    fn re_running_the_pass_replaces_its_output_rather_than_appending() {
+        let mut b = LabelBridge::new();
+        b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "A", 1.0)]);
+        b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "B", 2.0)]);
+        let g = b.generated.as_ref().expect("ran twice");
+        assert_eq!(g.labels.len(), 1);
+        assert_eq!(g.labels[0].name, "B");
+    }
+
+    #[test]
+    fn clearing_the_generated_run_leaves_hand_placed_labels_alone() {
+        let mut b = LabelBridge::new();
+        b.create(1.0, 1.0, "Mine");
+        b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]);
+        b.invalidate_generated();
+        assert!(b.generated.is_none());
+        assert_eq!(b.labels.len(), 1);
+        assert_eq!(b.render_order().count(), 1);
+    }
+
+    #[test]
+    fn a_typography_override_reaches_the_next_run() {
+        let mut b = LabelBridge::new();
+        let region = cartalith_civ::labels::LabelClass::Region;
+        b.typography[region.index()].set_field("size", 30.0);
+        b.place(&[gen_cand(region, "Marches", 1.0)]);
+        assert_eq!(b.generated.as_ref().unwrap().labels[0].size, 30.0);
+        // ...and the other four classes are untouched by it.
+        assert_eq!(b.typography[cartalith_civ::labels::LabelClass::Water.index()].size, 15.0);
     }
 
     #[test]

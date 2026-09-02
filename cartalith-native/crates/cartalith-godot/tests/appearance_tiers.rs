@@ -626,6 +626,8 @@ fn the_js_reference_path_has_none_of_the_new_stages() {
     assert_eq!(j.biome_sat, 0.0);
     assert_eq!(j.relief_chroma, 0.0, "the reference's grey relief blend must stay the reference's");
     assert_eq!(j.haze_strength, 0.18, "the reference's own haze literal");
+    assert_eq!(j.atmo_desaturation, 0.0, "§19 is an added stage, not a reference one");
+    assert_eq!(j.atmo_contrast, 0.0, "§19 is an added stage, not a reference one");
     assert!(j.grade_is_identity());
     assert!(!j.npr.multi_sun, "the reference's macro shade is single-sun");
 }

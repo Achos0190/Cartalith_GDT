@@ -130,14 +130,14 @@ impl WorldGen {
         let soil = cartalith_civ::build_soil_fertility(&lithology, &ws.temperature, &ws.rainfall, &soil_slope, &ws.age_field);
         let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
         let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, sea, flow_thresh);
-        let wetland = if self.civ_options.biome_k {
+        let wetland = if self.params.civ.biome_k {
             Some(cartalith_civ::build_wetland_mask(&civ.water_bodies, &ws.field, &ws.rainfall, &soil_slope, sea))
         } else {
             None
         };
         let carrying_cap = cartalith_civ::build_carrying_capacity(
             &soil, &water_access, Some(&biome), &ws.temperature, &ws.field, sea,
-            if self.civ_options.biome_k { 1.0 } else { 0.0 }, wetland.as_deref(),
+            if self.params.civ.biome_k { 1.0 } else { 0.0 }, wetland.as_deref(),
         );
         let npp = cartalith_civ::build_npp(&ws.temperature, &ws.rainfall, &ws.field, sea, 3000.0);
         let dens = cartalith_civ::estimate_regional_density_km2(

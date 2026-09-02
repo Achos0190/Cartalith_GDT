@@ -491,6 +491,33 @@ const ARC_STRAIGHT_THRESHOLD := 0.01   ## `labels.rs:150`, the named constant th
 const ARC_RADIUS_FLOOR_K := 1.2        ## `labels.rs:176`, `size_px * 1.2`.
 const ARC_SPREAD_DIVISOR := 2.2        ## `labels.rs:176`, `total_w / (2.2 * |a|)`.
 
+## The reference's own halo, `ctx.lineWidth = max(1, sizePx * 0.16)` (ported as
+## `labels.rs::arc_label_line_width` and golden-pinned there).
+##
+## **Still the fallback, and no longer the usual case.** Every row from
+## `labels_render_list()` carries a `halo_em` from its label class's type spec
+## (`LabelTypography`, `LARGE_ITEM_RULINGS.md`'s step 3), and that is what is
+## used when present. This constant is what a row without one gets -- an older
+## cdylib whose `label_list()` fallback is in play, per `engine_bridge.gd`'s own
+## `labels_render_list()` degrade.
+##
+## The classes' figures are close to but not the same as this one: the
+## settlement class, which every hand-placed label defaults to, is 1.5 px of
+## halo on a 13 px glyph -- 0.115, against 0.16 here -- and carries 0.06 em of
+## tracking where the reference has none. So a hand-placed label does render
+## marginally differently once the class table reaches this file, deliberately:
+## a class system that exempted the labels the user typed would leave the panel
+## describing a typography half the map does not use. The user's own size, font
+## and colour are untouched, which is the half the reference actually owns.
+const LABEL_HALO_EM_FALLBACK := 0.16
+
+## Synthetic oblique for the Water class, whose design spec is the only one that
+## says `italic` (`parts.js:363`). Godot's theme carries one face and there is
+## no italic sibling to switch to, so the glyphs are sheared, which is what a
+## browser does for `font-style: oblique` when a family has no italic cut.
+## `tan(12°)`, the conventional oblique angle.
+const LABEL_ITALIC_SHEAR := 0.2126
+
 ## Emitted whenever the hovered settlement changes -- `null` on hover-exit.
 ## Lets `main.gd`'s Sample dock show the same data this overlay's own
 ## `_draw_hover_card` already draws on-canvas, without duplicating the
@@ -805,10 +832,17 @@ func _lod_zoom_base() -> float:
 		1.0, ViewportHost.ZOOM_MAX_FLOOR)
 
 ## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
-## `bridge.label_list()` are this data's only source, both already bound
+## `bridge.labels_render_list()` are this data's only source, both already bound
 ## (`icon_bridge.rs`/`label_bridge.rs`) and both wrapped in `engine_bridge.gd`.
 ## Set by `ViewportHost.refresh_annotations()`, a lighter call than the full
 ## `refresh()` -- placing one icon shouldn't re-fetch the terrain texture.
+##
+## **`_labels` is no longer only the hand-placed ones.** It is
+## `labels_render_list()`: the generated labelling pass's output first, the
+## Label tool's own labels over it, each row carrying its class's type spec
+## (`class`, `halo_em`, `tracking_em`, `italic`) on top of `label_get`'s nine
+## fields. A row's `generated` flag says which kind it is. Editing still goes
+## exclusively through `label_list()`'s indices, which this array is not.
 var _manual_icons: Array = []
 var _labels: Array = []
 
@@ -1222,6 +1256,14 @@ func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: flo
 ## system claims to do; see `_draw()`'s own settlement-loop comment for the
 ## full scope of the simplification against the reference's real occupancy
 ## grid (`_civLblOcc`).
+##
+## **The generated labelling pass rides this for free**, because `_labels` is
+## now `labels_render_list()` rather than `label_list()`: a generated continent
+## or lake name reserves its box here exactly as a hand-placed one does, so a
+## settlement pin's auto-placed name steps around it. That is *not* the label
+## collision culler `LARGE_ITEM_RULINGS.md` sequences behind the pass -- this
+## only ever moves a settlement pin's own name and never suppresses a label,
+## and generated labels are still never measured against each other.
 func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 	var boxes: Array[Rect2] = []
 	var font := get_theme_default_font()
@@ -1630,36 +1672,94 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			continue
 		var font_px := _label_font_px(lb, rect)
 		var fill: Color = Color(String(lb["color"]))
-		var outline_w: int = maxi(1, int(font_px * 0.16))
+		## The class type spec, resolved against THIS file's font size rather
+		## than the engine's -- see `LABEL_HALO_EM_FALLBACK` and the long note
+		## on `ARC_*` above for why the two size models differ. `halo_em`/
+		## `tracking_em` are multipliers precisely so the engine does not have
+		## to assert a pixel size it does not own.
+		var halo_em: float = float(lb.get("halo_em", LABEL_HALO_EM_FALLBACK))
+		## `LabelTypography::halo_px`'s own rule, restated: floored at one
+		## pixel so an outline survives rasterisation, but zero stays zero --
+		## the design's halo slider starts at 0 and that end means "no halo".
+		var outline_w: int = 0 if halo_em <= 0.0 else int(maxf(1.0, font_px * halo_em))
+		var track_px: float = font_px * float(lb.get("tracking_em", 0.0))
+		var italic: bool = bool(lb.get("italic", false))
 		var v_center: float = (font.get_ascent(font_px) - font.get_descent(font_px)) / 2.0
 		var th: float = deg_to_rad(float(lb["angle"]))
 		var a: float = clampf(float(lb["arc"]), -1.0, 1.0)
 
 		if absf(a) < ARC_STRAIGHT_THRESHOLD:
-			var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
-			var local_pos := Vector2(-full_w / 2.0, v_center)
-			draw_set_transform(pos, th, Vector2.ONE)
-			draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
-			draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+			## Untracked upright text keeps the single `draw_string` it always
+			## had: one call, and the font's own kerning intact. Tracking or an
+			## oblique forces the per-glyph path, which loses kerning -- the
+			## same trade `drawArcLabel` itself makes, and unavoidable, since
+			## letter-spacing is defined as extra advance between glyphs.
+			if track_px == 0.0 and not italic:
+				var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+				var local_pos := Vector2(-full_w / 2.0, v_center)
+				draw_set_transform(pos, th, Vector2.ONE)
+				draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
+				draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+				continue
+			var widths := _glyph_advances(font, text, font_px, track_px)
+			var run_w: float = widths[text.length()]   ## the accumulated total
+			draw_set_transform_matrix(_label_xform(pos, th, italic))
+			for i in text.length():
+				var gp := Vector2(widths[i] - run_w / 2.0, v_center)
+				var ch := text[i]
+				if outline_w > 0:
+					draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
+				draw_string(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
 			continue
 
-		var total_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		var total_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x + track_px * maxf(0.0, text.length() - 1.0)
 		var radius: float = maxf(font_px * ARC_RADIUS_FLOOR_K,
 			total_w / (ARC_SPREAD_DIVISOR * absf(a)))
 		var dir_sign: float = 1.0 if a > 0.0 else -1.0
 		var acc := -total_w / 2.0
-		for ch in text:
-			var w := font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		for ch2 in text:
+			var w := font.get_string_size(ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
 			var mid := acc + w / 2.0
 			var theta := mid / radius
 			var glyph_local := Vector2(radius * sin(theta), dir_sign * radius * (1.0 - cos(theta)))
 			var world_pt := pos + glyph_local.rotated(th)
 			var local_pos2 := Vector2(-w / 2.0, v_center)
-			draw_set_transform(world_pt, th + dir_sign * theta, Vector2.ONE)
-			draw_string_outline(font, local_pos2, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
-			draw_string(font, local_pos2, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
-			acc += w
+			draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic))
+			if outline_w > 0:
+				draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
+			draw_string(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+			acc += w + track_px
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## Running left edges for each glyph, plus the run's own total at index `n`.
+##
+## One array rather than two return values so the caller can centre the run and
+## place every glyph from the same pass -- and so the total is the accumulated
+## sum, never a second measurement that could disagree with it by a rounding.
+func _glyph_advances(font: Font, text: String, font_px: int, track_px: float) -> PackedFloat32Array:
+	var out := PackedFloat32Array()
+	out.resize(text.length() + 1)
+	var acc := 0.0
+	for i in text.length():
+		out[i] = acc
+		acc += font.get_string_size(text[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		if i < text.length() - 1:
+			acc += track_px
+	out[text.length()] = acc
+	return out
+
+
+## Rotation about `pos`, optionally sheared into a synthetic oblique.
+##
+## The shear is applied in the label's own frame (post-multiplied), so an
+## italic label that has been rotated by its angle handle leans relative to its
+## own baseline rather than relative to the screen.
+func _label_xform(pos: Vector2, rot: float, italic: bool) -> Transform2D:
+	var xf := Transform2D(rot, pos)
+	if italic:
+		xf = xf * Transform2D(Vector2(1.0, 0.0), Vector2(-LABEL_ITALIC_SHEAR, 1.0), Vector2.ZERO)
+	return xf
 
 
 ## `size_mode == "fixed"` holds a constant on-screen size regardless of

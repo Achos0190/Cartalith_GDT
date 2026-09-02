@@ -264,8 +264,48 @@ func _build(body: VBoxContainer) -> void:
 	recovery_input = DccWidgets.choice(gen_sec, "Recovery phase", recovery_labels, 0,
 		func(i: int): _recovery_phase = i,
 		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
+	_build_placement_dials(gen_sec)
 	DccWidgets.note(gen_sec,
 		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
+
+## The three settlement-placement dials the civ `PARAMS` group added
+## (`LARGE_ITEM_RULINGS.md`, owner 2026-08-31). Written straight through
+## `param_set` rather than held as dialog state, exactly as the extent switch
+## above already does: they are live `WorldParams` rows, so Create reads
+## whatever they currently hold and CIVIL ▸ Settlements ▸ Auto-populate
+## re-reads them over an existing world without regenerating terrain -- which
+## is the whole point of the ruling.
+##
+## Drawn only when the running extension publishes them. An older cdylib has
+## no `civ.factions` row, and `param_set` on an unknown key is *reported*
+## rejected rather than silently ignored -- but a control whose write the
+## engine refuses is an inert control, which this shell does not draw.
+func _build_placement_dials(parent: Control) -> void:
+	if bridge.param_info("civ.factions").is_empty():
+		return
+	## `param_get` answers `null` while a generation holds the object and
+	## before the table has been probed, so every read falls back to the row's
+	## own `default` out of `param_info` -- the engine's number either way,
+	## never one transcribed here.
+	var fac: Dictionary = bridge.param_info("civ.factions")
+	DccWidgets.number(parent, "Factions", float(fac.get("min", 1.0)), float(fac.get("max", 24.0)),
+		1.0, _param_or_default("civ.factions", fac),
+		func(v: float): bridge.param_set("civ.factions", int(v)),
+		"How many rival polities settlement placement distributes into. The reference's own CIV_FACTIONS carries six. Faction 0 is \"Unclaimed\" and is not counted, so the floor is one. Renaming, recolouring and adding factions by hand stays in CIVIL ▸ Factions -- this is only what a fresh placement pass seeds into.")
+	var thr: Dictionary = bridge.param_info("civ.seed_thresh")
+	DccWidgets.slider(parent, "Suitability floor", float(thr.get("min", 0.1)), float(thr.get("max", 0.8)),
+		float(thr.get("step", 0.01)), _param_or_default("civ.seed_thresh", thr), "",
+		func(v: float): bridge.param_set("civ.seed_thresh", v),
+		"Reference SETTLE_SEED_THRESH, default 0.42. How good a site has to be before anyone settles it at all. Raise it and only the best land is occupied; lower it and marginal ground gets villages. Suitability rarely exceeds 0.8, so the top of this range settles almost nothing.")
+	var sup: Dictionary = bridge.param_info("civ.seed_suppress_div")
+	DccWidgets.slider(parent, "Packing", float(sup.get("min", 8.0)), float(sup.get("max", 60.0)),
+		float(sup.get("step", 1.0)), _param_or_default("civ.seed_suppress_div", sup), "",
+		func(v: float): bridge.param_set("civ.seed_suppress_div", v),
+		"How close two settlements may stand. The engine suppresses a new seed within max(6, grid width / this) cells of an existing one, so the reference's default of 22 is a 17-cell radius on a 384-wide grid. Higher packs them tighter; the six-cell floor is what stops a small grid from suppressing nothing.")
+
+func _param_or_default(key: String, info: Dictionary) -> float:
+	var live = bridge.param_get(key)
+	return float(live if live != null else info.get("default", 0.0))
 
 func _build_derived_panel(parent: Control) -> void:
 	var panel := PanelContainer.new()

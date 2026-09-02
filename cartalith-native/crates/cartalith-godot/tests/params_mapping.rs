@@ -194,6 +194,139 @@ fn every_engine_param_struct_is_reachable() {
     assert_eq!(p.world_structure.tectonic_energy, 0.85);
 }
 
+// ---------------------------------------------------------------------------
+// The civ group (`LARGE_ITEM_RULINGS.md`, owner 2026-08-31)
+// ---------------------------------------------------------------------------
+
+/// **The mutation guard for every constant the civ group introduced.**
+///
+/// Each of these seven defaults is a value read out of the reference, and
+/// three of them (`seed_thresh`, `seed_suppress_div`, `factions`) used to be
+/// literals inside `compute_civilisation` with no test on them at all. Moving
+/// a literal into a parameter is only safe if the parameter's *default* is
+/// still the literal — this is the assertion that says so, and it fails if
+/// anyone edits either end.
+///
+/// Cited, not remembered: `SETTLE_SEED_THRESH=0.42` is reference line 6415;
+/// `Math.max(6,(GW/22)|0)` is reference line 25360; `CIV_FACTIONS`' literal
+/// (reference 14568) has 7 entries, "Unclaimed" plus 6; and the four flags'
+/// defaults are reference lines 6441-6444.
+#[test]
+fn the_civ_group_defaults_are_the_references_own_constants() {
+    // Both ends: the parity baseline *and* the shipped app boundary. The civ
+    // group carries no ruled divergence, so the two must agree here — and
+    // `exactly_the_ruled_divergences_ship_at_the_app_boundary` independently
+    // fails if one ever appears without a ruling.
+    for (label, c) in [
+        ("parity baseline", cartalith_engine::WorldParams::defaults(0, 0, 0).civ),
+        ("app boundary", params::defaults().civ),
+    ] {
+        assert!(!c.villages, "{label}: _civVillages is OFF by default (reference 6444)");
+        assert!(!c.metropolis, "{label}: _civMetropolis is OFF by default (reference 6442)");
+        assert_eq!(c.recovery_phase, 0, "{label}: _civRecoveryPhase 0 = Stable (reference 6443)");
+        assert!(!c.biome_k, "{label}: _biomeK is 0 by default (reference 6441)");
+        assert_eq!(c.factions, 6, "{label}: CIV_FACTIONS.length-1 (reference 14568)");
+        assert_eq!(c.seed_thresh, 0.42, "{label}: SETTLE_SEED_THRESH (reference 6415)");
+        assert_eq!(c.seed_suppress_div, 22.0, "{label}: the GW/22 in reference 25360");
+    }
+}
+
+/// The group is reachable, typed as the shell expects, and reported as its
+/// own dialog section — the second half of the ruling, asserted rather than
+/// eyeballed. Seven rows: a group of four would be the old `WorldGen` flags
+/// renamed, which is not what was ruled.
+#[test]
+fn the_civ_group_is_a_real_contiguous_group_of_seven() {
+    let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
+    assert_eq!(rows.len(), 7, "the civ group is seven rows");
+    assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
+    assert!(
+        rows.iter().all(|s| s.key.starts_with("civ.")),
+        "every civ row is keyed under civ., so `invalidates`' prefix rule covers all of them"
+    );
+
+    let mut p = params::defaults();
+    assert_eq!(params::set(&mut p, "civ.villages", Value::Bool(true)), Outcome::Applied);
+    assert_eq!(params::set(&mut p, "civ.factions", Value::Num(9.0)), Outcome::Applied);
+    assert_eq!(params::set(&mut p, "civ.seed_thresh", Value::Num(0.55)), Outcome::Applied);
+    assert!(p.civ.villages);
+    assert_eq!(p.civ.factions, 9);
+    assert_eq!(p.civ.seed_thresh, 0.55);
+
+    // A faction count of zero would leave every settlement in
+    // `assign_territory`'s "unclaimed" sentinel and every border empty, so the
+    // floor is 1 and it clamps rather than storing the request.
+    assert_eq!(params::set(&mut p, "civ.factions", Value::Num(0.0)), Outcome::Clamped);
+    assert_eq!(p.civ.factions, 1);
+    // And the recovery phase keeps the reference's own 0..=4 clamp
+    // (`Math.max(0,Math.min(4,rp.value|0))`, reference 26643).
+    assert_eq!(params::set(&mut p, "civ.recovery_phase", Value::Num(9.0)), Outcome::Clamped);
+    assert_eq!(p.civ.recovery_phase, 4);
+}
+
+/// Every civ row makes the civ layer stale and costs no climate pass — the
+/// same contract `river_density` has, for the same reason (`Climate`'s only
+/// consumer is `civ`). Without this, moving a civ dial would either promise a
+/// recompute that applies nothing (`Hydrology`) or silently promise nothing
+/// at all (`None`), and the five re-entrant `#[func]`s would have no way to
+/// tell the shell they are worth pressing.
+#[test]
+fn every_civ_row_marks_civ_stale_and_nothing_else() {
+    for s in params::PARAMS.iter().filter(|s| s.group == "civ") {
+        assert_eq!(
+            params::invalidates(s.key),
+            Some(PipelineStage::Climate),
+            "{} must mark Climate, whose only consumer is civ",
+            s.key
+        );
+    }
+    let mut g = cartalith_engine::staleness::pipeline_stage_graph(4);
+    g.mark_changed_tiles(PipelineStage::Climate.id(), 0..4, "param:civ.seed_thresh");
+    assert!(g.any_stale(PipelineStage::Civ.id()), "a civ dial must make the civ layer stale");
+    assert!(!g.any_stale(PipelineStage::Hydrology.id()), "and must not cost a hydrology pass");
+}
+
+/// A baked terrain atlas must survive a civ dial moving, and every other row
+/// must still reach the key.
+///
+/// `bake_bridge`'s rule is "every parameter that changes what a baked tile
+/// would contain"; the civ group changes none, so hashing it would throw away
+/// a 2048² atlas because somebody ticked "seed villages". Derived from the
+/// group rather than a key list on both sides, so this fails if the exclusion
+/// and the table ever stop agreeing.
+#[test]
+fn no_civ_row_reaches_the_world_key_and_every_other_row_does() {
+    let d = params::defaults();
+    let key = params::world_key_state(&d);
+    let native = key[params::NATIVE_PARAMS_KEY].as_object().expect("native block");
+    for s in params::PARAMS {
+        assert_eq!(
+            native.contains_key(s.key),
+            s.group != "civ",
+            "{} is {} the world key",
+            s.key,
+            if s.group == "civ" { "wrongly in" } else { "missing from" }
+        );
+    }
+
+    // And it is the *value*, not just the key list, that must not move: a
+    // world with every civ dial at the far end of its range hashes the same
+    // as the default one.
+    let mut moved = params::defaults();
+    for s in params::PARAMS.iter().filter(|s| s.group == "civ") {
+        let far = match params::get(&moved, s.key).unwrap() {
+            Value::Bool(b) => Value::Bool(!b),
+            Value::Num(n) => Value::Num(if (n - s.min).abs() > (s.max - n).abs() { s.min } else { s.max }),
+        };
+        assert_ne!(params::set(&mut moved, s.key, far), Outcome::Rejected, "{}", s.key);
+    }
+    assert_ne!(moved.civ, d.civ, "the fixture must actually differ");
+    assert_eq!(params::world_key_state(&moved), key, "a civ dial must not re-key the atlas");
+    // The save, by contrast, must carry them — this is an exclusion from one
+    // hash, not from persistence.
+    assert_ne!(params::save_state(&moved), params::save_state(&d), "a civ dial must still be saved");
+}
+
 /// `use_gpu` and the five raw World-Structure knobs are the two items
 /// `GUI_FEATURE_PARITY_SCOPE.md` Category 1 names as real-but-unreachable.
 #[test]

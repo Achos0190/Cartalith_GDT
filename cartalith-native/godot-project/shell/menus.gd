@@ -159,6 +159,11 @@ const ID_EDIT_RESET_PARAMS := 600
 const ID_PREF_GPU_RETRY := 601
 const ID_WIN_SAVE_LAYOUT := 602
 const ID_WIN_FORGET_LAYOUT := 603
+## PR-15's third unit. `ID_PREF_UNITS_KM`/`_MI` (54/55, above) were reserved
+## before either was ever wired to anything; 604 is free -- grepped the whole
+## file for every `ID_`/`_FIRST` value before picking it, the same check this
+## file's own note on `78` being issued twice says to make.
+const ID_PREF_UNITS_NMI := 604
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623
@@ -251,6 +256,13 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
+var _units_popup: PopupMenu   ## `Preferences ▸ Units` -- see the block right
+	## after `_theme_popup`'s own build in `_preferences()`. Unlike theme,
+	## which mirrors its choice into `_theme_mode` for `_apply_theme_mode()`
+	## to read, nothing here needs a parallel field: every reader goes through
+	## `DccSettings.units_mode()` directly (`DccUnits` included), so the popup
+	## checkmarks are the only local state and `_refresh_units_menu()` sets
+	## them straight from the store.
 var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## radio rows shows checked. **Persisted since 2026-08-31**
 	## (`DccSettings.theme_mode()`); the note that stood here said there was
@@ -1896,8 +1908,39 @@ func _preferences(p: PopupMenu) -> void:
 	_shell.style_popup(_theme_popup)
 	p.add_child(_theme_popup)
 	p.add_submenu_item("Theme", "ThemeChoice")
-	_todo(p, "Units",
-		"SS2.5 asks for km / mi (the reference's #calUnitSeg). The shell is km-only, and the work is not this row: every readout that prints km would have to go through one formatter first -- the status bar's cursor coordinates, the scale bar, Sculpt's brush km equivalent (#sBrushKm), Measure's running total and per-segment lengths, and Region select's km column. A setting here with five call sites still printing km would be worse than no setting.")
+	## **Real as of 2026-09-02** (PR-15, `OUTSTANDING_WORK.md`). This row was a
+	## `_todo` naming five call sites a setting would have to reach before it
+	## meant anything -- re-grepped rather than trusted, and the count was
+	## wrong: two of the five are real and reachable from here, two more are
+	## real but sit in `right_dock.gd`, and the fifth was never built at all.
+	##
+	## - **Wired**: `viewport_host.gd`'s scale bar and cursor-coordinate
+	##   readout, both now going through `DccUnits` (`refresh_scale_bar()`
+	##   below repaints the first the instant the radio changes; the second
+	##   has no equivalent trigger of its own and picks the new unit up on the
+	##   next mouse move over the map, which is most of the time this menu is
+	##   reachable at all).
+	## - **Still km**: Measure's running total/per-segment lengths and Region
+	##   select's km column, both real and both in `right_dock.gd` -- out of
+	##   this lane's reach by explicit instruction, not by difficulty. Whoever
+	##   next owns that file has `DccUnits.format_adaptive()` /
+	##   `format_thousands()` sitting ready.
+	## - **Not a wiring gap**: Sculpt's `#sBrushKm` hint (reference 9418,
+	##   *"≈ N km radius -- stays this real-world size at any zoom"*) has no
+	##   port-side counterpart to convert -- `world_workspace.gd`'s
+	##   `_build_brush_globals()` shows brush size in px only, unconditionally.
+	##   Building that readout from nothing is a separate job from wiring an
+	##   existing one, and is not done here.
+	_units_popup = PopupMenu.new()
+	_units_popup.name = "UnitsChoice"
+	_units_popup.add_radio_check_item(DccUnits.label("km"), ID_PREF_UNITS_KM)
+	_units_popup.add_radio_check_item(DccUnits.label("mi"), ID_PREF_UNITS_MI)
+	_units_popup.add_radio_check_item(DccUnits.label("nmi"), ID_PREF_UNITS_NMI)
+	_refresh_units_menu()
+	_units_popup.id_pressed.connect(_on_units_choice)
+	_shell.style_popup(_units_popup)
+	p.add_child(_units_popup)
+	p.add_submenu_item("Units", "UnitsChoice")
 	## **This row's reason was stale.** It said "No shortcut table yet" after
 	## `Help ▸ Keyboard shortcuts…` shipped a live one (`shortcuts_dialog.gd`,
 	## which walks these menus). The gap §2.5 names is a different one and is
@@ -3171,6 +3214,37 @@ func _apply_theme_mode(mode: String) -> void:
 	var was_dark := DccTheme.is_dark()
 	DccTheme.apply_theme(want_dark)
 	_shell.rebuild_theme(was_dark)
+
+func _refresh_units_menu() -> void:
+	var mode := DccSettings.units_mode()
+	_units_popup.set_item_checked(0, mode == "km")
+	_units_popup.set_item_checked(1, mode == "mi")
+	_units_popup.set_item_checked(2, mode == "nmi")
+
+## Display-only, like the reference's own `_setUnits` (13722): nothing but the
+## stored mode changes here, and every readout picks it up through
+## `DccUnits` on its own next read. `viewport_host.gd`'s scale bar is the one
+## exception -- it has no zoom/pan event of its own to ride a unit change in
+## on, so `refresh_scale_bar()` is called directly, the same reason
+## `_apply_lighting_defaults()`'s caller in `app.gd` repaints eagerly rather
+## than waiting for an unrelated redraw. Guarded on `_host`/`viewport`/the
+## method existing: this popup is built by `DccShell.add_menu()`, which a bare
+## `DccShell` (the capture probes) also constructs, and `viewport` lives on
+## `DccApp` alone.
+func _on_units_choice(id: int) -> void:
+	var mode: String
+	match id:
+		ID_PREF_UNITS_KM: mode = "km"
+		ID_PREF_UNITS_MI: mode = "mi"
+		ID_PREF_UNITS_NMI: mode = "nmi"
+		_:
+			return
+	DccSettings.set_units_mode(mode)
+	_refresh_units_menu()
+	if _host == null or _host.viewport == null:
+		return
+	if _host.viewport.has_method("refresh_scale_bar"):
+		_host.viewport.refresh_scale_bar()
 
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()

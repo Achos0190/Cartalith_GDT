@@ -1,16 +1,32 @@
-//! NOT a golden-parity test. `compute_ocean_current`/`ocean_sst_anomaly`
-//! (reference HTML `computeOceanCurrent`/`oceanSSTAnomaly`, lines
-//! 5246-5268 and 5368-5462) have no golden-parity coverage in this port:
-//! this environment has no JS runtime (`PARITY_TESTING.md`'s own
-//! extraction procedure needs one to run the reference HTML and read back
-//! real numbers), so there's nothing to extract fixtures from for this
-//! `deflect_flow`-based, multi-stage algorithm. This file is a
-//! same-input-same-output regression/sanity check only -- it catches a
-//! future refactor breaking determinism or making the function a no-op,
-//! NOT a wrong-vs-JS formula. `cartalith_engine`'s
-//! `ClimateInputParams::currents` (which gates whether any of this runs
-//! at all) stays `false` by default until someone with a JS runtime
-//! extracts real fixtures -- see that field's own doc comment.
+//! NOT a golden-parity test, and no longer the only coverage these two
+//! functions have. `computeOceanCurrent` (reference HTML lines 5368-5462)
+//! is golden-verified bit-exactly in `golden_parity_ocean_current.rs`
+//! (world mode, and region mode with western intensification off);
+//! `oceanSSTAnomaly` (lines 5246-5268) is verified end to end through
+//! `golden_parity_weather.rs`'s `simulate_weather_currents_case`, captured
+//! from a real reference `generate()` run with `state.climate.currents=true`.
+//! This file is the *behavioural* half neither of those asserts: that land
+//! cells stay exactly zero, that the ocean is not silently all-zero, and
+//! that both functions are deterministic -- the properties a
+//! wrong-but-stable formula would still break.
+//!
+//! **Corrected 2026-09-02.** This header used to say both functions had no
+//! golden coverage at all because "this environment has no JS runtime", and
+//! that `ClimateInputParams::currents` stayed `false` by default until
+//! someone with one extracted fixtures. Every part of that is stale:
+//!
+//!   - `node --version` is v24.19.0, and `tools/jsruntime_probe.js` proves
+//!     the extraction chain end to end rather than trusting the version
+//!     string -- see `deflect_flow_regression.rs`'s header for what it
+//!     checks and why it is a two-way proof.
+//!   - `cartalith_engine::WorldParams::defaults` has shipped
+//!     `climate.currents: true` since 2026-08-15.
+//!
+//! `WeatherParams::currents`' own doc comment in
+//! `cartalith-climate/src/lib.rs` still carries the superseded "this port
+//! defaults to `false`" wording and is stale on that point; its account of
+//! what is and is not separately extracted remains accurate. Deliberately
+//! not edited from here -- that file is not this test's to rewrite.
 
 use cartalith_climate::{compute_ocean_current, ocean_sst_anomaly, OceanCurrentParams};
 

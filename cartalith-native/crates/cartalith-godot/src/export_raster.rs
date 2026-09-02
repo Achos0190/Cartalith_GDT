@@ -813,7 +813,7 @@ impl AtlasFields {
         let (gw, gh) = (wg.gw as usize, wg.gh as usize);
         let (world, sea) = (wg.world, wg.sea_level);
         let map_width_km = wg.map_width_km;
-        let biome_k = wg.civ_options.biome_k;
+        let biome_k = wg.params.civ.biome_k;
 
         let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, world, Some(&ws.rainfall));
         let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);

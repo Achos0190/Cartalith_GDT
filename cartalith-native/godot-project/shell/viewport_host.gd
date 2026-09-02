@@ -1217,7 +1217,14 @@ func refresh_annotations() -> void:
 	## in `engine_bridge.gd`.
 	if _bridge.has_method("landmarks") and overlay.has_method("set_landmarks"):
 		overlay.set_landmarks(_bridge.landmarks())
-	overlay.set_labels(_bridge.label_list())
+	## Generated labels ride the same list as hand-placed ones
+	## (`labels_render_list()`, which concatenates them and stamps each row with
+	## its class's type spec). Refreshed on the drag path along with everything
+	## else here rather than cached separately: `landmarks()` a few lines up
+	## already marshals a larger list on this same per-motion path, so a second
+	## one is not a new cost shape, and a cached copy would go stale the moment
+	## the CARTO panel re-ran the pass.
+	overlay.set_labels(_bridge.labels_render_list())
 	overlay.set_manual_routes(manual_routes())
 
 ## Push the engine's own faction swatches into `map_overlay.gd`, which drew
@@ -1381,6 +1388,17 @@ func layers_button_rect() -> Rect2i:
 ## have told the owner how deep they actually were, saying the same thing at
 ## z1 and at the cap. Called from `_zoom_at`/`reset_view` now, not only from
 ## `refresh()`.
+## Both figures go through `DccUnits` since PR-15 (`OUTSTANDING_WORK.md`) --
+## previously a private `_fmt_km` matching this exact three-tier ladder,
+## folded into `DccUnits.format_adaptive()` so the scale bar and the
+## Preferences ▸ Units setting cannot answer "is this small yet" two
+## different ways. One cosmetic difference from the old per-cell text: that
+## branch was its own flatter two-tier ladder (`%.2f` under 10, `%.0f` at or
+## above) rather than this file's three-tier one, so a per-cell distance
+## between 10 and 100 (km, or the equivalent span once converted) now prints
+## one decimal instead of none -- more informative, for the same reason
+## `format_adaptive()`'s own doc comment gives, and not a behaviour this
+## label's few callers depend on.
 func _update_scale_bar() -> void:
 	if _width_km <= 0.0:
 		_scale_label.text = ""
@@ -1388,22 +1406,19 @@ func _update_scale_bar() -> void:
 	var span := _width_km / maxf(1.0, _zoom)
 	var gw := _bridge.grid_size().x
 	if gw <= 0:
-		_scale_label.text = "%s km across" % _fmt_km(span)
+		_scale_label.text = "%s across" % DccUnits.format_adaptive(span)
 		return
 	## Cells are square in km, so one quotient describes both axes.
 	var per_cell := _width_km / float(gw)
-	var cell_text := "%.2f" % per_cell if per_cell < 10.0 else "%.0f" % per_cell
-	_scale_label.text = "%s km across  ·  %s km / cell" % [_fmt_km(span), cell_text]
+	_scale_label.text = "%s across  ·  %s / cell" % [
+		DccUnits.format_adaptive(span), DccUnits.format_adaptive(per_cell)]
 
-## Enough decimals to stay informative once the span is small -- the whole
-## point of showing it is that it changes, and `%.0f` would print "5 km" for
-## everything from 4.5 to 5.5 at the deepest zoom this camera now reaches.
-func _fmt_km(km: float) -> String:
-	if km >= 100.0:
-		return "%.0f" % km
-	if km >= 10.0:
-		return "%.1f" % km
-	return "%.2f" % km
+## Public so `menus.gd`'s Units radio can repaint this label the instant the
+## setting changes. Zoom and pan already call `_update_scale_bar()` on their
+## own, but a unit change is neither -- with no trigger of its own, the label
+## would otherwise sit in the old unit until the next zoom.
+func refresh_scale_bar() -> void:
+	_update_scale_bar()
 
 func _on_hovered(data: Variant, index: int) -> void:
 	settlement_hovered.emit(data, index)
@@ -1446,7 +1461,12 @@ func _coords_text(gx: float, gy: float) -> String:
 	var per_cell := _width_km / float(g.x)
 	var east_km := gx * per_cell
 	var north_km := float(g.y - gy) * per_cell
-	var text := "%s km E  ·  %s km N" % [_fmt_thousands(east_km, 0), _fmt_thousands(north_km, 0)]
+	## `DccUnits.format_thousands()` since PR-15 -- it appends its own unit
+	## word, so only the direction letter is written here now, not a
+	## hard-coded "km". Elevation stays metres unconditionally: SS2.5's Units
+	## row is `#calUnitSeg`, a horizontal-distance toggle with no vertical-unit
+	## half to honour, so it keeps the local `_fmt_thousands` below.
+	var text := "%s E  ·  %s N" % [DccUnits.format_thousands(east_km), DccUnits.format_thousands(north_km)]
 	var cell := _bridge.sample_cell(int(round(gx)), int(round(gy)))
 	if cell.has("elevation_m"):
 		text += "  ·  %s m" % _fmt_thousands(float(cell["elevation_m"]), 0)

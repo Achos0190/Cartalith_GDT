@@ -206,6 +206,10 @@ var _faction_id := -1
 var _faction_pair := -1
 var _measure_result: Dictionary = {}
 var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
+## The picked river -- one `river_at()` entity, whole. Empty means CTX_RIVER
+## has nothing to draw, which after this file's own click wiring can only
+## happen if the world is regenerated under a selection.
+var _river: Dictionary = {}
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
 var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
@@ -300,9 +304,103 @@ func _set_row_tip(v: Label, tip: String) -> void:
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
-	bridge.generation_finished.connect(func(_ok: bool): _rebuild())
-	bridge.world_loaded.connect(func(): _rebuild())
+	bridge.generation_finished.connect(func(_ok: bool):
+		## A regenerate replaces the receiver tree, so the picked river's own
+		## index and geometry are from a world that no longer exists.
+		_river = {}
+		if _context == CTX_RIVER:
+			_context = CTX_SAMPLE
+		_rebuild())
+	bridge.world_loaded.connect(func():
+		_river = {}
+		if _context == CTX_RIVER:
+			_context = CTX_SAMPLE
+		_rebuild())
+	## River selection (`OUTSTANDING_WORK.md` §2.2). Connected here rather than
+	## in `app.gd`'s `_wire_selection()` for the same reason
+	## `asset_library_window.gd` reaches `world_gen` directly: `app.gd` is a
+	## concurrently-edited file this pass. The signal contract is `app.gd`'s own
+	## and unchanged -- `_wire_selection` already hangs the Wildlife debug
+	## view's ecoregion pick off this exact signal, so a right-dock context
+	## driven by `map_clicked` is the established shape, not a new one.
+	##
+	## **Ordering is guaranteed, not lucky.** `map_overlay._gui_input` emits
+	## `settlement_selected` and *then* `map_clicked`, and Godot delivers a
+	## signal synchronously to every connection before the next `emit` begins.
+	## So by the time this runs, `on_settlement_selected` has already set
+	## `_context` -- `CTX_SETTLEMENT` if the click hit a pin, `CTX_SAMPLE` if it
+	## missed everything. Only the second case is a river click, which is what
+	## makes "settlement wins over river" fall out rather than need arbitrating.
+	app.viewport.map_clicked.connect(_on_map_clicked_river)
 	_rebuild()
+
+## §2.2's viewport river hit-testing. Gated four ways, each for its own reason:
+##
+## * `armed_tool != "inspect"` -- a click belongs to whatever tool is armed.
+##   Inspect is the shell's own default and the only tool with no click handler
+##   of its own (`app.gd`'s `_on_map_clicked` dispatches by armed tool and finds
+##   nothing for it), so this claims no click any tool wanted.
+## * `debug_view() == "wildlife"` -- that view already owns the map click and
+##   drives this same dock (`app.gd`'s `_wire_selection`). Its connection is
+##   made after this one, so without this guard both would fire and the dock
+##   would flip to Ecoregion a frame after showing a river.
+## * `_context != CTX_SAMPLE` -- the click hit a settlement (see `setup()`).
+## * `has_method` -- the same degrade-rather-than-crash probe every `_has()`
+##   guard in `engine_bridge.gd` uses; an older cdylib has no `river_at`.
+##
+## A click that finds no river leaves the dock in Sample, which is what it
+## already showed: no rebuild, no flicker.
+func _on_map_clicked_river(gx: float, gy: float) -> void:
+	if app == null or bridge == null or not bridge.has_world:
+		return
+	if app.armed_tool != "inspect" or _context != CTX_SAMPLE:
+		return
+	if app.viewport.debug_view() == "wildlife":
+		return
+	if bridge.world_gen == null or not bridge.world_gen.has_method("river_at"):
+		return
+	var hit: Dictionary = bridge.world_gen.river_at(
+		gx, gy, _river_pick_radius_cells(), RIVER_PICK_MIN_ORDER)
+	if hit.is_empty():
+		return
+	show_river(hit)
+
+## Trace every river, headwater trickles included, so nothing drawn on the map
+## is unselectable. `EXPORT_MIN_RIVER_ORDER`'s 2 is the right filter for a
+## file; it is the wrong one for a pointer, which should pick what the eye can
+## see. Measured on a 192x144 world through this exact binding (a headless
+## `get_rivers()` probe): **784 runs at min_order 1, 128 at 2** -- so a `2`
+## here would make five rivers in six unclickable. (`tests/river_entities.rs`
+## reports 773 / 125 for the same seed and size; it builds its world from
+## `WorldParams::defaults`, where the divergence flags are `false`, while the
+## shell's own `params::defaults()` sets them `true`. Two real worlds, not a
+## discrepancy.)
+const RIVER_PICK_MIN_ORDER := 1
+
+## The pointer target, in screen pixels of *radius* -- 44 px across, the touch
+## minimum this shell holds every hit target to.
+const RIVER_PICK_PX := 22.0
+
+## `RIVER_PICK_PX` expressed in grid cells at the current zoom, which is what
+## `river_at()` takes.
+##
+## The raster is fitted into the panel preserving aspect and then scaled by the
+## camera, so its drawn width is `min(panel_w, panel_h * gw/gh)` and one cell is
+## `drawn_w * zoom / gw` screen pixels. That `min` is the whole of the fit --
+## not a second copy of `map_overlay`'s projection, which also carries pan,
+## plate margins and LOD tiling that a hit radius has no use for.
+##
+## Using the bare panel width instead would shrink the target on a portrait
+## world in exact proportion to the letterboxing, which is the wrong direction
+## for a touch minimum to be wrong.
+func _river_pick_radius_cells() -> float:
+	var gs := bridge.grid_size()
+	if gs.x <= 0 or gs.y <= 0 or app == null:
+		return 0.0
+	var panel := app.viewport.size
+	var drawn_w := minf(maxf(1.0, panel.x), maxf(1.0, panel.y) * float(gs.x) / float(gs.y))
+	var px_per_cell := drawn_w * maxf(0.01, app.viewport.zoom()) / float(gs.x)
+	return RIVER_PICK_PX / maxf(0.0001, px_per_cell)
 
 # -- Selection API --------------------------------------------------------
 #
@@ -380,6 +478,15 @@ func show_route(entry: Dictionary, kind: String) -> void:
 	_context = CTX_ROUTE
 	_route_entry = entry
 	_route_kind = kind
+	_rebuild()
+
+## Called by this file's own `_on_map_clicked_river`, with one `river_at()`
+## entity. Public so a future river list (an Infrastructure-style rows panel
+## over `get_rivers()`) can drive the same context the way
+## `infrastructure_workspace.gd` drives Route.
+func show_river(entity: Dictionary) -> void:
+	_context = CTX_RIVER
+	_river = entity
 	_rebuild()
 
 ## Called by `civilization_workspace.gd` when a faction row is clicked.
@@ -644,7 +751,13 @@ func _dock_readout_text() -> String:
 		CTX_ROUTE:
 			return _route_length_text(_route_entry.get("points", PackedVector2Array()))
 		CTX_RIVER:
-			return "no rivers"
+			## Length, matching CTX_ROUTE's own readout: the two contexts
+			## describe the same kind of thing (a line on the map with a real
+			## routed length) and a reader collapsing the dock should get the
+			## same number from both.
+			if _river.is_empty():
+				return "no river"
+			return DccUnits.format_adaptive(float(_river.get("km", 0.0)))
 		CTX_FACTION:
 			var culture := ""
 			for f in bridge.get_factions():
@@ -1071,62 +1184,156 @@ func _route_length_text(pts: PackedVector2Array) -> String:
 
 # -- River --------------------------------------------------------------
 
-## No `get_rivers()` exists and nothing in the viewport can select one --
-## unlike Route, this context has no live trigger today. Implemented anyway
-## so `_dispatch()` is complete and honest rather than silently dropping the
-## branch, matching `§6` and `STRANDED_TOOLS.md`'s own discipline of
-## recording the gap rather than hiding it.
+## **This context is reachable, as of `OUTSTANDING_WORK.md` §2.2.** The note
+## that stood here until now said "there is no `get_rivers()`, so there is no
+## river to name, to total a length for, or to select in the viewport", and
+## every clause of it is now false: `WorldGen::get_rivers(min_order)` returns
+## the entities and `WorldGen::river_at(gx, gy, radius, min_order)` picks one,
+## both over `cartalith_hydrology::river_entities`. `_on_map_clicked_river` in
+## this file is the trigger the context never had.
+##
+## Of the seven rows this context used to dash, **six now carry a real
+## reading**; Name is the only genuine remainder, and its reason is narrower
+## than the old blanket one -- it is a missing name generator, not a missing
+## binding. Length is promoted to the accent readout (Route's own shape) and
+## four rows are new: Order, Fall, At the mouth, and Channel (drawn).
 func _build_river(body: Control) -> void:
 	var sec := DccWidgets.section(body, "River")
-	## The clause struck here on 2026-09-01 said "the only river-derived output
-	## that crosses the GDExtension boundary is baked into
-	## build_color_texture()'s rendered raster", and this same file disproves
-	## it three rows up: the Sample readouts report Strahler order and
-	## discharge per cell off `stream_order`/`flow_discharge`
-	## (`SAMPLE_FIELDS`' own Drainage row, three above this one, cites both by
-	## name), `layers_popover.gd` draws
-	## `strahler` as a live layer, and `measure_section` labels a crossing
-	## "River · order 3". What genuinely does not cross is the *entity*, which
-	## is `measure_bridge.rs`'s own wording and is what this note now says.
-	DccWidgets.note(sec,
-		"No hydrological river ENTITY is exposed to Godot. cartalith-hydrology " +
-		"computes river networks internally (order, discharge, catchment) for " +
-		"erosion and settlement suitability, and per-CELL order and discharge do " +
-		"cross the boundary -- Sample reads them, the Strahler layer draws them, " +
-		"and a measured section labels its river crossings by order. What nothing " +
-		"does is aggregate a channel run into one river: there is no get_rivers(), " +
-		"so there is no river to name, to total a length for, or to select in the " +
-		"viewport.")
-	for f in ["Name", "Length", "Source elevation", "Discharge", "Catchment", "Tributaries", "Navigation"]:
-		_field(sec, f, "—", "No get_rivers() binding.", false)
+	if _river.is_empty():
+		DccWidgets.note(sec,
+			"No river selected. Arm Inspect and click a river on the map -- the " +
+			"pick tests every traced channel run, headwater trickles included, " +
+			"inside a 44 px-wide target centred on the pointer. A river the map does not draw " +
+			"cannot be picked: a world opened from a project archive carries no " +
+			"channel topology at all (SAVEFILE_COMPAT.md stores none), so its " +
+			"rivers are in the baked raster and nowhere else.")
+		return
+
+	## §6's one big accent readout per context. Length, matching Route's --
+	## the two contexts describe the same kind of thing and the collapsed-dock
+	## readout is this same number.
+	_accent_readout(sec, "Length", DccUnits.format_adaptive(float(_river.get("km", 0.0))),
+		"The traced run's own length: the sum of its cell-to-cell steps, in grid " +
+		"cells, times map_width_km / gw. A river here is one drawable receiver " +
+		"chain -- what drawRiverWays strokes as a single river -- so a main stem " +
+		"is measured from the headwater it was traced from, not from every source " +
+		"that eventually feeds it.")
+
+	var order := int(_river.get("order", 0))
+	_field(sec, "Name", "—",
+		"Rivers are unnamed in this engine, and that is a missing generator " +
+		"rather than a missing binding. cartalith-civ's naming::FeatureKind has " +
+		"Continent, Province, Bay, MountainRange and Lake -- no river form -- so " +
+		"there is no toponym to print and inventing one here would put a name on " +
+		"the map that nothing else in the world knows about.", false)
+	_field(sec, "Order", "Strahler %d" % order,
+		"strahler_from_receivers, rescanned over every cell of this run and " +
+		"reported as its maximum -- drawRiverWays' own maxO, which is also what " +
+		"colours the reference's stroke. A tributary's last point is its trunk's " +
+		"junction cell, so a short tributary can report its trunk's order.")
+	_field(sec, "Source elevation", _m_text(float(_river.get("source_m", 0.0))),
+		"Metres at the headwater cell this run was traced from, through the same " +
+		"metersPerUnit anchoring the Sample panel's elevation uses. The row under " +
+		"it is the fall from there to the mouth.")
+	_field(sec, "Fall", _m_text(float(_river.get("drop_m", 0.0))),
+		"Source elevation minus mouth elevation. Negative is possible and is not " +
+		"a bug: the traced chain follows build_channels' aspect-projected " +
+		"receiver, and the carve pass moves the field under it afterwards.")
+	_field(sec, "Discharge", "%s" % _thousands(float(_river.get("discharge", 0.0))),
+		"The largest flow accumulation on the run (WorldState::flow_discharge, " +
+		"compute_flow with rainfall seeding). Deliberately the maximum, not the " +
+		"value at the mouth: the polyline follows one receiver tree and the " +
+		"accumulation was built on another, so discharge is not monotone " +
+		"downstream. Measured on a 192x144 world, 194 of 773 runs peak above " +
+		"their own mouth -- the mouth reading is the row below.")
+	_field(sec, "At the mouth", "%s" % _thousands(float(_river.get("mouth_discharge", 0.0))),
+		"Flow accumulation at the outlet cell specifically -- what leaves this " +
+		"river. See the Discharge row for why the two differ.")
+	_field(sec, "Catchment", "%s km²" % _thousands(float(_river.get("catchment_km2", 0.0))),
+		"The Discharge reading as an area, at this world's cell size. It is " +
+		"rainfall-WEIGHTED, not a plain cell count: compute_flow seeds each cell " +
+		"with its rainfall rescaled so the mean seed is exactly 1.0, so a wetter- " +
+		"than-average basin reads larger than its true area and a drier one " +
+		"smaller. A true unweighted area needs a second whole-grid compute_flow " +
+		"pass -- the measured hottest line in generate() -- which is not " +
+		"something to run on a dock rebuild.")
+	## **"Channel (drawn)", not "Channel width".** The number is twice
+	## `channel_disc`'s half-width -- the width of the ink `stamp_river_intensity`
+	## lays down -- and `river_width_scale_k` deliberately grows it as the map's
+	## real extent shrinks, so a river stays visible on a zoomed-in sheet. On an
+	## 800 km / 192-cell world that is ~1.9 cells, which converts to ~8 km: true
+	## of the drawn channel, absurd of a river. Both units are printed, cells
+	## first, and the row is named for what it measures.
+	if _river.has("width_cells"):
+		var wc := float(_river["width_cells"])
+		var km := _cell_km()
+		var span := ("%.2f cells" % wc) if km <= 0.0 else \
+			("%.2f cells · %s" % [wc, DccUnits.format_adaptive(wc * km)])
+		_field(sec, "Channel (drawn)", span,
+			"How wide this river is DRAWN at its mouth, in grid cells: twice " +
+			"channel_disc's half-width, the same law stamp_river_intensity inks the " +
+			"map with. It is a cartographic symbol, not a hydraulic measurement -- " +
+			"river_width_scale_k widens it as the map's real extent shrinks, on " +
+			"purpose, so a river stays legible on a 50 km sheet. The converted " +
+			"figure beside it is the ground distance that symbol covers, which is " +
+			"why it can read in kilometres.")
+	else:
+		_field(sec, "Channel (drawn)", "—",
+			"The width law (channel_disc) needs positive flow at the cell it is " +
+			"asked about, and this run's mouth carries none.", false)
+	_field(sec, "Tributaries", str(int(_river.get("tributaries", 0))),
+		"Traced runs that end on a cell of this one. Exact, not estimated: " +
+		"trace_river_polylines stops a run at the first already-visited cell and " +
+		"pushes that shared cell as its last point, so a tributary's mouth IS a " +
+		"cell of its trunk.")
+	## The engine's own barge/raft gate, not a display convention:
+	## `civ_navigable_river_discount` (reference `_civNavigableRiverDiscount`,
+	## ~line 20951) discounts travel cost only at Strahler >= 3, and the routing
+	## layer is the one consumer of it. The discount *curve* stays private to
+	## `cartalith-civ`; only the threshold is stated here, and it is stated
+	## rather than silently applied.
+	_field(sec, "Navigation", "Navigable" if order >= 3 else "Not navigable",
+		"cartalith-civ's civ_navigable_river_discount (the reference's " +
+		"_civNavigableRiverDiscount) treats Strahler order 3 and above as barge- " +
+		"or raft-navigable and discounts travel cost across it; below 3 there is " +
+		"no discount. This row states that threshold -- the discount itself is " +
+		"private to the routing cost and is not exposed.")
+
 	var actions := DccWidgets.group(sec, "Actions")
-	## All three used to share one seven-word tooltip ("No river binding to act
-	## on."), which named the same gap three times and told a reader nothing
-	## about what each Action would need. Each now says what is specifically
-	## missing for *it* -- the three are blocked by three different absences,
-	## not by one. Found by the 2026-08-31 unwired audit.
+	## **Two actions, not three.** The "Hydrology" action that stood here was
+	## defined by its own tooltip as "would report this river's Strahler order,
+	## discharge and channel width"; all three are rows above now, so a button
+	## that opens them would open what is already open. Removed rather than
+	## re-labelled with a new pretext.
+	##
+	## The remaining two keep their disabled state, and both tooltips are
+	## rewritten because both had gone false in the same way the audit's
+	## dangerous class describes -- a control disabled for a reason that no
+	## longer holds.
 	var why := {
-		"Hydrology":
-			"Would report this river's Strahler order, discharge and channel width. " +
-			"All three are computed (strahler_from_receivers, compute_flow's " +
-			"flow_discharge, river_width_scale_k) but only ever as per-CELL rasters -- " +
-			"nothing aggregates a channel run into one river with its own readings, so " +
-			"there is no per-river figure to report.",
 		"Edit geometry":
-			"Would move the river's course. The course is not stored: it is re-traced " +
-			"from the receiver tree on demand (trace_river_polylines, the way the GeoJSON " +
-			"export and the urban pass both do it), so there is no polyline to edit, and " +
-			"no write path from an edited one back into the flow field it came from.",
+			"Would move the river's course. There IS a polyline now (get_rivers()' " +
+			"points), which is what this tooltip used to say there was not. What is " +
+			"still missing is the other half: the course is derived from the receiver " +
+			"tree on every call, and nothing writes an edited polyline back into the " +
+			"flow field it came from, so an edit would be discarded by the next trace.",
 		"Analyse catchment":
-			"Would report the upstream area draining into this river. That area lives " +
-			"inside compute_flow's accumulation and crosses the boundary only one cell at " +
-			"a time (Sample -> Drainage); no #[func] sums it over a channel, and summing " +
-			"it here would mean one boundary crossing per upstream cell.",
+			"Would break the catchment down -- which sub-basins feed this river, and " +
+			"where. The total is on the Catchment row above; what does not exist is " +
+			"the decomposition, which needs labelled drainage basins. landmark.rs " +
+			"records the same absence for its own confluence rule: \"no basin entity " +
+			"exists\".",
 	}
-	for label_text in ["Hydrology", "Edit geometry", "Analyse catchment"]:
+	for label_text in ["Edit geometry", "Analyse catchment"]:
 		var b := DccWidgets.action(actions, label_text, func(): pass)
 		b.disabled = true
 		b.tooltip_text = String(why[label_text])
+
+## Metres, at the precision a metre reading in this shell can honestly carry:
+## whole metres, since every elevation here is one cell's `field` value through
+## `peak_m`, and no reading in this port resolves finer than a cell.
+func _m_text(m: float) -> String:
+	return "%s m" % _thousands(m)
 
 # -- Faction ------------------------------------------------------------
 
@@ -1556,9 +1763,17 @@ func _build_measure_section(body: Control) -> void:
 			var cd: Dictionary = c
 			_field(cr, "%.0f km" % float(cd.get("km", 0.0)), String(cd.get("label", "")),
 				"%.0f m at this crossing." % float(cd.get("elev_m", 0.0)))
+		## **Corrected with §2.2's binding.** This read "no river entity crosses
+		## the GDExtension boundary (see this dock's own River context), so
+		## there is no toponym to print" -- and the first half stopped being
+		## true the day `get_rivers()`/`river_at()` landed. The conclusion is
+		## unchanged and the reason is now the real one: `naming::FeatureKind`
+		## has no river form, so nothing names a river in the first place.
 		DccWidgets.note(cr,
-			"Rivers are described by Strahler order, not by name: no river entity crosses the GDExtension boundary " +
-			"(see this dock's own River context), so there is no toponym to print.")
+			"Rivers are described by Strahler order, not by name. The entity does cross the boundary now " +
+			"(get_rivers(), and this dock's own River context), but nothing in the engine NAMES a river: " +
+			"naming::FeatureKind covers continents, provinces, bays, mountain ranges and lakes, and no river form. " +
+			"So there is still no toponym to print here.")
 	_build_measure_actions(body)
 
 # -- Region select --------------------------------------------------------

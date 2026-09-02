@@ -173,6 +173,13 @@ var _recompute_note: Label
 ## produced in three other workspaces (a sculpt, a carve, a dropped place).
 var _recompute_badge: Label
 var _stale_timer: Timer
+## The civ-authoring ruling's Populate row (`LARGE_ITEM_RULINGS.md`,
+## 2026-08-31). Held as fields for exactly the reason `_recompute_btn` above
+## is: `_populate_world` is a coroutine that has to find its own button again
+## after the blocking engine call.
+var _populate_btn: Button
+var _populate_note: Label
+var _clear_places_btn: Button
 ## `PARITY_AUDIT.md` §23 F13's `civ_regional_population` readout -- held so
 ## `_on_compute_regional_population` can find the label it already built
 ## instead of rebuilding the section, the same reasoning `_recompute_note`
@@ -1037,10 +1044,27 @@ func _fill_territories(parent: Control) -> void:
 
 	_fill_knowledge(parent, bridge.provinces())
 
+	## Wired 2026-09-02 (`LARGE_ITEM_RULINGS.md`'s civ-authoring ruling, stage
+	## 5 of 5). It sat disabled in "Not built" saying "there is no
+	## civ_clear_territory #[func], so there is no way to leave the claim map
+	## empty"; there is one now, so the control moves into the Recompute
+	## section beside the two buttons that rebuild what it empties, rather than
+	## staying in a section named for what it no longer is.
+	##
+	## Destructive and irreversible, so it confirms first
+	## (`_confirm_destructive`) -- the same shape the timeline's own overwrite
+	## guard uses, and the reference's own handler does exactly this
+	## (`if(civTerritory && civTerritory.some(...) && !confirm(...)) return;`,
+	## reference 26665), skipping the prompt when there is nothing to lose.
+	var clear_ter := DccWidgets.action(pol, "Clear territory", _clear_territory)
+	clear_ter.disabled = not bridge.has_world
+	clear_ter.tooltip_text = ("Empties the claim map: both the computed borders assign_territory "
+		+ "derived from the capitals and every dab of hand-painted territory, plus the provinces "
+		+ "cut out of them. Settlements, roads and the timeline are untouched.\n\n"
+		+ "Not undoable. Recalculate territories re-derives the computed borders from the "
+		+ "capitals; erased paint is gone for good.")
+
 	var gaps := DccWidgets.section(parent, "Not built")
-	var clear_ter := DccWidgets.action(gaps, "Clear territory", func(): pass)
-	clear_ter.disabled = true
-	clear_ter.tooltip_text = "CivData::territory is rebuilt wholesale by generate() and by civ_recompute(); there is no civ_clear_territory #[func], so there is no way to leave the claim map empty. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
 	## `GUI_GAP_REGISTER.md` §42's Not-built anatomy: the noun, the blocker
 	## named specifically, and what does exist instead.
 	DccWidgets.note(gaps,
@@ -1300,6 +1324,130 @@ func _recompute_civ() -> void:
 	if app.has_method("refresh_staleness"):
 		app.refresh_staleness()
 
+## One Yes/No gate for the three destructive civ operations, so "confirm
+## before an irreversible action" is decided once rather than three times.
+##
+## `ConfirmationDialog` built by hand and `add_child`ed onto `app`, which is
+## this shell's own established pattern (`_tl_show_confirm` above, `app.gd`'s
+## `open_storage_locations`, `cartography_workspace.gd`'s
+## `_prompt_label_name`).
+##
+## `skip_when_empty` is the reference's own behaviour, not a shortcut: all
+## three of its Clear handlers check whether there is anything to lose first
+## and only then call `confirm()`, with the comment "skipped when there's
+## nothing to lose, so an empty map's Clear buttons stay instant" (reference
+## 26662). A prompt asking permission to delete nothing trains people to
+## dismiss prompts.
+func _confirm_destructive(title: String, body: String, ok_text: String, skip_when_empty: bool, on_confirm: Callable) -> void:
+	if skip_when_empty:
+		on_confirm.call()
+		return
+	var dlg := ConfirmationDialog.new()
+	dlg.title = title
+	dlg.dialog_text = body
+	dlg.get_ok_button().text = ok_text
+	dlg.confirmed.connect(func(): on_confirm.call(); dlg.queue_free())
+	dlg.canceled.connect(dlg.queue_free)
+	app.add_child(dlg)
+	dlg.popup_centered()
+
+## The reference's Auto-populate world (`#civAutoPopulateBtn`), stage 1 of the
+## civ-authoring ruling's five.
+##
+## Same progress affordance as `_recompute_civ`, and for the same reason:
+## `civ_populate` is a synchronous engine call with no progress signal, so the
+## honest minimum is to relabel, disable, let two frames actually paint that,
+## then block. Two frames rather than one because a single `process_frame`
+## await returns before the redraw has reached the screen.
+func _populate_world() -> void:
+	_confirm_destructive(
+		"Re-place every settlement?",
+		"Auto-populate replaces all %d settlement%s, their names, tiers, populations and "
+			% [bridge.settlements().size(), "" if bridge.settlements().size() == 1 else "s"]
+			+ "per-place notes, and drops the recorded timeline with them.\n\n"
+			+ "Faction names and colours, and hand-painted territory, are kept. This cannot be undone.",
+		"Re-place",
+		bridge.settlements().is_empty(),
+		func(): _populate_world_now())
+
+func _populate_world_now() -> void:
+	var b := _populate_btn
+	if b != null and is_instance_valid(b):
+		b.text = "Populating…"
+		b.disabled = true
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var r: Dictionary = bridge.civ_populate()
+	if b != null and is_instance_valid(b):
+		b.disabled = false
+		b.text = "Auto-populate world"
+	var outcome := ""
+	if not bool(r.get("ok", false)):
+		outcome = "Not populated. %s" % String(r.get("reason", "Unknown reason."))
+	else:
+		outcome = ("Populated in %.1f s: %d settlements placed, %d ways and %d provinces "
+			+ "built around them.") % [
+			float(r.get("ms", 0.0)) / 1000.0, int(r.get("settlements", 0)),
+			int(r.get("ways", 0)), int(r.get("provinces", 0))]
+	if _populate_note != null and is_instance_valid(_populate_note):
+		_populate_note.text = outcome
+	app.set_status("hint", outcome, "text" if bool(r.get("ok", false)) else "accent")
+	_after_civ_layer_replaced()
+
+## The reference's Clear places & routes (`#civClearPlacesBtn`), stage 4.
+func _clear_places() -> void:
+	var n := bridge.settlements().size()
+	_confirm_destructive(
+		"Clear all settlements?",
+		"Removes %d settlement%s and every way, sea lane and journey with them, along with "
+			% [n, "" if n == 1 else "s"]
+			+ "their territory, provinces and the recorded timeline.\n\nThis cannot be undone.",
+		"Clear",
+		n == 0 and bridge.roads().is_empty(),
+		func(): _clear_places_now())
+
+func _clear_places_now() -> void:
+	var r: Dictionary = bridge.civ_clear_places()
+	var outcome := "Cleared %d settlement(s), %d way(s), %d sea lane(s) and %d journey(s)." % [
+		int(r.get("settlements", 0)), int(r.get("ways", 0)),
+		int(r.get("sea_routes", 0)), int(r.get("journeys", 0))]
+	if _populate_note != null and is_instance_valid(_populate_note):
+		_populate_note.text = outcome + " Auto-populate builds a new world's worth."
+	app.set_status("hint", outcome, "text")
+	_after_civ_layer_replaced()
+
+## The reference's Clear territory (`#civClearTerrBtn`), stage 5.
+func _clear_territory() -> void:
+	_confirm_destructive(
+		"Clear all territory?",
+		"Empties the claim map: the computed borders and every hand-painted dab, plus the "
+			+ "provinces cut out of them. Settlements and roads are untouched.\n\n"
+			+ "Recalculate territories re-derives the computed borders; erased paint cannot be "
+			+ "recovered.",
+		"Clear",
+		bridge.provinces().is_empty() and not bridge.has_world,
+		func(): _clear_territory_now())
+
+func _clear_territory_now() -> void:
+	var r: Dictionary = bridge.civ_clear_territory()
+	var outcome := "Cleared %d claimed cell(s) -- computed borders and paint both." % int(r.get("cleared_cells", 0))
+	app.set_status("hint", outcome, "text")
+	_after_civ_layer_replaced()
+
+## What every stage that replaces or empties the civ layer has to do
+## afterwards, in one place rather than four copies: the territory wash and
+## the pins/roads overlay both moved, the roster readouts have to rebuild, and
+## both SG-01 staleness readouts have to update immediately rather than up to
+## a second later -- a button that just changed the world is the one place a
+## lagging badge reads as "it didn't work". Lifted verbatim out of
+## `_recompute_civ`'s tail, which is where all four lines came from.
+func _after_civ_layer_replaced() -> void:
+	app.viewport.territory_view.texture = bridge.territory_texture()
+	_on_civ_edited()
+	_refresh_staleness()
+	if app.has_method("refresh_staleness"):
+		app.refresh_staleness()
+
 ## `civPopEstimateOut` / `_civAgrarianRegionalTotal` (reference 23516) --
 ## `PARITY_AUDIT.md` §5 item 7, "the only world-level population sanity
 ## figure the reference shows", which had no Rust function at all until this
@@ -1383,25 +1531,48 @@ func _on_compute_regional_population() -> void:
 	_regional_pop_note.text = text
 
 
-## The reference's own settlement-population operations, which this shell has
-## no equivalent of because the split is different, not because they were
-## forgotten: `generate()` *places* the world as part of the one-shot chain
-## (`compute_civilisation`), so there is no separate "populate now" step to
-## press and nothing that clears just the civ layer.
+## The reference's own settlement-population operations.
 ##
-## Corrected 2026-08-24 (SG-02): the half of that sentence which used to read
-## "without re-running the whole pipeline" is no longer true. `Recompute
-## civilisation` above re-derives the whole civ layer downstream of the
-## settlement list without re-running terrain. What still has no control is
-## re-*placing* settlements, which is what both rows below are about.
+## **Both were wired 2026-09-02** (`LARGE_ITEM_RULINGS.md`'s civ-authoring
+## ruling, stages 1 and 4 of 5), so they live in their own **Populate**
+## section now rather than under "Not built", which keeps only the settlement
+## diagnostics overlay it still honestly describes.
+##
+## The two notes this replaces are worth keeping as history, because both were
+## true when written and both stopped being true in the same direction: first
+## "`generate()` places the world as part of the one-shot chain, so there is
+## no separate populate step" (SG-02 made the *downstream* half re-entrant in
+## 2026-08-24, and this ruling made placement itself re-entrant), then "nor
+## any parameter for the three counts — `params.rs` exposes no civ parameters
+## at all" (the civ `PARAMS` group is seven rows, and three of them are
+## placement dials Auto-populate reads).
 func _build_settlement_gaps(parent: Control) -> void:
+	var pop_sec := DccWidgets.section(parent, "Populate")
+	_populate_btn = DccWidgets.action(pop_sec, "Auto-populate world", _populate_world)
+	_populate_btn.disabled = not bridge.has_world
+	_populate_btn.tooltip_text = ("The reference's #civAutoPopulateBtn. Re-places every settlement "
+		+ "from the current suitability field and rebuilds everything under it — roads, sea lanes, "
+		+ "territory, provinces, economy — without re-rolling the terrain. This is how the seven "
+		+ "civilisation parameters in File ▸ New world ▸ Generation become adjustable: move one, "
+		+ "press this, see the world it makes.\n\n"
+		+ "Replaces every settlement, so names, tiers, populations and per-place notes are all "
+		+ "new; the recorded timeline is dropped with them. Faction names, cultures and colours "
+		+ "survive, and so does hand-painted territory. Not undoable.\n\n"
+		+ "Seconds, not milliseconds, on the main thread — the same cost as Recompute "
+		+ "civilisation, which measured about 1.0 s at 512², 1.6 s at 1024² and 4.2 s at 2048².")
+	_populate_note = DccWidgets.note(pop_sec,
+		"Keeps the terrain and re-derives the people on it. To re-roll the land as well, "
+		+ "use World ▸ Generate.")
+	_clear_places_btn = DccWidgets.action(pop_sec, "Clear places & routes", _clear_places)
+	_clear_places_btn.disabled = not bridge.has_world
+	_clear_places_btn.tooltip_text = ("The reference's #civClearPlacesBtn. Empties the settlement "
+		+ "list and everything indexed by it: per-place notes, trade balances, provinces and the "
+		+ "territory derived from the capitals. Ways and journeys go too — the reference's own "
+		+ "rule, since a route network with no places to connect is meaningless.\n\n"
+		+ "The recorded timeline is dropped: every snapshot refers to settlements that no longer "
+		+ "exist. Not undoable — Auto-populate derives a new set rather than restoring these.")
+
 	var sec := DccWidgets.section(parent, "Not built")
-	var pop := DccWidgets.action(sec, "Auto-populate world", func(): pass)
-	pop.disabled = true
-	pop.tooltip_text = "The reference's #civAutoPopulateBtn, plus its capitals / towns / hamlets count sliders. In this port settlement placement is not a separate pass: compute_civilisation runs inside generate() and there is no civ_populate #[func] to call on its own, nor any parameter for the three counts (params.rs exposes no civ parameters at all). Re-generate from World ▸ Generate to re-place everything."
-	var clear := DccWidgets.action(sec, "Clear places & routes", func(): pass)
-	clear.disabled = true
-	clear.tooltip_text = "The reference's #civClearPlacesBtn. Same shape: no civ_clear_places #[func] exists, and CivData is rebuilt wholesale by generate() rather than mutated in place, so there is no partial teardown to expose. Individual manual drops can still be undone by re-generating."
 	var diag := DccWidgets.action(sec, "Settlement diagnostics overlay", func(): pass)
 	diag.disabled = true
 	## Rewritten 2026-08-31. The previous wording ended "the crate has no
@@ -1414,11 +1585,12 @@ func _build_settlement_gaps(parent: Control) -> void:
 	## `URBAN_MORPHOLOGY_SCOPE.md`'s milestone headings, not remembered.
 	diag.tooltip_text = "The reference's #civDiagnosticsChk (drawCivLayer §2.6). Per settlement it draws a SITE_WM×SITE_HM footprint box and a fact card of at most three lines: specialisation + _umWallSpec's wall rung on the first, _umSiteProfile's river classification on the second, and -- only when a layout is already in _umModelCache -- bridge/ford/harbour validity on the third. Two of those five values this port can produce: SITE_WM/SITE_HM and um_wall_spec are both ported (cartalith-civ's urban_adapter and military), and cartalith-urban IS consumed, by that adapter and through it by cartalith-godot's urban_bridge. The other three have nothing behind them: settlements carry no specialisation, _umSiteProfile is unported because its own consumers are unbuilt, harbours/bridges/fords are URBAN_MORPHOLOGY_SCOPE.md milestone 9, the wall builder is milestone 10 and districts are 13 -- and _umModelCache is out of scope for every milestone (this port keys layouts GDScript-side instead). So the overlay would draw a box, a rung and three blanks, which is worse than not drawing it. Blocked on urban milestones 9, 10 and 13. PARITY_AUDIT.md §5 item 13."
 	DccWidgets.note(sec,
-		"The biome carrying-capacity residual IS exposed now (File ▸ New world ▸ Generation -- "
-		+ "the reference's own #civBiomeKChk, default off). Urban morphology layouts remain a "
-		+ "separate unported subsystem (URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress). "
-		+ "Village seeding, the imperial-seat (metropolis) tier and the post-collapse recovery "
-		+ "phase are exposed in the same place.")
+		"Urban morphology layouts remain a separate unported subsystem "
+		+ "(URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress) -- that is what this one row is "
+		+ "waiting on. Every other civilisation dial IS exposed: the biome carrying-capacity "
+		+ "residual, village seeding, the imperial-seat (metropolis) tier, the post-collapse "
+		+ "recovery phase, the faction count and the two settlement-placement dials, all in "
+		+ "File ▸ New world ▸ Generation, and all re-runnable from Auto-populate above.")
 
 ## `04-left-dock.md` §6b's `hCivPlaceSel`: "selects the place, arms inspect,
 ## and opens the right dock." `arm_tool()` no-ops when Inspect is already
@@ -1600,9 +1772,65 @@ func _fill_economy(parent: Control) -> void:
 	DccWidgets.note(sec, "Most-exported: %s. Most-imported: %s." % [
 		_top_key(exports), _top_key(imports)])
 	DccWidgets.note(sec,
-		"This is the hinterland term only (civ_resource_trade_balance) -- the full " +
-		"faction-level aggregation (population, tax, the five-axis power heuristic) is " +
-		"real future scope per ECONOMY_SCOPE.md, not yet computed.")
+		"This is the per-settlement hinterland term (civ_resource_trade_balance). The " +
+		"faction-level aggregation is below.")
+	_fill_faction_economy(parent)
+
+## `OUTSTANDING_WORK.md` §2.3: `_civFactionAggregates`' resource- and
+## density-fed half, "as a *surfaced* readout" -- the row's own note was "the
+## aggregate is ported and has three callers; nothing shows this half", and
+## this is the surface.
+##
+## Collapsed by default (`DccWidgets.group(..., false)`), and that is the
+## design rather than tidiness: `civ_faction_economy` rebuilds the lithology
+## and resource rasters on every call, so opening Economy must not pay for
+## them until somebody asks for this specific answer.
+##
+## The note this replaces claimed the faction-level aggregation was "real
+## future scope per ECONOMY_SCOPE.md, not yet computed". Half of that was
+## already false when written -- `civ_faction_aggregates` has been ported and
+## called since the military bridge landed -- and what was genuinely missing
+## was a caller that fed it `pots`/`dens` and showed the result. Tax and the
+## five-axis power heuristic really are still unsurfaced, so the note below
+## names those two and nothing else.
+func _fill_faction_economy(parent: Control) -> void:
+	var rows := bridge.civ_faction_economy()
+	if rows.is_empty():
+		return
+	var sec := DccWidgets.section(parent, "By faction")
+	var grp := DccWidgets.group(sec, "Territory, food and resources", false)
+	var names := bridge.get_factions()
+	for r in rows:
+		var d: Dictionary = r
+		var f := int(d.get("faction", 0))
+		var label := "Faction %d" % f
+		if f < names.size():
+			label = String((names[f] as Dictionary).get("name", label))
+		var surplus := float(d.get("food_surplus", 0.0))
+		## The sign is the whole point of the pair, so it is said in words
+		## rather than left as a leading minus in a run of numbers.
+		var verdict := "feeds itself with %s to spare" % FactionRosterWindow._thousands(int(surplus))
+		if surplus < 0.0:
+			verdict = "short by %s" % FactionRosterWindow._thousands(int(-surplus))
+		DccWidgets.note(grp, "%s -- %s km², %s people, %s." % [
+			label, FactionRosterWindow._thousands(int(float(d.get("territory_km2", 0.0)))),
+			FactionRosterWindow._thousands(int(float(d.get("pop", 0.0)))), verdict])
+		var strat: PackedStringArray = d.get("strategic", PackedStringArray())
+		var ex: PackedStringArray = d.get("exports", PackedStringArray())
+		var im: PackedStringArray = d.get("imports", PackedStringArray())
+		DccWidgets.note(grp, "    Strategic: %s.  Exports: %s.  Imports: %s." % [
+			"none" if strat.is_empty() else ", ".join(strat),
+			"none" if ex.is_empty() else ", ".join(ex),
+			"none" if im.is_empty() else ", ".join(im)])
+	DccWidgets.note(grp,
+		"Food capacity is the agrarian carrying capacity of the faction's own cells; the " +
+		"surplus is that against the population actually living on them, so a shortfall means " +
+		"a polity that has to import. Strategic resources are catchment means above the " +
+		"reference's own 0.4 bar; exports and imports compare that catchment against the world " +
+		"mean, with food added by the surplus sign.")
+	DccWidgets.note(grp,
+		"Tax income and the five-axis power heuristic come out of the same pass and are not " +
+		"drawn anywhere yet -- ECONOMY_SCOPE.md owns them.")
 
 func _top_key(counts: Dictionary) -> String:
 	if counts.is_empty():

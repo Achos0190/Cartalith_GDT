@@ -139,7 +139,18 @@ const APPEARANCE_GROUPS := [
 		"stipple_strength", "border_width_frac"]],
 	["Materials", ["biome_sat", "tex_strength", "litho_strength", "litho_exposure",
 		"hydro_wet_strength", "local_contrast", "splat_strength"]],
-	["Atmosphere", ["haze_strength"]],
+	## §19 (`TERRAIN_APPEARANCE_RESEARCH.md`, `OUTSTANDING_WORK.md` §2.5): the
+	## other two atmospheric-perspective axes research named, over the same
+	## plate-edge distance `haze_strength` already reads -- there is no
+	## camera, so "far" is this plate-relative distance for all three.
+	["Atmosphere", ["haze_strength", "atmo_desaturation", "atmo_contrast"]],
+	## §16 (`TERRAIN_APPEARANCE_SCOPE.md`, `OUTSTANDING_WORK.md` §2.5): the
+	## three hillshade bands `land_color` already blends -- macro, meso and a
+	## per-pixel micro jitter -- as their own named weights instead of the
+	## hardcoded 0.40/0.40/0.20 they used to be. A relief group, not a
+	## materials one: nothing here reads climate, biome or geology, only the
+	## same shading `land_color` computes for "Relief & light" above.
+	["Multi-scale detail", ["detail_macro_weight", "detail_meso_weight", "detail_micro_weight"]],
 	## The colour grade -- a presentation-only post-process over the finished
 	## terrain raster, before rivers, labels and icons draw. Its own group
 	## because it is a different kind of control from everything above it:
@@ -185,6 +196,9 @@ const APPEARANCE_HELP := {
 	"relief_directionality": "How far the primary sun dominates the others. 1 is near-single-light; 0 is fully omnidirectional, which flattens the relief completely.",
 	"relief_ambient": "Floor of the light curve -- how bright fully-shadowed ground stays.",
 	"relief_gain": "Gain of the light curve, above the ambient floor.",
+	"detail_macro_weight": "Weight of the broad relief silhouette in the shading blend -- the same multidirectional hillshade the Relief & light group above lights.",
+	"detail_meso_weight": "Weight of the same hillshade at a smoothed, coarser scale -- keeps large landforms legible once the macro band starts responding to per-cell noise.",
+	"detail_micro_weight": "Weight of a per-pixel high-frequency jitter of the macro band -- fine surface grain, distinct from the sheet's paper grain, which textures colour rather than light.",
 	"ao_strength": "Ambient occlusion: darkens enclosed valleys and gorges that see less sky. The reference's own Ambient occlusion slider.",
 	"ao_radius_frac": "How wide the occlusion samples, as a share of map width -- a basin scale, not a pixel scale.",
 	"paper_strength": "The paper/vellum ground: fibre, tooth, ageing and a warm tint. The reference's Parchment slider, on by default here because this port's base look is an atlas plate.",
@@ -206,6 +220,8 @@ const APPEARANCE_HELP := {
 	"biome_sat": "How colourful the material mix is, about its own luminance -- so it can never make one material lighter or darker relative to its neighbour, only more or less saturated. Negative is toward grey. No reference counterpart: the reference's only chroma control is Relief <-> biome, which pulls toward a fixed grey and therefore flattens as it desaturates.",
 	"tex_strength": "A three-frequency fine surface modulation over the material colour -- the reference's Surface texture. Evaluated in map coordinates, so a tiled export stays seamless.",
 	"haze_strength": "Atmospheric perspective: how far the plate fades toward sky at its edges. The reference's own fixed 0.18, made adjustable; the shipped look uses 0.09, which reads as air rather than as a vignette.",
+	"atmo_desaturation": "How far the outer plate loses colour toward the haze above, same distance as the sky tint. 0 keeps material colour equally saturated everywhere.",
+	"atmo_contrast": "How far the outer plate's material contrast flattens toward the haze above. 0 keeps full material contrast everywhere; the centre is always unaffected.",
 	"grade_exposure": "Overall brightness of the finished map, as a linear gain. The grade is a post-process on the rendered image and touches no world data at all.",
 	"grade_contrast": "Contrast about mid-grey, applied after exposure so the pivot sits where exposure put the image.",
 	"grade_saturation": "Saturation of the finished map, about its own luminance -- exactly luminance-preserving, so it cannot flatten the relief.",
@@ -270,20 +286,23 @@ func build_map_style_into(parent: Control) -> void:
 	_host = null
 
 ## v3 CARTO ▸ TERRAIN APPEARANCE: `§ Colour relief ramp`, then the relief,
-## sheet, material and atmosphere groups. v3 keeps this category "whole,
-## unchanged in scope" -- its migration audit's own words -- so the split
-## below is only the grade leaving for COLOURS, which v3 does ask for.
+## sheet, material, atmosphere and multi-scale-detail groups. v3 keeps this
+## category "whole, unchanged in scope" -- its migration audit's own words --
+## so the split below is only the grade leaving for COLOURS, which v3 does
+## ask for. (§16's group joined the other five here 2026-09-02, after v3's
+## own migration -- a relief control, not a colour one, so it grew this slice
+## rather than the other.)
 func build_terrain_appearance_into(parent: Control) -> void:
 	_host = parent
 	_build_ramp()
-	_build_appearance(APPEARANCE_GROUPS.slice(0, 4))
+	_build_appearance(APPEARANCE_GROUPS.slice(0, 5))
 	_host = null
 
 ## v3 CARTO ▸ COLOURS: vibrancy/saturation/contrast/brightness/gamma/temp/tint
 ## (the colour grade) and `+ Field influence weights`.
 func build_colours_into(parent: Control) -> void:
 	_host = parent
-	_build_appearance(APPEARANCE_GROUPS.slice(4), "Colour grade")
+	_build_appearance(APPEARANCE_GROUPS.slice(5), "Colour grade")
 	_host = null
 
 ## v3 CARTO ▸ MAP PRESETS: the saved-look library, plus the inventory of what

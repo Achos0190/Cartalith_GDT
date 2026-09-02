@@ -179,6 +179,20 @@ pub fn build_lithology(
 /// this is a deliberate, small, ponytail-sanctioned duplicate rather than a
 /// cross-crate extraction for one ~10-line pure function; `render.rs`'s
 /// copy lives in `cartalith-godot`, which this crate must not depend on).
+///
+/// The final `Math.hypot` is [`js_hypot`], **not** `f64::hypot`. This is a
+/// measured 1-ulp divergence, not a precaution: the block-2 golden's
+/// `Small/cornerClamped` profile disagreed on `slope_n` alone, and the two
+/// candidate expressions were run in `node` v24.19.0 over the failing cell's
+/// own operands (`a = 0x3f58938000000000`, `b = 0x3f7a9fc000000000`):
+///
+/// | | `slopeAt(95,63) * GW` |
+/// |---|---|
+/// | `Math.hypot(a,b)` — the reference, and the captured golden | `0x3fe47e2979e9bda9` |
+/// | `Math.sqrt(a*a+b*b)` — what `f64::hypot` returns here | `0x3fe47e2979e9bda8` |
+///
+/// [`build_slope_field`] truncates to `f32` and so never saw it; `slope_n`
+/// on [`crate::urban_adapter::SiteProfile`] is `f64` and did.
 fn slope_at(field: &[f32], gw: usize, gh: usize, world: bool, x: usize, y: usize) -> f64 {
     let (xl, xr) = if world {
         ((x + gw - 1) % gw, (x + 1) % gw)
@@ -196,7 +210,7 @@ fn slope_at(field: &[f32], gw: usize, gh: usize, world: bool, x: usize, y: usize
     let r = field[y * gw + xr] as f64;
     let u = field[yu * gw + x] as f64;
     let d = field[yd * gw + x] as f64;
-    ((r - l) * 0.5).hypot((d - u) * 0.5)
+    cartalith_jsmath::js_hypot((r - l) * 0.5, (d - u) * 0.5)
 }
 
 /// `currentSoil()`'s own inline `slopeN` build (reference line 5877):
@@ -2361,6 +2375,16 @@ pub fn civ_catchment_radius_cells(cat_km2: f64, map_width_km: f64, gw: usize) ->
 /// aware. Pure read over already-computed fields, same fixed-radius idiom
 /// this crate already uses elsewhere (`_civCatchmentDensityMean`'s Rust
 /// analogue).
+///
+/// **The centre is signed, and that is load-bearing.** The reference reads
+/// `Math.round(p.x)`/`Math.round(p.y)` off the settlement *unclamped*, and
+/// then drops each out-of-range `xx`/`yy` individually inside the loop --
+/// so a site half a radius past the edge contributes only the part of its
+/// window that is on the grid, and a site well past it contributes nothing
+/// at all (`n === 0`, every mean `0`). Taking a `usize` centre forced the
+/// caller to clamp first, which recentres the window instead of trimming it;
+/// the block-2 golden's `pastTheEdge` profile caught exactly that, reading
+/// `resources[timber] = 0.569` where the reference reports `0`.
 #[allow(clippy::too_many_arguments)]
 pub fn civ_place_resource_context(
     res: &ResourcePotentials,
@@ -2368,17 +2392,21 @@ pub fn civ_place_resource_context(
     gw: usize,
     gh: usize,
     sea: f64,
-    x: usize,
-    y: usize,
+    x: i64,
+    y: i64,
     radius_cells: usize,
     world_wrap: bool,
 ) -> std::collections::HashMap<&'static str, f64> {
     let r = radius_cells.max(1) as i64;
     let r2 = r * r;
-    let (x0, y0) = (x as i64, y as i64);
+    let (x0, y0) = (x, y);
     let mut cells = Vec::new();
     for dy in -r..=r {
-        let yy = y0 + dy;
+        // `saturating_add`, because a caller may hand over a coordinate that
+        // came from `f64 as i64` and so saturated at the extremes; a
+        // saturated sum is still out of `0..gh`, which is the reference's
+        // own answer for a point that far away.
+        let yy = y0.saturating_add(dy);
         if yy < 0 || yy >= gh as i64 {
             continue;
         }
@@ -2386,7 +2414,7 @@ pub fn civ_place_resource_context(
             if dx * dx + dy * dy > r2 {
                 continue;
             }
-            let mut xx = x0 + dx;
+            let mut xx = x0.saturating_add(dx);
             if world_wrap {
                 xx = ((xx % gw as i64) + gw as i64) % gw as i64;
             } else if xx < 0 || xx >= gw as i64 {

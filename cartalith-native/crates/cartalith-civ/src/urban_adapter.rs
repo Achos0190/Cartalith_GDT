@@ -71,20 +71,35 @@
 //! # Golden status — stated plainly
 //!
 //! The engine underneath this module ([`cartalith_urban`]) is golden-verified
-//! milestone by milestone against the reference. **This module is not.** The
-//! block-2 `_um*` functions run inside the host app's full civ scope
-//! (`field`, `flowField`, `civWays`, `state`, `_riverNet`,
-//! `currentWaterBodies`), and the capture harness slices *block 4* (reference
-//! lines 28167-31103) as one contiguous unit — it has no block-2 fixture, and
-//! building one is a real harness effort, not something to improvise. Every
-//! function below is therefore ported by reading the reference line by line,
-//! with its constants carried verbatim and cited, and covered by ordinary unit
-//! tests over synthetic fields — not by golden parity. Milestone 17 is where
-//! that gets closed.
+//! milestone by milestone against the reference, and **as of milestone 17a so
+//! is this module's core**: `tests/golden_parity_urban_adapter.rs`, generated
+//! by `cartalith-native/tools/um_block2_capture.js`, holds bit-exact captures
+//! of [`um_site_box_km`], [`um_water_near_km`], [`um_water_reach_km`],
+//! [`um_infer_age`], [`um_harbour_scale`], [`um_ray_box_exit`],
+//! [`um_site_kind_from_terrain`], [`um_ore_bearing`] and every field of
+//! [`um_site_profile`], over two synthetic worlds.
 //!
-//! That harness is no longer only a description: milestone 16 reconstructed it
-//! and it lives at `cartalith-native/tools/um_capture.js`. A block-2 fixture
-//! would be a second capture beside it, not a new apparatus from scratch.
+//! **The blocker recorded here until 2026-09-02 was wrong, and is quoted
+//! rather than quietly deleted** — it read: *"The block-2 `_um*` functions run
+//! inside the host app's full civ scope (`field`, `flowField`, `civWays`,
+//! `state`, `_riverNet`, `currentWaterBodies`), and the capture harness slices
+//! block 4 (reference lines 28167-31103) as one contiguous unit — it has no
+//! block-2 fixture, and building one is a real harness effort."* The effort is
+//! real; the impossibility was not. All four of the reference's `<script>`
+//! blocks evaluate in a bare `vm` context in the browser's own order given one
+//! self-similar `Proxy` standing in for the DOM, and the harness's own header
+//! carries the measurement.
+//!
+//! Two real port defects were found the moment it ran, both invisible to the
+//! unit tests in [`tests`]: [`crate::slope_at`] used `f64::hypot` where the
+//! reference uses `Math.hypot` (1 ulp, and `slope_n` is `f64`), and this
+//! module handed [`civ_place_resource_context`] a *clamped* centre where the
+//! reference passes the raw `p`. Both are documented at their fix sites.
+//!
+//! What is still **not** golden-verified here: [`um_place_context`],
+//! [`run_layout`], [`settlement_layout`], [`um_terrain_orient`],
+//! [`um_route_ends`], [`um_primary_paths`], [`um_water_ctx`] and
+//! [`um_terrain_ctx`] — covered by the ordinary unit tests in [`tests`] only.
 //!
 //! **A divergence recorded here until 2026-09-02 is gone, by deletion rather
 //! than by correction.** `run_layout` used to transliterate `generate()`'s
@@ -1356,11 +1371,25 @@ pub fn um_site_profile(
     // `_civPlaceResourceContext(p)` with its own default radius,
     // `max(3, round(GW/128))`, and no world wrap — the reference's own
     // `if(xx<0||xx>=GW) continue`.
+    //
+    // The centre is `Math.round(p.x)`, **not** the clamped `xi`/`yi` this
+    // function uses for its own field reads: `_civPlaceResourceContext` takes
+    // the raw `p`, and clamping first recentres the window rather than
+    // trimming it. The block-2 golden's `pastTheEdge` case is the one that
+    // separates the two.
     let has_pots = CIV_RESOURCE_KEYS.iter().all(|&k| crate::resource_field_all(e.res, k).len() == n);
     let (resources, resources_nearby) = if has_pots {
         let radius = js_max(3.0, js_round(w.gw as f64 / 128.0)) as usize;
         let mean = civ_place_resource_context(
-            e.res, w.field, w.gw, w.gh, sea, xi, yi, radius, false,
+            e.res,
+            w.field,
+            w.gw,
+            w.gh,
+            sea,
+            js_round(px) as i64,
+            js_round(py) as i64,
+            radius,
+            false,
         );
         let mut nearby: Vec<&'static str> =
             CIV_RESOURCE_KEYS.iter().copied().filter(|k| mean[k] > 0.4).collect();

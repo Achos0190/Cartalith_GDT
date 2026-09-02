@@ -84,6 +84,16 @@ class _Step:
 ##    transport strip overlay), Preferences (theme dark/light + units km/mi
 ##    wired), Help/about."
 ##
+## **The units half of that line is real as of 2026-09-02** (PR-15,
+## `OUTSTANDING_WORK.md`). `menus.gd`'s Preferences ▸ Units used to be a
+## `_todo` row; it is now a live three-way radio (km/mi **and** nautical
+## miles -- the owner's ruling went past the spec quote above, see
+## `menus.gd`'s own note on it) backed by `DccSettings.units_mode()`. Nothing
+## in this file changed to carry it: this screen's whole contract with
+## `menus.gd` is re-presenting whatever real `PopupMenu` it built, so
+## Preferences ▸ Units drills exactly like Theme already did, with no new
+## code here either time.
+##
 ## Two kinds of entry, because that list mixes two kinds of destination:
 ##
 ##   - **`menus`** names a program menu on the desktop menu bar. The row drills

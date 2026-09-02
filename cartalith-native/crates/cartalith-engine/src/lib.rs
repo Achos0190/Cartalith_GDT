@@ -501,6 +501,59 @@ pub struct WorldStructureParams {
     pub hotspot_density: f64,
 }
 
+/// The civilisation layer's own dials.
+///
+/// **`generate_terrain` reads none of them.** This struct is carried on
+/// [`WorldParams`] rather than consumed here, and its one reader is
+/// `cartalith-godot`'s `compute_civilisation` — the civ layer is built above
+/// this crate (`ARCHITECTURE.md`: `cartalith-civ` is stateless, the
+/// orchestration lives in the Godot bridge), so there is no `cartalith-engine`
+/// stage to read it. It lives here anyway because `cartalith-godot`'s
+/// `params::PARAMS` table is keyed on `WorldParams` field paths, and the
+/// alternative — a second parameter table beside it — is exactly the
+/// duplication that table exists to prevent. Adding a field here costs
+/// generation nothing: no stage branches on it.
+///
+/// The first four are the reference's four civ-layer module flags
+/// (`_civVillages`, `_civMetropolis`, `_civRecoveryPhase`, `_biomeK`,
+/// reference HTML lines 6441-6444), each of which the reference's own comment
+/// marks a *transient UI preference* that `serializeState` does not write —
+/// hence their empty `JS_PATHS` rows. Every default below reproduces the
+/// reference's own, so a default civ layer is bit-identical to before this
+/// struct existed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CivParams {
+    /// `_civVillages` (reference 6444), default OFF — the additive
+    /// village-seeding pass.
+    pub villages: bool,
+    /// `_civMetropolis` (reference 6442), default OFF — "OFF by default =>
+    /// auto-populate output bit-identical", the reference's own comment.
+    pub metropolis: bool,
+    /// `_civRecoveryPhase` (reference 6443), `0` Stable / `1` Survival /
+    /// `2` Subsistence / `3` Regional / `4` Mature. `0` is a strict no-op.
+    pub recovery_phase: i32,
+    /// `_biomeK` (reference 6441), default OFF — the biome carrying-capacity
+    /// residual. The reference's own comment on that default: "0 = biome
+    /// carrying-capacity residual OFF (bit-identical)".
+    pub biome_k: bool,
+    /// How many factions settlement placement assigns into — the reference's
+    /// `CIV_FACTIONS` length (its literal, reference 14568, is 6). No
+    /// reference *control*: the reference edits that array through
+    /// `_civAddFaction`/`_civRemoveFaction` rather than a count dial.
+    pub factions: i32,
+    /// `SETTLE_SEED_THRESH` (reference 6415, `const SETTLE_SEED_THRESH=0.42`)
+    /// — the suitability a cell must reach to seed a settlement at all. A
+    /// reference constant with no control; raising it thins the world out,
+    /// lowering it settles marginal land.
+    pub seed_thresh: f64,
+    /// The divisor in the seed-suppression radius, `max(6, floor(gw / d))` —
+    /// reference 25360's `Math.max(6,(GW/22)|0)`, so the default is `22`.
+    /// Larger means a smaller radius, so settlements pack closer together.
+    /// The `6`-cell floor is not a dial: it is what stops a small grid from
+    /// suppressing nothing at all.
+    pub seed_suppress_div: f64,
+}
+
 /// Everything `generate_terrain` needs from `state` — one struct per
 /// `state` sub-object (`tect`/`volc`/`crater`/`planet`/`climate`/`stream`/
 /// `world_structure`), plus the handful of top-level fields (`world`/
@@ -528,6 +581,9 @@ pub struct WorldParams {
     /// Entirely off by default — see [`ErosionPassParams`].
     pub passes: ErosionPassParams,
     pub world_structure: WorldStructureParams,
+    /// The civ layer's dials. Read by `cartalith-godot`'s
+    /// `compute_civilisation`, by no stage in this crate — see [`CivParams`].
+    pub civ: CivParams,
     /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: run plate assignment,
     /// domain warp, crustal heterogeneity, and the flexure/base-field blur
     /// on GPU instead of CPU. Default `false` -- with this flag at its
@@ -657,6 +713,18 @@ impl WorldParams {
                 tectonic_energy: 0.60,
                 ocean_depth: 0.60,
                 hotspot_density: 0.20,
+            },
+            // Every one of these is the reference's own default (see
+            // `CivParams`), so a civ layer built from `defaults()` is
+            // bit-identical to the one built before this struct existed.
+            civ: CivParams {
+                villages: false,
+                metropolis: false,
+                recovery_phase: 0,
+                biome_k: false,
+                factions: 6,
+                seed_thresh: 0.42,
+                seed_suppress_div: 22.0,
             },
             use_gpu: false,
         }

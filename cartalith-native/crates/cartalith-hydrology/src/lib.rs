@@ -14,7 +14,7 @@ use rayon::prelude::*;
 // both needed `atan2` and neither of which could see this module -- reach it
 // too. The two `node`-derived goldens moved with it, unchanged, which is the
 // check that the move was pure.
-use cartalith_jsmath::js_atan2;
+use cartalith_jsmath::{js_atan2, js_hypot, js_min};
 
 /// Descending-height, ascending-index-on-tie comparison — the ordering
 /// [`flow_sort_desc`] must produce. **The oracle, not the implementation**:
@@ -351,7 +351,25 @@ pub fn build_channels(
                 let above = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
                 let below = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
                 let gy = (above - below) * 0.5;
-                let slope_n = gx.hypot(gy) * w as f64;
+                // `Math.hypot(gx, gy) * W`, not `f64::hypot` -- the reference
+                // writes `Math.hypot` here (line 4507; 4506 is the gx/gy line
+                // above it, which is what this comment used to cite) and this
+                // port did not.
+                // `slope_n` goes straight into `channel_threshold`, whose
+                // result is compared `flow[i] <=`, so a one-ulp difference
+                // could flip whether the cell channelizes at all.
+                //
+                // **Measured, and the measurement is smaller than the worry**
+                // (`slope_hypot_divergence_is_measured_not_assumed`): over
+                // 400 000 sampled gradients the two hypots differ on 125 490
+                // -- 31 % -- but on none of those does the difference move
+                // `channel_threshold` far enough to flip the `<=`. All three
+                // node-derived `golden_parity_river` cases stayed green across
+                // the swap, which is the same answer from the oracle side. It
+                // is corrected anyway: being one ulp more accurate than the
+                // reference is the wrong answer here, and the next fixture
+                // is not obliged to be as forgiving as these.
+                let slope_n = js_hypot(gx, gy) * w as f64;
                 slope_row[x] = slope_n as f32;
                 if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
                     continue;
@@ -577,7 +595,207 @@ pub fn split_river_polylines(
     out
 }
 
-/// `enforceChannelDescent()` (reference HTML lines 8725-8737): walks an
+/// One addressable river — a traced, drawable run of the receiver tree with
+/// the readings that belong to the *run* rather than to a cell.
+///
+/// # There was no river entity, and this is the shape the reference implies
+///
+/// `buildRiverNetwork` returns rasters (`order`, `intensity`, `depth`, `recv`,
+/// `slope`, `omax`); nothing in the reference aggregates a channel run into a
+/// named object. What it does have is `drawRiverWays` (reference line 9473),
+/// which per polyline computes `maxO` — *"the reference rescans the polyline
+/// rather than trusting the source cell's order"*, as `geojson_bridge.rs`
+/// already puts it — and colours the stroke by it. So a river here is exactly
+/// what the reference draws as one: a `split_river_polylines` run, carrying
+/// `maxO`. Everything else on this struct is read off rasters the engine
+/// already retains, at cells this run already owns.
+///
+/// `pts` are cell centres (`col+0.5`, `row+0.5`), head first and mouth last —
+/// `trace_river_polylines`' own downstream order.
+pub struct River {
+    pub pts: Vec<(f64, f64)>,
+    /// Highest Strahler order anywhere on the run (`drawRiverWays`' `maxO`).
+    pub order: i16,
+    /// Summed segment length in grid cells.
+    pub length_cells: f64,
+    /// The largest `flow_discharge` anywhere on the run — the same
+    /// rescan-the-polyline rule `order` follows (`drawRiverWays`' `maxO`).
+    ///
+    /// **Not the value at the mouth, and that is a correction rather than a
+    /// preference.** The polyline follows `build_channels`' receiver tree,
+    /// which is a D∞ *aspect* projection (Tarboton 1997); `flow_discharge`
+    /// accumulated along `compute_flow`'s plain D8 steepest-descent tree, and
+    /// the carve pass then moved the field under both. Those are different
+    /// trees, so discharge is **not monotone** down a traced run. Measured on
+    /// a real 192x144 world (`cartalith-godot/tests/river_entities.rs`): a run
+    /// whose head carries 11.29 and whose mouth carries 3.32. Reporting the
+    /// mouth would have shown a trunk as a trickle.
+    pub discharge: f32,
+    /// `flow_discharge` at the outlet cell specifically — kept alongside
+    /// [`River::discharge`] because the two genuinely differ (see above) and a
+    /// caller asking "what leaves this river" means this one.
+    pub mouth_discharge: f32,
+    /// Channel half-width in cells at the mouth ([`channel_disc`]), or `None`
+    /// when the mouth carries no positive flow.
+    pub half_width_cells: Option<f64>,
+    /// How many other runs end on a cell of this one.
+    pub tributaries: u32,
+    /// Cell index of the first point (the headwater).
+    pub head: u32,
+    /// Cell index of the last point (the outlet).
+    pub mouth: u32,
+}
+
+/// Every river on the world, as [`River`] entities.
+///
+/// Reuses the pair the GeoJSON exporter and the urban pass already run —
+/// `trace_river_polylines` then `split_river_polylines(.., None)` — so an
+/// entity is one *drawable* run: a receiver chain that wraps the antimeridian
+/// becomes two rivers rather than one that streaks back across the map, which
+/// is the same cut `export_geojson` makes and for the same reason. No lake
+/// predicate, again matching the exporter: a lake reach is real hydrology.
+///
+/// `min_order` is clamped to `>= 1` by `trace_river_polylines` itself. Order 1
+/// is thousands of headwater trickles on a large world; 2 is what
+/// `EXPORT_MIN_RIVER_ORDER` uses.
+///
+/// # Tributaries are counted, not estimated
+///
+/// `trace_river_polylines` traces main stems first and stops a run at the
+/// first already-visited cell, pushing that shared cell as the run's last
+/// point — so a tributary's mouth *is* a cell of its trunk. Counting is
+/// therefore exact: map every cell to the run that claimed it first (trunks
+/// claim first, by that same ordering), then charge each run's mouth to the
+/// run that owns it. A run whose mouth cell is its own is an outlet to sea,
+/// lake or off-network, and charges nobody.
+#[allow(clippy::too_many_arguments)]
+pub fn river_entities(
+    order: &[i16],
+    recv: &[i32],
+    flow: &[f32],
+    fld: &[f32],
+    w: usize,
+    h: usize,
+    min_order: i32,
+    thresh: f64,
+    width_k: f64,
+    wrap: bool,
+) -> Vec<River> {
+    let n = w * h;
+    if n == 0 || order.len() < n || recv.len() < n || flow.len() < n || fld.len() < n {
+        return Vec::new();
+    }
+    let polys = split_river_polylines(&trace_river_polylines(order, recv, w, h, min_order), w, None);
+    let lmax = channel_lmax(n);
+
+    // Cell -> owning run, first writer wins (see the doc comment: trunks are
+    // traced first, so a shared junction cell belongs to the trunk).
+    let mut owner = vec![u32::MAX; n];
+    let cell_of = |p: (f64, f64)| -> usize { (p.1 as usize).min(h - 1) * w + (p.0 as usize).min(w - 1) };
+    for (ri, pl) in polys.iter().enumerate() {
+        for &p in pl {
+            let c = cell_of(p);
+            if owner[c] == u32::MAX {
+                owner[c] = ri as u32;
+            }
+        }
+    }
+
+    let mut out: Vec<River> = polys
+        .iter()
+        .map(|pl| {
+            let head = cell_of(pl[0]);
+            let mouth = cell_of(pl[pl.len() - 1]);
+            let mut max_o = 0i16;
+            let mut max_q = 0.0f32;
+            let mut length_cells = 0.0f64;
+            for (k, &p) in pl.iter().enumerate() {
+                let c = cell_of(p);
+                let o = order[c];
+                if o > max_o {
+                    max_o = o;
+                }
+                if flow[c] > max_q {
+                    max_q = flow[c];
+                }
+                if k > 0 {
+                    let q = pl[k - 1];
+                    length_cells += js_hypot(p.0 - q.0, p.1 - q.1);
+                }
+            }
+            River {
+                pts: pl.clone(),
+                order: max_o,
+                length_cells,
+                discharge: max_q,
+                mouth_discharge: flow[mouth],
+                half_width_cells: channel_disc(fld, flow, order, w, h, wrap, thresh, width_k, lmax, mouth)
+                    .map(|d| d.half_w),
+                tributaries: 0,
+                head: head as u32,
+                mouth: mouth as u32,
+            }
+        })
+        .collect();
+
+    for ri in 0..out.len() {
+        let trunk = owner[out[ri].mouth as usize];
+        if trunk != u32::MAX && trunk as usize != ri {
+            out[trunk as usize].tributaries += 1;
+        }
+    }
+    out
+}
+
+/// Nearest river to a grid-space point, within `radius_cells` of one of its
+/// segments — the engine half of viewport river hit-testing.
+///
+/// Distance is to the polyline, not to its vertices: a click between two cell
+/// centres of the same reach must select that reach, and at
+/// `ViewportHost.ZOOM_MAX` a one-cell gap is ~29 screen px (`get_roads()`'s
+/// own measurement of the same problem).
+///
+/// Ties go to the nearer run, and where two runs are equidistant, to the
+/// higher `order` — a trunk and the tributary that ends on it share exactly
+/// one cell (see [`river_entities`]), and selecting the trunk there is what a
+/// pointer means.
+///
+/// Comparisons are on squared distances and no `hypot` appears: this is a
+/// pointer pick with no counterpart in the reference, so there is no JS result
+/// to match and nothing to spend a compensated sum on.
+pub fn pick_river(rivers: &[River], gx: f64, gy: f64, radius_cells: f64) -> Option<usize> {
+    /// Squared distance from `p` to segment `a..b`.
+    fn seg_d2(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+        let (vx, vy) = (b.0 - a.0, b.1 - a.1);
+        let len2 = vx * vx + vy * vy;
+        let t = if len2 > 0.0 { (((p.0 - a.0) * vx + (p.1 - a.1) * vy) / len2).clamp(0.0, 1.0) } else { 0.0 };
+        let (dx, dy) = (p.0 - (a.0 + t * vx), p.1 - (a.1 + t * vy));
+        dx * dx + dy * dy
+    }
+
+    let p = (gx, gy);
+    let r2 = radius_cells * radius_cells;
+    let mut best: Option<(usize, f64, i16)> = None;
+    for (i, r) in rivers.iter().enumerate() {
+        let mut d2 = f64::INFINITY;
+        for seg in r.pts.windows(2) {
+            let d = seg_d2(p, seg[0], seg[1]);
+            if d < d2 {
+                d2 = d;
+            }
+        }
+        if d2 > r2 {
+            continue;
+        }
+        match best {
+            Some((_, bd, bo)) if !(d2 < bd || (d2 == bd && r.order > bo)) => {}
+            _ => best = Some((i, d2, r.order)),
+        }
+    }
+    best.map(|(i, _, _)| i)
+}
+
+/// `enforceChannelDescent()` (reference HTML lines 8725-8739): walks an
 /// ordered (downstream) polyline and carves a channel whose centreline
 /// descends monotonically — cutting through any rises so the carved
 /// valley actually drains to its outlet — stamping a parabolic cross-
@@ -624,7 +842,20 @@ pub fn enforce_channel_descent(
         let y1 = (py as i64 + r).min(h as i64 - 1) as usize;
         for y in y0..=y1 {
             for x in x0..=x1 {
-                let d = (x as f64 - px as f64).hypot(y as f64 - py as f64);
+                // `Math.hypot`, not `f64::hypot` (reference line 8733). The
+                // offsets are small integers, which is *not* enough to make
+                // the two agree: over the 400 integer pairs `0..19` they
+                // differ on **108**, e.g. `(1,5)` gives 5.099019513592785
+                // under V8 and 5.0990195135927845 correctly rounded. Reached
+                // whenever `half_w` exceeds ~4 cells, which
+                // `river_width_scale_k` makes ordinary below ~200 km.
+                //
+                // Worse here than at the two slope call sites: `d` does not
+                // merely cross a branch, it becomes `t = d / half_w` and is
+                // written into the terrain field as
+                // `floor + (fld[i] - floor) * t * t`. See
+                // `enforce_channel_descent_carves_the_v8_hypot_disc`.
+                let d = js_hypot(x as f64 - px as f64, y as f64 - py as f64);
                 if d > half_w {
                     continue;
                 }
@@ -661,6 +892,115 @@ pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor:
             field[i] = river_floor[i];
         }
     }
+}
+
+/// `lmax = Math.log(W*H*0.05)` (reference HTML line 4495) — the discharge
+/// log-scale every channel cell's `mag` is normalised against. One definition,
+/// because [`stamp_river_intensity`] and [`channel_disc`] must agree on it and
+/// a caller of the second has no other way to obtain it.
+pub fn channel_lmax(n: usize) -> f64 {
+    ((n as f64) * 0.05).ln()
+}
+
+/// One channel cell's stamped disc: how wide the channel is drawn there, how
+/// bright, and the normalised discharge both come from.
+pub struct ChannelDisc {
+    /// Channel half-width in **grid cells**, `[0.5, 9·width_k]`. Double it for
+    /// a full width; multiply by `map_width_km / gw` for kilometres.
+    pub half_w: f64,
+    /// Peak ink at the centreline, `[0, 1]`.
+    pub amp: f64,
+    /// Normalised discharge, `log(flow/thresh)/lmax` capped at 1. **Not floored
+    /// at 0** — see below.
+    pub mag: f64,
+}
+
+/// `buildRiverNetwork`'s per-cell disc geometry (reference HTML lines
+/// **4532-4537**), lifted verbatim out of [`stamp_river_intensity`]'s loop.
+/// (`half_w_cap` is the same expression the reference hoists to 4530.)
+///
+/// The range used to read "4534-4540" — which **excludes 4532**, the `mag`
+/// line the `.max(0.0)` correction below is entirely about, and runs three
+/// lines past `amp` into the stamp loop this function does not contain.
+///
+/// # Why it is its own function
+///
+/// The channel-width law had exactly one consumer — the intensity raster — so
+/// "how wide is this river?" could not be asked about a *river*, only inked
+/// per cell. `right_dock.gd`'s River context said so in as many words
+/// (*"strahler_from_receivers, compute_flow's flow_discharge,
+/// river_width_scale_k … only ever as per-CELL rasters"*). [`river_entities`]
+/// is the second caller, and it reads the same arithmetic in the same order
+/// rather than restating it — the reference's own history is the argument
+/// here, having found ~14 drifting re-implementations of `riverFlowThresh`.
+///
+/// Returns `None` for a cell with no positive flow, which is the loop's own
+/// `continue`. The caller checks `chan[i]` itself: [`stamp_river_intensity`]
+/// needs that test to skip the cell entirely, and a river entity's cells are
+/// channel cells by construction.
+///
+/// # `mag` is not floored at zero, and that is a fix
+///
+/// This port had `mag = ln(f/thresh).max(0).min(lmax) / lmax`; the reference
+/// is `Math.min(1, Math.log(f/thresh)/lmax)` — **no lower clamp**. The
+/// `.min(lmax)/lmax` half is exactly equivalent to `.min(1)` after the divide;
+/// the `.max(0)` was not in the reference at all.
+///
+/// It is reachable, not theoretical. A cell channelizes when `flow >
+/// channel_threshold(thresh, slope_n, density)`, and at `river_density != 1`
+/// that threshold sits *below* `thresh` — so a channel cell can carry
+/// `flow < thresh`, giving a negative `mag`. `half_w` is unaffected (`mag` only
+/// enters it squared), but `amp = min(1, 0.45 + 0.7·mag)` is: the reference
+/// dims a barely-channelized trickle below `0.45` ink and this port did not.
+/// At the default `river_density = 1` the two forms are identical, because
+/// `channel_threshold` is then exactly `thresh` — which is why no golden moved.
+#[allow(clippy::too_many_arguments)]
+pub fn channel_disc(
+    fld: &[f32],
+    flow: &[f32],
+    order: &[i16],
+    w: usize,
+    h: usize,
+    wrap: bool,
+    thresh: f64,
+    width_k: f64,
+    lmax: f64,
+    i: usize,
+) -> Option<ChannelDisc> {
+    // Total rather than panicking: this is `pub`, and a panic here would cross
+    // the gdext boundary and take the Godot process down with it
+    // (`cartalith-rust-conventions`).
+    let n = w * h;
+    if i >= n || fld.len() < n || flow.len() < n || order.len() < n || !(lmax > 0.0) || !(thresh > 0.0) {
+        return None;
+    }
+    let f = flow[i] as f64;
+    if !(f > 0.0) {
+        return None;
+    }
+    let (x, y) = (i % w, i / w);
+    let o = order[i].max(1) as f64;
+    let mag = js_min(1.0, (f / thresh).ln() / lmax);
+
+    let xl = if wrap { (x + w - 1) % w } else { x.saturating_sub(1) };
+    let xr = if wrap { (x + 1) % w } else { (x + 1).min(w - 1) };
+    let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
+    let up = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
+    let dn = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
+    let gy = (dn - up) * 0.5;
+    // `Math.hypot`, as in `build_channels`' own slope above -- `slope_fac`
+    // reaches the `d > half_w` test that decides which cells the disc inks.
+    let slope_fac = 1.0 / (1.0 + 5.0 * js_hypot(gx, gy) * w as f64);
+
+    let mut half_w = (0.6 + 3.0 * mag * mag + 0.45 * (o - 1.0)) * slope_fac * width_k;
+    let half_w_cap = 9.0 * width_k;
+    if half_w < 0.5 {
+        half_w = 0.5;
+    } else if half_w > half_w_cap {
+        half_w = half_w_cap;
+    }
+    let amp = js_min(1.0, 0.45 + mag * 0.7);
+    Some(ChannelDisc { half_w, amp, mag })
 }
 
 /// The stamped channel *intensity* raster — `buildRiverNetwork`'s disc stamp
@@ -703,6 +1043,15 @@ pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor:
 /// filter this port does not implement anywhere (`min_river_order` has no
 /// consumer outside the GeoJSON exporter's own constant). Adding either now
 /// would be a second grid with no reader.
+///
+/// The per-cell disc geometry itself moved out to [`channel_disc`], which is
+/// the loop body's first half unchanged — see that function for why it has a
+/// second caller.
+///
+/// `Math.sqrt(dx*dx+dy*dy)`, not `Math.hypot`, is what the reference's own
+/// inner stamp loop uses (reference line 4539), and this port matches it. On
+/// the small exact integers `dx`/`dy` take here the two agree to the bit, but
+/// the reference is the reference.
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_river_intensity(
     fld: &[f32],
@@ -720,47 +1069,27 @@ pub fn stamp_river_intensity(
     if n == 0 || fld.len() < n || flow.len() < n || chan.len() < n || order.len() < n {
         return intensity;
     }
-    // Reference line 4495: `lmax = Math.log(W*H*0.05)`.
-    let lmax = ((n as f64) * 0.05).ln();
+    let lmax = channel_lmax(n);
     if !(lmax > 0.0) || !(thresh > 0.0) {
         return intensity;
     }
-    let half_w_cap = 9.0 * width_k;
 
     for i in 0..n {
         if chan[i] == 0 {
             continue;
         }
-        let (x, y) = (i % w, i / w);
-        let f = flow[i] as f64;
-        if !(f > 0.0) {
+        let Some(disc) = channel_disc(fld, flow, order, w, h, wrap, thresh, width_k, lmax, i) else {
             continue;
-        }
-        let o = order[i].max(1) as f64;
-        let mag = (f / thresh).ln().max(0.0).min(lmax) / lmax;
-
-        let xl = if wrap { (x + w - 1) % w } else { x.saturating_sub(1) };
-        let xr = if wrap { (x + 1) % w } else { (x + 1).min(w - 1) };
-        let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
-        let up = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
-        let dn = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
-        let gy = (dn - up) * 0.5;
-        let slope_fac = 1.0 / (1.0 + 5.0 * gx.hypot(gy) * w as f64);
-
-        let mut half_w = (0.6 + 3.0 * mag * mag + 0.45 * (o - 1.0)) * slope_fac * width_k;
-        if half_w < 0.5 {
-            half_w = 0.5;
-        } else if half_w > half_w_cap {
-            half_w = half_w_cap;
-        }
-        let amp = (0.45 + mag * 0.7).min(1.0);
+        };
+        let ChannelDisc { half_w, amp, .. } = disc;
+        let (x, y) = (i % w, i / w);
 
         let r = half_w.ceil() as isize;
         let (xi, yi) = (x as isize, y as isize);
         for yy in (yi - r).max(0)..=(yi + r).min(h as isize - 1) {
             for xx in (xi - r).max(0)..=(xi + r).min(w as isize - 1) {
                 let (dx, dy) = ((xx - xi) as f64, (yy - yi) as f64);
-                let d = dx.hypot(dy);
+                let d = (dx * dx + dy * dy).sqrt();
                 if d > half_w {
                     continue;
                 }
@@ -778,6 +1107,229 @@ pub fn stamp_river_intensity(
 #[cfg(test)]
 mod tests {
     use super::{build_channels, enforce_river_channels, flow_cmp_desc, flow_sort_desc};
+
+    /// The two *slope* `Math.hypot` call sites (`build_channels`' `slope_n`
+    /// and `channel_disc`'s `slope_fac`) take arbitrary `f64` gradients, so V8's
+    /// scaled Kahan sum and Rust's `f64::hypot` are free to disagree by an ulp
+    /// — and `slope_n` lands in `flow[i] <= channel_threshold(..)`, a discrete
+    /// branch. **Measured, not asserted from theory:** this counts how often
+    /// the two differ at all, and how often the difference flips the
+    /// channelization decision. Last run: **125 490 of 400 000 gradients
+    /// differ (31 %), 0 flip the threshold.** The divergence is real and
+    /// common; its reach into this particular branch is not.
+    ///
+    /// The `d8` tables in `compute_flow`/`build_channels` are the same
+    /// `Math.hypot` in the reference but take only `{-1,0,1}`; the second half
+    /// of this test pins that those nine values are bit-identical either way,
+    /// which is why those two lines are deliberately left as `f64::hypot`.
+    ///
+    /// **This test measures; it does not pin either call site**, and saying so
+    /// is the point — reverting `channel_disc`'s `js_hypot` to `f64::hypot`
+    /// scored green against it. `channel_disc_width_law_is_bit_exact_against_the_reference`
+    /// is the pin for that one, and
+    /// `enforce_channel_descent_carves_the_v8_hypot_disc` for the carve radius.
+    ///
+    /// `build_channels`' own `slope_n` has **no** such pin, and not for want of
+    /// looking: at `density == 1` `channel_threshold` collapses to exactly
+    /// `thresh` (reference line 4508's own comment), so `slope_n` cannot reach
+    /// `chan` at all there, and the only other output it feeds is
+    /// `slope[i] = slope_n as f32` — a cast that swallows a one-ulp `f64`
+    /// difference unless the two straddle an `f32` rounding midpoint.
+    /// Searched: **600 000 000 random `f32` height quads, 0 produced a
+    /// differing `slope` entry.** The correction there stands on the two
+    /// call sites that *are* pinned plus this measurement, and a future
+    /// reverter of that one line will not be caught by a test.
+    #[test]
+    fn slope_hypot_divergence_is_measured_not_assumed() {
+        use cartalith_jsmath::js_hypot;
+
+        // The nine D8 offsets: identical under both, so the tables need no
+        // change.
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                let (a, b) = (dx as f64, dy as f64);
+                assert_eq!(
+                    js_hypot(a, b).to_bits(),
+                    a.hypot(b).to_bits(),
+                    "D8 offset ({dx},{dy}) must be bit-identical under both hypots"
+                );
+            }
+        }
+
+        // Gradients of the size `build_channels` actually sees: a central
+        // difference of two `f32` heights, halved, so O(1e-4)..O(1e-2).
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut rng = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let (w, density) = (384usize, 1.0f64);
+        let thresh = super::river_flow_thresh(w, 288, w, 800.0);
+        let (mut differ, mut flips) = (0usize, 0usize);
+        const N: usize = 400_000;
+        for _ in 0..N {
+            let gx = (rng() - 0.5) * 0.02;
+            let gy = (rng() - 0.5) * 0.02;
+            let (js, rs) = (js_hypot(gx, gy) * w as f64, gx.hypot(gy) * w as f64);
+            if js != rs {
+                differ += 1;
+                // A flow sitting exactly on the JS threshold is the worst
+                // case, and the one a real world reaches whenever a cell's
+                // accumulation lands between the two thresholds.
+                let tj = super::channel_threshold(thresh, js, density);
+                let tr = super::channel_threshold(thresh, rs, density);
+                if tj != tr {
+                    let f = tj.min(tr);
+                    if (f <= tj) != (f <= tr) {
+                        flips += 1;
+                    }
+                }
+            }
+        }
+        // The measurement itself is the point; assert only that it ran on a
+        // real sample and that the divergence is real rather than zero.
+        assert!(differ > 0, "js_hypot and f64::hypot must actually differ on {N} sampled gradients");
+        println!("hypot: {differ}/{N} gradients differ, {flips} flip the channelization threshold");
+    }
+
+    /// `channel_disc`'s `mag` must be the reference's `Math.min(1, log(f/t)/lmax)`
+    /// with **no lower clamp** — see that function's own doc comment for why
+    /// the `.max(0.0)` this port carried was wrong and where it is reachable.
+    ///
+    /// A channel cell with `flow < thresh` is reachable only at
+    /// `river_density != 1`, so the fixture drives `channel_disc` directly at
+    /// the sub-threshold flow such a cell has.
+    #[test]
+    fn a_sub_threshold_channel_cell_dims_its_ink_as_the_reference_does() {
+        // 64x64, so `lmax = ln(4096*0.05)` is the ~5.3 a real grid gives
+        // rather than the degenerate sub-1 a toy grid would.
+        let (w, h) = (64usize, 64usize);
+        let n = w * h;
+        let fld = vec![0.5f32; n];
+        let mut flow = vec![0f32; n];
+        let order = vec![1i16; n];
+        let mid = 32 * w + 32;
+        let thresh = 100.0f64;
+        flow[mid] = 10.0; // an order-of-magnitude below `thresh`
+        let lmax = super::channel_lmax(n);
+        let d = super::channel_disc(&fld, &flow, &order, w, h, false, thresh, 1.0, lmax, mid)
+            .expect("a positive-flow cell must produce a disc");
+
+        let expect_mag = (10.0f64 / thresh).ln() / lmax;
+        assert!(expect_mag < 0.0, "the fixture must actually reach a negative mag, got {expect_mag}");
+        assert_eq!(d.mag.to_bits(), expect_mag.to_bits(), "mag must not be floored at 0");
+        assert_eq!(
+            d.amp.to_bits(),
+            (0.45 + expect_mag * 0.7).to_bits(),
+            "amp must carry the negative mag through, as Math.min(1, 0.45+0.7*mag) does"
+        );
+        assert!(d.amp < 0.45, "the reference dims a barely-channelized trickle; the old floor did not");
+
+        // And at the default density a channel cell is above `thresh` by
+        // construction, where both forms agree exactly.
+        flow[mid] = 1000.0;
+        let above = super::channel_disc(&fld, &flow, &order, w, h, false, thresh, 1.0, lmax, mid).unwrap();
+        assert!(above.mag > 0.0 && above.amp > 0.45);
+    }
+
+    /// The entity itself, on a synthetic tree: three headwater arms and one
+    /// trunk running to the south edge. Asserts **shape and non-emptiness**,
+    /// not just "no panic" — four subsystems in this port shipped tests that
+    /// passed on empty golden output.
+    ///
+    /// **The trunk is not its own entity, and that is `traceRiverPolylines`'
+    /// definition rather than a shortcoming.** A trunk cell has an upstream
+    /// donor, so it is never a *source*; the first arm traced walks straight
+    /// through the junction and down the trunk to the outlet, and the other
+    /// two arms stop on its cells. So there are three runs — one main stem
+    /// (arm A + trunk, `order` 2 by the rescan) and two tributaries — which is
+    /// exactly what `drawRiverWays` strokes.
+    #[test]
+    fn river_entities_aggregate_a_confluence_into_a_main_stem_and_two_tributaries() {
+        let (w, h) = (9usize, 9usize);
+        let n = w * h;
+        let mut fld = vec![0f32; n];
+        for y in 0..h {
+            for x in 0..w {
+                fld[y * w + x] = 0.9 - 0.05 * y as f32 + 0.001 * (x as f32 - 4.0).abs();
+            }
+        }
+        let mut recv = vec![-1i32; n];
+        let mut order = vec![0i16; n];
+        let mut chan = vec![0u8; n];
+        let mut mark = |c: usize, r: i32, o: i16| {
+            recv[c] = r;
+            order[c] = o;
+            chan[c] = 1;
+        };
+        // Arm A (x=2) and arm B (x=6) run down to y=3 and both feed (4,4).
+        for y in 0..3 {
+            mark(y * w + 2, ((y + 1) * w + 2) as i32, 1);
+            mark(y * w + 6, ((y + 1) * w + 6) as i32, 1);
+        }
+        mark(3 * w + 2, (4 * w + 4) as i32, 1);
+        mark(3 * w + 6, (4 * w + 4) as i32, 1);
+        // Arm C (x=7) joins the trunk lower down, at (4,6).
+        mark(4 * w + 7, (5 * w + 7) as i32, 1);
+        mark(5 * w + 7, (6 * w + 4) as i32, 1);
+        // The trunk, (4,4) down to the outlet at (4,8).
+        for y in 4..h - 1 {
+            mark(y * w + 4, ((y + 1) * w + 4) as i32, 2);
+        }
+        mark((h - 1) * w + 4, -1, 2);
+
+        let flow: Vec<f32> = (0..n).map(|i| if chan[i] != 0 { 10.0 * order[i] as f32 } else { 0.0 }).collect();
+        let rivers = super::river_entities(&order, &recv, &flow, &fld, w, h, 1, 1.0, 1.0, false);
+
+        assert_eq!(rivers.len(), 3, "one main stem plus two tributaries");
+        // Picked by identity, not by `order`: **all three runs report order 2**,
+        // because a tributary's last point IS its trunk's junction cell and
+        // `maxO` rescans every point of the run. That is the reference's own
+        // `drawRiverWays` loop, verbatim, not a defect here -- pinned so a
+        // later "tidy-up" that excludes the shared point knows it is a
+        // divergence.
+        let ti = rivers.iter().position(|r| r.head == 2).expect("arm A's headwater seeds the main stem");
+        let trunk = &rivers[ti];
+        assert!(rivers.iter().all(|r| r.order == 2), "every run touches an order-2 cell");
+        assert_eq!(trunk.tributaries, 2, "arms B and C both end on it");
+        assert!(trunk.length_cells > 0.0, "a >=2-point run has a real length");
+        assert_eq!(trunk.mouth as usize, (h - 1) * w + 4, "the main stem's mouth is the outlet cell");
+        assert!(trunk.pts.len() >= 2, "every entity is a drawable run");
+        assert_eq!(trunk.discharge, flow[trunk.mouth as usize]);
+        assert!(trunk.half_width_cells.is_some(), "a positive-flow mouth has a channel width");
+
+        // Every tributary charges exactly one trunk, and no run charges itself.
+        let charged: u32 = rivers.iter().map(|r| r.tributaries).sum();
+        assert_eq!(charged, 2, "exactly the two arms are tributaries, got {charged}");
+
+        // The pick: a point on the main stem's own line selects it, and a
+        // point far off the network selects nothing.
+        let p = rivers[ti].pts[1];
+        assert_eq!(super::pick_river(&rivers, p.0, p.1, 1.5), Some(ti));
+        // Between two cell centres of the same reach -- the segment case that
+        // a vertex-only pick would miss.
+        let mid = ((rivers[ti].pts[0].0 + p.0) * 0.5, (rivers[ti].pts[0].1 + p.1) * 0.5);
+        assert_eq!(super::pick_river(&rivers, mid.0, mid.1, 0.4), Some(ti));
+        assert_eq!(super::pick_river(&rivers, 0.5, 0.5, 0.5), None, "bare ground selects nothing");
+    }
+
+    /// A world with no channels at all must produce no rivers and refuse a
+    /// pick, rather than panicking or returning a phantom entity — the loaded
+    /// -save case (`SAVEFILE_COMPAT.md` stores no channel topology).
+    #[test]
+    fn no_channels_means_no_river_entities() {
+        let (w, h) = (8usize, 8usize);
+        let n = w * h;
+        let rivers = super::river_entities(
+            &vec![0i16; n], &vec![-1i32; n], &vec![0f32; n], &vec![0.5f32; n], w, h, 1, 1.0, 1.0, false,
+        );
+        assert!(rivers.is_empty());
+        assert_eq!(super::pick_river(&rivers, 4.0, 4.0, 8.0), None);
+        // Short slices are refused, not indexed.
+        assert!(super::river_entities(&[0i16; 4], &[-1i32; 4], &[0f32; 4], &[0.5f32; 4], w, h, 1, 1.0, 1.0, false).is_empty());
+    }
 
     /// The whole contract of the radix substitution: **element-identical**,
     /// not merely value-identical. `assert_eq!` on the index vector itself,
@@ -1034,5 +1586,208 @@ mod tests {
         let short = super::stamp_river_intensity(&[0.5f32; 4], &[1.0f32; 4], &[1u8; 4], &[1i16; 4], w, h, false, 1.0, 4.0);
         assert_eq!(short.len(), n);
         assert!(short.iter().all(|&v| v == 0.0));
+    }
+
+    /// `enforce_channel_descent`'s carve radius is `Math.hypot(x-px, y-py)`
+    /// (reference line 8733), and this port wrote `f64::hypot` until today.
+    ///
+    /// **Small integers are not safe here.** Over the 400 offset pairs in
+    /// `0..19` the two hypots differ on 108; `(2,3)` is one of them —
+    /// 3.6055512754639896 under V8, 3.605551275463989 correctly rounded, V8's
+    /// being the *larger*.
+    ///
+    /// So the fixture sets `half_w` to V8's own value for that offset, which
+    /// puts the eight `(±2,±3)/(±3,±2)` cells exactly **on** the rim: under
+    /// `js_hypot` `d == half_w`, so `t == 1.0`, `target == fld[i]`, and
+    /// `target < fld[i]` is false — the rim is not carved and not returned.
+    /// Under `f64::hypot` `d` is one ulp *below* `half_w`, `t < 1`, and all
+    /// eight get carved. 36 cells versus 44: a discrete difference in the
+    /// terrain this writes, not a float epsilon a later `f32` store absorbs.
+    #[test]
+    fn enforce_channel_descent_carves_the_v8_hypot_disc() {
+        use cartalith_jsmath::js_hypot;
+
+        let (dx, dy) = (2.0f64, 3.0f64);
+        let half_w = js_hypot(dx, dy);
+        assert_ne!(
+            half_w.to_bits(),
+            dx.hypot(dy).to_bits(),
+            "the fixture must sit on an offset the two hypots disagree about"
+        );
+        assert!(half_w > dx.hypot(dy), "V8 is the larger here, which is what puts the rim outside");
+
+        let (w, h) = (16usize, 16usize);
+        let n = w * h;
+        let (px, py) = (8usize, 8usize);
+        let mut fld = vec![0.5f32; n];
+        fld[py * w + px] = 0.2; // the centreline sits below its banks, so the disc carves
+        let sea = 0.0f64; // floor_lim = -0.06, well below the 0.2 floor
+
+        let carved = super::enforce_channel_descent(&mut fld, w, h, &[(px as f64, py as f64)], sea, half_w, 0.0006);
+
+        // The rim: eight cells that `f64::hypot` would carve and V8 does not.
+        for &(ox, oy) in &[(2i64, 3i64), (-2, 3), (2, -3), (-2, -3), (3, 2), (-3, 2), (3, -2), (-3, -2)] {
+            let i = (py as i64 + oy) as usize * w + (px as i64 + ox) as usize;
+            assert_eq!(
+                fld[i], 0.5,
+                "({ox},{oy}) is exactly on the V8 rim and must keep its terrain height"
+            );
+            assert!(!carved.contains(&i), "({ox},{oy}) must not be reported as carved");
+        }
+
+        // Non-emptiness and the exact count, so a revert cannot pass by
+        // carving *more*: 36 under `js_hypot`, 44 under `f64::hypot`.
+        assert_eq!(carved.len(), 36, "the V8 disc carves 36 cells; the f64::hypot disc carves 44");
+        let inside = (py + 1) * w + px + 1;
+        assert!(fld[inside] < 0.5 && carved.contains(&inside), "cells well inside the rim are still carved");
+        assert!(fld[py * w + px] <= 0.2, "the centreline is never raised");
+    }
+
+    /// The channel-width law, bit-for-bit against reference lines 4532-4537 —
+    /// the pin `slope_hypot_divergence_is_measured_not_assumed` never was.
+    ///
+    /// The fixture's gradient is one of the 33 475-in-160 000 `f32` height
+    /// pairs whose central differences make V8's `Math.hypot` and
+    /// `f64::hypot` disagree, and `width_k = 4` (200 km) keeps the result off
+    /// both clamps, so the disagreement survives into `half_w` instead of
+    /// being clamped or rounded away. Three `assert_ne!`s state what the
+    /// fixture discriminates rather than leaving it to be assumed:
+    ///
+    /// - `f64::hypot` in `slope_fac` — the revert that scored green before,
+    /// - `5.0` → `6.0` in `slope_fac` — a survived mutant,
+    /// - `mag`'s `0.05` inside `channel_lmax` — reached through `mag²`.
+    #[test]
+    fn channel_disc_width_law_is_bit_exact_against_the_reference() {
+        use cartalith_jsmath::{js_hypot, js_min};
+
+        let (w, h) = (64usize, 64usize);
+        let n = w * h;
+        let (cx, cy) = (32usize, 32usize);
+        let i = cy * w + cx;
+
+        let mut fld = vec![0.5f32; n];
+        fld[cy * w + cx + 1] = 0.50003; // gx = 1.4990568161010742e-5
+        fld[(cy + 1) * w + cx] = 0.50019; // gy = 9.500980377197266e-5
+        let mut flow = vec![0f32; n];
+        flow[i] = 1500.0;
+        let mut order = vec![1i16; n];
+        order[i] = 3;
+        let (thresh, width_k) = (100.0f64, 4.0f64);
+        let lmax = super::channel_lmax(n);
+
+        let d = super::channel_disc(&fld, &flow, &order, w, h, false, thresh, width_k, lmax, i)
+            .expect("a positive-flow cell must produce a disc");
+
+        // Reference 4534/4532, transcribed: central differences, then `mag`.
+        let gx = (fld[cy * w + cx + 1] as f64 - fld[cy * w + cx - 1] as f64) * 0.5;
+        let gy = (fld[(cy + 1) * w + cx] as f64 - fld[(cy - 1) * w + cx] as f64) * 0.5;
+        let mag = js_min(1.0, (1500.0f64 / thresh).ln() / lmax);
+        assert!(mag > 0.0 && mag < 1.0, "the fixture must reach the interior of `mag`, got {mag}");
+
+        // Reference 4535/4536, in the reference's own operation order.
+        let law = |k: f64, hyp: f64| {
+            (0.6 + 3.0 * mag * mag + 0.45 * (3.0 - 1.0)) * (1.0 / (1.0 + k * hyp * w as f64)) * width_k
+        };
+        let (js, rs) = (js_hypot(gx, gy), gx.hypot(gy));
+        assert_ne!(js.to_bits(), rs.to_bits(), "the fixture gradient must actually split the two hypots");
+
+        let expect = law(5.0, js);
+        assert!(expect > 0.5 && expect < 9.0 * width_k, "the fixture must sit off both clamps, got {expect}");
+        assert_eq!(
+            d.half_w.to_bits(),
+            expect.to_bits(),
+            "half_w must be (0.6+3*mag^2+0.45*(o-1))*slope_fac*width_k with V8's hypot"
+        );
+
+        assert_ne!(d.half_w.to_bits(), law(5.0, rs).to_bits(), "f64::hypot in slope_fac would change half_w");
+        assert_ne!(d.half_w.to_bits(), law(6.0, js).to_bits(), "slope_fac's 5.0 is load-bearing");
+        let wrong_lmax = js_min(1.0, (1500.0f64 / thresh).ln() / (0.06 * n as f64).ln());
+        assert_ne!(
+            d.half_w.to_bits(),
+            ((0.6 + 3.0 * wrong_lmax * wrong_lmax + 0.9) * (1.0 / (1.0 + 5.0 * js * w as f64)) * width_k).to_bits(),
+            "channel_lmax's 0.05 reaches half_w through mag^2"
+        );
+    }
+
+    /// `if(halfW<0.5)halfW=0.5` (reference line 4536) — the floor, and the
+    /// fact that it is **not** scaled by `width_k`, which is what keeps a
+    /// world-scale map's rivers one cell wide.
+    ///
+    /// Reaching it needs the unclamped value to land *between* the real floor
+    /// and the mutant's: `mag == 0` (flow exactly at `thresh`) and order 1
+    /// give the bare `0.6`, and a 0.001 gradient at `w = 64` damps that to
+    /// ~0.4545 — inside `(0.4, 0.5)`. A 0.4 floor would leave it unclamped.
+    ///
+    /// This fixture is deliberately separate from the width-law test above:
+    /// here `slope_fac`'s own constant is *not* observable, because 6.0 would
+    /// give ~0.4335 and clamp to the same 0.5.
+    #[test]
+    fn the_channel_half_width_floor_is_the_references_own_half_cell() {
+        let (w, h) = (64usize, 64usize);
+        let n = w * h;
+        let (cx, cy) = (32usize, 32usize);
+        let i = cy * w + cx;
+
+        // A pure x-ramp of 0.001 per cell: gx = 0.001, gy = 0.
+        let mut fld = vec![0f32; n];
+        for y in 0..h {
+            for x in 0..w {
+                fld[y * w + x] = 0.5 + 0.001 * x as f32;
+            }
+        }
+        let mut flow = vec![0f32; n];
+        let thresh = 100.0f64;
+        flow[i] = 100.0; // f/thresh == 1 exactly, so mag == 0 and 3*mag^2 vanishes
+        let order = vec![1i16; n];
+        let lmax = super::channel_lmax(n);
+
+        let d = super::channel_disc(&fld, &flow, &order, w, h, false, thresh, 1.0, lmax, i)
+            .expect("a positive-flow cell must produce a disc");
+        assert_eq!(d.mag, 0.0, "the fixture must sit exactly on `thresh`");
+
+        let gx = (fld[cy * w + cx + 1] as f64 - fld[cy * w + cx - 1] as f64) * 0.5;
+        let unclamped = 0.6 * (1.0 / (1.0 + 5.0 * cartalith_jsmath::js_hypot(gx, 0.0) * w as f64)) * 1.0;
+        assert!(
+            unclamped > 0.4 && unclamped < 0.5,
+            "the fixture must land between the mutant floor and the real one, got {unclamped}"
+        );
+        assert_eq!(d.half_w.to_bits(), 0.5f64.to_bits(), "the floor is half a cell, unscaled by width_k");
+
+        // And the floor really is unscaled: the same cell at 800 km
+        // (`width_k = 1`) and at a hypothetical narrower width_k both bottom
+        // out at 0.5 rather than at `0.5*width_k`.
+        let narrow = super::channel_disc(&fld, &flow, &order, w, h, false, thresh, 0.5, lmax, i).unwrap();
+        assert_eq!(narrow.half_w.to_bits(), 0.5f64.to_bits());
+    }
+
+    /// `lmax = Math.log(W*H*0.05)` (reference line 4495). Every channel cell's
+    /// `mag` is divided by this, so the coefficient sets both `amp` and — through
+    /// `mag²` — `half_w`.
+    ///
+    /// The expected side writes `0.05 * n` rather than `n * 0.05` so that a
+    /// literal-replace mutation of the function's own text stays unique in the
+    /// file; `f64` multiplication is commutative to the bit, so nothing moved.
+    #[test]
+    fn channel_lmax_is_the_log_of_five_percent_of_the_grid() {
+        for &(w, h) in &[(64usize, 64usize), (384, 288), (2048, 2048)] {
+            let n = w * h;
+            assert_eq!(
+                super::channel_lmax(n).to_bits(),
+                (0.05f64 * n as f64).ln().to_bits(),
+                "{w}x{h}"
+            );
+            assert_ne!(
+                super::channel_lmax(n).to_bits(),
+                (0.06f64 * n as f64).ln().to_bits(),
+                "{w}x{h}: the coefficient is 0.05, not 0.06"
+            );
+        }
+        // A stated value, so the assertions above cannot both drift together:
+        // ln(4096*0.05) = ln(204.8).
+        assert!(
+            (super::channel_lmax(4096) - 5.322_033_893_165_353).abs() < 1e-12,
+            "64x64 gives lmax = ln(204.8), got {}",
+            super::channel_lmax(4096)
+        );
     }
 }

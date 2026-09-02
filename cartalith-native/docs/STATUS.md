@@ -66,12 +66,33 @@ work outstanding.
    backend anywhere, which makes the Android "zero wgpu lines in logcat" PASS
    condition unfalsifiable; and LOD tiles in the route-map cutout registered
    half a world cell off. Detail in *2026-09-02* below. **Uncommitted.**
+   **Later the same day**, two further waves of five agents each, every engine
+   lane adversarially verified: **urban 17a golden-verified** (UM-17A-G above —
+   the blocker was wrong rather than stale, and two real port bugs fell out of
+   it, including an `f64::hypot` that should have been `js_hypot`); **landmark
+   M8's five way-graph kinds** took `kinds()` from 15 buildable to **20 of 50**,
+   each verified placing on a real `generate_terrain` world rather than by
+   flipping a flag, and `JUNCTION_MIN_WAYS` corrected 3 → 2 with its inherited
+   rationale shown false; `TERRAIN_APPEARANCE_SCOPE.md` **§16** (multi-scale
+   detail: `detail_macro/meso/micro_weight`, defaulting to the previously
+   hardcoded 0.40/0.40/0.20 so `golden_parity_render.rs` is untouched) and
+   **§19** (`atmo_desaturation`, `atmo_contrast`, both defaulting `0.0`);
+   `UNWIRED_FUNCTIONS.md` re-cut a third time — **0 of 21 closed, which is the
+   finding** — plus one new dangerous-class entry, the Settlement diagnostics
+   overlay's tooltip citing a blocker that no longer holds. And the **"no JS
+   runtime in this environment" blocker was found false and swept**: `node`
+   v24.19.0 runs the frozen reference, proved two ways by
+   `tools/jsruntime_probe.js`, and everything the claim gated had shipped on
+   2026-08-15. `cargo test --workspace` **2 751 passed, 0 failed, 21 ignored**
+   (floor was 2 734). **Uncommitted.**
 2. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in
    parallel and independently re-verified against the code, not the reports:
    `UNWIRED_FUNCTIONS.md` re-cut from scratch (75 open rows → 23, dangerous
    class 25 → 3); `UNIFIED_TOOL_PLAN.md` got its "Milestone F as built"
    section; Vault §14 Compare shipped; route corridors/travel cost became a
-   selectable analysis field; one more landmark kind went buildable (14 of 49);
+   selectable analysis field; one more landmark kind went buildable (15 of 50 —
+   *this entry read "14 of 49" until 2026-09-02; both figures were wrong, the
+   denominator is `grep -c "KindSpec {"` = 50*);
    `civ_food_shed` was built, completing Economy milestone 2 at the crate level
    (Godot wiring still open); WORLD and CIVIL's Landmarks/Factions categories
    were restyled to the new left-dock spec; two real `statusMid` bugs were
@@ -992,7 +1013,8 @@ corroborating comment.
 | UM-15 | 15 — hinterland, decay, details, metrics | done | `hinterland.rs` — ~1 054 lines with passing golden; committed in `4ec07f5` |
 | UM-16 | 16 — `generate()` orchestration + `hashModel` | ready | Milestones 8-15 exist; the blocker has lifted. Ready to be scheduled |
 | UM-17A | 17a — the adapter and the first consumer | done | `urban_adapter.rs::{um_place_context, run_layout, settlement_layout}` → `cartalith-godot/src/urban_bridge.rs::urban_layouts` → `engine_bridge.gd` → `city_viewer_window.gd` and `viewport_host.gd` (map deep-zoom town layer) |
-| UM-17 | 17 — the civ adapter (20 pure `_um*` functions) | partial | **13 of 20 ported**, verified against the port table at the head of `urban_adapter.rs`: `um_site_box_km`, `um_water_near_km`, `um_water_reach_km`, `um_site_kind_from_terrain`, `um_infer_age`, `um_ray_box_exit`, `um_way_bearing_from`, `um_route_ends`, `um_primary_paths`, `um_terrain_orient`, `um_water_ctx`, `um_terrain_ctx`, `um_place_context` (the last "minus four fields"). `um_wall_spec` / `um_infer_walls` live in `military.rs`. **Three are deliberately skipped pending later milestones**: `_umHarbourScale` (needs m9), `_umSiteProfile` (needs m9/m10/m13 and a Settlement Inspector), `_umOreBearing` (needs m13/m15 — and this port's settlements carry no `specialisation`). Five cache/draw helpers are out of scope for every milestone by design |
+| UM-17 | 17 — the civ adapter (20 pure `_um*` functions) | partial | **16 of 20 ported** (`grep -c "^pub fn um_" crates/cartalith-civ/src/urban_adapter.rs` = 16), verified against the port table at the head of `urban_adapter.rs`: `um_site_box_km`, `um_water_near_km`, `um_water_reach_km`, `um_site_kind_from_terrain`, `um_infer_age`, `um_ray_box_exit`, `um_way_bearing_from`, `um_route_ends`, `um_primary_paths`, `um_terrain_orient`, `um_water_ctx`, `um_terrain_ctx`, `um_place_context` (the last "minus four fields"). `um_wall_spec` / `um_infer_walls` live in `military.rs`. **The three formerly skipped landed in `cff1edc`** — `um_harbour_scale:372`, `um_site_profile:1240`, `um_ore_bearing:1504` — so this row's "three are deliberately skipped pending later milestones" is history as of 2026-09-02. Five cache/draw helpers are out of scope for every milestone by design |
+| UM-17A-G | 17a — golden-verify the block-2 `_um*` adapter | done | **2026-09-02.** The recorded blocker — *"needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only"* — was **wrong, not merely stale**: `cartalith-native/tools/um_block2_capture.js` drives the unmodified reference under Node (v24.19.0) and `crates/cartalith-civ/tests/golden_parity_urban_adapter.rs` holds 9 tests over the extracted fixtures. Mutation matrix **22/22 killed**; an independent verifier confirmed the fixtures are genuinely reference-extracted, not replayed from the port. **Two real port bugs found that 11 synthetic-field unit tests had not**: `slope_at` used `f64::hypot` where the reference uses `Math.hypot` (the V8-libm divergence `geom::js_hypot` exists for), and `um_site_profile` clamped the resource-context centre. A third defect was in the fixture itself and was caught before being committed as truth |
 
 **Group total: 19 — 17 done, 1 partial, 1 ready.**
 

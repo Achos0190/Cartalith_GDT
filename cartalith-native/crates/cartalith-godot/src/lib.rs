@@ -412,17 +412,19 @@ struct CivData {
     /// the reference's own mutable `CIV_FACTIONS` plus its five parallel
     /// per-faction arrays, collapsed into one row per index (see
     /// `civ_roster_bridge`'s module doc for why the roster is boundary
-    /// state and not `cartalith-civ` state). Seeded to `CIV_FACTION_COUNT`
-    /// real factions plus "Unclaimed" at index 0 on every
-    /// `compute_civilisation`, then grown/shrunk by `civ_add_faction`/
-    /// `civ_remove_faction`.
+    /// state and not `cartalith-civ` state). Seeded to `civ.factions` real
+    /// factions plus "Unclaimed" at index 0 on every `compute_civilisation`,
+    /// then grown/shrunk by `civ_add_faction`/`civ_remove_faction`.
     ///
-    /// **Generation still runs at `CIV_FACTION_COUNT`.** `assign_factions`
-    /// is called inside `generate()` with that constant, so adding a
-    /// faction yields a real, paintable, assignable, editable id that no
-    /// *generated* settlement was seeded into -- which is exactly the
+    /// **Generation runs at the `civ.factions` parameter** (default 6, the
+    /// reference's own `CIV_FACTIONS.length-1`). `assign_factions` is called
+    /// inside `generate()`/`civ_populate` with that value, so adding a
+    /// faction *by hand* yields a real, paintable, assignable, editable id
+    /// that no generated settlement was seeded into -- which is exactly the
     /// reference's own behaviour: its `_civAddFaction` likewise touches
-    /// nothing already placed.
+    /// nothing already placed. Raising the *parameter* and re-running
+    /// `civ_populate` is the other route, and that one does seed into the
+    /// new ids.
     faction_roster: civ_roster_bridge::FactionRoster,
     /// `PARITY_AUDIT.md` §5 item 3 / `GUI_GAP_REGISTER.md` ED-03: the five
     /// place-editor fields `NamedSettlement` has no room for, keyed by
@@ -430,7 +432,7 @@ struct CivData {
     /// the settlement rather than on it, and what that costs.
     place_extras: civ_roster_bridge::PlaceExtrasTable,
     /// The `tid`s of the settlements `civ_seed_villages` added, when
-    /// `CivOptions::villages` is on (empty otherwise, which is the default).
+    /// `civ.villages` is on (empty otherwise, which is the default).
     ///
     /// Exists for exactly one reason: `WorldGen::recompute_civilisation`
     /// rebuilds the road network from the settlement list, and villages are
@@ -450,12 +452,366 @@ struct CivData {
     village_tids: std::collections::HashSet<u64>,
 }
 
-/// What [`WorldGen::recompute_civilisation`] hands [`compute_civilisation`]
-/// to hold fixed. See that function's `keep` parameter.
+/// Which civ stage [`WorldGen::civ_rebuild`] is running — the two axes that
+/// separate the three rebuilding `#[func]`s (`LARGE_ITEM_RULINGS.md`'s
+/// civ-authoring ruling).
+///
+/// The axes are *what goes in* (is the settlement list an input, or derived
+/// from suitability?) and *what comes out* (is the whole fresh `CivData`
+/// taken, or only part of it?). Every combination that is not one of these
+/// three is either `generate()` or a no-op, which is why this is an enum of
+/// three and not two booleans.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CivRebuild {
+    /// Settlements in, everything downstream out —
+    /// [`WorldGen::recompute_civilisation`], `GUI_GAP_REGISTER.md` SG-02.
+    Downstream,
+    /// Nothing in, everything out — [`WorldGen::civ_populate`], the
+    /// reference's Auto-populate.
+    Replace,
+    /// Settlements in, only the route network out —
+    /// [`WorldGen::civ_auto_routes`], the reference's Generate Roads.
+    Routes,
+}
+
+/// What [`WorldGen::civ_rebuild`] hands [`compute_civilisation`] to hold
+/// fixed. See that function's `keep` parameter.
 struct KeptCiv {
     settlements: Vec<cartalith_civ::NamedSettlement>,
     next_tid: u64,
     village_tids: std::collections::HashSet<u64>,
+}
+
+/// [`WorldGen::civ_rebuild`]'s per-mode tail: merge a fresh
+/// `compute_civilisation` result with the layer it replaces, and report
+/// **whether the merged layer is wholly re-derived from the settlement list
+/// it now holds.**
+///
+/// The bool travels *with* the merge rather than beside it, and that is the
+/// whole point of this signature. `Routes` takes only the route network and
+/// leaves `territory`, `provinces`, `province_list`, `continents`,
+/// `trade_balances`, `explanations`, `water_bodies` and `dens` at their
+/// pre-run values, so after it the civ layer is current with neither the
+/// settlement list nor the terrain the tail just settled. Re-deriving that
+/// fact a second time at the call site is what produced the regression this
+/// function exists to prevent: the shared tail cleared `civ_dirty` and marked
+/// `PipelineStage::Civ` recomputed for every mode, so SG-02's "Recompute now"
+/// indicator went quiet after a Generate Roads while the territory and
+/// provinces it speaks for were still stale. One source of truth, returned
+/// from the merge that knows.
+///
+/// The `false` half is not "something failed" — `Routes` succeeding is
+/// exactly the case that returns it.
+fn civ_merge(mode: CivRebuild, mut fresh: CivData, mut old: CivData) -> (CivData, bool) {
+    match mode {
+        CivRebuild::Routes => {
+            // Only the route network is taken; everything else on `fresh`
+            // is discarded unread -- the cost this stage pays for being
+            // narrower than the button beside it (see `civ_auto_routes`).
+            // `next_tid` comes with them because the fresh ways were issued
+            // ids out of the same counter.
+            old.ways = fresh.ways;
+            old.road_edges = fresh.road_edges;
+            old.sea_routes = fresh.sea_routes;
+            old.next_tid = old.next_tid.max(fresh.next_tid);
+            (old, false)
+        }
+        CivRebuild::Downstream => {
+            // Boundary state with no terrain input: moved across rather
+            // than rebuilt, which is the whole difference between this and
+            // `generate`.
+            fresh.timeline = old.timeline;
+            fresh.year = old.year;
+            fresh.faction_roster = old.faction_roster;
+            fresh.place_extras = old.place_extras;
+            (fresh, true)
+        }
+        CivRebuild::Replace => {
+            // `place_extras` and the timeline are keyed by `tid`, and every
+            // `tid` here is new, so both stay at the empty values
+            // `compute_civilisation` just built. The roster is keyed by
+            // faction index and survives -- grown, never shrunk, so
+            // `civ.factions` can be raised without leaving a settlement in
+            // a faction the roster has no row for. `civ_populate`'s own doc
+            // states all three consequences.
+            let want = fresh.faction_roster.0.len();
+            fresh.faction_roster = old.faction_roster;
+            while fresh.faction_roster.0.len() < want {
+                fresh.faction_roster.add();
+            }
+            (fresh, true)
+        }
+    }
+}
+
+/// The staleness half of [`WorldGen::civ_rebuild`]'s tail: act on
+/// [`civ_merge`]'s answer, and decide nothing of its own.
+///
+/// Free-standing over the two pieces of state it touches because the `#[func]`
+/// wrapped around it cannot run under `cargo test` at all (`landmark_dict_tests`
+/// states why at length), and the regression this pair replaces lived exactly
+/// here — in a tail that cleared both unconditionally. `civ_merge_tests` drives
+/// this with each mode's real merge result, so removing the guard fails a test
+/// instead of only quietening an indicator.
+fn civ_settle_staleness(stages: &mut cartalith_spatial::StageGraph, civ_dirty: &mut bool, rederived: bool) {
+    if rederived {
+        *civ_dirty = false;
+        stages.mark_recomputed(PipelineStage::Civ.id(), "civ_recomputed");
+    }
+}
+
+/// One test per [`CivRebuild`] mode, each asserting the same single claim:
+/// **`civ_merge`'s bool is true only when every field the merged layer
+/// derives from the settlement list came from the fresh pass.** That is the
+/// claim `civ_rebuild`'s tail acts on when it clears `civ_dirty` and marks
+/// `PipelineStage::Civ` recomputed, and a shared tail that made it for
+/// `Routes` too is the regression these exist to catch. A `Downstream`-only
+/// test is what let it through, so the generic assertion is written three
+/// times rather than once.
+///
+/// Runs with no Godot runtime, for the reason `civ_timeline_tests` above
+/// states: `CivData` carries no `godot` type, and neither does `StageGraph`.
+/// The `#[func]` itself cannot be driven from here (every `VarDictionary`
+/// call panics without a live engine — see `landmark_dict_tests`), so the
+/// tail was split at the last point that needs one: [`civ_merge`] and
+/// [`civ_settle_staleness`] are both exercised below with the real values
+/// `civ_rebuild` passes them, and what is left inside the `#[func]` is one
+/// `recomputed.push` of a `GString`.
+#[cfg(test)]
+mod civ_merge_tests {
+    use super::{
+        CIV_FACTION_COUNT, CivData, CivRebuild, PipelineStage, SettlementExplanation, civ_merge,
+        civ_roster_bridge, civ_settle_staleness, pipeline_stage_graph,
+    };
+    use cartalith_civ::{
+        Continent, NamedSettlement, Province, RoadEdge, SeaRoute, SettlementKind, SettlementPlacement,
+        SuitExplanation, TradeBalance, Way, WayType,
+    };
+
+    /// Every field whose value `civ_rebuild`'s tail claims to have just
+    /// re-derived from the settlement list — `CivData` minus the six pieces
+    /// of boundary state (`next_tid`, `timeline`, `year`, `faction_roster`,
+    /// `place_extras`, `village_tids`) that are carried across on purpose.
+    /// Read as lengths, which is all [`tagged`] varies.
+    fn derived_lengths(c: &CivData) -> [usize; 12] {
+        [
+            c.settlements.len(),
+            c.ways.len(),
+            c.sea_routes.len(),
+            c.road_edges.len(),
+            c.territory.len(),
+            c.provinces.len(),
+            c.province_list.len(),
+            c.continents.len(),
+            c.trade_balances.len(),
+            c.explanations.len(),
+            c.water_bodies.len(),
+            c.dens.len(),
+        ]
+    }
+
+    /// A `CivData` whose every derived field holds exactly `n` entries, so a
+    /// merged result says field by field which side it came from. Contents
+    /// are irrelevant and deliberately uniform — only the count is read.
+    fn tagged(n: usize) -> CivData {
+        CivData {
+            settlements: (0..n)
+                .map(|i| NamedSettlement {
+                    tid: i as u64 + 1,
+                    placement: SettlementPlacement {
+                        x: i,
+                        y: 0,
+                        suit: 0.5,
+                        faction: 1,
+                        capital: false,
+                        kind: SettlementKind::Village,
+                        coastal: false,
+                    },
+                    name: format!("P{i}"),
+                    pop: 100,
+                })
+                .collect(),
+            ways: (0..n)
+                .map(|i| Way {
+                    tid: i as u64 + 1,
+                    pts: Vec::new(),
+                    brks: Vec::new(),
+                    km: 0.0,
+                    name: String::new(),
+                    way_type: WayType::Road,
+                    a_idx: 0,
+                    b_idx: 0,
+                    hidden: false,
+                })
+                .collect(),
+            sea_routes: (0..n)
+                .map(|_| SeaRoute { pts: Vec::new(), brks: Vec::new(), km: 0.0, name: String::new() })
+                .collect(),
+            road_edges: (0..n).map(|_| RoadEdge { a: 0, b: 0, path: Vec::new() }).collect(),
+            territory: vec![0; n],
+            provinces: vec![0; n],
+            province_list: (0..n)
+                .map(|i| Province {
+                    id: i as i32 + 1,
+                    faction: 1,
+                    name: String::new(),
+                    capital_settlement_index: 0,
+                })
+                .collect(),
+            continents: (0..n)
+                .map(|i| Continent {
+                    id: i as i32 + 1,
+                    name: String::new(),
+                    cells: 1,
+                    min_x: 0,
+                    min_y: 0,
+                    max_x: 0,
+                    max_y: 0,
+                    cx: 0.0,
+                    cy: 0.0,
+                    faction: 0,
+                })
+                .collect(),
+            trade_balances: (0..n).map(|_| TradeBalance::default()).collect(),
+            explanations: (0..n)
+                .map(|_| SettlementExplanation {
+                    suit: SuitExplanation {
+                        x: 0,
+                        y: 0,
+                        score: 0.0,
+                        z: 0.0,
+                        terms: Vec::new(),
+                        excluded: None,
+                    },
+                    elevation: 0.0,
+                    coast_dist_cells: 0.0,
+                    river_order: 0,
+                    flow: 0.0,
+                    travel_cost: 0.0,
+                    biome: 0,
+                })
+                .collect(),
+            water_bodies: vec![0; n],
+            next_tid: n as u64 + 1,
+            timeline: Vec::new(),
+            year: 0,
+            dens: vec![0.0; n],
+            faction_roster: civ_roster_bridge::FactionRoster::seeded(CIV_FACTION_COUNT as usize),
+            place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
+            village_tids: Default::default(),
+        }
+    }
+
+    const FRESH: usize = 2;
+    const OLD: usize = 1;
+
+    /// The claim itself, driven the whole way through `civ_rebuild`'s tail:
+    /// merge, then settle the staleness state exactly as the `#[func]` does,
+    /// then check that what the state now says is what actually happened.
+    /// Clearing `civ_dirty` (and marking `Civ` recomputed) is honest exactly
+    /// when nothing pre-run survived into a derived field.
+    ///
+    /// Both halves of the fix run here, so reverting either — `civ_merge`
+    /// claiming `true` for `Routes`, or `civ_settle_staleness` dropping its
+    /// guard — fails this.
+    fn assert_claim_matches_reality(mode: CivRebuild) -> (CivData, bool) {
+        let (merged, rederived) = civ_merge(mode, tagged(FRESH), tagged(OLD));
+        let all_fresh = derived_lengths(&merged) == [FRESH; 12];
+
+        // A world whose terrain was edited under it, then caught up as far as
+        // `civ_rebuild` catches it up before this point: its own
+        // `mark_and_recompute(Height, [], "recompute_civ")` settles hydrology
+        // and climate, leaving `Civ` as the one stale stage. The SG-01 flag is
+        // set the way a hand-dropped settlement sets it.
+        let mut stages = pipeline_stage_graph(1);
+        stages.mark_changed(PipelineStage::Height.id(), 0, "sculpt");
+        stages.mark_recomputed(PipelineStage::Hydrology.id(), "flow_recomputed");
+        stages.mark_recomputed(PipelineStage::Climate.id(), "climate_recomputed");
+        assert!(stages.any_stale(PipelineStage::Civ.id()), "fixture: civ starts stale");
+        let mut civ_dirty = true;
+        civ_settle_staleness(&mut stages, &mut civ_dirty, rederived);
+
+        let says_current = !civ_dirty;
+        assert_eq!(
+            says_current, all_fresh,
+            "{mode:?} leaves civ_dirty={civ_dirty} with derived fields {:?} \
+             (fresh={FRESH}, pre-run={OLD}); saying \"up to date\" over pre-run data is the \
+             regression this test exists for",
+            derived_lengths(&merged)
+        );
+        assert_eq!(
+            !stages.any_stale(PipelineStage::Civ.id()),
+            all_fresh,
+            "{mode:?} marked PipelineStage::Civ recomputed without re-deriving it"
+        );
+        (merged, rederived)
+    }
+
+    /// Generate Roads takes the route network and nothing else, so it may
+    /// not claim the layer was re-derived.
+    #[test]
+    fn routes_keeps_derived_state_and_says_so() {
+        let (merged, rederived) = assert_claim_matches_reality(CivRebuild::Routes);
+        assert!(!rederived, "Routes re-derives nothing but the routes");
+        // Taken from the fresh pass.
+        assert_eq!((merged.ways.len(), merged.road_edges.len(), merged.sea_routes.len()), (FRESH, FRESH, FRESH));
+        // Kept at their pre-run values -- the six the tail used to claim for.
+        assert_eq!(merged.territory.len(), OLD);
+        assert_eq!(merged.provinces.len(), OLD);
+        assert_eq!(merged.province_list.len(), OLD);
+        assert_eq!(merged.trade_balances.len(), OLD);
+        assert_eq!(merged.explanations.len(), OLD);
+        assert_eq!(merged.dens.len(), OLD);
+        // ...and the settlement list is untouched by definition.
+        assert_eq!(merged.settlements.len(), OLD);
+    }
+
+    /// SG-02's recompute rebuilds everything below the settlement list, so
+    /// it may.
+    #[test]
+    fn downstream_rederives_every_derived_field_and_carries_boundary_state() {
+        let fresh = tagged(FRESH);
+        let mut old = tagged(OLD);
+        old.civ_add_year(-1200); // sets `year` and seeds the timeline in one call
+        old.place_extras.0.insert(7, Default::default());
+        old.faction_roster.0[1].name = "Kept".to_string();
+
+        let (merged, rederived) = civ_merge(CivRebuild::Downstream, fresh, old);
+        assert!(rederived);
+        assert_eq!(derived_lengths(&merged), [FRESH; 12]);
+        // Boundary state with no terrain input, moved across rather than rebuilt.
+        assert_eq!(merged.year, -1200);
+        assert_eq!(merged.timeline.len(), 1);
+        assert!(merged.place_extras.0.contains_key(&7));
+        assert_eq!(merged.faction_roster.0[1].name, "Kept");
+
+        assert_claim_matches_reality(CivRebuild::Downstream);
+    }
+
+    /// Auto-populate replaces the settlement list and everything under it,
+    /// so it may too — and drops the `tid`-keyed side tables saying why.
+    #[test]
+    fn replace_rederives_every_derived_field_and_grows_the_kept_roster() {
+        let mut fresh = tagged(FRESH);
+        fresh.faction_roster = civ_roster_bridge::FactionRoster::seeded(9);
+        let mut old = tagged(OLD);
+        old.civ_add_year(-1200);
+        old.place_extras.0.insert(7, Default::default());
+        old.faction_roster = civ_roster_bridge::FactionRoster::seeded(3);
+        old.faction_roster.0[1].name = "Kept".to_string();
+
+        let (merged, rederived) = civ_merge(CivRebuild::Replace, fresh, old);
+        assert!(rederived);
+        assert_eq!(derived_lengths(&merged), [FRESH; 12]);
+        // Keyed by faction index, so it survives -- grown, never shrunk.
+        assert_eq!(merged.faction_roster.0.len(), 10);
+        assert_eq!(merged.faction_roster.0[1].name, "Kept");
+        // Keyed by `tid`, and every `tid` here is new, so both are dropped.
+        assert!(merged.timeline.is_empty());
+        assert!(merged.place_extras.0.is_empty());
+
+        assert_claim_matches_reality(CivRebuild::Replace);
+    }
 }
 
 /// `TIMELINE_SCOPE.md` §9's own "Snapshot cap" decision: a generous ceiling
@@ -802,14 +1158,18 @@ struct SettlementExplanation {
     biome: u8,
 }
 
-/// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
-/// generated `WorldState`, in exactly the dependency order each
-/// milestone's own golden test exercises
-/// (`cartalith-civ/tests/golden_parity_settlement_placement.rs`'s
-/// `compute_placements` helper is the canonical reference for this
-/// chain — mirrored here, not reinvented). `CIV_FACTION_COUNT=6` matches
-/// the reference's real `CIV_FACTIONS.length-1` (7 entries including
-/// "Unclaimed" at index 0, reference line ~14568).
+/// The reference's real `CIV_FACTIONS.length-1` — 7 entries including
+/// "Unclaimed" at index 0, reference line ~14568.
+///
+/// **No longer the value generation runs at.** Since the civ `PARAMS` group
+/// landed, `cartalith_engine::CivParams::factions` is what
+/// [`compute_civilisation`] passes to `assign_factions` and seeds the roster
+/// from, and `the_civ_group_defaults_are_the_references_own_constants` pins
+/// that parameter's default to this same 6 so the two cannot drift apart.
+///
+/// Its one remaining live use is `project_bridge`'s fallback for a project
+/// archive that carries no `factions.json` at all — a free function with no
+/// `WorldParams` in reach, restoring a roster rather than generating one.
 const CIV_FACTION_COUNT: i32 = 6;
 
 /// Smallest landmass `get_continents()` will list
@@ -841,42 +1201,13 @@ const FACTION_RGB: [(u8, u8, u8); 6] = [(230, 159, 0), (86, 180, 233), (0, 158, 
 /// slider; this is where that slider starts.
 const TERRITORY_ALPHA_DEFAULT: f64 = 82.0 / 255.0;
 
-/// The three opt-in civ-layer passes the reference gates behind its own
-/// auto-populate checkboxes/dropdown, carried together rather than as three
-/// more positional `bool`/enum arguments on an already-long signature.
-/// Every default is the reference's own default, so
-/// `CivOptions::default()` reproduces auto-populate's out-of-the-box run
-/// exactly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct CivOptions {
-    /// `_civVillages` (reference line ~6441), default OFF.
-    villages: bool,
-    /// `_civMetropolis` (reference line 6442), default OFF -- "OFF by
-    /// default => auto-populate output bit-identical", the reference's own
-    /// comment.
-    metropolis: bool,
-    /// `_civRecoveryPhase` (reference line 6443), default `Stable` (0),
-    /// which makes `civ_apply_recovery` a strict no-op.
-    recovery: RecoveryPhaseOpt,
-    /// `_biomeK` (reference line 6441), default OFF -- the biome
-    /// carrying-capacity residual (`civBiomeKChk`). The reference's own
-    /// comment on that default is why it stays OFF here: "0 = biome
-    /// carrying-capacity residual OFF (bit-identical)". `build_carrying_
-    /// capacity` has always taken the parameter; until this flag existed
-    /// nothing could turn it on (`PARITY_AUDIT.md` §5 item 12).
-    biome_k: bool,
-}
-
-/// `RecoveryPhase` with a `Default` -- `cartalith_civ`'s own enum has no
-/// meaningful default to declare (`Stable` is only "the default" from this
-/// caller's point of view), so the defaulting lives here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct RecoveryPhaseOpt(u8);
-
-impl RecoveryPhaseOpt {
-    fn phase(self) -> cartalith_civ::timeline::RecoveryPhase {
-        cartalith_civ::timeline::RecoveryPhase::from_index_clamped(i64::from(self.0))
-    }
+/// [`cartalith_engine::CivParams::recovery_phase`] as the enum
+/// `cartalith_civ` actually takes. Clamped, not validated: the parameter
+/// table already bounds the row to `0..=4`, and this is the reference's own
+/// `Math.max(0,Math.min(4,rp.value|0))` for anything that reaches here by
+/// another route.
+fn recovery_phase_of(civ: &cartalith_engine::CivParams) -> cartalith_civ::timeline::RecoveryPhase {
+    cartalith_civ::timeline::RecoveryPhase::from_index_clamped(i64::from(civ.recovery_phase))
 }
 
 /// The coarse ocean-current/wind vector fields [`cartalith_civ::civ_sea_routes`]
@@ -963,6 +1294,13 @@ fn coarse_ocean_wind_fields(
     (ocean_field, wind_field)
 }
 
+/// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
+/// generated `WorldState`, in exactly the dependency order each milestone's
+/// own golden test exercises
+/// (`cartalith-civ/tests/golden_parity_settlement_placement.rs`'s
+/// `compute_placements` helper is the canonical reference for this chain —
+/// mirrored here, not reinvented).
+///
 /// `keep` is what separates the two callers (`GUI_GAP_REGISTER.md` SG-02):
 ///
 /// - **`None`** — `absorb`'s path, and the only one that existed before
@@ -998,7 +1336,7 @@ fn compute_civilisation(
     world: bool,
     map_width_km: f64,
     river_density: f64,
-    opts: CivOptions,
+    opts: &cartalith_engine::CivParams,
     keep: Option<KeptCiv>,
     // `_civSeaTimeEdgeCost`'s port (`DECISIONS.md` §7i): current/wind-costed
     // sea lanes. Both callers build this via `coarse_ocean_wind_fields`,
@@ -1021,7 +1359,7 @@ fn compute_civilisation(
 
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
     let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, sea_level, flow_thresh);
-    // `civBiomeKChk` (`set_biome_k_enabled`, `CivOptions::biome_k`). The
+    // `civBiomeKChk` (`set_biome_k_enabled`, `CivParams::biome_k`). The
     // reference's own `currentCarryingCapacity` (line 6453) passes
     // `{biomeK:_biomeK, wetMask:_biomeK?currentWetlandMask():null}` -- the
     // wetland mask is built ONLY when the residual is on, and the `0.0`
@@ -1124,9 +1462,21 @@ fn compute_civilisation(
             // by Phase 2 milestone 15's own investigation (`PHASE2_SCOPE.md`),
             // corrected here rather than left as the placeholder 0.65/GW/20 an
             // earlier pass used before this real call site existed to check against.
-            let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.42, (gw as f64 / 22.0).floor().max(6.0));
+            //
+            // Both are `civ.*` parameters now (the civ `PARAMS` group), and both
+            // DEFAULT to exactly those two reference values, so this line is
+            // unchanged for any world nobody has moved the dials on. The `6`-cell
+            // floor stays a literal: it is the reference's own guard against a
+            // small grid suppressing nothing, not a knob.
+            let seeds = cartalith_civ::find_settlement_seeds(
+                &suit,
+                gw,
+                gh,
+                opts.seed_thresh,
+                (gw as f64 / opts.seed_suppress_div.max(1.0)).floor().max(6.0),
+            );
             cartalith_civ::place_settlements_with_water_edge_snap(
-                &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT,
+                &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, opts.factions.max(1),
                 &flood, &ws.flow_discharge, flow_thresh, map_width_km,
             )
         }
@@ -1325,7 +1675,7 @@ fn compute_civilisation(
     // flags this pass sets have no home on `NamedSettlement`, so they are
     // computed and then dropped at this boundary. `kind` and `pop`, which
     // everything downstream actually reads, survive intact.
-    if !keeping && opts.recovery.phase() != cartalith_civ::timeline::RecoveryPhase::Stable {
+    if !keeping && recovery_phase_of(opts) != cartalith_civ::timeline::RecoveryPhase::Stable {
         let before: Vec<cartalith_civ::timeline::CollapsePlace> = settlements
             .iter()
             .enumerate()
@@ -1344,7 +1694,7 @@ fn compute_civilisation(
             .collect();
         let after = cartalith_civ::timeline::civ_apply_recovery(
             &before,
-            opts.recovery.phase(),
+            recovery_phase_of(opts),
             &mut rng,
             cartalith_civ::timeline::RecoveryOpts::default(),
         );
@@ -1376,7 +1726,8 @@ fn compute_civilisation(
             let cat_km2 = cartalith_civ::civ_catchment_km2(s.placement.kind);
             let radius = cartalith_civ::civ_catchment_radius_cells(cat_km2, map_width_km, gw);
             let ctx_mean = cartalith_civ::civ_place_resource_context(
-                &resources, &ws.field, gw, gh, sea_level, s.placement.x, s.placement.y, radius, world,
+                &resources, &ws.field, gw, gh, sea_level, s.placement.x as i64,
+                s.placement.y as i64, radius, world,
             );
             cartalith_civ::civ_resource_trade_balance(&ctx_mean, &world_mean_resources)
         })
@@ -1556,10 +1907,12 @@ fn compute_civilisation(
         year: 0,
         dens,
         // Same Cluster-D reset the timeline gets: a fresh generation is a
-        // fresh roster. `CIV_FACTION_COUNT` is what `assign_factions` was
-        // just run with, so the roster and the settlements agree on which
-        // ids exist at the moment this struct is built.
-        faction_roster: civ_roster_bridge::FactionRoster::seeded(CIV_FACTION_COUNT as usize),
+        // fresh roster. `civ.factions` is what `assign_factions` was just run
+        // with, so the roster and the settlements agree on which ids exist at
+        // the moment this struct is built. (`CIV_FACTION_COUNT` until the civ
+        // `PARAMS` group made the count a dial; that constant is now only the
+        // default's origin, kept where it is documented.)
+        faction_roster: civ_roster_bridge::FactionRoster::seeded(opts.factions.max(1) as usize),
         place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
         village_tids,
     }
@@ -1637,6 +1990,56 @@ fn way_render_polyline(pts: &[(f64, f64)], brks: &[usize]) -> (Vec<(f64, f64)>, 
         start = cut;
     }
     (points, out_brks)
+}
+
+/// One [`cartalith_hydrology::River`] as the `Dictionary` both `get_rivers()`
+/// and `river_at()` return — one builder, so the two can never describe the
+/// same river differently.
+///
+/// Elevations go through `sample_bridge::FieldRefs::elevation_m`, which is the
+/// Sample dock's own metre conversion (`metersPerUnit()`'s anchoring), rather
+/// than a second copy of it here.
+fn river_dict(f: &sample_bridge::FieldRefs<'_>, r: &cartalith_hydrology::River, index: usize) -> VarDictionary {
+    let ck = cartalith_spatial::cell_km(f.map_width_km, f.gw);
+    let points: PackedVector2Array = r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+    let (head, mouth) = (r.head as usize, r.mouth as usize);
+    let (source_m, mouth_m) = (f.elevation_m(head), f.elevation_m(mouth));
+    let mut d = vdict! {
+        "index" => index as i64,
+        "points" => &points,
+        "order" => r.order as i64,
+        "km" => r.length_cells * ck,
+        "cells" => r.pts.len() as i64,
+        "discharge" => r.discharge as f64,
+        "mouth_discharge" => r.mouth_discharge as f64,
+        // See `get_rivers`' own doc: the same reading as `discharge`, in area
+        // units, and rainfall-weighted rather than a true cell count.
+        "catchment_km2" => r.discharge as f64 * ck * ck,
+        "tributaries" => r.tributaries as i64,
+        "head_x" => (head % f.gw) as i64,
+        "head_y" => (head / f.gw) as i64,
+        "mouth_x" => (mouth % f.gw) as i64,
+        "mouth_y" => (mouth / f.gw) as i64,
+        "source_m" => source_m,
+        "mouth_m" => mouth_m,
+        "drop_m" => source_m - mouth_m,
+    };
+    // Omitted rather than zero-filled when the mouth carries no flow, the same
+    // rule `sample_cell()`'s optional keys follow.
+    //
+    // **In cells, and deliberately not converted to metres here.** `half_w` is
+    // the radius of the disc `stamp_river_intensity` inks, and it is a
+    // cartographic symbol width, not a hydraulic one: `river_width_scale_k`
+    // makes it grow as the map's real extent shrinks, precisely so a river
+    // stays visible on a zoomed-in sheet. Multiplied out at an 800 km / 192
+    // cell world it reads ~8 000 m, which is true of the *drawn channel* and
+    // absurd of a river. Handing back the engine's own unit keeps the caller
+    // from mistaking one for the other; `right_dock.gd` prints both and says
+    // which is which.
+    if let Some(half_w) = r.half_width_cells {
+        d.set("width_cells", 2.0 * half_w);
+    }
+    d
 }
 
 fn way_render_geometry(
@@ -2000,11 +2403,6 @@ struct WorldGen {
     world: bool,
     lat_n: f64,
     lat_s: f64,
-    /// The three opt-in civ passes, set via `set_villages_enabled` /
-    /// `set_metropolis_enabled` / `set_recovery_phase`. Every default is
-    /// the reference's own, so an untouched engine generates exactly what
-    /// auto-populate generates out of the box.
-    civ_options: CivOptions,
     /// Phase 2 civilisation-layer output for the current `Generated`
     /// source (`None` for a `Loaded` save, or before any `generate()`).
     civ: Option<CivData>,
@@ -2271,11 +2669,15 @@ struct WorldGen {
     /// is the same node, one pass later.
     ///
     /// Set by `civ_drop_settlement`/`civ_edit_settlement`/
-    /// `civ_delete_settlement` (`ED-03d`'s own three), cleared by
-    /// `recompute_civilisation` and by `absorb` (a freshly generated world's
-    /// civ layer is derived from its own settlements by construction). Read
-    /// only by `stale_stages`, so the indicator does not claim "up to date"
-    /// straight after a hand-dropped town.
+    /// `civ_delete_settlement` (`ED-03d`'s own three), cleared by `absorb` (a
+    /// freshly generated world's civ layer is derived from its own
+    /// settlements by construction) and by the `civ_rebuild` modes that
+    /// actually re-derive the whole layer — `Downstream` and `Replace`, but
+    /// **not** `Routes`, which rebuilds only the route network and leaves
+    /// territory, provinces, trade balances and explanations pre-run
+    /// (`civ_merge` returns that answer; `civ_merge_tests` asserts it).
+    /// Read only by `stale_stages`, so the indicator does not claim "up to
+    /// date" straight after a hand-dropped town.
     civ_dirty: bool,
     /// The LOD tile-pyramid bake, its persistent atlas, and the finalize lock
     /// (`GUI_GAP_REGISTER.md` WW-01/PR-10/S4/S5, SH-07's `atlas` slot). See
@@ -2343,7 +2745,7 @@ struct WorldGen {
     /// reproduces the same placements exactly.
     ///
     /// `settings` is **not** reset by `absorb()`, the same reasoning
-    /// `civ_options` already carries: a cap table describes what the user
+    /// `WorldParams::civ` already carries: a cap table describes what the user
     /// wants placed, not one generation's output. `last` (the retained
     /// result) **is** invalidated there (`LandmarkStore::invalidate`) — a
     /// fresh terrain makes the previous run's placements meaningless, and
@@ -2379,7 +2781,6 @@ impl IRefCounted for WorldGen {
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
-            civ_options: CivOptions::default(),
             civ: None,
             seed: 0,
             asset_pack: None,
@@ -2650,7 +3051,7 @@ impl WorldGen {
         self.gpu_stages_used = ws.gpu_stages_used.clone();
         let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
         self.civ = Some(compute_civilisation(
-            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options, None, (&ocean_f, &wind_f),
+            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, None, (&ocean_f, &wind_f),
         ));
         // Milestone F: a fresh Sculpt draft over this world's own
         // dimensions, seeding the water hooks from whatever
@@ -2956,11 +3357,35 @@ impl WorldGen {
         dict! { "rejected" => &rejected, "clamped" => &clamped }
     }
 
+    /// One civ parameter, written through the same [`params::set`] the
+    /// dictionary API uses and marking the same stage — so the four
+    /// hand-written civ sugar setters (`set_villages_enabled` and friends,
+    /// which `engine_bridge.gd` drives) cannot clamp, validate or invalidate
+    /// differently from `set_params({"civ.villages": …})`.
+    ///
+    /// Deliberately not `#[func]`: it takes a `params::Value`, and the
+    /// Variant-facing entry point is `set_params`.
+    fn set_civ_param(&mut self, key: &str, value: params::Value) {
+        if params::set(&mut self.params, key, value) == params::Outcome::Rejected {
+            godot_print!("cartalith-godot: set_civ_param rejected '{key}'");
+            return;
+        }
+        if let Some(stage) = params::invalidates(key) {
+            self.mark_param_change(stage, &format!("param:{key}"));
+        }
+    }
+
     /// Restores every generation parameter to its
     /// `cartalith_engine::WorldParams::defaults` value — the real
     /// "reset to defaults" action, not a GDScript re-send of remembered
-    /// numbers. Does not touch `set_villages_enabled` (civ-layer, not a
-    /// `WorldParams` field) or anything about an already-generated world.
+    /// numbers. Does not touch anything about an already-generated world.
+    ///
+    /// **Does** reset the civ group now (`civ.villages` and its six
+    /// siblings). It did not before the civ `PARAMS` group existed, when
+    /// those four flags lived on `WorldGen` instead of in `WorldParams` —
+    /// this doc comment used to say so ("Does not touch
+    /// `set_villages_enabled`, civ-layer, not a `WorldParams` field") and
+    /// that sentence stopped being true with the group.
     ///
     /// Marks the same two stages a whole-table rewrite can invalidate
     /// (SG-03): `Hydrology` for the climate half, `Climate` for
@@ -3272,7 +3697,7 @@ impl WorldGen {
     /// not a `WorldParams` field.
     #[func]
     fn get_villages_enabled(&self) -> bool {
-        self.civ_options.villages
+        self.params.civ.villages
     }
 
     /// Whether the v0.75 imperial-seat promotion is on
@@ -3281,7 +3706,7 @@ impl WorldGen {
     /// `WorldParams` field.
     #[func]
     fn get_metropolis_enabled(&self) -> bool {
-        self.civ_options.metropolis
+        self.params.civ.metropolis
     }
 
     /// The v0.82 recovery phase the next `generate()` will apply, as the
@@ -3289,7 +3714,7 @@ impl WorldGen {
     /// `2` Subsistence / `3` Regional / `4` Mature.
     #[func]
     fn get_recovery_phase(&self) -> i32 {
-        i32::from(self.civ_options.recovery.0)
+        self.params.civ.recovery_phase
     }
 
     /// The five `_CIV_RECOVERY_NAME` labels (reference line 24615), in
@@ -3339,11 +3764,23 @@ impl WorldGen {
     }
 
     /// Reference `_civVillages` (default OFF) -- the additive village-
-    /// seeding pass (Phase 2 milestone 15), gated separately from the
-    /// four flags above since it's civ-layer, not terrain-substrate.
+    /// seeding pass (Phase 2 milestone 15).
+    ///
+    /// **Sugar over the `civ.villages` parameter**, kept because
+    /// `engine_bridge.gd` drives it: it and its three siblings below write
+    /// through the same `params::set` the dictionary API uses (see
+    /// [`Self::set_civ_param`]), so neither can clamp, validate or invalidate
+    /// differently from `set_params({"civ.villages": …})`. Before the civ
+    /// `PARAMS` group these four were the *only* way to reach these flags,
+    /// they lived on `WorldGen` rather than in `WorldParams`, and none of them
+    /// survived a save.
+    ///
+    /// Applies on the next `generate()` **or** [`Self::civ_populate`], which
+    /// is the cheap way to see it: re-places from the current suitability
+    /// field without re-rolling the terrain.
     #[func]
     fn set_villages_enabled(&mut self, enabled: bool) {
-        self.civ_options.villages = enabled;
+        self.set_civ_param("civ.villages", params::Value::Bool(enabled));
     }
 
     /// Reference `_civMetropolis` (line 6442, default OFF) -- the v0.75
@@ -3352,10 +3789,11 @@ impl WorldGen {
     /// output bit-identical". When on, the next `generate()` promotes up to
     /// three high-betweenness capitals of large polities to
     /// `SettlementKind::Metropolis`, which `get_settlements()` then reports
-    /// as `kind == "metropolis"`.
+    /// as `kind == "metropolis"`. [`Self::civ_populate`] applies it too --
+    /// see [`Self::set_villages_enabled`] for the shared contract.
     #[func]
     fn set_metropolis_enabled(&mut self, enabled: bool) {
-        self.civ_options.metropolis = enabled;
+        self.set_civ_param("civ.metropolis", params::Value::Bool(enabled));
     }
 
     /// Reference `_civRecoveryPhase` (line 6443, default `0` Stable) -- the
@@ -3365,7 +3803,7 @@ impl WorldGen {
     /// Phase `0` is a strict no-op.
     #[func]
     fn set_recovery_phase(&mut self, phase: i32) {
-        self.civ_options.recovery = RecoveryPhaseOpt(i64::from(phase).clamp(0, 4) as u8);
+        self.set_civ_param("civ.recovery_phase", params::Value::Num(f64::from(phase)));
     }
 
     /// `MVP_SCOPE.md` point 9 / `state.seaLevel` -- `sea_level` is the raw
@@ -3868,14 +4306,262 @@ impl WorldGen {
     /// borders by [`civ_tools_bridge::CivTools::rebase`] rather than erased.
     ///
     /// **What it does not do.** It does not re-place settlements. Sculpt a
-    /// mountain under a city and the city stays on the mountain; the control
-    /// for re-deriving placement from terrain is `generate()`.
+    /// mountain under a city and the city stays on the mountain; the controls
+    /// for re-deriving placement from terrain are `generate()` and
+    /// [`Self::civ_populate`].
     ///
     /// Returns `{"ok": bool, "ms": float, "settlements": int, "ways": int,
     /// "provinces": int, "recomputed": PackedStringArray, "still_stale":
     /// PackedStringArray, "reason": String}` — `reason` empty when `ok`.
     #[func]
     fn recompute_civilisation(&mut self) -> VarDictionary {
+        self.civ_rebuild(CivRebuild::Downstream)
+    }
+
+    /// The reference's **Auto-populate world** (`#civAutoPopulateBtn` ->
+    /// `_civAutoWorld()`, reference 21519), re-entrant over the world already
+    /// on screen — `LARGE_ITEM_RULINGS.md`'s civ-authoring ruling, stage 1 of
+    /// 5.
+    ///
+    /// Re-derives settlement placement from the current suitability field and
+    /// rebuilds everything below it, without re-generating terrain. So the
+    /// three placement dials in the civ `PARAMS` group (`civ.seed_thresh`,
+    /// `civ.seed_suppress_div`, `civ.factions`) and the four pass flags
+    /// (`civ.villages`, `civ.metropolis`, `civ.recovery_phase`,
+    /// `civ.biome_k`) are adjustable and *observable*: move one, press this,
+    /// see the world it makes. Before this they were reachable only through a
+    /// full `generate()`, which also re-rolls the terrain underneath them.
+    ///
+    /// **This replaces every settlement**, exactly as the reference's own
+    /// button does: names, tiers, populations and `tid`s are all new. What
+    /// that costs, stated rather than discovered:
+    ///
+    /// - **`place_extras` is dropped** (traits, specialisation, history,
+    ///   age/walls overrides). It is keyed by `tid`, and `tid`s restart at 1
+    ///   here, so keeping it would silently attach the old settlement 3's
+    ///   notes to an unrelated new town. `civ_delete_settlement` already
+    ///   forgets one row this way; this forgets all of them.
+    /// - **The recorded timeline is dropped** for the same reason: every
+    ///   snapshot references settlements that no longer exist.
+    /// - **The faction roster survives.** It is keyed by faction index, not
+    ///   `tid`, so renames, cultures, religions and identity colours carry
+    ///   across — the reference's `_civAutoWorld` likewise never touches
+    ///   `CIV_FACTIONS`. It is grown if `civ.factions` was raised, so no
+    ///   settlement ends up in a faction the roster has no row for.
+    /// - **Hand-painted territory survives**, re-anchored onto the new
+    ///   borders by [`civ_tools_bridge::CivTools::rebase`], the same as a
+    ///   plain recompute.
+    ///
+    /// Same return dictionary as [`Self::recompute_civilisation`], and the
+    /// same cost — it is the identical pass with placement re-derived rather
+    /// than held, so it is if anything slightly *more* expensive than the
+    /// 0.94 s / 1.60 s / 4.22 s measured there.
+    #[func]
+    fn civ_populate(&mut self) -> VarDictionary {
+        self.civ_rebuild(CivRebuild::Replace)
+    }
+
+    /// The reference's **Generate Roads** (`#civAutoRoutesBtn` ->
+    /// `_civAutoRoutes()`, reference 21367) — stage 2 of 5.
+    ///
+    /// Rebuilds the route network alone: the hierarchical land topology, the
+    /// consolidated and smoothed ways it becomes, and the port-MST sea lanes.
+    /// Settlements, territory, provinces, trade balances, explanations and
+    /// the timeline are all left exactly as they are — this is the one civ
+    /// stage genuinely narrower than a recompute, and it is narrow because
+    /// the reference's own button is.
+    ///
+    /// Refuses with `ok: false` when there are no settlements to connect,
+    /// which is the reference's own guard (`if(!state.places.length){
+    /// alert('Auto-populate the world first.'); return; }`).
+    ///
+    /// It still costs a full `compute_civilisation` internally — the road
+    /// builder reads river order, the biome raster and the water-body
+    /// classification, none of which is retained past that function — so the
+    /// price is the recompute's and only the *result* is narrowed. Said here
+    /// rather than left for someone to measure and be surprised by.
+    ///
+    /// **This does not clear the civ staleness indicator, and must not.**
+    /// Because the result is narrowed, a world that was stale before this ran
+    /// is still stale after it: SG-02's "Recompute now" keeps reporting `civ`,
+    /// `civ_dirty` survives, and `PipelineStage::Civ` stays unmarked. Only
+    /// [`Self::recompute_civilisation`] and [`Self::civ_populate`] re-derive
+    /// enough to say otherwise — see `civ_merge`.
+    ///
+    /// Same return dictionary as [`Self::recompute_civilisation`], minus
+    /// `civ` in `recomputed` for that reason.
+    #[func]
+    fn civ_auto_routes(&mut self) -> VarDictionary {
+        self.civ_rebuild(CivRebuild::Routes)
+    }
+
+    /// The reference's **Clear ways & journeys** (`#civClearRoadsBtn`,
+    /// reference 26673) — stage 3 of 5.
+    ///
+    /// Empties the generated route network (`ways`, the raw `road_edges`
+    /// behind them, and `sea_routes`) *and* the manually drawn ways and
+    /// committed journeys in [`infra_tools_bridge::InfraTools`], because the
+    /// reference's own handler clears both of its equivalents in one press
+    /// (`civWays=[]; civJourneys=[]`). The disabled control this replaces
+    /// said there was "nothing here that could honestly claim to clear both";
+    /// this clears both.
+    ///
+    /// Settlements are untouched. Returns `{"ways": int, "sea_routes": int,
+    /// "manual_ways": int, "journeys": int}` — what was actually removed, so
+    /// a status line can report it rather than guess. All zero is a
+    /// legitimate answer, not an error.
+    ///
+    /// Not undoable, and recorded as such in the ledger: the polylines are
+    /// gone, and [`Self::civ_auto_routes`] regenerates a network rather than
+    /// restoring this one.
+    #[func]
+    fn civ_clear_ways(&mut self) -> VarDictionary {
+        let (mut ways, mut lanes, mut manual, mut journeys) = (0usize, 0usize, 0usize, 0usize);
+        if let Some(civ) = self.civ.as_mut() {
+            ways = civ.ways.len();
+            lanes = civ.sea_routes.len();
+            civ.ways.clear();
+            civ.road_edges.clear();
+            civ.sea_routes.clear();
+        }
+        if let Some(tools) = self.infra.as_mut() {
+            manual = tools.ways.len();
+            journeys = tools.routes.len();
+            tools.ways.clear();
+            tools.routes.clear();
+        }
+        if ways + lanes + manual + journeys > 0 {
+            self.ledger.record(
+                "civ",
+                "Clear ways & journeys",
+                format!("{ways} way(s), {lanes} sea lane(s), {manual} manual way(s), {journeys} journey(s)"),
+                undo::EntryKind::Recorded(
+                    "the polylines are not retained; Generate roads rebuilds a network rather than restoring this one",
+                ),
+            );
+        }
+        dict! {
+            "ways" => ways as i64,
+            "sea_routes" => lanes as i64,
+            "manual_ways" => manual as i64,
+            "journeys" => journeys as i64,
+        }
+    }
+
+    /// The reference's **Clear places & routes** (`#civClearPlacesBtn`,
+    /// reference 26679) — stage 4 of 5.
+    ///
+    /// Empties the settlement list and, with it, everything indexed by it:
+    /// `place_extras`, trade balances, suitability explanations, provinces,
+    /// and the territory `assign_territory` derived from the capitals. Ways
+    /// and journeys go too — the reference's own v0.92 fix, quoted from its
+    /// handler: "a route network with no places is meaningless — one click
+    /// removes settlements AND their routes" — so this calls
+    /// [`Self::civ_clear_ways`] rather than reimplementing it.
+    ///
+    /// The recorded timeline is dropped: every snapshot references
+    /// settlements that no longer exist, and `civ_goto_year` would otherwise
+    /// restore a claim grid for a world with no places in it.
+    ///
+    /// Accumulated territory *paint* is kept in the tool layer but stops
+    /// being drawn, since its base is now an empty claim map. Erasing the
+    /// paint itself is [`Self::civ_clear_territory`].
+    ///
+    /// Returns [`Self::civ_clear_ways`]' dictionary plus `"settlements":
+    /// int`.
+    #[func]
+    fn civ_clear_places(&mut self) -> VarDictionary {
+        let mut out = self.civ_clear_ways();
+        let mut removed = 0usize;
+        if let Some(civ) = self.civ.as_mut() {
+            removed = civ.settlements.len();
+            let n = civ.territory.len();
+            civ.settlements.clear();
+            civ.place_extras = civ_roster_bridge::PlaceExtrasTable::default();
+            civ.trade_balances.clear();
+            civ.explanations.clear();
+            civ.province_list.clear();
+            civ.provinces = vec![0; n];
+            civ.territory = vec![0; n];
+            civ.timeline.clear();
+            civ.year = 0;
+        }
+        if removed > 0 {
+            // SG-01: nothing downstream of the settlement list describes the
+            // settlement list any more. `civ_populate` is the way back.
+            self.civ_dirty = true;
+            self.ledger.record(
+                "civ",
+                "Clear places & routes",
+                format!("{removed} settlement(s), their territory, provinces and the recorded timeline"),
+                undo::EntryKind::Recorded(
+                    "settlements are not retained; Auto-populate derives a new set rather than restoring these",
+                ),
+            );
+        }
+        out.set("settlements", removed as i64);
+        out
+    }
+
+    /// The reference's **Clear territory** (`#civClearTerrBtn`, reference
+    /// 26664) — stage 5 of 5, and the one its disabled control named
+    /// specifically: *"there is no way to leave the claim map empty"*.
+    ///
+    /// Zeroes the claim map and the provinces derived from it, and — unlike
+    /// the reference, whose `civTerritory` is paint and nothing else — also
+    /// drops the accumulated `CivTools` paint layer and re-bases it on the
+    /// now-empty map. Both halves are necessary here: clearing only
+    /// `CivData::territory` would leave the next paint commit rebuilding the
+    /// old claims out of `territory_base`, and clearing only the paint would
+    /// leave `assign_territory`'s computed borders on screen.
+    ///
+    /// Settlements, ways and the timeline are untouched.
+    /// [`Self::recompute_civilisation`] re-derives the computed borders from
+    /// the capitals; nothing restores erased paint.
+    ///
+    /// Returns `{"cleared_cells": int}` — claimed cells before the clear.
+    #[func]
+    fn civ_clear_territory(&mut self) -> VarDictionary {
+        let mut cleared = 0usize;
+        if let Some(civ) = self.civ.as_mut() {
+            cleared = civ.territory.iter().filter(|&&t| t > 0).count();
+            civ.territory.iter_mut().for_each(|t| *t = 0);
+            civ.provinces.iter_mut().for_each(|p| *p = 0);
+            civ.province_list.clear();
+        }
+        // The paint layer *and* the base it merges over, or the next commit
+        // silently restores what was just cleared -- see this method's doc.
+        if let (Some(tools), Some(civ)) = (self.civ_tools.as_mut(), self.civ.as_mut()) {
+            tools.territory_paint = cartalith_spatial::PaintLayer::new();
+            tools.discard();
+            tools.rebase(&mut civ.territory);
+        }
+        if cleared > 0 {
+            self.ledger.record(
+                "civ",
+                "Clear territory",
+                format!("{cleared} claimed cell(s), computed and painted"),
+                undo::EntryKind::Recorded(
+                    "the pre-clear claim grid is not retained; Recompute civilisation re-derives the computed borders, and erased paint is gone",
+                ),
+            );
+        }
+        dict! { "cleared_cells" => cleared as i64 }
+    }
+
+    /// The one path every *rebuilding* civ stage shares
+    /// ([`Self::recompute_civilisation`], [`Self::civ_populate`],
+    /// [`Self::civ_auto_routes`]) — the ruling's "find out what actually
+    /// prevents re-running each stage and fix that, rather than adding a
+    /// parallel path beside it".
+    ///
+    /// What prevented it was never the algorithms. `compute_civilisation`
+    /// builds some twenty rasters as locals and drops them on return, so
+    /// nothing below it could be re-run on its own; its `keep` parameter had
+    /// already carved out one axis of that (settlements as an input, versus
+    /// derived from suitability). [`CivRebuild`] is that same axis plus a
+    /// second one — how much of the fresh result is actually taken.
+    fn civ_rebuild(&mut self, mode: CivRebuild) -> VarDictionary {
         let t0 = std::time::Instant::now();
         let refuse = |reason: &str| -> VarDictionary {
             dict! {
@@ -3899,20 +4585,35 @@ impl WorldGen {
         if n == 0 || ws.field.len() != n {
             return refuse("No world.");
         }
-        let keep = KeptCiv {
-            settlements: civ.settlements.clone(),
-            next_tid: civ.next_tid,
-            village_tids: civ.village_tids.clone(),
+        // The reference's own guard on Generate Roads, verbatim: "Auto-populate
+        // the world first." A network over an empty place list is not an empty
+        // network, it is a question with no answer.
+        if mode == CivRebuild::Routes && civ.settlements.is_empty() {
+            return refuse("Generate roads needs settlements to connect. Auto-populate the world first.");
+        }
+        let keep = match mode {
+            // Placement is an input on both of these: the settlement list is
+            // taken verbatim and only what hangs off it is rebuilt.
+            CivRebuild::Downstream | CivRebuild::Routes => Some(KeptCiv {
+                settlements: civ.settlements.clone(),
+                next_tid: civ.next_tid,
+                village_tids: civ.village_tids.clone(),
+            }),
+            // `None` is the auto-populate path: seeds are found, places
+            // dropped, named, populated, villages seeded and the recovery
+            // phase applied, all from the current suitability field.
+            CivRebuild::Replace => None,
         };
         let (ocean_f, wind_f) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
-        let mut fresh = compute_civilisation(
-            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options, Some(keep), (&ocean_f, &wind_f),
+        let computed = compute_civilisation(
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, keep, (&ocean_f, &wind_f),
         );
-        // Boundary state with no terrain input: moved across rather than
-        // rebuilt, which is the whole difference between this and `generate`.
         let old = self.civ.take().expect("checked directly above");
-        fresh.timeline = old.timeline;
-        fresh.year = old.year;
+        // `rederived` is this mode's own answer to "is the merged layer wholly
+        // re-derived from the settlement list it now holds?" -- decided by the
+        // merge that knows, never re-derived from `mode` down here. See
+        // `civ_merge`.
+        let (mut fresh, rederived) = civ_merge(mode, computed, old);
         // The timeline arrives *after* `compute_civilisation` issued this
         // pass's `tid`s from `keep.next_tid`, so the counter has never seen
         // the recorded history it is now standing next to. Carrying the live
@@ -3928,18 +4629,22 @@ impl WorldGen {
                 &fresh.timeline,
             ),
         );
-        fresh.faction_roster = old.faction_roster;
-        fresh.place_extras = old.place_extras;
         if let Some(tools) = self.civ_tools.as_mut() {
             tools.rebase(&mut fresh.territory);
         }
         let (n_places, n_ways, n_prov) = (fresh.settlements.len(), fresh.ways.len(), fresh.province_list.len());
         self.civ = Some(fresh);
-        // SG-01: everything derived from the settlement list has just been
-        // re-derived from the settlement list.
-        self.civ_dirty = false;
-        self.stages.mark_recomputed(PipelineStage::Civ.id(), "civ_recomputed");
-        recomputed.push(&GString::from(PipelineStage::Civ.name()));
+        // SG-01, and only for a mode that earned it: everything derived from
+        // the settlement list has just been re-derived from the settlement
+        // list. `Routes` did not do that -- it kept territory, provinces,
+        // trade balances, explanations and density at their pre-run values --
+        // so it leaves the flag and the stage mark alone rather than
+        // silencing SG-02's "Recompute now" over data that is still stale,
+        // and reports no `civ` in `recomputed` for the same reason.
+        civ_settle_staleness(&mut self.stages, &mut self.civ_dirty, rederived);
+        if rederived {
+            recomputed.push(&GString::from(PipelineStage::Civ.name()));
+        }
         let still_stale: PackedStringArray = PipelineStage::ALL
             .iter()
             .filter(|s| self.stages.any_stale(s.id()))
@@ -5391,6 +6096,141 @@ impl WorldGen {
             }
         }
         out
+    }
+
+    /// The river network as **entities** (`cartalith_hydrology::river_entities`,
+    /// `OUTSTANDING_WORK.md` §2.2) -- one `Dictionary` per drawable river run,
+    /// in `trace_river_polylines`' own main-stems-first order.
+    ///
+    /// # What a "river" is here, and why it is not a new invention
+    ///
+    /// The reference has no river object: `buildRiverNetwork` returns rasters.
+    /// What it *draws* as one river is a traced receiver chain, and
+    /// `drawRiverWays` (reference line 9473) rescans each of those chains for
+    /// its own `maxO` and colours the stroke by it. That is the entity this
+    /// returns -- see [`cartalith_hydrology::River`] for the full statement,
+    /// including the two consequences a caller has to know: a main stem is the
+    /// *continuation of its first-traced headwater arm* (a trunk cell has an
+    /// upstream donor, so it is never a source of its own), and a tributary's
+    /// `order` counts the junction cell it ends on, so it can equal its
+    /// trunk's.
+    ///
+    /// # Keys
+    ///
+    /// * `index` (int) -- position in this array. Stable only for the same
+    ///   `min_order` on the same world; see `river_at()`.
+    /// * `points` (`PackedVector2Array`) -- cell-centre grid coordinates, head
+    ///   first, mouth last. The same coordinate space `get_roads()`' `points`
+    ///   uses, so a caller draws or hit-tests both the same way.
+    /// * `order` (int) -- Strahler, `drawRiverWays`' `maxO`.
+    /// * `km` (float) -- routed length, `length_cells * cell_km`.
+    /// * `cells` (int) -- point count.
+    /// * `discharge` (float) -- the largest `WorldState::flow_discharge`
+    ///   anywhere on the run, rescanned exactly as `order` is.
+    /// * `mouth_discharge` (float) -- the reading at the outlet cell. It is
+    ///   **not** the same number, because the polyline follows
+    ///   `build_channels`' D-infinity aspect-projected receiver tree while
+    ///   `flow_discharge` accumulated along `compute_flow`'s plain D8 one, so
+    ///   discharge is not monotone downstream on a traced run. Measured on a
+    ///   192x144 world: a run with 11.29 at its head and 3.32 at its mouth.
+    ///   See [`cartalith_hydrology::River::discharge`].
+    /// * `catchment_km2` (float) -- `discharge` as an area. **It is the same
+    ///   reading in different units, and deliberately so.**
+    ///   `compute_flow(use_rain: true)` seeds each cell with its rainfall
+    ///   rescaled so the mean seed is exactly `1.0`, so the accumulation at
+    ///   any cell is an upstream cell count weighted by *relative* rainfall:
+    ///   a wetter-than-average basin reads larger than its true area, a drier
+    ///   one smaller. A true unweighted area would need a second
+    ///   `compute_flow` pass over the whole grid, which is the measured
+    ///   hottest line in `generate()` and not something to run on a dock
+    ///   rebuild.
+    /// * `tributaries` (int) -- runs ending on a cell of this one.
+    /// * `head_x`/`head_y`, `mouth_x`/`mouth_y` (int) -- the two end cells.
+    /// * `source_m`/`mouth_m`/`drop_m` (float) -- metres, through the same
+    ///   `sample_bridge::FieldRefs::elevation_m` the Sample dock reads.
+    /// * `width_cells` (float) -- the drawn channel's full width at the mouth,
+    ///   `2 * half_w` from [`cartalith_hydrology::channel_disc`]: the width law
+    ///   the intensity stamp already used, now readable per river. **In grid
+    ///   cells, not metres** -- it is a cartographic symbol width that
+    ///   `river_width_scale_k` grows as the map's extent shrinks, so
+    ///   multiplying it out reads ~8 km on an 800 km / 192-cell world.
+    ///   **Omitted** (not zeroed) when the mouth carries no positive flow.
+    ///
+    /// Empty when river extraction did not run for this world -- before any
+    /// `generate()`, or after `load_save()`, since `SAVEFILE_COMPAT.md` stores
+    /// no channel topology and `WorldState::stream_order`/`channels` are
+    /// `None` for a loaded save. That is the same condition `export_geojson`'s
+    /// river block already tests, and it is narrower than `get_settlements()`'
+    /// (a save can have settlements and no rivers).
+    ///
+    /// `min_order` filters headwaters out: `1` traces everything (thousands of
+    /// order-1 trickles on a large world), `2` is what `EXPORT_MIN_RIVER_ORDER`
+    /// uses. Values below 1 are clamped up by `trace_river_polylines`.
+    #[func]
+    fn get_rivers(&self, min_order: i64) -> Array<VarDictionary> {
+        let Some(f) = self.sample_refs() else { return Array::new() };
+        self.rivers_now(min_order)
+            .iter()
+            .enumerate()
+            .map(|(i, r)| river_dict(&f, r, i))
+            .collect()
+    }
+
+    /// Viewport river hit-testing: the river nearest `(gx, gy)` in grid-cell
+    /// coordinates, within `radius_cells` of its polyline, as the same
+    /// `Dictionary` `get_rivers(min_order)` builds -- or an empty
+    /// `Dictionary` when nothing is in range.
+    ///
+    /// **One call, not two.** The obvious shape would be an index into
+    /// `get_rivers()`, but a click would then trace the network twice and
+    /// marshal every river across the boundary to use one. The entity comes
+    /// back whole instead; its `index` is still the position it holds in
+    /// `get_rivers(min_order)` *for the same `min_order`*, for a caller that
+    /// wants to cross-reference.
+    ///
+    /// `radius_cells` is the caller's, because only the caller knows the zoom:
+    /// a fixed grid-space radius is a shrinking screen target as you zoom in
+    /// and an unusable one as you zoom out. `right_dock.gd` derives it from
+    /// the on-screen cell size, the same way `map_overlay.gd`'s
+    /// `_hit_test_settlement` works in screen space rather than grid space.
+    #[func]
+    fn river_at(&self, gx: f64, gy: f64, radius_cells: f64, min_order: i64) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let rivers = self.rivers_now(min_order);
+        let Some(i) = cartalith_hydrology::pick_river(&rivers, gx, gy, radius_cells) else {
+            return VarDictionary::new();
+        };
+        river_dict(&f, &rivers[i], i)
+    }
+
+    /// The traced network behind both river bindings.
+    ///
+    /// Deliberately **uncached**: `WorldGen` keeps no river-entity slot, so
+    /// there is nothing to invalidate on a sculpt commit, a carve, a hand
+    /// paint or a regenerate — every one of which moves `flow_discharge` and
+    /// `channels`. A stale river list is worse than a re-trace, and the
+    /// re-trace is a graph walk over channel cells (not the grid), which is
+    /// what the GeoJSON exporter and the urban pass already pay per call.
+    ///
+    /// Empty for a loaded save, whose `stream_order`/`channels` are `None`.
+    fn rivers_now(&self, min_order: i64) -> Vec<cartalith_hydrology::River> {
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return Vec::new() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let (Some(order), Some(ch)) = (ws.stream_order.as_ref(), ws.channels.as_ref()) else {
+            return Vec::new();
+        };
+        cartalith_hydrology::river_entities(
+            order,
+            &ch.recv,
+            &ws.flow_discharge,
+            &ws.field,
+            gw,
+            gh,
+            min_order.clamp(1, i32::MAX as i64) as i32,
+            cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
+            cartalith_hydrology::river_width_scale_k(self.map_width_km),
+            self.world,
+        )
     }
 
     /// Province metadata (`cartalith_civ::civ_generate_provinces`) -- one
@@ -8416,7 +9256,11 @@ impl WorldGen {
             self.map_width_km,
             self.sea_level,
             self.world,
-            params::save_state(&self.params),
+            // `world_key_state`, not `save_state`: the civ group is the first
+            // thing in the table `generate_terrain` does not read, and hashing
+            // it would invalidate a baked terrain atlas that would be
+            // byte-identical either way. See that function's own doc.
+            params::world_key_state(&self.params),
         ))
     }
 
@@ -12531,6 +13375,131 @@ impl WorldGen {
             .collect()
     }
 
+    /// **The resource- and density-fed half of `_civFactionAggregates`**, per
+    /// faction — `OUTSTANDING_WORK.md` §2.3's "the aggregate is ported and
+    /// has three callers; nothing shows this half".
+    ///
+    /// That was accurate. `civ_faction_terrain_fits` above runs the aggregate
+    /// with `resources: None, density: None` (it needs only the terrain mix),
+    /// and `civ_military_bridge`'s own private `aggregates()` feeds
+    /// `resources` but not `density` and reads only manpower's fields off the
+    /// result. So the six fields below — every one of which exists only
+    /// because `pots`/`dens` were threaded in — reached nothing.
+    ///
+    /// Both rasters are fed here. `resources` is rebuilt on demand for the
+    /// same reason `civ_faction_terrain_fits` rebuilds the biome raster:
+    /// `compute_civilisation` frees nine of the fifteen fields on its way out
+    /// (`MEMORY_OPTIMIZATION_SCOPE.md`), so there is nothing retained to read.
+    /// `density` costs nothing at all — `CivData::dens` is
+    /// `civ_current_agrarian_density`'s output, kept since `TIMELINE_SCOPE.md`
+    /// milestone 5.
+    ///
+    /// One call for every faction, and a modal-open call rather than a
+    /// per-frame one, for the reason `civ_faction_terrain_fits` states: the
+    /// aggregate is O(cells) and the resource rebuild is a second full pass.
+    ///
+    /// Each entry, indexed `1..faction_count`: `faction`, `territory_km2`,
+    /// `pop`, `food_capacity` and `food_surplus` (the density-fed pair —
+    /// carrying capacity over the faction's own cells against the population
+    /// actually living on them, so a negative surplus is a faction that
+    /// cannot feed itself), `resources` (a `Dictionary` of all fifteen
+    /// `CIV_RESOURCE_KEYS` catchment means), `strategic` (those above the
+    /// reference's own `0.4` bar), and `exports`/`imports` — the trade
+    /// balance against the world mean, with `"food"` appended by the
+    /// surplus sign exactly as the reference does. `world_mean` carries the
+    /// same fifteen keys world-wide, so a row is comparable rather than a
+    /// bare number.
+    ///
+    /// Empty `Array` before any `generate()` and for a loaded save, like
+    /// every other civ readout.
+    #[func]
+    fn civ_faction_economy(&self) -> Array<VarDictionary> {
+        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else {
+            return Array::new();
+        };
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let sea = self.sea_level;
+        let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
+        let resources = cartalith_civ::build_resource_potentials(
+            &cartalith_civ::build_lithology(
+                &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field,
+                &ws.rainfall, sea,
+            ),
+            Some(&ws.boundary_type),
+            Some(&ws.shear_field),
+            Some(&ws.flow_discharge),
+            Some(&biome),
+            &ws.field,
+            &ws.rainfall,
+            &ws.age_field,
+            gw,
+            gh,
+            sea,
+            Some(&ws.volcanic_field),
+            true,
+            false,
+        );
+        let has_religion = civ.faction_roster.has_religion_flags();
+        // `dens` is per-cell and `territory` is per-cell, so a length mismatch
+        // (a save restored onto a differently-sized grid) would index out of
+        // bounds inside the aggregate. Dropped rather than trusted -- the
+        // aggregate's own `Option` is exactly this guard, and a panic here
+        // crosses the gdext boundary (`cartalith-rust-conventions`).
+        let dens = (civ.dens.len() == gw * gh).then_some(civ.dens.as_slice());
+        let input = cartalith_civ::FactionAggregatesInput {
+            faction_count: civ.faction_roster.0.len(),
+            gw,
+            gh,
+            sea,
+            map_width_km: self.map_width_km,
+            field: &ws.field,
+            territory: Some(&civ.territory),
+            density: dens,
+            resources: Some(&resources),
+            // The terrain-mix half only; `civ_faction_terrain_fits` is the
+            // call that pays for those two extra passes, and nothing below
+            // reads `terrain_mix`.
+            biome: None,
+            flow: None,
+            flow_thresh: f64::INFINITY,
+            ocean_dist: None,
+            faction_has_religion: Some(&has_religion),
+        };
+        let places: Vec<cartalith_civ::FactionPlace> =
+            civ.settlements.iter().map(cartalith_civ::FactionPlace::from_settlement).collect();
+        let agg = cartalith_civ::civ_faction_aggregates(&input, &places);
+
+        let keyed = |m: &std::collections::HashMap<&'static str, f64>| -> VarDictionary {
+            let mut d = VarDictionary::new();
+            for k in cartalith_civ::CIV_RESOURCE_KEYS {
+                d.set(k, *m.get(k).unwrap_or(&0.0));
+            }
+            d
+        };
+        let world_mean = keyed(&agg.world_mean_resource);
+        (1..civ.faction_roster.0.len())
+            .map(|f| {
+                let a = &agg.by_faction[f];
+                let names = |v: &[&'static str]| -> PackedStringArray {
+                    v.iter().map(|s| GString::from(*s)).collect()
+                };
+                vdict! {
+                    "faction" => f as i64,
+                    "territory_km2" => a.territory_km2,
+                    "pop" => a.pop,
+                    "food_capacity" => a.food_production_capacity,
+                    "food_surplus" => a.food_surplus,
+                    "resources" => &keyed(&a.resource_potential),
+                    "strategic" => &names(&a.strategic_resources),
+                    "exports" => &names(&a.exports),
+                    "imports" => &names(&a.imports),
+                    "world_mean" => &world_mean,
+                }
+            })
+            .collect()
+    }
+
     // ---- place editor (ED-03) ----
 
     /// Everything `_civPopulatePlaceEditor` (reference 16694) needs that
@@ -12778,20 +13747,22 @@ impl WorldGen {
     /// residual/wetland correction rather than merely zeroing its
     /// contribution.
     ///
-    /// Applies on the **next** `generate()`, like every other `CivOptions`
-    /// flag — K feeds settlement suitability, so flipping it mid-world
-    /// would leave placed settlements sitting on a suitability raster they
-    /// were never scored against.
+    /// Applies on the **next** `generate()` or [`Self::civ_populate`], like
+    /// every other `civ.*` parameter — K feeds settlement suitability, so
+    /// flipping it mid-world would leave placed settlements sitting on a
+    /// suitability raster they were never scored against. `civ_populate` is
+    /// the cheap way to see it: it re-places from the new suitability field
+    /// without re-rolling the terrain.
     #[func]
     fn set_biome_k_enabled(&mut self, enabled: bool) {
-        self.civ_options.biome_k = enabled;
+        self.set_civ_param("civ.biome_k", params::Value::Bool(enabled));
     }
 
     /// Whether the biome carrying-capacity residual is on
     /// (`set_biome_k_enabled`).
     #[func]
     fn get_biome_k_enabled(&self) -> bool {
-        self.civ_options.biome_k
+        self.params.civ.biome_k
     }
 }
 
@@ -13731,6 +14702,11 @@ impl WorldGen {
         inputs.resistance = Some(&ws.resistance_field);
         inputs.resources = &resource_pairs;
         inputs.settlements = &sites;
+        // The routed way graph, which Road junction, Bridge site, Market site,
+        // Caravan station and Trade depot read and nothing else can stand in
+        // for. Empty until `compute_civilisation` has run, which is the same
+        // condition every other `self.civ` input above degrades on.
+        inputs.ways = self.civ.as_ref().map(|c| c.ways.as_slice()).unwrap_or(&[]);
 
         let seed = self.seed as u64;
         self.landmark_store.run(&inputs, seed);

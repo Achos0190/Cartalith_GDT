@@ -291,6 +291,15 @@ func _build() -> void:
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
 	bridge.world_loaded.connect(_on_world_changed)
 
+	## A world may already exist when this dock is first built -- CARTO is not
+	## the workspace the app opens on, so `generation_finished` has usually
+	## already fired by the time anyone comes here. Without this the class
+	## counts would sit at `--` over a fully populated world until the user
+	## happened to move a dial. Deferred because `_regenerate_labels()` ends by
+	## refreshing the viewport's annotation layers, and nothing else in `_build()`
+	## touches `app.viewport` before the tree is up.
+	call_deferred("_regenerate_labels")
+
 
 ## The reference's own two sub-filters, wired live (see `SETTLEMENT_KINDS`'
 ## doc comment for why these are real rather than engine-blocked). Every row
@@ -670,6 +679,12 @@ func _on_world_changed() -> void:
 		_arm_icon_from_ui()
 	_rebuild_icon_panel()
 	_rebuild_label_panel()
+	## Every feature the generated pass names -- continents, provinces,
+	## settlements, lakes, landmarks -- has just been replaced, so the previous
+	## run describes a world that no longer exists. Re-running is also what
+	## restores the class typography table, which `WorldGen::absorb` resets with
+	## the rest of the label bridge (see `LabelBridge::typography`).
+	_regenerate_labels()
 
 
 ## Duplicates `app.gd`'s own `_tool_options_simple("CARTOGRAPHY · STYLE", ...)`
@@ -1150,14 +1165,22 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 # The disclosure is not a hedge. `cartalith-civ::labels::MapLabel` is one
 # hand-placed label -- text, position, size, arc, angle, font, colour
 # (`lib.rs:7782`'s `label_dict`) -- and `label_create` is the only way one comes
-# into existence (`lib.rs:7826`). There is no label *class*, no automatic
-# labelling pass to assign one, no `halo` or `tracking` field to set, and no
-# collision test: `grep -c "halo\|collision" crates/*/src/*.rs` finds the arc
-# halo *stroke width* (`labels.rs:193`, a draw-time constant) and nothing else.
-# Icons are the same story one level over: `icon_bridge.rs` arms a family/slot
-# for the Icon tool to *stamp*, and every icon on the map got there by a click.
-# There is no generated-icon pass for a minimum spacing or a placement rule to
-# constrain.
+# into existence (`lib.rs:7826`).
+#
+# Icons are still that story: `icon_bridge.rs` arms a family/slot for the Icon
+# tool to *stamp*, and every icon on the map got there by a click. There is no
+# generated-icon pass for a minimum spacing or a placement rule to constrain, so
+# `_build_icon_placement()` below is unchanged and still drawn disabled.
+#
+# **The Labels half of this paragraph is no longer true, and was replaced
+# rather than softened (2026-09-02).** It read: "There is no label *class*, no
+# automatic labelling pass to assign one, no `halo` or `tracking` field to set,
+# and no collision test." `LARGE_ITEM_RULINGS.md`'s owner ruling built the first
+# three -- `MapLabel::class`, `labels::generate_labels`, and `LabelTypography`
+# carrying size/halo/tracking -- and `_build_label_classes()` is bound to them.
+# The fourth is still absent, deliberately: the same ruling sequences collision
+# culling *behind* this pass ("culling a set nothing generates is half a
+# feature"), so the toggle stays disabled and now says the narrower true thing.
 #
 # So the choice was between omitting these panels, faking them against local
 # state that reaches nothing, and drawing them disabled with their reason. The
@@ -1178,12 +1201,17 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 ## `26/2.5 · .28 em` reads size / halo / tracking, which is exactly the three
 ## sliders below it, so the row doubles as the class's own summary.
 ##
-## **The counts are not transcribed.** `parts.js:363`'s `4 · 11 · 48 · 22 · 37`
-## and `:372`'s `122 drawn · 9 culled` are the prototype's mock data over its
-## mock world. Copying them would put five confident numbers in the dock that
-## describe nothing -- the exact failure `GUI_GAP_REGISTER.md` CA-20 caught on
-## the Clear-all buttons, where a live-looking control sat over an empty list.
-## Each count draws as `--` and the block's note says why.
+## **Now the fallback, not the source.** `bridge.label_class_table()` serves the
+## same five specs from `cartalith_civ::labels::LABEL_TYPOGRAPHY_DEFAULTS`, and
+## `_label_class_specs_from_engine()` prefers it; this array is what a cdylib
+## predating that binding gets. The two are kept identical on purpose, and the
+## Rust side is the one with a test pinning them.
+##
+## **The counts are still not transcribed.** `parts.js:363`'s
+## `4 · 11 · 48 · 22 · 37` and `:372`'s `122 drawn · 9 culled` are the
+## prototype's mock data over its mock world. The counts drawn in the dock are
+## the real ones, from `labels_generated_counts()`, and read `--` until the pass
+## has actually run over this world.
 const LABEL_CLASSES: Array = [
 	{"id": "continental", "label": "Continental", "swatch": "#e0a34a",
 		"spec": "26/2.5 · .28 em", "size": 26.0, "halo": 2.5, "track": 0.28},
@@ -1210,29 +1238,86 @@ const LABEL_TRACK_RANGE := Vector2(0.0, 0.40)
 ## `LABD().sel` is `'settlement'`, and the design's own fallback when `sel`
 ## matches nothing is `CL[2]` -- also settlement (`parts.js:378`).
 var _label_class := "settlement"
-var _label_class_rows: Dictionary = {}   ## id -> the row's name Label.
+var _label_class_rows: Dictionary = {}     ## key -> the row's name Label.
+var _label_class_count_cells: Dictionary = {}  ## key -> the row's count Label.
 var _label_class_title: Label
-var _label_class_fields: Array = []      ## The three `DccWidgets.slider()` dicts.
+var _label_class_fields: Array = []        ## The three `DccWidgets.slider()` dicts.
+
+## The five type specs currently in force, in engine order. Each entry is
+## `label_class_table()`'s own row shape (`key`, `label`, `size`, `halo`,
+## `tracking`, `italic`, `ink`), and this array is what
+## `_regenerate_labels()` pushes back to the engine.
+##
+## **The engine is the source of these, not this file.** `LABEL_CLASSES` above
+## survives only as the fallback for a cdylib that predates
+## `label_class_table()`, which is why its literals are still there and still
+## match: `cartalith_civ::labels::LABEL_TYPOGRAPHY_DEFAULTS` carries the same
+## five specs and is pinned digit for digit by its own test.
+var _label_class_specs: Array = []
+## `key -> {available, drawn, over_cap, suppressed}` from the last run. Empty
+## before the first one, which is what makes the count column read `--`.
+var _label_class_counts: Dictionary = {}
+var _label_gen_ran := false
+var _label_class_summary: Label
+
+## `label_class_table()`'s rows, or this file's own transcription of the same
+## design values when the binding is absent.
+func _label_class_specs_from_engine() -> Array:
+	var table: Dictionary = bridge.label_class_table()
+	var rows: Array = table.get("classes", [])
+	if not rows.is_empty():
+		return rows.duplicate(true)
+	return LABEL_CLASSES.map(func(c: Dictionary) -> Dictionary:
+		return {"key": c["id"], "label": c["label"], "size": c["size"],
+			"halo": c["halo"], "tracking": c["track"], "italic": c["id"] == "water",
+			"ink": c["swatch"]})
+
+## `parts.js:363`'s own compact notation, rebuilt from the live numbers rather
+## than carried as a frozen string -- a dial the user moved has to show in the
+## row it belongs to, or the list and the dials disagree on screen.
+func _label_spec_text(spec: Dictionary) -> String:
+	var size := float(spec.get("size", 0.0))
+	var halo := float(spec.get("halo", 0.0))
+	var track := float(spec.get("tracking", 0.0))
+	var size_s := "%d" % int(round(size))
+	var halo_s := ("%d" % int(round(halo))) if is_equal_approx(halo, round(halo)) else ("%.1f" % halo)
+	var out := "%s/%s · %s em" % [size_s, halo_s, String("%.2f" % track).trim_prefix("0")]
+	return out + " italic" if bool(spec.get("italic", false)) else out
+
+## One `[min, max]` pair out of `label_class_table()`, or `fallback` when the
+## binding is absent or the pair is malformed. A range is two numbers or it is
+## not a range -- a one-element array would otherwise become a slider whose
+## maximum is whatever `[1]` returned.
+func _label_range(table: Dictionary, key: String, fallback: Vector2) -> Vector2:
+	var r: Array = table.get(key, [])
+	if r.size() != 2:
+		return fallback
+	return Vector2(float(r[0]), float(r[1]))
+
+func _label_class_spec(key: String) -> Dictionary:
+	for entry in _label_class_specs:
+		var d: Dictionary = entry
+		if String(d.get("key", "")) == key:
+			return d
+	return {}
+
 
 func _build_label_classes(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Label classes")
-	## The reason, first and once, rather than repeated on nine controls. Every
-	## control below is `disabled`/`editable = false`, so the note explains a
-	## state the user can already see rather than warning about one they cannot.
+	_label_class_specs = _label_class_specs_from_engine()
 	DccWidgets.note(sec,
-		"Not bound. The design's five label classes describe an AUTOMATIC "
-		+ "labelling pass -- continental, region, settlement, water and landmark "
-		+ "names placed by the engine and styled per class. This port has no such "
-		+ "pass: cartalith-civ's MapLabel is one hand-placed label and label_create "
-		+ "is the only way one exists, so there is no class to assign, no halo or "
-		+ "tracking field to set, and no collision test to switch off. The rows "
-		+ "and dials below carry the design's own figures so the pass that binds "
-		+ "them does not have to re-derive them. Region labels you place yourself "
-		+ "are live -- they are the section under this one.")
+		"The engine places these. Continent, province, settlement, lake and "
+		+ "landmark names are generated from the world's own features and styled "
+		+ "per class; the counts on the right are what the last run actually "
+		+ "drew. Moving a dial re-runs the pass when you let go of it. Region "
+		+ "labels you place by hand are the section below and are never replaced "
+		+ "by a run -- they take their class's halo and tracking, and keep their "
+		+ "own size, font and colour.")
 
 	var rows := DccWidgets.group(sec, "Classes", true)
-	for entry in LABEL_CLASSES:
+	for entry in _label_class_specs:
 		var cl: Dictionary = entry
+		var key := String(cl.get("key", ""))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		row.custom_minimum_size.y = 22
@@ -1240,53 +1325,65 @@ func _build_label_classes(parent: Control) -> void:
 		## rather than a themed swatch: these five colours are the design's own
 		## literals and are NOT tokens -- `#a9adb0` and `#6f9fb5` appear nowhere
 		## in `DccTheme.PALETTE`, and routing them through `c()` would silently
-		## substitute the nearest token.
+		## substitute the nearest token. They now arrive from the engine's own
+		## `LabelTypography::ink`, which is also what a generated label is drawn
+		## in, so the swatch and the map cannot disagree.
 		var sw := ColorRect.new()
-		sw.color = Color(String(cl["swatch"]))
+		sw.color = Color(String(cl.get("ink", "#ffffff")))
 		sw.custom_minimum_size = Vector2(11, 11)
 		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(sw)
-		var name_l := DccTheme.label(String(cl["label"]), "text", DccTheme.FS_SMALL)
+		var name_l := DccTheme.label(String(cl.get("label", key)), "text", DccTheme.FS_SMALL)
 		name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(name_l)
-		row.add_child(DccTheme.mono_label(String(cl["spec"]), "text_dim", DccTheme.FS_MICRO))
+		var spec_l := DccTheme.mono_label(_label_spec_text(cl), "text_dim", DccTheme.FS_MICRO)
+		row.add_child(spec_l)
 		## The drawn-count column (`ENV:706`, `width:44px;text-align:right`).
-		## `--` and not a number: see `LABEL_CLASSES`' header.
 		var count := DccTheme.mono_label("--", "text_ghost", DccTheme.FS_MICRO)
 		count.custom_minimum_size.x = 44
 		count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		count.tooltip_text = "No automatic labelling pass exists, so nothing has been drawn or culled to count."
 		row.add_child(count)
 		rows.add_child(row)
-		_label_class_rows[String(cl["id"])] = name_l
+		_label_class_rows[key] = name_l
+		_label_class_count_cells[key] = {"count": count, "spec": spec_l}
+
+	## One line under the list rather than a per-row second number: the design
+	## draws a single summary (`parts.js:372`, "122 drawn · 9 culled") and the
+	## rows themselves stay one number wide.
+	_label_class_summary = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 2)
+	rows.add_child(_label_class_summary)
 
 	## `labSelTitle` (`parts.js:378`): the selected class's own name plus
-	## ` · TYPE`. Live even though the sliders under it are not -- picking which
-	## class you are *looking at* costs the engine nothing, and a panel whose
-	## every part is frozen teaches less than one whose disabled parts are
-	## clearly the bound-later half.
+	## ` · TYPE`.
 	var fields := DccWidgets.group(sec, "Type", true)
 	_label_class_title = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 2)
 	fields.add_child(_label_class_title)
-	var picker := DccWidgets.choice(fields, "Class",
-		LABEL_CLASSES.map(func(c: Dictionary) -> String: return String(c["label"])),
+	DccWidgets.choice(fields, "Class",
+		_label_class_specs.map(func(c: Dictionary) -> String: return String(c.get("label", ""))),
 		_label_class_index(_label_class),
-		func(i: int): _set_label_class(String((LABEL_CLASSES[i] as Dictionary)["id"])),
-		"Which class the three dials below describe. The dials themselves are not bound -- see the note above.")
-	picker.tooltip_text = String(picker.tooltip_text)
+		func(i: int): _set_label_class(String((_label_class_specs[i] as Dictionary).get("key", ""))),
+		"Which class the three dials below describe.")
 
-	var cl0: Dictionary = LABEL_CLASSES[_label_class_index(_label_class)]
+	## The domains come from the engine too (`LABEL_CLASS_*_RANGE`), so a value
+	## the engine would clamp cannot be reachable on the dial that sends it.
+	## The three constants above are the fallback for a cdylib without the
+	## binding, exactly as `LABEL_CLASSES` is for the specs.
+	var table: Dictionary = bridge.label_class_table()
+	var cl0: Dictionary = _label_class_spec(_label_class)
 	_label_class_fields = [
-		_dead_slider(fields, "size", LABEL_SIZE_RANGE, 1.0, float(cl0["size"]), " px"),
-		_dead_slider(fields, "halo", LABEL_HALO_RANGE, 0.1, float(cl0["halo"]), " px"),
-		_dead_slider(fields, "tracking", LABEL_TRACK_RANGE, 0.01, float(cl0["track"]), " em"),
+		_label_class_dial(fields, "size", "size", _label_range(table, "size_range", LABEL_SIZE_RANGE),
+			1.0, float(cl0.get("size", 13.0)), " px"),
+		_label_class_dial(fields, "halo", "halo", _label_range(table, "halo_range", LABEL_HALO_RANGE),
+			0.1, float(cl0.get("halo", 1.5)), " px"),
+		_label_class_dial(fields, "tracking", "tracking", _label_range(table, "tracking_range", LABEL_TRACK_RANGE),
+			0.01, float(cl0.get("tracking", 0.06)), " em"),
 	]
 
-	## `hLabColl` / `labCollNote` (`parts.js:387`-`:389`). The ON note quotes a
-	## live suppressed count in the prototype ("9 labels suppressed at this
-	## zoom"); with no culler there is no count, so the note here is the design's
-	## OFF wording plus what is actually true.
-	var coll_why := "No collision test exists -- label boxes are never measured against each other, so nothing is ever suppressed and this switch has nothing to switch."
+	## `hLabColl` / `labCollNote` (`parts.js:387`-`:389`). Still disabled, and
+	## still for a true reason -- but a different and much narrower one than
+	## before. The pass above now generates a set to cull; what does not exist
+	## is the measure-and-suppress test over it.
+	var coll_why := "Not built yet. The labelling pass above places labels but never measures their boxes against each other, so nothing is ever suppressed. LARGE_ITEM_RULINGS.md sequences the culler immediately behind this pass -- the hook and its counter (always 0) are already in generate_labels()."
 	var coll := DccWidgets.toggle(fields, "collision culling", true,
 		func(_on: bool): pass, coll_why)
 	coll.disabled = true
@@ -1299,13 +1396,34 @@ func _build_label_classes(parent: Control) -> void:
 	DccWidgets.note(fields,
 		"Design: on, labels that would overlap are suppressed and the count is "
 		+ "reported here; off, \"labels may overlap; export will not fix it\". "
-		+ "Neither branch runs yet.")
+		+ "The suppressed count reads 0 because nothing suppresses yet, not "
+		+ "because nothing overlaps.")
 	_sync_label_class()
 
 
+## One live class dial. `on_change` writes the spec and repaints the row's own
+## `26/2.5 · .28 em` summary; the re-run is deferred to `on_release`.
+##
+## **The split is the whole reason this is not a plain `slider()` call.** The
+## pass sweeps every named feature in the world and, for the Water class, runs a
+## connected-component fill over the whole `build_water_bodies` raster
+## (`labels::lake_features`). Re-running that on every `value_changed` sample of
+## a drag would put an O(gw*gh) pass on a per-frame path.
+func _label_class_dial(parent: Control, label_text: String, field: String,
+		range_: Vector2, step: float, value: float, unit: String) -> Dictionary:
+	return DccWidgets.slider(parent, label_text, range_.x, range_.y, step, value, unit,
+		func(v: float):
+			var spec := _label_class_spec(_label_class)
+			if not spec.is_empty():
+				spec[field] = v
+				_refresh_label_class_row(_label_class),
+		"Applies to every label of this class, generated or hand-placed. Released, not dragged: letting go re-runs the labelling pass.",
+		_regenerate_labels)
+
+
 func _label_class_index(id: String) -> int:
-	for i in LABEL_CLASSES.size():
-		if String((LABEL_CLASSES[i] as Dictionary)["id"]) == id:
+	for i in _label_class_specs.size():
+		if String((_label_class_specs[i] as Dictionary).get("key", "")) == id:
 			return i
 	return 2   ## `parts.js:378`'s own fallback -- `CL[2]`, settlement.
 
@@ -1314,25 +1432,104 @@ func _set_label_class(id: String) -> void:
 	_sync_label_class()
 
 ## Repaint the class list's ink and re-seat the three dials on the newly
-## selected class's design defaults. The dials are `editable = false`, so this
-## writes `value` directly -- which is exactly why it is safe to do here rather
-## than through the `on_change` a live slider would fire.
+## selected class's current values.
+##
+## The dials are live now, so `s.value = ...` fires `value_changed` and with it
+## the `on_change` above -- which would write the *incoming* class's number onto
+## whichever spec `_label_class` names. Since `_label_class` is already the new
+## class by the time this runs, that write is a no-op re-assignment of the value
+## being seated, not a cross-class leak. It is still worth knowing, which is why
+## it is written down rather than defended with a re-entrancy guard nothing else
+## in this file uses.
 func _sync_label_class() -> void:
-	var cl: Dictionary = LABEL_CLASSES[_label_class_index(_label_class)]
-	for id in _label_class_rows:
-		var l: Label = _label_class_rows[id]
+	var cl := _label_class_spec(_label_class)
+	if cl.is_empty():
+		return
+	for key in _label_class_rows:
+		var l: Label = _label_class_rows[key]
 		if is_instance_valid(l):
 			l.add_theme_color_override("font_color",
-				DccTheme.c("accent") if id == _label_class else DccTheme.c("text"))
+				DccTheme.c("accent") if key == _label_class else DccTheme.c("text"))
 	if _label_class_title != null and is_instance_valid(_label_class_title):
-		_label_class_title.text = "%s · TYPE" % String(cl["label"]).to_upper()
+		_label_class_title.text = "%s · TYPE" % String(cl.get("label", "")).to_upper()
 	if _label_class_fields.size() == 3:
-		for pair in [[0, "size"], [1, "halo"], [2, "track"]]:
+		for pair in [[0, "size"], [1, "halo"], [2, "tracking"]]:
 			var d: Dictionary = _label_class_fields[int(pair[0])]
 			var s: HSlider = d["slider"]
 			if is_instance_valid(s):
-				s.value = float(cl[String(pair[1])])
+				s.value = float(cl.get(String(pair[1]), s.value))
 				(d["readout"] as Label).text = (d["format"] as Callable).call(s.value)
+
+
+## Repaint one class row's spec string and drawn count.
+func _refresh_label_class_row(key: String) -> void:
+	var cells: Dictionary = _label_class_count_cells.get(key, {})
+	if cells.is_empty():
+		return
+	var spec_l: Label = cells["spec"]
+	if is_instance_valid(spec_l):
+		spec_l.text = _label_spec_text(_label_class_spec(key))
+	var count_l: Label = cells["count"]
+	if not is_instance_valid(count_l):
+		return
+	if not _label_gen_ran:
+		count_l.text = "--"
+		count_l.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		count_l.tooltip_text = "The labelling pass has not run over this world yet. Generate or open a world, or move a dial, and this becomes a count."
+		return
+	var c: Dictionary = _label_class_counts.get(key, {})
+	var drawn := int(c.get("drawn", 0))
+	var available := int(c.get("available", 0))
+	count_l.text = "%d" % drawn
+	count_l.add_theme_color_override("font_color",
+		DccTheme.c("text") if drawn > 0 else DccTheme.c("text_ghost"))
+	## Zero drawn is a real answer and the tooltip has to say which kind it is:
+	## a world with no lakes over the floor and a world whose lakes were all
+	## capped away are different situations.
+	if available == 0:
+		count_l.tooltip_text = "Nothing in this world to label at this class."
+	elif drawn < available:
+		count_l.tooltip_text = "%d drawn of %d available; %d over the cap." % [drawn, available, available - drawn]
+	else:
+		count_l.tooltip_text = "%d drawn, every candidate this class found." % drawn
+
+
+## Push the five specs to the engine, run the pass, and repaint what it said.
+##
+## Called from `_on_world_changed` (the world's features have all been replaced)
+## and from any class dial's release. Never from a drag sample -- see
+## `_label_class_dial`.
+func _regenerate_labels() -> void:
+	var typography := {}
+	for entry in _label_class_specs:
+		var d: Dictionary = entry
+		typography[String(d.get("key", ""))] = {
+			"size": float(d.get("size", 0.0)),
+			"halo": float(d.get("halo", 0.0)),
+			"tracking": float(d.get("tracking", 0.0)),
+		}
+	var res: Dictionary = bridge.labels_generate({"typography": typography})
+	_label_class_counts.clear()
+	_label_gen_ran = bool(res.get("ok", false))
+	for entry in res.get("classes", []):
+		var c: Dictionary = entry
+		_label_class_counts[String(c.get("key", ""))] = c
+	for key in _label_class_count_cells:
+		_refresh_label_class_row(String(key))
+	if _label_class_summary != null and is_instance_valid(_label_class_summary):
+		if not _label_gen_ran:
+			## The engine's own sentence, not a rewrite of it -- it names the
+			## precondition, and paraphrasing it here would be a second copy to
+			## drift.
+			_label_class_summary.text = String(res.get("reason", ""))
+		else:
+			var total := int(res.get("total", 0))
+			var suppressed := 0
+			for key2 in _label_class_counts:
+				suppressed += int((_label_class_counts[key2] as Dictionary).get("suppressed", 0))
+			_label_class_summary.text = "%d drawn · %d culled · %d ms" % [
+				total, suppressed, int(res.get("elapsed_ms", 0))]
+	app.viewport.refresh_annotations()
 
 
 ## The prototype's four icon families and their slot counts (`parts.js:364`'s
@@ -1603,6 +1800,26 @@ func _rebuild_label_edit_form() -> void:
 	text_row.add_child(text_edit)
 	_label_edit_body.add_child(text_row)
 
+	## Step 1 of the Labels ruling, reachable: which typographic class this
+	## hand-placed label belongs to. It sets the halo and tracking it draws with
+	## (`map_overlay.gd::_draw_labels`) and its priority once the collision
+	## culler lands; size, font and colour stay this form's own three fields
+	## below, because those are the user's and the class has no claim on them.
+	var cls := String(bridge.label_class_of(idx))
+	if cls.is_empty():
+		cls = "settlement"   ## `MapLabel::class`'s own default.
+	## Guarded on the spec list rather than assumed: `_build_label_classes()`
+	## fills it, and an `OptionButton` seeded with an out-of-range selection over
+	## an empty option list is an error, not an empty row.
+	if not _label_class_specs.is_empty():
+		DccWidgets.choice(_label_edit_body, "Class",
+			_label_class_specs.map(func(c: Dictionary) -> String: return String(c.get("label", ""))),
+			_label_class_index(cls),
+			func(i: int):
+				bridge.label_set_class(idx, String((_label_class_specs[i] as Dictionary).get("key", "")))
+				app.viewport.refresh_annotations(),
+			"Sets the halo and tracking this label draws with, from the class table above. Not part of the Confirm/Cancel snapshot -- like a reposition, it commits immediately.")
+
 	DccWidgets.slider(_label_edit_body, "Size", LABEL_SIZE_MIN, LABEL_SIZE_MAX, 1.0, float(lb.get("size", 16.0)), "px",
 		func(v: float): _apply_label_field(idx, "size", v))
 	DccWidgets.choice(_label_edit_body, "Size mode", ["Fixed", "Zoom with map"],
@@ -1639,10 +1856,11 @@ func _rebuild_label_edit_form() -> void:
 
 	DccWidgets.note(_label_edit_body,
 		"The literal CSS font string the engine stores -- Godot has no web-font "
-		+ "fallback chain, so only size/angle/arc/color actually render "
-		+ "(map_overlay.gd's own doc comment). Letter-spacing and anchor from the "
-		+ "spec's tool-options row have no backing field on MapLabel "
-		+ "(label_bridge.rs's own \"Not modelled\" note) and are not exposed here.")
+		+ "fallback chain, so only size/angle/arc/color render from this form "
+		+ "(map_overlay.gd's own doc comment). Letter-spacing is not per label: "
+		+ "it belongs to the class, in the section above, and this label takes "
+		+ "its class's value. Anchor still has no backing field on MapLabel "
+		+ "(label_bridge.rs's own \"Not modelled\" note) and is not exposed here.")
 
 	var actions := HBoxContainer.new()
 	actions.add_theme_constant_override("separation", 6)

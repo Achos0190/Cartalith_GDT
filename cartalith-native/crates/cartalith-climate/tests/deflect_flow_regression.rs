@@ -1,16 +1,32 @@
-//! NOT a golden-parity test. `deflect_flow` (reference HTML `deflectFlow`,
-//! lines 5315-5357) has no golden-parity coverage in this port: this
-//! environment has no JS runtime (`PARITY_TESTING.md`'s own extraction
-//! procedure needs one to run the reference HTML and read back real
-//! numbers), so there's nothing to extract fixtures from for a
-//! multi-iteration flow-blending algorithm. This file is a
-//! same-input-same-output regression/sanity check only -- it catches a
-//! future refactor breaking determinism or making the function a no-op,
-//! NOT a wrong-vs-JS formula. `cartalith_engine`'s
-//! `WeatherParams::terrain_wind_deflection` (which gates whether
-//! `build_wind` calls this at all) stays `false` by default until someone
-//! with a JS runtime extracts real fixtures -- see that field's own doc
-//! comment.
+//! NOT a golden-parity test, and no longer the only coverage `deflect_flow`
+//! has. `deflectFlow` (reference HTML lines 5315-5357) is golden-verified
+//! bit-exactly in `golden_parity_deflect_flow.rs` -- three cases, including
+//! world-wrap and non-default knobs. This file is the *behavioural* half:
+//! the golden pins 1 152 f32 values but says nothing about what they mean,
+//! so these two tests assert the properties a wrong-but-stable formula
+//! would still break -- determinism, a measurable bend upstream of a ridge,
+//! near-zero effect far from one, and exact identity at `strength: 0`.
+//!
+//! **Corrected 2026-09-02.** This header used to say `deflect_flow` had no
+//! golden coverage at all because "this environment has no JS runtime", and
+//! that `WeatherParams::terrain_wind_deflection` stayed `false` by default
+//! until someone with one extracted fixtures. Every part of that is stale:
+//!
+//!   - `node --version` is v24.19.0. `tools/jsruntime_probe.js` proves the
+//!     whole chain rather than the version string -- it slices `deflectFlow`
+//!     and `blurCoarse` out of the frozen reference, evaluates them in a bare
+//!     `vm` context, and requires all three of `golden_parity_deflect_flow.rs`'s
+//!     cases to agree BIT-EXACTLY (384/384 f32 values each). That is a two-way
+//!     check: it proves the runtime executes this reference, and that those
+//!     committed fixtures really are its output rather than the port's own.
+//!   - `cartalith_engine::WorldParams::defaults` has shipped
+//!     `climate.terrain_wind_deflection: true` since 2026-08-15.
+//!
+//! `WeatherParams::terrain_wind_deflection`'s own doc comment in
+//! `cartalith-climate/src/lib.rs` still carries the superseded "Still
+//! `false` regardless" wording and is stale on that point; it is accurate
+//! about everything else. Deliberately not edited from here -- that file is
+//! not this test's to rewrite.
 
 use cartalith_climate::{deflect_flow, DeflectFlowParams};
 

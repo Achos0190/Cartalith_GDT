@@ -20,9 +20,17 @@
 //! rebuilt rather than transcribed:
 //!
 //! **In**: the grid dimensions, the seed, the map width in km, sea level, the
-//! east-west wrap flag, and **every** row of `params::save_state` — the same
-//! table `SAVEFILE_COMPAT.md`'s writer persists, which is by construction
-//! every value `generate_terrain` reads.
+//! east-west wrap flag, and every row of `params::world_key_state` — the same
+//! table `SAVEFILE_COMPAT.md`'s writer persists, minus the one group that is
+//! not a terrain input. That sentence read "**every** row of
+//! `params::save_state` … which is by construction every value
+//! `generate_terrain` reads" until the civ `PARAMS` group landed
+//! (`LARGE_ITEM_RULINGS.md`, 2026-08-31) and made the second half false: those
+//! seven rows are read by `compute_civilisation` alone. Hashing them would
+//! have invalidated a baked terrain atlas the moment somebody moved the
+//! village toggle, on an atlas that is byte-identical either way. The
+//! exclusion lives in `params::world_key_state`, derived from the group name
+//! so a row added later is covered without editing this list.
 //!
 //! **Out**: `TerrainAppearance` and its override map, the elevation ramp, the
 //! NPR block, the quality tier, layer visibility, labels, icons, the camera —

@@ -140,6 +140,11 @@ pub enum FeatureKind {
     Bay,
     /// A range of high ground.
     MountainRange,
+    /// An inland body of standing water. Separate from [`FeatureKind::Bay`],
+    /// whose forms ("Gulf of", "Sound") are all coastal and read wrong on a
+    /// lake. The first producer of either is
+    /// [`crate::labels::lake_features`], the Water label class's own source.
+    Lake,
 }
 
 /// Turn a bare stem into a name that reads as its own kind of thing.
@@ -178,6 +183,14 @@ pub fn decorate(stem: &str, kind: FeatureKind, rng: &mut cartalith_rng::Mulberry
             x if x < 0.55 => format!("The {stem} Range"),
             x if x < 0.80 => format!("The {stem} Mountains"),
             _ => format!("{stem} Heights"),
+        },
+        // "Lake X" dominates for the same reason `Province` keeps its existing
+        // form dominant: it is the form a reader expects, and a map where every
+        // lake takes a rarer construction reads as a template.
+        FeatureKind::Lake => match r {
+            x if x < 0.62 => format!("Lake {stem}"),
+            x if x < 0.85 => format!("{stem} Mere"),
+            _ => format!("{stem} Water"),
         },
     }
 }

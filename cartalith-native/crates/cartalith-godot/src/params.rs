@@ -472,6 +472,65 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "climate.bulk_evap", group: "weather", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Bulk aerodynamic evaporation", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.climate.bulk_evap), set_fn: |p, v| p.climate.bulk_evap = v != 0.0 },
+
+    // ---- civilisation ----------------------------------------------------
+    // `LARGE_ITEM_RULINGS.md`, owner 2026-08-31: "five re-entrant `#[func]`s
+    // over an existing world, plus a civ `PARAMS` group". This is that group.
+    //
+    // These are the first rows in this table `generate_terrain` does not read
+    // (see `cartalith_engine::CivParams`); their consumer is
+    // `compute_civilisation`, and the five `civ_*` `#[func]`s in `lib.rs` are
+    // what re-run it without re-generating terrain. Every default is the
+    // reference's own, so the civ layer a default world gets is unchanged.
+    //
+    // The first four had four hand-written `#[func]` setters
+    // (`set_villages_enabled`/`set_metropolis_enabled`/`set_recovery_phase`/
+    // `set_biome_k_enabled`) and lived on `WorldGen` rather than in the
+    // parameters. Those setters survive as one-line wrappers over these rows
+    // -- `engine_bridge.gd` drives them -- but the values now round-trip
+    // through a save like every other parameter, which they never did before.
+    ParamSpec { key: "civ.villages", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Seed villages", unit: "", reference_control: "civVillagesChk",
+        get_fn: |p| Value::Bool(p.civ.villages), set_fn: |p, v| p.civ.villages = v != 0.0 },
+    ParamSpec { key: "civ.metropolis", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Imperial seats (metropolis tier)", unit: "", reference_control: "civMetropolisChk",
+        get_fn: |p| Value::Bool(p.civ.metropolis), set_fn: |p, v| p.civ.metropolis = v != 0.0 },
+    // `0..=4`, the reference's own `Math.max(0,Math.min(4,rp.value|0))`
+    // (reference 26643). An `Int` row, so `set` rounds rather than rejects a
+    // dropdown that hands back `2.0000001`.
+    ParamSpec { key: "civ.recovery_phase", group: "civ", kind: Kind::Int, min: 0.0, max: 4.0, step: 1.0,
+        label: "Post-collapse recovery phase", unit: "", reference_control: "civRecoveryPhase",
+        get_fn: |p| Value::Num(f64::from(p.civ.recovery_phase)), set_fn: |p, v| p.civ.recovery_phase = v as i32 },
+    ParamSpec { key: "civ.biome_k", group: "civ", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Biome carrying-capacity residual", unit: "", reference_control: "civBiomeKChk",
+        get_fn: |p| Value::Bool(p.civ.biome_k), set_fn: |p, v| p.civ.biome_k = v != 0.0 },
+    // Floor `1`, not `0`: `assign_factions` distributes settlements over
+    // `1..=n` and `0` is `assign_territory`'s "unclaimed" sentinel, so a count
+    // of zero would leave every settlement unclaimed and every border empty.
+    // Ceiling `24` is this port's own judgement, and a soft limit rather than
+    // a technical one -- `faction_rgb_default` hands anything past its 6-wide
+    // Okabe-Ito palette to `roster::civ_faction_color`'s golden-angle hue
+    // walk, which is well-defined for any index. What 24 bounds is legibility:
+    // a hundred one-town "factions" is not a world, and their swatches stop
+    // being tellable apart long before that.
+    ParamSpec { key: "civ.factions", group: "civ", kind: Kind::Int, min: 1.0, max: 24.0, step: 1.0,
+        label: "Factions", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(f64::from(p.civ.factions)), set_fn: |p, v| p.civ.factions = v as i32 },
+    // `SETTLE_SEED_THRESH` is a suitability score in `[0,1]`, but the usable
+    // range is much narrower: `build_settlement_suitability`'s output rarely
+    // reaches 0.8, so a threshold above that settles nothing at all. `0.10`
+    // at the bottom is where the suppression radius, not the score, becomes
+    // the only thing limiting placement.
+    ParamSpec { key: "civ.seed_thresh", group: "civ", kind: Kind::Float, min: 0.10, max: 0.80, step: 0.01,
+        label: "Settlement suitability floor", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.civ.seed_thresh), set_fn: |p, v| p.civ.seed_thresh = v },
+    // The radius is `max(6, floor(gw / this))`, so this is inversely
+    // proportional to spacing: `8` on a 384-cell grid is a 48-cell radius
+    // (a handful of settlements), `60` is the 6-cell floor (the densest the
+    // suppression rule allows at any grid size).
+    ParamSpec { key: "civ.seed_suppress_div", group: "civ", kind: Kind::Float, min: 8.0, max: 60.0, step: 1.0,
+        label: "Settlement packing", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.civ.seed_suppress_div), set_fn: |p, v| p.civ.seed_suppress_div = v },
 ];
 
 // ===========================================================================
@@ -660,6 +719,22 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("climate.zonal_k", "climate.zonalK"),
     ("climate.ocean_hum", "climate.oceanHum"),
     ("climate.bulk_evap", "climate.bulkEvap"),
+
+    // No reference path for any of the seven. The four flags are module-level
+    // `let`s the reference itself marks *not serialized* / *transient UI
+    // preference* in its own comments (reference 6441-6444), and the three
+    // placement knobs are JS constants (`SETTLE_SEED_THRESH`, reference 6415;
+    // the `GW/22` in reference 25360; `CIV_FACTIONS`' literal length,
+    // reference 14568) with no `state` key at all. They travel in
+    // `state.cartalith` only -- which is strictly more than the reference
+    // does, since the reference loses all seven on every reload.
+    ("civ.villages", ""),
+    ("civ.metropolis", ""),
+    ("civ.recovery_phase", ""),
+    ("civ.biome_k", ""),
+    ("civ.factions", ""),
+    ("civ.seed_thresh", ""),
+    ("civ.seed_suppress_div", ""),
 ];
 
 /// A parameter's path inside the reference's own `state` object; `Some("")`
@@ -735,6 +810,31 @@ pub fn save_state(p: &WorldParams) -> serde_json::Value {
     serde_json::Value::Object(state)
 }
 
+/// [`save_state`] with the **civ group removed** — what
+/// `bake_bridge::world_key_signature` hashes.
+///
+/// The bake module's own rule is "every parameter that changes what a baked
+/// tile would contain, and nothing that only changes how it is drawn", and it
+/// implemented that as *the whole of `save_state`* on the reasoning that the
+/// table "is by construction every value `generate_terrain` reads". The civ
+/// group is the first thing in it that `generate_terrain` does **not** read
+/// (see [`cartalith_engine::CivParams`]), so hashing it would invalidate a
+/// baked terrain atlas the moment somebody moved the village toggle — an
+/// atlas that would be byte-identical either way.
+///
+/// Derived from `group == "civ"` rather than a second hardcoded key list, so
+/// a row added to the group is excluded automatically; `no_civ_row_reaches_
+/// the_world_key` is the guard that keeps the two from drifting.
+pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
+    let mut state = save_state(p);
+    if let Some(native) = state.get_mut(NATIVE_PARAMS_KEY).and_then(|v| v.as_object_mut()) {
+        for spec in PARAMS.iter().filter(|s| s.group == "civ") {
+            native.remove(spec.key);
+        }
+    }
+    state
+}
+
 /// Restores what [`save_state`] wrote, from a save's `state` object.
 /// Returns how many parameters were applied.
 ///
@@ -801,10 +901,13 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 ///   plus `peak_m` and all three `planet.*` fields) and, directly,
 ///   `climate.w_iters`, `climate.zonal_k` and `climate.currents`. Those 24
 ///   keys map to **[`PipelineStage::Hydrology`]**.
-/// - `compute_civilisation` via `WorldGen::recompute_civilisation` — reads
-///   exactly one `WorldParams` field the user can move, `river_density`
-///   (through `fresh_river_order`, so it reaches affordances, roads and
-///   territory). That one key maps to **[`PipelineStage::Climate`]**.
+/// - `compute_civilisation` via `WorldGen::recompute_civilisation` and the
+///   four other re-entrant civ stages — reads `river_density` (through
+///   `fresh_river_order`, so it reaches affordances, roads and territory)
+///   and, since the civ `PARAMS` group landed, every `civ.*` row. All of
+///   them map to **[`PipelineStage::Climate`]**. (This bullet used to read
+///   "exactly one `WorldParams` field the user can move"; that was true
+///   until the civ group existed.)
 ///
 /// The two remaining `ClimateParams`/`WeatherParams` inputs are deliberately
 /// absent: `sea_level`, because `recompute_stale` is handed
@@ -842,6 +945,13 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 ///   nothing stale — it is the leaf.
 pub fn invalidates(key: &str) -> Option<PipelineStage> {
     match key {
+        // Same node, same reasoning, for the same reason: `Climate`'s only
+        // consumer is `civ`, so marking it makes the civ layer stale and runs
+        // nothing. Every `civ.*` row is read by `compute_civilisation` and by
+        // no `refresh_climate` input at all, which is what makes this the
+        // right node rather than `Hydrology` -- and is derived, not asserted,
+        // by `every_key_that_moves_refresh_climate_is_marked_and_no_other`.
+        _ if key.starts_with("civ.") => Some(PipelineStage::Climate),
         "river_density" => Some(PipelineStage::Climate),
         // The four non-`climate.` fields `climate_params_for`/
         // `weather_params_for` read. `sea_level` and `world` are the two
