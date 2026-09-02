@@ -1379,26 +1379,63 @@ func _build_label_classes(parent: Control) -> void:
 			0.01, float(cl0.get("tracking", 0.06)), " em"),
 	]
 
-	## `hLabColl` / `labCollNote` (`parts.js:387`-`:389`). Still disabled, and
-	## still for a true reason -- but a different and much narrower one than
-	## before. The pass above now generates a set to cull; what does not exist
-	## is the measure-and-suppress test over it.
-	var coll_why := "Not built yet. The labelling pass above places labels but never measures their boxes against each other, so nothing is ever suppressed. LARGE_ITEM_RULINGS.md sequences the culler immediately behind this pass -- the hook and its counter (always 0) are already in generate_labels()."
-	var coll := DccWidgets.toggle(fields, "collision culling", true,
-		func(_on: bool): pass, coll_why)
-	coll.disabled = true
-	## `DccWidgets.toggle()` hangs the tooltip on the ROW, next to the label. A
-	## disabled control has to carry its own reason as well: the box is where the
-	## pointer goes when the user tries to press it and finds it will not move,
-	## and that is the moment the explanation is wanted.
-	coll.tooltip_text = coll_why
-	_mark_inert(coll.get_parent() as Control)
+	## `hLabColl` / `labCollNote` (`parts.js:387`-`:389`). **Live.** The pass
+	## measures every label's box and suppresses one that lands on a label
+	## already placed; what it suppresses is counted, not silently dropped, and
+	## the summary line below the class list is where the count goes.
+	DccWidgets.toggle(fields, "collision culling", _label_cull,
+		func(on: bool):
+			_label_cull = on
+			_regenerate_labels(),
+		"On, a label whose box lands on one already placed is suppressed and counted below. Off, every candidate is drawn and names overlap.")
+	## Two sentences, and the second one is the one that has to be there.
+	##
+	## Boxes are ESTIMATED. The engine has no font -- glyph advances belong to
+	## the loaded face, which is the seam `cartalith-civ/src/labels.rs`'s header
+	## has always drawn -- so a box is `size * (glyphs * mean advance +
+	## tracking) `, with the mean advance measured off this shell's own font by
+	## `_label_advance_ratio()` and sent with every run. That is a good estimate
+	## and it is not a measurement of the actual string, so a name one or two
+	## glyphs wider than the mean can still touch its neighbour. Saying so is
+	## cheaper than a user discovering it and concluding the toggle is broken.
 	DccWidgets.note(fields,
-		"Design: on, labels that would overlap are suppressed and the count is "
-		+ "reported here; off, \"labels may overlap; export will not fix it\". "
-		+ "The suppressed count reads 0 because nothing suppresses yet, not "
-		+ "because nothing overlaps.")
+		"Suppression is by rank: within a class the heavier feature keeps its "
+		+ "name, and a bigger class wins over a smaller one under it. Labels "
+		+ "you placed by hand are never suppressed -- they take space from the "
+		+ "pass, not the other way round.\n"
+		+ "Boxes are estimated from this font's average glyph width, not "
+		+ "measured per name, so an unusually wide name can still touch its "
+		+ "neighbour.")
 	_sync_label_class()
+
+
+## The mean glyph advance of the font this shell draws with, as a fraction of
+## the font size -- the one number `labels::label_cull_rect` cannot work out for
+## itself, and the reason its boxes are an estimate rather than a guess.
+##
+## Measured once and cached: `get_string_size` over a fixed probe string at a
+## large size, divided by `size * length`. Large deliberately -- at 12 px the
+## per-glyph rounding in the returned width is a percent or two of the answer.
+##
+## `get_theme_default_font()` is the same call `map_overlay.gd` draws labels
+## with, so this measures the face that will actually be on screen. A null font
+## (no theme yet) falls back to the engine's own shipped estimate by sending
+## nothing.
+const LABEL_ADVANCE_PROBE := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+var _label_advance_ratio_cache := 0.0
+
+func _label_advance_ratio() -> float:
+	if _label_advance_ratio_cache > 0.0:
+		return _label_advance_ratio_cache
+	var font := get_theme_default_font()
+	if font == null:
+		return 0.0
+	var px := 64
+	var w := font.get_string_size(LABEL_ADVANCE_PROBE, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	if w <= 0.0:
+		return 0.0
+	_label_advance_ratio_cache = w / (float(px) * float(LABEL_ADVANCE_PROBE.length()))
+	return _label_advance_ratio_cache
 
 
 ## One live class dial. `on_change` writes the spec and repaints the row's own

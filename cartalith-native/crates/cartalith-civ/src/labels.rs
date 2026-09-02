@@ -2109,6 +2109,53 @@ mod tests {
         assert!(a.overlaps(&c));
     }
 
+    /// The culler is a linear scan of the accepted set per candidate, and the
+    /// obvious objection is that this is quadratic. It is not, in the shape
+    /// that matters: the accepted set *saturates* at roughly map area over box
+    /// area, because a label that fits has to fit somewhere nothing else is.
+    /// Measured here, spread over a 900x900 world, **debug build**:
+    ///
+    /// | candidates | drawn | suppressed | time |
+    /// |---|---|---|---|
+    /// | 500 | 500 | 0 | 0.18 ms |
+    /// | 2 000 | 1 022 | 978 | 1.3 ms |
+    /// | 5 000 | 1 690 | 3 310 | 4.2 ms |
+    /// | 12 000 | 1 540 | 10 460 | 9.6 ms |
+    ///
+    /// `drawn` stops growing while `n` keeps going, which is the saturation.
+    /// Against the water class's own connected-component fill over the whole
+    /// raster — which is why `_label_class_dial` defers the re-run to a
+    /// slider's *release* — this is not the expensive half of the pass, and a
+    /// spatial index would be complexity bought for nothing.
+    ///
+    /// Kept `#[ignore]`d and assertion-free for `landmark_timing.rs`' reason: a
+    /// wall-clock bound in CI is a flake, and the number above is a record, not
+    /// a contract. Re-run with
+    /// `cargo test -p cartalith-civ --lib cull_timing_probe -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "timing probe, not an assertion"]
+    fn cull_timing_probe() {
+        for n in [500usize, 2000, 5000, 12000] {
+            let cands: Vec<LabelCandidate> = (0..n)
+                .map(|i| {
+                    let s = (n as f64).sqrt().ceil() as usize;
+                    let pitch = 900.0 / s as f64;
+                    cand(
+                        LabelClass::Settlement,
+                        &format!("Town{i:05}"),
+                        (i % s) as f64 * pitch,
+                        (i / s) as f64 * pitch,
+                        i as f64,
+                    )
+                })
+                .collect();
+            let t = std::time::Instant::now();
+            let g = generate_labels(&cands, &cull_on(), &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
+            let c = g.counts[LabelClass::Settlement.index()];
+            println!("n={n} drawn={} suppressed={} in {:?}", c.drawn, c.suppressed, t.elapsed());
+        }
+    }
+
     // ---- lake_features ----
 
     /// `gw x gh` of land with the listed cells set to lake.
