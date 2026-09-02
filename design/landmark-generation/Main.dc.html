@@ -1,0 +1,409 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f; }
+    /* §12 — every glyph 16x16, fill:none, stroke:currentColor, 1.2px, round.
+       Declared once so no artboard element can drift off the rule. */
+    svg.g { width: 12px; height: 12px; flex: none; }
+    svg.g path, svg.g circle, svg.g rect { fill: none; stroke: currentColor;
+      stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+    svg.g .dot { fill: currentColor; stroke: none; }
+    svg.t { width: 15px; height: 15px; }
+  </style>
+</helmet>
+
+<!-- ══════════ DESKTOP 1920 · CIVIL ▸ LANDMARKS · the generator panel ══════════
+     Groups collapsed except PHYSICAL. Rows in all three states:
+     armed with headroom (Cliff, Gorge, Waterfall, River Confluence, Volcanic),
+     armed and topped out (Peak), off with its cap retained (nine rows).      -->
+
+<div style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+  <!-- ── MENU BAR · §2, program scope only ── -->
+  <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+    <div style="display:flex;font-size:11.5px;color:#a9adb0">
+      <span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px">Assets</span><span style="padding:9px 11px">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>2K working · 4K render</span><span>CPU 22</span><span>GPU 8</span><span>1.6 GB</span></div>
+  </div>
+
+  <!-- ── TOOL OPTIONS BAR · §4 · context label → parameters → spacer → commit ──
+       The run button lives here, exactly where WORLD's "Bake ALL & finalize"
+       does, because it is this panel's one commit. -->
+  <div style="height:34px;flex:none;display:flex;align-items:center;gap:18px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+    <span style="color:#e0a34a;letter-spacing:.14em">CIVIL · LANDMARKS</span>
+    <span style="display:flex;align-items:center;gap:9px">Crowding<span style="width:70px;height:2px;background:rgba(255,255,255,.16);display:inline-block"><span style="width:38%;height:2px;background:#e0a34a;display:block"></span></span><span style="color:#c8cbcd">× 1.00</span></span>
+    <span style="color:#c8cbcd">☑ types compete</span>
+    <span style="color:#5f6468">stale — <span style="color:#e0a34a">3 settlements moved</span> since the last pass</span>
+    <div style="flex:1"></div>
+    <span style="padding:4px 12px;border:1px solid #e0a34a;color:#e0a34a">Run landmark pass</span>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+
+    <!-- ── DOMAIN RAIL · §3 · three domains since the 2026-08-20 merge ── -->
+    <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+      <div style="height:28px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+      <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+        <div style="writing-mode:vertical-rl">WORLD</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl;color:#e0a34a">CIVIL</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl">CARTO</div>
+      </div>
+      <div style="flex:1"></div>
+      <div style="padding:0 0 12px;font:9px 'IBM Plex Mono',monospace;color:#5f6468;writing-mode:vertical-rl;letter-spacing:.12em">CIVIL</div>
+    </div>
+
+    <!-- ══════════ LEFT DOCK · 372px ══════════ -->
+    <div style="width:372px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+
+      <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec">
+        <span style="flex:1">CIVILIZATION</span><span style="font-size:11px;letter-spacing:0;color:#5f6468">‹</span>
+      </div>
+
+      <div style="flex:1;min-height:0;overflow:hidden;font:10.5px 'IBM Plex Mono',monospace">
+
+        <!-- ── §4.5 TOOLS block · every left dock opens with it ── -->
+        <div style="padding:8px 14px 9px;border-bottom:1px solid rgba(255,255,255,.07)">
+          <div style="color:#6f7478;letter-spacing:.18em;font-size:9px;padding-bottom:6px">TOOLS</div>
+          <div style="display:flex;gap:4px;color:#8d9296">
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M4 2.6 12.4 8.6 8.6 9.2 10.6 13 9 13.8 7 10 4.6 12z"/></svg></span>
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M2 6.4h12v3.2H2z"/><path d="M5 6.4v1.6M8 6.4v2M11 6.4v1.6"/></svg></span>
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M2.4 3.4h11.2v9.2H2.4z" stroke-dasharray="2.2 1.6"/></svg></span>
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M5.4 8.4V4.6a1 1 0 0 1 2 0v3.4m0-2.4a1 1 0 0 1 2 0v2.4m0-1.8a1 1 0 0 1 2 0v3.6a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8.6a1 1 0 0 1 1.4-.2"/></svg></span>
+            <span style="width:9px"></span>
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M2.6 8 8 3.2 13.4 8"/><path d="M4.2 7.2v5.8h7.6V7.2"/></svg></span>
+            <!-- Landmark tool · §12's POI glyph, reused rather than reinvented -->
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.09)"><svg class="g t" viewBox="0 0 16 16"><path d="M8 2.2 13.8 8 8 13.8 2.2 8z"/><circle class="dot" cx="8" cy="8" r="0.7"/></svg></span>
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M2.6 4.6 13 3.4l.6 8.4-9.6 1z"/><path d="M4 9.8 8.6 4.4M6.4 11 11 5.4"/></svg></span>
+            <span style="width:26px;height:24px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14)"><svg class="g t" viewBox="0 0 16 16"><path d="M2.4 5.6h11.2M2.4 10.4h11.2"/><path d="M5 5.6v4.8M8 5.6v4.8M11 5.6v4.8"/></svg></span>
+          </div>
+          <div style="padding-top:6px;color:#5f6468;font-size:9px">LANDMARK · L — click drops one by hand. Hand-placed landmarks never join a generated family's count.</div>
+        </div>
+
+        <!-- ── L2 categories, v3's fourteen · collapsed ── -->
+        <div style="padding:6px 14px;display:flex;gap:9px;border-bottom:1px solid rgba(255,255,255,.06);color:#8d9296"><span style="color:#5f6468">▸</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Civilizations</span><span style="color:#5f6468">4</span></div>
+        <div style="padding:6px 14px;display:flex;gap:9px;border-bottom:1px solid rgba(255,255,255,.06);color:#8d9296"><span style="color:#5f6468">▸</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Factions</span><span style="color:#5f6468">6</span></div>
+        <div style="padding:6px 14px;display:flex;gap:9px;border-bottom:1px solid rgba(255,255,255,.06);color:#8d9296"><span style="color:#5f6468">▸</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Territories</span><span style="color:#5f6468">18</span></div>
+        <div style="padding:6px 14px;display:flex;gap:9px;border-bottom:1px solid rgba(255,255,255,.06);color:#8d9296"><span style="color:#5f6468">▸</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Settlements</span><span style="color:#5f6468">40</span></div>
+
+        <!-- ══════ THE PANEL · L2 open ══════ -->
+        <div style="border-bottom:1px solid rgba(255,255,255,.06);background:rgba(224,163,74,.05)">
+
+          <div style="padding:7px 14px;display:flex;align-items:center;gap:9px">
+            <span style="color:#e0a34a">▾</span>
+            <span style="color:#e0a34a"><svg class="g" viewBox="0 0 16 16"><path d="M8 2.2 13.8 8 8 13.8 2.2 8z"/><circle class="dot" cx="8" cy="8" r="0.7"/></svg></span>
+            <span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Landmarks</span>
+            <span style="color:#8d9296">187</span>
+          </div>
+
+          <!-- ── L3 § PLACEMENT ── -->
+          <div style="padding:2px 14px 4px 26px;color:#6f7478;letter-spacing:.14em;font-size:9px">§ PLACEMENT</div>
+
+          <!-- THE HEADROOM LINE. The arithmetic that explains everything below
+               it, before the user goes hunting for a broken slider. -->
+          <div style="margin:0 14px 7px 26px;padding:6px 9px;border:1px solid rgba(255,255,255,.16);background:#191c1e;font-size:9.5px;line-height:1.75;color:#8d9296">
+            caps total <span style="color:#c8cbcd">640</span> · room for about <span style="color:#c8cbcd">210</span> at this spacing<br>
+            last run placed <span style="color:#e0a34a">187</span> in 2.4 s
+          </div>
+
+          <div style="display:flex;align-items:center;gap:9px;padding:3.5px 14px 0 26px"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Crowding</span><div style="width:78px;height:2px;background:rgba(255,255,255,.16)"><div style="width:38%;height:2px;background:#e0a34a"></div></div><span style="width:44px;text-align:right;color:#c8cbcd">× 1.00</span></div>
+          <div style="padding:2px 14px 6px 26px;color:#5f6468;font-size:9px">a regional landmark keeps <span style="color:#8d9296">34 km</span> clear · sparse ↔ dense</div>
+
+          <div style="display:flex;align-items:center;gap:9px;padding:2px 14px 0 26px;color:#c8cbcd"><span>☑</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Types compete with each other</span></div>
+          <div style="padding:2px 14px 6px 40px;color:#5f6468;font-size:9px">Off lets a shrine sit beside a waterfall. On keeps every landmark clear of every other one.</div>
+
+          <div style="padding:2px 14px 8px 26px;color:#6f7478;font-size:9px">＋ advanced <span style="color:#5f6468">— exclusion radius per class · continental 180 km · regional 34 · local 9 · cultural 6</span></div>
+
+          <!-- ── L3 § TYPES ── -->
+          <div style="padding:4px 14px 4px 26px;color:#6f7478;letter-spacing:.14em;font-size:9px;border-top:1px solid rgba(255,255,255,.06)">§ TYPES <span style="color:#5f6468;letter-spacing:0">— 49 in six families · §23's four classes are a badge, not a second tree</span></div>
+
+          <div style="padding:0 14px 5px 26px;display:flex;gap:2px;flex-wrap:wrap;color:#8d9296">
+            <span style="padding:2px 7px;border:1px solid #e0a34a;color:#e0a34a">all</span>
+            <span style="padding:2px 7px;border:1px solid rgba(255,255,255,.14)">CON 4</span>
+            <span style="padding:2px 7px;border:1px solid rgba(255,255,255,.14)">REG 18</span>
+            <span style="padding:2px 7px;border:1px solid rgba(255,255,255,.14)">LOC 15</span>
+            <span style="padding:2px 7px;border:1px solid rgba(255,255,255,.14)">CUL 12</span>
+          </div>
+
+          <div style="padding:0 14px 7px 26px;color:#5f6468;font-size:9px">
+            Six types carry <span style="border:1px solid rgba(255,255,255,.16);padding:0 4px;color:#8d9296">no viewshed</span> — research §9's visibility term is not computed by this engine, so their score is the model minus its largest term.
+          </div>
+
+          <!-- ══════ L4 group · PHYSICAL, open ══════ -->
+          <div style="padding:4px 14px 4px 22px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.03);border-top:1px solid rgba(255,255,255,.06)">
+            <span style="color:#e0a34a">▾</span>
+            <span style="color:#a9adb0"><svg class="g" viewBox="0 0 16 16"><path d="M2.2 11.5 6.4 4.5 9.2 8.6 11 6.4 13.8 11.5"/><path d="M3 14Q8 12.2 13 14"/></svg></span>
+            <span style="flex:1;color:#c8cbcd;letter-spacing:.14em;font-size:9px">PHYSICAL</span>
+            <span style="color:#8d9296;font-size:9.5px">6 of 15 armed · 74 placed</span>
+            <span style="color:#5f6468;font-size:9px;padding-left:8px">arm all · off</span>
+          </div>
+
+          <!-- ─────────── ARMED · TOPPED OUT · the only state where dragging right helps ─────────── -->
+          <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+              <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Peak <span style="border:1px solid rgba(255,255,255,.16);padding:0 4px;color:#6f7478;font:9px 'IBM Plex Mono',monospace">no viewshed</span></span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px;background:transparent"><div style="width:100%;height:2px;background:#8d9296"></div></div></div>
+              <span style="width:44px;text-align:right;color:#c8cbcd">24 max</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">24 placed · <span style="color:#e0a34a">at cap</span></div>
+          </div>
+
+          <!-- ─────────── OFF · cap retained ─────────── -->
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">REG</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Ridge</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 12</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">LOC</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Saddle</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 30</div>
+          </div>
+
+          <!-- ─────────── ARMED · SPACING-LIMITED · the gap between the two bars IS the point ─────────── -->
+          <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#5f6468;font-size:9px">LOC</span>
+              <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Cliff</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:60%;height:2px;background:#8d9296"></div></div></div>
+              <span style="width:44px;text-align:right;color:#c8cbcd">30 max</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">18 placed · spacing</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+              <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Gorge</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:75%;height:2px;background:#8d9296"></div></div></div>
+              <span style="width:44px;text-align:right;color:#c8cbcd">8 max</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">6 placed · no terrain</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">LOC</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Cave</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 20</div>
+          </div>
+
+          <!-- ─────────── THE EXEMPLAR · 40 asked for, 11 placed, and the row says why ─────────── -->
+          <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.06)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+              <span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Waterfall</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:27.5%;height:2px;background:#8d9296"></div></div></div>
+              <span style="width:44px;text-align:right;color:#e8ebec">40 max</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#8d9296">11 placed · <span style="border-bottom:1px dotted #8d9296">spacing</span> <span style="color:#5f6468">— click for the funnel</span></div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">LOC</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Spring</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 60</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">REG</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Lake</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 6</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">REG</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Delta</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">never set</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#5f6468;font-size:9px">LOC</span>
+              <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">River confluence</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:60%;height:2px;background:#8d9296"></div></div></div>
+              <span style="width:44px;text-align:right;color:#c8cbcd">20 max</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">12 placed · spacing</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+              <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Volcanic feature <span style="border:1px solid rgba(255,255,255,.16);padding:0 4px;color:#6f7478;font:9px 'IBM Plex Mono',monospace">no viewshed</span></span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:30%;height:2px;background:#8d9296"></div></div></div>
+              <span style="width:44px;text-align:right;color:#c8cbcd">10 max</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">3 placed · candidates</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">LOC</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Rock formation</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">never set</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">REG</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Glacial feature</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 12</div>
+          </div>
+
+          <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05)">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="width:22px;color:#4c5155;font-size:9px">CON</span>
+              <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Ancient forest</span>
+              <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div><div style="height:2px;margin-top:2px"></div></div>
+              <span style="width:44px;text-align:right;color:#5f6468">off</span>
+            </div>
+            <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 2</div>
+          </div>
+
+          <!-- ══════ the five other families, collapsed — but never silent ══════ -->
+          <div style="padding:5px 14px 5px 22px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#5f6468">▸</span><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M1.6 11.6 4.6 5 7.1 9.2h1.8L11.4 5l3 6.6"/><path d="M1.6 9.2h12.8" stroke-dasharray="2.4 1.6"/></svg></span><span style="flex:1;color:#8d9296;letter-spacing:.14em;font-size:9px">TRANSPORTATION</span><span style="color:#6f7478;font-size:9.5px">3 of 8 armed · 21 placed</span></div>
+          <div style="padding:5px 14px 5px 22px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#5f6468">▸</span><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M3.2 10.8 5 6.2h6l1.8 4.6z"/><path d="M6.2 8.4h3.6"/></svg></span><span style="flex:1;color:#8d9296;letter-spacing:.14em;font-size:9px">ECONOMIC</span><span style="color:#6f7478;font-size:9.5px">2 of 6 armed · 9 placed</span></div>
+          <div style="padding:5px 14px 5px 22px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#5f6468">▸</span><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M4 6.4V3.8h1.7v1.3h1.3V3.8h1.7v1.3h1.3V3.8H12v2.6"/><path d="M4 6.4h8v6H4z"/></svg></span><span style="flex:1;color:#8d9296;letter-spacing:.14em;font-size:9px">MILITARY</span><span style="color:#6f7478;font-size:9.5px">4 of 6 armed · 33 placed</span></div>
+          <div style="padding:5px 14px 5px 22px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#5f6468">▸</span><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M4 13V7.6a4 4 0 0 1 8 0V13"/><path d="M2.6 13h10.8"/></svg></span><span style="flex:1;color:#8d9296;letter-spacing:.14em;font-size:9px">RELIGIOUS · CULTURAL</span><span style="color:#6f7478;font-size:9.5px">5 of 8 armed · 41 placed</span></div>
+          <div style="padding:5px 14px 5px 22px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#5f6468">▸</span><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M3.4 13.2h9.2"/><path d="M5 13.2V3.6h1.6v9.6"/><path d="M10 13.2V8.4l1.8-1.2"/></svg></span><span style="flex:1;color:#8d9296;letter-spacing:.14em;font-size:9px">HISTORICAL</span><span style="color:#6f7478;font-size:9.5px">3 of 6 armed · 9 placed</span></div>
+
+        </div>
+
+        <div style="padding:6px 14px;display:flex;gap:9px;border-bottom:1px solid rgba(255,255,255,.06);color:#8d9296"><span style="color:#5f6468">▸</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Routes &amp; ways</span><span style="color:#5f6468">312</span></div>
+        <div style="padding:6px 14px;display:flex;gap:9px;border-bottom:1px solid rgba(255,255,255,.06);color:#8d9296"><span style="color:#5f6468">▸</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11.5px">Travel</span></div>
+
+      </div>
+
+      <!-- ── DOCK FOOT · §5.1's FINALIZE band, in this panel's own subject ── -->
+      <div style="flex:none;border-top:1px solid rgba(255,255,255,.10);padding:7px 14px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;line-height:1.7">
+        <div style="display:flex;justify-content:space-between"><span>▾ LAST RUN · seed 483920 · 2.4 s</span><span style="color:#e0a34a">187 placed</span></div>
+        <div style="color:#5f6468;font-size:9px">17 armed types · 3 hit their cap · 11 stopped by spacing · 3 by terrain</div>
+      </div>
+    </div>
+
+    <!-- ══════════ VIEWPORT ══════════ -->
+    <div style="flex:1;position:relative;background:radial-gradient(900px 600px at 46% 46%,#17191a 0%,#101112 58%,#0d0e0f 100%);min-width:0">
+      <div style="position:absolute;left:12px;top:10px;z-index:20">
+        <div style="width:36px;height:36px;display:grid;place-items:center;background:#121314;border:1px solid rgba(255,255,255,.16);color:#a9adb0">
+          <svg class="g" style="width:16px;height:16px" viewBox="0 0 16 16"><path d="M8 1.5 15 5 8 8.5 1 5z"/><path d="M2.4 7.6 8 10.4l5.6-2.8M2.4 10.1 8 12.9l5.6-2.8"/></svg>
+        </div>
+      </div>
+      <div style="position:absolute;left:16px;top:56px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;line-height:1.7">landmarks shown · 187 of 187<br>Waterfall highlighted · 11</div>
+      <div style="position:absolute;right:16px;top:14px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right;line-height:1.7">2D · equirect · z 4.1<br>field: elevation</div>
+
+      <!-- the eleven waterfalls, and the exclusion discs that stopped the rest -->
+      <svg viewBox="0 0 1100 940" style="position:absolute;inset:0;width:100%;height:100%" aria-hidden="true">
+        <g stroke="#e0a34a" fill="none" stroke-width="1" opacity="0.20">
+          <circle cx="250" cy="240" r="86"/><circle cx="404" cy="196" r="86"/><circle cx="356" cy="392" r="86"/>
+          <circle cx="546" cy="308" r="86"/><circle cx="640" cy="486" r="86"/><circle cx="470" cy="560" r="86"/>
+          <circle cx="742" cy="330" r="86"/><circle cx="300" cy="580" r="86"/><circle cx="606" cy="672" r="86"/>
+          <circle cx="820" cy="540" r="86"/><circle cx="418" cy="736" r="86"/>
+        </g>
+        <g stroke="#e0a34a" fill="none" stroke-width="1.4">
+          <path d="M250 232l8 8-8 8-8-8z"/><path d="M404 188l8 8-8 8-8-8z"/><path d="M356 384l8 8-8 8-8-8z"/>
+          <path d="M546 300l8 8-8 8-8-8z"/><path d="M640 478l8 8-8 8-8-8z"/><path d="M470 552l8 8-8 8-8-8z"/>
+          <path d="M742 322l8 8-8 8-8-8z"/><path d="M300 572l8 8-8 8-8-8z"/><path d="M606 664l8 8-8 8-8-8z"/>
+          <path d="M820 532l8 8-8 8-8-8z"/><path d="M418 728l8 8-8 8-8-8z"/>
+        </g>
+        <g stroke="#5f6468" fill="none" stroke-width="1" stroke-dasharray="2 2">
+          <path d="M320 300l6 6-6 6-6-6z"/><path d="M470 250l6 6-6 6-6-6z"/><path d="M580 400l6 6-6 6-6-6z"/>
+          <path d="M700 420l6 6-6 6-6-6z"/><path d="M380 480l6 6-6 6-6-6z"/><path d="M540 600l6 6-6 6-6-6z"/>
+          <path d="M760 620l6 6-6 6-6-6z"/><path d="M360 660l6 6-6 6-6-6z"/><path d="M240 400l6 6-6 6-6-6z"/>
+        </g>
+      </svg>
+      <div style="position:absolute;right:16px;bottom:44px;font:9.5px 'IBM Plex Mono',monospace;color:#5f6468;text-align:right;line-height:1.8">
+        <span style="display:inline-flex;align-items:center;gap:6px;color:#e0a34a"><svg class="g" style="width:11px;height:11px" viewBox="0 0 16 16"><path d="M8 2.4 13.6 8 8 13.6 2.4 8z"/></svg><span style="color:#5f6468">placed · thin ring = its exclusion radius</span></span><br>
+        <span style="display:inline-flex;align-items:center;gap:6px;color:#5f6468"><svg class="g" style="width:11px;height:11px" viewBox="0 0 16 16"><path d="M8 2.4 13.6 8 8 13.6 2.4 8z" stroke-dasharray="2 2"/></svg><span>rejected candidate — inside a placed one's ring</span></span>
+      </div>
+      <div style="position:absolute;left:16px;bottom:14px;display:flex;align-items:center;gap:9px;font:10px 'IBM Plex Mono',monospace;color:#6f7478"><span style="width:80px;height:1px;background:#8d9296;display:inline-block"></span>200 km</div>
+      <div style="position:absolute;right:16px;bottom:14px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">4 812 km E · 1 093 km N · 1 462 m</div>
+    </div>
+
+    <!-- ══════════ RIGHT DOCK · the selected landmark's own inspector ══════════ -->
+    <div style="width:284px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+      <div style="height:28px;flex:none;display:flex;align-items:stretch;border-bottom:1px solid rgba(255,255,255,.10);font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296">
+        <span style="padding:9px 13px;color:#e8ebec;border-bottom:1px solid #e0a34a">LANDMARK</span><span style="padding:9px 13px">LAYERS</span>
+        <div style="flex:1"></div><span style="padding:9px 12px;font-size:11px;letter-spacing:0;color:#5f6468">›</span>
+      </div>
+      <div style="padding:14px;display:flex;flex-direction:column;gap:11px;font:10.5px 'IBM Plex Mono',monospace">
+        <div>
+          <div style="font-size:9px;letter-spacing:.18em;color:#6f7478">WATERFALL · REGIONAL</div>
+          <div style="font:15px/1.3 'Helvetica Neue',Helvetica,sans-serif;color:#e8ebec;padding-top:3px">The Kharet Stair</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
+          <div style="display:flex;justify-content:space-between"><span style="color:#6f7478">DROP</span><span style="color:#c8cbcd">112 m</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#6f7478">FLOW</span><span style="color:#c8cbcd">3 210 · order 4</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#6f7478">GRADIENT</span><span style="color:#c8cbcd">0.41</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#6f7478">IMPORTANCE</span><span style="color:#e0a34a">0.72</span></div>
+        </div>
+        <!-- §22's causal_chain, which is the whole reason a landmark is not an icon -->
+        <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
+          <div style="font-size:9px;letter-spacing:.18em;color:#6f7478;padding-bottom:7px">WHY IT IS HERE</div>
+          <div style="font-size:9.5px;line-height:1.9;color:#8d9296">
+            convergent uplift · plate 07<br>
+            <span style="color:#5f6468">↓</span> high relief · 1 462 m over 8 km<br>
+            <span style="color:#5f6468">↓</span> river gradient 0.41 at order 4<br>
+            <span style="color:#5f6468">↓</span> <span style="color:#c8cbcd">waterfall</span><br>
+            <span style="color:#5f6468">↓</span> shrine · 3 km, Vethric<br>
+            <span style="color:#5f6468">↓</span> pilgrim way · 41 km to Ashfall
+          </div>
+        </div>
+        <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;color:#5f6468;font-size:9.5px;line-height:1.7">
+          Visibility is not part of this score — the engine computes no viewshed (research §9).
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:26px;flex:none;display:flex;align-items:center;gap:22px;padding:0 16px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+    <span style="color:#e0a34a">● landmarks stale — 3 settlements moved since the last pass</span><span>last pass 2.4 s</span>
+    <div style="flex:1"></div><span>L landmark tool · click a reason for its funnel</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

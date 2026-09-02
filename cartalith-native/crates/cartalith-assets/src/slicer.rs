@@ -114,6 +114,14 @@ pub struct CellGrid {
     pub rows: u32,
     pub min_w: f64,
     pub min_h: f64,
+    /// AS-17: the raw column division lines in sheet pixels (`rect.x + f *
+    /// rect.w` for each resolved fraction, `cols+1` of them) -- distinct from
+    /// [`CellGrid::column_spans`]'s cell *edges*, which are these same lines
+    /// moved in by half the spacing gutter. A drag target needs the
+    /// undisplaced line; the overlay needs the displaced edge.
+    pub col_line_px: Vec<f64>,
+    /// The row equivalent of [`CellGrid::col_line_px`], `rows+1` of them.
+    pub row_line_px: Vec<f64>,
 }
 
 impl CellGrid {
@@ -157,14 +165,13 @@ pub fn clamp_grid_count(v: i64) -> u32 {
 
 /// The grid the slicer cuts on — `gridRect` + `#alSlCols`/`#alSlRows` +
 /// `#alSlSpacing`, with the reference's uniform `colF`/`rowF` line fractions
-/// (`resetLines`, line 27581: `i/cols`, `j/rows`).
+/// (`resetLines`, line 27581: `i/cols`, `j/rows`) as the default.
 ///
 /// The reference additionally lets those fractions be *dragged* off uniform,
-/// per line. That is pure canvas interaction with no headless equivalent and
-/// no engine consequence beyond the fractions themselves, so this port carries
-/// the uniform case only; the arithmetic below is written against the
-/// fractions rather than against `cols`/`rows` so a future draggable-line UI
-/// can supply its own without touching [`compute_cells`].
+/// per line ([`SliceGrid::with_lines`], AS-17) — the arithmetic in
+/// [`compute_cells`] is written against the fractions rather than against
+/// `cols`/`rows` for exactly that reason, so supplying a custom line array
+/// touches nothing else.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SliceGrid {
     pub rect: GridRect,
@@ -174,13 +181,21 @@ pub struct SliceGrid {
     /// `Math.max(0, parseFloat(...)||0)` guard by construction (see
     /// [`SliceGrid::new`]).
     pub spacing: f64,
+    /// AS-17's per-interior-line drag: `cols+1` ascending fractions of
+    /// `rect.w`, first `0.0`, last `1.0`, overriding the uniform `i/cols`
+    /// default `compute_cells` otherwise falls back to (silently, for any
+    /// `Some` of the wrong length — see [`resolve_lines`]). `None` is the
+    /// reference's own always-uniform case.
+    pub col_lines: Option<Vec<f64>>,
+    /// The row equivalent of [`SliceGrid::col_lines`], length `rows+1`.
+    pub row_lines: Option<Vec<f64>>,
 }
 
 impl SliceGrid {
     /// Build with the reference's own input guards applied: `cols`/`rows`
     /// through [`clamp_grid_count`], `spacing` through
     /// `Math.max(0, parseFloat(v)||0)` (so `NaN` and negatives both become
-    /// `0`).
+    /// `0`). Lines start uniform ([`SliceGrid::with_lines`] to override).
     #[must_use]
     pub fn new(rect: GridRect, cols: i64, rows: i64, spacing: f64) -> Self {
         SliceGrid {
@@ -188,8 +203,62 @@ impl SliceGrid {
             cols: clamp_grid_count(cols),
             rows: clamp_grid_count(rows),
             spacing: if spacing.is_finite() { spacing.max(0.0) } else { 0.0 },
+            col_lines: None,
+            row_lines: None,
         }
     }
+
+    /// AS-17: override the column/row division lines a drag has moved off
+    /// uniform. Builder-style so every existing call site (golden tests
+    /// included) is unaffected.
+    #[must_use]
+    pub fn with_lines(mut self, col_lines: Option<Vec<f64>>, row_lines: Option<Vec<f64>>) -> Self {
+        self.col_lines = col_lines;
+        self.row_lines = row_lines;
+        self
+    }
+}
+
+/// `resetLines`'s own construction: `n+1` evenly spaced fractions from `0.0`
+/// to `1.0`. Exposed so a caller building a line array to hand-edit (AS-17's
+/// "drag one line off the default") starts from the exact array
+/// [`compute_cells`] would have used implicitly.
+#[must_use]
+pub fn uniform_lines(n: u32) -> Vec<f64> {
+    let n = n.max(1);
+    (0..=n).map(|i| f64::from(i) / f64::from(n)).collect()
+}
+
+/// A `col_lines`/`row_lines` override, resolved against `compute_cells`'s own
+/// fallback rule: used as-is when its length is exactly `n+1` (the only shape
+/// that names every line a grid of `n` cells needs), [`uniform_lines`]
+/// otherwise — including `None`, an empty override, or one left stale by a
+/// `cols`/`rows` edit after a line was dragged. Never a panic or a truncated
+/// array reaching [`compute_cells`].
+fn resolve_lines(custom: &Option<Vec<f64>>, n: u32) -> Vec<f64> {
+    match custom {
+        Some(v) if v.len() == n as usize + 1 => v.clone(),
+        _ => uniform_lines(n),
+    }
+}
+
+/// AS-17: move interior line `i` of a [`uniform_lines`]-shaped array to
+/// `frac`, a fraction of the grid rect's own span. Clamped strictly between
+/// its two neighbours so dragged lines can never cross or collapse a cell to
+/// nothing — the one constraint a drag needs that a spinbox-set grid never
+/// had to enforce. A no-op for the outer edges (`i == 0` or the last index,
+/// which the grid rect's own margin owns, not a line) or an out-of-range `i`.
+pub fn move_line(lines: &mut [f64], i: usize, frac: f64) {
+    if lines.len() < 3 || i == 0 || i + 1 >= lines.len() {
+        return;
+    }
+    const MIN_GAP: f64 = 1e-4;
+    let lo = lines[i - 1];
+    let hi = lines[i + 1];
+    if !frac.is_finite() || hi - lo <= MIN_GAP * 2.0 {
+        return;
+    }
+    lines[i] = frac.clamp(lo + MIN_GAP, hi - MIN_GAP);
 }
 
 /// Cut `grid` into cell rectangles — the reference's `computeCells()`
@@ -210,15 +279,17 @@ pub fn compute_cells(grid: &SliceGrid) -> CellGrid {
     let rows = grid.rows as usize;
     let g = grid.spacing;
     let r = grid.rect;
+    let col_lines = resolve_lines(&grid.col_lines, grid.cols);
+    let row_lines = resolve_lines(&grid.row_lines, grid.rows);
     let mut cells = Vec::with_capacity(cols * rows);
     let mut min_w = f64::INFINITY;
     let mut min_h = f64::INFINITY;
     for row in 0..rows {
         for col in 0..cols {
-            let col_f0 = col as f64 / cols as f64;
-            let col_f1 = (col + 1) as f64 / cols as f64;
-            let row_f0 = row as f64 / rows as f64;
-            let row_f1 = (row + 1) as f64 / rows as f64;
+            let col_f0 = col_lines[col];
+            let col_f1 = col_lines[col + 1];
+            let row_f0 = row_lines[row];
+            let row_f1 = row_lines[row + 1];
             let x0 = r.x + col_f0 * r.w + if col > 0 { g / 2.0 } else { 0.0 };
             let x1 = r.x + col_f1 * r.w - if col < cols - 1 { g / 2.0 } else { 0.0 };
             let y0 = r.y + row_f0 * r.h + if row > 0 { g / 2.0 } else { 0.0 };
@@ -230,7 +301,9 @@ pub fn compute_cells(grid: &SliceGrid) -> CellGrid {
             cells.push(CellRect { col: col as u32, row: row as u32, index: row * cols + col, x: x0, y: y0, w, h });
         }
     }
-    CellGrid { cells, cols: grid.cols, rows: grid.rows, min_w, min_h }
+    let col_line_px: Vec<f64> = col_lines.iter().map(|&f| r.x + f * r.w).collect();
+    let row_line_px: Vec<f64> = row_lines.iter().map(|&f| r.y + f * r.h).collect();
+    CellGrid { cells, cols: grid.cols, rows: grid.rows, min_w, min_h, col_line_px, row_line_px }
 }
 
 // ---------------------------------------------------------------------------
@@ -700,6 +773,71 @@ mod tests {
         };
         assert_eq!(c.default_name("towns-sheet"), "towns-sheet_r2c3");
         assert_eq!(c.default_cell_name(), "cell 7");
+    }
+
+    #[test]
+    fn uniform_lines_matches_reset_lines() {
+        assert_eq!(uniform_lines(4), vec![0.0, 0.25, 0.5, 0.75, 1.0]);
+        assert_eq!(uniform_lines(1), vec![0.0, 1.0]);
+    }
+
+    #[test]
+    fn move_line_clamps_strictly_between_its_neighbours() {
+        let mut lines = uniform_lines(4); // [0, .25, .5, .75, 1]
+        move_line(&mut lines, 2, 0.6);
+        assert_eq!(lines, vec![0.0, 0.25, 0.6, 0.75, 1.0]);
+        // Pushed past its right neighbour: clamps just inside it.
+        move_line(&mut lines, 1, 0.9);
+        assert!(lines[1] < lines[2]);
+        assert!(lines[1] > 0.6 - 1e-3);
+    }
+
+    #[test]
+    fn move_line_refuses_the_outer_edges_and_out_of_range_index() {
+        let mut lines = uniform_lines(4);
+        let before = lines.clone();
+        move_line(&mut lines, 0, 0.5);
+        move_line(&mut lines, 4, 0.5);
+        move_line(&mut lines, 99, 0.5);
+        assert_eq!(lines, before);
+    }
+
+    #[test]
+    fn compute_cells_uses_a_dragged_interior_line_instead_of_uniform() {
+        // 4 cols, one interior line (index 1, the boundary between col 0 and
+        // col 1) dragged from .25 to .4 -- column 0 should widen and column 1
+        // narrow by exactly the same amount, everything else untouched.
+        let mut cols = uniform_lines(4);
+        move_line(&mut cols, 1, 0.4);
+        let grid = SliceGrid::new(GridRect::whole(400, 100), 4, 1, 0.0).with_lines(Some(cols), None);
+        let computed = compute_cells(&grid);
+        let spans = computed.column_spans();
+        assert_eq!(spans[0], (0.0, 160.0)); // 0.4 * 400
+        assert_eq!(spans[1], (160.0, 200.0));
+        assert_eq!(spans[2], (200.0, 300.0));
+        assert_eq!(spans[3], (300.0, 400.0));
+    }
+
+    #[test]
+    fn col_line_px_is_the_undisplaced_line_not_the_gutter_edge() {
+        // 8x2 sheet, 2 cols, spacing 4: the interior line sits at x=4 (the
+        // raw uniform division), but the cell edges on either side of it are
+        // pulled in by half the gutter (2px), landing at x=2 and x=6.
+        let grid = SliceGrid::new(GridRect::whole(8, 2), 2, 1, 4.0);
+        let computed = compute_cells(&grid);
+        assert_eq!(computed.col_line_px, vec![0.0, 4.0, 8.0]);
+        assert_eq!(computed.column_spans(), vec![(0.0, 2.0), (6.0, 8.0)]);
+    }
+
+    #[test]
+    fn compute_cells_ignores_a_line_override_of_the_wrong_length() {
+        // A stale 5-entry array (left over from a previous cols=4) handed to
+        // a now-3-column grid falls back to uniform rather than panicking or
+        // silently truncating.
+        let grid = SliceGrid::new(GridRect::whole(300, 100), 3, 1, 0.0)
+            .with_lines(Some(vec![0.0, 0.25, 0.5, 0.75, 1.0]), None);
+        let computed = compute_cells(&grid);
+        assert_eq!(computed.column_spans(), vec![(0.0, 100.0), (100.0, 200.0), (200.0, 300.0)]);
     }
 
     #[test]

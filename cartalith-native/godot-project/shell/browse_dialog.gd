@@ -35,7 +35,12 @@ class_name DccBrowseDialog
 ## and reporting a chosen path is presentation-side plumbing; nothing here
 ## computes a value the engine also computes (`godot-shell` skill's own rule).
 
-enum PickKind { FOLDERS, FILES }
+## `SAVE` is the third mode, added with `File ▸ Save as…` (`GUI_GAP_REGISTER.md`
+## FI-01). It is `FILES` with one extra control -- a name field in the foot --
+## because that is the entire difference between "which of these?" and "where
+## shall I put this?". The rows stay live so clicking an existing save fills
+## the name in, which is how every save dialog spells "overwrite that one".
+enum PickKind { FOLDERS, FILES, SAVE }
 
 ## Counting `14 items` costs one directory open per row. That is nothing in a
 ## project folder and noticeable in `C:/Windows/System32`, so the count is
@@ -61,6 +66,15 @@ var _list: VBoxContainer
 var _foot_note: Label
 var _primary: Button
 var _rows: Dictionary = {}   ## absolute path -> PanelContainer
+## SAVE mode only: the foot's file-name field and the name it opens with.
+var _name_edit: LineEdit
+var _default_name := ""
+## Phone (§13, PH-06). `_shell` is the `DccShell` this dialog's treatment is
+## measured against; it is **not** always `host`, because two call sites hand
+## `_spawn()` a `Window` (`open_project_dialog.gd`) rather than the shell, and
+## a `Window` answers neither `is_phone()` nor `phone_scale()`.
+var _phone := false
+var _shell: Node = null
 
 # ---------------------------------------------------------------------------
 # Entry points
@@ -81,11 +95,24 @@ static func choose_file(host: Node, dialog_title: String, extensions: PackedStri
 	return _spawn(host, dialog_title, PickKind.FILES, extensions, start_dir,
 		footnote, on_choose)
 
+## Choose *where to write* a new file. `default_name` fills the foot's name
+## field (with `extension` appended if it carries none); `on_choose` is called
+## with one absolute path, which may or may not already exist -- overwrite
+## confirmation belongs to the caller, which is the only side that knows what
+## is about to be overwritten.
+static func choose_save_path(host: Node, dialog_title: String, extension: String,
+		start_dir: String, footnote: String, default_name: String,
+		on_choose: Callable) -> DccBrowseDialog:
+	return _spawn(host, dialog_title, PickKind.SAVE, PackedStringArray([extension]),
+		start_dir, footnote, on_choose, default_name)
+
 static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 		extensions: PackedStringArray, start_dir: String, footnote: String,
-		on_choose: Callable) -> DccBrowseDialog:
+		on_choose: Callable, default_name: String = "") -> DccBrowseDialog:
 	var d := DccBrowseDialog.new()
 	host.add_child(d)
+	d._default_name = default_name
+	d._shell = _shell_of(host)
 	d.setup(dialog_title, mode, extensions, footnote, on_choose)
 	## One dialog per invocation, freed when it closes -- the same lifetime the
 	## `FileDialog` it replaces had. Windows this shell keeps alive (the asset
@@ -95,8 +122,24 @@ static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 		if not d.visible:
 			d.queue_free())
 	d.navigate(start_dir)
-	d.popup_centered()
+	## PH-06: on a phone this fills the screen, and it is `phone_present()`
+	## that opens it -- see that function's own doc comment for why sizing a
+	## hidden `AcceptDialog` and popping it afterwards leaves the body at its
+	## desktop rect (the list then overflows instead of scrolling).
+	if not DccWidgets.phone_present(d, d._shell):
+		d.popup_centered()
 	return d
+
+## The nearest ancestor that is a `DccShell`. `host` is whatever node the
+## caller had to hand: `DccApp` itself from most call sites, but the Open
+## project dialog passes `self`, a `Window` whose parent is the shell. Walking
+## up is what makes one treatment cover both without either call site having
+## to know about phones.
+static func _shell_of(host: Node) -> Node:
+	var n := host
+	while n != null and not n.has_method("is_phone"):
+		n = n.get_parent()
+	return n
 
 func setup(dialog_title: String, mode: PickKind, extensions: PackedStringArray,
 		footnote: String, on_choose: Callable) -> void:
@@ -105,10 +148,19 @@ func setup(dialog_title: String, mode: PickKind, extensions: PackedStringArray,
 	for e in extensions:
 		_extensions.append(String(e).to_lower().trim_prefix("."))
 	title = dialog_title
+	## PH-06. The dialog draws its own head row with a ✕ and its own foot with
+	## Cancel, so dropping the title bar on a phone costs it nothing -- unlike
+	## `new_world_dialog.gd`, this one needed no way-out button adding.
+	_phone = DccWidgets.phone_window(self, _shell)
 	get_ok_button().hide()   ## the mockup's own foot row replaces it.
 	size = Vector2i(760, 640)
 	min_size = Vector2i(560, 460)
 	_build(dialog_title, footnote)
+	## `1.0`: `phone_present()` has already applied the scale once as the
+	## window's `content_scale_factor`. `navigate()` re-fits after every
+	## listing, since the crumbs and the rows are both rebuilt there.
+	if _phone:
+		_shell.phone_fit(self, 1.0)
 
 # ---------------------------------------------------------------------------
 # Layout
@@ -169,7 +221,30 @@ func _build_head(dialog_title: String) -> Control:
 func _build_breadcrumb() -> Control:
 	_crumb_row = HBoxContainer.new()
 	_crumb_row.add_theme_constant_override("separation", 6)
-	return _pad(_crumb_row, 28, 14, 28, 0)
+	if not _phone:
+		return _pad(_crumb_row, 28, 14, 28, 0)
+	## PH-06, found on the handset and nowhere else: a breadcrumb is as wide as
+	## the path it describes, and **a `Button` reports its own text as its
+	## minimum width** -- the hazard `DccShell.phone_fit()` already records for
+	## the faction roster. Android's own home directory is
+	## `/data/data/org.cartalith.walkingskeleton/files`, four deep and long,
+	## which put the crumb row's minimum at 715 px inside a 393 dp window and
+	## dragged every sibling -- the list, the foot, the Open button -- off the
+	## right edge with it. On Windows the same dialog fits, because
+	## `C:/Users/Vincent` does; the desktop run is not evidence here.
+	##
+	## Scrolled rather than trimmed: a `ScrollContainer` contributes no minimum
+	## on the axis it scrolls, so the row can no longer widen the window, and
+	## every segment stays reachable rather than being dropped behind an
+	## ellipsis. The bar is hidden because the crumbs themselves are the
+	## affordance -- and they drag-scroll, since `phone_fit()` leaves them
+	## `MOUSE_FILTER_PASS` (PH-05).
+	var sc := ScrollContainer.new()
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	sc.add_theme_stylebox_override("panel", DccTheme.empty())
+	sc.add_child(_crumb_row)
+	return _pad(sc, 28, 14, 28, 0)
 
 func _build_path_well() -> Control:
 	_path_edit = LineEdit.new()
@@ -188,13 +263,33 @@ func _build_path_well() -> Control:
 func _build_foot(footnote: String) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	_foot_note = DccTheme.mono_label(footnote, "text_ghost", DccTheme.FS_TINY)
-	_foot_note.clip_text = true
-	row.add_child(_foot_note)
+	if _mode == PickKind.SAVE:
+		## The one control the mockup's browser does not draw, because the
+		## mockup never had a save flow. Kept in the foot beside the primary
+		## button -- the "what shall it be called" question belongs next to
+		## the "do it" button, not above the folder list.
+		row.add_child(DccTheme.mono_label("name", "text_ghost", DccTheme.FS_TINY))
+		_name_edit = LineEdit.new()
+		_name_edit.text = _default_name
+		_name_edit.custom_minimum_size.x = 260
+		_name_edit.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+		_name_edit.add_theme_stylebox_override("normal", _well())
+		_name_edit.add_theme_stylebox_override("focus", DccTheme.outline("accent"))
+		_name_edit.text_changed.connect(func(_t: String): _refresh_primary())
+		_name_edit.text_submitted.connect(func(_t: String): _confirm())
+		row.add_child(_name_edit)
+	else:
+		_foot_note = DccTheme.mono_label(footnote, "text_ghost", DccTheme.FS_TINY)
+		_foot_note.clip_text = true
+		row.add_child(_foot_note)
 	row.add_child(DccTheme.spacer())
 	DccWidgets.modal_button(row, "Cancel", func(): hide())
-	_primary = DccWidgets.modal_button(row,
-		"Use this folder" if _mode == PickKind.FOLDERS else "Open", _confirm, true)
+	var primary_text := "Open"
+	if _mode == PickKind.FOLDERS:
+		primary_text = "Use this folder"
+	elif _mode == PickKind.SAVE:
+		primary_text = "Save"
+	_primary = DccWidgets.modal_button(row, primary_text, _confirm, true)
 	return _pad(row, 28, 14, 28, 14)
 
 # ---------------------------------------------------------------------------
@@ -221,6 +316,12 @@ func navigate(dir: String) -> void:
 	_refresh_crumbs()
 	_refresh_list()
 	_refresh_primary()
+	## Both refreshes above build fresh nodes -- the breadcrumb segments as
+	## well as the rows -- so the touch fit belongs here rather than on either
+	## one. Idempotent by meta-flag, so re-walking the whole dialog per
+	## navigation only *touches* what the last one did not.
+	if _phone:
+		_shell.phone_fit(self, 1.0)
 
 func _on_path_submitted(text: String) -> void:
 	var p := text.strip_edges().simplify_path()
@@ -311,7 +412,7 @@ func _refresh_list() -> void:
 
 	for entry in files:
 		var path := _cwd.path_join(entry)
-		var ok := _mode == PickKind.FILES and _extension_ok(path)
+		var ok := _mode != PickKind.FOLDERS and _extension_ok(path)
 		var meta := _size_text(path) if ok else (
 			"file" if _mode == PickKind.FOLDERS else "file · not a .%s" % ", .".join(_extensions))
 		_list.add_child(_build_row(path, entry, ok, meta))
@@ -331,6 +432,17 @@ func _build_row(path: String, entry_name: String, live: bool, meta: String) -> C
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.empty())
 	wrap.mouse_filter = Control.MOUSE_FILTER_STOP if (live or is_dir) else Control.MOUSE_FILTER_IGNORE
+	## PH-05's rule, in the one place `phone_fit()` cannot reach it: this row
+	## is a `PanelContainer` with its own `gui_input` (see below -- a `Button`
+	## cannot tell a click from a double-click), and the shared walk excludes
+	## exactly that shape because several rows in this shell must keep
+	## stopping the event they consume. Here the row *can* forward: `PASS`
+	## still delivers the press to the handler below, so click-to-select and
+	## double-click-to-enter are untouched, and it also lets a flick reach the
+	## `ScrollContainer` above -- without which a phone could not scroll a
+	## directory listing at all.
+	if _phone and wrap.mouse_filter == Control.MOUSE_FILTER_STOP:
+		wrap.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -422,7 +534,10 @@ func _build_new_folder_row() -> Control:
 			return
 		var da := DirAccess.open(_cwd)
 		if da == null or da.make_dir(clean) != OK:
-			_foot_note.text = "could not create '%s' here" % clean
+			## SAVE mode gives the foot to the name field instead, so there
+			## is no note to write into there.
+			if _foot_note != null:
+				_foot_note.text = "could not create '%s' here" % clean
 			return
 		navigate(_cwd.path_join(clean)))
 	row.add_child(field)
@@ -451,6 +566,11 @@ func _select(path: String) -> void:
 		_paint_row(path, true)
 	if _mode == PickKind.FILES:
 		_path_edit.text = path
+	elif _mode == PickKind.SAVE and _name_edit != null:
+		## Clicking an existing save means "that one" -- the standard
+		## overwrite gesture. The folder is already `_cwd`, so only the name
+		## has to move.
+		_name_edit.text = path.get_file()
 	_refresh_primary()
 
 ## The mockup's selected row: accent hairline, an 8 % accent wash, the name in
@@ -476,12 +596,34 @@ func _paint_row(path: String, on: bool) -> void:
 
 func _refresh_primary() -> void:
 	## Folder mode always has an answer -- the current folder, if no child row
-	## is highlighted. File mode needs a file.
-	_primary.disabled = _mode == PickKind.FILES and _selected == ""
+	## is highlighted. File mode needs a file; save mode needs a name.
+	if _mode == PickKind.FILES:
+		_primary.disabled = _selected == ""
+	elif _mode == PickKind.SAVE:
+		_primary.disabled = _save_path() == ""
+	else:
+		_primary.disabled = false
+
+## SAVE mode's answer: the current folder plus the typed name, with the
+## extension appended when the user did not type one. `""` when there is no
+## usable name -- an empty field, or one that is only a directory separator.
+func _save_path() -> String:
+	if _name_edit == null:
+		return ""
+	var name := _name_edit.text.strip_edges()
+	if name == "" or name.ends_with("/") or name.ends_with("\\"):
+		return ""
+	if not _extensions.is_empty() and not _extension_ok(name):
+		name += "." + _extensions[0]
+	return _cwd.path_join(name)
 
 func _confirm() -> void:
 	var path := _selected if _selected != "" else _cwd
-	if _mode == PickKind.FILES and (_selected == "" or not FileAccess.file_exists(path)):
+	if _mode == PickKind.SAVE:
+		path = _save_path()
+		if path == "":
+			return
+	elif _mode == PickKind.FILES and (_selected == "" or not FileAccess.file_exists(path)):
 		return
 	hide()
 	if _on_choose.is_valid():

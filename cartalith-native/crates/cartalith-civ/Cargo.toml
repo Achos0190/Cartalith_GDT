@@ -15,6 +15,16 @@ cartalith-engine = { path = "../cartalith-engine" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-rng = { path = "../cartalith-rng" }
 cartalith-terrain = { path = "../cartalith-terrain" }
+# `urban_adapter.rs` (`URBAN_MORPHOLOGY_SCOPE.md` milestone 17): the town
+# generator itself. The scope document names this crate as the adapter's home
+# precisely so `cartalith-urban` -- whose only dependency is `cartalith-rng` --
+# never has to depend on civ, hydrology or terrain to be given a real site.
+cartalith-urban = { path = "../cartalith-urban" }
+# The same `hash(x,y,s)` (reference line 2292) `_umPlaceContext` derives its
+# per-settlement seed from, already in this crate's tree via
+# `cartalith-engine`/`cartalith-terrain` -- a new edge on this crate's graph,
+# not a new crate in the workspace's.
+cartalith-noise = { path = "../cartalith-noise" }
 rayon = "1"
 
 [dev-dependencies]
@@ -22,3 +32,8 @@ rayon = "1"
 # PaintStamp::ungated rather than a second disc implementation. The library
 # itself takes a plain `&[u8]` override, so this is not a real dependency.
 cartalith-spatial = { path = "../cartalith-spatial" }
+# The wildlife fixture is a whole 48x32 world (five input grids plus every
+# region record), so it is held as JSON under `tests/fixtures/` rather than
+# as source literals -- the same reason `cartalith-climate` and
+# `cartalith-io` already read their captures this way.
+serde_json = "1.0.151"

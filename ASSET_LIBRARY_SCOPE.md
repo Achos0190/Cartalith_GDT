@@ -14,6 +14,11 @@ directly — not the two design documents in `docs/` that predate the
 implementation. Where those documents and the shipped code disagree, the code
 wins and the disagreement is called out.
 
+**This document defines Phase 4's milestones and records what each pass
+read, built and decided. It does not track them.** For where any of it
+stands today, read `cartalith-native/docs/STATUS.md`, which is the only
+place progress is recorded.
+
 ---
 
 ## 1. What an "asset" actually is
@@ -207,7 +212,7 @@ order of magnitude. Sequenced below in seven milestones.
 
 ## 6. Milestone breakdown
 
-### Milestone 1 — pack manifest model, parsing, validation, serialization: done (2026-08-17)
+### Milestone 1 — pack manifest model, parsing, validation, serialization (2026-08-17)
 
 New crate **`cartalith-assets`** (no `gdext`, no dependency on any other
 Cartalith crate — the standalone shape `cartalith-spatial` set). Deliberately
@@ -251,11 +256,12 @@ unnumbered rows pushed to the end, JSON winning over CSV when both are present,
 an empty-string path counting as a missing file, and the exact wording and
 ordering of all nine resulting warnings.
 
-28 tests total (18 unit + 9 golden + 1 doctest). **Not wired to anything** —
-same "don't wire in what nothing calls" discipline as `cartalith-spatial` and
-every unwired Phase 2 primitive.
+28 tests total (18 unit + 9 golden + 1 doctest). It shipped **ahead of any
+caller** — the same "don't wire in what nothing calls" discipline as
+`cartalith-spatial` and every Phase 2 primitive that landed before its
+orchestration.
 
-### Milestone 2 — pack ZIP read/write: done (2026-08-17)
+### Milestone 2 — pack ZIP read/write (2026-08-17)
 
 `unzipAny`/`zipStore` in Rust terms: read a real `.zip` pack into
 `parse_pack_entries`, and write one back.
@@ -371,7 +377,7 @@ JSON text, every CRC-32 — is the reference's own output, checked in as
   matched by milestone 1's port; noted here because it looks like a bug and is
   not.
 
-### Milestone 3 — scatter rules: done (2026-08-17)
+### Milestone 3 — scatter rules (2026-08-17)
 
 `cartalith-assets`, module `scatter`: `ScatterRule` + `ScatterMode`,
 `Default` (`defaultScatterRule`), `preset_scatter_rule` (the ten
@@ -473,7 +479,7 @@ both cases. Nothing but a golden run would have found that.
   (reference lines 7281-7283) for `iconSlotForItem`'s non-ruled branch. Small,
   but not currently named anywhere in this document.
 
-### Milestone 4 — rule-driven icon placement: done (2026-08-17)
+### Milestone 4 — rule-driven icon placement (2026-08-17)
 
 `cartalith-assets`, new module `placement`: `place_map_icons_ruled`
 (`placeMapIconsRuled`, reference line 7194), `icon_slot_for_item` with the
@@ -550,7 +556,7 @@ boundary, but it simply never equals an integer `BIOME_INDEX`).
 milestone's remaining, previously-unnamed work, and that is exactly where
 they landed — no further scope drift found.
 
-### Milestone 5 — the Library model: done (2026-08-17)
+### Milestone 5 — the Library model (2026-08-17)
 
 `cartalith-assets`, new module `library`: `AssetDB` (slot registry, item
 store, `add_custom_slot`/`rename_custom_slot`/`remove_custom_slot`,
@@ -679,7 +685,7 @@ the reference" and once for "and here is why it matters").
   `ItemRecord::name`/`t`. This milestone deliberately stops one call short of
   that so it never touches a pixel.
 
-### Milestone 6 — image handling: done (2026-08-17)
+### Milestone 6 — image handling (2026-08-17)
 
 `cartalith-assets`, new module `raster` (not gated behind a feature — unlike
 `archive`'s `zip` feature, no consumer in this crate needs an image-free
@@ -823,7 +829,7 @@ into the map render and ground-texture sampling are real rendering work in
 `cartalith-godot`/`render.rs`, and nothing this milestone shipped changes
 that surface's shape.
 
-### Milestone 7 — renderer + Godot integration: done (2026-08-17)
+### Milestone 7 — renderer + Godot integration (2026-08-17)
 
 `cartalith-godot`, new module `pack` — the first thing in the workspace to
 depend on `cartalith-assets` (its own doc comment said "nothing depends on
@@ -973,13 +979,18 @@ slots it carries, procedural art for the slots it does not — with a pack-less
 render staying bit-identical to today's. The Library workspace that *authors*
 such a pack is a separate, later GUI effort tracked in `GUI_SHELL_SCOPE.md`.
 
-## 9. The GUI window now exists (2026-08-19), and what it found
+## 9. The GUI window (2026-08-19), and what building it found
 
-`DCC_SHELL_SPEC.md` §8's Asset library window is now built
+*Read this section as the 2026-08-19 pass's own close-out, not as a
+description of the window today: the gaps it enumerates below are exactly the
+ones §10 and §11 were then written to close.*
+
+This pass built `DCC_SHELL_SPEC.md` §8's Asset library window
 (`cartalith-native/godot-project/shell/asset_library_window.gd`,
-`AssetLibraryWindow`) — `Assets ▸ ⧉ Asset library` / `▦ Sprite sheet slicer`
-are `_live` in `menus.gd`, no longer `_todo`. This section is that pass's own
-honest close-out, in the same voice as §§1-8 above, not a rewrite of them.
+`AssetLibraryWindow`) and turned `Assets ▸ ⧉ Asset library` / `▦ Sprite
+sheet slicer` from `_todo` into `_live` in `menus.gd`. This section is that
+pass's own honest close-out, in the same voice as §§1-8 above, not a rewrite
+of them.
 
 **A real discrepancy confirmed against the live engine, not the mockup**: §8's
 own prose describes "24 families... Settlements, Terrain, Cartography, plus
@@ -1015,7 +1026,7 @@ None of this needed a new `#[func]` or touched any Rust file. Closing the gap
 above -- a `#[func]` surface for `AssetDB` query/mutation -- is real, scoped
 future work, not filed here as a blocker to §8's "done means."
 
-## 10. The gap §9 named is closed (2026-08-20)
+## 10. Closing the gap §9 named (2026-08-20)
 
 `cartalith-godot/src/asset_bridge.rs` is new: a godot-free
 `AssetLibrarySession` wrapping a live `AssetDB` plus a parallel decoded-pixel
@@ -1093,12 +1104,12 @@ and drive ran in an isolated `git worktree` with its own `CARGO_TARGET_DIR`
 -- the source changes are the same files this repository ships; only the
 verification build's target directory was temporary.
 
-## 11. Milestone 8 — the sprite-sheet slicer: done (2026-08-20)
+## 11. Milestone 8 — the sprite-sheet slicer (2026-08-20)
 
 §10's last real engine gap. The owner's report was "the asset slicer and
 management system lacks the functionality the html had"; §10 closed the
-management half, and this closes the slicer half. `GUI_GAP_REGISTER.md`
-AS-09/AS-10/AS-11 are now `done`.
+management half, and this milestone is the slicer half — the work
+`GUI_GAP_REGISTER.md` AS-09/AS-10/AS-11 name.
 
 ### What the reference actually does
 
@@ -1176,10 +1187,10 @@ GDScript" rule exists to prevent. Slicing is non-destructive: the sheet stays
 loaded, so it can be re-sliced with different settings, and closing the modal
 drops the engine-side sheet.
 
-**Still a gap, honestly**: the slicer's *canvas interaction* — pan/zoom,
-draggable grid lines, click-to-select individual cells (`GUI_GAP_REGISTER.md`
-AS-17, opened by this pass). The modal slices the whole uniform grid rather
-than a hand-picked selection. `compute_cells` is written against line
+**Deliberately left out by this pass, and said so plainly**: the slicer's
+*canvas interaction* — pan/zoom, draggable grid lines, click-to-select
+individual cells (`GUI_GAP_REGISTER.md` AS-17, opened by this pass). The
+modal slices the whole uniform grid rather than a hand-picked selection. `compute_cells` is written against line
 *fractions* rather than `cols`/`rows` specifically so a draggable-line UI can
 supply its own without touching the golden-verified arithmetic.
 

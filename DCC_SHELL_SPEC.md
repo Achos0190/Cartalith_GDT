@@ -77,6 +77,50 @@
 > CARTO and RENDER were both proposing to own the same future
 > `set_appearance()`-shaped `#[func]`; merging the domains removes the split.
 >
+> **Left-rail menu structure v3 (2026-08-24)** — `design/Cartalith Menu
+> Structure v3.dc.html`, vendored at `8cef062`, **supersedes this document's
+> §3 dock-content table, §5's two-button switch, §5.1's numbered ten-stage
+> list *as navigation*, and §7's three-pane Cartography layout.** Disclosed
+> here rather than silently rewritten, per this file's own convention.
+>
+> What v3 changes, and what it does not:
+>
+> - **The three domains are unchanged** — WORLD / CIVIL / CARTO, as the
+>   2026-08-20 merge below left them. v3 restates the same three with a
+>   one-line charter each (*what exists* / *who occupies it* / *how it is
+>   shown*) and a dependency direction: WORLD → CIVIL, and both → CARTO.
+> - **Each rail is now a flat accordion of named L2 categories** rather than
+>   a mode switch or a numbered pipeline: WORLD 9, CIVIL 14, CARTO 10. v3's
+>   own migration audit states the principle — *"split by subject rather than
+>   by run order"* — and is explicit that *"the numbered 01-10 stage list
+>   disappears as navigation and survives as pipeline status."*
+> - **§5's `GENERATION PIPELINE | SCULPT` switch is gone.** It was a mode
+>   selector over one domain, and v3 has no such control anywhere. Sculpt is
+>   a group inside WORLD ▸ Terrain; Biome paint is a group inside WORLD ▸
+>   Biomes. Both still appear whenever their tool is armed, unchanged.
+> - **§5.1's ten stages all still exist**, as L3 sections carrying their own
+>   `NN NAME` heading, their `needs`/`produces` prose and every parameter row
+>   — re-parented into whichever of the nine categories owns their subject.
+>   §5.1's table is still the authority on what each stage contains; it is no
+>   longer the authority on where the reader finds it. (Its stale-propagation
+>   prose was already superseded by correction 2 above, and stays so: one
+>   `generate()` resolves all ten, every call.)
+> - **§7's three-pane Cartography layout is not what shipped and v3 does not
+>   ask for it.** CARTO is the same accordion the other two rails are, with
+>   ten categories. §7's *content* — layer list, layer properties, ramp
+>   popover, stop editor — maps onto Layers, Terrain appearance and Map
+>   presets; what is superseded is the three-column arrangement, not the
+>   controls.
+> - **v3 draws a top-level `Vault` menu in the menu bar. It is not one here**
+>   (owner, 2026-08-24: *"the vault menu can be shoved into data"*). §2.4's
+>   Data menu carries the vault entry point instead. §2's menu bar is
+>   otherwise untouched by this pass.
+>
+> Every `#id` keeps its wiring — v3's own closing rule, and true of the
+> implementation: this was re-parenting, not rewriting. `GUI_GAP_REGISTER.md`
+> §6.10/§6.11/§6.13 carry the per-category state, and the fifteen new gap IDs
+> v3's unbacked rows produced.
+>
 > Path note: the design team writes to a `docs/`-rooted convention. In this
 > repository `docs/` holds the **source project's** own documentation, and two
 > filenames collide (`UNIFIED_TOOL_PLAN.md`, `ROADMAP.md`) — `docs/README.md`
@@ -174,7 +218,7 @@ Data ▸ Import, asset packs under Assets*.
 |---|---|---|
 | Undo | ⌘Z | Global undo. Depth from Preferences ▸ Memory ▸ Undo history (default 5). Replaces `#undoBtn` / `#undoMem`. |
 | Redo | ⌘⇧Z | — |
-| Undo history… | — | Panel listing the stack; clicking an entry rolls back to it. |
+| Undo history… | — | Panel listing the stack; clicking an entry rolls back to it. **Built 2026-08-25 (`GUI_GAP_REGISTER.md` §42) and wider than this line**: it lists every *commit*, not only the reversible ones, because this application has seven edit domains and a panel showing one of them reads as a history of all seven. A row is `▲` (a height snapshot is held — clicking it rolls back to it, as this line says), `·` (recorded, with the specific reason nothing is retained for it) or `◼` (a generate or a load, where history starts). It is a right-dock context rather than a floating panel, per §7.1 proposal 3. |
 | Cut / Copy / Paste | ⌘X ⌘C ⌘V | Operate on the current selection (labels, icons, places, stamps). |
 | Delete | ⌫ | Deletes the selection; never deletes a generation stage. |
 | Select all / Deselect | ⌘A ⌘D | Scoped to the active layer. |
@@ -286,7 +330,7 @@ implementation.
 | | Tile size · LOD levels | 256/512/1024; levels 0–8 (`#lodMaxLevel`). |
 | | Atlas cache | Size cap in GB + Clear (`#lodBakeBtn`, `#lodClearAtlasBtn`). |
 | | Chunk debug overlay | `off · grid · colours` (`#lodDbgSeg`) + tile borders. |
-| Memory | Undo history | Steps, 1–50, default 5. |
+| Memory | Undo history | Steps, 1–50, default 5. **Superseded**: the shipped control is a byte *budget*, not a step count, for the reason register `PR-11` gives — one `f32` height field is 256 MB at this port's 8192² ceiling, so a flat depth would commit to 1.25 GB of undo buffer on the largest world the UI offers. The reference's own `MAX_UNDO` is **5**, not 50, and binds as the second bound. |
 | | Working set | Read-only, `1.6 GB of 12 GB`. |
 | | Clear caches… | Confirmation; clears atlas + field caches, never project data. |
 | Application | Storage locations… | Same modal as File. |
@@ -319,6 +363,22 @@ active in accent:
 | WORLD | Generation Pipeline / Sculpt switch (§5) | Sample readout |
 | CIVIL | Settlements, population, economy, politics, culture — *and, since the merge,* roads, rivers, ports, trade, logistics | Selection inspector, route/journey inspector |
 | CARTO | Layer list + layer properties (§7) — *and, since the merge,* terrain appearance groups | Ramp / stop editor, preview & quality |
+
+> **Superseded by menu structure v3 (2026-08-24)** — see this document's own
+> top-of-file notice. The three domains and the right-dock column above are
+> unchanged; the **Left dock shows** column is not. Each rail is now a flat
+> accordion of named L2 categories, and the shipped list is exactly v3's, in
+> v3's order:
+>
+> | Domain | L2 categories, in rail order |
+> |---|---|
+> | WORLD (9) | Generate · Terrain · Geology · Hydrology · Climate · Biomes · Ecology · Resources · World data |
+> | CIVIL (14) | Civilizations · Factions · Territories · Settlements · Points of interest · Routes & ways · Travel · Trade · Economy · Culture · Politics · Military · Relationships · Simulation |
+> | CARTO (10) | Map style · Terrain appearance · Colours · Layers · Roads & routes · Labels · Assets & landmarks · Political display · Visibility / zoom · Map presets |
+>
+> The rail foot is unchanged and still reports `TERRAIN` / `CIVIL` / `STYLE`
+> plus WORLD's stage counter — the ten stages still run, and still all
+> resolve together.
 
 Every left dock opens with the TOOLS block described in §4.5; below it comes the
 domain's own structure.
@@ -509,6 +569,31 @@ the two are one gesture.
 Header is a two-button switch: **GENERATION PIPELINE | SCULPT**. One is always
 active; the switch persists per project.
 
+> **Superseded by menu structure v3 (2026-08-24): the switch is gone, and the
+> numbered list below is no longer navigation.** See this document's top-of-
+> file notice for the full disclosure. In short: WORLD is nine subject
+> categories (§3's table), Sculpt is a group inside **Terrain** and Biome
+> paint a group inside **Biomes**, and each of §5.1's ten stages survives
+> whole — heading, `needs`/`produces` prose and every parameter row — as an
+> L3 section inside whichever category owns its subject:
+>
+> | Stage | Now inside |
+> |---|---|
+> | 01 Planet · 02 Extent & scale | World data |
+> | 03 World structure | Generate |
+> | 04 Tectonics · 05 Volcanism & impacts | Geology |
+> | 06 Erosion | Terrain |
+> | 07 Hydrology | Hydrology |
+> | 08 Climate | Climate |
+> | 09 Ecology & biomes | Biomes |
+> | 10 Resources & soils | Resources |
+>
+> The numbers stay in the section headings because §5.1's own `needs`/
+> `produces` lines cross-reference them ("needs — 01 Planet, 03 World
+> structure"); dropping the labels while keeping the references would leave a
+> dangling scheme. **Ecology** is a category v3 names that no stage owns — the
+> engine has no ecology parameters at all — and it carries prose saying so.
+
 ### 5.1 Generation Pipeline
 
 Ten stages, ordered by dependency. Each row: number, state dot, name, state
@@ -648,6 +733,21 @@ layer dots for Layers, stamp count for the stack.
 ## 7 · Cartography → Style
 
 Three panes, left to right, mirroring how a map style is actually edited.
+
+> **The three-pane arrangement is superseded by menu structure v3
+> (2026-08-24)**; the controls below are not. CARTO is the same single-column
+> accordion the other two rails are, with ten categories (§3's table). The
+> mapping: **Layer list** → Layers, plus Roads & routes and Political display,
+> which v3 splits out of it (*"geometry, class and cost belong to CIVIL ▸
+> Routes & Ways; nothing here changes where a road runs"*); **Layer
+> properties** → the per-layer rows inside Layers, still an honest gap for
+> opacity/blend/order (CA-04) because the renderer composites terrain,
+> hillshade and colour relief into one raster before it crosses the boundary;
+> **Colour ramp popover** and **Stop editor** → Terrain appearance ▸ Colour
+> relief, live in the dock rather than in a popover and the right dock.
+> v3 adds four categories §7 has no equivalent for at all — Labels, Assets &
+> landmarks, Visibility / zoom and Map presets — and the last of those is
+> where §7's Compare / preset footer went.
 
 **Layer list** — search field, then the ordered stack: Labels & annotation,
 Settlements, Ways & routes, Political (off), Water, Vegetation, Terrain
@@ -875,24 +975,55 @@ both themes at 12 px before it ships.
 
 ## 13 · Touch behaviour
 
+> ### ⚠️ THE PHONE COLUMN BELOW IS SUPERSEDED — AND THE MIGRATION HAS LANDED
+>
+> **Owner ruling, 2026-08-25:** the phone follows
+> `design/Cartalith Android Phone.dc.html` at **412 dp**. This section's phone
+> figures were authored against the 393 dp `DCC shell android phone` artboard
+> and are no longer the target. `DCC_SHELL_SCOPE.md`'s "WHICH CANVAS WINS"
+> header carries the ruling and the five conflicts it settles.
+>
+> **The shell was migrated on 2026-08-25** and now measures 28/56/64/20 dp
+> against the 412 canvas at both 1440×3168 and 1080×2400, verified on the
+> owner's OnePlus 6T. `GUI_GAP_REGISTER.md` §53 is the record, with the
+> before/after numbers and the five things that were *designed* rather than
+> matched. What changed, item by item:
+>
+> | This section says | The 412 canvas says, and the shell now does |
+> |---|---|
+> | top 44 px keep-clear, 108 px centre lane, gradient scrim | **28 dp status row**, edge to edge, **solid ground** — no lane, no scrim. The lane survives in landscape only, which no canvas draws |
+> | app bar 52 px, `☰ / title+seed / ▤ / ⋯` | **56 dp**, `☰ / title+seed / ⌕ / ⋮` in 40 dp cells. `▤`/`⋯` are bottom-nav tabs; `⌕` and `⋮` have no destination in this build and are registered, not drawn |
+> | ☰ opens a domain **drawer** | there is no drawer — `☰` opens the left dock as the canvas's `02 Domain` full-screen drill |
+> | domain rail is a 44 px column | there is no rail — **a 64 dp five-tab bottom nav**, `14px` glyph over `9.5px` caption |
+> | bottom 26 px gesture inset | **20 dp**, handle `112×4` |
+>
+> **Everything below this box that is not about the phone still stands**: the
+> tablet paragraph, the 44 px floor, and the "reorganises rather than
+> truncates" principle are unchanged, and the 412 canvas's own TARGETS card
+> restates the floor in its own words.
+
 Tablet keeps full desktop parity — same regions, same menus, same disclosure
 depth, targets 44–52 px, docks 400 px.
 
 Phone reorganises rather than truncates:
 
 - Map draws edge-to-edge behind every inset.
-- Top 44 px is a keep-clear safe area: status glyphs only, in left and right
+- ~~Top 44 px is a keep-clear safe area: status glyphs only, in left and right
   pockets, with a 108 px centre lane reserved for a punch-hole or notch. Nothing
-  is centred there. A gradient scrim, not an opaque bar, carries legibility.
-- The app bar below it is the first row allowed to hold controls: ☰ (domain
+  is centred there. A gradient scrim, not an opaque bar, carries legibility.~~
+  **Superseded**: 28 dp status row on a solid ground, edge to edge.
+- ~~The app bar below it is the first row allowed to hold controls: ☰ (domain
   drawer), title + seed, ▤ (panels), ⋯ (overflow menu carrying the full menu
-  bar).
-- Domain rail is a 44 px column with each domain in a 44 px hit box.
+  bar).~~ **Superseded**: 56 dp; ▤ and ⋯ moved to the bottom nav.
+- ~~Domain rail is a 44 px column with each domain in a 44 px hit box.~~
+  **Superseded**: a 64 dp five-tab bottom nav, glyph over caption.
 - Tool options become a bottom sheet; docks become full-height sheets, one at a
   time; all five disclosure levels survive inside them.
-- Bottom 26 px is the gesture inset — no tappable target inside it. Timeline and
-  sheets stop above it.
+- ~~Bottom 26 px is the gesture inset~~ — **20 dp** — no tappable target inside
+  it. Timeline and sheets stop above it.
 - In landscape the cutout moves to a side edge; apply the same reserve
-  horizontally.
+  horizontally. *(Still the only guidance for landscape: all eight 412 screens
+  are portrait, so this is kept and derived under `DCC_SHELL_SCOPE.md`'s
+  rule 2.)*
 
 Minimum target 44 px, measured inside the safe area, with no exceptions.

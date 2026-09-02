@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f; }
+    svg.g { width: 12px; height: 12px; flex: none; }
+    svg.g path, svg.g circle { fill: none; stroke: currentColor; stroke-width: 1.2;
+      stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+</helmet>
+
+<!-- ══════════ DETAIL · one expanded type row, twice ══════════
+     Left: the dock slice at its true 372 px, two rows expanded to L5.
+     Right: what each control is, and whether the engine can answer it.
+     Two types, because the whole point of L5 is that it is type-specific:
+     a waterfall carries §7's four hydraulic constraints, a pass carries
+     §8's connectivity one, and neither row could stand in for the other. -->
+
+<div style="width:900px;height:820px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;overflow:hidden">
+
+  <!-- ══════ the dock slice ══════ -->
+  <div style="width:372px;flex:none;border-right:1px solid rgba(255,255,255,.10);font:10.5px 'IBM Plex Mono',monospace;background:rgba(224,163,74,.05)">
+
+    <div style="padding:6px 14px 6px 22px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06)">
+      <span style="color:#e0a34a">▾</span>
+      <span style="color:#a9adb0"><svg class="g" viewBox="0 0 16 16"><path d="M2.2 11.5 6.4 4.5 9.2 8.6 11 6.4 13.8 11.5"/><path d="M3 14Q8 12.2 13 14"/></svg></span>
+      <span style="flex:1;color:#c8cbcd;letter-spacing:.14em;font-size:9px">PHYSICAL</span>
+      <span style="color:#8d9296;font-size:9.5px">6 of 15 · 74</span>
+    </div>
+
+    <!-- ══════ WATERFALL · expanded ══════ -->
+    <div style="border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.06)">
+      <div style="padding:5px 14px 5px 22px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+          <span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Waterfall</span>
+          <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:27.5%;height:2px;background:#8d9296"></div></div></div>
+          <span style="width:44px;text-align:right;color:#e8ebec">40 max</span>
+        </div>
+        <div style="padding:2px 0 0 30px;font-size:9px;color:#8d9296">11 placed · <span style="border-bottom:1px dotted #8d9296">spacing</span></div>
+        <!-- the cap ladder, exposed once so the detents are legible -->
+        <div style="padding:6px 0 0 30px;display:flex;gap:0;align-items:flex-end;color:#4c5155;font-size:8px;letter-spacing:.06em">
+          <span style="width:24px">off</span><span style="width:16px">1</span><span style="width:16px">2</span><span style="width:16px">3</span><span style="width:16px">5</span><span style="width:16px">8</span><span style="width:18px">12</span><span style="width:18px">20</span><span style="width:18px">30</span><span style="width:18px;color:#e0a34a">50</span><span style="width:18px">80</span><span style="width:22px">120</span><span>200</span>
+        </div>
+        <div style="padding:1px 0 0 30px;color:#4c5155;font-size:8.5px">1–2–3–5 ladder · thirteen detents · the exact number is typeable below</div>
+      </div>
+
+      <!-- ══════ L5 · this type's own constraints ══════ -->
+      <div style="padding:4px 14px 9px 30px;border-top:1px solid rgba(255,255,255,.06)">
+        <div style="color:#6f7478;letter-spacing:.14em;font-size:9px;padding:5px 0 5px">＋ ADVANCED · WATERFALL</div>
+
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Cap</span><span style="border:1px solid rgba(255,255,255,.16);padding:1px 8px;color:#e8ebec;background:#191c1e">40</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Minimum separation</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:34%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">34 km</span></div>
+        <div style="padding:0 0 6px 0;color:#5f6468;font-size:9px">from class <span style="color:#8d9296">REG</span> · edit to override this one type</div>
+
+        <div style="color:#6f7478;letter-spacing:.14em;font-size:9px;padding:4px 0 4px;border-top:1px solid rgba(255,255,255,.06)">PHYSICAL REQUIREMENTS · RESEARCH §7</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Minimum drop</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:40%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">40 m</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Minimum flow</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:55%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">1 200</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Minimum gradient</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:28%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">0.28</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0;opacity:.5"><span style="flex:1;color:#8d9296;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Channel confinement</span><div style="width:60px;height:2px;background:rgba(255,255,255,.10)"></div><span style="width:52px;text-align:right;color:#5f6468">—</span></div>
+        <div style="padding:0 0 6px 0;color:#5f6468;font-size:9px">confinement is not computed by this engine · <span style="border:1px solid rgba(255,255,255,.16);padding:0 4px;color:#8d9296">owed</span></div>
+
+        <div style="color:#6f7478;letter-spacing:.14em;font-size:9px;padding:4px 0 4px;border-top:1px solid rgba(255,255,255,.06)">SIGNIFICANCE · §24</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Importance floor</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:35%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">0.35</span></div>
+        <div style="padding:0 0 6px 0;color:#5f6468;font-size:9px">a candidate scoring below this is dropped even with cap left over — “<span style="color:#8d9296">150 explainable</span> beats 1 500 scattered” (§35)</div>
+
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0;border-top:1px solid rgba(255,255,255,.06);margin-top:3px"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Drawn as</span><span style="color:#8d9296">poi / landmark →</span></div>
+        <div style="color:#5f6468;font-size:9px">icon and label style are Cartography's — this row only names the slot</div>
+      </div>
+    </div>
+
+    <!-- ══════ MOUNTAIN PASS · a different family, a different L5 ══════ -->
+    <div style="padding:6px 14px 6px 22px;display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.06);border-top:1px solid rgba(255,255,255,.06)">
+      <span style="color:#e0a34a">▾</span>
+      <span style="color:#a9adb0"><svg class="g" viewBox="0 0 16 16"><path d="M1.6 11.6 4.6 5 7.1 9.2h1.8L11.4 5l3 6.6"/><path d="M1.6 9.2h12.8" stroke-dasharray="2.4 1.6"/></svg></span>
+      <span style="flex:1;color:#c8cbcd;letter-spacing:.14em;font-size:9px">TRANSPORTATION</span>
+      <span style="color:#8d9296;font-size:9.5px">3 of 8 · 21</span>
+    </div>
+
+    <div style="border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+      <div style="padding:5px 14px 5px 22px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+          <span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Mountain pass</span>
+          <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:75%;height:2px;background:#8d9296"></div></div></div>
+          <span style="width:44px;text-align:right;color:#e8ebec">16 max</span>
+        </div>
+        <div style="padding:2px 0 0 30px;font-size:9px;color:#8d9296">12 placed · <span style="border-bottom:1px dotted #8d9296">no terrain</span></div>
+      </div>
+      <div style="padding:4px 14px 9px 30px;border-top:1px solid rgba(255,255,255,.06)">
+        <div style="color:#6f7478;letter-spacing:.14em;font-size:9px;padding:5px 0 5px">＋ ADVANCED · MOUNTAIN PASS</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Cap</span><span style="border:1px solid rgba(255,255,255,.16);padding:1px 8px;color:#e8ebec;background:#191c1e">16</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Minimum separation</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:34%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">34 km</span></div>
+
+        <div style="color:#6f7478;letter-spacing:.14em;font-size:9px;padding:4px 0 4px;border-top:1px solid rgba(255,255,255,.06)">PHYSICAL REQUIREMENTS · RESEARCH §8</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Corridor strength</span><div style="width:60px;height:2px;background:rgba(255,255,255,.16)"><div style="width:45%;height:2px;background:#e0a34a"></div></div><span style="width:52px;text-align:right;color:#c8cbcd">0.45</span></div>
+        <div style="padding:0 0 5px 0;color:#5f6468;font-size:9px">cheap ground with steep flanks on <span style="color:#8d9296">both</span> sides of one axis — one steep side is a hillside, two is a pass</div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0"><span style="flex:1;color:#a9adb0;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Must connect</span><span style="color:#c8cbcd">2 regions</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:3px 0;opacity:.5"><span style="flex:1;color:#8d9296;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Minimum route demand</span><div style="width:60px;height:2px;background:rgba(255,255,255,.10)"></div><span style="width:52px;text-align:right;color:#5f6468">—</span></div>
+        <div style="padding:0 0 4px 0;color:#5f6468;font-size:9px">§8's accumulated-transport term needs road centrality, which is not computed · <span style="border:1px solid rgba(255,255,255,.16);padding:0 4px;color:#8d9296">owed</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════ annotation ══════ -->
+  <div style="flex:1;padding:18px 20px;font:9.5px/1.9 'IBM Plex Mono',monospace;color:#6f7478;display:flex;flex-direction:column;gap:15px">
+
+    <div>
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">L5 IS WHERE THE TYPE STOPS BEING GENERIC</div>
+      Four levels above this row are the same for all 49 types: domain, category, section, family. The fold is the only place a waterfall and a pass differ, and they differ completely — §7 gives the waterfall four hydraulic tests, §8 gives the pass a topological one. That is exactly what <span style="color:#a9adb0">UI_SHELL_DESIGN.md</span> reserves L5 for: <span style="color:#a9adb0">“expert dials only, closed by default, defaults already correct.”</span>
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:13px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">WHAT THE ENGINE CAN ANSWER TODAY</div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Minimum flow</span><span style="color:#8fae7d">exists</span><span style="flex:1;color:#5f6468">compute_flow · cartalith-hydrology/src/lib.rs:136</span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Minimum gradient</span><span style="color:#8fae7d">exists</span><span style="flex:1;color:#5f6468">slope, per cell · sample_bridge</span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Minimum drop</span><span style="color:#8fae7d">exists</span><span style="flex:1;color:#5f6468">field difference along the channel</span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Confinement</span><span style="color:#c26a60">owed</span><span style="flex:1;color:#5f6468">no cross-channel width anywhere</span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Corridor strength</span><span style="color:#8fae7d">exists</span><span style="flex:1;color:#5f6468">build_route_corridors · cartalith-civ/src/lib.rs:1601 · golden-ported from reference 5903 · <span style="color:#6f7478">CORRIDOR_KNEE 0.45 at :1583 is this row's default, not an invention</span></span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Must connect</span><span style="color:#8fae7d">exists</span><span style="flex:1;color:#5f6468">drainage basins are already labelled</span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Route demand</span><span style="color:#c26a60">owed</span><span style="flex:1;color:#5f6468">no road centrality field</span></div>
+      <div style="display:flex;gap:10px;padding:2px 0"><span style="width:118px;color:#8d9296">Importance floor</span><span style="color:#c26a60">owed</span><span style="flex:1;color:#5f6468">nothing scores a landmark yet</span></div>
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:13px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">A DIMMED ROW WITH A DASH IS NOT A BUG</div>
+      Two rows here are drawn and cannot run. They are dimmed, their value reads <span style="color:#8d9296">—</span>, and the line under them names the missing field and tags it <span style="border:1px solid rgba(255,255,255,.16);padding:0 4px;color:#8d9296">owed</span>. This is the same treatment <span style="color:#a9adb0">menus.gd:233</span>'s <span style="color:#5f6468">_todo</span> already gives an unbacked menu row — <span style="color:#a9adb0">“Disabled, with the reason attached, so the menu never promises behaviour that does not exist.”</span><br><br>
+      The alternative — omitting them — is worse, and this shell has already learned why: a user who reads §7 and finds no confinement control cannot tell whether the constraint is unimplemented or simply hidden.
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:13px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">THE CAP LADDER</div>
+      <span style="color:#8d9296">off · 1 · 2 · 3 · 5 · 8 · 12 · 20 · 30 · 50 · 80 · 120 · 200</span><br>
+      A linear 0–200 track spends most of its travel where nobody wants to be. On a 1–2–3–5 ladder the step from 1 to 2 gets the same travel as the step from 120 to 200 — which is right, because for a <span style="color:#8d9296">CON</span>-class type one versus two is the design of the world and 120 versus 200 means nothing. The exact integer stays typeable in the <span style="color:#8d9296">Cap</span> field at the top of the fold, so no value is unreachable.
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

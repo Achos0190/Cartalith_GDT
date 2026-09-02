@@ -1,5 +1,13 @@
 # Economy / Journey Planner: investigation and first bounded slice
 
+> **This document is an investigation record and a scope definition; it does
+> not track progress.** What it names as future work — `_civPlaceSmelting`,
+> `_civSaltAccess`, the food-surplus cluster, the surfaced resource half of
+> `_civFactionAggregates` — is defined here and **tracked only in
+> `cartalith-native/docs/STATUS.md`**. The dated pass narratives below say what
+> each pass read, built and decided; they are history and are written in the
+> past tense on purpose.
+
 Prompted by the owner's own `/goal` directive to keep working through Phase 2's
 remaining scope. `PHASE2_SCOPE.md` has repeatedly named "economy" and the
 "Journey Planner" as out-of-scope-for-whatever-milestone-was-current without
@@ -40,8 +48,8 @@ explicitly-labeled heuristic composite."* Real pieces, by size:
   specialisation-implied exports/imports, hinterland resource balance (via
   `_civResourceTradeBalance`, **ported this pass**), food surplus/deficit
   (`_civPlaceFoodSurplus`/`_civFoodShed`), fuel-limited smelting
-  (`_civPlaceSmelting`, read in full, not yet ported — see below), and salt
-  self-sufficiency (`_civSaltAccess`, not yet read in detail).
+  (`_civPlaceSmelting`, read in full, not ported by this pass — see below), and
+  salt self-sufficiency (`_civSaltAccess`, not read in detail by this pass).
 - **`_civResourceTradeBalance`** (line 24175, v1.33) — **ported this pass**
   (`civ_resource_trade_balance` in `cartalith-civ`). The one shared
   trade-threshold rule both the faction and settlement views now use, after
@@ -51,29 +59,31 @@ explicitly-labeled heuristic composite."* Real pieces, by size:
   faction's) own catchment-mean resource values and the world mean for the
   same keys, returns which resources are exports vs. imports. No new upstream
   dependency — operates on caller-supplied means, not raw resource fields.
-- **`_civPlaceSmelting`** (line 24208, v1.31) — read in full, **not yet
-  ported**. A genuinely interesting real constraint (iron smelting gated by
+- **`_civPlaceSmelting`** (line 24208, v1.31) — read in full, **not ported by
+  this pass**. A genuinely interesting real constraint (iron smelting gated by
   charcoal fuel, not ore — cites `settlement-resources.md` §10.2-§10.3, with
   real historical grounding: the Elba case, ore-rich-but-fuel-poor). Pure,
   reads `iron`/`timber` from `ResourcePotentials` (both still retained after
   the memory-optimization fix, commit `62b9b51` — only clay/buildstone/
   flint/obsidian/sulfur/alum were freed) over a settlement's catchment
-  radius. **Real new dependency it needs that this port doesn't have yet**:
+  radius. **Real new dependency this investigation found the port lacking**:
   `_CIV_CATCHMENT_KM2`/`_civCatchmentRadiusCells` (a per-settlement-tier
   catchment-radius lookup, reference lines 23407/23481) — a small, bounded,
-  genuinely portable piece, but a real gap, not assumed away.
+  genuinely portable piece, but a real gap at the time, not assumed away. The
+  same pass then ported it; see "Memory-optimization tension" below.
 - **`_civFoodShed`/`_civPlaceFoodSurplus`/`_civPlaceCatchmentCeiling`/
   `_civCatchmentPop`/`_civSettlementPopulation`** (lines 23774/23765/23490/
   23506) — a small interlocking cluster computing "people this settlement's
-  catchment can feed" vs. actual population. Read in outline, not yet ported
-  in full detail.
+  catchment can feed" vs. actual population. Read in outline only by this
+  pass.
 - **`_civSaltAccess`** (line 24430), **`_civPlaceResourceContext`** (line
-  24567) — read by name/location, not yet read in full.
+  24567) — read by name/location only; this pass did not read either in full.
 - **`_civRenderEconomyPage`** (line 16511) — UI rendering only, same
   disposition as every other `_civRender*` function this port has correctly
   never ported (Godot owns presentation, `ARCHITECTURE.md`).
 
-**Real tension found, not yet resolved**: `_civResourceTradeBalance`
+**The real tension this investigation found** (resolved by a later pass —
+see "Memory-optimization tension" below): `_civResourceTradeBalance`
 operates over all 15 `CIV_RESOURCE_KEYS`, but this session's own
 memory-optimization pass (`MEMORY_OPTIMIZATION_SCOPE.md`, commit `62b9b51`)
 frees 6 of those 15 fields (clay/buildstone/flint/obsidian/sulfur/alum)
@@ -202,7 +212,7 @@ well before territory is computed.
 
 **Resolution shipped this pass**: the settlement-catchment-based trade
 balance (`_civPlaceTrade`'s hinterland term, not `_civFactionAggregates`'s
-territory-based one) is now real. `civ_world_mean_resources` (the one
+territory-based one) is what this pass built. `civ_world_mean_resources` (the one
 genuinely territory-independent piece of `_civFactionAggregates`, extracted
 standalone since `_civPlaceTrade`'s own `worldMean` argument reuses that
 exact value per the reference) plus `civ_catchment_km2`/
@@ -223,21 +233,23 @@ completely unaffected, since they're still freed, just later. New
 `get_trade_balances()` `#[func]` in `cartalith-godot` exposes real
 per-settlement export/import data, same order/index as `get_settlements()`.
 
-~~**Still not attempted**~~ — **done 2026-08-18**:
-`_civFactionAggregates`'s own territory-based per-faction aggregation
-(population, tax, the five-axis "power" heuristic, sector output, Territory
-Fit) is now ported in full; see the section at the end of this document.
+**Left for a later pass, and taken up by one:** `_civFactionAggregates`'s own
+territory-based per-faction aggregation (population, tax, the five-axis
+"power" heuristic, sector output, Territory Fit). Its own section at the end
+of this document records what that pass found.
 
 ## Done means (this pass)
 
-`civ_resource_trade_balance` ported, tested, and now genuinely wired —
-`civ_world_mean_resources`/`civ_place_resource_context` give it real inputs,
-`compute_civilisation()` calls it per settlement, `get_trade_balances()`
-exposes the result to Godot. No GDScript UI built for this yet — that's the
-GUI-shell work's job when it reaches the Simulate → Economy panel
-(`GUI_SHELL_SCOPE.md`).
+The bar this pass set itself: `civ_resource_trade_balance` ported, tested and
+genuinely wired — `civ_world_mean_resources`/`civ_place_resource_context`
+giving it real inputs, `compute_civilisation()` calling it per settlement, and
+`get_trade_balances()` exposing the result to Godot. A GDScript UI was
+deliberately **outside** that bar: it belongs to the GUI-shell work when that
+reaches the economy panel.
 
-## Real next milestones for whoever continues this (not started)
+## Real next milestones for whoever continues this
+
+Defined here, tracked in `cartalith-native/docs/STATUS.md`.
 
 1. **`_civPlaceSmelting`** — `_civCatchmentRadiusCells`/`_CIV_CATCHMENT_KM2`
    (its stated dependency) are now ported (`civ_catchment_radius_cells`/
@@ -248,19 +260,18 @@ GUI-shell work's job when it reaches the Simulate → Economy panel
    `currentAgrarianDensity`/`currentCarryingCapacity` (check what this port
    already has from milestone 4's `build_carrying_capacity`/`build_npp`
    before assuming a gap).
-3. ~~**`_civFactionAggregates`** itself~~ — **done 2026-08-18**, see the
+3. **`_civFactionAggregates`** itself — taken up on 2026-08-18; see the
    section below. The "what subset of the heuristic power composite is worth
    porting" question resolved as **all of it, verbatim**; the memory tension
    turned out **not to bind**, because the half that unblocks
    `civ_culture_terrain_fit` needs no resource field at all.
-4. **The Journey Planner** — now has its own scope document,
-   `JOURNEY_PLANNER_SCOPE.md`, with milestone 1 (physical-modeling
-   primitives + seasonal/closure logic) done as of this pass.
+4. **The Journey Planner** — split out into its own scope document,
+   `JOURNEY_PLANNER_SCOPE.md`, which is where its milestones are defined.
 
-## `_civFactionAggregates` itself: **done** (2026-08-18)
+## `_civFactionAggregates` itself — the 2026-08-18 pass
 
-Milestone 3 of the "real next milestones" list below, and the last unstarted
-piece of Phase 2's economy work. Ported as `civ_faction_aggregates`
+Milestone 3 of the "real next milestones" list above. Ported as
+`civ_faction_aggregates`
 (`cartalith-civ`), together with `_civFactionCapital` (reference line 23566),
 the `CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables (23557/23553), and
 `_civOceanDistField` (22450) as `civ_ocean_dist_field` — the coast axis needs
@@ -345,9 +356,9 @@ tests on `js_min`/`js_max` rather than through the aggregate.
 memory question — "extend the delayed-free pattern" so the six freed fields
 (clay/buildstone/flint/obsidian/sulfur/alum) survive past `assign_territory`.
 Checked against what the code actually does rather than assumed:
-`compute_civilisation()` still frees those six at
-`cartalith-godot/src/lib.rs`, immediately *before* `assign_territory` — so
-the tension is still live **for any caller that wants the resource means**.
+at the time of this pass `compute_civilisation()` still freed those six at
+`cartalith-godot/src/lib.rs`, immediately *before* `assign_territory` — so the
+tension remained live **for any caller that wants the resource means**.
 
 It does not bind on this milestone, for a reason that is structural rather
 than convenient: **the half of `_civFactionAggregates` that unblocks
@@ -366,14 +377,14 @@ move `compute_civilisation()`'s six-field free from above `assign_territory`
 to below it, extending the same bounded, measured tradeoff the previous pass
 already made once (those six fields, ~96 MB at 2048×2048, stay resident
 across one more Dijkstra; steady-state after the function returns is
-unchanged either way). Deliberately **not** done on speculation, per the
-standing "don't wire in what nothing calls" discipline and the owner's
-UI hold — extending a memory cost for a consumer that does not exist yet
-would be paying for it twice over.
+unchanged either way). This pass deliberately did **not** make that change on
+speculation, per the standing "don't wire in what nothing calls" discipline —
+extending a memory cost for a consumer that did not exist would have been
+paying for it twice over.
 
-### `civ_culture_terrain_fit` is now genuinely callable
+### The concrete unblock: `civ_culture_terrain_fit` gained real inputs
 
-Yes — that is the concrete unblock, and it is proved rather than asserted.
+That is what this pass bought, and it was proved rather than asserted.
 The golden test calls
 `civ_culture_terrain_fit(culture, &agg.by_faction[f].terrain_mix,
 &agg.world_mean_terrain)` for all seven cultures × all seven factions in both
@@ -384,10 +395,12 @@ correctly return `None` on both sides. `terrain_mix` is a
 `HashMap<&'static str, f64>` precisely so it drops into the existing
 signature with no adapter.
 
-Still deliberately **not** exposed as a `#[func]`: all UI work is on hold
-(owner, 2026-08-18, `DCC_SHELL_SCOPE.md`). What changed is that the function
-now has real inputs to be called with — `GUI_FEATURE_PARITY_SCOPE.md`'s item
-5 is a wiring job again rather than a blocked one.
+This pass deliberately stopped short of a `#[func]`, under the UI hold the
+owner called on 2026-08-18 — **a hold he lifted later the same day**
+(`DCC_SHELL_SCOPE.md`), so it is not a live constraint and nothing here should
+be read as one. What this pass changed is that the function has real inputs to
+be called with: `GUI_FEATURE_PARITY_SCOPE.md`'s item 5 became a wiring job
+rather than a blocked one.
 
 ### Verification
 
@@ -479,6 +492,46 @@ caused by this milestone's own mid-sweep addition of the `||0` coercions,
 which renamed the lines they targeted. Re-run against the corrected anchors;
 both killed.
 
-Not wired to any caller (`compute_civilisation()` untouched, no `#[func]`,
-no GDScript) — per this project's standing "don't wire in what nothing calls"
-rule and the owner's UI hold.
+This pass stopped at the crate boundary — it left `compute_civilisation()`
+untouched and added no `#[func]` and no GDScript — per the standing "don't
+wire in what nothing calls" rule and the since-lifted UI hold.
+
+## Military manpower: the economy layer's first real consumer (2026-08-25)
+
+Not an economy milestone, but it extends this document's territory and belongs
+recorded here rather than only in the register. `MILITARY_MANPOWER_SCOPE.md`
+carries the owner's specification verbatim and the full derivation; this is
+what it means for the economy work.
+
+**It is the first thing that reads the food chain end to end.** Everything
+this document built or listed as future scope — `civ_current_agrarian_density`
+and its "Land sustains ≈ N" integral, `civ_faction_aggregates`' per-faction
+population and territory, `civ_catchment_pop`'s tier tables, IN-13's
+`RoadComponents` and `place_navigability` — is now read by one model that
+turns them into four headcounts. Before this, the food half of the layer fed
+settlement sizing and nothing else.
+
+**And it closes the `farmersPerUrbanite` gap this document's own successor
+opened.** `roster.rs`' module doc recorded that `AG_TECH_LEVELS` was ported
+with no consumer, because *"`_civFoodShed`/`foodSurplusRatio` — the only two
+functions that read them — are not ported"*. `_civFoodShed` **is** ported now
+(IN-13, `cartalith_civ::trade`), and `farmersPerUrbanite` has a consumer for a
+different reason: it is the agricultural labour ratio, which is the variable
+the whole manpower model turns on. `CIV_GOVERNMENTS` got its first consumer in
+either codebase at the same time.
+
+**One real number this pass produced that the economy layer should note.** On
+a real 233-settlement world, five of six factions' territory sustains **at
+least twice** the population the settlement layer puts on it — the manpower
+model's `ecological_factor` hits its `2.0` ceiling for all five. That is the
+same divergence `civ_agrarian_regional_total`'s own readout has always shown
+between "Land sustains ≈ N" and the settled total, quantified per faction for
+the first time. Whether generated worlds should be more densely populated
+relative to their carrying capacity is a real question for whoever revisits
+`civ_settlement_population`'s surplus fractions, and it is older than this
+pass.
+
+**The three items from the list above that no pass recorded here has taken
+up** — `_civPlaceSmelting`, `_civSaltAccess`, and `_civFactionAggregates`'
+resource- and density-fed half as a *surfaced* readout — are defined above and
+tracked in `cartalith-native/docs/STATUS.md`.

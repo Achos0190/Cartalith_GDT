@@ -79,6 +79,7 @@ var grid_h_input: SpinBox
 var archetype_input: OptionButton
 var villages_check: CheckBox
 var metropolis_check: CheckBox
+var biome_k_check: CheckBox
 var recovery_input: OptionButton
 var dimension_warning_label: Label
 var _derived_labels: Dictionary = {} ## "Grid"/"Extent"/"Cell size"/"Aspect" -> value Label
@@ -88,21 +89,54 @@ var _archetype := "" ## Empty = Classic (World Structure disabled).
 var _villages := false
 var _metropolis := false
 var _recovery_phase := 0
+## `civBiomeKChk` (reference `_biomeK`, line 6441), default OFF -- "0 =
+## biome carrying-capacity residual OFF (bit-identical)".
+var _biome_k := false
+## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
+## treatment and why; here it decides whether the in-content header and the
+## Cancel button exist, and whether the form is re-fitted for touch.
+var _phone := false
 var _dim_syncing := false
-var _auto_generate := true ## Whether Create also calls bridge.generate() -- see set_auto_generate().
 
 func setup(b: EngineBridge) -> void:
 	bridge = b
 	title = "New world"
 	size = Vector2i(620, 780)
-	wrap_controls = false ## See _build_stage_dialog's own comment in main.gd: an autowrap dialog grows to its full content height and can run off a 1080p screen.
+	## PH-06. Also turns `wrap_controls` off -- which this dialog already did
+	## by hand, for the reason `_build_stage_dialog` records in `main.gd`: an
+	## autowrap dialog grows to its full content height and can run off a
+	## 1080p screen. The shared call is the same fix, so the hand-rolled line
+	## goes rather than being kept beside it.
+	##
+	## Called *before* the OK button is renamed, deliberately:
+	## `phone_window()` sets `ok_button_text` to "Close" for the read-only
+	## windows it was written for, and here that button is the Create action.
+	_phone = DccWidgets.phone_window(self, get_parent())
 	get_ok_button().text = "Create"
 	confirmed.connect(_on_create)
+
+	## A borderless phone window has no title bar, so it has no ✕ either -- and
+	## unlike the three civ windows, this dialog's own OK button is not a way
+	## out, it is "generate a world". Without this, opening New world on a
+	## handset would be a one-way door.
+	if _phone:
+		add_cancel_button("Cancel")
+
+	## One column rather than the margin directly, so the phone header has
+	## somewhere to sit: an `AcceptDialog` gives its *first* content child the
+	## whole rect, so a second sibling would simply overlap this one
+	## (`place_editor_window.gd` made the same arrangement first).
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	add_child(col)
 
 	var margin := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 10)
-	add_child(margin)
+	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(margin)
+	if _phone:
+		DccWidgets.phone_head(col, "New world", "creation-time settings")
 
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 4)
@@ -110,6 +144,17 @@ func setup(b: EngineBridge) -> void:
 
 	DccWidgets.note(root,
 		"Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason.")
+
+	## The appearance separation is real and was invisible. `look`, `npr`,
+	## `appearance_over`, `appearance_ramp` and `appearance_preset` are session
+	## state on `WorldGen` and none of them marks a generation stage stale, and
+	## presets are written to `user://appearance_presets/` rather than into the
+	## world `.zip` precisely because a look is reusable across worlds. So
+	## Nortantis's "New Map With Same Theme…" is already this shell's DEFAULT
+	## behaviour -- the dialog simply never said so, and a user with a look they
+	## like had no way to know Create would not take it away.
+	DccWidgets.note(root,
+		"Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it.")
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -124,6 +169,22 @@ func setup(b: EngineBridge) -> void:
 	_archetype_names = bridge.archetypes()
 	_build(body)
 	_update_extent_state()
+	## `PARITY_AUDIT.md` §23 F14: this dialog is a persistent singleton
+	## (`app.gd` builds one at startup and reuses it, `popup_centered()`
+	## on every File > New world…), not a fresh instance per open, so
+	## `_villages`/`_metropolis`/`_recovery_phase` above stay whatever they
+	## were last set to -- by hand, or by never having been touched since
+	## construction -- across loading an entirely different project.
+	## `about_to_popup` (`Window`'s own pre-show signal) re-reads the live
+	## engine getters every time the dialog is about to be shown, so a
+	## reopened dialog offers to re-Create with the settings the world on
+	## screen was actually generated with, not silently reset ones.
+	about_to_popup.connect(_sync_from_engine)
+	## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once as
+	## the window's `content_scale_factor`, and applying it again here would
+	## square it. The form is built once, so one pass is enough.
+	if _phone:
+		get_parent().phone_fit(self, 1.0)
 
 func _build(body: VBoxContainer) -> void:
 	var seed_sec := DccWidgets.section(body, "Seed")
@@ -180,7 +241,7 @@ func _build(body: VBoxContainer) -> void:
 	archetype_input = DccWidgets.choice(struct_sec, "Archetype", archetype_labels, 0, _on_archetype_selected,
 		"Reference ARCHETYPES. Choosing one applies its continentality/fragmentation/tectonic-energy/ocean-depth/hotspot-density preset immediately and routes Create through generate_world_structure_sized instead of the plain path.")
 	DccWidgets.note(struct_sec,
-		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generation Pipeline ▸ 03 World structure, editable there after Create.")
+		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.")
 
 	var gen_sec := DccWidgets.section(body, "Generation")
 	villages_check = DccWidgets.toggle(gen_sec, "Village seeding (additive hamlets)", false,
@@ -189,6 +250,9 @@ func _build(body: VBoxContainer) -> void:
 	metropolis_check = DccWidgets.toggle(gen_sec, "Imperial-seat tier (metropolis ★)", false,
 		func(v: bool): _metropolis = v,
 		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
+	biome_k_check = DccWidgets.toggle(gen_sec, "Biome carrying-capacity residual", false,
+		func(v: bool): _biome_k = v,
+		"Reference civBiomeKChk, default off. Applies a per-biome disease/climate correction to carrying capacity K -- and, where a cell is a lowland wetland, the wetland residual instead. K feeds settlement suitability and the food-shed ceiling, so turning it on moves where settlements are placed and how large they get. Off short-circuits the whole correction, so output is bit-identical to not having it (the reference's own comment).")
 	## Filled from the engine's own `_CIV_RECOVERY_NAME` table rather than a
 	## second transcription of it here -- `get_recovery_phase_names()`.
 	var recovery_labels: Array = []
@@ -201,11 +265,11 @@ func _build(body: VBoxContainer) -> void:
 		func(i: int): _recovery_phase = i,
 		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
 	DccWidgets.note(gen_sec,
-		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ Generation Pipeline (stages 02, 04, 05, 08) before or after Create; Create reads whatever they currently hold.")
+		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
 
 func _build_derived_panel(parent: Control) -> void:
 	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 2))
+	panel.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken")))
 	var grid := GridContainer.new()
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 16)
@@ -330,6 +394,35 @@ func _update_derived_readout(gw: int, gh: int, km_w: float) -> void:
 	dimension_warning_label.text = "\n".join(warnings)
 	dimension_warning_label.visible = not warnings.is_empty()
 
+## `2048 × 1311 → working grid 1024 × 656` for a picked heightmap, or `""`
+## when there is nothing honest to say (no import API, unreadable file, or an
+## engine too old to answer). `EngineBridge.heightmap_grid_size()`'s own doc
+## names this consumer -- *"for a dialog that wants to show the working grid
+## before committing"*. It went a stretch with no caller at all, and while it
+## did, `Import ▸ Load heightmap…` picked a file and committed in the same
+## breath -- so the first a user heard of the resample was the world coming
+## back at a resolution they had not chosen. `app.gd::open_heightmap_import()`
+## now folds this line into the status it was already setting on the pick.
+##
+## The width it resamples *to* is this form's own `grid_w` (`request()` hands
+## the engine exactly that field), which is why the summary belongs here and
+## not in the picker: this dialog is the only place that number exists.
+##
+## Returns the line rather than drawing it, because the pick happens while this
+## dialog is closed -- `app.gd`'s `open_heightmap_import()` owns the file
+## callback, and the surface a user is looking at then is the status line.
+func heightmap_grid_summary(path: String) -> String:
+	if bridge == null or not bridge.import_api:
+		return ""
+	var img := Image.load_from_file(path)
+	if img == null or img.is_empty():
+		return ""
+	var src := img.get_size()
+	var grid := bridge.heightmap_grid_size(int(grid_w_input.value), src)
+	if grid == Vector2i.ZERO:
+		return ""
+	return "%d × %d → working grid %d × %d" % [src.x, src.y, grid.x, grid.y]
+
 func _format_count(n: int) -> String:
 	if n >= 1000000:
 		return "%.2f M cells" % (n / 1000000.0)
@@ -354,15 +447,16 @@ func _on_archetype_selected(index: int) -> void:
 
 # -- Create ---------------------------------------------------------------------
 
-## Whether pressing Create also starts a generate (default true, matching
-## File ▸ New world's own reference behaviour). A future caller wanting to
-## only stage values without generating yet can flip this before opening.
-func set_auto_generate(v: bool) -> void:
-	_auto_generate = v
-
+## Create generates. Unconditionally, which is what `File ▸ New world` does in
+## the reference and what this dialog has always actually done.
+##
+## A `set_auto_generate()` setter and its `_auto_generate` flag used to sit
+## here for "a future caller wanting to only stage values without generating
+## yet". Nothing ever wrote the flag, so the branch was constant-true and the
+## setter unreachable -- a stage-without-generate mode needs a caller and a
+## control, not a private boolean, and would be added with them.
 func _on_create() -> void:
-	if _auto_generate:
-		bridge.generate(request())
+	bridge.generate(request())
 
 ## The keys `EngineBridge.generate()` reads. Sea level and the four
 ## experimental flags are read live off `bridge` rather than cached locally --
@@ -375,6 +469,45 @@ func _on_create() -> void:
 func randomise_seed() -> void:
 	seed_input.value = randi() % 100000
 
+## `PARITY_AUDIT.md` §23 F14: `get_villages_enabled`/`get_metropolis_enabled`/
+## `get_recovery_phase` are real getters -- `self.civ_options.villages`/
+## `.metropolis`/`.recovery_phase` on the Rust side, always well-defined,
+## not gated on a world existing -- that had no reader anywhere before this
+## pass. Connected to `about_to_popup` in `setup()`; see that connection's
+## own comment for why a re-sync on every open is needed at all.
+##
+## `set_pressed_no_signal`/`select()` rather than assigning `.button_pressed`/
+## `.selected` directly: both would re-fire the control's own `toggled`/
+## `item_selected` signal, which just sets `_villages`/`_metropolis`/
+## `_recovery_phase` right back to the same value -- harmless here, but the
+## no-signal setters are the honest way to say "this is a read, not a user
+## edit" and cost nothing extra.
+##
+## Goes through `bridge.get_*` (the wrappers `engine_bridge.gd` already
+## carries, each already guarded by its own `_has()` check) rather than
+## `bridge.world_gen.*` directly -- `engine_bridge.gd` is finished and off
+## limits this pass, but the read side it needed was already there.
+func _sync_from_engine() -> void:
+	if bridge == null:
+		return
+	if villages_check != null:
+		_villages = bridge.get_villages_enabled()
+		villages_check.set_pressed_no_signal(_villages)
+	if metropolis_check != null:
+		_metropolis = bridge.get_metropolis_enabled()
+		metropolis_check.set_pressed_no_signal(_metropolis)
+	## The fourth toggle F14 itself missed: the return of `DccWidgets.toggle()`
+	## was discarded here, so this box had no handle to write back through and
+	## no clause in this function. It read unchecked while the engine held it
+	## ON, and the next Create posted that stale `false` straight back into
+	## the engine, silently turning the residual off again.
+	if biome_k_check != null:
+		_biome_k = bridge.get_biome_k_enabled()
+		biome_k_check.set_pressed_no_signal(_biome_k)
+	if recovery_input != null and recovery_input.item_count > 0:
+		_recovery_phase = clampi(bridge.get_recovery_phase(), 0, recovery_input.item_count - 1)
+		recovery_input.select(_recovery_phase)
+
 func request() -> Dictionary:
 	return {
 		"seed": int(seed_input.value),
@@ -384,6 +517,7 @@ func request() -> Dictionary:
 		"archetype": _archetype,
 		"villages": _villages,
 		"metropolis": _metropolis,
+		"biome_k": _biome_k,
 		"recovery_phase": _recovery_phase,
 		"sea_level": bridge.param_get("sea_level"),
 		"dynamic_lithology": bridge.param_get("tect.dynamic_lithology"),

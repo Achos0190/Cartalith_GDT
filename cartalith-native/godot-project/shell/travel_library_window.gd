@@ -187,6 +187,25 @@ var _rail_body: VBoxContainer
 var _rail_header: Label
 var _inspector_body: VBoxContainer
 var _status_label: Label
+var _rail_wrap: Control        ## PH-12: held so the phone pane switch can hide it
+var _inspector_wrap: Control
+var _phone_title: Label
+var _head_row: HBoxContainer    ## PH-12: the bar Reset moves into on a phone
+
+## Phone (§13) -- PH-12. Measured before the fix (parallel device sweep,
+## 2026-08-25, 1440x3168): **17 of 29 tappable controls under the 44 dp floor**
+## -- every animal/vehicle rail row at 26 physical px, the category tabs at 29
+## -- inside a 1180x780 desktop card drawn at native resolution.
+##
+## Two things beyond the shared three calls. The rail (286 px) beside the
+## inspector does not fit 393 dp, so they become two panes behind the tab strip
+## the window already has: picking an entry moves to it, and a Back chip in the
+## inspector's own header returns. And the tab strip is six category buttons
+## plus a Reset action in one row -- ~700 dp of minimum -- so on a phone it
+## wraps.
+var _phone := false
+var _phone_showing_entry := false
+var _phone_back_btn: Button
 
 func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_host = host
@@ -195,17 +214,51 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	get_ok_button().hide()
 	size = Vector2i(1180, 780)
 	min_size = Vector2i(940, 620)
+	_phone = DccWidgets.phone_window(self, host)
 	_build()
+	if _phone:
+		_host.phone_fit(self, 1.0)
 
 ## `kind`, if given, selects that tab; empty keeps whatever tab was last
 ## active (Animals & mounts the first time).
 func open(kind: String = "") -> void:
-	popup_centered()
+	if not DccWidgets.phone_present(self, _host):
+		popup_centered()
 	if kind != "" and GROUPS_BY_KIND.has(kind):
 		_select_kind(kind)
 	else:
 		_refresh_rail()
 		_refresh_inspector()
+	_show_phone_entry(false)
+
+## PH-12's two-pane switch. The rail is the list, the inspector is the entry;
+## on a phone exactly one is visible, and the tab strip above them stays put,
+## so switching category from inside an entry lands back on the list -- which
+## is what `_select_kind()` already does to the selection anyway.
+func _show_phone_entry(on: bool) -> void:
+	if not _phone:
+		return
+	_phone_showing_entry = on
+	_rail_wrap.visible = not on
+	_inspector_wrap.visible = on
+	if _phone_back_btn != null:
+		_phone_back_btn.visible = on
+
+## PH-12: the rail rows and the whole inspector are rebuilt on every refresh, so
+## the one-shot fit in `setup()` never sees them. Idempotent by meta-flag.
+##
+## **Deferred**, and that is the whole point of the indirection: the callers are
+## rebuild functions with early returns in the middle of them, so a direct call
+## at the top would fit the nodes that are about to be freed and a call at the
+## bottom would be skipped on exactly the paths that return early. One deferred
+## pass runs after the rebuild has finished, whichever way it finished.
+func _phone_refit() -> void:
+	if _phone and _host != null:
+		_do_phone_refit.call_deferred()
+
+func _do_phone_refit() -> void:
+	if _phone and _host != null and is_instance_valid(self):
+		_host.phone_fit(self, 1.0)
 
 # ---------------------------------------------------------------------------
 # Layout
@@ -217,6 +270,7 @@ func _build() -> void:
 	add_child(outer)
 
 	var head_row := HBoxContainer.new()
+	_head_row = head_row
 	head_row.add_theme_constant_override("separation", 12)
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 12)
@@ -225,10 +279,23 @@ func _build() -> void:
 	head_pad.add_theme_constant_override("margin_bottom", 6)
 	head_pad.add_child(head_row)
 	outer.add_child(head_pad)
-	head_row.add_child(DccTheme.mono_label("⧉ TRAVEL LIBRARY", "accent", DccTheme.FS_HEADER, 2, true))
-	head_row.add_child(DccTheme.label("Data ▸ Travel library", "text_ghost", DccTheme.FS_TINY))
-	head_row.add_child(DccTheme.spacer())
-	head_row.add_child(DccTheme.label("definitions only · read by the planner at plan time", "text_ghost", DccTheme.FS_TINY))
+	## PH-12: the title, the menu path and the "definitions only" caption are
+	## three captions in one row that already has to hold a Close button. On a
+	## phone `phone_head()` carries the first and third below, so the bar keeps
+	## the two controls -- Back (into the entry list) and Close.
+	if _phone:
+		_phone_back_btn = Button.new()
+		_phone_back_btn.text = "‹ Entries"
+		_phone_back_btn.focus_mode = Control.FOCUS_NONE
+		_phone_back_btn.visible = false
+		_phone_back_btn.pressed.connect(func(): _show_phone_entry(false))
+		head_row.add_child(_phone_back_btn)
+		head_row.add_child(DccTheme.spacer())
+	else:
+		head_row.add_child(DccTheme.mono_label("⧉ TRAVEL LIBRARY", "accent", DccTheme.FS_HEADER, 2, true))
+		head_row.add_child(DccTheme.label("Data ▸ Travel library", "text_ghost", DccTheme.FS_TINY))
+		head_row.add_child(DccTheme.spacer())
+		head_row.add_child(DccTheme.label("definitions only · read by the planner at plan time", "text_ghost", DccTheme.FS_TINY))
 	var close_btn := Button.new()
 	close_btn.text = "Close"
 	close_btn.focus_mode = Control.FOCUS_NONE
@@ -247,20 +314,39 @@ func _build() -> void:
 	status_pad.add_child(_status_label)
 	outer.add_child(status_pad)
 
-	var main := HBoxContainer.new()
+	var main: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(main)
-	main.add_child(_build_rail())
-	main.add_child(DccTheme.rule(true))
-	main.add_child(_build_inspector())
+	_rail_wrap = _build_rail()
+	main.add_child(_rail_wrap)
+	if not _phone:
+		main.add_child(DccTheme.rule(true))
+	_inspector_wrap = _build_inspector()
+	main.add_child(_inspector_wrap)
+
+	if _phone:
+		_phone_title = DccWidgets.phone_head(outer, "Travel library",
+			"definitions read by the planner at plan time")
 
 	_refresh_rail()
 	_refresh_inspector()
 
 func _build_tab_strip() -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 0)
+	## PH-12: six category tabs plus `Reset tab to stock…` is ~700 dp of
+	## minimum width, and a `BoxContainer` handed more minimum than it has
+	## overlaps rather than clipping. An `HFlowContainer` wraps instead, and the
+	## number of rows follows the labels rather than a count fixed here.
+	var row: Container
+	if _phone:
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 4)
+		flow.add_theme_constant_override("v_separation", 4)
+		row = flow
+	else:
+		var box := HBoxContainer.new()
+		box.add_theme_constant_override("separation", 0)
+		row = box
 	for k in KINDS:
 		var kind_info: Dictionary = k
 		var btn := Button.new()
@@ -272,7 +358,8 @@ func _build_tab_strip() -> Control:
 		btn.pressed.connect(_select_kind.bind(String(kind_info["key"])))
 		_tab_buttons[String(kind_info["key"])] = btn
 		row.add_child(btn)
-	row.add_child(DccTheme.spacer())
+	if not _phone:
+		row.add_child(DccTheme.spacer())   ## no far end in a wrapping row
 	var reset_btn := Button.new()
 	reset_btn.text = "Reset tab to stock…"
 	reset_btn.focus_mode = Control.FOCUS_NONE
@@ -283,7 +370,15 @@ func _build_tab_strip() -> Control:
 		_draft.clear()
 		_refresh_rail()
 		_refresh_inspector())
-	row.add_child(reset_btn)
+	## PH-12: `Reset tab to stock…` is a destructive action, and in a WRAPPING
+	## tab strip it lands mid-flow between two category chips -- it reads as a
+	## sixth tab and sits a thumb-width from the fifth. On a phone it goes up to
+	## the head row instead, beside Close, where the window's other two
+	## non-category controls already are.
+	if _phone:
+		_head_row.add_child(reset_btn)
+	else:
+		row.add_child(reset_btn)
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_right", 10)
 	pad.add_child(row)
@@ -312,7 +407,11 @@ func _refresh_tab_labels() -> void:
 
 func _build_rail() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = 286
+	## PH-12: 286 px is 73% of a phone's 393 dp; stacked, it is the whole pane.
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		wrap.custom_minimum_size.x = 286
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -328,7 +427,7 @@ func _build_rail() -> Control:
 	head_row.add_child(_rail_header)
 	head_row.add_child(DccTheme.spacer())
 	var add_btn := Button.new()
-	add_btn.text = "＋"
+	add_btn.text = "+"
 	add_btn.tooltip_text = "New blank definition…"
 	add_btn.flat = true
 	add_btn.focus_mode = Control.FOCUS_NONE
@@ -401,6 +500,7 @@ func _build_inspector() -> Control:
 # ---------------------------------------------------------------------------
 
 func _refresh_rail() -> void:
+	_phone_refit()   ## PH-12: every rail row below is a fresh node.
 	_refresh_tab_labels()
 	for c in _rail_body.get_children():
 		_rail_body.remove_child(c)
@@ -474,6 +574,10 @@ func _select_entry(id: String) -> void:
 	_current_id = id
 	_refresh_rail()
 	_refresh_inspector()
+	## PH-12: on the desktop composition the inspector is the column beside the
+	## list and a tap fills it in place; stacked, it is the pane behind, so the
+	## same tap has to move there or it looks like nothing happened.
+	_show_phone_entry(true)
 
 func _on_add_blank() -> void:
 	var kind_label := ""
@@ -531,12 +635,13 @@ func _val(key: String, default):
 	return default
 
 func _refresh_inspector() -> void:
+	_phone_refit()   ## PH-12: this rebuilds the whole pane from fresh nodes.
 	for c in _inspector_body.get_children():
 		_inspector_body.remove_child(c)
 		c.queue_free()
 
 	if _current_id == "":
-		DccWidgets.note(_inspector_body, "Select an entry, or ＋ New blank definition…")
+		DccWidgets.note(_inspector_body, "Select an entry, or + New blank definition…")
 		return
 
 	_entry = _bridge.tl_get(_current_kind, _current_id)
@@ -555,7 +660,7 @@ func _refresh_inspector() -> void:
 	head.add_child(DccTheme.label(origin if editable else "stock · read-only", "text_dim", DccTheme.FS_TINY))
 	head.add_child(DccTheme.spacer())
 	var usage_p := int(_entry.get("usage_presets", 0))
-	var usage_j := int(_entry.get("usage_journeys", 0))
+	var usage_j := _usage_journeys()
 	if usage_p > 0 or usage_j > 0:
 		head.add_child(DccTheme.label("in use by %d party set-up(s) · %d journey(s)" % [usage_p, usage_j], "text_ghost", DccTheme.FS_TINY))
 	_inspector_body.add_child(DccTheme.rule())
@@ -566,9 +671,20 @@ func _refresh_inspector() -> void:
 	if _current_kind == "animal" and String(_entry.get("species_key", "")) == "":
 		DccWidgets.note(_inspector_body,
 			"No live effect yet: this is not one of the four built-in party-form species (donkey/mule/camel/horse). It is real, validated, inspectable data, but the party form's JpParty shape has no slot for a new species to occupy, so it does not change a computed journey (TRAVEL_LIBRARY_SPEC.md §6). Duplicating one of the four built-in animals below DOES affect computed journeys.")
-	elif _current_kind == "vehicle" or _current_kind == "vessel":
+	## **Split 2026-09-01.** These two used to share one note saying neither had
+	## a resolver hook. That is still true of vehicles and has not been true of
+	## vessels since the vessel resolver landed: `lib.rs`'s `jp_compute` builds
+	## `vessel_overrides()` -> `vessel_resolver_fn` -> `JpVesselResolver` and
+	## hands it to `jp_plan_full`, so a custom hull's speed, hold, crew and water
+	## rating drive the water legs for real. Telling the user otherwise here
+	## while `journey_planner_view.gd`'s own Vessel field tells them the opposite
+	## is the two halves of one feature disagreeing on screen.
+	elif _current_kind == "vehicle":
 		DccWidgets.note(_inspector_body,
-			"No live effect yet: vehicles and vessels are real, validated, inspectable data, but no resolver hook exists yet for jp_capacity's vehicle constants or jp_ship_stats' vessel table (TRAVEL_LIBRARY_SPEC.md §6).")
+			"No live effect yet: vehicles are real, validated, inspectable data, but no resolver hook exists for jp_capacity's vehicle constants -- there is no vehicle_overrides() beside vessel_overrides(), so nothing a vehicle carries reaches a computed journey (TRAVEL_LIBRARY_SPEC.md §6).")
+	elif _current_kind == "vessel":
+		DccWidgets.note(_inspector_body,
+			"Live: this definition reaches the Journey planner. jp_compute resolves a vessel by NAME through vessel_overrides -> vessel_resolver_fn, so speed, hold, crew and water rating drive the water legs. An entry still missing one of those four numbers is declined by the resolver -- it falls back to the built-in table rather than sailing a hull with a zero hold, and the planner's Vessel field draws it disabled. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only.")
 
 	for group in GROUPS_BY_KIND.get(_current_kind, []):
 		var g: Dictionary = group
@@ -613,7 +729,29 @@ func _build_validation_banners(parent: Control) -> void:
 		for c in conflicts:
 			_banner(parent, "block", String(c))
 	elif state == "ok":
-		_banner(parent, "water", "Selectable in the party form. Changing capacity, fodder or a constraint re-plans %d saved set-up(s)/journey(s)." % (int(_entry.get("usage_presets", 0)) + int(_entry.get("usage_journeys", 0))))
+		_banner(parent, "water", "Selectable in the party form. Changing capacity, fodder or a constraint re-plans %d saved set-up(s)/journey(s)." % (int(_entry.get("usage_presets", 0)) + _usage_journeys()))
+
+## How many saved journeys reference this entry (`TRAVEL_LIBRARY_SPEC.md` §4).
+##
+## `tl_get`'s own `usage_journeys` is hard-wired to `0` by
+## `travel_bridge.rs::animal_usage_in_journeys`, and that function's doc gives
+## the reason: "no persistent, referenceable saved journey exists anywhere in
+## this port". That stopped being true when the Journey planner's list became
+## part of the project archive -- but it is still true of the *engine*, which
+## owns no journey to count. So the count is taken here, from the list that
+## does exist, rather than being invented on the Rust side.
+##
+## `journey_usage()` matches an animal by entry **id** (the party form stores
+## `animal_entries` as species -> id) and a vessel by **name** (`JpPlan.vessel`
+## is a name, and `vessel_overrides` keys on it). A vehicle is always 0, and
+## honestly so: no vehicle reaches a computed journey at all. `maxi` keeps
+## whatever the engine reports if it ever grows a real answer of its own.
+func _usage_journeys() -> int:
+	var n := int(_entry.get("usage_journeys", 0))
+	if _host == null or _host.journey_planner_view == null:
+		return n
+	return maxi(n, _host.journey_planner_view.journey_usage(
+		_current_kind, _current_id, String(_entry.get("name", ""))))
 
 ## One banner: a coloured left rule plus washed background, matching `2b`'s
 ## own amber/blue inline styling -- `DccTheme`'s `warn` (`#e0a840`) and

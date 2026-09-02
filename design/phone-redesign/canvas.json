@@ -1,0 +1,40 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "The design" },
+    { "id": "page-2", "name": "Directions" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 412, "h": 892, "page": "page-1", "title": "Map" },
+    { "file": "Browse.dc.html", "x": 512, "y": 0, "w": 412, "h": 892, "page": "page-1", "title": "Browse everything" },
+    { "file": "DirectionA.dc.html", "x": 0, "y": 0, "w": 412, "h": 892, "page": "page-2", "title": "A · Command-first" },
+    { "file": "DirectionB.dc.html", "x": 512, "y": 0, "w": 412, "h": 892, "page": "page-2", "title": "B · Four honest tabs" },
+    { "file": "DirectionC.dc.html", "x": 1024, "y": 0, "w": 412, "h": 892, "page": "page-2", "title": "C · It tells you what is missing" }
+  ],
+  "annotations": [
+    {
+      "id": "why",
+      "x": 0,
+      "y": -184,
+      "w": 924,
+      "page": "page-1",
+      "text": "The complaint was discoverability, so that is what these two screens are for.\n\nMap keeps the map full-bleed and puts ONE always-visible line — search every action — where the old horizontal chip scroller was. Browse is where that search lands: every parameter, tool and export as a plain list, each with a line saying what it does.\n\nThree things the old shell did that these deliberately do not:\n· PANELS and MORE named nothing. Map / Build / Layers / Project name what is behind them.\n· Four identical dark pills on the map. Here zoom is one paired stepper and fit is its own control, so shape carries meaning.\n· Ten disabled rows that looked exactly like live ones. A row that cannot run says so in place, and says why."
+    },
+    {
+      "id": "targets",
+      "x": 0,
+      "y": 968,
+      "w": 924,
+      "page": "page-1",
+      "text": "Built to Android's 48dp touch minimum, not the 44 the shell uses today — 44 is the iOS number and DccTheme.PHONE_TAP_MIN carries it on an Android-only build.\n\nNo fake status bar and no painted gesture handle: the OS draws its own over the top, and a painted one reads as doubled.\n\nColours, type and hairlines are lifted from dcc_theme.gd rather than re-picked — #0d0e0f ground, #121314 panel, #e0a34a accent, .10 region hairline against .16 control border, IBM Plex Mono for labels and readouts."
+    },
+    {
+      "id": "pick",
+      "x": 0,
+      "y": -150,
+      "w": 1436,
+      "page": "page-2",
+      "text": "Three genuinely different answers to 'how does someone find out what this app can do'. Main on page one is B with A's search folded in — the map never leaves, and the search covers what four tabs cannot.\n\nC is the one worth arguing about: it is the best answer for a first-time user and the worst for a tenth-time one. If you want it, it belongs as a first-run mode that retires itself, not as the permanent shell."
+    }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

@@ -14,6 +14,27 @@ class_name DccIcons
 ## the display size rather than scaling a larger bitmap is what keeps a 1.2 px
 ## hairline from turning into a grey smear, so `get()` takes the size and
 ## caches per (name, size).
+##
+## **`px` is the size the glyph is *drawn* at, not the size it is *rasterised*
+## at, and on a phone those differ** (`GUI_GAP_REGISTER.md` HD-02). A window
+## presented by `DccWidgets.phone_present()` sets `content_scale_factor` to the
+## handset's own scale and lays its content out in 393 dp; a 12 px glyph in it
+## is 12 *dp* and reaches the panel as 44 physical pixels on a 1440-wide
+## device. Rasterising 12 texels and letting the canvas transform blow them up
+## is exactly the "grey smear" the paragraph above exists to prevent -- it was
+## simply invisible while every phone measured was 1080 wide, where the same
+## fault is 2.75x rather than 3.66x.
+##
+## So `get_icon()` takes a second number: `magnify`, what this glyph will be
+## multiplied by between the layout that sizes it and the pixels that show it.
+## The texture is rasterised at `px * magnify` and **presents** at `px` (via
+## `ImageTexture.set_size_override`), so nothing a caller lays out moves and no
+## call site has to change. `magnify` defaults to 1 -- the unscaled main
+## viewport, where a caller already sizes in real pixels and a larger raster
+## would only be minified back down through a 1.2 px hairline. `rect()` below
+## works the real number out for itself, from the canvas transform at draw
+## time; `DccShell._phone_fit_tool_button()` passes its own, because a `Button`
+## icon is not a node and has no transform to ask.
 
 const STROKE := 'fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"'
 
@@ -40,6 +61,20 @@ const PATHS := {
 	"layers": '<path d="M8 2 L14.4 5.4 L8 8.8 L1.6 5.4 Z"/><path d="M1.6 8.2 L8 11.6 L14.4 8.2"/><path d="M1.6 11 L8 14.4 L14.4 11"/>',
 	"dice": '<rect x="2.4" y="2.4" width="11.2" height="11.2" rx="2"/><circle cx="5.6" cy="5.6" r="0.7" fill="#ffffff" stroke="none"/><circle cx="10.4" cy="10.4" r="0.7" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
 	"window": '<rect x="1.6" y="4" width="9.6" height="9.6" rx="1"/><path d="M5.2 4 V2.4 H14.4 V11.6 H12.8"/>',
+
+	## The touch navpad (`GUI_GAP_REGISTER.md` SH-14), the port's answer to the
+	## reference's mobile `#zoomOverlay`. Drawn rather than left as the
+	## reference's own `+` / `-` / `✋` / `⟳` text: the four sit in one column
+	## and have to read as one family, which a type glyph beside a 1.2 px
+	## stroke never does -- and `⟳` (U+27F3) is missing from Plex Mono and the
+	## whole fallback chain anyway, the same tofu case `search`/`import` were
+	## drawn for. The hand is `tool_pan` above, reused unchanged.
+	##
+	## `view_fill` is a *frame with the content pushed out to it* -- the cover
+	## reset, not a fit: the two diagonals run outward to opposite corners.
+	"zoom_in": '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2 L14.2 14.2"/><path d="M4.9 7 H9.1"/><path d="M7 4.9 V9.1"/>',
+	"zoom_out": '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2 L14.2 14.2"/><path d="M4.9 7 H9.1"/>',
+	"view_fill": '<rect x="1.8" y="3.2" width="12.4" height="9.6" rx="1"/><path d="M5.8 6.2 H4.2 V7.8"/><path d="M4.4 6.4 L6.9 8.9"/><path d="M10.2 9.8 H11.8 V8.2"/><path d="M11.6 9.6 L9.1 7.1"/>',
 
 	## The two file-dialog screens' own marks (`design/Cartalith DCC Shell.
 	## dc.html`, "Open project dialog 1920"): `⌕` on the search well and `⤓` on
@@ -78,15 +113,137 @@ const PATHS := {
 	"domain_infra": '<path d="M2 14 C5.6 10.4 4 6.4 8 2.4"/><path d="M14 14 C10.4 10.8 12 6.8 8.4 2.6"/><path d="M6 10 H10"/><path d="M5 13 H11"/>',
 	"domain_carto": '<path d="M1.6 4 L5.8 2.4 L10.2 4.6 L14.4 3 V12 L10.2 13.6 L5.8 11.4 L1.6 13 Z"/><path d="M5.8 2.4 V11.4"/><path d="M10.2 4.6 V13.6"/>',
 	"domain_render": '<circle cx="8" cy="8" r="3.2"/><path d="M8 1.4 V3.2"/><path d="M8 12.8 V14.6"/><path d="M1.4 8 H3.2"/><path d="M12.8 8 H14.6"/><path d="M3.4 3.4 L4.6 4.6"/><path d="M11.4 11.4 L12.6 12.6"/>',
+
+	## ── The phone bottom nav's two non-domain cells ───────────────────────────
+	##
+	## `design/Cartalith Android Phone.dc.html` draws its five tabs as a `14px`
+	## Plex glyph over a `9.5px` caption -- ◈ ⌗ ◷ ▤ ⋯ -- and the three domain
+	## cells take `domain_world`/`domain_civ`/`domain_carto` above, which are
+	## this design system's own marks for those exact subjects. The remaining
+	## two cells are PANELS and MORE, which the canvas has no domain glyph for
+	## because its tab set predates the v3 domain model. **Designed, not
+	## matched** (`DCC_SHELL_SCOPE.md`'s rule 2): each traces the canvas's own
+	## chosen symbol -- ▤ for the docks, ⋯ for the overflow -- redrawn to §12's
+	## 16 x 16 / 1.2 px / round-cap rules so the row reads as one family rather
+	## than three drawings beside two pieces of type.
+	##
+	## Drawn rather than left as text for the reason `search`/`import` were:
+	## §12's "typographic symbols stay text" premise holds only for glyphs that
+	## exist in the chain, and `mono()`'s own note records 19 of the 24 entries
+	## in `SYMBOLS` missing from Plex Mono outright.
+	"nav_panels": '<rect x="1.8" y="3.2" width="12.4" height="9.6" rx="1"/><path d="M1.8 6.4 H14.2"/><path d="M1.8 9.6 H14.2"/>',
+	"nav_more": '<circle cx="3.6" cy="8" r="1.05" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="1.05" fill="#ffffff" stroke="none"/><circle cx="12.4" cy="8" r="1.05" fill="#ffffff" stroke="none"/>',
+
+	# ══ Landmark / point-of-interest types (LANDMARK_GENERATION_RESEARCH.md §29)
+	#
+	# 49 types, drawn to §12 exactly as the sculpt features are: 16x16, one
+	# weight, no interior detail, and read as ONE family with them -- which is
+	# why several are plainly terrain cross-sections and none is a pictogram.
+	#
+	# Three are NOT here because a shipped glyph already says the thing, and
+	# reusing one beats drawing a near-duplicate: `cliff`, `lake` and `volcano`
+	# serve `cliff`, `lake` and `volcanic_feature`. `landmark_glyph()` below
+	# resolves those, so a caller never has to know which are which.
+	#
+	# Two devices are deliberate and carry meaning across the set:
+	#   - **a ring above** marks sanctity, and only where sanctity is what
+	#     distinguishes the type from a physical one it would otherwise match:
+	#     `lm_sacred_mountain` against `lm_peak`, `lm_sacred_grove` against
+	#     `lm_ancient_forest`.
+	#   - **a broken or dashed run** marks age, so `lm_historic_crossing` is
+	#     `lm_river_crossing` with its way dashed, and `lm_destroyed_fortress`
+	#     is `lm_fort` breached.
+	# -- Physical ------------------------------------------------------
+	"lm_peak": '<path d="M1.2 13 L4.6 10.2 L8 2.4 L11.4 10.2 L14.8 13"/><path d="M1.4 14.6 H14.6"/>',
+	"lm_ridge": '<path d="M1.2 14 L4 5.2 L6.6 11 L9.2 6.4 L11.4 9.6 L13.2 7.4 L14.6 8.6"/>',
+	"lm_saddle": '<path d="M1.2 13.4 L4.6 4.6 C6.4 9.2 9.6 9.2 11.4 4.6 L14.8 13.4"/>',
+	## `cliff` reuses the shipped `cliff` glyph -- see LANDMARK_ICONS.
+	"lm_gorge": '<path d="M1.4 4.4 H5.6 L6.8 12.8 H9.2 L10.4 4.4 H14.6"/>',
+	"lm_cave": '<path d="M1.4 13.6 L4.6 6.4 L8.4 3.2 L12 7.4 L14.6 13.6"/><path d="M6.2 13.6 C6.2 9.6 7.2 8.6 8.6 8.6 C10 8.6 11 9.8 11 13.6"/>',
+	"lm_waterfall": '<path d="M1.6 4.2 H14.4"/><path d="M6 4.2 V11.2 M10 4.2 V11.2"/><path d="M2.4 13.6 C4.4 12.4 6 14.2 8 13.2 C10 12.2 11.6 14 13.6 12.8"/>',
+	"lm_spring": '<path d="M3.2 6.4 C3.2 4.4 6.2 3.4 8 3.4 C9.8 3.4 12.8 4.4 12.8 6.4 C12.8 8.2 10.4 9 8 9 C5.6 9 3.2 8.2 3.2 6.4 Z"/><path d="M8 9 C8 11.2 6.2 12 6.2 14.4"/>',
+	## `lake` reuses the shipped `lake` glyph -- see LANDMARK_ICONS.
+	"lm_delta": '<path d="M8.6 1.6 C8.2 3.2 7.8 4 7.2 5 C6.4 6.4 5.6 7 5 8.2 C4.2 9.8 3 11.4 2.4 13"/><path d="M7.2 5 C8.4 6.6 9.6 9 10.4 13 M5 8.2 C6.2 9.4 6.4 11 6.6 13"/><path d="M1.4 14.6 H14.6"/>',
+	"lm_river_confluence": '<path d="M2.6 1.8 C3.4 4.4 5.4 6.4 7.4 8.4 C8.4 9.6 8.8 11.6 8.8 14.2"/><path d="M13 2 C12.2 4.6 9.6 6.6 7.4 8.4"/>',
+	## `volcanic_feature` reuses the shipped `volcano` glyph -- see LANDMARK_ICONS.
+	"lm_rock_formation": '<path d="M5.2 13.4 L6.4 6.4 L8 4 L9.2 6 L10.4 13.4"/><path d="M1.6 13.4 H14.4"/>',
+	"lm_glacial_feature": '<path d="M2.4 2.6 L6 8.6 M13.6 2.6 L10 8.6"/><path d="M6 8.6 C3.4 10 3 12.2 4.6 13.4 C6.6 14.4 9.4 14.4 11.4 13.4 C13 12.2 12.6 10 10 8.6"/><path d="M6.4 11.6 H9.6"/>',
+	"lm_ancient_forest": '<path d="M2 9.8 C2 3.6 14 3.6 14 9.8"/><path d="M6.8 7 C6.8 10.6 6 12 5 13.8 M9.2 7 C9.2 10.6 10 12 11 13.8"/><path d="M1.6 13.8 H14.4"/>',
+	# -- Transportation ------------------------------------------------
+	"lm_mountain_pass": '<path d="M1 13.6 L4.2 6.6 L5.8 9.4"/><path d="M10.2 9.4 L11.8 6.6 L15 13.6"/><path d="M8 14.4 C7.2 11.6 8.8 9.6 8 6.8"/>',
+	"lm_river_crossing": '<path d="M5 1.8 C7.4 4 6.4 6.2 8.4 7.8 C10.4 9.4 10.2 11.2 11.4 13.6"/><path d="M2.4 12.2 L13.6 4.2"/>',
+	"lm_ford": '<path d="M1.4 6.6 C3.8 5.6 5.6 7.6 8 6.6 C10.4 5.6 12.2 7.4 14.6 6.4"/><path d="M1.4 10.4 C3.8 9.4 5.6 11.4 8 10.4 C10.4 9.4 12.2 11.2 14.6 10.2"/><path d="M8 1.4 V5 M8 12 V14.6"/>',
+	"lm_bridge_site": '<path d="M1.4 6 H14.6"/><path d="M2.6 12.4 C2.6 6.4 13.4 6.4 13.4 12.4"/><path d="M1.4 14.2 H14.6"/>',
+	"lm_road_junction": '<path d="M1.4 8 H7.6"/><path d="M7.6 8 L14.6 3.4"/><path d="M7.6 8 L14.6 12.6"/>',
+	"lm_caravan_station": '<path d="M2.4 7 L8 3.2 L13.6 7"/><path d="M4 5.9 V10.2 M12 5.9 V10.2"/><path d="M1.4 12.6 H14.6"/>',
+	"lm_portage": '<path d="M2.4 1.8 C1.2 5.6 3.4 10 2.4 14.2"/><path d="M13.6 1.8 C14.8 5.6 12.6 10 13.6 14.2"/><path d="M5.2 6.8 H10.8 L9.4 9.6 H6.6 Z"/>',
+	"lm_harbour": '<path d="M1.2 4.4 H14.8"/><path d="M3.8 4.4 C3.4 9.2 4.8 12.4 6.7 12.8"/><path d="M12.2 4.4 C12.6 9.2 11.2 12.4 9.3 12.8"/>',
+	# -- Economic ------------------------------------------------------
+	"lm_mine": '<path d="M1 5.2 H15"/><path d="M8 5.2 V9.6"/><path d="M4.2 12.8 L8 9.6 L11.8 12.8"/>',
+	"lm_quarry": '<path d="M1 4.8 H5 V8 H8.4 V11.2 H15"/>',
+	"lm_salt_works": '<path d="M1.4 7.2 V11.6 H14.6 V7.2"/><path d="M8 11.6 V8.4"/><path d="M2.8 9.6 H6.6"/>',
+	"lm_resource_extraction_site": '<path d="M1 6.2 H5.2 L6.8 11 H9.2 L10.8 6.2 H15"/>',
+	"lm_market_site": '<path d="M1.4 8 L8 4.2 L14.6 8"/><path d="M3.4 8 V13 M12.6 8 V13"/><path d="M3.4 10.6 H12.6"/>',
+	"lm_trade_depot": '<path d="M1.6 9 H14.4 V13.4 H1.6 Z"/><path d="M8 9 V13.4"/><path d="M5 9 V4.6 H11 V9"/>',
+	# -- Military ------------------------------------------------------
+	"lm_fort": '<path d="M2 14 V5.2 H4.4 V7 H6.8 V5.2 H9.2 V7 H11.6 V5.2 H14 V14 Z"/>',
+	"lm_watchtower": '<path d="M5.8 14 L6.6 6.4 H4.8 V2.6 H6.9 V4.4 H9.1 V2.6 H11.2 V6.4 H9.4 L10.2 14 Z"/>',
+	"lm_fortified_pass": '<path d="M1 9.8 L2.8 6.6 L5.2 14"/><path d="M15 9.8 L13.2 6.6 L10.8 14"/><path d="M5.2 14 V9.4 H6.9 V11.2 H9.1 V9.4 H10.8 V14"/>',
+	"lm_fortified_crossing": '<path d="M1 9.6 C4.5 7.4 11.5 7.4 15 9.6"/><path d="M5.2 8.1 V4.6 H6.9 V6.4 H9.1 V4.6 H10.8 V8.1"/><path d="M1.4 12.6 C3.8 11.2 5.4 14.2 8 12.8 C10.6 11.4 12.2 14.2 14.6 12.8"/>',
+	"lm_battlefield": '<path d="M1 13.6 H15"/><path d="M4.2 13.6 L10.6 4.2"/><path d="M11.8 13.6 L5.4 4.2"/>',
+	"lm_border_marker": '<path d="M1 13.4 H4"/><path d="M12 13.4 H15"/><path d="M6 13.4 L6.6 8.6 C6.8 7.2 9.2 7.2 9.4 8.6 L10 13.4 Z"/>',
+	# -- Religious / Cultural ------------------------------------------
+	"lm_shrine": '<path d="M1.4 13.8 H14.6"/><path d="M5.4 13.8 V9.8 L8 7.2 L10.6 9.8 V13.8"/>',
+	"lm_temple": '<path d="M1.2 13.8 H14.8"/><path d="M2.2 6.8 H13.8 L8 3.2 Z"/><path d="M4.2 6.8 V13.8 M8 6.8 V13.8 M11.8 6.8 V13.8"/>',
+	"lm_sacred_grove": '<path d="M1.6 14.2 H14.4"/><path d="M5.6 14.2 V9.8 M10.4 14.2 V9.8"/><path d="M3.4 9.8 C3.4 6.2 12.6 6.2 12.6 9.8"/><circle cx="8" cy="2.8" r="1.4"/>',
+	"lm_sacred_mountain": '<path d="M1.2 14.2 L4.6 11.4 L8 5.6 L11.4 11.4 L14.8 14.2"/><circle cx="8" cy="2.6" r="1.4"/>',
+	"lm_pilgrimage_site": '<path d="M1.2 14 H14.8"/><path d="M2.6 14 C5.6 12 4.6 9 8 7.4 C9.6 6.6 10.4 5.4 11 4"/><circle cx="12.4" cy="2.6" r="1.6"/>',
+	"lm_tomb": '<path d="M1.6 13.8 H14.4"/><path d="M2.8 13.8 C2.8 7.2 13.2 7.2 13.2 13.8"/><path d="M6.4 13.8 V10.4 H9.6 V13.8"/>',
+	"lm_monument": '<path d="M1.6 14.2 H14.4"/><path d="M4.6 14.2 V11.4 H11.4 V14.2"/><path d="M6.4 11.4 L7.2 3.2 H8.8 L9.6 11.4 Z"/>',
+	"lm_ceremonial_site": '<path d="M1.8 11.6 C1.8 8.8 14.2 8.8 14.2 11.6 C14.2 14.2 1.8 14.2 1.8 11.6 Z"/><path d="M4.2 9.8 V6.2 M8 9.2 V4.8 M11.8 9.8 V6.2"/>',
+	# -- Historical ----------------------------------------------------
+	"lm_ruin": '<path d="M1.6 14.2 H14.4"/><path d="M3.4 14.2 V6.2 L5.8 8.2 V14.2"/><path d="M8.8 14.2 V9.6 L10.8 7.2 V11 L12.6 9.2 V14.2"/>',
+	"lm_abandoned_settlement": '<path d="M1.4 14.2 H14.6"/><path d="M2.4 14.2 V9.6 L4.8 7.2 L7.2 9.6 V14.2"/><path d="M9 14.2 V10.4 L11.4 8.2 L13.6 10.8"/>',
+	"lm_ancient_road": '<path d="M2.6 14.4 L6.4 2"/><path d="M13.4 14.4 L9.6 2"/><path d="M8 12.6 V10.4 M8 8.2 V6 M8 4 V2.4"/>',
+	"lm_battlefield_historic": '<path d="M1.2 14 H14.8"/><path d="M2.6 14 C4.6 9.4 11.4 9.4 13.4 14"/><path d="M5.2 11.2 L8.4 5.2"/><path d="M10.6 11.4 L8.8 7.8"/>',
+	"lm_destroyed_fortress": '<path d="M1.6 14.2 H14.4"/><path d="M1.6 14.2 V6.2 H4 V8 H6.2 V10.4"/><path d="M9.6 10.6 V5.4 H12 V7.2 H14.4 V14.2"/>',
+	"lm_historic_crossing": '<path d="M5 1.8 C7.4 4 6.4 6.2 8.4 7.8 C10.4 9.4 10.2 11.2 11.4 13.6"/><path d="M2.4 12.2 L5.6 9.9 M7.4 8.6 L9.2 7.3 M11 6 L13.6 4.2"/>',
+
 }
 
-static var _cache: Dictionary = {}  ## "name@size" -> ImageTexture
+static var _cache: Dictionary = {}  ## "name@drawn@raster" -> ImageTexture
+	## Keyed on the *rasterisation* size as well as the drawn one, because the
+	## same 12 px glyph is a 12-texel bitmap in a dock and a 44-texel one in a
+	## content-scaled window, and the two must not share a cache entry.
 
-## Rasterise `name` at `px` and return a texture drawn in white. Tint it with
-## `modulate` on whatever displays it -- never bake a colour in, or the light
-## theme needs a second copy of every glyph.
-static func get_icon(name: String, px: int = 12) -> Texture2D:
-	var key := "%s@%d" % [name, px]
+## What the glyph cache actually holds, for the Performance window's Memory
+## group. HD-02's finer raster is the one hi-DPI cost that could plausibly have
+## been large, so it is reported rather than argued about: measured 2026-08-25
+## on the OnePlus 6T at `_phone_scale` 2.748, **389.4 KiB with a world up**,
+## against 500.9 MiB of canvas vertex buffers in the same frame. See
+## `MEMORY_OPTIMIZATION_SCOPE.md`'s hi-DPI section for the full bisection.
+static func cache_stats() -> Dictionary:
+	var bytes := 0
+	for k in _cache.keys():
+		var t := _cache[k] as ImageTexture
+		if t != null:
+			var im := t.get_image()
+			if im != null:
+				bytes += im.get_width() * im.get_height() * 4
+	return {"entries": _cache.size(), "bytes": bytes}
+
+## Rasterise `name` and return a texture drawn in white, presenting at `px`.
+## Tint it with `modulate` on whatever displays it -- never bake a colour in, or
+## the light theme needs a second copy of every glyph.
+##
+## `magnify` is what the drawing surface will scale this glyph by before it
+## reaches a physical pixel: 1 in the main viewport (which has no content
+## scale), the handset scale inside a `phone_present()`ed window. See the file
+## header. It never changes the size the glyph *reports*, so it can be raised
+## on an existing call site without moving any layout.
+static func get_icon(name: String, px: int = 12, magnify: float = 1.0) -> Texture2D:
+	var raster := maxi(1, int(round(float(px) * maxf(1.0, magnify))))
+	var key := "%s@%d@%d" % [name, px, raster]
 	if _cache.has(key):
 		return _cache[key]
 	if not PATHS.has(name):
@@ -96,16 +253,58 @@ static func get_icon(name: String, px: int = 12) -> Texture2D:
 	var img := Image.new()
 	# The rasteriser's `scale` is relative to the declared 16 px box, so this
 	# renders natively at the display size rather than resampling.
-	var err := img.load_svg_from_string(svg, float(px) / 16.0)
+	var err := img.load_svg_from_string(svg, float(raster) / 16.0)
 	if err != OK:
 		push_error("DccIcons: '%s' failed to rasterise (%d)" % [name, err])
 		return null
 	var tex := ImageTexture.create_from_image(img)
+	## The half that keeps 66 call sites untouched: `get_width()`/`get_height()`
+	## -- which is what a `TextureRect`, a `Button` icon and every other consumer
+	## lays out against -- report `px`, while the pixels behind them are the
+	## finer raster. Godot draws an `ImageTexture` into `get_size()`, so the
+	## downscale-on-draw is exactly cancelled by the surface's own magnification.
+	if raster != px:
+		tex.set_size_override(Vector2i(px, px))
 	_cache[key] = tex
 	return tex
 
+## The applied magnification, so `_refit_glyph()` below is a no-op on every
+## draw after the one that settled it. Also the marker that says "this
+## TextureRect is a `DccIcons` glyph", which nothing else needs today and the
+## next phone pass will.
+const ICON_META := "dcc_icon_magnify"
+
 ## A TextureRect sized to the glyph and tinted to a theme token, ready to drop
 ## into a row.
+##
+## **The magnification is read off the canvas transform at draw time, not
+## passed in** (`GUI_GAP_REGISTER.md` HD-02). Three earlier shapes of this fix
+## were tried and each was wrong for a real call site:
+##
+##   - a static "device scale" set once by the shell -- wrong in the main
+##     viewport, which has no content scale, where it would rasterise 3.664x
+##     too fine and then minify a 1.2 px hairline back down with no mipmap;
+##   - re-rasterising from `DccShell.phone_fit()`, which knows the number
+##     exactly -- but only reaches a subtree that exists when it runs, and the
+##     open-project dialog builds its action tiles and its import tile on
+##     `navigate()`, long after its one `phone_fit(self, 1.0)` call. Measured:
+##     the search glyph was fixed and the other three were not;
+##   - re-rasterising on `tree_entered`, which fires before `phone_present()`
+##     has set `content_scale_factor` for every glyph built during `setup()`.
+##
+## `get_screen_transform()` is the call, and **not**
+## `get_global_transform_with_canvas()`, which is the one that reads like the
+## right answer: a `CanvasLayer` transform is not a viewport's *final*
+## transform, and a content scale lives in the latter. Measured side by side on
+## all four glyphs of the welcome screen at 1440x3168 -- `gtwc` scale (1.0,
+## 1.0), `screen` scale (3.664122, 3.664122). With the wrong one the fix is
+## silently inert, which is exactly how it first measured.
+##
+## It composes the viewport's final transform with the node's own, so it is the
+## true answer for any surface -- dock, content-scaled window, embedded popup --
+## with no host reference, no call-site change and nothing to keep in sync.
+## Assigning `texture` from inside `draw` queues one more redraw; the meta guard
+## makes the next one a comparison and stops there.
 static func rect(name: String, px: int = 12, token: String = "text_dim") -> TextureRect:
 	var t := TextureRect.new()
 	t.texture = get_icon(name, px)
@@ -113,14 +312,49 @@ static func rect(name: String, px: int = 12, token: String = "text_dim") -> Text
 	t.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
 	t.modulate = DccTheme.c(token)
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	t.set_meta(ICON_META, 1.0)
+	t.draw.connect(_refit_glyph.bind(t, name, px))
 	return t
+
+## Quantised to 1/16, so a transform that jitters in the last decimal (a
+## float32 `content_scale_factor` is 3.66412210464478, not 3.66412213740458)
+## cannot re-rasterise and re-cache a glyph on every frame.
+static func _refit_glyph(t: TextureRect, name: String, px: int) -> void:
+	var mag: float = maxf(1.0, t.get_screen_transform().get_scale().x)
+	mag = round(mag * 16.0) / 16.0
+	if is_equal_approx(float(t.get_meta(ICON_META, 1.0)), mag):
+		return
+	t.set_meta(ICON_META, mag)
+	var tex := get_icon(name, px, mag)
+	if tex != null:
+		t.texture = tex
+
+## The glyph name for a landmark type key, resolving the three that reuse a
+## shipped sculpt-feature glyph rather than carrying a near-duplicate.
+##
+## Callers pass the ENGINE's key (`cartalith_civ::landmark::kinds()`'s `key`,
+## e.g. `"volcanic_feature"`) and get back a name `get_icon()` accepts. A key
+## this build has no glyph for returns `""` -- the caller draws no icon rather
+## than a wrong one, which matters because the engine's type list is data and
+## can grow ahead of this table.
+const LANDMARK_REUSE := {
+	"cliff": "cliff",
+	"lake": "lake",
+	"volcanic_feature": "volcano",
+}
+
+static func landmark_glyph(kind_key: String) -> String:
+	if LANDMARK_REUSE.has(kind_key):
+		return String(LANDMARK_REUSE[kind_key])
+	var name := "lm_" + kind_key
+	return name if PATHS.has(name) else ""
 
 ## Text symbols stay text (§12): they are typographic, inherit type metrics and
 ## need no drawing. Listed here so nobody is tempted to draw them.
 const SYMBOLS := {
 	"submenu": "\u25B8", "collapse": "\u2039", "expand": "\u203A", "caret": "\u25BE",
 	"chevron": "\u2304", "on": "\u25CF", "off": "\u25CB", "checked": "\u2611",
-	"unchecked": "\u2610", "tick": "\u2713", "cross": "\u2715", "add": "\uFF0B",
+	"unchecked": "\u2610", "tick": "\u2713", "cross": "\u2715", "add": "+",
 	"delete": "\u232B", "undo": "\u21B6", "redo": "\u21B7", "play": "\u25B6",
 	"pause": "\u23F8", "drawer": "\u2630", "panels": "\u25A4", "overflow": "\u22EF",
 	"locked": "\U0001F512",

@@ -137,6 +137,17 @@ impl World {
             sea: self.sea,
             world: self.world,
             map_width_km: self.map_width_km,
+            // Every golden in this file is a value extracted from the
+            // reference, so the context that produces them must be the
+            // reference's own cost model. `DECISIONS.md` §7i's corridor
+            // pass relief, and its swamp/floodplain and river ford-vs-bridge
+            // siblings, are the shipped default at the bridge and have their
+            // own tests in `tools.rs`/`lib.rs`; none of the three must ever
+            // leak in here, or these goldens would stop meaning "matches
+            // v2.10".
+            corridors: None,
+            flow: None,
+            flow_thresh: 0.0,
         }
     }
 }

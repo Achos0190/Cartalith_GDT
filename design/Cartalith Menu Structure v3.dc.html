@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#0d0e0f}a{color:#e0a34a}a:hover{color:#f0bd72}</style></helmet>
+
+<div data-screen-label="Domain architecture v3" style="width:1920px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column">
+
+  <div style="height:36px;flex:none;display:flex;align-items:center;gap:26px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH</div>
+    <div style="display:flex;gap:20px;font-size:11.5px;color:#8d9296"><span>File</span><span>Edit</span><span>Assets</span><span>Data</span><span>Vault</span><span>Preferences</span><span>Window</span><span>Help</span></div>
+    <div style="width:1px;height:14px;background:rgba(255,255,255,.12)"></div>
+    <div style="display:flex;gap:18px;font:11px 'IBM Plex Mono',monospace;letter-spacing:.14em"><span style="color:#e0a34a">WORLD</span><span style="color:#8d9296">CIVIL</span><span style="color:#8d9296">CARTO</span></div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:24px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+  </div>
+
+  <div style="padding:22px 18px 10px;display:flex;align-items:baseline;gap:24px;border-bottom:1px solid rgba(255,255,255,.06)">
+    <div style="font:500 13px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec">DOMAIN ARCHITECTURE · V3</div>
+    <div style="font:11px 'IBM Plex Mono',monospace;color:#6f7478">three rails. every v2.10 surface reassigned by what it owns, not by when it runs</div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:18px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span><span style="color:#c8cbcd">#id</span> exists</span><span><span style="color:#e0a34a">new</span> to build</span><span><span style="color:#7d8286">from ·</span> previous home</span><span><span style="color:#c96a54">split</span> mixed responsibility</span><span><span style="color:#6f9b8d">vault</span> markdown note</span></div>
+  </div>
+
+  <div style="padding:18px 18px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:grid;grid-template-columns:1fr 1fr 1fr 1.05fr;gap:0 22px">
+    <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#e0a34a;padding-bottom:6px">WORLD — WHAT EXISTS</div><div style="color:#8d9296;font:10.5px/1.5 'IBM Plex Mono',monospace">The physical and environmental state. Terrain, geology, water, climate, biomes, resources, and the generation that produces them. Authoritative for every measured field.</div></div>
+    <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#e0a34a;padding-bottom:6px">CIVIL — WHO OCCUPIES IT</div><div style="color:#8d9296;font:10.5px/1.5 'IBM Plex Mono',monospace">Factions, territories, settlements and POIs — and the ways, routes, trade and travel that connect them. Movement is a civilizational fact, so logistics is a CIVIL concern, not a fourth domain.</div></div>
+    <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#e0a34a;padding-bottom:6px">CARTO — HOW IT IS SHOWN</div><div style="color:#8d9296;font:10.5px/1.5 'IBM Plex Mono',monospace">Presentation over both datasets. Colour, relief, labels, layer stack, asset rendering, zoom rules. Holds no world truth and marks no generation stage stale.</div></div>
+    <div style="border-left:1px solid rgba(255,255,255,.08);padding-left:22px"><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding-bottom:6px">DEPENDENCY DIRECTION</div><div style="font:10.5px/1.6 'IBM Plex Mono',monospace;color:#6f7478"><span style="color:#c8cbcd">WORLD</span> → <span style="color:#c8cbcd">CIVIL</span>, and both → <span style="color:#c8cbcd">CARTO</span>.<br>CARTO reads WORLD and CIVIL. Neither reads CARTO. No dataset is copied for rendering — a style change writes only to the style document. Narrative text lives in the <span style="color:#6f9b8d">vault</span>, referenced by path.</div></div>
+  </div>
+
+  <div style="padding:20px 18px 6px;display:grid;grid-template-columns:1fr 2.04fr 1fr;gap:18px;align-items:start">
+
+    <div style="border:1px solid rgba(255,255,255,.10)">
+      <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a"><span>WORLD</span><span style="color:#5f6468">9 categories</span></div>
+      <div style="padding:6px 14px 14px">
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:8px 0 4px">▾ GENERATE</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Generate world · new seed</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#genBtn #reseedBtn</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Center landmasses · map extent</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#centerBtn 1</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Resolution · working / render</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#resSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Continental steering</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#wsEnabled #wsPanel</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Pipeline status · stale fields</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Bake &amp; finalize <span style="color:#5f6468">#finalizeSec</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Bake depth · bake ALL levels</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#bakeAllDepth #bakeAllBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Un-finalize (unlock generation)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#unfinalizeBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">LOD terrain data · refine · atlas bake</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#lodRefineBtn #lodBakeBtn</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:5px 0 0">from · View ▸ Tiled LOD, Atlas cache <span style="color:#c96a54">split</span></div>
+        </div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ TERRAIN</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Heightmap · load heightmap…</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#loadBtn</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Sculpt · brush · stamp registry</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">_civTool</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Elevation · slope · curvature · relief</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">4 fields</span></div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Erosion passes <span style="color:#7d8286">from · Generate 03</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Droplet hydraulic · reset</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#erodeBtn #resetBtn</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Hillslope diffuse · stream-power</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#diffuseBtn #streamBtn</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Velocity · evolve · sediment fill</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#veloBtn #evolveBtn</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Glacial carve · fjords · coastal</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#glacBtn #coastBtn</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ GEOLOGY</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Plates · drift · boundaries</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#plates #vel</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Uplift · warp · orogeny ranges</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Volcanism · provinces · craters</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#volc #volca 3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Lithology · rock resistance · age</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#age 2</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Infer tectonics from heightmap</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#inferTectBtn</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">+ Physical coupling</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Flexure F · heterogeneity C</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#flexure #hetero</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Fold intensity · trench depth · faults</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        </div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ HYDROLOGY</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">River density · min stream order</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Carve river valleys on generation</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#carveRiversChk</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Lakes as water (inland seas)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Watersheds · drainage basins</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Flow accumulation · springs</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#debugSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Deltas · estuaries · coastline</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#cWave 3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Navigability per reach</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ CLIMATE</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Edge latitudes · equator / pole °C</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#latN #latS 3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Seasons · Köppen classification</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ocean currents · ice albedo</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Simulate weather · iterations</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#weatherBtn #wIters</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Orographic · evaporation · dryness</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">+ Wind model</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Pressure field · zonal belts · shear</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        </div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ BIOMES</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Classification · ecotone sharpness</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Biome paint brush (authoring)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">_civTool</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Rivers as ways in classification</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#riverWaysChk</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Land cover · ecological regions</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ ECOLOGY</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Vegetation density · soil</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#debugSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ecological productivity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Flora / fauna distribution</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ RESOURCES <span style="color:#e0a34a">new category</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Minerals · metals · stone</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Timber · freshwater</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Agricultural potential</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">from placement model</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Strategic resources</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ WORLD DATA</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Planet · gravity · day · axial tilt</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#pg #prot 3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Geoid sea level · peak altitude</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">4</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Units · km / mi</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#calUnitSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Coordinate system · projection</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Tides · moon mass · distance · k₂</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">4</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Field browser · export GeoJSON</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#exportGeoBtn</span></div>
+      </div>
+    </div>
+
+    <div style="border:1px solid rgba(255,255,255,.10)">
+      <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a"><span>CIVIL <span style="color:#5f6468;letter-spacing:.1em">· absorbs logistics</span></span><span style="color:#5f6468">14 categories</span></div>
+      <div style="padding:6px 14px 14px;display:grid;grid-template-columns:1fr 1fr;gap:0 22px;align-items:start">
+
+        <div>
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:8px 0 4px">▾ CIVILIZATIONS</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Auto-populate world</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civAutoPopulateBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Clear places &amp; routes</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civClearPlacesBtn</span></div>
+          <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">+ Placement model <span style="color:#5f6468">reads WORLD</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Capitals · towns · hamlets counts</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Biome carrying-capacity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civBiomeKChk</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Imperial-seat tier (metropolis ★)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civMetropolisChk</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Urban morphology layouts</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civUrbanLayoutsChk</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Villages (suitability-weighted)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civVillagesChk</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Recovery phase · modeled population</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civRecoveryPhase</span></div>
+          </div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">from · Civilization ▸ Generation, Step 1 <span style="color:#5f6468">#civSubGeneration</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ FACTIONS</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Roster… · add / remove faction</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civOpenFactionsBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Quick select · active faction</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civSubFactions</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Type · culture · government</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Leader · capital · population</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Identity colour · emblem</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">History · notes · lore</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Per-faction · settlements (n) <span style="color:#5f6468">.sublist-body</span></div>
+          </div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Identity colour is authoritative here. How it paints — tint, opacity, border width — is CARTO. <span style="color:#c96a54">split</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ TERRITORIES</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Recalculate territories · clear</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Generate provinces</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Territory brush · radius</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civTerRadius</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Borders · claims · influence</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Occupation · historical ownership</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ SETTLEMENTS</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Settlement table · search</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#stSettlementTableWrap</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Identity <span style="color:#7d8286">app-native</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Name · type · coordinates</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Population · founded · age</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Faction · region · culture ref</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Site <span style="color:#7d8286">read-only from WORLD</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Elevation · terrain · climate · biome</span><span style="font:10px 'IBM Plex Mono',monospace;color:#7d8286">world ref</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">River · coast · water availability</span><span style="font:10px 'IBM Plex Mono',monospace;color:#7d8286">world ref</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Agricultural potential · resources</span><span style="font:10px 'IBM Plex Mono',monospace;color:#7d8286">world ref</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Strategic position · defensibility</span><span style="font:10px 'IBM Plex Mono',monospace;color:#7d8286">derived</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Vault note <span style="color:#6f9b8d">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Note path · <span style="color:#6f9b8d">Settlements/Asterholm.md</span></span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Open note · create from template</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Frontmatter sync · app → note</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Note preview in inspector</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Backlinks · unlinked mentions</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Numbers the model reads stay app-native. Everything descriptive is a heading in the settlement's note, edited in the vault and shown read-only here.</div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Properties</div>
+          <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Administration</div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Governing faction · ruler</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Legal status · administrative weight</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Population</div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Total · growth rate</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Demographics · social groups · migration</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Economy</div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Agriculture · industry · mining · fishing</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civEconomyBody</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Specialization · wealth · notes</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Infrastructure <span style="color:#5f6468">settlement-scoped</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Walls · markets · granaries · workshops</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Port · bridge presence <span style="color:#5f6468">affects routing</span></span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Military</div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Garrison · defensive strength</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Fortification description · history</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Relationships</div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Parent · regional centre · capital</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Trade partners · connected settlements</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">from ways</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Rivalries · local politics</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          </div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ POINTS OF INTEREST</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">POI list · add · remove</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">_civRenderPoiList</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">POI type · commit</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civPoiKind #civPoiTypeRow</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Owner · faction · associated settlement</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Condition · age · importance</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Description · significance · lore</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Absorbs the manual icon list: an icon on the map becomes a POI entity, not a decoration. <span style="color:#c96a54">split</span> from · Map ▸ Manual icons <span style="color:#5f6468">#carIconList</span></div>
+        </div>
+
+        <div>
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:8px 0 4px">▾ ROUTES &amp; WAYS <span style="color:#5f6468">stays in CIVIL</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:6px 0 3px">§ Ways <span style="color:#7d8286">the permanent network</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Generate roads</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civAutoRoutesBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Way list (n)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civWayList</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Clear ways &amp; journeys</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civClearRoadsBtn</span></div>
+          <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Manual way drawing <span style="color:#5f6468">#civWayDrawRow</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Way type · road / track / trail / sea</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civWayType</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Snap to places · POIs · other ways</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Commit way <span style="color:#5f6468">Esc</span></span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civCommitWayBtn</span></div>
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Per way</div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Endpoints · length · terrain profile</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Owning faction · upkeep · condition</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Crossings · bridges · fords · ferries</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">History · control disputes</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          </div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Routes <span style="color:#7d8286">a planned traversal of the network</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Route tool · waypoints</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">data-civtool="route"</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Commit route <span style="color:#5f6468">Esc</span></span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civCommitRouteBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Route class · trade / military / pilgrim</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Cost model · Dijkstra terrain cost</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">A way exists in the world; a route is an intention over it. Both are CIVIL. Their colour and line width are CARTO. <span style="color:#c96a54">split</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ TRAVEL</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Journeys list</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civJourneyList</span></div>
+          <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+            <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Journey planner <span style="color:#5f6468">#civPlannerSec · #routeEditorModal</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Party form · 26 fields</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">_jpRenderPartyForm</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Stage matrix · 15 overrides</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Vessel reference · speed by water</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+            <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Verdict · time · load · supply · cost</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">_jpRenderResults</span></div>
+          </div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Travel library… <span style="color:#5f6468">⇧L</span></span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Animals · mounts · vehicles · vessels</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Party set-ups</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ TRADE</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Trade flows · partners</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Cost &amp; break-even trace</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Route cost field · trade influence</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Imports · exports per settlement</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ ECONOMY</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Economy panel <span style="color:#5f6468">aggregate</span></span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civEconomyBody</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Statistics · world &amp; per faction</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civStatisticsBody</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Production · specialization</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ CULTURE</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Cultures · languages · religions</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">State religion per faction</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civFactionInspectorHost</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Customs · traits · architecture</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ POLITICS</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Political change over time</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civTlAddYearBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Vassalage · alliances · rivalries</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ MILITARY</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Military presence · garrisons</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Fortification network · strategic value</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Campaigns · military routes</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ RELATIONSHIPS</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Diplomatic relations matrix</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Allies · rivals · subjects</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Treaties · incidents · correspondence</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ SIMULATION</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Collapse / recovery · mode · severity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civSimMode 3</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Regrowth rate · recovery phase</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Start year · step years · simulate</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civSimStepYears #civSimulateBtn</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Writes one timeline entry per step — history, never the live editable world. The scrubber that reads it is program scope.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid rgba(255,255,255,.10)">
+      <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a"><span>CARTO</span><span style="color:#5f6468">10 categories</span></div>
+      <div style="padding:6px 14px 14px">
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:8px 0 4px">▾ MAP STYLE</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Style preset · custom note</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#stylePresetSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Mode · relief / biome / political</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#modeSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Relief ↔ biome mix · sun</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">+ Painter styles (NPR)</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Contour veins · ink · hachure</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#contoursR 3</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Watercolor · cel · engraving</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Stipple · sepia · riso · pointillism</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">4</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Parchment · surface texture</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#parch 2</span></div>
+        </div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ TERRAIN APPEARANCE</div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:6px 0 3px">§ Colour relief ramp</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ramp bar · draggable stops</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Stop · elevation · hex · interpolation</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Bands · lowland → peak · opacity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Domain · absolute / world / view</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Relief &amp; occlusion</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Hillshade · multidirectional (8)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Strength · directionality · softness</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">AO · radius · sky view factor</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2 existing</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Slope shading · curvature · contrast</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ridge crests · cast shadows</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Surface &amp; water</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Vegetation · rock · soil exposure</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Water · coast colour · SDF coastlines</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Snow / ice · desert · forest look</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">3</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Detail macro / meso / micro · haze</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ COLOURS</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Vibrancy · saturation · contrast</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Brightness · gamma · temp · tint</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Biome colour table</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">+ Field influence weights</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Biome · elevation · moisture · geology</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        </div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ LAYERS <span style="color:#5f6468">data-driven stack</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Stack list · drag to reorder</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Per layer · visible · opacity · blend</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Per layer · zoom range · picking · clip</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Stack order <span style="color:#5f6468">16 layers</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Base · ocean · terrain · relief</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1–4</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Biomes · vegetation · rivers · lakes</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">5–8</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ways · boundaries · settlements · POI</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">9–12</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Landmarks · routes · labels · annotation</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">13–16</span></div>
+        </div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Replaces the scattered show-flags <span style="color:#5f6468">#showRivers · #explShowTerritory · #explShowRoads · #explSettlementFilterList</span> — one control per layer, in one place. <span style="color:#c96a54">split</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ ROADS &amp; ROUTES</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Way line width</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civWayScaleR</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Per class · colour · width · opacity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Dashed / solid · casing · centre line</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Road · track · trail styling</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Trade · military · sea · river route</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Route glow / highlight · labels</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Geometry, class and cost belong to CIVIL ▸ Routes &amp; Ways. Nothing here changes where a road runs.</div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ LABELS</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Label tool · all labels (n)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#carLabelList</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Settlement icon &amp; label scale</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civIconScaleR</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Clear all labels</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#carClearLabelsBtn</span></div>
+        <div style="border-left:1px solid rgba(255,255,255,.09);margin:4px 0 4px 5px;padding-left:9px">
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:2px 0 3px">› Category rules <span style="color:#5f6468">17 categories</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">World · region · polity · settlement</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Water · relief · vegetation names</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ways · routes · POI · landmarks</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:7px 0 3px">› Per category</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Show · min / max zoom</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Font · size · weight · colour · halo</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Placement · rotation · curved text</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Priority · collision behaviour</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        </div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">A label's text comes from the object's name in WORLD or CIVIL. Renaming happens there; only the drawing happens here. <span style="color:#c96a54">split</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ ASSETS &amp; LANDMARKS</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Asset pack · category · variation</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#alApplyBtn #packGrid</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Icon family picker · gallery</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Visibility · scale · rotation · opacity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Density · randomization · placement rules</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Clustering · decluttering · collision</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Which symbol per settlement class</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ground splat paint · clear layer</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#carPaintChk #carPaintClearBtn</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Clear placed icons</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#carClearIconsBtn</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ POLITICAL DISPLAY</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Territory tint · opacity</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#explShowTerritory</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Border line · width · style</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Province tint · claim hatching</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Influence gradient · legend</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ VISIBILITY / ZOOM</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Zoom ladder · what appears when</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Declutter budget per zoom</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="font:10px 'IBM Plex Mono',monospace;color:#6f7478;padding:8px 0 3px">§ Data overlays <span style="color:#7d8286">from · View ▸ Analysis field</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Elevation · slope · aspect · curvature</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#debugSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Temp · rainfall · wind · currents</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#debugSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Soil · lithology · biome · resources</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#debugSeg</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Pop density · control · trade influence</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Overlay opacity · range · threshold</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+
+        <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ MAP PRESETS</div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ramp library · 16 presets</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Save preset · save as theme · reset</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Preview on / off · split compare</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Quality · Balanced / Quality / Ultra</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">new</span></div>
+        <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Scale bar · frame furniture</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">1</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:20px 18px 26px;display:grid;grid-template-columns:1fr 1.5fr 1.1fr;gap:18px;align-items:start">
+
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div style="border:1px solid rgba(255,255,255,.10)">
+        <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a"><span>PROGRAM SCOPE</span><span style="color:#5f6468">menu bar · not a domain</span></div>
+        <div style="padding:6px 14px 14px">
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:8px 0 4px">▾ FILE · EDIT</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">New · open .zip · save · recent</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#loadZipBtn 3</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Export image · tiles · .zip · region</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#exportSec</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Undo · history (5)</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#undoBtn #undoMem</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ VAULT <span style="color:#6f9b8d">new</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Vault folder · connect / relink</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Note templates per entity type</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Path convention · Settlements/{name}.md</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Frontmatter mapping · which keys sync</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Sync direction · app writes frontmatter only</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Missing notes · orphan notes report</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Create notes for all settlements</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f9b8d">vault</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">One vault, many entity types. The app owns the path and the frontmatter; the writer owns the prose. Body text is never overwritten.</div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ ASSETS <span style="color:#5f6468">library, not placement</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Library window · tag · collect</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#assetsHeaderBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Sprite slicer · validate · import pack</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#alSlicerBtn 2</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Pack name · author · license · export</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#alExportBtn 3</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ VIEW · WINDOW</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">2D / 3D viewport · relief · flatten</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#viewDimSeg #genV3dSec</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Auto-detail on zoom · tile borders</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#lodAutoChk 1</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Chunk debug overlay</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#lodDbgSeg</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">CPU / GPU / memory · last heavy pass</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#gpuTag 2</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ TIMELINE <span style="color:#5f6468">global scrubber</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Year scrub · play · step · ×1/×10/×100</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#explTimelineSlider</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Add year · show only objects in year</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civTlAddYearBtn 1</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Ghost removed · highlight new</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">2</span></div>
+          <div style="font:10px 'IBM Plex Mono',monospace;color:#7d8286;padding:4px 0 0">Time is not a domain. Every domain reads the current year; none of them owns it. <span style="color:#c96a54">split</span></div>
+
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;padding:12px 0 4px;border-top:1px solid rgba(255,255,255,.07);margin-top:9px">▾ PREFERENCES · HELP</div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Theme · dark / light</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#themeToggleBtn</span></div>
+          <div style="display:flex;gap:8px;padding:2.5px 0"><span style="flex:1">Project settings… · credits</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#creditsBtn 1</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid rgba(255,255,255,.10)">
+      <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);display:flex;justify-content:space-between;font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a"><span>MIGRATION AUDIT · V2.10 SURFACE → V3 OWNER</span><span style="color:#5f6468">10 blocks reassigned</span></div>
+      <div style="padding:10px 14px 14px;display:flex;flex-direction:column;gap:0">
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:0 0 7px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468;border-bottom:1px solid rgba(255,255,255,.07)"><span>V2.10 SURFACE</span><span>NOW OWNED BY</span><span>WHAT CHANGED, AND WHY</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">PROJECT</span><span style="color:#7d8286">program scope</span><span>File, import, export, undo and theme were never world state. They return to the menu bar and stop competing with domains for rail space.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">WORLD (planet, calibration)</span><span style="color:#e0a34a">WORLD ▸ World Data</span><span>Kept whole. Generation controls that sat here move up into WORLD ▸ Generate so seed, steering and bake read as one act.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">GENERATE · geology &amp; water</span><span style="color:#e0a34a">WORLD</span><span>Split by subject rather than by run order: tectonics and volcanism to Geology, all erosion passes to Terrain, rivers and coast to Hydrology. The numbered 01–10 stage list disappears as navigation and survives as pipeline status.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">GENERATE · climate &amp; ecology</span><span style="color:#e0a34a">WORLD</span><span>Climate, weather, ecology and biome classification stay physical. Only the biome <i>colours</i> leave, for CARTO.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">CIVILIZATION · sub-tabs<br><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civSubBar — Factions · Generation · Settlements · Economy · Statistics</span></span><span style="color:#e0a34a">CIVIL</span><span>The five tabs become named categories instead of a flat tab bar. Generation Step 1 becomes Civilizations, Step 2 becomes Routes &amp; Ways, Step 3 becomes Territories. Its <b>Display</b> accordion — icon scale, way line width, per-layer opacity — is the one part that leaves, for CARTO. <span style="color:#c96a54">split</span></span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">Ways &amp; routes<br><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">#civWayList · #civWayType · #civCommitWayBtn · #civCommitRouteBtn</span></span><span style="color:#e0a34a">CIVIL ▸ Routes &amp; Ways</span><span>Stays exactly where v2.10 put it. Roads are built by people, so the network is civilizational data — there is no separate logistics domain to move it to.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">EXPLORE · journeys, planner, timeline</span><span style="color:#e0a34a">CIVIL + program</span><span><span style="color:#c96a54">split.</span> Journeys, the planner and the travel library become CIVIL ▸ Travel. Collapse/recovery becomes CIVIL ▸ Simulation. The year scrubber and existence filter are program scope — every domain reads the year.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">MAP · cartography</span><span style="color:#e0a34a">CARTO</span><span>Becomes the spine of CARTO. Its scattered show-flags collapse into the layer stack; its label list gains per-category rules; its manual icons become CIVIL POIs drawn with CARTO symbols.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">MAP · terrain appearance</span><span style="color:#e0a34a">CARTO</span><span>Kept whole, unchanged in scope. It was already a correct presentation-only surface and sets the pattern for the rest of CARTO.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="color:#c8cbcd">ASSETS</span><span style="color:#e0a34a">program + CARTO</span><span><span style="color:#c96a54">split.</span> The library — import, slice, tag, validate, export — is a program window. Which asset draws where, at what scale and density, is CARTO ▸ Assets &amp; Landmarks.</span></div>
+        <div style="display:grid;grid-template-columns:210px 105px 1fr;gap:12px;padding:7px 0;color:#8d9296"><span style="color:#c8cbcd">VIEW</span><span style="color:#e0a34a">3 owners</span><span><span style="color:#c96a54">split.</span> Viewport dimension, LOD toggles and performance readouts are program scope. Tile refine and atlas bake produce terrain data, so they belong to WORLD ▸ Generate. Analysis overlays are presentation and move to CARTO ▸ Visibility.</span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:18px">
+      <div style="border:1px solid rgba(255,255,255,.10)">
+        <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a">CONTEXT-SENSITIVE EDITING</div>
+        <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">MOUNTAIN · SLOPE</span><span style="flex:1;color:#8d9296">WORLD ▸ Terrain readout at the point, with Geology beneath it.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">RIVER · LAKE</span><span style="flex:1;color:#8d9296">WORLD ▸ Hydrology: discharge, catchment, tributaries, navigability.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">SETTLEMENT</span><span style="flex:1;color:#8d9296">CIVIL settlement editor — Site band reading WORLD live, vault note previewed below it.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">TERRITORY</span><span style="flex:1;color:#8d9296">CIVIL political editor, with a link to its CARTO display rule.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">WAY</span><span style="flex:1;color:#8d9296">CIVIL way record — endpoints, class, upkeep, crossings — plus the CARTO style row for its class.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">ROUTE</span><span style="flex:1;color:#8d9296">CIVIL ▸ Travel: the journey planner opens on that route.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">LABEL</span><span style="flex:1;color:#8d9296">CARTO label editor. The name itself opens its owning object.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:118px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">LANDMARK ASSET</span><span style="flex:1;color:#8d9296">CARTO asset controls, with the POI or settlement it stands for one click away.</span></div>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:11px;font:10.5px 'IBM Plex Mono',monospace;color:#6f7478">Selection never forces a rail change. The inspector switches domain; the viewport and the rail stay where the user left them.</div>
+        </div>
+      </div>
+
+      <div style="border:1px solid rgba(255,255,255,.10)">
+        <div style="padding:8px 14px;border-bottom:1px solid rgba(255,255,255,.10);font:500 10px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e0a34a">OWNERSHIP RULES</div>
+        <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:9px;color:#8d9296">
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">ONE WRITER</span><span style="flex:1">Each field has exactly one owner that may write it. Everyone else shows it read-only, with the owner one click away.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">NO COPIES</span><span style="flex:1">CARTO stores style documents keyed to object ids, never a second copy of elevation, biome or population.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">STALE FLAGS</span><span style="flex:1">Only WORLD and CIVIL edits mark stages stale. No CARTO control may invalidate a generation stage.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">SITE IS READ</span><span style="flex:1">A settlement's elevation, biome, water and resources are never typed in. They are sampled, and change when the world changes.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#6f9b8d">VAULT IS PROSE</span><span style="flex:1">If the model never reads it, it belongs in the note, not in a form field. The app stores the path and writes frontmatter; it never rewrites the body.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">MODEL VS DATA</span><span style="flex:1">A simulation lives with its inputs; its results live with the entity. CIVIL ▸ Simulation runs collapse, the settlement holds the population it produced.</span></div>
+          <div style="display:flex;gap:10px"><span style="width:104px;font:11px 'IBM Plex Mono',monospace;color:#c8cbcd">SAME OBJECT</span><span style="flex:1">Switching rail keeps the selection. WORLD, CIVIL and CARTO are three inspectors over one dataset, not three applications.</span></div>
+          <div style="border-top:1px solid rgba(255,255,255,.07);padding-top:11px;font:10.5px 'IBM Plex Mono',monospace;color:#6f7478">Disclosure grammar unchanged from v2: L2 ▾ category, L3 § section, L4 › group, L5 + advanced, five levels maximum. Every #id keeps its wiring — this is re-parenting, not rewriting.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

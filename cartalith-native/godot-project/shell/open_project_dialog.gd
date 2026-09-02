@@ -22,7 +22,7 @@ class_name OpenProjectDialog
 ## | `Recent` / `All worlds` / `Shared` chips, active one accent-outlined | `_build_scopes()` |
 ## | 4-column tile grid, `16/11.5` tiles | `_grid` |
 ## | dashed import tile, first | `_build_import_tile()` |
-## | `CURRENT` badge, name, `seed · edited 4 min ago` | `_build_tile()` |
+## | `CURRENT` badge, name, `seed · fmt N · edited 4 min ago` | `_build_tile()` |
 ## | foot: `projects read from …`, `Cancel`, `Open selected` | `_build_foot()` |
 ##
 ## **What is real and what is disclosed.** Following this shell's own habit of
@@ -95,6 +95,14 @@ var _title_label: Label
 var _subtitle_label: Label
 var _cancel_btn: Button
 
+## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
+## treatment and why; here it decides whether the toolbar stacks and whether
+## the composition is re-fitted for touch.
+var _phone := false
+var _toolbar_row: BoxContainer   ## Held so `_apply_phone_toolbar()` can turn it
+	## on its side -- see there for why the search well and the scope chips
+	## cannot share a row at 393 dp.
+
 ## path -> {seed, modified, size}. Keyed by path *and* mtime so a re-saved
 ## world re-reads rather than showing a stale seed; opening a `.zip` per tile
 ## is cheap but not free, and the gallery rebuilds on every keystroke in the
@@ -118,24 +126,38 @@ func setup(host: DccApp) -> void:
 	borderless = true
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(880, 560)
+	## PH-06's shared treatment, which this dialog wrote the *precedent* for
+	## and then never took: `_present()` below was the original fill-the-screen
+	## reasoning, and `new_world_dialog.gd` / `browse_dialog.gd` were fitted to
+	## the generalised version of it while this file kept the hand-rolled half.
+	## What it was missing is the other half -- `phone_fit()`, the touch-target
+	## and stacking pass -- plus `wrap_controls = false`. Also turns the
+	## rotation relay into the guarded, self-disconnecting one, so the manual
+	## `phone_insets_changed` connection this file used to make is gone: the
+	## shared relay re-presents the *window*, and the one kept below re-fits
+	## only what is specific to this screen.
+	_phone = DccWidgets.phone_window(self, host)
 	_build()
 	## The dashed tile is a drop target, and a drop lands on the *window*, not
 	## on the control under the cursor -- Godot reports files at window level.
 	## Guarded on visibility so a drop onto the shell while this dialog is
 	## closed is not silently swallowed by a hidden dialog.
 	files_dropped.connect(_on_files_dropped)
-	## Rotation changes both the screen this fills and how many tiles fit across
-	## it. `phone_insets_changed` is the shell's own "the phone layout moved"
-	## signal, already emitted by `_apply_phone_orientation()`.
-	if _host.is_phone():
+	if _phone:
+		## Rotation changes how many tiles fit across the gallery; the window
+		## geometry itself is `phone_window()`'s own relay's business.
 		_host.phone_insets_changed.connect(func():
 			if visible:
-				_present())
+				_fit_phone_content())
+		## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once
+		## as the window's `content_scale_factor`, and applying it again here
+		## would square it. The composition is built once, so one pass does.
+		_apply_phone_toolbar()
+		_host.phone_fit(self, 1.0)
 
 func open() -> void:
 	_selected = ""
 	_welcome = false
-	popup_centered()
 	_present()
 	_refresh()
 
@@ -148,7 +170,6 @@ func open() -> void:
 func open_welcome() -> void:
 	_selected = ""
 	_welcome = true
-	popup_centered()
 	_present()
 	_refresh()
 
@@ -165,19 +186,23 @@ func open_welcome() -> void:
 ## a real handset, so the desktop numbers land on the phone reference by
 ## construction instead of by a second set of constants.
 ##
-## Re-run on every open (and on rotation, via `_host.phone_insets_changed`)
-## because the viewport it measures changes with both.
+## Re-run on every open (and on rotation, via the relay `phone_window()`
+## installs) because the viewport it measures changes with both. The geometry
+## itself is now `DccWidgets.phone_present()`, which is this reasoning
+## generalised -- and which also fixed a bug this file's hand-rolled version
+## had: `popup_centered()` first and `size = screen` after produced no resize
+## notification on a *hidden* window, so the body kept its desktop rect and
+## overflowed instead of scrolling. `Window.popup(rect)` sizes as part of
+## showing. See `dcc_widgets.gd`'s own header for the measurement.
 func _present() -> void:
-	if _host == null or not _host.is_phone():
+	if not DccWidgets.phone_present(self, _host):
+		popup_centered()
 		return
-	var scale: float = _host.phone_scale()
-	var screen: Vector2 = _host.get_viewport_rect().size
-	content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
-	content_scale_factor = scale
-	## `min_size` is authored for desktop and would otherwise refuse a window
-	## narrower than 880 px, which every phone in portrait is.
-	min_size = Vector2i.ZERO
+	_fit_phone_content()
+
+## The two things about *this* screen that a generic phone presentation cannot
+## know: which head text does not fit, and how many tiles do.
+func _fit_phone_content() -> void:
 	## A `Window` cannot shrink below its content minimum, so full-screen only
 	## takes effect once the widest row can actually fit the column. The head is
 	## that row by a wide margin: the subtitle is a single unwrapped `Label`
@@ -186,9 +211,47 @@ func _present() -> void:
 	## say in full, so phone drops it -- everything else (the search well, the
 	## clipped foot note) is already shrinkable.
 	_subtitle_label.visible = false
-	size = Vector2i(screen)
-	position = Vector2i.ZERO
-	_fit_columns(screen.x / scale)
+	_fit_columns(_host.get_viewport_rect().size.x / _host.phone_scale())
+	## **An `AcceptDialog` sizes its content child on resize, and on nothing
+	## else.** Hiding the subtitle a line above is a minimum-size change, not a
+	## resize, so the body kept the 497 dp width it was measured at *with* the
+	## subtitle in it -- inside a 393 dp window. Measured: the search well ran
+	## 82 dp off the right edge, taking the gallery tiles and the "Open
+	## selected" button with it. `child_controls_changed()` is the engine's own
+	## "re-measure me" for exactly this, and it brings the body back to 380 dp
+	## (its real minimum, three over the 377 available, which is nothing).
+	## Called last, so it sees the finished composition.
+	child_controls_changed()
+
+## The toolbar is a search well that expands beside a three-chip scope row.
+## That is one row too many for 393 dp: the chips' own minimum is ~230 dp, and
+## a `BoxContainer` handed more minimum width than it has does not clip, it
+## **overlaps** -- so the well's outlined panel drew straight over `Recent /
+## All worlds / Shared`, and the `LineEdit` inside it got the ~110 dp left
+## over, which is where "Search wo…" came from. Both symptoms measured on the
+## handset; both are the same fault. Stacking is the only fix that keeps every
+## control at full size, and it is exactly what `phone_window()` returns a
+## boolean for.
+func _apply_phone_toolbar() -> void:
+	if _toolbar_row == null:
+		return
+	var stacked := VBoxContainer.new()
+	stacked.add_theme_constant_override("separation", 10)
+	var parent := _toolbar_row.get_parent()
+	var index := _toolbar_row.get_index()
+	parent.remove_child(_toolbar_row)
+	## The children move to the new column rather than the row being reparented
+	## into it -- an `HBoxContainer` nested in a `VBoxContainer` would lay its
+	## own children out horizontally again, which is the arrangement being
+	## undone.
+	for c in _toolbar_row.get_children():
+		_toolbar_row.remove_child(c)
+		(c as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stacked.add_child(c)
+	_toolbar_row.queue_free()
+	_toolbar_row = null
+	parent.add_child(stacked)
+	parent.move_child(stacked, index)
 
 ## The gallery is a 4-column grid at 1180 px. At the phone reference width it
 ## fits one tile, and two in landscape -- computed from the tile's own minimum
@@ -259,6 +322,7 @@ func _build_head() -> Control:
 func _build_toolbar() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
+	_toolbar_row = row   ## `_apply_phone_toolbar()` stacks it on a handset.
 
 	var well := PanelContainer.new()
 	well.add_theme_stylebox_override("panel", DccTheme.outline("line"))
@@ -426,7 +490,7 @@ func _refresh() -> void:
 	var query := _search.text.strip_edges().to_lower()
 	var shown := 0
 	for path in _paths():
-		var meta := _project_meta(String(path))
+		var meta := project_meta(String(path))
 		if query != "" and not _matches(String(path), meta, query):
 			continue
 		_grid.add_child(_build_tile(String(path), meta))
@@ -446,6 +510,12 @@ func _refresh() -> void:
 	else:
 		_foot_note.text = "projects read from %s" % root
 	_refresh_open_button()
+	## The gallery just changed, and on a phone its width is what the window
+	## has to be re-measured against -- see `_fit_phone_content()` for why that
+	## does not happen on its own. Runs on every keystroke in the search well,
+	## which is what `child_controls_changed()` is cheap enough for.
+	if _phone:
+		_fit_phone_content()
 
 ## The search well offers "name, seed or region". Name and seed are real
 ## fields; "region" has no equivalent -- a save carries no region name -- so
@@ -547,7 +617,7 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	thumb.custom_minimum_size.y = 128
 	thumb.clip_contents = true
 	var tex := TextureRect.new()
-	tex.texture = _identicon(path)
+	tex.texture = identicon(path)
 	tex.set_anchors_preset(Control.PRESET_FULL_RECT)
 	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	tex.stretch_mode = TextureRect.STRETCH_SCALE
@@ -584,8 +654,14 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	title_label.name = "Title"
 	title_label.clip_text = true
 	caption.add_child(title_label)
+	## `seed · fmt N · edited 4 min ago`. The format number is this *save's*
+	## own (read above), not `EngineBridge.project_format_version()`, which is
+	## the version this build writes -- printing the build constant on every
+	## tile would say nothing about the file the tile opens.
+	var fmt := int(meta.get("format", 0))
+	var fmt_part := ("fmt %d · " % fmt) if fmt > 0 else ""
 	caption.add_child(DccTheme.mono_label(
-		"%s · %s" % [meta.get("seed", "seed unread"), meta.get("edited", "")],
+		"%s · %s%s" % [meta.get("seed", "seed unread"), fmt_part, meta.get("edited", "")],
 		"text_faint", DccTheme.FS_TINY))
 
 	_ignore_mouse(wrap)
@@ -624,6 +700,13 @@ func _paint_tile(path: String, on: bool) -> void:
 
 func _refresh_open_button() -> void:
 	_open_btn.disabled = _selected == "" or not FileAccess.file_exists(_selected)
+	## Every disabled control in this shell states its reason on hover -- this
+	## one had no tooltip at all, so the primary action of the welcome screen
+	## was greyed out and silent about why (found by the 2026-08-25 sweep's
+	## disabled-without-a-reason scan, not by a user).
+	_open_btn.tooltip_text = "" if not _open_btn.disabled \
+		else ("Pick a world above first." if _selected == "" \
+			else "%s is no longer on disk." % _selected.get_file())
 
 func _confirm() -> void:
 	if _selected == "" or not FileAccess.file_exists(_selected):
@@ -660,19 +743,63 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 # Per-project metadata
 # ---------------------------------------------------------------------------
 
-## `{seed, edited}` for one save. Both are display strings; nothing reads them
-## back. The seed comes from the save's own `params.json` (`SAVEFILE_COMPAT.md`
+## `project.json`'s own `format` member, which identifies the archive as this
+## application's. `cartalith-io/src/project.rs` declares it as
+## `pub const PROJECT_FORMAT: &str = "cartalith-project"` and refuses any
+## archive whose manifest says something else or nothing at all. Duplicated as
+## a literal only because no binding exposes it; if one is ever added,
+## `project_meta()` should read it instead of this constant.
+const PROJECT_FORMAT := "cartalith-project"
+
+## `{seed, edited, format}` for one save. The first two are display strings and
+## nothing reads them back; `format` is the save's own `format_version`
+## (`SAVEFILE_COMPAT.md` §4) as an integer, 0 when unread.
+## The seed comes from the save's own `params.json` (`SAVEFILE_COMPAT.md`
 ## §`params.json`: `state.tect.seed`) via `ZIPReader`, which is a read of a
 ## stored value rather than a re-derivation of one -- the distinction the
 ## `godot-shell` skill's "keep logic out of GDScript" rule turns on.
-static func _project_meta(path: String) -> Dictionary:
+##
+## Public (not `_project_meta`) since `phone_project_picker.gd`'s own recents
+## list reads the identical real per-save facts for its cards rather than a
+## second implementation of the same `ZIPReader` walk -- the phone screen
+## replaces this dialog's *gallery chrome* (§ header, search well, scope
+## chips), not its data layer.
+static func project_meta(path: String) -> Dictionary:
 	var modified := FileAccess.get_modified_time(path)
 	var key := "%s@%d" % [path, modified]
 	if _meta_cache.has(key):
 		return _meta_cache[key]
-	var meta := {"seed": "seed unread", "edited": _relative_time(modified)}
+	var meta := {"seed": "seed unread", "edited": _relative_time(modified), "format": 0}
 	var zip := ZIPReader.new()
 	if zip.open(path) == OK:
+		## `project.json`'s `format_version` (`SAVEFILE_COMPAT.md` §4), which a
+		## reader MUST check and which nothing in this shell ever showed. It is
+		## the first number asked for when an old save misbehaves, so the tile
+		## that offers to open it is where it belongs. 0 means "not read" --
+		## an absent or unparsable header, which §4 says a reader refuses -- and
+		## the caption omits the field rather than printing a version this file
+		## never claimed.
+		##
+		## **The `format` identity test comes first, and did not used to exist.**
+		## The engine refuses an archive whose `project.json` carries a different
+		## `format`, or none at all (`cartalith-io/src/project.rs`, twice: `match
+		## manifest.get("format") { Some(PROJECT_FORMAT) => {}, Some(other) =>
+		## Err(NotAProject(other)), None => Err(NotAProject("")) }`). Reading only
+		## `format_version` here meant any unrelated `.zip` that happened to
+		## contain a `project.json` with that key got a confident `format 1`
+		## caption on a tile offering to open it -- a caption the loader behind
+		## the tile would then refuse. `phone_project_picker.gd` reads this same
+		## static, so both pickers gain the test together. `PROJECT_FORMAT`'s value
+		## is spelled again here only because no binding exposes it: the way to end
+		## that duplication is a `project_format()` wrapper in `engine_bridge.gd`
+		## beside the existing `project_format_version()`, returning
+		## `cartalith_io::PROJECT_FORMAT` from the engine.
+		if zip.file_exists("project.json"):
+			var head = JSON.parse_string(zip.read_file("project.json").get_string_from_utf8())
+			if head is Dictionary \
+					and String((head as Dictionary).get("format", "")) == PROJECT_FORMAT \
+					and (head as Dictionary).has("format_version"):
+				meta["format"] = int((head as Dictionary)["format_version"])
 		if zip.file_exists("params.json"):
 			var parsed = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
 			if parsed is Dictionary:
@@ -718,7 +845,12 @@ static func _relative_time(unix: int) -> String:
 ## always reads the same colour and two worlds rarely collide; saturation and
 ## value are fixed low, because these tiles sit behind an accent selection
 ## border and must never compete with it.
-static func _identicon(path: String) -> Texture2D:
+##
+## Public alongside `project_meta()` above, for the same reason: the phone
+## picker's cards want the identical stable-per-world art, not a second hash
+## scheme that would tag the same world with two different colours depending
+## on which screen opened it.
+static func identicon(path: String) -> Texture2D:
 	var hue := float(abs(path.hash()) % 360) / 360.0
 	var g := Gradient.new()
 	g.set_color(0, Color.from_hsv(hue, 0.30, 0.22))

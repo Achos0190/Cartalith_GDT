@@ -11,6 +11,17 @@ longer applies — this pass re-attempted it for real, following this
 project's own `cartalith-porting-discipline` rule to flag what can't be
 verified rather than claim false success.
 
+> **This document is a log of real device passes — what each one required,
+> drove, measured and deliberately left alone, on the date in its own heading.
+> It is a record, not a tracker.** Every "not fixed", "still unseen",
+> "flagged" and "owed" below is scoped to the pass that wrote it and is not a
+> claim about where that item stands now; every memory figure is one handset
+> reading of one build. Current status lives in
+> `cartalith-native/docs/STATUS.md`, the single source of truth for this port.
+> Note also the seed rule this effort learned the hard way and
+> `MEMORY_OPTIMIZATION_SCOPE.md` records: **any Android memory figure must
+> state its seed**, or the spread swamps the effect being claimed.
+
 ## What was actually required (none of it was missing)
 
 `TOOLCHAIN.md`'s own framing called Android "the single highest-risk item
@@ -45,7 +56,7 @@ already correctly installed and wired from earlier in this project's
 history. This pass's real work was producing a *current* build and testing
 it on real hardware, not toolchain setup.
 
-## Build (done)
+## Build
 
 1. `cargo ndk -t arm64-v8a build --release -p cartalith-godot` —
    compiled clean, 2m38s, produced a current
@@ -62,7 +73,7 @@ it on real hardware, not toolchain setup.
    builds/android/Cartalith.apk` — succeeded, signed with Godot's own
    auto-generated debug keystore.
 
-## Install and launch (done)
+## Install and launch
 
 `adb install -r` succeeded first try. `adb shell am force-stop` then
 `monkey -p org.cartalith.walkingskeleton -c android.intent.category.LAUNCHER
@@ -194,21 +205,23 @@ an ANR under Android's stricter watchdog — needs the phone physically
 unlocked (by the owner) while a session drives it, or the owner running
 the already-installed APK by hand.
 
-## Done means (fully reached)
+## What this pass established (2026-08-17)
 
-| Item | Status |
+| Item | Outcome on the day |
 |---|---|
 | Android toolchain (NDK/cargo-ndk/gdext/Godot export) actually works | **Confirmed**, first real end-to-end proof this project has had |
-| Current `.apk` built from today's code, not a stale one | **Done** — installed build reflects all of 2026-08-16's landed work |
-| Installs on real hardware | **Done** |
+| `.apk` built from that day's code, not a stale one | **Built** — the installed build reflected all of 2026-08-16's landed work |
+| Installs on real hardware | **Installed**, first try |
 | Launches, GDExtension loads, engine initializes, real GPU context created | **Confirmed via logcat** |
-| Golden path exercised (tap Generate, confirm render) | **Done (2026-08-17)** — same-seed regeneration reproduced the identical rendered world |
-| On-device memory during generation | **Done** — peak ~283,326 KB PSS (~277 MB) at 512×512, steady-state ~271,290 KB, no leak observed |
-| ANR/responsiveness check under load | **Done** — no ANR/crash/hang, ~7-9s wall-clock at 512×512 |
+| Golden path exercised (tap Generate, confirm render) | **Driven** — same-seed regeneration reproduced the identical rendered world |
+| On-device memory during generation | **Measured** — peak ~283,326 KB PSS (~277 MB) at 512×512, steady-state ~271,290 KB, no leak observed |
+| ANR/responsiveness check under load | **Clean** — no ANR/crash/hang, ~7-9s wall-clock at 512×512 |
 
-MVP criterion 4 ("Android `.apk` builds + owner has installed/run") is
-now **fully closed**, real hardware, real numbers, both halves (build+
-install and actually running the golden path).
+Both halves of MVP criterion 4 ("Android `.apk` builds + owner has
+installed/run") were exercised in this pass on real hardware with real
+numbers — build+install, and actually running the golden path. What that
+leaves the criterion at is `cartalith-native/docs/STATUS.md`'s to say, not
+this document's.
 
 ---
 
@@ -457,7 +470,7 @@ layout would be no better than the current one.
 the phone would not re-lock mid-run; both were restored afterwards
 (`stayon false`, timeout 120000 ms). Nothing else on the device was changed.
 
-## Done means (this pass)
+## What this pass got
 
 | Item | Result |
 |---|---|
@@ -469,7 +482,7 @@ the phone would not re-lock mid-run; both were restored afterwards
 | Leak | **None** — big-world memory fully released on regenerate |
 | Generation time on device | 3.2 s (131 k cells) → 4.5 s (262 k) → 8-9 s (466 k) → **31 s (2.68 M, the default)** |
 | Non-square maps | **All four shapes correct**, including Whole world 2:1 pinning |
-| Phone UI | **Structurally intact, physically unusable by finger** — see §6; open item, not fixed |
+| Phone UI | **Structurally intact, physically unusable by finger** — see §6; recorded, not fixed in this pass |
 | Crashes / ANRs / OOM kills | **None** |
 
 ---
@@ -811,7 +824,7 @@ landscape — those are consistent, not contradictory.)
 portrait attempt and restored to `1` / `0` (auto-rotate on) afterwards.
 `screen_off_timeout` was read but never changed. Nothing else.
 
-## 5. Unrelated cruft noticed in the APK, flagged not fixed
+## 5. Unrelated cruft noticed in the APK, flagged and not fixed in this pass
 
 `export_filter="all_resources"` pulls the editor-only addons into the shipped
 APK. The archive contains `assets/addons/godotsteam/` and
@@ -827,7 +840,7 @@ verify it, and re-cutting the export filter is a separate change that wants its
 own build-install-run cycle rather than being smuggled into a verification
 pass. Worth ~19 MB and one line to whoever picks it up.
 
-## Done means (this pass)
+## What this pass got
 
 | Item | Result |
 |---|---|
@@ -848,9 +861,9 @@ pass. Worth ~19 MB and one line to whoever picks it up.
 | Crashes / ANRs / script errors / OOM kills | **None** |
 | Memory at 2048x1311 | Peak **899,089 KB (878 MB)**, flat vs. 2026-08-18's 874 MB; steady **662,793 KB (647 MB)**, up ~23%; no leak |
 | §13 phone layout on real hardware | **Yes, and it works** — `_phone` latched, phone chrome built, 44 px targets land at ~121 physical px; retires the 2026-08-18 §6 "unusable by finger" verdict |
-| Phone-layout defects found | **Two, reported not fixed** — runtime dialogs keep desktop sizing; `Open project` shows duplicated header/close (§4.2) |
-| §13 *portrait* composition | **Still unseen** — `"sensor"` follows the accelerometer, so `adb` cannot force it; needs the phone physically rotated |
-| Editor-only addons in the APK | **Flagged, not fixed** — ~19 MB of godotsteam + godot_ai (§5) |
+| Phone-layout defects found | **Two, reported and not fixed in this pass** — runtime dialogs keep desktop sizing; `Open project` shows duplicated header/close (§4.2) |
+| §13 *portrait* composition | **Unseen by this pass** — `"sensor"` follows the accelerometer, so `adb` cannot force it; needs the phone physically rotated |
+| Editor-only addons in the APK | **Flagged, not fixed in this pass** — ~19 MB of godotsteam + godot_ai (§5) |
 
 ---
 
@@ -1046,7 +1059,7 @@ minimum sizes and explicit font-size overrides are scaled; anything tappable is
 then floored at §13's 44 px. The sheet's own padding constants were scaled too —
 left raw they put the first control flush against the screen edge.
 
-## 5. The overflow menu: diagnosed, deliberately not fixed
+## 5. The overflow menu: diagnosed here, deliberately not fixed in this pass
 
 Owner: *"not much from the menus work on android."* A mobile menu design is
 being produced separately, so this is evidence for that design pass, not a
@@ -1098,7 +1111,7 @@ the previous pass despite its own note saying otherwise — and is restored to `
 `wm user-rotation lock 1` was used to capture landscape and released with
 `wm user-rotation free`. `user_rotation` restored to `0`. Nothing else.
 
-## Done means (this pass)
+## What this pass got
 
 | Item | Result |
 |---|---|
@@ -1111,7 +1124,460 @@ the previous pass despite its own note saying otherwise — and is restored to `
 | Light theme: embedded `Window` chrome | **Fixed** — written from tokens, cold-boot safe |
 | Light theme: per-window coverage | **8 of 8 correct**, both palettes, verified by capture |
 | Bottom sheet targets | **Fixed** — scaled at `set_tool_options()`, floored at 44 px |
-| Overflow menu | **Diagnosed, not fixed** (§5), by instruction |
+| Overflow menu | **Diagnosed, not fixed in this pass** (§5), by instruction |
 | Headless smoke test | **PASS** |
 | Desktop windowed launch | **Clean** — world generated, `6a97911` GL fix not regressed |
 | Device install and run | **Clean** — portrait and landscape both captured |
+
+# Pinch-to-zoom pass (2026-08-24)
+
+Owner: *"zooming doesn't seem to work on the phone."* Full write-up in
+`cartalith-native/docs/CHANGELOG.md`; this section records only the Android
+specifics, because they are the reusable part.
+
+## The setting
+
+`input_devices/pointing/android/enable_pan_and_scale_gestures` defaults to
+**false** in Godot 4.7.1, and with it off the Android input layer never
+attaches its `GestureDetector`/`ScaleGestureDetector` — so
+`InputEventMagnifyGesture` and `InputEventPanGesture` are never produced on a
+device, no matter how correctly the game handles them.
+`viewport_host.gd` had handled the magnify event since the camera was written.
+`project.godot` now carries an `[input_devices]` block turning it on.
+
+Two things worth keeping, both read out of the shipped APK with
+`dexdump -d` rather than from documentation:
+
+- `GodotGestureHandler.onScale` and `.onScaleBegin` open with
+  `iget-boolean … panningAndScalingEnabled` and branch straight out;
+  `GodotInputHandler.enablePanningAndScalingGestures(Z)` is the only writer.
+- `ScaleGestureDetector` is built with the 2-arg constructor and
+  `setQuickScaleEnabled` is **never** called, so Android's single-finger
+  double-tap-drag zoom does not exist in a Godot app. Two real fingers is the
+  only path to a magnify event.
+
+## Driving a real multi-touch pinch from `adb`, on an unrooted device
+
+This is the part that took the work, and it is worth writing down because
+every obvious route is a dead end:
+
+| Route | Why it fails |
+|---|---|
+| `adb shell input tap` / `swipe` / `motionevent` | single-pointer only — there is no multi-touch verb in `input` at all |
+| two concurrent `input swipe`s | not a pinch: each is its own pointer-0 DOWN…UP stream, so the app sees one jittering finger and `getPointerCount()` never reaches 2 |
+| `sendevent /dev/input/event2` (the real panel) | node is `0666` but SELinux denies `u:r:shell:s0`; DAC is not the gate here |
+| `adb root` → `setenforce 0` | refused: LineageOS gates it on `persist.sys.root_access`, which cannot be set without root |
+
+**What works: AOSP's own `/system/bin/uinput`.** `/dev/uinput` is group `uhid`
+and `shell` is in `uhid`, so no root is needed. Register a virtual touchscreen
+and inject MT protocol B directly:
+
+- `configuration` entries `100`=`UI_SET_EVBIT` (`EV_KEY`, `EV_ABS`),
+  `101`=`UI_SET_KEYBIT` (`BTN_TOUCH`), `103`=`UI_SET_ABSBIT`,
+  **`110`=`UI_SET_PROPBIT`** with data `[1]` for `INPUT_PROP_DIRECT` — without
+  that property InputReader does not treat it as a touchscreen.
+- `abs_info` ranges set to `0-1079` × `0-2339` so the virtual device maps 1:1
+  onto this panel and injected coordinates are screen coordinates.
+- Both slots down **in the opening report** (`ABS_MT_SLOT` 0 and 1, distinct
+  `ABS_MT_TRACKING_ID`s) so the app gets `ACTION_DOWN` +
+  `ACTION_POINTER_DOWN` with `pointerCount == 2`; interpolated move reports;
+  release by setting each slot's tracking ID to `-1`.
+- Registration needs a `delay` (~2.5 s) before the first inject, or InputReader
+  has not enumerated the device yet.
+- The span must clear `ScaleGestureDetector`'s `config_minScalingSpan`
+  (~27 mm ≈ 430 px here) or `onScaleBegin` is never called. 600 → 1000 px
+  worked; anything starting under ~450 px would silently do nothing.
+
+Generator script and the two command files live in the session scratchpad, not
+in the repo — they are ~90 lines of generated JSON and are cheaper to
+regenerate from this description than to maintain.
+
+## Result
+
+Read off the app's own `z%.1f` viewport readout, on a real 2048 × 1311 world
+generated on the phone (OnePlus 6T, LineageOS 22.2 / Android 15):
+
+| Build | Gesture | Readout |
+|---|---|---|
+| fix on | pinch out 600 → 1000 px | **z1.0 → z2.2** |
+| fix on | pinch in 1000 → 600 px | **z2.2 → z1.0** |
+| control APK, setting `false`, otherwise identical | the same injected pinch | **z1.0, unchanged** |
+
+The control build is the point: it reproduces the owner's report exactly, so
+the setting is the cause rather than something else that moved in the same
+window. Deep-zoom LOD tiles resolve in the zoomed capture, so the whole
+`_zoom_at` → `set_camera_zoom` → `_update_lod` chain runs on touch.
+
+## Device state touched
+
+The virtual `uinput` touchscreen exists only for the lifetime of each `uinput`
+invocation and is gone afterwards; nothing persistent was registered. The
+screen was woken and the keyguard dismissed (no PIN was entered — it was not
+set). Everything pushed to `/data/local/tmp/` was removed again. The fixed APK
+was reinstalled last, so the
+device is left on the fixed build. No settings or properties were changed —
+`persist.sys.root_access` was *attempted* and refused, which changed nothing.
+
+---
+
+## Device pass — the civ / urban / render windows on the phone (2026-08-24)
+
+Hardware: OnePlus 6T (`ONEPLUS_A6013`, LineageOS), 1080 x 2340, `phone_scale`
+2.748. Build: `--export-debug "Android"` against the existing
+`target/aarch64-linux-android/android-dev/libcartalith_godot.so` — this pass is
+GDScript only, so the `.so` was deliberately **not** rebuilt (another agent had
+`lib.rs` mid-flight and rebuilding would have shipped half a change).
+
+### What was driven, and how
+
+Everything through `adb shell input tap` / `swipe`, confirmed with
+`adb exec-out screencap`. A press-and-hold is `input swipe X Y X+1 Y+1 900` —
+a zero-length swipe with a duration, which is a genuine long press rather than
+two taps.
+
+| Path | Result |
+|---|---|
+| Welcome, Generate world, domain switch | world generated on the handset, CIVIL/CARTO reachable |
+| Press-and-hold on a settlement pin | context sheet, titled with the settlement name, carrying Edit / Move viewer / Delete / Drop settlement here / Info here |
+| Press-and-hold on open water | the same sheet, titled `HERE`, with only Drop and Info — the two branches of the same menu |
+| Sheet ▸ Edit | place editor, full screen, own header, no IME over the form |
+| Place editor scroll ▸ Actions | Focus camera / Open in City Viewer / Delete place, all 48 dp |
+| Actions ▸ Open in City Viewer | canvas band over a scrolling info column; picker, Fit and the two zoom steps all 44 dp |
+| City Viewer ▸ settlement picker | 40-name list, rows legible and tappable |
+| CIVIL ▸ left sheet ▸ Politics ▸ Faction roster | opens on the faction list with drawn banners, Add/Remove below it |
+| Roster ▸ tap a faction | list folds to a 52 dp bar carrying that faction's banner and name; inspector fills the screen |
+| CARTO ▸ left sheet | categories collapse/expand; the scrollbar drags |
+
+### The finding that mattered
+
+The first three attempts at the press-and-hold produced nothing at all, and no
+diagnostic reached `logcat`. The cause was not the gesture: **no GUI input had
+ever reached `map_overlay.gd` on a phone** — see `GUI_GAP_REGISTER.md` §22
+PH-01. It was found by moving off the device onto a `--force-touch` desktop run
+at 393 x 852 and asking `gui_get_hovered_control()` what was under the map
+centre; it named the chrome spacer.
+
+**The lesson is the loop, not the bug.** Each device iteration is an export, an
+`adb install` and a re-navigation — several minutes, and `print()`/`printerr()`
+from GDScript never appeared in `logcat` on this build, so the device could
+show *that* something failed but not *where*. The `--force-touch` harness
+reproduces the same composition in seconds with full console output and
+synthesised `device = -1` (`DEVICE_ID_EMULATION`) pointer events, which is what
+Android's mouse emulation stamps on its own — so hit-testing, `mouse_filter`
+and the hold timer are all genuinely exercised. Diagnose there; confirm on the
+handset. Both halves are needed: the desktop harness cannot show an IME
+covering a form, and the handset could not have shown which node was eating the
+tap.
+
+### State the device is left in
+
+The fixed build is installed and is the last thing that ran. Nothing was pushed
+to `/data/local/tmp/`, no properties or settings were changed, and no root was
+attempted. One unrelated app (Google Meet) was brought to the foreground by a
+stray back-press during navigation and was force-stopped again.
+
+---
+
+## The APK was 21 commits stale, and nothing said so (2026-08-24)
+
+An audit sha256-compared `builds/android/Cartalith.apk`'s
+`lib/arm64-v8a/libcartalith_godot.so` against what was on disk and found it
+**byte-identical to a build from 2026-08-23 14:34**. `git log` over
+`cartalith-native/crates/` since that timestamp: **25 commits**. The phone had
+been running a native library a day and 25 commits behind its own shell, and
+had been doing so through at least two device passes that reported clean runs.
+
+**Nothing failed.** No crash, no ANR, no `SCRIPT ERROR`, a clean `logcat` — and
+whole subsystems inert: the NPR "Painter styles" / "Water & light" block did
+not build at all, Measure's Area / Radius / Cross-section stayed greyed while
+Distance and Bearing worked, the faction roster showed `?` and `0`, the City
+Viewer drew nothing behind a misleading "no layout" message, and save, undo,
+the erosion-pass parameters, the geoid/tides/Köppen/wildlife debug views,
+GeoJSON export, hand-drawn ways and the civ-recompute path were all dead. Every
+one of them was *working code*, defeated by a `.so` that predated it.
+
+### Why it was silent, and what that costs
+
+`engine_bridge.gd` guards every wrapper with
+`world_gen.has_method("...")` and returns a safe default on a miss. That guard
+is right — it is what lets a shell degrade instead of crashing against an older
+binary — and it had **200 call sites, none of which said anything.** A stale
+library is therefore indistinguishable from a feature that is merely disabled,
+which is precisely how 25 commits of work went unnoticed on a handset.
+
+### Fixed: the guard now speaks
+
+All 200 sites now route through one probe, `EngineBridge._has()`, which answers
+the same question and `push_warning()`s the first time an answer is `false`:
+
+```
+Cartalith: the loaded GDExtension has no WorldGen.<name>(). Whatever needed it
+is degraded to a safe default. This almost always means the native library is
+older than the shell (a stale libcartalith_godot.so) -- rebuild and re-export
+before treating the missing feature as a bug.
+```
+
+**Once per method name**, not once per call — several of these wrappers are
+polled from a redraw, and a per-frame warning would bury the signal it exists
+to produce. `missing_bindings()` returns the accumulated set, so the staleness
+fingerprint is readable at runtime rather than only in a log.
+
+`push_warning` rather than `print`: it goes through Godot's `_err_print_error`
+path, which is the one this scope document's own `logcat` greps have always
+targeted (`SCRIPT ERROR` / `USER ERROR` / `USER WARNING`), and it is the level
+least likely to be filtered out of an Android log.
+
+Verified both directions on a desktop headless harness: **0 warnings** against
+a current library across every binding `_ready()` probes plus NPR, factions,
+undo, debug layers, urban layouts, paint layers and routes; and **exactly one**
+warning for three consecutive calls on a name no binary exports, proving the
+suppression.
+
+### `android.release.arm64` pointed at a directory nothing refreshes
+
+The same class of bug the 2026-08-20 pass fixed for `android.debug.arm64`,
+still live on the release entry. The path itself was *correct* —
+`target/aarch64-linux-android/release/` is exactly where
+`cargo ndk -t arm64-v8a build --release -p cartalith-godot` writes — but **no
+documented step in this project has ever run that command**, so the file
+sitting there was from **2026-08-16**, eight days old, and a release export
+would have shipped it without complaint.
+
+Resolved by (a) actually building it, so the path now resolves to a current
+21,577,640-byte library, and (b) writing the refresh command for **each**
+Android entry into `cartalith.gdextension` itself, next to the entry it
+refreshes, so neither can rot again without someone editing past the note. The
+comment block is written with `;`, and says why — `#` is parsed as *data* by
+`ConfigFile`, the hazard the fourth pass recorded.
+
+The orphaned `target/aarch64-linux-android/debug/libcartalith_godot.so` (the
+2026-08-18 hand-copy, unreferenced since the 2026-08-20 fix repointed arm64
+debug at `android-dev/`) was deleted. It was a 2026-08-18 artifact that no
+build touches and that an audit can only be misled by.
+
+### The rebuild
+
+- `cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot` —
+  clean, 28 s, → **161,004,536 bytes**, against the stale 156,605,784.
+- `cargo ndk -t arm64-v8a build --release -p cartalith-godot` — clean, 38 s,
+  → 21,577,640 bytes.
+- `godot4 --headless --export-debug "Android" builds/android/Cartalith.apk`
+  from `godot-project/` — the preset's `export_path` is relative to the Godot
+  project, so this is the only real APK. A second `cartalith-native/builds/`
+  copy had reappeared since the 2026-08-20 pass deleted it, stale again;
+  deleted again. Both paths are `.gitignore`d, so no binary is committed.
+- **sha256-verified**, the audit's own method: the `.so` inside the APK is
+  `610125e8…51e7751`, byte-identical to the library just built. The APK is
+  genuinely current, not current-by-timestamp.
+
+### On device: confirmed, and then cut short by the handset
+
+OnePlus 6T, 1080x2340 portrait, `adb install -r` first try. `libcartalith_godot.so`
+mapped `r-xp` into the live process (read out of `/proc/<pid>/maps`, not
+inferred), OpenGL ES 3.2 on the Adreno 630, a 1024x655 world generated from
+the welcome screen.
+
+**Zero `Cartalith: the loaded GDExtension has no …` warnings in `logcat`**
+across boot and a full generation.
+
+Confirmed by driving the UI, on the handset:
+
+| Previously dead | Result |
+|---|---|
+| NPR "Painter styles" / "Water & light" panel | **Builds** — Sepia / Risograph / Pointillism sliders, Contour interval, Coastal wave lines, Wave reach, Animate water, Multi-sun lighting |
+| NPR styles actually apply | **Yes** — Pointillism 0.30 → 0.9 and Sepia dragged live; the map re-rendered with visible stipple and a warm cast, same seed, same world |
+| Erosion-pass parameters | **Live** — Uplift, Channeling, Iterations 15, Deposition, Rain→erosion, Velocity momentum / iterations / strength, under STREAM-POWER CARVE |
+| Annotation / icon bindings | **Live** — § PLACED ICONS with a working Clear-all |
+| Generation stage table | 02-10 all `resolved`, driven from `get_param_info` |
+
+**Then the phone dropped off USB** (`offline`, then absent from
+`adb devices` entirely; survived `kill-server`/`start-server`,
+`reconnect offline`, and ten minutes of polling). That is a physical condition
+no `adb` command reaches, and the remaining items — faction roster, City
+Viewer, paint visibility, save/undo, the debug views, GeoJSON export,
+hand-drawn ways, civ-recompute — were **not** driven on the handset this pass.
+They are recorded as *unverified on device*, not as verified, and the honest
+reason is written here rather than smoothed over.
+
+What is known about them without the handset: they are all gated by the same
+`_has()` probe, every one of those probes passes on desktop against a library
+built from the same tree by the same toolchain, and the six `_ready()`-level
+API flags (`sized` / `import` / `gpu` / `npr` / `measure` / `save`) produced no
+warning on the device itself — which is the direct on-device evidence that
+`measure_api` in particular is true, since it is computed at boot from all four
+`measure_*` bindings.
+
+**One thing this pass wanted and did not get:** a positive control proving
+`push_warning` reaches Android's `logcat`. A probe build carrying a
+deliberate boot-time warning was built and was being installed when the device
+disconnected. The mechanism is the same `_err_print_error` path this document's
+own greps target, but that is an argument, not a measurement. **Next device
+pass should confirm it first**, before trusting a silent `logcat` as evidence
+of a matched shell/engine pair.
+
+### Two navigation hazards worth recording
+
+- **`adb shell input keyevent KEYCODE_BACK` exits the app.** It backgrounded
+  Cartalith, foregrounded whatever was behind it (Google Meet), and killed the
+  process — the generated world with it. Dismiss a phone sheet by tapping its
+  `×`, never with Back.
+- **`KEYCODE_M` does not arm the Measure tool.** Godot's Android input layer
+  does not deliver injected key events to the shortcut path, so keyboard
+  shortcuts are not an `adb` shortcut around touch navigation.
+- The left panel sheet **retains its scroll offset across close/reopen and
+  would not scroll back up** by swipe (six attempts, both fast flicks and slow
+  drags, at three x positions). Not investigated — it is the phone-cosmetics
+  territory, and it is recorded here only because it is what blocked reaching
+  the § TOOLS row where Measure is armed.
+
+---
+
+# Device pass — §46, §47, §48 and the ponytail LOD work, none of which had run on glass (2026-08-25)
+
+Four substantial passes landed on 2026-08-25 (`beb4866` → `ead417f`) and the
+APK on the handset was from **09:19 that morning**, predating all four. This
+pass exists to close that gap. Full findings are `GUI_GAP_REGISTER.md` §50;
+this section records only the Android specifics, because they are the reusable
+part.
+
+Hardware: **OnePlus 6T** (`ONEPLUS_A6013`, LineageOS 22.2 / Android 15),
+1080 x 2340, physical density 450 with an override of 314, `_phone_scale`
+**2.748**, Adreno 630 / OpenGL ES 3.2. **401.6 ppi = 15.81 px/mm** — the
+number every millimetre in §50 is divided by, computed from the panel's own
+6.41 in diagonal rather than from the density override, which does not
+describe the glass.
+
+## Build and install
+
+```
+cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot   # 33 s
+Godot_v4.7.1-stable_win64_console.exe --headless --export-debug "Android" \
+    builds/android/Cartalith.apk                                        # from godot-project/
+adb install -r builds/android/Cartalith.apk
+```
+
+- **`.so` 171,644,632 bytes**, sha256 `fc49dca5…b4b8cc35`, and the copy inside
+  the APK verified byte-identical — the 2026-08-24 staleness audit's own
+  method, run again rather than assumed.
+- `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` **before and after
+  every one of the seven Godot invocations this pass made.** The `;` comment
+  block survived each time. It now carries the load-bearing explanation of why
+  `stretch/mode` must stay unset (HD-04); losing it would be a real regression,
+  so it was checked every time and not just once.
+- `export_presets.cfg` and `Cargo.toml` untouched, per the owner's standing
+  instruction. The ~100 `_*_probe` / `_*_shot` development files still shipped
+  inside the APK and the release profile was still unstripped at this pass;
+  both are recorded elsewhere and both are the owner's call.
+- The launcher activity is
+  `org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher`, **not**
+  `.GodotApp` — `am start` on the latter throws. Resolve it with
+  `cmd package resolve-activity --brief` rather than guessing.
+
+## Measuring frame time on this app
+
+`dumpsys gfxinfo <pkg>` is **useless here** and it is worth knowing why before
+spending time on it: Godot renders into its own `SurfaceView`, not through
+HWUI, so once the splash is gone `Total frames rendered` sticks at 0 and every
+percentile reads `4950ms`. The 48 frames it does report are the splash.
+
+What works is SurfaceFlinger's own present timestamps:
+
+```
+adb shell dumpsys SurfaceFlinger --list | grep -i cartalith
+adb shell "dumpsys SurfaceFlinger --latency 'a8bd915 SurfaceView[org.cartalith.walkingskeleton/com.godot.game.GodotAppLauncher](BLAST)#1386'"
+```
+
+The first line of the dump is the refresh period in ns; every following line is
+`desired  present  ready`. Take column 2, sort, de-duplicate, difference. The
+buffer holds ~128 frames, so run the gesture and dump **immediately** after. Do
+not filter out large gaps before looking at them — the interesting number here
+was a single 117 ms frame in an otherwise flat 16.7 ms run.
+
+Results, for the record: deep-zoom panning **median 16.7 / p99 16.8 / max
+16.9 ms, zero frames over one vsync**; a zoom notch **median 16.7 / p99 100.1 /
+max 117.0**, 4 frames over 33 ms. Against `PERFORMANCE_BENCHMARKS.md` §5's
+pre-parallelisation 1.3-1.8 s frozen frame on one notch.
+
+## Memory, same metric as the three previous passes
+
+`dumpsys meminfo <pkg>`, `TOTAL PSS`, sampled continuously through a cold boot
+and one 2048 x 1311 generate from the welcome screen. **Peak 1 033 MB, steady
+818 MB**, against 2026-08-20's 878 / 647 — **+18 % and +26 %**. Grep for
+`TOTAL PSS:` specifically; a bare `grep TOTAL` also matches the summary table
+row and will silently give you a different number.
+
+> **Superseded 2026-08-25 — do not quote the percentages.** Diagnosed the next
+> day at the owner's request (`GUI_GAP_REGISTER.md` §52,
+> `MEMORY_OPTIMIZATION_SCOPE.md`): **no pass in this chain ever fixed the seed**,
+> and the New World dialog rerolls it on every open. Six clean runs of the
+> identical procedure on the identical APK measured **869 / 902 / 916 / 937 /
+> 963 / 1 029 MB** steady — a 160 MB spread, i.e. the whole reported regression,
+> from seed alone. The 2026-08-20 figure was also sampled every ~2 s where this
+> one was sampled continuously, which matters for a transient peak. A real level
+> increase since 2026-08-20 is likely and §52 names its mechanism (canvas vertex
+> buffers: 290.8 MiB across 311 237 drawn objects, from the 2026-08-24 way-type
+> and town-layout commits), but **the percentages above are not supportable.**
+> Every future memory figure in this document states its seed.
+>
+> The **544 MB of `Gfx dev`** quoted below belongs to the *dirty* deep-zoom
+> sample, not to the 1 033 / 818 clean run — 12 zoom-in notches from a fresh
+> generate reach 556 MB of `Gfx dev` and 1 279 MB of PSS in under a minute.
+
+Generation itself: **25.1 s** cold and 24.8 / 25.8 s warm, read off the app's
+own `Pass` row in the MENU sheet rather than inferred. §4.1's "16-18 s" was
+explicitly a memory-trace inference, so the two are not comparable; this is the
+first instrumented figure.
+
+## What was driven, and how
+
+Everything through `adb shell input tap` / `swipe`, read back with
+`adb exec-out screencap -p`. **Every claim about physical size in §50 is a
+pixel measurement out of a screenshot divided by 15.81 px/mm**, never an
+impression — and twice this pass a rendered screenshot *appeared* to show a
+control (§48's phantom top `Close`) that a per-row brightness scan proved was
+not in the pixels at all. Scan before believing a picture.
+
+| Path | Result |
+|---|---|
+| Welcome ▸ Create a new world ▸ Create | world generated on the handset, 2048 x 1311 |
+| Map ▸ Layers pill ▸ full-screen sheet ▸ scroll ▸ Close | all four work; sheet Close 118 px, clear of the gesture inset |
+| MENU ▸ Data ▸ World data tables… | three tabs, two-line rows, scrolls, Close reachable |
+| MENU ▸ Data ▸ Journey planner… | **blank centre panel** — §50 PH-16 |
+| MENU ▸ Data ▸ Travel library… | four tab groups, entry list, `+` tofu (§50 PH-17) |
+| MENU ▸ Data ▸ Import ▸ Data manager | ROUTES / ROUTE switcher, Run foot, Close |
+| MENU ▸ Assets ▸ Asset library | FAMILIES / SLOTS / SLOT switcher, 2-up slot grid |
+| MENU ▸ Help ▸ Credits, Generation info | both full-screen, both scroll |
+| MENU ▸ Preferences ▸ Working set… | Performance window |
+| Navpad ▸ zoom ×8, pan tool, drag, Fit | LOD tiles resolve; **a bare drag does not pan** until the hand tool is armed |
+
+`adb shell input tap` is a **zero-area synthetic pointer**. It proves the
+interaction model and nothing about fingers, which is why every size claim here
+is a millimetre off the framebuffer instead. The one finding that genuinely
+came from gesture behaviour rather than geometry — §50 PH-15, a 250 ms flick
+activating the row it starts on — was reproduced three times from the same
+coordinate before it was written down.
+
+## Landscape, again
+
+Still unreachable over `adb`: `project.godot` sets `SCREEN_SENSOR`, which
+follows the accelerometer and overrides `settings put system user_rotation`.
+Every measurement in §50 is portrait, and anything landscape-dependent is
+marked inferred there rather than observed.
+
+## Owed by the 2026-08-24 pass, and not paid by this one either
+
+That pass asked the next one to confirm, **first**, that `push_warning` reaches
+Android's `logcat`, before a silent log is trusted as evidence of a matched
+shell/engine pair. **This pass did not do it either.** The `logcat` was clean
+across a cold boot, three generates and the whole sweep — but that rests on the
+same argument the previous pass correctly called *"an argument, not a
+measurement"*. It is one probe build with a deliberate boot-time warning.
+
+## Device state left behind
+
+The fixed build is installed and running, with a generated world on screen.
+Nothing was pushed to `/data/local/tmp/`, no properties or settings were
+changed, no root was attempted, and no other app was foregrounded. The
+notification shade was opened once by a stray `keyevent 82` at the start and
+closed with `cmd statusbar collapse`; `KEYCODE_BACK` was never sent, per the
+third pass's warning that it kills the process and the generated world with it.

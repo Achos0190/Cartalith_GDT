@@ -33,6 +33,16 @@ const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
 const CTX_SCULPT := "sculpt"
 const CTX_JOURNEY := "journey"
+## The Wildlife debug view's roster popup -- the reference's own
+## `#wildInfo` panel (`showWildInfo`, HTML 8259), re-hosted here rather than
+## rebuilt as a floating panel: §6 already says this dock's contents follow
+## the selection, and a clicked ecoregion is a selection.
+const CTX_WILDLIFE := "wildlife"
+## `GUI_GAP_REGISTER.md` **ED-02** -- the history ledger. A right-dock context
+## and not a window, following `DCC_SHELL_SPEC.md` §7.1 proposal 3: it is
+## selection-adjacent (a row IS a selection) and this dock is already the
+## context-driven surface.
+const CTX_HISTORY := "history"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -105,6 +115,57 @@ const SAMPLE_FIELDS := [
 		"tip": "CivData::territory -- assign_territory()'s owner per cell, 0 = unowned. Reads — on a loaded save."},
 ]
 
+## `05-right-dock-and-bars.md` §1.4's footnote, verbatim: *"fields owned by
+## stale stages read —"*. Which pipeline stage owns which row, derived from what
+## `sample_cell()` actually reads (`sample_bridge::sample_cell()`, named
+## rather than cited by line -- that file moves) rather than from where the
+## row sits in the panel:
+##
+## * `height` -- `WorldState::field` and the two gradients taken from it. The
+##   graph's root stage has no upstream, so `staleness()` can never report it
+##   (`cartalith-spatial/src/staleness.rs:243-267 pub fn staleness`) and
+##   these three never dash.
+##   That is the correct answer rather than a dead entry: a sculpt writes the
+##   height field in place, so elevation IS current the instant the stroke
+##   commits -- it is everything downstream of it that is not. Named anyway, so
+##   the ownership is stated once here instead of inferred from an absence.
+## * `hydrology` -- `flow_discharge`, and `stream_order` for the order suffix.
+## * `climate` -- `temperature`/`rainfall`, and the two per-cell functions
+##   `sample_cell()` evaluates over them: `build_lithology` takes rainfall and
+##   `build_soil_fertility` takes both, so neither row is upstream of climate
+##   however geological it reads. Each field is gated on its DEEPEST input only,
+##   which is sufficient because `pipeline_stage_graph()` makes every stage
+##   depend on all of its upstreams -- a stale `height` is always a stale
+##   `climate` too.
+## * `civ` -- `CivData`'s own rasters (`water_bodies` for Biome, `territory`
+##   for Control) and `get_settlements()` for `Nearest`.
+##
+## **Deliberately absent, and therefore never gated:** `Plate + type`,
+## `Boundary + distance` and `Resistance` read `plate_id`, `crust_field`,
+## `boundary_mask`, `boundary_type` and `resistance_field` -- tectonic-era
+## fields that no stage in `pipeline_stage_graph()` writes, so no stage's
+## staleness says anything at all about them. `Position` and `Cell` are the
+## cursor, not the engine. Gating those on a stage would dash them for a reason
+## that is not true of them, which this file treats as exactly as bad as
+## leaving a stale value on screen.
+const SAMPLE_STAGE := {
+	"Elevation": "height",
+	"Slope": "height",
+	"Aspect": "height",
+	"Drainage": "hydrology",
+	"Temperature": "climate",
+	"Precipitation": "climate",
+	"Lithology": "climate",
+	"Soil": "climate",
+	"Biome": "civ",
+	"Control": "civ",
+	"Nearest": "civ",
+}
+
+## `Nearest`'s own tip, named because both `_build_sample()` and
+## `on_cursor_sampled()` compose the staleness reason onto it.
+const _NEAREST_TIP := "Computed here from get_settlements()'s x/y against the cursor cell."
+
 var app: DccApp
 var bridge: EngineBridge
 
@@ -114,16 +175,27 @@ var _settlement_index := -1
 var _route_entry: Dictionary = {}
 var _route_kind := ""      ## "road" | "sea"
 var _faction_id := -1
+## The other party of the pair the reader asked for, or -1 when the faction was
+## opened on its own (a Factions-list row, a map click). See `show_faction`.
+var _faction_pair := -1
 var _measure_result: Dictionary = {}
+var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
 var _region_result: Dictionary = {}
+var _wildlife_region: Dictionary = {}
 var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
 
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
 ## event over the viewport, and tearing the dock down and rebuilding it at
 ## that rate would be needless churn for sixteen labels.
-var _sample_x: Label
-var _sample_y: Label
+## The cursor's coordinate, as **two rows carrying a pair each** rather than
+## the four single-number rows this used to be (`X`, `Y`, and nothing in km at
+## all). A latitude is not a separate fact from its longitude, and one row per
+## axis both read as two unrelated readings and gave each axis its own value
+## label to size itself against -- see `_field()`'s own note on why that
+## mattered for the dock's width.
+var _sample_pos: Label     ## km from the map's north-west corner, X · Y
+var _sample_cell: Label    ## the raster index every other row in this panel reads
 var _sample_elev: Label
 var _sample_nearest: Label
 ## `SAMPLE_FIELDS` label -> its value `Label`, so one `sample_cell()` dict
@@ -131,6 +203,52 @@ var _sample_nearest: Label
 ## returns the whole cell in one `Dictionary` precisely so this handler
 ## never crosses the GDExtension boundary more than once per mouse-move.
 var _sample_rows: Dictionary = {}
+
+## `stale_stages()` is a pure read on the engine side -- every `StageGraph`
+## query takes `&self` -- but it is not a free one: it walks every tile of every
+## stage. `on_cursor_sampled()` fires on every mouse-motion event over the
+## viewport, and this panel's whole design is ONE boundary crossing per motion
+## (see `_sample_rows`), so the answer is cached and re-read on the same
+## one-second cadence `app.gd`'s own staleness poll uses rather than per motion.
+## Nothing makes a stage stale except a tool commit, so a reading up to a second
+## old is the same reading.
+var _stale_cache: Dictionary = {}
+var _stale_cache_ms := -1000000
+
+func _stale_now() -> Dictionary:
+	var t := Time.get_ticks_msec()
+	if t - _stale_cache_ms >= 1000:
+		_stale_cache = bridge.stale_stages()
+		_stale_cache_ms = t
+	return _stale_cache
+
+## Empty when this row's value is current; otherwise the reason it reads `—`.
+## The stage graph reports the most-upstream unconsumed change all the way down
+## the chain by design, so `reason` names the edit that caused it ("sculpt"),
+## not the intermediate stage that passed it on.
+func _stale_reason(label_text: String, stale: Dictionary) -> String:
+	var stage := String(SAMPLE_STAGE.get(label_text, ""))
+	if stage == "" or not stale.has(stage):
+		return ""
+	var e: Dictionary = stale[stage]
+	var cause := String(e.get("reason", ""))
+	if cause == "":
+		cause = String(e.get("origin", ""))
+	return ("Stale: the %s stage has not re-run since %s, so the engine's answer " +
+		"for this cell is from before that edit. Recompute (status bar) to settle it.") % [stage, cause]
+
+func _tip_with(tip: String, why: String) -> String:
+	return tip if why == "" else "%s\n\n%s" % [tip, why]
+
+## `_field()` hangs the tooltip on the row `HBoxContainer` it returns the value
+## `Label` out of, and staleness starts and stops without a dock rebuild -- so a
+## row that begins dashing mid-session has its reason rewritten here, rather
+## than keeping the tip it was built with. A dashed row with no reason for the
+## dash is the exact defect this pass exists to remove.
+func _set_row_tip(v: Label, tip: String) -> void:
+	var box := v.get_parent() as Control
+	if box != null:
+		box.tooltip_text = tip
 
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
@@ -161,14 +279,26 @@ func on_settlement_selected(data: Variant, index: int) -> void:
 func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if _context != CTX_SAMPLE:
 		return
-	if _sample_x == null:
+	if _sample_pos == null:
 		_rebuild()
 		return
-	_sample_x.text = ("%.0f" % gx) if valid else "—"
-	_sample_y.text = ("%.0f" % gy) if valid else "—"
-	_sample_nearest.text = _nearest_settlement_text(gx, gy, valid)
+	var coord := _coord_texts(gx, gy, valid)
+	_sample_pos.text = coord[0]
+	_sample_cell.text = coord[1]
+	## §1.4's staleness gate, read once for the whole panel -- see
+	## `SAMPLE_STAGE` for which row each stage owns, and which rows no stage
+	## owns. `Position` and `Cell` above are the cursor's own reading and are
+	## never gated.
+	var stale := _stale_now()
+	var nearest_why := _stale_reason("Nearest", stale)
+	_sample_nearest.text = "—" if nearest_why != "" else _nearest_settlement_text(gx, gy, valid)
+	_set_row_tip(_sample_nearest, _tip_with(_NEAREST_TIP, nearest_why))
 	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if valid else {}
-	_sample_elev.text = _elevation_text(cell)
+	## `height` cannot be reported stale (see `SAMPLE_STAGE`), so this branch
+	## never takes today -- written the same way as every other row so that a
+	## stage added upstream of height gates the dock's one big number too,
+	## instead of leaving it the single unguarded readout.
+	_sample_elev.text = "—" if _stale_reason("Elevation", stale) != "" else _elevation_text(cell)
 	## RD-11: live-updated in place for the same reason the rows above are --
 	## a full `_rebuild()` on every mouse-motion event would be needless
 	## churn, and the collapsed dock's one number is this same elevation
@@ -179,8 +309,15 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 		var row: Label = _sample_rows.get(f["label"])
 		if row == null:
 			continue
-		var text := _sample_field_text(f["key"], cell)
+		## The owning stage is stale, so the engine's answer for this cell is
+		## from before the last edit: dashed rather than printed. The same rule
+		## `_sample_field_text()` already applies to an absent key -- never a
+		## real-looking number for something that is not a reading of the world
+		## as it stands.
+		var why := _stale_reason(f["label"], stale)
+		var text := "—" if why != "" else _sample_field_text(f["key"], cell)
 		row.text = text
+		_set_row_tip(row, _tip_with(String(f["tip"]), why))
 		## `text_ghost` is this dock's own "nothing behind this row" tone
 		## (`_field`'s `reachable` argument). A row goes ghost when its
 		## reading is genuinely absent for this world -- no civ layer, no
@@ -199,17 +336,36 @@ func show_route(entry: Dictionary, kind: String) -> void:
 	_rebuild()
 
 ## Called by `civilization_workspace.gd` when a faction row is clicked.
-func show_faction(faction_id: int) -> void:
+##
+## `pair_with` is `GUI_GAP_REGISTER.md` **RL-01**. CIVIL ▸ Relationships lists
+## one row per *pair* (`Aurelia ↔ Korrath — wary (−22)`) and every row called
+## `show_faction(a)` — so a row claiming a pair opened one side of it, and any
+## two consecutive rows sharing that side were a press with **no visible effect
+## at all**: measured 5 of 15 rows dead on a real six-faction world. Naming the
+## other party here does both halves of the fix. The dock draws the pair the
+## row actually named, and pressing a different row always changes something,
+## because the marked pair is part of what is drawn.
+func show_faction(faction_id: int, pair_with: int = -1) -> void:
 	_context = CTX_FACTION
 	_faction_id = faction_id
+	_faction_pair = pair_with
 	_rebuild()
 
 ## Called by `GlobalTools` on every point added to (or cleared from) the
-## Measure chain -- `result` is `measure_result()`'s own dict, straight
-## through.
-func show_measure(result: Dictionary) -> void:
+## Measure chain. `mode` is one of `GlobalTools.MEASURE_MODES`' own ids and
+## `result` is whichever engine dict that mode reads --
+## `measure_result()` for Distance/Bearing, `measure_area()`,
+## `measure_radius()`, `measure_vertical()` or `measure_section()` for the
+## other four.
+##
+## **One context, not six.** All six are "the Measure tool is armed and has a
+## reading"; a `CTX_MEASURE_AREA` and four siblings would each need their own
+## title, their own readout branch and their own dispatch arm for what is one
+## selection with six presentations.
+func show_measure(result: Dictionary, mode: String = "distance") -> void:
 	_context = CTX_MEASURE
 	_measure_result = result
+	_measure_mode = mode
 	_rebuild()
 
 ## Called by `GlobalTools` when a Region marquee commits -- `result` is
@@ -219,10 +375,20 @@ func show_region(result: Dictionary) -> void:
 	_region_result = result
 	_rebuild()
 
+## Called by `app.gd` on a map click while the Wildlife debug view is drawn
+## -- `rec` is `bridge.wildlife_region_at()`'s own dict, straight through.
+## An empty dict is the reference's own `hideWildInfo()`: the click missed
+## every marker, so the dock falls back to Sample rather than keeping a
+## stale roster on screen.
+func show_wildlife(rec: Dictionary) -> void:
+	_wildlife_region = rec
+	_context = CTX_WILDLIFE if not rec.is_empty() else CTX_SAMPLE
+	_rebuild()
+
 ## Called by `world_workspace.gd` whenever the Sculpt panel is active or the
-## "sculpt" tool is armed (switching the dock's own Generation pipeline /
-## Sculpt toggle to Sculpt, arming the tool via a feature/preset button, or a
-## stroke ending) -- never on a bare cursor move, so Sample stays the default
+## "sculpt" tool is armed (arming the tool via a feature/preset button, or a
+## stroke ending -- the dock's own Generation pipeline / Sculpt toggle was
+## removed by the v3 menu pass, which folded Sculpt into WORLD ▸ Terrain) -- never on a bare cursor move, so Sample stays the default
 ## everywhere else. `_build_sculpt` below reads the stack fresh from
 ## `bridge.sculpt_list_stamps()` on every `_rebuild()`, so this setter carries
 ## no data of its own the way `show_measure`/`show_region` do.
@@ -253,6 +419,21 @@ func leave_sculpt_context() -> void:
 ## this one re-reads `view`'s own cached compute result, since a fresh
 ## `jp_compute()` per rebuild would be a wasted boundary crossing on every
 ## unrelated `right_dock.gd` refresh).
+## `Edit ▸ Undo history…` (`GUI_GAP_REGISTER.md` **ED-02**) -- claims this
+## dock for the ledger. No data of its own: `_build_history` reads
+## `bridge.undo_ledger()` fresh on every rebuild, the same shape
+## `show_sculpt_stack()` uses, because the answer changes on every commit and
+## a cached copy would be one more thing to invalidate.
+func show_history() -> void:
+	_context = CTX_HISTORY
+	_rebuild()
+
+## Called after any revert, so the rows and the budget both move. A no-op
+## unless History is the live context.
+func refresh_history() -> void:
+	if _context == CTX_HISTORY:
+		_rebuild()
+
 func show_journey(view: JourneyPlannerView) -> void:
 	_context = CTX_JOURNEY
 	_journey_view = view
@@ -285,6 +466,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
+	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
 }
 
 func _rebuild() -> void:
@@ -294,8 +476,8 @@ func _rebuild() -> void:
 	for child in body.get_children():
 		body.remove_child(child)
 		child.queue_free()
-	_sample_x = null
-	_sample_y = null
+	_sample_pos = null
+	_sample_cell = null
 	_sample_elev = null
 	_sample_nearest = null
 	_sample_rows.clear()
@@ -348,11 +530,16 @@ func _dock_readout_text() -> String:
 					break
 			return ("%d · %s" % [_faction_id, culture.capitalize()]) if culture != "" else "faction %d" % _faction_id
 		CTX_MEASURE:
-			return ("%.1f km" % float(_measure_result.get("total_km", 0.0))) if not _measure_result.is_empty() else "no chain"
+			return _measure_readout()
 		CTX_REGION:
 			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
+		CTX_WILDLIFE:
+			return ("%d species" % int(_wildlife_region.get("richness", 0))) if not _wildlife_region.is_empty() else "no ecoregion"
 		CTX_SCULPT:
 			return ("%d stamps" % bridge.sculpt_list_stamps().size()) if bridge.has_world else "no world"
+		CTX_HISTORY:
+			var st := bridge.undo_stats()
+			return "%d of %d reversible" % [int(st.get("depth", 0)), bridge.undo_ledger().size()]
 		CTX_JOURNEY:
 			if _journey_view == null:
 				return _sample_elev.text if _sample_elev != null else "—"
@@ -378,10 +565,14 @@ func _dispatch(body: Control) -> void:
 			_build_measure(body)
 		CTX_REGION:
 			_build_region(body)
+		CTX_WILDLIFE:
+			_build_wildlife(body)
 		CTX_SCULPT:
 			_build_sculpt(body)
 		CTX_JOURNEY:
 			_build_journey(body)
+		CTX_HISTORY:
+			_build_history(body)
 		_:
 			_build_sample(body)
 
@@ -390,20 +581,39 @@ func _dispatch(body: Control) -> void:
 func _build_sample(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Sample")
 	var valid: bool = bridge.has_world
-	_sample_x = _field(sec, "X", "—", "Cursor grid-cell X. Live once the cursor is over a generated map.")
-	_sample_y = _field(sec, "Y", "—", "Cursor grid-cell Y. Live once the cursor is over a generated map.")
+	_sample_pos = _field(sec, "Position", "—",
+		"Cursor position in km from the map's north-west corner, X then Y. " +
+		"Printed to %d decimal%s for this world: a cell is %s across, and no " %
+			[_coord_decimals(), "" if _coord_decimals() == 1 else "s", _cell_km_text()] +
+		"reading in this port distinguishes two points inside one cell, so the " +
+		"step shown is the largest power of ten that still fits inside one.",
+		true, true)
+	_sample_cell = _field(sec, "Cell", "—",
+		"The raster index every other row in this panel is read at, X then Y. " +
+		"Live once the cursor is over a generated map.", true, true)
 
 	_sample_elev = _accent_readout(sec, "Elevation", "—",
 		"Metres above sea level at the cursor cell, from WorldState::field through " +
 		"metersPerUnit()'s own anchoring (1 - seaLevel maps to peak altitude). " +
 		"Negative below the waterline, which is the honest reading for an ocean cell.")
 
+	## §1.4's staleness gate. Read once for the whole panel -- `_stale_now()`
+	## caches, but a dozen calls to it would still be a dozen dictionary lookups
+	## per rebuild for one answer that cannot change between rows.
+	var stale := _stale_now()
 	for f in SAMPLE_FIELDS:
-		_sample_rows[f["label"]] = _field(sec, f["label"], "—", f["tip"], false)
+		_sample_rows[f["label"]] = _field(sec, f["label"], "—",
+			_tip_with(String(f["tip"]), _stale_reason(f["label"], stale)), false)
 
-	_sample_nearest = _field(sec, "Nearest settlement", "—",
-		"Computed here from get_settlements()'s x/y against the cursor cell.",
-		valid)
+	## "Nearest settlement" was this dock's single widest row -- and its value
+	## changes on every mouse-move, which is what made the whole pane breathe
+	## (see `_field()`). The label is shortened and its column narrowed so the
+	## name and its distance both still fit inside the pane's own width instead
+	## of pushing against it.
+	var nearest_why := _stale_reason("Nearest", stale)
+	_sample_nearest = _field(sec, "Nearest", "—",
+		_tip_with(_NEAREST_TIP, nearest_why),
+		valid and nearest_why == "", false, 60)
 
 	## §6's no-selection list has two more entries than the rows above, and
 	## both were simply absent rather than disclosed (2026-08-20 menu-structure
@@ -514,9 +724,19 @@ func _build_settlement(body: Control) -> void:
 
 	var why: Dictionary = bridge.explain_settlement(_settlement_index)
 	var water := _term_value(why, "water_access")
+	## Two different absences, and the row used to blame the narrow one for
+	## both (2026-09-01). An EMPTY `why` means this world was opened rather
+	## than generated -- `project_bridge.rs` stores no explanations at all --
+	## which is a whole-project fact, not "no water_access entry for this
+	## cell". The per-cell sentence is still right when `why` has terms and
+	## none of them is `water_access`.
 	_field(sec, "Water access", water if water != "" else "—",
 		"" if water != "" else
-			"This settlement's suitability terms carry no water_access entry for this cell.",
+			("Suitability diagnostics are computed at generate time and the project "
+				+ "format does not store them (SAVEFILE_COMPAT.md §16.2), so an opened "
+				+ "project has none. Regenerate this world to get them back."
+				if why.is_empty() else
+			"This settlement's suitability terms carry no water_access entry for this cell."),
 		water != "")
 	_field(sec, "Defensibility", "—",
 		"explain_settlement()'s suitability terms have no defensibility axis -- " +
@@ -542,6 +762,15 @@ func _build_settlement(body: Control) -> void:
 	DccWidgets.action(actions, "Economy", func(): app.open_world_data("Economy"))
 	DccWidgets.action(actions, "Politics", func(): show_faction(int(s.get("faction", 0))))
 	DccWidgets.action(actions, "Logistics", func(): app.open_journey_planner())
+	## `GUI_GAP_REGISTER.md` UM-02's launcher. The reference puts it in the
+	## place-edit popup (`peCityOpen`), which this shell does not have yet
+	## (ED-03) -- this dock's own Settlement context is the same information,
+	## already carrying `_settlement_index`, so the action lands here rather
+	## than waiting on a popup. It stays live regardless of whether the town
+	## can be laid out: the window itself explains a refusal (a settlement in
+	## open water gets no town) rather than a disabled button implying the
+	## feature is missing.
+	DccWidgets.action(actions, "City layout", func(): app.open_city_viewer(_settlement_index))
 
 	var why_sec := DccWidgets.section(body, "Why here?")
 	var rt := RichTextLabel.new()
@@ -550,7 +779,8 @@ func _build_settlement(body: Control) -> void:
 	rt.scroll_active = false
 	rt.custom_minimum_size.x = 220
 	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rt.add_theme_font_size_override("normal_font_size", DccTheme.FS_SMALL)
+	rt.add_theme_font_size_override("normal_font_size",
+		DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
 	rt.add_theme_color_override("default_color", DccTheme.c("text"))
 	rt.text = _build_causal_chain_text(s, _settlement_index)
 	why_sec.add_child(rt)
@@ -623,6 +853,31 @@ func _build_causal_chain_text(s: Dictionary, index: int) -> String:
 		lines.append("Distance to water: %.1f cells" % coast_cells)
 		lines.append("Elevation: %.3f (normalised)" % float(why["elevation"]))
 		lines.append("Travel cost: %.2f" % float(why["travel_cost"]))
+	else:
+		## **Said, not silently dropped** (2026-09-01).
+		##
+		## `explain_settlement()` returns an empty dictionary for every
+		## settlement of a world that was *opened* rather than generated:
+		## `project_bridge.rs` rebuilds `CivData` with `explanations:
+		## Vec::new()` and says why in as many words -- an explanation is a
+		## diagnostic over suitability rasters the archive does not store
+		## (`SAVEFILE_COMPAT.md` §16.2), and synthesising one from what is
+		## stored would be inventing a reason rather than recalling it.
+		##
+		## Until now the whole block -- the causal chain AND the six terrain
+		## readouts under it -- simply was not appended, so the panel came
+		## back one section shorter with nothing said about it, which reads
+		## as a dock that is broken on this save rather than a diagnostic
+		## the format never carried.
+		lines.append("")
+		lines.append("[b]WHY HERE?[/b]")
+		lines.append("Not available for an opened project. The suitability "
+			+ "diagnostics behind this chain -- and the river, water-distance, "
+			+ "elevation and travel-cost readings under it -- are computed at "
+			+ "generate time, and the project format does not store them "
+			+ "(SAVEFILE_COMPAT.md §16.2). They are omitted rather than "
+			+ "reconstructed from what was saved. Regenerating this world from "
+			+ "its parameters brings them back.")
 
 	return "\n".join(lines)
 
@@ -631,17 +886,33 @@ func _build_causal_chain_text(s: Dictionary, index: int) -> String:
 func _build_route(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Route")
 	var e := _route_entry
-	_field(sec, "Name", String(e.get("name", "—")))
+	## A hand-drawn way is committed nameless (`civ_commit_way` sets
+	## `name: ""`), so the em-dash fallback has to catch the empty string,
+	## not just a missing key.
+	var nm := String(e.get("name", ""))
+	_field(sec, "Name", nm if not nm.is_empty() else "—")
 	_field(sec, "Type", String(e.get("way_type", "")).capitalize() if _route_kind == "road" else "Sea lane")
+	## `manual` (`GUI_GAP_REGISTER.md` IN-02): the map draws hand-drawn and
+	## generated ways identically, on purpose (the reference styles by
+	## `way_type` alone), so this readout is the only place the distinction
+	## is visible -- and it is worth showing, because only one of the two is
+	## something the user authored.
+	_field(sec, "Source", "Hand-drawn (Way tool)" if e.get("manual", false) else "Generated network")
 
 	var pts: PackedVector2Array = e.get("points", PackedVector2Array())
 	_field(sec, "Points", str(pts.size()))
-	_field(sec, "Length", _route_length_text(pts))
+	## `km` is the engine's own routed length (`Way::km`/`ManualWay::km`,
+	## computed in `f64` over the real grid). Preferred over
+	## `_route_length_text`, which re-measures the `f32` `PackedVector2Array`
+	## this getter rounds to -- that fallback stays for any caller still
+	## passing a dict from before `km` was emitted.
+	var km := float(e.get("km", 0.0))
+	_field(sec, "Length", ("%.1f km" % km) if km > 0.0 else _route_length_text(pts))
 
 	var unreachable := ["Stages", "Vessels", "Cost trace", "Per-stage overrides", "Daily stages"]
 	for f in unreachable:
 		_field(sec, f, "—",
-			"get_roads()/get_sea_routes() carry only {points, brks, way_type, name} -- " +
+			"get_roads()/get_sea_routes() carry only {points, brks, way_type, name, km, manual} -- " +
 			"the manual-route authoring context (ManualWay/RouteContext, tools.rs) that " +
 			"would supply this has no read surface. STRANDED_TOOLS.md row 11.", false)
 
@@ -665,20 +936,55 @@ func _route_length_text(pts: PackedVector2Array) -> String:
 ## recording the gap rather than hiding it.
 func _build_river(body: Control) -> void:
 	var sec := DccWidgets.section(body, "River")
+	## The clause struck here on 2026-09-01 said "the only river-derived output
+	## that crosses the GDExtension boundary is baked into
+	## build_color_texture()'s rendered raster", and this same file disproves
+	## it three rows up: the Sample readouts report Strahler order and
+	## discharge per cell off `stream_order`/`flow_discharge`
+	## (`SAMPLE_FIELDS`' own Drainage row, three above this one, cites both by
+	## name), `layers_popover.gd` draws
+	## `strahler` as a live layer, and `measure_section` labels a crossing
+	## "River · order 3". What genuinely does not cross is the *entity*, which
+	## is `measure_bridge.rs`'s own wording and is what this note now says.
 	DccWidgets.note(sec,
-		"No hydrological river entity is exposed to Godot. cartalith-hydrology " +
+		"No hydrological river ENTITY is exposed to Godot. cartalith-hydrology " +
 		"computes river networks internally (order, discharge, catchment) for " +
-		"erosion and settlement suitability, but the only river-derived output that " +
-		"crosses the GDExtension boundary is baked into build_color_texture()'s " +
-		"rendered raster -- there is no get_rivers() and nothing in the viewport " +
-		"can select one.")
+		"erosion and settlement suitability, and per-CELL order and discharge do " +
+		"cross the boundary -- Sample reads them, the Strahler layer draws them, " +
+		"and a measured section labels its river crossings by order. What nothing " +
+		"does is aggregate a channel run into one river: there is no get_rivers(), " +
+		"so there is no river to name, to total a length for, or to select in the " +
+		"viewport.")
 	for f in ["Name", "Length", "Source elevation", "Discharge", "Catchment", "Tributaries", "Navigation"]:
 		_field(sec, f, "—", "No get_rivers() binding.", false)
 	var actions := DccWidgets.group(sec, "Actions")
+	## All three used to share one seven-word tooltip ("No river binding to act
+	## on."), which named the same gap three times and told a reader nothing
+	## about what each Action would need. Each now says what is specifically
+	## missing for *it* -- the three are blocked by three different absences,
+	## not by one. Found by the 2026-08-31 unwired audit.
+	var why := {
+		"Hydrology":
+			"Would report this river's Strahler order, discharge and channel width. " +
+			"All three are computed (strahler_from_receivers, compute_flow's " +
+			"flow_discharge, river_width_scale_k) but only ever as per-CELL rasters -- " +
+			"nothing aggregates a channel run into one river with its own readings, so " +
+			"there is no per-river figure to report.",
+		"Edit geometry":
+			"Would move the river's course. The course is not stored: it is re-traced " +
+			"from the receiver tree on demand (trace_river_polylines, the way the GeoJSON " +
+			"export and the urban pass both do it), so there is no polyline to edit, and " +
+			"no write path from an edited one back into the flow field it came from.",
+		"Analyse catchment":
+			"Would report the upstream area draining into this river. That area lives " +
+			"inside compute_flow's accumulation and crosses the boundary only one cell at " +
+			"a time (Sample -> Drainage); no #[func] sums it over a channel, and summing " +
+			"it here would mean one boundary crossing per upstream cell.",
+	}
 	for label_text in ["Hydrology", "Edit geometry", "Analyse catchment"]:
 		var b := DccWidgets.action(actions, label_text, func(): pass)
 		b.disabled = true
-		b.tooltip_text = "No river binding to act on."
+		b.tooltip_text = String(why[label_text])
 
 # -- Faction ------------------------------------------------------------
 
@@ -692,9 +998,23 @@ func _build_faction(body: Control) -> void:
 
 	## RD-08: this used to list province names under "Roster" -- a list of
 	## who claims the faction, not a reading of the faction itself. §6 calls
-	## for a "roster entry", singular: `get_factions()` (lib.rs:3442) carries
-	## the real per-faction culture/colour/settlement_count, so that's what
-	## fills this section now.
+	## for a "roster entry", singular: `WorldGen::get_factions`
+	## (`cartalith-godot/src/lib.rs:6559 fn get_factions`) carries the real
+	## per-faction culture/government/ag-tech/colour/settlement_count, so that's
+	## what fills this section now.
+	##
+	## (Citation history, because it is the point: this number has been wrong
+	## three times. It read `3442`, then `6225`, then `6295` -- each re-derived
+	## in good faith and each stale before it was committed, because other
+	## agents were editing `lib.rs` in the same window. The third value was the
+	## worst of them: `6295` had drifted into `civ_faction_territory_stats`'s
+	## doc comment, whose `dict!` a few lines below carries a plausible
+	## `"faction"` key -- so following the citation landed a reader in a
+	## different function that *looks* like the right one, and this file calls
+	## that function too, at `_build_faction`'s Territory row below. Corrected
+	## the third time on 2026-08-31, in a pass with nothing else editing the
+	## tree, and every number here now carries the symbol name beside it so the
+	## next drift is a `grep` away instead of a silent lie.)
 	var roster: Dictionary = {}
 	for f in bridge.get_factions():
 		var d: Dictionary = f
@@ -703,12 +1023,37 @@ func _build_faction(body: Control) -> void:
 			break
 
 	_field(sec, "Faction", str(_faction_id))
+	## `Government` and `Ag. technology` ride the same `roster` dict `Culture`
+	## does -- the `"government"` and `"ag_tech"` keys of `get_factions`'s own
+	## `dict!` (`cartalith-godot/src/lib.rs:6578-6579`, the `"government"` and
+	## `"ag_tech"` rows, two under `"culture"` at `:6365`) -- and were shown
+	## nowhere in this dock, while
+	## `faction_roster_window.gd`'s `_vocab_choice`/`_ag_tech_choice` rows
+	## (`:432`, `:438`) both read *and* edit them. Named
+	## with that window's own labels rather than a second vocabulary for the
+	## same two fields. Found by the 2026-08-31 unwired audit.
 	if roster.is_empty():
 		_field(sec, "Culture", "—",
 			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
-		_field(sec, "Settlements", "—", "", false)
+		_field(sec, "Government", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+		_field(sec, "Ag. technology", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+		## The same reason its three siblings carry, not an empty string. A
+		## ghosted row whose tooltip says nothing is indistinguishable from a
+		## control that is broken, and this one is neither -- the roster is
+		## simply empty until a world exists. Found by the 2026-09-01
+		## integration audit, which reported the empty argument twice.
+		_field(sec, "Settlements", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
 	else:
 		_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
+		## `capitalize()` is the same formatting `Culture` above uses, and it
+		## reads both vocabularies correctly: the government keys are
+		## snake_case and the ag-tech keys camelCase (`traditionalAgrarian`),
+		## which it splits into words either way.
+		_field(sec, "Government", String(roster.get("government", "?")).capitalize())
+		_field(sec, "Ag. technology", String(roster.get("ag_tech", "?")).capitalize())
 		_faction_colour_row(sec, roster)
 		_field(sec, "Settlements", str(int(roster.get("settlement_count", 0))))
 
@@ -726,10 +1071,77 @@ func _build_faction(body: Control) -> void:
 			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.",
 		not stats.is_empty())
 	_field(sec, "Provinces", str(mine.size()))
-	_field(sec, "State religion", "—",
-		"cartalith-civ computes a has_religion flag internally " +
-		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +
-		"it and there is no get_faction_aggregates() binding.", false)
+	## §6's Faction context asks for "state religion", and it was dashed with a
+	## reason that looked at the wrong source: *"get_provinces() doesn't carry
+	## it and there is no get_faction_aggregates() binding."* Both halves are
+	## true and neither is relevant -- **this row is built from `roster`, not
+	## from `get_provinces()`**, and `get_factions()` has carried `"religion"`
+	## since the roster window shipped -- the `"religion"` key of
+	## `get_factions`'s `dict!` (`cartalith-godot/src/lib.rs:6578`, the
+	## `"religion"` row; the citation read `6243`, then `6313`, and both had
+	## drifted -- `6313` onto `civ_faction_territory_stats`'s own `"faction"`
+	## row, which reads convincingly and is the wrong function. Third
+	## correction, 2026-08-31; see the note on `get_factions` above).
+	##
+	## `roster` is fetched at the head of this same function, by the
+	## `bridge.get_factions()` loop in `_build_faction` -- deliberately named
+	## rather than numbered, since a self-citation into this file drifts every
+	## time this file is touched. `Culture` two rows up already reads out of it. The binding was one
+	## `.get()` away for as long as the row has said it was missing.
+	##
+	## Found by the 2026-08-31 unwired audit. Not stale WIRING -- a stale
+	## REASON, which `audit_wiring.py` structurally cannot see: every `#[func]`
+	## involved is called, and it is the tooltip that lies.
+	if roster.is_empty():
+		_field(sec, "State religion", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+	else:
+		var rel := String(roster.get("religion", "")).strip_edges()
+		## `"none"` is a real answer from `cartalith-civ`'s own vocabulary, not
+		## an absence -- a faction with no state religion is a fact about the
+		## world, so it prints rather than dashing.
+		_field(sec, "State religion", rel.capitalize() if rel != "" else "—")
+	_build_faction_relations(body)
+
+## `GUI_GAP_REGISTER.md` **RL-01**. Every relation this faction is a party to,
+## with the pair the reader actually clicked marked. `civ_faction_relations()`
+## is symmetric and derived per call (§40) — it is the same read
+## `civilization_workspace.gd`'s own Relationships list makes, filtered here to
+## one faction rather than restated, so the two cannot disagree about a value.
+##
+## Reads from the *other* side's point of view deliberately: this panel is
+## already headed by one faction, so each row names who it is a relation *with*.
+func _build_faction_relations(body: Control) -> void:
+	var pairs: Array = bridge.civ_faction_relations()
+	var mine: Array[Dictionary] = []
+	for p in pairs:
+		var d: Dictionary = p
+		if int(d.get("a", -1)) == _faction_id or int(d.get("b", -1)) == _faction_id:
+			mine.append(d)
+	var sec := DccWidgets.section(body, "Relations")
+	if mine.is_empty():
+		DccWidgets.note(sec,
+			"No other faction to stand with or against. A relation needs two "
+			+ "parties; add one in the faction roster.")
+		return
+	mine.sort_custom(func(x, y): return float(x.get("value", 0.0)) > float(y.get("value", 0.0)))
+	for d in mine:
+		var other := int(d.get("b", -1)) if int(d.get("a", -1)) == _faction_id else int(d.get("a", -1))
+		var other_name := String(d.get("b_name", "?")) if int(d.get("a", -1)) == _faction_id \
+			else String(d.get("a_name", "?"))
+		var marked := other == _faction_pair
+		_field(sec, ("▸ %s" % other_name) if marked else other_name,
+			"%s (%+d)" % [String(d.get("stance", "neutral")),
+				int(round(100.0 * float(d.get("value", 0.0))))],
+			"Border %d cells (%d%% of the widest on this map) · culture %+d · "
+			% [int(d.get("border_cells", 0)),
+				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
+				int(round(30.0 * float(d.get("culture_term", 0.0))))]
+			+ "faith %+d · trade %+d · rivalry %d%%."
+			% [int(round(20.0 * float(d.get("religion_term", 0.0)))),
+				int(round(25.0 * float(d.get("trade_term", 0.0)))),
+				int(round(100.0 * float(d.get("rivalry_term", 0.0))))],
+			true)
 
 ## Colour swatch + hex -- the same 11×11 `ColorRect` legend `layers_popover
 ## .gd`'s `_refresh_legend` already uses for a faction/layer colour, just
@@ -741,10 +1153,12 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	var r := int(roster.get("color_r", 0))
 	var g := int(roster.get("color_g", 0))
 	var b := int(roster.get("color_b", 0))
+	var tablet := DccTheme.is_tablet()
+	var fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size.y = 22
-	var l := DccTheme.label("Colour", "text_dim", DccTheme.FS_SMALL)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	var l := DccTheme.label("Colour", "text_dim", fs)
 	l.custom_minimum_size.x = _FIELD_LABEL_W
 	l.clip_text = true
 	row.add_child(l)
@@ -757,35 +1171,246 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	sw.custom_minimum_size = Vector2(11, 11)
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	trail.add_child(sw)
-	trail.add_child(DccTheme.label("#%02X%02X%02X" % [r, g, b], "text", DccTheme.FS_SMALL))
+	trail.add_child(DccTheme.label("#%02X%02X%02X" % [r, g, b], "text", fs))
 	row.add_child(trail)
 	parent.add_child(row)
 
 # -- Measure --------------------------------------------------------------
+#
+# §4.5.1's original right-dock spec was one line -- "Segment table (bearing,
+# length), total, straight-line vs along-path difference" -- and that is
+# Distance mode, still built exactly that way below. The other five come from
+# `design/Cartalith Measurement Toolbar.dc.html`, whose own caption puts the
+# "readouts in the right dock". Every number in all six comes straight off an
+# engine dict (`measure_result` / `measure_area` / `measure_radius` /
+# `measure_vertical` / `measure_section`); nothing is derived a second time
+# here, which is why there is no arithmetic in this section at all beyond the
+# one along-path-minus-straight-line difference §4.5.1 asks for by name.
 
-## §4.5.1's own right-dock spec: "Segment table (bearing, length), total,
-## straight-line vs along-path difference." `measure_result()` carries every
-## field this needs directly (`segments`, `total_km`, `straight_line_km`) --
-## nothing here is derived a second time.
+## The collapsed dock's one number, per mode.
+func _measure_readout() -> String:
+	if _measure_result.is_empty():
+		return "no reading"
+	match _measure_mode:
+		"area":
+			return "%s km²" % _thousands(float(_measure_result.get("projected_km2", 0.0)))
+		"radius":
+			return "r %.0f km" % float(_measure_result.get("radius_km", 0.0))
+		"vertical":
+			return "%+.0f m" % float(_measure_result.get("delta_m", 0.0))
+		"section":
+			return "%.0f km section" % float(_measure_result.get("length_km", 0.0))
+		"bearing":
+			var segs: Array = _measure_result.get("segments", [])
+			return ("%03d°" % int(round(float((segs[0] as Dictionary).get("bearing_deg", 0.0))))) if not segs.is_empty() else "no bearing"
+		_:
+			return "%.1f km" % float(_measure_result.get("total_km", 0.0))
+
 func _build_measure(body: Control) -> void:
-	var sec := DccWidgets.section(body, "Measure")
+	match _measure_mode:
+		"area": _build_measure_area(body)
+		"radius": _build_measure_radius(body)
+		"vertical": _build_measure_vertical(body)
+		"section": _build_measure_section(body)
+		"bearing": _build_measure_bearing(body)
+		_: _build_measure_distance(body)
+
+func _measure_empty(body: Control, title: String, prompt: String) -> VBoxContainer:
+	var sec := DccWidgets.section(body, title)
+	DccWidgets.note(sec, prompt)
+	return sec
+
+func _build_measure_distance(body: Control) -> void:
 	var segments: Array = _measure_result.get("segments", [])
 	if segments.is_empty():
-		DccWidgets.note(sec, "Click the map to drop points; Esc clears the chain.")
-	else:
-		for i in segments.size():
-			var seg: Dictionary = segments[i]
-			_field(sec, "Segment %d" % (i + 1),
-				"%.1f km · %d°" % [float(seg.get("km", 0.0)), int(round(float(seg.get("bearing_deg", 0.0))))])
-	sec.add_child(DccTheme.rule())
-	_field(sec, "Total", "%.1f km" % float(_measure_result.get("total_km", 0.0)))
+		_measure_empty(body, "Measure · distance",
+			"Click the map to drop points. ⌫ drops the last one, Esc clears the chain. Nothing here writes to the world -- a reading persists until you clear it.")
+		return
+	var sec := DccWidgets.section(body, "Measure · distance")
+	_accent_readout(sec, "Total length", "%.0f km" % float(_measure_result.get("total_km", 0.0)),
+		"Summed leg by leg, each leg through cartalith_spatial::measure -- the same km scale every route length in this port uses.")
+	DccWidgets.note(sec, "%d segment%s · %d points" % [
+		segments.size(), "" if segments.size() == 1 else "s",
+		int(_measure_result.get("point_count", 0))])
+
+	var segs := DccWidgets.group(sec, "Segments")
+	for i in segments.size():
+		var seg: Dictionary = segments[i]
+		var b := float(seg.get("bearing_deg", 0.0))
+		_field(segs, "%d" % (i + 1), "%.0f km · %03d° · ↺ %03d°" % [
+			float(seg.get("km", 0.0)), int(round(b)), int(round(fmod(b + 180.0, 360.0)))],
+			"Bearing is this port's own convention: 0° = north, clockwise. ↺ is its reciprocal.")
+
+	_build_measure_derived(body)
+	_build_measure_actions(body)
+
+func _build_measure_bearing(body: Control) -> void:
+	var segments: Array = _measure_result.get("segments", [])
+	if segments.is_empty():
+		_measure_empty(body, "Measure · bearing",
+			"Click two points. The first is the observer, the second the target.")
+		return
+	var seg: Dictionary = segments[0]
+	var b := float(seg.get("bearing_deg", 0.0))
+	var sec := DccWidgets.section(body, "Measure · bearing")
+	_accent_readout(sec, "Bearing", "%03d°" % int(round(b)),
+		"Grid y increases southward in every raster in this port, so 0° is north (-y), 90° east (+x), compass-clockwise.")
+	_field(sec, "Reciprocal", "%03d°" % int(round(fmod(b + 180.0, 360.0))))
+	_field(sec, "Distance", "%.1f km" % float(seg.get("km", 0.0)))
+	_build_measure_derived(body)
+	_build_measure_actions(body)
+
+## The canvas's DERIVED block. The three relief rows read `—` rather than a
+## zero when `has_relief` is false -- a loaded save carries none of the
+## substrate the height field needs, exactly as the Sample panel already says.
+func _build_measure_derived(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Derived")
 	var straight: float = float(_measure_result.get("straight_line_km", 0.0))
 	var total: float = float(_measure_result.get("total_km", 0.0))
 	var diff := total - straight
 	_field(sec, "Straight line", "%.1f km" % straight,
-		"Along-path exceeds straight-line by %.1f km." % diff if diff > 0.01 else "", diff <= 0.01 or straight > 0.0)
-	var clear := DccWidgets.action(sec, "Clear", func(): bridge.measure_clear(); show_measure({}))
-	clear.disabled = segments.is_empty()
+		("Along-path exceeds straight-line by %.1f km." % diff) if diff > 0.01 else "")
+	var ob := float(_measure_result.get("overall_bearing_deg", 0.0))
+	_field(sec, "Overall bearing", "%03d° · ↺ %03d°" % [int(round(ob)), int(round(fmod(ob + 180.0, 360.0)))])
+	var relief := bool(_measure_result.get("has_relief", false))
+	_field(sec, "Sinuosity", ("%.2f" % float(_measure_result.get("sinuosity", 1.0))) if relief else "—",
+		"Along-path over straight-line. 1.00 is a straight run.", relief)
+	_field(sec, "Δ elevation", ("%+.0f m" % float(_measure_result.get("elevation_delta_m", 0.0))) if relief else "—",
+		"First point to last, from the height field.", relief)
+	_field(sec, "3D length", ("%.1f km" % float(_measure_result.get("total_km_3d", 0.0))) if relief else "—",
+		"The chain followed over the ground rather than across the map.", relief)
+	if not relief:
+		DccWidgets.note(sec, "The three relief rows need a generated world: a loaded save carries no height substrate to read.")
+
+## The canvas's foot: save · copy · CSV · plan journey.
+##
+## **Copy is real; save and CSV are one button, and it is Copy.** There is no
+## saved-measurements store in this port and inventing one would be a
+## persistence feature, not a measuring one -- what the canvas's three export
+## buttons are actually for is getting the numbers out, and the clipboard does
+## that with no file dialog, no format decision and no new state. Said out
+## loud below rather than drawn as two disabled buttons.
+func _build_measure_actions(body: Control) -> void:
+	var actions := DccWidgets.group(body, "Actions")
+	DccWidgets.action(actions, "Copy reading", _on_measure_copy)
+	DccWidgets.action(actions, "Plan a journey", func(): app.open_journey_planner())
+	DccWidgets.note(actions,
+		"The canvas's Saved measurements list, Save and CSV are not built: no measurement store exists, " +
+		"and Copy already puts every number above on the clipboard as tab-separated text a spreadsheet reads directly.")
+
+func _on_measure_copy() -> void:
+	var lines: Array[String] = []
+	for key in _measure_result.keys():
+		var v = _measure_result[key]
+		if v is Array or v is Dictionary:
+			continue
+		lines.append("%s\t%s" % [key, str(v)])
+	for i in (_measure_result.get("segments", []) as Array).size():
+		var seg: Dictionary = (_measure_result["segments"] as Array)[i]
+		lines.append("segment %d\t%.4f km\t%.2f deg" % [i + 1, float(seg.get("km", 0.0)), float(seg.get("bearing_deg", 0.0))])
+	DisplayServer.clipboard_set("\n".join(lines))
+	app.set_status("hint", "measurement copied to the clipboard", "text_ghost")
+
+func _build_measure_area(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · area",
+			"Click at least three points. The ring closes itself -- the edge back to the first point is always part of it.")
+		return
+	var r := _measure_result
+	var sec := DccWidgets.section(body, "Measure · area")
+	_accent_readout(sec, "Area · projected", "%s km²" % _thousands(float(r.get("projected_km2", 0.0))),
+		"The exact shoelace figure over the ring's own vertices (polyArea, reference line 28290) times the map's km per cell. Never an estimate.")
+	DccWidgets.note(sec, "true surface %s km² · %d vertices" % [
+		_thousands(float(r.get("true_surface_km2", 0.0))), int(r.get("vertices", 0))])
+	_field(sec, "Perimeter", "%.0f km" % float(r.get("perimeter_km", 0.0)))
+	_field(sec, "Water subtracted", "−%s km²" % _thousands(float(r.get("water_km2", 0.0))),
+		"Ocean and lake cells inside the ring." if bool(r.get("water_from_civ", false)) else
+			"No civilisation layer for this world, so water here means \"below sea level\" -- it counts no lake standing above the waterline.")
+	_field(sec, "Land area", "%s km²" % _thousands(float(r.get("land_km2", 0.0))))
+	_field(sec, "Centroid", "%.0f E · %.0f N" % [float(r.get("centroid_x", 0.0)), float(r.get("centroid_y", 0.0))],
+		"polyCentroid (reference line 28291) -- area-weighted, in grid cells.")
+	_field(sec, "Bounding box", "%.0f × %.0f km" % [float(r.get("bbox_w_km", 0.0)), float(r.get("bbox_h_km", 0.0))])
+	_field(sec, "Mean elevation", "%.0f m" % float(r.get("mean_elev_m", 0.0)))
+	var stride := int(r.get("stride", 1))
+	DccWidgets.note(sec, ("%d cells tested, every one inside the ring." % int(r.get("sampled_cells", 0))) if stride <= 1 else
+		("%d cells tested at a stride of %d -- the projected area above is still exact; only the water split, the true surface and the mean elevation are sampled." % [int(r.get("sampled_cells", 0)), stride]))
+	_build_measure_actions(body)
+
+func _build_measure_radius(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · radius", "Click the centre, then a point on the rim.")
+		return
+	var r := _measure_result
+	var sec := DccWidgets.section(body, "Measure · radius")
+	_accent_readout(sec, "Radius", "%.0f km" % float(r.get("radius_km", 0.0)), "")
+	_field(sec, "Diameter", "%.0f km" % float(r.get("diameter_km", 0.0)))
+	_field(sec, "Circumference", "%.0f km" % float(r.get("circumference_km", 0.0)))
+	_field(sec, "Enclosed area", "%s km²" % _thousands(float(r.get("area_km2", 0.0))),
+		"πr² on the map plane. It is not clipped to the coastline -- use Area for a ring that follows real ground.")
+	_build_measure_actions(body)
+
+func _build_measure_vertical(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · Δ vertical", "Click two points to read the drop between them.")
+		return
+	var r := _measure_result
+	var sec := DccWidgets.section(body, "Measure · Δ vertical")
+	_accent_readout(sec, "Vertical difference", "%+.0f m" % float(r.get("delta_m", 0.0)), "")
+	_field(sec, "P1 · P2 elevation", "%.0f m · %.0f m" % [float(r.get("p1_elev_m", 0.0)), float(r.get("p2_elev_m", 0.0))])
+	_field(sec, "Horizontal distance", "%.1f km" % float(r.get("horizontal_km", 0.0)))
+	_field(sec, "3D distance", "%.1f km" % float(r.get("distance_3d_km", 0.0)))
+	_field(sec, "Grade · angle", "%.2f %% · %.2f°" % [float(r.get("grade_pct", 0.0)), float(r.get("angle_deg", 0.0))])
+	DccWidgets.note(sec,
+		"The canvas gates this pair on 3D relief and disables it in 2D. This port reads the same height field either way, " +
+		"so it stays live in both -- there is nothing the 3D view knows about elevation that the 2D one does not.")
+	_build_measure_actions(body)
+
+## The canvas's state 2 dock: SAMPLED FIELDS, SECTION LINE, CROSSINGS. The
+## profile itself is the strip's (`section_strip.gd`); this is everything
+## about the line that is a number rather than a curve.
+func _build_measure_section(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · cross-section",
+			"Click A then B. The profile draws in the strip under the map; scrubbing it marks the sampled cell on the map.")
+		return
+	var r := _measure_result
+	var stats: Dictionary = r.get("stats", {})
+	var samples: Array = r.get("samples", [])
+
+	var sec := DccWidgets.section(body, "Section line")
+	_accent_readout(sec, "Length", "%.0f km" % float(r.get("length_km", 0.0)), "")
+	_field(sec, "Bearing", "%03d°" % int(round(float(r.get("bearing_deg", 0.0)))))
+	_field(sec, "3D length", "%.0f km" % float(r.get("length_3d_km", 0.0)),
+		"Following the sampled ground rather than the map plane.")
+	_field(sec, "Samples · spacing", "%d · %.0f m" % [samples.size(), float(r.get("spacing_m", 0.0))])
+
+	var st := DccWidgets.section(body, "Profile statistics")
+	_field(st, "min · max", "%.0f m · %.0f m" % [float(stats.get("min_m", 0.0)), float(stats.get("max_m", 0.0))])
+	_field(st, "mean", "%.0f m" % float(stats.get("mean_m", 0.0)))
+	_field(st, "ascent", "%+.0f m" % float(stats.get("ascent_m", 0.0)))
+	_field(st, "descent", "%.0f m" % float(stats.get("descent_m", 0.0)))
+	_field(st, "net Δ", "%+.0f m" % float(stats.get("net_m", 0.0)))
+	_field(st, "mean · max slope", "%.1f° · %.1f°" % [
+		float(stats.get("mean_slope_deg", 0.0)), float(stats.get("max_slope_deg", 0.0))])
+	_field(st, "above 2 000 m", "%.0f km" % float(stats.get("above_2000m_km", 0.0)))
+	_field(st, "river crossings", str(int(stats.get("river_crossings", 0))))
+	_field(st, "ridge crossings", str(int(stats.get("ridge_crossings", 0))),
+		"A local maximum standing at least 100 m above the lower of the two valleys flanking it. That prominence floor is this port's own -- nothing in the reference defines a ridge crossing.")
+	_field(st, "shore crossings", str(int(stats.get("shore_crossings", 0))))
+
+	var cr := DccWidgets.section(body, "Crossings")
+	var crossings: Array = r.get("crossings", [])
+	if crossings.is_empty():
+		DccWidgets.note(cr, "The line crosses no river, ridge or shoreline.")
+	else:
+		for c in crossings:
+			var cd: Dictionary = c
+			_field(cr, "%.0f km" % float(cd.get("km", 0.0)), String(cd.get("label", "")),
+				"%.0f m at this crossing." % float(cd.get("elev_m", 0.0)))
+		DccWidgets.note(cr,
+			"Rivers are described by Strahler order, not by name: no river entity crosses the GDExtension boundary " +
+			"(see this dock's own River context), so there is no toponym to print.")
+	_build_measure_actions(body)
 
 # -- Region select --------------------------------------------------------
 
@@ -821,6 +1446,211 @@ func _build_region(body: Control) -> void:
 	DccWidgets.action(actions, "Send to Data ▸ Export", func():
 		app.data_manager_window.open_tile_export())
 
+
+# -- Wildlife ecoregion (the reference's own #wildInfo popup) ---------------
+
+## `showWildInfo` (reference HTML 8259-8269), field for field: the biome
+## heading, the species/area line, the region summary sentence, the
+## NPP/ruggedness/water triple, the lat + coastal + rugged meta line, and
+## then the fauna list -- one heading per guild with its biomass share, and
+## one row per species with the reference's own `~4.5M` population wording
+## (formatted engine-side by `wild_fmt_pop`, so this file does not carry a
+## second copy of that formatter).
+# -- History ledger (`GUI_GAP_REGISTER.md` ED-02) ----------------------------
+
+## One glyph per `undo_ledger()` row kind. Shape carries the state and the
+## row's own text repeats it -- nothing here is distinguished by colour alone.
+const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼"}
+
+## The ledger, drawn in the two tiers `DCC_SHELL_SPEC.md` §7.1 proposal 2
+## names -- and which are this engine's own draft/commit seam rather than an
+## invented one.
+##
+## **Open draft** first, because it is what has not happened yet: an
+## uncommitted Sculpt stack is reversible in place, by its own tool, and is
+## deliberately not a row below. **Committed** after it, newest first, one row
+## per commit whether or not the commit can be walked back.
+##
+## Three glyphs, and the text says the same thing the glyph does -- a row is
+## never distinguished by colour alone:
+##
+## | | |
+## |---|---|
+## | `▲` | a height snapshot is held; "revert to here" is real |
+## | `·` | recorded only, and the row carries the specific reason |
+## | `◼` | a generate or a load: history starts here |
+##
+## Reading `bridge.undo_ledger()` fresh each rebuild is deliberate: the
+## reversible flag is a property of the live undo stack, which evicts on its
+## own byte budget, so a cached row would go stale silently.
+func _build_history(body: Control) -> void:
+	var rows: Array = bridge.undo_ledger()
+	var stats := bridge.undo_stats()
+
+	## The draft tier. `sculpt_list_stamps()` is the only draft this shell has
+	## that survives across a dock rebuild; Paint's and Territory's live in
+	## their own tool bodies with their own Discard.
+	var stamps: Array = bridge.sculpt_list_stamps() if bridge.has_world else []
+	if not stamps.is_empty():
+		var d := DccWidgets.section(body, "Open draft")
+		DccWidgets.note(d, "◐  Sculpt · %d stamp%s, uncommitted" % [
+			stamps.size(), "" if stamps.size() == 1 else "s"])
+		DccWidgets.note(d,
+			"A draft's steps are its own, reversible in place from the Sculpt panel, and "
+			+ "not entered below -- nothing has happened to the world yet.")
+
+	var sec := DccWidgets.section(body, "Committed")
+	if rows.is_empty():
+		DccWidgets.note(sec,
+			"Nothing committed this session. A generate, a load, a Sculpt or Paint "
+			+ "commit, a carve or a territory commit all enter here.")
+	else:
+		## Newest first, which is how every history panel reads and the
+		## opposite of the engine's own oldest-first order.
+		for i in range(rows.size() - 1, -1, -1):
+			_history_row(sec, rows[i])
+
+	var cost := DccWidgets.section(body, "Cost")
+	var bytes := int(stats.get("bytes", 0))
+	var budget := int(stats.get("budget_bytes", 1))
+	DccWidgets.note(cost, "Reversible: %s of %s · %d of %d steps" % [
+		String.humanize_size(bytes), String.humanize_size(budget),
+		int(stats.get("depth", 0)), int(stats.get("max_steps", 5))])
+	DccWidgets.note(cost,
+		"A recorded-only row costs nothing -- it is a label and a timestamp. Only a "
+		+ "height snapshot occupies the budget, which is Preferences ▸ Memory ▸ "
+		+ "Undo history.")
+
+func _history_row(parent: Control, entry: Variant) -> void:
+	var d: Dictionary = entry
+	var kind := String(d.get("kind", "recorded"))
+	var reversible := bool(d.get("reversible", false))
+	var glyph := String(HISTORY_GLYPH.get(kind, "·"))
+	var seq := int(d.get("seq", 0))
+	var steps := int(d.get("steps", 0))
+	var label := "%s  %s" % [glyph, String(d.get("label", "?"))]
+	if reversible:
+		var b := DccWidgets.action(parent, label, func(): _revert_history(seq, steps))
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.tooltip_text = ("%s · %s. Reverts the height field to the state before this "
+			+ "operation, discarding the %d step%s after it as well -- history here is "
+			+ "linear, so there is no branch to come back to.") % [
+				String(d.get("subsystem", "")), String(d.get("detail", "")),
+				steps - 1, "" if steps == 2 else "s"]
+	else:
+		var note := DccWidgets.note(parent, label)
+		note.tooltip_text = "%s · %s" % [String(d.get("subsystem", "")), String(d.get("detail", ""))]
+	var sub := String(d.get("detail", ""))
+	if not reversible and String(d.get("reason", "")) != "":
+		sub = "%s — %s" % [sub, String(d.get("reason", ""))] if sub != "" else String(d.get("reason", ""))
+	if sub != "":
+		DccWidgets.note(parent, "      %s" % sub)
+
+## Linear revert, confirmed when it discards more than the row itself --
+## `DCC_SHELL_SPEC.md` §7.1's own choice of Photoshop's linear history over
+## the non-linear kind, and the one place in this panel that destroys work.
+func _revert_history(seq: int, steps: int) -> void:
+	if steps > 1:
+		_confirm_revert(seq, steps)
+		return
+	_do_revert(seq)
+
+func _confirm_revert(seq: int, steps: int) -> void:
+	var dlg := ConfirmationDialog.new()
+	dlg.dialog_text = ("Revert to this state?
+
+%d committed operation%s after it will be "
+		+ "discarded. History here is linear -- there is no branch to come back to.") % [
+			steps - 1, "" if steps == 2 else "s"]
+	dlg.ok_button_text = "Revert"
+	dlg.confirmed.connect(func():
+		_do_revert(seq)
+		dlg.queue_free())
+	dlg.canceled.connect(func(): dlg.queue_free())
+	app.add_child(dlg)
+	dlg.popup_centered()
+
+func _do_revert(seq: int) -> void:
+	var done := bridge.undo_revert_to(seq)
+	if done <= 0:
+		app.set_status("hint",
+			"that step is no longer available — its snapshot was dropped to stay inside the undo budget",
+			"text_ghost")
+		_rebuild()
+		return
+	## The same repaint `app.undo_last()` does, and for the same reason: write
+	## `map_view.texture` directly rather than calling `ViewportHost.refresh()`,
+	## which would also reset the camera. Reverting should leave you looking at
+	## exactly where you were looking.
+	if app.viewport != null:
+		app.viewport.map_view.texture = bridge.color_texture()
+		app.viewport.set_preview_texture(null)
+	var stats: Dictionary = bridge.undo_stats()
+	app.set_status("pass", "reverted %d step%s" % [done, "" if done == 1 else "s"], "text_dim")
+	app.set_status("hint", "%d undo step%s left · flow, rivers and climate are not re-run" % [
+		int(stats.get("depth", 0)), "" if int(stats.get("depth", 0)) == 1 else "s"], "text_ghost")
+	_rebuild()
+
+
+func _build_wildlife(body: Control) -> void:
+	if _wildlife_region.is_empty():
+		_build_sample(body)
+		return
+	var rec := _wildlife_region
+	## The biome name is a row, not the section title: a section header is
+	## `DccTheme.header()`'s uppercase Plex Mono tracked 2 px wide and does not
+	## trim, so "TROPICAL SEASONAL FOREST ECOREGION" was a ~270 px minimum this
+	## panel handed the dock for a value that varies by ecoregion -- the same
+	## width-follows-text fault `_field()` documents, one level up.
+	var sec := DccWidgets.section(body, "Ecoregion")
+	_field(sec, "Biome", String(rec.get("biome_name", "Unknown")), "", true, false, 60)
+	_accent_readout(sec, "Species", "%d" % int(rec.get("richness", 0)),
+		"Species richness: species-area x energy (NPP) x ruggedness x latitude, " +
+		"cut to the biome's Earth-analogue roster.")
+	_field(sec, "Area", "%s km²" % _thousands(float(rec.get("area_km2", 0.0))),
+		"Region area, from its cell count and the map's own km-per-cell.")
+	DccWidgets.note(sec, String(rec.get("summary", "")))
+	sec.add_child(DccTheme.rule())
+	_field(sec, "NPP", "%d g/m²/yr" % int(round(float(rec.get("npp", 0.0)))),
+		"Net primary productivity, Miami model (Lieth 1975) -- the energy the whole food web is built on.")
+	_field(sec, "Ruggedness", "%.3f" % float(rec.get("tri", 0.0)),
+		"Terrain Ruggedness Index (Riley 1999), averaged over the region.")
+	_field(sec, "Water", "%.2f" % float(rec.get("water", 0.0)),
+		"Mean water access across the region: 1 at a river or coast, falling away inland.")
+	var meta := "lat %d°" % int(round(float(rec.get("lat_abs", 0.0))))
+	if bool(rec.get("coastal", false)):
+		meta += " · coastal"
+	if bool(rec.get("rugged", false)):
+		meta += " · rugged"
+	DccWidgets.note(sec, meta)
+
+	var fauna := DccWidgets.group(sec, "Fauna (population estimate)")
+	var guilds: Array = rec.get("guilds", [])
+	if guilds.is_empty():
+		DccWidgets.note(fauna, "No fauna assigned: this biome has no roster entry that clears its terrain gates.")
+		return
+	for g in guilds:
+		var d: Dictionary = g
+		_field(fauna, String(d.get("label", "")), "%d%%" % int(float(d.get("biomass_rel", 0.0)) * 100.0),
+			"Share of the region's total animal biomass.")
+		for sp in (d.get("species", []) as Array):
+			var s: Dictionary = sp
+			_field(fauna, "    " + String(s.get("name", "")), "~" + String(s.get("population_text", "")),
+				"%s kg body mass. Population from the region's energy budget (Lindeman 10%% cascade) over Kleiber metabolic demand." % String.num(float(s.get("mass_kg", 0.0)), 2))
+
+## `Number.toLocaleString()` (reference line 8265's own km² formatting).
+func _thousands(v: float) -> String:
+	var s := "%d" % int(round(v))
+	var neg := s.begins_with("-")
+	if neg:
+		s = s.substr(1)
+	var out := ""
+	for i in range(s.length()):
+		if i > 0 and (s.length() - i) % 3 == 0:
+			out += ","
+		out += s[i]
+	return ("-" + out) if neg else out
+
 # -- Journey (delegate to journey_planner_view.gd) --------------------------
 
 func _build_journey(body: Control) -> void:
@@ -855,7 +1685,7 @@ func _build_sculpt(body: Control) -> void:
 	var stamps: Array = bridge.sculpt_list_stamps()   ## already newest-first
 	var selected := bridge.sculpt_get_selected_stamp()
 	if stamps.is_empty():
-		DccWidgets.note(sec, "No stamps yet -- arm a Sculpt feature (World ▸ Sculpt) and draw a stroke on the map.")
+		DccWidgets.note(sec, "No stamps yet -- arm a Sculpt feature (World ▸ Terrain ▸ Sculpt) and draw a stroke on the map.")
 	else:
 		for s in stamps:
 			var d: Dictionary = s
@@ -871,41 +1701,55 @@ func _build_sculpt(body: Control) -> void:
 	redo_btn.disabled = not bridge.sculpt_can_redo()
 	DccWidgets.note(hist, "Draft-scoped only (add/delete/hide/reorder) -- never touches the real heightfield.")
 
+	## `GUI_GAP_REGISTER.md` RD-13: WW-01 (`948e15a`) gave `FinalizeLock` a real
+	## engine, and `sculpt_commit` is one of its five guarded call sites --
+	## `finalize_check("height_edit")` returns the same refusal sentence the
+	## engine itself would print, so the button and the note agree with what a
+	## press would actually do instead of failing silently against a locked
+	## world.
+	var lock_msg := String(bridge.finalize_check("height_edit"))
 	var actions := DccWidgets.group(body, "Commit")
 	var commit_btn := DccWidgets.action(actions, "%s Commit to map" % DccIcons.SYMBOLS["tick"], _on_sculpt_stack_commit, true)
-	commit_btn.disabled = stamps.is_empty()
+	commit_btn.disabled = stamps.is_empty() or not lock_msg.is_empty()
 	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_sculpt_stack_discard)
 	discard_btn.disabled = stamps.is_empty()
 	DccWidgets.note(body,
 		"Commit bakes the whole stamp stack into the heightfield and marks the tiles it " +
 		"touched stale -- it does not re-run erosion, hydrology or climate " +
-		"(DCC_SHELL_SPEC.md header correction #1). No finalize/lock state exists in this " +
-		"engine yet -- no bake/LOD pipeline exists to freeze against (world_workspace.gd's " +
-		"own Finalize section has the same gap), so there is nothing real to report for §6's " +
-		"own finalize-lock note.")
+		"(DCC_SHELL_SPEC.md header correction #1).")
+	if not lock_msg.is_empty():
+		DccWidgets.note(body, lock_msg)
 
 func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
 	var idx := int(d.get("index", -1))
 	var hidden := bool(d.get("hidden", false))
 	var label_text := String(d.get("label", "?"))
 	var pts := int(d.get("point_count", 0))
+	var tablet := DccTheme.is_tablet()
+	var readout_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
-	row.custom_minimum_size.y = 20
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 20
 	var mark := DccTheme.mono_label(DccIcons.SYMBOLS["off"] if hidden else DccIcons.SYMBOLS["on"],
-		"text_ghost" if hidden else "text_dim", DccTheme.FS_TINY)
+		"text_ghost" if hidden else "text_dim", readout_fs)
 	row.add_child(mark)
 	var text := "#%d %s (%d pt%s)" % [idx, label_text, pts, "" if pts == 1 else "s"]
-	var l := DccTheme.mono_label(text, "accent" if idx == selected else "text", DccTheme.FS_SMALL)
+	var l := DccTheme.mono_label(text, "accent" if idx == selected else "text",
+		DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	l.clip_text = true
 	row.add_child(l)
+	## §57 tier B: one row of many, one selected -- the same "one of a set is
+	## lit" shape as a mode chip, so it takes `chip_min_h`/`fs_readout` rather
+	## than the discrete-action `btn_min_h`.
 	var select_btn := Button.new()
 	select_btn.flat = true
 	select_btn.focus_mode = Control.FOCUS_NONE
 	select_btn.text = "selected" if idx == selected else "select"
 	select_btn.disabled = idx == selected
-	select_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	select_btn.add_theme_font_size_override("font_size", readout_fs)
+	if tablet:
+		select_btn.custom_minimum_size.y = DccTheme.role_px("chip_min_h")
 	select_btn.pressed.connect(_on_stamp_select.bind(idx))
 	row.add_child(select_btn)
 	parent.add_child(row)
@@ -1001,19 +1845,55 @@ func _on_stamp_delete(index: int) -> void:
 
 const _FIELD_LABEL_W := 116
 
+## **The pane's width is an input, never an output.** A Godot `Label` with no
+## trimming reports its own text width as its *minimum* width, and that number
+## travels up through the row, the section, the `ScrollContainer` (whose
+## horizontal scrolling is disabled, so it forwards its child's minimum width
+## whole) and into the right dock's `PanelContainer`, whose `custom_minimum_size
+## .x` is a floor and not a ceiling. So a value wider than the dock made the
+## dock wider, and since the viewport is the one `SIZE_EXPAND_FILL` child of
+## the same `HBoxContainer`, the map lost exactly those pixels -- on every
+## mouse-move that changed a value's length. Measured before this line existed:
+## the Sample panel's "Nearest settlement" row forced a 286 px minimum against
+## a 300 px dock, so the dock breathed 300 <-> 319 px and the viewport 440 <->
+## 421 px as the cursor crossed from one settlement's neighbourhood to another.
+##
+## `text_overrun_behavior` is the fix rather than `clip_text`: both collapse the
+## reported minimum width to 1 px, but the ellipsis says the value was trimmed
+## instead of amputating it silently. Every row in this dock reports rather than
+## edits, so there is nothing here that a trimmed value can break.
+##
+## `label_w` narrows the label column for the handful of rows whose *value* is
+## the content (a settlement name) rather than a short reading.
+## `GUI_GAP_REGISTER.md` §57 / `UNWIRED_FUNCTIONS.md` "the tablet interior
+## walk": this dock's single most-repeated row builder, resolved at
+## construction the same way `DccWidgets._row()` now is -- `role_px("row_min_h")`
+## for the row, `"fs_prose"` for the label (prose, `DccTheme.label()`) and
+## `"fs_readout"` for a mono value (Plex, `DccTheme.mono_label()`). A non-mono
+## value stays prose-sized, matching the label beside it.
 func _field(parent: Control, label_text: String, value_text: String,
-		tooltip: String = "", reachable: bool = true) -> Label:
+		tooltip: String = "", reachable: bool = true, mono: bool = false,
+		label_w: int = _FIELD_LABEL_W) -> Label:
+	var tablet := DccTheme.is_tablet()
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
-	row.custom_minimum_size.y = 22
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
 	row.tooltip_text = tooltip
-	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
-	l.custom_minimum_size.x = _FIELD_LABEL_W
+	var label_fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
+	var l := DccTheme.label(label_text, "text_dim", label_fs)
+	l.custom_minimum_size.x = label_w
 	l.clip_text = true
 	row.add_child(l)
-	var v := DccTheme.label(value_text, "text" if reachable else "text_ghost", DccTheme.FS_SMALL)
+	var token := "text" if reachable else "text_ghost"
+	var v: Label
+	if mono:
+		var mono_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
+		v = DccTheme.mono_label(value_text, token, mono_fs)
+	else:
+		v = DccTheme.label(value_text, token, label_fs)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(v)
 	parent.add_child(row)
 	return v
@@ -1025,11 +1905,103 @@ func _accent_readout(parent: Control, label_text: String, value_text: String, to
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 0)
 	wrap.tooltip_text = tooltip
-	wrap.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
-	var v := DccTheme.label(value_text, "accent", 26)
+	var caption_fs := DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL
+	wrap.add_child(DccTheme.label(label_text, "text_dim", caption_fs))
+	## This used to hard-code `26` and argue that §6's "one big accent readout
+	## per context" was deliberately pinned. `BUILD_ANSWERS.md` §2.4 reverses
+	## that on 2026-08-31 -- *"The three unscaled values -- all three now scale.
+	## They were oversights."* -- so the size comes from `fs_hero`'s own
+	## desktop/tablet pair instead.
+	##
+	## Through `DccTheme.hero()`, not a second `role_px("fs_hero")` read here:
+	## that helper's own doc names this exact readout ("§6's elevation") and had
+	## no caller, so this row is what it was written for. It also draws in Plex,
+	## which is what `mono_label()` is for -- every numeric readout in this
+	## shell -- where `DccTheme.label()` left the dock's one big number in prose.
+	var v := DccTheme.hero(value_text)
+	## Same rule as `_field()`: this is the fastest row in the dock to outgrow
+	## the pane, and it is rewritten on every mouse-move.
+	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	wrap.add_child(v)
 	parent.add_child(wrap)
 	return v
+
+# -- Coordinate readout ----------------------------------------------------
+#
+# Two rules, one shared reason: the coordinate is the one reading in this dock
+# that changes on literally every mouse-move, so it is both the row most able
+# to destabilise the pane's width and the row most able to lie about how much
+# the map actually knows.
+
+## One cell's real size in km -- `map_width_km / gw`, the single quotient
+## `GENERATION_PARAMETERS.md` says every resolution-dependent figure in this
+## port is derived from (`terrain_detail_k`, `river_flow_thresh`,
+## `civ_catchment_radius_cells`, `suppression_radius_cells` all take it).
+## `0.0` when there is no world, or when a loaded save carried no extent.
+func _cell_km() -> float:
+	var gw := bridge.grid_size().x
+	if gw <= 0 or bridge.last_width_km <= 0.0:
+		return 0.0
+	return bridge.last_width_km / float(gw)
+
+## How many decimals a km coordinate may honestly carry **for this world**.
+##
+## Every raster in this port is per-cell; nothing it can be asked -- elevation,
+## biome, slope, territory -- distinguishes two points inside one cell. So the
+## finest meaningful step in a coordinate is one cell, and one cell is not a
+## fixed size: 2 400 km over 384 cells is 6.25 km per cell, 1 000 km over 2 048
+## is 0.49 km, 200 km over 2 048 is 0.098 km. A fixed decimal count would print
+## false precision on the first and throw real precision away on the last.
+##
+## The rule: the displayed step is the **largest power of ten no larger than
+## one cell** -- `ceil(-log10(cell_km))`, clamped to 0..3. That gives 0
+## decimals at 6.25 km/cell (1 km steps, one step ≈ a sixth of a cell), 1 at
+## 0.49 km/cell, 2 at 0.098 km/cell. A decimal count can only move in factors
+## of ten, so "no finer than a cell, and within one factor of ten of it" is the
+## tightest honest rule available; the clamp at 3 stops a pathological
+## metre-scale world asking for a column of digits nobody reads.
+func _coord_decimals() -> int:
+	var km := _cell_km()
+	if km <= 0.0:
+		return 0
+	return clampi(int(ceil(-log(km) / log(10.0))), 0, 3)
+
+## The cell size as the `Position` row's tooltip states it, at whatever
+## precision the number itself needs to be legible.
+func _cell_km_text() -> String:
+	var km := _cell_km()
+	if km <= 0.0:
+		return "of unknown size"
+	if km >= 1.0:
+		return "%.2f km" % km
+	return "%d m" % int(round(km * 1000.0))
+
+## Pad to a fixed character count so the pair keeps its columns in a mono
+## label. Cosmetic only -- the row's *width* is already nailed down by
+## `_field()`'s ellipsis; this is what stops the two numbers sliding past each
+## other as digits come and go.
+func _coord_pad(s: String, chars: int) -> String:
+	return " ".repeat(maxi(0, chars - s.length())) + s
+
+## `[position, cell]` for the two Sample coordinate rows. Both are pairs on one
+## line: X and Y are one reading, and one row per axis was both a worse read
+## and a second label free to size itself to its own digit count.
+func _coord_texts(gx: float, gy: float, valid: bool) -> Array:
+	if not valid or not bridge.has_world:
+		return ["—", "—"]
+	var gs := bridge.grid_size()
+	var cw := str(maxi(gs.x, gs.y) - 1).length()
+	var cell := "%s · %s" % [
+		_coord_pad(str(int(round(gx))), cw), _coord_pad(str(int(round(gy))), cw)]
+	var km := _cell_km()
+	if km <= 0.0:
+		## A loaded save with no recorded extent: the cell index is still real,
+		## the km figure would be invented.
+		return ["—", cell]
+	var fmt := "%%.%df" % _coord_decimals()
+	var kw := (fmt % maxf(bridge.last_width_km, bridge.last_height_km)).length()
+	return ["%s · %s km" % [
+		_coord_pad(fmt % (gx * km), kw), _coord_pad(fmt % (gy * km), kw)], cell]
 
 func _nearest_settlement_text(gx: float, gy: float, valid: bool) -> String:
 	if not valid:

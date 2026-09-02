@@ -1,5 +1,58 @@
 # DCC shell: supersedes GUI_SHELL_SCOPE.md's target, real milestone plan
 
+> **This document defines the DCC shell's milestones, its design rules and the
+> decisions behind them. It does not track them.** Where the work stands is in
+> **`cartalith-native/docs/STATUS.md`**, which is the only place progress is
+> recorded. The dated "as built" sections below are records of the passes that
+> ran, not a statement of the shell as it stands today.
+
+> ## 📐 WHICH CANVAS WINS (owner, 2026-08-25) — read this before resolving any design conflict
+>
+> Owner's words, verbatim: *"In essence always follow the newer design or use
+> the design principles from the DCC versions to fill in gaps."*
+>
+> Two rules, in order:
+>
+> 1. **The newer canvas wins.** Where two artboards disagree, the later one is
+>    authoritative — not the more detailed one, not the one a scope document
+>    happens to cite, and not the one already implemented.
+> 2. **Where no canvas exists, derive from the DCC canvases' own vocabulary.**
+>    Fill the gap by extending what they establish; do not invent a treatment,
+>    and do not copy one in from outside this design system. Say in the pass's
+>    write-up which surfaces were *designed* rather than *matched*.
+>
+> A third rule follows from the first and is worth stating because it has
+> already caught a pass out: **an owner decision is newer than any canvas.**
+> `Data ▸ Conversion` is still drawn in the canvas and was removed by owner
+> decision on 2026-08-20; the canvas is stale there, and the shell is right.
+>
+> ### What this settles, as of 2026-08-25
+>
+> | Conflict | Resolution under the rule |
+> |---|---|
+> | Phone geometry: `DCC Shell.dc.html` §13 (393 dp) vs `Cartalith Android Phone.dc.html` (412 dp) | **412 dp** — already ruled separately the same day, and the rule agrees. The migration it implies is described below |
+> | Phone bottom-nav **tab set**: the 412 canvas's five pre-v3 domains vs `Cartalith Menu Structure v3.dc.html` | **v3's domain set.** v3 is newer than the phone canvas. So the migration takes 412's *geometry* and v3's *content* — the one place the two authorities split. The tab set is `WORLD · CIVIL · CARTO · PANELS · MORE` in the canvas's glyph-over-caption treatment |
+> | Tool options bar: `DCC shell 1920`'s one 34 px row vs `Cartalith Paint Toolbar.dc.html`'s two ruled 38 px rows | **Paint Toolbar** — it is the later artboard and draws a component `DCC shell 1920` does not. Measured 78 px: two 38 px rows with the rule between |
+> | Dropdown check marks: canvas's typographic `●`/`○` vs Godot's stock radio icons | **The canvas.** No newer authority disagrees. Godot draws that column from theme *icons*, so the marks have to be drawn as a filled disc and a hairline ring rather than set as type |
+> | Menus with no artboard at all (Edit, Window, Help, Preferences' bands, World Data's phone list) | Rule 2 — derive from the drawn menus, and disclose which |
+>
+> ### The 412 phone migration, 2026-08-25
+>
+> `DCC_SHELL_SPEC.md` §13's phone column is **superseded, not merely disagreed
+> with**, and says so at the top of its own section. The geometry the migration
+> adopts: `DccTheme.PHONE_REF_SHORT` of `412.0`; a status row of 28 dp on a solid ground (no keep-clear
+> reserve, no gradient scrim, no 108 dp centre lane), the app bar 56 dp, the
+> bottom nav 64 dp with a `14px` glyph over a `9.5px` caption, the gesture inset
+> 20 dp with a `112×4` handle, and the ☰ side drawer deleted in favour of the
+> canvas's `02 Domain` full-screen drill. Verified at 1440×3168 and 1080×2400
+> and driven on the owner's OnePlus 6T. Full record, with before/after numbers
+> and the five surfaces that were *designed* rather than matched:
+> `GUI_GAP_REGISTER.md` §53.
+>
+> Recorded here rather than only in `GUI_GAP_REGISTER.md` §51 because it
+> resolves conflicts that have not happened yet, and because every future
+> design pass needs it before it starts rather than after it has guessed.
+
 > ## ✅ THE HOLD IS LIFTED — BUILD IT (owner, 2026-08-18, later same day)
 >
 > Owner's words, verbatim: *"Replace the current GUI and replace it in full by
@@ -13,9 +66,8 @@
 > banning emoji in favour of drawn SVG glyphs.
 >
 > **Scope of the instruction**: full replacement, not an incremental reskin —
-> the shell *and* its wiring and functionality. **Tool-system milestone F
-> (shell wiring) is unblocked** and is part of this work; milestones A-E are
-> engine-complete and golden-verified already.
+> the shell *and* its wiring and functionality. That puts tool-system milestone
+> F (shell wiring) inside this work rather than beside it.
 >
 > **Read `DCC_CONTROL_INDEX.md` before writing layout code.** It indexes all
 > 452 controls against real engine capability — **wired** / **backed, unwired**
@@ -35,7 +87,7 @@
 
 Owner's instruction before any implementation: *"Before implementing the GUI I
 want you to properly index all functions and buttons in the design and compare
-it to the current program and functionalities."* Done, as
+it to the current program and functionalities."* Carried out as
 **`DCC_CONTROL_INDEX.md`** (repo root) — 452 controls from `DCC_SHELL_SPEC.md`
 §1 through §12, one row each, every one carrying the exact `#[func]`, parameter
 key or crate function behind it and a status of **wired** (79) / **backed,
@@ -49,8 +101,8 @@ this document's own milestone plan: the spec's ten-stage generation pipeline
 does not partition the way `GENERATION_PARAMETERS.md`'s eight engine groups do
 and assumes per-stage re-execution the one-shot `generate_terrain` cannot
 offer; and the design has no surface at all for the ~11 non-terrain tools whose
-engine halves milestones C-E already built, so milestone F's target has changed
-shape, not just its skin.
+engine halves milestones C-E own, so milestone F's target has changed shape, not
+just its skin.
 
 Owner-supplied design import (2026-08-17, same Claude Design project as
 before — "UI mockups planning," via `claude_design` MCP). Owner's own words,
@@ -92,6 +144,12 @@ than recomputed mid-stroke.
 
 ## Why this splits into two genuinely different tracks
 
+*The inventory in this section is the state of the port on **2026-08-18**, and
+it is the argument for the two-track split — the tracks are shaped by what
+existed and what did not on that day. Read it for the reasoning; the tools it
+calls absent are what Track 2's own milestones (`UNIFIED_TOOL_PLAN.md` A-F)
+were written to build.*
+
 **Track 1 — shell restructure.** Layout, navigation, menu contents, visual
 language. This is real UI/UX work of the same shape every prior GUI pass this
 session has done: re-parent every currently-working control into its new
@@ -131,7 +189,7 @@ invented — is the real prerequisite for Track 2, the same way `JOURNEY_
 PLANNER_SCOPE.md`/`ASSET_LIBRARY_SCOPE.md` had to exist before those efforts
 could be milestoned honestly.
 
-## A concurrent, now-partially-stale piece of work
+## A concurrent piece of work, and how it was re-pointed (2026-08-18)
 
 `GUI_FEATURE_PARITY_SCOPE.md` was commissioned this session (before this
 import) to audit the *previous* shell's inert menus against the reference
@@ -145,7 +203,7 @@ transfer unchanged.
 
 ## Milestone plan
 
-**Milestone 1 (dispatched)** — shell restructure, desktop 1920×1080, dark
+**Milestone 1** — shell restructure, desktop 1920×1080, dark
 theme only (matching the existing shell's own sequencing: light theme/
 responsive breakpoints were already deferred once, stay deferred here too).
 Build the six regions per `UI_SHELL_DESIGN.md`'s table. Re-parent every
@@ -163,7 +221,7 @@ Menu bar replaces the old top-bar's 7-menu set with the new 8-menu set
 (Edit and Help are new; Project/World/Map are restructured into File/Generate/
 Render).
 
-**Milestone 2 (dispatched, parallel, no code)** — write `UNIFIED_TOOL_PLAN.md`
+**Milestone 2 (parallel with milestone 1, no code)** — write `UNIFIED_TOOL_PLAN.md`
 for real: investigate the reference's Sculpt editor (`reference/Cartalith
 Gen1 v2.10.html`, grep `reference/FUNCTION_INDEX.md`), determine what each of
 the ~17 tool-rail tools actually needs to mutate at the engine level, which
@@ -177,8 +235,8 @@ This document is planning only — it does not implement the tool system, it
 scopes it honestly, the same way `JOURNEY_PLANNER_SCOPE.md` scoped Journey
 Planner into six real milestones rather than attempting it whole.
 
-**Milestone 3+ (not yet dispatched)** — the tool system itself, milestoned by
-whatever Milestone 2 finds. Expect this to be large — potentially comparable
+**Milestone 3+** — the tool system itself, milestoned by whatever milestone 2
+finds. Expect this to be large — potentially comparable
 to Journey Planner or the Asset Library in scope, since it is genuinely new
 engine capability, not a port of already-computed data.
 
@@ -206,7 +264,7 @@ rail is present and honest about what doesn't work yet, and the golden path
 is screenshot-verified unbroken. Milestone 2's `UNIFIED_TOOL_PLAN.md` gives
 whoever picks up milestone 3 a real, scoped target instead of a green field.
 
-## Milestone 1: done (2026-08-18)
+## Milestone 1 as built (2026-08-18)
 
 Dispatched, then interrupted mid-flight by an account-level API error with
 no recoverable transcript — real, uncommitted work was left sitting in the
@@ -276,18 +334,15 @@ its full academic-principles text; tool-rail selection and workspace-tab
 switching both confirmed structurally correct against `UI_SHELL_DESIGN.md`'s
 own rules (tab switching restyles tool-rail emphasis only, never the
 viewport or the already-selected tool's highlight). Full record:
-`cartalith-native/docs/CHANGELOG.md`'s "DCC shell milestone 1" entry,
-`cartalith-native/docs/STATUS.md`'s own DCC shell section.
+`cartalith-native/docs/CHANGELOG.md`'s "DCC shell milestone 1" entry (retired,
+kept as history).
 
-Milestone 2 (`UNIFIED_TOOL_PLAN.md`) and milestone 3+ remain not yet
-dispatched, unchanged by this pass.
-
-## Milestone 2 (GUI track): the Generate menu's parameter dialogs — done (2026-08-18)
+## Milestone 2 (GUI track): the Generate menu's parameter dialogs — as built (2026-08-18)
 
 Note on numbering: "milestone 2" was originally the *planning* task above
 (`UNIFIED_TOOL_PLAN.md`, the tool track). This is the second **shell** GUI
 milestone and runs on the other track — the two are independent, and the tool
-track's numbering is unaffected. Track 2 milestone 3+ is still not dispatched.
+track's numbering is unaffected.
 
 Dispatched from the owner's directive *"make all generation options active in
 the current interface so that we have the same functional controls as the
@@ -333,10 +388,9 @@ dialogs are built at runtime):
 
 **Staleness — the decision this milestone was asked to make honestly.**
 `UI_SHELL_DESIGN.md` says each Generate stage "reports staleness". Two facts
-make a per-stage staleness indicator the wrong thing to build today: no
-staleness system exists (`UNIFIED_TOOL_PLAN.md` scopes it as milestone A,
-unbuilt), and — the load-bearing one — **the engine is a one-shot
-generator**. `generate_terrain` runs the whole pipeline or none of it, so
+made a per-stage staleness indicator the wrong thing to build in this pass: no
+staleness system existed yet (`UNIFIED_TOOL_PLAN.md` scopes it as milestone A),
+and — the load-bearing one — **the engine is a one-shot generator**. `generate_terrain` runs the whole pipeline or none of it, so
 there is no per-stage incremental recompute for a stage to be stale
 *relative to*. A per-stage "stale" pip would advertise exactly the
 incremental pipeline that does not exist, which is worse than showing
@@ -396,12 +450,12 @@ entry points, all five map-overlay toggles, the causal-chain Inspector on
 hover *and* click-to-pin with the pin surviving subsequent layer toggles,
 Credits, and File > Open project's dialog.
 
-**Still deferred, unchanged**: light theme, responsive breakpoints, and all
+**Deferred by this pass, unchanged**: light theme, responsive breakpoints, and all
 tool functionality. The pre-existing `dark_theme.tres` unchecked-`CheckBox`
 glyph issue recorded under milestone 1 is unchanged and visible in these
 dialogs too.
 
-## Milestone 3 (GUI track): the World Setup dialog — done (2026-08-18)
+## Milestone 3 (GUI track): the World Setup dialog — as built (2026-08-18)
 
 Owner's own request, verbatim: *"maybe we should start thinking about a
 proper base setup menu where we can pick map size, resolution, dimensions -
@@ -530,6 +584,6 @@ included), the causal-chain Inspector on hover **and** click-to-pin — driven
 through `map_overlay`'s own real hit test at a settlement's own pixel, not a
 hand-made signal emit — all six Generate stage dialogs building, and Credits.
 
-**Still deferred, unchanged**: light theme, responsive breakpoints, and all
+**Deferred by this pass, unchanged**: light theme, responsive breakpoints, and all
 tool functionality. Saving a *parameter set* as a named preset document is
 the natural follow-up this milestone deliberately does not attempt.

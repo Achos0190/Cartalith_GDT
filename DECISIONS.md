@@ -326,3 +326,410 @@ concern) and its crossroads-settlement promotion pass (reference line
 ~25607) remain unported. Both are real, separate reference features,
 confirmed by reading them, not conflated with the geometry bug this entry
 fixes — left for a future pass if the owner wants them.
+
+## 7f. The pre-carve `computeFlow(true)` is skipped when carving runs (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.1 found, and this pass
+confirmed by re-reading every statement between the two points, that
+`generate_terrain` computes `flow_discharge` immediately before
+`carveRiverValleys` and then **unconditionally overwrites it** at that
+function's own step (3). The carve block in between reads `field`, `pre`,
+`stress.stress_field`, `resistance_field`, `rainfall` and its own locally
+computed `flow_for_network` — never `flow_discharge`. On the default path
+(`carve_rivers: true`) the first call's result is therefore discarded unread.
+
+**Why the reference does it.** It is a faithful port of the reference's own
+order. In JS, `flowField` is a module global that the renderer, every overlay
+and the sample readout may read at any moment, and `carveRiverValleys()` is
+conceptually a separate op that could be invoked on its own — so the reference
+has to leave the global current between the two. In this port it is a function
+local with no observer between its two assignments.
+
+**The deviation.** The call is skipped when `p.carve_rivers` is on. It is
+**not** skipped when `carve_rivers` is off, because there it is the output —
+the skip is conditional by construction, not an unconditional deletion.
+
+**What it is worth**, measured on this machine with
+`cargo run --release --example timing_bench -p cartalith-engine`, best of 3
+after a warm-up, `WorldParams::defaults`:
+
+| Size | Before | After | Saved |
+|---|---|---|---|
+| 512² | 0.3641 s | 0.3280 s | 36 ms (9.9 %) |
+| 1024² | 1.1396 s | 1.0385 s | 101 ms (8.9 %) |
+| 2048² | 4.8275 s | 4.3955 s | **432 ms (8.9 %)** |
+
+One `compute_flow` call at 2048² measures 402 ms on the same machine, which is
+what the saving should be and is.
+
+**Why this is not a §7 parity question.** It changes no formula, no constant
+and no operation order — the value that survives is the value that always
+survived, computed from the same inputs by the same call. The claim is
+*bit-identity*, and it is held to that by
+`precarve_flow_skip_leaves_generation_bit_identical` (`cartalith-engine`),
+which runs the same generation twice — once skipping, once with the
+reference's literal call order restored through a private
+`force_precarve_flow` escape hatch — and `assert_eq!`s every raster
+`WorldState` carries plus `gpu_stages_used`, over four carving fixtures
+(both `world` modes, several seeds) and two non-carving ones. `gpu_stages_used`
+cannot differ: `flow_on_gpu` returns `Some` iff `gpu_flow` is `Some`, which is
+fixed for the whole function, and the two flow calls inside the carve block
+push the same `"flow"` string under the same condition.
+
+Disclosed here rather than absorbed because `CLAUDE.md` requires it —
+deviating from the reference's own call sequence is a decision even when the
+output is provably identical. Same pattern as §7e.
+
+**Also found and deliberately not taken**: §3.4 of the same research notes that
+`compute_temperature`'s first call is likewise unread on the default path.
+Left alone — it is one O(N) per-cell pass rather than a global sort-and-walk,
+and skipping it would mean restructuring `apply_ocean_currents`' `&mut
+temperature` argument. Recorded so the next reader knows it was considered.
+
+## 7g. New opt-in coupling between subsystems is an approved pattern (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §4 asked, as its item 5,
+whether the owner wants the door open to *adding* new feedback between
+subsystems — beyond the reduction work §3.2 and §3.2.4 already cover — the
+way the graphics literature has kept moving for a decade (erosion↔vegetation,
+cryosphere↔albedo, dynamic lithology; the latter two already named as
+documented follow-ups elsewhere in this repo).
+
+**Owner's answer: yes, opt-in additions are fair game**, on the same terms
+`ErosionPassParams` already demonstrates as a working pattern in this
+codebase (`crates/cartalith-engine`, wired 2026-08-24, `1f7c295`/`8e666ac`):
+
+- **Off by default.** A new coupling must not change any existing golden
+  output when its toggle is left at its default.
+- **Real physical justification**, not novelty for its own sake — the same
+  bar the six existing erosion passes were held to.
+- **Affordable because it is optional.** The cost of the *feature existing*
+  is roughly the cost of one more conditional branch and one more toggle in
+  `WorldParams`; the cost of *running* it is paid only by whoever turns it on.
+
+This is a standing decision for future work in this area, not a one-time
+approval — a later PR proposing a new opt-in coupling (e.g. erosion feeding
+back into vegetation/biome classification) does not need to re-litigate
+whether such additions are welcome, only whether the specific proposal meets
+the three bars above. Raised via `PARITY_AUDIT.md` pass 2 (§13, finding F3),
+which found this decision existed only in conversation with no durable
+record — recorded here so it has one.
+
+## 7h. The save format is a tree, and it is no longer the reference's (owner decision, 2026-08-25)
+
+Two owner statements, in order, both verbatim.
+
+The requirement:
+
+> "The save zip should have all project files and the folder structure should
+> be a clean and clear tree without semantic overlap (not atlas and cartography
+> and both storing map tiles)"
+
+The compatibility ruling, given after this port raised that a tree is a
+deliberate divergence from the reference's `exportZip()` and asked whether both
+layouts should be written:
+
+> "Agreed, importing and reading should work from the old and new format, and
+> saving/exporting should strictly be the new format. (document this properly
+> as I'd like to upgrade the html version to include some of the new
+> functionality."
+
+**What is decided.** Readers accept both the flat legacy layout and the new
+tree. Writers produce only the tree. `SAVEFILE_COMPAT.md` is rewritten as a
+normative, implementation-neutral **specification** rather than an
+observational note, because the owner intends to implement it in the HTML app —
+so its audience is a second implementer working in JavaScript who cannot read
+this workspace's Rust.
+
+**Why this is recorded here.** `CLAUDE.md`'s standing rule is not to deviate
+from the reference silently, and this is the largest deviation the port has
+made in a format the reference defined. Before the ruling it was a judgment
+call this port would have had to justify; after it, it is settled, and the
+distinction matters to whoever re-reads this in six months wondering whether it
+is revisitable. It is not, absent a new owner decision.
+
+**What it costs, disclosed.** A project saved by this port can no longer be
+opened by an unmodified pre-upgrade `Cartalith Gen1` build. The earlier
+"judgment call, disclosed" in `SAVEFILE_COMPAT.md` — writing the whole
+parameter block under the reference's own nested names so that a save
+round-tripped through the HTML app — was worth its cost while it was nearly
+free. It stopped being free the moment it collided with the owner's structural
+requirement: keeping it would have meant writing every raster twice, once at
+the root for the reference and once under `rasters/` for the tree, which is
+*literally* the duplication the first quote forbids. The flat writer survives
+as an explicitly-labelled interoperability **export**, not as a save path
+(`SAVEFILE_COMPAT.md` §1.1).
+
+**Relationship to §7d.** This is §7d applied to file handling, which §7d's own
+closing paragraph names as one of the areas it governs: the reference's flat
+archive was shaped by a single-file browser app that had one concept to store,
+the behavioural contract ("a project survives save and reload") is preserved
+and enlarged, and the implementation is free to differ. The §7d test — "would a
+user of the HTML app find this feature present and its result equivalent or
+better?" — is answered by the format now carrying the civilisation layer,
+history and annotations that the flat one dropped on the floor.
+
+**One constraint the format took on from this decision, worth naming.** A
+second implementation in JavaScript makes JSON's single number type a format
+hazard rather than a language quirk: integers above 2^53 are unrepresentable
+there. `SAVEFILE_COMPAT.md` §14.1 therefore *constrains the format* — every id,
+index, count and year must fit the safe-integer range — rather than warning
+implementers about it. §14.2 additionally requires readers to accept `1.0`
+where an integer is specified, which is the durable form of the fix for
+`GUI_GAP_REGISTER.md` KV-04, where exactly this class of bug silently discarded
+every knowledge link a user had ever made.
+
+## 7i. Routes are pass-aware, using the reference's own corridor detector (owner decision, 2026-08-26)
+
+**The owner's words:** *"routes should be terrain aware. A steep cliff or
+mountain or any other feature would probably always have a most passable point
+and humans have a tendency to use those points naturally."*
+
+**The obvious candidate, and why it was rejected on evidence.**
+`_civEnhancedTravelCost` (reference line 20958) already carries a mountain-pass
+test — a cell whose immediate neighbours along one axis are both `0.018`
+higher, more than `0.15` above sea level — and cuts that cell's slope penalty
+to `0.40×`, with its own comment saying why: *"Natural through-routes;
+road-builders exploit them."* It is used by exactly one caller, the automatic
+trunk-road network builder, and the manual Route/Way tools' grids
+(`_civLandCostGrid`, `_civMixedCostGrid`) have never seen it. Wiring it in was
+a two-line change and was the first thing tried.
+
+**It was then measured, and it is dead.** On a ridged-noise fixture it fired on
+**20 cells out of 12 288**. On a real generated 512×384 world it reached **zero
+of four** long crossings — not "changed them slightly": zero. The reason is
+structural, not a tuning miss: it is a *one-cell* test, and generated terrain
+is smooth at one-cell scale. A real pass — hundreds of metres of col between
+two summits — does not look like a local minimum between two immediate
+neighbours. Shipping it would have satisfied the request on paper and changed
+nothing on the map, which is the failure mode this port has a working rule
+about.
+
+**What is used instead is also the reference's own.** `buildRouteCorridors`
+(reference line 5903) answers the same question at a scale that exists: it
+looks `gw/64` cells out along four axes, takes the **minimum** of the two
+flanking maxima — its own comment: *"a corridor needs a barrier on BOTH sides
+of the axis — min, not max. One steep flank is a hillside; two is a pass"* —
+and pushes the result through a knee at `0.45` so the field is near-zero almost
+everywhere and spikes only at genuine pinch points. It is already ported
+(`cartalith_civ::build_route_corridors`) and already carries golden coverage
+through settlement suitability, which is the only consumer the reference gives
+it. **The whole divergence is that a router now reads the field the reference
+computed to describe exactly what a router needs.**
+
+**How it is applied.** `RouteContext::corridors` carries the field;
+`civ_pass_relief` turns a corridor value into a multiplier on the land cell's
+*slope term*, `1 - 0.60 × corridor`. At full strength that is `0.40` — exactly
+`_civEnhancedTravelCost`'s own pass factor, so the magnitude is the
+reference's and only the detector changed. It never touches the `1 +`
+baseline, so a pass is cheaper to **climb**, never cheaper than flat ground,
+which is what stops a chain of cols out-competing a valley floor. `None` is
+byte-for-byte the reference, and **every golden fixture passes `None`**, so
+those tests keep meaning "matches v2.10" instead of quietly re-baselining onto
+this port's own output.
+
+**Measured on the shipped path** (`cartalith-godot/tests/pass_relief_measure.rs`,
+seed 24601 at 512×384, 169 558 land cells):
+
+| measurement | value |
+|---|---|
+| land carrying any corridor value | 30.8% |
+| mean corridor over land | 0.064 → a **4%** slope discount on the average cell |
+| land above half strength | 1.02% → **30–60%** off, where the pinch points are |
+| long crossings whose route changed | 2 of 4 |
+
+That is the shape the term has to have: invisible almost everywhere, decisive
+at the ~1% of cells that are real passes. The test asserts loose bounds around
+those numbers, so a later terrain-pipeline retune that makes the field dead —
+or makes it broad — fails there rather than being noticed by eye.
+
+**Cost.** `build_route_corridors` runs once per `RouteInputs::build`, i.e. once
+per way/route commit or re-route, not once per Dijkstra leg. It is suppressed
+for `RouteMode::Water` (no slope term to relieve) and for worlds under 128
+cells wide, where its own `max(2, gw/64)` reach collapses to two cells and it
+would be measuring noise rather than a range.
+
+**Not taken in the same pass:** `_civEnhancedTravelCost`'s other two terms —
+the swamp/floodplain penalty and the river ford-vs-bridge cost — are equally
+absent from the route grids and equally defensible to add. They need
+`flow`/`flow_thresh` plumbed onto `RouteContext`, which this term does not, so
+they are named here as the obvious next step rather than bundled in.
+
+**Relationship to §7d.** The §7d test — *"would a user of the HTML app find
+this feature present and its result equivalent or better?"* — is answered by
+both halves already existing in the HTML app: the detector, and the router that
+never asked it anything.
+
+## 7j. The Journey Planner applies its per-stage suggestions, not just shows them (owner decision, 2026-08-26)
+
+**The owner's words:** *"per stage should auto pick either according to terrain
+or animals/carriage. Basically it should always pick from technically best and
+available per stage. (and scale to group and cargo size)."*
+
+**What the reference does.** It computes exactly this, twice per land stage:
+`_jpBestLandTransportForStage` (line 18053, v1.53) measures which land mode is
+fastest on that stage's own ground, and `_jpBestPackageForStage` (line 18080,
+v1.66) measures which pack species and vehicle that stage's terrain rewards.
+v1.66 exists because of an owner report quoted in the reference itself: *"at
+the desert transitions they will exchange their mule and cart for camels with
+travois and a different supply set-up... For now I cant make any such a
+finetunement."* Both functions carry the same stated contract — **"measure,
+never silently apply"** — and both are reached only from `_jpRenderResults`,
+which renders "⚡ faster mode available" past a **+10%** margin and leaves the
+swap to the user. Both were ported in milestones 2/6 with tests, and until now
+neither had a production caller.
+
+**The decision.** `jp_auto_stage_picks` applies them, behind `jp_compute`'s
+opt-in `auto_stage` key and the party form's own "Re-pack per stage where it
+pays" toggle — off by default, because it rewrites per-stage overrides and
+doing that unasked the first time a route opens would be acting behind the
+user.
+
+**Four rules keep it from being a worse answer than the suggestion it
+replaces**, all asserted in
+`auto_stage_picks_only_emit_measured_improvements_and_apply_as_overrides`:
+
+1. **The reference's +10% margin is kept.** Its stated reason — *"so a 1%
+   numerical wobble never nags the user"* — applies at least as strongly when
+   the swap is made rather than shown. A party that re-tacks its whole train
+   for a 2% gain is not modelling anything real.
+2. **A blocked stage is not skipped, and the margin does not apply to it.**
+   There is no percentage between "cannot cross" and "can cross". This is the
+   owner's own scenario: a train with carts does not cross Deep Sand *slowly*,
+   it is refused outright — so a picker that skipped blocked stages would have
+   been useless for precisely the case v1.66 was written for.
+3. **Availability is checked, because `jp_calc_land` deliberately does not.**
+   `jp_capacity_ex`'s v1.83 branch issues `group_size - declared` mounts to a
+   Mounted Rider party, because in the reference a human typed "Mounted Rider"
+   into the form and that *is* the declaration. With no human behind it, the
+   first run of this picker duly "discovered" that a twelve-person, 900 kg
+   merchant caravan travels **39% faster as riders** — by conjuring ten horses
+   it does not own and leaving the cargo on the road. `jp_stage_mode_available`
+   is this port's own gate and exists for that.
+4. **A hand-set per-stage field always wins.** `auto_stage` fills gaps in
+   `stage_overrides`; it never overwrites a value the user set.
+
+**Scaling to group and cargo is inherited, not re-implemented.** Every
+candidate is measured through the same `jp_calc_land` the stage itself uses,
+against that stage's *effective* plan — which already carries group size,
+cargo, supply days and the animal counts. A twelve-person caravan and a lone
+courier get different answers from the same terrain without this function
+knowing anything about either. Animal *counts* are preserved rather than
+resized: sizing a train from cargo stays `jp_auto_pick_transport`'s job for the
+whole route, which is the reference's own division and its own words.
+
+**All-or-nothing application.** The picks are measured against the stages the
+first plan derived, so applying them needs a second `jp_plan_full`. If that
+replan derives a different number of stages, nothing is applied and no picks
+are reported — rather than overrides landing on the wrong stages.
+
+**Relationship to §7d.** The feature is present in the HTML app as a
+recommendation the user must execute by hand, stage by stage, on a form that
+had no per-stage vehicle control at all until v1.66 added one. "Equivalent or
+better" is met by executing it.
+
+## 7k. Paint brush falloff: a probability-threshold edge, no palette index ever blended (owner ruling, 2026-08-31)
+
+**The owner's ruling** (`LARGE_ITEM_RULINGS.md`, taken by interrogation over
+`UNWIRED_FUNCTIONS.md`'s Large section): *"Bind it — add a falloff term to
+`PaintStamp`... This is a deliberate divergence from the reference, not a
+parity fix... It must be recorded in `DECISIONS.md` as a divergence when it
+lands. Also resolves the duplicate: two `Hardness` copies are on screen at
+once today, and only one should survive."* This was the highest-severity row
+in `UNWIRED_FUNCTIONS.md` and the source of both remaining dangerous-class
+entries there.
+
+**What the reference does.** Nothing. `cartalith-spatial/src/paint.rs`
+quotes it verbatim: painting is *"a hard disc... unlike `sculpt()`/
+`brushHeight` there's no soft falloff here."* `Brush::hardness`/`softness`
+(`paint_bridge.rs`) were accepted, clamped and stored since the Paint tool
+shipped, but went nowhere — `PaintStamp::apply` never read either one.
+
+**Why this is a divergence and not a parity gap.** There is nothing to
+port: the reference brush has no falloff of any shape to reproduce, hard or
+soft. `DCC_SHELL_SPEC.md` §4.5.2's tool options row lists the two sliders
+anyway, almost certainly carried over from the Sculpt row's own shape rather
+than a deliberate reference behaviour this port had simply failed to find.
+
+**The mechanism** (`cartalith_spatial::paint::PaintStamp::with_falloff`,
+`paint.rs:180`). The categorical-blending objection the reference's own
+comment raises is real and untouched by this: averaging two palette indices
+produces a meaningless third index, so every painted cell still carries
+exactly one clean index, always, at any hardness or softness. What softens
+is the disc's own *edge* — which cells a dab touches at all — never the
+*value* a touched cell receives.
+
+- `hardness`/`softness` (`paint.rs:143-144`) are the two `DCC_SHELL_SPEC.md`
+  §4.5.2 sliders, verbatim and uncombined by the caller. They combine into
+  one *softening* amount inside `PaintStamp` itself,
+  `((1.0 - hardness) + softness).clamp(0.0, 1.0)`
+  (`PaintStamp::feather_width`, `paint.rs:199`) — moving either slider away
+  from "fully hard" (`hardness = 1, softness = 0`) softens the edge a
+  little, both pushing the same needle the same way, rather than one being
+  forced into the other's exact inverse.
+- That amount times the radius is the width, in cells, of a falloff band at
+  the disc's own outer rim. Inside `radius - width` every cell paints
+  unconditionally — what keeps the centre solid rather than fading it
+  uniformly; from there out to `radius` (the disc's existing hard boundary,
+  unchanged) the paint probability ramps linearly from 1 to 0
+  (`passes_falloff`, `paint.rs:219`).
+- The probability is decided against `cell_dither` (`paint.rs:249`): a
+  deterministic hash of the cell's own absolute grid position, not a
+  per-frame random draw, so repainting the same spot at the same brush
+  settings keeps or drops exactly the same cells every time — the brush
+  stipples the map, it does not flicker. It is MurmurHash3's public-domain
+  `fmix64` finalizer over a salted position key, picked only for a fast,
+  good avalanche — **not for JS parity**: there is no reference falloff to
+  match, so `cartalith-rust-conventions`' precision-matching rules do not
+  govern this function.
+
+**The bit-identity guarantee.** `PaintStamp::new`/`PaintStamp::ungated`
+construct with `hardness: 1.0, softness: 0.0`. `(1.0 - 1.0) + 0.0` is `0.0`
+with no rounding — IEEE 754 subtraction of two equal finite operands is
+exact — so `feather_width()` is exactly `0.0` for every stamp that never
+calls `with_falloff`, and `PaintStamp::apply` skips the falloff branch
+entirely for it rather than evaluating a probability that always comes out
+to 1. This is a **strict superset** of the old behaviour, not a
+replacement: `cartalith-civ`'s territory brush (`cartalith-civ/src/
+tools.rs:973`, `cartalith-godot/src/civ_tools_bridge.rs:345`) calls
+`PaintStamp::ungated` and never `with_falloff`, so it is untouched by this
+entry and stays a hard disc forever, by construction rather than by a
+separate check. Every pre-existing golden/regression test for the hard-disc
+case — `cartalith-spatial/tests/golden_parity_paint.rs`'s 7 cases (checked
+against the reference's own `_paintAt`), `cartalith-civ`'s territory-brush
+suite, and every hard-disc test already in `paint.rs`'s own module — passed
+unchanged; none needed touching.
+
+**Verification.** `cargo test -p cartalith-spatial --lib`: 148 passed, 0
+failed, including 4 new tests added with this entry — bit-identity at the
+construction default and again with an explicit `with_falloff(1.0, 0.0)`
+call at two different radii; a mottled (not merely smaller) edge at
+`hardness=0.4`, checked over the full ~1 000-cell annulus rather than a
+single ray so the assertion cannot pass by luck; determinism across two
+applications of one stamp; softness alone feathering the edge while
+hardness stays at `1.0`. `cargo test -p cartalith-spatial --test
+golden_parity_paint`: 7 passed, unchanged. `cargo test -p cartalith-godot
+--lib`: 409 passed, 0 failed, 6 pre-existing ignores, including 3 new tests
+exercising the same two claims through `PaintEditor::stroke_at`/`Brush`'s
+real public names rather than `PaintStamp` directly. `cargo test -p
+cartalith-civ`: the 513-test lib suite plus every golden-parity suite in
+the crate, all passing — the territory brush is provably unaffected.
+
+**The duplicate slider.** `UNWIRED_FUNCTIONS.md` separately flagged
+`Hardness` drawn live in two places at once. `world_workspace.gd:2103` (the
+WORLD dock's Biome paint panel, which also carries `Softness` at `:2105` and
+owns the actual `_paint_brush` dictionary) and `tool_bar.gd`'s unified tool
+options bar only mirrored that same dictionary through `_paint_state`/
+`_write_paint_state` and never held a value of its own. The dock's copy
+survives; the tool bar's was deleted outright — between its `Size` slider
+and `Land only` toggle — not hidden or disabled, matching Sculpt's own
+precedent of a narrowed subset in the bar against the dock's fuller set
+(the bar still has no `Softness` control at all, and none was added: nothing
+here was ever duplicated for that field).
+
+**Relationship to §7d.** Moot rather than met. §7d asks whether a divergent
+implementation is equivalent-or-better for a reference *feature*; this one
+has no reference feature to be equivalent to, so there is nothing it could
+regress. Recorded per this section's own pattern (§7e, §7f) because
+deviating from "the reference has none at all" is still a decision, not
+because §7d's own test applies to it.

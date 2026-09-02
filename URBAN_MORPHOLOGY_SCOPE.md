@@ -10,6 +10,12 @@ That sentence was written before anyone read the code. This document is the
 result of actually reading it. **Two of its three claims hold, one does not,
 and the word "cleanly" is doing work it cannot support.**
 
+**This document defines Phase 5's milestones and records what each pass
+read, ported and learned. It does not track them.** For where any milestone
+stands today — done, partial, not started, blocked — read
+`cartalith-native/docs/STATUS.md`, which is the only place progress is
+recorded.
+
 ## What was verified, and what it turned out to be
 
 ### "Self-contained DOM-free engine" — CONFIRMED, unusually strongly
@@ -104,9 +110,10 @@ written in the reference's compressed multi-statement-per-line style, with
 several functions (`buildWall` ~190 lines, `grow` ~167, `buildBuildings` ~148,
 `applyStarFort` ~100) that are single algorithms, not dispatch tables.
 
-**Phase 5 is the largest single unported subsystem remaining in this project.**
-"Ports cleanly" should be read as "has no boundary problems", not as "is small".
-Recording that correction is the most valuable output of this investigation.
+**When this investigation ran, Phase 5 was the largest single unported
+subsystem in the project.** "Ports cleanly" should be read as "has no
+boundary problems", not as "is small". Recording that correction is the most
+valuable output of this investigation.
 
 ## What it actually generates, and how
 
@@ -208,7 +215,7 @@ Dependency-ordered. Each is a real, self-contained, independently verifiable
 piece; the reference's `_test` export and `hashModel` make most of them
 golden-verifiable rather than hand-checked.
 
-### Milestone 1 — RNG substreams + geometry kernel: **done** (2026-08-18)
+### Milestone 1 — RNG substreams + geometry kernel (2026-08-18)
 
 `fnv1a`, `stream` and its six derived draws; `V` (as `Vec2`), `js_hypot`,
 `polyArea`, `polyCentroid`, `pointInPoly`, `segInt`, `distPtSeg`,
@@ -222,7 +229,7 @@ subject poking past the window's corners can collapse to empty), and
 `insetPoly` returns nothing at all — not a degenerate polygon — below area 15
 or on self-intersection at ≤60 vertices. Downstream code reads both.
 
-### Milestone 2 — planar street graph: **done** (2026-08-18)
+### Milestone 2 — planar street graph (2026-08-18)
 
 All 15 functions, reference lines **28363-28512** (the plan said 28363-28513;
 `edgeBetween` ends at 28512 and `astar` starts at 28514, so the range was one
@@ -350,7 +357,7 @@ recording plainly: the balance assert is necessary, not sufficient.
    and the strict `>` makes the *lowest-indexed* one outer. `buildBlocks`
    (milestone 12) skips the outer face, so this is not cosmetic.
 
-### Milestone 3 — A\* over the cost raster: **done** (2026-08-18)
+### Milestone 3 — A\* over the cost raster (2026-08-18)
 
 `astar`, reference lines **28514-28547** (the plan said 28514-28556; `astar`'s
 last line is `path.reverse();return path;}` at 28547, and 28548-28556 is a blank
@@ -513,7 +520,7 @@ mtime forward and anchor its patterns on code that cannot appear in prose.
    Build at least one quantised or symmetric fixture per milestone from here on,
    and mutation-check rather than assuming a full state dump is enough.
 
-### Milestone 4 — generation rules + culture profiles: **done** (2026-08-18)
+### Milestone 4 — generation rules + culture profiles (2026-08-18)
 
 `CULTURE_PROFILES` (medieval/organic and Venus/radial), `resolveProfile`,
 `DEFAULT_RULES`, `cloneRules`, `resolveRules`, `clamp`, `applyWildness`,
@@ -783,7 +790,7 @@ every one of the four cases the balance scan cannot see.
    boundary. Build one deliberately rather than discovering it in the survivor
    list.
 
-### Milestone 5 — the site model: **done** (2026-08-18)
+### Milestone 5 — the site model (2026-08-18)
 
 `shoreFromMask`, `buildSite`, `terrainSuitability` — reference lines
 **28549-28741**. Module `cartalith-urban::site`; dependencies still
@@ -1073,7 +1080,7 @@ each exists for:
    geometry under test*. A grid of round fractions tests almost nothing in a
    subsystem whose thresholds are metres wide.
 
-### Milestone 6 — anchors and primary routes: **done** (2026-08-18)
+### Milestone 6 — anchors and primary routes (2026-08-18)
 
 `placeAnchors`, `buildPrimaries`, `buildPrimariesFromPaths` — reference lines
 **28743-28833**. Module `cartalith-urban::routes`; dependencies still
@@ -1413,7 +1420,7 @@ mutations, where milestone 4's shared-directory run reported 34.)
    up the branch the old band reached. Add; do not substitute — and re-run the
    full sweep after every fixture change rather than assuming the direction.
 
-### Milestone 7 — organic growth: **done** (2026-08-18)
+### Milestone 7 — organic growth (2026-08-18)
 
 `logisticRamp`, `estimateCarryingCapacity`, `wallOccupancy`, `grow`,
 `supersedeWall` — reference lines **29384-29630**. Module
@@ -1754,10 +1761,285 @@ skip `1.5 → 500`, the parallel-angle limit `0.5 → 3.2`, the exploration band
    engine reject. This will hit milestones 10 (`buildWall`'s terrain
    deflection), 13 (`terrainAware` parcels) and 15 (`computeMetrics`).
 
-### Milestone 8 — radial (Venus) streets, plaza, waterway (lines 28835-28970, 3 functions)
+### Milestone 17a — the adapter and the first consumer (2026-08-23)
 
-`buildRadialStreets`, `buildWaterway`, `buildPlaza`. The second planning mode,
-independent of `grow`. Separable from milestone 7 and cheaper.
+Out of dependency order on purpose, and the reason is recorded rather than
+assumed away. `PARITY_AUDIT.md` §3.4 found what this document's own "Out of
+scope" section below had prescribed: 4,516 lines of golden-tested engine
+across milestones 1-7, with **zero consumers** — no `Cargo.toml` in the
+workspace naming `cartalith-urban` but its own, and one disclosure comment
+under `godot-project/`. The standing "don't wire in what nothing calls" rule
+had held for so long that the largest unported subsystem was also the least
+*visible* one; `GUI_GAP_REGISTER.md` had no row for it at all until the same
+audit added §6.16.
+
+**What landed.**
+
+- **`cartalith-civ::urban_adapter`** (new module, this document's own named
+  home for milestone 17: *"it should live outside `cartalith-urban` (in
+  `cartalith-civ`, …) so the engine crate stays dependency-light"*). 13 of the
+  28 block-2 `_um*` functions: `_umSiteBoxKm`, `_umWaterNearKm`,
+  `_umWaterReachKm`, `_umSiteKindFromTerrain`, `_umInferAge`, `_umRayBoxExit`,
+  `_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`, `_umTerrainOrient`,
+  `_umWaterCtx`, `_umTerrainCtx`, `_umPlaceContext` — chosen by one rule: a
+  function is ported when milestones 1-7 can consume its output. Plus
+  `run_layout`, the prefix of `generate()` (line 30931) those seven supply:
+  the scalar derivations, `buildSite`, the `routeEnds` override, `placeAnchors`,
+  the real-water market pin, `buildPrimaries`/`buildPrimariesFromPaths` and
+  `grow`.
+- **`cartalith-godot::urban_bridge`** — one batched `#[func]`,
+  `urban_layouts(indices)`.
+- **The GUI**: `shell/urban_layout_draw.gd` (`_umDrawLayout`/
+  `_umDrawLayoutPreview`, which are one drawing twice), `shell/
+  city_viewer_window.gd` (`cityViewerModal` — canvas, wheel-zoom, drag-pan,
+  legend, info panel), `map_overlay.gd`'s "Urban layouts" block
+  (`civUrbanLayoutsChk`), and `right_dock.gd`'s Settlement ▸ Actions ▸ City
+  layout as the launcher.
+
+**What is deliberately not ported, by category.**
+
+| Function | Why absent |
+|---|---|
+| `_umWallSpec`, `_umInferWalls` | the whole fortification pipeline is milestone 10; `walls` is passed `false`, because with no `WallBuilder` in existence a wall spec is a value nothing can build or draw |
+| `_umHarbourScale` | consumed only by `buildHarbour`, milestone 9 |
+| `_umSiteProfile` | its consumers are the wall spec (10), harbour/bridge validity (9), economic districts (13) and a Settlement Inspector — none exist |
+| `_umOreBearing` | feeds `economy.oreBearing`, read only by 13/15; and this port's settlements carry no `specialisation`, exactly the gap milestone 17's own note below predicted |
+| `_umPt` | a JS `[x,y]`-vs-`{x,y}` normaliser; `Way::pts` is typed |
+| `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | "Out of scope for every milestone" below, verbatim |
+| `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | likewise — Godot's job, and the GUI files above are that job |
+
+**Two honest deviations, both recorded rather than absorbed.**
+
+1. **`traceRiverPolylines` is hoisted out of `_umWaterCtx`.** The reference
+   calls it per settlement — a full-grid walk — and pays for that with the LRU
+   this document rules out. The bridge traces once per *batch* instead. The
+   call and its result are unchanged; only where it is made.
+2. **The map layer's reveal gate is not `_umLayoutAlpha`.** Its 24 km → 10 km
+   viewport-span crossfade cannot fire on this port: `ViewportHost.ZOOM_MAX`
+   is 8.0, so the default 800 km world's closest reachable span is ~100 km. A
+   ported constant that never once fires is a silently-empty surface, which is
+   this project's own most-repeated failure mode. The gate is the town's
+   1.7 km site box measured in screen pixels instead — a stated rendering
+   choice, not a ported one.
+
+**Not golden-verified, and this is the one caveat that matters.** The
+verification convention below slices block **4**; the `_um*` functions live in
+block 2 and run inside the host's full civ scope (`field`, `flowField`,
+`civWays`, `state`, `_riverNet`, `currentWaterBodies`). There is no block-2
+fixture and building one is a real harness effort. Every function is ported by
+reading the reference line by line with its constants carried verbatim and
+cited, and covered by 11 ordinary unit tests over synthetic fields — including
+the two that would catch the failure this project keeps rediscovering: that a
+real settlement produces a *non-empty* street graph, and that no street class
+milestones 8+ own has leaked in. Closing this properly is milestone 17's
+remaining half.
+
+### Milestone 12 — blocks and parcels (2026-08-24)
+
+Out of dependency order, like 17a before it, and for a comparable reason. The
+City Viewer (§17a's own first consumer) drew a wire diagram, because a street
+graph has nothing discrete in it to fill: no shape smaller than the whole
+town. Parcels are the **smallest stage that produces one**, and every
+primitive `buildBlocks`/`buildParcels` need had already been built and
+golden-tested at milestones 1-2 — `ensureCCW`, `insetPoly`, `polyCentroid`,
+`pointInPoly`, `polyArea`, `polySelfIntersects`, `segInt`, `edgeBetween`,
+`extractFaces`, and the `logn`/`chance`/`range` draws. Two functions, no new
+kernel. It was a smaller change than inventing a Voronoi or straight-skeleton
+subdivision to fake the same shapes, and unlike one it is the reference's
+own algorithm.
+
+**What landed.** `cartalith-urban::blocks` — `build_blocks` and
+`build_parcels`, ported from reference lines 30193-30344 (the range this
+document already gave, verified against the file before slicing and correct at
+both ends). `UrbanLayout` gained `blocks`/`parcels`, `urban_bridge` emits
+them, and `urban_layout_draw.gd` draws them.
+
+**One field is this port's own and is marked as such:** `Parcel::tone`, a
+stable 0..1 scalar a renderer varies a rooftop's brightness and saturation
+with. It is drawn from a **separate** RNG substream (`'roof-tone'`), never
+from the per-block `'parcels/…'` stream the geometry comes out of — one extra
+draw from that stream would shift every subsequent frontage width and the
+parcels would stop matching the reference's.
+
+**Verification.** Golden, on milestones 2 and 7's terms: the reference's own
+`buildBlocks`/`buildParcels` run under `vm.runInContext` over the frozen
+file's block 4, with both slice boundaries and the comment balance asserted
+and the two functions exposed by one anchored replacement asserted to match
+exactly once. Five scenarios, ~5,400 parcels, compared by a hash over the
+complete state (both polygons, face ids, edge distances, and every parcel
+field) plus written-out anchors. **All five passed unmodified on the first
+run.**
+
+**What the mutation sweep found, which is the part worth reading.** Every
+constant was mutated by one unit and the suite re-run. Ten were caught. Three
+survivors were real coverage holes and two new scenarios closed them:
+
+1. **The 2000 m probe ray survived** three scenarios, because their blocks are
+   far deeper than the 14-46 m plot depth, so `min(t_min*0.42,
+   depthTarget*1.35)` is always won by the depth term and the ray-cast caps
+   never bind at all. `narrow_rows` (~30 m rows) fixed it.
+2. **`depthTarget*1.35`, the 120 m² floor and the 0.97 area-conservation trim
+   survived** because rectangular faces produce no acute vertices, no tiny
+   slivers and no over-filled block. `wedges` (diagonal cuts) fixed the first.
+3. **The 120 m² floor cannot be reached at all**, and this is the finding to
+   carry forward: `attach_point`'s `SNAP` is 11 m, so any two nodes closer
+   than that merge, and an ~11 m cell — the only rectangular shape with an
+   area near 120 m² — collapses before `extract_faces` ever sees it. Measured,
+   not assumed. The floor guards the degenerate slivers `splitEdge` and
+   crossing-resolution can produce, not anything a clean street lay can make.
+   **Milestone 11's `lanePass` is the first stage that could produce one**,
+   and is where this is worth revisiting.
+
+The 140,000 m² ceiling is pinned by its own boundary test. The 7 m minimum
+frontage, 4 m minimum depth, `riverW/2 + 1` wet margin and the 0.97 trim are
+pinned by the hash for every value the fixtures produce, but not at their own
+boundaries — `blocks/tests.rs` says so in its header rather than leaving it
+implied.
+
+**Three upstream stages are missing, and milestone 12 runs without them.**
+This is the honest cost of taking it out of order, and it is a property of the
+*input*, not of this port:
+
+- ~~**`buildPlaza` (milestone 8) runs on the organic branch too**~~ —
+  **closed the same day**, see the milestone-8a record below. It was the most
+  visible gap and the smallest change that closed one.
+- **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
+  cross the channel. Milestone 12's own guards absorb most of it: a block whose
+  inset centroid is wet is dropped, and a lot with *any* corner in the water is
+  rejected (the reference's footprint test, not a centroid test).
+- **`lanePass` (milestone 11)** does not run, so faces are coarser than the
+  reference's would be from the same seed.
+
+Milestones 8 and 11 will change what comes out of here without changing a line
+of `blocks.rs` — and are the moment to re-run this milestone's mutation sweep
+rather than trusting it. **Milestone 8a did both**, the same day: `blocks.rs`
+is unchanged apart from its doc comments, and the plaza golden re-runs
+`build_blocks` on every one of its own post-plaza graphs.
+
+### Milestone 8a — the plaza (2026-08-24)
+
+`buildPlaza` alone, reference lines **28941-28965**. Module
+`cartalith-urban::plaza`; dependencies still `cartalith-rng` only. 12 tests,
+17 golden scenarios, and the first mutation sweep in this subsystem to close
+with **zero survivors**.
+
+Taken out of milestone 8 rather than with it because the milestone's other two
+functions (`buildRadialStreets`, `buildWaterway`) serve the *radial* planning
+mode only, and `buildPlaza` runs on **both** branches of `generate()` (lines
+31018 and 31024). Milestone 12 named it the highest-value remaining change and
+it was: 60 lines of Rust, and it is the difference between a town with an open
+market square and a town with a block platted over its own anchor.
+
+**The stated range over-claimed by five lines at the end.** 28835-28970 runs
+past `buildPlaza`'s close at **28965** and into the four-line harbour section
+comment at 28967-28970, which milestone 7's correction had already assigned to
+milestone 9. Milestone 8's range is **28835-28965**. **Seven ranges checked,
+seven wrong** — and this one is the failure mode the rule was written for: an
+end that is too *late* silently pulls in the next milestone's header.
+
+#### Where it runs is part of the port
+
+`generate()` calls it **between `buildPrimaries` and `grow`** on the organic
+branch, not after growth. The three streets it lays are in the graph before the
+epoch loop starts, so the town accretes *around* the square. Putting it after
+`grow` would still produce a plaza and would produce a different town;
+`cartalith_civ::urban_adapter::run_layout` calls it in the reference's place
+and its module header says why.
+
+#### Nothing new was built for it
+
+The reuse milestone 12 found repeats exactly. `distPtSeg`, `V.norm`/`lerp`/
+`rot90`, `polyCentroid` and `addStreet` were all built and golden-tested at
+milestones 1-2; `stream`/`range` at milestone 1; `site.riverDist` at milestone
+5. No new kernel, no new libm, and no new RNG semantics — `stream(seed,
+'plaza')` is its own labelled substream taking exactly two draws, so adding
+this stage **cannot** perturb any other milestone's sequence. Only the graph
+changes, which is the point of it.
+
+#### The mutation sweep, and why five survivors were closable here
+
+20 mutations, 20 killed. Five survived the first pass, every one of them
+milestone 7's *"exact tie on a continuous value"* class:
+
+| survivor | closed by |
+|---|---|
+| side probe `20 → 21` | a river centreline laid **parallel to the street under test** |
+| side probe `-20 → -21` | the same fixture at a 0.25 m offset |
+| `>` → `>=` in the side ternary | the same fixture at an exact tie |
+| `rot90()` → `-rot90()` | the same exact tie — see below |
+| `d < bd` → `d <= bd` | two primaries exactly equidistant from the market |
+
+Milestone 7 could not close its thirteen because every one rested on a
+polyline distance or a raw `mulberry32` draw. These rested on **distance to a
+centreline**, and `site.river` is a plain field this port may overwrite on a
+real `build_site` site — so the probe gap becomes an *input*. Parallel is what
+makes it a razor: along the edge normal the distance to a parallel line changes
+metre for metre, so `c = 0` gives an exact tie and `c = 0.25` gives a 0.5 m gap,
+which is inside the window a one-metre mutation of either probe moves the
+answer through. **The general lesson: a survivor that rests on a continuous
+comparison is closable exactly when one side of that comparison is a field the
+fixture can set, rather than an output of an earlier stage.**
+
+**Negating the edge normal is not the no-op it looks like.** `nl` is read twice
+— to build the two probe points and as `nl * (side * wd)` — and away from a tie
+the two negations cancel bit-exactly, which is why the mutation survived all 15
+real towns. At an exact tie they do not: both arms of the ternary yield the
+*same* `side`, so the product flips and the square opens the other way. Only
+the tie fixture sees it, and it would have been recorded as a proved-dead
+survivor without one.
+
+#### Findings
+
+1. **`buildPlaza` mutates `g` before its return value exists, and the two do
+   not agree.** The three streets go in through `addStreet`, whose 11 m
+   `attachPoint` snap binds a plaza corner to an existing node rather than
+   creating one — up to **6.1 m** of movement across the fixture set. The
+   reference builds `plaza.poly` and `plaza.center` from the **pre-snap**
+   points regardless. That is why `buildBlocks` tests a *point* against each
+   face rather than comparing polygons, and why a consumer must not assume the
+   returned quad is the face the graph holds.
+2. **The plaza's fourth side is not laid.** Three `addStreet` calls, not four:
+   `p1 → p2` is the primary being widened and is already there. A port that
+   lays four produces the same picture and a different graph.
+3. **"Away from the river" is a statement about 20 m, not about the square.**
+   The probe is a fixed 20 m either side of the street's midpoint and the
+   square is up to 40 m wide, so on a curving channel the finished square's far
+   edge can end up *nearer* the water than the rejected side's would have been
+   — 0.05 m on the `river7` fixture. Reference behaviour, captured, and
+   asserted, so that the next person to measure the square instead of the probe
+   does not read it as a port bug.
+4. **A landlocked site still resolves the ternary.** `riverDist` answers from
+   the synthetic dummy centreline, so the branch is live rather than
+   degenerate; three landlocked scenarios are in the golden for that reason.
+5. **Every scenario produced exactly one flagged block.** Asserted as a
+   property, not just as a golden count — it is the whole point of the
+   milestone, and a change upstream that split the widened band into two faces
+   would show up here first.
+
+#### Corrections to later milestones
+
+1. **Milestone 8's remaining range is 28835-28939** (`buildRadialStreets` at
+   28844 and `buildWaterway` at 28928, plus the radial header comment at
+   28835). `buildPlaza`'s 28941-28965 belongs to milestone 8a.
+2. **Milestone 9's start of 28967 is right** — milestone 7 moved it there and
+   this milestone confirms it: 28967 is the first line of the harbour block
+   comment, 28966 is blank, and 28965 is `buildPlaza`'s close.
+3. **Milestone 12's mutation sweep should be re-run again after milestone 11**,
+   not treated as re-run by this one. This milestone changed `blocks.rs`'s
+   *input*, and its own golden re-runs `build_blocks` on 17 post-plaza graphs
+   — but `lanePass` and `removeWaterCrossings` will change it again.
+4. **Milestone 16 must call `buildPlaza` between the primaries and `grow`** on
+   the organic branch, and **after** `buildWall` on the radial one (line
+   31018). The two positions differ and both are in `generate()`.
+5. **`Plaza` is `blocks`' input and `plaza`'s output.** It is defined in
+   `plaza.rs` and re-exported from `blocks.rs`; `build_blocks` takes
+   `Option<&Plaza>` rather than `Option<Plaza>` now that it carries a polygon.
+
+### Milestone 8 — radial (Venus) streets, waterway (lines 28835-28939, 2 functions)
+
+`buildRadialStreets`, `buildWaterway`. The second planning mode, independent of
+`grow`. Separable from milestone 7 and cheaper. **`buildPlaza` was split out
+of this milestone as 8a above** and is not part of it.
 
 ### Milestone 9 — water infrastructure (lines 28967-29159, 4 functions)
 
@@ -1787,15 +2069,14 @@ always has a live road on it.
 `splitEdge` does not (finding 3). **Do not unify them** — the port reproduces
 both as written, and the difference is the reference's, not the port's.
 
-### Milestone 12 — blocks and parcels (lines 30193-30344, 2 functions)
+### Milestone 12 — blocks and parcels: recorded above
 
-`buildBlocks`, `buildParcels`. Dense: the bisector platting method with
-ray-cast depth caps, log-normal frontage/depth draws, overlap filtering and
-area conservation. `hashModel`'s block/parcel terms cover this, but only from
-milestone 16 — it needs a whole model (milestone 2's finding). Until then, dump
-state directly, as milestone 2 did. Note also that `buildBlocks` skips
-`extractFaces`' outer face, which milestone 2 pinned as a **first-index-wins**
-tie-break on absolute area.
+Ported out of order on 2026-08-24 — the full record is in its own section
+above. The plan this stub carried was right on every count: the line range
+30193-30344 was correct at both ends, `buildBlocks` does skip `extractFaces`'
+outer face on milestone 2's first-index-wins tie-break, and `hashModel` was
+indeed unavailable, so the golden dumps state directly exactly as milestone 2
+did.
 
 ### Milestone 13 — districts and buildings (lines 30345-30710, 7 functions)
 
@@ -1860,10 +2141,14 @@ like the reference running on a world where nobody set them.
   `venus` are live; only those get ported.
 - **`buildGridStreets` and the palimpsest planning mode** — likewise removed
   upstream, with no live caller.
-- **Wiring into `compute_civilisation()`, `cartalith-godot`, or the GUI.** Same
-  standing "don't wire in what nothing calls" discipline every subsystem port
-  in this project has held to. Urban morphology's real integration is a
-  rendering decision that does not exist yet.
+- ~~**Wiring into `compute_civilisation()`, `cartalith-godot`, or the GUI.**~~
+  **Superseded 2026-08-23** — see milestone 17a above. The rule was right for
+  as long as there was nothing to render; it became wrong once seven
+  milestones of engine had accumulated with no way for anyone to see, use or
+  regression-check any of it, which is exactly what `PARITY_AUDIT.md` §3.4
+  found. Note the boundary that *did* hold: the wiring is a bridge and a
+  renderer, and `compute_civilisation()` still does not call this subsystem —
+  a town is generated on demand, per settlement, never as a generation stage.
 
 ## Verification convention for this subsystem
 

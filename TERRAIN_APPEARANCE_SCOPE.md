@@ -8,6 +8,12 @@ breaks the *first* few into something one milestone can actually land, per
 this project's own "one subsystem at a time" discipline
 (`cartalith-porting-discipline` skill).
 
+**This document defines Phase 3's 2D appearance milestones and records what
+each pass found, measured and decided. It does not track them.** For where
+any of it stands today — done, partial, blocked, declined — read
+`cartalith-native/docs/STATUS.md`, which is the only place progress is
+recorded.
+
 ## Why now
 
 `ROADMAP.md`'s Phase 3 entry: *"Also the natural moment to revisit 2D fidelity
@@ -20,7 +26,7 @@ half (`DECISIONS.md` §4, still deferred) — it's a pure extension of the
 existing 2D `render.rs` per-pixel pipeline, already real and golden-verified
 (`MVP_SCOPE.md` point 10, `STATUS.md` criterion 2).
 
-## Milestone 1 — audit + `TerrainAppearance` abstraction + one real editable ramp (this pass)
+## Milestone 1 — audit + `TerrainAppearance` abstraction + one real editable ramp
 
 Per the research doc's own §1 (audit first), §2 (`TerrainAppearance`
 abstraction), and §3 (editable elevation→colour ramp) — CPU-only, no GUI yet,
@@ -98,7 +104,7 @@ ramp, producing pixel-identical output to before this milestone. Milestone 2
 layer on top of a real foundation, the same "base before integration"
 sequencing this session already used for `cartalith-spatial`.
 
-## Milestone 1 — done (2026-08-17)
+## Milestone 1 — what the pass found and built (2026-08-17)
 
 **Audit finding, corrected from this doc's own initial assumption**: there
 is no elevation-keyed colour *breakpoint ramp* anywhere in `render.rs`,
@@ -125,7 +131,7 @@ bare module consts, now reading `&TerrainAppearance`. `RenderCtx` owns one
 `TerrainAppearance` (constructed via `Default` in `RenderCtx::new`) so
 `cell_color(&ctx, x, y)`'s public signature — and `RenderCtx::new`'s own —
 stayed **completely unchanged**, meaning `golden_parity_render.rs` needed
-zero modification. Not yet wired to any UI/`#[func]` — genuinely
+zero modification. It shipped ahead of any UI or `#[func]` caller — genuinely
 standalone-but-real, matching `cartalith-spatial`'s own precedent.
 
 **Verified**: `cargo build -p cartalith-godot` clean. `golden_parity_render.rs`
@@ -147,7 +153,7 @@ whether "editable ramp" for Cartalith should instead mean exposing
 GUI — a genuine design decision, not a re-encoding exercise, now that the
 audit has corrected the original assumption.
 
-## Milestone 2 — relief lighting: multidirectional hillshade + ambient occlusion (done 2026-08-17)
+## Milestone 2 — relief lighting: multidirectional hillshade + ambient occlusion (2026-08-17)
 
 Milestone 1 was deliberately zero-visual-change groundwork. This one is the
 opposite: the default render should look meaningfully better, judged by
@@ -258,14 +264,14 @@ Floored both radii (`r_fine = (r_broad/3).max(2)`) and re-verified.
 so multi-light adds only dot products; AO is a one-time O(n) separable blur
 plus a per-pixel array lookup.
 
-**Still open for later milestones**: the atlas look proper (paper/vellum
+**Left for later milestones by this pass**: the atlas look proper (paper/vellum
 ground, forest stippling, hand-lettered glyphs, physical border — see
 `VISION.md`), §10/§11/§18 as reasoned above, the GUI editing panel (deferred
 by `GUI_SHELL_SCOPE.md`), the GPU path (§21), and milestone 1's own open
 question about whether an elevation-breakpoint ramp should exist as a
 separate mode alongside the material system.
 
-## Milestone 3 — hydrology-based colour tint (done 2026-08-17)
+## Milestone 3 — hydrology-based colour tint (2026-08-17)
 
 **What was chosen, and why.** §13 (hydrology-based colour modulation) —
 picked over §12 (geological exposure, which would need a new lithology field
@@ -335,11 +341,12 @@ session's own milestone-2 report already found windowed UI automation
 unreliable; one real-app run confirmed end-to-end correctness, not a
 multi-shot visual comparison.
 
-**Still open**: §12 (geological exposure — needs new `WorldState` plumbing),
-§18 (local contrast — needs a two-pass architecture), the atlas look proper,
-the GUI editing panel, the GPU path, milestone 1's elevation-ramp question.
+**Left for later milestones by this pass**: §12 (geological exposure — needs
+new `WorldState` plumbing), §18 (local contrast — needs a two-pass
+architecture), the atlas look proper, the GUI editing panel, the GPU path,
+milestone 1's elevation-ramp question.
 
-## Milestone 4 — the atlas look: paper ground, forest stippling, plate border (done 2026-08-17)
+## Milestone 4 — the atlas look: paper ground, forest stippling, plate border (2026-08-17)
 
 `VISION.md`'s sequencing item 2 named four things still ahead after
 milestone 3: *"the paper/vellum ground, forest stippling, hand-lettered
@@ -460,7 +467,7 @@ fix (skip the overlay inside the border band) belongs in those two files,
 both of which are outside this milestone's `render.rs`-only scope and one of
 which a concurrent fork owns this session. Flagged rather than reached for.
 
-### Milestone 4 follow-up — the overlays learn about the frame (done 2026-08-17)
+### Milestone 4 follow-up — the overlays learn about the frame (2026-08-17)
 
 The limitation above, fixed. It turned out to be **four** systems, not two:
 the river tint and the GDScript markers as flagged, plus
@@ -562,13 +569,14 @@ pair (milestones 2 and 3 held fixed) plus `paperonly`/`stippleonly` dumps,
 since the three stages are independent and a combined image cannot show
 which one is carrying a change.
 
-**Still open**: hand-lettered settlement glyphs (`map_overlay.gd`, not this
-raster), §12 (geological exposure — needs new `WorldState` plumbing), §18
-(local contrast — needs a two-pass architecture), the GUI editing panel
-(`GUI_SHELL_SCOPE.md`), the GPU rendering path (§21), milestone 1's
-elevation-ramp question, and the overlay-over-frame defect above.
+**Left for later milestones by this pass**: hand-lettered settlement glyphs
+(`map_overlay.gd`, not this raster), §12 (geological exposure — needs new
+`WorldState` plumbing), §18 (local contrast — needs a two-pass architecture),
+the GUI editing panel (`GUI_SHELL_SCOPE.md`), the GPU rendering path (§21),
+milestone 1's elevation-ramp question, and the overlay-over-frame defect
+above.
 
-## Milestone 5 — geological material exposure + local contrast (done 2026-08-18)
+## Milestone 5 — geological material exposure + local contrast (2026-08-18)
 
 **What was chosen, and why these two.** §12 (geological material exposure)
 and §18 (local contrast) — the two milestones 3 and 4 both explicitly
@@ -786,13 +794,14 @@ since it calls `render.rs` directly — was run headlessly end to end for all
 three worlds and produced correct PNGs with the river tint, plate frame and
 non-square aspect all intact.
 
-**Still open**: hand-lettered settlement glyphs (`map_overlay.gd`, not this
-raster), §16 multi-scale detail as an explicit control set, §17 colour
-vibrancy, §19 atmospheric/distance effects, §20 the high-precision display
-pipeline, §21 the GPU rendering path, §29 quality tiers, the GUI editing
-panel (`GUI_SHELL_SCOPE.md`), and milestone 1's elevation-ramp question.
+**Left for later milestones by this pass**: hand-lettered settlement glyphs
+(`map_overlay.gd`, not this raster), §16 multi-scale detail as an explicit
+control set, §17 colour vibrancy, §19 atmospheric/distance effects, §20 the
+high-precision display pipeline, §21 the GPU rendering path, §29 quality
+tiers, the GUI editing panel (`GUI_SHELL_SCOPE.md`), and milestone 1's
+elevation-ramp question.
 
-## Milestone 6 — the GPU question, answered by measurement; and §29 quality tiers (done 2026-08-18)
+## Milestone 6 — the GPU question, answered by measurement; and §29 quality tiers (2026-08-18)
 
 **What was chosen, and why these two.** §21 (the GPU rendering path) and §29
 (quality tiers) — the two remaining items with a real consumer, picked over
@@ -950,10 +959,11 @@ Quality. Ultra costs **the same as Quality** — an honest result, and the reaso
 `recommended_quality_tier()` never proposes it: it is a quality choice, not a
 performance tier.
 
-**Policy stayed with the owner.** `WorldGen` still starts at `Quality` on every
-device. `recommended_quality_tier()` reads `available_parallelism()` (and caps
-Android one rung lower) and is wired to a getter that *offers* a tier;
-**nothing applies it**. The Android device pass's 874 MB / ~31 s at 2048×1311
+**Policy stayed with the owner.** This pass left `WorldGen` starting at
+`Quality` on every device. `recommended_quality_tier()` reads
+`available_parallelism()` (and caps Android one rung lower) and is wired to a
+getter that *offers* a tier; **applying it was deliberately left to a later
+decision, not made here**. The Android device pass's 874 MB / ~31 s at 2048×1311
 is the real consumer here, and this milestone gives it two independent levers —
 a 3.3× parallel render and a 2.4× cheaper tier — without deciding which the app
 should default to.
@@ -1110,12 +1120,13 @@ mutation attempt passed — and the reason was that the mutation itself was
 incomplete, which is worth recording: a mutation test only tests what the
 mutation actually changed.
 
-**Still open**: hand-lettered settlement glyphs (`map_overlay.gd`, not this
-raster), §16 multi-scale detail as an explicit control set, §17 colour
-vibrancy, §19 atmospheric/distance effects, §20 the high-precision display
-pipeline, §21 the GPU rendering path (with `apply_local_contrast` named as its
-beachhead), the ocean value-noise lattice above, the GUI editing panel (all UI
-work on hold, `DCC_SHELL_SCOPE.md`), and milestone 1's elevation-ramp question.
+**Left for later milestones by this pass**: hand-lettered settlement glyphs
+(`map_overlay.gd`, not this raster), §16 multi-scale detail as an explicit
+control set, §17 colour vibrancy, §19 atmospheric/distance effects, §20 the
+high-precision display pipeline, §21 the GPU rendering path (with
+`apply_local_contrast` named as its beachhead), the ocean value-noise lattice
+above, the GUI editing panel (`DCC_SHELL_SCOPE.md`), and milestone 1's
+elevation-ramp question.
 
 <!-- A duplicate, shorter "Milestone 3" section briefly existed here,
 committed by a concurrent fork that picked up this milestone's

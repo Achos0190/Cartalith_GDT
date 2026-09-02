@@ -11,5 +11,15 @@ name = "cartalith_climate"
 
 [dependencies]
 cartalith-jsmath = { path = "../cartalith-jsmath" }
+# `buildGeoid`'s harmonic + mantle terms are the shared `hash`/`fbm`
+# primitives, not a private noise of its own -- one implementation, in
+# `cartalith-noise` (the same edge `cartalith-terrain` already carries).
+cartalith-noise = { path = "../cartalith-noise" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"
+
+[dev-dependencies]
+# Golden fixtures captured from the reference under Node are held as JSON
+# rather than as source literals -- they are whole 48x32 grids, the same
+# reason `cartalith-io` already reads its real-export capture this way.
+serde_json = "1.0.151"

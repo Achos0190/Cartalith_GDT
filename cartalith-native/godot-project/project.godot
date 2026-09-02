@@ -45,9 +45,56 @@ config/icon="res://icon.png"
 ; orientation, spelled window/handheld/orientation under [display].
 window/handheld/orientation=6
 
+; There is deliberately NO stretch/mode key here, and it must stay that way.
+; The unset default is "disabled" (scale_mode "fractional"), and "disabled" is
+; not merely tolerable, it is required: this shell does all of its own scaling
+; through DccShell._phone_scale, which is derived from get_viewport_rect() and
+; is only meaningful while that call reports REAL device pixels.
+;
+; Measured on 4.7.1 at a 1440x3168 window, both modes side by side rather than
+; reasoned about (GUI_GAP_REGISTER.md HD-04):
+;
+;   disabled      get_visible_rect = 1440 x 3168   final transform 1.00
+;                 _phone_scale would be 3.6641
+;   canvas_items  get_visible_rect = 1152 x  648   final transform 1.25
+;                 _phone_scale would be 1.6489
+;
+; Turning canvas_items on breaks the shell three ways at once. The viewport
+; reports the project's reference size on every device, so _phone_scale
+; collapses to one constant 1.6489 and stops tracking the handset at all; the
+; stretch transform then multiplies that a second time, differently per device;
+; and 1152x648 is landscape, so DccShell._landscape would read true on a phone
+; held in portrait and the whole §13 portrait composition would be unreachable.
+;
+; The fractional content_scale_factor a phone window really needs is set
+; per-window by DccWidgets.phone_present(), where the shell can also set the
+; font oversampling the engine does not derive from it. See that function.
+
 [gui]
 
 theme/custom="res://theme/dark_theme.tres"
+
+[input_devices]
+
+; Reminder from [display] above: ONLY semicolons start a comment in this file.
+;
+; Pinch-to-zoom on the phone. `ViewportHost._input()` has handled
+; InputEventMagnifyGesture since the camera was written, but on Android that
+; event is never produced unless this setting is on: Godot's Android input
+; layer only attaches its ScaleGestureDetector/GestureDetector when
+; `pan_and_scale_enabled` is set from this key, and the engine default is
+; false. So the pinch branch was live code on a macOS trackpad and dead code
+; on every phone -- the owner's "zooming doesn't seem to work on the phone".
+; Nothing was wrong with the gesture handler; the events never arrived.
+;
+; Confirmed against this exact engine (4.7.1) rather than assumed:
+; ProjectSettings.has_setting() is true and the unset value read back false.
+;
+; Two-finger only. Single-finger touch still emulates a mouse
+; (input_devices/pointing/emulate_mouse_from_touch, default true and left
+; alone), so every existing tap/drag/scroll interaction in the shell is
+; unaffected -- the gesture detector consumes the two-pointer case only.
+pointing/android/enable_pan_and_scale_gestures=true
 
 [rendering]
 

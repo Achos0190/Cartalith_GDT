@@ -4,6 +4,10 @@ The boundary for the first milestone. Anything not listed in scope is out until
 `ROADMAP.md` says otherwise — including the adjacent thing that looks easy while
 you are already in that part of the code.
 
+**This document defines Phase 1's boundary and its success criteria. It does not
+track them.** Whether a criterion is met today is recorded in
+`cartalith-native/docs/STATUS.md`, and nowhere else.
+
 ## In scope: the full terrain pipeline
 
 Script block 1 of `Cartalith Gen1 v*.html` (root `CLAUDE.md`, "Engine (block 1)
@@ -88,3 +92,8 @@ general save/load licence.
 Criteria 3 and 4 need the owner's hardware (`DECISIONS.md` §5). A cloud session
 can confirm the build succeeded and packaged correctly; it cannot certify that
 the thing runs.
+
+Criterion 6 named a mechanism that has since been retired: by owner decision
+of 2026-08-31, `cartalith-native/docs/CHANGELOG.md` is frozen as history and
+`cartalith-native/docs/STATUS.md` carries a milestone's record instead. The
+criterion stands as written; only the file it points at changed.

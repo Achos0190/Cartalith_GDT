@@ -67,23 +67,18 @@ use crate::js_round;
 /// comparisons are false — and it is what `cartalith-civ`'s own `clamp01`
 /// already uses. (`f64::min`/`max` would *not* be equivalent: they swallow
 /// NaN.)
-fn clamp01(x: f64) -> f64 {
+pub(crate) fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
 
 /// Reference `smoothstep(a,b,x)` (line 7569):
 /// `t=clamp01((x-a)/((b-a)||1e-6)); return t*t*(3-2*t)`.
 ///
-/// The `||1e-6` is JS truthiness, so it substitutes for `0`, `-0` **and**
-/// `NaN`. `cliff` genuinely reaches it (`smoothstep(-transW, transW, sd)`
-/// with `transW == 0` would divide by zero), so this is not a defensive
-/// flourish to drop.
-fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
-    let d = b - a;
-    let d = if d == 0.0 || d.is_nan() { 1e-6 } else { d };
-    let t = clamp01((x - a) / d);
-    t * t * (3.0 - 2.0 * t)
-}
+/// This copy carried the whole rule and the other three did not, so it is the
+/// one that moved to `cartalith-jsmath`; re-exported here because `cliff`
+/// genuinely reaches the guard (`smoothstep(-transW, transW, sd)` with
+/// `transW == 0` would divide by zero).
+pub(crate) use cartalith_jsmath::smoothstep;
 
 /// Reference `lerp` (line 8304).
 fn lerp(a: f64, b: f64, t: f64) -> f64 {

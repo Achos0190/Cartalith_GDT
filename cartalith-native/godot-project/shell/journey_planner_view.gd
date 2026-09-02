@@ -64,15 +64,24 @@ class_name JourneyPlannerView
 ## data anywhere in this file. Specific, named simplifications against the
 ## mockup's own example content:
 ##
-## - **Journeys list** shows committed routes (`route_count`/`route_get`),
-##   not named, persisted "journeys" -- no such registry exists engine-side.
-## - **Carriage auto/manual**: the toggle is real UI state, but "Auto" mode's
-##   own picker (`jpAutoPickTransport`, reference HTML ~line 19617) has no
-##   Rust port -- `journey_bridge.rs`/`cartalith-civ` expose no
-##   auto-carriage function. Selecting Auto disables the animal/vehicle
-##   fields and disables the picker with a stated reason rather than faking a
-##   plausible-looking auto-pick; genuinely a Rust-side gap, reported rather
-##   than invented here per this task's own constraint.
+## - **Journeys list**: real as of 2026-08-23 (JP-06/JP-08) — "save journey"
+##   names the selected route *plus* the whole party form and adds it to the
+##   list, which reloads it in one click. **Persistent as of 2026-08-26**: the
+##   list is written into the project archive as `entities/journeys.json` (the
+##   §9.6 slot `SAVEFILE_COMPAT.md` reserved) and restored on open — see the
+##   "Journeys, on disk (F10)" section at the foot of this file. It stays in
+##   GDScript rather than in `cartalith-civ` because a saved journey is exactly
+##   the request `jp_compute` already takes, so the engine would own nothing
+##   the shell does not already hold; the archive channel is
+##   `project_save_with_documents`, which takes caller-owned slots as text.
+## - **Carriage auto/manual**: real as of 2026-08-23 (JP-01).
+##   `jpAutoPickTransport` was already ported (`cartalith_civ::
+##   jp_auto_pick_transport`); what was missing was the call. Auto now sends
+##   `jp_compute`'s own `auto_carriage` key, the picker mutates the plan
+##   before it is computed (the reference's `_jpRunAuto`, line 19614, one
+##   call site per refresh), and `_sync_auto_carriage()` writes the picked
+##   counts back into the form — its `_jpSyncAssetInputs` (line 19632),
+##   including the `promoted` -> structural-rebuild rule.
 ## - **Party set-ups**: real as of 2026-08-20 (JP-02). Not the reference's
 ##   JS-only `JP_PRESETS` (~line 17595) — the Travel Library's own stored
 ##   rows, stock and captured alike (`tl_list`/`tl_get("preset")`,
@@ -82,21 +91,39 @@ class_name JourneyPlannerView
 ## - **Travel Library definitions in the party form**: real as of
 ##   2026-08-20 (TL-01) for animals — see the "Travel Library wiring"
 ##   section below for exactly what is offerable and what is not, and why.
-## - **Re-route for <mode>…**: `_jpRerouteForMode`/`jpAutoPickTransport`'s
-##   sibling -- same gap, same disclosure.
-## - **Cost group** (food/fodder/wages/tolls/upkeep in currency): `jp_plan`
-##   returns no monetary figures at all (`jp_journey_plan_dict`, checked
-##   against the full field list). Shown with a stated gap, not invented sums.
+## - **Re-route for <mode>…**: real as of 2026-08-23 (JP-03).
+##   `_jpRerouteForMode` (reference line 20391) ported into `cartalith-civ`
+##   and bound as `jp_reroute`; it re-paths the committed route's two
+##   endpoints under the domain the journey's transport implies and rewrites
+##   the route in place. An unreachable answer is refused with the
+##   reference's own message rather than drawn as the straight-line fallback
+##   `route_commit` tolerates.
+## - **Cost group**: real as of 2026-08-23 (JP-04). The model
+##   (`jp_journey_cost`) had been ported and golden-tested since milestone 3
+##   and was called by nothing; `jp_plan_cost` is the reference's own call
+##   site (line 19854) and `jp_compute` now returns its `cost` dict. Priced
+##   in **day-wages**, never a currency — that is the model's own unit, not
+##   a simplification here.
+## - **Calculation trace**: real as of 2026-08-23 (JP-05), built as
+##   `GUI_GAP_REGISTER.md` §7.12 proposed — an inline group over the
+##   selected stage rather than the spec's `⧉` window, one row per
+##   multiplicative term with its running value. The reference's `formula`
+##   *string* still does not cross the boundary; what crosses is the
+##   structured `trace` (`JpTerm`), whose product is asserted engine-side to
+##   equal the leg's own `daily_km`.
 ## - **Elevation-profile sparkline**: unlike the old dialog (which reported
 ##   `plan.profile`'s presence and stopped), this pass DOES draw it --
 ##   `_ProfileView` plots the real 0-1 normalised samples. It was only
 ##   time-boxed out before; rebuilding this view was the right time to close
 ##   it for real.
-## - **⇧-drag spine trim**: genuinely deferred, not faked. `jp_compute` has no
-##   request field for trimming a route's endpoints or interior span --
-##   building the gesture would mean inventing a request shape with nothing
-##   on the other side of the boundary to receive it. Click-to-select and
-##   ⌥-click-to-isolate are both real and implemented.
+## - **⇧-drag spine trim**: real as of 2026-08-23 (JP-07). `jp_compute` gained
+##   a `trim` request key (two fractions of the route's arc length) which
+##   cuts the polyline through `cartalith_civ::jp_trim_points` *before*
+##   anything reads it — so every stage index, stop key and per-stage
+##   override that comes back belongs to the trimmed route, and a trim is
+##   indistinguishable from having drawn the shorter route by hand. ⇧ click
+##   without dragging clears it. Click-to-select and ⌥-click-to-isolate are
+##   unchanged.
 ## - **Stage inspector disabled-with-reason**: implemented for the two cases
 ##   `JOURNEY_PLANNER_SPEC.md` §6 names explicitly (vessel on a land stage,
 ##   mount when the effective transport isn't Mounted Rider). The other
@@ -107,6 +134,42 @@ class_name JourneyPlannerView
 ##   the nearest route-point's cumulative chord length divided by the route's
 ##   total chord length, which is exactly proportional to km on this port's
 ##   flat-projection map (`map_width_km` is uniform across the grid).
+## - **Wildlife forage modifier**: real as of 2026-08-26 (F12).
+##   `jp_compute` used to pass `&|_, _| 1.0` as the forage modifier over a
+##   comment calling that *"the reference's own answer on a world whose
+##   wildlife layer was never built"* -- a description of the port as of
+##   Journey Planner milestone 4, stale ever since `cartalith_civ::wildlife`
+##   landed (`PARITY_AUDIT.md` §23 F12). Foraging now reads this world's own
+##   ecoregion species richness at each stage midpoint, exactly as the
+##   reference's `_jpWildlifeForageMod(mx,my)` does, bounded to [0.5, 1.8]
+##   against the world's own mean. **It only moves anything when Foraging is
+##   not "None"** -- `jp_foraging` returns before it reads the modifier in
+##   that mode, which is the default. The cost that made this a cache
+##   problem rather than a one-liner, and the fingerprint that keeps it from
+##   going stale, are documented on `sample_bridge::WildlifeCache`.
+## - **Fodder ceiling under "Supplies carried"**: real as of 2026-08-26
+##   (JP-16, `PARITY_AUDIT.md` §23 F13). This line used to restate the
+##   current supply setting from the last compute's own `capacity.fodder`;
+##   it now states the **ceiling**, from `jp_pack_range`, before the user
+##   configures past it -- which is the whole content of the reference's
+##   v1.49 fix. See `_refresh_pack_range_note()` for what it replaced.
+## - **Campaign-duration advisory**: real as of 2026-08-26 (JP-17).
+##   `jp_risk` rides on `jp_compute`'s `plan.risk`, the reference's own field
+##   on `_jpPlan`'s return, and is drawn where the reference draws it --
+##   after the cost group, before the stage table.
+## - **Vessel matrix**: real as of 2026-08-26 (JP-17). `jp_vessel_matrix`
+##   in both of the reference's own two views (route-scored and general
+##   reference). One disclosed divergence, in `jp_vessel_matrix`'s own
+##   `#[func]` doc comment: the water **column order** is `(cat, terrain)`
+##   alphabetical rather than the reference's physical order, because that
+##   order lives in two private `const`s inside `cartalith-civ` and copying
+##   them here would be a second table.
+## - **`jp_auto_stage_picks` still runs at a flat forage modifier of 1.0**,
+##   disclosed at its call site in `lib.rs`: it takes one scalar for the
+##   whole journey rather than the per-stage closure `jp_plan_full` takes,
+##   so there is no honest per-stage value to give it. It only *ranks*
+##   candidate per-stage packages; whatever it picks is recomputed under the
+##   real per-stage modifier before anything is reported.
 
 var app: DccApp
 var bridge: EngineBridge
@@ -123,7 +186,37 @@ var _stage_overrides: Dictionary = {}   ## int stage idx -> Dictionary (JpStageO
 var _layovers: Dictionary = {}          ## stop key (String) -> int days
 var _selected_stage := 0
 var _isolated_stage := -1               ## -1 = no isolation
-var _carriage_auto := true              ## View-local only; see class doc's disclosed gap.
+var _carriage_auto := true              ## Sent as `jp_compute`'s own `auto_carriage` (JP-01).
+## Sent as `jp_compute`'s `auto_stage` (`DECISIONS.md` §7j). Off by default:
+## it rewrites per-stage overrides, and a planner that silently re-tacks the
+## train the first time a route is opened would be doing it behind the user.
+var _stage_auto := false
+
+## JP-07. The ⇧-drag spine trim, as two fractions of the route's arc length.
+## `Vector2(0, 1)` is the whole route and is not sent at all, so an untrimmed
+## journey's request is byte-identical to what it was before this existed.
+var _trim := Vector2(0.0, 1.0)
+
+## JP-06 / JP-08. The journeys list: a route index plus the whole party form,
+## named. **Persisted** into the project's `entities/journeys.json` slot by
+## `journeys_document()` and read back by `restore_journeys_document()` — both
+## at the foot of this file. Kept in GDScript rather than pushed into
+## `cartalith-civ` because a saved journey is exactly the request `jp_compute`
+## already takes, so the engine would own nothing the shell does not; the
+## archive channel is `project_save_with_documents`, which carries
+## caller-owned slots as text. `route` is an index into the routes saved
+## beside it, which is why `setup()` clears this list on a world change.
+## Entries: `{name: String, route: int, plan: Dictionary, stage_overrides:
+## Dictionary, layovers: Dictionary, animal_entries: Dictionary, trim: Vector2}`.
+var _journeys: Array = []
+var _active_journey := -1
+
+## The `EngineBridge.last_documents` dictionary the last restore read -- held
+## for `is_same()` identity only, and never indexed. `world_loaded` re-announces
+## the *same* documents on every in-place field op, and re-restoring them threw
+## away every journey planned since the file was opened; see
+## `restore_journeys_document()` for the whole reasoning.
+var _restored_documents: Dictionary = {}
 
 ## TL-01: which Travel Library animal definition occupies each of the four
 ## built-in party-form species slots -- species key (String) -> entry id
@@ -144,6 +237,15 @@ var _left_panel: VBoxContainer
 var _left_route_section: VBoxContainer
 var _left_party_body: VBoxContainer
 var _auto_obs: Dictionary = {}   ## JP-15: field_key (String) -> OptionButton, the party form's own "Auto" fields -- refreshed post-compute by `_refresh_auto_labels()` rather than rebuilt, so a live numeric edit elsewhere in the form never loses focus.
+## JP-16: the fodder-ceiling advisory under "Supplies carried", refreshed in
+## place by `_refresh_pack_range_note()` for exactly the reason `_auto_obs`
+## above is -- it changes on every party-form keystroke and rebuilding the
+## form to update one line would drop focus out of the SpinBox being typed in.
+var _pack_range_label: Label
+## JP-17: `jp_vessel_matrix()`'s output, fetched once. A **static table** --
+## eleven hulls against nine water types, no world state anywhere in it -- so
+## re-fetching it per compute would be re-reading a constant.
+var _vessel_matrix: Dictionary = {}
 
 var _center_panel: Control
 var _route_map: _RouteMapView
@@ -174,6 +276,35 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 
 	app.tool_armed.connect(func(_id: String): _recompute_visibility())
 	app.workspace_changed.connect(func(_id: String): _recompute_visibility())
+
+	## **The journeys list has a world lifecycle, and until now had none.**
+	##
+	## A journey is a *route index* plus a party form (see `_journeys`), and a
+	## route index only means anything against the world that produced it. A
+	## list carried across a world change indexes routes that no longer exist,
+	## and `journeys_document()` then writes those dangling indices into the
+	## NEXT project's archive on the next save. Two connections close that:
+	##
+	## - `generation_finished`: a generate replaces `WorldGen.infra` wholesale,
+	##   so every committed route is gone and `route_count()` answers 0.
+	##   Heightmap import arrives here too (`EngineBridge.import_heightmap()`
+	##   emits it), which is right -- an imported heightmap is a new world.
+	## - `world_loaded`, but **only when no world remains**. That signal fires
+	##   for seven different reasons (a project open, an import, `close_world`,
+	##   an asset pack, `center_landmasses`, `carve_fjords`, `as_apply_to_map`)
+	##   and only `close_world()` leaves `has_world == false`. The four in-place
+	##   ops keep the same routes and must not touch the list; a project *open*
+	##   is `restore_journeys_document()`'s job, which `app.gd` calls from
+	##   `_restore_project_documents()` (itself called only from `_load_project`,
+	##   the one place a new set of documents actually arrives).
+	##
+	## A close is therefore the one case both ends could touch: `close_world()`
+	## emits `world_loaded` and leaves `last_documents` holding the previous
+	## archive's text. The clear below handles it, and
+	## `restore_journeys_document()`'s own identity guard means a later stray
+	## call with those same bytes cannot undo it.
+	bridge.generation_finished.connect(func(ok: bool): if ok: clear_journeys())
+	bridge.world_loaded.connect(func(): if not bridge.has_world: clear_journeys())
 
 ## Both entry points this pass wires (`DCC_SHELL_SPEC.md` §2.4, §4.5.4):
 ## `Data ▸ Journey planner… ⇧J` and the INFRA dock's own Logistics button both
@@ -210,6 +341,7 @@ func _show() -> void:
 	_tool_options_journey()
 	app.right_dock_ctrl.show_journey(self)
 	_compute()
+	_phone_refit()
 
 func _hide() -> void:
 	_left_panel.visible = false
@@ -220,15 +352,30 @@ func _hide() -> void:
 		civ_panel.visible = true
 	if app.right_dock_ctrl != null:
 		app.right_dock_ctrl.clear_journey()
-	## JP-13: this view is the only thing that ever populates `timeline_row`
-	## (CV-09 -- `GUI_GAP_REGISTER.md` §11 -- leaves it deliberately empty in
-	## CIVIL); clear it back to that empty state on disarm so Journey content
-	## never leaks into a domain switch.
+	## JP-13, **corrected**: hand `timeline_row` back to `app.gd` rather than
+	## leaving it empty.
+	##
+	## The original premise -- "this view is the only thing that ever populates
+	## `timeline_row`; CV-09 leaves it deliberately empty in CIVIL" -- stopped
+	## being true when `app.gd` grew `_fill_timeline_strip()` and the desktop
+	## timeline strip that lives in that row. Clearing the row to empty on disarm
+	## therefore blanked the strip *permanently*: `_repaint_timeline()`'s own
+	## rebuild fallback tests `_tl_year_labels.is_empty()`, and those labels were
+	## still held (freed, but held), so the guard written for exactly this case
+	## could never fire.
+	##
+	## `_fill_timeline_strip()` clears the row itself before rebuilding and resets
+	## every held label/button reference in the same breath, so nothing of
+	## Journey's band leaks into the domain switch either.
+	##
+	## `app.gd::arm_tool()` also refills after its `tool_armed` emit, gated on the
+	## row being empty. That gate is now a no-op for this path rather than a
+	## second fill — which is the intended relationship, not an oversight: the
+	## borrower gives the row back here, and that gate stays as the backstop for
+	## any disarm route that never reaches this function.
+	_timeline_view = null
 	if app.timeline_row != null:
-		for c in app.timeline_row.get_children():
-			app.timeline_row.remove_child(c)
-			c.queue_free()
-		_timeline_view = null
+		app._fill_timeline_strip()
 
 # ============================================================ Left panel ====
 
@@ -266,9 +413,35 @@ func _refresh_route_choice() -> void:
 	var count := bridge.route_count()
 	if count == 0:
 		DccWidgets.note(_left_route_section,
-			"No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it. Journeys here are committed routes, not a separate persisted list; JP_PRESETS-style named journeys are a JS-only concept with no engine registry.")
+			"No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it.")
 		_route_index = -1
 		return
+
+	# JP-08's journeys list: the named, saved journeys first (a journey is a
+	# route *plus* a party form), then the raw committed routes underneath.
+	for i in _journeys.size():
+		var j: Dictionary = _journeys[i]
+		var jrow := HBoxContainer.new()
+		jrow.add_theme_constant_override("separation", 4)
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_left", 13)
+		pad.add_theme_constant_override("margin_right", 13)
+		pad.add_child(jrow)
+		_left_route_section.add_child(pad)
+		var open_btn := Button.new()
+		open_btn.text = "%s%s" % ["● " if i == _active_journey else "", String(j.get("name", "journey"))]
+		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		open_btn.tooltip_text = "Route #%d + this party form. Saved into the project's entities/journeys.json and restored on File ▸ Open project. The route is stored as an INDEX, so a journey only means what it meant against the routes saved beside it." % int(j.get("route", 0))
+		open_btn.pressed.connect(func(): _load_journey(i))
+		jrow.add_child(open_btn)
+		var del_btn := Button.new()
+		del_btn.text = "×"
+		del_btn.tooltip_text = "Forget this journey."
+		del_btn.pressed.connect(func(): _delete_journey(i))
+		jrow.add_child(del_btn)
+	if not _journeys.is_empty():
+		_left_route_section.add_child(DccTheme.rule())
 
 	var labels: Array = []
 	for i in count:
@@ -289,8 +462,9 @@ func _refresh_route_choice() -> void:
 			_layovers.clear()
 			_selected_stage = 0
 			_isolated_stage = -1
+			_trim = Vector2(0.0, 1.0)
 			_compute(),
-		"route_get()'s own points/km/mode. Journeys here are committed routes, not a separate persisted list.")
+		"route_get()'s own points/km/mode. \"save journey\" in the tool options bar names the route + party form together and adds it to the list above; that list travels in the project archive and comes back when the project is reopened.")
 
 # -- Party form fields (shared field-binding vocabulary, matching journey_planner_window.gd's own convention) --
 
@@ -367,9 +541,10 @@ func _auto_label(key: String) -> String:
 
 ## The real resolved value behind one auto-valued party-form field, read from
 ## the last compute -- the party form is journey-wide, so this reads the
-## first stage/leg carrying a real answer, the same "first applicable leg"
-## convention `_pack_range_note()` above already uses (a per-stage breakdown
-## already exists, in the stage inspector's own `_inherit_label`).
+## first stage/leg carrying a real answer (a per-stage breakdown already
+## exists, in the stage inspector's own `_inherit_label`). The fodder-ceiling
+## note this once cited as the same convention no longer works that way --
+## `_refresh_pack_range_note()` reads the party plan itself now, not a leg.
 func _party_auto_resolved(key: String) -> String:
 	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
 		return ""
@@ -410,6 +585,7 @@ func _refresh_auto_labels() -> void:
 		if not is_instance_valid(ob) or ob.item_count == 0:
 			continue
 		ob.set_item_text(0, _auto_label(key))
+	_refresh_pack_range_note()
 
 func _rebuild_party_form() -> void:
 	if not _bound or _left_party_body == null:
@@ -420,9 +596,21 @@ func _rebuild_party_form() -> void:
 	_auto_obs.clear()
 
 	if _plan_values.is_empty():
-		for key in _default_plan.keys():
-			if key != "party_fields":
-				_plan_values[key] = _default_plan[key]
+		# `_jpEnsurePlan`, and only on a genuinely new plan -- which is the
+		# reference's own `isNewPlan` gate, so re-entering the form never
+		# overwrites a party the user has since edited. The route-aware
+		# defaults (Sea Faring for a route the `mixed` cost grid took mostly
+		# across open water, plus `jpAutoPickVessel`'s correction from the
+		# route's real stages) when a route is selected; the route-blind
+		# `jp_default_plan()` when none is, or on a binary without it.
+		var seed_plan: Dictionary = _default_plan
+		if _route_index >= 0:
+			var rp: Dictionary = bridge.jp_plan_for_route(_route_index)
+			if not rp.is_empty():
+				seed_plan = rp
+		for key in seed_plan.keys():
+			if key != "party_fields" and key != "sea_journey":
+				_plan_values[key] = seed_plan[key]
 
 	# The Travel Library is edited in its own window (⇧L), which can be open
 	# alongside this form, so the entry lists are re-read on every rebuild
@@ -436,9 +624,12 @@ func _rebuild_party_form() -> void:
 	_number_field(traveler, "Hours/day (land)", "hours", 1.0, 16.0, 0.5, false)
 	_number_field(traveler, "Trade cargo (kg)", "cargo_kg", 0.0, 500000.0, 10.0, false)
 	_number_field(traveler, "Supplies carried (d)", "supply_days", 1.0, 90.0, 1.0, true)
-	var pr := _pack_range_note()
-	if pr != "":
-		DccWidgets.note(traveler, pr)
+	## JP-16. The wagon-equation ceiling, immediately under the control that
+	## crosses it -- the reference's own placement (line 19657) and its own
+	## reason: the threshold is knowable in advance and belongs beside the
+	## control, not in a warning after the fact.
+	_pack_range_label = DccWidgets.note(traveler, "")
+	_refresh_pack_range_note()
 	_toggle_field(traveler, "Carry food (off = live off the land)", "carry_food")
 	_choice_field(traveler, "Grazing", "grazing", _options.get("grazing", PackedStringArray()), false)
 	_choice_field(traveler, "Foraging", "foraging", _options.get("foraging", PackedStringArray()), false)
@@ -466,14 +657,25 @@ func _rebuild_party_form() -> void:
 	manual_btn.toggle_mode = true
 	manual_btn.button_pressed = not _carriage_auto
 	manual_btn.focus_mode = Control.FOCUS_NONE
-	auto_btn.pressed.connect(func(): _carriage_auto = true; manual_btn.button_pressed = false; _rebuild_party_form())
-	manual_btn.pressed.connect(func(): _carriage_auto = false; auto_btn.button_pressed = false; _rebuild_party_form())
+	auto_btn.pressed.connect(func(): _carriage_auto = true; manual_btn.button_pressed = false; _rebuild_party_form(); _compute())
+	manual_btn.pressed.connect(func(): _carriage_auto = false; auto_btn.button_pressed = false; _rebuild_party_form(); _compute())
 	mode_row.add_child(auto_btn)
 	mode_row.add_child(manual_btn)
 	carriage.add_child(mode_row)
 	if _carriage_auto:
-		DccWidgets.note(carriage,
-			"Auto (best animal for the route's terrain × biome, km-weighted) is the reference's jpAutoPickTransport — not ported to Rust yet (no cartalith-civ auto-carriage function exists). Counts below stay at whatever Manual last set; toggling Auto only disables editing them here, it does not compute a pick.")
+		DccWidgets.note(carriage, _auto_carriage_note())
+
+	# JP-10 / DECISIONS.md 7j: per-stage auto-pick. Separate from the
+	# Auto/Manual pair above because it answers a different question -- that
+	# one sizes ONE train for the whole route, this one re-tacks it stage by
+	# stage where the ground rewards it.
+	DccWidgets.toggle(carriage, "Re-pack per stage where it pays", _stage_auto,
+		func(nv: bool):
+			_stage_auto = nv
+			_compute(),
+		"jp_auto_stage_picks: measures each land stage's own best species, vehicle and land mode against that stage's terrain, and applies the swap when it beats the current setup by more than 10% -- or when it turns an impassable stage passable, where no percentage applies. Scales with group size and cargo, because every candidate is measured through the same jp_calc_land the stage itself uses. Never picks a mode the party lacks the animals for, and never overrules a per-stage field you set by hand.")
+	if _stage_auto:
+		DccWidgets.note(carriage, _stage_picks_note())
 
 	_choice_field(carriage, "Transport", "transport", _options.get("transport", PackedStringArray()), false, true)
 	var transport := String(_plan_values.get("transport", "Walking"))
@@ -511,6 +713,67 @@ func _rebuild_party_form() -> void:
 	footer_pad.add_theme_constant_override("margin_bottom", 8)
 	footer_pad.add_child(footer)
 	_left_party_body.add_child(footer_pad)
+
+## JP-01. `jpAutoPickTransport`'s own outcome, in prose -- the reference's
+## `auto.hint`. Every number here is the picker's own return
+## (`jp_auto_transport_dict`), not a re-derivation in GDScript.
+## What the per-stage picker actually changed, in the party form's own words.
+## Every number here is `jp_compute`'s `stage_picks` -- nothing is recomputed
+## on this side.
+func _stage_picks_note() -> String:
+	if not bool(_last_result.get("ok", false)):
+		return "Compute a route to see what each stage would rather be carried by."
+	var picks: Array = _last_result.get("stage_picks", [])
+	if picks.is_empty():
+		return "No stage is better off re-packed: every land stage is already within 10% of the best species, vehicle and mode available to this party on its own ground."
+	var lines: Array[String] = []
+	for p in picks:
+		var d: Dictionary = p
+		var changed: Array[String] = []
+		if String(d.get("species", "")) != "":
+			changed.append(String(d["species"]))
+		if String(d.get("vehicle", "")) != "":
+			changed.append(String(d["vehicle"]))
+		if String(d.get("transport", "")) != "":
+			changed.append(String(d["transport"]))
+		var head := "Stage %d (%s): %s" % [int(d.get("stage", 0)) + 1, d.get("terrain", "?"), " + ".join(changed)]
+		if bool(d.get("unblocks", false)):
+			lines.append("%s -- was impassable, now %.0f km/day. %s" % [head, float(d.get("daily_km_after", 0.0)), d.get("reason", "")])
+		else:
+			lines.append("%s -- %.0f -> %.0f km/day (+%.0f%%). %s" % [
+				head, float(d.get("daily_km_before", 0.0)), float(d.get("daily_km_after", 0.0)),
+				float(d.get("gain_pct", 0.0)), d.get("reason", "")])
+	return "\n".join(lines)
+
+func _auto_carriage_note() -> String:
+	var auto: Dictionary = _last_result.get("auto", {})
+	if auto.is_empty():
+		return "Auto picks the transport, animal species and vehicle count for this route (jpAutoPickTransport: best animal for the route's terrain × biome, km-weighted). Compute a route to see the pick."
+	var reason := String(auto.get("reason", ""))
+	match reason:
+		"no_land_stages":
+			return "Auto has nothing to pick: this route has no land stage. A water leg picks its own vessel (jp_auto_stage_vessel)."
+		"not_a_land_mode":
+			return "Auto applies to Walking / Mounted Rider / Baggage Train. \"%s\" is a water mode, so the carriage counts below are left alone." % String(_plan_values.get("transport", ""))
+		"walking":
+			return "Walking: the party carries its own load — %s kg needed against %s kg of porter capacity, so no animals or vehicles are assigned." % [
+				_fmt_thousands(float(auto.get("total_need", 0.0)), 0), _fmt_thousands(float(auto.get("porter_cap", 0.0)), 0)]
+		"walking_overloaded":
+			return "⚠ Walking, over capacity: %s kg needed against %s kg of porter capacity, and auto-promote is off — so animals and vehicles stay cleared rather than a pack train being invented. Turn on \"Auto-promote\" below, or reduce the load." % [
+				_fmt_thousands(float(auto.get("total_need", 0.0)), 0), _fmt_thousands(float(auto.get("porter_cap", 0.0)), 0)]
+		"mount":
+			return "Mounted Rider on %s — %s" % [String(auto.get("species", "")), String(auto.get("why", ""))]
+		"baggage_train":
+			var head := "Baggage Train"
+			if bool(auto.get("promoted", false)):
+				head = "Promoted Walking → Baggage Train"
+			var txt := "%s: %d × %s, %d cart(s), %d wagon(s) — %s" % [
+				head, int(auto.get("count", 0)), String(auto.get("species", "")),
+				int(auto.get("carts", 0)), int(auto.get("wagons", 0)), String(auto.get("why", ""))]
+			if bool(auto.get("fodder_infeasible", false)):
+				txt += "  ⚠ No animal count solves this trip: at this length one animal can no longer carry its own fodder, so every animal added makes the shortfall worse. The count shown is an honest floor (cargo + supplies), not an answer — shorten the trip, raise grazing, or resupply."
+			return txt
+	return "Auto ran but reported no outcome this build understands (\"%s\")." % reason
 
 func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: String) -> void:
 	var row := HBoxContainer.new()
@@ -692,10 +955,28 @@ func _mount_field(parent: Control) -> void:
 		"Only consulted when the party carries no donkeys/mules/camels/horses of its own. Entries are the Travel Library's own mount-capable definitions (§3.1 'usable as a mount').")
 	_auto_obs["mount_animal"] = ob
 
-## Vessel picker, library-backed. `jp_ship_stats` is still a fixed built-in
-## table (`TRAVEL_LIBRARY_SPEC.md` §6): a vessel definition only reaches the
-## engine when its *name* is one the table knows, so every other entry is
-## listed but disabled, with the reason on the item itself.
+## Every vessel `jp_compute` will accept for `plan.vessel`: the built-in
+## roster plus every Travel Library definition the vessel resolver can turn
+## into `ShipStats`. Used by this picker and by the stage inspector's own
+## per-stage Vessel override, so both offer the same set.
+##
+## IN-06's remainder, closed: a library vessel reaches the engine through
+## `TravelLibrary::vessel_overrides` -> `travel_library::vessel_resolver_fn`
+## -> `JpVesselResolver`, the exact sibling of the animal resolver. Only an
+## entry still missing one of its four numeric fields stays out, because the
+## resolver declines an incomplete definition rather than shipping a hull
+## with a zero hold.
+func _vessel_names() -> Array:
+	var out: Array = []
+	for n in (_options.get("vessel", PackedStringArray()) as PackedStringArray):
+		out.append(String(n))
+	for r in _library_vessels:
+		var row: Dictionary = r
+		var vessel_name := String(row.get("name", ""))
+		if vessel_name != "" and not out.has(vessel_name) and String(row.get("validation_state", "")) == "ok":
+			out.append(vessel_name)
+	return out
+
 func _vessel_field(parent: Control) -> void:
 	var engine_names: PackedStringArray = _options.get("vessel", PackedStringArray())
 	var labels: Array = []
@@ -704,8 +985,9 @@ func _vessel_field(parent: Control) -> void:
 	for r in _library_vessels:
 		var row: Dictionary = r
 		var vessel_name := String(row.get("name", ""))
-		var hooked := engine_names.has(vessel_name)
-		labels.append(_entry_label(row) if hooked else "%s  — no engine hook" % _entry_label(row))
+		var complete := String(row.get("validation_state", "")) == "ok"
+		var hooked := engine_names.has(vessel_name) or complete
+		labels.append(_entry_label(row) if hooked else "%s  — incomplete" % _entry_label(row))
 		names.append(vessel_name)
 		live.append(hooked)
 	# Any engine vessel with no library row at all still has to be reachable.
@@ -724,35 +1006,73 @@ func _vessel_field(parent: Control) -> void:
 				return
 			_plan_values["vessel"] = String(names[i])
 			_plan_value_changed(false),
-		"Stock vessels drive jp_ship_stats. A custom vessel definition is real, validated data with no engine hook yet — no resolver equivalent to the animal one exists for the vessel table (TRAVEL_LIBRARY_SPEC.md §6), so it is listed here but not selectable.")
+		"Every vessel here drives the real water calculation: the eleven built-in hulls through jp_ship_stats, and any Travel Library definition through the vessel resolver (its speed, hold, crew and water rating). An entry still missing one of those four fields is disabled — the resolver declines an incomplete definition rather than sailing a hull with a zero hold. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only, never by a named water type the way \"River Barge cannot navigate River with Rapids\" is.")
 	for i in live.size():
 		if not bool(live[i]):
 			ob.set_item_disabled(i, true)
 
-## `_jpPackRange`'s own ceiling advisory (reference ~line 19661), attached to
-## the supplies field per `JOURNEY_PLANNER_SPEC.md` §5. `jp_capacity()` is
-## exposed to `cartalith-godot` internally but not as a `#[func]` -- this
-## reads the same real numbers the reference computes, via the closest bound
-## primitive: the last compute's own land-leg capacity, if one exists. Before
-## any compute has run there is nothing to derive it from, so it stays quiet
-## rather than guessing.
-func _pack_range_note() -> String:
-	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
-		return ""
-	var plan: Dictionary = _last_result.get("plan", {})
-	var results: Array = plan.get("results", [])
-	for r in results:
-		var d: Dictionary = r
-		if d.has("land"):
-			var l: Dictionary = d["land"]
-			var cap: Dictionary = l.get("capacity", {})
-			var fodder := float(cap.get("fodder", 0.0))
-			var supply_days := float(_plan_values.get("supply_days", 1.0))
-			if fodder > 0.0 and supply_days > 0.0:
-				var mule_days := supply_days  ## fodder already reflects supply_days at the current grazing setting
-				return "At this grazing setting, the current fodder load carries roughly %.0f day(s) as configured -- lower Supplies or raise Grazing if this is a mule/donkey-bound route and animals are running short." % mule_days
-			break
-	return ""
+## JP-16. `_jpPackRange`'s own ceiling advisory (reference line 19657, the
+## v1.49 fix), attached to the supplies field per `JOURNEY_PLANNER_SPEC.md`
+## §5 -- now computed by `cartalith_civ::jp_pack_range` through the
+## `jp_pack_range` binding rather than approximated here.
+##
+## **What this replaces, and why the replacement is not cosmetic.** Until
+## 2026-08-26 this function read the last compute's own land-leg `capacity
+## .fodder` and reported "roughly N day(s) as configured" -- which restated
+## the *current* supply setting and never stated the **ceiling**. That is
+## precisely the pre-v1.48 behaviour the reference wrote `_jpPackRange` to
+## end (`PARITY_AUDIT.md` §23 F13, the owner's own report: *"250kg of cargo
+## now necessitates roughly 213 mules"*). The engine function had been
+## ported and golden-tested since milestone 6 and was called by nothing.
+##
+## Three states, all the reference's own: full grazing (no ceiling exists),
+## under the ceiling, and past it -- the last coloured `warn`, because
+## beyond it no pack-train size works at all.
+func _refresh_pack_range_note() -> void:
+	if _pack_range_label == null or not is_instance_valid(_pack_range_label):
+		return
+	var pr := _pack_range()
+	if pr.is_empty() or not bool(pr.get("ok", false)):
+		## No pack animal in the party -- the reference's own `return null`.
+		## There is no fodder ceiling without an animal carrying its own fodder.
+		_pack_range_label.text = ""
+		_pack_range_label.visible = false
+		return
+	_pack_range_label.visible = true
+	var species := String(pr.get("label", "animal")).to_lower()
+	if bool(pr.get("unlimited", false)):
+		_pack_range_label.text = "Full grazing — the %ss feed themselves on route, so no carry-duration ceiling applies." % species
+		_pack_range_label.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		return
+	var ratio := float(pr.get("ratio", 0.0))
+	var max_days := float(pr.get("max_days", 0.0))
+	var text := "A %s can carry at most ~%.0f days of its own fodder at this grazing setting — past that its whole load is its own food." % [species, max_days]
+	var token := "text_ghost"
+	if ratio >= 1.0:
+		token = "warn"
+		text = "%s %s Beyond this no pack-train size works: shorten the carry, graze more, or resupply at a stop." % [DccIcons.SYMBOLS["warn_tri"], text]
+	elif ratio >= 0.7:
+		token = "stale"
+		text += " You are close to that ceiling."
+	_pack_range_label.text = text
+	_pack_range_label.add_theme_color_override("font_color", DccTheme.c(token))
+
+## `jp_pack_range(plan, has_desert)`. Pure and world-free, so it answers
+## before a route is committed and before `generate()` -- which is the whole
+## point of the v1.49 fix. `has_desert` comes off the last computed journey
+## when there is one (the reference reads it off the finished plan for the
+## same reason: a desert crossing changes what an animal eats); `false`
+## otherwise, which is the reference's own value when `_jpPlan` throws.
+func _pack_range() -> Dictionary:
+	if not _bound:
+		return {}
+	var plan: Dictionary = _last_result.get("plan", {}) if bool(_last_result.get("ok", false)) else {}
+	## Through the bridge, not around it. `EngineBridge.jp_pack_range()` performs
+	## the same `has_method` probe this used to do inline -- and additionally
+	## records the miss in `missing_bindings()`, which is the shell's staleness
+	## fingerprint. A call site that reaches `world_gen` directly is invisible to
+	## it, so a stale binary looks healthy from the one place that reports on it.
+	return bridge.jp_pack_range(_plan_values, bool(plan.get("has_desert", false)))
 
 # =========================================================== Compute path ====
 
@@ -762,6 +1082,12 @@ func _compute() -> void:
 		_apply_result()
 		return
 	var request: Dictionary = {"route": _route_index, "plan": _plan_values.duplicate(true)}
+	if _carriage_auto:
+		request["auto_carriage"] = true
+	if _stage_auto:
+		request["auto_stage"] = true
+	if _trim.x > 0.0 or _trim.y < 1.0:
+		request["trim"] = _trim
 	if not _animal_entries.is_empty():
 		request["animal_entries"] = _animal_entries.duplicate()
 	if not _stage_overrides.is_empty():
@@ -774,10 +1100,39 @@ func _compute() -> void:
 	_last_result = bridge.jp_compute(request)
 	_apply_result()
 
+## The carriage keys `jpAutoPickTransport` mutates on the plan -- the exact
+## set the reference's `_jpSyncAssetInputs` (line 19632) writes back into the
+## form's own disabled inputs.
+const _AUTO_CARRIAGE_KEYS := ["donkey", "mule", "camel", "horse",
+	"carts", "wagons", "travois", "sleds", "transport", "mount_animal"]
+
+## `_jpRunAuto` mutates the plan; the form has to show what it picked, or the
+## Auto counts stay at whatever Manual last set (which is exactly the gap the
+## old "toggling Auto only disables editing them" note disclosed). Writes the
+## picked values back into `_plan_values` and rebuilds the form when the
+## picker *promoted* the transport, matching the reference's own
+## `if(auto&&auto.promoted) structural=true`.
+func _sync_auto_carriage() -> bool:
+	if not _carriage_auto:
+		return false
+	var auto: Dictionary = _last_result.get("auto", {})
+	if auto.is_empty() or not bool(auto.get("ok", false)):
+		return false
+	var picked: Dictionary = auto.get("plan", {})
+	for key in _AUTO_CARRIAGE_KEYS:
+		if picked.has(key):
+			_plan_values[key] = picked[key]
+	return bool(auto.get("promoted", false))
+
 func _apply_result() -> void:
 	var plan: Dictionary = {}
 	if bool(_last_result.get("ok", false)):
 		plan = _last_result.get("plan", {})
+	if _sync_auto_carriage():
+		# Walking -> Baggage Train changes which rows the form shows, so it
+		# has to be a rebuild rather than a relabel. `_rebuild_party_form()`
+		# does not recompute, so this cannot recurse.
+		_rebuild_party_form()
 	var stages: Array = plan.get("stages", [])
 	if _selected_stage >= stages.size():
 		_selected_stage = maxi(0, stages.size() - 1)
@@ -789,6 +1144,7 @@ func _apply_result() -> void:
 	_rebuild_matrix(plan)
 	_rebuild_timeline_band(plan)
 	_refresh_auto_labels()
+	_phone_refit()   ## PH-12: five of those six rebuilt from fresh nodes.
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
 
@@ -830,6 +1186,7 @@ func _rebuild_profile(plan: Dictionary) -> void:
 	_profile.bands = bands
 	_profile.selected_idx = _selected_stage
 	_profile.isolated_idx = _isolated_stage
+	_profile.trim = _trim
 	_profile.queue_redraw()
 
 ## JP-13 (`JOURNEY_PLANNER_SPEC.md` §2: "Timeline bar carries the journey
@@ -921,7 +1278,55 @@ func _timeline_legend_item(parent: Control, token: String, label_text: String) -
 
 # ============================================================ Center panel ====
 
+## Phone (§13) -- PH-12.
+##
+## Journey is the one screen in this pass that is **not** a `Window`: it swaps
+## the whole domain region in place (this file's own header). Half of it is
+## therefore already covered -- `_left_panel` hangs off `app.left_dock_body`,
+## and `DccShell::_on_phone_node_added()` phone-fits every dock descendant; the
+## results panel goes through `right_dock.gd`, same thing. What is NOT covered
+## is this centre panel: it is parented to `app.viewport_content`, which the
+## dock walker deliberately does not touch, so every one of its constants was
+## drawn at native device resolution.
+##
+## And unlike a `Window`, it has no `content_scale_factor` to lean on -- there
+## is no sub-viewport here, so an authored pixel in the main viewport really is
+## one physical pixel. That is why `phone_fit()` is called with
+## `app.phone_scale()` rather than the `1.0` every window in this pass uses:
+## the compositor has applied nothing, so the walk has to apply everything.
+##
+## Two compositions do not survive the scale and are answered here instead:
+## the route map's 196 dp totals column beside it, and the 642 dp stage matrix
+## beside the stage inspector. Both stack.
+var _phone := false
+
+## One authored pixel, in this panel's own space. `DccShell._pscale()` is the
+## same arithmetic for the shell's own chrome; repeated here rather than reached
+## into because that one is private and this file is not a `DccShell`.
+func _pp(px: int) -> int:
+	if not _phone:
+		return px
+	return maxi(1, int(round(px * app.phone_scale())))
+
+## PH-12: `app.viewport_content` is outside `DccShell._on_phone_node_added()`'s
+## dock walk, so nothing fits this subtree unless this file asks. Every one of
+## the centre panel's regions -- totals, profile, stops, inspector, matrix -- is
+## cleared and rebuilt on each `_compute()`, so the ask is deferred and repeated
+## rather than one-shot; `phone_fit()` is idempotent by meta-flag, so a repeat
+## costs one visit per already-sized control.
+##
+## `app.phone_scale()`, not `1.0`: there is no content-scaled sub-viewport here.
+## See `_build_center_panel()`'s own header.
+func _phone_refit() -> void:
+	if _phone and _center_panel != null:
+		_do_phone_refit.call_deferred()
+
+func _do_phone_refit() -> void:
+	if _phone and is_instance_valid(_center_panel):
+		app.phone_fit(_center_panel, app.phone_scale())
+
 func _build_center_panel() -> void:
+	_phone = app != null and app.has_method("is_phone") and app.is_phone()
 	_center_panel = Control.new()
 	_center_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	app.viewport_content.add_child(_center_panel)
@@ -940,11 +1345,15 @@ func _build_center_panel() -> void:
 	_center_panel.add_child(col)
 
 	# -- Route map row (236px) --------------------------------------------------
-	var map_row := HBoxContainer.new()
-	map_row.custom_minimum_size.y = 236
+	## PH-12: every fixed height in this panel is in *authored* pixels and there
+	## is no content scale here, so each one is multiplied by `phone_scale()` to
+	## keep its physical size -- 236 authored px would be 236 physical px, about
+	## 12 mm of a 165 mm screen, for the panel's principal view.
+	var map_row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	map_row.custom_minimum_size.y = _pp(236)
 	map_row.add_theme_constant_override("separation", 0)
 	var map_row_pad := PanelContainer.new()
-	map_row_pad.custom_minimum_size.y = 236
+	map_row_pad.custom_minimum_size.y = _pp(236)
 	map_row_pad.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	map_row_pad.add_child(map_row)
 	col.add_child(map_row_pad)
@@ -952,10 +1361,15 @@ func _build_center_panel() -> void:
 	_route_map = _RouteMapView.new()
 	_route_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_route_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if _phone:
+		## Stacked, the map needs a height of its own or the totals column takes
+		## the row; 60% of the band, so the numbers under it still read.
+		_route_map.custom_minimum_size.y = _pp(150)
 	map_row.add_child(_route_map)
 
 	var totals_panel := PanelContainer.new()
-	totals_panel.custom_minimum_size.x = 196
+	if not _phone:
+		totals_panel.custom_minimum_size.x = 196
 	totals_panel.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"left": 1}))
 	map_row.add_child(totals_panel)
 	var totals_col := VBoxContainer.new()
@@ -972,14 +1386,14 @@ func _build_center_panel() -> void:
 
 	# -- Terrain profile row (150px) --------------------------------------------
 	var profile_wrap := PanelContainer.new()
-	profile_wrap.custom_minimum_size.y = 150
+	profile_wrap.custom_minimum_size.y = _pp(150)
 	profile_wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	col.add_child(profile_wrap)
 	var profile_col := VBoxContainer.new()
 	profile_col.add_theme_constant_override("separation", 0)
 	profile_wrap.add_child(profile_col)
 	var profile_head := HBoxContainer.new()
-	profile_head.custom_minimum_size.y = 22
+	profile_head.custom_minimum_size.y = _pp(22)
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 12)
 	head_pad.add_child(profile_head)
@@ -991,11 +1405,12 @@ func _build_center_panel() -> void:
 	_profile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_profile.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_profile.stage_clicked.connect(_on_stage_clicked)
+	_profile.trim_dragged.connect(_on_trim_dragged)
 	profile_col.add_child(_profile)
 
 	# -- Stops strip (32px) ------------------------------------------------------
 	var stops_wrap := PanelContainer.new()
-	stops_wrap.custom_minimum_size.y = 32
+	stops_wrap.custom_minimum_size.y = _pp(32)
 	stops_wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
 	col.add_child(stops_wrap)
 	var stops_outer := HBoxContainer.new()
@@ -1006,15 +1421,40 @@ func _build_center_panel() -> void:
 	stops_pad.add_child(stops_outer)
 	stops_wrap.add_child(stops_pad)
 	stops_outer.add_child(DccTheme.mono_label("STOPS · LAYOVER DAYS", "text_dim", DccTheme.FS_HEADER, 2, true))
+	# The chip row goes inside a plain `Control`, not straight into the
+	# HBox. Measured 2026-08-23 on a real 1684 px-wide session: a 34-stop
+	# route's chips (a settlement name at natural width plus a 60 px SpinBox
+	# each) report a combined minimum width of ~7 400 px, and because a
+	# Container propagates its children's minimum size upward with nothing
+	# clipping it, **the whole centre column was being stretched to 7 417 px
+	# inside its 748 px parent** — pushing the route map, the profile spine,
+	# the inspector and the matrix mostly off-screen. A physical mouse could
+	# reach only the first two of fourteen stage bands, which silently capped
+	# the spine's own click-to-select and ⌥-isolate (both long shipped) as
+	# well as this pass's ⇧-drag trim.
+	#
+	# A plain `Control` reports only its OWN `custom_minimum_size`, so the
+	# propagation stops here while the row still receives the real width and
+	# lays its chips across the distance axis exactly as designed; anything
+	# that genuinely does not fit is clipped rather than shoving the layout.
+	var stops_clip := Control.new()
+	stops_clip.clip_contents = true
+	stops_clip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stops_clip.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stops_outer.add_child(stops_clip)
 	_stops_row = HBoxContainer.new()
 	_stops_row.add_theme_constant_override("separation", 8)
-	_stops_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stops_outer.add_child(_stops_row)
+	_stops_row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	stops_clip.add_child(_stops_row)
 	_stops_note = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
 	stops_outer.add_child(_stops_note)
 
 	# -- Lower area: inspector + matrix -------------------------------------------
-	var lower := HBoxContainer.new()
+	## PH-12: the stage inspector beside a 642 dp stage matrix is 642 physical px
+	## of a 1440 px screen for one of two panes, at authored type. Stacked, the
+	## matrix keeps its own horizontal scroll (it is genuinely wide) and the
+	## inspector gets the full width.
+	var lower: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	lower.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	lower.add_theme_constant_override("separation", 0)
 	col.add_child(lower)
@@ -1032,7 +1472,10 @@ func _build_center_panel() -> void:
 	inspector_scroll.add_child(_inspector_body)
 
 	var matrix_wrap := PanelContainer.new()
-	matrix_wrap.custom_minimum_size.x = 642
+	if _phone:
+		matrix_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		matrix_wrap.custom_minimum_size.x = 642
 	lower.add_child(matrix_wrap)
 	var matrix_scroll := ScrollContainer.new()
 	matrix_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
@@ -1209,6 +1652,26 @@ func _on_stage_clicked(idx: int, isolate: bool) -> void:
 	var plan: Dictionary = _last_result.get("plan", {}) if bool(_last_result.get("ok", false)) else {}
 	_rebuild_inspector(plan)
 	_rebuild_matrix(plan)
+	# The trace group traces the SELECTED stage, so it follows the spine.
+	if app != null and app.right_dock_ctrl != null:
+		app.right_dock_ctrl.refresh_journey()
+
+## JP-07. The trim cuts the route polyline inside `jp_compute` (its own
+## `trim` request key -> `cartalith_civ::jp_trim_points`), so every stage
+## index, stop key and per-stage override that comes back belongs to the
+## trimmed route -- which is why the per-stage state is reset here, exactly
+## as picking a different route already does.
+func _on_trim_dragged(from_frac: float, to_frac: float) -> void:
+	var next := Vector2(from_frac, to_frac)
+	if next.is_equal_approx(_trim):
+		return
+	_trim = next
+	_stage_overrides.clear()
+	_layovers.clear()
+	_selected_stage = 0
+	_isolated_stage = -1
+	_tool_options_journey()
+	_compute()
 
 func _stage_override(idx: int) -> Dictionary:
 	return _stage_overrides.get(idx, {})
@@ -1422,7 +1885,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		"Only applies when this stage's travel mode is Mounted Rider.")
 	_override_choice_row(grid, idx, ov, "desert_water", "Desert water", _options.get("desert_water", PackedStringArray()),
 		_inherit_label("desert_water", s, r))
-	_override_choice_row(grid, idx, ov, "vessel", "Vessel", _options.get("vessel", PackedStringArray()),
+	_override_choice_row(grid, idx, ov, "vessel", "Vessel", PackedStringArray(_vessel_names()),
 		_inherit_label("vessel", s, r), cat == "land", "— land stage, no vessel applies.")
 
 	var actions := HBoxContainer.new()
@@ -1602,6 +2065,7 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 				mode_sel = ti + 1
 		mode_ob.selected = mode_sel
 		mode_ob.item_selected.connect(func(sel: int): _set_stage_override(i, "transport", ("" if sel == 0 else transport_opts[sel - 1])))
+		DccWidgets.style_popup(mode_ob.get_popup())
 		grid.add_child(mode_ob)
 
 		var pace_ob := OptionButton.new()
@@ -1617,6 +2081,7 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 				pace_sel = pi + 1
 		pace_ob.selected = pace_sel
 		pace_ob.item_selected.connect(func(sel: int): _set_stage_override(i, "pace", ("" if sel == 0 else pace_opts[sel - 1])))
+		DccWidgets.style_popup(pace_ob.get_popup())
 		grid.add_child(pace_ob)
 
 		var hrs_sb := SpinBox.new()
@@ -1714,16 +2179,116 @@ func _tool_options_journey() -> void:
 		_preset_controls(row)
 		var carriage_lbl := DccTheme.mono_label("carriage: %s" % ("auto" if _carriage_auto else "manual"), "text_ghost", DccTheme.FS_SMALL)
 		row.add_child(carriage_lbl)
-		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % String(_plan_values.get("transport", "Walking")), func(): pass)
-		reroute_btn.disabled = true
-		reroute_btn.tooltip_text = "jpAutoPickTransport / _jpRerouteForMode have no Rust port -- see this file's own doc comment."
-		row.add_child(DccTheme.label("⇧ drag spine to trim (deferred) · ⌥ click isolates a stage", "text_ghost", DccTheme.FS_MICRO))
+		var transport := String(_plan_values.get("transport", "Walking"))
+		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % transport, _reroute_journey)
+		reroute_btn.disabled = count == 0
+		reroute_btn.tooltip_text = "_jpRerouteForMode: re-paths this committed route's two endpoints under the domain %s implies (sea / river / land), and refuses an unreachable answer rather than drawing the straight-line fallback route_commit tolerates." % transport
+		var trim_text := "⇧ drag spine to trim · ⌥ click isolates a stage"
+		if _trim.x > 0.0 or _trim.y < 1.0:
+			trim_text = "trimmed %d–%d%% · click the spine outside the range to clear" % [roundi(_trim.x * 100.0), roundi(_trim.y * 100.0)]
+		row.add_child(DccTheme.label(trim_text, "accent" if (_trim.x > 0.0 or _trim.y < 1.0) else "text_ghost", DccTheme.FS_MICRO))
 		row.add_child(DccTheme.spacer())
-		var save_btn := DccWidgets.action(row, "save journey", func(): pass)
-		save_btn.disabled = true
-		save_btn.tooltip_text = "No save-writer exists for journeys (or for projects generally -- cartalith-io is read-only)."
+		var save_btn := DccWidgets.action(row, "save journey", _save_journey)
+		save_btn.disabled = count == 0
+		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. File ▸ Save project writes that list into the archive as entities/journeys.json and reopening the project restores it -- it is not lost when the app closes. One real limit: a journey stores a route INDEX, so generating a new world discards the list rather than pointing it at routes that no longer exist."
 		var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
 	)
+
+# ================================== Journeys list / save (JP-06, JP-08) ====
+
+func _save_journey() -> void:
+	var d := ConfirmationDialog.new()
+	d.title = "Save journey"
+	d.min_size = Vector2i(380, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	body.add_child(DccTheme.label("Name for this journey:", "text_dim", DccTheme.FS_SMALL))
+	var le := LineEdit.new()
+	var km := 0.0
+	if bool(_last_result.get("ok", false)):
+		km = float((_last_result.get("plan", {}) as Dictionary).get("km", 0.0))
+	le.text = "Journey %d — %s km" % [_journeys.size() + 1, _fmt_thousands(km, 0)]
+	le.select_all_on_focus = true
+	body.add_child(le)
+	body.add_child(DccTheme.label(
+		"Stored in this project — written by File ▸ Save project, restored on open.",
+		"text_ghost", DccTheme.FS_MICRO))
+	d.add_child(body)
+	d.confirmed.connect(func():
+		var jname := le.text.strip_edges()
+		if jname != "":
+			_journeys.append({
+				"name": jname,
+				"route": _route_index,
+				"plan": _plan_values.duplicate(true),
+				"stage_overrides": _stage_overrides.duplicate(true),
+				"layovers": _layovers.duplicate(true),
+				"animal_entries": _animal_entries.duplicate(),
+				"trim": _trim,
+			})
+			_active_journey = _journeys.size() - 1
+			_refresh_route_choice()
+			app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+	le.grab_focus.call_deferred()
+
+func _load_journey(i: int) -> void:
+	if i < 0 or i >= _journeys.size():
+		return
+	var j: Dictionary = _journeys[i]
+	_active_journey = i
+	_route_index = int(j.get("route", 0))
+	_plan_values = (j.get("plan", {}) as Dictionary).duplicate(true)
+	_stage_overrides = (j.get("stage_overrides", {}) as Dictionary).duplicate(true)
+	_layovers = (j.get("layovers", {}) as Dictionary).duplicate(true)
+	_animal_entries = (j.get("animal_entries", {}) as Dictionary).duplicate()
+	_trim = j.get("trim", Vector2(0.0, 1.0))
+	_selected_stage = 0
+	_isolated_stage = -1
+	_rebuild_party_form()
+	_tool_options_journey()
+	_compute()
+	app.set_status("hint", "Loaded journey \"%s\"." % String(j.get("name", "")), "accent")
+
+func _delete_journey(i: int) -> void:
+	if i < 0 or i >= _journeys.size():
+		return
+	_journeys.remove_at(i)
+	if _active_journey == i:
+		_active_journey = -1
+	elif _active_journey > i:
+		_active_journey -= 1
+	_refresh_route_choice()
+
+## JP-03. `_jpRerouteForMode` over the selected committed route: re-paths its
+## endpoints under the domain this journey's transport implies, rewrites the
+## route in place (so `route_get`/`jp_compute`'s `route` index still names
+## it), and recomputes. An unreachable answer is reported, not drawn -- the
+## reference refuses `reachable:false` outright.
+func _reroute_journey() -> void:
+	if _route_index < 0 or not bridge.world_gen.has_method("jp_reroute"):
+		app.set_status("hint", "jp_reroute is not exposed by this build's GDExtension binary -- rebuild cartalith-godot.", "warn")
+		return
+	var transport := String(_plan_values.get("transport", "Walking"))
+	var r: Dictionary = bridge.world_gen.jp_reroute(_route_index, transport, "")
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", String(r.get("error", "re-route failed")), "warn")
+		return
+	# The route's geometry changed under every stage index, so per-stage
+	# overrides and layovers no longer name the same ground -- the same reset
+	# picking a different route already does.
+	_stage_overrides.clear()
+	_layovers.clear()
+	_selected_stage = 0
+	_isolated_stage = -1
+	_trim = Vector2(0.0, 1.0)
+	_refresh_route_choice()
+	_tool_options_journey()
+	_compute()
+	app.set_status("hint", "Re-routed for %s — %s km." % [transport, _fmt_thousands(float(r.get("km", 0.0)), 0)], "accent")
 
 # ================================================ Party set-ups (JP-02) ====
 #
@@ -1801,9 +2366,10 @@ func _capture_preset() -> void:
 	le.grab_focus.call_deferred()
 
 ## The one export path with real data behind it: the stage matrix as CSV, to
-## the OS clipboard -- no file-writer exists to save it to disk (same gap the
-## save-journey button discloses), but a clipboard export is honest and
-## immediately useful.
+## the OS clipboard. No CSV file-writer exists to save it to disk -- unrelated
+## to the Journeys list, which does persist (`journeys_document()`); this is
+## a missing *text file* writer, not a missing archive. A clipboard export is
+## honest and immediately useful meanwhile.
 func _export_stage_table() -> void:
 	if not bool(_last_result.get("ok", false)):
 		return
@@ -1855,8 +2421,26 @@ func build_results(body: Control) -> void:
 	_build_load_group(body, plan)
 	_build_supply_group(body, plan)
 	_build_cost_group(body)
+	_build_risk_note(body, plan)
 	_build_vessels_group(body, plan)
 	_build_trace_group(body)
+
+## JP-17. `jp_risk` (reference line 19385, a port of V1.915's
+## `assessCampaignRisk` tiers) -- the campaign-duration advisory.
+## `PARITY_AUDIT.md` §23 F13: ported with milestone 6, called by nothing.
+##
+## Placed exactly where the reference places it (line 19872: after the cost
+## group, before the stage table) and for its reason: it is not a verdict
+## about whether the journey *works* -- `_build_verdict_card` above owns
+## that -- it is an advisory about what a journey of this *length* costs in
+## attrition, fatigue and supply lines regardless of how feasible it is.
+## Silent under ten travel days, which is the reference's own `null`.
+func _build_risk_note(body: Control, plan: Dictionary) -> void:
+	var risk := String(plan.get("risk", ""))
+	if risk == "":
+		return
+	var l := DccWidgets.note(body, "%s %s" % [DccIcons.SYMBOLS["warn_tri"], risk])
+	l.add_theme_color_override("font_color", DccTheme.c("warn"))
 
 ## `right_dock.gd`'s RD-11 collapsed-readout call (`_dock_readout_text()`) --
 ## the one number worth keeping visible when Journey is the active right-dock
@@ -2095,9 +2679,49 @@ func _build_reach_bar(parent: Control, plan: Dictionary, reach: Dictionary) -> v
 			track.add_child(tick)
 	parent.add_child(track)
 
+## The reference's own cost formatter (line 19855): `1.2k` past a thousand,
+## whole numbers past a hundred, one decimal below.
+func _fmt_wages(v: float) -> String:
+	if v >= 1000.0:
+		return "%.1fk" % (v / 1000.0)
+	return ("%.0f" % v) if v >= 100.0 else ("%.1f" % v)
+
+## JP-04. `jp_compute`'s own `cost` key -- `jp_plan_cost` -> the milestone-3
+## `jp_journey_cost` that nothing used to call. Empty on a blocked journey,
+## which is the reference's own `null` (it bails on `plan.blocked` before
+## pricing anything), not a missing binding.
 func _build_cost_group(body: Control) -> void:
 	var g := DccWidgets.section(body, "Cost")
-	DccWidgets.note(g, "jp_plan returns no monetary figures, so nothing here can be filled today -- but the cost model itself IS ported: cartalith_civ::jp_journey_cost (jpJourneyCost, reference line 18873) computes carriage, wages, crew, upkeep, tolls, transshipment, total, per-tonne-km and break-even, with golden tests. It is simply never called: jp_compute/jp_journey_plan_dict don't invoke it and no #[func] exposes it. Every input it needs is already computed inside jp_plan (per-leg km/days/crew, JpDerivedStage::claimed_frac, JpJourneyPlan::transshipments), so this is a boundary gap, not a model gap. Not invented here.")
+	var cost: Dictionary = _last_result.get("cost", {})
+	if cost.is_empty():
+		DccWidgets.note(g, "No cost for a blocked journey -- jpJourneyCost returns null when any stage is impassable, because there is no trip to price. Clear the block above and this fills in.")
+		return
+	var plan: Dictionary = _last_result.get("plan", {})
+	var total := float(cost.get("total", 0.0))
+	var cargo_t := float(cost.get("cargo_t", 0.0))
+	_kv_row(g, "carriage", "%s  (%.2f t over %s km)" % [
+		_fmt_wages(float(cost.get("carriage", 0.0))), cargo_t, _fmt_thousands(float(plan.get("km", 0.0)), 0)])
+	_kv_row(g, "wages", "%s  (%d × %.0f d)" % [
+		_fmt_wages(float(cost.get("wages", 0.0))), int(_plan_values.get("group_size", 1)), float(cost.get("days", 0.0))])
+	if float(cost.get("crew", 0.0)) > 0.0:
+		_kv_row(g, "crew", _fmt_wages(float(cost.get("crew", 0.0))))
+	if float(cost.get("upkeep", 0.0)) > 0.0:
+		_kv_row(g, "animals & vehicles", _fmt_wages(float(cost.get("upkeep", 0.0))))
+	if float(cost.get("tolls", 0.0)) > 0.0:
+		var borders := int(cost.get("borders", 0))
+		_kv_row(g, "tolls", "%s  (%d frontier%s)" % [_fmt_wages(float(cost.get("tolls", 0.0))), borders, "" if borders == 1 else "s"])
+	if float(cost.get("transship", 0.0)) > 0.0:
+		_kv_row(g, "transshipment", "%s  (%d)" % [_fmt_wages(float(cost.get("transship", 0.0))), int(plan.get("transshipments", 0))])
+	_kv_row(g, "total", "%s day-wages" % _fmt_wages(total), "text_bright")
+	var ptk := float(cost.get("per_tonne_km", -1.0))
+	if ptk >= 0.0:
+		_kv_row(g, "per tonne-km", "%.3f" % ptk, "text_dim")
+	var be := float(cost.get("break_even_per_tonne", -1.0))
+	if be >= 0.0:
+		DccWidgets.note(g, "The cargo must fetch at least %s day-wages per tonne more at the destination than it cost at the origin, simply to cover this journey." % _fmt_wages(be))
+	else:
+		DccWidgets.note(g, "No trade cargo -- this is the cost of moving the party itself.")
+	DccWidgets.note(g, "Priced in day-wages (one day of unskilled labour), never a currency: the land/river/sea carriage ratios follow Diocletian's Price Edict, which this engine already uses for food logistics, while the absolute level of money in a world is the owner's to set. Tolls are approximated from territory changes along the route (JpDerivedStage.claimed_frac crossing 0.5), and the reference labels that an approximation itself.")
 
 func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Vessels · water legs")
@@ -2115,25 +2739,206 @@ func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 		_kv_row(g, "hold used", "%s / %s kg" % [
 			_fmt_thousands(float(_plan_values.get("cargo_kg", 0.0)), 0), _fmt_thousands(float(water.get("hold_kg", 0.0)), 0)])
 		_kv_row(g, "crew", str(int(water.get("crew", 0))))
+		# JP-09. `jp_water_window(cat, terrain)` -- hours actually under way
+		# per day on this water type, which is a factor of the leg's own
+		# daily_km rather than a label bolted beside it.
+		_kv_row(g, "sailing window", "%.0f h/day · %s" % [
+			float(water.get("sailing_window_h", 0.0)), String(s.get("terrain", ""))], "water")
 	if not any:
 		DccWidgets.note(g, "No water legs on this route.")
 	else:
-		DccWidgets.note(g, "Sailing-window text (daylight vs. open-water hours) is not part of jp_water_calc's return -- not shown.")
+		DccWidgets.note(g, "The sailing window is the engine's own jp_water_window for each water type (a sheltered bay is worked in daylight; open sea is stood through the night), not the vessel's Travel Library \"sailing window\" field -- nothing in the engine couples the two, and pretending otherwise would invent a model.")
+	_build_vessel_matrix_groups(body, plan, any)
 
+## JP-17. `jp_vessel_matrix` (reference line 17984) -- `PARITY_AUDIT.md` §23
+## F13: ported with milestone 2, called by nothing until 2026-08-26.
+##
+## The reference draws two views of this one pure table (line 19883) and both
+## are built here, for its own stated reason: *"when the route HAS water, the
+## vessels are scored on this route's own water types and the ones that
+## cannot make it say why; with no water stages it falls back to the general
+## reference, so the information is reachable from any route."*
+##
+## - **On this route** — every hull's km/day and days over *these* legs,
+##   ranked, with the ones that cannot make it named and dimmed. Only when
+##   the route has water legs.
+## - **By water type** — the full hull x water grid, collapsed by default.
+##   The fastest hull per column is lit in accent, which is the whole point:
+##   an open-sea passage sails through the night (22 h) while a sheltered bay
+##   is daylight-limited (9 h), so hull speed and hull rating pull against
+##   each other and the fastest vessel is **not** the same everywhere.
+##
+## The grid scrolls horizontally inside the dock rather than widening it --
+## same discipline the stops strip already had to learn (see its own note).
+func _build_vessel_matrix_groups(body: Control, plan: Dictionary, has_water: bool) -> void:
+	var vm := _vessel_matrix_data()
+	if vm.is_empty():
+		return
+	var waters: Array = vm.get("waters", [])
+	var vessels: Array = vm.get("vessels", [])
+	if waters.is_empty() or vessels.is_empty():
+		return
+	var current := String(_plan_values.get("vessel", ""))
+
+	if has_water:
+		_build_vessels_on_route(body, plan, waters, vessels, current)
+
+	var g := DccWidgets.group(body, "vessel reference · speed by water", false)
+	DccWidgets.note(g, "km/day per water type: cruise x that water's sailing window x the fraction of cruise the hull realises. A dash is a hull not rated for that water at all -- a different statement from slow. Lit = fastest hull for that water.")
+	var grid := GridContainer.new()
+	grid.columns = waters.size() + 1
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 3)
+	grid.add_child(DccTheme.mono_label("vessel", "text_dim", DccTheme.FS_MICRO, 1, true))
+	for w in waters:
+		grid.add_child(DccTheme.mono_label(_water_column_label(w), "text_dim", DccTheme.FS_MICRO, 1, true))
+	for v in vessels:
+		var vd: Dictionary = v
+		var vname := String(vd.get("name", ""))
+		var is_current := vname == current
+		grid.add_child(DccTheme.mono_label(("%s%s" % ["> " if is_current else "", vname]), "accent" if is_current else "text", DccTheme.FS_MICRO))
+		var cells: PackedFloat64Array = vd.get("cells", PackedFloat64Array())
+		for ci in waters.size():
+			var km: float = cells[ci] if ci < cells.size() else -1.0
+			if km < 0.0:
+				grid.add_child(DccTheme.mono_label("—", "text_ghost", DccTheme.FS_MICRO))
+				continue
+			var best := String((waters[ci] as Dictionary).get("best_vessel", ""))
+			grid.add_child(DccTheme.mono_label("%.0f" % km, "accent" if best == vname else "text_dim", DccTheme.FS_MICRO))
+	var scroll := ScrollContainer.new()
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.custom_minimum_size.y = grid.get_combined_minimum_size().y
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(grid)
+	g.add_child(scroll)
+
+## The route-aware half: each hull totalled over *this* journey's water legs.
+func _build_vessels_on_route(body: Control, plan: Dictionary, waters: Array, vessels: Array, current: String) -> void:
+	var stages: Array = plan.get("stages", [])
+	## (cat, terrain) -> column index in `waters`, so a leg finds its own
+	## column rather than this file restating the water vocabulary.
+	var col: Dictionary = {}
+	for i in waters.size():
+		var w: Dictionary = waters[i]
+		col["%s|%s" % [String(w.get("cat", "")), String(w.get("terrain", ""))]] = i
+	var legs: Array = []
+	var water_km := 0.0
+	for s in stages:
+		var sd: Dictionary = s
+		if String(sd.get("cat", "")) == "land":
+			continue
+		var key := "%s|%s" % [String(sd.get("cat", "")), String(sd.get("terrain", ""))]
+		if not col.has(key):
+			continue
+		legs.append({"col": int(col[key]), "km": float(sd.get("km", 0.0)), "terrain": String(sd.get("terrain", ""))})
+		water_km += float(sd.get("km", 0.0))
+	if legs.is_empty() or water_km <= 0.0:
+		return
+
+	var scored: Array = []
+	for v in vessels:
+		var vd: Dictionary = v
+		var cells: PackedFloat64Array = vd.get("cells", PackedFloat64Array())
+		var days := 0.0
+		var blocked_on := ""
+		for leg in legs:
+			var l: Dictionary = leg
+			var ci: int = l["col"]
+			var km: float = cells[ci] if ci < cells.size() else -1.0
+			if km <= 0.0:
+				blocked_on = String(l["terrain"])
+				break
+			days += float(l["km"]) / km
+		scored.append({
+			"name": String(vd.get("name", "")),
+			"ok": blocked_on == "" and days > 0.0,
+			"why": blocked_on,
+			"days": days,
+			"kmday": (water_km / days) if (blocked_on == "" and days > 0.0) else 0.0,
+			"hold": float(vd.get("cargo_kg", 0.0)),
+			"crew": int(vd.get("crew", 0)),
+		})
+	scored.sort_custom(func(a, b):
+		if bool(a["ok"]) != bool(b["ok"]):
+			return bool(a["ok"])
+		return float(a["kmday"]) > float(b["kmday"]))
+
+	var g := DccWidgets.group(body, "vessels on this route", false)
+	DccWidgets.note(g, "%s km of water across %d leg(s). Speed is cruise x that water's sailing window x the fraction of cruise it realises -- cargo and weather aside, this is the ranking that matters." % [_fmt_thousands(water_km, 0), legs.size()])
+	for s in scored:
+		var sd: Dictionary = s
+		var vname := String(sd["name"])
+		var mark := "> " if vname == current else ""
+		if bool(sd["ok"]):
+			_kv_row(g, "%s%s" % [mark, vname], "%.0f km/d · %.1f d" % [float(sd["kmday"]), float(sd["days"])],
+				"accent" if vname == current else "text")
+		else:
+			_kv_row(g, "%s%s" % [mark, vname], "%s cannot enter %s" % [DccIcons.SYMBOLS["blocked"], String(sd["why"])], "text_ghost")
+
+## The reference's own column abbreviation (line 19921): a water-type name
+## with its "River with "/"River " prefix stripped, so nine columns fit.
+func _water_column_label(w: Variant) -> String:
+	var d: Dictionary = w
+	var t := String(d.get("terrain", ""))
+	if t.begins_with("River with "):
+		return t.substr(11)
+	if t.begins_with("River "):
+		return t.substr(6)
+	return t
+
+## `jp_vessel_matrix()`, fetched once per session. Empty on a binary without
+## the binding, which is the same "rebuild cartalith-godot" state every other
+## `has_method` guard in this file reports by simply drawing nothing.
+func _vessel_matrix_data() -> Dictionary:
+	if not _vessel_matrix.is_empty():
+		return _vessel_matrix
+	if not _bound:
+		return {}
+	## Through the bridge -- see `_pack_range()` for why the inline `has_method`
+	## probe this replaces was the wrong shape.
+	_vessel_matrix = bridge.jp_vessel_matrix()
+	return _vessel_matrix
+
+## JP-05. `GUI_GAP_REGISTER.md` §7.12's own proposal, built as an inline
+## group rather than the spec's `⧉` window: one row per multiplicative term
+## in the engine's application order, with the running value beside it. The
+## rows come from `land.trace`/`water.trace` -- structured factors, not the
+## reference's `formula` prose string, which stays out of the engine on
+## purpose. The trace's own invariant (`∏ factor == daily_km`) is asserted in
+## `cartalith-civ`, so the last running value here always equals the km/day
+## the results panel reports above.
 func _build_trace_group(body: Control) -> void:
-	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = 26
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 13)
-	pad.add_theme_constant_override("margin_right", 13)
-	pad.add_child(head)
-	body.add_child(DccTheme.rule())
-	body.add_child(pad)
-	head.add_child(DccTheme.mono_label("calculation trace", "text_ghost", DccTheme.FS_SMALL))
-	head.add_child(DccTheme.spacer())
-	var open_btn := DccWidgets.action(head, "open ⧉", func(): pass)
-	open_btn.disabled = true
-	open_btn.tooltip_text = "No calculation-trace window exists yet -- jpCalcLand/jpCalcWater's own 'formula' trace string is deliberately not carried across the boundary (jp_land_calc_dict's own doc comment: presentation, not engine); building a trace window from raw dict values is future work, not faked here."
+	var g := DccWidgets.section(body, "Calculation trace")
+	var plan: Dictionary = _last_result.get("plan", {})
+	var results: Array = plan.get("results", [])
+	if results.is_empty():
+		DccWidgets.note(g, "No computed stage to trace.")
+		return
+	var idx: int = clampi(_selected_stage, 0, results.size() - 1)
+	var r: Dictionary = results[idx]
+	if bool(r.get("blocked", false)):
+		DccWidgets.note(g, "Stage %02d is blocked, so no speed chain was computed for it: %s" % [idx + 1, String(r.get("blocked_reason", ""))])
+		return
+	var calc: Dictionary = r.get("land", r.get("water", {}))
+	var trace: Array = calc.get("trace", [])
+	if trace.is_empty():
+		DccWidgets.note(g, "This build's GDExtension binary returns no trace -- rebuild cartalith-godot.")
+		return
+	DccWidgets.note(g, "Stage %02d · %s — click a band on the spine to trace another stage." % [idx + 1, String(r.get("cat", ""))])
+	var running := 1.0
+	for t in trace:
+		var term: Dictionary = t
+		var factor := float(term.get("factor", 1.0))
+		running *= factor
+		var key := String(term.get("key", ""))
+		var detail := String(term.get("detail", ""))
+		var lhs := key if detail == "" else "%s · %s" % [key, detail]
+		# The first term is the base speed, not a multiplier: printing it as
+		# "×4.0" would read as a factor applied to something.
+		var rhs := ("%.2f" % factor) if key == "base" else "×%.3f    %.2f" % [factor, running]
+		var token := "text" if factor >= 0.999 else ("warn" if factor < 0.7 else "text_dim")
+		_kv_row(g, lhs, rhs, "text_bright" if key == "base" else token)
+	_kv_row(g, "= km/day", "%.2f" % float(calc.get("daily_km", 0.0)), "accent")
 
 # ================================================================ Draw views ====
 
@@ -2212,26 +3017,56 @@ class _RouteMapView extends Control:
 ## ⌥-click isolate).
 class _ProfileView extends Control:
 	signal stage_clicked(idx: int, isolate: bool)
+	## JP-07: `JOURNEY_PLANNER_SPEC.md` §3's "⇧ drag trims". Two fractions of
+	## the distance axis, always ordered low-high; `(0, 1)` clears the trim.
+	signal trim_dragged(from_frac: float, to_frac: float)
 
 	var profile: PackedFloat64Array = PackedFloat64Array()
 	var bands: Array = []   ## [{start, end, cat, blocked, warn, label}] fractions 0..1
 	var selected_idx := -1
 	var isolated_idx := -1
+	var trim := Vector2(0.0, 1.0)   ## the committed trim, drawn as dimmed margins
+
+	var _drag_from := -1.0   ## >= 0 while a ⇧ drag is live
+	var _drag_to := -1.0
 
 	func _ready() -> void:
 		resized.connect(func(): queue_redraw())
 		mouse_filter = Control.MOUSE_FILTER_STOP
 
 	func _gui_input(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			if bands.is_empty() or size.x <= 0.0:
-				return
+		if size.x <= 0.0:
+			return
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			var frac: float = clampf(event.position.x / size.x, 0.0, 1.0)
-			for i in bands.size():
-				var b: Dictionary = bands[i]
-				if frac >= float(b.get("start", 0.0)) and frac <= float(b.get("end", 1.0)):
-					stage_clicked.emit(i, event.alt_pressed)
-					return
+			if event.pressed and event.shift_pressed:
+				_drag_from = frac
+				_drag_to = frac
+				queue_redraw()
+				return
+			if not event.pressed and _drag_from >= 0.0:
+				var a: float = minf(_drag_from, _drag_to)
+				var b: float = maxf(_drag_from, _drag_to)
+				_drag_from = -1.0
+				_drag_to = -1.0
+				queue_redraw()
+				# A ⇧ click (rather than a drag) clears the trim: a zero-width
+				# range is not a journey, and "click to clear" is the cheapest
+				# undo the gesture can have.
+				if b - a < 0.01:
+					trim_dragged.emit(0.0, 1.0)
+				else:
+					trim_dragged.emit(a, b)
+				return
+			if event.pressed and not bands.is_empty():
+				for i in bands.size():
+					var band: Dictionary = bands[i]
+					if frac >= float(band.get("start", 0.0)) and frac <= float(band.get("end", 1.0)):
+						stage_clicked.emit(i, event.alt_pressed)
+						return
+		elif event is InputEventMouseMotion and _drag_from >= 0.0:
+			_drag_to = clampf(event.position.x / size.x, 0.0, 1.0)
+			queue_redraw()
 
 	func _draw() -> void:
 		var w := size.x
@@ -2285,6 +3120,21 @@ class _ProfileView extends Control:
 			var col := DccTheme.c("block") if bool(b.get("blocked", false)) else (DccTheme.c("accent") if i == selected_idx else DccTheme.c("text_ghost"))
 			draw_string(ThemeDB.fallback_font, Vector2(x0 + 3, h - 4), label_text,
 				HORIZONTAL_ALIGNMENT_LEFT, maxf(4.0, (float(b.get("end", 1.0)) - float(b.get("start", 0.0))) * w - 4.0), 9, col)
+		# JP-07's trim, drawn last so it reads as a mask over the whole spine
+		# rather than as another band: the trimmed-away margins are veiled,
+		# and a live ⇧ drag previews its own range the same way.
+		var live: bool = _drag_from >= 0.0
+		var lo: float = (minf(_drag_from, _drag_to) if live else trim.x)
+		var hi: float = (maxf(_drag_from, _drag_to) if live else trim.y)
+		if lo > 0.0 or hi < 1.0:
+			var veil := Color(DccTheme.c("bg"), 0.62)
+			if lo > 0.0:
+				draw_rect(Rect2(0, 0, lo * w, h), veil)
+			if hi < 1.0:
+				draw_rect(Rect2(hi * w, 0, (1.0 - hi) * w, h), veil)
+			var edge := DccTheme.c("accent")
+			draw_line(Vector2(lo * w, 0), Vector2(lo * w, h), edge, 1.5)
+			draw_line(Vector2(hi * w, 0), Vector2(hi * w, h), edge, 1.5)
 
 ## JP-13's day-band strip -- see `_rebuild_timeline_band()`'s own doc comment
 ## for what each segment means and why "weather hold" never lights up. Same
@@ -2315,3 +3165,137 @@ class _TimelineBandView extends Control:
 			x += sw
 			if i + 1 < segments.size() and sw > 1.5:
 				draw_line(Vector2(x, 0), Vector2(x, h), DccTheme.c("bg"), 1.0)
+
+
+# ================================================ Journeys, on disk (F10) ====
+#
+# `entities/journeys.json`, the slot `SAVEFILE_COMPAT.md` §9.6 reserved and
+# nothing wrote. The list was in-session only, and this file's own header said
+# so — the reason given was that no save-writer existed, which stopped being
+# true on 2026-08-23, and then that GDScript state had no channel to the
+# archive, which stopped being true when `project_save_with_documents` landed.
+# What was actually missing by 2026-08-26 was a reader that returned the bytes
+# that were stored rather than a re-serialisation of them; that is `afc2d57`,
+# and this is the consumer it was built for.
+
+## This view's half of the project file, as JSON **text**.
+##
+## `Vector2` is written as a two-element array because JSON has no vector, and
+## `_trim` is the only field in a journey that is not already a JSON-native
+## type. Everything else is exactly what `_save_journey` stored.
+func journeys_document() -> String:
+	var out: Array = []
+	for j in _journeys:
+		var d: Dictionary = (j as Dictionary).duplicate(true)
+		var t: Vector2 = d.get("trim", Vector2(0.0, 1.0))
+		d["trim"] = [t.x, t.y]
+		out.append(d)
+	return JSON.stringify({"journeys": out})
+
+## The inverse. `app.gd::_restore_project_documents()` calls this with whatever
+## the archive's `entities/journeys.json` slot held, once per project open.
+##
+## **Two guards, each of which was data loss before it existed.**
+##
+## 1. *Restore only when the documents are new.* This used to hang off `app.gd`'s
+##    `world_loaded` handler, and that signal is emitted for seven different
+##    reasons while only `EngineBridge.load_save()` ever assigns
+##    `last_documents` — so centring the landmasses, carving fjords, applying an
+##    asset pack or closing the world all replayed the *previous* archive's
+##    journeys over everything planned since the file was opened. `app.gd` has
+##    since moved the call to `_load_project()`, which is the right end of the
+##    fix; this is the view's own half of it, and it is what makes the function
+##    safe to call from any handler rather than from exactly one. `is_same()`
+##    on the dictionary is the test: `load_save` assigns a **fresh**
+##    `Dictionary` on every open (a re-open of the same path included), and
+##    nothing else assigns it at all, so object identity means "new documents
+##    arrived" and nothing else. Value equality would not do — two opens of the
+##    same file carry equal text and must both restore.
+## 2. *New documents with no journeys slot clear the list.* Keeping it was how
+##    project A's journeys followed the user into project B, to be written into
+##    B's archive by `journeys_document()` on the next save — carrying route
+##    indices that index B's routes, which is the same corruption seen from the
+##    other end. A flat legacy archive lands here too: `load_save` leaves
+##    `documents` empty for it, which is a new (empty) dictionary and therefore
+##    a genuine "this project has no journeys".
+##
+## A slot that is present but unparseable still leaves the list alone: that is
+## a corrupt document, not an empty one, and it must not silently delete work.
+func restore_journeys_document(text: String) -> void:
+	if bridge != null:
+		if is_same(bridge.last_documents, _restored_documents):
+			return
+		_restored_documents = bridge.last_documents
+	if text.strip_edges() == "":
+		clear_journeys()
+		return
+	var parsed = JSON.parse_string(text)
+	if not (parsed is Dictionary):
+		push_warning("Cartalith: entities/journeys.json is not an object; the journeys list is left alone")
+		return
+	var arr = (parsed as Dictionary).get("journeys", [])
+	if not (arr is Array):
+		return
+	var loaded: Array = []
+	for e in arr:
+		if not (e is Dictionary):
+			continue
+		var d: Dictionary = (e as Dictionary).duplicate(true)
+		var t = d.get("trim", [0.0, 1.0])
+		## `route` is an index into the committed routes and MUST stay an int:
+		## `JSON.parse_string` floats every number, and `jp_compute` rejects a
+		## float where it wants an index. This is the shell's half of §14.1 —
+		## the engine guarantees the bytes, not what GDScript does after
+		## parsing them.
+		d["route"] = int(d.get("route", 0))
+		d["trim"] = Vector2(float(t[0]), float(t[1])) if (t is Array and (t as Array).size() == 2) else Vector2(0.0, 1.0)
+		loaded.append(d)
+	_journeys = loaded
+	_active_journey = -1
+	if _bound:
+		_refresh_route_choice()
+
+## Empties the list because the world its route indices pointed into is gone.
+##
+## Public: `setup()` connects it to `generation_finished` and to the
+## world-less half of `world_loaded`, and `restore_journeys_document()` calls
+## it when a newly opened project carries no journeys slot of its own.
+## `_refresh_route_choice()` is what redraws the left dock's list, and it is
+## only safe once `_build_left_panel()` has run — which `_bound` implies, since
+## that is the only branch which creates `_left_route_section`.
+func clear_journeys() -> void:
+	if _journeys.is_empty() and _active_journey < 0:
+		return
+	_journeys = []
+	_active_journey = -1
+	if _bound:
+		_refresh_route_choice()
+
+## How many saved journeys reference one Travel Library entry —
+## `TRAVEL_LIBRARY_SPEC.md` §4's "how many saved journeys reference it", which
+## the inspector printed as a hard-coded `0`.
+##
+## It is answered here rather than in `travel_bridge.rs` because the journeys
+## list is the shell's own state by design (see `_journeys`): the engine holds
+## no journey to count. `travel_bridge.rs::animal_usage_in_journeys` was
+## written when that was true of every journey anywhere; it is still true of
+## the *engine*, and this is the reader that closes the gap on the shell side.
+##
+## `kind` is the Travel Library kind. An `animal` is matched by entry **id**
+## through `animal_entries` (`_save_journey` stores that map verbatim); a
+## `vessel` by **name**, because `JpPlan.vessel` is a name and the resolver
+## keys on it (`travel_bridge.rs::vessel_overrides`). `vehicle` is always 0 and
+## honestly so — no vehicle reaches a computed journey at all.
+func journey_usage(kind: String, entry_id: String, entry_name: String) -> int:
+	var n := 0
+	for j in _journeys:
+		var journey: Dictionary = j
+		if kind == "animal":
+			var entries: Dictionary = journey.get("animal_entries", {})
+			if entry_id != "" and entries.values().has(entry_id):
+				n += 1
+		elif kind == "vessel":
+			var plan: Dictionary = journey.get("plan", {})
+			if entry_name != "" and String(plan.get("vessel", "")) == entry_name:
+				n += 1
+	return n

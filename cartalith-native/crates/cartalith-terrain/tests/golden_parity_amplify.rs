@@ -127,7 +127,11 @@ fn case1_the_same_region_with_ridged_detail_differs() {
 fn case2_the_whole_field_downsampled_with_a_raised_frequency_and_amplitude() {
     let src = synthetic_field(GW, GH, 5);
     let o = amplify_region(&src, GW, GH, &Region { x: 0, y: 0, w: 48, h: 32 }.to_float(), 24, 16,
-                           &AmplifyOpts { seed: 99, sea: 0.5, ridged: false, detail_freq: 2.5, detail_amp: 0.3 });
+                           // `z_base`/`zoom_detail_k` steer `add_zoom_detail`,
+                           // which `amplify_region` never calls -- the
+                           // reference's single shared `opts` bag, reproduced.
+                           &AmplifyOpts { seed: 99, sea: 0.5, ridged: false, detail_freq: 2.5, detail_amp: 0.3,
+                                          ..AmplifyOpts::default() });
     assert_eq!(fnv_f32(&o), "67d797b79ee67574");
 }
 

@@ -155,8 +155,8 @@ pub use placement::{
 pub use slicer::{
     BLANK_ALPHA_THRESHOLD, CellGrid, CellRect, ChromaKey, GridRect, MAX_GRID_COUNT, SliceCounts,
     SliceGrid, SliceOptions, SlicedCell, apply_chroma, cell_source_rect, clamp_grid_count,
-    compute_cells, count_cells, crop_cell, is_blank, sheet_base_name, slice_sheet,
-    trim_transparent_edges,
+    compute_cells, count_cells, crop_cell, is_blank, move_line, sheet_base_name, slice_sheet,
+    trim_transparent_edges, uniform_lines,
 };
 pub use scatter::{
     ScatterMode, ScatterRule, ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,

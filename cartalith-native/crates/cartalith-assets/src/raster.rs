@@ -164,6 +164,59 @@ pub fn encode_png(img: &DecodedImage) -> Result<Vec<u8>, ImageError> {
     Ok(out)
 }
 
+/// Encode a tightly-packed **RGB8** buffer as a PNG, taking ownership of the
+/// bytes rather than copying them.
+///
+/// [`encode_png`] is the right entry point for anything that already holds a
+/// [`DecodedImage`]; this one exists for the export raster
+/// (`TERRAIN_APPEARANCE_SCOPE.md`'s bake milestone), whose renderer produces
+/// RGB8 and whose largest output is 8192 px wide. Routing that through
+/// `DecodedImage` would mean widening to RGBA (+33%) and then
+/// `to_rgba_image`'s own `clone()` (+100%) — roughly 470 MB of transient
+/// allocation on a single 8K export against the 129 MB the pixels actually
+/// occupy. An alpha channel that is `255` everywhere is not worth that, and
+/// the PNG is smaller without it besides.
+pub fn encode_png_rgb8(w: u32, h: u32, rgb: Vec<u8>) -> Result<Vec<u8>, ImageError> {
+    let expected = u64::from(w) * u64::from(h) * 3;
+    if rgb.len() as u64 != expected {
+        return Err(ImageError::BufferSize { expected, actual: rgb.len() as u64 });
+    }
+    let buf = image::RgbImage::from_raw(w, h, rgb).ok_or(ImageError::BufferSize { expected, actual: expected })?;
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(buf)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .map_err(ImageError::Encode)?;
+    Ok(out)
+}
+
+/// Encode a tightly-packed **16-bit grayscale** buffer as a PNG.
+///
+/// For the heightmap export: a height field is one channel of continuous
+/// data, and 8 bits of it quantises a world's whole elevation range into 256
+/// steps -- visible as terracing the moment anything downstream takes a
+/// gradient. 16 bits is what the tools this format exists for (game engines,
+/// terrain editors, `image`-reading DCC apps) expect.
+///
+/// PNG stores 16-bit samples big-endian, which `image` handles; the caller
+/// passes native-endian `u16`s.
+///
+/// Sibling of [`encode_png_rgb8`] and written the same way and for the same
+/// reason -- it takes ownership rather than copying, because the largest
+/// heightmap this ships is 8192 px wide and a needless clone there is 128 MB.
+pub fn encode_png_luma16(w: u32, h: u32, gray: Vec<u16>) -> Result<Vec<u8>, ImageError> {
+    let expected = u64::from(w) * u64::from(h);
+    if gray.len() as u64 != expected {
+        return Err(ImageError::BufferSize { expected, actual: gray.len() as u64 });
+    }
+    let buf = image::ImageBuffer::<image::Luma<u16>, Vec<u16>>::from_raw(w, h, gray)
+        .ok_or(ImageError::BufferSize { expected, actual: expected })?;
+    let mut out = Vec::new();
+    image::DynamicImage::ImageLuma16(buf)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .map_err(ImageError::Encode)?;
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // itemHash
 // ---------------------------------------------------------------------------
@@ -405,5 +458,43 @@ mod tests {
         for chunk in out.rgba.chunks_exact(4) {
             assert_eq!(chunk, &[1, 2, 3, 255]);
         }
+    }
+}
+
+#[cfg(test)]
+mod luma16_tests {
+    use super::*;
+
+    /// 16 bits, not 8 -- the whole reason this encoder exists. A gradient of
+    /// 1024 distinct levels must survive the round trip; at 8 bits it would
+    /// collapse to 256 and this fails.
+    #[test]
+    fn sixteen_bit_levels_survive_the_round_trip() {
+        let (w, h) = (1024usize, 1usize);
+        let src: Vec<u16> = (0..w).map(|i| (i * 64) as u16).collect();
+        let png = encode_png_luma16(w as u32, h as u32, src.clone()).expect("encode");
+        let back = decode_png(&png).expect("decode");
+        assert_eq!((back.w as usize, back.h as usize), (w, h));
+
+        let distinct: std::collections::BTreeSet<u8> =
+            (0..w).map(|i| back.rgba[i * 4]).collect();
+        assert!(
+            distinct.len() > 200,
+            "decode collapsed the ramp to {} levels; the encoder or the decoder is 8-bit",
+            distinct.len()
+        );
+        // Grayscale means R == G == B, and opaque.
+        for i in 0..w {
+            let p = i * 4;
+            assert_eq!(back.rgba[p], back.rgba[p + 1], "not grayscale at {i}");
+            assert_eq!(back.rgba[p + 1], back.rgba[p + 2], "not grayscale at {i}");
+            assert_eq!(back.rgba[p + 3], 255, "not opaque at {i}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_sized_buffer_is_refused_rather_than_panicking() {
+        let e = encode_png_luma16(4, 4, vec![0u16; 15]);
+        assert!(matches!(e, Err(ImageError::BufferSize { expected: 16, actual: 15 })), "{e:?}");
     }
 }

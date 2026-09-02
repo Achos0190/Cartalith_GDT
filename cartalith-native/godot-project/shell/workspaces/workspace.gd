@@ -29,6 +29,25 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 func _build() -> void:
 	pass
 
+## Open the L2 category called `title`, closing its siblings the way a real
+## click on its header would. Returns false when this workspace has no such
+## category, which is the caller's cue that a cross-domain pointer has gone
+## stale -- the whole point of routing these through one lookup.
+##
+## Every "→ Civilization ▸ Territories"-style button in the shell used to do
+## half of this: switch domain and stop, leaving the user on a rail of
+## collapsed categories with no indication which one was meant. Survivable when
+## CIVIL had six; v3 gave it fourteen and CARTO ten, and an accordion opens one
+## at a time, so the odds of landing on the right one by guessing went from
+## poor to negligible.
+func open_category(title: String) -> bool:
+	for e in categories:
+		if String(e["title"]) == title:
+			if not (e["body"] as Control).visible:
+				(e["button"] as Button).pressed.emit()
+			return true
+	return false
+
 ## Draw the honest placeholder a workspace shows while its engine binding does
 ## not exist. `STRANDED_TOOLS.md` is the standing record of which those are;
 ## this is that record made visible in the product rather than only in a

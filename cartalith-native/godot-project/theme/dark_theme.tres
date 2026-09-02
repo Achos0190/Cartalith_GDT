@@ -1,4 +1,6 @@
-[gd_resource type="Theme" load_steps=14 format=3]
+[gd_resource type="Theme" load_steps=15 format=3]
+
+[ext_resource type="FontFile" path="res://fonts/FiraSans-Regular.ttf" id="Font_fira_sans"]
 
 ; Real dark Theme resource (GUI decluttering pass, 2026-08-17). Authored
 ; against the mockup's own dark tokens -- these are the *exact* values
@@ -26,13 +28,19 @@
 ;   accent    #e0a34a   the one accent -- active nav row, focus rings,
 ;             PrimaryButton fill -- reserved for active/accent states only
 ;
-; Font: still Godot's built-in default for both UI chrome and numeric
-; fields. The mockup calls for an IBM-Plex-Mono-equivalent on numeric/data
-; fields (seed, resolution, coordinates) distinct from the UI sans -- no
-; such font asset exists in this repo yet (same real gap `app_theme.tres`'s
-; own header already flagged for Fira Sans/Fira Code and never closed).
-; Sourcing + licensing a real font file is left exactly as deferred as it
-; already was, not silently dropped.
+; Font: `default_font` is now real Fira Sans (`fonts/FiraSans-Regular.ttf`,
+; SIL OFL 1.1, `fonts/FiraSans-OFL.txt`) -- the original design-system match
+; this file's own header long flagged as sourced-but-not-fetched (CHANGELOG.md).
+; Numeric/data fields (seed, resolution, coordinates) got their own bundled
+; mono face in a later, more specific pass (`dcc_theme.gd`'s `mono()`,
+; `fonts/IBMPlexMono-{Regular,Medium}.ttf`) rather than Fira Code -- Plex was
+; chosen there for its own reasons (tracked-letterspacing DCC-tool texture,
+; `dcc_theme.gd`'s own comment) and is already wired/shipped/tested shell-wide,
+; so Fira Code is NOT swapped in over it here (would be an undisclosed
+; regression for no visual-parity gain). Fira Code IS sourced and sits in
+; `fonts/FiraCode-{Regular,Medium}.ttf` + `fonts/FiraCode-OFL.txt` per the
+; original brief, available if a future pass wants it, but nothing in the live
+; theme references it.
 
 [sub_resource type="StyleBoxFlat" id="SB_FieldNormal"]
 bg_color = Color(0.101961, 0.105882, 0.113725, 1)
@@ -198,6 +206,7 @@ content_margin_top = 3.0
 content_margin_bottom = 3.0
 
 [resource]
+default_font = ExtResource("Font_fira_sans")
 default_font_size = 13
 
 Label/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)

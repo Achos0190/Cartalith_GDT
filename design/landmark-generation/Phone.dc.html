@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f;
+           font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+    svg.g path, svg.g circle { fill: none; stroke: currentColor; stroke-width: 1.2;
+      stroke-linecap: round; stroke-linejoin: round; }
+    svg.g .dot { fill: currentColor; stroke: none; }
+  </style>
+</helmet>
+
+<!-- ══════════ PHONE 412 dp · HALF DETENT ══════════
+     ~50 sliders cannot be a phone screen, so the half detent does not try.
+     It shows the two things that move everything — the headroom line and the
+     Crowding dial — then six family rows, not forty-nine type rows. Tapping a
+     family pushes the full detent (PhoneTypes.dc.html).
+
+     Chrome values from design/android-2026-08-30/README.md's chosen chrome:
+     66 px nav, active pill rgba(224,163,74,.16) at radius 14, sheet
+     22px 22px 0 0 on #15171a, handle 40x4, 20 dp gesture inset.            -->
+
+<div style="width:412px;height:892px;background:#0d0e0f;color:#c8cbcd;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+  <!-- map, edge to edge behind everything -->
+  <div style="position:absolute;inset:0;background:radial-gradient(120% 80% at 34% 24%,#2f4a3a 0%,#243c30 34%,#1b3040 62%,#14232f 100%)"></div>
+  <svg viewBox="0 0 412 460" style="position:absolute;left:0;top:0;width:412px;height:460px" aria-hidden="true">
+    <path d="M0 250 Q90 218 152 250 T300 242 T412 268 L412 460 L0 460 Z" fill="#22392c" opacity="0.85"/>
+    <path d="M198 460 C186 380 214 330 190 286 C168 244 196 210 178 164" stroke="#5fa8c4" stroke-width="4" fill="none" opacity="0.8" stroke-linecap="round"/>
+    <path d="M190 286 C232 268 254 238 252 196" stroke="#5fa8c4" stroke-width="2.6" fill="none" opacity="0.65" stroke-linecap="round"/>
+    <!-- landmark markers, POI diamonds, with their exclusion rings -->
+    <g stroke="#e0a34a" fill="none" stroke-width="1" opacity="0.22">
+      <circle cx="118" cy="196" r="42"/><circle cx="206" cy="150" r="42"/><circle cx="262" cy="240" r="42"/><circle cx="146" cy="290" r="42"/>
+    </g>
+    <g stroke="#e0a34a" fill="none" stroke-width="1.4">
+      <path d="M118 190l6 6-6 6-6-6z"/><path d="M206 144l6 6-6 6-6-6z"/><path d="M262 234l6 6-6 6-6-6z"/><path d="M146 284l6 6-6 6-6-6z"/>
+    </g>
+  </svg>
+
+  <!-- 30 dp status row · solid ground, edge to edge, no scrim -->
+  <div class="mono" style="position:relative;height:30px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:10px;color:#6f7478;background:#0d0e0f">
+    <span>9:41</span><span style="letter-spacing:.14em">LTE ▮▮ 84%</span>
+  </div>
+
+  <!-- 56 dp app bar -->
+  <div style="position:relative;height:56px;flex:none;display:flex;align-items:center;gap:10px;padding:0 8px;background:rgba(13,14,15,.94);border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="width:40px;height:40px;display:grid;place-items:center;color:#c8cbcd">
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16"><path d="M2.4 4.2h11.2M2.4 8h11.2M2.4 11.8h11.2"/></svg>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:14px;color:#e8ebec">Eldra</div>
+      <div class="mono" style="font-size:10px;color:#6f7478">seed 483920 · 187 landmarks</div>
+    </div>
+    <div style="width:40px;height:40px;display:grid;place-items:center;color:#8d9296">
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16"><circle cx="7.2" cy="7.2" r="4.6"/><path d="M10.6 10.6 14 14"/></svg>
+    </div>
+    <div style="width:40px;height:40px;display:grid;place-items:center;color:#8d9296">
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16"><circle class="dot" cx="8" cy="3.4" r="0.9"/><circle class="dot" cx="8" cy="8" r="0.9"/><circle class="dot" cx="8" cy="12.6" r="0.9"/></svg>
+    </div>
+  </div>
+
+  <div style="flex:1"></div>
+
+  <!-- ══════ BOTTOM SHEET · half detent · 496 dp ══════ -->
+  <div style="position:relative;flex:none;height:496px;background:#15171a;border-radius:22px 22px 0 0;border-top:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden">
+
+    <div style="height:16px;flex:none;display:grid;place-items:center;padding-top:7px">
+      <div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.22)"></div>
+    </div>
+
+    <div style="flex:none;display:flex;align-items:baseline;gap:10px;padding:8px 18px 10px">
+      <div style="font-size:17px;color:#e8ebec;flex:1">Landmarks</div>
+      <div class="mono" style="font-size:11px;color:#8d9296">187 on the map</div>
+    </div>
+
+    <!-- the headroom line survives the phone unchanged: it is the sentence
+         that stops "the generator is broken" before it starts -->
+    <div class="mono" style="flex:none;margin:0 18px 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.16);background:#101112;font-size:11px;line-height:1.75;color:#8d9296">
+      caps total <span style="color:#c8cbcd">640</span> · room for about <span style="color:#c8cbcd">210</span><br>
+      last pass placed <span style="color:#e0a34a">187</span> in 2.4 s
+    </div>
+
+    <!-- the one dial that moves everything, at 48 dp -->
+    <div style="flex:none;padding:0 18px 12px">
+      <div style="display:flex;align-items:center;height:48px;gap:12px">
+        <span style="flex:1;font-size:14px;color:#c8cbcd">Crowding</span>
+        <div style="width:140px;height:3px;background:rgba(255,255,255,.16);border-radius:2px;position:relative">
+          <div style="width:38%;height:3px;background:#e0a34a;border-radius:2px"></div>
+          <div style="position:absolute;left:38%;top:-8.5px;margin-left:-10px;width:20px;height:20px;border-radius:10px;background:#e0a34a"></div>
+        </div>
+        <span class="mono" style="width:44px;text-align:right;font-size:12px;color:#e8ebec">×1.00</span>
+      </div>
+      <div class="mono" style="font-size:10.5px;color:#5f6468;padding-top:2px">a regional landmark keeps <span style="color:#8d9296">34 km</span> clear</div>
+    </div>
+
+    <!-- six families, not forty-nine types -->
+    <div style="flex:1;min-height:0;overflow:hidden;border-top:1px solid rgba(255,255,255,.07)">
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="color:#a9adb0"><svg class="g" width="16" height="16" viewBox="0 0 16 16"><path d="M2.2 11.5 6.4 4.5 9.2 8.6 11 6.4 13.8 11.5"/><path d="M3 14Q8 12.2 13 14"/></svg></span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e8ebec">Physical</div><div class="mono" style="font-size:10.5px;color:#6f7478">6 of 15 armed · 74 placed</div></div>
+        <span class="mono" style="color:#5f6468;font-size:14px">›</span>
+      </div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="color:#a9adb0"><svg class="g" width="16" height="16" viewBox="0 0 16 16"><path d="M1.6 11.6 4.6 5 7.1 9.2h1.8L11.4 5l3 6.6"/><path d="M1.6 9.2h12.8" stroke-dasharray="2.4 1.6"/></svg></span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e8ebec">Transportation</div><div class="mono" style="font-size:10.5px;color:#6f7478">3 of 8 armed · 21 placed</div></div>
+        <span class="mono" style="color:#5f6468;font-size:14px">›</span>
+      </div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="color:#a9adb0"><svg class="g" width="16" height="16" viewBox="0 0 16 16"><path d="M3.2 10.8 5 6.2h6l1.8 4.6z"/><path d="M6.2 8.4h3.6"/></svg></span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e8ebec">Economic</div><div class="mono" style="font-size:10.5px;color:#6f7478">2 of 6 armed · 9 placed</div></div>
+        <span class="mono" style="color:#5f6468;font-size:14px">›</span>
+      </div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="color:#a9adb0"><svg class="g" width="16" height="16" viewBox="0 0 16 16"><path d="M4 6.4V3.8h1.7v1.3h1.3V3.8h1.7v1.3h1.3V3.8H12v2.6"/><path d="M4 6.4h8v6H4z"/></svg></span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e8ebec">Military</div><div class="mono" style="font-size:10.5px;color:#6f7478">4 of 6 armed · 33 placed</div></div>
+        <span class="mono" style="color:#5f6468;font-size:14px">›</span>
+      </div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.06)">
+        <span style="color:#a9adb0"><svg class="g" width="16" height="16" viewBox="0 0 16 16"><path d="M4 13V7.6a4 4 0 0 1 8 0V13"/><path d="M2.6 13h10.8"/></svg></span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e8ebec">Religious · cultural</div><div class="mono" style="font-size:10.5px;color:#6f7478">5 of 8 armed · 41 placed</div></div>
+        <span class="mono" style="color:#5f6468;font-size:14px">›</span>
+      </div>
+      <!-- the sixth is clipped on purpose: the sheet scrolls, and the full
+           detent is one drag away -->
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 18px">
+        <span style="color:#a9adb0"><svg class="g" width="16" height="16" viewBox="0 0 16 16"><path d="M3.4 13.2h9.2"/><path d="M5 13.2V3.6h1.6v9.6"/><path d="M10 13.2V8.4l1.8-1.2"/></svg></span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e8ebec">Historical</div><div class="mono" style="font-size:10.5px;color:#6f7478">3 of 6 armed · 9 placed</div></div>
+        <span class="mono" style="color:#5f6468;font-size:14px">›</span>
+      </div>
+    </div>
+
+    <!-- sticky commit, so the list can scroll under it -->
+    <div style="flex:none;padding:10px 18px 12px;border-top:1px solid rgba(255,255,255,.10);background:#15171a">
+      <div style="height:48px;display:flex;align-items:center;justify-content:center;border:1px solid #e0a34a;border-radius:2px;color:#e0a34a;font-size:14px">Run landmark pass</div>
+    </div>
+  </div>
+
+  <!-- 66 dp bottom nav · four tabs -->
+  <div style="position:relative;flex:none;height:66px;display:flex;background:#121314;border-top:1px solid rgba(255,255,255,.10)">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8d9296">
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16"><path d="M1.6 4.4 5.8 2.4 10.2 4.4 14.4 2.4v9.2l-4.2 2-4.4-2-4.2 2z"/><path d="M5.8 2.4v9.2M10.2 4.4v9.2"/></svg>
+      <div style="font-size:10px">Map</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#e0a34a;position:relative">
+      <div style="position:absolute;top:6px;width:62px;height:30px;border-radius:14px;background:rgba(224,163,74,.16)"></div>
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16" style="position:relative"><path d="M8 1.6 14.4 8 8 14.4 1.6 8z"/><circle class="dot" cx="8" cy="8" r="0.8"/></svg>
+      <div style="font-size:10px;position:relative">Generate</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8d9296">
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16"><path d="M2.4 12.4 6 6.8l3 3.2 4.6-7"/><path d="M9.6 3h4v4"/></svg>
+      <div style="font-size:10px">Plan</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:#8d9296">
+      <svg class="g" width="18" height="18" viewBox="0 0 16 16"><path d="M2.4 4.6h11.2M2.4 8h11.2M2.4 11.4h11.2"/></svg>
+      <div style="font-size:10px">More</div>
+    </div>
+  </div>
+
+  <!-- 20 dp gesture inset · no target inside it, no painted handle -->
+  <div style="position:relative;flex:none;height:20px;background:#121314"></div>
+</div>
+</x-dc>
+</body>
+</html>

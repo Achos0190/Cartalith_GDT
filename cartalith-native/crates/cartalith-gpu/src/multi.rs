@@ -244,13 +244,27 @@ pub fn group_adapters(rows: Vec<AdapterRow>) -> Vec<GpuDeviceInfo> {
 /// `!*_allocs_cache.has(p_id)` is true", then
 /// `update_texture_atlas: Could not create texture atlas, status: 0`, then a
 /// signal-11 crash inside Godot's own GLES3 driver, with no GDScript frame
-/// anywhere in the backtrace.
+/// anywhere in the backtrace. On a shell that is not creating textures at
+/// that moment there is no error burst at all -- just the signal 11, on the
+/// **very next frame** after the call returns.
 ///
 /// Reproduced on a real launch (AMD RX 7800 XT, OpenGL 3.3 Core Profile) and
 /// bisected to this call: enumeration happens at startup, because
 /// `menus.gd`'s Preferences ▸ Devices submenu is built during `_ready`.
-/// Skipping it made the launch clean; restricting the backend mask fixes it
-/// without giving the row up.
+///
+/// **Where this mask has to be applied is the whole bug** (2026-08-23, owner
+/// report "a crash when you get higher than 2k and start changing settings
+/// for resources such as GPU/CPU"). The 2026-08-20 pass passed it to
+/// `enumerate_adapters`, which is far too late: `wgpu::Instance::new` stands
+/// up a `hal::Instance` for **every backend in its own descriptor's mask**,
+/// and `InstanceDescriptor::new_without_display_handle()` leaves that mask at
+/// `Backends::all()`. The GL context was therefore created the moment the
+/// instance was, before a single adapter had been asked for -- so restricting
+/// enumeration "did not work" (that commit says as much) and deferring
+/// enumeration to the submenu's first open only moved the crash from launch
+/// to the first time anyone opened Preferences ▸ Performance ▸ Devices.
+/// The mask belongs on the descriptor, and [`compute_instance`] is the only
+/// place in this crate that builds one.
 ///
 /// Nothing real is lost. The GL rows this drops were duplicates of devices
 /// Vulkan and DX12 already report -- and the *reason* they were duplicates
@@ -258,14 +272,28 @@ pub fn group_adapters(rows: Vec<AdapterRow>) -> Vec<GpuDeviceInfo> {
 /// 0`, which `group_adapters` already had to work around. Compute dispatch
 /// never used GL either: `init_gpu` asks for `PowerPreference::
 /// HighPerformance`, which resolves to Vulkan on this hardware.
-const ENUMERATION_BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN
+pub const COMPUTE_BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN
     .union(wgpu::Backends::DX12)
     .union(wgpu::Backends::METAL)
     .union(wgpu::Backends::BROWSER_WEBGPU);
 
+/// The **only** way this crate is allowed to create a `wgpu::Instance`.
+///
+/// Every call site went through `InstanceDescriptor::new_without_display_handle()`
+/// before, which defaults `backends` to `Backends::all()` and so created an
+/// OpenGL context inside Godot's own GL-Compatibility process. See
+/// [`COMPUTE_BACKENDS`] for the crash that causes.
+#[must_use]
+pub fn compute_instance() -> wgpu::Instance {
+    wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: COMPUTE_BACKENDS,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    })
+}
+
 fn adapter_rows() -> Vec<AdapterRow> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    pollster::block_on(instance.enumerate_adapters(ENUMERATION_BACKENDS))
+    let instance = compute_instance();
+    pollster::block_on(instance.enumerate_adapters(COMPUTE_BACKENDS))
         .iter()
         .map(describe_adapter)
         .collect()
@@ -526,6 +554,126 @@ pub fn gpu_allowed_for_grid(width: usize, height: usize) -> bool {
     matches!(vram_verdict(width, height), VramVerdict::Ok)
 }
 
+/// Bytes one full-grid `f32` buffer occupies. Every storage binding and every
+/// `MAP_READ` staging buffer in this crate's whole-grid dispatches is exactly
+/// this size, which is why one number answers for all of them.
+#[must_use]
+pub const fn grid_buffer_bytes(width: usize, height: usize) -> u64 {
+    (width as u64) * (height as u64) * (size_of::<f32>() as u64)
+}
+
+/// Whether `gpu` can actually **bind** one full-grid buffer for this size.
+///
+/// A hard device limit, distinct from [`vram_verdict`]'s user-set budget: the
+/// budget is a policy the owner chooses, this is arithmetic the driver
+/// enforces. Both `max_storage_buffer_binding_size` (what a bind group may
+/// reference) and `max_buffer_size` (what may be allocated at all) are checked,
+/// because a whole-grid dispatch needs a buffer of this size on both counts.
+///
+/// **Why this exists as a check rather than as trust in the request**: over the
+/// limit, `wgpu` does not return an error a caller can act on -- it raises a
+/// validation error on the device's uncaptured-error path, which panics, and a
+/// panic inside a loaded GDExtension takes the whole Godot process with it
+/// (`cartalith-rust-conventions`). `request_gpu_device_from` now asks for the
+/// adapter's own ceilings so this is satisfied at every size
+/// `new_world_dialog.gd` offers on this project's hardware; this function is
+/// what makes an adapter that genuinely cannot reach a size degrade to the CPU
+/// path (`HARDWARE_ACCELERATION.md` §27) instead of crashing.
+///
+/// **Two grounds, not one.** The binding arithmetic above is what the device
+/// *promises*; [`note_readback_failure`] is what it actually *did*. An adapter
+/// can report limits that cover a size and still fail to complete a dispatch at
+/// it -- this machine's integrated Radeon reports 2047 MiB and reaches
+/// `create_bind_group` fine at 8192², then returns `BufferAsyncError` from the
+/// `MAP_READ` staging map. There is no query that predicts that; the only
+/// honest signal is having tried. So a device that has failed a readback at a
+/// size is treated as not supporting that size or any larger one for the rest
+/// of the session, and the caller takes the CPU path the same way it does for a
+/// limits failure.
+#[must_use]
+pub fn device_supports_grid(gpu: &GpuDevice, width: usize, height: usize) -> bool {
+    if let Some(failed_at) = readback_failure_cells(&gpu.adapter_name, gpu.adapter_vendor, gpu.adapter_backend)
+        && (width as u64) * (height as u64) >= failed_at
+    {
+        return false;
+    }
+    grid_buffer_bytes(width, height) <= device_grid_limit_bytes(gpu)
+}
+
+/// Session-wide record of devices that failed a buffer readback, and the
+/// smallest grid (in **cells**, not bytes) each failed at.
+///
+/// Keyed by adapter identity rather than by a live handle on purpose: the
+/// device set is re-opened per `generate_terrain` call, and what was learnt
+/// about the hardware should outlive the handle that learnt it.
+static READBACK_FAILURES: RwLock<Vec<(String, u64)>> = RwLock::new(Vec::new());
+
+/// The identity a readback failure is recorded against. Not [`device_key`]:
+/// that one needs a `device_id`, which the live [`GpuDevice`] and the per-stage
+/// contexts do not carry -- these three fields are what all of them do.
+fn readback_key(name: &str, vendor: u32, backend: wgpu::Backend) -> String {
+    format!("{vendor:04x}:{}:{name}", backend.to_str())
+}
+
+/// Record that this device could not complete a readback for a `cells`-cell
+/// grid. Keeps the *smallest* failing size, so the ban is monotone: anything
+/// at or above the size that failed is refused, anything below is still tried.
+pub fn note_readback_failure(name: &str, vendor: u32, backend: wgpu::Backend, cells: u64) {
+    let key = readback_key(name, vendor, backend);
+    if let Ok(mut w) = READBACK_FAILURES.write() {
+        match w.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, at)) => *at = (*at).min(cells),
+            None => w.push((key, cells)),
+        }
+    }
+}
+
+/// The smallest grid this device has failed a readback at this session, if any.
+#[must_use]
+pub fn readback_failure_cells(name: &str, vendor: u32, backend: wgpu::Backend) -> Option<u64> {
+    let key = readback_key(name, vendor, backend);
+    READBACK_FAILURES.read().ok()?.iter().find(|(k, _)| *k == key).map(|(_, at)| *at)
+}
+
+/// Whether *any* readback failure is on record for this session, on any
+/// adapter.
+///
+/// [`readback_failure_cells`] answers for one named adapter; a UI offering
+/// "try the GPU again" has no adapter in hand and only needs to know whether
+/// there is anything to clear. It is the exact predicate for enabling that
+/// affordance: true iff a later [`clear_readback_failures`] would change
+/// something.
+///
+/// **What it does not cover**: the per-device lost flag
+/// (`lib.rs`'s `device_is_unusable`, which checks `ctx.lost()` first). A lost
+/// device is already forgotten when the next `generate_terrain` opens its own
+/// device, so there is nothing session-wide for a user to clear there --
+/// this record is the only thing that outlives a device handle, and so the
+/// only thing that ban-clearing acts on.
+#[must_use]
+pub fn any_readback_failure() -> bool {
+    READBACK_FAILURES.read().is_ok_and(|r| !r.is_empty())
+}
+
+/// Forget every recorded readback failure. For tests that need a clean slate,
+/// and for a "try the GPU again" affordance after the user changes something
+/// (a driver update, a smaller world) that might make it work.
+pub fn clear_readback_failures() {
+    if let Ok(mut w) = READBACK_FAILURES.write() {
+        w.clear();
+    }
+}
+
+/// The largest single buffer `gpu` was actually opened for -- the binding of
+/// [`device_supports_grid`]'s two limits. Public because a failure here is only
+/// diagnosable if the number is quotable: "this device tops out at N MiB" is a
+/// different report from "the GPU path is off".
+#[must_use]
+pub fn device_grid_limit_bytes(gpu: &GpuDevice) -> u64 {
+    let l = gpu.device.limits();
+    l.max_storage_buffer_binding_size.min(l.max_buffer_size)
+}
+
 /// A real, measured memory reading for one live device.
 ///
 /// Read the two numbers together. Every dispatch in this crate frees its
@@ -555,6 +703,12 @@ pub struct GpuMemoryUse {
 /// signature.
 #[must_use]
 pub fn device_usage(gpu: &GpuDevice) -> Option<GpuMemoryUse> {
+    // A device that lost a readback is invalid; asking it anything is how the
+    // 8192² integrated-GPU run turned a graceful fallback back into a panic.
+    // No reading is the honest answer here, and `None` already means that.
+    if gpu.lost.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
     gpu.device.generate_allocator_report().map(|r| GpuMemoryUse {
         allocated_bytes: r.total_allocated_bytes,
         reserved_bytes: r.total_reserved_bytes,
@@ -615,13 +769,23 @@ impl GpuDeviceSet {
     pub fn is_split(&self) -> bool {
         self.mode == MultiGpuMode::SplitTiles && self.devices.len() >= 2
     }
+
+    /// Whether **every** device in the set can bind a full-grid buffer at this
+    /// size -- see [`device_supports_grid`]. All, not any: a split dispatch
+    /// gives each device a band of the same grid, and any stage outside the
+    /// split runs whole-grid on [`Self::primary`], so one device that cannot
+    /// reach the size makes the whole set unusable for it.
+    #[must_use]
+    pub fn supports_grid(&self, width: usize, height: usize) -> bool {
+        self.devices.iter().all(|d| device_supports_grid(d, width, height))
+    }
 }
 
 /// Resolve one selected key to a live adapter, or `None` if this session's
 /// enumeration no longer contains it (a GPU was removed, a driver changed,
 /// the preference came from another machine).
 fn adapter_for_key(instance: &wgpu::Instance, key: &str) -> Option<wgpu::Adapter> {
-    let mut matches: Vec<wgpu::Adapter> = pollster::block_on(instance.enumerate_adapters(ENUMERATION_BACKENDS))
+    let mut matches: Vec<wgpu::Adapter> = pollster::block_on(instance.enumerate_adapters(COMPUTE_BACKENDS))
         .into_iter()
         .filter(|a| {
             let row = describe_adapter(a);
@@ -632,12 +796,20 @@ fn adapter_for_key(instance: &wgpu::Instance, key: &str) -> Option<wgpu::Adapter
     matches.into_iter().next()
 }
 
-/// Adapter for the *primary* device: the first selected key if it still
-/// resolves, otherwise the same `PowerPreference::HighPerformance` request
-/// every version of this crate before this module made. An unresolvable
-/// preference degrades to auto rather than to no GPU.
-pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
-    if let Some(key) = preferences().selected_keys.first()
+/// Adapter for the *primary* device, from an explicit selection: the first
+/// key that still resolves, otherwise the same
+/// `PowerPreference::HighPerformance` request every version of this crate
+/// before this module made. An unresolvable preference degrades to auto
+/// rather than to no GPU.
+///
+/// Takes the keys as an argument rather than reading [`preferences`] itself,
+/// and that is a correctness requirement rather than a style choice: see
+/// [`init_gpu_device_set_with`] for the bug that came of the ambient read.
+/// One logical "open the selected device" operation used to consult the
+/// process-global preferences **twice**, and could act on two different
+/// snapshots of it.
+pub(crate) fn pick_primary_adapter_for(instance: &wgpu::Instance, selected_keys: &[String]) -> Option<wgpu::Adapter> {
+    if let Some(key) = selected_keys.first()
         && let Some(a) = adapter_for_key(instance, key)
     {
         return Some(a);
@@ -651,7 +823,26 @@ pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Ad
     .ok()
 }
 
+/// [`pick_primary_adapter_for`] against the current ambient preferences, for
+/// the callers that have no snapshot of their own ([`crate::init_gpu_shared_device`]
+/// and the single-use `init_gpu_*` pipeline builders).
+pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
+    pick_primary_adapter_for(instance, &preferences().selected_keys)
+}
+
 /// Open every device the current preferences call for.
+///
+/// Takes **one** snapshot of the process-global preferences and hands it to
+/// [`init_gpu_device_set_with`], which does the actual work. Callers that
+/// already hold a [`GpuPreferences`] should call that directly.
+///
+/// # Errors
+/// [`GpuInitError::NoAdapter`] when no device could be opened at all.
+pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
+    init_gpu_device_set_with(&preferences())
+}
+
+/// Open every device `prefs` calls for, touching no global state.
 ///
 /// In `single_device` mode (the default) this is exactly one device and is
 /// indistinguishable from [`crate::init_gpu_shared_device`]. In `split_tiles`
@@ -659,15 +850,38 @@ pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Ad
 /// skipped rather than fatal, so a machine that has lost its second GPU
 /// still generates on the first.
 ///
+/// **Why this takes `prefs` rather than reading them** (2026-08-24). The
+/// previous version read [`preferences`] here *and* again, one call deeper,
+/// inside `pick_primary_adapter` -- so a single "open the selected device"
+/// operation consulted the process-global twice and could straddle a
+/// concurrent [`set_preferences`]. Deciding `single_device` from a snapshot
+/// naming the integrated GPU and then resolving the adapter from a snapshot
+/// whose `selected_keys` had since been emptied takes the *auto* branch, and
+/// auto is `PowerPreference::HighPerformance` -- the discrete card. The
+/// caller asked for one GPU by key and silently got the other, with no error
+/// anywhere.
+///
+/// This is how it was found: `every_enumerated_device_can_be_selected_and_opened`
+/// failed on roughly one run in six, always on the integrated device and
+/// never in isolation, because seven tests in `tests/multi_gpu.rs` shared
+/// that one global and `cargo test` runs them in parallel. The discrete
+/// iteration could not expose it -- losing the race there yields the discrete
+/// GPU anyway, which is indistinguishable from success.
+///
+/// The single snapshot fixes the crate's half. Callers that set a preference
+/// and then act on it are still two operations; the tests pass their
+/// preferences here explicitly instead, which is race-free by construction.
+///
 /// # Errors
 /// [`GpuInitError::NoAdapter`] when no device could be opened at all.
-pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
-    let prefs = preferences();
+pub fn init_gpu_device_set_with(prefs: &GpuPreferences) -> Result<GpuDeviceSet, GpuInitError> {
+    let instance = compute_instance();
+
     if prefs.mode != MultiGpuMode::SplitTiles || prefs.selected_keys.len() < 2 {
-        return Ok(GpuDeviceSet { devices: vec![crate::init_gpu_shared_device()?], mode: prefs.mode });
+        let device = open_primary(&instance, &prefs.selected_keys)?;
+        return Ok(GpuDeviceSet { devices: vec![device], mode: prefs.mode });
     }
 
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let devices: Vec<GpuDevice> = prefs
         .selected_keys
         .iter()
@@ -687,9 +901,23 @@ pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
     if devices.is_empty() {
         // Every selected key failed -- fall back to the auto path rather
         // than to no GPU at all.
-        return Ok(GpuDeviceSet { devices: vec![crate::init_gpu_shared_device()?], mode: MultiGpuMode::SingleDevice });
+        return Ok(GpuDeviceSet { devices: vec![open_primary(&instance, &[])?], mode: MultiGpuMode::SingleDevice });
     }
     Ok(GpuDeviceSet { devices, mode: prefs.mode })
+}
+
+/// The single shared device [`crate::init_gpu_shared_device`] opens, but for
+/// an explicit key list instead of the ambient one. Same features, same
+/// storage-buffer floor, same label -- only the adapter choice differs.
+fn open_primary(instance: &wgpu::Instance, selected_keys: &[String]) -> Result<GpuDevice, GpuInitError> {
+    let adapter = pick_primary_adapter_for(instance, selected_keys).ok_or(GpuInitError::NoAdapter)?;
+    Ok(crate::request_gpu_device_from(
+        adapter,
+        wgpu::Features::empty(),
+        REUSED_STAGE_MAX_STORAGE_BUFFERS,
+        "cartalith-gpu shared device",
+    )?
+    .into_shared())
 }
 
 // -- Split-tiles partitioning --------------------------------------------------
@@ -790,6 +1018,7 @@ impl RawGpuDevice {
             device_type: self.device_type,
             device: self.device,
             queue: self.queue,
+            lost: self.lost,
         }
     }
 }
@@ -797,6 +1026,19 @@ impl RawGpuDevice {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `READBACK_FAILURES` is one process-wide static, and `cargo test` runs
+    /// this module's tests on many threads at once. Every test that writes
+    /// it -- and in particular every test that *clears* it -- takes this
+    /// first, so a clear cannot wipe a sibling's record mid-assertion.
+    /// Recovered from poisoning on purpose: a panicking test has already
+    /// failed, and it must not turn every other readback test into a
+    /// secondary failure.
+    static READBACK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn readback_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        READBACK_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
     fn row(name: &str, vendor: u32, device_id: u32, t: wgpu::DeviceType, b: wgpu::Backend) -> AdapterRow {
         AdapterRow {
@@ -967,6 +1209,71 @@ mod tests {
             vram_verdict_for(gb + 1, gb, VramFallback::ReduceWorkingRes),
             VramVerdict::FallBackToCpu,
             "the un-implemented choice degrades safely rather than pretending"
+        );
+    }
+
+    /// The readback-failure record's own arithmetic, with no hardware:
+    /// smallest-wins, at-or-above is banned, below still allowed.
+    ///
+    /// Uses a name no real adapter has, so it cannot collide with a
+    /// concurrently-running device test's own record.
+    #[test]
+    fn a_recorded_readback_failure_bans_that_size_and_larger_only() {
+        let _guard = readback_test_guard();
+        const NAME: &str = "cartalith test pseudo-adapter";
+        const VENDOR: u32 = 0xdead;
+        let backend = wgpu::Backend::Noop;
+
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), None, "nothing recorded yet");
+        note_readback_failure(NAME, VENDOR, backend, 8192 * 8192);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), Some(8192 * 8192));
+
+        // A later, larger failure must not raise the ceiling back up.
+        note_readback_failure(NAME, VENDOR, backend, 16384 * 16384);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), Some(8192 * 8192), "smallest failure wins");
+
+        // A smaller one does lower it.
+        note_readback_failure(NAME, VENDOR, backend, 4096 * 4096);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), Some(4096 * 4096));
+
+        // A different adapter is untouched by any of it.
+        assert_eq!(readback_failure_cells(NAME, VENDOR + 1, backend), None);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, wgpu::Backend::Vulkan), None);
+    }
+
+    /// The predicate `menus.gd`'s `Preferences > Performance > Try the GPU
+    /// again` row is enabled by, and the clearer that row calls, over the
+    /// three states the row can be in.
+    ///
+    /// The third case is the one worth a test: the row is drawn disabled when
+    /// nothing is banned, so clearing on an empty record should never be
+    /// reached -- but a menu accelerator, a replayed command or a second click
+    /// can reach a disabled row's handler anyway, and it must be inert rather
+    /// than an error or a panic.
+    #[test]
+    fn any_readback_failure_tracks_the_record_and_clearing_is_idempotent() {
+        let _guard = readback_test_guard();
+        const NAME: &str = "cartalith clear-path pseudo-adapter";
+        const VENDOR: u32 = 0xbeef;
+        let backend = wgpu::Backend::Noop;
+
+        // Clearing with nothing recorded: a harmless no-op, twice over.
+        clear_readback_failures();
+        assert!(!any_readback_failure(), "nothing recorded, so nothing to clear");
+        clear_readback_failures();
+        assert!(!any_readback_failure(), "clearing an empty record stays empty");
+
+        // A recorded failure is what turns the row on.
+        note_readback_failure(NAME, VENDOR, backend, 8192 * 8192);
+        assert!(any_readback_failure(), "a recorded failure is visible without naming the adapter");
+
+        // And clearing turns it back off, per-adapter record and all.
+        clear_readback_failures();
+        assert!(!any_readback_failure());
+        assert_eq!(
+            readback_failure_cells(NAME, VENDOR, backend),
+            None,
+            "the per-adapter ban is gone too, not merely the summary"
         );
     }
 

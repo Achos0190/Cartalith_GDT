@@ -86,10 +86,43 @@ class_name AssetLibraryWindow
 ##   `background → transparent` chroma keying instead, which is also wired
 ##   here), and *Assign to family / Fill from* is §8's framing of what the
 ##   reference expresses as a flat target-slot dropdown.
-## - **Disclosed gap, still honest**: per-item scale/pan *editing*; the
-##   slicer's canvas interaction (pan/zoom, draggable grid lines,
-##   click-to-select cells) -- the modal slices the whole uniform grid rather
-##   than a hand-picked selection; drag-and-drop onto a slot.
+## - **Real, since the Collections/drag-and-drop/slicer-interaction pass**:
+##   a Collections rail row (`as_collections`, `_refresh_collections_rail`)
+##   listing every real collection with its member count, selectable into a
+##   collection-scoped grid view (`_refresh_grid_collection`); in-app
+##   drag-and-drop of one or more selected tiles onto a Collections row to add
+##   them (`SlotCell._get_drag_data` / `CollectionRow._can_drop_data`/
+##   `_drop_data`, real Godot virtuals, calling the same `as_batch_collect`
+##   the Collect… prompt does); and the slicer's pan (wheel-zoom centred on
+##   the cursor, middle-drag to pan), click-to-select-a-cell (a real picker/
+##   highlight), and a draggable handle on the grid's own Margin boundary
+##   (`SheetPreview`, AS-17).
+## - **Real, since the AS-07/AS-12/AS-17 closeout pass (2026-08-23)**: per-item
+##   scale (`as_set_item_transform`) and pan (two SpinBoxes -- no headless-safe
+##   drag-to-pan equivalent, so this port exposes the same value a different,
+##   smaller way rather than not at all) with real Fit/Reset
+##   (`as_reset_item_transform`); a slot-less "Unassigned imports" holding
+##   bucket (`UNASSIGNED_SET`, ordinary custom slots the footer's Import
+##   image… lands in when no slot is focused, per `DCC_SHELL_SPEC.md` §8);
+##   `cartalith_assets::SliceGrid::with_lines`/`move_line` giving the engine's
+##   grid genuine per-interior-line positions (still uniform by default, now
+##   draggable off it -- `SheetPreview`'s vertical/horizontal line handles,
+##   `as_slicer_move_line`); and cell-scoped slicing, `as_slice_apply`'s new
+##   `only_cell` narrowing a slice to the one selected cell instead of the
+##   whole sheet.
+## - **Disclosed gap**: dragging a file from OUTSIDE Godot onto a slot to fill
+##   it. Godot's two drag-and-drop systems really are unrelated -- an OS file
+##   drop reaches `Window.files_dropped` and never a Control's
+##   `_can_drop_data`/`_drop_data` -- but that makes a slot the wrong *listener*,
+##   not an impossible target: `open_project_dialog.gd`, an `AcceptDialog`
+##   subclass exactly like this window, already accepts OS drops through
+##   `files_dropped`. What is missing is the second half: hit-testing the drop
+##   position against the slot grid and choosing between the focused slot and
+##   Unassigned imports. Unscheduled, so the hint still points at Import
+##   image…, but it is a nameable job rather than a wall; there is no engine
+##   primitive to *move* an already-assigned item into Unassigned imports
+##   (only into/out of a Collection), so that bucket is reachable from imports
+##   only, not from reassigning existing art.
 ##
 ## Every disabled control below carries its reason as a tooltip, the same
 ## `_todo()`-with-tooltip convention `menus.gd` uses at the menu level.
@@ -168,6 +201,7 @@ const H_STATUS := 26
 const H_TILE_ART := 76     ## default; the zoom slider drives it
 const TILE_GAP := 12
 const GRID_COLS := 6
+const PHONE_GRID_COLS := 2   ## PH-12; see `_build_slot_grid()`.
 const W_SLICER := 760
 ## The canvas's card is 760 × ~390. This port's settings column carries three
 ## rows the canvas does not (the reference's own chroma key + tolerance, and
@@ -176,6 +210,10 @@ const W_SLICER := 760
 const H_SLICER := 560
 const W_SLICER_SIDE := 274
 const H_SHEET_PREVIEW := 296
+## PH-12. Dp, on the same reasoning `city_viewer_window.gd`'s `PHONE_CANVAS_H`
+## records: enough to read a sprite sheet's grid at the fit scale, and under a
+## third of the screen so the settings column below opens on real controls.
+const PHONE_SHEET_PREVIEW := 240
 const W_INSP_LABEL := 70
 const SZ_VARIANT := 56
 const SZ_SWATCH := 20
@@ -184,7 +222,14 @@ const SZ_SWATCH := 20
 ## now on the FAMILIES band's tooltip so the rail can look like the canvas.
 const FAMILIES_NOTE := "Eight families, frozen against the reference engine (cartalith-assets::slots / library) -- not the design canvas's own 24. The canvas subdivides more finely (splitting e.g. \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); no Rust type draws that line, and ASSET_LIBRARY_SCOPE.md §1 recorded the real eight when Phase 4's engine side was built. Capacity and fill counts are both real (AssetDB::slots_in_family + per-slot filled state)."
 
-const SCALE_GAP_NOTE := "The transform shown is real (as_item_summary). Editing it is not wired: no as_set_item_transform exists on the engine side yet -- a smaller follow-on than the rest of this window."
+## AS-07 closed 2026-08-23: `as_set_item_transform`/`as_reset_item_transform`
+## exist now, so Scale/Pan/Fit/Reset below write straight through them.
+
+## AS-12's holding area (DCC_SHELL_SPEC.md §8's rail: "plus Collections (tag
+## sets, Unassigned imports with count)"): the reserved custom-slot `set` a
+## slot-less import lands under, since `cartalith_assets::AssetDB` has no
+## uid-less item concept for a real slot-less bucket to sit on.
+const UNASSIGNED_SET := "Unassigned imports"
 
 # ---------------------------------------------------------------------------
 # Small drawn controls -- slot tile art, preview swatch, sheet-slicer preview
@@ -215,9 +260,33 @@ class SlotCell extends Control:
 	## visible where it matters. One flag, because they are otherwise the same
 	## control.
 	var checker_under_art := false
+	## Drag source (AS-12/AS-17 territory note: drag-and-drop onto slots).
+	## Only the grid's own tiles set both -- the inspector preview and the
+	## preview-background swatches reuse this same class for their drawing
+	## and must not become drag sources by accident.
+	var draggable := false
+	var owner_window: AssetLibraryWindow
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
+
+	## Dragging a tile carries either the whole current multi-selection (if
+	## this tile is part of one) or just itself -- `owner_window` decides
+	## which, since only it knows `_selected`. Empty selection (an unfilled
+	## slot with nothing to move) returns null, which Godot reads as "no drag
+	## started" -- the standard way to refuse one from `_get_drag_data`.
+	func _get_drag_data(_at_position: Vector2) -> Variant:
+		if not draggable or uid == "" or owner_window == null:
+			return null
+		var uids: PackedStringArray = owner_window._drag_uids_for(uid)
+		if uids.is_empty():
+			return null
+		var preview := Label.new()
+		preview.text = ("%s (%d)" % [uids[0], uids.size()]) if uids.size() > 1 else uids[0]
+		preview.add_theme_color_override("font_color", DccTheme.c("text_bright"))
+		preview.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("raised")))
+		set_drag_preview(preview)
+		return {"type": "asset_uids", "uids": uids}
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
@@ -259,8 +328,28 @@ class SlotCell extends Control:
 		if draw_border:
 			draw_rect(r, DccTheme.c("accent") if selected else DccTheme.c("line"), false, 1.0)
 
+## A Collections-rail row (AS-12) -- a real drop target: dropping a
+## `SlotCell`'s drag payload here adds every dragged uid to this collection
+## (`as_batch_collect`). A dedicated `Button` subclass, the same reason
+## `SlotCell` above is its own `class` rather than a bare node -- Godot's
+## `_can_drop_data`/`_drop_data` are virtuals a script has to declare, and a
+## plain `Button.new()` from `_rail_row`'s shared helper cannot carry them.
+class CollectionRow extends Button:
+	var owner_window: AssetLibraryWindow
+	var coll_name := ""
+
+	func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
+		return typeof(data) == TYPE_DICTIONARY and String(data.get("type", "")) == "asset_uids" \
+			and not (data.get("uids", []) as Array).is_empty()
+
+	func _drop_data(_at_position: Vector2, data: Variant) -> void:
+		if owner_window != null:
+			owner_window._on_drop_uids_on_collection(coll_name, data.get("uids", []))
+
 ## The slicer modal's sheet preview -- a real loaded `Image` plus the real cell
-## rectangles the engine will cut.
+## rectangles the engine will cut, and (AS-17) real canvas interaction on top:
+## wheel-zoom, middle-drag pan, click-to-select a cell, and a draggable handle
+## on the grid's own Margin.
 ##
 ## The spans are **not** computed here. `computeCells`'s spacing is a
 ## half-gutter on interior edges only, so the outer cells come out wider than
@@ -271,16 +360,204 @@ class SlotCell extends Control:
 ## them into view space -- the presentation half, which is all that belongs
 ## in GDScript. The canvas draws those spans dashed at 35% accent; that is a
 ## stroke change only, and does not touch the arithmetic above.
+##
+## AS-17's own gap-register note explains why the grid lines below are
+## draggable on exactly one thing, not arbitrarily: `cartalith-assets::slicer`
+## computes a uniform grid from `cols`/`rows`/`margin`/`spacing`
+## (`SliceGrid`/`compute_cells`) -- there is no per-line position an engine
+## call could accept, so a line that isn't Margin's own boundary has nothing
+## real to drag it *to*. Margin is real (`GridRect::inset`, a uniform inset of
+## the whole sheet), so that boundary -- and only that one -- gets a handle.
+## Per-cell click-to-select is real as a picker/highlight; it does not narrow
+## what Slice cuts, because `as_slice_apply` has no cell-selection parameter
+## to narrow it with (`slice_target_from`, `lib.rs` -- always the whole grid,
+## minus Skip empty cells). Disclosed here and in the grid-footer note this
+## pass leaves in place, not silently implied to do more than it does.
 class SheetPreview extends Control:
 	var img_tex: ImageTexture
 	var col_x0: PackedFloat64Array = PackedFloat64Array()
 	var col_x1: PackedFloat64Array = PackedFloat64Array()
 	var row_y0: PackedFloat64Array = PackedFloat64Array()
 	var row_y1: PackedFloat64Array = PackedFloat64Array()
+	## AS-17: the *undisplaced* division lines (`as_slice_preview`'s
+	## `col_lines_px`/`row_lines_px`) -- a drag handle's hit-test and draw
+	## target, distinct from `col_x0`/`col_x1`'s gutter-narrowed cell edges.
+	## `cols+1`/`rows+1` entries; indices `0` and the last are the outer sheet
+	## edges (undraggable -- the grid rect's own margin owns those).
+	var col_lines_px: PackedFloat64Array = PackedFloat64Array()
+	var row_lines_px: PackedFloat64Array = PackedFloat64Array()
 	## Cell indices the engine's detection pass found empty, so the overlay can
 	## dim them the way §8's "19 non-empty" readout implies.
 	var blank_cells: Dictionary = {}
 	var usable := true
+	var owner_window: AssetLibraryWindow
+
+	## View transform: `zoom` multiplies the auto-fit scale, `pan` is an extra
+	## pixel offset on top of the auto-centred position -- so `zoom=1,
+	## pan=ZERO` reproduces the old fixed-fit behaviour exactly.
+	var zoom := 1.0
+	var pan := Vector2.ZERO
+	var selected_cell := -1   ## flat row*cols+col index, -1 = none
+
+	const MIN_ZOOM := 0.25
+	const MAX_ZOOM := 8.0
+	const HANDLE_RADIUS := 6.0
+
+	var _panning := false
+	var _dragging_margin := false
+	var _dragging_line_axis := ""   ## "col" / "row" / "" (not dragging a line)
+	var _dragging_line_index := -1
+
+	func _ready() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		focus_mode = Control.FOCUS_CLICK
+
+	func reset_view() -> void:
+		zoom = 1.0
+		pan = Vector2.ZERO
+		queue_redraw()
+
+	## The same fit-then-zoom-then-pan transform `_draw()` uses, factored out
+	## so input handling can convert between screen and sheet space without
+	## duplicating (and risking drifting from) the drawing math.
+	func _transform() -> Dictionary:
+		var r := Rect2(Vector2.ZERO, size)
+		if img_tex == null:
+			return {"scale": 1.0, "origin": r.position}
+		var tex_size := img_tex.get_size()
+		if tex_size.x <= 0 or tex_size.y <= 0:
+			return {"scale": 1.0, "origin": r.position}
+		var fit_scale: float = minf(r.size.x / tex_size.x, r.size.y / tex_size.y)
+		var scale: float = fit_scale * zoom
+		var draw_size := tex_size * scale
+		var origin := r.position + (r.size - draw_size) * 0.5 + pan
+		return {"scale": scale, "origin": origin}
+
+	func _screen_to_sheet(local_pos: Vector2) -> Vector2:
+		var t := _transform()
+		return (local_pos - (t["origin"] as Vector2)) / float(t["scale"])
+
+	func _sheet_to_screen(sheet_pos: Vector2) -> Vector2:
+		var t := _transform()
+		return (t["origin"] as Vector2) + sheet_pos * float(t["scale"])
+
+	## The Margin handle sits at the grid rect's own top-left corner in sheet
+	## space -- `GridRect::inset`'s `(margin, margin)`. `-1` (no handle) before
+	## a sheet is loaded.
+	func _margin_handle_sheet_pos() -> Vector2:
+		if owner_window == null:
+			return Vector2(-1, -1)
+		var m: float = owner_window._slicer_margin.value
+		return Vector2(m, m)
+
+	func _find_cell(sheet_pos: Vector2) -> int:
+		if col_x0.is_empty() or row_y0.is_empty():
+			return -1
+		var col := -1
+		for i in col_x0.size():
+			if sheet_pos.x >= col_x0[i] and sheet_pos.x < col_x1[i]:
+				col = i
+				break
+		var row := -1
+		for j in row_y0.size():
+			if sheet_pos.y >= row_y0[j] and sheet_pos.y < row_y1[j]:
+				row = j
+				break
+		if col < 0 or row < 0:
+			return -1
+		return row * col_x0.size() + col
+
+	## AS-17: which interior line (if any) `local_pos` is close enough to
+	## grab -- the outer two entries of `col_lines_px`/`row_lines_px` (indices
+	## `0` and the last) are the sheet edges, not draggable lines, so they are
+	## excluded from the start rather than relying on `move_line`'s own
+	## no-op refusal to keep the click from being swallowed for nothing.
+	func _find_line(local_pos: Vector2) -> Dictionary:
+		var t := _transform()
+		var origin: Vector2 = t["origin"]
+		var scale: float = t["scale"]
+		var tex_size: Vector2 = img_tex.get_size() if img_tex != null else Vector2.ZERO
+		var draw_size := tex_size * scale
+		var reach := HANDLE_RADIUS + 3.0
+		if col_lines_px.size() > 2 and local_pos.y >= origin.y - reach and local_pos.y <= origin.y + draw_size.y + reach:
+			for i in range(1, col_lines_px.size() - 1):
+				var sx := origin.x + float(col_lines_px[i]) * scale
+				if absf(local_pos.x - sx) <= reach:
+					return {"axis": "col", "index": i}
+		if row_lines_px.size() > 2 and local_pos.x >= origin.x - reach and local_pos.x <= origin.x + draw_size.x + reach:
+			for j in range(1, row_lines_px.size() - 1):
+				var sy := origin.y + float(row_lines_px[j]) * scale
+				if absf(local_pos.y - sy) <= reach:
+					return {"axis": "row", "index": j}
+		return {}
+
+	func _gui_input(event: InputEvent) -> void:
+		if img_tex == null:
+			return
+		if event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
+				_zoom_at(mb.position, 1.2)
+				accept_event()
+			elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
+				_zoom_at(mb.position, 1.0 / 1.2)
+				accept_event()
+			elif mb.button_index == MOUSE_BUTTON_MIDDLE:
+				_panning = mb.pressed
+				accept_event()
+			elif mb.button_index == MOUSE_BUTTON_LEFT:
+				if mb.pressed:
+					var handle_screen := _sheet_to_screen(_margin_handle_sheet_pos())
+					var line_hit := _find_line(mb.position)
+					if handle_screen.distance_to(mb.position) <= HANDLE_RADIUS + 3.0:
+						_dragging_margin = true
+					elif not line_hit.is_empty():
+						_dragging_line_axis = String(line_hit["axis"])
+						_dragging_line_index = int(line_hit["index"])
+					else:
+						var idx := _find_cell(_screen_to_sheet(mb.position))
+						## AS-17: clicking the already-selected cell again
+						## clears it -- click-to-toggle deselect, since there
+						## is no separate "clear selection" control here.
+						selected_cell = -1 if idx == selected_cell and idx >= 0 else idx
+						queue_redraw()
+						if owner_window != null:
+							owner_window._on_slicer_cell_selected(selected_cell)
+				else:
+					_dragging_margin = false
+					_dragging_line_axis = ""
+					_dragging_line_index = -1
+				accept_event()
+		elif event is InputEventMouseMotion:
+			var mm := event as InputEventMouseMotion
+			if _panning:
+				pan += mm.relative
+				queue_redraw()
+				accept_event()
+			elif _dragging_margin and owner_window != null:
+				var sp := _screen_to_sheet(mm.position)
+				var tex_size := img_tex.get_size()
+				var cap: float = maxf(0.0, minf(tex_size.x, tex_size.y) * 0.5 - 1.0)
+				var new_margin: float = clampf(minf(sp.x, sp.y), 0.0, cap)
+				owner_window._on_slicer_margin_dragged(new_margin)
+				accept_event()
+			elif _dragging_line_axis != "" and owner_window != null:
+				var sp := _screen_to_sheet(mm.position)
+				var value: float = sp.x if _dragging_line_axis == "col" else sp.y
+				owner_window._on_slicer_line_dragged(_dragging_line_axis, _dragging_line_index, value)
+				accept_event()
+
+	func _zoom_at(local_pos: Vector2, factor: float) -> void:
+		var before := _screen_to_sheet(local_pos)
+		zoom = clampf(zoom * factor, MIN_ZOOM, MAX_ZOOM)
+		var t := _transform()
+		var after_origin: Vector2 = local_pos - before * float(t["scale"])
+		var r := Rect2(Vector2.ZERO, size)
+		var tex_size: Vector2 = img_tex.get_size()
+		var fit_scale: float = minf(r.size.x / tex_size.x, r.size.y / tex_size.y)
+		var draw_size := tex_size * fit_scale * zoom
+		pan = after_origin - r.position - (r.size - draw_size) * 0.5
+		queue_redraw()
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
@@ -291,9 +568,10 @@ class SheetPreview extends Control:
 		var tex_size := img_tex.get_size()
 		if tex_size.x <= 0 or tex_size.y <= 0:
 			return
-		var scale: float = minf(r.size.x / tex_size.x, r.size.y / tex_size.y)
+		var t := _transform()
+		var scale: float = t["scale"]
+		var origin: Vector2 = t["origin"]
 		var draw_size := tex_size * scale
-		var origin := r.position + (r.size - draw_size) * 0.5
 		draw_texture_rect(img_tex, Rect2(origin, draw_size), false)
 		if not usable or col_x0.is_empty() or row_y0.is_empty():
 			return
@@ -309,10 +587,35 @@ class SheetPreview extends Control:
 					float(row_y1[j] - row_y0[j]) * scale)
 				if blank_cells.has(j * cols + i):
 					draw_rect(cell, Color(0, 0, 0, 0.45), true)
+				if j * cols + i == selected_cell:
+					draw_rect(cell, DccTheme.c("accent"), false, 2.0)
 				draw_dashed_line(cell.position + Vector2(cell.size.x, 0.0),
 					cell.position + cell.size, line_color, 1.0, 4.0)
 				draw_dashed_line(cell.position + Vector2(0.0, cell.size.y),
 					cell.position + cell.size, line_color, 1.0, 4.0)
+		## The Margin handle -- a filled dot so it reads as grabbable, distinct
+		## from the dashed cell lines it sits among.
+		var handle_pos := _sheet_to_screen(_margin_handle_sheet_pos())
+		draw_circle(handle_pos, HANDLE_RADIUS, DccTheme.c("accent") if _dragging_margin else DccTheme.c("text_bright"))
+		draw_circle(handle_pos, HANDLE_RADIUS, DccTheme.c("bg"), false, 1.5)
+		## AS-17's interior-line handles: a small diamond at the line's
+		## midpoint (col lines) or midpoint (row lines), same grabbable-dot
+		## language as the Margin handle so both read as "drag me" rather than
+		## one looking real and the other looking decorative.
+		if col_lines_px.size() > 2:
+			var mid_y := origin.y + draw_size.y * 0.5
+			for i in range(1, col_lines_px.size() - 1):
+				var hp := Vector2(origin.x + float(col_lines_px[i]) * scale, mid_y)
+				var on: bool = _dragging_line_axis == "col" and _dragging_line_index == i
+				draw_circle(hp, HANDLE_RADIUS * 0.7, DccTheme.c("accent") if on else DccTheme.c("text_faint"))
+				draw_circle(hp, HANDLE_RADIUS * 0.7, DccTheme.c("bg"), false, 1.0)
+		if row_lines_px.size() > 2:
+			var mid_x := origin.x + draw_size.x * 0.5
+			for j in range(1, row_lines_px.size() - 1):
+				var hp2 := Vector2(mid_x, origin.y + float(row_lines_px[j]) * scale)
+				var on2: bool = _dragging_line_axis == "row" and _dragging_line_index == j
+				draw_circle(hp2, HANDLE_RADIUS * 0.7, DccTheme.c("accent") if on2 else DccTheme.c("text_faint"))
+				draw_circle(hp2, HANDLE_RADIUS * 0.7, DccTheme.c("bg"), false, 1.0)
 
 # ---------------------------------------------------------------------------
 # State
@@ -342,6 +645,19 @@ var _sort_button: OptionButton
 var _select_mode_btn: Button
 var _rail_buttons: Dictionary = {}   ## family key -> {button, code, name, count}
 var _rail_count_label: Label
+## AS-12's Collections rail: non-empty means the grid is showing a
+## collection's members instead of a family's slots (`_refresh_grid_collection`).
+var _current_collection := ""
+var _collection_buttons: Dictionary = {}   ## collection name -> {button, name, count}
+var _collections_rail_body: VBoxContainer
+var _delete_collection_btn: Button   ## `PARITY_AUDIT.md` §23 F13 -- as_drop_collection.
+## AS-12's "Unassigned imports" holding bucket: a pinned row above the
+## dynamic collections list (`_build_unassigned_row`), backed by ordinary
+## custom slots under the reserved `UNASSIGNED_SET` name -- see
+## `as_add_custom_slot`'s own doc comment, which names this bucket as the
+## real engine call it would sit on top of.
+var _current_unassigned := false
+var _unassigned_row: Dictionary = {}   ## {button, name, count}
 var _grid: GridContainer
 var _grid_header: Label
 var _select_count_label: Label
@@ -368,6 +684,11 @@ var _insp_preview: SlotCell
 var _insp_file: Label
 var _insp_scale: HSlider
 var _insp_scale_readout: Label
+var _insp_pan_x: SpinBox
+var _insp_pan_y: SpinBox
+var _insp_fit_btn: Button
+var _insp_reset_btn: Button
+var _insp_syncing := false   ## true while _refresh_inspector writes the controls above
 var _insp_replace_btn: Button
 var _insp_variant_btn: Button
 var _insp_swatches: Array = []        ## SlotCell, parallel to PREVIEW_SWATCHES
@@ -385,6 +706,7 @@ var _sheet_image: Image
 var _sheet_loaded := false          ## the engine holds a decoded sheet (`as_load_sheet`)
 var _sheet_preview: SheetPreview
 var _sheet_readout: Label
+var _slicer_reset_view_btn: Button
 var _slicer_cols: SpinBox
 var _slicer_rows: SpinBox
 var _slicer_margin: SpinBox
@@ -401,6 +723,12 @@ var _slicer_family: OptionButton
 var _slicer_fill_chips: Dictionary = {}
 var _slicer_name: LineEdit
 var _slicer_set: LineEdit
+## AS-17: `cartalith_assets::SliceGrid::col_lines`/`row_lines` overrides, in
+## the engine's own fraction units -- empty means "uniform, no override" (the
+## reference's own always-uniform grid), matching `as_slicer_move_line`'s and
+## `_slice_opts()`'s own empty-means-None convention.
+var _slicer_col_lines: PackedFloat64Array = PackedFloat64Array()
+var _slicer_row_lines: PackedFloat64Array = PackedFloat64Array()
 
 var _slice_trim := false
 var _slice_skip_empty := true
@@ -408,6 +736,46 @@ var _slice_chroma := false
 var _slice_target_index := 0
 var _slice_family_index := 0
 var _slice_overwrite := false
+
+# ---------------------------------------------------------------------------
+# Phone (§13) -- PH-12
+# ---------------------------------------------------------------------------
+#
+# This window is the one the owner named on the OnePlus 12 device pass
+# (2026-08-25): *"not all screens are optimised for a mobile phone, among
+# others the asset manager screen."* It had none of the shell's three-call
+# phone treatment (`DccWidgets.phone_window` / `phone_present` /
+# `DccShell.phone_fit`), so `_popup_full()` filled a 1440x3168 panel with a
+# composition authored at 1180x760 and drew every one of it at **native device
+# resolution**. Measured before the fix, at 1440x3168 (`_ph9_probe.gd`):
+# 59 tappable controls, all 59 under §13's floor (44 dp = 161 physical px at
+# this density), the smallest **13 px** -- about 0.65 mm on a 510 ppi panel.
+#
+# The content scale fixes the density. What it cannot fix is the composition:
+# the canvas's three columns are a 266 px rail, a flexible grid and a 330 px
+# inspector, and 266 + 330 = 596 of the 393 dp a phone has before the grid gets
+# a single pixel. `phone_window()` returns `is_phone` precisely so a caller can
+# answer that, and this window answers it the way §13 answers it for the docks
+# -- *"docks become full-height sheets, one at a time"*. The three columns
+# become three full-width panes behind a segmented switcher, and the switcher
+# follows the work rather than waiting to be pressed: picking a family moves to
+# SLOTS, focusing a slot moves to SLOT. A slot-less import that lands in
+# Unassigned imports does both, in that order, which is what it does on the
+# desktop composition too -- there all three panes are simply visible at once.
+#
+# The window bar is the other thing that does not survive 393 dp: a 340 px
+# search well plus six chips is ~880 px of minimum width, and a `BoxContainer`
+# handed more minimum than it has does not clip, it **overlaps**
+# (`open_project_dialog.gd`'s own finding). Phone splits it into a full-width
+# search row over an `HFlowContainer` of chips, which wraps instead.
+var _phone := false
+var _phone_pane := ""                  ## "families" | "slots" | "slot"
+var _phone_pane_buttons: Dictionary = {}
+var _phone_rail: Control
+var _phone_grid: Control
+var _phone_inspector: Control
+var _phone_title: Label
+var _slicer_phone := false
 
 # ---------------------------------------------------------------------------
 # The canvas's control vocabulary
@@ -512,9 +880,26 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	wrap_controls = false
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(1024, 640)
+	## PH-12. Installs the rotation relay and reports whether the three columns
+	## have to stack; also re-asserts `wrap_controls = false`, which this file
+	## already set for its own reasons two lines up.
+	_phone = DccWidgets.phone_window(self, host)
+	## PH-12: two columns of ~168 dp each, so the canvas's 76 dp art band would
+	## letterbox every tile. 120 keeps it near square and is inside the zoom
+	## slider's own 56..132 range, so it is a starting point rather than a
+	## second set of bounds.
+	if _phone:
+		_cell_px = 120.0
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
 	_build()
 	_build_slicer_modal()
+	## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once as
+	## the window's `content_scale_factor`, and applying it again here would
+	## square it. Idempotent by meta-flag, so `_refresh_grid()`'s own re-fit
+	## below only ever touches the cells it just made.
+	if _phone:
+		_host.phone_fit(self, 1.0)
+		_host.phone_fit(_slicer, 1.0)
 	## Escape / the titlebar X path -- the explicit Close chip handles the click
 	## path, this handles the other two ways this dialog closes.
 	close_requested.connect(_close_slicer)
@@ -555,6 +940,12 @@ func _family_by_key(key: String) -> Dictionary:
 ## it. Found during the Data manager rebuild (2026-08-20); this file had the
 ## same line and the same bug.
 func _popup_full() -> void:
+	## PH-12: a phone fills the screen *including* the app menu bar's band --
+	## there is no desktop menu bar there to sit under (§13 relocates it into
+	## the ⋯ overflow sheet), and the 34 px reserved for one is 125 physical px
+	## of nothing at this density.
+	if DccWidgets.phone_present(self, _host):
+		return
 	var vp: Vector2 = _host.get_viewport_rect().size if _host != null \
 		else Vector2(get_tree().root.get_visible_rect().size)
 	var top := DccTheme.H_MENU_BAR
@@ -586,17 +977,83 @@ func _build() -> void:
 	add_child(outer)
 
 	outer.add_child(_build_window_bar())
+	if _phone:
+		outer.add_child(_build_phone_switcher())
 
-	var main := HBoxContainer.new()
+	## PH-12: three columns on a pointer, three panes one at a time on a phone.
+	## See the phone section at the top of this file for the arithmetic that
+	## leaves no third option.
+	var main: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
 	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(main)
 
-	main.add_child(_build_family_rail())
-	main.add_child(_build_slot_grid())
-	main.add_child(_build_inspector())
+	_phone_rail = _build_family_rail()
+	_phone_grid = _build_slot_grid()
+	_phone_inspector = _build_inspector()
+	main.add_child(_phone_rail)
+	main.add_child(_phone_grid)
+	main.add_child(_phone_inspector)
 
 	outer.add_child(_build_status_line())
+	if _phone:
+		## The header a borderless window draws in place of the title bar it
+		## gave up. Its subtitle tracks the pane, so `_show_phone_pane()` owns
+		## the text from here on.
+		_phone_title = DccWidgets.phone_head(outer, "Asset library", "families")
+		_show_phone_pane("families")
+
+## §13's *"docks become full-height sheets, one at a time"*, applied to a
+## window whose three columns are exactly that shape. A segmented row rather
+## than a `TabContainer`: the panes are already built and already own their own
+## headers/bands, and a `TabContainer` would reparent them and draw a second
+## one.
+func _build_phone_switcher() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	_pad(wrap, 8, 4, 8, 4).add_child(row)
+	for spec in [["families", "FAMILIES"], ["slots", "SLOTS"], ["slot", "SLOT"]]:
+		var key := String(spec[0])
+		var b := Button.new()
+		b.text = String(spec[1])
+		b.focus_mode = Control.FOCUS_NONE
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_override("font", DccTheme.mono(0))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+		b.pressed.connect(func(): _show_phone_pane(key))
+		row.add_child(b)
+		_phone_pane_buttons[key] = b
+	return wrap
+
+## The switcher follows the work: `_select_family()`, `_select_collection()`
+## and `_select_unassigned()` all move to SLOTS, and focusing a slot moves to
+## SLOT. Calling it with the pane already showing is a no-op except for the
+## chip states, which is what makes it safe to call from every one of those.
+func _show_phone_pane(pane: String) -> void:
+	if not _phone:
+		return
+	_phone_pane = pane
+	_phone_rail.visible = pane == "families"
+	_phone_grid.visible = pane == "slots"
+	_phone_inspector.visible = pane == "slot"
+	for key in _phone_pane_buttons:
+		var b: Button = _phone_pane_buttons[key]
+		var on: bool = key == pane
+		b.add_theme_stylebox_override("normal",
+			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+	if _phone_title != null:
+		var trail: Label = _phone_title.get_parent().get_child(1) as Label
+		if trail != null:
+			var fam := _family_by_key(_current_family)
+			trail.text = {
+				"families": "%d families · collections" % FAMILIES.size(),
+				"slots": String(fam.get("title", "slots")) if not fam.is_empty() else "slots",
+				"slot": _focused_uid if _focused_uid != "" else "no slot selected",
+			}.get(pane, "")
 
 ## `⧉ ASSET LIBRARY · map hidden while open │ search · sort · slicer · select
 ## … Apply to map · Export pack .zip · Close ✕` -- the canvas's own order and
@@ -604,32 +1061,59 @@ func _build() -> void:
 func _build_window_bar() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
-	wrap.custom_minimum_size.y = H_BAR
+	if not _phone:
+		wrap.custom_minimum_size.y = H_BAR
 	var pad := _pad(wrap, 16, 0, 16, 0)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 14)
-	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	pad.add_child(row)
+	## PH-12. One row of a 340 px search well plus six chips asks for ~880 px of
+	## minimum width; a phone has 393 dp, and a `BoxContainer` handed more
+	## minimum than it has **overlaps** rather than clipping. Two rows, the
+	## second an `HFlowContainer` so the chips wrap onto a third by themselves
+	## rather than by a count hard-coded here.
+	## `Container`, not `BoxContainer`: an `HFlowContainer` is a `Container`
+	## directly, not a box, so the two branches below have no closer common
+	## ancestor than this.
+	var row: Container
+	if _phone:
+		pad.add_theme_constant_override("margin_top", 6)
+		pad.add_theme_constant_override("margin_bottom", 6)
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 6)
+		pad.add_child(col)
+		row = HFlowContainer.new()
+		row.add_theme_constant_override("h_separation", 6)
+		row.add_theme_constant_override("v_separation", 6)
+		var search_phone := LineEdit.new()
+		search_phone.placeholder_text = "Search name · type · tag · file…"
+		search_phone.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_well(search_phone)
+		search_phone.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
+		col.add_child(search_phone)
+		col.add_child(row)
+	else:
+		row = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		pad.add_child(row)
 
-	var title_label := DccTheme.mono_label("⧉ ASSET LIBRARY", "accent", DccTheme.FS_SMALL, 1)
-	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title_label)
-	var sub := DccTheme.label("map hidden while open", "text_ghost", DccTheme.FS_SMALL)
-	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(sub)
+		var title_label := DccTheme.mono_label("⧉ ASSET LIBRARY", "accent", DccTheme.FS_SMALL, 1)
+		title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(title_label)
+		var sub := DccTheme.label("map hidden while open", "text_ghost", DccTheme.FS_SMALL)
+		sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(sub)
 
-	var divider := ColorRect.new()
-	divider.color = DccTheme.c("line")
-	divider.custom_minimum_size = Vector2(1, 16)
-	divider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	row.add_child(divider)
+		var divider := ColorRect.new()
+		divider.color = DccTheme.c("line")
+		divider.custom_minimum_size = Vector2(1, 16)
+		divider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(divider)
 
-	var search := LineEdit.new()
-	search.placeholder_text = "Search name · type · category · tag · file…"
-	search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
-	_well(search)
-	search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
-	row.add_child(search)
+		var search := LineEdit.new()
+		search.placeholder_text = "Search name · type · category · tag · file…"
+		search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
+		_well(search)
+		search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
+		row.add_child(search)
 
 	## The canvas draws this as `Sort: slot order ⌄` -- a chip with a caret.
 	## An OptionButton *is* that once its stock slab is replaced, and it keeps
@@ -646,23 +1130,37 @@ func _build_window_bar() -> Control:
 		_sort_button.add_theme_stylebox_override(sb_name, _box("line", "", 9, 4))
 	_sort_button.add_theme_stylebox_override("hover", _box("line", "line_soft", 9, 4))
 	_sort_button.item_selected.connect(func(i: int): _sort_mode = i; _refresh_grid())
+	DccWidgets.style_popup(_sort_button.get_popup())
 	row.add_child(_sort_button)
 
-	_chip(row, "%s Sprite sheet…" % DccIcons.SYMBOLS["panels"], func(): _open_slicer())
+	## PH-12: the same four chips, named shorter. Each label is its own minimum
+	## width, and at 393 dp four full-length ones wrap onto three rows -- a
+	## quarter of the screen spent on a toolbar. The short forms are the design
+	## canvas's own vocabulary elsewhere (`Slice`, `Apply`, `.zip`), so this
+	## abbreviates rather than renaming anything.
+	_chip(row, ("%s Slicer…" if _phone else "%s Sprite sheet…") % DccIcons.SYMBOLS["panels"],
+		func(): _open_slicer())
 
 	_select_mode_btn = _chip(row, "", func(): _toggle_select_mode(), true)
 	_select_mode_btn.tooltip_text = "Batch selection driving Tag/Collect/Rename/Duplicate/Delete in the grid header."
 
-	row.add_child(DccTheme.spacer())
+	## An expanding spacer is what pushes the three right-hand chips to the far
+	## end of a row. An `HFlowContainer` has no far end -- it wraps -- so on a
+	## phone the spacer would simply be one more item taking a whole line.
+	if not _phone:
+		row.add_child(DccTheme.spacer())
 
-	_apply_btn = _chip(row, "Apply to map", func(): _on_apply_to_map(), false, 10, 4)
-	_export_btn = _chip(row, "Export pack .zip", func(): _on_export_pack(), true, 10, 4)
+	_apply_btn = _chip(row, "Apply" if _phone else "Apply to map",
+		func(): _on_apply_to_map(), false, 10, 4)
+	_export_btn = _chip(row, "Export .zip" if _phone else "Export pack .zip",
+		func(): _on_export_pack(), true, 10, 4)
 	## Visual sweep (2026-08-20) caught the slicer modal left stranded on top of
 	## the whole app -- `_slicer` is a child `Window` of this dialog, and a child
 	## `Window`'s visibility is independent of its parent's, so closing the
 	## library while the slicer was open used to leave it floating over every
 	## surface opened afterward. Closing this window always closes the slicer.
-	var close_chip := _chip(row, "Close %s" % DccIcons.SYMBOLS["cross"],
+	var close_chip := _chip(row, DccIcons.SYMBOLS["cross"] if _phone \
+			else "Close %s" % DccIcons.SYMBOLS["cross"],
 		func(): _close_slicer(); hide(), false, 10, 4)
 	close_chip.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 
@@ -677,7 +1175,12 @@ func _toggle_select_mode() -> void:
 
 func _build_family_rail() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = W_RAIL
+	## PH-12: a fixed 266 px column is 68% of a phone's 393 dp, and the pane it
+	## is one of three of is full width there anyway.
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		wrap.custom_minimum_size.x = W_RAIL
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -719,6 +1222,34 @@ func _build_family_rail() -> Control:
 		first = false
 		for f in by_group.get(g, []):
 			_rail_row(body, f)
+
+	## AS-12's Collections rail: `Family` above is the mockup's own fixed
+	## eight; collections are a live, unbounded, user-created set
+	## (`as_batch_collect`/`as_collections`), so this section is rebuilt
+	## in place (`_refresh_collections_rail`) rather than built once here.
+	body.add_child(DccTheme.rule())
+	var cgp := _pad(body, 14, 10, 14, 4)
+	var cgp_row := HBoxContainer.new()
+	cgp_row.add_theme_constant_override("separation", 6)
+	cgp.add_child(cgp_row)
+	var cgp_label := DccTheme.mono_label("COLLECTIONS", "text_ghost", DccTheme.FS_MICRO, 1)
+	cgp_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cgp_row.add_child(cgp_label)
+	## AS-12's own gap: rows could be created (`as_batch_collect`) and browsed
+	## (`as_collections`) but never removed outright -- `PARITY_AUDIT.md` §23
+	## F13's `AssetCollections::drop_collection`, real and ported, had no
+	## `#[func]` in front of it until this pass (`as_drop_collection`,
+	## `ops_bridge.rs`). Deletes only the grouping, never the assets in it --
+	## same distinction `remove_custom_slot`/`batch_delete` already draw
+	## between a slot and its collection membership.
+	_delete_collection_btn = _text_button(cgp_row, "Delete…", _on_delete_collection)
+	_delete_collection_btn.tooltip_text = "Select a collection below, then Delete… to remove the grouping (as_drop_collection). The assets inside it are untouched -- this only ungroups them."
+	_build_unassigned_row(body)
+	_collections_rail_body = VBoxContainer.new()
+	_collections_rail_body.add_theme_constant_override("separation", 0)
+	body.add_child(_collections_rail_body)
+	_refresh_collections_rail()
+	## After `_unassigned_row` exists, so its count populates on first build too.
 	_refresh_rail_counts()
 
 	col.add_child(DccTheme.rule())
@@ -811,34 +1342,323 @@ func _refresh_rail_counts() -> void:
 			count_label.text = "%d/%d" % [filled, capacity]
 			count_label.add_theme_color_override("font_color",
 				DccTheme.c("text_faint") if filled >= capacity else DccTheme.c("accent"))
+	## AS-12: the same `custom` pull above already has every unassigned slot in
+	## it once `key == "custom"` runs, but `_refresh_unassigned_count()` is
+	## also called on its own from `_select_family`/`_select_collection`-free
+	## paths -- one extra `as_family_slots("custom")` per refresh is cheap
+	## next to a PNG import or a batch op, so it isn't threaded through the
+	## loop above just to save it.
+	var unassigned := _refresh_unassigned_count()
 	if _status_pack != null:
 		var info: Dictionary = _bridge.as_pack_info()
 		var pack_name := String(info.get("name", ""))
-		_status_pack.text = "%s · %d / %d slots · %d item%s" % [
+		_status_pack.text = "%s · %d / %d slots · %d item%s%s" % [
 			pack_name if pack_name != "" else "unnamed pack",
 			total_filled, total_slots, int(info.get("total_items", 0)),
-			"" if int(info.get("total_items", 0)) == 1 else "s"]
+			"" if int(info.get("total_items", 0)) == 1 else "s",
+			" · %d unassigned" % unassigned if unassigned > 0 else ""]
 
-## "Import image…" targets whichever slot is focused in the grid -- real once
-## a slot is selected, honestly disabled ("select a slot first") otherwise.
+## Rebuilds the Collections rail from `as_collections()` -- unlike `FAMILIES`
+## (a fixed compile-time list), collections are created/emptied at runtime by
+## `as_batch_collect`/drag-and-drop, so this section is torn down and rebuilt
+## rather than refreshed in place. Called on window open/`world_loaded`
+## (`_refresh_pack_status`) and after anything that can change membership.
+##
+## Calls `_bridge.world_gen.as_collections()` directly rather than through a
+## new `EngineBridge` wrapper -- every other `as_*` call in this file goes
+## through one (`as_family_slots`/`as_slot_summary`/etc.), but `engine_bridge.gd`
+## is a concurrently-edited file this pass, and `bridge.world_gen.<method>()`
+## is an already-established escape hatch elsewhere (`app.gd`, `journey_
+## planner_view.gd`, `new_world_dialog.gd` all do the same). `has_method`
+## guards it the same defensive way `new_world_dialog.gd` does, so a binary
+## built before this pass's `as_collections` addition degrades to "no
+## collections yet" instead of a script error.
+func _refresh_collections_rail() -> void:
+	if _collections_rail_body == null:
+		return
+	for c in _collections_rail_body.get_children():
+		_collections_rail_body.remove_child(c)
+		c.queue_free()
+	_collection_buttons.clear()
+	var colls: Array = _bridge.world_gen.as_collections() \
+		if _bridge.world_gen != null and _bridge.world_gen.has_method("as_collections") else []
+	if colls.is_empty():
+		var note := DccTheme.mono_label("none yet -- Collect… or drag tiles here",
+			"text_faint", DccTheme.FS_TINY)
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var np := _pad(_collections_rail_body, 14, 4, 14, 6)
+		np.add_child(note)
+		return
+	for c in colls:
+		_collection_row(_collections_rail_body, String(c["name"]), (c["uids"] as PackedStringArray).size())
+	_phone_refit()   ## PH-12 -- see `_phone_refit()`.
+
+## Same three-column grammar `_rail_row` draws for a family (code · name ·
+## count), minus the code column -- collections have no engine-assigned code,
+## unlike a family's `TX`/`BI`/etc. `CollectionRow`, not `Button.new()`,
+## because this row is also a real drop target (its own class comment).
+func _collection_row(parent: Control, coll_name: String, count: int) -> void:
+	var btn := CollectionRow.new()
+	btn.owner_window = self
+	btn.coll_name = coll_name
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size.y = 24
+	btn.add_theme_stylebox_override("normal", DccTheme.empty())
+	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
+	btn.tooltip_text = "Drag asset tiles here to add them to \"%s\"." % coll_name
+	btn.pressed.connect(_select_collection.bind(coll_name))
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 9)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14
+	row.offset_right = -14
+	btn.add_child(row)
+
+	var name_l := DccTheme.label(coll_name, "text", DccTheme.FS_SMALL)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_l.clip_text = true
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(name_l)
+	var count_l := DccTheme.mono_label("%d" % count, "text_faint", DccTheme.FS_TINY)
+	count_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(count_l)
+
+	_collection_buttons[coll_name] = {"button": btn, "name": name_l, "count": count_l}
+	parent.add_child(btn)
+
+## AS-12's pinned "Unassigned imports" row -- same three-column grammar as
+## `_collection_row`, minus the drag-drop target: there is no engine primitive
+## to *move* an item from a real slot into this bucket (only into/out of a
+## collection, `as_batch_collect`), so this row is browse-only, matching the
+## register's own honest scope ("a holding area", not a reassignment tool).
+func _build_unassigned_row(parent: Control) -> void:
+	var btn := Button.new()
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size.y = 24
+	btn.add_theme_stylebox_override("normal", DccTheme.empty())
+	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
+	btn.tooltip_text = "Imports made with no slot focused land here (as_add_custom_slot, set \"%s\"). Drag a tile onto a Collections row, or Rename… it, to organise it from here." % UNASSIGNED_SET
+	btn.pressed.connect(_select_unassigned)
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 9)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14
+	row.offset_right = -14
+	btn.add_child(row)
+
+	var name_l := DccTheme.label("Unassigned imports", "text", DccTheme.FS_SMALL)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_l.clip_text = true
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(name_l)
+	var count_l := DccTheme.mono_label("0", "text_faint", DccTheme.FS_TINY)
+	count_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(count_l)
+
+	_unassigned_row = {"button": btn, "name": name_l, "count": count_l}
+	parent.add_child(btn)
+
+## Live count of custom slots sitting in `UNASSIGNED_SET` -- folded into
+## `_refresh_rail_counts()` (called after every import/batch op already)
+## rather than given its own call site.
+func _refresh_unassigned_count() -> int:
+	var n := 0
+	for s in _bridge.as_family_slots("custom"):
+		if String(s.get("set", "")) == UNASSIGNED_SET:
+			n += 1
+	if not _unassigned_row.is_empty():
+		var count_l: Label = _unassigned_row["count"]
+		count_l.text = "%d" % n
+		count_l.add_theme_color_override("font_color",
+			DccTheme.c("accent") if n > 0 else DccTheme.c("text_faint"))
+	return n
+
+func _highlight_unassigned_row(on: bool) -> void:
+	if _unassigned_row.is_empty():
+		return
+	var btn: Button = _unassigned_row["button"]
+	var name_l: Label = _unassigned_row["name"]
+	btn.add_theme_stylebox_override("normal",
+		DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+	name_l.add_theme_color_override("font_color",
+		DccTheme.c("text_bright") if on else DccTheme.c("text"))
+
+## Selects the Unassigned imports bucket the same way `_select_family`/
+## `_select_collection` select their own rail entries.
+func _select_unassigned() -> void:
+	_current_unassigned = true
+	_current_collection = ""
+	_current_family = ""
+	_highlight_collection_row("")
+	_highlight_unassigned_row(true)
+	for k in _rail_buttons:
+		var parts: Dictionary = _rail_buttons[k]
+		(parts["button"] as Button).add_theme_stylebox_override("normal", DccTheme.empty())
+		(parts["code"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		(parts["name"] as Label).add_theme_color_override("font_color", DccTheme.c("text"))
+	_selected.clear()
+	_last_index = -1
+	_focused_uid = ""
+	_preview_index = 0
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_import_button()
+	_show_phone_pane("slots")   ## PH-12, as `_select_family()`.
+
+## AS-12's unassigned-mode grid: entries are exactly the custom slots
+## `_refresh_unassigned_count` counts, so the two can never disagree.
+func _refresh_grid_unassigned() -> void:
+	_slot_state.clear()
+	var entries: Array = []
+	for s in _bridge.as_family_slots("custom"):
+		if String(s.get("set", "")) != UNASSIGNED_SET:
+			continue
+		var uid := String(s["uid"])
+		_slot_state[uid] = s
+		entries.append({
+			"uid": uid,
+			"id": String(s["id"]),
+			"name": String(s["name"]),
+			"code": "UN-%02d" % [entries.size() + 1],
+		})
+	_slot_order = entries
+	for entry in entries:
+		_grid.add_child(_build_cell(entry))
+	_grid_header.text = "UNASSIGNED IMPORTS · %d ITEM%s" % [entries.size(), "" if entries.size() == 1 else "S"]
+	_refresh_selection_visuals()
+
+## Selects a collection the same way `_select_family` selects a family --
+## clears the other rail's highlight, resets the grid selection, and switches
+## `_refresh_grid` into collection mode.
+func _select_collection(coll_name: String) -> void:
+	_current_collection = coll_name
+	_current_family = ""
+	_current_unassigned = false
+	_highlight_unassigned_row(false)
+	for k in _rail_buttons:
+		var parts: Dictionary = _rail_buttons[k]
+		(parts["button"] as Button).add_theme_stylebox_override("normal", DccTheme.empty())
+		(parts["code"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+		(parts["name"] as Label).add_theme_color_override("font_color", DccTheme.c("text"))
+	_highlight_collection_row(coll_name)
+	_selected.clear()
+	_last_index = -1
+	_focused_uid = ""
+	_preview_index = 0
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_import_button()
+	_show_phone_pane("slots")   ## PH-12, as `_select_family()`.
+
+func _highlight_collection_row(coll_name: String) -> void:
+	for k in _collection_buttons:
+		var parts: Dictionary = _collection_buttons[k]
+		var on: bool = k == coll_name
+		(parts["button"] as Button).add_theme_stylebox_override("normal",
+			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		(parts["name"] as Label).add_theme_color_override("font_color",
+			DccTheme.c("text_bright") if on else DccTheme.c("text"))
+
+## `SlotCell._get_drag_data`'s own query: drag the whole current selection if
+## this tile is part of one and it's a real multi-selection, otherwise just
+## this one tile -- matches how the batch buttons already read "the current
+## selection, or nothing" (`_selected_uids`).
+func _drag_uids_for(uid: String) -> PackedStringArray:
+	if _selected.size() > 1 and _selected.has(uid):
+		var out := PackedStringArray()
+		for u in _selected:
+			out.append(String(u))
+		return out
+	return PackedStringArray([uid])
+
+## `CollectionRow._drop_data`'s callback: real engine call, same one
+## `_on_batch_collect`'s prompt uses, just skipping the prompt because the
+## target collection is exactly the row the drag landed on.
+func _on_drop_uids_on_collection(coll_name: String, uids: Array) -> void:
+	if uids.is_empty():
+		return
+	var uid_arr := PackedStringArray()
+	for u in uids:
+		uid_arr.append(String(u))
+	_bridge.as_batch_collect(uid_arr, coll_name)
+	_dirty = true
+	_host.set_status("hint",
+		"added %d asset(s) to \"%s\" (drag-and-drop)" % [uid_arr.size(), coll_name], "accent")
+	_refresh_collections_rail()
+	_refresh_inspector()
+	_refresh_status_line()
+
+## The Collections header's "Delete…" button (`PARITY_AUDIT.md` §23 F13):
+## drops the rail's currently-selected collection.
+##
+## **Now through the bridge.** This used to call `world_gen` directly, and the
+## reason it gave -- "that file is a concurrently-edited file this pass" --
+## expired when `EngineBridge.as_drop_collection()` landed. Reaching around
+## the bridge is not free: the wrapper's `_has()` probe is what records a
+## missing binding in `missing_bindings()`, the shell's own staleness
+## fingerprint, so a direct call makes a stale binary look healthy from the
+## one place that reports on it. The local `world_gen == null` test goes with
+## it -- `EngineBridge` constructs `world_gen` at declaration and replaces it
+## in `close_world()`; it is never null.
+##
+## `as_collections` below still calls through, because no wrapper exists for
+## it yet and adding one is an `engine_bridge.gd` change.
+func _on_delete_collection() -> void:
+	if _current_collection == "":
+		_host.set_status("hint", "select a collection first, then Delete…", "text_ghost")
+		return
+	var coll_name := _current_collection
+	var d := ConfirmationDialog.new()
+	d.title = "Delete collection \"%s\"?" % coll_name
+	d.dialog_text = "Remove the \"%s\" collection? The assets in it are not deleted -- only the grouping is." % coll_name
+	d.confirmed.connect(func():
+		_bridge.as_drop_collection(coll_name)
+		_dirty = true
+		_current_collection = ""
+		_highlight_collection_row("")
+		_host.set_status("hint", "deleted collection \"%s\"" % coll_name, "accent")
+		_refresh_collections_rail()
+		_refresh_grid()
+		_refresh_status_line()
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+
+## "Import image…" targets whichever slot is focused in the grid; with none
+## focused it still works (AS-12), landing the file in a fresh custom slot
+## under `UNASSIGNED_SET` instead of doing nothing.
 func _refresh_import_button() -> void:
 	if _import_btn == null:
 		return
+	_import_btn.disabled = false
 	if _focused_uid == "":
-		_import_btn.disabled = true
-		_import_btn.tooltip_text = "Select a slot in the grid first -- Import image… lands the file on the focused slot."
+		_import_btn.tooltip_text = "No slot focused -- lands in Unassigned imports instead."
 	else:
-		_import_btn.disabled = false
 		_import_btn.tooltip_text = "Import a PNG into %s." % _focused_uid
 
 ## `replace_first` empties the slot's first variant once the new image is in --
 ## the inspector's Replace…, built out of `as_import_item` + `as_remove_item`
 ## rather than a binding that does not exist. Import order matters: the new
-## bytes have to land successfully *before* anything is removed.
+## bytes have to land successfully *before* anything is removed. Only ever
+## called with a real `_focused_uid` (the inspector's Replace… chip is itself
+## disabled while `item_count == 0`), so the AS-12 unassigned branch below is
+## the plain "Import image…" path (`replace_first == false`) alone.
 func _on_import_image(replace_first: bool = false) -> void:
-	if _focused_uid == "":
+	if replace_first and _focused_uid == "":
 		return
 	var target_uid := _focused_uid
+	var into_unassigned := target_uid == ""
 	var d := FileDialog.new()
 	d.title = "Replace image" if replace_first else "Import image"
 	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -846,13 +1666,34 @@ func _on_import_image(replace_first: bool = false) -> void:
 	d.add_filter("*.png ; PNG image")
 	d.file_selected.connect(func(path: String):
 		var bytes := FileAccess.get_file_as_bytes(path)
-		var result: Dictionary = _bridge.as_import_item(target_uid, path.get_file(), bytes)
+		var uid := target_uid
+		if into_unassigned:
+			## AS-12: no slot was focused, so this file gets a fresh custom
+			## slot of its own under the reserved "Unassigned imports" set --
+			## `as_add_custom_slot` is the real engine call that bucket sits
+			## on, same as every other custom slot.
+			var made: Dictionary = _bridge.as_add_custom_slot(path.get_file().get_basename(), UNASSIGNED_SET)
+			uid = String(made.get("uid", ""))
+		var result: Dictionary = _bridge.as_import_item(uid, path.get_file(), bytes)
 		if bool(result.get("ok", false)):
 			if replace_first:
-				_bridge.as_remove_item(target_uid, 0)
+				_bridge.as_remove_item(uid, 0)
 			_dirty = true
-			_host.set_status("hint", "imported %s" % path.get_file(), "accent")
+			_host.set_status("hint", "imported %s%s" % [
+				path.get_file(), " → Unassigned imports" if into_unassigned else ""], "accent")
 			_preview_index = 0
+			if into_unassigned:
+				_current_unassigned = true
+				_current_collection = ""
+				_current_family = ""
+				_highlight_collection_row("")
+				_highlight_unassigned_row(true)
+				for k in _rail_buttons:
+					var parts: Dictionary = _rail_buttons[k]
+					(parts["button"] as Button).add_theme_stylebox_override("normal", DccTheme.empty())
+					(parts["code"] as Label).add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+					(parts["name"] as Label).add_theme_color_override("font_color", DccTheme.c("text"))
+				_focused_uid = uid
 			_refresh_grid()
 			_refresh_inspector()
 			_refresh_rail_counts()
@@ -864,11 +1705,53 @@ func _on_import_image(replace_first: bool = false) -> void:
 	add_child(d)
 	d.popup_centered_ratio(0.6)
 
+## AS-07: the Scale slider / Pan X / Pan Y spinboxes writing live, straight
+## through `as_set_item_transform`. Only the preview repaints here -- the
+## reference's own `alScale.oninput` repaints its canvas (`this.paint()`) and
+## leaves the grid card stale until the next full render, so this matches
+## rather than rebuilding `_refresh_grid()` on every drag tick.
+func _on_insp_transform_changed() -> void:
+	if _insp_syncing or _focused_uid == "":
+		return
+	var ok: bool = _bridge.as_set_item_transform(_focused_uid, _preview_index,
+		_insp_scale.value / 100.0, _insp_pan_x.value, _insp_pan_y.value)
+	if not ok:
+		return
+	_dirty = true
+	_insp_scale_readout.text = "%d%%" % int(roundf(_insp_scale.value))
+	var preview_png: PackedByteArray = _bridge.as_thumbnail_png(_focused_uid, _preview_index, 256)
+	if preview_png.size() > 0:
+		var pimg := Image.new()
+		if pimg.load_png_from_buffer(preview_png) == OK:
+			_insp_preview.thumb = ImageTexture.create_from_image(pimg)
+			_insp_preview.queue_redraw()
+
+## AS-07's Fit/Reset buttons -- `as_reset_item_transform` does the actual
+## `defaultTransform()`/`fitToBottom` arithmetic (reference `alFit`/`alReset`,
+## line 27347-27348) so this stays "no numbers in GDScript"; both are
+## discrete clicks, so (unlike the live slider) a full re-render is cheap and
+## matches the reference's own `this.render(); AssetBrowserUI.buildGrid();`.
+func _on_insp_fit_or_reset(fit: bool) -> void:
+	if _focused_uid == "":
+		return
+	var result: Dictionary = _bridge.as_reset_item_transform(_focused_uid, _preview_index, fit)
+	if not bool(result.get("ok", false)):
+		return
+	_dirty = true
+	_refresh_grid()
+	_refresh_inspector()
+
 # -- slot grid ----------------------------------------------------------------
 
 func _build_slot_grid() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## PH-12: in the phone `VBoxContainer` the three panes stack, so the axis
+	## that has to expand is the vertical one -- without this the pane collapses
+	## to its own minimum (measured: a 12 px scroll viewport) and the grid is a
+	## scrollbar with nothing under it.
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -879,15 +1762,36 @@ func _build_slot_grid() -> Control:
 	_grid_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid_header.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	band.add_child(_grid_header)
+	## PH-12: `TX · SPLAT CHANNELS · 0 OF 7 FILLED` is a `Label`, and
+	## `phone_fit()`'s ellipsis pass only reaches `Button`s -- so on a phone this
+	## one heading contributed its full natural width to a 393 dp column.
+	_grid_header.clip_text = _phone
 	_select_count_label = DccTheme.mono_label("0 SELECTED", "accent", DccTheme.FS_MICRO, 1, true)
 	_select_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	band.add_child(_select_count_label)
 	## The canvas folds the batch verbs into this band as quiet text rather
 	## than giving them a row of filled slabs of their own.
-	var verbs := HBoxContainer.new()
-	verbs.add_theme_constant_override("separation", 2)
-	verbs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	band.add_child(verbs)
+	##
+	## PH-12: five verbs plus the heading plus the count is a 544 dp row, and a
+	## `Window` cannot be narrower than its content's minimum -- measured, this
+	## one row alone was what pushed the whole window 151 dp wider than the
+	## screen and took `Apply to map` and the SLOT tab off the right edge with
+	## it. On a phone the verbs get their own wrapping row under the band; they
+	## are still the same five buttons, at the same 44 dp the tap floor gives
+	## them, and `_refresh_batch_buttons()` still greys them with no selection.
+	var verbs: Container
+	if _phone:
+		var verbs_flow := HFlowContainer.new()
+		verbs_flow.add_theme_constant_override("h_separation", 4)
+		verbs_flow.add_theme_constant_override("v_separation", 2)
+		_pad(col, 12, 0, 12, 4).add_child(verbs_flow)
+		verbs = verbs_flow
+	else:
+		var verbs_row := HBoxContainer.new()
+		verbs_row.add_theme_constant_override("separation", 2)
+		verbs_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		band.add_child(verbs_row)
+		verbs = verbs_row
 	_batch_buttons["tag"] = _text_button(verbs, "Tag…", func(): _on_batch_tag())
 	_batch_buttons["collect"] = _text_button(verbs, "Collect…", func(): _on_batch_collect())
 	_batch_buttons["rename"] = _text_button(verbs, "Rename…", func(): _on_batch_rename())
@@ -902,7 +1806,11 @@ func _build_slot_grid() -> Control:
 	var grid_pad := _pad(scroll, 16, 16, 16, 16)
 	grid_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid = GridContainer.new()
-	_grid.columns = GRID_COLS
+	## PH-12: six columns across 393 dp is a 55 dp tile, smaller than the tap
+	## floor the tile itself has to clear -- and the caption strip under each
+	## one carries a two-letter code plus a slot name. Two columns keeps the
+	## default 76 dp art band square-ish and the caption readable.
+	_grid.columns = PHONE_GRID_COLS if _phone else GRID_COLS
 	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_grid.add_theme_constant_override("h_separation", TILE_GAP)
@@ -914,13 +1822,31 @@ func _build_slot_grid() -> Control:
 	var foot := HBoxContainer.new()
 	foot.add_theme_constant_override("separation", 22)
 	foot_pad.add_child(foot)
-	var drop_hint := DccTheme.mono_label("drop-to-fill is not wired — use Import image…",
+	## Drag a tile onto a Collections-rail row to add it (real,
+	## `CollectionRow`/`SlotCell._get_drag_data`, AS-12). Drag-onto-a-SLOT
+	## specifically -- i.e. dropping a file from outside Godot to fill it --
+	## stays unwired. Godot's two drag-and-drop systems are unrelated: an OS file
+	## drop reaches `Window.files_dropped`, never a Control's
+	## `_can_drop_data`/`_drop_data` (those two are in-app-drag-only, which is
+	## exactly what tile-onto-collection uses). That makes the slot the wrong
+	## listener, not an impossible one -- `open_project_dialog.gd` receives OS
+	## drops on `files_dropped` from the same `AcceptDialog` base this window
+	## has. The missing half is hit-testing the drop point against the grid.
+	## Said plainly, and without claiming an impossibility that is not one.
+	var drop_hint := DccTheme.mono_label("drag a tile onto a Collection to add it",
 		"text_faint", DccTheme.FS_TINY)
-	drop_hint.tooltip_text = "The canvas offers drag-and-drop onto a slot; no engine call backs it (as_import_item takes a path chosen in the file dialog). Said plainly rather than drawn as if it worked."
+	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row (as_batch_collect). Dropping a file from outside Godot onto a slot is not wired: an OS file drop arrives at Window.files_dropped, not at the slot's own _can_drop_data/_drop_data, so filling a slot that way needs the window to hit-test the drop point against the grid -- a real, unscheduled job, not an impossibility. Use Import image… meanwhile."
 	drop_hint.mouse_filter = Control.MOUSE_FILTER_STOP
-	foot.add_child(drop_hint)
-	foot.add_child(DccTheme.mono_label("⇧-click ranges · Ctrl-click adds",
-		"text_faint", DccTheme.FS_TINY))
+	## PH-12: both foot hints describe pointer modifiers. `⇧-click ranges ·
+	## Ctrl-click adds` has no touch equivalent at all, and the drop hint's
+	## tooltip -- which is where its real disclosure lives -- is unreachable
+	## without hover. Dropped on a phone rather than kept as two lines of prose
+	## about gestures the device cannot make; the zoom slider beside them is
+	## the only thing in this row a finger can use.
+	if not _phone:
+		foot.add_child(drop_hint)
+		foot.add_child(DccTheme.mono_label("⇧-click ranges · Ctrl-click adds",
+			"text_faint", DccTheme.FS_TINY))
 	foot.add_child(DccTheme.spacer())
 	var zoom_label := DccTheme.mono_label("zoom", "text_faint", DccTheme.FS_TINY)
 	zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -942,10 +1868,15 @@ func _build_slot_grid() -> Control:
 func _build_status_line() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"top": 1}))
-	wrap.custom_minimum_size.y = H_STATUS
+	## PH-12: two lines rather than one clipped one. Side by side the pair asks
+	## for 401 dp of a 393 dp column, and clipping them both left the state half
+	## reading `(` -- the width went to whichever expanded, and neither of them
+	## is optional: one says whether the library is in sync, the other what pack
+	## it is and how full.
+	wrap.custom_minimum_size.y = H_STATUS * 2 if _phone else H_STATUS
 	var pad := _pad(wrap, 16, 0, 16, 0)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 22)
+	var row: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	row.add_theme_constant_override("separation", 22 if not _phone else 0)
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	pad.add_child(row)
 	_status_state = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
@@ -954,10 +1885,21 @@ func _build_status_line() -> Control:
 	_status_pack = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
 	_status_pack.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(_status_pack)
-	row.add_child(DccTheme.spacer())
-	var keys := DccTheme.mono_label("Esc close window", "text_faint", DccTheme.FS_TINY)
-	keys.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(keys)
+	## Clipped as well as stacked: `phone_fit()`'s ellipsis pass reaches only
+	## `Button`s, so a `Label` still reports its full natural width and a
+	## `Window` cannot be narrower than its content's minimum.
+	if _phone:
+		_status_state.clip_text = true
+		_status_pack.clip_text = true
+	else:
+		row.add_child(DccTheme.spacer())
+	## PH-12: a phone has no Esc. Its way out is the Close chip in the window
+	## bar and the Android back gesture (`DccShell::_notification`'s chain),
+	## neither of which this hint names.
+	if not _phone:
+		var keys := DccTheme.mono_label("Esc close window", "text_faint", DccTheme.FS_TINY)
+		keys.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(keys)
 	_refresh_status_line()
 	return wrap
 
@@ -977,6 +1919,10 @@ func _refresh_status_line() -> void:
 
 func _select_family(key: String) -> void:
 	_current_family = key
+	_current_collection = ""
+	_current_unassigned = false
+	_highlight_collection_row("")
+	_highlight_unassigned_row(false)
 	for k in _rail_buttons:
 		var parts: Dictionary = _rail_buttons[k]
 		var on: bool = k == key
@@ -994,6 +1940,12 @@ func _select_family(key: String) -> void:
 	_refresh_grid()
 	_refresh_inspector()
 	_refresh_import_button()
+	## PH-12: picking a family in the FAMILIES pane is a navigation, not a
+	## setting -- its whole result is the grid, which on a phone is the next
+	## pane over. Also covers `open(family_key)`, so opening the window from
+	## `Assets ▸ Icon families ▸` lands on the slots that entry names rather
+	## than on the rail it was picked from.
+	_show_phone_pane("slots")
 
 func _humanize(id: String) -> String:
 	var parts := id.split("_")
@@ -1009,6 +1961,14 @@ func _refresh_grid() -> void:
 		_grid.remove_child(c)
 		c.queue_free()
 	_cells.clear()
+
+	if _current_unassigned:
+		_refresh_grid_unassigned()
+		return
+
+	if _current_collection != "":
+		_refresh_grid_collection()
+		return
 
 	var fam := _family_by_key(_current_family)
 	if fam.is_empty():
@@ -1037,12 +1997,32 @@ func _refresh_grid() -> void:
 				continue
 			entries.append({"uid": uid, "id": String(s["id"]), "name": slot_name, "code": code})
 	else:
+		## **The engine owns these names, and this loop used to re-derive them.**
+		##
+		## `_humanize(id)` title-cases the underscore-split id, which agrees with
+		## `cartalith_assets::slot_title()` for about half the frozen vocabulary
+		## and quietly disagrees for the rest -- `mtn_pass` reads "Mtn Pass" where
+		## the engine (and the reference) says "Mountain Pass", `lake_river` reads
+		## "Lake River" against "Lake / River", `cold_desert` drops "/ Badlands".
+		## `library.rs`'s own module doc calls those titles **functionally**
+		## load-bearing, because `AssetValidator.run()`'s "Identical images"
+		## warning renders `slot.name`; a grid captioned differently from the
+		## warning that names the same slot is two names for one thing.
+		##
+		## `as_family_slots` already returns `name` per slot (it emits
+		## `slot.name.as_str()`), and `_slot_state` above is keyed by the same uid
+		## this loop builds -- so the engine's own title is one lookup away.
+		## `_humanize` survives only as the fallback for a slot the live session
+		## does not carry, which is also the only case `_slot_state` can miss.
 		var ids: Array = fam["slots"]
 		for i in ids.size():
 			var id := String(ids[i])
-			var slot_name := _humanize(id)
 			var code := "%s-%02d" % [String(fam["code"]), i + 1]
 			var uid := "%s:%s" % [String(fam["key"]), id]
+			var row: Dictionary = _slot_state.get(uid, {})
+			var slot_name := String(row.get("name", ""))
+			if slot_name == "":
+				slot_name = _humanize(id)
 			if q != "" and id.to_lower().find(q) < 0 and slot_name.to_lower().find(q) < 0 \
 					and code.to_lower().find(q) < 0:
 				continue
@@ -1067,6 +2047,54 @@ func _refresh_grid() -> void:
 		String(fam["code"]), String(fam["title"]).to_upper(), filled, total]
 	if shown != total:
 		_grid_header.text += " · %d SHOWN" % shown
+	_refresh_selection_visuals()
+
+## AS-12's collection-mode grid: entries come straight from `as_collections()`'s
+## member uid list rather than a family's frozen slot ids. Which family a uid
+## belongs to is read back per-uid off `as_slot_summary` (a collection can mix
+## uids from several families, unlike the family view), and reuses `_build_cell`
+## unchanged -- a collection-mode entry has the same `{uid,id,name,code}` shape
+## a family-mode one does. No search/sort/family-scoping here: a collection is
+## already a hand-picked set, matching AS-12's own scope (a browse row, not a
+## second filtering layer on top of one).
+func _refresh_grid_collection() -> void:
+	var members := PackedStringArray()
+	var colls: Array = _bridge.world_gen.as_collections() \
+		if _bridge.world_gen != null and _bridge.world_gen.has_method("as_collections") else []
+	for c in colls:
+		if String(c["name"]) == _current_collection:
+			members = c["uids"]
+			break
+
+	_slot_state.clear()
+	var entries: Array = []
+	for uid in members:
+		var summary: Dictionary = _bridge.as_slot_summary(uid)
+		## A stale membership referencing a since-removed custom slot --
+		## `AssetCollections`'s own doc comment (library.rs) names exactly
+		## this case as the one real way membership can outlive its slot.
+		if not bool(summary.get("ok", false)):
+			continue
+		var fam := _family_by_key(String(summary.get("family", "")))
+		var item_count := int(summary.get("item_count", 0))
+		_slot_state[String(uid)] = {
+			"filled": item_count > 0,
+			"item_count": item_count,
+			"has_dupe": summary.get("has_dupe", false),
+		}
+		entries.append({
+			"uid": String(uid),
+			"id": String(summary.get("id", "")),
+			"name": String(summary.get("name", "")),
+			"code": "%s-%02d" % [String(fam.get("code", "?")), entries.size() + 1],
+		})
+	_slot_order = entries
+
+	for entry in entries:
+		_grid.add_child(_build_cell(entry))
+
+	_grid_header.text = "%s · %d ITEM%s" % [
+		_current_collection.to_upper(), entries.size(), "" if entries.size() == 1 else "S"]
 	_refresh_selection_visuals()
 
 ## The canvas's tile: one bordered box holding a 76 px art band and, inside the
@@ -1094,6 +2122,8 @@ func _build_cell(entry: Dictionary) -> Control:
 	cell.variant_count = count
 	cell.show_check = true
 	cell.draw_border = false
+	cell.draggable = true
+	cell.owner_window = self
 	if filled:
 		var png: PackedByteArray = _bridge.as_thumbnail_png(uid, 0, 128)
 		if png.size() > 0:
@@ -1161,8 +2191,36 @@ func _on_cell_input(ev: InputEvent, uid: String) -> void:
 	_refresh_selection_visuals()
 	_refresh_inspector()
 	_refresh_import_button()
+	## PH-12: on the desktop composition the inspector is the column beside the
+	## grid and a tap on a tile fills it in place. On a phone it is the pane
+	## *behind* the grid, so the same tap has to move there or the tap appears
+	## to do nothing at all. Not while batch-selecting: there the tap means
+	## "add to the selection", and the verbs that act on it live in the grid's
+	## own header band.
+	if _phone and not _select_mode:
+		_show_phone_pane("slot")
+
+## PH-12. The grid, the collections rail and the inspector are all rebuilt from
+## fresh nodes on every refresh, and a node built after `setup()`'s one-shot
+## pass has never been through it. `DccShell.phone_fit()` is idempotent by
+## meta-flag, so re-walking the whole window costs one visit per already-sized
+## control and touches only what is new -- which is why this can be a blunt
+## "fit everything again" rather than three careful subtree calls that would
+## each have to know what their caller just replaced.
+## **Deferred**: the callers are rebuild functions with early returns in the
+## middle of them, so a direct call at the top would fit nodes about to be
+## freed and one at the bottom would be skipped on exactly the paths that
+## return early. One deferred pass runs after the rebuild, however it ended.
+func _phone_refit() -> void:
+	if _phone and _host != null:
+		_do_phone_refit.call_deferred()
+
+func _do_phone_refit() -> void:
+	if _phone and _host != null and is_instance_valid(self):
+		_host.phone_fit(self, 1.0)
 
 func _refresh_selection_visuals() -> void:
+	_phone_refit()
 	for uid in _cells:
 		var parts: Dictionary = _cells[uid]
 		var sel: bool = _selected.has(uid)
@@ -1243,6 +2301,7 @@ func _on_batch_collect() -> void:
 		_bridge.as_batch_collect(uids, t)
 		_dirty = true
 		_host.set_status("hint", "added %d asset(s) to \"%s\"" % [uids.size(), t], "accent")
+		_refresh_collections_rail()
 		_refresh_inspector()
 		_refresh_status_line())
 
@@ -1286,7 +2345,7 @@ func _on_batch_delete() -> void:
 		return
 	var d := ConfirmationDialog.new()
 	d.title = "Delete %d asset(s)?" % uids.size()
-	d.dialog_text = "Delete images of %d selected asset(s)? (custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
+	d.dialog_text = "Delete images of %d selected asset(s)? This cannot be undone. (Custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
 	d.confirmed.connect(func():
 		var result: Dictionary = _bridge.as_batch_delete(uids)
 		_dirty = true
@@ -1296,11 +2355,52 @@ func _on_batch_delete() -> void:
 		_refresh_grid()
 		_refresh_inspector()
 		_refresh_rail_counts()
+		_refresh_collections_rail()
 		_refresh_status_line()
 		d.queue_free())
 	d.canceled.connect(func(): d.queue_free())
 	add_child(d)
 	d.popup_centered()
+
+## Delete / Backspace on the grid selection (`GUI_GAP_REGISTER.md` §31's last
+## open item -- MN-09 recorded that "the Asset Library window has no key
+## handling at all", which is why the Assets ▸ Batch ▸ Delete row lost the
+## accelerator glyph it used to print).
+##
+## **Routed through `_on_batch_delete` rather than deleting.** This is a
+## destructive batch operation with no undo, so the key does exactly what the
+## button does -- it raises the same confirmation, with the same count and the
+## same "custom slots are removed entirely, frozen slots are emptied" wording.
+## A second, key-only prompt would be a second place for that wording to drift.
+##
+## Two guards, both of them the ones `app.gd`'s own `_unhandled_key_input`
+## found it needed:
+##
+##   - **A focused text field wins.** Backspace inside a `LineEdit` means
+##     "delete a character", never "delete eleven assets", and
+##     `_unhandled_key_input` still fires for a focused text field on some
+##     platforms. That covers the rename prompt, the tag field and the
+##     pack-metadata fields, none of which is ever a delete.
+##   - **An empty selection says so.** Returning silently would make the key
+##     look dead on exactly the press that teaches a user it exists.
+##
+## `_unhandled_key_input` on this node rather than on `DccApp`: this is a
+## `Window`, so it is its own `Viewport`, and the key arrives here only while
+## the library has focus -- which is also why no "is the library open?" check
+## is needed, and why the slicer modal (its own `Window`) does not steal it.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.pressed):
+		return
+	if event.keycode != KEY_DELETE and event.keycode != KEY_BACKSPACE:
+		return
+	var typing := get_viewport().gui_get_focus_owner()
+	if typing is LineEdit or typing is TextEdit or typing is SpinBox:
+		return
+	get_viewport().set_input_as_handled()
+	if _selected.is_empty():
+		_host.set_status("hint", "select at least one slot to delete", "text_ghost")
+		return
+	_on_batch_delete()
 
 # ---------------------------------------------------------------------------
 # Slot inspector
@@ -1312,7 +2412,10 @@ func _on_batch_delete() -> void:
 
 func _build_inspector() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = W_INSPECTOR
+	if _phone:
+		wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		wrap.custom_minimum_size.x = W_INSPECTOR
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg"))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -1371,19 +2474,19 @@ func _build_inspector() -> Control:
 	rows.add_theme_constant_override("separation", 9)
 	rows_pad.add_child(rows)
 
+	## Reference bounds (`#alScale`, line 27277): 5..600 -> 0.05x..6.00x.
 	var scale_row := _insp_row(rows, "Scale")
 	_insp_scale = HSlider.new()
-	_insp_scale.min_value = 10
-	_insp_scale.max_value = 400
+	_insp_scale.min_value = 5
+	_insp_scale.max_value = 600
 	_insp_scale.step = 1
 	_insp_scale.value = 100
-	_insp_scale.editable = false
 	_insp_scale.focus_mode = Control.FOCUS_NONE
 	_insp_scale.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_insp_scale.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_insp_scale.custom_minimum_size.y = 14
-	_insp_scale.tooltip_text = SCALE_GAP_NOTE
 	_style_slider(_insp_scale)
+	_insp_scale.value_changed.connect(func(_v): _on_insp_transform_changed())
 	scale_row.add_child(_insp_scale)
 	_insp_scale_readout = DccTheme.mono_label("—", "text", DccTheme.FS_TINY)
 	_insp_scale_readout.custom_minimum_size.x = 38
@@ -1391,14 +2494,36 @@ func _build_inspector() -> Control:
 	_insp_scale_readout.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	scale_row.add_child(_insp_scale_readout)
 
+	## `ImageEditor`'s drag-to-pan (line 27231-27237) has no headless-friendly
+	## equivalent in this shell's control set, so pan is exposed as two direct
+	## SpinBoxes instead -- same value (`item.t.panX`/`panY`, output-px units),
+	## a smaller control than a drag surface and no screen-space conversion to
+	## get subtly wrong.
+	var pan_row := _insp_row(rows, "Pan")
+	var pan_box := HBoxContainer.new()
+	pan_box.add_theme_constant_override("separation", 6)
+	pan_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pan_row.add_child(pan_box)
+	_insp_pan_x = SpinBox.new()
+	_insp_pan_y = SpinBox.new()
+	for sb in [_insp_pan_x, _insp_pan_y]:
+		sb.min_value = -2048
+		sb.max_value = 2048
+		sb.step = 1
+		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_well(sb.get_line_edit(), 8, 3)
+		sb.value_changed.connect(func(_v): _on_insp_transform_changed())
+		pan_box.add_child(sb)
+
 	var btn_row := HBoxContainer.new()
 	btn_row.add_theme_constant_override("separation", 5)
 	rows.add_child(btn_row)
-	for gap_label in ["Fit", "Reset"]:
-		var gb := _chip(btn_row, gap_label, Callable())
-		gb.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-		gb.disabled = true
-		gb.tooltip_text = SCALE_GAP_NOTE
+	_insp_fit_btn = _chip(btn_row, "Fit", func(): _on_insp_fit_or_reset(true))
+	_insp_fit_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_fit_btn.tooltip_text = "Reset the transform, then re-fit to the slot's anchor (fitToBottom for base-anchored families)."
+	_insp_reset_btn = _chip(btn_row, "Reset", func(): _on_insp_fit_or_reset(false))
+	_insp_reset_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_reset_btn.tooltip_text = "Reset scale to 1.00x and pan to (0, 0)."
 	_insp_replace_btn = _chip(btn_row, "Replace…", func(): _on_import_image(true))
 	_insp_replace_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	_insp_variant_btn = _chip(btn_row, "%s Variant" % DccIcons.SYMBOLS["add"],
@@ -1439,6 +2564,10 @@ func _build_inspector() -> Control:
 	for entry in [["tiled", "none"], ["centre", "center"], ["base", "bottom"]]:
 		var chip := _segment(anchor_box, String(entry[0]), Callable())
 		chip.disabled = true
+		## The per-family reason is written in `_refresh_inspector` below; this
+		## is the one it carries before anything is selected, so the row never
+		## renders as three greyed chips with nothing to say (2026-08-25 sweep).
+		chip.tooltip_text = "Anchor is fixed by the family (cartalith-assets::Family), not a per-slot setting. Select a slot to see which of the three its family uses."
 		_insp_anchor_chips[String(entry[1])] = chip
 
 	var tag_row := _insp_row(rows, "Tags")
@@ -1526,6 +2655,7 @@ func _pick_preview_bg(index: int) -> void:
 func _refresh_inspector() -> void:
 	if _insp_detail == null:
 		return
+	_phone_refit()   ## PH-12 -- see `_phone_refit()`.
 	if _focused_uid == "":
 		_insp_head.text = "NO SLOT SELECTED"
 		_insp_empty.visible = true
@@ -1573,6 +2703,10 @@ func _refresh_inspector() -> void:
 
 	var bake_note := "%d px %s" % [int(fam.get("size", 0)),
 		"opaque, seamless tile" if bool(fam.get("texture", false)) else "RGBA, straight alpha"]
+	## Setting .value below fires value_changed on every one of these controls;
+	## _on_insp_transform_changed reads _insp_syncing and no-ops while it's up,
+	## so a refresh never turns into a spurious as_set_item_transform write.
+	_insp_syncing = true
 	if item_count > 0:
 		var item: Dictionary = _bridge.as_item_summary(_focused_uid, _preview_index)
 		if bool(item.get("ok", false)):
@@ -1582,12 +2716,15 @@ func _refresh_inspector() -> void:
 			## field is dropped rather than invented; the rest is real.
 			_insp_file.text = "%s · %d × %d · PNG" % [
 				String(item.get("name", "")), int(item.get("w", 0)), int(item.get("h", 0))]
+			var pan_x := float(item.get("pan_x", 0.0))
+			var pan_y := float(item.get("pan_y", 0.0))
 			_insp_file.tooltip_text = "Bakes to %s · pan (%.0f, %.0f) · content hash %s" % [
-				bake_note, float(item.get("pan_x", 0.0)), float(item.get("pan_y", 0.0)),
-				String(item.get("hash", "—"))]
+				bake_note, pan_x, pan_y, String(item.get("hash", "—"))]
 			var pct := float(item.get("scale", 1.0)) * 100.0
 			_insp_scale.value = clampf(pct, _insp_scale.min_value, _insp_scale.max_value)
 			_insp_scale_readout.text = "%d%%" % int(roundf(pct))
+			_insp_pan_x.value = clampf(pan_x, _insp_pan_x.min_value, _insp_pan_x.max_value)
+			_insp_pan_y.value = clampf(pan_y, _insp_pan_y.min_value, _insp_pan_y.max_value)
 		else:
 			_insp_file.text = "—"
 			_insp_scale_readout.text = "—"
@@ -1596,9 +2733,18 @@ func _refresh_inspector() -> void:
 		_insp_file.tooltip_text = "Bakes to %s once an image lands here." % bake_note
 		_insp_scale.value = 100
 		_insp_scale_readout.text = "—"
+		_insp_pan_x.value = 0
+		_insp_pan_y.value = 0
+	_insp_syncing = false
+
+	_insp_scale.editable = item_count > 0
+	_insp_pan_x.editable = item_count > 0
+	_insp_pan_y.editable = item_count > 0
+	_insp_fit_btn.disabled = item_count == 0
+	_insp_reset_btn.disabled = item_count == 0
 
 	_insp_replace_btn.disabled = item_count == 0
-	_insp_replace_btn.tooltip_text = "Nothing to replace yet -- use ＋ Variant to add the first image." \
+	_insp_replace_btn.tooltip_text = "Nothing to replace yet -- use + Variant to add the first image." \
 		if item_count == 0 else "Import a PNG and drop the slot's current first variant."
 
 	# -- anchor (AS-15) -------------------------------------------------------
@@ -1624,7 +2770,7 @@ func _refresh_inspector() -> void:
 
 	# -- disclosure note ------------------------------------------------------
 	if item_count == 0:
-		_insp_note.text = "No art stored yet — ＋ Variant, or Import image… in the rail foot, lands one here."
+		_insp_note.text = "No art stored yet — + Variant, or Import image… in the rail foot, lands one here."
 	elif item_count > 1:
 		_insp_note.text = "%d variants stored; the renderer picks one by weight (AS-14). The preview shows variant %d." % [
 			item_count, _preview_index + 1]
@@ -1720,6 +2866,7 @@ func _on_clear_library() -> void:
 
 func _refresh_pack_status() -> void:
 	_refresh_rail_counts()
+	_refresh_collections_rail()
 	_refresh_pack_info_fields(_bridge.as_pack_info())
 	_refresh_status_line()
 
@@ -1812,7 +2959,19 @@ func _build_slicer_modal() -> void:
 	## a ~24MB decoded raster outlives the modal that owns it.
 	_slicer.close_requested.connect(_close_slicer)
 	_slicer.canceled.connect(_close_slicer)
-	add_child(_slicer)
+	## PH-12: parented to the SHELL, not to this dialog. An embedded subwindow
+	## is laid out in its parent viewport's own 2D space, and on a phone this
+	## dialog's viewport is content-scaled by `phone_scale()` -- so a slicer
+	## sized to fill "the screen" from inside it would be sized in units 3.66x
+	## larger than the screen's. That is the same physical-pixels-vs-parent-
+	## space confusion `_popup_full()` records above, one level further in.
+	## Parenting it to the shell puts it in the same unscaled space every other
+	## phone window measures itself against, and costs nothing on the desktop:
+	## the two `_close_slicer` connections above plus the Close chip's own call
+	## are what keep it from outliving this window, not the parent link (see
+	## the 2026-08-20 stranded-modal note in `_build_window_bar()`).
+	(_host if _host != null else self).add_child(_slicer)
+	_slicer_phone = DccWidgets.phone_window(_slicer, _host)
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -1830,7 +2989,11 @@ func _build_slicer_modal() -> void:
 	_text_button(title_row, DccIcons.SYMBOLS["cross"], func(): _close_slicer())
 	outer.add_child(title_wrap)
 
-	var body := HBoxContainer.new()
+	## PH-12: the canvas's two columns are a flexible preview beside a fixed
+	## 274 px settings stack -- 70% of a phone's 393 dp before the preview gets
+	## anything. They stack, preview over settings, exactly as
+	## `city_viewer_window.gd` stacks its canvas over its info column.
+	var body: BoxContainer = VBoxContainer.new() if _slicer_phone else HBoxContainer.new()
 	body.add_theme_constant_override("separation", 0)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(body)
@@ -1844,25 +3007,51 @@ func _build_slicer_modal() -> void:
 	left_col.add_theme_constant_override("separation", 9)
 	left_pad.add_child(left_col)
 	_sheet_preview = SheetPreview.new()
-	_sheet_preview.custom_minimum_size = Vector2(0, H_SHEET_PREVIEW)
+	## A fixed band under a scrolling settings column, for the same reason
+	## `city_viewer_window.gd` gives: "the leftover height" is not a well-defined
+	## quantity once the column below scrolls.
+	_sheet_preview.custom_minimum_size = Vector2(0,
+		PHONE_SHEET_PREVIEW if _slicer_phone else H_SHEET_PREVIEW)
+	_sheet_preview.owner_window = self
 	_sheet_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_sheet_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_sheet_preview.tooltip_text = "Wheel to zoom · middle-drag to pan · click a cell to pick it (view only -- Slice still cuts the whole grid) · drag the dot to set Margin."
 	left_col.add_child(_sheet_preview)
+	var preview_foot := HBoxContainer.new()
+	preview_foot.add_theme_constant_override("separation", 10)
 	_sheet_readout = DccTheme.mono_label("no sheet chosen", "text_faint", DccTheme.FS_TINY)
 	_sheet_readout.clip_text = true
-	left_col.add_child(_sheet_readout)
+	_sheet_readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_foot.add_child(_sheet_readout)
+	_slicer_reset_view_btn = _text_button(preview_foot, "Reset view", func(): _sheet_preview.reset_view())
+	left_col.add_child(preview_foot)
 	var choose := _chip(left_col, "Choose image…", func(): _pick_sheet_image())
 	choose.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	body.add_child(left)
 
 	# -- right: settings ------------------------------------------------------
 	var right := PanelContainer.new()
-	right.custom_minimum_size.x = W_SLICER_SIDE
 	right.add_theme_stylebox_override("panel", DccTheme.panel("panel"))
-	var right_pad := _pad(right, 16, 16, 16, 16)
 	var side := VBoxContainer.new()
 	side.add_theme_constant_override("separation", 10)
-	right_pad.add_child(side)
+	if _slicer_phone:
+		## PH-12. Fourteen rows of `66px label · control` at §13's 44 dp floor is
+		## ~700 dp of column in a screen that has ~610 of them under the preview
+		## band. A desktop column that merely fits is a phone column that has to
+		## scroll; without this the Cancel/Slice foot -- the only way to run the
+		## thing -- is below the bottom edge with nothing to reach it.
+		right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var side_scroll := ScrollContainer.new()
+		side_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		side_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		right.add_child(side_scroll)
+		var side_pad := _pad(side_scroll, 16, 16, 16, 16)
+		side_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		side_pad.add_child(side)
+	else:
+		right.custom_minimum_size.x = W_SLICER_SIDE
+		_pad(right, 16, 16, 16, 16).add_child(side)
 	body.add_child(right)
 
 	## 128 is the engine's own ceiling (`clampInt(v,1,128)`, ported as
@@ -1872,6 +3061,14 @@ func _build_slicer_modal() -> void:
 	_slicer_rows = _slicer_number(side, "Rows", 1, 128, 4)
 	_slicer_margin = _slicer_number(side, "Margin", 0, 512, 0)
 	_slicer_spacing = _slicer_number(side, "Spacing", 0, 256, 0)
+	## AS-17: a cols/rows edit reshapes the grid a dragged line array was
+	## built for, so it goes stale under whatever fingers it -- reset to
+	## uniform (`compute_cells`'s own fallback) rather than carried over onto
+	## a grid it no longer describes. `_slicer_number`'s own `value_changed`
+	## connection above already calls `_refresh_slicer_summary()`; this is a
+	## second, independent connection, not a replacement for it.
+	_slicer_cols.value_changed.connect(func(_v): _slicer_col_lines = PackedFloat64Array())
+	_slicer_rows.value_changed.connect(func(_v): _slicer_row_lines = PackedFloat64Array())
 
 	_slicer_trim = _slicer_check(side, "Trim transparent edges", false,
 		func(v: bool): _slice_trim = v,
@@ -1912,6 +3109,7 @@ func _build_slicer_modal() -> void:
 	_slicer_target.item_selected.connect(func(i: int):
 		_slice_target_index = i
 		_refresh_slicer_target_controls())
+	DccWidgets.style_popup(_slicer_target.get_popup())
 	target_row.add_child(_slicer_target)
 
 	var fam_row := _slicer_row(side, "Family")
@@ -1922,6 +3120,7 @@ func _build_slicer_modal() -> void:
 		_slicer_family.add_item("%s · %s" % [String(f["code"]), String(f["title"])])
 	_style_option(_slicer_family, false)
 	_slicer_family.item_selected.connect(func(i: int): _slice_family_index = i)
+	DccWidgets.style_popup(_slicer_family.get_popup())
 	fam_row.add_child(_slicer_family)
 
 	var fill_row := _slicer_row(side, "Fill from")
@@ -2052,6 +3251,9 @@ func _open_slicer() -> void:
 	if not visible:
 		_popup_full()
 	_refresh_slicer_target_controls()
+	if DccWidgets.phone_present(_slicer, _host):
+		_host.phone_fit(_slicer, 1.0)   ## PH-12; idempotent, so only new rows pay.
+		return
 	_slicer.popup_centered(Vector2i(W_SLICER, H_SLICER))
 
 ## Closing drops the engine-side sheet too -- a decoded 3072×2048 sheet is
@@ -2098,6 +3300,13 @@ func _load_sheet_image(path: String) -> void:
 	_sheet_image = img
 	_sheet_loaded = true
 	_sheet_preview.img_tex = ImageTexture.create_from_image(img)
+	_sheet_preview.reset_view()   ## a new sheet starts fit-to-view, not wherever the last one was panned/zoomed to
+	_sheet_preview.selected_cell = -1
+	## `loadSheet`'s own `this.resetLines()` (reference line 27837): a new
+	## sheet starts with uniform lines, not whatever the previous one's got
+	## dragged to.
+	_slicer_col_lines = PackedFloat64Array()
+	_slicer_row_lines = PackedFloat64Array()
 	_sheet_readout.text = "%s · %d × %d" % [
 		path.get_file(), int(result.get("w", 0)), int(result.get("h", 0))]
 	_refresh_slicer_summary()
@@ -2106,12 +3315,20 @@ func _clear_sheet_preview() -> void:
 	_sheet_image = null
 	_sheet_loaded = false
 	_sheet_preview.img_tex = null
+	_sheet_preview.reset_view()
+	_sheet_preview.selected_cell = -1
+	_slicer_col_lines = PackedFloat64Array()
+	_slicer_row_lines = PackedFloat64Array()
 	_sheet_preview.queue_redraw()
 	_refresh_slicer_summary()
 
 ## The slicer modal's four numbers and three toggles, in `as_slice_preview`/
 ## `as_slice_apply`'s own `opts` shape. One builder for both calls, so the
-## preview can never describe a different grid than the slice cuts.
+## preview can never describe a different grid than the slice cuts. AS-17
+## adds two more, both optional: `col_lines`/`row_lines` (a dragged interior
+## line's fractions -- omitted, not sent empty, so the engine's own uniform
+## default takes over) and `only_cell` (the selected cell's flat index, so
+## `as_slice_apply` narrows to it instead of the whole grid).
 func _slice_opts() -> Dictionary:
 	var opts := {
 		"cols": int(_slicer_cols.value),
@@ -2128,6 +3345,12 @@ func _slice_opts() -> Dictionary:
 		opts["chroma_g"] = int(roundf(c.g * 255.0))
 		opts["chroma_b"] = int(roundf(c.b * 255.0))
 		opts["chroma_tol"] = _slicer_chroma_tol.value
+	if not _slicer_col_lines.is_empty():
+		opts["col_lines"] = _slicer_col_lines
+	if not _slicer_row_lines.is_empty():
+		opts["row_lines"] = _slicer_row_lines
+	if _sheet_preview != null and _sheet_preview.selected_cell >= 0:
+		opts["only_cell"] = _sheet_preview.selected_cell
 	return opts
 
 ## §8's `N cells detected · M non-empty` readout, and the overlay behind it --
@@ -2155,10 +3378,18 @@ func _refresh_slicer_summary() -> void:
 	var non_empty := int(p.get("non_empty", 0))
 	var usable := bool(p.get("usable", false))
 	_sheet_preview.usable = usable
+	## A cols/rows/margin/spacing edit reshapes the grid under whatever index
+	## was picked -- stale rather than wrong-but-plausible, so it's cleared
+	## rather than carried over onto a cell it may no longer point at.
+	_sheet_preview.selected_cell = -1
 	_sheet_preview.col_x0 = p.get("col_x0", PackedFloat64Array())
 	_sheet_preview.col_x1 = p.get("col_x1", PackedFloat64Array())
 	_sheet_preview.row_y0 = p.get("row_y0", PackedFloat64Array())
 	_sheet_preview.row_y1 = p.get("row_y1", PackedFloat64Array())
+	## AS-17: the undisplaced division lines -- a dragged line's handle draws
+	## and hit-tests against these, not the gutter-narrowed cell edges above.
+	_sheet_preview.col_lines_px = p.get("col_lines_px", PackedFloat64Array())
+	_sheet_preview.row_lines_px = p.get("row_lines_px", PackedFloat64Array())
 	var blanks: Dictionary = {}
 	for i in p.get("blank", PackedInt32Array()):
 		blanks[int(i)] = true
@@ -2177,6 +3408,70 @@ func _refresh_slicer_summary() -> void:
 	_slice_btn.text = "Slice %d cells" % will_add
 	_slice_btn.disabled = will_add <= 0
 	_slice_btn.tooltip_text = "Every cell is empty." if will_add <= 0 else ""
+
+## `SheetPreview`'s own margin-handle drag callback (AS-17). Writing straight
+## to the SpinBox, rather than to `_slice_opts()`'s state directly, is
+## deliberate: `_slicer_number`'s `value_changed` connection already calls
+## `_refresh_slicer_summary()` on any edit, spinbox or drag alike, so the
+## readout/overlay/Slice-button-count all stay the single source of truth
+## this file already had -- dragging the handle is just a second way to move
+## the same number the spinbox moves.
+func _on_slicer_margin_dragged(new_margin: float) -> void:
+	if _slicer_margin != null:
+		_slicer_margin.value = new_margin
+
+## `SheetPreview`'s own interior-line-handle drag callback (AS-17). `axis` is
+## `"col"`/`"row"`, `index` the line within `_slicer_col_lines`/`row_lines`,
+## `sheet_value` the drag's raw sheet-space x/y. Converting that to a fraction
+## of the grid rect's own span (`GridRect::inset`'s own `(margin, dim-2*margin)`
+## terms -- the same relationship `SheetPreview._margin_handle_sheet_pos()`
+## already reads off this window) is the one piece of geometry done here; the
+## actual clamp-so-lines-never-cross rule is `move_line`, real engine logic,
+## fetched via `as_slicer_move_line` rather than reimplemented.
+func _on_slicer_line_dragged(axis: String, index: int, sheet_value: float) -> void:
+	if _sheet_image == null:
+		return
+	var margin: float = _slicer_margin.value
+	var dim: float = float(_sheet_image.get_width() if axis == "col" else _sheet_image.get_height())
+	var span: float = maxf(1.0, dim - margin * 2.0)
+	var frac: float = clampf((sheet_value - margin) / span, 0.0, 1.0)
+	var n: int = int(_slicer_cols.value) if axis == "col" else int(_slicer_rows.value)
+	var lines: PackedFloat64Array = _slicer_col_lines if axis == "col" else _slicer_row_lines
+	if lines.size() != n + 1:
+		lines = _bridge.as_uniform_lines(n)
+	lines = _bridge.as_slicer_move_line(lines, index, frac)
+	if axis == "col":
+		_slicer_col_lines = lines
+	else:
+		_slicer_row_lines = lines
+	_refresh_slicer_summary()
+
+## `SheetPreview`'s own click-to-select callback (AS-17). Real now, not
+## view-only: `_slice_opts()` reads `_sheet_preview.selected_cell` into
+## `only_cell`, so `as_slice_apply` (`slice_target_from`, `lib.rs`) narrows
+## the cut to exactly this cell. `index < 0` is a deselect (clicking the same
+## cell again) -- the Slice button reverts to the whole-grid count
+## `_refresh_slicer_summary()` last computed.
+func _on_slicer_cell_selected(index: int) -> void:
+	if _slicer_summary == null or _slice_btn == null:
+		return
+	if index < 0:
+		_host.set_status("hint", "selection cleared -- Slice cuts the whole grid again.", "text_faint")
+		_refresh_slicer_summary()
+		return
+	var cols: int = _sheet_preview.col_x0.size()
+	if cols <= 0:
+		return
+	var col := index % cols
+	var row := index / cols
+	var blank: bool = _sheet_preview.blank_cells.has(index)
+	var can_add: bool = not (blank and _slice_skip_empty)
+	_host.set_status("hint",
+		"cell col %d, row %d %s selected -- Slice cuts only this cell now. Click it again for the whole grid." %
+			[col + 1, row + 1, "(empty)" if blank else "(non-empty)"], "text_faint")
+	_slice_btn.text = "Slice this cell" if can_add else "Slice"
+	_slice_btn.disabled = not can_add
+	_slice_btn.tooltip_text = "" if can_add else "The selected cell is empty."
 
 ## Only the fields the chosen target actually uses stay enabled -- the
 ## reference greys nothing, but its own three targets read different inputs

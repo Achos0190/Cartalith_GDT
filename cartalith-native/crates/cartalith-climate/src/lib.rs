@@ -4,13 +4,15 @@
 
 use rayon::prelude::*;
 
-/// `smoothstep()` (reference HTML line 7569).
-fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
-    let denom = b - a;
-    let denom = if denom == 0.0 { 1e-6 } else { denom };
-    let t = ((x - a) / denom).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
+pub mod geoid;
+pub mod koppen;
+pub mod tides;
+pub mod windthrow;
+
+// `smoothstep()` (reference HTML line 7569). One implementation, in
+// `cartalith-jsmath` — this copy guarded a zero width but not a NaN one, and
+// the reference's `||` is JS truthiness, which is falsy for both.
+use cartalith_jsmath::smoothstep;
 
 /// This file's own Earth-default axial tilt (reference HTML line 5099) —
 /// `insolationContrastK` is normalized to `1.0` here so `equatorTemp`/
@@ -39,14 +41,14 @@ fn rotation_contrast_k(rotation_hours: f64) -> f64 {
 /// `climEffectiveEquatorTemp()` (reference HTML line 5115): the one place
 /// `equatorTemp`/`poleTemp`'s *contrast* is scaled by planet params —
 /// `poleTemp` stays the fixed anchor, only the spread above it scales.
-fn clim_effective_equator_temp(equator_temp: f64, pole_temp: f64, tilt_deg: f64, rotation_hours: f64) -> f64 {
+pub(crate) fn clim_effective_equator_temp(equator_temp: f64, pole_temp: f64, tilt_deg: f64, rotation_hours: f64) -> f64 {
     pole_temp + (equator_temp - pole_temp) * insolation_contrast_k(tilt_deg) * rotation_contrast_k(rotation_hours)
 }
 
 /// `metersPerUnit()` (reference HTML line 4951): converts the `[0,1]`
 /// height field into real meters, anchored so `1.0 - seaLevel` (the
 /// above-sea fraction of the field's range) maps to `peakM`.
-fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
+pub(crate) fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
     let denom = 1.0 - sea_level;
     let denom = if denom == 0.0 { 1e-6 } else { denom };
     peak_m / denom
@@ -54,7 +56,7 @@ fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
 
 /// `latAt()` (reference HTML line 4965): world mode spans the whole
 /// planet pole-to-pole; a region uses the configured `latN`/`latS` band.
-fn lat_at(y: usize, gh: usize, world: bool, lat_n: f64, lat_s: f64) -> f64 {
+pub(crate) fn lat_at(y: usize, gh: usize, world: bool, lat_n: f64, lat_s: f64) -> f64 {
     let denom = (gh.max(2) - 1) as f64;
     if world {
         90.0 - (y as f64 / denom) * 180.0
@@ -792,6 +794,93 @@ pub fn compute_ocean_current(
     OceanCurrentResult { u: u_c, v: v_c, ocean }
 }
 
+/// `currentOceanField()` (reference HTML lines 5577-5598), minus its SST
+/// term: the coarse ocean-current **vector** field the Ocean-currents debug
+/// view previews — terrain-deflected [`build_wind`] at `decl = 0` (annual
+/// mean) → Ekman-rotated [`compute_ocean_current`], on the same
+/// `min(GW,240)`-wide coarse grid every other debug preview here uses.
+///
+/// Split out of [`ocean_sst_anomaly`] rather than copied beside it: the two
+/// need byte-identical currents (the anomaly view and the animated-streak
+/// overlay must agree about which way the Gulf Stream runs), and the
+/// reference's own `currentOceanField` shipped a *different* answer to that
+/// question for a whole version series because it was a second copy.
+///
+/// `u`/`v` are zero on land; `ocean` is the mask
+/// [`compute_ocean_current`] derived them against. Uncached, like every
+/// debug-view derivation in this port — callers only reach it while the
+/// view is actually up.
+#[allow(clippy::too_many_arguments)]
+pub fn current_ocean_field(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    ww: usize,
+    wh: usize,
+    wrap_x: bool,
+    step: f64,
+    sea: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    equator_temp: f64,
+    pole_temp: f64,
+    tilt_deg: f64,
+    rotation_hours: f64,
+    wind_manual: bool,
+    wind_dir_deg: f64,
+    press_k: f64,
+) -> OceanCurrentResult {
+    let lat_of = |y: usize| -> f64 {
+        if world {
+            90.0 - (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * 180.0
+        } else {
+            lat_n + (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * (lat_s - lat_n)
+        }
+    };
+    let nc = ww * wh;
+    let eq_eff = clim_effective_equator_temp(equator_temp, pole_temp, tilt_deg, rotation_hours);
+    let t_sea_at =
+        |lat: f64| -> f64 { pole_temp + (eq_eff - pole_temp) * (lat * std::f64::consts::PI / 180.0).cos().max(0.0) };
+
+    // No lapse-rate cooling here, unlike `current_wind_field`'s own `tc` --
+    // this is `currentOceanField()`'s flat sea-surface temperature (reference
+    // line 5585, `tc[y*WW+x]=ts`), not the wind view's elevation-cooled air.
+    let mut tc = vec![0f32; nc];
+    tc.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+        let ts = t_sea_at(lat_of(y)) as f32;
+        row.fill(ts);
+    });
+
+    let mut elev_c = vec![0f32; nc];
+    elev_c.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+        for (x, ev) in row.iter_mut().enumerate() {
+            let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
+            let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
+            *ev = sample_arr(field, fx, fy, gw, gh) as f32;
+        }
+    });
+
+    let (wx, wy) = build_wind(
+        ww,
+        wh,
+        step,
+        Some(&tc),
+        0.0,
+        world,
+        lat_n,
+        lat_s,
+        wind_manual,
+        wind_dir_deg,
+        press_k,
+        rotation_hours,
+        Some((&elev_c, sea)),
+    );
+
+    let cur_params = OceanCurrentParams { gap_k: 0.4, iterations: 20, bend_k: 0.9, western: true };
+    compute_ocean_current(&wx, &wy, &elev_c, ww, wh, wrap_x, sea, world, lat_n, lat_s, &cur_params)
+}
+
 /// `oceanSSTAnomaly()` (reference HTML lines 5246-5268): wind-driven
 /// ocean-current SST anomaly on the coarse weather grid — poleward
 /// surface currents carry warm water poleward (warm anomaly), equatorward
@@ -836,39 +925,32 @@ pub fn ocean_sst_anomaly(
     let t_sea_at =
         |lat: f64| -> f64 { pole_temp + (eq_eff - pole_temp) * (lat * std::f64::consts::PI / 180.0).cos().max(0.0) };
 
-    let mut tc = vec![0f32; nc];
-    tc.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
-        let ts = t_sea_at(lat_of(y)) as f32;
-        row.fill(ts);
-    });
-
-    let mut elev_c = vec![0f32; nc];
-    elev_c.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
-        for (x, ev) in row.iter_mut().enumerate() {
-            let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
-            let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
-            *ev = sample_arr(field, fx, fy, gw, gh) as f32;
-        }
-    });
-
-    let (wx, wy) = build_wind(
+    // The coarse-grid setup + `computeOceanCurrent` call this shares verbatim
+    // with `currentOceanField()` lives in [`current_ocean_field`] -- ONE
+    // function answering the question "what is the ocean current here",
+    // rather than the two-copies-that-drift shape the reference's own
+    // CHANGELOG keeps re-finding (its `currentOceanField` was a wind-`v`
+    // stand-in until v1.78 precisely because it was a second copy).
+    let cur = current_ocean_field(
+        gw,
+        gh,
+        field,
         ww,
         wh,
+        wrap_x,
         step,
-        Some(&tc),
-        0.0,
+        sea,
         world,
         lat_n,
         lat_s,
+        equator_temp,
+        pole_temp,
+        tilt_deg,
+        rotation_hours,
         wind_manual,
         wind_dir_deg,
         press_k,
-        rotation_hours,
-        Some((&elev_c, sea)),
     );
-
-    let cur_params = OceanCurrentParams { gap_k: 0.4, iterations: 20, bend_k: 0.9, western: true };
-    let cur = compute_ocean_current(&wx, &wy, &elev_c, ww, wh, wrap_x, sea, world, lat_n, lat_s, &cur_params);
 
     let mut sst = vec![0f32; nc];
     sst.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {

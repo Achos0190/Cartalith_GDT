@@ -51,6 +51,21 @@ cartalith-rng = { path = "../cartalith-rng" }
 # erosion/hydrology. Same `rayon = "1"` five sibling crates already declare, so
 # this adds no new dependency to the tree -- only to this crate's own graph.
 rayon = "1"
+# `SAVEFILE_COMPAT.md`/FI-01's save writer: `params.rs` builds the save's
+# `state` object and reads it back. Not a new dependency in the tree --
+# `cartalith-io` (already a dependency above) has declared the same version
+# since the reader was written; this only makes it a direct one, the same
+# precedent `cartalith-terrain`/`cartalith-spatial` set above.
+serde_json = "1.0.151"
+# `GUI_GAP_REGISTER.md` CA-08's "Save preset": `TerrainAppearance` (and the
+# `Npr` block and `ElevationRamp` inside it) derive `Serialize`/`Deserialize`
+# so a named look can be written to and read back from a small JSON file. The
+# one Rust line §7.15 said the whole feature depends on. Same version the four
+# sibling crates that already derive serde declare, so this is new only to this
+# crate's own graph -- and it must be a *regular* dependency, not a dev one,
+# because `render.rs` is `#[path]`-included by five separate test targets that
+# each compile it as library code.
+serde = { version = "1.0.229", features = ["derive"] }
 
 # Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): this was a
 # dev-dependency while only the L0 timing harness needed it. The `gpu_*`
@@ -58,6 +73,12 @@ rayon = "1"
 # budget) is library code now, so it moved here. Not a new dependency in
 # the tree either way -- `cartalith-engine` above already pulls it in.
 cartalith-gpu = { path = "../cartalith-gpu" }
+
+# `MARKDOWN_VAULT_SCOPE.md` milestone 1. `vault_bridge.rs` is this crate's
+# half of the Markdown Vault integration; every Markdown, section, block and
+# link decision lives in `cartalith-vault`, which depends on nothing in this
+# workspace and on no Godot type.
+cartalith-vault = { path = "../cartalith-vault" }
 
 [dev-dependencies]
 # `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
@@ -69,3 +90,11 @@ cartalith-gpu = { path = "../cartalith-gpu" }
 # `cartalith-gpu`'s `_with` GPU flow/weather entry points to measure the
 # CPU-vs-GPU comparison the scope asks for -- now a regular dependency
 # above (see its comment there), so it is no longer listed here.
+# `tests/project_round_trip.rs` asserts the project archive's own entry
+# names, order and per-entry byte sizes -- the contract a second
+# implementation of `SAVEFILE_COMPAT.md` is written against, so it is
+# checked against the real container rather than against the reader that
+# shares the writer's code. `cartalith-io` (a dependency above) has
+# declared the same version since the MVP; this only makes it visible to
+# this crate's test targets.
+zip = { version = "8.6.0", features = ["deflate"] }

@@ -1,8 +1,20 @@
 //! Golden-parity tests for sea-lane routing -- `PHASE2_SCOPE.md` milestone
 //! 13: `_civMstRoutes(ports, true)` (reference HTML line 21240, `isSea`
 //! branch only -- see `civ_sea_routes`'s own doc comment in `src/lib.rs`
-//! for why the `isSea=false` land branch and `_civSeaTimeEdgeCost`
-//! wind/current-costed routing are both out of scope).
+//! for why the `isSea=false` land branch is out of scope).
+//!
+//! **`_civSeaTimeEdgeCost` (current/wind-costed sea lanes) is no longer
+//! out of scope** -- it is ported as `civ_sea_time_edge_cost` and wired
+//! into `civ_sea_routes` behind two new trailing `Option<&JpCoarseField>`
+//! parameters. This paragraph used to list it beside the land branch as a
+//! shared decline; it is corrected here rather than left stale. Every case
+//! below still passes `None, None` for both, which is byte-for-byte the
+//! reference's own `if(!oceanF&&!windF) return null` fallback and is
+//! exactly what keeps these golden values meaning "matches v2.10" -- the
+//! new costing has its own coverage in `cartalith-civ/src/lib.rs`'s
+//! `civ_sea_time_edge_cost`/`civ_sea_routes` unit tests instead, on a
+//! synthetic fixture built to show a real difference rather than on this
+//! file's extracted-from-the-reference ports.
 //!
 //! Node `vm` harness: fresh per this project's established practice (not
 //! checked in). Blocks #1 (2084-14556) + #2 (14563-26720), same ranges
@@ -104,7 +116,8 @@ fn sea_routes_case_0_three_ports_augmentation() {
         named(6, 2, 3, "Ghalbahrghaltazdune", 22094),
     ];
 
-    let routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &water_bodies, 14, 11, false, p.map_width_km);
+    let routes =
+        cartalith_civ::civ_sea_routes(&ports, &ws.field, &water_bodies, 14, 11, false, p.map_width_km, None, None);
 
     assert_eq!(routes.len(), 2, "case0: route count mismatch");
 
@@ -146,7 +159,8 @@ fn sea_routes_case_1_five_ports_mixed_geography() {
         named(4, 7, 5, "Taela'elorashade", 22508),
     ];
 
-    let routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &water_bodies, 16, 12, true, p.map_width_km);
+    let routes =
+        cartalith_civ::civ_sea_routes(&ports, &ws.field, &water_bodies, 16, 12, true, p.map_width_km, None, None);
 
     assert_eq!(routes.len(), 4, "case1: route count mismatch");
 

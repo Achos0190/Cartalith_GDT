@@ -22,6 +22,20 @@ extends Control
 ## not UI chrome -- the same reasoning the terrain renderer's own biome
 ## colours already follow (theme-independent, see CHANGELOG's UI-reskin
 ## entries).
+##
+## **This is the fallback now, not the authority** (2026-09-01). It matched
+## `lib.rs`'s `FACTION_RGB` byte for byte, and the engine stopped indexing
+## that table directly: `CivData::faction_rgb` consults the roster's own
+## `color_override` first (`GUI_GAP_REGISTER.md` CV-21) and falls through to
+## `faction_rgb_default`, whose rule past the sixth faction is
+## `civ_faction_color`'s golden-angle rotation -- explicitly *not* a
+## `% FACTION_RGB.len()` wrap, "which would have given faction 7 faction 1's
+## exact colour". Indexing this table with `% 6` was doing exactly that, and
+## ignoring every user colour edit besides, so a settlement pin disagreed
+## with the territory wash under it, with the Political-control field and
+## with the roster swatch -- three surfaces that all go through
+## `faction_rgb`. `set_faction_colors()` pushes those same swatches in;
+## these six are what is drawn before a world exists to push any.
 const FACTION_COLORS: Array[Color] = [
 	Color(0.902, 0.624, 0.0),   # orange
 	Color(0.337, 0.706, 0.914), # sky blue
@@ -82,6 +96,43 @@ const SETTLEMENT_LOD := {
 	"village": 0.7,
 	"hamlet":  1.4,
 }
+## `CIV_VILLAGE_ADDON_LOD` (reference line 6446) -- the threshold for the
+## *additive* village layer the `villages` generation flag produces, which the
+## reference gates separately from `CIV_LOD_PLACE` and, uniquely, hides
+## **outright** below it: "Below it the pin is fully hidden (not the small-dot
+## fallback other kinds get) -- the whole point is to keep the low-zoom map
+## uncluttered." Its own comment names the complaint it was written for
+## ("waay too populated") and the previous value it was raised from (2.0).
+##
+## The port had no equivalent: `lib.rs` folds `civ_seed_villages`' output into
+## the settlement roster as plain `Hamlet`s ("a village renders exactly like
+## any other hamlet, which is what the reference's own hamlet-tier tagging for
+## these already implies") and so drew every one of them under
+## `SETTLEMENT_LOD.hamlet` with a dot fallback. That inference is the one place
+## it does not hold -- the reference tags them `villageAddon` precisely so the
+## renderer will *not* treat them as hamlets. Measured on the shell's own
+## default world (the shell defaults `villages` to true, where the reference
+## defaults it false): 209 addon villages against 24 real settlements, all 209
+## drawn full-size with pins and names from 1.4x zoom. That is the owner's
+## "minor settlements are always visible" (2026-08-24).
+const VILLAGE_ADDON_LOD := 2.4
+## An addon village's only signature in `get_settlements()`: `lib.rs` gives it
+## an unconditional `pop: 0` (its own comment, and `VillageSettlement`'s in
+## `cartalith-civ`), while every base settlement goes through
+## `name_and_populate_settlements`' suitability formula, whose floor for the
+## smallest tier is `round(120 * 0.7 * 0.8) = 67`. Exact, not heuristic, for
+## the default pipeline.
+##
+## It is a proxy nonetheless, and the honest fix is to expose the flag the
+## engine already keeps (`CivData::village_tids`, alongside the `tid` this
+## dictionary already carries) -- registered in `GUI_GAP_REGISTER.md`. One case
+## degrades until then: with the static post-collapse recovery phase enabled,
+## `civ_apply_recovery` floors every population at 8, so an addon village stops
+## reporting 0 and falls back to being drawn as an ordinary hamlet. That is
+## today's behaviour, so the degradation is "no improvement", never a place
+## wrongly hidden.
+const VILLAGE_ADDON_POP := 0
+
 ## Reference's own low-zoom fallback dot (line 15752-15756):
 ## `dr=(isPoi?1.4:1.9)*lsc` plus a `+0.6*lsc` dark outline ring -- `lsc`
 ## there is this file's own per-frame `sc`.
@@ -115,11 +166,14 @@ const LOD_DOT_OUTLINE_SC := 0.6
 ## holding steady -- confirmed numerically before this fix (a settlement
 ## pin at `zoom=1.0` vs. the same pin at `zoom=4.0` measured 4x the on-screen
 ## radius, not the same one). `_civ_zoom_k()` below is the missing term,
-## using the reference's own clamp bounds (0.35-5.0) rather than this port's
-## own, wider `ViewportHost.ZOOM_MIN`/`ZOOM_MAX` (0.4-8.0) -- deliberately:
-## the clamp exists purely so a pin never vanishes at extreme zoom-in nor
-## dominates at extreme zoom-out, a readability bound with no reason to
-## track wherever this port's own pan/zoom range happens to sit.
+## keeping the reference's own `0.35` zoom-out floor. Its `5.0` zoom-*in* cap
+## was kept too, on the argument that the clamp is a readability bound with no
+## reason to track this port's own pan/zoom range -- **wrong, and corrected on
+## 2026-08-24**: past that cap the term stops cancelling and the pin resumes
+## growing linearly, which is the very defect this whole comment is about. It
+## was a 1.6x overshoot while `ViewportHost` capped at 8.0 and became 32x when
+## the cap became `lodMaxZoom()`. `_civ_zoom_k()` below carries the full
+## reasoning and the measurement.
 ##
 ## The resolution term is still ported the same way this comment always
 ## described: tying `sc` to `rect.size.x` ALONE (not `rect.size.x/_gw`,
@@ -163,24 +217,146 @@ const COASTAL_BADGE_R_SC := 0.55
 ## line 15198) that this control's existing region-label palette already
 ## matches it; only the fill needed a name of its own.
 const SETTLEMENT_LABEL_FILL := Color(0.965, 0.925, 0.831)
-## By `way_type` (`cartalith_civ::WayType`, peak-corridor-usage
-## classification, Phase 2 milestone 14) -- a highway should read as more
-## prominent than a track, the same "tier implies visual weight" principle
-## `TIER_RADIUS` already applies to settlements.
-const ROAD_COLOR := Color(0.36, 0.29, 0.16, 0.55)
-const ROAD_WIDTH_BY_TYPE := {"highway": 2.6, "regional": 2.0, "road": 1.6, "track": 1.1}
+## Land-way styling by `way_type`, one entry per branch of the reference's own
+## `drawCivLayer` §2a type ladder (reference HTML lines 15511-15534). Every
+## land type there is **two strokes**: a dark underlayer first, then a lighter
+## coloured overlay on top of it -- solid for the two trunk tiers, dashed for
+## the three minor ones -- which is what makes a highway, a track and an
+## ancient way tell apart at a glance rather than by width alone.
+##
+## Each entry is that branch's own literal `strokeStyle`/`lineWidth`/
+## `setLineDash` values converted to `Color`/px, `rsc` factored out (widths
+## here are screen px -- see `_draw_way_segment`'s own note on `_crisp_begin`):
+##
+## | type     | reference line | underlayer            | overlay                  | dash      |
+## |----------|----------------|-----------------------|--------------------------|-----------|
+## | highway  | 15515-15517    | `rgba(20,10,5,.55)` 2.3 | `rgba(210,145,55,.98)` 1.45 | solid   |
+## | regional | 15519-15521    | `rgba(25,14,5,.45)` 1.8 | `rgba(178,118,52,.88)` 1.15 | solid   |
+## | road     | 15531-15534    | `rgba(30,20,10,.4)` 1.2 | `rgba(160,100,60,.75)` 0.7  | `[1.8,1.3]` |
+## | track    | 15523-15526    | `rgba(30,20,10,.35)` 1.1 | `rgba(100,120,60,.75)` 0.6 | `[1.3,2]`   |
+## | ancient  | 15527-15530    | `rgba(20,10,5,.35)` 1.1 | `rgba(120,110,100,.65)` 0.65 | `[2.5,1.3]` |
+##
+## `highway`/`regional`/`road`/`track` are `cartalith_civ::WayType`'s four
+## peak-corridor-usage tiers (Phase 2 milestone 14); `ancient` is not a
+## `WayType` at all but the fourth `ManualWayType`, reaching this control since
+## `get_roads()` began appending hand-drawn ways (IN-02). The reference gives
+## it its own grey dashed branch, and now so does this.
+##
+## **This replaced a single flat `ROAD_COLOR` (2026-08-24.)** Every land way
+## was stroked `Color(0.36, 0.29, 0.16, 0.55)` regardless of type, with only
+## the width varying -- measured, not assumed: a two-background pixel probe
+## recovered exactly `C=(91,75,40) a=0.549` on all five types. So a track and a
+## highway differed by 1.5 px of width and nothing else, and `ancient`'s grey
+## and `track`'s olive -- the two the reference deliberately colours *away*
+## from the road ochre -- were indistinguishable from a trunk road.
+const WAY_STYLE := {
+	"highway": {
+		"under": Color(0.078, 0.039, 0.020, 0.55), "under_w": 2.3,
+		"over": Color(0.824, 0.569, 0.216, 0.98), "over_w": 1.45,
+		"dash": 0.0, "gap": 0.0,
+	},
+	"regional": {
+		"under": Color(0.098, 0.055, 0.020, 0.45), "under_w": 1.8,
+		"over": Color(0.698, 0.463, 0.204, 0.88), "over_w": 1.15,
+		"dash": 0.0, "gap": 0.0,
+	},
+	"road": {
+		"under": Color(0.118, 0.078, 0.039, 0.4), "under_w": 1.2,
+		"over": Color(0.627, 0.392, 0.235, 0.75), "over_w": 0.7,
+		"dash": 1.8, "gap": 1.3,
+	},
+	"track": {
+		"under": Color(0.118, 0.078, 0.039, 0.35), "under_w": 1.1,
+		"over": Color(0.392, 0.471, 0.235, 0.75), "over_w": 0.6,
+		"dash": 1.3, "gap": 2.0,
+	},
+	"ancient": {
+		"under": Color(0.078, 0.039, 0.020, 0.35), "under_w": 1.1,
+		"over": Color(0.471, 0.431, 0.392, 0.65), "over_w": 0.65,
+		"dash": 2.5, "gap": 1.3,
+	},
+}
+## The reference's own `else` arm: an unrecognised `type` falls to the `road`
+## branch rather than being skipped (line 15531's comment says so outright,
+## `// road (default)`).
+const WAY_STYLE_DEFAULT := "road"
+
+## `CIV_LOD_ROAD` (reference HTML line 15380, read by `_civWayLodMin` at 15012):
+## the camera zoom below which a way of this type is not drawn at all --
+## `GUI_GAP_REGISTER.md` **CA-18**'s zoom ladder, for the one layer the
+## reference actually ships one for.
+##
+## Registered as unbacked ("no per-layer zoom range exists anywhere in the
+## shell"), and for the layers v3 lists that is still true. For *ways* the
+## reference has a real table, and this is it, ported verbatim. Its effect
+## here is narrower than there and deliberately not widened: `ViewportHost`'s
+## `ZOOM_MIN` is **0.4**, so `road`'s 0.35 threshold is unreachable and only
+## `track` and `ancient` ever drop out -- between 0.4 and 0.7, which is the
+## zoomed-right-out view where a minor track is a 1 px scratch anyway. The two
+## trunk tiers are `0` there, meaning "always", not "missing".
+##
+## `sea-lane` is `0` in the reference too and is drawn from a different getter
+## here, so it never reaches this lookup; kept in the table so the table is
+## the reference's table.
+const WAY_LOD_MIN := {
+	"highway": 0.0, "regional": 0.0, "road": 0.35, "track": 0.7,
+	"ancient": 0.7, "sea-lane": 0.0,
+}
+## `_civWayLodMin`'s own fallback for a type not in the table above.
+const WAY_LOD_DEFAULT := 0.35
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
-## Sea-lane style: reference's own convention (reference HTML line ~15511)
-## is a dark navy solid underlayer plus a lighter dashed overlay -- not the
-## `ROAD_COLOR`/`ROAD_WIDTH_BY_TYPE` land-road styling, so sea routes read
-## as visually distinct (shipping lanes, not roads) at a glance.
+## Sea-lane style: the `sea-lane` arm of the same §2a ladder `WAY_STYLE` above
+## covers the land types of (reference HTML lines 15511-15514) -- a dark navy
+## solid underlayer plus a lighter dashed overlay, deliberately away from every
+## land-road hue so a shipping lane never reads as a road. Kept as its own
+## constants rather than a sixth `WAY_STYLE` row because sea lanes arrive from
+## a different getter (`get_sea_routes()`, never `get_roads()`) and so never
+## reach `WAY_STYLE`'s lookup.
 const SEA_ROUTE_UNDERLAY := Color(0.039, 0.118, 0.235, 0.4)
 const SEA_ROUTE_UNDERLAY_WIDTH := 1.5
 const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
 const SEA_ROUTE_DASH_WIDTH := 0.85
+## `setLineDash([2.6*rsc, 2*rsc])` -- an *unequal* pair. The gap was 2.6 here
+## until 2026-08-24 (it fell out of `_draw_dashed_polyline`'s "gap defaults to
+## dash" convenience default), which stretched the lane's period from the
+## reference's 4.6 to 5.2 and left every dash separated by a gap as long as
+## itself. Measured, not assumed: the dash probe read a 26 px period at 5x
+## width scale where the reference's is 23.
 const SEA_ROUTE_DASH_LENGTH := 2.6
+const SEA_ROUTE_DASH_GAP := 2.0
+
+## §4.5.4's Route tool: a committed *route* is not infrastructure. It is a
+## solved journey across the existing network (`route_commit` ->
+## `civ_join_dijkstra_segs`, mixed land/sea), and the reference draws it as
+## its own layer on top of the ways it follows (`drawCivLayer` block 2b,
+## reference HTML lines 15552-15560, `civJourneys.forEach`) -- a dark
+## underlayer stroke, then a dashed amber overlay. These four constants are
+## that block's own unselected-journey values converted to `Color`:
+## `rgba(40,25,5,.5)` at `lineWidth 3`, then `rgba(200,160,60,.85)` at
+## `lineWidth 1.5` with `setLineDash([5,3])`.
+##
+## Reusing `ROAD_COLOR` would make a route invisible, which is exactly what
+## happened before this existed: a committed 578 km route drew nothing at all
+## (`GUI_GAP_REGISTER.md` IN-09).
+const MANUAL_ROUTE_UNDERLAY := Color(0.157, 0.098, 0.020, 0.5)
+const MANUAL_ROUTE_UNDERLAY_WIDTH := 3.0
+const MANUAL_ROUTE_COLOR := Color(0.784, 0.627, 0.235, 0.85)
+const MANUAL_ROUTE_WIDTH := 1.5
+const MANUAL_ROUTE_DASH := 5.0
+const MANUAL_ROUTE_GAP := 3.0
+
+## Block 2b's `sel` branch, the same three values it varies and no others:
+## `lineWidth (sel?5:3)`, `strokeStyle sel?'rgba(255,210,80,.98)'`,
+## `lineWidth (sel?2.5:1.5)`. The dash pattern is NOT selection-dependent in
+## the reference and is not made so here. Wired since IN-09's second half
+## (2026-08-24), when `route_delete`/`route_set_name` gave the Routes list a
+## selected row to drive it -- before that there was no route selection in
+## this shell at all.
+const MANUAL_ROUTE_SEL_UNDERLAY_WIDTH := 5.0
+const MANUAL_ROUTE_SEL_COLOR := Color(1.0, 0.824, 0.314, 0.98)
+const MANUAL_ROUTE_SEL_WIDTH := 2.5
 
 ## §4.5.5's Icon tool markers, by `icon_dict`'s `family` key
 ## (`cartalith_assets::manual::ManualIconFamily::key()`). No texture atlas
@@ -195,8 +371,70 @@ const ICON_FAMILY_COLORS := {
 	"poi": Color(0.941, 0.894, 0.259),
 	"custom": Color(0.337, 0.706, 0.914),
 }
+## **This is not the engine's icon radius, and the two do not convert**
+## (recorded 2026-09-01).
+##
+## Here the drawn mark is `ICON_BASE_RADIUS * max(0.2, scale)` in this
+## control's own LOCAL pixels -- no `rect`/grid term and no `_civ_zoom_k()`
+## term -- so the camera, which is an ancestor scale (see `_crisp_begin()`),
+## multiplies it: an icon's mark grows with zoom rather than holding a
+## constant on-screen size the way a settlement pin does. `_draw_landmarks`
+## is written the same way, so this is a shared property of the two newer
+## annotation layers and not a slip unique to this constant.
+##
+## The engine's `manual.rs::icon_box_at` computes
+## `r = 5.0 * max(1, grid_w/512) * civ_zoom_k(zoom) * icon_scale * icon.scale`
+## in GRID CELLS, and `cartography_workspace.gd` uses it that way: both the
+## resize-handle hit test (`Vector2(gx, gy).distance_to(...) <= h["r"]`) and
+## the drawn handle come from `icon_handles`. The two expressions share no
+## term. One is grid-relative and zoom-stabilised under a clamp; the other is
+## a bare local-pixel constant. They can only coincide at one accidental
+## combination of grid width, viewport width and zoom, and the ratio between
+## them swings as the camera moves -- which is why the resize handle does not
+## sit on the mark it resizes.
+##
+## **Deliberately not "fixed" by editing this number.** Making the mark match
+## the engine means adopting `civ_zoom_k`'s clamp, which `_civ_zoom_k()` above
+## rejects on a live measurement; making the engine match the mark means the
+## unclamped handle variant that same comment describes. Both are the one
+## engine-side decision, and changing the drawn size here without it would add
+## a third rule rather than remove the second.
 const ICON_BASE_RADIUS := 5.5
 const ICON_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
+
+## **Generated landmarks are not manual icons, and must not read as them.**
+##
+## `design/landmark-generation/LANDMARK_UI_DESIGN.md` §9's row 23:
+## `icon_place`/`icon_list` draw the *manual* Icon tool's stamps, and "a
+## generated landmark is not one". They come from different places, mean
+## different things, and one of them the user placed by hand — so they are drawn
+## with a different mark, not a fifth colour in `ICON_FAMILY_COLORS`.
+##
+## Size carries CLASS (`LANDMARK_GENERATION_RESEARCH.md` §23's hierarchy:
+## Continental is extremely rare and enormous, Local is common and small),
+## because §23 says the hierarchy "should determine both generation frequency
+## and map visibility" — this is the visibility half. Importance modulates
+## within a class (§24: importance is emergent, not a rarity roll), so two
+## regional landmarks are not identical dots.
+##
+## The mark itself is a **ring**, open rather than filled, for a reason worth
+## stating: a filled mark competes with the settlement pins and the manual
+## icons for the same visual weight, and a landmark is a place on the map
+## rather than a thing on top of it. An open ring reads as an annotation of the
+## terrain under it.
+const LANDMARK_CLASS_RADIUS := {
+	"continental": 9.0,
+	"regional": 6.5,
+	"local": 4.5,
+	"cultural": 5.5,
+}
+## Cultural landmarks are the one class whose meaning is a civilisation's rather
+## than the terrain's (§26: the same mountain is sacred to one culture and a
+## border marker to another), so they carry the accent the rest of the shell
+## uses for civ data, and the physical classes carry a cool neutral.
+const LANDMARK_COL_PHYSICAL := Color(0.612, 0.769, 0.816, 0.95)
+const LANDMARK_COL_CULTURAL := Color(0.878, 0.639, 0.290, 0.95)
+const LANDMARK_OUTLINE := Color(0.051, 0.043, 0.031, 0.85)
 
 ## §4.5.5's Label tool. `color`/`font` are always the label's *effective*
 ## value (`label_dict` calls `color_or_default`/`font_or_default`), so no
@@ -208,6 +446,50 @@ const LABEL_STROKE_COLOR := Color(0.031, 0.024, 0.016, 0.8)
 const LABEL_ZOOM_BASE_PX_PER_CELL := 2.0 ## tuning constant, see `_label_font_px`
 const LABEL_FONT_PX_MIN := 8.0
 const LABEL_FONT_PX_MAX := 96.0
+
+## `drawArcLabel`'s three layout numbers. **`cartalith-civ/src/labels.rs` is
+## the source of truth for all three** -- `ARC_STRAIGHT_THRESHOLD` (`:150`) and
+## the two inside `arc_label_layout` (`:176`, the radius floor and the
+## spread-over-1/2.2-of-a-circle term). They are duplicated here as named
+## constants, not left as literals in `_draw_labels`, so that a change on the
+## Rust side has one place to land on this one and `grep` finds the pair.
+##
+## Why they are duplicated at all rather than the layout being asked of
+## `WorldGen.label_glyph_layout` (bound, wrapped by
+## `EngineBridge.label_glyph_layout`, `engine_bridge.gd:2469 func
+## label_glyph_layout`, and preferable in principle -- its doc warns that summing per-`char`
+## advances instead of measuring the whole string drifts on a kerned font,
+## which is exactly what the loop below does): this control is data-*pushed*.
+## It holds no `EngineBridge` -- `ViewportHost.refresh_annotations()` hands it
+## `label_list()` and nothing else -- so the call is not reachable from here
+## without giving the overlay a bridge handle, which is `viewport_host.gd`'s
+## decision and not this file's.
+##
+## The second reason is the one that would survive that: the binding sizes the
+## label itself, from `labels.rs::label_font_size` (`grid_w / 512`, `civ_zoom_k`,
+## floor 9), while this file sizes it from `_label_font_px` below (px-per-cell
+## against `LABEL_ZOOM_BASE_PX_PER_CELL`, clamped to the two constants above,
+## truncated to an int). Those are different numbers, and `size_px` is an input
+## to the radius floor -- so swapping the loop for the binding would silently
+## re-shape every arched label, not merely relocate the arithmetic. Reconciling
+## the two font-size models is the real work, and it is not this row's.
+##
+## **What that unreconciled pair actually costs, added 2026-09-01.** The
+## engine's number is not merely unused here -- it is what the user grabs.
+## `label_box_at` derives its box from `label_font_size` (`side = max(meas_w,
+## fsz * 1.3) * 1.25`), `label_handles` places the resize/rotate/arc handles
+## on that box, and `cartography_workspace.gd` hit-tests and draws all three
+## from it (`_handle_hit`, `_update_label_handles_overlay`). So the engine
+## sizes the hit box and the handles against a label whose on-screen size this
+## file computed differently -- the same shape of defect `ICON_BASE_RADIUS`
+## and `_civ_zoom_k()` each carry a note about, and the same one fix: pick one
+## model. Cheapest correct direction is to feed this file's own px-per-cell
+## into `LabelViewEnv` so `label_font_size` reproduces `_label_font_px`, then
+## read `fsz` off the binding and delete the local copy. That spans two crates
+## and another pass's workspace file; recorded here rather than half-done.
+const ARC_STRAIGHT_THRESHOLD := 0.01   ## `labels.rs:150`, the named constant there.
+const ARC_RADIUS_FLOOR_K := 1.2        ## `labels.rs:176`, `size_px * 1.2`.
+const ARC_SPREAD_DIVISOR := 2.2        ## `labels.rs:176`, `total_w / (2.2 * |a|)`.
 
 ## Emitted whenever the hovered settlement changes -- `null` on hover-exit.
 ## Lets `main.gd`'s Sample dock show the same data this overlay's own
@@ -255,6 +537,77 @@ signal map_clicked(gx: float, gy: float)
 signal map_dragged(gx: float, gy: float)
 signal map_released(gx: float, gy: float, valid: bool)   ## LMB release, ends a drag gesture.
 
+## The reference's `contextmenu` handler on `view` (line 25888) ->
+## `_civCtxShow` (25857). `PARITY_AUDIT.md` §5 item 2: no `MOUSE_BUTTON_RIGHT`
+## handler existed anywhere under `godot-project/`, which left the reference's
+## only path to Move-viewer-to and Delete-nearest-place with no counterpart.
+##
+## Stays as tool-agnostic as the three primitives above: this control reports
+## "a right click landed at this grid cell, and the nearest settlement to it
+## is `hit`", and nothing about what should happen next. The reference does
+## its own nearest-place hit test inside the handler with the *same* radius
+## `_civSelectPlaceAt` uses; here `_hit_test_settlement` already is that one
+## shared definition, so the hit travels with the signal rather than being
+## re-derived by whoever builds the menu.
+##
+## `screen_pos` is this control's local position, which is what a `PopupMenu`
+## needs converted to global -- the receiver owns that conversion, since only
+## it knows which window it is popping into.
+signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
+
+# ── Touch: press-and-hold IS the right click ─────────────────────────────────
+#
+# A finger has no second button, so on Android the context menu above had no
+# route at all -- the one capability from the civ-interaction pass that phone
+# could not reach by any path (`GUI_GAP_REGISTER.md`, and the phone canvas's
+# own TARGETS rule says nothing about it because right click is not a phone
+# gesture). Press-and-hold is the platform's answer, and this is where it
+# belongs: the same control that owns the right click owns its touch twin, so
+# `civilization_workspace.gd` receives one signal and never learns which
+# pointer produced it.
+#
+# **The hard part is not the timer, it is the click that already fired.**
+# `input_devices/pointing/emulate_mouse_from_touch` is on (project.godot), so a
+# finger-down arrives here as a left `InputEventMouseButton` *immediately* --
+# and `_gui_input`'s press branch emits `map_clicked` on press, which with the
+# Settlement tool armed drops a settlement. Holding to open a menu would place
+# a town first and then offer to edit a different one. So a touch press is
+# **withheld** until the gesture says what it is:
+#
+#   drifts past `_TOUCH_SLOP`  -> it was a drag: release the press now, so the
+#                                 sculpt/paint stroke starts from its real origin
+#   lifts before the deadline  -> it was a tap: release the press, then release
+#   reaches the deadline       -> it was a hold: discard the press entirely and
+#                                 emit `map_right_clicked`; the lift is swallowed
+#
+# Driven off the *emulated mouse* stream rather than `InputEventScreenTouch`,
+# deliberately: the emulated events are the ones this control is already known
+# to receive, and `device < 0` (`InputEvent.DEVICE_ID_EMULATION`) is Godot's own
+# marker for them, so a real mouse -- every desktop run -- takes none of this
+# path and behaves exactly as it did.
+#
+# `OS.has_feature("mobile")` is ORed in as a second, coarser gate. Both were
+# needed to get this working the first time and neither was individually
+# provable on the handset without a build cycle per guess, so both stayed: the
+# device id is the precise signal, the feature flag is the guarantee that an
+# Android build takes this path even if a future engine stamps its emulated
+# events differently. A physical mouse plugged into an Android device is the
+# one case the flag over-claims, and it still resolves correctly -- the press
+# is released on the lift or the first motion, one frame later than it would
+# have been.
+const _TOUCH_HOLD_MS := 500
+## Physical pixels, not dp: this control is laid out in the main viewport,
+## which carries no content scale. 28 px is ~10 dp on a 400 ppi handset, which
+## is a finger's idle wobble and comfortably under the distance a deliberate
+## drag covers in half a second.
+const _TOUCH_SLOP := 28.0
+
+var _touch_armed := false        ## a withheld press is outstanding
+var _touch_swallow_up := false   ## the hold fired; the coming lift is not a release
+var _touch_ms := 0
+var _touch_pos := Vector2.ZERO
+var _touch_press: Dictionary = {}
+
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
@@ -283,6 +636,28 @@ var _show_sea_routes := true
 ## not make a place unselectable.
 var _hidden_settlement_kinds: Dictionary = {}
 var _hidden_way_types: Dictionary = {}
+## `state.viz.civWayScale` / `state.viz.wayOpacity` (`GUI_GAP_REGISTER.md`
+## CA-16) -- see `set_way_scale()` / `set_way_opacity()`. Both at the
+## reference's own default, where the layer draws exactly as it did before
+## they existed: `1.0` is the multiplicative identity in both cases.
+var _way_scale := 1.0
+var _way_opacity := 1.0
+## `GUI_GAP_REGISTER.md` **IN-13**'s map surface — per-way carried volume in
+## `_roads` order, its own maximum (so the reading is relative to this world),
+## and the switch. See `set_trade_load()`.
+var _trade_load: PackedFloat32Array = PackedFloat32Array()
+var _trade_load_max := 0.0
+var _show_trade_load := false
+## The busiest way draws at `1 + LOAD_WIDTH_GAIN` times its normal width.
+## `1.6` is chosen against `WAY_STYLE`'s own range: a `track` at 2.6× is still
+## thinner than an unloaded `highway`, so the layer re-ranks by traffic
+## without ever making a track look like a trunk road.
+const LOAD_WIDTH_GAIN := 1.6
+## Whether `WAY_LOD_MIN`'s zoom ladder is applied (`GUI_GAP_REGISTER.md`
+## CA-18). On, matching the reference, which has no switch for it at all --
+## this one exists because a per-layer zoom range you cannot see the effect
+## of is indistinguishable from a bug.
+var _way_lod := true
 ## Plate-frame width as a fraction of the terrain texture's own width
 ## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
 ## renderer draws no frame, which makes every use of it below an exact no-op.
@@ -314,8 +689,120 @@ func set_camera_zoom(z: float) -> void:
 ## `sc` so a settlement pin holds a roughly constant ON-SCREEN size across
 ## camera zoom -- see `PIN_SCALE_REF_PX`'s own doc comment for the full
 ## derivation of why this term is needed at all.
+##
+## **The reference's upper clamp is deliberately not ported (2026-08-24).**
+## `_civZoomK` is `1/max(0.35,min(5,z))`, and the `min(5,…)` is free there
+## because `z` is `viewT.scale`, which **stays at 1 under Tiled LOD** — the
+## reference's deep zoom lives in `_lodZoom`, a different number entirely, so
+## `viewT.scale` never approaches 5 at the zooms this clamp would bite at.
+## Here `_camera_zoom` *is* the deep zoom. It clamped at `ZOOM_MAX = 8.0` when
+## this was written (a harmless 1.6x pin overshoot at the very deepest view);
+## it now runs to `lodMaxZoom()`, which is 160 on a default 800 km world, and
+## the clamp turned every pin, glyph, name and label outline into 32x of
+## magnified mush sitting exactly on top of the town it marks. Measured live
+## (`_umreveal_shot.gd` at z=60: the pin covers the whole settlement).
+##
+## Dropping it restores what the comment above always claimed: the on-screen
+## size is *exactly* constant, at every zoom in the range, which is what a map
+## pin is. The `0.35` floor is the zoom-*out* half and is untouched — that one
+## does the reference's "never dominate at extreme zoom-out" job, and this port
+## reaches no zoom-out the reference does not.
+##
+## **The decision was taken here and only here** (recorded 2026-09-01). There
+## are two more ports of `_civZoomK` in the workspace and both still clamp:
+## `cartalith-civ/src/labels.rs`'s `civ_zoom_k` and
+## `cartalith-assets/src/manual.rs`'s, each `1.0 / zoom_scale.clamp(0.35, 5.0)`.
+## They are not dead: `label_box`/`label_handles` and `icon_box`/`icon_handles`
+## are built on them, and `cartography_workspace.gd` hit-tests and draws the
+## Label and Icon tools' on-canvas handles from exactly those values. So past
+## `zoom = 5` this control and the engine size the same annotation by two
+## different rules -- the handle a user grabs is placed by the clamped one and
+## the mark they see is drawn by this one -- and the gap widens with every
+## further zoom step.
+##
+## Restoring the clamp here is not the answer: it was removed against a live
+## measurement (`_umreveal_shot.gd` at z=60), and this port's deep zoom really
+## does run to `lodMaxZoom()` where the reference's never left 1. The fix is on
+## the engine side -- an unclamped variant used for handle geometry while
+## `civ_zoom_k` keeps the reference clamp for anything parity-pinned -- plus a
+## test asserting the three implementations agree over the reachable range.
+## That spans two crates and is not this pass's to make; it is written down
+## here so the next reader of this function does not re-derive it.
 func _civ_zoom_k() -> float:
-	return 1.0 / clampf(_camera_zoom, 0.35, 5.0)
+	return 1.0 / maxf(_camera_zoom, 0.35)
+
+
+## ── Rasterising at screen resolution, not control resolution ────────────────
+##
+## `_civ_zoom_k()` above fixes the *size* half of the camera-scale problem: a
+## quantity multiplied by it comes out the same number of screen pixels at any
+## zoom. It cannot fix the *resolution* half. `ViewportHost` scales this whole
+## control (`_camera.scale`), and Godot does not re-run a `CanvasItem`'s draw
+## commands when an ancestor's scale changes -- it rescales the geometry those
+## commands already produced. A glyph is rasterised into the font atlas at the
+## `font_size` passed to `draw_string`, in THIS control's own local pixels, and
+## an antialiased `draw_polyline`/`draw_line` builds its feathered edge in the
+## same local units. Magnify either by `_camera.scale` and you magnify the
+## rasterisation with it: at zoom 8 a 9 px glyph is a 9 px bitmap stretched over
+## 72 screen pixels, and a 1.5 px line's ~1 px antialiasing fringe becomes an
+## 8 px translucent smear on each side. Both were reported live (2026-08-24,
+## owner: settlement names "go blurry quickly", routes "slightly see-through
+## and blurry") and both reproduced exactly at z=2/z=4/z=8.
+##
+## The fix is to generate the geometry at final screen resolution and then
+## divide it back down, so the camera's own multiply lands on 1:1 pixels:
+## inside `_crisp_begin()`/`_crisp_end()` every coordinate and every size is in
+## **screen** pixels, and `_crisp_begin()` returns the `k` that converts this
+## control's local pixels into them. A 12-screen-px label is rasterised at 12
+## and drawn at 12, at every zoom in the range.
+##
+## Not applied to the pin discs themselves: they are a few pixels across, their
+## softening is not what was reported, and `_draw()`'s settlement loop would
+## have to enter and leave the transform per primitive. Deliberately scoped to
+## the text and the linear layers, which is where the defect is visible.
+func _crisp_begin() -> float:
+	var k := maxf(_camera_zoom, 0.001)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
+	return k
+
+
+func _crisp_end() -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## The camera zoom the *default* view sits at, which is what `SETTLEMENT_LOD`'s
+## thresholds are calibrated against -- `1.0` there means "the zoom you get on
+## opening a world", the same thing the reference's own `viewT.scale == 1` means
+## for `CIV_LOD_PLACE`.
+##
+## `_camera_zoom` stopped being that number on 2026-08-23, when `ViewportHost.
+## reset_view()` changed from plain fit (`_zoom = 1`) to the reference's **cover**
+## scale (owner decision, recorded in that function). Cover is `max(1, size /
+## displayed_rect_size)` and so is `>= 1` by construction and window-shaped: the
+## same freshly-generated world opens at `z = 1.36` in one dock layout and above
+## `1.4` in a wider one. Every threshold below `1.4` was therefore satisfied by
+## the opening view alone, which is exactly the regression the owner reported --
+## villages and 209 hamlets drawn full-size, with pins and names, on a map that
+## had never been zoomed (reproduced live: `z=1.00 hamlet gated`, `z=2.00
+## hamlet NOT gated`, and reset itself already at 1.357).
+##
+## Re-derived here from this control's own geometry rather than pushed in from
+## `reset_view()`: same formula, no second copy of the state to go stale on a
+## window resize, and no second file to edit. The ceiling is the one
+## `reset_view()` clamps its own cover scale to -- `ViewportHost`'s zoom cap,
+## which stopped being a flat `8.0` on 2026-08-24 when it became the
+## reference's `lodMaxZoom()` (`max(64, ceil(kmW/5))`, never below 64). Only
+## the *floor* of that is used here rather than the live per-world value: a
+## cover scale is `max(w/rw, h/rh)` over a letterbox-fit rect and is a small
+## number by construction, so no real window can reach even 64 -- reaching for
+## the live cap would couple this file to a `ViewportHost` field for a bound
+## that never binds.
+func _lod_zoom_base() -> float:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0 or size.x <= 0.0 or size.y <= 0.0:
+		return 1.0
+	return clampf(maxf(size.x / rect.size.x, size.y / rect.size.y),
+		1.0, ViewportHost.ZOOM_MAX_FLOOR)
 
 ## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
 ## `bridge.label_list()` are this data's only source, both already bound
@@ -325,12 +812,69 @@ func _civ_zoom_k() -> float:
 var _manual_icons: Array = []
 var _labels: Array = []
 
+## §4.5.4's Route tool. Each entry is one `route_get(i)` dictionary --
+## `{points: PackedVector2Array, brks: PackedInt32Array, render_points,
+## render_brks, km, mode, unreachable_legs, name}` -- so `brks` is honoured
+## exactly the way `_sea_routes`'
+## own breaks are: a break ends one stroke and starts the next rather than
+## drawing a straight line across the gap. The draw pass uses the
+## `render_*` pair (see it for why the two exist). Its own array rather than a third
+## entry in `set_civ_data` because a committed route is not part of
+## `get_roads()`/`get_sea_routes()` at all (`route_commit` stores into
+## `InfraTools::routes`, a separate list from `InfraTools::ways` that
+## `GUI_GAP_REGISTER.md` IN-02's fix appended to the two network getters).
+var _manual_routes: Array = []
+
+## The reference's `_civSelectedJourneyIdx` -- an index into `_manual_routes`,
+## `-1` for none. Only ever read by the block-2b draw pass, and deliberately
+## an index rather than a copy of the route: a delete renumbers the engine's
+## list (`route_delete`), so anything that cached the route itself would draw
+## a stale line the list no longer has a row for.
+var _selected_manual_route := -1
+
+## Generated landmarks, in `bridge.landmarks()`'s own dictionary shape:
+## `{id, kind, class, x, y, elevation, score, importance, causal}`. Held as the
+## bridge returned them rather than reshaped — every field the hover card or a
+## future inspector wants is already there, and a reshape here would be a
+## second place for the vocabulary to drift.
+var _landmarks: Array = []
+var _landmarks_visible := true
+
+func set_landmarks(items: Array) -> void:
+	_landmarks = items
+	queue_redraw()
+
+## The Layers popover's own on/off for this overlay. Separate from
+## `_landmarks` being empty, which means "the pass has not run", so the map can
+## say those two apart.
+func set_landmarks_visible(on: bool) -> void:
+	if on == _landmarks_visible:
+		return
+	_landmarks_visible = on
+	queue_redraw()
+
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
 	queue_redraw()
 
 func set_labels(labels: Array) -> void:
 	_labels = labels
+	queue_redraw()
+
+func set_manual_routes(routes: Array) -> void:
+	_manual_routes = routes
+	if _selected_manual_route >= routes.size():
+		_selected_manual_route = -1
+	queue_redraw()
+
+## `-1` clears the selection. Out-of-range is clamped to `-1` rather than
+## refused, since a delete legitimately leaves the caller holding an index
+## that no longer exists.
+func set_selected_manual_route(index: int) -> void:
+	var idx := index if index >= 0 and index < _manual_routes.size() else -1
+	if idx == _selected_manual_route:
+		return
+	_selected_manual_route = idx
 	queue_redraw()
 
 
@@ -350,7 +894,14 @@ func _ready() -> void:
 ## `+0.5` cell-centering, which would be wrong here). `sea_routes` is
 ## `get_sea_routes()`'s `Array[Dictionary]` -- same `{points, brks, name}`
 ## shape minus `way_type` (Phase 2 milestone 13, `SeaRoute` has no
-## highway/regional/road/track tier). Screen-space conversion happens every
+## highway/regional/road/track tier). Both also carry `km: float` and
+## `manual: bool`; this control reads neither. `manual` marks a way the user
+## drew with the Way tool (`GUI_GAP_REGISTER.md` IN-02) and is deliberately
+## NOT consulted while drawing -- the reference keeps hand-drawn and
+## generated ways in one array and styles both by `way_type` alone, so a
+## hand-drawn `road` is meant to be indistinguishable from a generated one.
+## It is there for lists and filters, not for this `_draw()`.
+## Screen-space conversion happens every
 ## frame from the current control size, so this stays correct across
 ## window resizes without needing to be told again.
 ## `border_frac` is `WorldGen.get_border_inset_frac()` -- the plate frame the
@@ -366,8 +917,45 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 	_gh = gh
 	_border_frac = border_frac
 	_hover_index = -1
+	## A settlement roster this control is handed afresh invalidates every
+	## cached town layout by index -- see `clear_urban_layouts()`.
+	clear_urban_layouts()
 	queue_redraw()
 
+
+## The engine's own faction swatches, index `faction - 1`, as pushed by
+## `ViewportHost.refresh_faction_colors()` off `get_factions()`'s
+## `color_r`/`color_g`/`color_b`. Empty until a world exists.
+##
+## Pushed rather than fetched, like every other array this control draws:
+## `map_overlay.gd` is handed finished data and never calls the bridge
+## itself (see `set_civ_data`'s own doc comment), so the one file that does
+## hold a bridge handle hands these over with the rest.
+var _faction_colors: Array[Color] = []
+
+## Deliberately NOT cleared by `set_civ_data()`. A filtered settlement list
+## (the Timeline's "Exist only" box) is pushed through that call several
+## times a session with no faction change behind it, and wiping the swatches
+## there would drop every pin back to the fallback palette until the next
+## full refresh -- a flicker with no cause the user could see.
+func set_faction_colors(colors: Array) -> void:
+	var out: Array[Color] = []
+	for c in colors:
+		out.append(c as Color)
+	_faction_colors = out
+	queue_redraw()
+
+## One faction's swatch. `0` is Unclaimed and has no faction colour at all;
+## a `faction` past the pushed table falls back to the frozen six, which is
+## the only case where the old `% size()` wrap survives -- and it is reached
+## only before a world exists, since `get_factions()` enumerates every
+## faction the roster has.
+func _faction_color(faction: int) -> Color:
+	if faction <= 0:
+		return Color(0.5, 0.5, 0.5)
+	if faction <= _faction_colors.size():
+		return _faction_colors[faction - 1]
+	return FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()]
 
 func set_show_settlements(shown: bool) -> void:
 	_show_settlements = shown
@@ -408,6 +996,112 @@ func set_way_type_visible(way_type: String, shown: bool) -> void:
 	else:
 		_hidden_way_types[way_type] = true
 	queue_redraw()
+
+
+## `state.viz.civWayScale` (`#civWayScaleR`, reference line 1485) -- the user's
+## own multiplier on every way, journey and route line width and on every dash
+## length, `GUI_GAP_REGISTER.md` **CA-16**.
+##
+## The register recorded that "the reference's `#civWayScaleR` has no
+## counterpart here -- so a width control would move nothing". This is that
+## counterpart. It is the third term of the reference's own
+## `rsc = max(1, GW/512) * _civZoomK() * _civWayScale()`; the first two are
+## already in `_draw_way_segment`'s own doc comment (and the first is
+## deliberately not taken, for the reason recorded there).
+##
+## The reference's slider is 0.20-2.50 in 0.05 steps; clamped to the same range
+## here, because 0 is a hidden layer (which `set_show_roads` already is) and
+## past 2.5 a highway is wider than a town.
+func set_way_scale(k: float) -> void:
+	_way_scale = clampf(k, 0.2, 2.5)
+	queue_redraw()
+
+func way_scale() -> float:
+	return _way_scale
+
+
+## `state.viz.wayOpacity` (`#wayOpacityR`, reference line 1491): one alpha
+## multiplier over the whole way/journey/route layer, on top of each stroke's
+## own authored alpha. The reference applies it as `globalAlpha` around each
+## way's two strokes (line 15510); with no canvas-item alpha to set per stroke
+## here, it multiplies each `Color`'s `a` instead, which is the same result for
+## strokes that do not overlap themselves.
+func set_way_opacity(a: float) -> void:
+	_way_opacity = clampf(a, 0.0, 1.0)
+	queue_redraw()
+
+func way_opacity() -> float:
+	return _way_opacity
+
+
+## Whether the LOD ladder is applied at all (`GUI_GAP_REGISTER.md` CA-18).
+func set_way_lod(on: bool) -> void:
+	_way_lod = on
+	queue_redraw()
+
+
+## Trade load per way, in `set_civ_data`'s own `roads` order
+## (`GUI_GAP_REGISTER.md` **IN-13**). Empty clears it.
+##
+## **Width, not hue, and that is the design.** Every faction swatch is
+## already spent on the territory wash and on contested borders, and a way's
+## own colour is its *type* (`WAY_STYLE`, RD-02) — a sixth colour ramp over
+## the same pixels would be unreadable and would break the one thing a way's
+## appearance currently tells you. So a busy way is drawn thicker in its own
+## colour: the road still reads as a road.
+##
+## The multiplier is `1 + LOAD_WIDTH_GAIN * (load / max_load)`, which is a
+## *relative* reading on purpose. An absolute scale would make every way on a
+## small world hairline-thin and every way on a large one uniformly fat,
+## because volume here is a population sum and populations are not comparable
+## between worlds.
+## `GUI_GAP_REGISTER.md` **RF-05**. `set_trade_load` is the *single* funnel for
+## this data -- `infrastructure_workspace._match_trade_flows()` fills it and
+## `app._refresh_world_dependent()` empties it -- so it is the one place that
+## can tell the CARTO row whether there is anything to draw. Without this the
+## row was RF-01 exactly: built at launch, disabled because `has_trade_load()`
+## was false over an empty world, and never re-enabled by the match that made
+## it true, because the match happens in a different workspace. Measured: after
+## a real 624-flow match the toggle was still `disabled = true` while
+## `has_trade_load()` returned true, and forcing it on moved 0.60 % of the map's
+## pixels -- a working control that could not be reached.
+signal trade_load_changed(available: bool)
+
+func set_trade_load(loads: PackedFloat32Array) -> void:
+	_trade_load = loads
+	_trade_load_max = 0.0
+	for v in loads:
+		if v > _trade_load_max:
+			_trade_load_max = v
+	queue_redraw()
+	trade_load_changed.emit(has_trade_load())
+
+func set_show_trade_load(on: bool) -> void:
+	_show_trade_load = on
+	queue_redraw()
+
+func show_trade_load() -> bool:
+	return _show_trade_load
+
+## Whether a load reading exists to draw at all — the CARTO row disables
+## itself against this rather than offering a switch that does nothing.
+func has_trade_load() -> bool:
+	return _trade_load.size() > 0 and _trade_load_max > 0.0
+
+## Width multiplier for one way, `1.0` when the layer is off, when no match
+## has run, or when this way carries nothing.
+func _trade_width_k(way_index: int) -> float:
+	if not _show_trade_load or _trade_load_max <= 0.0:
+		return 1.0
+	if way_index < 0 or way_index >= _trade_load.size():
+		return 1.0
+	var v := _trade_load[way_index]
+	if v <= 0.0:
+		return 1.0
+	return 1.0 + LOAD_WIDTH_GAIN * (v / _trade_load_max)
+
+func way_lod() -> bool:
+	return _way_lod
 
 
 ## Reproduces `%MapView`'s own `STRETCH_KEEP_ASPECT_CENTERED` fit math so
@@ -462,14 +1156,26 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size
 
 
-## True below `kind`'s own `SETTLEMENT_LOD` threshold -- the raw camera
-## zoom, not `_civ_zoom_k()`'s clamped/inverted screen-size compensation,
-## matching the reference's own `zoom<lodMin` test (`zoom` there is
-## `_civZoomRaw()`, the un-clamped `viewT.scale`). An unrecognised kind
-## defaults to `0.5` (town/village straddle), same fallback
-## `CIV_LOD_PLACE[p.kind]!=null?...:0.5` uses in the reference.
+## True below `kind`'s own `SETTLEMENT_LOD` threshold -- the camera zoom, not
+## `_civ_zoom_k()`'s clamped/inverted screen-size compensation, matching the
+## reference's own `zoom<lodMin` test (`zoom` there is `_civZoomRaw()`, the
+## un-clamped `viewT.scale`). An unrecognised kind defaults to `0.5`
+## (town/village straddle), same fallback `CIV_LOD_PLACE[p.kind]!=null?...:0.5`
+## uses in the reference.
+## `_camera_zoom` normalised by `_lod_zoom_base()` -- see that function for why
+## the raw camera scale stopped being the right number to compare.
 func _settlement_below_lod(kind: String) -> bool:
-	return _camera_zoom < float(SETTLEMENT_LOD.get(kind, 0.5))
+	return (_camera_zoom / _lod_zoom_base()) < float(SETTLEMENT_LOD.get(kind, 0.5))
+
+
+## True for an addon village still below `VILLAGE_ADDON_LOD` -- drawn as
+## nothing at all, and (per the reference's `_civPlacePickVisible`, which
+## excludes a still-hidden addon from picking) not hit-testable either, so a
+## click cannot select a place that is not on the map.
+func _settlement_hidden(s: Dictionary) -> bool:
+	if s["kind"] != "hamlet" or int(s.get("population", 1)) != VILLAGE_ADDON_POP:
+		return false
+	return (_camera_zoom / _lod_zoom_base()) < VILLAGE_ADDON_LOD
 
 
 ## `(4+klass.rank)*sc` -- the reference's own settlement-pin size formula
@@ -537,12 +1243,16 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 
 func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
-			and _manual_icons.is_empty() and _labels.is_empty()):
+			and _manual_icons.is_empty() and _labels.is_empty()
+			and _manual_routes.is_empty() and _landmarks.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
 		return
 	var interior := _interior_rect(rect)
+	## Once per frame, not once per way: the camera cannot move inside one
+	## `_draw()`. See `_run_offscreen()`.
+	_visible_local = _visible_local_rect()
 
 	# Linear features (roads, sea lanes) are *clipped* at the neatline: a
 	# road that runs off the plate genuinely continues past the sheet edge,
@@ -572,13 +1282,22 @@ func _draw() -> void:
 			_draw_sea_route_segment(points, start, points.size(), rect)
 
 	if _show_roads:
-		for way: Dictionary in _roads:
+		## Indexed, not `for way in _roads`: IN-13's trade load is keyed to a
+		## way's position in this same array (`get_roads()` order), so the
+		## index has to survive into the stroke.
+		for wi in _roads.size():
+			var way: Dictionary = _roads[wi]
 			var points: PackedVector2Array = way["points"]
 			if points.size() < 2:
 				continue
 			if _hidden_way_types.has(way["way_type"]):
 				continue
-			var width: float = ROAD_WIDTH_BY_TYPE.get(way["way_type"], 1.6)
+			## `_civWayLodMin` (reference 15012) + `if(zoom<lodMin) return`
+			## (15501) -- CA-18's ladder. See `WAY_LOD_MIN`.
+			if _way_lod and _camera_zoom < float(WAY_LOD_MIN.get(way["way_type"], WAY_LOD_DEFAULT)):
+				continue
+			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
+			var load_k := _trade_width_k(wi)
 			var brks: PackedInt32Array = way["brks"]
 			# `brks` marks indices where this way's own path has a real gap
 			# (two disjoint consolidated runs sharing one `Way`) -- draw each
@@ -586,9 +1305,43 @@ func _draw() -> void:
 			# through the gap.
 			var start2 := 0
 			for cut in brks:
-				_draw_way_segment(points, start2, cut, rect, width)
+				_draw_way_segment(points, start2, cut, rect, style, load_k)
 				start2 = cut
-			_draw_way_segment(points, start2, points.size(), rect, width)
+			_draw_way_segment(points, start2, points.size(), rect, style, load_k)
+
+	## Committed Route-tool routes, drawn after both network layers so a route
+	## that runs along an existing road is still visible on top of it. Shares
+	## the "Ways & routes" visibility toggle (`set_show_roads`) because that is
+	## the layer row the CARTO dock actually labels "Ways & routes" -- there is
+	## no separate routes checkbox to gate against.
+	if _show_roads:
+		for ri in _manual_routes.size():
+			var r: Dictionary = _manual_routes[ri]
+			## `render_points`, not `points`: a route's `points` are the
+			## engine's own list, kept 1:1 with what `jp_compute` planned
+			## over because `plan.stages[i].{i0,i1}` index into it.
+			## `render_points` is the same curve re-sampled at render
+			## density (`route_get`'s own doc comment) -- the fallback is
+			## for an older GDExtension binary that predates the key.
+			var rpts: PackedVector2Array = r.get("render_points", r.get("points", PackedVector2Array()))
+			if rpts.size() < 2:
+				continue
+			var rsel := ri == _selected_manual_route
+			var rbrks: PackedInt32Array = r.get("render_brks", r.get("brks", PackedInt32Array()))
+			var rstart := 0
+			for cut in rbrks:
+				_draw_manual_route_segment(rpts, rstart, cut, rect, rsel)
+				rstart = cut
+			_draw_manual_route_segment(rpts, rstart, rpts.size(), rect, rsel)
+
+	## Town layouts sit above the ways -- a town's own high street IS the
+	## through-road, so it must overlay it -- and *replace* the pin of every
+	## place they actually draw (`_urban_revealed`, the reference's
+	## `_umRevealedSet`). See this file's "Urban layouts" block at the foot
+	## for the reveal gate and why it is not `_umLayoutAlpha`'s km band.
+	_urban_revealed.clear()
+	if _show_urban_layouts:
+		_draw_urban_layouts(rect, interior)
 
 	if _show_settlements:
 		## Same formula `_settlement_pin_radius()` uses -- kept as one inline
@@ -597,6 +1350,9 @@ func _draw() -> void:
 		## below it too, exactly like the reference's own `sc` feeds icon,
 		## way and label sizing from one shared value (reference line 15165).
 		var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+		## Local px -> screen px for this frame's text, hoisted out of the loop
+		## because it cannot change inside one `_draw()`. See `_crisp_begin()`.
+		var k := maxf(_camera_zoom, 0.001)
 		var font := get_theme_default_font()
 		# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
 		# reference line 15101) are a disclosed gap, not an oversight: `get_
@@ -637,6 +1393,21 @@ func _draw() -> void:
 			## occupancy that a *visible* place would then be pushed out of.
 			if _hidden_settlement_kinds.has(s["kind"]):
 				continue
+			## Tested in the same place and for the same reason as the class
+			## filter above: an addon village below its own threshold draws
+			## nothing, so it must not reserve label occupancy either.
+			if _settlement_hidden(s):
+				continue
+			## The reference's `_umRevealedSet` (line 22753): a place whose own
+			## generated layout was drawn *fully opaque* this frame gives up
+			## its pin to it. Only at full opacity: the km band is live again as
+			## of 2026-08-24, and `_draw_urban_layouts()`'s own note at the
+			## handover says why the crossfade ends here rather than fading the
+			## pin through it. Without it the pin -- sized to hold constant -- sits
+			## squarely over the market anchor and the densest streets, which
+			## is exactly what it is drawn on top of.
+			if _urban_revealed.has(i):
+				continue
 			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 			# A settlement whose cell is under the frame has no visible terrain
 			# beneath it at all, so a marker there points at nothing -- it is off
@@ -648,7 +1419,7 @@ func _draw() -> void:
 			if not interior.has_point(pos):
 				continue
 			var faction: int = s["faction"]
-			var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
+			var color: Color = _faction_color(faction)
 			var kind: String = s["kind"]
 
 			# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
@@ -704,20 +1475,34 @@ func _draw() -> void:
 			# Godot's own tofu/replacement glyph is, same disclosed limitation
 			# `_draw_labels`' own doc comment already accepts for `font` (no
 			# web-font fallback chain exists in Godot either).
+			#
+			# Sized and rasterised in SCREEN pixels (`_crisp_begin()`): the
+			# reference's `max(9, ...)` floor -- and the `8` here -- are canvas
+			# pixels at `viewT.scale == 1`, i.e. on-screen pixels, and applying
+			# them in this control's local space instead is what made both the
+			# glyph and the name below grow linearly with camera zoom while the
+			# pin under them correctly held still. `radius`/`sc` are local, so
+			# they convert with `* k`.
 			var glyph: String = klass["glyph"]
-			var glyph_px: int = maxi(8, int(radius + 2.0 * sc))
+			_crisp_begin()
+			var glyph_px: int = maxi(8, int((radius + 2.0 * sc) * k))
 			var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
 			var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
-			draw_string(font, pos + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
+			draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
+			_crisp_end()
 
 			# Auto-placed name label -- see this block's own top comment for
 			# the simplified-occupancy-set reasoning.
 			var name: String = s.get("name", "")
 			if not name.is_empty():
-				var label_px: int = maxi(9, int(radius + sc))
-				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x
-				var lh := float(label_px) * 1.3
+				# `label_px` and the measured `lw`/`lh` are screen pixels (see
+				# the glyph's own note above); the candidate boxes and the
+				# occupancy set stay in this control's local space, so both
+				# come back through `/ k`.
+				var label_px: int = maxi(9, int((radius + sc) * k))
+				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x / k
+				var lh := float(label_px) * 1.3 / k
 				for box in _settlement_label_candidates(pos, radius, sc, lw, lh):
 					var fits := true
 					for occ in occupied:
@@ -728,10 +1513,12 @@ func _draw() -> void:
 						continue
 					occupied.append(box)
 					var v_center: float = (font.get_ascent(label_px) - font.get_descent(label_px)) / 2.0
-					var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0 + v_center)
-					var outline_w: int = maxi(1, int(2.5 * sc))
+					var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0) * k + Vector2(0.0, v_center)
+					var outline_w: int = maxi(1, int(2.5 * sc * k))
+					_crisp_begin()
 					draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, LABEL_STROKE_COLOR)
 					draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
+					_crisp_end()
 					break
 
 		if _hover_index >= 0 and _hover_index < _settlements.size():
@@ -742,6 +1529,10 @@ func _draw() -> void:
 	# in `DCC_SHELL_SPEC.md`, so they always draw once placed, same as the
 	# Measure/Region tool overlays in `tool_overlay.gd` always draw once armed.
 	_draw_manual_icons(rect, interior)
+	## Under the labels and over everything else. Labels are text and lose
+	## legibility the moment anything crosses them; a landmark ring is a mark
+	## and does not.
+	_draw_landmarks(rect, interior)
 	_draw_labels(rect, interior)
 
 
@@ -778,6 +1569,47 @@ func _draw_manual_icons(rect: Rect2, interior: Rect2) -> void:
 				draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
 
 
+## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
+## drawn as open rings sized by class and modulated by importance.
+##
+## Positions are grid CELLS (`Landmark.x`/`.y` are `usize` cell indices, unlike
+## the manual Icon tool's continuous click coordinates), so this is
+## `_cell_to_screen`, not `_point_to_screen`. Getting that wrong puts every
+## landmark half a cell out at every zoom, which is invisible at fit and
+## obvious at deep zoom — the same distinction `set_civ_data`'s own doc comment
+## draws for roads.
+##
+## An unknown class falls through to the Local radius rather than being skipped:
+## a landmark the engine placed and this build cannot categorise is still a real
+## landmark, and dropping it would be this file quietly disagreeing with the
+## panel about how many exist.
+func _draw_landmarks(rect: Rect2, interior: Rect2) -> void:
+	if not _landmarks_visible or _landmarks.is_empty():
+		return
+	for lm: Dictionary in _landmarks:
+		var pos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+		if not interior.has_point(pos):
+			continue
+		var cls := String(lm.get("class", "local")).to_lower()
+		var base: float = float(LANDMARK_CLASS_RADIUS.get(cls, LANDMARK_CLASS_RADIUS["local"]))
+		## §24: importance is emergent, so it is worth showing. Bounded to
+		## +/-25% so the class stays the dominant read — an important local
+		## landmark must never out-draw a continental one, or the size stops
+		## meaning class at all.
+		var imp := clampf(float(lm.get("importance", 0.5)), 0.0, 1.0)
+		var r: float = base * (0.75 + 0.5 * imp)
+		var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
+		## Dark halo first so the ring survives on pale terrain, the same
+		## two-pass trick the settlement labels use for their outline.
+		draw_arc(pos, r, 0, TAU, 22, LANDMARK_OUTLINE, 2.4, true)
+		draw_arc(pos, r, 0, TAU, 22, col, 1.3, true)
+		## A centre dot only on the two rare classes. On Local, where a dense
+		## world can carry hundreds, it fills the ring in and the mark stops
+		## reading as open.
+		if cls == "continental" or cls == "regional":
+			draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+
+
 ## §4.5.5's Label tool: user-authored region-name text, angled/arched in the
 ## label's own font/color. Ports the reference's `drawArcLabel` (reference
 ## HTML line ~15244) character-for-character -- same per-glyph placement on
@@ -803,7 +1635,7 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 		var th: float = deg_to_rad(float(lb["angle"]))
 		var a: float = clampf(float(lb["arc"]), -1.0, 1.0)
 
-		if absf(a) < 0.01:
+		if absf(a) < ARC_STRAIGHT_THRESHOLD:
 			var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
 			var local_pos := Vector2(-full_w / 2.0, v_center)
 			draw_set_transform(pos, th, Vector2.ONE)
@@ -812,7 +1644,8 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			continue
 
 		var total_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
-		var radius: float = maxf(font_px * 1.2, total_w / (2.2 * absf(a)))
+		var radius: float = maxf(font_px * ARC_RADIUS_FLOOR_K,
+			total_w / (ARC_SPREAD_DIVISOR * absf(a)))
 		var dir_sign: float = 1.0 if a > 0.0 else -1.0
 		var acc := -total_w / 2.0
 		for ch in text:
@@ -844,17 +1677,135 @@ func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
 
 
+## The slice of this control's own local space that is actually on screen this
+## frame, recomputed once per `_draw()` and read by `_run_offscreen()` below.
+##
+## Not a Rect2 constant and not `interior`: the camera is an **ancestor**
+## transform (see `_crisp_begin()`), so at zoom 8 this control's local rect is
+## eight times the window and only a window-sized slice of it is visible.
+## `get_global_transform_with_canvas()` is the transform that knows that, and
+## inverting it maps the viewport's own rect back into local coordinates.
+var _visible_local := Rect2()
+
+
+func _visible_local_rect() -> Rect2:
+	var xf := get_global_transform_with_canvas()
+	## A degenerate transform (a zero-scaled ancestor, a control not yet in a
+	## viewport) has no meaningful inverse. Answer "everything is visible" --
+	## culling is an optimisation and must fail towards drawing.
+	if is_zero_approx(xf.determinant()):
+		return Rect2(-1e9, -1e9, 2e9, 2e9)
+	return (xf.affine_inverse() * get_viewport_rect()).abs()
+
+
+## Is this whole run outside the window, and therefore free to skip?
+##
+## **The camera is an ancestor transform, so nothing above this function ever
+## knew how far off screen a way was.** Every way in the world was walked,
+## dashed and uploaded on every redraw, at every zoom, however far outside the
+## window it lay; the viewport threw the result away afterwards. That is what
+## made the drawn-object count unbounded in zoom (`MEMORY_OPTIMIZATION_SCOPE.md`
+## 2026-08-25: 87 k objects at the opening view, 858 k twelve zoom notches in,
+## and 93 MiB of GPU vertex buffers becoming 751 MiB with it).
+##
+## `pts` are screen px (`_stroke_points`), so the local rect is scaled by the
+## same `k` before the test, and grown by half the widest stroke plus a pixel so
+## an antialiased edge can never be clipped by this rather than by the viewport.
+## A bounding box, not the polyline: it over-draws a diagonal way whose box
+## clips the corner, which is the safe direction to be wrong in.
+##
+## **It moves no pixel by construction** -- what it skips is outside the
+## viewport, which discarded it anyway. Verified rather than asserted:
+## `_cullframe_probe` compares whole frames against the pre-cull script.
+func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
+	if pts.is_empty():
+		return true
+	var box := Rect2(pts[0], Vector2.ZERO)
+	for p in pts:
+		box = box.expand(p)
+	return not Rect2(_visible_local.position * k, _visible_local.size * k) \
+		.grow(pad + 1.0).intersects(box)
+
+
+## Every linear layer's own points, in **screen** pixels ready for a
+## `_crisp_begin()` block: `_point_to_screen` gives this control's local space,
+## and `* k` is the last step into the space the stroke must be built in. One
+## place rather than three identical loops.
+func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect2, k: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	out.resize(end - start)
+	for i in range(start, end):
+		out[i - start] = _point_to_screen(points[i], rect) * k
+	return out
+
+
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to
 ## screen space. `end - start < 2` is a real, legitimate no-op (a run with
 ## a single point either side of a break contributes nothing to draw).
-func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2, width: float) -> void:
+##
+## Drawn inside `_crisp_begin()`, which restores the reference's `rsc` (line
+## 15470, `max(1,GW/512)*_civZoomK()*_civWayScale()`) -- the factor every way
+## and journey `lineWidth` in `drawCivLayer` is multiplied by, and which this
+## port dropped on the way in. Every width constant in this file is therefore
+## read as **screen** pixels: `WAY_STYLE.road.under_w`'s 1.2 is 1.2 px of road at
+## any zoom, where before it was 1.2 px of *this control*, which the camera
+## then scaled to 12.8 on screen at zoom 8 and stretched the antialiasing
+## fringe with it.
+##
+## Two deliberate differences from `rsc`. The resolution half (`max(1,GW/512)`)
+## is not taken: it exists so a bigger working canvas gets proportionally
+## heavier strokes, and this port's raster is fit to the control rather than
+## drawn at grid resolution, so it has no counterpart here (the same reasoning
+## `PIN_SCALE_REF_PX`'s doc comment already records for pins). And the zoom
+## term is unclamped, where `_civ_zoom_k()` keeps a `0.35` zoom-*out* floor --
+## that floor is a readability bound for *pins*, which must not dominate the
+## map when it is zoomed all the way out; a way is a line and shrinks harmlessly
+## with it, and exactly constant is the simpler contract. (`_civZoomK()`'s
+## zoom-*in* cap of 5.0 is no longer ported at all -- see `_civ_zoom_k()`.)
+##
+## `style` is one `WAY_STYLE` row -- the reference's two-stroke land way: dark
+## underlayer, then the type's own colour on top, dashed for the three minor
+## tiers and solid for the two trunk ones. Same structure as
+## `_draw_sea_route_segment` and `_draw_manual_route_segment` below, which
+## always had it; only the land types were flat.
+## `load_k` is IN-13's trade-load width multiplier, `1.0` at rest — and
+## `1.0` is exact in IEEE-754, so with the layer off every stroke is
+## byte-identical to the version before it existed. It multiplies the two
+## **widths** and deliberately not the dash lengths: a dash pattern is what
+## identifies a way's type, and stretching it on a busy track would make the
+## track read as a different tier.
+func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
+		style: Dictionary, load_k: float = 1.0) -> void:
 	if end - start < 2:
 		return
-	var screen_points := PackedVector2Array()
-	screen_points.resize(end - start)
-	for i in range(start, end):
-		screen_points[i - start] = _point_to_screen(points[i], rect)
-	draw_polyline(screen_points, ROAD_COLOR, width, true)
+	var k := _crisp_begin()
+	var screen_points := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(screen_points, k, style["under_w"] * _way_scale * load_k * 0.5):
+		_crisp_end()
+		return
+	## `_civWayScale` scales the dash lengths too -- the reference writes
+	## `setLineDash([1.8*rsc, 1.3*rsc])`, one `rsc` for both widths and dashes,
+	## so a wider road gets a proportionally longer dash rather than a wide line
+	## chopped into the same fine ticks.
+	draw_polyline(screen_points, _way_ink(style["under"]),
+		style["under_w"] * _way_scale * load_k, true)
+	var dash: float = style["dash"] * _way_scale
+	if dash > 0.0:
+		_draw_dashed_polyline(screen_points, _way_ink(style["over"]),
+			style["over_w"] * _way_scale * load_k, dash, style["gap"] * _way_scale)
+	else:
+		draw_polyline(screen_points, _way_ink(style["over"]),
+			style["over_w"] * _way_scale * load_k, true)
+	_crisp_end()
+
+
+## One stroke colour with the layer's own opacity multiplier folded in
+## (`state.viz.wayOpacity`, `GUI_GAP_REGISTER.md` CA-16). Identity at the
+## default `1.0`, so the layer is byte-identical at rest.
+func _way_ink(c: Color) -> Color:
+	if _way_opacity >= 1.0:
+		return c
+	return Color(c.r, c.g, c.b, c.a * _way_opacity)
 
 
 ## Sea lane, reference's own two-pass style (reference HTML line ~15511):
@@ -870,20 +1821,57 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2) -> void:
 	if end - start < 2:
 		return
-	var screen_points := PackedVector2Array()
-	screen_points.resize(end - start)
-	for i in range(start, end):
-		screen_points[i - start] = _point_to_screen(points[i], rect)
-	draw_polyline(screen_points, SEA_ROUTE_UNDERLAY, SEA_ROUTE_UNDERLAY_WIDTH, true)
-	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH, SEA_ROUTE_DASH_LENGTH)
+	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
+	var screen_points := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(screen_points, k, SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5):
+		_crisp_end()
+		return
+	draw_polyline(screen_points, _way_ink(SEA_ROUTE_UNDERLAY),
+		SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
+	_draw_dashed_polyline(screen_points, _way_ink(SEA_ROUTE_DASH_COLOR),
+		SEA_ROUTE_DASH_WIDTH * _way_scale,
+		SEA_ROUTE_DASH_LENGTH * _way_scale, SEA_ROUTE_DASH_GAP * _way_scale)
+	_crisp_end()
+
+
+## One committed Route-tool route, `points[start:end]` (exclusive). The
+## reference's own two-pass journey stroke (block 2b, lines 15555-15559):
+## solid dark underlayer first, dashed amber on top. Same structure as
+## `_draw_sea_route_segment`, and dashed for the same reason it is -- the
+## overlay walk keeps the dash phase continuous across vertices, which a
+## per-vertex `draw_dashed_line` would not (see `_draw_dashed_polyline`).
+func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
+		sel: bool = false) -> void:
+	if end - start < 2:
+		return
+	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
+	var screen_points := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(screen_points, k,
+			(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale * 0.5):
+		_crisp_end()
+		return
+	draw_polyline(screen_points, _way_ink(MANUAL_ROUTE_UNDERLAY),
+		(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale, true)
+	_draw_dashed_polyline(screen_points,
+		_way_ink(MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR),
+		(MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH) * _way_scale,
+		MANUAL_ROUTE_DASH * _way_scale, MANUAL_ROUTE_GAP * _way_scale)
+	_crisp_end()
 
 
 ## Draws `points` as a dashed line with the dash phase carried continuously
-## across every vertex (equal-length dash/gap, `dash_len` each) -- unlike
-## `draw_dashed_line` per-segment, a dash or gap can span a vertex instead
-## of always restarting "on" there.
-func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float) -> void:
-	var period := dash_len * 2.0
+## across every vertex -- unlike `draw_dashed_line` per-segment, a dash or
+## gap can span a vertex instead of always restarting "on" there.
+##
+## `gap_len` defaults to `dash_len`. Every caller now passes it explicitly --
+## no dash pattern anywhere in `drawCivLayer` is actually equal on/off, and the
+## one that relied on this default (the sea lane) was wrong because of it. The
+## default is kept only so the parameter reads as optional to a future caller
+## that genuinely wants a square dash.
+func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float, gap_len: float = -1.0) -> void:
+	if gap_len < 0.0:
+		gap_len = dash_len
+	var period := dash_len + gap_len
 	var phase := 0.0
 	for i in range(points.size() - 1):
 		var p0 := points[i]
@@ -958,6 +1946,26 @@ func _format_pop(pop: int) -> String:
 ## Nearest settlement whose marker is within its own hit radius of `mouse`,
 ## or `-1`. Shared by hover (`_gui_input`'s motion branch) and click-to-pin
 ## (its button branch) so both use exactly one hit-test definition.
+## **A deliberate divergence from the engine's own pick, stated rather than
+## left to be discovered** (2026-09-01). `lib.rs` binds
+## `civ_pick_place_at(gx, gy)` -- `cartalith_civ::tools`' weighted-nearest
+## rule, where a bigger settlement outcompetes a closer small one, at
+## `civ_place_pick_radius`'s base radius -- and it is wrapped in
+## `engine_bridge.gd` and called by no shell file. This screen-space rule is
+## what the shell picks with instead, and it is the right one for a pointer:
+## it tests against the marker actually on screen, at that marker's own tier
+## radius plus `HOVER_RADIUS_PAD`, and it refuses the two cases where nothing
+## is drawn -- an off-plate settlement and a hidden addon village. A grid-space
+## pick would happily return a settlement the user cannot see, which is worse
+## than losing a tie-break.
+##
+## What IS lost is that tie-break: two overlapping pins here resolve to the
+## nearer one whatever their size, where the reference resolves to the more
+## important one. Porting it means weighting `closest_dist` by settlement
+## rank, which is a third rule unless it is the engine's own weighting exactly
+## -- and that weighting is not exposed, only its answer is. Left as it stands,
+## and named here and at `civ_pick_place_at` so neither side reads as an
+## oversight.
 func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 	var closest := -1
 	var closest_dist := INF
@@ -969,6 +1977,10 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 		# hover/click would fill in dock data from what looks like blank
 		# paper.
 		if not interior.has_point(pos):
+			continue
+		## Likewise for an addon village that is drawn as nothing -- see
+		## `_settlement_hidden`.
+		if _settlement_hidden(s):
 			continue
 		var radius: float = _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD
 		var d := mouse.distance_to(pos)
@@ -1010,11 +2022,37 @@ func _gui_input(event: InputEvent) -> void:
 
 		var p := _grid_point(mouse, rect, interior)
 		cursor_sampled.emit(p["gx"], p["gy"], p["valid"])
+		## A withheld touch press that has now travelled is a drag, not a hold:
+		## let it through *before* the first `map_dragged`, so a stroke's origin
+		## is the point the finger went down on rather than wherever it had got
+		## to by the time the slop was exceeded.
+		if _touch_armed and mouse.distance_to(_touch_pos) > _TOUCH_SLOP:
+			_release_touch_press()
 		if p["valid"] and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 			map_dragged.emit(p["gx"], p["gy"])
 
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_RIGHT:
+			## Press, not release -- the reference opens its menu from
+			## `contextmenu`, which fires on press. `accept_event()` so the
+			## click cannot fall through to anything behind this control,
+			## matching the reference's own `e.preventDefault()` ("the canvas
+			## has no useful native menu; ours only opens in civ-capable
+			## tabs").
+			if not mb.pressed:
+				return
+			var r := _displayed_rect()
+			if r.size.x <= 0.0:
+				return
+			var inter := _interior_rect(r)
+			var pt := _grid_point(mb.position, r, inter)
+			if not pt["valid"]:
+				return
+			map_right_clicked.emit(pt["gx"], pt["gy"],
+				_hit_test_settlement(mb.position, inter, r), mb.position)
+			accept_event()
+			return
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return
 		var rect := _displayed_rect()
@@ -1023,11 +2061,34 @@ func _gui_input(event: InputEvent) -> void:
 		var interior := _interior_rect(rect)
 		if mb.pressed:
 			var hit := _hit_test_settlement(mb.position, interior, rect)
-			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 			var p := _grid_point(mb.position, rect, interior)
+			## Touch: hold the press back until the gesture identifies itself.
+			## See the `_TOUCH_HOLD_MS` block above for the four outcomes.
+			if mb.device < 0 or OS.has_feature("mobile"):
+				_touch_armed = true
+				_touch_swallow_up = false
+				_touch_ms = Time.get_ticks_msec()
+				_touch_pos = mb.position
+				_touch_press = {"hit": hit, "point": p, "pos": mb.position}
+				set_process(true)
+				return
+			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
 		else:
+			if _touch_swallow_up:
+				## The hold already answered this gesture; the lift is its end,
+				## not a drag's. Emitting `map_released` here would hand a
+				## latched tool (Region select's marquee origin) a commit it
+				## never got an origin for.
+				_touch_swallow_up = false
+				_touch_armed = false
+				set_process(false)
+				return
+			if _touch_armed:
+				## A tap: short, and it never travelled. The press it withheld
+				## is due now, immediately before the release that ends it.
+				_release_touch_press()
 			## §4.5.1's Region select needs the release, not the press --
 			## `map_dragged` already reported every point along the way, but
 			## nothing marked the gesture's *end*, which is where a marquee
@@ -1039,6 +2100,41 @@ func _gui_input(event: InputEvent) -> void:
 			map_released.emit(p["gx"], p["gy"], p["valid"])
 
 
+## Let a withheld touch press through, unchanged and in its original order --
+## the selection first, then the click, exactly as the mouse branch emits them
+## and from the point the finger actually went down on, not from where it is
+## now. Clears the arming, so a second call is a no-op.
+func _release_touch_press() -> void:
+	if not _touch_armed:
+		return
+	_touch_armed = false
+	set_process(false)
+	var hit: int = int(_touch_press.get("hit", -1))
+	var p: Dictionary = _touch_press.get("point", {})
+	settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+	if bool(p.get("valid", false)):
+		map_clicked.emit(p["gx"], p["gy"])
+
+## Runs only while a touch press is outstanding (`set_process` is turned on by
+## the press and off by every one of the four exits), so this costs nothing on
+## a desktop run and nothing between gestures on a phone.
+func _process(_delta: float) -> void:
+	if not _touch_armed:
+		set_process(false)
+		return
+	if Time.get_ticks_msec() - _touch_ms < _TOUCH_HOLD_MS:
+		return
+	## The hold. The withheld press is **discarded**, never emitted: that is the
+	## whole point -- opening the menu must not also fire the armed tool.
+	_touch_armed = false
+	_touch_swallow_up = true
+	set_process(false)
+	var p: Dictionary = _touch_press.get("point", {})
+	if not bool(p.get("valid", false)):
+		return
+	map_right_clicked.emit(p["gx"], p["gy"], int(_touch_press.get("hit", -1)),
+		_touch_press.get("pos", Vector2.ZERO))
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_MOUSE_EXIT:
 		cursor_sampled.emit(0.0, 0.0, false)
@@ -1046,3 +2142,254 @@ func _notification(what: int) -> void:
 			_hover_index = -1
 			queue_redraw()
 			settlement_hovered.emit(null, -1)
+
+
+# ── Urban layouts ────────────────────────────────────────────────────────────
+#
+# `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01): the reference's own
+# deep-zoom town-layout layer, `_umDrawLayout` called from `drawCivLayer`'s
+# §2.5. This port draws the same layer from the same kind of data, restricted
+# to what `URBAN_MORPHOLOGY_SCOPE.md` actually generates — a street skeleton
+# on a real site, plus milestone 12's blocks and the lots platted in them.
+# Buildings and the wall circuit are milestones 13 and 10 and are not
+# generated; `urban_layout_draw.gd` records what it draws in their place.
+#
+# **The reveal gate IS the reference's `_umLayoutAlpha` again, since
+# 2026-08-24.** It was not, for one stated reason: that function crossfades
+# pins into layouts across a 24 km → 10 km viewport span, and while this port's
+# camera clamped at a flat `ZOOM_MAX = 8.0` the closest reachable span on a
+# default 800 km world was ~100 km — a ported 24 km threshold would never once
+# have fired. So the gate was the town's site box measured in screen pixels
+# (`URBAN_MIN_BOX_PX`) instead, which could.
+#
+# The cap became `lodMaxZoom()` and the same world now reaches a 5 km span,
+# which retired that reason; the swap was deferred one pass and is made here.
+# It is not a cosmetic tidy-up — **the pixel gate was measurably the wrong
+# number.** Measured live (`_umreveal_shot.gd`, 800 km world, 440 px map area):
+# `URBAN_MIN_BOX_PX = 16` first fires at a **47 km** span, where a town is a
+# 16 px speck — and because a revealed town *replaces* its pin, the reveal
+# swapped a legible marker for a smudge two octaves before the town was worth
+# looking at. The reference's own band puts the same reveal at 24 km and
+# completes it at 10 km, which on that measurement is a 31 px → 75 px box.
+#
+# `URBAN_MIN_BOX_PX` survives underneath the band as a floor, not as the gate:
+# it is what keeps a narrow map area (a phone, or the map squeezed between two
+# open docks) from drawing a sub-pixel town just because the *span* qualifies.
+#
+# `URBAN_FINE_BOX_PX` is, on measurement, unreachable here and that is correct:
+# the deepest span is 5 km, so the box tops out near 150 px on that map area
+# and a ~11 m lot is ~1 px. The per-roof ink outline would be wider than the
+# roof it surrounds — the same measured finding that put the constant there.
+# The fine pass belongs to the City Viewer, which is where a town is actually
+# looked at; on the map a town is a mass with streets through it.
+## `preload`, not the `UrbanLayoutDraw` global class name -- see
+## `city_viewer_window.gd`'s own `DRAW` const for why.
+const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
+## `_umLayoutAlpha`'s crossfade band (reference line 22753), verbatim, in real
+## km of map-area span — `UM_FADE_FAR_KM`/`UM_FADE_NEAR_KM` there. Real km, not
+## a raw zoom number, for the reference's own stated reason: a zoom's numeric
+## meaning scales with map size and 24 km does not.
+const UM_FADE_FAR_KM := 24.0
+const UM_FADE_NEAR_KM := 10.0
+const URBAN_MIN_BOX_PX := 16.0
+## Above this on-screen box width, a town is drawn with its per-roof ink
+## outline, ridge and drop shadow; below it the roofs are flat fills. 620 px
+## across the 1.7 km box puts a ~11 m lot at ~4 px, which is about where an
+## outline stops being sub-pixel. See the call in `_draw_urban_layouts()`.
+const URBAN_FINE_BOX_PX := 620.0
+## The site box, in km — `UME.SITE_WM`/`1000` (`urban_adapter::SITE_WM`).
+const URBAN_SITE_BOX_KM := 1.7
+## Requested per frame, and the number is the reference's own
+## `_UM_MODEL_CACHE_MAX` (line 22684): as many towns as it was willing to hold
+## generated at once. Each is a few milliseconds of real generation on the
+## main thread, so the cap is what keeps a pan at deep zoom from stalling.
+const URBAN_BATCH_MAX := 24
+
+## Emitted when the layer is on, the zoom is deep enough, and these settlement
+## indices have no layout yet. `ViewportHost` answers with
+## `set_urban_layouts()`. Deliberately a signal rather than a direct bridge
+## call: this control holds no `EngineBridge` and every other value it draws
+## is pushed into it, not pulled.
+signal urban_layouts_needed(indices: PackedInt32Array)
+
+## **On by default**, where the reference's own `civUrbanLayoutsChk` is off —
+## the one deliberate divergence in this block, and it is the band above that
+## makes it affordable. In the reference the toggle *is* the cost control: with
+## it on, every in-view settlement is a generation candidate. Here nothing is
+## requested at all until the map area spans under 24 km, which is a view you
+## have to deliberately zoom into. Off-by-default cost this feature its whole
+## audience instead: it shipped reachable only from CARTO ▸ Layers on the rail
+## (never from the map's own Layers button, which lists field rasters), and the
+## owner's report was simply "I don't see the settlement rendered on the map
+## itself, the dot yes. But not the place."
+var _show_urban_layouts := true
+## settlement index -> layout Dictionary, or `null` for an index the engine
+## refused (a settlement in open water — `_umModelFor`'s own refusal). Both
+## are "answered", so neither is requested twice.
+var _urban_layouts: Dictionary = {}
+var _urban_pending := false
+var _map_width_km := 0.0
+## `_umRevealedSet` (reference line 22753): the settlement indices whose layout
+## was actually drawn this frame, so the pin loop can stand down for them.
+## Rebuilt every `_draw()`, never persisted -- the reference rebuilds its own
+## per frame for the same reason (a place mid-generation must not lose its pin
+## on the strength of the toggle alone).
+var _urban_revealed: Dictionary = {}
+
+
+func set_show_urban_layouts(shown: bool) -> void:
+	_show_urban_layouts = shown
+	queue_redraw()
+
+
+## The real map width, needed to size a town against the grid. Pushed from
+## `ViewportHost.refresh()` alongside the civ data.
+func set_map_width_km(km: float) -> void:
+	if is_equal_approx(_map_width_km, km):
+		return
+	_map_width_km = km
+	_urban_layouts.clear()
+	queue_redraw()
+
+
+## `requested` is the batch that was asked for; `layouts` is what came back,
+## which is shorter whenever the engine refused one. Recording the whole
+## requested set is what stops a refused settlement being re-requested every
+## frame forever.
+func set_urban_layouts(requested: PackedInt32Array, layouts: Array) -> void:
+	for i in requested:
+		_urban_layouts[i] = null
+	for l: Dictionary in layouts:
+		_urban_layouts[int(l["index"])] = l
+	_urban_pending = false
+	queue_redraw()
+
+
+## Dropped wholesale when the world changes — `ViewportHost.refresh()` calls
+## `set_civ_data`, which calls this.
+func clear_urban_layouts() -> void:
+	_urban_layouts.clear()
+	_urban_pending = false
+
+
+## Screen pixels per model metre, at the current fit and camera zoom. Widths
+## drawn through this scale with the camera exactly as positions do, which is
+## right for a town's streets (a real world-space width) and is the opposite
+## of what `_settlement_pin_radius` wants for a pin (not a world-space
+## quantity at all).
+func _urban_m_scale(rect: Rect2) -> float:
+	if _map_width_km <= 0.0 or rect.size.x <= 0.0:
+		return 0.0
+	return rect.size.x / (_map_width_km * 1000.0)
+
+
+## `lodSpanKm()` (reference line 10675, `mapWidthKm / _lodZoom`): how many km of
+## world the map area spans right now. `rect` is the plate in this control's own
+## local space and the camera scales the whole control, so the plate covers
+## `rect.size.x * _camera_zoom` screen px while the map area itself is `size.x`
+## wide. The two are the same number only when the plate fills the width;
+## letterboxing (a tall world in a wide map area) is why this is a ratio rather
+## than `_map_width_km / _camera_zoom`.
+func _urban_span_km(rect: Rect2) -> float:
+	var plate_px := rect.size.x * _camera_zoom
+	if _map_width_km <= 0.0 or plate_px <= 0.0 or size.x <= 0.0:
+		return 0.0
+	return _map_width_km * size.x / plate_px
+
+
+## `_umLayoutAlpha()` (reference line 22754), ported branch for branch. 0 means
+## the pins have it; 1 means the layouts do; between, both are drawn and the
+## layout is the one that fades.
+func _urban_layout_alpha(rect: Rect2) -> float:
+	if not _show_urban_layouts:
+		return 0.0
+	var span := _urban_span_km(rect)
+	if span <= 0.0 or span >= UM_FADE_FAR_KM:
+		return 0.0
+	if span <= UM_FADE_NEAR_KM:
+		return 1.0
+	return (UM_FADE_FAR_KM - span) / (UM_FADE_FAR_KM - UM_FADE_NEAR_KM)
+
+
+func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
+	var alpha := _urban_layout_alpha(rect)
+	if alpha <= 0.0:
+		return
+	var m_scale := _urban_m_scale(rect)
+	if m_scale <= 0.0:
+		return
+	## The camera scales this whole control, so a box that measures
+	## `box_px` here lands `box_px * _camera_zoom` wide on screen.
+	var box_px := URBAN_SITE_BOX_KM * 1000.0 * m_scale * _camera_zoom
+	if box_px < URBAN_MIN_BOX_PX:
+		return
+
+	## The camera scales and offsets this whole control, so `interior` alone is
+	## "on the plate", not "on screen" -- at deep zoom that is nearly the
+	## entire settlement roster, and generating a town for each is real work.
+	## The viewport rect pulled back through this control's own global
+	## transform is the actual visible area in the space `rect` is measured in.
+	var visible_area := get_global_transform().affine_inverse() * get_viewport_rect()
+	visible_area = visible_area.intersection(interior)
+	if visible_area.size.x <= 0.0 or visible_area.size.y <= 0.0:
+		return
+	## Half a box of slack, so a town whose centre is just off-screen still
+	## draws the half of itself that is on-screen.
+	visible_area = visible_area.grow(box_px * 0.5 / maxf(0.001, _camera_zoom))
+
+	var need := PackedInt32Array()
+	for i in _settlements.size():
+		var s: Dictionary = _settlements[i]
+		if _hidden_settlement_kinds.has(s["kind"]):
+			continue
+		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		if not visible_area.has_point(pos):
+			continue
+		if not _urban_layouts.has(i):
+			if need.size() < URBAN_BATCH_MAX:
+				need.append(i)
+			continue
+		var layout = _urban_layouts[i]
+		if layout == null:
+			continue
+		## `_umDrawLayout`'s own transform: local model metres, measured from
+		## the market anchor, rotated by the layout's terrain orientation, then
+		## scaled into grid units and projected like any other map point — so
+		## the market lands exactly on the settlement's real position and an
+		## injected real road overlays the map road it came from.
+		var anchor: Vector2 = layout.get("market", Vector2.ZERO)
+		var rot: float = float(layout.get("orient", 0.0))
+		var cth := cos(rot)
+		var sth := sin(rot)
+		var grid_per_meter := float(_gw) / (_map_width_km * 1000.0)
+		var to_screen := func(mp: Vector2) -> Vector2:
+			var l := mp - anchor
+			return _point_to_screen(Vector2(
+				float(s["x"]) + 0.5 + (l.x * cth - l.y * sth) * grid_per_meter,
+				float(s["y"]) + 0.5 + (l.x * sth + l.y * cth) * grid_per_meter), rect)
+		## `px_floor` = one screen pixel in this control's own space: the camera
+		## scales this whole control by `_camera_zoom`, so a stroke floored at
+		## a literal 1.0 here would land `_camera_zoom` px thick on screen.
+		## The per-roof ink outline, ridge and drop shadow are three extra
+		## passes over every lot in the town, and a town runs to a couple of
+		## thousand. A lot is ~11 m across in a 1.7 km box, so it covers
+		## `box_px / 155` pixels -- under `URBAN_FINE_BOX_PX` those passes are
+		## drawing sub-pixel detail over and over. The City Viewer, which is
+		## the place a town is actually looked at, always passes 1.0.
+		URBAN_DRAW.draw_layout(self, layout, to_screen, m_scale,
+			1.0 / maxf(0.001, _camera_zoom), alpha, false,
+			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0)
+		## The pin hands over only at the *end* of the crossfade. The reference
+		## fades it instead (`pinAlpha = 1 - _umAlpha`, line 15778) and this
+		## does not: a pin here is a disc, an outline, a glyph, a capital ring
+		## and a label, each with its own colour constant, so fading it means
+		## threading an alpha through five draw calls to soften two seconds of
+		## transition. Holding the pin until the layout is fully opaque keeps
+		## the thing you are navigating by legible for the whole fade, which is
+		## the half of that behaviour that matters. Stated, not silent.
+		if alpha >= 1.0:
+			_urban_revealed[i] = true
+
+	if need.size() > 0 and not _urban_pending:
+		_urban_pending = true
+		urban_layouts_needed.emit.call_deferred(need)

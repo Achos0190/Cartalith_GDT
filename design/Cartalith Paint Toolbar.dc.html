@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#0d0e0f}a{color:#e0a34a}a:hover{color:#f0bd72}</style></helmet>
+
+<section style="width:1920px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;padding:0 0 60px">
+
+  <div style="padding:24px 24px 16px;display:flex;align-items:baseline;gap:20px;border-bottom:1px solid rgba(255,255,255,.08)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:#e0a34a">5a</div>
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec">TOOL BAR · SCULPT · PAINT · MEASURE</div>
+    <div style="font:11px 'IBM Plex Mono',monospace;color:#6f7478">one bar. three mode buttons on the left; the active mode's tools appear beside them. Options bar below carries brush size.</div>
+    <div style="flex:1"></div>
+    <div style="font:11px 'IBM Plex Mono',monospace;color:#6f7478">1920 × 1080 dark · 3 states</div>
+  </div>
+
+  <div id="5a" style="padding:24px 0 0;display:flex;flex-direction:column;gap:40px;align-items:center">
+
+    <!-- ══════════════════ STATE 1 · SCULPT ▸ RAISE ══════════════════ -->
+    <div data-screen-label="Sculpt raise 1920" style="width:1920px;height:1080px;background:#0d0e0f;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.10)">
+
+      <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+        <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+        <div style="display:flex;font-size:11.5px;color:#a9adb0"><span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px">Assets</span><span style="padding:9px 11px">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span></div>
+        <div style="flex:1"></div>
+        <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>style: Atlas</span><span>CPU 44</span><span>GPU 71</span><span>1.6 GB</span></div>
+      </div>
+
+      <!-- ONE TOOL BAR · mode buttons then the active mode's tools -->
+      <div style="height:38px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="display:flex;gap:2px">
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid #e0a34a;color:#141617;background:#e0a34a;letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M1.5 11.5 8 5M9 2l3 3-2.6 2.6-3-3z" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg>SCULPT</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid rgba(255,255,255,.16);letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M2 12h4l6-6-3-3-6 6z" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg>PAINT</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid rgba(255,255,255,.16);letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M1.5 12.5 12.5 1.5" stroke="currentColor" stroke-width="1.1" fill="none"></path><circle cx="2" cy="12" r="1.4" fill="currentColor"></circle><circle cx="12" cy="2" r="1.4" fill="currentColor"></circle></svg>MEASURE</span>
+        </span>
+        <span style="width:1px;height:22px;background:rgba(255,255,255,.14);margin:0 14px"></span>
+        <span style="display:flex;gap:2px">
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.10)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M1 11h12M7 9V2M4.2 4.8 7 2l2.8 2.8" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Raise</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M1 3h12M7 5v7M4.2 9.2 7 12l2.8-2.8" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Lower</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M1 9c2.5 0 3.5-5 6-5s3.5 5 6 5" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Smooth</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M1 7h12M3 11h8" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Flatten</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M1 8l2-3 2 4 2-6 2 5 2-2 2 2" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Noise</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M2 12c3-1 4-9 10-10" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Ridge</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><svg viewBox="0 0 14 14" width="13" height="13"><path d="M1 4h12L9 12H5z" fill="none" stroke="currentColor" stroke-width="1.1"></path></svg>Carve</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)">Mask</span>
+        </span>
+        <div style="flex:1"></div>
+        <span style="color:#5f6468">hand edits are local · they mark downstream stages stale</span>
+      </div>
+
+      <div style="height:38px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="color:#e0a34a;letter-spacing:.14em">RAISE</span>
+        <span style="display:flex;align-items:center;gap:8px">size
+          <span style="width:96px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:46%;background:#e0a34a"></span><span style="position:absolute;left:46%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:56px">62 km</span><span style="color:#5f6468">[ ]</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:8px">strength
+          <span style="width:78px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:34%;background:#e0a34a"></span><span style="position:absolute;left:34%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:34px">0.34</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:8px">falloff
+          <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:62%;background:#e0a34a"></span><span style="position:absolute;left:62%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:34px">0.62</span>
+        </span>
+        <span style="display:flex;gap:2px"><span style="padding:3px 8px;border:1px solid #e0a34a;color:#e0a34a">smooth</span><span style="padding:3px 8px;border:1px solid rgba(255,255,255,.16)">linear</span><span style="padding:3px 8px;border:1px solid rgba(255,255,255,.16)">hard</span></span>
+        <span style="display:flex;align-items:center;gap:7px">spacing <span style="color:#c8cbcd">18 %</span></span>
+        <span style="display:flex;align-items:center;gap:7px">max Δ <span style="color:#c8cbcd">±420 m</span></span>
+        <span style="display:flex;align-items:center;gap:7px">pressure <span style="color:#e0a34a">on</span></span>
+        <div style="flex:1"></div>
+        <span style="padding:3px 10px;border:1px solid rgba(255,255,255,.16)">presets ▾</span>
+        <span style="padding:3px 10px;border:1px solid rgba(255,255,255,.16)">symmetry off</span>
+      </div>
+
+      <div style="flex:1;display:flex;min-height:0">
+        <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+          <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+          <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+            <div style="writing-mode:vertical-rl;color:#e0a34a">WORLD</div>
+            <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+            <div style="writing-mode:vertical-rl">CIVIL</div>
+            <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+            <div style="writing-mode:vertical-rl">CARTO</div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:0 0 12px;font:10px 'IBM Plex Mono',monospace;color:#e0a34a;writing-mode:vertical-rl;letter-spacing:.12em">SCULPT</div>
+        </div>
+
+        <div style="flex:1;position:relative;background:radial-gradient(1100px 700px at 44% 46%,#1a1d1e 0%,#111314 58%,#0d0e0f 100%);min-width:0">
+          <div style="position:absolute;inset:0;background:radial-gradient(360px 260px at 42% 44%,rgba(224,163,74,.06),transparent 70%),radial-gradient(520px 320px at 64% 62%,rgba(120,140,150,.045),transparent 70%)"></div>
+          <div style="position:absolute;left:12px;top:10px;width:36px;height:36px;display:grid;place-items:center;background:#121314;border:1px solid rgba(255,255,255,.16);color:#a9adb0"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 1.5 15 5 8 8.5 1 5z" fill="none" stroke="currentColor" stroke-width="1.2"></path><path d="M2.4 7.6 8 10.4l5.6-2.8M2.4 10.1 8 12.9l5.6-2.8" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg></div>
+          <div style="position:absolute;left:29%;top:26%;font:10px 'IBM Plex Mono',monospace;color:#5f6468;letter-spacing:.12em">KHARET RANGE</div>
+          <div style="position:absolute;left:63%;top:70%;font:10px 'IBM Plex Mono',monospace;color:#5f6468;letter-spacing:.12em">SEA OF VELD</div>
+          <div style="position:absolute;left:44%;top:42%;width:230px;height:230px;margin:-115px 0 0 -115px;border-radius:50%;border:1px solid rgba(224,163,74,.85);background:radial-gradient(circle,rgba(224,163,74,.16) 0%,rgba(224,163,74,.06) 58%,transparent 100%)"></div>
+          <div style="position:absolute;left:44%;top:42%;width:142px;height:142px;margin:-71px 0 0 -71px;border-radius:50%;border:1px dashed rgba(224,163,74,.5)"></div>
+          <div style="position:absolute;left:44%;top:42%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;background:#e0a34a"></div>
+          <div style="position:absolute;left:calc(44% + 122px);top:calc(42% - 118px);font:10px 'IBM Plex Mono',monospace;color:#e0a34a;background:rgba(13,14,15,.85);padding:2px 6px">Ø 62 km · 0.34 · smooth</div>
+          <div style="position:absolute;left:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;display:flex;align-items:center;gap:10px"><span style="width:80px;height:1px;background:#8d9296;position:relative"><span style="position:absolute;left:0;top:-3px;width:1px;height:7px;background:#8d9296"></span><span style="position:absolute;right:0;top:-3px;width:1px;height:7px;background:#8d9296"></span></span>200 km</div>
+          <div style="position:absolute;right:14px;top:10px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">2D · equirect · z 5.2<br>elevation · editable layer</div>
+          <div style="position:absolute;right:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">4 812 km E · 1 093 km N · 1 462 → 1 604 m</div>
+        </div>
+
+        <div style="width:296px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+          <div style="padding:8px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.10)"><span>BRUSH</span><span style="color:#5f6468">⌄</span></div>
+          <div style="padding:12px 13px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;gap:13px;align-items:center">
+            <div style="width:74px;height:74px;flex:none;border:1px solid rgba(255,255,255,.12);background:radial-gradient(circle,rgba(224,163,74,.55) 0%,rgba(224,163,74,.18) 52%,rgba(224,163,74,0) 100%)"></div>
+            <div style="flex:1;font:10px/1.7 'IBM Plex Mono',monospace;color:#8d9296">
+              <div>radius <span style="color:#c8cbcd">31 km</span></div><div>diameter <span style="color:#c8cbcd">62 km</span></div><div>≈ <span style="color:#c8cbcd">104 px</span> at z 5.2</div><div>covers <span style="color:#c8cbcd">3 020 km²</span></div>
+            </div>
+          </div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">SIZE MODE</div>
+          <div style="padding:0 13px 8px;display:flex;gap:2px;font:10px 'IBM Plex Mono',monospace"><span style="padding:4px 9px;border:1px solid #e0a34a;color:#e0a34a">world km</span><span style="padding:4px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">screen px</span><span style="padding:4px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">cells</span></div>
+          <div style="padding:0 13px 10px;font:10px/1.6 'IBM Plex Mono',monospace;color:#6f7478">World km keeps the footprint fixed while you zoom — the default for terrain work.</div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">PRESETS</div>
+          <div style="padding:0 0 8px;font-size:11px">
+            <div style="display:flex;gap:9px;padding:4px 13px;background:rgba(224,163,74,.07);color:#e8ebec"><span style="color:#e0a34a">●</span><span style="flex:1">Range shoulder</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">62 km · 0.34</span></div>
+            <div style="display:flex;gap:9px;padding:4px 13px;color:#c8cbcd"><span style="color:#6f7478">○</span><span style="flex:1">Fine ridge</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">14 km · 0.60</span></div>
+            <div style="display:flex;gap:9px;padding:4px 13px;color:#c8cbcd"><span style="color:#6f7478">○</span><span style="flex:1">Basin sweep</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">240 km · 0.12</span></div>
+            <div style="display:flex;gap:9px;padding:4px 13px;color:#c8cbcd"><span style="color:#6f7478">○</span><span style="flex:1">Coast nibble</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">8 km · 0.50</span></div>
+          </div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">CONSTRAINTS</div>
+          <div style="padding:2px 13px 10px;display:flex;flex-direction:column;gap:7px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+            <div style="display:flex;justify-content:space-between"><span>clamp to sea level</span><span style="color:#e0a34a">on</span></div>
+            <div style="display:flex;justify-content:space-between"><span>respect coastline</span><span style="color:#e0a34a">on</span></div>
+            <div style="display:flex;justify-content:space-between"><span>edit inside mask only</span><span style="color:#6f7478">off</span></div>
+            <div style="display:flex;justify-content:space-between"><span>elevation range</span><span style="color:#c8cbcd">−400 … 4 200 m</span></div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:10px 13px;border-top:1px solid rgba(255,255,255,.10);font:10px/1.6 'IBM Plex Mono',monospace;color:#c8b48d;background:rgba(224,163,74,.06)">Edits set <span style="color:#e0a34a">hydrology · climate · biomes</span> stale. Regenerate before reading route costs.</div>
+        </div>
+      </div>
+
+      <div style="height:24px;flex:none;display:flex;align-items:center;gap:20px;padding:0 14px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+        <span>Sculpt ▸ Raise</span><span>[ ] size · ⇧ scrub strength · ⌥ invert to Lower</span><div style="flex:1"></div><span>62 km · 0.34 · 6 strokes this session</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════ STATE 2 · PAINT ▸ TERRAIN ══════════════════ -->
+    <div data-screen-label="Paint terrain 1920" style="width:1920px;height:1080px;background:#0d0e0f;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.10)">
+
+      <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+        <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+        <div style="display:flex;font-size:11.5px;color:#a9adb0"><span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px">Assets</span><span style="padding:9px 11px">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span></div>
+        <div style="flex:1"></div>
+        <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>style: Atlas</span><span>CPU 38</span><span>GPU 55</span><span>1.6 GB</span></div>
+      </div>
+
+      <div style="height:38px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="display:flex;gap:2px">
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid rgba(255,255,255,.16);letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M1.5 11.5 8 5M9 2l3 3-2.6 2.6-3-3z" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg>SCULPT</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid #e0a34a;color:#141617;background:#e0a34a;letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M2 12h4l6-6-3-3-6 6z" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg>PAINT</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid rgba(255,255,255,.16);letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M1.5 12.5 12.5 1.5" stroke="currentColor" stroke-width="1.1" fill="none"></path><circle cx="2" cy="12" r="1.4" fill="currentColor"></circle><circle cx="12" cy="2" r="1.4" fill="currentColor"></circle></svg>MEASURE</span>
+        </span>
+        <span style="width:1px;height:22px;background:rgba(255,255,255,.14);margin:0 14px"></span>
+        <span style="display:flex;gap:2px">
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.10)"><span style="width:10px;height:10px;background:#8d6f52"></span>Terrain</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><span style="width:10px;height:10px;background:#5c6f4e"></span>Biome</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><span style="width:10px;height:10px;background:#3d5a63"></span>Water</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><span style="width:10px;height:10px;background:#7d7a4c"></span>Lithology</span>
+          <span style="padding:4px 10px;border:1px solid rgba(255,255,255,.16);color:#6f7478">Custom field ▾</span>
+          <span style="padding:4px 10px;border:1px solid rgba(255,255,255,.16)">Mask</span>
+          <span style="padding:4px 10px;border:1px solid rgba(255,255,255,.16)">Erase</span>
+        </span>
+        <div style="flex:1"></div>
+        <span style="color:#5f6468">painting a classification never changes elevation</span>
+      </div>
+
+      <div style="height:38px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="color:#e0a34a;letter-spacing:.14em">TERRAIN</span>
+        <span style="display:flex;align-items:center;gap:7px">class <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd"><span style="width:10px;height:10px;background:#8d6f52"></span>montane ▾</span></span>
+        <span style="display:flex;align-items:center;gap:8px">size
+          <span style="width:96px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:28%;background:#e0a34a"></span><span style="position:absolute;left:28%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:56px">34 km</span><span style="color:#5f6468">[ ]</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:8px">hardness
+          <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:78%;background:#e0a34a"></span><span style="position:absolute;left:78%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:34px">0.78</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:8px">opacity
+          <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:100%;background:#e0a34a"></span><span style="position:absolute;left:100%;top:-4px;width:9px;height:9px;margin-left:-5px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:34px">1.00</span>
+        </span>
+        <span style="display:flex;gap:2px"><span style="padding:3px 8px;border:1px solid #e0a34a;color:#e0a34a">brush</span><span style="padding:3px 8px;border:1px solid rgba(255,255,255,.16)">fill</span><span style="padding:3px 8px;border:1px solid rgba(255,255,255,.16)">lasso</span></span>
+        <span style="display:flex;align-items:center;gap:7px">restrict <span style="color:#c8cbcd">land only</span></span>
+        <div style="flex:1"></div>
+        <span style="padding:3px 10px;border:1px solid rgba(255,255,255,.16)">pick class ⌥</span>
+        <span style="padding:3px 10px;border:1px solid rgba(255,255,255,.16)">show edits</span>
+      </div>
+
+      <div style="flex:1;display:flex;min-height:0">
+        <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+          <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+          <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+            <div style="writing-mode:vertical-rl;color:#e0a34a">WORLD</div>
+            <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+            <div style="writing-mode:vertical-rl">CIVIL</div>
+            <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+            <div style="writing-mode:vertical-rl">CARTO</div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:0 0 12px;font:10px 'IBM Plex Mono',monospace;color:#e0a34a;writing-mode:vertical-rl;letter-spacing:.12em">PAINT</div>
+        </div>
+
+        <div style="flex:1;position:relative;background:radial-gradient(1100px 700px at 44% 46%,#1a1d1e 0%,#111314 58%,#0d0e0f 100%);min-width:0">
+          <div style="position:absolute;inset:0;background:radial-gradient(300px 220px at 34% 40%,rgba(141,111,82,.18),transparent 70%),radial-gradient(420px 280px at 58% 58%,rgba(92,111,78,.15),transparent 70%),radial-gradient(360px 240px at 74% 74%,rgba(61,90,99,.17),transparent 70%)"></div>
+          <div style="position:absolute;left:12px;top:10px;width:36px;height:36px;display:grid;place-items:center;background:#121314;border:1px solid rgba(255,255,255,.16);color:#a9adb0"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 1.5 15 5 8 8.5 1 5z" fill="none" stroke="currentColor" stroke-width="1.2"></path><path d="M2.4 7.6 8 10.4l5.6-2.8M2.4 10.1 8 12.9l5.6-2.8" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg></div>
+          <div style="position:absolute;left:31%;top:35%;font:10px 'IBM Plex Mono',monospace;color:#c8b9a6;letter-spacing:.12em">MONTANE</div>
+          <div style="position:absolute;left:55%;top:57%;font:10px 'IBM Plex Mono',monospace;color:#a9b79a;letter-spacing:.12em">LOWLAND</div>
+          <div style="position:absolute;left:72%;top:74%;font:10px 'IBM Plex Mono',monospace;color:#9db3bd;letter-spacing:.12em">COAST</div>
+          <div style="position:absolute;left:40%;top:44%;width:126px;height:126px;margin:-63px 0 0 -63px;border-radius:50%;border:1px solid rgba(224,163,74,.9);background:rgba(141,111,82,.34)"></div>
+          <div style="position:absolute;left:40%;top:44%;width:100px;height:100px;margin:-50px 0 0 -50px;border-radius:50%;border:1px dashed rgba(224,163,74,.5)"></div>
+          <div style="position:absolute;left:calc(40% + 70px);top:calc(44% - 66px);font:10px 'IBM Plex Mono',monospace;color:#e0a34a;background:rgba(13,14,15,.85);padding:2px 6px">montane · Ø 34 km · 0.78</div>
+          <div style="position:absolute;left:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;display:flex;align-items:center;gap:10px"><span style="width:80px;height:1px;background:#8d9296;position:relative"><span style="position:absolute;left:0;top:-3px;width:1px;height:7px;background:#8d9296"></span><span style="position:absolute;right:0;top:-3px;width:1px;height:7px;background:#8d9296"></span></span>200 km</div>
+          <div style="position:absolute;right:14px;top:10px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">2D · terrain class overlay 70 %<br>hand edits hatched</div>
+          <div style="position:absolute;right:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">montane → montane · 1 462 m · 8.1°</div>
+        </div>
+
+        <div style="width:296px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+          <div style="padding:8px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.10)"><span>TERRAIN CLASSES</span><span style="color:#5f6468">⌄</span></div>
+          <div style="padding:0 0 8px;font-size:11px">
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;background:rgba(224,163,74,.07);color:#e8ebec"><span style="width:12px;height:12px;background:#8d6f52"></span><span style="flex:1">montane</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">18.4 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#b9b3a6"></span><span style="flex:1">alpine</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">4.1 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#7d7a4c"></span><span style="flex:1">foothill</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">14.2 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#5c6f4e"></span><span style="flex:1">lowland</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">31.6 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#8a8f6a"></span><span style="flex:1">plateau</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">6.8 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#6b5f4a"></span><span style="flex:1">badland</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">2.4 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#3d5a63"></span><span style="flex:1">coast</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">5.9 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#4a6b6b"></span><span style="flex:1">wetland</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">3.1 %</span></div>
+          </div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">BRUSH</div>
+          <div style="padding:8px 13px 10px;display:flex;gap:13px;align-items:center">
+            <div style="width:62px;height:62px;flex:none;border:1px solid rgba(255,255,255,.12);background:radial-gradient(circle,rgba(141,111,82,.95) 0%,rgba(141,111,82,.85) 74%,rgba(141,111,82,0) 100%)"></div>
+            <div style="flex:1;font:10px/1.7 'IBM Plex Mono',monospace;color:#8d9296">
+              <div>diameter <span style="color:#c8cbcd">34 km</span></div><div>hardness <span style="color:#c8cbcd">0.78</span></div><div>≈ <span style="color:#c8cbcd">57 px</span> at z 5.2</div><div>cells per stroke <span style="color:#c8cbcd">~1 800</span></div>
+            </div>
+          </div>
+          <div style="padding:0 13px 10px;display:flex;gap:2px;font:10px 'IBM Plex Mono',monospace"><span style="padding:4px 9px;border:1px solid #e0a34a;color:#e0a34a">world km</span><span style="padding:4px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">screen px</span><span style="padding:4px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">cells</span></div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">RULES</div>
+          <div style="padding:2px 13px 10px;display:flex;flex-direction:column;gap:7px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+            <div style="display:flex;justify-content:space-between"><span>land only</span><span style="color:#e0a34a">on</span></div>
+            <div style="display:flex;justify-content:space-between"><span>respect elevation band</span><span style="color:#e0a34a">on</span></div>
+            <div style="display:flex;justify-content:space-between"><span>replace class</span><span style="color:#c8cbcd">any</span></div>
+            <div style="display:flex;justify-content:space-between"><span>hand-edit lock</span><span style="color:#6f7478">off</span></div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:10px 13px;border-top:1px solid rgba(255,255,255,.10);font:10px/1.6 'IBM Plex Mono',monospace;color:#c8b48d;background:rgba(224,163,74,.06)">Painted classes survive regeneration where <span style="color:#e0a34a">hand-edit lock</span> is on; otherwise the next terrain pass overwrites them.</div>
+        </div>
+      </div>
+
+      <div style="height:24px;flex:none;display:flex;align-items:center;gap:20px;padding:0 14px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+        <span>Paint ▸ Terrain · montane</span><span>[ ] size · ⌥ pick class under cursor · ⇧ straight stroke</span><div style="flex:1"></div><span>34 km · 0.78 · 12 strokes</span>
+      </div>
+    </div>
+
+    <!-- ══════════════════ STATE 3 · PAINT ▸ BIOME ══════════════════ -->
+    <div data-screen-label="Paint biome 1920" style="width:1920px;height:1080px;background:#0d0e0f;display:flex;flex-direction:column;overflow:hidden;border:1px solid rgba(255,255,255,.10)">
+
+      <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+        <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+        <div style="display:flex;font-size:11.5px;color:#a9adb0"><span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px">Assets</span><span style="padding:9px 11px">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span></div>
+        <div style="flex:1"></div>
+        <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>style: Atlas</span><span>CPU 41</span><span>GPU 58</span><span>1.6 GB</span></div>
+      </div>
+
+      <div style="height:38px;flex:none;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="display:flex;gap:2px">
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid rgba(255,255,255,.16);letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M1.5 11.5 8 5M9 2l3 3-2.6 2.6-3-3z" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg>SCULPT</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid #e0a34a;color:#141617;background:#e0a34a;letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M2 12h4l6-6-3-3-6 6z" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg>PAINT</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:5px 12px;border:1px solid rgba(255,255,255,.16);letter-spacing:.12em"><svg viewBox="0 0 14 14" width="12" height="12"><path d="M1.5 12.5 12.5 1.5" stroke="currentColor" stroke-width="1.1" fill="none"></path><circle cx="2" cy="12" r="1.4" fill="currentColor"></circle><circle cx="12" cy="2" r="1.4" fill="currentColor"></circle></svg>MEASURE</span>
+        </span>
+        <span style="width:1px;height:22px;background:rgba(255,255,255,.14);margin:0 14px"></span>
+        <span style="display:flex;gap:2px">
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><span style="width:10px;height:10px;background:#8d6f52"></span>Terrain</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.10)"><span style="width:10px;height:10px;background:#4c7a4a"></span>Biome</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><span style="width:10px;height:10px;background:#3d5a63"></span>Water</span>
+          <span style="display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid rgba(255,255,255,.16)"><span style="width:10px;height:10px;background:#7d7a4c"></span>Lithology</span>
+          <span style="padding:4px 10px;border:1px solid rgba(255,255,255,.16);color:#6f7478">Custom field ▾</span>
+          <span style="padding:4px 10px;border:1px solid rgba(255,255,255,.16)">Mask</span>
+          <span style="padding:4px 10px;border:1px solid rgba(255,255,255,.16)">Erase</span>
+        </span>
+        <div style="flex:1"></div>
+        <span style="color:#5f6468">biome edits are overrides on the climate-derived layer</span>
+      </div>
+
+      <div style="height:38px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="color:#e0a34a;letter-spacing:.14em">BIOME</span>
+        <span style="display:flex;align-items:center;gap:7px">biome <span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd"><span style="width:10px;height:10px;background:#4c7a4a"></span>temperate forest ▾</span></span>
+        <span style="display:flex;align-items:center;gap:8px">size
+          <span style="width:96px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:64%;background:#e0a34a"></span><span style="position:absolute;left:64%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:56px">88 km</span><span style="color:#5f6468">[ ]</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:8px">hardness
+          <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:22%;background:#e0a34a"></span><span style="position:absolute;left:22%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:34px">0.22</span>
+        </span>
+        <span style="display:flex;align-items:center;gap:8px">blend
+          <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:54%;background:#e0a34a"></span><span style="position:absolute;left:54%;top:-4px;width:9px;height:9px;margin-left:-4px;background:#e0a34a"></span></span>
+          <span style="color:#c8cbcd;width:34px">0.54</span>
+        </span>
+        <span style="display:flex;gap:2px"><span style="padding:3px 8px;border:1px solid #e0a34a;color:#e0a34a">brush</span><span style="padding:3px 8px;border:1px solid rgba(255,255,255,.16)">fill region</span><span style="padding:3px 8px;border:1px solid rgba(255,255,255,.16)">by climate</span></span>
+        <span style="display:flex;align-items:center;gap:7px">respect climate <span style="color:#e0a34a">warn</span></span>
+        <div style="flex:1"></div>
+        <span style="padding:3px 10px;border:1px solid rgba(255,255,255,.16)">pick biome ⌥</span>
+        <span style="padding:3px 10px;border:1px solid rgba(255,255,255,.16)">lock edits</span>
+      </div>
+
+      <div style="flex:1;display:flex;min-height:0">
+        <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+          <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+          <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+            <div style="writing-mode:vertical-rl;color:#e0a34a">WORLD</div>
+            <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+            <div style="writing-mode:vertical-rl">CIVIL</div>
+            <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+            <div style="writing-mode:vertical-rl">CARTO</div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:0 0 12px;font:10px 'IBM Plex Mono',monospace;color:#e0a34a;writing-mode:vertical-rl;letter-spacing:.12em">PAINT</div>
+        </div>
+
+        <div style="flex:1;position:relative;background:radial-gradient(1100px 700px at 44% 46%,#181c1a 0%,#111314 58%,#0d0e0f 100%);min-width:0">
+          <div style="position:absolute;inset:0;background:radial-gradient(340px 250px at 36% 38%,rgba(76,122,74,.20),transparent 70%),radial-gradient(300px 220px at 62% 34%,rgba(151,142,84,.15),transparent 70%),radial-gradient(420px 300px at 56% 68%,rgba(94,124,96,.15),transparent 70%),radial-gradient(300px 220px at 78% 76%,rgba(61,90,99,.16),transparent 70%)"></div>
+          <div style="position:absolute;left:12px;top:10px;width:36px;height:36px;display:grid;place-items:center;background:#121314;border:1px solid rgba(255,255,255,.16);color:#a9adb0"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M8 1.5 15 5 8 8.5 1 5z" fill="none" stroke="currentColor" stroke-width="1.2"></path><path d="M2.4 7.6 8 10.4l5.6-2.8M2.4 10.1 8 12.9l5.6-2.8" fill="none" stroke="currentColor" stroke-width="1.2"></path></svg></div>
+          <div style="position:absolute;left:32%;top:34%;font:10px 'IBM Plex Mono',monospace;color:#a8c4a2;letter-spacing:.12em">TEMPERATE FOREST</div>
+          <div style="position:absolute;left:67%;top:23%;font:10px 'IBM Plex Mono',monospace;color:#cfc79a;letter-spacing:.12em">STEPPE</div>
+          <div style="position:absolute;left:53%;top:69%;font:10px 'IBM Plex Mono',monospace;color:#a9bfa9;letter-spacing:.12em">TAIGA</div>
+          <div style="position:absolute;left:76%;top:77%;font:10px 'IBM Plex Mono',monospace;color:#9db3bd;letter-spacing:.12em">SALT MARSH</div>
+          <div style="position:absolute;left:43%;top:45%;width:300px;height:300px;margin:-150px 0 0 -150px;border-radius:50%;border:1px solid rgba(224,163,74,.8);background:radial-gradient(circle,rgba(76,122,74,.45) 0%,rgba(76,122,74,.22) 46%,rgba(76,122,74,0) 100%)"></div>
+          <div style="position:absolute;left:43%;top:45%;width:3px;height:3px;margin:-1.5px 0 0 -1.5px;background:#e0a34a"></div>
+          <div style="position:absolute;left:calc(43% + 156px);top:calc(45% - 152px);font:10px 'IBM Plex Mono',monospace;color:#e0a34a;background:rgba(13,14,15,.85);padding:2px 6px">temperate forest · Ø 88 km · soft 0.22</div>
+          <div style="position:absolute;left:calc(43% + 156px);top:calc(45% - 130px);font:10px 'IBM Plex Mono',monospace;color:#c8b48d;background:rgba(13,14,15,.85);padding:2px 6px">⚠ climate here supports steppe</div>
+          <div style="position:absolute;left:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;display:flex;align-items:center;gap:10px"><span style="width:80px;height:1px;background:#8d9296;position:relative"><span style="position:absolute;left:0;top:-3px;width:1px;height:7px;background:#8d9296"></span><span style="position:absolute;right:0;top:-3px;width:1px;height:7px;background:#8d9296"></span></span>200 km</div>
+          <div style="position:absolute;right:14px;top:10px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">2D · biome overlay 80 %<br>overrides outlined</div>
+          <div style="position:absolute;right:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">11.2 °C · 780 mm · steppe → temperate forest</div>
+        </div>
+
+        <div style="width:296px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+          <div style="padding:8px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.10)"><span>BIOME PALETTE</span><span style="color:#5f6468">⌄</span></div>
+          <div style="padding:0 0 8px;font-size:11px">
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;background:rgba(224,163,74,.07);color:#e8ebec"><span style="width:12px;height:12px;background:#4c7a4a"></span><span style="flex:1">temperate forest</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">21.8 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#5e7c60"></span><span style="flex:1">taiga</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">12.4 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#978e54"></span><span style="flex:1">steppe</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">17.1 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#b8a367"></span><span style="flex:1">savanna</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">8.6 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#c9b98d"></span><span style="flex:1">desert</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">9.2 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#2f6b4f"></span><span style="flex:1">rainforest</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">6.4 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#8fa3a8"></span><span style="flex:1">tundra</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">7.8 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#4a6b6b"></span><span style="flex:1">salt marsh</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">2.9 %</span></div>
+            <div style="display:flex;align-items:center;gap:9px;padding:5px 13px;color:#c8cbcd"><span style="width:12px;height:12px;background:#b9b3a6"></span><span style="flex:1">alpine barren</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">3.8 %</span></div>
+          </div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">BRUSH</div>
+          <div style="padding:8px 13px 10px;display:flex;gap:13px;align-items:center">
+            <div style="width:62px;height:62px;flex:none;border:1px solid rgba(255,255,255,.12);background:radial-gradient(circle,rgba(76,122,74,.9) 0%,rgba(76,122,74,.36) 44%,rgba(76,122,74,0) 100%)"></div>
+            <div style="flex:1;font:10px/1.7 'IBM Plex Mono',monospace;color:#8d9296">
+              <div>diameter <span style="color:#c8cbcd">88 km</span></div><div>hardness <span style="color:#c8cbcd">0.22 soft</span></div><div>blend <span style="color:#c8cbcd">0.54</span></div><div>≈ <span style="color:#c8cbcd">147 px</span> at z 5.2</div>
+            </div>
+          </div>
+          <div style="padding:0 13px 10px;display:flex;gap:2px;font:10px 'IBM Plex Mono',monospace"><span style="padding:4px 9px;border:1px solid #e0a34a;color:#e0a34a">world km</span><span style="padding:4px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">screen px</span><span style="padding:4px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">cells</span></div>
+          <div style="padding:9px 13px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">CLIMATE CHECK</div>
+          <div style="padding:2px 13px 10px;display:flex;flex-direction:column;gap:7px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+            <div style="display:flex;justify-content:space-between"><span>temperature</span><span style="color:#c8cbcd">11.2 °C</span></div>
+            <div style="display:flex;justify-content:space-between"><span>precipitation</span><span style="color:#c8cbcd">780 mm</span></div>
+            <div style="display:flex;justify-content:space-between"><span>climate suggests</span><span style="color:#c8cbcd">steppe</span></div>
+            <div style="display:flex;justify-content:space-between"><span>painted</span><span style="color:#e0a34a">temperate forest</span></div>
+            <div style="display:flex;justify-content:space-between"><span>overrides in world</span><span style="color:#c8cbcd">14 · 62 400 km²</span></div>
+          </div>
+          <div style="flex:1"></div>
+          <div style="padding:10px 13px;border-top:1px solid rgba(255,255,255,.10);font:10px/1.6 'IBM Plex Mono',monospace;color:#c8b48d;background:rgba(224,163,74,.06)">Off-climate biomes are allowed and kept. They stay flagged in the ecology report rather than being corrected silently.</div>
+        </div>
+      </div>
+
+      <div style="height:24px;flex:none;display:flex;align-items:center;gap:20px;padding:0 14px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+        <span>Paint ▸ Biome · temperate forest</span><span>[ ] size · ⌥ pick biome · ⇧ constrain to region</span><div style="flex:1"></div><span>88 km · soft · 1 override pending</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+</x-dc>
+</body>
+</html>

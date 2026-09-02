@@ -104,6 +104,16 @@ pub struct CommittedRoute {
     pub km: f64,
     pub mode: RouteMode,
     pub unreachable_legs: usize,
+    /// The user's own name for this route, `""` until [`InfraTools::
+    /// route_set_name`] is called. Empty is the *reference's* own resting
+    /// state, not a placeholder this port invented: a `civJourneys` entry
+    /// carries no `name` at all until the list's name field is typed into,
+    /// and `_civRenderJourneyList` (reference line 17237) falls back to
+    /// `'Journey '+(ji+1)` — an index-derived label computed at draw time,
+    /// which is why that fallback belongs to the caller drawing the list
+    /// and is deliberately NOT stored here (storing it would survive a
+    /// delete and leave "Journey 3" sitting at index 1).
+    pub name: String,
 }
 
 /// The per-world tool state for Way, Route, Measure and Region select.
@@ -252,8 +262,48 @@ impl InfraTools {
         let j = civ_join_dijkstra_segs(ctx, &draft.points, draft.mode);
         let idx = self.routes.len();
         let unreachable = j.unreachable_legs;
-        self.routes.push(CommittedRoute { pts: j.pts, brks: j.brks, km: j.km, mode: draft.mode, unreachable_legs: j.unreachable_legs });
+        self.routes.push(CommittedRoute {
+            pts: j.pts,
+            brks: j.brks,
+            km: j.km,
+            mode: draft.mode,
+            unreachable_legs: j.unreachable_legs,
+            name: String::new(),
+        });
         Some((idx, unreachable))
+    }
+
+    /// Removes one committed route, shifting every later index down by one.
+    /// `false` for an out-of-range index.
+    ///
+    /// `Vec::remove`, i.e. the reference's own `civJourneys.splice(ji,1)`
+    /// (line 17250) — **not** a tombstone. The renumbering is real and every
+    /// caller holding an index (`jp_compute`'s `route` key, `jp_reroute`'s
+    /// `route_index`, `route_get`) must re-read after a delete, exactly as
+    /// the reference's own list does by re-rendering itself. A tombstoned
+    /// slot would keep those indices stable at the cost of `route_count()`
+    /// no longer meaning "how many routes there are", which every existing
+    /// consumer already assumes it does.
+    pub fn route_delete(&mut self, index: usize) -> bool {
+        if index >= self.routes.len() {
+            return false;
+        }
+        self.routes.remove(index);
+        true
+    }
+
+    /// Renames one committed route. `false` for an out-of-range index.
+    /// An empty string is a legal name and means "unnamed" — see
+    /// [`CommittedRoute::name`] on why the `Journey N` fallback is the
+    /// caller's, so clearing the field really does restore it.
+    pub fn route_set_name(&mut self, index: usize, name: &str) -> bool {
+        match self.routes.get_mut(index) {
+            Some(r) => {
+                r.name = name.to_string();
+                true
+            }
+            None => false,
+        }
     }
 
     // ===================== Measure =====================
@@ -311,6 +361,28 @@ pub fn parse_way_type(s: &str) -> Option<ManualWayType> {
     }
 }
 
+/// [`parse_way_type`]'s inverse, for `get_roads()`'s `way_type` key —
+/// the canonical spelling of each variant, chosen so `parse_way_type`
+/// round-trips it (the test below asserts exactly that).
+///
+/// These four strings join `get_roads()`'s existing four generated tiers
+/// (`highway`/`regional`/`road`/`track`) in ONE key, which is the
+/// reference's own arrangement rather than a convenience: `civWays` holds
+/// generated and hand-drawn ways in one flat array and the draw pass
+/// (reference line ~15494) branches on `rt.type` alone — a manual `road`
+/// and a generated `road` are drawn identically, and `manual` is never
+/// consulted while drawing. `road` and `track` therefore deliberately
+/// collide across the two vocabularies: the reference collides them too,
+/// and it means the same thing in both.
+pub fn way_type_key(t: ManualWayType) -> &'static str {
+    match t {
+        ManualWayType::Road => "road",
+        ManualWayType::Track => "track",
+        ManualWayType::SeaLane => "sea_lane",
+        ManualWayType::Ancient => "ancient",
+    }
+}
+
 /// `route_begin`'s `GString` -> [`RouteMode`] mapping. `RouteMode` is a cost
 /// *domain* (which terrain a route may cross), not a UI routing-style choice
 /// — `land`/`water` are the two constrained domains and `mixed` is the one
@@ -350,6 +422,11 @@ pub struct RouteInputs {
     pub water_bodies: Vec<u8>,
     pub biome: Option<Vec<u8>>,
     pub river_order: Option<Vec<i16>>,
+    /// `build_route_corridors`' field — `DECISIONS.md` §7i. Built for every
+    /// land-capable mode (`Land` and `Mixed`; `Water` has no slope term for
+    /// it to relieve), and only when the world is big enough for the
+    /// detector's own `gw/64` search radius to mean anything.
+    pub corridors: Option<Vec<f32>>,
 }
 
 impl RouteInputs {
@@ -372,7 +449,25 @@ impl RouteInputs {
         } else {
             (None, None)
         };
-        RouteInputs { water_bodies: wb.classification, biome, river_order }
+        // `DECISIONS.md` §7i. Land and mixed both have a slope term; water
+        // does not. `gw >= 128` keeps the detector off worlds where its own
+        // `max(2, gw/64)` reach collapses to two cells and it would be
+        // measuring noise rather than a range — the small fixtures this
+        // crate's own unit tests use are all below it.
+        let corridors = (mode != RouteMode::Water && gw >= 128).then(|| {
+            let slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
+            cartalith_civ::build_route_corridors(
+                &ws.field,
+                &slope,
+                Some(&ws.flow_discharge),
+                gw,
+                gh,
+                sea_level,
+                world,
+                cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km),
+            )
+        });
+        RouteInputs { water_bodies: wb.classification, biome, river_order, corridors }
     }
 }
 
@@ -459,6 +554,18 @@ mod tests {
     }
 
     #[test]
+    fn way_type_key_round_trips_through_parse_way_type() {
+        for t in [ManualWayType::Road, ManualWayType::Track, ManualWayType::SeaLane, ManualWayType::Ancient] {
+            assert_eq!(parse_way_type(way_type_key(t)), Some(t), "{} must parse back to itself", way_type_key(t));
+        }
+        // The `get_roads()` contract this key feeds: only `sea_lane`
+        // diverts a manual way to `get_sea_routes()` -- assert the exact
+        // string that branch tests against, so renaming it here breaks a
+        // test rather than silently drawing sea lanes as roads.
+        assert_eq!(way_type_key(ManualWayType::SeaLane), "sea_lane");
+    }
+
+    #[test]
     fn parse_route_mode_covers_land_water_mixed_and_rejects_the_rest() {
         assert_eq!(parse_route_mode("land"), Some(RouteMode::Land));
         assert_eq!(parse_route_mode("Water"), Some(RouteMode::Water));
@@ -488,7 +595,7 @@ mod tests {
     }
 
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
-        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, world: false, map_width_km: 240.0 }
+        RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
 
     #[test]
@@ -594,6 +701,58 @@ mod tests {
         assert!(t.routes[0].km > 0.0);
     }
 
+    /// Two routes so the delete/rename tests below can tell "removed the
+    /// right one" from "removed one".
+    fn two_routes(t: &mut InfraTools, ctx: &RouteContext) {
+        for (a, b) in [((2.0, 2.0), (22.0, 13.0)), ((2.0, 6.0), (22.0, 6.0))] {
+            t.route_begin(RouteMode::Mixed);
+            t.route_append_stop(a.0, a.1);
+            t.route_append_stop(b.0, b.1);
+            t.route_commit(ctx).expect("mixed mode can cross the strait");
+        }
+    }
+
+    #[test]
+    fn route_delete_removes_that_route_and_renumbers_the_rest() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        t.route_set_name(1, "Salt road");
+        assert!(t.route_delete(0));
+        assert_eq!(t.routes.len(), 1);
+        // The renumbering is the point: what was index 1 is now index 0,
+        // matching `civJourneys.splice(ji,1)`. A tombstone would fail here.
+        assert_eq!(t.routes[0].name, "Salt road");
+    }
+
+    #[test]
+    fn route_delete_refuses_an_out_of_range_index_without_touching_the_list() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        assert!(!t.route_delete(2));
+        assert!(!t.route_delete(99));
+        assert_eq!(t.routes.len(), 2);
+        assert!(!InfraTools::new().route_delete(0), "nothing to delete before any commit");
+    }
+
+    #[test]
+    fn route_set_name_stores_the_name_and_an_empty_string_clears_it() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        assert_eq!(t.routes[0].name, "", "a fresh commit is unnamed -- the reference's own resting state");
+        assert!(t.route_set_name(0, "Amber way"));
+        assert_eq!(t.routes[0].name, "Amber way");
+        assert_eq!(t.routes[1].name, "", "renaming one route must not touch its neighbour");
+        assert!(t.route_set_name(0, ""));
+        assert_eq!(t.routes[0].name, "", "clearing restores the caller's `Journey N` fallback");
+        assert!(!t.route_set_name(5, "nowhere"));
+    }
+
     /// `WorldGen::absorb`/`load_save` reset this whole tool set by swapping
     /// in a fresh `InfraTools::new()` (`Option<InfraTools>`, matching every
     /// sibling milestone-F binding's own lifecycle -- see the module doc's
@@ -683,9 +842,13 @@ mod tests {
         // `lib.rs`'s own commit paths (no cheap WorldState fixture exists
         // at this crate boundary) -- this instead pins the cheap, pure part
         // of the contract: the `Option` shape callers rely on.
-        let inputs_land = RouteInputs { water_bodies: vec![0; 4], biome: None, river_order: None };
+        let inputs_land = RouteInputs { water_bodies: vec![0; 4], biome: None, river_order: None, corridors: None };
         assert!(inputs_land.biome.is_none() && inputs_land.river_order.is_none());
-        let inputs_mixed = RouteInputs { water_bodies: vec![0; 4], biome: Some(vec![1; 4]), river_order: Some(vec![0; 4]) };
+        let inputs_mixed = RouteInputs { water_bodies: vec![0; 4], biome: Some(vec![1; 4]), river_order: Some(vec![0; 4]), corridors: Some(vec![0.0; 4]) };
         assert!(inputs_mixed.biome.is_some() && inputs_mixed.river_order.is_some());
+        // `corridors` is the one field that is NOT mixed-gated -- land mode
+        // needs it too (DECISIONS.md 7i), and only `Water` and a world under
+        // 128 cells wide suppress it.
+        assert!(inputs_mixed.corridors.is_some());
     }
 }

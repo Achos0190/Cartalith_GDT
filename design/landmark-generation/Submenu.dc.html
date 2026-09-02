@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f; }
+    svg.g { width: 12px; height: 12px; flex: none; }
+    svg.g path, svg.g circle { fill: none; stroke: currentColor; stroke-width: 1.2;
+      stroke-linecap: round; stroke-linejoin: round; }
+    svg.g .dot { fill: currentColor; stroke: none; }
+  </style>
+</helmet>
+
+<!-- ══════════ DESKTOP 1920 · THE SUBMENU · Assets ▸ Landmark types ▸ ▸ ══════════
+     Three cascade levels, in §2's style. The leaves are DESTINATIONS, not
+     controls: §2 forbids the menu bar from holding the generator, and
+     UI_SHELL_DESIGN.md forbids a dropdown from being a second implementation
+     of the panel it opens. What the cascade is for is the world-at-a-glance
+     read the dock cannot give without scrolling.                            -->
+
+<div style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+  <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+    <div style="display:flex;font-size:11.5px;color:#a9adb0">
+      <span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px;color:#e0a34a;background:rgba(224,163,74,.08);border-bottom:1px solid #e0a34a">Assets</span><span style="padding:9px 11px">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>2K working · 4K render</span><span>CPU 22</span><span>GPU 8</span><span>1.6 GB</span></div>
+  </div>
+
+  <div style="height:34px;flex:none;display:flex;align-items:center;gap:18px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+    <span style="color:#e0a34a;letter-spacing:.14em">CIVIL · LANDMARKS</span>
+    <span style="display:flex;align-items:center;gap:9px">Crowding<span style="width:70px;height:2px;background:rgba(255,255,255,.16);display:inline-block"><span style="width:38%;height:2px;background:#e0a34a;display:block"></span></span><span style="color:#c8cbcd">× 1.00</span></span>
+    <span style="color:#c8cbcd">☑ types compete</span>
+    <div style="flex:1"></div>
+    <span style="padding:4px 12px;border:1px solid rgba(255,255,255,.16)">Run landmark pass</span>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+      <div style="height:28px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+      <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+        <div style="writing-mode:vertical-rl">WORLD</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl;color:#e0a34a">CIVIL</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl">CARTO</div>
+      </div>
+    </div>
+    <div style="width:372px;flex:none;border-right:1px solid rgba(255,255,255,.10);opacity:.32">
+      <div style="height:34px;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec">CIVILIZATION</div>
+      <div style="padding:10px 14px;font:10.5px 'IBM Plex Mono',monospace;color:#6f7478;line-height:2.6">Civilizations<br>Factions<br>Territories<br>Settlements<br><span style="color:#e0a34a">Landmarks</span><br>Routes &amp; ways<br>Travel<br>Trade</div>
+    </div>
+    <div style="flex:1;background:radial-gradient(900px 600px at 46% 46%,#17191a 0%,#101112 58%,#0d0e0f 100%)"></div>
+    <div style="width:284px;flex:none;border-left:1px solid rgba(255,255,255,.10)"></div>
+  </div>
+
+  <div style="height:26px;flex:none;display:flex;align-items:center;gap:22px;padding:0 16px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+    <span>Esc closes · picking a family opens CIVIL ▸ Landmarks scrolled to it</span>
+  </div>
+
+  <!-- ══════ LEVEL 1 · the Assets menu ══════ -->
+  <div style="position:absolute;top:34px;left:211px;width:274px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.55);z-index:40;font-size:11.5px;padding:5px 0">
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span><span style="color:#e0a34a">⧉</span> Asset library</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">⇧A · own window</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span><span style="color:#e0a34a">⧉</span> Sprite sheet slicer</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▦ · own window</span></div>
+    <div style="padding:6px 14px"><span>Import image…</span></div>
+    <div style="padding:6px 14px"><span>Import asset pack .zip…</span></div>
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Asset pack</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Icon families</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">24 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Texture sets</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+    <!-- the new row, seated beside Icon families because it is the same kind of
+         thing about the same kind of content -->
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px;background:rgba(224,163,74,.10);color:#e8ebec"><span>Landmark types</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">49 ▸</span></div>
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+    <div style="padding:6px 14px"><span>Apply library to map</span></div>
+    <div style="padding:6px 14px"><span>Clear library…</span></div>
+  </div>
+
+  <!-- ══════ LEVEL 2 · the six families, with live counts ══════ -->
+  <div style="position:absolute;top:222px;left:481px;width:330px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 18px 40px rgba(0,0,0,.6);z-index:41;font-size:11.5px;padding:5px 0">
+    <div style="padding:9px 14px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">THIS WORLD · LAST PASS 2.4 s</div>
+    <div style="padding:2px 14px 8px;display:flex;flex-direction:column;gap:5px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+      <div style="display:flex;justify-content:space-between"><span>armed types</span><span style="color:#e8ebec">23 of 49</span></div>
+      <div style="display:flex;justify-content:space-between"><span>caps total</span><span style="color:#8d9296">640</span></div>
+      <div style="display:flex;justify-content:space-between"><span>room at × 1.00</span><span style="color:#8d9296">about 210</span></div>
+      <div style="display:flex;justify-content:space-between"><span>placed</span><span style="color:#e0a34a">187</span></div>
+    </div>
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px;background:rgba(224,163,74,.10);color:#e8ebec"><span style="color:#a9adb0"><svg class="g" viewBox="0 0 16 16"><path d="M2.2 11.5 6.4 4.5 9.2 8.6 11 6.4 13.8 11.5"/><path d="M3 14Q8 12.2 13 14"/></svg></span><span style="flex:1">Physical</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">6 of 15 · 74 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px"><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M1.6 11.6 4.6 5 7.1 9.2h1.8L11.4 5l3 6.6"/><path d="M1.6 9.2h12.8" stroke-dasharray="2.4 1.6"/></svg></span><span style="flex:1">Transportation</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">3 of 8 · 21 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px"><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M3.2 10.8 5 6.2h6l1.8 4.6z"/><path d="M6.2 8.4h3.6"/></svg></span><span style="flex:1">Economic</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">2 of 6 · 9 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px"><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M4 6.4V3.8h1.7v1.3h1.3V3.8h1.7v1.3h1.3V3.8H12v2.6"/><path d="M4 6.4h8v6H4z"/></svg></span><span style="flex:1">Military</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">4 of 6 · 33 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px"><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M4 13V7.6a4 4 0 0 1 8 0V13"/><path d="M2.6 13h10.8"/></svg></span><span style="flex:1">Religious · cultural</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">5 of 8 · 41 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px"><span style="color:#8d9296"><svg class="g" viewBox="0 0 16 16"><path d="M3.4 13.2h9.2"/><path d="M5 13.2V3.6h1.6v9.6"/><path d="M10 13.2V8.4l1.8-1.2"/></svg></span><span style="flex:1">Historical</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">3 of 6 · 9 ▸</span></div>
+    <div style="padding:6px 14px;display:flex;align-items:center;gap:10px;color:#8d9296"><span style="color:#6f7478"><svg class="g" viewBox="0 0 16 16"><path d="M8 2.2 13.8 8 8 13.8 2.2 8z"/><circle class="dot" cx="8" cy="8" r="0.7"/></svg></span><span style="flex:1">Placed by hand</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">3 ▸</span></div>
+
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Landmark icons…</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">poi · 10 slots ▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Landmark label style…</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">→ Cartography</span></div>
+
+    <!-- The disclosure that makes this menu honest about what it is not. -->
+    <div style="padding:8px 14px 5px;border-top:1px solid rgba(255,255,255,.07);margin-top:4px;font:9px/1.8 'IBM Plex Mono',monospace;color:#5f6468">
+      Caps and spacing are set in <span style="color:#8d9296">CIVIL ▸ Landmarks</span>, never here — §2's menu bar is program scope, and a second copy of 49 numbers is a second store to keep in sync. Picking any row opens the panel at it.
+    </div>
+  </div>
+
+  <!-- ══════ LEVEL 3 · one family's types · READ-ONLY status, then a destination ══════ -->
+  <div style="position:absolute;top:270px;left:807px;width:352px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 20px 46px rgba(0,0,0,.62);z-index:42;font-size:11.5px;padding:5px 0">
+    <div style="padding:9px 14px 6px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">PHYSICAL · 6 OF 15 ARMED · 74 PLACED</div>
+
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px;background:rgba(224,163,74,.10)"><span style="color:#e0a34a;font-size:9px">●</span><span style="flex:1;color:#e8ebec">Peak</span><span style="color:#6f7478;font:10px 'IBM Plex Mono',monospace">24 max · 24 · <span style="color:#e0a34a">at cap</span></span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Ridge</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 12</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Saddle</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 30</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#e0a34a;font-size:9px">●</span><span style="flex:1">Cliff</span><span style="color:#6f7478;font:10px 'IBM Plex Mono',monospace">30 max · 18 · spacing</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#e0a34a;font-size:9px">●</span><span style="flex:1">Gorge</span><span style="color:#6f7478;font:10px 'IBM Plex Mono',monospace">8 max · 6 · no terrain</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Cave</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 20</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#e0a34a;font-size:9px">●</span><span style="flex:1;color:#e8ebec">Waterfall</span><span style="color:#6f7478;font:10px 'IBM Plex Mono',monospace">40 max · 11 · spacing</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Spring</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 60</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Lake</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 6</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Delta</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#e0a34a;font-size:9px">●</span><span style="flex:1">River confluence</span><span style="color:#6f7478;font:10px 'IBM Plex Mono',monospace">20 max · 12 · spacing</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#e0a34a;font-size:9px">●</span><span style="flex:1">Volcanic feature</span><span style="color:#6f7478;font:10px 'IBM Plex Mono',monospace">10 max · 3 · candidates</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Rock formation</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Glacial feature</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 12</span></div>
+    <div style="padding:5px 14px;display:flex;align-items:baseline;gap:10px"><span style="color:#4c5155;font-size:9px">○</span><span style="flex:1;color:#6f7478">Ancient forest</span><span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">off · was 2</span></div>
+
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Open Physical in the dock</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">→ CIVIL ▸ Landmarks</span></div>
+    <div style="padding:4px 14px 7px;font:9px/1.8 'IBM Plex Mono',monospace;color:#5f6468">Rows here read state. They do not arm a type — the slider that does lives in one place.</div>
+  </div>
+
+  <!-- annotation strip along the foot, in the DCC canvas's own rule-card idiom -->
+  <div style="position:absolute;left:1180px;top:270px;width:330px;border:1px solid rgba(255,255,255,.12);background:#121314;padding:12px 14px;font:9.5px/1.85 'IBM Plex Mono',monospace;color:#6f7478;z-index:39">
+    <div style="letter-spacing:.18em;color:#8d9296;padding-bottom:7px">WHY THE CASCADE IS NOT THE CONTROL</div>
+    <span style="color:#a9adb0">§2</span> — “The menu bar holds <span style="color:#a9adb0">program</span> functions. World generation … <span style="color:#a9adb0">never menu items</span>.” So there is no <span style="color:#5f6468">Run landmark pass</span> here, and no top-level Landmarks menu.<br><br>
+    <span style="color:#a9adb0">UI_SHELL_DESIGN.md</span> — “The dropdown that opens a window is a shortcut into it, <span style="color:#a9adb0">never a second implementation of it</span>.”<br><br>
+    The precedent is <span style="color:#a9adb0">Assets ▸ Icon families</span>: a submenu of families with live counts, whose leaves are destinations. <span style="color:#5f6468">menus.gd:685</span> builds it today; <span style="color:#5f6468">:726</span> refreshes its counts.<br><br>
+    What this earns that the dock cannot: every family, every armed type and every placed count in <span style="color:#a9adb0">one hover</span>, with no scrolling and no group to expand.
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

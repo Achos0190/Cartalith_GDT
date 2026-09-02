@@ -41,10 +41,13 @@
 //!   v0.70 comment says so in as many words ("an imported heightmap arrives
 //!   with flowField all-zero"). Passing a real flow field here would change
 //!   rainfall for every imported world relative to the reference, so it is
-//!   passed zero — and then computed properly afterwards, because this
-//!   port splits JS's single `flowField` into `flow_area` and
-//!   `flow_discharge` and leaving the former permanently zero would break
-//!   every downstream consumer that reads it. See [`infer_tectonics`].
+//!   passed zero. The rain-weighted `computeFlow(true)` that follows fills
+//!   `flow_discharge`, which is the accumulation every downstream consumer
+//!   actually reads. (This note used to add that the port's *other* split
+//!   half, `flow_area`, was computed here too so it would not be left
+//!   permanently zero; nothing outside `generate_terrain` ever read it and
+//!   it is gone — `MEMORY_OPTIMIZATION_SCOPE.md` R2.) See
+//!   [`infer_tectonics`].
 
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
@@ -56,7 +59,7 @@ use cartalith_terrain::infer::{
     pick_plate_seeds, reconstruct_boundary_stress, stamp_volcanic_arcs,
 };
 use cartalith_terrain::{
-    assign_plates, build_age_field, compute_flexure, compute_heterogeneity, compute_resistance, gauss_blur,
+    assign_plates, build_age_field, compute_resistance, gauss_blur,
     normalize_field,
 };
 
@@ -202,13 +205,15 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
 
     // ---- forward stages, reused verbatim (reference HTML lines 6769-6776) ----
     let age_field = build_age_field(gw, gh, &stress.boundary_mask);
-    // `warpX`/`warpY` are null after an import; the reference's own comment
-    // on this line says "needs ageField + warpX/Y (null after import =>
-    // handled)".
-    let heterogeneity_field =
-        compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, None, None);
     let resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
-    let flexure_field = compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world);
+    // `computeHeterogeneity` and `computeFlexure` used to run here too --
+    // the reference's own line 6770-6771 pair. They are gone rather than
+    // idle: `WorldState` no longer retains either grid
+    // (`MEMORY_OPTIMIZATION_SCOPE.md` R2), and unlike the forward pipeline
+    // this path never fed them to `computeHeight` -- an imported world's
+    // height is the image, untouched. So both were pure write-only work,
+    // and dropping them makes an import measurably cheaper as well as
+    // smaller.
     let volcanic_field = stamp_volcanic_arcs(&stress.boundary_type, gw, gh, None);
     infer_plate_velocities(&mut plates, &plate_id, &stress.boundary_mask, &stress.stress_field, gw);
 
@@ -295,13 +300,14 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
 
     // ---- computeFlow(true) (reference HTML line 6797) ----
     let flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
-    // JS has ONE `flowField`, so the reference simply never has a separate
-    // rain-independent accumulation for an imported world. This port splits
-    // the two, and every consumer of `flow_area` (the drainage-area debug
-    // view, `build_water_access`) would read zeros if it were left empty --
-    // a port-level bug, not fidelity. Computed here, AFTER the correctors,
-    // so the parity-relevant read above still sees the zero field.
-    let flow_area = compute_flow(gw, gh, &field, None, false, world);
+    // A second, rain-independent `computeFlow` used to run here to fill
+    // `WorldState::flow_area`, on the reasoning that "every consumer of
+    // `flow_area` (the drainage-area debug view, `build_water_access`)
+    // would read zeros if it were left empty". Both named consumers were
+    // wrong: `build_water_access` takes `flow_discharge`, and the drainage
+    // view does not exist -- the right dock's Drainage row also reads
+    // `flow_discharge`. The field is gone (`MEMORY_OPTIMIZATION_SCOPE.md`
+    // R2) and so is the full extra accumulation pass it cost an import.
 
     WorldState {
         sea_level,
@@ -309,9 +315,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         plate_id,
         boundary_mask: stress.boundary_mask,
         stress_field: stress.stress_field,
-        flexure_field,
         age_field,
-        heterogeneity_field,
         resistance_field,
         crust_field,
         boundary_type: stress.boundary_type,
@@ -322,7 +326,6 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         impact_field: vec![0f32; n],
         temperature,
         rainfall,
-        flow_area,
         flow_discharge,
         // River carving is likewise a height stage. The reference's
         // inferTectonics does not carve either -- it stops at computeFlow.
@@ -376,9 +379,7 @@ mod tests {
             ("plate_id", out.state.plate_id.len()),
             ("boundary_mask", out.state.boundary_mask.len()),
             ("stress_field", out.state.stress_field.len()),
-            ("flexure_field", out.state.flexure_field.len()),
             ("age_field", out.state.age_field.len()),
-            ("heterogeneity_field", out.state.heterogeneity_field.len()),
             ("resistance_field", out.state.resistance_field.len()),
             ("crust_field", out.state.crust_field.len()),
             ("boundary_type", out.state.boundary_type.len()),
@@ -386,7 +387,6 @@ mod tests {
             ("volcanic_field", out.state.volcanic_field.len()),
             ("temperature", out.state.temperature.len()),
             ("rainfall", out.state.rainfall.len()),
-            ("flow_area", out.state.flow_area.len()),
             ("flow_discharge", out.state.flow_discharge.len()),
         ] {
             assert_eq!(len, n, "{name} has the wrong length");
@@ -406,14 +406,11 @@ mod tests {
         assert!(s.stress_field.iter().any(|&v| v != 0.0), "stress is dead");
         assert!(s.shear_field.iter().any(|&v| v != 0.0), "shear is dead");
         assert!(s.age_field.iter().any(|&v| v != 0.0), "age is dead");
-        assert!(s.flexure_field.iter().any(|&v| v != 0.0), "flexure is dead");
         assert!(s.resistance_field.iter().any(|&v| v != 0.0), "resistance is dead");
-        assert!(s.heterogeneity_field.iter().any(|&v| v != 0.0), "heterogeneity is dead");
         assert!(s.crust_field.iter().any(|&v| v != 0.0), "crust is dead");
         assert!(s.plate_id.iter().any(|&v| v != 0), "every cell landed on one plate");
         assert!(s.rainfall.iter().any(|&v| v > 0.0), "no rain anywhere");
         assert!(s.flow_discharge.iter().any(|&v| v > 0.0), "discharge is dead");
-        assert!(s.flow_area.iter().any(|&v| v > 0.0), "flow_area is dead -- see this module's doc");
         assert!(s.temperature.iter().any(|&v| v != 0.0), "temperature is dead");
         // Everything must be finite: a NaN here propagates silently through
         // every downstream layer.

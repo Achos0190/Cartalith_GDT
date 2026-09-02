@@ -17,21 +17,94 @@ use rayon::prelude::*;
 use cartalith_jsmath::js_atan2;
 
 /// Descending-height, ascending-index-on-tie comparison — the ordering
-/// `_flowRadixSortDesc()` (reference HTML lines 4846-4861) guarantees.
-/// The JS implementation is a radix sort operating on IEEE-754 bit
-/// patterns (an order-preserving float→uint key, inverted for descending
-/// order); the *algorithm* is a correctness-equivalent substitution
-/// target per `PROVENANCE.md` (flow accumulation is downstream of the
-/// heightmap pixels — only the ordering guarantee matters for parity,
-/// not the sort implementation), but its **quirk carries over**: JS
-/// explicitly normalizes `-0.0`'s sort key to match `+0.0`
+/// [`flow_sort_desc`] must produce. **The oracle, not the implementation**:
+/// this is what `compute_flow` used to sort by directly, kept as the
+/// reference definition the radix sort is tested against
+/// (`flow_sort_desc_is_element_identical_to_the_comparison_sort`).
+///
+/// JS explicitly normalizes `-0.0`'s sort key to match `+0.0`
 /// (`if(b===0x80000000) b=0`), which `f32::total_cmp` does not do on its
 /// own (`total_cmp` treats `-0.0 < +0.0`) — normalized here before
 /// comparing.
+#[cfg(test)]
 fn flow_cmp_desc(a: f32, b: f32) -> std::cmp::Ordering {
     let na = if a == 0.0 { 0.0f32 } else { a };
     let nb = if b == 0.0 { 0.0f32 } else { b };
     nb.total_cmp(&na)
+}
+
+/// `_flowRadixSortDesc()` (reference HTML lines 4846-4861): a stable LSD
+/// radix sort over the raw `f32` bit patterns, producing cell indices in
+/// descending height with ties in ascending index.
+///
+/// **Why this is a legitimate substitution at all.** Flow accumulation is
+/// downstream of the heightmap pixels, so per `PROVENANCE.md` only the
+/// *ordering guarantee* is part of the parity contract, not the sort
+/// algorithm — the reference's own comment says the same thing from the
+/// other side, calling its radix sort "BIT-IDENTICAL to the old
+/// `order.sort((a,b)=>field[b]-field[a])` … by construction." This port
+/// carried the comparison form until now; the reference replaced it in
+/// v0.148 after measuring the comparator sort as *"the single hottest
+/// `generate()` line"* (~1,005 ms per call at 2048², 1,005 → 120 ms).
+///
+/// **The key transform, verbatim from the reference.** Three steps on the
+/// `u32` bit pattern:
+/// 1. `if b == 0x8000_0000 { b = 0 }` — canonicalise `-0.0` to `+0.0`.
+///    Without this one line the radix would order them deterministically by
+///    sign and split a tie the comparator treats as equal.
+/// 2. sign-flip so ascending `u32` means ascending `f32`: negatives get
+///    `!b`, non-negatives get `b | 0x8000_0000`. (This is the same total
+///    order `f32::total_cmp` implements, NaNs included — checked, not
+///    assumed: `+NaN` maps above `+inf` and `-NaN` below `-inf` under both.)
+/// 3. `!b` — invert, so ascending `u32` now means **descending** `f32`.
+///
+/// **Stability is load-bearing, and it is a property of the construction,
+/// not an accident.** Counting sort per byte is stable, and the initial
+/// permutation is ascending index, so equal keys come out in ascending
+/// index order — matching JS's spec-stable `Array#sort`. Tie order is not
+/// cosmetic: equal-height cells draining into one receiver add their
+/// `f32` discharge in this order, and float addition rounding depends on
+/// it (`cartalith-rust-conventions`: do not reorder float operations).
+///
+/// Four 8-bit passes end back in the buffer they started in, so the result
+/// is `src` after the last swap, not a fixed one of the two.
+fn flow_sort_desc(field: &[f32], n: usize) -> Vec<u32> {
+    assert!(
+        n <= u32::MAX as usize,
+        "flow_sort_desc indexes cells with u32; {n} cells is beyond that (a >4-billion-cell grid is not a shape this engine ships)"
+    );
+    let mut keys = vec![0u32; n];
+    for (key, &v) in keys.iter_mut().zip(&field[..n]) {
+        let mut b = v.to_bits();
+        if b == 0x8000_0000 {
+            b = 0;
+        }
+        b = if b & 0x8000_0000 != 0 { !b } else { b | 0x8000_0000 };
+        *key = !b;
+    }
+
+    let mut src: Vec<u32> = (0..n as u32).collect();
+    let mut dst = vec![0u32; n];
+    let mut cnt = [0u32; 256];
+    for shift in [0u32, 8, 16, 24] {
+        cnt.fill(0);
+        for &k in &keys {
+            cnt[((k >> shift) & 255) as usize] += 1;
+        }
+        let mut sum = 0u32;
+        for c in cnt.iter_mut() {
+            let here = *c;
+            *c = sum;
+            sum += here;
+        }
+        for &id in &src {
+            let bucket = &mut cnt[((keys[id as usize] >> shift) & 255) as usize];
+            dst[*bucket as usize] = id;
+            *bucket += 1;
+        }
+        std::mem::swap(&mut src, &mut dst);
+    }
+    src
 }
 
 /// `computeFlow()` (reference HTML lines 4862-4890): D8 steepest-descent
@@ -62,8 +135,7 @@ fn flow_cmp_desc(a: f32, b: f32) -> std::cmp::Ordering {
 /// floating-point-reordering reason `stream_power_kernel::ss` is.
 pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> Vec<f32> {
     let n = gw * gh;
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| flow_cmp_desc(field[a], field[b]).then(a.cmp(&b)));
+    let order = flow_sort_desc(field, n);
 
     let mut acc = vec![0f32; n];
     if use_rain {
@@ -92,6 +164,7 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
     }
 
     for &i in &order {
+        let i = i as usize;
         let x = (i % gw) as i64;
         let y = (i / gw) as i64;
         let h = field[i] as f64;
@@ -165,6 +238,16 @@ pub struct ChannelResult {
     pub recv: Vec<i32>,
     pub chan: Vec<u8>,
     pub slope: Vec<f32>,
+    /// The stamped disc raster from [`stamp_river_intensity`], or empty.
+    ///
+    /// **Empty as `build_channels` returns it**, and filled by the caller
+    /// afterwards: the stamp needs Strahler order, which is
+    /// `strahler_from_receivers`' output and therefore not available until
+    /// after this function has returned its `recv`. `generate_terrain` fills
+    /// it two statements later. A consumer must treat an empty vector as "no
+    /// stamp on this world" — a loaded save has one, since
+    /// `SAVEFILE_COMPAT.md` stores no channel topology.
+    pub intensity: Vec<f32>,
 }
 
 /// `buildRiverNetwork()`'s channelization loop (reference HTML lines
@@ -318,7 +401,7 @@ pub fn build_channels(
             }
         });
 
-    ChannelResult { recv, chan, slope }
+    ChannelResult { recv, chan, slope, intensity: Vec::new() }
 }
 
 /// `strahlerFromReceivers()` (reference HTML lines 4454-4464): standard
@@ -447,6 +530,53 @@ pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, mi
     polys
 }
 
+/// `splitRiverPolylines()` (reference HTML lines 4596-4608): cuts a traced
+/// chain wherever the next point is not reachable by a straight stroke from
+/// the previous one, so a wrapped receiver chain is not drawn (or exported)
+/// as one `LineString` running back across the whole map.
+///
+/// Two cuts, matching the reference's two reasons: `skip` (an optional
+/// predicate — the renderer passes "is this point inside an open-water body",
+/// so a river disappears under a lake surface; `exportGeoJSON` passes `null`,
+/// because a lake reach is real hydrology and belongs in the geometry) and
+/// the antimeridian seam, an x-jump of more than half the grid width.
+///
+/// Runs at the render/export sites only — `trace_river_polylines` itself is
+/// untouched, so the `generate()`/carve pipeline stays bit-identical. Runs of
+/// fewer than two points are dropped, exactly as the tracer drops them.
+pub fn split_river_polylines(
+    polys: &[Vec<(f64, f64)>],
+    w: usize,
+    skip: Option<&dyn Fn((f64, f64)) -> bool>,
+) -> Vec<Vec<(f64, f64)>> {
+    /// End the current run: keep it only if it is drawable, then start fresh.
+    fn cut(run: &mut Vec<(f64, f64)>, out: &mut Vec<Vec<(f64, f64)>>) {
+        if run.len() >= 2 {
+            out.push(std::mem::take(run));
+        } else {
+            run.clear();
+        }
+    }
+
+    let half = w as f64 * 0.5;
+    let mut out: Vec<Vec<(f64, f64)>> = Vec::new();
+    for pl in polys {
+        let mut run: Vec<(f64, f64)> = Vec::new();
+        for &p in pl {
+            if skip.is_some_and(|f| f(p)) {
+                cut(&mut run, &mut out);
+                continue;
+            }
+            if run.last().is_some_and(|&last| (p.0 - last.0).abs() > half) {
+                cut(&mut run, &mut out);
+            }
+            run.push(p);
+        }
+        cut(&mut run, &mut out);
+    }
+    out
+}
+
 /// `enforceChannelDescent()` (reference HTML lines 8725-8737): walks an
 /// ordered (downstream) polyline and carves a channel whose centreline
 /// descends monotonically — cutting through any rises so the carved
@@ -533,9 +663,219 @@ pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor:
     }
 }
 
+/// The stamped channel *intensity* raster — `buildRiverNetwork`'s disc stamp
+/// (reference HTML lines 4528-4543), which this port had never carried.
+///
+/// # Why this exists
+///
+/// Owner, 2026-08-30: *"As soon as the map width/size becomes lower the size
+/// width and length of a river should become bigger and more visible."*
+///
+/// Until now the port drew a river as `chan[i] != 0` — a binary flag, so
+/// **every river was exactly one grid cell wide** regardless of its Strahler
+/// order or the world's real extent. At a 2048 grid in a 1400 px viewport that
+/// is 0.68 screen pixels: the "barely visible" in the report. The km-aware
+/// width law already existed ([`river_width_scale_k`]) and was used **only to
+/// carve terrain**; the mask it produced was never the mask that got drawn.
+///
+/// # What it computes
+///
+/// Per channel cell, a parabolic disc of half-width
+/// `(0.6 + 3·mag² + 0.45·(o−1)) · slope_fac · width_k`, clamped to
+/// `[0.5, 9·width_k]`, where `mag` is normalised discharge, `o` is Strahler
+/// order and `slope_fac = 1/(1 + 5·|∇field|·w)` narrows a river on steep
+/// ground. Discs composite by `max`, exactly as the reference does.
+///
+/// `width_k` is [`river_width_scale_k`]'s inverse-extent factor, so a 200 km
+/// world stamps 4× the half-width of an 800 km one. Measured against this
+/// formula at `w = 2048`: an order-7 river is ~1.1 cells wide at 800 km, ~4.5
+/// at 200 km and ~18 at 50 km, while an order-1 stream stays at the 0.5 floor
+/// until about 100 km. That floor is the reference's own literal and is
+/// **not** scaled by `width_k` — so at world scale it binds and rivers stay
+/// one cell, which is the intended "a world-scale map stops exaggerating a
+/// river" behaviour rather than an oversight.
+///
+/// # Deliberately not ported
+///
+/// The reference computes `depth` and `omax` in the same loop. Both are
+/// omitted: `depth` feeds a terrain-shading path this port does not have, and
+/// `omax` exists to let a biome overlay filter by minimum stream order — a
+/// filter this port does not implement anywhere (`min_river_order` has no
+/// consumer outside the GeoJSON exporter's own constant). Adding either now
+/// would be a second grid with no reader.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_river_intensity(
+    fld: &[f32],
+    flow: &[f32],
+    chan: &[u8],
+    order: &[i16],
+    w: usize,
+    h: usize,
+    wrap: bool,
+    thresh: f64,
+    width_k: f64,
+) -> Vec<f32> {
+    let n = w * h;
+    let mut intensity = vec![0f32; n];
+    if n == 0 || fld.len() < n || flow.len() < n || chan.len() < n || order.len() < n {
+        return intensity;
+    }
+    // Reference line 4495: `lmax = Math.log(W*H*0.05)`.
+    let lmax = ((n as f64) * 0.05).ln();
+    if !(lmax > 0.0) || !(thresh > 0.0) {
+        return intensity;
+    }
+    let half_w_cap = 9.0 * width_k;
+
+    for i in 0..n {
+        if chan[i] == 0 {
+            continue;
+        }
+        let (x, y) = (i % w, i / w);
+        let f = flow[i] as f64;
+        if !(f > 0.0) {
+            continue;
+        }
+        let o = order[i].max(1) as f64;
+        let mag = (f / thresh).ln().max(0.0).min(lmax) / lmax;
+
+        let xl = if wrap { (x + w - 1) % w } else { x.saturating_sub(1) };
+        let xr = if wrap { (x + 1) % w } else { (x + 1).min(w - 1) };
+        let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
+        let up = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
+        let dn = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
+        let gy = (dn - up) * 0.5;
+        let slope_fac = 1.0 / (1.0 + 5.0 * gx.hypot(gy) * w as f64);
+
+        let mut half_w = (0.6 + 3.0 * mag * mag + 0.45 * (o - 1.0)) * slope_fac * width_k;
+        if half_w < 0.5 {
+            half_w = 0.5;
+        } else if half_w > half_w_cap {
+            half_w = half_w_cap;
+        }
+        let amp = (0.45 + mag * 0.7).min(1.0);
+
+        let r = half_w.ceil() as isize;
+        let (xi, yi) = (x as isize, y as isize);
+        for yy in (yi - r).max(0)..=(yi + r).min(h as isize - 1) {
+            for xx in (xi - r).max(0)..=(xi + r).min(w as isize - 1) {
+                let (dx, dy) = ((xx - xi) as f64, (yy - yi) as f64);
+                let d = dx.hypot(dy);
+                if d > half_w {
+                    continue;
+                }
+                let v = (amp * (1.0 - d / half_w)) as f32;
+                let j = yy as usize * w + xx as usize;
+                if v > intensity[j] {
+                    intensity[j] = v;
+                }
+            }
+        }
+    }
+    intensity
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_channels, enforce_river_channels};
+    use super::{build_channels, enforce_river_channels, flow_cmp_desc, flow_sort_desc};
+
+    /// The whole contract of the radix substitution: **element-identical**,
+    /// not merely value-identical. `assert_eq!` on the index vector itself,
+    /// because tie order decides the order equal-height cells add their
+    /// `f32` discharge into a shared receiver, and float addition is not
+    /// associative (`cartalith-rust-conventions`).
+    ///
+    /// The oracle is the comparison sort this replaced, verbatim:
+    /// `sort_by(flow_cmp_desc(field[a], field[b]).then(a.cmp(&b)))`.
+    ///
+    /// The fixtures are shaped to *reach* the two quirks rather than to look
+    /// varied. `field` is `f32` throughout, which is what `WorldState.field`
+    /// is — the reference's `Float32Array`.
+    #[test]
+    fn flow_sort_desc_is_element_identical_to_the_comparison_sort() {
+        let oracle = |field: &[f32]| -> Vec<u32> {
+            let mut order: Vec<u32> = (0..field.len() as u32).collect();
+            order.sort_by(|&a, &b| flow_cmp_desc(field[a as usize], field[b as usize]).then(a.cmp(&b)));
+            order
+        };
+
+        let cases: Vec<(&str, Vec<f32>)> = vec![
+            ("empty", vec![]),
+            ("one", vec![0.5]),
+            // Negative zero next to positive zero, in both orders, with a
+            // duplicate of each: the one quirk the reference calls out by
+            // name. `total_cmp` alone would order these by sign.
+            ("signed zeros", vec![-0.0, 0.0, -0.0, 0.5, 0.0, -0.0, -0.25, 0.0]),
+            ("all zeros, mixed sign", vec![-0.0, 0.0, -0.0, -0.0, 0.0, 0.0, -0.0, 0.0]),
+            // Every element tied: the sort degenerates to "is it stable?".
+            ("all equal", vec![0.375f32; 64]),
+            // Many ties in runs, so a non-stable radix would scramble
+            // within a run without changing any *value*.
+            (
+                "long tied runs",
+                (0..300).map(|i| ((i / 7) as f32) * 0.125 - 8.0).collect(),
+            ),
+            // Signs, subnormals, infinities and NaN (both signs). NaN cannot
+            // occur in a generated `field` -- the reference asserts as much
+            // ("all fields are finite, Invariant 2") -- but the two orderings
+            // must still agree on it, or the equivalence claim is narrower
+            // than it reads.
+            (
+                "the awkward IEEE values",
+                vec![
+                    f32::NAN,
+                    -f32::NAN,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::MIN_POSITIVE,
+                    -f32::MIN_POSITIVE,
+                    f32::from_bits(1),
+                    f32::from_bits(0x8000_0001),
+                    0.0,
+                    -0.0,
+                    1.0,
+                    -1.0,
+                    f32::MAX,
+                    f32::MIN,
+                ],
+            ),
+            // Quantised heights: a real heightmap's ties come from a coarse
+            // lattice, not from bit-identical randomness.
+            (
+                "quantised lattice",
+                (0..1024).map(|i| ((i * 37) % 19) as f32 / 19.0).collect(),
+            ),
+            // A monotone ramp and its reverse: no ties at all, so any
+            // failure here is the key transform, not the stability.
+            ("ramp up", (0..500).map(|i| i as f32 * 1e-3 - 0.25).collect()),
+            ("ramp down", (0..500).map(|i| 0.25 - i as f32 * 1e-3).collect()),
+        ];
+
+        for (label, field) in &cases {
+            let got = flow_sort_desc(field, field.len());
+            assert_eq!(got, oracle(field), "{label}");
+        }
+
+        // A pseudo-random f32 field spanning the whole exponent range, so
+        // every byte of every key actually varies -- the ten curated cases
+        // above are narrow by design and would not catch a wrong shift.
+        let mut s = 0x12345678u32;
+        let mut wide: Vec<f32> = Vec::with_capacity(5000);
+        for _ in 0..5000 {
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            let v = f32::from_bits(s);
+            wide.push(if v.is_finite() { v } else { (s as f32) * 1e-9 });
+        }
+        assert_eq!(flow_sort_desc(&wide, wide.len()), oracle(&wide), "wide random");
+
+        // And the same field quantised hard, to force thousands of ties on
+        // top of that spread.
+        let tied: Vec<f32> = wide.iter().map(|v| (v.signum() * (v.abs().log2().floor())).max(-40.0)).collect();
+        assert_eq!(flow_sort_desc(&tied, tied.len()), oracle(&tied), "wide random, quantised");
+    }
+
 
     // ---- Math.atan2 fidelity (JS_SEMANTICS_AUDIT.md §4.4) ----------------
     //
@@ -619,5 +959,80 @@ mod tests {
         let before = field.clone();
         enforce_river_channels(&mut field, &[0u8; 4], &[0f32; 4]);
         assert_eq!(field, before);
+    }
+
+    /// The owner's requirement, pinned: *"As soon as the map width/size becomes
+    /// lower the size width and length of a river should become bigger and
+    /// more visible."*
+    ///
+    /// `width_k` is `river_width_scale_k(map_width_km)` -- 1.0 at 800 km, 4.0
+    /// at 200 km, 16.0 at 50 km -- so a strictly larger `width_k` must ink a
+    /// strictly larger area. Before this stamp existed the renderer tested
+    /// `chan[i] != 0` and the answer was the same single cell at every extent,
+    /// which is exactly what this test would now catch.
+    #[test]
+    fn a_smaller_map_stamps_a_wider_river() {
+        // A flat 41x41 world with one channel cell dead centre. Flat on
+        // purpose: `slope_fac` is 1/(1+5*|grad|*w), so a gradient would damp
+        // the very term under test and could hide a regression.
+        let (w, h) = (41usize, 41usize);
+        let n = w * h;
+        let mid = (h / 2) * w + w / 2;
+        let fld = vec![0.5f32; n];
+        let mut flow = vec![0f32; n];
+        let mut chan = vec![0u8; n];
+        let mut order = vec![0i16; n];
+        let thresh = 4.0f64;
+        flow[mid] = 4000.0; // well above thresh, so `mag` is near its ceiling
+        chan[mid] = 1;
+        order[mid] = 5;
+
+        let inked = |k: f64| -> usize {
+            super::stamp_river_intensity(&fld, &flow, &chan, &order, w, h, false, thresh, k)
+                .iter()
+                .filter(|&&v| v > 0.0)
+                .count()
+        };
+
+        let world_scale = inked(1.0); // 800 km
+        let regional = inked(4.0); //  200 km
+        let local = inked(16.0); //   50 km
+
+        assert!(world_scale > 0, "the stamp must ink at least the channel cell itself");
+        assert!(
+            regional > world_scale,
+            "200 km ({regional} cells) must ink more than 800 km ({world_scale})"
+        );
+        assert!(
+            local > regional,
+            "50 km ({local} cells) must ink more than 200 km ({regional})"
+        );
+
+        // And the ink is a falloff, not a flat disc -- the centre is the
+        // brightest cell, which is what gives a wide river a soft bank
+        // instead of a hard edge.
+        let v = super::stamp_river_intensity(&fld, &flow, &chan, &order, w, h, false, thresh, 16.0);
+        let peak = v.iter().cloned().fold(0.0f32, f32::max);
+        assert_eq!(v[mid], peak, "the channel cell itself must carry the peak ink");
+        assert!(peak > 0.0 && peak <= 1.0, "ink stays in [0,1], got {peak}");
+    }
+
+    /// A cell with no channel must ink nothing at all, and an empty/mismatched
+    /// input must not panic -- the renderer calls this on whatever a world
+    /// happens to carry.
+    #[test]
+    fn no_channels_means_no_ink_and_bad_input_is_refused_quietly() {
+        let (w, h) = (8usize, 8usize);
+        let n = w * h;
+        let out = super::stamp_river_intensity(
+            &vec![0.5f32; n], &vec![1.0f32; n], &vec![0u8; n], &vec![0i16; n], w, h, false, 1.0, 4.0,
+        );
+        assert_eq!(out.len(), n);
+        assert!(out.iter().all(|&v| v == 0.0), "no channel cells must ink nothing");
+
+        // Short slices: return a correctly-sized zero grid rather than panic.
+        let short = super::stamp_river_intensity(&[0.5f32; 4], &[1.0f32; 4], &[1u8; 4], &[1i16; 4], w, h, false, 1.0, 4.0);
+        assert_eq!(short.len(), n);
+        assert!(short.iter().all(|&v| v == 0.0));
     }
 }

@@ -35,22 +35,51 @@
 //! (tile-version bookkeeping has no per-layer meaning of its own — see
 //! [`PaintEditor::commit_all`]'s own doc).
 //!
-//! ## `hardness`/`softness` are accepted, not consumed
+//! ## `hardness`/`softness` feather the disc's own edge (`DECISIONS.md` §7k)
 //!
-//! `cartalith-spatial/src/paint.rs`'s own module doc is unambiguous:
-//! painting is "a hard disc... unlike `sculpt()`/`brushHeight` there's no
-//! soft falloff here" (the reference's own comment, quoted there verbatim).
-//! `DCC_SHELL_SPEC.md` §4.5.2's tool options row nonetheless lists
-//! `hardness`/`softness` on the `PAINT · BIOME` row — almost certainly
-//! carried over from the Sculpt row's own shape rather than a deliberate
-//! new paint behaviour, since nothing in the reference or in
-//! `cartalith-spatial::paint` gives either one a meaning for a categorical
-//! brush. [`Brush`] stores and round-trips both anyway, so a shell built
-//! against that row does not have to special-case two of its own fields —
-//! but [`PaintStamp::apply`] never reads them, and [`PaintEditor::
-//! stroke_at`] never passes them to it. If the design intent turns out to
-//! be real (a soft-edged alpha ramp on top of the hard disc, say), that is
-//! new engine work in `cartalith-spatial`, not something to improvise here.
+//! Until 2026-09-01 this section recorded that these two fields went
+//! nowhere: `cartalith-spatial/src/paint.rs`'s own module doc was
+//! unambiguous that painting is "a hard disc... unlike `sculpt()`/
+//! `brushHeight` there's no soft falloff here" (the reference's own
+//! comment, quoted there verbatim), and neither [`PaintStamp::apply`] nor
+//! [`PaintEditor::stroke_at`] read either field — `DCC_SHELL_SPEC.md`
+//! §4.5.2's tool options row lists them on the `PAINT · BIOME` row almost
+//! certainly carried over from the Sculpt row's own shape, with nothing in
+//! the reference or in `cartalith-spatial::paint` giving either a meaning
+//! for a categorical brush.
+//!
+//! The owner ruled 2026-08-31 (`LARGE_ITEM_RULINGS.md`; `UNWIRED_
+//! FUNCTIONS.md`'s highest-severity row): **bind it** — as a deliberate,
+//! disclosed divergence from the reference, which has no falloff for this
+//! brush at all, recorded in `DECISIONS.md` §7k. [`PaintEditor::
+//! stroke_at`] now calls [`PaintStamp::with_falloff`] with both fields,
+//! verbatim, on every dab. The categorical-blending objection
+//! `cartalith-spatial/src/paint.rs` raises is real and untouched by this:
+//! no palette index is ever blended with another, at any hardness or
+//! softness. What softens is the disc's own *edge* — which cells a dab
+//! touches at all — decided by a deterministic per-cell threshold, never
+//! the *value* a touched cell receives. The mechanism lives entirely in
+//! `cartalith-spatial`, not here — see [`PaintStamp`]'s own doc.
+//!
+//! [`Brush::default`]'s `hardness = 1.0, softness = 0.0` is the exact pair
+//! [`PaintStamp::with_falloff`] treats as a literal zero-width band, so an
+//! untouched brush paints the historical hard disc, bit-for-bit — this is a
+//! strict superset of the old behaviour, not a replacement for it, and
+//! every pre-existing golden/regression test for the hard-disc case (this
+//! module's own, `cartalith-spatial`'s and `cartalith-civ`'s) keeps
+//! passing unchanged.
+//!
+//! **The duplicate `Hardness` slider is resolved, not just this field.**
+//! `UNWIRED_FUNCTIONS.md` also flagged two live copies of the same control
+//! on screen at once — `world_workspace.gd`'s WORLD dock panel and
+//! `tool_bar.gd`'s unified tool options bar both drew one. The dock panel
+//! owns the actual brush state (`world_workspace.gd`'s own `_paint_brush`
+//! dictionary; the tool bar only mirrors it through `_paint_state`/
+//! `_write_paint_state`) and is the one place `Hardness` and `Softness`
+//! already lived side by side, so the tool bar's copy was removed there —
+//! nothing in this crate prescribes which surface keeps a control; that
+//! choice is `world_workspace.gd`'s/`tool_bar.gd`'s own to make and is
+//! recorded in each file's own history, not repeated here.
 //!
 //! ## The land-only gate is a toggle here, not the reference's hard-always
 //!
@@ -208,10 +237,12 @@ impl Default for Brush {
     /// otherwise: `value = 1` (an arbitrary first selection, same
     /// "nothing to port, pick something reasonable" precedent
     /// `SculptEditor::new`'s own doc comment sets for `feature`),
-    /// `hardness = 1.0`/`softness = 0.0` (the pair that actually describes
-    /// what a hard disc with no falloff does, even though neither is read
-    /// — a default that lies about the brush's own behaviour would be
-    /// worse than a merely-arbitrary one), `erase = false`, `land_only =
+    /// `hardness = 1.0`/`softness = 0.0` (this module's own doc: now
+    /// genuinely read, and the exact pair `PaintStamp::with_falloff`
+    /// treats as a zero-width band — an untouched brush paints the
+    /// historical hard disc, which was already the honest description of
+    /// "no falloff" before there was a falloff to make honest, and needed
+    /// no change now that there is one), `erase = false`, `land_only =
     /// true` (the reference's own always-on gate — see this module's own
     /// doc on why it is a toggle here at all). Every layer shares this same
     /// default; there is no per-layer reason to differ.
@@ -287,6 +318,22 @@ impl PaintEditor {
         }
     }
 
+    /// One named layer's *committed* cells, or `None` while that layer is
+    /// still unallocated — `render::RenderCtx::with_paint`'s own input, and
+    /// the reason the map can show a painted cell at all.
+    ///
+    /// Deliberately by [`PaintTarget`] rather than "the active one":
+    /// `landColorCore` blends Biome and Terrain in the same pixel and lets
+    /// Splat force a ground texture under both, so the renderer needs all
+    /// three at once regardless of which one the brush is pointed at.
+    pub fn layer_cells(&self, target: PaintTarget) -> Option<&[u8]> {
+        match target {
+            PaintTarget::Biome => self.biome.cells(),
+            PaintTarget::Terrain => self.terrain.cells(),
+            PaintTarget::Splat => self.splat.cells(),
+        }
+    }
+
     pub fn active_draft(&self) -> &PassBuffer<PaintStamp> {
         match self.layer {
             PaintTarget::Biome => &self.draft_biome,
@@ -295,12 +342,59 @@ impl PaintEditor {
         }
     }
 
+    /// Pending, uncommitted dabs across **all three** drafts — exactly what
+    /// [`PaintEditor::commit_all`] would bake and what
+    /// [`PaintEditor::discard_all`] would throw away
+    /// (`GUI_GAP_REGISTER.md` WW-13).
+    ///
+    /// This is deliberately not [`PaintEditor::painted_counts`]: that one
+    /// reports the *composite* of the committed layer and the live draft,
+    /// which is the right number for a legend and the wrong one for the
+    /// Commit / Discard pair. Gated on the composite, both buttons stayed
+    /// live after a commit with nothing left to commit or discard, and
+    /// "Discard draft" then read as "remove the paint I can see" and did
+    /// nothing at all.
+    ///
+    /// All three layers, not just the active one, for the same reason
+    /// `commit_all` covers all three: a layer switch does not discard the
+    /// layer left behind, so a pending dab on Terrain must keep Commit live
+    /// while the panel is showing Biome.
+    pub fn pending_stamps(&self) -> usize {
+        self.draft_biome.len() + self.draft_terrain.len() + self.draft_splat.len()
+    }
+
     fn active_draft_mut(&mut self) -> &mut PassBuffer<PaintStamp> {
         match self.layer {
             PaintTarget::Biome => &mut self.draft_biome,
             PaintTarget::Terrain => &mut self.draft_terrain,
             PaintTarget::Splat => &mut self.draft_splat,
         }
+    }
+
+    /// Replaces the cached land-only gate with a fresh classification —
+    /// `PARITY_AUDIT.md` §23's third wiring item.
+    ///
+    /// **The cache stays a cache.** This module's own doc explains at length
+    /// why the mask is captured once per `generate()` rather than recomputed
+    /// per dab (`build_water_bodies` is a flood fill from every ocean edge,
+    /// and `_paintAt` runs dozens of times a second during one drag; 417 ms
+    /// of it per stroke on the measured world). Nothing about that changes:
+    /// this is the *refresh* path the cache never had, called by the one op
+    /// that edits the classification itself
+    /// ([`crate::WorldGen::apply_force_lake`]), not by the brush.
+    ///
+    /// Same contract as [`PaintEditor::new`]'s own `water_mask`: `gw * gh`
+    /// long, `0` = land, and a length mismatch degrades to "the gate never
+    /// excludes anything" rather than panicking.
+    ///
+    /// Pending drafts are untouched by design, and that is a real decision
+    /// rather than an omission: a [`PaintStamp`] captures its own `Arc` of
+    /// the mask at [`PaintEditor::stroke_at`] time, so dabs already laid down
+    /// keep the gate they were painted under and only the next dab sees the
+    /// new water. Rewriting stamps already in the draft would change what the
+    /// user has painted underneath them.
+    pub fn set_water_mask(&mut self, water_mask: Arc<[u8]>) {
+        self.water_mask = water_mask;
     }
 
     /// Switches which layer the next [`PaintEditor::stroke_at`] writes to.
@@ -325,7 +419,8 @@ impl PaintEditor {
     /// palette size, minimum `1` — there is no legal "paint index 0", that
     /// value means erase and is controlled by the separate `erase` flag.
     /// `radius` clamps to [`PAINT_RADIUS_RANGE`]. `hardness`/`softness`
-    /// clamp to `[0, 1]` (this module's own doc: stored, never read).
+    /// clamp to `[0, 1]` (this module's own doc: now genuinely read, by
+    /// [`PaintEditor::stroke_at`] via [`PaintStamp::with_falloff`]).
     /// A non-finite `radius`/`hardness`/`softness` is rejected outright
     /// (leaves the previous value in place) rather than clamped — the same
     /// "a NaN must never reach a stamp's own math" policy
@@ -364,7 +459,11 @@ impl PaintEditor {
         let radius = self.brush.radius;
         let land_only = self.brush.land_only;
         let mask = Arc::clone(&self.water_mask);
-        let stamp = if land_only { PaintStamp::new(cx, cy, radius, value, mask) } else { PaintStamp::ungated(cx, cy, radius, value) };
+        let stamp = if land_only { PaintStamp::new(cx, cy, radius, value, mask) } else { PaintStamp::ungated(cx, cy, radius, value) }
+            // `DECISIONS.md` §7k. Applied unconditionally -- an eraser dab
+            // (`value == 0`) is geometrically the same disc as a paint dab,
+            // just writing a different value, so it gets the same edge.
+            .with_falloff(self.brush.hardness, self.brush.softness);
         self.active_draft_mut().push(stamp);
     }
 
@@ -448,31 +547,41 @@ impl PaintEditor {
     }
 }
 
-/// A deterministic, distinct swatch colour for 1-based palette `index` out
-/// of `palette_len` total classes (`0` or an out-of-range index both
-/// return black, fully-transparent-in-practice since `lib.rs`'s own
-/// `build_paint_preview_texture` never calls this for an unpainted cell).
+/// The swatch colour for 1-based palette `index` of `target` (`0` or an
+/// out-of-range index both return black, fully-transparent-in-practice
+/// since `lib.rs`'s own `build_paint_preview_texture` never calls this for
+/// an unpainted cell).
 ///
-/// **This port's own convention, not the reference's.** The reference's
-/// real painted-cell colour (`landColorCore`, a 0.60-alpha blend of "the
-/// painted index's palette colour" over the fully shaded procedural
-/// colour, per `cartalith-spatial/src/paint.rs`'s own doc) has no *literal*
-/// RGB table behind it that this workspace has ported —
-/// `CART_BIOMES`/`CART_TERRAINS`/`SPLAT_PAINT_SLOTS` are label strings, and
-/// `UNIFIED_TOOL_PLAN.md` itself records that "no producer of a
-/// painted-cell array" has been wired into the renderer at all yet. Rather
-/// than block a live preview on that unported table, or invent literal RGB
-/// constants and present them as if they were a real port of it, this
-/// spaces every index evenly around the hue wheel: stable across calls
-/// (the same index always gets the same colour), visually distinct for any
-/// palette this port currently ships (at most 15 classes), and honestly a
-/// new convention rather than a guessed parity value.
-pub fn swatch_color(index: u8, palette_len: usize) -> (u8, u8, u8) {
+/// **Biome and Terrain are the reference's own literal tables**,
+/// `CART_BIOME_COLS` (reference 6813) and `CART_TERRAIN_COLS` (6858) — the
+/// exact colours `landColorCore` blends into the map at weight `0.60`
+/// (`render::land_color`'s own paint blend), so the overlay preview and the
+/// committed map now name a class with the same colour instead of two
+/// unrelated ones.
+///
+/// This function previously spaced every index around the hue wheel, on the
+/// stated grounds that "no literal RGB table behind it ... has been ported".
+/// That was true when it was written and had stopped being true: both
+/// tables were already in this crate, for the `bclass`/`cterrain` debug
+/// views. Corrected 2026-08-24; the generated-hue path survives only for
+/// Splat, which genuinely has no reference colour.
+///
+/// **Splat keeps the generated hue, and that is the honest answer, not a
+/// leftover.** `SPLAT_PAINT_SLOTS` names *ground textures*, not colours:
+/// the reference renders a painted splat cell by forcing that pack
+/// texture's own pixels at full coverage (7765-7773), so a splat class has
+/// no swatch colour to port — only a texture, which is a different thing
+/// and is not something a flat overlay can show.
+pub fn swatch_color(target: PaintTarget, index: u8, palette_len: usize) -> (u8, u8, u8) {
     if index == 0 || palette_len == 0 || index as usize > palette_len {
         return (0, 0, 0);
     }
-    let hue = ((index - 1) as f64 / palette_len as f64) * 360.0;
-    hsv_to_rgb(hue, 0.65, 0.95)
+    let i = index as usize - 1;
+    match target {
+        PaintTarget::Biome => crate::render::CART_BIOME_COLS[i],
+        PaintTarget::Terrain => crate::render::CART_TERRAIN_COLS[i],
+        PaintTarget::Splat => hsv_to_rgb(((index - 1) as f64 / palette_len as f64) * 360.0, 0.65, 0.95),
+    }
 }
 
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
@@ -494,6 +603,10 @@ fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the falloff tests below call `PaintStamp::apply` directly, to
+    // build a same-shape comparison stamp -- everything else in this module
+    // reaches it indirectly through `PassBuffer`.
+    use cartalith_spatial::Stamp;
 
     fn land_mask(n: usize) -> Arc<[u8]> {
         vec![0u8; n].into()
@@ -654,6 +767,71 @@ mod tests {
         assert_eq!(scratch[8 * 16 + 8], 5, "the ungated affordance really does bypass the mask");
     }
 
+    // ---- brush falloff (`DECISIONS.md` §7k) ----
+    //
+    // `cartalith-spatial/src/paint.rs`'s own test module proves the
+    // mechanism directly against `PaintStamp`; these exercise the same two
+    // claims through the real public surface `stroke_at` actually is, using
+    // `Brush`'s own `hardness`/`softness` names end to end.
+
+    #[test]
+    fn stroke_at_with_the_default_brush_paints_the_historical_hard_disc() {
+        // hardness=1.0, softness=0.0 is `Brush::default()`'s own pair --
+        // the exact claim `DECISIONS.md` §7k rests its bit-identity promise
+        // on. A big enough grid/radius that the falloff test below can
+        // reuse the same shape.
+        let n = 40 * 40;
+        let mut e = PaintEditor::new(40, 40, land_mask(n));
+        e.set_brush(5, 20.0, 1.0, 0.0, false, false);
+        e.stroke_at(20.0, 20.0);
+        let base = vec![0u8; n];
+        let mut got = vec![0u8; n];
+        e.draft_biome.preview_into(&base, &mut got);
+
+        let mut want = vec![0u8; n];
+        PaintStamp::ungated(20, 20, 20.0, 5).apply(&mut want, 40, 40);
+        assert_eq!(got, want, "an untouched brush must reproduce PaintStamp's own hard disc exactly");
+    }
+
+    #[test]
+    fn stroke_at_with_hardness_below_one_measurably_feathers_the_edge() {
+        let n = 40 * 40;
+        let mut e = PaintEditor::new(40, 40, land_mask(n));
+        e.set_brush(5, 20.0, 0.4, 0.0, false, false);
+        e.stroke_at(20.0, 20.0);
+        let base = vec![0u8; n];
+        let mut soft = vec![0u8; n];
+        e.draft_biome.preview_into(&base, &mut soft);
+
+        let mut hard = vec![0u8; n];
+        PaintStamp::ungated(20, 20, 20.0, 5).apply(&mut hard, 40, 40);
+
+        assert_ne!(soft, hard, "hardness=0.4 must paint a different set than the hard disc");
+        let soft_count = soft.iter().filter(|&&v| v != 0).count();
+        let hard_count = hard.iter().filter(|&&v| v != 0).count();
+        assert!(soft_count < hard_count, "a feathered edge only ever drops cells, never adds them");
+        assert!(soft_count > 0, "the disc's interior must still paint something");
+    }
+
+    #[test]
+    fn set_brush_round_trips_hardness_and_softness_into_the_next_stamp() {
+        // `set_brush` and `stroke_at` are two calls, not one -- this pins
+        // that the value `set_brush` stores is really what the following
+        // `stroke_at` hands to `PaintStamp::with_falloff`, not a separate
+        // copy that could drift.
+        let n = 40 * 40;
+        let mut e = PaintEditor::new(40, 40, land_mask(n));
+        e.set_brush(5, 20.0, 0.4, 0.0, false, false);
+        e.stroke_at(20.0, 20.0);
+        let base = vec![0u8; n];
+        let mut via_editor = vec![0u8; n];
+        e.draft_biome.preview_into(&base, &mut via_editor);
+
+        let mut via_stamp = vec![0u8; n];
+        PaintStamp::ungated(20, 20, 20.0, 5).with_falloff(0.4, 0.0).apply(&mut via_stamp, 40, 40);
+        assert_eq!(via_editor, via_stamp);
+    }
+
     // ---- painted_counts ----
 
     #[test]
@@ -698,6 +876,54 @@ mod tests {
         assert_eq!(e.terrain.cells().unwrap()[3 * 16 + 3], 4);
     }
 
+    /// `GUI_GAP_REGISTER.md` WW-13 — the exact divergence the Commit /
+    /// Discard pair was gated on the wrong side of: after a commit,
+    /// `painted_counts` still reports the painted cells (correctly — they
+    /// exist), while `pending_stamps` goes to zero (correctly — there is
+    /// nothing left to commit or discard).
+    #[test]
+    fn pending_stamps_counts_every_layers_draft_and_goes_to_zero_on_commit() {
+        let n = 16 * 12;
+        let mut e = PaintEditor::new(16, 12, land_mask(n));
+        assert_eq!(e.pending_stamps(), 0, "a fresh editor has nothing pending");
+
+        e.set_brush(2, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(1.0, 1.0);
+        assert_eq!(e.pending_stamps(), 1);
+
+        // A layer switch does not discard the layer left behind, so the
+        // count must still see the Biome dab from inside Terrain.
+        e.set_layer(PaintTarget::Terrain);
+        e.set_brush(4, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(10.0, 8.0);
+        assert_eq!(e.pending_stamps(), 2, "all three drafts, not just the active one");
+
+        let (total_before, _) = e.painted_counts(n);
+        e.commit_all(n);
+        assert_eq!(e.pending_stamps(), 0, "nothing left to commit or discard");
+        let (total_after, _) = e.painted_counts(n);
+        assert_eq!(
+            total_after, total_before,
+            "the composite total is unchanged by a commit -- which is exactly why it \
+             is the wrong number to gate Commit / Discard on"
+        );
+        assert!(total_after > 0);
+    }
+
+    #[test]
+    fn pending_stamps_goes_to_zero_on_discard_too() {
+        let n = 16 * 12;
+        let mut e = PaintEditor::new(16, 12, land_mask(n));
+        e.set_brush(2, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(1.0, 1.0);
+        e.stroke_at(4.0, 4.0);
+        assert_eq!(e.pending_stamps(), 2);
+        e.discard_all();
+        assert_eq!(e.pending_stamps(), 0);
+        let (total, _) = e.painted_counts(n);
+        assert_eq!(total, 0, "a discard really did remove the cells too");
+    }
+
     #[test]
     fn commit_all_never_touches_a_layer_with_nothing_pending() {
         let n = 16 * 12;
@@ -731,18 +957,59 @@ mod tests {
 
     #[test]
     fn swatch_color_is_stable_and_distinct_across_a_palette() {
-        let colors: Vec<_> = (1..=13u8).map(|i| swatch_color(i, 13)).collect();
-        for i in 1..=13u8 {
-            assert_eq!(swatch_color(i, 13), colors[i as usize - 1], "must be stable across calls");
+        for t in PaintTarget::ALL {
+            let n = t.palette().len();
+            let colors: Vec<_> = (1..=n as u8).map(|i| swatch_color(t, i, n)).collect();
+            for i in 1..=n as u8 {
+                assert_eq!(swatch_color(t, i, n), colors[i as usize - 1], "must be stable across calls");
+            }
+            let unique: std::collections::HashSet<_> = colors.iter().copied().collect();
+            assert_eq!(unique.len(), colors.len(), "{t:?}: every class should get its own colour");
         }
-        let unique: std::collections::HashSet<_> = colors.iter().copied().collect();
-        assert_eq!(unique.len(), colors.len(), "every class in a 13-entry palette should get its own colour");
+    }
+
+    /// The correction this function needed: the overlay preview and the
+    /// committed map must name a class with the *same* colour, and that
+    /// colour is the reference's own table, not a generated hue.
+    #[test]
+    fn biome_and_terrain_swatches_are_the_reference_tables_the_renderer_blends() {
+        for i in 1..=13u8 {
+            assert_eq!(swatch_color(PaintTarget::Biome, i, 13), crate::render::CART_BIOME_COLS[i as usize - 1]);
+            assert_eq!(swatch_color(PaintTarget::Terrain, i, 13), crate::render::CART_TERRAIN_COLS[i as usize - 1]);
+        }
+        // Spot-check two literal reference values so a table edit cannot
+        // pass this by moving both sides together.
+        assert_eq!(swatch_color(PaintTarget::Biome, 2, 13), (58, 122, 74), "CART_BIOME_COLS[1], Temperate Forest");
+        assert_eq!(swatch_color(PaintTarget::Terrain, 2, 13), (154, 122, 74), "CART_TERRAIN_COLS[1]");
+    }
+
+    /// Splat has no reference colour at all — it names pack textures. Kept
+    /// on the generated hue, and pinned so the distinction stays deliberate.
+    #[test]
+    fn splat_swatches_stay_generated_because_the_reference_has_no_colour_for_them() {
+        assert_ne!(swatch_color(PaintTarget::Splat, 1, 6), crate::render::CART_BIOME_COLS[0]);
+        assert_eq!(swatch_color(PaintTarget::Splat, 1, 6), swatch_color(PaintTarget::Splat, 1, 6));
     }
 
     #[test]
     fn swatch_color_is_black_for_unpainted_or_out_of_range() {
-        assert_eq!(swatch_color(0, 13), (0, 0, 0));
-        assert_eq!(swatch_color(99, 13), (0, 0, 0));
-        assert_eq!(swatch_color(1, 0), (0, 0, 0));
+        for t in PaintTarget::ALL {
+            assert_eq!(swatch_color(t, 0, 13), (0, 0, 0));
+            assert_eq!(swatch_color(t, 99, 13), (0, 0, 0));
+            assert_eq!(swatch_color(t, 1, 0), (0, 0, 0));
+        }
+    }
+
+    #[test]
+    fn layer_cells_reports_only_committed_state() {
+        let n = 16 * 12;
+        let mut e = PaintEditor::new(16, 12, land_mask(n));
+        assert!(e.layer_cells(PaintTarget::Biome).is_none(), "unallocated before anything is painted");
+        e.set_brush(2, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(4.0, 4.0);
+        assert!(e.layer_cells(PaintTarget::Biome).is_none(), "a pending draft is not committed state");
+        e.commit_all(n);
+        assert_eq!(e.layer_cells(PaintTarget::Biome).unwrap()[4 * 16 + 4], 2);
+        assert!(e.layer_cells(PaintTarget::Splat).is_none(), "an untouched layer stays unallocated");
     }
 }

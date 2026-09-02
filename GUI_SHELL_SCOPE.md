@@ -14,9 +14,10 @@
 > (menu bar / workspace tabs / tool options bar / left tool rail / viewport /
 > right dock / status bar).
 >
-> **And UI work is now on hold entirely** (owner, 2026-08-18) while the
-> interface is redesigned again — see the notice at the top of
-> `DCC_SHELL_SCOPE.md`.
+> **This document defines and records; it does not track.** Nothing here is a
+> statement of where the project stands. Current status — of this shell's
+> successor and of everything else — lives in
+> **`cartalith-native/docs/STATUS.md`**.
 >
 > **What is still worth reading here**: milestone 1's real inventory of which
 > engine features had backing versus which were inert. That inventory was
@@ -57,9 +58,15 @@ cross-references it.
    deliberately non-functional until their own future engine work lands —
    not hidden, not omitted, not stubbed as TODO comments.
 
-## Real, honest inventory: what already exists vs. doesn't (checked, not assumed)
+## Real, honest inventory as of 2026-08-17: what existed vs. didn't (checked, not assumed)
 
-**Real backing exists today** (`cartalith-godot`/`main.gd` already has a
+*A dated snapshot of the engine, taken to size milestone 1 — the "build the
+shell now, wire later" split below is drawn along exactly these lines. It says
+nothing about the engine now; `GUI_FEATURE_PARITY_SCOPE.md` re-baselined it
+against the DCC shell, and current status is in
+`cartalith-native/docs/STATUS.md`.*
+
+**Real backing existed at the time of writing** (`cartalith-godot`/`main.gd` already has a
 working `#[func]`/control for this — re-parent into the new shell and keep
 functional):
 - Generate world, seed, resolution, map width (`WORLD` panel)
@@ -115,7 +122,7 @@ checking `cartalith-godot`'s actual `#[func]` list):
 
 ## Milestone plan
 
-**Milestone 1 (this pass)** — desktop shell structure, dark theme only, one
+**Milestone 1** — desktop shell structure, dark theme only, one
 breakpoint (1920×1080), no responsive/light-theme/collapse work yet:
 - Top bar: wordmark, 7 domain menus (Project/World/Generate/Simulate/Map/
   Assets/View) as real menu buttons — populate each with the real
@@ -190,7 +197,7 @@ not-yet-real feature is visibly present but honestly inert, and the
 existing golden path (generate → render → interact with overlays) is
 screenshot-verified unbroken.
 
-## Milestone 1 — done (2026-08-17)
+## Milestone 1 as built (2026-08-17)
 
 Rebuilt `main.tscn`/`main.gd` as the full 6-region shell (top bar with 7
 domain menus, 4-group workspace navigator, second panel that swaps with

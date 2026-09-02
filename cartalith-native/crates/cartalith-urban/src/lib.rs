@@ -24,21 +24,46 @@
 //! the first milestone that produces a real street graph end to end.
 //! Milestone 7 adds [`growth`] — the epoch loop that grows the town onto that
 //! backbone, and the successive-wall-generation machinery it drives.
+//! Milestone 12 adds [`blocks`] — `buildBlocks` and `buildParcels`, the first
+//! stage whose output is *building-sized*. It is deliberately out of order
+//! (8-11 are still unbuilt): the City Viewer needed discrete, colourable
+//! shapes, parcels are the smallest stage that produces them, and every
+//! primitive it needs was already built and golden-tested at milestones 1-2.
+//! [`blocks`]'s own header records what the missing upstream stages cost it.
+//! Milestone 8's [`plaza`] then closed the most visible of those: `buildPlaza`
+//! carves the market square out of the principal street, and it runs on the
+//! organic branch as well as the radial one, so every drawn town now has the
+//! one open space a viewer expects at its centre. The rest of milestone 8
+//! (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only
+//! and is still outstanding.
 //!
-//! **Not wired to anything.** Nothing in this crate is called from
-//! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
-//! discipline as `cartalith-spatial` and every unwired subsystem port before it.
+//! **Wired as of 2026-08-23, and only through one door.**
+//! `cartalith_civ::urban_adapter` is this crate's sole consumer: it supplies
+//! the real map's water and relief as [`site::WaterCtx`]/[`site::TerrainCtx`],
+//! runs the prefix of the reference's `generate()` that milestones 1-7 make
+//! possible, and hands the result to `cartalith-godot`'s `urban_bridge` for
+//! the map's deep-zoom town layer and the City Viewer
+//! (`URBAN_MORPHOLOGY_SCOPE.md` milestone 17a). Nothing changed in this crate
+//! to make that work, and nothing here depends on `cartalith-civ` — the
+//! dependency runs one way, which is the whole reason the adapter lives
+//! outside this crate. `compute_civilisation()` still does not call this
+//! subsystem at all: a town is generated on demand, per settlement, never as
+//! a generation stage.
 
 pub mod astar;
+pub mod blocks;
 pub mod geom;
 pub mod graph;
 pub mod growth;
+pub mod plaza;
 pub mod rng;
 pub mod routes;
 pub mod rules;
 pub mod site;
 
 pub use astar::astar;
+pub use blocks::{Block, Parcel, build_blocks, build_parcels};
+pub use plaza::{Plaza, build_plaza};
 pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
 pub use graph::{Edge, Face, Graph, Node};
 pub use growth::{

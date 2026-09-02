@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f;
+           font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    a { color: #e0a34a; } a:hover { color: #f0bd72; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 412px; height: 892px; background: #0d0e0f; color: #c8cbcd; display: flex; flex-direction: column; overflow: hidden">
+
+  <div style="height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 16px;
+              background: #121314; border-bottom: 1px solid rgba(255,255,255,0.10)">
+    <div style="width: 48px; height: 48px; margin-left: -14px; display: flex; align-items: center; justify-content: center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c8cbcd" stroke-width="1.7" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+    </div>
+    <div style="font-size: 15px; color: #e8ebec; flex-grow: 1">Everything Cartalith does</div>
+  </div>
+
+  <div style="flex: none; padding: 12px 16px; background: #121314; border-bottom: 1px solid rgba(255,255,255,0.10)">
+    <div style="display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 14px;
+                background: #101112; border: 1px solid #e0a34a; border-radius: 2px">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#e0a34a" stroke-width="1.8" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>
+      </svg>
+      <div style="font-size: 14px; color: #e8ebec">riv</div>
+      <div style="width: 1px; height: 18px; background: #e0a34a; opacity: 0.8"></div>
+    </div>
+  </div>
+
+  <!-- The list. Every row: what it is, and one line of what it does. Nothing
+       hides behind an icon. Rows that cannot run say why, in place. -->
+  <div style="flex-grow: 1; overflow: hidden; display: flex; flex-direction: column">
+
+    <div class="mono" style="font-size: 9px; letter-spacing: 0.22em; color: #8d9296; padding: 16px 16px 8px">TERRAIN · 4 MATCHES</div>
+
+    <div style="display: flex; flex-direction: column">
+      <div style="min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+                  border-top: 1px solid rgba(255,255,255,0.07)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5fa8c4" stroke-width="1.7" aria-hidden="true"><path d="M3 15c3-4 6 2 9-2s6 2 9-2"/><path d="M3 20c3-4 6 2 9-2s6 2 9-2"/></svg>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px">
+          <div style="font-size: 14px; color: #e8ebec">River density</div>
+          <div style="font-size: 11.5px; color: #8d9296; line-height: 1.35">How much of the drainage becomes a visible channel</div>
+        </div>
+        <div class="mono" style="font-size: 11px; color: #e0a34a">1.00</div>
+      </div>
+
+      <div style="min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+                  border-top: 1px solid rgba(255,255,255,0.07)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5fa8c4" stroke-width="1.7" aria-hidden="true"><path d="M6 20V9M12 20V4M18 20v-7"/></svg>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px">
+          <div style="font-size: 14px; color: #e8ebec">Minimum river order</div>
+          <div style="font-size: 11.5px; color: #8d9296; line-height: 1.35">Hide the smallest streams so the big rivers read</div>
+        </div>
+        <div class="mono" style="font-size: 11px; color: #e0a34a">1</div>
+      </div>
+
+      <div style="min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+                  border-top: 1px solid rgba(255,255,255,0.07)">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5fa8c4" stroke-width="1.7" aria-hidden="true"><path d="M4 18c4 0 4-8 8-8s4 8 8 8"/></svg>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px">
+          <div style="font-size: 14px; color: #e8ebec">Carve river valleys</div>
+          <div style="font-size: 11.5px; color: #8d9296; line-height: 1.35">Cut the channels into the terrain, not just onto it</div>
+        </div>
+        <div style="width: 44px; height: 26px; border-radius: 13px; background: #e0a34a; display: flex;
+                    align-items: center; justify-content: flex-end; padding: 0 3px">
+          <div style="width: 20px; height: 20px; border-radius: 10px; background: #141617"></div>
+        </div>
+      </div>
+
+      <!-- A row that cannot run says so IN PLACE, and says why. The old shell
+           had ten of these looking identical to live ones. -->
+      <div style="min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+                  border-top: 1px solid rgba(255,255,255,0.07); background: #111210">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5f6468" stroke-width="1.7" aria-hidden="true"><path d="M4 12h16"/><path d="M12 4v16"/></svg>
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px">
+          <div style="font-size: 14px; color: #5f6468">Rivers as named entities</div>
+          <div style="font-size: 11.5px; color: #5f6468; line-height: 1.35">Not built yet — rivers are a per-cell network with no name or catchment</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mono" style="font-size: 9px; letter-spacing: 0.22em; color: #8d9296; padding: 22px 16px 8px">EXPORT · 1 MATCH</div>
+
+    <div style="min-height: 64px; display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+                border-top: 1px solid rgba(255,255,255,0.07)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c8cbcd" stroke-width="1.7" aria-hidden="true"><path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M4 19h16"/></svg>
+      <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 3px">
+        <div style="font-size: 14px; color: #e8ebec">Export heightmap</div>
+        <div style="font-size: 11.5px; color: #8d9296; line-height: 1.35">16-bit greyscale PNG, for a game engine or terrain editor</div>
+      </div>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6f7478" stroke-width="1.7" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+    </div>
+  </div>
+
+  <div style="flex: none; padding: 12px 16px 14px; background: #121314;
+              border-top: 1px solid rgba(255,255,255,0.10)">
+    <div class="mono" style="font-size: 10px; color: #6f7478; line-height: 1.5">
+      Every parameter, tool and export in one list — the same words the search box matches.
+    </div>
+  </div>
+  <div style="flex: none; height: 20px; background: #121314"></div>
+</div>
+</x-dc>
+</body>
+</html>

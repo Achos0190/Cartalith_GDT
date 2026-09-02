@@ -1,3 +1,51 @@
+> # ⛔ RETIRED — 2026-08-31. Historical narrative only. Do not append. Do not trust as state.
+>
+> **This file is frozen.** It is kept because 29 534 lines of per-milestone
+> reasoning — what a function turned out to actually do, which fixture shape
+> reached the code, why a tolerance was allowed — is worth more than the disk it
+> occupies, and git commit messages do not carry it. Nothing below has been
+> deleted and nothing below will be added.
+>
+> **Where the answers moved:**
+>
+> | Question | Answer lives in |
+> |---|---|
+> | What is done, what is left, what state is a milestone in? | **`cartalith-native/docs/STATUS.md`** — the single source of truth |
+> | What happened, in order, and when? | **`git log`** |
+> | What is a milestone *defined* as, and why was it designed that way? | the owning `*_SCOPE.md` |
+> | Why was this specific line of Rust written this way? | here, if it predates 2026-08-26 — and it is still cited from source comments for exactly that |
+>
+> **It stops short of the working tree, deliberately.** The last entry heading is
+> `## 2026-08-26 (12)`; the last commit that wrote to this file was `bcabd5a`
+> (2026-08-29), a catch-up. **51 commits have landed since `bcabd5a` and none of
+> them is recorded here** — among them landmark generation shipping end to end
+> (~3 730 lines), the 49 glyphs, `DESIGN_HANDOFF.md`, the GUI replacement spec
+> and its stages 1-2, and the `UNWIRED_FUNCTIONS.md` re-cut. **Those 51 commits
+> are not going to be backfilled.** Backfilling them would rebuild the exact
+> problem this retirement solves: a second place to look for state, guaranteed to
+> fall behind again. `git log` already has them.
+>
+> **So, plainly:**
+>
+> - **Append nothing to this file.** A new milestone updates `STATUS.md` and
+>   writes a commit message. If it needs a design record, that goes in the
+>   owning scope document.
+> - **Trust nothing here as current state.** Every "done", "open", "next" and
+>   "not yet ported" below was true on the day it was written and many are not
+>   true now. Check `STATUS.md`, or check the code.
+> - **Citations to this file from source comments and scope documents remain
+>   valid** — they point at a *disclosure*, which is a historical fact and does
+>   not go stale. `cartalith-climate/src/lib.rs`, `staleness.rs`, several
+>   `golden_parity_*.rs` headers and most of `PHASE2_SCOPE.md` cite it this way.
+>   Leave those alone; they are reading history, not asking for status.
+>
+> *Retired by owner decision, 2026-08-31, alongside `STATUS.md`'s rewrite from an
+> 8 122-line narrative into a verified ledger. The two changes are one decision:
+> one place holds state, one place holds history, and neither pretends to be the
+> other.*
+
+---
+
 # Changelog
 
 One entry per milestone: what was ported or built, how it was verified, and
@@ -17475,3 +17523,12060 @@ Asset library re-shot to confirm the `wrap_controls` fix, and
 `--headless --path . --quit-after 120` clean. Screenshots produced by a
 temporary harness (`_dm_shot.gd`/`.tscn`, uncommitted, same convention as
 `_shot.gd`) — not committed; screenshots are not source.
+
+## The Devices menu crash: the backend mask was on the wrong call (2026-08-23)
+
+Owner: *"There seems to be a crash in the program when you get higher than 2k
+and start changing settings for resources such as GPU/CPU."*
+
+Reproduced, root-caused and fixed. The size is a red herring; the crash is
+**opening `Preferences ▸ Performance ▸ Devices` at all**, and it is the same
+GL-context corruption `6a97911` chased on 2026-08-20 — that commit fixed the
+*launch* by deferring enumeration to the submenu's first open, and in doing so
+moved the crash to the submenu rather than removing it.
+
+### The bug
+
+`multi.rs` passed its non-GL backend mask to `enumerate_adapters`. That is far
+too late. `wgpu::Instance::new` stands up a `hal::Instance` for **every backend
+in its own descriptor's mask**, and every call site in this crate built that
+descriptor with `InstanceDescriptor::new_without_display_handle()`, whose
+`backends` field defaults to `Backends::all()` — GL included. So an OpenGL
+context was created inside Godot's GL-Compatibility process the moment the
+instance was, before a single adapter had been asked for. `6a97911`'s own
+commit message records that restricting the enumeration mask "was tried first,
+still crashed"; this is why.
+
+The fix is one function. `multi::compute_instance()` is now the only place in
+the crate that constructs a `wgpu::Instance`, and it sets
+`backends: COMPUTE_BACKENDS` (Vulkan · DX12 · Metal · BrowserWebGPU) on the
+descriptor. All four construction sites — enumeration, key lookup, the
+split-tiles device set, `request_gpu_device`, `init_gpu_gauss_blur` — go
+through it.
+
+### Reproduction, before the fix
+
+Non-headless, AMD RX 7800 XT, OpenGL 3.3 Core Profile. A harness booted the real shell, called `gpu_devices()` once and then idled.
+**Signal 11 before the first `process_frame` after the call returned** — no
+GLES3 error burst this time (the shell was not creating textures at that
+moment), and no GDScript frame anywhere in the backtrace, which is why it
+looks like nothing is wrong from GDScript's side. Every route into
+enumeration crashed identically and at **every** grid size — 512², 1024²,
+2048², 3072², 4096² — including `Multi-GPU mode ▸ Split tiles`, an explicit
+single-device selection, and a VRAM budget change, because all of them call
+`gpu_enumerate_devices` first. A generation with no menu interaction was
+clean at 4096², which is what made "higher than 2k" look causal: at 512² a
+generation is over before anyone can reach the menu.
+
+### A second, real defect found in the same interaction
+
+`generate()` runs `generate_terrain` on a `Thread`, and gdext holds the whole
+`WorldGen` mutably borrowed for that call. Any `#[func]` reached from the main
+thread meanwhile fails its own `Gd<T>::bind()`. Measured: opening
+Preferences ▸ Performance during one 4096×2624 generation produced **360**
+`Gd<T>::bind() failed, already bound; T = cartalith_godot::WorldGen` panics,
+each returning a default to GDScript — and the Devices submenu latched
+`_gpu_enumerated = true` over that empty answer, so it read "No GPU detected"
+for the rest of the session. This build does not enable gdext's
+`experimental-threads`, so the borrow state behind that check is a plain
+non-atomic `Cell`: two threads read-modify-writing it is undefined behaviour,
+not merely an error. Small grids hide it because they finish first.
+
+Closed at the choke point rather than papered over:
+
+- `engine_bridge.gd` is the only thing in the shell that touches `WorldGen`.
+  Its six multi-GPU readers now serve from a cache while `generating`, which
+  is exact rather than approximate — the four settings live in a
+  process-global `RwLock<GpuPreferences>` in `cartalith-gpu` and this file is
+  their only writer. The setters refuse for the same window; they take effect
+  on the next generate anyway. `param_get` serves from a snapshot taken just
+  before the worker starts, and `param_set` refuses — `generate_terrain` reads
+  the table once at the start of a run, so a mid-run write could never have
+  affected the world being built.
+- `menus.gd` disables the GPU-acceleration row and all four Performance
+  submenu rows while a generation is running, with the reason in the tooltip,
+  rather than letting a click silently no-op — this file's own honesty rule.
+  `_on_gpu_devices_about_to_popup` only latches `_gpu_enumerated` over a reply
+  that was really enumerated.
+
+### Verified non-headlessly, because headless cannot see this bug class
+
+A harness drove the **real menu path** (`MenuButton.get_popup().popup()`, then
+the `GpuDevices` submenu's own `popup()`), not the bridge API:
+
+1. Open Preferences ▸ Devices with nothing running — the reported action.
+   Clean, 20 frames survived, three devices listed (RX 7800 XT · discrete ·
+   vulkan, Radeon Graphics · integrated · vulkan, Basic Render Driver ·
+   software · dx12). This crashed every time before the fix.
+2. Change every GPU setting (two devices selected, `split_tiles`, 4 GB
+   budget, both fallbacks), then generate 4096×2624. Completed in ~22 s.
+   This crashed before the fix at every size tried.
+3. Drive the same menu path **479 times** during that generation: **zero**
+   `bind()` panics, zero Godot errors, zero crashes, and every row correctly
+   disabled.
+4. After it finished: rows re-enabled, three devices still listed, selection /
+   mode / budget intact, estimate live again (410 MB against a 4096 MB cap).
+
+Also: `cargo test -p cartalith-gpu` (54 + 8 multi-GPU, all pass, including
+`split_tiles_across_two_real_devices_measured` and
+`a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid`);
+8192×5248 with split tiles completed clean in ~140 s; `_shot.tscn --generate`
+re-shot to confirm the shell and the parameter sliders are unaffected;
+`--headless --quit` clean. The verification harness is uncommitted, the same
+convention `_shot.gd` and `_dm_shot.gd` follow.
+
+## Three stranded items: timeline `tid`, Asset Library Collections/drag-and-drop/slicer interaction, Fira fonts (2026-08-23)
+
+Three independent, previously-disclosed gaps, dispatched together as
+mechanical wiring/completion rather than open-ended work. All three landed;
+none required deviating from `DECISIONS.md`.
+
+### 1 · `get_settlements()` gains `tid`; Timeline's Exist-only filter now touches map pins (`GUI_GAP_REGISTER.md` CV-03)
+
+`get_settlements()` (`lib.rs`) now emits `tid` (`NamedSettlement::tid`, `s.tid
+as i64`) alongside the fields it already had. `civilization_workspace.gd`
+gains `_tl_apply_filters`, called from `_refresh_civ_data` and `_tl_goto_year`:
+when **Exist only** is checked, it filters the settlement array handed to
+`map_overlay.gd`'s `set_civ_data` down to the active year's
+`civ_year_diff().present` tid set — upstream of that file, not inside it
+(`map_overlay.gd` is a sibling agent's territory this pass; it was not
+touched). **Ghost removed**/**Highlight new** stay disclosed-open: both need
+per-pin fade/halo drawing only `map_overlay.gd`'s own `_draw()` can do, and
+"removed" additionally needs the OLD snapshot's settlement data
+(position/name), which no `#[func]` exposes (`civ_year_diff()` returns tid
+sets only). The in-product note in `_build_timeline_filters` and this file's
+own top-of-Timeline comment both say exactly this now, replacing the older
+"nothing on this side can tell which pin a tid refers to" note that `tid`'s
+absence used to force.
+
+### 2 · Asset Library: Collections rail, drag-and-drop, slicer canvas interaction (`GUI_GAP_REGISTER.md` AS-12, AS-17)
+
+Built on `asset_library_window.gd` as rebuilt against the design canvas in
+`88b4d54`, and on `cartalith-assets::slicer` as ported in `e96a7ae` — no
+slicing arithmetic changed.
+
+**Collections rail (AS-12).** New `#[func] as_collections` (`lib.rs`) is the
+read side `as_batch_collect`/`as_slot_summary` never had — until now nothing
+could enumerate every collection that exists, only ask "which collections is
+this one uid in." The family rail gains a rebuilt-on-demand Collections
+section (`_refresh_collections_rail`/`_collection_row`) listing every
+collection with a live member count, selectable into a real collection-scoped
+grid view (`_select_collection`/`_refresh_grid_collection`, which resolves
+each member uid through `as_slot_summary` since a collection can mix uids
+from several families, unlike a family view). "Unassigned imports" stays
+open — still a slot-less bucket the model does not have.
+
+**Drag-and-drop onto slots.** Real, using the named Godot virtuals: dragging
+one or more selected grid tiles onto a Collections row adds them to it
+(`SlotCell._get_drag_data` → `{"type":"asset_uids","uids":[...]}`,
+`CollectionRow._can_drop_data`/`_drop_data` → the same `as_batch_collect` the
+Collect… prompt already calls). Dragging a *file* from outside Godot onto a
+slot to fill it stays unwired, and the grid footer's hint now says why rather
+than just that it isn't wired: Godot's drag-and-drop is two unrelated
+systems — OS-external file drops only ever reach `Window.files_dropped`,
+never a Control's `_can_drop_data`/`_drop_data`, so a slot cannot
+structurally be that kind of drop target. `Import image…` remains the real
+path for that.
+
+**Slicer canvas interaction (AS-17).** `SheetPreview` gains wheel-zoom
+(centred on the cursor and exactly reversible — zoom in then back out returns
+to the prior pan bit-for-bit, verified in the harness below), middle-drag
+pan, click-to-select-a-cell (hit-tested against the engine's own
+`as_slice_preview` cell spans — a real picker/highlight, reported through the
+status bar), and one real draggable grid line: a handle on the grid's own
+**Margin** boundary. Margin is the one grid parameter that's actually uniform
+across the whole sheet (`cartalith_assets::GridRect::inset`), so it is the
+one line with something real to drag *to*; dragging it writes straight to the
+Margin spinbox, so the existing `_refresh_slicer_summary` pipeline stays the
+single source of truth for the readout/overlay/Slice count. Per-*interior*-
+line dragging stays out of scope on purpose: `SliceGrid`/`compute_cells`
+computes a uniform grid from `cols`/`rows`/`margin`/`spacing` only (verified
+by reading `slicer.rs` directly, not assumed) — there is no per-line position
+any engine call accepts, so faking a drag with no engine consequence would be
+exactly the kind of decoration this project's discipline exists to avoid.
+Picking a cell likewise does not narrow what Slice cuts — `as_slice_apply`/
+`slice_target_from` (`lib.rs`) take no cell-selection parameter, so Slice
+still cuts the whole uniform grid; the modal's tooltip and the picker's own
+status-bar readout both say so.
+
+Verified: `cargo build -p cartalith-godot` clean, `cargo test -p
+cartalith-godot --lib` (247 passed), `--headless --path . --quit` clean.
+Functional (non-visual) verification via two uncommitted harness scripts run
+with `-s`, deleted after: one drove `as_add_custom_slot`/`as_import_item`,
+`_select_family`, real `_get_drag_data`/`_can_drop_data`/`_drop_data` calls,
+`_select_collection`, and back to family mode — every step produced the
+expected state with no script errors. The other loaded a real synthetic 6×4
+sheet through `_load_sheet_image`'s real path-based load, then called
+`_zoom_at`, dispatched synthetic `InputEventMouseMotion`/`InputEventMouseButton`
+through `_gui_input` for panning, cell-selection (screen point over cell
+(1,1) resolved to flat index 7, matching `row*cols+col`), and the Margin
+handle drag (dragging to sheet-space (6,6) set Margin to 6.0) — all exactly
+as expected. This is direct event injection against the virtuals, not a live
+mouse-driven session in a real window, so the interaction was **not**
+verified by an actual human-style drag; the pixel-level draw path (handle
+dot, selection outline, dashed grid at the new transform) was not visually
+inspected either. Said plainly per this file's own verification discipline
+rather than claimed as full interactive verification.
+
+### 3 · Fira Sans / Fira Code: sourced, licensed, Fira Sans wired
+
+Both fonts were the original design-system match (`v0.62`-era note, this
+file's own "Deliberately deferred" list: "Typography: the design-system match
+was Fira Sans/Fira Code… Sourcing and OFL-license-checking real font files
+wasn't done this pass"). Sourced for real this pass: `FiraSans-{Regular,
+Medium,Bold,Italic}.ttf` from `mozilla/Fira` (upstream digitized-data
+copyright: Mozilla Foundation and Telefónica S.A.) and `FiraCode-{Regular,
+Medium}.ttf` from `tonsky/FiraCode`'s 6.2 release, both real SIL OFL 1.1 —
+license text fetched from each project's own repository (not paraphrased or
+assumed) and checked in as `fonts/FiraSans-OFL.txt` /
+`fonts/FiraCode-OFL.txt`, each carrying its own upstream copyright line per
+the OFL's own attribution requirement.
+
+Fira Sans is wired for real: `dark_theme.tres` (the live theme —
+`project.godot`'s `gui/theme/custom`, `app.gd`'s theme — not `app_theme.tres`,
+which is superseded and off the live path per its own header) gained an
+`ext_resource` for `FiraSans-Regular.ttf` and sets it as `default_font`, so
+every Control gets it for free with no per-Label override, closing the
+"plain UI sans" half of `dcc_theme.gd`'s own two-face design note. Fira Code
+is sourced and sits in `fonts/` unwired: `dcc_theme.gd`'s own `mono()` already
+carries IBM Plex Mono, bundled and wired in a later, more specific,
+already-shipped-and-tested pass for its own reasons (the tracked-letterspacing
+DCC-tool texture the design leans on) — swapping Fira Code in over a working,
+tested mono face for zero visual-parity gain would be an undisclosed
+regression, not a fix, so it wasn't done. Both theme file headers and
+`dcc_theme.gd`'s own comment record this reasoning in place, not just here.
+
+New `.ttf`s have no `.import` sidecar until Godot's own importer runs (the
+editor binary, not the console-runtime binary, generates one on first project
+scan) — confirmed by reproducing the failure first (`--headless --path .
+--quit` on the plain console binary: `No loader found for resource…
+FontFile`), then running `--headless --editor --path . --quit` once, which
+imported all six new fonts and produced their `.import` files, after which
+the plain headless boot is clean. Verified: `--headless --path . --quit`
+clean after the import pass, with `default_font` resolving to real Fira Sans
+throughout the shell (confirmed by the absence of the resource-load errors
+the pre-import run produced, not by a visual inspection of glyphs).
+
+---
+
+## Wind and Ocean currents: the animation the reference has and this port did not (owner report, 2026-08-23)
+
+> "the ocean current layer isnt animated as the HTML version is. (same for
+> wind)" — owner, 2026-08-23
+
+Both views were ported, and both were **correct**: `sample_bridge.rs` draws
+Wind as hue-by-bearing and Ocean currents as the SST anomaly, which is what
+the reference's own pixel loop (HTML lines 8510-8521) draws. What was never
+ported is that on exactly these two views the reference stacks a **second,
+independent overlay** on top: `#windFxCanvas`, a particle-streak animation
+(`_windFx*`, HTML lines 2113-2209) that the normal render pipeline never
+touches. Measured before the fix on a real screen: **0.0000** mean
+frame-to-frame pixel difference on both views. Perfectly, verifiably static.
+
+### What the reference actually does, read before porting
+
+- Two pools sized by view: `WINDFX_N_WIND = 260`, `WINDFX_N_CUR = 200`.
+- Particles live in plain grid coordinates and project onto the canvas by
+  ratio against the visible bounds — no separate coordinate system.
+- Advection is one Euler step per animation frame at `0.315` cells/tick
+  (`0.9 * 0.35`; the reference's own v1.82 "slow down the arrows from the
+  current animation speed by about 65%").
+- Lifetimes `50 + rand*50` (wind) and `60 + rand*60` (ocean) ticks; respawn
+  on leaving the map, on ageing out, or — ocean only — on drifting onto land.
+- The ocean spawner rejects up to 30 dry candidates before giving up.
+- The trail is `destination-out rgba(0,0,0,0.14)` over a canvas that is never
+  cleared, so a streak is the accumulated history of one-segment strokes.
+- Self-terminating: `_windFxStep` re-reads `state.debug` every tick and stops
+  the moment the view is no longer up.
+
+### Ported
+
+- **`cartalith-climate::current_ocean_field`** — `currentOceanField()` minus
+  its SST term, returning the coarse ocean-current **vector** field and the
+  ocean mask. Split *out of* `ocean_sst_anomaly` rather than written beside
+  it: the anomaly raster and the streaks must agree about which way a current
+  runs, and the reference itself shipped two disagreeing answers to that
+  question until its own v1.78. `golden_parity_ocean_current` and the whole
+  `cartalith-climate` suite still pass byte-for-byte after the extraction.
+- **`sample_bridge::flow_fx_raster`** — the flow field packed into one
+  `gw × gh` RGBA8 buffer: 12 bits each for `u` and `v` against a fixed ±8
+  half-range, and the ocean mask in the alpha byte. Reached through
+  `build_debug_texture` under the ids `flowfx:wind` / `flowfx:ocean`, which
+  are handled before the view match so they never appear in `LAYER_GROUPS`,
+  the legend or the popover. **This is a channel, not a view, and it is a
+  workaround**: the right shape is a `#[func]` returning the field, but
+  `lib.rs` — this crate's sole `godot` boundary — was owner-reserved for
+  concurrent work. Worth replacing; only the GDScript decode would change.
+  Measured peak on a real 512×384 world: 4.48 of the 8.0 scale, zero
+  saturated cells.
+- **`shell/wind_fx_layer.gd`** — the overlay, parented under `map_overlay.gd`
+  so it inherits the map's pan/zoom and projects through the same public
+  `displayed_rect()` the vector overlays already use. Every constant above is
+  the reference's. Created once from `layers_popover.gd::_attach_flow_fx`.
+
+### The one deliberate technique change
+
+The trail. Godot clears its canvas every frame, so reproducing
+`destination-out` literally would mean a never-cleared `SubViewport` — a
+retained GPU render target doing work whether or not anyone is looking at the
+layer, which is the exact resource-lifecycle hazard the `ENUMERATION_BACKENDS`
+entry above is a live bug from. Each particle instead carries its last 12
+positions and redraws them under the *same* geometric decay the fade produces
+(`0.86 ** k`), grouped into twelve uniform-colour `draw_multiline` calls. Same
+streak, no retained target, and literally zero cost when the layer is off.
+This is `MEMORY.md`'s GPU-equivalence bar applied honestly: principled visual
+equivalence, not a per-particle transcription of the JS.
+
+### Verified non-headlessly, because a headless boot cannot see motion at all
+
+`_flowfx_shot.tscn` (uncommitted, the convention `_shot.gd` follows) booted
+the real shell at 1280×800 on an RX 7800 XT, generated a 512×384 world and
+measured the mean per-pixel difference between frames a third of a second
+apart:
+
+| state | frame-to-frame diff | fps |
+|---|---|---|
+| Wind | 0.1343 0.1328 0.1346 0.1367 | 60 |
+| Ocean currents | 0.0515 0.0496 0.0475 0.0478 | 57 |
+| layer off | 0.0000 0.0000 0.0000 | 60 |
+| Ocean, re-armed after off | 0.0515 0.0452 0.0470 | 59 |
+| after a regenerate under a live view | 0.0631 0.0627 0.0666 | 60 |
+
+Plus, on the same run: the overlay node is present and `visible` exactly when
+the view is up and `_kind` empty when it is not; all 260 wind and all 200
+ocean particles sit on cells their own mask calls valid; the packed mask
+round-trips the GPU texture intact (wind 196 608 cells all `a=255`; ocean
+35 559 water / 161 049 land, matching the map's own coastline); mean advected
+speed 2.88 cells/tick for wind against 0.95 for currents, which is why ocean
+streaks are visibly shorter — slower water, same `0.315`, exactly as the
+reference renders it. Screenshots of both views cropped and inspected: wind
+draws tapered white streaks aligned with the field, ocean draws cyan streaks
+confined to water.
+
+Also `cargo test -p cartalith-climate` (21 tests, all pass) and
+`cargo test -p cartalith-godot --lib` including the new
+`flowfx_channel_round_trips_the_flow_vectors`, which decodes the packed
+raster back and asserts it reproduces `current_wind_field` to within one
+quantisation step — the thing that keeps the Rust encode and the GDScript
+decode from drifting apart silently.
+
+### Still open
+
+- The `flowfx:` channel should become a real `#[func]` on `WorldGen`.
+- Streak density/speed are the reference's constants and are not exposed as
+  controls. `MEMORY.md`'s Phase 3 note (re-run `ui-ux-pro-max` for the
+  deferred visualisation controls) is the right place for that, not a raw
+  slider bolted on here.
+
+## Deep-zoom LOD: the tiles were the reference's *Relief* view, not its *Biome* view (owner report, 2026-08-23)
+
+Owner: *"the zoom-lod bug where a zoom action exposes the underlying heightmap
+is still there."* Reproduced first, fixed second. `_lodshot.tscn` (uncommitted,
+the convention `_shot.gd` follows) booted the real shell at 1600x1000 on an RX
+7800 XT, generated a 512x384 world and captured the same camera with the LOD
+layer shown and hidden: shown, the map was a bare green/gold/grey elevation
+ramp over flat blue sea; hidden, it was the full cartographic plate — biome
+colour, the river network in blue, hillshade, AO, the paper frame and
+neatlines. Two renderers, two entirely different pictures of the same ground.
+
+### The root cause is a missing branch, not a bug in either renderer
+
+The reference picks its LOD tile coloriser off the **view mode**.
+`_lodBuildTileRGBA` (reference line 11148):
+
+```js
+const baseTileRGBA=(data,w,h,bx,by,bw,bh)=>
+  biome ? renderBiomeTileRGBA(data,w,h,{x:bx,y:by,w:bw,h:bh})
+        : renderHeightTileRGBA(data,w,h);
+```
+
+`biome` is `state.mode==='biome'`, the app's own default (reference 2260), and
+`drawLODView`'s own comment says it plainly: *"tiles follow the View mode —
+Biome = the full landColorCore look, Relief = the height ramp."*
+`renderHeightTileRGBA` is what **Relief** mode draws. This port has only that
+half of the pair — `renderBiomeTileRGBA` was never ported — and its map view is
+always the biome look, so `lod_bridge.rs` wiring the compositor straight to
+`render_height_tile_rgba` guaranteed the deep-zoom path and the base path
+disagreed at every pixel. Nothing was wrong with `render_height_tile_rgba`
+(golden-pinned, untouched here) or with `build_color_texture`. The bug was
+which one a zoomed-in camera got.
+
+A second, independent divergence made it visible with no zoom action at all:
+`viewport_host.gd` entered deep zoom on `native_px_per_cell * zoom > 1.0`
+alone, which a 512-cell world in an 888 px map rect already satisfies at the
+fit view (1.73 px/cell). The reference gates on the camera instead —
+`viewT.scale > LOD_AUTO_SCALE`, `LOD_AUTO_SCALE = 2.2` (reference 13952, tested
+at 13986) — so its LOD viewer never opens until the user actually zooms in.
+Confirmed live: before the fix, `lod_active` was `true` on a freshly generated
+world at `z1.0`.
+
+### The fix: a tile now carries relief, and takes its colour from the base map
+
+Porting `renderBiomeTileRGBA` is a milestone, not a bug fix — it needs
+temperature, rainfall, lithology, flow and the whole `TerrainAppearance` bag at
+sub-cell resolution, none of which reaches `lod_bridge.rs`. It also does not
+need reinventing: the base raster already *is* the biome look, and
+`renderBiomeTileRGBA` samples its own colour inputs (T, M, lithology, biome)
+bilinearly off the same coarse grid anyway — only the height-derived terms run
+at tile resolution. So the tile now carries exactly the part the base raster
+cannot have.
+
+- `cartalith-terrain::tile_render::shade_tile` (new) returns the shade
+  multiplier `render_height_tile_rgba` applies (`s` in its own loop) without
+  the hypsometric tint. Deliberately a copy of that function's arithmetic
+  rather than an extraction from it: the original is pinned byte-for-byte by
+  `golden_parity_tile_render.rs` and is not worth re-proving for an allocation.
+  The new test asserts the copy is the same `s` by reconstruction —
+  `u8_clamped(hypso(v) * shade_tile[i])` must equal the pinned renderer's byte,
+  every pixel, every channel — rather than restating the formula.
+- `lod_bridge::synthesize_tile_rgba` now runs `amplify_region` **twice** over
+  the same region: once with the procedural detail and once with
+  `detail_amp = 0` (the plain bilinear upsample the base raster's own shading
+  already reflects), reduces both with `shade_tile`, and encodes their
+  **ratio** — what the sub-cell detail *adds*, and nothing else. Where the
+  amplifier adds nothing (underwater, plains, wherever `taper` is zero) the
+  ratio is exactly `1.0` and the map is byte-unchanged; a test pins that
+  identity on a deep-water tile. The fixed point is centred
+  (`SHADE_RATIO_MID`/`SHADE_RATIO_GAIN`) rather than a plain `ratio * 128`,
+  which was the first cut and measured wrong: the ratio lives within a few
+  percent of `1.0`, and a scale spanning `[0, 2]` resolved a whole tile into
+  three distinct byte values.
+- `shell/lod_tile.gdshader` (new) multiplies that ratio into
+  `map_view.texture` — the very texture the base map shows — sampled
+  `filter_linear` over the tile's own footprint. The two paths now agree by
+  construction rather than by two palettes happening to match, and the linear
+  sample also removes the blocky single-cell squares that were milestone M1's
+  original reason to exist.
+- `viewport_host.gd` gained `LOD_AUTO_ZOOM = 2.2` beside the existing
+  px-per-cell test. Both must hold, as in the reference: px-per-cell says the
+  detail is *resolvable*, the camera zoom says it was *asked for*.
+
+### A tile-boundary seam fell out of the same pass — this is `GUI_GAP_REGISTER.md`'s CV-VS-01
+
+`amplify_region` maps output index `ox` to source coordinate
+`rx + ox/(out-1)*(rw-1)` — endpoints inclusive, a *sample* convention.
+`lod_bridge` was passing `bounds.to_float()` straight through, so a tile
+stretched `TILE_CELLS` cells' worth of screen over `TILE_CELLS - 1` cells'
+worth of data (1.6% off) and sat half a cell out of register with the base
+raster, leaving a real discontinuity down every tile edge. `tile_sample_region`
+(new, unit-tested at both ends and on an edge-clipped tile) solves
+`cx + 0.5 == bx + (ox + 0.5) * bw / out` instead, so adjacent tiles sample
+exactly one texel apart across a shared edge — no overlap, no gap.
+
+Measured, not asserted. On the pre-fix build, in CIVIL at the fit view, a
+row-discontinuity scan across the map rect (mean per-row deviation from the
+mean of its two neighbours, all three channels) read a median of **2.26** with
+spikes of **19.03** at y=599 and **10.30** at y=378 — both exactly on a
+`TILE_CELLS` row boundary of that letterbox rect (map top 154, 111 px per tile
+row gives 265/376/487/598/709). That is CV-VS-01's mechanism: a hairline at a
+tile seam, gold-toned because the hypso ramp's own 0.38 stop is
+`[201,178,74]`, and conspicuous in CIVIL because that domain's taller dock
+changes the letterbox rect and moves a tile row into the middle of the
+picture — exactly the resize correlation the register recorded. The register's
+"not the sea-route dash styling, not a transient backlog artifact, correlates
+with a real letterbox-rect change" findings all hold; what it could not see was
+that the layer *drawing* the seam was coloured differently from the layer
+underneath, which is what made a sub-pixel misalignment legible at all.
+
+### Verified
+
+- **Non-headless, real GPU frames**, before and after, same seed/window/camera:
+  the fit view (`z1.0`) is now the untouched plate in both WORLD and CIVIL;
+  `z2.31`, `z3.51`, `z5.35` and `z8.0` all show biome colour, rivers and
+  coastline, smoothly upsampled, with visible fine relief — no hypsometric
+  ramp, no visible tile boundary at any tier. The pre-fix build was re-run for
+  the before-shots by reverting only these files, not recalled from memory.
+- `cargo test -p cartalith-terrain -p cartalith-godot` — 27 suites, all pass,
+  including the eight new tests (`shade_tile` equivalence and range,
+  neutral/perturbing tiles, and three on `tile_sample_region`'s alignment).
+  `golden_parity_tile_render.rs` unchanged and still passing:
+  `render_height_tile_rgba` was not touched.
+- `--headless --path godot-project --quit` — clean, no errors.
+- `cargo clippy` — no new warnings.
+
+### Still open
+
+- **`renderBiomeTileRGBA` is still unported.** A tile's colour now comes from
+  the coarse raster, so sub-cell *colour* variation (landColorCore's own
+  slope/curvature-driven rock and scree, its river SDF) is not there — only
+  sub-cell *relief* is. That is a real gap, and the honest place to close it is
+  a milestone that threads the climate/lithology fields into `lod_bridge`,
+  which needs a `#[func]` signature change in `lib.rs`.
+- `lib.rs`'s `lod_synthesize_tile` doc comment still calls its result "one
+  synthesized, **coloured** deep-zoom tile". It is now a shade mask;
+  `lod_bridge.rs`'s module doc says so at length. That file was owned by
+  another session during this fix and was deliberately not edited.
+- The reference's LOD is opt-in with real controls (`lodAutoChk`, `lodChk`,
+  tile size, pyramid depth, refine-now, atlas bake/clear). This port still has
+  none of them — `menus.gd` already discloses that; nothing here changed it.
+
+## Phone menu: the five-level disclosure tree from the Android canvas (2026-08-23)
+
+Closes `GUI_GAP_REGISTER.md` §15 — *"the phone build's menu bar is wired but
+unusable: unscaled, buried in desktop status chrome, and inert to touch."* The
+design the section was written to wait for arrived as `design/Cartalith Android
+Phone.dc.html` (412 × 892 dp, all five disclosure levels, 44 dp minimum row).
+Phone-only; tablet and desktop keep the desktop menus untouched.
+
+**Built:**
+
+- **`godot-project/shell/phone_menu.gd`** (new) — the L2–L5 surface. It
+  **re-presents `menus.gd` and reimplements none of it**: every row is read off
+  the real `PopupMenu` objects `DccShell.add_menu()` already built, and every
+  tap goes back out through `id_pressed`/`index_pressed`. No menu id, callback
+  or label is duplicated, so adding an item to `menus.gd` makes it appear on the
+  phone with no change here. `about_to_popup` is emitted when a popup is
+  *entered*, so Recent worlds, GPU devices, Open windows and the Preferences
+  busy-lock are as live as on desktop — and deliberately **not** emitted to
+  build the root screen's previews, which would run all seven handlers
+  (including the `wgpu` device enumeration) on every render.
+  - L2 root: the seven menus grouped `Project` / `Content` / `System`, plus the
+    status readouts as rows. A menu matching no group falls into a trailing
+    `Other` band, so an eighth can never go silently missing.
+  - L3 a menu's items · L4 a 60 %-height sheet over a dimmed screen · L5 a full
+    screen (the three `Assets ▸ Asset pack ▸ Edit/Batch/Build` cases).
+  - Disabled items draw `menus.gd`'s own "why not" reason as a wrapped second
+    line. A phone has no hover, so this surface is *more* legible than the
+    desktop one, where that text is unreachable without a pointer.
+- **`DccShell._build_phone_menu_bar()`** — L1, five equal cells
+  `WORLD · CIVIL · CARTO · PANELS · MENU`, replacing the floating left domain
+  rail. The canvas draws no rail: it moves the domains to where a thumb reaches.
+  `▤ Panels` and `⋯ Menu` left the app bar in the same move rather than existing
+  twice. Text-only captions, not the canvas's glyphs — the owner has already
+  ruled *"those icons don't exist"* for the desktop rail, and these five are
+  outside the set proven to render on the device.
+- **`DccShell.rail_region()`** + `_rail_region` — what `Window ▸ Domain rail`
+  hides. Named rather than walked to from `rail_column`, because on the phone it
+  is **only the three domain cells**: hiding the whole bar would take the `MENU`
+  cell with it, and the menu is the only place the row that un-hides it lives —
+  a one-way door.
+- **`DccShell.status_slot_text()`** — reads one status slot back, so the menu's
+  root screen can present the readouts as rows.
+- The desktop menu bar and status bar are no longer *drawn* on the phone at all:
+  they are parked in a hidden `PhoneMenuModel` host and used purely as the model
+  (§15 fault 2). The build order stays load-bearing — both they and the app bar
+  register a Label under the `top_world` slot, and the app bar must win.
+- Android system back (`quit_on_go_back = false` + `DccShell._notification()`):
+  leaves a sheet, then the L2 screen, then the overlays, then the app.
+- `menus.gd` — the five `Window ▸` region rows were checked once at build time
+  and never again, so a toggle left the checkmark asserting the opposite of the
+  truth until restart. Fixed at the popup (`_sync_region_checks`), not at the
+  presentation: the desktop menu was wrong too. Invisible there as a small tick;
+  unmissable on the phone, where it draws as a 40 dp switch that refused to move.
+
+**A 29.6-second freeze this uncovered, and fixed:**
+
+Making `Preferences ▸ Theme` reachable by finger exposed a pre-existing defect
+in `DccShell.rebuild_theme()`. Every `set_color()`/`set_stylebox()` on a live
+`Theme` emits `changed`, which re-propagates `NOTIFICATION_THEME_CHANGED` to
+every `Control` in the tree — so each edit cost a whole-tree relayout. Measured
+on the OnePlus 6T: `projectTheme=27336ms windowChrome=1597ms subtree=670ms
+total=29603ms`. The giveaway is `windowChrome`: **5** writes, 1597 ms, i.e.
+~320 ms *per write* — the cost is per mutation, not per colour examined. A first
+attempt at memoising the colour lookups was therefore wasted (27336 → 27632 ms,
+no change) and was **removed rather than kept as decoration**. Batching behind
+`set_block_signals(true)` and firing `changed` once (`_bulk_theme_edit()`):
+`projectTheme=274ms windowChrome=417ms subtree=685ms total=1376ms` — **29.6 s →
+1.4 s**.
+
+Recorded as a method note: the freeze presented as a **dead tap**, not as
+slowness, and was twice misdiagnosed as a lost touch event — once as "the tap
+did nothing", once as "the second tap worked" (it had not; the first was still
+finishing). Only log timestamps either side of the emit showed it. *A screenshot
+taken 3 s after a tap is not evidence that the tap was lost.*
+
+**Verified — on the real OnePlus 6T (1080 × 2340), not an editor preview:**
+
+Driven with real `adb shell input tap`/`swipe`, read back with
+`adb exec-out screencap`. This is the bug class that produced the original gap,
+and a previous "buttons too small" fix was wrongly marked done once already on
+editor-only evidence.
+
+- **Portrait seen for the first time.** `STATUS.md` had it as "still unseen"
+  because `"sensor"` orientation defeats `adb`'s rotation override; the phone
+  was physically in portrait for this pass.
+- Every level driven by finger-equivalent taps: L1 bar → L2 root (all seven
+  menus, live counts File 11 / Edit 10 / Assets 9 / Data 7 / Preferences 19 /
+  Window 9 / Help 5) → L3 `Preferences` → L4 `Devices` sheet → L5
+  `Assets ▸ Asset pack ▸ Edit`, breadcrumbs correct at each.
+- **Live data proven, not assumed:** the `Devices` sheet enumerated real
+  hardware — `Adreno (TM) 630 · integrated · vulkan` — and the L3 row's own
+  subtitle refreshed to match after the visit.
+- Rows measure **~129 physical px ≈ 66 dp** at this device's 314 dpi, clearing
+  both the canvas's 44 dp bar and Android's 48 dp floor.
+- System back popped sheet → screen → root without exiting (pid unchanged).
+- **Both palettes on hardware:** `Theme ▸ Light` fired from the L4 sheet
+  repainted sheet, scrim, the screen behind it, toggle and radio.
+- `Window ▸ Domain rail` off hid only the three domain cells; `PANELS`/`MENU`
+  survived and re-enabled it from that same menu.
+- Desktop unaffected: `--headless --quit-after 200` clean, and the
+  phone-viewport harness still drives all five levels with the theme flip
+  landing (`dark before=true` → `dark after=false`).
+
+### Still open
+
+- **L3 bands have no titles.** The canvas draws them captioned
+  ("§ HYDRAULIC PASSES"); every `add_separator()` in `menus.gd` is unlabelled,
+  so a band draws as the hairline-and-gap the desktop menu draws. Giving a
+  separator text makes it a caption with no change to `phone_menu.gd` — stated
+  rather than faked with invented headings.
+- **Landscape was not re-driven this pass.** `_apply_phone_orientation()` feeds
+  the menu the same insets as a dock sheet and the code path is shared, but the
+  device was in portrait throughout and `adb` cannot force rotation under
+  `"sensor"`. Portrait is the canvas's primary composition and is verified;
+  landscape is inferred from shared code, not observed.
+- **Runtime-built dialogs still carry desktop sizing inside the phone shell**
+  (`Open project`, `New world` — ~1020×690 with 10–12 px type, and `Open
+  project` drawing two stacked headers). Previously reported, seen again this
+  pass on the boot screen, and still not fixed: it is §13 dialog layout work,
+  not menu work.
+
+## Two small, undisclosed shell gaps: the resource overlay and the generation-info dump (2026-08-23)
+
+`PARITY_AUDIT.md` §3.6 and §5 items 5/6: the reference's Shift+D `#resOverlay`
+and its ℹ️ `#genInfoBtn`/`generationInfoText()` had no port anywhere in this
+shell, and no document disclosed either gap before the audit found them.
+Both are presentation-only wiring over data the engine already exposes — no
+`cartalith-godot` change was needed for either.
+
+**Read the reference before building, and it corrected the premise.**
+`PARITY_AUDIT.md` §5 item 5 (reasonably) guessed `#resOverlay` was a
+cursor-hover resource-potential readout, by name alone. The actual reference
+(`reference/Cartalith Gen1 v2.10.html:10182-10229`) is not hover-driven at
+all: `updateResOverlay()` reads `GW`/`GH`, an approximate memory total, GPU
+status, IndexedDB/Worker availability, LOD state, a handful of boolean
+"active feature" flags and the last generate/render timings, refreshed after
+each render — a small top-right **engine/perf diagnostics HUD**. "res" is
+short for "resolution", not "resource"; it is unrelated to the Resources
+debug *layer* `layers_popover.gd` already draws (a coloured raster — this is
+text, and the two can be on at once).
+
+**Built**, new `godot-project/shell/resource_overlay.gd` (`ResourceOverlay`,
+a `PanelContainer` + one `Label`), field-for-field where this native port
+has a real equivalent and honestly dropped where it doesn't:
+
+- Grid size and megapixels (`EngineBridge.grid_size()`).
+- Working set MB (`OS.get_static_memory_usage()`, same source
+  `performance_window.gd` already uses).
+- GPU status and stage count (`param_get("use_gpu")` + `gpu_stages_used()`).
+- Quality tier (`quality_tier()`).
+- Active feature flags — only the three that exist as real `params.rs`
+  entries (`tect.dynamic_lithology`, `climate.currents`, `volc.provinces`),
+  read straight off `WorldGen.get_params()`. The reference's Seasons/Geoid/
+  Tides flags have no matching `WorldParams` field anywhere in this port
+  and are omitted rather than guessed at; IndexedDB/Worker availability are
+  browser concepts with no native meaning; the reference's `PERF.gen`/
+  `PERF.render` per-stage millisecond breakdown has no Rust-side collector
+  anywhere in `cartalith-godot` and adding one is real engine work, out of
+  this ticket's scope.
+
+Refreshes on `generation_finished`/`world_loaded` plus a 0.5 s `Timer` while
+visible — the cheapest stand-in for the reference's "after every render"
+hook, which would need a render-pipeline callback this port doesn't have
+(`ponytail:` named in the file's own header; add a real render-completion
+signal if 0.5 s latency ever matters). Toggled by a new `Window ▸
+Diagnostics overlay` check item in `menus.gd`, `KEY_MASK_SHIFT | KEY_D`
+accelerator, off by default and independent of the five region-visibility
+checks and their `Reset layout` handling.
+
+**Built**, new `godot-project/shell/gen_info_dialog.gd` (`GenInfoDialog`, an
+`AcceptDialog`) — a bug-report affordance opened from a new `Help ▸
+Generation info…` item: a read-only, selectable `TextEdit` dump of the
+current generation's parameters, plus a `Copy to clipboard` button
+(`DisplayServer.clipboard_set`, the same pattern `journey_planner_view.gd`'s
+stage-table export already uses, with `app.set_status(...)` confirming the
+copy). The reference's `generationInfoText()` is two parts — a hand-picked
+summary line (temperature/altitude range, max grade, read off live JS field
+arrays) and a `JSON.stringify` of the whole generation-affecting state,
+deliberately not hand-picked so a future slider needs no update to the dump
+function. Only the second part is buildable under this ticket's "call the
+existing function, format it, show it" scope: `WorldGen.get_params()`
+(`cartalith-godot/src/lib.rs`) is already exactly that, a flat dotted-key
+dictionary of every generation parameter's current value, self-updating as
+params are added. No `#[func]` anywhere returns field min/max, so the
+elevation/temperature/grade summary is real, out-of-scope engine work and is
+not invented here — the dialog leads instead with what is free (grid, seed,
+extent, quality tier, GPU on/off, all already-exposed reads) and lets
+`get_params()` cover the rest.
+
+Both dialogs/windows follow the existing `app.gd` convention exactly:
+instantiated once in `_ready()`, added to `menus.gd`'s `Window ▸ Open
+windows` live list alongside `Performance`/`Data manager`/etc.
+
+**Verified**: `--headless --path godot-project --quit` clean (after one
+`--editor` pass to register the two new `class_name` scripts in
+`.godot/global_script_class_cache.cfg` — the plain console runtime doesn't
+rebuild that cache on its own, same gotcha `STATUS.md` already records for
+newly-added font resources). Real non-headless interaction: a throwaway
+`SceneTree` harness script (`_verify_res_geninfo.gd`, deleted after — no GUI
+automation tool exists in this sandbox to drive a live window's mouse/
+keyboard, so this drives the same signals a live Shift+D press / menu click
+would through the real `DccApp` scene, the same "direct event injection"
+convention `STATUS.md` already discloses for the Asset Library drag-and-drop
+pass) generated a real 128×83 world and confirmed:
+- `app.toggle_resource_overlay()` flips `resource_overlay.visible` both ways,
+  and the live text reads `128 × 83 · 0.01 MP` / `Working set: 166.3 MB` /
+  `GPU: on · 7 stages` / `Quality: quality` / `Active: Currents, VolcProv`
+  (both booleans set true in the test request, both showing correctly).
+- `gen_info_dialog._dump_text()` reads `Seed 12345` / `Grid 128 x 83 · 1000 x
+  648 km`, contains `Full generation parameters (for reproducing this exact
+  world):` followed by every sorted `get_params()` key with its real value
+  (`tect.plates: …`, `sea_level: 0.42`, …).
+
+**`GUI_GAP_REGISTER.md`** gains **WI-05** (§6.6) and **HE-04** (§6.7),
+classified **(A)**, closing the two undisclosed breaches `PARITY_AUDIT.md`
+§5 found.
+
+## Four small reference clusters, ported and wired: landmass centering, fjords, wind-throw, landform classification (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1's four smallest "genuinely not done" rows, taken
+together because they share one shape: each is a handful of pure functions
+with a hook already waiting for it — a disabled button in one case, a
+`GAP_LAYERS` row in the other three. **Twelve reference functions, all four
+clusters bit-exact against the reference on the first attempt.**
+
+### The extraction, first
+
+One Node `vm.runInContext` harness for all four, rebuilt from this file's
+own 2026-08-15 "extraction harness upgrade" recipe: script tag #1 only (the
+urban block's own `function generate` would otherwise shadow the terrain
+one), zero-indent `let`/`const` rewritten to `var` so top-level bindings
+land on the sandbox context, `Worker` left `undefined` so the reference's
+own feature detection takes the sync path, and a permissive Proxy DOM. One
+real `generate()` at `gw=48 gh=32 seed=24601 world=true mapWidthKm=4000`
+supplied every input.
+
+Three of the four clusters are pure and were called directly.
+`buildWindThrowField` is not — it reads `field`, `state.seaLevel`,
+`state.world`, `currentWindField()` and `buildBiomeRaster()` as globals —
+so it was captured by the **monkey-patch-and-capture** technique
+`stampVolcanoesProvinces` established: replace the sandbox's own
+`buildWindThrowField` with a wrapper that snapshots every global input
+immediately before delegating to the unmodified original.
+
+Fixtures are whole 48×32 grids, so they are held as JSON under each crate's
+`tests/fixtures/` rather than as source literals — the shape
+`cartalith-io`'s own `real_export_seed24601_captured.json` already uses.
+`serde_json` joins `cartalith-terrain` and `cartalith-climate` as a
+**dev**-dependency only.
+
+### 1 · Landmass centering — `GUI_GAP_REGISTER.md` MS-01, now live
+
+`bestEmptyColumn`/`shiftGridX`/`featherSeamX` (reference 3156-3177) →
+`cartalith_terrain::center`; `centerLandmasses` (3179-3199) →
+`cartalith_engine::center::center_landmasses`, which is pure orchestration
+over `WorldState`.
+
+**The register's stated reason for the gap was wrong, and that is worth
+recording rather than quietly overwriting.** MS-01 read: *"`generate_terrain`
+places plate seeds from the seed alone; no centring pass and no
+post-generate offset exist"*, and the shipped tooltip said the reference
+*"re-rolls the plate seeds until the land mass lands nearer the middle of
+the sheet, then regenerates."* It does no such thing. The world is a
+cylinder that wraps in X only, so longitude origin is arbitrary; the
+reference circular-shifts **every** grid array by the same offset and gets
+an equivalent world with the seam relocated into open ocean. That needs no
+generation hook at all — which is exactly why the gap looked bigger than it
+was. Both the register row and the tooltip are corrected in place.
+
+Three details the port had to decide on its own, all disclosed in
+`center.rs`'s own doc comments:
+
+- **A larger array set than the reference's.** This port retains
+  `crust_field`, `boundary_type`, `shear_field`, `flow_area` and
+  `stream_order`, which the reference either recomputes or nulls; all are
+  positional rasters and all shift. Its own `warpX`/`warpY`/`geoidField`/
+  `tideField`/`koppenField`/`orogenyField` and four seasonal fields have no
+  equivalent here at all.
+- **`channels` is dropped, not shifted.** `ChannelResult::recv` holds flat
+  grid *indices*; rotating the array leaves every receiver pointing at the
+  cell it used to mean. The reference does exactly this via
+  `_riverNet = null`.
+- **The civ layer and the Sculpt draft are dropped by the binding.** The
+  reference does not shift `state.civ` either, but this port would then draw
+  settlements over terrain that moved out from under them.
+
+`feather_seam_x` reproduces `halfW||2`'s JS truthiness — a `0` half-width
+substitutes `2`, the same substitution `smoothstep`'s `||1e-6` already gets
+in `sculpt.rs`. Sums accumulate in `f64` (the reference's own
+`Float64Array buf`) and round to `f32` only at the store.
+
+**Golden**: `golden_parity_center.rs`, 6 tests, exact `assert_eq!`. The tie
+fixture is an 8×5 grid with three columns holding zero land — only a strict
+`<` returns the first of them, and generated data essentially never ties, so
+that branch is unreachable without a fixture built for it. The same grid is
+re-tested at a sea level where subtracting the geoid genuinely flips the
+answer, so `geo?geo[i]:0` is measured rather than assumed even though this
+port always passes `None`.
+
+**Wired**: the *Center landmasses* button in `app.gd`'s GENERATE · WORLD
+tool-options bar is enabled. Every outcome reaches the status bar, including
+the two non-actions the reference has: offset 0 ("already centred") and the
+Region-mode refusal it raises an `alert()` for.
+
+### 2 · Fjords — `sample_bridge.rs`'s `fjord` gap row, now a real view
+
+`LITH_COMPETENCE`/`buildFjordMask`/`carveFjords` (3208-3238) →
+`cartalith_terrain::fjord`. `currentFjordMask` is not a function here: this
+port's debug rasters are deliberately uncached
+(`MEMORY_OPTIMIZATION_SCOPE.md`), so its *recipe* — sea mask,
+`chamfer_dist`, `build_lithology`, default opts — is what the view's call
+site runs.
+
+**Golden**: `golden_parity_fjord.rs`, 6 tests, exact. Four fixtures, each
+earning its place: the default `{}` opts (97 masked cells, 36 carved); all
+seven `opts.x != null` overrides at once, or the defaults could be
+hard-coded and the suite would still pass; **the same world 12 °C colder**,
+which is the mutation test for the `7 / 6 / -2 / -22 / -12` paleoclimate
+constants (a wrong one can match a lucky world, not two 12 degrees apart);
+and lithology forced to `i % 7` so all seven `LITH_COMPETENCE` entries are
+read.
+
+**Wired**: the *Fjord mask* row in Layers ▸ Hydrology draws the reference's
+own cyan-over-dim-terrain ramp. `carveFjordsOp` also got a binding —
+`WorldGen::carve_fjords()` — behind a *Carve fjords* button in
+`world_workspace.gd`'s Glacial group, alongside the still-disabled *Run
+Glacial* (`glacialErode` remains unported). Opt-in exactly as in the
+reference, so a default world is bit-identical with or without it. **It does
+not re-run flow, rivers or climate** — the identical gap `sculpt_commit`
+documents, stated in the `#[func]`'s doc comment, the button's note and
+`GUI_GAP_REGISTER.md` §17.2.
+
+### 3 · Wind-throw — `sample_bridge.rs`'s `windthrow` gap row, now a real view
+
+`_CANOPY`/`buildWindThrowField` (5602-5618) →
+`cartalith_climate::windthrow`.
+
+**Slope is computed inside the function rather than taken as a parameter,
+and that is a precision decision, not a convenience.** The reference calls
+`slopeAt(x,y)` directly, at full `f64`; `cartalith_civ::build_raw_slope_field`
+rounds every value through `f32` on the way into its `Vec<f32>`. Handing
+that array in would have been a real divergence.
+
+The biome raster is taken as a slice, not re-derived from temp/rain. The
+reference's own v1.86 comment records why that is not merely an
+optimisation: a mountain lake sits above sea level, so `vw < sea` never
+catches it, and re-classifying raw temp/rain called it an ordinary land
+biome instead of water.
+
+**Golden**: `golden_parity_windthrow.rs`, 4 tests, exact — plus four unit
+tests that pin what a whole-grid fixture cannot: the `1 : 0.15` canopy ratio
+exactly, membership of all five `_CANOPY` indices *and* non-membership of
+their neighbours, and the `0.4` exposure floor a flat land cell under full
+wind still carries.
+
+**Wired**: the *Wind-throw* row in Layers ▸ Civilization, green through red.
+It joins `bclass`/`cterrain` in `layer_available`'s per-world check rather
+than becoming unconditionally available — the biome raster needs the
+civilisation layer's water bodies, so a loaded save still honestly reports
+unavailable.
+
+### 4 · Landform classification — `sample_bridge.rs`'s `landform` gap row, now a real view
+
+`LANDFORM_COLS`/`buildLandformField` (8082-8104) →
+`cartalith_terrain::landform`.
+
+`flow_hi` is a **parameter** rather than an internal `riverFlowThresh(W,H)`
+call: that function lives in `cartalith-hydrology`, which depends on
+`cartalith-terrain`, so computing it inside would invert the dependency. The
+one caller passes `cartalith_hydrology::river_flow_thresh`.
+
+The six branches are first-match-wins and stay an `if`/`else if` chain, not
+a `match` — the order is load-bearing (a cliff outranks badlands on a cell
+that satisfies both).
+
+**Golden**: `golden_parity_landform.rs`, 6 tests, exact, with **class
+histograms asserted alongside the rasters** so a change that merely
+reshuffles classes cannot pass by matching a length. Four worlds: the real
+one (which reaches all six classes — asserted, so a future fixture swap
+cannot quietly weaken the suite); `temp`/`rain`/`flow` all `null`, which
+must produce *only* cliffs and mesas because the reference's own `:15` and
+`:0.4` fallbacks sit outside the dune and badlands windows; +22 °C with
+rainfall ×0.15; and −25 °C, where dunes fall to zero and cirques rise.
+
+**Wired**: the *Landforms* row in Layers ▸ Surface, using the reference's own
+`LANDFORM_COLS` as both raster and legend. Class 0 is dropped from the legend
+— it is the *absence* of a landform, and listing it reads as a seventh kind.
+
+### Also fixed en route
+
+`GUI_GAP_REGISTER.md` gained **§17**, the register the debug views never had.
+`PARITY_AUDIT.md` §5 item 8 spotted the hole via Wildlife; it applied to all
+eleven `GAP_LAYERS` rows, whose reasons were disclosed in code only (each
+`LAYER_GROUPS` hint string) and in no register row. All eleven now have ids
+(DV-01…DV-11); four are closed by this pass and `GAP_LAYERS` is down to
+eight.
+
+### Verification
+
+- `cargo build -p cartalith-godot`: clean (the two `cartalith-gpu` dead-code
+  warnings are pre-existing).
+- `cargo test --workspace`: **120 suites, 1 703 passed, 0 failed, 4
+  ignored** — up 22 tests, no regressions.
+- Godot `--headless --path . --quit`: clean.
+- **Not verified in this session**: nobody has looked at the three new debug
+  views or clicked the two new buttons on a real screen. The rasters and the
+  two `#[func]`s are exercised headlessly and by unit test; their
+  *appearance* is a class-(c) claim in `PARITY_AUDIT.md` §4's sense and is
+  not being made.
+
+### Deliberately not done
+
+- **`glacialErode` (`#glacBtn`)**, which sits beside `#fjordBtn` in the same
+  reference panel. Out of scope for this pass and still honestly disabled.
+- **A flow/climate re-run after `carve_fjords`.** Building one is real,
+  separate work (it is the same missing capability `sculpt_commit`'s
+  dirty-tile set has no consumer for), not a side effect of porting a carve
+  kernel.
+
+## Urban morphology: the largest unported subsystem gets its first consumer (2026-08-23)
+
+`PARITY_AUDIT.md` §3.4 named the thing this port had been careful never to
+do and had, in one place, done anyway: `cartalith-urban` — 4,516 lines,
+`URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7 of ~17, every module with its own
+`tests/golden.rs` — had **zero consumers**. `grep -rn 'cartalith-urban'
+crates/*/Cargo.toml` returned only its own manifest; `godot-project/`
+mentioned it exactly once, in a comment saying it was unported.
+`GUI_GAP_REGISTER.md` had no row for it until that same audit added §6.16.
+The "don't wire in what nothing calls" rule was right for one milestone and
+wrong by the seventh: nobody could see, use or regression-check any of it.
+
+This pass wires milestones 1-7 end to end and **nothing more**. What draws is
+a street skeleton on a real site, not a city, and every surface says so.
+
+### What was ported: 13 of the 28 `_um*` adapter functions
+
+New module `cartalith-civ/src/urban_adapter.rs` — the home
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 17 already named for it ("outside
+`cartalith-urban` … so the engine crate stays dependency-light"). One rule
+chose the subset: **a function is ported when milestones 1-7 can consume its
+output.**
+
+`_umSiteBoxKm`, `_umWaterNearKm`, `_umWaterReachKm` (the grid-quantised water
+reach, carrying the v1.34 fix its comment exists for — a km threshold below
+one cell is not strict, it is unsatisfiable); `_umSiteKindFromTerrain` with
+its v1.32/v1.37 corrections; `_umInferAge`; `_umRayBoxExit`,
+`_umWayBearingFrom`, `_umRouteEnds` (matching on the way's **endpoint
+coordinate**, not `aIdx`/`bIdx` — the v0.96 fix, without which a town's roads
+point at interior junctions instead of at its real neighbours);
+`_umPrimaryPaths` with its 55 m arc-length resample; `_umTerrainOrient`;
+`_umWaterCtx` (v0.99's bilinear sea test, the pre-river-stamp
+`seaLakeCells` split, the chamfer DT, and v1.03's 260 m disc rather than
+v1.00's whole-box water fraction); `_umTerrainCtx`; `_umPlaceContext`.
+
+Plus `run_layout` — the **prefix** of the reference's `generate()` (line
+30931) that milestones 1-7 supply: the scalar derivations (`targetLen`,
+`maxRF`, `epochs`, `popTarget`, the age clamp), `buildSite`, the `routeEnds`
+override, `placeAnchors`, the real-water market pin with its outward ring
+search, `buildPrimaries`/`buildPrimariesFromPaths`, and `grow`. It is not
+`generate()`, and its doc comment lists the 21 stages it does not run.
+
+### What was deliberately not ported, and why each one
+
+| Function | Why |
+|---|---|
+| `_umWallSpec`, `_umInferWalls` | fortification is milestone 10. With no `WallBuilder` in existence, `grow`'s `opts.walls` gates calls into a no-op, so a wall spec is a value nothing can build or draw. `walls: false` is passed — the only honest value |
+| `_umHarbourScale` | read only by `buildHarbour`, milestone 9 |
+| `_umSiteProfile` | its consumers are the wall spec (10), harbour/bridge validity (9), economic districts (13) and a Settlement Inspector — none exist |
+| `_umOreBearing` | feeds `economy.oreBearing` (milestones 13/15), and this port's settlements carry no `specialisation` anyway — the gap milestone 17's own note predicted |
+| `_umPt` | a JS `[x,y]`-vs-`{x,y}` normaliser; `Way::pts` is typed |
+| `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | "out of scope for every milestone" in the scope document's own words — an LRU plus a `setTimeout(…,0)` pump working around the browser's single thread |
+| `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | likewise: Godot's job. The GDScript below is that job |
+
+Three `_umPlaceContext` fields are absent because their **inputs** are:
+`fortified` (no `traits` on `NamedSettlement`), `economy` (no
+`specialisation`), `culture` (no faction-culture table anywhere in the port —
+so `resolve_profile` takes its own `medieval` fallback, which matters: `venus`
+dispatches onto `buildRadialStreets`, milestone 8).
+
+### The bridge, and the one performance deviation
+
+`cartalith-godot/src/urban_bridge.rs`, one `#[func]`:
+`urban_layouts(indices) -> Array[Dictionary]`, a `#[godot_api(secondary)]`
+block in its own module rather than a fifteenth one in `lib.rs`.
+
+**`traceRiverPolylines` is hoisted out of the per-settlement path.** The
+reference calls it inside `_umWaterCtx`, once per town — a full-grid walk —
+and absorbs the cost with the LRU this port does not have. The bridge traces
+once per *batch*. The call, its arguments and its result are unchanged; only
+where it is made.
+
+The returned Dictionary carries **no key** for blocks, parcels, buildings,
+districts, amenities or the wall. An empty `buildings` array would read as
+"this town has none" rather than "this port cannot generate any yet". It does
+carry `stages`, naming what actually ran, so the disclosure the GUI shows is
+read off the engine rather than restated in GDScript.
+
+### The GUI: a map layer and a City Viewer
+
+- **`shell/urban_layout_draw.gd`** — `_umDrawLayout` and
+  `_umDrawLayoutPreview` are the same drawing twice, differing only in the
+  metres-to-screen transform, so this is one function taking that transform as
+  a `Callable`. The reference's palette RGB for RGB, its casing-then-fill
+  street passes, its `wFill` widths and its draw order — minus `ringroad` and
+  `quay`, which milestones 1-7 cannot produce.
+- **`shell/city_viewer_window.gd`** (`GUI_GAP_REGISTER.md` UM-02) — the
+  reference's `cityViewerModal`: its own canvas with wheel-zoom centred on the
+  cursor and drag-pan (`_cvZoomAt`), `cvLegend`, `cvInfoPanel`, and
+  `cvCloseBtn` as the dialog's own OK button. The info panel names every
+  milestone-8+ stage that did not run, so the window cannot imply a finished
+  town. The initial fit is `_umDrawLayoutPreview`'s built-mass fit degraded
+  honestly to its own third fallback — there is no wall ring and no buildings
+  to bound, so it fits the graph.
+- **`map_overlay.gd`'s "Urban layouts" block** (`civUrbanLayoutsChk`,
+  UM-01) — layouts draw above the ways (a town's high street *is* the
+  through-road) and below the pins. They are pulled one deferred, capped batch
+  at a time, for on-screen settlements only, keyed by index and dropped whole
+  on every `set_civ_data`.
+- **Entry point**: `right_dock.gd`'s Settlement ▸ Actions ▸ **City layout**,
+  beside the existing Economy/Politics/Logistics actions, via
+  `app.open_city_viewer(index)`. The reference puts it in the place-edit popup
+  (`peCityOpen`); this dock's Settlement context is the same information and
+  already holds `_settlement_index`, so the launcher lands here rather than
+  waiting on one. UM-03's popup thumbnail stays open — a popup can now call
+  `open_city_viewer` in one line.
+- **Layer row**: `cartography_workspace.gd`'s `LIVE_LAYERS`, off by default,
+  through the existing `ViewportHost.set_layer_visible` convention.
+
+**The reveal gate is not `_umLayoutAlpha`, and that is deliberate.** Its
+24 km to 10 km viewport-span crossfade works in the reference because its LOD
+region window lets the camera reach a few-km span. `ViewportHost.ZOOM_MAX` is
+8.0, so the default 800 km world's closest reachable span is ~100 km: a
+ported 24 km threshold would never once fire, and a toggle that silently draws
+nothing is this project's own most-repeated failure mode. The gate is the
+town's 1.7 km site box measured in screen pixels instead — a stated rendering
+choice, not a ported constant pretending to be one.
+
+### Verification, and the one thing that is honestly missing
+
+- `cargo test -p cartalith-urban -p cartalith-civ`: all green, **11 new
+  tests**, no golden touched.
+- `cargo build -p cartalith-godot`: clean.
+- Godot `--headless --path . --quit`: clean.
+- **Not golden-verified, and this is the caveat that matters.** The capture
+  harness this repository's urban goldens come from slices reference block
+  **4** (lines 28167-31103) as one contiguous unit. The `_um*` functions live
+  in block **2** and run inside the host's full civ scope (`field`,
+  `flowField`, `civWays`, `state`, `_riverNet`, `currentWaterBodies`). There
+  is no block-2 fixture, and building one is a real harness effort, not
+  something to improvise. Every function is ported by reading the reference
+  line by line with its constants carried verbatim and cited; the engine
+  beneath it stays golden-verified milestone by milestone. The unit tests
+  include the two checks this project keeps rediscovering it needs: that a
+  real settlement produces a **non-empty** street graph, and that no street
+  class a milestone-8+ stage owns has leaked in.
+
+### Deliberately not attempted
+
+Milestones 8-17 — radial (Venus) streets, plaza and waterway; water
+infrastructure; fortification; graph cleanup; blocks and parcels; districts
+and buildings; amenities; hinterland, decay, details and metrics;
+`generate()` and `hashModel`. `ROADMAP.md`'s own estimate stands ("~17
+milestones, not one phase-sized push"). Nothing in this pass approximates,
+stubs or previews any of them.
+
+## The civ-interaction surface: place editing, the map context menu, the Delete key and the faction roster (2026-08-23)
+
+Closes `PARITY_AUDIT.md` §5 items **2, 3, 4, 7, 9, 10 and 12** — seven of the
+fourteen undisclosed surfaces, and the two the audit itself singled out:
+item 3, *"a live usability hole, not just an inventory gap: a user can add a
+settlement they can never fix or undo."* Also closes `GUI_GAP_REGISTER.md`
+**ED-03** (the edit/delete half), **CV-07 / MS-13**, and the `peCityOpen`
+half of **UM-03**. Full register entry: `GUI_GAP_REGISTER.md` §18.
+
+### Ported from the reference
+
+Three functions, all golden-parity verified in
+`cartalith-civ/tests/golden_parity_roster.rs` (Node `vm.runInContext` over
+two line slices, extracted fresh and not checked in):
+
+- **`_civFactionColor`** (HTML **14577-14586**) — the golden-angle hue
+  rotation that colours any faction index past the hand-picked base palette.
+  This is the function that makes "add a faction" possible without a colour
+  picker. 13 golden values across every one of HSL's six hue sectors.
+  **The first slice range was wrong** (14576 caught `CIV_FACTIONS`' closing
+  `];`) and the harness's own boundary assertion said so on the first run —
+  `CLAUDE.md`'s "verify line ranges against the real reference before
+  slicing" rule earning its keep again.
+- **`_civAgrarianRegionalTotal`** (HTML **23516-23528**) → the
+  `civPopEstimateOut` *"Land sustains ≈ N"* readout. The audit's item 7:
+  "the only world-level population sanity figure the reference shows", and
+  `cartalith-civ` had no such function at all. Two golden cases differing
+  only in `mapWidthKm` (800 vs 1250), which pins the `cellKm = mapWidthKm /
+  GW` division *and* its square — a dropped square would move the ratio from
+  2.44 to 1.56. Plus a land-gate negative control (sea above every cell must
+  give exactly zero). The reference's dead `K * AGRARIAN_MAX_KM2` fallback is
+  dropped for the same reason `civ_catchment_pop`'s own `K` parameter was:
+  `typeof currentAgrarianDensity === 'function'` is always true, so that
+  branch cannot run.
+- **`_civAddFaction` / `_civRemoveFaction`** (HTML 14644-14672), including
+  the side effect that is the whole point of the second one: every
+  settlement and every territory cell using the removed index reverts to
+  Unclaimed rather than dangling.
+
+Plus six vocabulary tables ported verbatim as inert lookup data into a new
+`cartalith_civ::roster`: `CIV_FACTION_BASE`, `CIV_TRAITS` (append-only — the
+reference writes these keys into save files), `CIV_SPECIALISATIONS`,
+`CIV_RELIGIONS`, `CIV_GOVERNMENTS` and `AG_TECH_LEVELS`.
+
+### New boundary state, and why it is at the boundary
+
+`cartalith-godot/src/civ_roster_bridge.rs` — `godot`-free, unit-tested under
+plain `cargo test`, the same isolation `civ_tools_bridge.rs` argues for.
+
+- **`FactionRoster`** replaces the reference's five parallel arrays
+  (`civFactionNames`/`civFactionCulture`/`civFactionReligion`/
+  `civFactionGovernment`/`civFactionAgTech`) with one row per index. It
+  lives on `CivData`, not in `cartalith-civ`, because that crate is
+  stateless (`ARCHITECTURE.md`) — exactly where `next_tid` and
+  `CivTools::territory_base` already live for the same reason.
+  **`CIV_FACTION_COUNT` now *seeds* the roster instead of *being* it.**
+- **`PlaceExtrasTable`** holds the five place-editor fields
+  `NamedSettlement` has no room for (specialisation, traits, history, age
+  override, walls override), keyed by **`tid`** rather than index —
+  an index is invalidated by the very delete this work adds, while `tid` is
+  the stable identity `TIMELINE_SCOPE.md` milestone 1 already built. Adding
+  those five as struct fields would have touched all ~15 `NamedSettlement`
+  construction sites across three crates for data the engine does not read.
+
+### 18 new `#[func]`s
+
+`civ_settlement_details` · `civ_edit_settlement` (batched, and
+**all-or-nothing**: an invalid value applies *nothing*, so a shell cannot
+half-apply a form) · `civ_settlement_toggle_trait` ·
+`civ_reroll_settlement_name` (draws from the settlement's *own* faction's
+naming culture — the reference's v1.07 fix — off the same `CivTools::
+name_rng` stream every manual drop uses) · `civ_delete_settlement` ·
+`civ_faction_count` · `civ_add_faction` · `civ_remove_faction` ·
+`civ_set_faction_field` · `civ_faction_terrain_fits` ·
+`civ_agrarian_regional_total` · `set_biome_k_enabled`/`get_biome_k_enabled` ·
+and six vocabulary getters so every picker reads the engine's own table
+rather than a second transcription in GDScript.
+
+`civ_faction_terrain_fits` finally gives **`civ_culture_terrain_fit` a
+caller** — ported earlier and labelled "**Not wired to any caller yet**" in
+its own doc comment ever since. It runs `civ_faction_aggregates` with
+`resources: None, density: None` (which that function explicitly supports)
+and rebuilds the biome raster and ocean-distance field on demand, which is
+why it answers for every faction in one call rather than one at a time.
+
+`get_factions()` gained `name`, `religion`, `government`, `ag_tech` and
+`population`, and its `culture` changed from a recomputed
+`civ_default_culture(f)` to a read of real roster state. Its own doc comment
+asserted "the reference has no faction *name* registry beyond this"; it has
+one, and the correction is recorded there.
+
+`civBiomeKChk` (`PARITY_AUDIT.md` item 12): `build_carrying_capacity` has
+always taken `biome_k`, and nothing could turn it on. Now a `CivOptions`
+flag wired through `File ▸ New world ▸ Generation`, with the wetland mask
+built **only** when it is on — exactly what `currentCarryingCapacity`
+(reference 6453) does. Default OFF, so the off path stays byte-identical.
+
+### Shell
+
+New: `shell/place_editor_window.gd` (`placeEditPopup`), `shell/
+faction_roster_window.gd` (`civFactionsModal`), `shell/faction_banner.gd`
+(`_civFactionBannerCanvas` — a `Control._draw()` port of the reference's
+actual composition: shield outline with two quadratic sweeps via `Curve2D`
+carrying the exact quadratic→cubic control offsets, faction-colour fill, one
+of six glyphs by `fid % 6` at 85% white).
+
+Wiring, all minimal: `map_overlay.gd` gained a `map_right_clicked` signal
+and one `MOUSE_BUTTON_RIGHT` branch (there was **no** right-click handler
+anywhere under `godot-project/` before this); `viewport_host.gd` gained the
+re-emit plus `move_view_to()` (`_civMoveViewTo`, the context menu's
+"Move viewer to" and the roster's "focus camera"); `app.gd` gained the
+broadcast and a `KEY_DELETE` branch, guarded so it never fires while a
+`LineEdit`/`TextEdit`/`SpinBox` has focus; `civilization_workspace.gd` gained
+`on_map_right_clicked`/`on_delete_key`/`on_settlement_selected`, the
+*Faction roster…* button (replacing the disabled *Add / remove faction*
+stub), a per-row ✎ button, and the "Land sustains" readout.
+
+Two Godot-vs-DOM differences found and fixed by looking at the rendered
+window, not by reasoning: `SpinBox` **snaps its displayed value** to
+`min + k*step` where an HTML `<input type=number step=500>` only steps its
+arrows — which showed a population of 4500 for a settlement the engine held
+at 4321 and would have written the lie back on the next interaction (both
+numeric fields now use step 1); and `AcceptDialog` grows to fit its content,
+which pushed the roster's Add/Remove row off the bottom of the screen (both
+windows now set `max_size`).
+
+### Verified
+
+- `cargo test -p cartalith-civ -p cartalith-godot` — **779 passed, 0
+  failed**, including the 3 new golden-parity tests and
+  `civ_roster_bridge`'s 10 unit tests.
+- `cargo build -p cartalith-godot` clean, fresh cdylib.
+- `--headless --path godot-project --quit` clean.
+- **Real windowed run, 1600×900**, driving a throwaway probe scene against
+  the real `DccApp` (deleted after; screenshots are not source, per this
+  project's convention): generate → read a settlement's details → edit all
+  eight fields and verify each → confirm an invalid `kind` and an
+  unassignable `faction` each reject the **whole batch** with nothing
+  applied → toggle traits on/off and confirm insertion order → re-roll a
+  name → add a faction (id 7, colour `(63,57,198)` — the golden
+  `_civFactionColor(7)`, not a `% 6` wrap of faction 1) → edit all five of
+  its fields and confirm the vocabulary guard rejects `cargo_cult` → assign
+  a settlement to it → remove it and confirm that settlement reverted to
+  Unclaimed → delete a settlement and confirm indices shift → open both
+  windows → open the context menu on a real hit (7 items: 5 ops, 2
+  separators) → pan via `move_view_to` → press Delete with a selection and
+  confirm exactly one confirmation dialog appears, and none with no
+  selection → regenerate with `biome_k` on and confirm it moves the answer
+  (Land sustains 1 841 978 → 1 400 861 on the same seed). Screenshots of
+  the place editor, the roster and the context menu were reviewed.
+
+### Open, with the real reason (`GUI_GAP_REGISTER.md` §18.3)
+
+- **POI stays unbuilt, and the decision was re-checked rather than
+  assumed.** `civ_tools_bridge.rs`'s "POI is not a ported concept" is a real
+  state-of-the-port fact, not a stale exploratory note — `cartalith-civ`
+  models Settlement and Territory only and there is no POI record type to
+  attach a drop to. So the context menu ships **five** of the reference's
+  six ops (no "Drop POI here", absent rather than disabled) and the place
+  editor ships no settlement↔POI Category selector.
+- **`civDiagnosticsChk` is blocked on urban morphology, not on UI** — every
+  line of the fact card `drawCivLayer` §2.6 draws is `_um*` data
+  (`_umWallSpec`, `_umSiteProfile`, a peek into `_umModelCache`). Shipped as
+  a **disabled control carrying that reason**, `PARITY_AUDIT.md` item 13.
+- The Faction Inspector's **Power breakdown** and **Economy** block need
+  `civ_faction_aggregates`' resource- and density-fed half, which means
+  retaining the 15 resource rasters and a density field past
+  `compute_civilisation` — a `MEMORY_OPTIMIZATION_SCOPE.md` decision plus an
+  `ECONOMY_SCOPE.md` milestone, not a widget.
+- An edited **specialisation** does not reach the economy aggregation
+  (`FactionPlace::specialisation` is read there; feeding user edits in would
+  move already-golden numbers on an interactive edit). **Age/walls** and the
+  seven **traits** are stored and consumed by nothing — their readers are
+  all unported `_um*` functions, and `map_overlay.gd` has no per-trait glyph
+  pass.
+- A place edit or delete does **not** recompute provinces, trade balances,
+  roads, territory or `explanations` — the same staleness
+  `civ_drop_settlement` has always disclosed, said in the delete
+  confirmation's own text so a user meets it at the moment it matters.
+
+## The Journey Planner's last GUI gaps: two ported functions nobody called, one function nobody ported, and a trim that never existed (2026-08-23)
+
+`PARITY_AUDIT.md` §3.3 has called the Journey Planner "engine-complete" since
+2026-08-18, and it was — 65 of 74 reference `jp*` functions, six milestones, a
+real Godot takeover view. What it was not was *reachable*: nine rows in
+`GUI_GAP_REGISTER.md` §6.9 still described planner controls that were drawn,
+disabled, and honestly labelled. This pass closes six of them, half-closes two
+with the reason named, and re-closes IN-06's stated remainder.
+
+**The shape of the finding is worth stating first, because it recurs.** Two of
+the nine were not missing model code at all. `jp_journey_cost` had been ported
+and golden-tested since milestone 3 and `jp_auto_pick_transport` since
+milestone 6, with eleven tests — and **neither was called from anywhere in the
+crate outside its own test module**. The register had already caught the first
+(JP-04, "the single cheapest (B) in the register") and had it right. It had the
+second wrong: JP-01's disclosed reason said "`jpAutoPickTransport` has no Rust
+port", which was stale. The lesson is the register's own: a disclosed gap
+decays, and the disclosure is the thing to re-verify, not only the code.
+
+### Engine (`cartalith-civ`)
+
+- **`jp_plan_cost`** — the adaptor from a finished `JpJourneyPlan` to
+  `jp_journey_cost`'s caller-supplied inputs. This is the reference's own call
+  site (line 19854) rather than a new function: its `totalDays ?? days`
+  preference (wages and upkeep are paid on *calendar* days, rest days
+  included), its per-leg `{blocked, cat, km, crew, days}` projection, its
+  `stages[i].claimedFrac` list, and its `if(plan.blocked) return null` gate.
+  Ten lines. The test asserts the mapping against a hand-built call with the
+  same inputs, and pins that the fixture actually separates `total_days` from
+  `days` — otherwise the `??` preference would be untested.
+- **`jp_reroute_for_mode`** — `_jpRerouteForMode` (reference line 20391),
+  which `JOURNEY_PLANNER_SCOPE.md`'s closing status recorded as *unblocked* on
+  2026-08-18 and then left unported for five days. It is what that section
+  predicted: a `civ_dijkstra_path` call, v1.100's optional `forceMode`
+  override (the reason a blocked WATER stage's "re-route land-only" cannot
+  just re-derive from `plan.transport` — it would re-path the same domain and
+  reproduce the identical unusable leg), and two refusal strings kept
+  verbatim. Crucially it refuses `reachable: false` outright rather than
+  returning the straight-line fallback `route_commit` tolerates — which is the
+  whole reason `DijkstraPath::reachable` exists. **The ported count moves to
+  66 of 74** and the "blocked at closeout" line is now empty.
+- **`JpTerm` + `JpLandCalc::trace` / `JpWaterCalc::trace`** — the speed chain
+  as structured terms, in the calculator's own application order.
+  `GUI_GAP_REGISTER.md` §7.12 proposed building the trace in GDScript "from
+  the dict values that already cross"; that assumption was checked and is
+  wrong — the terrain, weather, column and converged-load factors are not
+  across the boundary, and re-deriving them in GDScript would have meant a
+  second copy of every engine table. So the *structured* chain crosses instead
+  and the reference's `formula` **prose** still does not, which was §7.12's
+  real constraint. Every factor is a variable already in scope, **assigned,
+  never recomputed**: the load term in particular is captured off the
+  convergence loop's own `pen` rather than derived as
+  `daily_km / (raw_daily * col_mod)`, because that derivation would put two
+  float operations into a value the parity tests read. Invariant, asserted on
+  a real multi-stage journey and on a deliberately-overloaded single stage:
+  `∏ factor == daily_km`.
+- **`jp_trim_points`** — `JOURNEY_PLANNER_SPEC.md` §3's "⇧ drag trims", as a
+  sub-polyline by arc-length fraction. No reference counterpart (v2.10 has no
+  distance spine to drag on) and no invented model: the trimmed polyline goes
+  through the same `jp_plan` every untrimmed route does, so a trim can only
+  produce a journey the user could have drawn by hand. Endpoints interpolated
+  on the segment they fall in; interior vertices kept; inverted input
+  normalised; a zero-width request still returns two points so `jp_plan`'s own
+  `pts.len() < 2` guard can never be tripped by the trim itself.
+- **`JpVesselResolver` / `jp_calc_water_ex` / `jp_plan_full`** — the vessel
+  half of the Travel Library dispatch (`GUI_GAP_REGISTER.md` IN-06's stated
+  remainder), the exact sibling of TL-01's animal resolver: `None` means "no
+  override", so every pre-existing call is byte-for-byte unaffected, and the
+  test pins that directly. `jp_plan_ex` keeps its signature and forwards to
+  the new `jp_plan_full`, so the five existing call sites did not move.
+- **`JpWaterCalc::sailing_window_h`** — `jp_water_window(cat, terrain)`. It
+  was already a factor of the leg's `daily_km` and had simply never been
+  surfaced (JP-09).
+
+### Boundary (`cartalith-godot`)
+
+- `jp_compute` gained two request keys — `auto_carriage` (runs
+  `jp_auto_pick_transport` over the derived route and mutates the plan
+  *before* it is computed, which is `_jpRunAuto`'s single-call-site
+  discipline, and returns the pick as `auto`) and `trim`. The vessel resolver
+  needed no key at all: `plan.vessel` is a **name** and `jp_ship_stats` is a
+  name lookup, so a vessel needs no `animal_species_slot` equivalent — naming
+  the definition *is* the selection.
+- `jp_compute`'s return gained `cost` and `auto`; each leg's dict gained
+  `trace`, and a water leg's gained `sailing_window_h`.
+- New `#[func] jp_reroute(route_index, transport, force_mode)`, which rewrites
+  the committed route in place so `route_get` and `jp_compute`'s `route` index
+  still name it.
+- `TravelLibrary::vessel_overrides` → `travel_library::vessel_resolver_fn`.
+  Four of `ShipStats`' seven fields come straight off a `VesselDef`;
+  `river`/`sea` from `modes` and `open_sea` from `water_rating == Open`, which
+  is precisely `jp_vessel_water_block`'s own test. **`invalid_water` is always
+  empty and that is disclosed, not hidden**: `TRAVEL_LIBRARY_SPEC.md` §3.3 has
+  no per-water-type blacklist field, so a custom vessel is constrained by its
+  mode and rating only, never by a named water type the way "River Barge
+  cannot navigate River with Rapids" is. An entry still missing one of its
+  four numeric fields resolves to `None` — falling back to the built-in table
+  rather than sailing a hull with a zero hold. A correction to this pass's own
+  first draft: the eleven stock vessels turned out to be a 1:1 copy of
+  `JP_SHIPS`, so a fresh library overrides nothing at all; the rule is written
+  as a name test anyway, so a stock hull added later reaches the planner
+  instead of silently becoming another greyed-out row.
+
+### Shell (`journey_planner_view.gd`)
+
+Cost group, calculation-trace group (inline over the selected stage, following
+the spine — §7.12's own recommendation over §8's `⧉` window, since a window
+for one stage is more chrome than the content earns), sailing window per water
+leg, a live "re-route for `<mode>`…" action, the ⇧-drag trim gesture on the
+profile (press to start, motion to preview as a veil over the trimmed-away
+margins, release to commit, ⇧-click to clear), and the Auto carriage note
+turned from an apology into `jpAutoPickTransport`'s real outcome — including
+its `fodder_infeasible` case, where the reported animal count is an honest
+floor rather than an answer.
+
+### Journeys list and "save journey" — **partly closed, and the limit is the point**
+
+A journey can now be named, saved and reloaded — route index plus the whole
+party form, per-stage overrides, layovers, animal entries and trim — from the
+left dock's Journeys list. **Within a session only.** Persisting one to disk
+needs FI-01's `.zip` save-**writer**, which `ROADMAP.md` keeps under "Options
+kept open, not scheduled"; building one as a side effect of a planner button
+would have been a far larger and much less considered thing than this control.
+The list is GDScript-owned rather than a `cartalith-civ` registry for the same
+reason — with no writer behind it there is nothing for the engine to own: a
+saved journey is exactly the request `jp_compute` already takes. The button's
+own tooltip says so, and JP-06/JP-08 stay open in the register.
+
+### One deliberate non-coupling
+
+`TRAVEL_LIBRARY_SPEC.md` §3.3 gives each vessel a `sailing_window`
+(daylight / continuous). The engine's sailing window is `jp_water_window`, a
+property of the **water type** (a sheltered bay is worked in daylight; open
+sea is stood through the night at 22 h). Nothing in the reference couples the
+two, so the two are not conflated — the Vessels group states which one it is
+showing rather than blending them into a model this port made up.
+
+### A layout bug found by trying to use the new gesture, and fixed
+
+The ⇧-drag was built, the unit tests passed, and then it would not fire under
+a real mouse. The cause was not the gesture: **the centre column was being
+stretched to 7 417 px inside its 748 px parent.** `_rebuild_stops` builds one
+chip per stop — a settlement name at natural width plus a 60 px SpinBox — and
+this route has 34 stops; a `Container` propagates its children's combined
+minimum width upward, nothing clipped it, so the route map, the profile spine,
+the stage inspector and the matrix were all shoved mostly off-screen.
+
+Measured, before: a physical click anywhere across the visible spine
+(x = 560 … 1 260) selected **stage 0 or stage 1, of fourteen**. That silently
+capped the spine's own click-to-select and ⌥-click-isolate — both shipped
+2026-08-19 — as much as the new trim, and it had never been disclosed because
+nothing had tried to drive the spine with a real mouse before.
+
+Fixed by hosting the chip row in a plain `Control` (`clip_contents = true`,
+row anchored full-rect) instead of adding it straight to the `HBoxContainer`.
+A plain `Control` reports only its own `custom_minimum_size`, so the
+propagation stops there while the row still receives the real width and lays
+its chips along the distance axis exactly as designed. Measured, after:
+**1 249 px**, and the same probe sweep selects stages 0, 1, 3, 4, 6, 8.
+
+The residual 1 249 vs 748 is not a bug: it is the lower row (inspector 607 px
++ `JOURNEY_PLANNER_SPEC.md` §3's own 642 px stage matrix), a designed width
+that simply wants a window wider than the 1 684 px this session ran at.
+
+### Verified
+
+- `cargo test -p cartalith-civ` — 348 lib tests (8 new) plus every golden
+  integration suite, all green; **no golden value moved**, which is the point:
+  every change is either additive (`trace`, `sailing_window_h`) or a wrapper
+  over an already-golden function. (`cargo test -p cartalith-civ --doc` fails
+  on `unresolved import cartalith_urban` — a concurrent agent's in-flight
+  `urban_adapter.rs` in the same shared tree, not this work.)
+- `cargo test -p cartalith-godot --lib` — 263 (1 new).
+- `cargo build -p cartalith-godot` — fresh cdylib.
+- **A real, non-headless session** (`Godot_v4.7.1-stable_win64`, 1920x1080,
+  AMD RX 7800 XT, OpenGL compatibility) on a generated 384×288 world with a
+  real committed 1 625 km mixed-mode Route, driving each addition and reading
+  the numbers back:
+  - **Trace** — 12 of 14 legs traced (the other two blocked); on every one,
+    `∏ factor − daily_km` = `0.000000000`. Both calculators exercised.
+  - **Sailing window** — water legs reported `12.0 h/day · Calm River` and
+    `9.0 h/day`, matching `jp_water_window` for their own terrains.
+  - **Cost** — priced a 157 km, 19.4-day, 60-person, 0.6 t journey:
+    carriage `5.18196711714046` = `0.6 t × 157.029 km × 0.055` exactly;
+    wages `1164.295` = `60 × 19.4049`; components sum − total = `0.0`;
+    `per_tonne_km 12.4125` = `total / (0.6 × 157.029)`; `break_even 1949.13`
+    = `total / 0.6`. On the blocked route it correctly returned nothing, and
+    the panel said why rather than showing zeros.
+  - **Auto carriage** — `promoted = true`, Walking → Baggage Train, 10 mules
+    + 2 wagons, written back into the (disabled) form fields.
+  - **Trim** — dragged with **real mouse events routed through the viewport's
+    own hit test** (not injected into the handler): `_trim = (0.246, 0.689)`,
+    km `1625.36 → 719.76`, i.e. exactly the `0.4428` fraction dragged. ⇧-click
+    cleared it back to `1625.36`.
+  - **Re-route** — `1625.36 → 1789.95 km` for Walking; forcing the water
+    domain on dry land returned the reference's own refusal verbatim, rather
+    than a straight line.
+  - **Journeys list** — saved, listed and reloaded in-session.
+  - Frames captured at each step and read back: the Cost group, the Vessels
+    group with its sailing-window row, the Calculation trace group (`base ·
+    Baggage Train — wagon-limited 2.20`, `hours · 8.0 h/day ×8.000 17.60`,
+    `terrain · Hills ×0.850 14.96`, `route · None / Wild ×0.850 12.72`), the
+    Journeys list, and the trim's veil over the trimmed-away spine.
+- The harness that drove all of the above was deleted afterwards; nothing of
+  it is committed.
+
+## Global heightmap undo — `Edit ▸ Undo` (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1's final "not done" row: *"Global heightmap undo
+(`pushUndo`/`undoLast`/`updateUndoUI`) · 3 · absent. Draft-scoped undo/redo
+**is** real (`cartalith-spatial/src/pass.rs:278`) · ED-01/ED-02/PR-11."*
+Closed for `Undo` and for the memory row; the history *panel* (ED-02) stays
+open and stays (C).
+
+### What the reference actually does — read, not assumed
+
+Reference HTML lines 9548-9565, in full:
+
+```js
+const MAX_UNDO=5; const undoStack=[];
+function pushUndo(){
+  undoStack.push(field.slice());
+  if(undoStack.length>MAX_UNDO) undoStack.shift();
+  updateUndoUI();
+}
+function undoLast(){
+  if(!undoStack.length) return;
+  field.set(undoStack.pop()); updateUndoUI();
+  computeFlow(true); refreshClimate(); renderNow();
+}
+```
+
+Three facts, each of which settled a design question here:
+
+1. **It snapshots `field` and nothing else.** One `Float32Array.slice()`. Not
+   `riverMask`, not `riverFloor`, not `lakeMask`, not climate, not civ.
+2. **The depth is 5.** `reference/FUNCTION_INDEX.md` line 61 says *"one level
+   per destructive op"* — **that line is wrong**, and the reference's own
+   shipped label reads "Up to 5 steps saved in memory". Corrected in
+   `GUI_GAP_REGISTER.md` §7.1 and in `undo.rs`'s module doc rather than
+   silently ported around.
+3. **Fifteen call sites**, all destructive height operations: ten erosion /
+   coastal / glacial / fjord buttons, and `sculptCommit`. Notably **not**
+   `centerLandmasses`, which mutates the field and is deliberately not
+   undoable.
+
+### The scope correction this milestone is really about
+
+`GUI_GAP_REGISTER.md` had ED-01 as **"(B) large"** and its §7.1 proposed a
+**history ledger**: append-only, per-subsystem, one reversal primitive per
+domain across seven domains with three commit models. That research (Photoshop
+snapshots, Blender's typed undo, Krita/Affinity dockers) was done *before*
+anyone read `pushUndo`. Against a three-function, one-`slice()`, five-deep
+gap it would have been a general framework built for a single feature.
+
+What shipped is the reference's own design, with exactly one bound changed
+and every divergence written down. The ledger remains the right *eventual*
+shape for ED-02's panel and is left proposed, not built.
+
+### Built
+
+- **`crates/cartalith-godot/src/undo.rs`** (new) — `HeightUndo`, a
+  `VecDeque<UndoStep>` of pre-operation `Vec<f32>` height fields with a
+  label each. `push` / `restore` / `clear` / `depth` / `bytes` /
+  `next_label` / `set_budget_bytes`. No Godot types, so it unit-tests under
+  plain `cargo test`. It lives in `cartalith-godot` for the same reason
+  `sculpt_bridge`/`icon_bridge`/`paint_bridge` do: `WorldGen` is what owns
+  the live `WorldState` a session edits, and this is session state over it,
+  not engine logic (`ARCHITECTURE.md`'s ladder — it orchestrates nothing and
+  computes no formula).
+- **Six `#[func]`s** on `WorldGen`, in their own
+  `#[godot_api(secondary)]` block: `can_undo`, `undo_label`, `undo_last`,
+  `undo_stats`, `set_undo_budget_mb`, `clear_undo`.
+- **Two push sites**, the reference's own, intersected with what this port
+  has bound: `sculpt_commit` (reference line 9319) and `carve_fjords`
+  (reference line 13017). The reference's other thirteen are erosion buttons
+  this port does not run. **`center_landmasses` deliberately does not push**
+  — the reference does not either, and it drops `civ`/`sculpt` in a way a
+  field-only restore could not undo anyway.
+- **Cleared** by `absorb()` (every generate) and by `load_save()`.
+- **`Edit ▸ Undo`** (`menus.gd`), Ctrl+Z, labelled with the operation
+  (`Undo Sculpt commit`) and tooltipped with depth and bytes held. `Redo`
+  stays disabled with a *new, accurate* reason: the reference has no global
+  redo either, because `undoLast` pops rather than moving a cursor.
+  `Undo history…` stays disabled with a reason that now says the stack is
+  real and the panel is what is missing.
+- **`Preferences ▸ Memory ▸ Undo history`** (PR-11) — five budget rows, each
+  showing how many steps that budget buys *at the current resolution*, plus
+  `Clear undo history now`. The parent row's tooltip carries the live depth,
+  bytes held, budget, and what one step costs here.
+- **`DccApp.undo_last()`** — repaints by writing `map_view.texture` directly
+  rather than `ViewportHost.refresh()`, which would reset the camera to fit;
+  undoing an edit should leave you looking where you were looking. Same two
+  lines `world_workspace.gd`'s `_on_sculpt_commit` already uses for the
+  commit this reverses.
+
+### The bound, and why it is not the reference's
+
+One `f32` height field: **4 MB at 1024², 16 MB at 2048² (the default),
+64 MB at 4096², 256 MB at 8192² (the resolution control's maximum)**. The
+reference's flat `MAX_UNDO = 5` would therefore commit **1.25 GB** of undo
+buffer on the largest world this shell offers, against the ~680 MB
+steady-state `MEMORY_OPTIMIZATION_SCOPE.md` measured at 2048².
+
+So the cap is **a byte budget first** (`DEFAULT_BUDGET_BYTES` = 256 MiB) and
+the reference's step count second (`MAX_STEPS` = 5), whichever binds, with a
+**floor of one step** — a snapshot larger than the whole budget is still an
+undo, because one big undo beats a silently absent one. Effective depth:
+**5 up to 2048², 4 at 4096², 1 at 8192².**
+
+Two further divergences, both forced rather than chosen:
+
+- **Cleared on every generate/load.** The reference does not clear, which is
+  survivable there because its grid cannot change size mid-session;
+  `generate_sized` can, and a 2048² snapshot restored over a 4096² world is a
+  length mismatch, not an undo. Guarded twice: the clear is policy,
+  `restore`'s length check is the guard (and a mismatched step is *dropped*,
+  not left to wedge the stack).
+- **No inline flow/climate recompute.** `undoLast` runs `computeFlow(true);
+  refreshClimate(); renderNow()`. This port defers those at every commit
+  already (`UNIFIED_TOOL_PLAN.md` milestone A), so undo is exactly as
+  consistent as the commit it reverses, and the status line says so.
+
+**Not reverted, exactly as in the reference:** the `river_mask`/`river_floor`
+locks a Sculpt commit's water hooks write. Reverting height without the locks
+leaves a later commit's `enforce_river_channels` re-clamping cells to a floor
+whose channel is no longer carved — the reference's own behaviour. Matching it
+costs 0 MB; diverging costs **+130 % per step** (a `u8` mask plus a second
+`f32` field). Stated in `undo.rs` rather than fixed.
+
+### Verified
+
+- `cargo build -p cartalith-godot` — clean (the only warnings in the crate
+  are a sibling agent's in-flight `render.rs` work, pre-existing to this
+  change).
+- `cargo test -p cartalith-godot --lib` — **275 passed, 0 failed**, of which
+  **12 are new**: empty-stack restore, push/restore round trip, LIFO order,
+  the count bound evicting oldest (the reference's `shift()`), byte
+  accounting across push/pop/clear, the budget bound binding before the count
+  bound, one oversized step surviving an impossible budget, eviction on a
+  budget shrink, the budget floor, length-mismatch refusal (asserting the
+  target is *not* partially written **and** that the dead step is dropped),
+  empty-field rejection, and clear.
+- **No golden-parity test, deliberately, and this is the right call rather
+  than an omission.** `PARITY_TESTING.md`'s machinery diffs *numbers* a
+  reference stage produces. Undo produces no number: it copies a field out
+  and copies it back. The properties worth pinning are ordering, eviction and
+  bounds, which are exactly what the twelve unit tests above assert. Forcing
+  a golden fixture here would have tested `Vec::clone`.
+- `godot4 --headless --path godot-project --quit` — clean, no parse or
+  registration errors.
+- **A headless engine drive** (temporary harness, deleted): generated
+  512×256, confirmed the stack starts empty; sculpt-committed and confirmed a
+  64-cell elevation signature *changed*; `undo_last()` returned
+  `"Sculpt commit"` and the signature came back **bit-identical**; eight
+  consecutive commits held at depth 5; a generate cleared the stack.
+- **Real measured process memory** (`Get-Process PrivateMemorySize64`, the
+  same technique `MEMORY_OPTIMIZATION_SCOPE.md`'s own baseline used), at
+  2048×2048 — the bound is enforced, not merely declared:
+
+  | State | Private |
+  |---|---|
+  | After generate, no undo steps | 476 MB |
+  | Commit 1 · depth 1 · 16 MB held | 492 MB |
+  | Commit 5 · depth 5 · 80 MB held | 556 MB |
+  | Commits 6, 7, 8 · **depth stays 5** | 556 MB |
+  | `Clear undo history now` | **476 MB** |
+  | Re-filled, budget → 64 MB · depth 4 | 540 MB |
+
+- **A real non-headless windowed run** driving the actual `Edit` menu through
+  its own `PopupMenu` (`about_to_popup` + `id_pressed`), not the callbacks
+  directly: `Undo` disabled with the empty-stack reason; after a real sculpt
+  commit the row read **`Undo Sculpt commit  Ctrl+Z`**, enabled, tooltip
+  `1 step saved · <1 MB held`; `Preferences ▸ Memory ▸ Undo history` listed
+  all five budgets with `256 MB` checked and each row annotated
+  `— 5 steps here`; and **a real `Ctrl+Z` key event** (`Input.
+  parse_input_event`, not the callback) reverted the sampled field to its
+  exact pre-commit signature, set the status line to `undid sculpt commit ·
+  0 undo steps left · flow, rivers and climate are not re-run`, and left the
+  row disabled again. Screenshots captured at each step and read back — the
+  Edit menu renders `Undo Sculpt commit` / `Ctrl+Z` as its one enabled row.
+- Both harnesses were deleted afterwards; nothing of them is committed.
+
+### Still open
+
+- **ED-02, the Undo history panel.** Still (C), and now for a sharper reason:
+  the stack and its statistics are real (`undo_stats()`), so the panel needs a
+  *design*, not an engine. `GUI_GAP_REGISTER.md` §7.1's ledger proposal stands
+  as the target shape, with a box on top saying what actually shipped and why.
+- **Redo.** Not a gap — the reference has none either.
+- **The erosion push sites.** Eight of the reference's fifteen `pushUndo()`
+  calls sit on erosion buttons this port has no run path for (`WW-02`,
+  `MS-04`/`MS-05`). Each one is a single `self.undo.push(...)` line on the day
+  its pass lands.
+
+## The reference's NPR block: ten Painter styles, waves, animated water, multi-sun (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1 listed "NPR 'Painter' styles, plus rendering-advanced
+toggles, waves, animated water, multi-sun as *controls* · ~15 render paths ·
+absent". `render.rs`'s own module doc named the same block on its **Excluded**
+list, and `render_workspace.gd:55-68` disclosed it in the product. All of that
+was accurate. This closes the Painter/waves/water/multi-sun half of it
+(`GUI_GAP_REGISTER.md` **RN-02**); the rendering-advanced toggles stay open
+under RN-01 and now have their own audit row.
+
+### What was ported, and how literally
+
+Ten styles — **watercolor, contour veins, ink linework, hachure, cel/toon,
+engraving, stipple, sepia, risograph, pointillism** — plus the **coastal wave
+lines** and the **multi-sun light rig**. Every one is a **literal per-pixel
+port**, constant for constant, from reference HTML lines 7907-7958 (the
+Painter block), 8442-8443 + 8555-8558 (the waves) and 8357-8363 (the rig),
+with `computeCoastDistance` (7398-7414) behind the waves.
+
+Literal was the right call and worth stating, because the brief allowed a
+shader: these are ordinary arithmetic on one finished colour — no per-frame
+state, no neighbourhood, no texture sampling — so a shader would have bought
+nothing and cost a second compositing stage over a raster that is already
+`rayon`-parallel (`TERRAIN_APPEARANCE_SCOPE.md` milestone 6). They ride the
+pass that exists.
+
+New in `cartalith-godot/src/render.rs`:
+
+- `Npr` — the whole block as one struct on `TerrainAppearance`, **every field
+  off at `Default`**. `TerrainAppearance::default()` and `js_reference()` are
+  therefore both bit-untouched, and `golden_parity_render.rs` (unmodified)
+  still passes at its original `1e-4`.
+- `apply_npr` — the ten styles in the reference's own order, each behind its
+  own `> 0.0` gate, called from `land_color` in the reference's own slot
+  (after every colour and lighting step, before `ao * vignette`) and skipped
+  entirely on water and when nothing is on.
+- `apply_waves` + `coast_distance` — the chamfer transform and the foam
+  contours. The transform is built **only** when `npr.waves` is on; `RenderCtx`
+  holds an empty `Vec` otherwise and `cell_color` tests its length, so the two
+  cannot disagree.
+- `multi_sun_from_normal` — the reference's four-light rig, wired into
+  `shade()` for `step == 1` only, because `macroShade` is the only consumer in
+  the reference too (`shadeFactor2` and `seaShadeFrom` stay single-sun).
+- `grad_at` — `gradAt`, derived only when hachure is on, exactly as
+  `surfaceColor` derives it.
+
+Two float details that are decisions, not accidents, both recorded in-file:
+`js_round` rather than `f64::round` at the contour-index and cel-quantiser
+sites (JS rounds half toward `+∞`, Rust away from zero, and a channel can sit
+fractionally below zero after the fine-grain term); and `x * PI * 2.0` rather
+than `x * TAU` in the wave crest, because the reference associates it that way
+and the two are not always the same double.
+
+### Verified
+
+New `tests/golden_parity_npr.rs`, five tests, extracted by slicing those four
+ranges out of the frozen reference and running them under Node's `vm` — the
+technique `golden_parity_render.rs` and every other golden test here uses. The
+extractor **asserts each slice's first and last line against expected text and
+asserts each of the ten `viz.*` keys is present** before running it; this
+repo's own working rules record four subsystems bitten by a silently wrong or
+silently empty slice, and one of the four slices here was in fact off by a
+line on the first attempt (it failed loudly, as intended).
+
+Tolerance `1e-9` on a 0-255 channel, not `golden_parity_render.rs`'s `1e-4`:
+there is no two-pass canopy closure here for ULPs to compound through, so the
+tighter bound is the honest one rather than a widened one.
+
+Fixtures are **shaped, not sampled** — sixteen cells that reach contours on and
+off an index line, ink either side of its 0.18 edge gate, hachure either side
+of 0.12, engraving across all three darkness bands, and a fully-black and a
+fully-white cell for the clamps. Each style additionally runs **alone** before
+the stacked cases, so a broken style cannot hide inside a stack. Two
+non-emptiness assertions (the block must actually move some pixels; the
+distance transform must contain both a zero and something above 2) guard the
+silently-empty failure mode directly.
+
+**Mutation-tested: 37 mutants, 0 survivors** — every constant in `apply_npr`,
+`apply_waves`, `coast_distance` and `multi_sun_from_normal` that a wrong port
+could plausibly land on: the sepia matrix, the engraving frequency and all
+three of its darkness gates, the chamfer diagonal, the rig's primary weight,
+fill altitude and ambient floor, the ink wobble gain and edge gate, the
+hachure frequency, gate and slope normaliser, the stipple threshold, the
+index-line multiplier and contour darkening, both ends of the metre-interval
+clamp and its `peakM || 4000` fallback, the legacy 0.05 interval, three noise
+frequencies, the halftone frequency, the cel level count, the wave band and
+period floors, the foam colour, the fade curve and the crest exponent.
+
+**Four of those survived the first sweep, and the fixtures are what changed.**
+`dark > 0.42` -> `0.43`, `edge > 0.18` -> `0.19`, the `4000` peak fallback and
+both ends of `min(0.2, max(0.001, contourM/peakM))` all lived, because the
+original twelve cases crossed those branches without ever landing inside their
+narrow windows. Four cases and three contour settings were added to reach
+them: three neutral greys sitting 0.005 above each engraving gate (a grey's
+luma *is* its channel, so the gate it sits on is exact rather than
+approximate), one cell whose slope saturates `min(1, slope*6)` so its `edge` is
+exactly 0.185, and contour settings at `peakM = 0`, `contourM/peakM = 0.25` and
+`= 0.00025`. That is this repo's own working rule — golden-matching is
+necessary and not sufficient; shape the fixture just below the boundary where
+the constant hides — applied to itself.
+
+### Animated water is the one that is not in the raster
+
+It is per-frame, not per-pixel: the reference rebuilds a `GW x GH` `ImageData`
+and `putImageData`s it every animation frame, and caps itself at
+`GW*GH <= 400000` (line 8670) precisely because that does not scale. Baking it
+into `build_color_texture()` would mean re-running the whole appearance
+pipeline sixty times a second.
+
+So the *model* is ported and the *technique* is not — `DECISIONS.md` §7a's
+principled-equivalence carve-out, the same call `wind_fx_layer.gd` made
+earlier this session when it replaced the reference's `destination-out` canvas
+fade with a per-particle trail. New `godot-project/shell/water_anim.gdshader`
+(a `canvas_item` shader) and `water_anim_layer.gd` (a `ColorRect` parented
+under `map_overlay.gd`, the same slot `wind_fx_layer.gd` uses and for the same
+reason — the parent already publishes the letterbox fit, so pan/zoom needs no
+code). The constants are the reference's: `SCALE = 6`, `F = 0.22`, the 2.4 s
+two-stream `flowMapPhases` crossfade, the `rip - 0.5` threshold, `* 240`
+capped at alpha 150, colour (235, 245, 255), and the `s <= 0.02` skip. The
+noise hash is a driver-safe float hash rather than `vnoise`'s `>>>` integer
+arithmetic, which GLSL ES cannot reproduce across drivers.
+
+**The reference's own resolution cap is deliberately not ported.** It exists
+to protect a JavaScript pixel loop that does not exist here.
+
+Its input is a new `waterfx` channel in `sample_bridge.rs` — R/G = the unit
+downhill direction, A = channel intensity — riding the same "a data channel,
+not a view" rule the `flowfx:` prefix already established. Deliberately **not**
+`flow_fx_raster`'s 12/12/8 packing: that layout exists because a wind vector
+has magnitude worth four decimals, whereas this carries a unit direction read
+by a fragment shader, and reassembling 12-bit fields across channels in GLSL
+means `round(texel * 255.0)` per byte and hoping the driver agrees. Direction
+comes from the heightfield gradient (the reference's own documented fallback
+when no velocity field exists, line 8686) and intensity from `flow_discharge`
+(the field the reference's `_riverNet` is itself derived from), ramped from
+`cartalith_hydrology::river_flow_thresh` to eight times it. This is principled
+equivalence, not a golden path, and says so.
+
+**Intensity was wrong on the first attempt, and only the real app said so.**
+It min-max normalised the log of `flow_discharge` over the whole grid and kept
+the top 20% of that range — a shape borrowed from `build_hydro_wetness`, and
+sound-looking in source. `flow_discharge`'s range is set by its own extremes,
+so on a 512x384 world "the top 20%" selected **six cells** and the overlay
+animated nothing whatsoever; the frame-to-frame measure read a clean `0.0000`
+with the layer present, visible, correctly sized and holding a valid texture.
+The fix is both smaller and better-connected: `river_flow_thresh` is already
+the threshold at which a cell of that field *is* a river — the same call the
+Water-access, Landform and Flood views make, and the one
+`build_color_texture`'s own channel tint is keyed to — so the shimmer now
+lands on exactly the rivers already drawn on the map (5.07% of cells lit,
+peaking at full intensity on the trunks). It is the second time this
+subsystem's own rule has held: a statistic that looks reasonable is not a
+picture, and the picture is what had to be looked at.
+
+Nothing here touches `wgpu` or a `RenderingDevice`: it is an ordinary
+`ShaderMaterial`, which is what keeps it clear of the GL-Compatibility hazard
+class `cartalith-gpu/src/multi.rs` carries.
+
+### The boundary and the dock
+
+`WorldGen::get_npr()` / `set_npr(Dictionary) -> i32`. Every key is optional, so
+the panel sends one changed slider rather than the whole block, and the return
+is the count of recognised keys so a typo reads as `0` rather than as a silent
+no-op. Intensities clamp to `[0,1]` — not an improvement on JS but an
+enforcement of the range JS's own `0..100 / 100` sliders could only ever
+produce, and several styles multiply an intensity straight into a `1 - a`
+darkening term where above-1 inverts rather than intensifies.
+
+`WorldGen::appearance()` is the new single place the quality tier and the NPR
+block combine; five call sites that each wrote
+`TerrainAppearance::for_tier(self.quality)` by hand now go through it, which is
+how the raster and the overlays measured against it stay agreed about where
+the plate frame is. It is also where `Npr::peak_m` is filled in, from
+`self.params.peak_m` — the reference reads `state.peakM`, the world's own peak
+altitude, so it is deliberately **not** a `set_npr` key a caller could set to
+something the world is not. Without that line the metre-based contour interval
+silently fell back to the reference's `|| 4000` on every world.
+
+`render_workspace.gd` gains **Painter styles** (ten sliders plus a contour
+interval under `advanced`) and **Water & light** (wave lines, wave reach,
+animate water, multi-sun). Sliders commit on release, not on every value
+change — a full-map re-render at 2048x1311 is not a per-drag-pixel operation,
+and `DccWidgets.slider` already carries an `on_release` for exactly this.
+Nothing here calls `bridge.mark_dirty()`: this is presentation, so it calls
+`app.viewport.refresh()`, which re-runs `build_color_texture()` over the world
+that is already there. `EngineBridge.npr_api` gates the whole panel off against
+an older `.dll`, matching `sized_api`/`import_api`/`gpu_api`.
+
+The panel's own disclosure was trimmed to what is genuinely still unbuilt, and
+the "Animate water" checkbox unticks itself with a warning if the world has no
+discharge field to animate, rather than sitting on over an effect that is not
+running. **`npr_api` was guarding on a method that does not exist**
+(`list_npr_styles`, never written), so it evaluated `false` and the whole
+Painter block silently did not build — the exact failure mode a `has_method`
+degrade is supposed to prevent, caused by the degrade itself. It guards on
+`get_npr` now, which is the method the panel's first line actually calls.
+"Wave reach" opens at `1.00x` rather than `0.00x`, because `wave_dist = 0`
+*is* 1x in the engine (the reference's own `waveDist>0?waveDist:1`) and a row
+reading 0 while rendering 1 is a lie about the model.
+
+### Verified
+
+- `cargo test -p cartalith-godot` **316 passed, 0 failed**, including
+  `golden_parity_render.rs` **unmodified** at its original `1e-4` — the
+  default look is bit-untouched, which the harness below also checks from the
+  other end.
+- Clippy clean for this pass's files. Two `#[allow]`s with reasons rather than
+  two rewrites: `approx_constant`/`excessive_precision` on the chamfer
+  diagonal (the reference's own literal, which is what makes the `f32`
+  rounding provably the same) and `manual_clamp` on the contour interval
+  (`max` then `min` is JS's own order, and JS's `Math.min`/`max` do not treat
+  NaN the way `f64::clamp` does).
+- Headless boot clean.
+- **Non-headless, on the real GPU** (Godot 4.7.1, OpenGL compatibility, Radeon
+  RX 7800 XT), via `_npr_shot.gd` — an untracked harness, per this project's
+  convention — on a generated 512x384 world. Each style alone at 0.7, then
+  stacked, then the toggles, measured as *fraction of the raster that moved
+  more than 3 levels* and *mean |d|*, with a PNG saved for every one so the
+  result could be **looked at** rather than inferred:
+  watercolor 28.7%/1.93, contours 12.7%/2.70, ink 0.25%/0.02, hachure
+  6.6%/0.59, cel 74.3%/6.69, engraving 43.4%/9.04, stipple 37.6%/11.21, sepia
+  75.9%/13.38, risograph 75.6%/8.68, pointillism 63.9%/3.85; contours at a
+  25 m interval 46.5%/11.44; the four-style stack 75.6%/11.10; waves
+  2.8%/0.31 and at 2.5x reach 5.6%/0.72; multi-sun 72.4%/5.42.
+- **Every style back to zero returns the byte-identical base raster** —
+  `moved 0.0000%, mean 0.00000`. The off-by-default guarantee is checked in
+  the running app, not only asserted in a unit test.
+- Looked at, not just measured: the 25 m contours draw real isolines dense on
+  the icecaps and open on the plains; the foam at 2.5x reach is unmistakable
+  concentric banding in the bay and along the southern shore; multi-sun is a
+  visibly softer, void-free relief. **Ink at 0.7 moves only 0.25% of the
+  raster** and reads as sparse dark flecks on ridge edges — low, checked
+  against the reference's own formula rather than tuned, and correct: `edge`
+  needs curvature *and* slope together, which little of a 512-cell world has.
+- Animated water measured the way `_flowfx_shot.gd` measures its streaks
+  (consecutive screen captures a third of a second apart): **0.0037 / 0.0043 /
+  0.0053 / 0.0029 with it on, and 0.0000 / 0.0000 / 0.0000 with it off**, at a
+  steady 60 fps. An amplified on-vs-off difference image is the river network
+  and nothing else — the shimmer lands on channels, not on the map.
+- The dock driven **as a dock**: the RENDER panel builds twelve real sliders,
+  and dragging the Sepia one (value, then `drag_ended`, the way a release
+  commits) produced `75.91% / 13.377` — the same raster, to the digit, as
+  calling `set_npr` directly, and `get_npr` read back `0.7`.
+
+### Still open
+
+- **RN-01's other half** — `TerrainAppearance`'s ~40 palette, relief, AO,
+  paper, geology and local-contrast fields. Still reachable only through the
+  quality tier. `set_npr` does not touch them and was never meant to.
+- **The rendering-advanced toggles as controls** — parchment, surface texture,
+  sky view factor, ridge crests, ridged relief, slope rock, geology materials,
+  cast shadows, curvature shading, minor channels, wetness, season, and the
+  three SDF fields. Several of the *effects* exist in `TerrainAppearance`
+  under this port's own names; none is exposed. Now its own `PARITY_AUDIT.md`
+  row rather than being folded into a closed one.
+- **The quality tiers do not tier the NPR block**, deliberately: a style is
+  off unless someone turned it on, and turning one on is a request, not a
+  default the Performance tier should override.
+
+## The reference's manual erosion passes — seven kernels, wired as generation parameters (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1 carried two rows here: *"Velocity erosion (Mei virtual
+pipes) + coastal + glacial + hillslope **as user-run passes** — kernels partly
+absent, no run-button path"* (WW-02) and *"Evolve coupled + sediment
+routing/deposition + tidal flats — absent"* (MS-04 / MS-05). Both close, in
+two halves: the kernels are bit-exact ports, and the run path is
+**generation-time parameters, every one off by default** (`DECISIONS.md` §7d)
+rather than the reference's own buttons.
+
+### Ported
+
+New `cartalith-erosion/src/passes.rs` — the reference's erosion family minus
+the three already done (droplet, thermal, stream-power):
+
+- **`hillslope_diffuse`** (`hillslopeDiffuseCPU`, 3872-3882) — `∂z/∂t = D∇²z`
+  by explicit forward Euler, X-wrapping only in world mode, Y never.
+- **`centrifugal_shear`** (3926-3930) and **`velocity_erode_kernel`**
+  (`velocityErodeKernel`, 3936-3994) — grid virtual-pipes shallow-water
+  hydraulic erosion after Mei et al. (2007), with semi-Lagrangian momentum
+  advection and outer-bank centrifugal shear for meanders. Returns the water
+  and velocity fields alongside the mutated height, as the reference does for
+  its Velocity debug view.
+- **`glacial_kernel`** (`glacialKernel`, 4198-4257) — ice abrasion on its own
+  priority-flood tree, carving U-shaped troughs by dealing `E·uFactor` to the
+  two cells flanking each eroding trunk cell.
+- **`coastal_process`** (`coastalProcess` + `coastalProcessCPU`, 4388-4424) —
+  sea-cliff retreat with debris landing on the land neighbours, estuary
+  widening scaled by `log(discharge)`, and a tidal-marsh accretion pass that
+  reads slope against the field it is mutating.
+- **`route_sediment`** (`routeSediment`, 4286-4307) — mass-conserving fluvial
+  routing down the steepest-descent network on the current surface.
+- **`apply_tidal_sedimentation`** (`applyTidalSedimentation`, 4324-4334) — the
+  Tidal-flats kernel. Takes the tide field as an argument, since this port
+  does not generate one (WW-07).
+
+Three float decisions are recorded in-file: `js_hypot` and `js_log` from
+`cartalith-jsmath` (V8's are not Rust's, and the velocity kernel calls
+`Math.hypot` five times per cell per iteration); `js_round` at the outer-bank
+index, where JS rounds half toward +∞ and `-0` still satisfies `>= 0`; and
+plain `f64::max`/`min` everywhere else, because the reference pins its own
+all-finite invariant on these kernels, which is the assumption
+`cartalith-rust-conventions` asks to be encoded rather than defaulted.
+
+`route_sediment`'s sort is the parity-critical part and is documented as such:
+`Array.prototype.sort` has been stable since ES2019, so equal-height cells keep
+ascending index order and that order decides which of two tied cells routes
+first. The comparator reproduces `SortCompare`'s own reading of a numeric
+result — negative / positive / everything else including NaN is a tie — rather
+than `partial_cmp`, which would panic on a NaN the reference treats as equal.
+
+### Verified
+
+- `crates/cartalith-erosion/tests/golden_parity_passes.rs` — **26 tests,
+  `assert_eq!` on `f32`, no tolerance, bit-exact on the first run.** Fixtures
+  came from a transient Node `vm.runInContext` harness running nine verbatim
+  slices of the frozen v2.10 file, each slice asserted to contain its own
+  function before being evaluated, and every entry point type-checked as a
+  function afterwards.
+- **Mutation sweep: 115 literal sites, 98 killed.** The first sweep left 37
+  alive; four further fixture passes — saturating clamps, quantised heights so
+  tie-breaks bite, a 34-wide 120-iteration velocity run with a flat pond and a
+  diagonal step pattern, a 9×36 glacial ramp whose discharge climbs *through*
+  the 100-cell cirque cut-off, rain under its own floor, gravity under its own
+  floor, negative discharge, and a monotone chain whose whole result depends on
+  the sort — took it to 17. Each survivor is explained in `passes.rs`' header
+  rather than shrugged at. The interesting one: `applyTidalSedimentation`'s
+  `tr <= 1e-5` floor is **unreachable**, because accretion needs `depth < tr`
+  and any such cell already fails the `sea - 1e-4 - h` headroom cap.
+- `cargo clippy -p cartalith-erosion --all-targets` clean. Four `#[allow]`s,
+  each with a reason: two `manual_clamp` sites that are the reference's own
+  two-statement shape and should keep reading like it, one
+  `needless_range_loop` where the fill *rank* is the loop's whole point, and
+  two `too_many_arguments` on 8-argument kernels.
+- `cargo build -p cartalith-godot` clean — built into an isolated
+  `CARGO_TARGET_DIR`, because the shared `target/debug/cartalith_godot.dll`
+  was held by a concurrent agent's running editor.
+
+### Wired — `cartalith_engine::ErosionPassParams`, 21 parameter keys
+
+The reference runs none of these inside `generate()` and says so in its own
+source (`evolveCoupled`: *"A new op (never auto-runs) → generate()
+bit-identical at defaults"*; `glacialKernel`: *"not part of default
+generate()"*). Two shapes were available — the reference's own opt-in run
+buttons, or default-off generation parameters under `DECISIONS.md` §7d — and
+this pass takes the second. `DECISIONS.md` §7d permits a superset exactly when
+the default reproduces reference behaviour, and here it does, byte for byte.
+
+- **`ErosionPassParams`** on `WorldParams`, six toggles (`velocity`,
+  `glacial`, `coastal`, `hillslope`, `sediment_fill`, and `evolve_cycles` as
+  a count where `0` is off) plus fifteen knobs. Every knob's default is the
+  reference's own `state` literal; **every toggle is off**, so a default
+  generation is bit-identical to one produced before the struct existed.
+- **Where they run**: at the very end of `generate_terrain`, after
+  `carve_rivers` — "the finished field" is what every one of these buttons
+  operates on in the reference. Order is fixed at `velocity → glacial →
+  coastal → hillslope → evolve → sediment_fill`, the reference's own panel
+  order. Composing two of them in one run is this port's own addition (the
+  reference never does), so there is **no golden fixture for the composed
+  result** — each kernel is bit-exact on its own, the sequence is a choice,
+  and `ErosionPassParams`' doc comment says so rather than implying parity.
+- **`refresh_climate`** — new, `pub`, and the one genuinely missing engine
+  function MS-04 had named: `computeFlow(true); refreshClimate();` (reference
+  line 5154) over a changed surface. `generate_terrain` used to sequence
+  `compute_temperature`/`simulate_weather` inline, so nothing could re-derive
+  climate afterwards. Evolve calls it once per cycle — which is the entire
+  point of Evolve, since the rain driving the next cycle's incision must
+  reflect the orography the last one built — and the pass block calls it once
+  at the end for the sequence.
+- **`depositSediment` and `evolveCoupled` are orchestration, transcribed**:
+  stream-power carve → per-cell eroded-column supply → discharge on the carved
+  surface → `route_sediment` for the first; carve → rebound → refresh, `n`
+  times, for the second. Both compose pieces that already existed.
+- **21 rows in `params.rs`**, in the existing `erosion` group. Each knob row
+  names its reference slider and carries that slider's real reachable range
+  through its own `eparam` mapping (`cEst` is `0..100` raw mapping
+  `v/100*0.2`, so the row is `0.0..0.2` step `0.002`). The six toggle rows
+  have an **empty `reference_control`** and say why: the reference's control
+  is a *button*, not a checkbox, so the toggle is the §7d addition itself.
+
+**One deliberate deviation, disclosed** (`CLAUDE.md`'s no-silent-deviation
+rule): the pass block ends with `erodeFinish`'s own `if(f<0)f=0; else
+if(f>1)f=1;` clamp (reference line 3894), which the reference applies only
+after the *droplet* pass. Found by a test, not reasoned about in advance —
+`velocity_erode_kernel` carries only a ±1e9 finite guard and `route_sediment`
+adds without an upper bound, so both genuinely can leave a cell outside 0..1.
+In the reference that is a transient a user re-runs past; here it would be
+baked into a `WorldState` whose 0..1 field range the renderer, every
+downstream stage, and `generate_terrain`'s own end-to-end test all assume. It
+is applied once after the last pass, so no pass reads a clamped value the
+reference would have left unclamped.
+
+Not taken: the run-button shape. It stays cheap — `carve_fjords` and
+`center_landmasses` are already live post-generation ops and the fjord button
+already sits in `world_workspace.gd::_build_erosion_passes` beside these five
+placeholders — and it is a different thing from WW-11's per-stage
+re-execution, which is (D). But UI work is on hold (`CLAUDE.md`), and the
+parameter path needs no UI to be real.
+
+### Verified — the wiring, not just the kernels
+
+- `cargo test -p cartalith-erosion -p cartalith-hydrology -p cartalith-engine`
+  green; `cargo test -p cartalith-godot --test params_mapping` green (the
+  21 new rows pass `every_default_lies_inside_its_own_range`,
+  `keys_are_unique_and_grouped` and `every_engine_param_struct_is_reachable`
+  without any change to those tests).
+- Two new `cartalith-engine` tests.
+  `erosion_passes_off_leave_generation_bit_identical` moves five knobs with
+  every toggle still off and `assert_eq!`s field, temperature, rainfall **and**
+  discharge — a knob alone must do nothing at all, or "default-off" is only
+  half true. `each_erosion_pass_changes_the_field_on_its_own` runs each of the
+  six alone and asserts the surface moved, stayed finite and stayed in 0..1;
+  its glacial case drops the snowline *and* runs a frozen world, because ice
+  needs both, and it compares against its own climate-only twin so the climate
+  override cannot be mistaken for the pass.
+- `cargo clippy -p cartalith-engine --all-targets` clean.
+- `cargo build -p cartalith-godot` — fresh shared
+  `target/debug/cartalith_godot.dll` (the concurrent editor lock that forced
+  the isolated `CARGO_TARGET_DIR` earlier in the day was gone).
+- **Non-headless, in the real app** (`_erosion_shot.gd`, untracked harness in
+  the `_npr_shot.gd` mould): one 512×384 world at seed 483920, generated
+  through the real `EngineBridge` with `reset_params()` then `param_set()`
+  then a full re-generate per case — because these are *generation*
+  parameters, so the pass has to be measured across two generations, not one
+  render. Share of pixels moved by more than 3 levels: velocity 38.2 %,
+  glacial 91.3 %, coastal 6.4 %, hillslope 44.5 %, sediment fill 43.7 %,
+  evolve 44.0 %. **All-off returns to the base map at 0.0000 %** — the
+  default-off guarantee holding through the whole GUI path, not just in a
+  unit test. The maps were looked at, not just measured: hillslope has
+  visibly rounded the ridge detail, velocity has reworked the drainage and
+  crenulated the coastline.
+- The honest control: **`glacial` with the snowline dropped but the world
+  left temperate moves 0.24 %**, because ice needs `temp < 0` as well as
+  altitude. A wire-up that ignored the temperature gate would have scored
+  like the frozen case; this one scores like nothing happening, which is what
+  should happen.
+
+### Still open
+
+- **Tidal flats** — `apply_tidal_sedimentation` is ported and tested, but it
+  takes a tide field and this port does not generate one (**WW-07**). No
+  parameter was added for it, since a toggle over a field that is always
+  absent is a control that cannot work.
+- **Droplet hydraulic** — WW-02's fifth button. Its kernel has existed since
+  Phase 1; it is the one of the five with no parameter here, because it was
+  not in this pass's remit and its `erodeFinish` tail (thermal + clamp +
+  rebound) is a second orchestration to transcribe.
+- The **run-button** shape, if the owner wants the reference's own control
+  idiom as well as the parameters. Unblocked either way now.
+
+## Asset library closeout: item transform editing, Unassigned imports, draggable slicer lines (2026-08-23)
+
+`PARITY_AUDIT.md` §3.5 named three open items against the Asset library's
+2026-08-20 rebuild — `GUI_GAP_REGISTER.md` AS-07, AS-12, AS-17 — each already
+partly built. All three close for real this pass, no new UI scaffolding: every
+control involved already existed (drawn disabled, or as an established
+interaction pattern to extend), so this is entirely wiring a missing engine
+call underneath what was already there.
+
+### AS-07 — per-item scale/pan editing
+
+`as_item_summary` always reported the real transform; nothing could write one
+back, because `as_set_item_transform` did not exist. It does now, plus
+`as_reset_item_transform` for Fit/Reset (`#[func]`s, `cartalith-godot/src/
+lib.rs`): a direct write into `LibraryItem::transform` via `AssetDB::item_mut`,
+and identity-plus-`fit_to_bottom`-when-anchored-bottom respectively — the same
+two operations the reference's own `alReset`/`alFit` perform (`E('alReset')
+.onclick`/`E('alFit').onclick`, line 27347-27348), just returning the result
+so `asset_library_window.gd` never recomputes `defaultTransform()`/
+`fitToBottom` itself.
+
+The Scale slider (now 5..600%, the reference's own `#alScale` bounds, not the
+placeholder 10..400 it shipped disabled with) and two new Pan X/Pan Y
+SpinBoxes write live through `as_set_item_transform`; Fit/Reset call
+`as_reset_item_transform`. Pan is two SpinBoxes, not the reference's
+drag-on-canvas (`ImageEditor.attach`'s `onpointermove`) — disclosed in the
+window's own header note as the deliberate substitute: exact same value,
+smaller control, no screen-to-fraction conversion for a family-size unit the
+215px preview doesn't even render at (the inspector bakes previews at a fixed
+256px regardless of the slot's own family size).
+
+### AS-12 — the "Unassigned imports" holding bucket
+
+`cartalith_assets::AssetDB` has no slot-less item concept — every item needs a
+uid. `as_add_custom_slot`'s own doc comment already named the fix: a reserved
+custom-slot `set`, `UNASSIGNED_SET = "Unassigned imports"`. The footer's
+Import image… button, previously hard-disabled with "select a slot first"
+whenever nothing was focused, now creates a fresh custom slot in that set and
+imports into it. A new pinned rail row (`_build_unassigned_row`, beside the
+existing Collections list) shows a live count and browses the bucket
+(`_refresh_grid_unassigned`, filtering `as_family_slots`'s new `set` field —
+one field added to an existing `#[func]`, not a new one) the same way
+selecting a Collection does. The status line's own pack summary gained
+`· N unassigned` alongside its slot/item counts.
+
+Honest limit, stated in the window's header: nothing moves an *already
+assigned* item into this bucket (only into/out of a Collection has an engine
+call), so it is reachable from fresh imports only.
+
+### AS-17 — draggable interior grid lines and cell-scoped slicing
+
+`cartalith_assets::SliceGrid` computed every division line as `col/cols`
+inline; there was nothing for a dragged line to override. It now carries
+`col_lines`/`row_lines: Option<Vec<f64>>` (`with_lines`, builder-style, every
+existing call site including golden tests unaffected), and `compute_cells`
+resolves them (`resolve_lines`: the override verbatim when its length is
+exactly `n+1`, `uniform_lines` — literally `resetLines`'s own construction —
+for anything else, including a stale array left over from a `cols`/`rows`
+edit). `move_line` is the actual drag primitive: clamps a line strictly
+between its two neighbours so a drag can never cross or collapse a cell,
+exposed directly as `#[func] as_slicer_move_line` rather than reimplemented
+GDScript-side. `CellGrid` gained `col_line_px`/`row_line_px` — the
+*undisplaced* line positions a drag handle hit-tests and draws against,
+distinct from `column_spans()`'s gutter-narrowed cell edges (golden-pinned:
+an 8px-wide sheet cut 2 cols with 4px spacing has its line at x=4, but the
+cell edges on either side sit at x=2 and x=6).
+
+`SheetPreview` gained a handle on every interior line (a small dot, same
+grabbable-dot language the pre-existing Margin handle already used),
+hit-tested in a new `_find_line` and dragged the same way the Margin handle
+already was — write the drag position, ask the engine to resolve it, redraw
+from the engine's own answer. A cols/rows edit resets the override to
+uniform (`loadSheet`'s own `resetLines()`, reference line 27837), matching a
+fresh sheet load too.
+
+Cell-scoped slicing needed one more field: `SliceParams`/`as_slice_apply`
+gained `only_cell` (a flat cell index). `apply_slice` filters `slice_sheet`'s
+output down to that one cell before any target-placement logic runs, so
+everything downstream — naming, per-target placement, the `SliceOutcome`
+counts — is the same code operating over a shorter list, not a second code
+path. Clicking a cell now toggles cell-scoped mode (click again to
+deselect); the Slice button's own text reads "Slice this cell" while scoped.
+The preview's own "N cells detected" readout still describes the whole grid
+deliberately — only the *cut* narrows, not the detection pass, so the
+readout and the button can disagree on purpose (24 detected, but this one
+cell is what Slice will actually cut).
+
+### Verified
+
+`cargo test -p cartalith-assets -p cartalith-godot`: 22 `slicer` unit tests
+(6 new: `uniform_lines`, `move_line`'s clamp and its outer-edge refusal, a
+dragged line changing `compute_cells`'s output, a wrong-length override
+falling back to uniform, `col_line_px` vs. the gutter-narrowed edge) plus the
+existing 5-test `golden_parity_slicer` suite unchanged (the default uniform
+path is untouched — every fixture still passes byte-for-byte); 30
+`asset_bridge` tests (6 new: `only_cell` narrowing/blank-cell/out-of-range,
+`col_lines` reaching the engine grid and changing cut positions, a
+wrong-length override's fallback). `cargo build -p cartalith-godot` clean.
+
+Non-headlessly, via a temporary (not committed) harness in the established
+`_menu_shot.gd` style: opened the Asset library straight into the slicer,
+loaded a real two-colour PNG, dragged an interior line via synthesised
+`InputEventMouseMotion` and watched the cut move off the sprite's own colour
+boundary (screenshot), clicked a cell and watched the Slice button read
+"Slice this cell" with `only_cell` present in the engine call (screenshot,
+and the toggle-off on a second click), set the Scale slider and both Pan
+SpinBoxes and read the changed transform straight back off
+`as_item_summary`, ran Fit/Reset and confirmed identity, and imported with no
+slot focused and watched it land in a real "Unassigned imports" row with a
+live count and the status line's `· 1 unassigned` (screenshot). The
+line-drag and cell-click events were dispatched directly to
+`SheetPreview._gui_input` rather than through `Input.parse_input_event`'s
+OS-level global-coordinate routing, which proved unreliable to reproduce
+correctly from a script in this embedded-subwindow layout — this project's
+established direct-event-injection fallback (`README.md`'s working
+discipline) when a live mouse isn't available; it exercises every line of
+this pass's actual hit-test/clamp/drag-state logic, just not Godot's own
+dispatch into that method, which the pre-existing pan/zoom/margin-drag
+already proves works.
+
+Two new `engine_bridge.gd` wrapper methods needed adding
+(`as_set_item_transform`/`as_reset_item_transform`/`as_slicer_move_line`/
+`as_uniform_lines`, all `has_method`-guarded against an older binary, the
+same convention every other `as_*` wrapper here already follows) — a brand
+new `#[func]` is invisible to `EngineBridge` until it gets one, unlike a new
+field on an existing call (`as_family_slots`'s `set`), which needed no
+wrapper change at all. Caught by the very first non-headless run: the
+already-correct Rust build reported "Nonexistent function" until the
+wrapper existed.
+
+### Still open
+
+- Dragging a file from *outside* Godot onto a slot — Godot's own drag-and-drop
+  is two unrelated systems (OS drops reach `Window.files_dropped`, never a
+  Control's `_can_drop_data`/`_drop_data`), unrelated to this pass.
+- Moving an already-assigned item into Unassigned imports (no engine call).
+- Per-item pan as SpinBoxes rather than drag-on-canvas (disclosed, not silent).
+
+---
+
+## Four small clusters: geoid, tides, seasons + Köppen, wildlife + ecoregions — and the roster popup (2026-08-23)
+
+Four consecutive "absent" rows in `PARITY_AUDIT.md` §3.1, closed together
+because they are small, adjacent in the reference, and three of the four feed
+each other. `GUI_GAP_REGISTER.md` **DV-04, DV-06, DV-07 and DV-11** close;
+**WW-07** and **WW-09** move to engine-closed/control-open, the same shape
+WW-02 took the same day; and §5 **item 8** — the wildlife roster click popup,
+a class-(d) row with no disclosure anywhere — closes as new register row
+**WL-01**.
+
+`GAP_LAYERS` in `sample_bridge.rs` is down from eleven ids to **four**: two
+still lack a computation (`oro`, `velo`), two lack a composite
+(`popdensity`, `siteprofile`).
+
+### What was ported
+
+**`cartalith-climate/src/geoid.rs`** — `buildGeoid`/`refreshGeoid`/`geoAt`/
+`currentGeoidPreview` (reference 4967-5015). J2 rotational bulge + four seeded
+low-degree harmonics + low-frequency mantle fbm, seam-blended in X for a
+wrapping world, then re-centred to zero mean and rescaled so the peak absolute
+offset is exactly `amp`. The harmonic and mantle terms use the shared
+`hash`/`fbm` from `cartalith-noise` rather than a private copy, which is the
+one new crate edge this pass added.
+
+**`cartalith-climate/src/tides.rs`** — `tidalForcing`/`computeTideField`/
+`buildTideField`/`refreshTides`/`currentTideField` (5016-5048). Equilibrium
+spring tidal range, amplified by Green's law on shallow shelves (capped at 3x)
+and by coastal funnelling. `computeCoastDistance` turned out to be
+`chamferDist` with land as the seed mask — the same two-pass transform with
+the same `1.4142135623730951` diagonal — so this reuses
+`cartalith_terrain::infer::chamfer_dist` instead of adding a second
+implementation.
+
+**`cartalith-climate/src/koppen.rs`** — `computeTempInto`/`computeSeasons`/
+`classifyKoppen`/`buildKoppen`/`koppenColor` (7491-7562). `KOPPEN_KEYS` is a
+**frozen append-only** order in the reference because the raster it produces is
+an exported index layer, so reordering it would silently reinterpret every
+previously exported map; kept verbatim, with a unit test pinning both ends and
+the palette's parallelism.
+
+**`cartalith-civ/src/wildlife.rs`** — `buildTRI`/`guildTrophic`/
+`buildEcoregions`/`regionRichness`/`assignWildlife`/`wildRegionColor`/
+`currentWildlife` (6489-6620), plus `wildFmtPop` (8257). Connected-component
+ecoregions over the Cartalith biome grid, scored for species richness
+(species-area x energy x heterogeneity x latitude), cut to a named
+Earth-analogue roster and given populations by a Lindeman 10% energy cascade
+over Kleiber metabolic demand.
+
+### Where wildlife went, and why it is not in `cartalith-climate`
+
+It reads as a climate/ecology layer and is not one. Every input it needs —
+`buildNPP`, `buildCartBiome`, `buildWaterAccess`, `buildCarryingCapacity` —
+already lives in `cartalith-civ`, so putting it in `cartalith-climate` would
+have inverted the dependency edge to import four functions back. Only
+`buildTRI` was actually missing. **`buildNPP` was already ported for the
+carrying-capacity chain and is consumed, not re-implemented.**
+
+### Five things recorded rather than assumed
+
+1. **The geoid was already anticipated.** `compute_temperature` has taken
+   `geo_field: Option<&[f32]>` since Phase 1 — the parameter was sitting there
+   waiting for this module, so nothing downstream changed shape and no
+   existing golden test moved.
+2. **Both previews are the reference's own behaviour, not a shortcut.**
+   `currentGeoidPreview` falls back to `0.015` and `currentTideField`
+   substitutes a single default moon, precisely *because* their toggles
+   default off. `PlanetParams` carrying no geoid or moon knobs yet leaves this
+   port in the same state the reference previews in.
+3. **`computeSeasons`' rain half is only as good as `simulate_weather`.** That
+   function carries three long-standing, already-disclosed deferrals (terrain
+   wind deflection, ocean-current SST folding, world-structure interior
+   dryness). The classifier is downstream of them, so the golden suite feeds it
+   the **reference's own captured seasonal rain** — which makes it a test of
+   Köppen rather than a third copy of the weather test. Stated in the module
+   doc, not hidden.
+4. **`buildEcoregions`' traversal order is load-bearing.** Every aggregate is a
+   running `f64` sum over `f32` reads, and float addition is not associative,
+   so the LIFO stack, the `pop()`, and the exact `left, right, up, down` push
+   order are reproduced rather than replaced with a queue or an iterator
+   (`cartalith-rust-conventions`' second rule).
+5. **`assignWildlife`'s dominant-guild pick depends on sort stability.** The
+   reference takes `guilds.slice().sort((a,b)=>b.biomassRel-a.biomassRel)[0]`;
+   V8's sort has been stable since ES2019, so a tie keeps `WILD_GUILDS` order.
+   Rust's `sort_by` is stable too, which is why the same winner comes out —
+   recorded in-file so a future switch to `sort_unstable_by` reads as the
+   parity break it would be.
+
+Two JS coercions needed explicit handling: `refreshGeoid`'s `!(pg.amp > 0)`
+gate (a NaN amplitude reads as *off* in JS, where `amp <= 0` would read as on),
+and `classifyKoppen`'s `state.climate.maxRainMm || 3000` (falsy on `0` and
+`NaN`, but **not** on a negative).
+
+### The roster popup (WL-01)
+
+`WorldGen::wildlife_region_at(gx, gy)` returns the ecoregion whose marker is
+nearest the click, using the reference's own `max(8, GW/40)` hit radius and its
+own `cells < markerMin` skip (HTML 9787-9789); outside the radius it returns an
+empty dictionary, which is `hideWildInfo()`. `app.gd` calls it only while the
+Wildlife view is drawn — the reference gates on `state.debug === 'wildlife'`
+too — so this adds no behaviour to any other view.
+
+The popup itself is a **RIGHT-dock context**, not a floating panel at the
+cursor. This shell already routes every "you clicked something" readout through
+the dock's context switch and a clicked ecoregion is a selection like any
+other; a second positioning system would have been a divergence for nothing.
+Every field `showWildInfo` renders is present and in the reference's own order:
+biome heading, species/area line, summary sentence, the NPP/ruggedness/water
+triple, the lat + coastal + rugged meta line, then one heading per guild with
+its biomass share and one row per species. **`wildFmtPop` stays engine-side**
+(`wild_fmt_pop`, exported from `cartalith-civ`) so the `~4.5M` wording has
+exactly one implementation rather than a GDScript copy free to drift.
+
+### Verification
+
+`cargo test -p cartalith-climate -p cartalith-civ` green. **27 new golden
+tests, all bit-exact, no tolerance widened**: geoid 7, tides 6, Köppen 6,
+wildlife 8. Fixtures were captured from the frozen reference under Node's `vm`,
+and — per this project's own "silently-empty golden output" rule — each is
+asserted non-empty and genuinely varied before use: the Köppen case pins >900
+classified land cells, the tides case pins that at least one cell actually
+reaches the Green's-law cap and that the captured geoid is a real non-zero
+field.
+
+`cargo build -p cartalith-godot` clean; headless boot clean. A headless run
+over a real 192x120 world confirmed all four views draw varied output (geoid
+297 distinct colours, tides 106, Köppen 21, wildlife 15) and that
+`wildlife_region_at` returns real rosters — "Coastal Lowland: 4 species,
+dominant marine (Harbour seal, Shorebird flock, Otter...)", 7,704 km²,
+populations formatted through `wild_fmt_pop` as `1.8M`. Hit rate 4 of 16 probe
+points, which is correct: the reference's marker radius is 8 cells at this grid
+width.
+
+Not verified: on-device or GPU appearance of the four views, per
+`DECISIONS.md` §5.
+
+### Still open
+
+- **WW-07's parameters.** `PlanetParams` carries no geoid amplitude, no enable
+  flag and no moon roster. Exposing them means deciding where a default-off
+  sub-system's toggle lives in this shell's parameter model.
+- **WW-09's parameters.** `axialTiltDeg` and `maxRainMm` are read by the
+  classifier and not surfaced. Seasons themselves are *derived*, built lazily
+  when the view is picked exactly as the reference builds them, so a "seasons"
+  checkbox would toggle nothing.
+- **`applyTidalSedimentation` is now unblocked** on its input side: the tide
+  field exists. What MS-05 still lacks is the composing op, which is §19's
+  owner decision, not a missing kernel.
+
+## The unified Sculpt/Paint/Measure tool bar, and the measurement toolbar behind it (2026-08-24)
+
+`GUI_GAP_REGISTER.md` **§16 closes**. That section was a deliberate hold —
+the top-left global tool overlay had no drawn presentation anywhere in the
+DCC canvases, and the owner's standing instruction was *"do not touch
+`global_tools.gd`/`tool_overlay.gd` until my own refined design lands."* It
+landed as **two** canvases (vendored in `e7c10ab`), and they are one design:
+
+- `design/Cartalith Paint Toolbar.dc.html` is the unifying bar — *"one bar.
+  three mode buttons on the left; the active mode's tools appear beside
+  them. Options bar below carries brush size."* Three states: Sculpt ▸ Raise,
+  Paint ▸ Terrain, Paint ▸ Biome.
+- `design/Cartalith Measurement Toolbar.dc.html` is that bar's Measure mode
+  in detail — *"tool group in the existing options bar · cross-section in a
+  bottom strip · readouts in the right dock."* Three states: Measure ▸
+  Distance, Cross-Section ▸ Elevation, Area + vertical.
+
+### What was already real, and what the design actually asked for
+
+Read against the engine's own registries rather than the canvas's labels,
+which is where most of the work was:
+
+- **Sculpt and Paint are re-presentation, not new engine work.** Both tool
+  ids were already registered (`world_workspace.gd`), both editors are real
+  (`cartalith-terrain::sculpt` + `sculpt_bridge.rs`, `paint_bridge.rs`), and
+  every control in the new bar writes through the *same* `bridge.sculpt_*` /
+  `bridge.paint_*` call the left-dock panels already use. No sculpt or paint
+  kernel was touched.
+- **Measure was one straight-line ruler and the canvas asks for six tools.**
+  `infra_tools_bridge.rs`'s chain + `cartalith_spatial::measure` covered
+  Distance and (through `MeasuredLeg::bearing_deg`) Bearing. Area, Radius,
+  Cross-section and Δ vertical did not exist in any form.
+
+### The reference search, and its one real hit
+
+`reference/FUNCTION_INDEX.md` and the frozen HTML were searched for every
+term the Measurement canvas suggests — *profile · section · cross-section ·
+elevation · transect · swath · area · bearing · ruler · measur*. The
+findings, stated because three of them are negative:
+
+- **`_civDrawProfile` (line 19535) is not a sampler.** It is a canvas
+  painter for a Journey Planner route's already-computed `plan.profile`
+  array; `jp_plan` builds that array and this port already exposes it
+  (`journey_bridge.rs`). There is **no** sample-a-field-along-an-arbitrary-
+  line function in v2.10.
+- **No polygon-area tool, no radius readout, no vertical/grade readout.**
+- **`_setUnits` (line 13722) is real** but is the app-wide km/mi switch the
+  canvas itself says Measure *inherits*; it is not Measure's control.
+  Registered as **MEA-06**, unbuilt, because nothing in this shell has a
+  unit preference at all.
+- **The polygon primitives are real and were ported.** `polyArea` (28290),
+  `polyCentroid` (28291) and `pointInPoly` (28295) are exactly what the Area
+  tool stands on.
+
+### Ported (golden-parity), and why they could not be reused
+
+`cartalith_spatial::measure` gains `polygon_area` / `polygon_centroid` /
+`point_in_polygon`, with `crates/cartalith-spatial/tests/golden_parity_measure_poly.rs`
+— **5 tests, 6 rings × 14 probes = 84 containment goldens plus 12
+area/centroid goldens, bit-exact on the first run, `assert_eq!` on `f64`
+with no tolerance.**
+
+Both of the workspace's existing shoelaces were checked first and neither
+was reusable, for a *semantic* reason rather than a type one:
+`cartalith-urban::geom::poly_area`/`poly_centroid` are the same functions
+over that crate's `Vec2` (and `cartalith-godot` does not depend on
+`cartalith-urban`), while `cartalith_spatial::geo::ring_area`/
+`point_in_ring` are the `_geo*` family, which take an **explicitly closed**
+ring (`i < len - 1`) where `polyArea`'s family take an **implicitly closed**
+one (`(i + 1) % n`). A user-drawn measuring ring is the second kind. Two
+unit tests pin the new pair against `geo::ring_area`/`point_in_ring` on a
+ring legal under both conventions, so the two copies *inside one crate*
+cannot drift.
+
+Harness: Node `vm.runInContext` over lines **28290-28297** of the frozen
+reference, with the extractor asserting the slice's first and last line and
+all three names *inside the context* before evaluating. Its first run failed
+exactly as `CLAUDE.md`'s "silently-empty golden output" rule predicts — the
+fixtures were being computed host-side, where `function` declarations
+evaluated by `runInContext` are invisible. Fixtures: a rectangle, the same
+rectangle wound the other way (the sign branch, and the proof that winding
+changes neither `pointInPoly` nor `polyCentroid`), a concave "U" with two
+probes 0.0001 cells inside each notch wall, a five-vertex ring on no cell
+corner at all, three collinear points (`polyCentroid`'s own `|2A| < 1e-9`
+fallback, otherwise unreachable), and a triangle for an odd vertex count.
+
+### New, and disclosed as new (`DECISIONS.md` §7d)
+
+`crates/cartalith-godot/src/measure_bridge.rs` — **27 unit tests**. Nothing
+in it is a port and its module doc says so, the same way
+`cartalith_spatial::measure`'s own doc disclosed the ruler in milestone E:
+
+- `section_profile` — N evenly-spaced samples A→B (clamped 2..=1024),
+  wrap-aware through `measure`'s own seam rule, each carrying elevation,
+  slope, temperature, rain, flow, Strahler order, lithology, biome and
+  water body. Plus the canvas's whole PROFILE STATISTICS block and a
+  crossings list (river runs recorded at their highest-order sample,
+  land/water transitions, and prominence-filtered ridges).
+- `area_measure` — exact shoelace projected area, true-surface area
+  (`sqrt(1 + g²)` per cell), perimeter, centroid, bounding box, water
+  subtracted, land area, mean elevation.
+- `radius_measure`, `vertical_measure`, `chain_relief` (the DERIVED block's
+  Δ elevation, 3D length and sinuosity).
+
+Two costs are structural rather than incidental and are commented as such:
+a section **does not** call `sample_bridge::sample_cell` (its 96-cell
+expanding-ring boundary search is fine once per mouse-move and quadratic
+nonsense 1 024 times per drag), and an area **does not** test every cell —
+it strides so at most 250 000 are visited and *reports the stride*, with the
+projected figure never estimated.
+
+**Ridge crossings needed a definition and had none.** The canvas prints a
+count; nothing anywhere says what a ridge crossing is.
+`RIDGE_PROMINENCE_M = 100.0` is this port's own answer, stated in the module
+and in the dock's tooltip: without a prominence rule every ripple in a
+1 024-sample profile counts.
+
+### Boundary and shell
+
+`WorldGen` gains `measure_section` / `measure_area` / `measure_radius` /
+`measure_vertical`, all **stateless** — the caller owns the points, so none
+has a `begin`/`clear` pair — plus five new keys on `measure_result`
+(`overall_bearing_deg`, `has_relief`, `elevation_delta_m`, `total_km_3d`,
+`sinuosity`). `sample_bridge.rs`'s `idx`/`elevation_m`/`cell_m`/`slope_at`
+went `pub(crate)`: the alternative was a fourth hand-copy of
+`metersPerUnit`'s anchoring, and nothing about a section profile differs
+from a point sample except how many cells it reads.
+
+New GDScript: **`tool_bar.gd`** (the unified bar) and **`section_strip.gd`**
+(the profile strip). Two composition decisions, both taken to avoid touching
+`dcc_shell.gd`'s desktop *and* phone layouts for a presentation change:
+
+- The canvas's two bars become a two-row `VBoxContainer` inside the shell's
+  one `tool_options_row`. The `PanelContainer` has a *minimum* height so it
+  simply grows, and `_phone_fit_tool_options()` already recurses through
+  arbitrary containers.
+- The strip is a bottom-anchored child of `viewport_content` — which
+  `dcc_shell.gd` itself calls *"the map surface; overlays are children"* and
+  which `resource_overlay.gd` already uses the same way — not a fourth shell
+  bar. It costs the shell nothing when hidden, which is almost always.
+
+`global_tools.gd` keeps every interaction decision its old header recorded
+and restates them against six modes: Measure has no commit; **Escape clears
+the chain but leaves Measure armed** (§4.5.6's own exception); Region select
+is *not* one of those exceptions and still disarms to Inspect after cleanup;
+leaving either tool clears its draft while Region's rect survives in the
+engine for *Send to Data ▸ Export*. `right_dock.gd` grows **one**
+`CTX_MEASURE` context with six presentations, not six contexts. `app.gd`
+gains a `_backspace_handlers` dictionary — the same shape as the four
+beside it — for the canvas's `⌫ drop last`.
+
+### Verified — windowed, not headless
+
+`cargo build -p cartalith-godot` clean; `cargo test -p cartalith-spatial -p
+cartalith-godot` green (307 + the new suites); `cargo clippy` clean on both;
+headless boot clean. Then a real windowed pass at 1920×1080
+(`_measure_shot.gd`, untracked) that generates a 384×288 world and drives
+the app's own handlers: all six measure modes clicked out and their real
+readouts dumped, all five cross-section channels screenshotted, the
+exaggeration slider swept, the profile scrubbed, Escape checked to clear
+without disarming, a real sculpt stroke through `_on_map_clicked`/`dragged`/
+`released` (1 stamp), and a real paint dab (223 cells). Sample output: a
+2 183 km section at 512 samples · 4 272 m spacing, min −3 177 m / max
+2 421 m, ascent +6 417 m, descent −9 771 m, 5 river · 2 ridge · 7 shore
+crossings, each listed with its own distance; an area reading of
+840 820 km² projected · 840 948 km² true surface · −188 398 km² water ·
+652 422 km² land over 21 525 cells at stride 1.
+
+**Five defects the windowed pass found and the headless one could not:**
+
+1. **The right dock was pushed off the screen.** A `Label` reports its full
+   text width as its minimum size, and this bar sits in the shell's own
+   top-level `VBoxContainer` — one long disclosure note in the Sculpt row
+   raised the whole window's minimum width. Fixed with `clip_text` plus the
+   full text on hover, and `DccWidgets`' dock-width row columns (132/56 px)
+   pulled in to bar widths locally, without changing `dcc_widgets.gd` for a
+   caller it was not written for.
+2. **Vertical exaggeration clipped the profile.** Narrowing the value window
+   around its own midpoint put every metre of land above the top of the plot
+   on a profile running from a −3 177 m trench to a 2 421 m ridge.
+   Exaggeration is *more screen height per metre at an unchanged horizontal
+   scale* — so the strip grows (capped at 42 % of the viewport) and the
+   window always auto-fits. Default ×2 rather than the canvas's ×4, because
+   ×4 on first use takes most of the map before anyone asks it to.
+3. **Stale bar readouts.** The options row carries "n points" / "n stamps" /
+   "n painted", none of which was refreshed by the click, stroke or dab that
+   changed them.
+4. **Two duplicated readings** — the scrub cursor printed elevation twice on
+   the Elevation channel, and the Sculpt header read `SCULPT ·` with an
+   empty sub-mode whenever a non-Freehand feature was armed.
+5. **The strip's Hydrology band drew as one solid bar.** Flow accumulation is
+   heavily heavy-tailed — a trunk channel carries a thousand times a hillslope
+   cell — so both an absolute scale and a `sqrt` one put every land sample in
+   bucket 0. Bucketing is `log1p` against the *section's own* maximum now;
+   measured on the same 2 183 km line, all four bands carry five distinct
+   classes with real spatial structure (terrain 50/42/42/30/4 samples per
+   class, geology 103/30/17/12/6, hydrology 97/58/7/5/1).
+
+**Not verified:** Android/touch and the phone layout of the two-row bar
+(`DECISIONS.md` §5). Twelve canvas affordances are unbuilt and each is
+registered with its reason as **MEA-01 … MEA-12** in `GUI_GAP_REGISTER.md`
+§16 rather than drawn as a dead control — the notable ones being Sculpt's
+Flatten/Noise (no engine mode), Paint's Water/Lithology (no override array),
+great-circle paths (this map is equirectangular and `measure` is planar),
+and the app-wide km/mi switch.
+
+## The right dock sized itself to its own text, and took the viewport with it (owner report, 2026-08-24)
+
+Owner: *"For the pc/tablet version the right information pane seems to
+move/scale according to the displayed text — it being coordinates or something
+else. This causes the entire viewport to become erratic as it also wants to
+scale according to the information. It's small jumps but super annoying."*
+
+### The root cause was a minimum size, not a splitter
+
+A Godot `Label` with `autowrap_mode == AUTOWRAP_OFF`, no `clip_text` and no
+overrun behaviour reports **its own text width as its minimum width**.
+`right_dock.gd::_field()` — the row builder behind essentially every readout in
+the dock — gave its value label `SIZE_EXPAND_FILL` and none of those three, so
+each row's minimum width was `116 px label column + 8 px separation + whatever
+string the row happened to be holding this frame`.
+
+That number is not local. It travels up the row's `HBoxContainer`, the
+section's `VBoxContainer` and margins, the dock's `ScrollContainer` — which has
+`horizontal_scroll_mode = SCROLL_MODE_DISABLED` (`dcc_shell.gd::_scroll()`) and
+therefore forwards its child's minimum width **whole** rather than absorbing it
+— and lands on the right dock's `PanelContainer`, whose
+`custom_minimum_size.x = _right_width` is a **floor, not a ceiling**. The
+viewport is the one `SIZE_EXPAND_FILL` child of the same `HBoxContainer`
+(`_build_desktop_shell`), so every pixel the dock gained came directly out of
+the map. Nothing in the chain was wrong on its own; the pane's width was simply
+an *output* of its content instead of an input to it.
+
+The row that actually did it was Sample ▸ **"Nearest settlement"**, whose value
+(`"<name> (<n> cells)"`) is rewritten on *every* mouse-motion event over the
+viewport. At 384×288 it forced a **286 px** row minimum against a 300 px dock.
+Measured windowed on the real `app.tscn` over a 61-point cursor sweep: the dock
+oscillated **300 ↔ 319 px** and the viewport **440 ↔ 421 px**, flipping each
+time the cursor crossed into a differently-named settlement's neighbourhood.
+That is the owner's "small jumps", to the pixel.
+
+### Fixed where the number is produced
+
+Every value label in `_field()`, and the 26 px `_accent_readout()`, now sets
+`text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS`. Godot's
+`Label::get_minimum_size()` reports `1 px` for any label that clips or trims,
+so the whole chain above now carries a constant. Ellipsis rather than
+`clip_text` deliberately: both collapse the minimum, only one tells the reader
+a value was trimmed, and every row in this dock reports rather than edits, so
+there is nothing a trimmed value can break. `_field()` also grew an optional
+`label_w`, used by the two rows whose *value* is the content rather than a
+short reading (Nearest, Biome) so the name still fits inside the pane.
+
+`_build_wildlife` had the same fault one level up: its L3 section title was
+`"<biome> ecoregion"`, and `DccTheme.header()` is uppercase Plex Mono tracked
+2 px and does not trim. The header is the constant `"Ecoregion"` now (matching
+`CTX_TITLES`, which already said so) and the biome is a trimmed row.
+
+Nothing was restructured. The dock's containers, its ten contexts and its rows
+are unchanged; this is three properties and a shortened title.
+
+### The coordinate rows, rebuilt
+
+Sample drew `X` and `Y` as two separate rows, in grid cells, with no km reading
+at all. It now draws two rows carrying **a pair each**:
+
+- **`Position`** — km from the map's north-west corner, `X · Y`.
+- **`Cell`** — the raster index every other row in the panel is actually read
+  at, `X · Y`.
+
+Both are mono labels with each axis padded to a fixed column width, so the
+digits hold their columns as the cursor moves instead of sliding past each
+other. A latitude is not a separate fact from its longitude, and one row per
+axis also gave each axis its own label free to size itself.
+
+### Decimal precision comes from the world, not from a guess
+
+One cell is `map_width_km / gw` — `GENERATION_PARAMETERS.md`'s single
+resolution quotient, the same one `terrain_detail_k`, `river_flow_thresh`,
+`civ_catchment_radius_cells` and `suppression_radius_cells` are all derived
+from. Nothing in this port distinguishes two points inside one cell: elevation,
+biome, slope, soil and territory are all per-cell reads. So a coordinate
+printed finer than a cell is inventing precision the grid does not have, and a
+fixed decimal count is wrong in both directions — false precision on a
+continental world, discarded precision on a 100 km one.
+
+The rule is **the largest power of ten no larger than one cell**:
+`clamp(ceil(-log10(cell_km)), 0, 3)`. A decimal count can only move in factors
+of ten, so "no finer than a cell, and within one factor of ten of it" is the
+tightest honest rule the format allows; the clamp at 3 stops a pathological
+metre-scale world asking for a column nobody reads. Verified against four real
+generated worlds:
+
+| world | cell | decimals | reads |
+|---|---|---|---|
+| 4 000 km / 256 | 15.63 km | 0 | `1328 ·  797 km` |
+| 2 400 km / 384 | 6.25 km | 0 | `2394 · 1794 km` |
+| 200 km / 1 024 | 195 m | 1 | ` 66.6 ·  39.8 km` |
+| 100 km / 1 024 | 98 m | 2 | ` 33.30 ·  19.92 km` |
+
+A loaded save with no recorded extent prints `—` for Position and keeps the
+cell index, which is still real — the same "an absent reading is an em dash,
+never a real-looking zero" rule the rest of this panel already follows.
+
+### Verification
+
+Measured, not eyeballed — this is a layout bug and a headless boot cannot see
+it. `_dockjitter_shot.tscn` (uncommitted, per the `_shot.gd` convention) drives
+the real app windowed: generate, then a 61-point cursor sweep across the grid
+plus 40 settlement selections (longest name `Hurngarngarnhaskcairn`, 21 chars),
+sampling `right_dock.size.x` and `viewport_area.size.x` after each layout pass.
+
+- **Before:** dock `min 300 max 319 spread 19 px`, viewport `min 440 max 421
+  spread 19 px`, over 102 samples. Widest row: `Nearest settlement /
+  Brakgormhaskbaldhold (17 cells)` at 286 px.
+- **After:** `spread 0 px` on both, over the same 102 samples — dock pinned at
+  300, viewport at 440 — and still 300/440 after re-generating at
+  200 km/1 024, 100 km/1 024 and 4 000 km/256. The dock body's own minimum
+  width fell **312 → 151 px**, so there is now 149 px of headroom before any
+  row could reach the pane's edge again.
+
+`_measure_shot.tscn` re-run clean, confirming no `_field` regression across the
+six Measure contexts. Headless boot clean. **No Rust changed** — the cell size
+was already reachable from GDScript through `bridge.last_width_km` and
+`bridge.grid_size()`, so no engine-side formatting helper was needed.
+
+### Still open
+
+- ~~**`DccWidgets.note()` keeps a 240 px `custom_minimum_size.x`**, which with
+  the section margins and the drag handle is a ~272 px floor — above
+  `W_RIGHT_DOCK_MIN` (260). It is static per context so it cannot jitter, but
+  it does mean the right dock cannot actually be dragged to its documented
+  minimum on any context that draws a note. `dcc_widgets.gd` is shared, and was
+  left alone rather than edited during concurrent work.~~ **Fixed 2026-08-24**,
+  see the dated entry below (`PARITY_AUDIT.md` pass 2 F8, `GUI_GAP_REGISTER.md`
+  SH-12) — `240` → `190`.
+- **The left dock and the workspace panels were not audited** for the same
+  fault. Nothing there is rewritten on mouse-move, which is why only this dock
+  was visibly erratic, but the mechanism is identical wherever a label holds
+  world-derived text. The `note()` fix below edits the one shared widget both
+  surfaces call through, so it is covered incidentally — neither was
+  separately measured against a documented minimum.
+
+## Pinch-to-zoom on the phone: the handler was fine, the events never arrived (owner report, 2026-08-24)
+
+Owner: *"zooming doesn't seem to work on the phone."* Desktop wheel-zoom was
+unaffected and had just been touched for an unrelated LOD bug (`4d266de`), so
+the obvious hypothesis was that touch gestures were never wired.
+
+**They were.** `viewport_host.gd::_input()` has had an
+`InputEventMagnifyGesture` branch since the camera was written (line 406), it
+calls the same `_zoom_at()` the wheel does, and its own comment says *"Two-
+finger pinch, synthesized by the platform on touch."* The code was correct and
+had never once run on a phone.
+
+**Root cause: a project setting, not code.** Godot's Android input layer only
+attaches its `GestureDetector`/`ScaleGestureDetector` when
+`input_devices/pointing/android/enable_pan_and_scale_gestures` is on, and the
+engine default is **false**. With it off, `GodotGestureHandler.onScaleBegin`
+and `.onScale` both return early, `handleMagnify` is never called, and no
+`InputEventMagnifyGesture` is ever produced — so the pinch branch was live code
+on a macOS trackpad and dead code on every Android device. `project.godot` had
+no `[input_devices]` section at all.
+
+Verified at three levels rather than assumed:
+
+1. **The setting is real in this exact engine.** `ProjectSettings.has_setting()`
+   → true, and the unset value read back `false`, under
+   `Godot_v4.7.1-stable_win64_console.exe --headless --script`. (Not taken from
+   documentation: this project has been bitten before by a `project.godot` key
+   that looked right and silently was not — see the `[display]` comment block
+   about `##` not being a comment character.)
+2. **The gate is visible in the shipped bytecode.** `dexdump -d` on the
+   exported APK's `classes3.dex`: `GodotGestureHandler.onScale` and
+   `.onScaleBegin` both open with
+   `iget-boolean vN, …, GodotGestureHandler;.panningAndScalingEnabled:Z` and
+   branch out, and `GodotInputHandler.enablePanningAndScalingGestures(Z)` is
+   the only writer. The same dump also shows `ScaleGestureDetector` is
+   constructed with the 2-arg constructor and `setQuickScaleEnabled` is never
+   called — so there is no single-finger double-tap-drag zoom to fall back on,
+   which is why nothing on the phone zoomed at all.
+3. **Driven on the real device, both directions, with a genuine two-pointer
+   pinch.** See below.
+
+**The fix** is the new `[input_devices]` block in `project.godot`:
+`pointing/android/enable_pan_and_scale_gestures=true`. No GDScript and no Rust
+changed. `emulate_mouse_from_touch` is left at its default `true`, so every
+existing single-finger tap/drag/scroll in the shell is untouched — the gesture
+detector only consumes the two-pointer case.
+
+**How the pinch was actually driven** (this project's rule that headless checks
+cannot catch this class of bug applies exactly here — nothing short of two real
+pointers reaches `ScaleGestureDetector`):
+
+- `adb shell input` has no multi-touch command at all (`tap`, `swipe`,
+  `motionevent` are all single-pointer), and two concurrent `swipe`s are not a
+  pinch — each is its own pointer-0 DOWN…UP stream, so the app sees one
+  jittering finger and `getPointerCount()` never reaches 2.
+- `sendevent` on the real touchscreen (`/dev/input/event2`, `synaptics,s3320`)
+  is SELinux-denied to `u:r:shell:s0`, and `adb root` is refused by
+  LineageOS's `persist.sys.root_access` gate (which itself cannot be set
+  without root).
+- What worked: **AOSP's own `/system/bin/uinput`**, which shell can use because
+  `/dev/uinput` is group `uhid` and `shell` is in `uhid`. A generated command
+  script registers a virtual multi-touch touchscreen (`INPUT_PROP_DIRECT` via
+  `UI_SET_PROPBIT`, ABS ranges 0-1079 × 0-2339 to match the panel 1:1) and then
+  injects a real MT protocol-B two-slot sequence: both slots down with distinct
+  `ABS_MT_TRACKING_ID`s in the opening report, 28 interpolated move reports,
+  then both tracking IDs to `-1`. That produces a genuine
+  `ACTION_DOWN`/`ACTION_POINTER_DOWN` with `pointerCount == 2`, which is what
+  `ScaleGestureDetector` requires.
+
+**Result on the device** (OnePlus 6T, LineageOS 22.2 / Android 15, real
+2048 × 1311 world generated on the phone, read off the app's own on-screen
+`z%.1f` readout):
+
+| Build | Injected gesture | Zoom readout |
+|---|---|---|
+| fix on | pinch out, span 600 → 1000 px | **z1.0 → z2.2** |
+| fix on | pinch in, span 1000 → 600 px | **z2.2 → z1.0** |
+| **control: `…enable_pan_and_scale_gestures=false`, same APK otherwise** | the identical injected pinch | **z1.0 → z1.0 (no change)** |
+
+The control build is the point: it reproduces the owner's bug exactly and
+proves the setting is the cause rather than something else that moved. The
+zoomed screenshot also shows the deep-zoom LOD tiles resolving, so the whole
+`_zoom_at` → `overlay.set_camera_zoom` → `_update_lod` chain runs on touch, not
+just the zoom scalar.
+
+**Found but deliberately not fixed here — `_zoom_at()` mixes coordinate
+spaces.** `_input()` delivers `event.position` in *viewport* coordinates, but
+`_camera` is a child of `ViewportHost`, so `_camera.position` is
+`ViewportHost`-local; `_zoom_at`'s `(screen_pt - _camera.position)` conflates
+the two, and the zoom pivot is off by `ViewportHost.global_position`. Measured,
+not inferred: a headless instantiation of `app.tscn` reports
+`ViewportHost.global_position = (412, 70)` on the desktop layout, i.e. the left
+rail plus the menu/tab bars. The pan branch is unaffected (it uses a *delta* of
+two global positions, which is offset-invariant), and `move_view_to()` and
+`_update_lod()` both already work in local space — so `_zoom_at` is the one
+inconsistent site. Left alone because it is a different defect from the one
+reported, it affects desktop (which the owner says works correctly) more than
+the phone (where the map is edge-to-edge and the offset is ~0), and
+`viewport_host.gd` had concurrent work in it. Registered as **SH-10** in
+`GUI_GAP_REGISTER.md`.
+
+## Hand-drawn ways reach the map and a list (`GUI_GAP_REGISTER.md` IN-02, 2026-08-24)
+
+`PARITY_AUDIT.md` §3.2's *"committed manual ways/routes never reach the map or
+a list — real; `get_roads()` reads `civ.ways` only"*. The diagnosis was exactly
+right, and the register's *(B) small — one getter* estimate held; what changed
+is **which** getter.
+
+**What the data flow actually was.** Arming Way (`infrastructure_workspace.gd`
+`_on_infra_tool_armed`) calls `bridge.way_begin(type)` → `WorldGen::way_begin`
+→ `InfraTools::way_begin`, which parks a `WayDraft`. Each map click reaches
+`_way_click` → `way_append_point`, which **snaps** the point
+(`civ_snap_point` against `civ.settlements` + `civ.ways` + `infra.ways`) before
+pushing it onto the draft. ✓ Commit calls `_commit_way` →
+`WorldGen::way_commit`, which assembles a `RouteContext` (including every
+previously-committed manual way, so hand-drawn ways really do route over each
+other) and calls `InfraTools::way_commit` → `civ_commit_way`, real least-cost
+Dijkstra. The resulting `ManualWay` is pushed onto **`InfraTools::ways`** — a
+`Vec<ManualWay>` field on `WorldGen.infra`, never onto `CivData::ways`.
+
+So the way was fully real: routed, persisted for the session, and live input to
+the *next* commit's routing and to snapping. It was simply invisible.
+`get_roads()` iterated `civ.ways`, `get_sea_routes()` iterated
+`civ.sea_routes`, and neither had ever looked at `infra.ways` — matching
+`way_commit`'s own doc comment ("there is no getter for the manual-ways list
+itself yet, deliberately out of this milestone's exact scope") and the honest
+status line `_commit_way` printed instead ("not shown on the map yet").
+
+**Why no new getter was written.** The register's estimate assumed a
+`way_count`/`way_get` pair mirroring `route_get`. The reference says not to.
+`_civCommitWay` (reference line 26077) pushes a hand-drawn way straight onto
+the **same flat `civWays` array** the generated network lives in, tagged
+`manual:true`, and the draw pass (line ~15494) branches on `rt.type` alone —
+`highway`/`regional`/`track`/`sea-lane`/`ancient`/default — never on `manual`.
+A hand-drawn `road` and a generated `road` are drawn identically, on purpose.
+`manual` exists so a hand-drawn way *survives a network rebuild*
+(`_civAutoRoutes` snapshots `civWays.filter(w => w.manual)` and feeds the land
+ones back in as `opts.existingWays`) and so `_civRenderWayList` can list it —
+not so it can be styled apart. A separate getter would have split what the
+reference deliberately keeps as one list, and forced a second code path through
+`map_overlay.gd`, `right_dock.gd`'s Route context and both workspace lists for
+no behavioural difference.
+
+**Built:**
+
+- `get_roads()` (`lib.rs`) appends every non-hidden, non-sea `ManualWay` from
+  `infra.ways` after the generated network, with `way_type` from the new
+  `infra_tools_bridge::way_type_key` (`parse_way_type`'s inverse, round-trip
+  tested) and `manual: true`. `get_sea_routes()` does the same for the sea
+  ones. The sea split is the one distinction the reference's own draw pass
+  makes (`type === 'sea-lane'` takes the navy/dashed branch, never a road
+  branch), and this port already splits those two styles across these two
+  getters — so a manual sea lane draws correctly with **zero** renderer change.
+- `km` and `manual` are now on every entry from both getters, generated ones
+  included. `km` was already on `Way` and `SeaRoute` and simply never emitted;
+  it is the engine's `f64` routed length, better than re-measuring the `f32`
+  `PackedVector2Array` those getters round to.
+- `map_overlay.gd`: **one** dictionary key — `"ancient": 1.1` in
+  `ROAD_WIDTH_BY_TYPE`, the width the reference strokes it at (line ~15516),
+  since `ancient` is the one `ManualWayType` with no `WayType` counterpart and
+  would otherwise take the 1.6 `road` default. No draw-loop change of any kind;
+  `manual` is deliberately not consulted while drawing.
+- `infrastructure_workspace.gd`: `_commit_way` now calls `_refresh_map_ways()`
+  (delegating to `CivilizationWorkspace._refresh_civ_data()` — the shared
+  *camera-preserving* repaint, not `ViewportHost.refresh()`, which would snap
+  the view on every commit) and `_refresh_manual_ways()`, and says so in the
+  status bar instead of apologising. New **Roads ▸ Hand-drawn ▸ Committed this
+  session** list, refilled in place rather than rebuilt — `Workspace` has no
+  rebuild hook (`_build` runs once from `setup`) and rebuilding the dock would
+  collapse the accordion the user is working inside. The Network group's tier
+  tally counts hand-drawn ways out separately so it still sums to the total.
+- `right_dock.gd`'s Route context: a **Source** field (Hand-drawn (Way tool) /
+  Generated network), `km` used for Length, and an empty-name fallback — a
+  hand-drawn way is committed with `name: ""` (`civ_commit_way`'s
+  `String::new()`, the reference's own `name:''`), which the old
+  `get("name", "—")` did not catch.
+
+**Verified — driven through the real app, not asserted:**
+
+A temporary harness instantiated `app.tscn`, generated a 384×288 world
+(seed 483920), armed the real Way tool via `app.arm_tool("way")` and fed real
+clicks through `app._on_map_clicked`, then committed through the same
+`_commit_way` the ✓ Commit button calls:
+
+- 4 waypoints → a committed `road` of **105 routed points / 1938.7 km**
+  (Dijkstra, not a polyline through the clicks). `get_roads()` 35 → 36 entries,
+  exactly one `manual: true`, `way_type` round-tripped as `road`.
+- `map_overlay._roads` carries it — i.e. the commit-time repaint fired.
+- **Pixel proof, not just "it's in the array":** a second way committed as
+  `ancient` (the one `way_type` no generated `Way` can carry), then all four
+  generated tiers and the sea layer switched off. Toggling *only* that
+  hand-drawn way changed **179 sampled pixels** (every 2nd pixel in both axes,
+  so ~716 real) between two captured frames. Anything still stroked with the
+  generated tiers hidden is necessarily hand-drawn.
+- A `sea_lane` way landed in `get_sea_routes()` (1 manual) and **did not leak**
+  into `get_roads()` (still the 2 land ways).
+- The list showed all three, with real lengths: `Hand-drawn way (road) --
+  1939 km`, `(ancient) -- 2683 km`, `(sea lane) -- 1122 km`. Clicking a row
+  opened the right dock reading `Type Road · Source Hand-drawn (Way tool) ·
+  Points 105 · Length 1938.7 km`. Screenshotted, both list and inspector.
+- `cargo build -p cartalith-godot` clean; `cargo test -p cartalith-civ -p
+  cartalith-godot` all green, including the new `way_type_key` round-trip test.
+
+**Open, and not folded in silently:** there is no `way_set_name` /
+`way_delete` / way-condition `#[func]`, so a committed way still cannot be
+renamed, retyped or removed — the reference's way-properties editor has no
+counterpart here, and `MS-09` **Clear ways & journeys** stays disabled for that
+reason on both halves now rather than one. §4.5.4's "grade profile / surface"
+half of the Way inspector is likewise unbacked.
+
+**Committed *routes* were never part of this.** `route_count`/`route_get` have
+existed since the Journey Planner milestone. A route is a journey *along*
+existing geometry, not durable geometry — `infra_tools_bridge.rs`'s "Way and
+Route are two separate commit paths, on purpose" — so it belongs to the
+planner's registry, not the way layer. IN-02's original wording said
+"ways/routes"; only the ways half was ever a real gap.
+
+## GeoJSON export gets its boundary, and tidal flats gets its tide field (2026-08-24)
+
+Two independent items, both the same shape: an engine capability that was
+already ported and golden-verified but had nothing to run it. Together they
+close the last of `PARITY_AUDIT.md` §3.1's backlog.
+
+---
+
+### 1 · GeoJSON export (`GUI_GAP_REGISTER.md` DM-03, §20)
+
+**The gap was exactly one binding wide, and the register said so.**
+`cartalith-engine/src/geojson.rs` — nine reference functions, a hand-written
+JSON writer that renders numbers the way `JSON.stringify` does, and
+`golden_parity_geojson.rs` matching the reference's own document
+character-for-character — had been finished since milestone E2 with **no
+caller**. `FUNCTIONAL_CONTRACT.md` consequently read the capability as
+*"Absent"*, which was true of the boundary and false of the engine.
+
+**Built:**
+
+- `crates/cartalith-godot/src/geojson_bridge.rs` — one
+  `#[godot_api(secondary)]` block, one `#[func] fn export_geojson(&self) ->
+  GString`, in its own file rather than in `lib.rs` (a shared hot file). It
+  assembles a `GeoJsonWorld` off `CivData` + `WorldState` and returns the
+  document; `""` before the first `generate()`/`load_save()`.
+- `cartalith_hydrology::split_river_polylines` — `splitRiverPolylines`
+  (reference 4596-4608), the one function that had to be *ported* to do this.
+  Without it a receiver chain that wraps the antimeridian exports as a single
+  `LineString` drawing back across the whole map in any GIS consumer. Pure
+  hydrology geometry, so it sits next to `trace_river_polylines`, not in the
+  geojson module.
+- `data_manager_window.gd`'s Export ▸ GIS / GeoJSON row: `gap` → `live`, with
+  a pane, its two disclosures and a save picker. No options pane, because the
+  binding has no options — `export_geojson` describes the whole world and
+  emits every layer it can.
+- `engine_bridge.gd::export_geojson()`, `has_method`-guarded like every
+  sibling, so an older GDExtension degrades to a stated failure rather than a
+  crash.
+
+**Three reference inputs have no equivalent here, and the document handles
+each by omission rather than invention** — stated in the pane and in
+`GUI_GAP_REGISTER.md` §20.1:
+
+- **No `poi` layer.** `CIV_POI_KEYS` splits the reference's `state.places`
+  into settlements and points of interest; this port's `SettlementKind` is the
+  six settlement tiers and nothing else. An empty `poi` layer would claim the
+  world has no POIs rather than that this port has no POI concept.
+- **`sea` is derived, not read.** The reference keeps land ways and sea lanes
+  in one flat `civWays` and distinguishes them with a flag; this port keeps
+  two typed collections, so the flag comes from which collection a way came
+  out of.
+- **Rivers are re-traced, not cached.** `_riverNet` is a lazy global there;
+  here the receiver tree and Strahler orders are already on `WorldState`, so
+  `trace_river_polylines` runs at export time exactly as `urban_bridge` does.
+  `min_order` is the reference's **2** for this path, not the `1` the carve
+  pipeline traces with.
+
+**Verified:**
+
+- Two new goldens for `split_river_polylines`, whose fixtures were produced by
+  **running the reference's own function under node** — sliced out of the
+  frozen HTML at line 4596 and executed verbatim, with an assertion on the
+  slice's own body shape so a drifted slice fails loudly instead of quietly.
+  The chains reach all three branches: a seam crossing whose halves are both
+  drawable, a seam crossing that leaves a one-point tail (dropped), and a skip
+  predicate cutting a chain so that *both* halves are one point and the whole
+  chain vanishes.
+- `cargo test -p cartalith-engine -p cartalith-erosion -p cartalith-hydrology
+  -p cartalith-godot` — green. `cargo build -p cartalith-godot` — fresh cdylib.
+- **Non-headless, in the real app**, through the real `EngineBridge`: a
+  512×384 world at seed 483920 exported **305,646 bytes in 21 ms** to a real
+  file that parses as JSON and carries **511 features — 239 settlement, 43
+  way, 216 river, 6 territory, 7 province**. Those counts were cross-checked
+  against the bridge's own getters in the same run (239 settlements, 43 roads,
+  0 sea routes). Every coordinate lies inside the world's own 1200 × 900 km
+  box. Numbers render the JS way (`"mapWidthKm":1200`, not `1200.0`). River
+  `strahlerOrder` runs 2 · 3 · 4, confirming the export's min-order of 2.
+
+**Open, and not folded in silently:** GeoJSON *import* remains absent, and no
+CRS handling exists anywhere in the workspace — the document discloses that in
+its own `note` property, verbatim from the reference. **One path went
+unverified in the real app**: this world produced zero sea lanes, so no
+feature exercised the `sea: true` branch.
+
+---
+
+### 2 · Tidal flats, the seventh erosion pass (`GUI_GAP_REGISTER.md` §19.5)
+
+The erosion-passes entry above (2026-08-23) left `#tidalFlatsBtn` open for a
+stated reason: `apply_tidal_sedimentation` was ported and tested, but the
+field it reads had no producer, and *a toggle over an always-absent field is a
+control that cannot work*. `cartalith_climate::tides` — landed the same day as
+part of the geoid/tides/seasons/wildlife cluster — is that producer.
+
+**The field shapes were checked, not assumed**: `compute_tide_field` returns a
+`Vec<f32>` of `gw*gh` spring tidal ranges with land exactly `0`, and
+`apply_tidal_sedimentation` takes `&[f32]` of `w*h` and skips `tr <= 1e-5`,
+which land satisfies exactly.
+
+**Built:** `ErosionPassParams::tidal_flats` + `::tidal_k` (the reference's own
+`0.45`), the seventh toggle and its knob, two more `params.rs` rows in the
+existing `erosion` group. The pass runs **last** — the reference's own source
+order (`applyTidalSedimentation` sits immediately after `depositSediment`) and
+the right physical order, since mudflats accrete onto the coastline the other
+passes finished shaping.
+
+**One thing about this pass is not like the other six.** The reference gates
+its button on `tideField`, which exists only while `state.planet.tides.enabled`
+is on — two switches where this port has one. **This toggle is both**: turning
+it on builds the tide field from the finished surface right before the kernel
+reads it, which is what `refreshTides()` does there before the button is even
+reachable. `PlanetParams` carries no moon roster, so the field is built with
+`TideParams::default()`'s single Earth–Moon-equivalent companion at this
+world's own `planet.g` — the same substitution the Tides debug view (DV-07)
+already documents. That is a partial answer to WW-07's open parameter
+question, for one sub-system: *the consumer's toggle is the enable*. The geoid
+half has no consumer yet and stays open.
+
+**Verified:**
+
+- `each_erosion_pass_changes_the_field_on_its_own` now runs seven cases;
+  `erosion_passes_off_leave_generation_bit_identical` moves `tidal_k` too and
+  still `assert_eq!`s field, temperature, rainfall and discharge.
+- One new test the "something moved" table cannot substitute for:
+  `the_tidal_flats_pass_only_raises_submerged_cells_toward_sea_level` asserts
+  the pass's actual **shape** — every changed cell was submerged, every change
+  is upward, none is pushed past sea level, and sea level itself did not move.
+  A sign error or a swapped `sea`/`depth` would still move cells and would
+  still pass the seven-case table.
+- **Measured at grid resolution** on a 256×192 world at seed 4242: **3,051
+  cells accreted — 6.21 % of the grid, 19.58 % of every water cell** — mean
+  rise 0.01968 of the 0..1 range, max 0.05129. Water only, upward only.
+- **Non-headless, in the real app** (same harness shape the erosion-passes
+  entry used): **9.00 % of pixels moved** on a 512×384 world at seed 483920,
+  and **all-off returns to the base map at 0.0000 %** — the default-off
+  guarantee holding through the whole GUI path with a seventh toggle present.
+  The maps were looked at, not only measured: the shoals inside the bays have
+  visibly lightened as they fill toward sea level, and no coastline moved,
+  which is what accretion capped at `sea - 1e-4` should look like.
+
+---
+
+## The pre-carve flow accumulation nothing read (`DECISIONS.md` §7f, 2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` (committed the same day) asked
+the owner's question — *"can't we have everything run from the first
+generation and keep feedback loops to a minimum?"* — and answered it mostly in
+the negative direction the owner was not expecting: the default pipeline
+**already is** a one-way cascade with two single-shot feedback edges, and the
+cost is not in the loop structure at all. It is concentrated in one kernel,
+`compute_flow`, which runs **four times** per default generation. Its §3.2.1
+claimed one of those four runs is dead work. This entry is that claim
+verified, taken, and measured.
+
+**The finding held.** Every statement between `flow_discharge`'s pre-carve
+assignment and its post-carve overwrite was re-read against the current tree,
+not against the research document's line numbers: the carve block reads
+`field`, `pre`, `stress.stress_field`, `resistance_field`, `rainfall` and its
+own locally computed `flow_for_network`, and never `flow_discharge`. On the
+default path the pre-carve call's result is discarded unread.
+
+**The change is one conditional.** `p.carve_rivers && !force_precarve_flow`
+guards the call. The `carve_rivers: false` path is untouched — there the call
+*is* the output, and a skip that leaked into it would be a correctness bug,
+not a speedup. The reasoning, the reference's own motive for the call order
+(`flowField` is a JS module global with readers at any moment; here it is a
+local with none), and the deviation itself are recorded in `DECISIONS.md` §7f
+and restated at the call site, per `CLAUDE.md`'s "raise it, then record the
+new reasoning" rule. This is the same disclosure pattern §7e set.
+
+**Verified — bit-identity, not tolerance.** `generate_terrain`'s body became a
+private `generate_terrain_inner(p, force_precarve_flow)`; the public function
+passes `false`, and exactly one test passes `true`, restoring the reference's
+literal call order. `precarve_flow_skip_leaves_generation_bit_identical` then
+`assert_eq!`s **every** raster `WorldState` carries — `field`, `temperature`,
+`rainfall`, `flow_area`, `flow_discharge`, `river_mask`, `river_floor`,
+`stream_order`, `resistance_field` — plus `gpu_stages_used`, across six
+fixtures: four carving (both `world` modes, three seeds, one non-square grid)
+and two non-carving. The escape hatch exists so that "the skip changes
+nothing" is a proof this crate can run, not an argument in a comment.
+
+`gpu_stages_used` was the research document's own flagged caveat and it cannot
+move: `flow_on_gpu` returns `Some` iff `gpu_flow` is `Some`, which is fixed for
+the whole function, and the two flow calls *inside* the carve block push the
+same `"flow"` string under that same condition. The test asserts it anyway.
+
+**Measured, on this machine, `--release`, best of 3 after a warm-up:**
+
+| Size | Before | After | Saved |
+|---|---|---|---|
+| 512² | 0.3641 s | 0.3280 s | 36 ms (9.9 %) |
+| 1024² | 1.1396 s | 1.0385 s | 101 ms (8.9 %) |
+| 2048² | 4.8275 s | 4.3955 s | **432 ms (8.9 %)** |
+
+One `compute_flow` call at 2048² measures **402 ms** here, so the saving is the
+call and nothing else — a useful cross-check that no second effect crept in.
+(The research document quoted 488.9 ms from an older `CHANGELOG.md` entry; the
+kernel has got faster since, which moves the *fraction* of a generate that flow
+accumulation owns from ~38 % to ~33 %, not the conclusion.)
+
+The whole workspace suite — every golden-parity fixture in `cartalith-engine`,
+`cartalith-hydrology` and the eleven other crates — stays green with **no
+tolerance touched**.
+
+**Considered and not taken**: §3.4 of the same research notes
+`compute_temperature`'s first call is also unread on the default path. It is
+one O(N) per-cell pass rather than a global sort-and-walk, and skipping it
+would mean restructuring `apply_ocean_currents`' `&mut temperature` argument —
+recorded in `DECISIONS.md` §7f so the next reader knows it was weighed, not
+missed.
+
+---
+
+## `compute_flow`'s sort: the reference's own radix sort, ported (2026-08-24)
+
+The other half of `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md`'s top two
+findings (§3.2.2), and the one the document deliberately framed as *a
+measurement, not a design*: **do not assume the JS ratio transfers.** V8's
+`Array#sort` and Rust's `slice::sort_by` are different implementations with
+different constant factors, and this project has produced honest negative
+results before (GPU weather at 0.93×, GPU flow at 128² at 0.20×). So it was
+built, measured, and only then kept.
+
+**The situation.** `compute_flow` ordered cells with
+
+```rust
+order.sort_by(|&a, &b| flow_cmp_desc(field[a], field[b]).then(a.cmp(&b)));
+```
+
+— a comparison sort over `N` indices with an indirection into `field` on every
+comparison. The reference carried exactly this form until v0.148, measured it
+as *"the single hottest `generate()` line"* (~1,005 ms per call at 2048²), and
+replaced it with a stable LSD radix sort over the raw `f32` bit patterns
+(1,005 → 120 ms). The Rust port had been carrying the pre-optimisation form.
+
+**Why this is not a parity question**, and this was checked rather than
+assumed: flow accumulation is downstream of the heightmap pixels, so
+`PROVENANCE.md`'s rule ("hand-port anything upstream of the heightmap") puts
+only the *ordering guarantee* inside the parity contract, not the sort
+algorithm. `flow_cmp_desc`'s own doc comment had already said so in this
+repository, before this pass. The reference agrees from its side, calling its
+radix sort *"BIT-IDENTICAL to the old `order.sort((a,b)=>field[b]-field[a])` …
+by construction."*
+
+**Ported from the reference, not written from scratch**, so the digit scheme
+matches: four 8-bit LSD passes, counting sort per byte, the key transform
+verbatim —
+
+1. `if b == 0x8000_0000 { b = 0 }` — canonicalise `-0.0` to `+0.0`. Without
+   this the radix would order `-0.0` and `+0.0` deterministically by sign and
+   split a tie the comparator treats as equal.
+2. sign-flip so ascending `u32` means ascending `f32`.
+3. `!b` — invert, so ascending `u32` means **descending** `f32`.
+
+The NaN question was answered rather than waved at: step 2 is the same total
+order `f32::total_cmp` implements, `+NaN` above `+inf` and `-NaN` below
+`-inf` under both, so the two orderings agree even on values the reference
+asserts cannot occur ("all fields are finite, Invariant 2").
+
+**Stability is load-bearing and it is structural.** Counting sort per byte is
+stable and the initial permutation is ascending index, so equal keys come out
+in ascending-index order — what JS's spec-stable `Array#sort` gives for
+comparator-equal elements, and what the previous `.then(a.cmp(&b))` gave here.
+This is not cosmetic: equal-height cells draining into one receiver add their
+`f32` discharge in this order, and float addition is not associative
+(`cartalith-rust-conventions`).
+
+**Verified — element-identical, not value-identical.**
+`flow_sort_desc_is_element_identical_to_the_comparison_sort` `assert_eq!`s the
+**index vector itself** against the comparison sort it replaced, which is kept
+as the oracle (`#[cfg(test)]`). Twelve fixtures, shaped to reach the quirks
+rather than to look varied: signed zeros in both orders with duplicates; an
+all-zeros field of mixed sign; 64 identical values (the sort degenerates to
+"is it stable?"); 300 elements in tied runs of 7; NaN of both signs,
+infinities, subnormals, `MIN`/`MAX`; a quantised lattice; a monotone ramp and
+its reverse (no ties at all, so a failure there is the key transform, not the
+stability); a 5,000-element xorshift field spanning the whole exponent range
+so every byte of every key varies; and that field quantised hard to force
+thousands of ties on top of the spread. Plus the three existing
+reference-derived `golden_parity_flow.rs` fixtures, unchanged and still exact.
+
+**Measured, `--release`, best of 3 after a warm-up, on a real generated
+2048² field — the sort in isolation:**
+
+| Size | `sort_by` | radix | Speedup |
+|---|---|---|---|
+| 512² | 15.7 ms | 1.7 ms | 9.35× |
+| 1024² | 75.0 ms | 7.0 ms | 10.67× |
+| 2048² | **341.8 ms** | **30.8 ms** | **11.08×** |
+
+The sort was **85 %** of `compute_flow` at 2048². Whole kernel, same runs:
+
+| Size | Before | After |
+|---|---|---|
+| 512² | 19.3 ms | 5.2 ms |
+| 1024² | 88.5 ms | 21.4 ms |
+| 2048² | **402.0 ms** | **95.9 ms** (4.19×) |
+
+**End to end**, `timing_bench`, with the §7f skip already in (three flow calls
+per default generation, not four):
+
+| Size | After §7f | After the radix | Saved |
+|---|---|---|---|
+| 512² | 0.3280 s | 0.3152 s | 13 ms |
+| 1024² | 1.0385 s | 0.9127 s | 126 ms (12.1 %) |
+| 2048² | 4.3955 s | **3.5181 s** | **877 ms (20.0 %)** |
+
+**Both changes together: 2048² went 4.8275 s → 3.5181 s — 1.31 s, 27.1 %
+faster, a 1.37× generation.** At 128² the two are within noise of each other
+(0.0784 s → 0.0801 s); the grid is too small for either term to matter, which
+is the same shape every measured pass in this project has found.
+
+The workspace suite — 1,881 tests across 128 binaries, every golden-parity
+fixture in all fourteen crates — stays green with **no tolerance touched** and
+no fixture regenerated. `cargo clippy` clean on both crates; the cdylib builds.
+
+## The staleness graph gets its consumer: an edit now reaches climate and hydrology (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.4 found
+`cartalith_engine::staleness::pipeline_stage_graph` correct, tested, and
+consumed by nothing — its own module doc said so ("**Unwired on purpose**"),
+and `sculpt_commit`'s said the matching half: *"this binding does not
+currently expose an entry point that consumes that dirty set."* So every
+post-generation edit path stopped at the height field. Sculpt a mountain
+range and the rain shadow behind it did not exist; carve fjords and the
+drainage still ran through the ridge that had just been cut away.
+
+The owner authorised the engine-side half (§4 item 3) and settled the design
+question it depended on (§4 item 4). Both are now implemented.
+
+**The erosion↔climate cycle: candidate (a), erosion inside the height stage.**
+
+`staleness.rs` refused to model erosion because erosion↔climate is a genuine
+cycle and a `StageGraph` forbids cycles by construction. The owner picked
+"erosion is part of the height stage, which internally iterates" over "add an
+explicit iterate-N-times stage kind". Against the real graph that resolves to
+something smaller than it sounds:
+
+- **The graph does not change.** No `erosion` node, no new edge, no new stage
+  kind. `pipeline_stage_graph` is the same four-node graph it was.
+- **`Height` is a source node whose *body* contains the cycle.** That body is
+  `generate_terrain`'s own carve-and-evolve block — the light stream-power
+  pass, `isostatic_rebound`, and the `evolve_cycles` loop whose every
+  iteration ends in `refresh_climate` so the next cycle's incision reads the
+  rain the last cycle's orography produced. The cycle runs, and it is
+  invisible to the graph because it never crosses a node boundary. That is
+  exactly the property that lets the DAG stay a DAG.
+- **So the consumer never has to run erosion.** By the time `Height` is
+  marked changed, height — erosion included — is whatever it is going to be.
+
+Candidate (b) would have needed a fixed-point iteration *between* nodes: a
+new primitive in a data structure whose whole safety argument is that
+`add_stage` requires its upstreams to already exist.
+`the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` pins the
+decision as an invariant, so reversing it has to be argued rather than
+drifted into.
+
+**Built — `cartalith_engine::staleness::recompute_stale(&mut StageGraph,
+&WorldParams, &mut WorldState) -> RecomputeReport`.**
+
+Given a graph in which a commit has marked a stage changed, it re-runs
+exactly what that invalidated:
+
+- **Hydrology and climate together, through one `refresh_climate`.** That
+  function *is* the reference's own post-edit tail (`computeFlow(true);
+  refreshClimate();`, reference HTML line 5154): its first statement rewrites
+  `flow_discharge` — hydrology's output — and the rest rewrites `temperature`
+  and `rainfall`. Two separate calls would pay for a second whole-grid
+  `compute_flow` to produce a value the first already produced. One call, two
+  `mark_recomputed`s, hydrology first so climate observes hydrology's *new*
+  version and does not immediately report itself stale again.
+- **Nothing when nothing is stale.** The decision to work is made only from
+  what the graph reports. A second call with no intervening edit runs
+  nothing; a commit that touched only a downstream stage runs nothing.
+
+What stays stale, deliberately: **civ** (`compute_civilisation` lives in
+`cartalith-godot` and builds Godot types, so this crate cannot call it — and
+the reference's own `sculptCommit` never cascades into settlements either;
+`UNIFIED_TOOL_PLAN.md` milestone C measured the eager form at ~7 s/stroke at
+2048²); the **carve-time river network** (`channels`, `stream_order`,
+`river_mask` — `refresh_climate` re-derives drainage, not the vector
+network, and neither does the reference's tail); and **`flow_area`**, whose
+only consumer is the first moisture-corrector pass inside `generate_terrain`
+itself.
+
+**Wired, so it is not a second unused mechanism.** `WorldGen` now holds a
+live `StageGraph`, rebuilt by `absorb()` over the Sculpt draft's own
+`PassBuffer` tiling so a `CommitSummary::tiles_marked` drops straight into
+`mark_changed_tiles` — one tiling, not two that agree by coincidence.
+
+| Path | Marks | Runs |
+|---|---|---|
+| `sculpt_commit` | `Height`, at the tiles the pass touched | hydrology + climate |
+| `carve_fjords` | `Height`, whole map (a coastal carve is not tile-local) | hydrology + climate |
+| `paint_commit` | `Civ`, at the painted tiles | nothing — a mid-chain edit does not make its own upstreams stale |
+| `recompute_stale_stages()` (new `#[func]`) | nothing | whatever is already stale |
+
+All four return `recomputed`/`still_stale` as `PackedStringArray`s. The new
+`#[func]` exists for the cases the commits do not cover — a deferred
+recompute, a batch settled at the end, or a "Recompute now" control when one
+is designed. **No UI was built**: `CLAUDE.md`'s UI hold stands, and the
+future wiring is tracked as `GUI_GAP_REGISTER.md` MS-06.
+
+`climate_params_for`/`weather_params_for` were extracted from
+`generate_terrain`'s two struct literals so an outside caller of
+`refresh_climate` gets *the same* structs rather than a hand-copied second
+literal that can drift field by field. Pure re-projection of `WorldParams` —
+no arithmetic, so nothing there can move a golden value, and the whole
+workspace suite confirms it.
+
+**Verified.**
+
+Seven new tests, beyond the graph's existing dozen:
+
+- `the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` — the
+  design decision, pinned.
+- `a_height_edit_recomputes_hydrology_and_climate_and_leaves_civ_stale` —
+  `ran == ["hydrology", "climate"]`, `still_stale == ["civ"]`.
+- `the_recomputed_values_are_right_not_merely_different` — "changed" is not
+  correctness. Two physical invariants derivable without re-running the
+  implementation under test: raising ground must *cool* it (the lapse rate),
+  and a new ridge must *shed* its own drainage. Plus the height field coming
+  back bit-identical, since a recompute reads height and never writes it.
+- `it_recomputes_only_what_it_claims_and_leaves_the_rest_bit_identical` —
+  `channels`, `stream_order`, `river_mask` and `flow_area` unchanged, by
+  `assert_eq!`, not by tolerance.
+- `a_second_call_with_no_intervening_edit_runs_nothing`.
+- `a_downstream_only_edit_recomputes_nothing_upstream_of_it` — the "not
+  everything" half of the contract, decided by the graph rather than by a
+  special case.
+- `a_dimension_mismatch_returns_an_empty_report_rather_than_panicking` — this
+  sits under a `#[func]`, and a panic crossing the gdext boundary takes the
+  Godot process with it (`cartalith-rust-conventions`).
+
+**Measured, `--release`, against the full generation it replaces:**
+
+| Size | `recompute_stale` | `generate_terrain` | Cheaper by |
+|---|---|---|---|
+| 512² | 76.5 ms | 314.9 ms | 4.1× |
+| 1024² | 97.8 ms | 912.3 ms | 9.3× |
+| 2048² | **188.9 ms** | 3.558 s | **18.8×** |
+
+Inside the ~131–564 ms the research predicted at 2048² from
+`SCULPT_LIVE_SCOPE.md`'s L0 numbers, and at the fast end of it because the
+radix-sort pass landed in `compute_flow` the same day.
+
+**Real, non-headless, on the real GPU-backed editor runtime**
+(`_staleness_shot.tscn`, an untracked harness): generate 384×288, sample a
+transect of 92 cells, sculpt a mountain range across it, commit.
+
+```
+STALE commit  recomputed=["hydrology", "climate"] still_stale=["civ"]  (58 ms)
+STALE elevation      moved in  48/ 92 cells, mean |d| = 0.03602
+STALE temperature_c  moved in  48/ 92 cells, mean |d| = 1.42305
+STALE precipitation  moved in  15/ 92 cells, mean |d| = 0.05008
+STALE drainage       moved in  79/ 92 cells, mean |d| = 5.36201
+STALE fjords ok=true carved=511 recomputed=["hydrology", "climate"] still_stale=["civ"]
+STALE idempotent call -> recomputed=[] still_stale=["civ"] (0.0 ms)
+```
+
+Before this change the last three rows were `0/92` by construction — nothing
+in `sculpt_commit` touched `temperature`, `rainfall` or `flow_discharge` at
+all. The whole workspace suite stays green with no tolerance touched and no
+fixture regenerated; `cargo clippy` adds no warning; the cdylib builds and
+the extension loads headless.
+
+**Not done, deliberately:** `param_set` still only marks the world stale
+without touching the graph. Mapping a moved dial onto the stage it
+invalidates needs a per-parameter → stage table, which is a real design, not
+an improvisation — and it is not what a commit path needs.
+
+
+## A world can be saved (2026-08-23)
+
+`SAVEFILE_COMPAT.md`'s own "Deferred" list opened with **"Writing a save"**,
+and `ROADMAP.md` kept it under "Options kept open, not scheduled". Five
+register rows had queued up behind it — FI-01 (Save project), FI-02 (Save
+as…), FI-03 (Autosave), FI-04 (Revert), FI-05 (Close project) — plus DM-04,
+JP-06/JP-08 and MEA-07 further out. The owner authorised it; this is the
+writer and the five controls it unblocks.
+
+**Built — `cartalith-io`:**
+
+- `save.rs`: `write_save(sink, &SaveWrite)`, the mirror of `load_save`.
+  Writes the seven documented entries in `exportZip()`'s own order,
+  DEFLATE-compressed (method 8, the reference's own from v1.90). A `.f32`
+  entry is `gw*gh*4` bytes and nothing else.
+- Two guards, both about the failure this format makes easy — a file that
+  opens cleanly and is quietly wrong. **(1)** Every field must be `gw*gh`
+  long; a `.f32` carries no length of its own, so a short `rainfall.f32` is
+  not a parse error on the way back in, it is a silently truncated climate.
+  **(2)** The five values `load_save` requires are written *by this
+  function*, from `SaveParams`, not by the caller — so a save this crate
+  writes is readable by this crate's own reader **by construction** rather
+  than by the caller having remembered.
+- `SaveData` grew a `state` field: `params.json`'s whole `state` object as
+  read. `cartalith-io` cannot model 200+ keys of civ and UI state it has
+  nothing to deserialize into (`SAVEFILE_COMPAT.md`'s own reasoning for
+  approach 1), but a caller can pull out what it does model.
+
+**Built — `cartalith-godot`:**
+
+- `params.rs` grew `save_state` / `apply_saved_state` and a `JS_PATHS` table
+  mapping each `PARAMS` key onto its path in the reference's own `state`
+  object. Every parameter is written **twice**: at its reference path
+  (`tect.blurR`, `climate.latN`, …) so the HTML app can reopen the file, and
+  under `state.cartalith` by this port's own dotted key. The second copy is
+  the authoritative one and the only one read back — without it, the **ten**
+  parameters this port added that the reference has no equivalent for
+  (`use_gpu`, the six erosion-pass toggles, `passes.sediment_capacity`,
+  `passes.tidal_k`, `climate.terrain_wind_deflection`) would be silently lost
+  on every save. `state.cartalith` is a key the reference never wrote, so
+  `Object.assign` carries it through and `serializeState()` writes it back
+  out: a save can round-trip *through the reference app* and keep them.
+- `WorldGen::save_project(path)`. Builds the archive in memory and writes it
+  once, so a failed save never truncates the file it was replacing — the one
+  behaviour a save button must have. `stream_order` (`i16`) saturates into
+  the format's `u8` exactly as the reference's own exporter does
+  (`so[i] = o>255?255:o`, reference line 12448); a world generated with
+  `carve_rivers` off writes an all-zero raster, the honest encoding of "no
+  channels".
+- `load_save` now restores the parameter block, and the seed.
+
+**Three format findings, recorded in `SAVEFILE_COMPAT.md`:**
+
+1. `loadZip()` merges `state` **shallowly** (`Object.assign(state,
+   pk.state)`), so any nested block a writer emits *replaces* the reference's
+   whole default block. Writing `tect: {seed: N}` — the minimum this port's
+   reader needs — would leave the reference app with an undefined plate
+   count, drift, warp and blur radius. A nested block must be complete or
+   absent.
+2. Most blocks are `Object.assign`-shimmed and four are not (`tect`, `volc`,
+   `crater`, `erosion`). This port writes the first three in full and
+   **omits `state.erosion` entirely**: it models 2 of that block's 16 keys,
+   and writing those two would replace the reference's whole droplet-erosion
+   parameter set. Disclosed limitation, not a silent one — a save this port
+   writes reopens in the reference app with that app's own `erosion`
+   defaults.
+3. `params.json`'s `v` is provenance, not a format selector: `loadZip()`
+   never branches on it, and every shim it has tests for a missing *key*.
+
+**Judgment call, disclosed** (`CLAUDE.md`: do not deviate silently).
+`SAVEFILE_COMPAT.md` said to *confirm before spending time on* HTML-app
+readability. The reference half was written anyway, because `state.tect.seed`
+is mandatory for this port's own reader and finding 1 then forces `tect` to
+be complete — and once one block must carry reference names, every sibling
+costs one table column. What was *not* done on that account: `state.erosion`
+(finding 2), and `world_structure.archetype` (this port stores an
+archetype's knobs, not its name, so a reopened save shows `earth`).
+
+**Built — the shell (`GUI_GAP_REGISTER.md` FI-01..FI-05):**
+
+- **Save** / **Save as…** (Ctrl+S / Ctrl+Shift+S). `DccBrowseDialog` grew a
+  third `PickKind`: `SAVE` is `FILES` plus a name field in the foot, which is
+  the whole difference between "which of these?" and "where shall I put
+  this?" — so no stock `FileDialog` survives on this path either. Clicking an
+  existing save fills its name in; overwriting asks first.
+- **Autosave**, a check item plus a `Timer`, interval in `DccSettings`
+  (machine state, like the GPU block already there). **Off by default** — a
+  background writer that starts unasked is the wrong first impression for a
+  tool that writes hundreds of megabytes per save. Writes *beside* the
+  project (`world.zip` → `world.autosave.zip`), never over it, and
+  deliberately does not clear the unsaved flag. Reports through the status
+  bar's `autosave` slot, which had been empty since the day it was built —
+  and which makes `phone_menu.gd`'s own `autosave` readout row real.
+- **Revert to last save**, with a confirm: the discard is irreversible and
+  the item sits two rows under Save.
+- **Close project**, whose prompt is the part that could not exist before:
+  with no writer there was no **Save** to offer, only "discard or cancel",
+  which is not a choice. `EngineBridge.close_world()` replaces the `WorldGen`
+  handle (the engine has no `unload`; this is also the only way to release
+  the field memory) and re-reads the two caches taken off the old instance.
+- `EngineBridge` grew `world_dirty`, driven by the two signals it already
+  owns. **What it cannot see is stated rather than implied**: a Milestone-F
+  tool commit that mutates the world without emitting `world_loaded` leaves
+  it `false`. So Close prompts whenever a world exists, and only *autosave*
+  gates on the flag — re-writing an unchanged multi-hundred-megabyte world
+  every few minutes is the worse failure there.
+
+**Verified — three independent checks, not one:**
+
+- `tests/golden_parity_save_writer.rs`: re-writes a **real HTML-app export**
+  (`real_export_seed24601.zip`) and compares against that fixture's
+  *independent* value capture, not against the reader that shares the
+  writer's code. Also asserts the 200+ `state` keys this port does not model
+  come back byte-equal — a writer that dropped what it did not understand
+  would lose the whole civ/UI payload of any save it touched.
+- `crates/cartalith-godot/tests/save_round_trip.rs`: generates a real world
+  at a non-square grid, saves, reloads, and then **regenerates from the
+  restored parameters and asserts the height field is bit-identical** — the
+  strongest available statement that nothing generation depends on was lost.
+- `godot-project/_save_probe.gd`, through the real GDExtension: decodes
+  `heightmap.f32` in GDScript and compares it to `sample_cell` on the live
+  world (so the writer is checked against the *engine's* readout, not the
+  reader), then saves → loads → saves and compares all six field entries
+  byte-for-byte. All 81 parameters restored.
+
+**Verified non-headlessly**, in a real window against the real GPU-backed
+build (`_lifecycle_check.gd`): generate → Save → Save as… *through the new
+browser dialog* → regenerate a different world → Revert (restores seed 24601)
+→ Close, answering "Save and close", which wrote the file it was about to
+discard → reopen from Recent worlds → autosave. 26/26 checks.
+
+`cargo test -p cartalith-io -p cartalith-godot` green, headless boot of the
+full shell clean.
+
+**Deliberately not done:** the bake / tile-pyramid / export system (a much
+larger separate gap), and journey persistence. JP-06/JP-08's stated blocker
+— the writer — is gone, but the remaining piece is different and narrower: a
+channel for GDScript-owned project state to reach `params.json`'s `state`,
+which `save_project` builds in Rust from the parameter table alone. A generic
+"extras" bag added speculatively from a File-menu task is the wrong shape to
+commit to before a second consumer (MEA-07's measurement store, the Travel
+Library) says what it needs. Both register rows say so now.
+
+## The phone could not touch its own map (2026-08-24)
+
+Owner: "use your /design and /ui-ux-pro-max to mutate these upgrades to the
+smartphone layout as well" — the civ-interaction pass, the City Viewer, the
+unified tool bar and the NPR Painter block, all of which landed on
+desktop/tablet this session and none of which had had a phone pass.
+
+The design canvas came first: six artboards continuing
+`design/Cartalith Android Phone.dc.html` at the same 412 x 892 dp frame and
+the same tokens — the map long-press context sheet, the place editor, the city
+viewer, the faction roster, the NPR Painter panel, and an adaptation-rules
+card. Then the implementation, and then the handset.
+
+**What the pass found is not a styling gap.**
+
+`_phone_content_gap` — the spacer between the app bar and the tool sheet,
+which expands to fill the whole middle of the screen — was
+`MOUSE_FILTER_PASS`. `PASS` does not mean what it reads like: a `PASS` control
+is still *picked*, receives the event, and forwards it to its own **parent**,
+never to what is behind it. Only `IGNORE` takes a control out of picking. Two
+more containers above it (`_phone_chrome_margin`, and the chrome
+`VBoxContainer`) are plain `Control`s and so `STOP` by default, each covering
+the full screen on its own.
+
+So `map_overlay.gd`'s `_gui_input()` had **never once run on a phone**.
+Everything a finger should be able to do to the map was dead: tap-to-select a
+settlement, and every registered tool click/drag/release handler — Settlement,
+Territory, Way, Route, Measure, and the Sculpt/Paint dabs. It looked like the
+map worked because camera pan and pinch come through `ViewportHost._input()`,
+a raw input hook that never consults a `mouse_filter` — so the half that was
+broken was exactly the half nobody had driven on the device. Found with
+`gui_get_hovered_control()` over the map centre in a `--force-touch` run: it
+named the spacer, not the overlay. Three enum changes.
+
+**Built on top of that:**
+
+- **Press-and-hold is the right click** (`map_overlay.gd`). A finger has no
+  second button, so the context menu the civ pass added had no touch route at
+  all. 500 ms, under 28 px of drift. The hard part is not the timer but the
+  click that has *already* fired: `emulate_mouse_from_touch` delivers a left
+  press on finger-down, and the press branch emits `map_clicked`, which with
+  the Settlement tool armed drops a town. So a touch press is **withheld**
+  until the gesture identifies itself — drift releases it (so a sculpt stroke
+  starts from its real origin), an early lift releases it and then ends it, and
+  reaching the deadline **discards** it and emits `map_right_clicked`. Gated on
+  `device < 0` (`DEVICE_ID_EMULATION`) or `OS.has_feature("mobile")`, so a
+  desktop mouse takes none of this path.
+- **The context sheet is the same `PopupMenu`, re-presented**
+  (`phone_menu.gd`'s new `open_sheet()`, `DccShell.phone_present_popup()`).
+  `civilization_workspace.gd` builds its menu exactly as it did; on a phone it
+  is drawn as the canvas's L4 sheet — 52 dp rows, grab handle, dismissing
+  scrim, system-back — instead of a pointer-sized popup that clips at a screen
+  edge. One menu definition, two presentations, the same contract
+  `phone_menu.gd` already has with `menus.gd`. Returns false off-phone, so the
+  call site carries no branch of its own.
+- **The three civ windows fill the screen** (`DccWidgets.phone_window()` /
+  `phone_present()`). All three shipped with `wrap_controls` on — the third,
+  fourth and fifth instances of this shell's twice-recorded bug class — and all
+  three were authored at desktop sizes (400x640, 880x620, 940x660) for a 393 dp
+  screen. `open_project_dialog.gd`'s treatment, generalised: borderless with an
+  in-content 56 dp header (the embedded title bar is drawn by the *parent*
+  viewport, so it does not grow with `content_scale_factor` and its close box
+  lands at about 5 dp), `min_size`/`max_size` cleared, and `Window.popup(rect)`
+  rather than a hidden `size =` plus `popup_centered()` — which is
+  load-bearing: `AcceptDialog` lays its content child out from a resize
+  *notification*, and without one the child kept its desktop rect (measured at
+  377 x 2602 inside a 393 x 852 window), so a `ScrollContainer` handed 2602 px
+  of height had nothing to scroll and the lower two thirds of a form were
+  unreachable.
+- **`DccShell.phone_fit(node, unit)`** — `_phone_fit_tool_options()`
+  generalised from the tool row to any subtree, since the docks and the three
+  windows had the same disease: every row comes from `dcc_widgets.gd`, which is
+  authored in desktop pixels (`_row` 24, `slider` 14, `action` 26). `unit` is
+  what one authored pixel is worth — `_phone_scale` in the main viewport, `1.0`
+  inside a content-scaled window. Idempotent by meta-flag, and re-run over the
+  dock sheets from a coalesced `node_added` hook so a panel rebuilt after boot
+  is sized too. Four things it does beyond heights, each found by measurement:
+  - `OptionButton.fit_to_longest_item = false`. A picker reports the width of
+    the **longest item in its list**, not of the selection. The roster's four
+    Identity pickers put its content minimum at 473 px on a 393 dp screen; a
+    `Window` cannot be narrower than its content, so the window grew and the
+    layout went with it.
+  - `clip_text` plus ellipsis on *expanding* buttons only. A `Button` sized by
+    its own text and not expanding has nothing else to get a width from —
+    applied to every button alike, the roster's Add/Remove pair went to zero
+    width.
+  - `v_separation`/font on an `OptionButton`'s `PopupMenu`, which is a `Window`
+    and so not in the walk: its rows measured about 21 dp inside a
+    content-scaled window and about 8 dp in a dock.
+  - `MOUSE_FILTER_PASS` on layout containers. Godot delivers a GUI event to the
+    picked control and then up its parents, stopping at the first `STOP` — and
+    every `dcc_widgets.gd` row is a `STOP` `HBoxContainer`, so a drag starting
+    on a row never reached the scroll above it.
+- **City Viewer stacks** (`city_viewer_window.gd`). A 940 px canvas beside a
+  264 px column leaves the canvas 129 px at 393 dp; phone puts the canvas in a
+  330 dp band with the info column scrolling under it. Pinch
+  (`InputEventMagnifyGesture`, which reaches this file now that
+  `enable_pan_and_scale_gestures` is on) and two 44 dp zoom steps replace the
+  wheel; all three go through one `_zoom_by()` rather than three copies of the
+  pan correction. The canvas `accept_event()`s its gestures so the column under
+  it cannot steal a pan halfway through.
+- **Faction roster runs master-then-detail** (`faction_roster_window.gd`).
+  Picking a faction folds the 250 px list into a 52 dp bar carrying its banner
+  and name; the bar reopens it. Its body is **one** scrolling column on the
+  phone rather than desktop's two nested `SIZE_EXPAND_FILL` scroll panes inside
+  a third — that nesting is what the dialog laid out at 2602 px, and the place
+  editor's single unnested scroll comes out correct at 797 px in the same
+  window from the same helper, which is what identified nesting rather than
+  window size as the cause.
+- **Place editor** no longer grabs the name field on open: §4.5.3's
+  focus-the-name rule costs nothing on a pointer and raises the IME over the
+  form on a phone (seen on the handset, covering everything from Traits down).
+
+**The tool bar needed no change of its own.** It builds through
+`set_tool_options()`, which already runs `phone_fit` over the finished row, and
+the phone tool sheet already scrolls horizontally — so its twelve segments are
+44 dp and reachable as built. An `HFlowContainer` was tried first and reverted:
+inside a horizontal `ScrollContainer` it is handed unbounded width and can
+never wrap, so it would have been inert.
+
+**Verified.** A `--force-touch` harness at 393 x 852 drives every path with
+synthesised `device = -1` pointer events — so hit-testing, `mouse_filter` and
+the hold timer are genuinely exercised rather than bypassed by calling
+callbacks — and asserts 25 properties (tap still selects, hold opens the sheet
+and suppresses the click, back closes it, each window's `wrap_controls`, fill,
+scale, and that no visible target is under 44 dp). All pass. Then on a real
+OnePlus 6T (1080 x 2340, LineageOS), driven with `adb shell input`: the context
+sheet in both its variants (a settlement, with Edit/Move/Delete; and open
+ground, with Drop/Info), the place editor's full scrolling form and its
+Actions, the City Viewer's stacked canvas and 44 dp controls, and the roster
+opening on its list and folding to the bar on a pick.
+
+**Open, found in the same pass and deliberately not fixed:** a dock sheet still
+does not scroll from a drag on its *content*. The scrollbar drag and the
+category accordion both work, so nothing in a dock is unreachable, but the
+flick is the gesture a phone user reaches for. `MOUSE_FILTER_PASS` on the rows
+(above) was necessary and not sufficient; the remaining cause is below the row
+vocabulary and is its own investigation. Registered rather than half-fixed.
+
+## Selecting the integrated GPU opened the discrete one (2026-08-24)
+
+`cargo test --workspace` failed on this machine in
+`every_enumerated_device_can_be_selected_and_opened`: selecting
+`"1002:13c0:AMD Radeon(TM) Graphics"` by key opened `"AMD Radeon RX 7800 XT"`.
+The assertion's own message named the cause correctly —
+*"not whatever HighPerformance prefers"* — but the mechanism was not what the
+message implies, and the difference is the whole entry.
+
+**Root cause: one logical operation read the process-global preferences
+twice.** `init_gpu_device_set()` opened with `let prefs = preferences();`,
+branched on `prefs.mode`/`prefs.selected_keys.len()` — and then, for the
+single-device case, delegated to `crate::init_gpu_shared_device()`, which
+reaches `multi::pick_primary_adapter(&instance)`, which called
+`preferences()` **again** to find the key to resolve. Two reads of one
+`RwLock`, one decision. Between them, a concurrent `set_preferences` can
+land. When it does, the second read sees `selected_keys` empty, so
+`pick_primary_adapter` skips `adapter_for_key` entirely and takes its `auto`
+branch — `PowerPreference::HighPerformance` — which on this machine is the
+discrete card. The caller asked for one GPU by key, got the other, and
+nothing anywhere returned an error: the fallback that exists to survive a
+*removed* GPU quietly serviced a *racing* one.
+
+**Why it looked like a device-selection bug rather than a race.** It
+reproduced on roughly one run in six and never under `--test-threads=1`.
+`tests/multi_gpu.rs` had seven tests writing that one global, several of them
+ending in a tidy-up `set_preferences(GpuPreferences::default())`, and
+`cargo test` runs them in parallel — so a neighbour's reset was landing
+between this test's write and its read. It failed *only* on the integrated
+iteration because losing the race on the discrete iteration yields the
+discrete GPU anyway, which is indistinguishable from success. The
+enumeration, the key format, `group_adapters`, `adapter_for_key` and the
+backend ranking were all correct throughout and are unchanged.
+
+**Fix — take the snapshot once, then pass it down.**
+
+- `init_gpu_device_set_with(&GpuPreferences)` is the new body: it touches no
+  global state at all, and every branch inside it reads the same `prefs`
+  value it was handed.
+- `init_gpu_device_set()` is now one line — `init_gpu_device_set_with(&preferences())`
+  — so the ambient entry point takes exactly **one** snapshot. Its signature
+  and behaviour are otherwise unchanged, so `cartalith-engine`'s call site and
+  the `cartalith-godot` bridge needed no edit.
+- `pick_primary_adapter_for(instance, selected_keys)` takes the keys as an
+  argument; `pick_primary_adapter(instance)` is the thin ambient wrapper the
+  single-use `init_gpu_*` pipeline builders still use.
+- `open_primary(instance, selected_keys)` replaces the single-device path's
+  call to `init_gpu_shared_device()` — same features, same
+  `REUSED_STAGE_MAX_STORAGE_BUFFERS` floor, same device label, only the
+  adapter choice differs. This is what removes the second read.
+
+**The GL-Compatibility hazard was checked, not assumed.** `6a97911` and
+`6b2c4d9` both turned on *when* a `wgpu::Instance` is built and *which
+backends its descriptor names*. This change moves the instance construction
+in the single-device path from inside `init_gpu_shared_device()` to the top
+of `init_gpu_device_set_with` — the same call, `multi::compute_instance()`,
+at the same moment in the same call, still the crate's only construction
+site, still `backends: COMPUTE_BACKENDS`. No enumeration was made eager:
+adapters are enumerated only inside `adapter_for_key`, only when a key is
+actually present, exactly as before.
+
+**Tests.** `tests/multi_gpu.rs` now passes preferences explicitly — every
+device test calls `init_gpu_device_set_with` with its own value, which is
+race-free by construction and removes six writes to the global. The two
+tests that genuinely exercise the global path (the new
+`a_globally_set_device_key_is_the_device_that_opens`, and
+`a_vram_budget_below_the_grids_working_set_keeps_the_gpu_path_off`) serialise
+on a `PREFS_LOCK` that ignores poisoning, so one failure cannot cascade into
+the other as a second, misleading one. The new test is the direct regression
+test: it writes the key with `set_preferences` and asserts
+`init_gpu_device_set()` opens *that* device, which is the exact path that was
+broken — fixing only the tests would have left the bug live for every real
+caller, `cartalith-engine`'s included.
+
+**Verified on the real two-GPU machine**, not mocked:
+`selected "1002:747e:AMD Radeon RX 7800 XT" -> opened "AMD Radeon RX 7800 XT"
+(DiscreteGpu)` and `selected "1002:13c0:AMD Radeon(TM) Graphics" -> opened
+"AMD Radeon(TM) Graphics" (IntegratedGpu)`. Because the failure was
+intermittent, one green run proves little: the `multi_gpu` binary was run
+**20 consecutive times at default parallelism**, 9/9 passing every time, 0
+failures. Then `cargo build -p cartalith-godot` for a fresh cdylib, and
+`cargo test --workspace`: **1,891 passed, 0 failed** across 129 test targets.
+
+No tolerance was touched, no fixture regenerated, and no assertion weakened —
+the test that caught this asserts exactly what it asserted before.
+
+## Right dock: the note widget's own floor was still wider than the dock's minimum (`PARITY_AUDIT.md` pass 2 F8, fixed 2026-08-24)
+
+The dock-jitter fix above (695821f) left one item under "Still open":
+`DccWidgets.note()` kept a hardcoded `custom_minimum_size.x = 240`, which
+with the dock's own container padding is wider than `DccTheme.W_RIGHT_DOCK_MIN`
+(260) — so no context that draws a note could actually reach the right
+dock's documented minimum width. `PARITY_AUDIT.md` pass 2 caught that this
+was disclosed only in that narrative "Still open" bullet and never carried
+into `GUI_GAP_REGISTER.md` (**F8**).
+
+**Same fault class as the dock-jitter bug, one register removed.** That fix
+was about a label whose minimum width *tracked live text* and jittered the
+whole layout on every mouse-move; this one is a label whose minimum width is
+a **static** constant that is simply set too high — it never jitters, but it
+permanently overshoots the dock's own contract.
+
+**The actual budget, computed rather than guessed:** `section()`'s own
+`MarginContainer` padding (`dcc_widgets.gd`) takes 26 px off any dock's width
+(14 left + 12 right) before a note's column even starts, and a `group()`
+nested one level deeper inside that section (several `right_dock.gd` call
+sites — Measure ▸ Actions among them) takes a further 10 px left margin. At
+the dock's documented 260 px floor that leaves **223 px** in the tightest
+real case, against the 240 the widget was asking for (266 with section
+padding alone, 276 nested in a group) — the ~272 px `PARITY_AUDIT.md`
+estimated is in that range.
+
+**Fix:** `DccWidgets.note()`'s `custom_minimum_size.x` dropped `240` → `190`,
+leaving 33 px of headroom in the tightest nesting for the right dock's
+`ScrollContainer` to grow a vertical scrollbar without re-blowing the budget.
+`note()` is shared by 18 call sites across the shell, not just
+`right_dock.gd`; every other caller already gives it a column far wider than
+190 (`data_manager_window.gd`'s import/export panes fix their column at
+620 px, for one), so none of them changes behaviour — only the right dock,
+where 190 was the number that mattered, does.
+
+Registered as `GUI_GAP_REGISTER.md` **SH-12**, closed. F8's second half —
+*"the left dock and the workspace panels were not audited for the same
+fault"* — is covered by the same fix, since it edits the one shared widget
+both surfaces call through `DccWidgets.note()`; neither was separately
+measured against a documented minimum the way the right dock was, because
+neither carries one as tight as `W_RIGHT_DOCK_MIN`.
+
+**Verified:** headless boot-check clean
+(`Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project`,
+no errors, extension loads). No Rust changed — this is a GDScript constant.
+
+## Phone: the sheets would not flick, and two dialogs were still desktop-sized (`GUI_GAP_REGISTER.md` PH-05, PH-06, fixed 2026-08-24)
+
+The two items the phone pass (`905185c`) registered and left open. Both are
+GDScript only; no Rust changed.
+
+### PH-05 — the blocker was a `Button`, and PH-04's own fix was a no-op
+
+The handset report was precise: the 4 px scrollbar scrolls, the accordion
+opens, **a flick on the content does nothing**. PH-04 had guessed the cause
+(`MOUSE_FILTER_STOP` on `dcc_widgets.gd`'s `HBoxContainer` rows) and set
+layout containers to `PASS`. Measured against 4.7.1 rather than assumed, that
+was wrong in both halves:
+
+| measured | value |
+|---|---|
+| `Container` default `mouse_filter` | **`PASS` (1)** — never `STOP`, so the row fix changed nothing |
+| `Label` | `IGNORE` (2) — which is why the *labels* already scrolled |
+| `Button` / `PanelContainer` | `STOP` (0) |
+| `ScrollContainer` touch drag | driven by **mouse** events (emulated from touch), gated on `DisplayServer.is_touchscreen_available()` |
+
+Godot delivers a GUI event to the picked control and then up its parents,
+stopping at the first `STOP`. So a press that lands on a button never reaches
+the `ScrollContainer`, and the sheet cannot scroll from it.
+
+**`_scrolldrag_probe.gd`** (new, in the Godot project beside `_shot_phone.gd`;
+`Input.set_emulate_touch_from_mouse(true)` is what arms the engine's touch
+scrolling on a dev box with no touchscreen) opened the real left sheet and
+flicked twenty points down it, naming the control under each. Twelve did not
+scroll — **nine `Button`s and three `HSlider`s, nothing else.** From the
+accordion down, the sheet *is* buttons: L2 `category()` headers, L4 `group()`
+headers, every `action()`. That also disposes of the register's guess that the
+main viewport was at fault: the place editor "worked" because its form is
+mostly labels and margins.
+
+**Fix, in `DccShell.phone_fit()`** — the walk PH-04 already runs over the
+docks, the tool row and the three civ windows:
+
+- a `BaseButton` goes to `MOUSE_FILTER_PASS`. Safe because `ScrollContainer`
+  and `BaseButton` already cooperate: past the deadzone the scroll propagates
+  `NOTIFICATION_SCROLL_BEGIN` and the button cancels its pending press.
+- a `ScrollContainer` gets `scroll_deadzone` = new `PHONE_SCROLL_DEADZONE`
+  (10 authored px, scaled with the subtree). **Load-bearing, not tidiness.**
+  Godot's default is 0, at which the ~2 px of wobble in a real thumb tap
+  counts as a drag and eats the press — the fix would have traded "the sheet
+  does not scroll" for "the buttons do not press". Measured at both settings:
+
+  | gesture | deadzone 0 | deadzone 10 |
+  |---|---|---|
+  | clean tap | fires | fires |
+  | 2 px wobble tap | **scrolls 1 px, fires nothing** | fires |
+  | 6 px wobble tap | **scrolls 6 px, fires nothing** | fires |
+  | 8-sample flick | scrolls 96 px, fires nothing | scrolls 96 px, fires nothing |
+
+- `HSlider` is excluded on purpose — a drag starting on a slider means "move
+  this slider" on every touch platform there is.
+- `OptionButton`, `MenuButton` and `ColorPickerButton` are excluded, and not
+  for symmetry: a control that opens a `Popup` on *press* pops it mid-flick
+  and the popup grabs the drag, so the gesture neither scrolls nor is undone
+  (measured on `OptionButton`: popup open, scroll 0). Their rows still scroll
+  from the label beside them, and the behaviour was seen on the device.
+
+After the fix the same twenty-point probe scrolls at 17 of 20 points; the
+three that do not are the sliders.
+
+### PH-06 — both dialogs take the treatment the civ windows already had
+
+`new_world_dialog.gd` and `browse_dialog.gd` now call
+`DccWidgets.phone_window()` / `phone_present()` and `DccShell.phone_fit(self,
+1.0)`. Neither gained a second set of phone constants. Three things the
+shared treatment did not cover:
+
+1. **New world needed a way out.** `phone_window()` goes borderless and this
+   dialog's OK button is *Create*, not Close, so on phone it gains
+   `add_cancel_button("Cancel")` and a `DccWidgets.phone_head()`. The call is
+   placed *before* the OK button is renamed, since `phone_window()` sets
+   `ok_button_text` for the read-only windows it was written for. Its content
+   also moved into a root `VBoxContainer`, because an `AcceptDialog` gives
+   only its *first* child the whole rect — the arrangement
+   `place_editor_window.gd` established.
+2. **The browser is spawned per pick, not owned.** `_spawn()` takes whatever
+   node the caller had; `open_project_dialog.gd` passes `self`, a `Window`
+   that answers neither `is_phone()` nor `phone_scale()`. New `_shell_of()`
+   walks up to the nearest `DccShell`. Being the first *transient* window to
+   take this treatment also exposed a latent fault in the shared code:
+   `phone_window()`'s rotation hook is a lambda created in a `static`
+   function, so nothing auto-disconnects it — it is now guarded with
+   `is_instance_valid()` and released on `tree_exiting`, without which a
+   rotation after the dialog closed would touch a freed object.
+3. **The breadcrumb widened the window off the screen, on Android only.** A
+   `Button` reports its own text as its minimum width — the hazard
+   `phone_fit()` already records for the faction roster — and Android's home
+   directory is `/data/data/org.cartalith.walkingskeleton/files`. Measured:
+   the crumb row's minimum was **715 px inside a 393 dp window**, dragging the
+   list, the foot and the Open button off the right edge. The same dialog
+   fits on Windows because `C:/Users/Vincent` fits; **a desktop run is not
+   evidence for this class of bug.** The crumb row is now a horizontal
+   `ScrollContainer` on phone (56 px minimum after the change, nothing
+   propagating up): it contributes no minimum on the axis it scrolls, keeps
+   every segment reachable rather than trimming behind an ellipsis, and
+   drag-scrolls for free off PH-05.
+
+`browse_dialog.gd`'s file rows also carry PH-05's rule inline — they are
+`PanelContainer`s with their own `gui_input` (a `Button` cannot tell a click
+from a double-click), the one shape the shared walk deliberately skips.
+`PASS` still delivers the press to the handler, so click-to-select and
+double-click-to-enter are untouched.
+
+### Verified
+
+- Headless boot-check clean.
+- `_scrolldrag_probe.gd`, before/after, on the real shell — the twenty-point
+  table above.
+- **Real hardware, OnePlus 6T (1080 x 2340, `--export-debug "Android"`,
+  `adb install -r`).** PH-05: a flick starting on *05 Volcanism & impacts*
+  scrolls the World sheet to its foot and toggles nothing; a tap on *06
+  Erosion* opens it. PH-06: New world fills the screen with its phone header,
+  0 controls under 44 dp, drag-scrolls to Cancel/Create; the browser fits
+  1080 px wide with ✕, crumbs, path well, list and foot all inside, the crumb
+  row scrolls sideways under a drag without navigating, and a row tap still
+  selects. The over-wide browser was **found on the device after a clean
+  desktop probe run**, which is the whole reason PH-06 named on-device the bar.
+- Desktop control run: both dialogs still open centred and decorated at
+  620 x 780 and 760 x 640, unchanged.
+
+**Still open:** the `toggle()` rows in New world clip their labels at
+`ROW_LABEL_W` (132 px) on a phone — *"Village seeding (add"*. Pre-existing to
+this fix and shared with every narrow dock; not treated here rather than
+guessed at.
+
+## Civ catches up on demand: `recompute_civilisation` (`GUI_GAP_REGISTER.md` SG-02, ED-03d, 2026-08-24)
+
+The staleness consumer that landed earlier the same day stops at climate on
+purpose: `recompute_stale` re-runs hydrology and climate after a terrain edit
+and leaves `civ` stale, because cascading into it was measured at ~7 s per
+stroke (`UNIFIED_TOOL_PLAN.md` milestone C) and that is not a per-stroke cost.
+The gap register carried the consequence twice — SG-02 (nothing rebuilds civ
+short of a full `generate()`) and ED-03d (a place edit or delete recomputes no
+provinces, trade balances, roads, territory or `explanations`). Both are the
+same missing binding.
+
+`WorldGen::recompute_civilisation()` is that binding, and the Civilization
+dock's **Settlements ▸ Recompute** section is its control.
+
+### The design decision: which half of the civ layer is derived
+
+Re-running `compute_civilisation` wholesale is the obvious implementation and
+the wrong one. Settlement placement is not a pure function of terrain in this
+port *any more*: `civ_drop_settlement` appends hand-placed settlements,
+`civ_edit_settlement` rewrites name/tier/population/faction in place, and
+`civ_roster_bridge`'s `place_extras` hangs traits, specialisation, history and
+the age/walls overrides off each one's `tid`. A from-scratch rebuild moves
+every settlement, re-rolls every name from a fresh `civ_name_rng()`, and
+orphans every side-table entry whose `tid` no longer exists — silent loss of
+exactly the data the `tid`-keyed table was introduced to protect.
+
+So the split is drawn at the settlement list:
+
+- `compute_civilisation` gains one parameter, `keep: Option<(Vec<Named
+  Settlement>, u64)>`. `None` is `absorb`'s path and is bit-identical to what
+  the function always did. `Some` takes the settlement list as an **input**
+  and skips the four passes that *author* settlements — seed-finding and
+  placement, naming/population, village seeding, the metropolis promotion and
+  the recovery phase. Everything else runs exactly as before, over the current
+  terrain.
+- The `u64` is `next_tid`. Ways are re-issued ids from the same counter the
+  kept settlements were numbered out of; restarting it at 1 would hand a new
+  road the `tid` of a live settlement.
+- The four fields with no terrain input at all — `timeline`, `year`,
+  `faction_roster`, `place_extras` — are moved across in the `#[func]` rather
+  than rebuilt, since `compute_civilisation`'s Cluster-D reset is right for a
+  fresh generation and pure loss here.
+- Hand-painted territory needed one new function. `CivTools::commit` is driven
+  by the in-progress *draft* and returns early when it is empty, which it
+  always is at recompute time — so it would have handed back a pristine
+  `assign_territory` raster and erased every painted border, while leaving
+  `territory_base` describing the pre-edit world so the *next* subtract stroke
+  restored stale cells. `CivTools::rebase` re-anchors: the new computed answer
+  becomes the base, and the accumulated paint layer is merged back on top.
+
+### One thing only the real shell found: villages are not network nodes
+
+The first working implementation fed the whole kept settlement list into
+`civ_hierarchical_network_topology`. On a 384 x 288 world with village
+seeding on that took the map from **35 ways to 240 on one button press** —
+and tripled the call's cost, 0.7 s to 4.3 s. The cause is an ordering the
+reference has and this function reproduces: `_civSeedVillages` runs *after*
+`_civHierarchicalNetwork`, so villages have never been network nodes. A
+recompute that included them was not catching the world up, it was
+restructuring it.
+
+`CivData::village_tids` records which settlements `civ_seed_villages` added.
+Keyed by `tid`, not by index or by the trailing range they occupy at
+creation, because `civ_delete_settlement` splices and `civ_drop_settlement`
+appends — neither an index nor a range survives a session of editing, and
+`civ_apply_recovery` can drop entries before the ids are even assigned (the
+flags are carried through its own index map for exactly that reason). The
+recompute builds the topology from the non-village settlements and remaps
+`RoadEdge::a`/`.b` back through that index list, since
+`civ_consolidate_and_smooth_ways` reads them as indices into `settlements` —
+an identity the auto-populate path gets for free and this one does not.
+`path` is cell indices and `usage_count` is per cell, so neither needed
+touching. Same world after the fix: 35 ways before, 35 after, rerouted around
+the new mountain range.
+
+**This was invisible to the headless correctness harness**, which runs with
+village seeding off (the engine default), and invisible to reasoning about
+the code — it showed up as a number in the real shell's own road count.
+
+What that buys, and what it costs: roads, sea lanes, territory, provinces,
+trade balances, `explanations` and agrarian density all catch up with the
+edit; settlements do not move. Sculpt a mountain under a city and the
+recompute reroutes its roads and redraws its borders, but the city stays on
+the mountain. Re-placing from terrain already has a control, and it is
+Generate.
+
+Hydrology and climate are settled first, through the same
+`mark_and_recompute` the commit paths use — a civ layer derived over pre-edit
+rainfall would just be a different kind of stale.
+
+### Verified
+
+- `cargo build -p cartalith-godot`, `cargo test -p cartalith-civ -p
+  cartalith-godot` green, plus a new `rebase` test pinning that a painted cell
+  survives a recompute *and* that the next subtract falls through to the new
+  base rather than the old.
+- `_civrecompute_shot.gd` on the real GDExtension boundary, 384 x 288: a
+  committed sculpt stroke leaves `still_stale=["civ"]` and moves nothing in
+  civ until asked; the recompute then changes territory, roads and trade
+  balances, and returns `still_stale=[]`. A hand-dropped town, a hand-renamed
+  and demoted capital, its toggled trait, the 7-entry faction roster and 13
+  hand-painted territory cells all survive it intact. A second pass — drop a
+  capital, recompute — moves territory, roads, provinces *and* trade
+  balances, which is ED-03d closed.
+- Real windowed shell: the button under Settlements ▸ Recompute, pressed
+  after a sculpt commit and after a place edit.
+
+### Measured
+
+Release, CPU path, square grids at 1200 km: **0.94 s at 512², 1.60 s at
+1024², 4.22 s at 2048²**, against 1.28 s / 2.59 s / 8.16 s for a full
+`generate()` on the same run — about half. Below the ~7 s/stroke figure that
+made the automatic cascade unacceptable, precisely because placement and
+naming are what it skips. There is no "nothing changed" fast path: a second
+call costs the same to within a few ms, by design.
+
+**Still open:** SG-01, the staleness *indicator*. The button is deliberately
+always enabled rather than greying itself out when civ is current, because
+the shell has no surface that shows staleness yet — a control that disabled
+itself would be reporting a state the user cannot see. ED-03a is unaffected
+and was re-checked: `civ_faction_aggregates` is not on this path at all, so an
+edited specialisation still reaches no sector output.
+
+## Painting was invisible on the map (`GUI_GAP_REGISTER.md` WW-12, 2026-08-24)
+
+The owner asked for a check that "terrain and biome painting works
+correctly". It did not, in the one way that matters to someone using it: a
+committed stroke changed nothing on screen. Everything underneath was right.
+
+### What was audited, and found correct
+
+Read against `reference/Cartalith Gen1 v2.10.html` (`_paintAt` 4783,
+`getPaintLayer` 4765, `_paintSampleAt` 4774, the paint-brush pointer block at
+25933, `landColorCore` 7720/7765/7897, `buildBiomeRaster` 6798,
+`currentCartBiome` 6833, the editor export at 12435) and driven live through
+the real GDExtension boundary:
+
+- **Three layers, three palettes.** `biome`/`terrain`/`splat`, sized 13/13/6
+  -- `CART_BIOMES.slice(0,13)` (water excluded, "the brush never touches
+  water"), all of `CART_TERRAINS`, all of `SPLAT_PAINT_SLOTS`. Correct.
+- **Disc geometry.** `hypot(dx,dy) > R` skips, so the rim at exactly `R` is
+  painted; measured against an independently computed disc at r = 1, 6 and
+  20 on every layer -- exact, every time. (`js_hypot` rather than
+  `f64::hypot` was already correct and already tested; the two only disagree
+  about a cell from r = 125, above the slider's own cap of 40.)
+- **The land gate.** `wb[i] !== 0`, which excludes lakes as well as ocean.
+  A gated dab centred in open water paints nothing; a gated dab on a coast
+  paints exactly the land subset of its own disc (410 of 410 cells, checked
+  cell by cell). `land_only = false` is this port's own disclosed
+  affordance and really does bypass it.
+- **Erase.** Writes `0` over the disc, removing exactly the erased disc's
+  worth of cells and nothing else, and -- after the render fix below -- takes
+  the map pixel back to the *exact* unpainted colour.
+- **Stroke shape.** The reference does not interpolate between pointer
+  samples either (`_carPointerMove` calls `_paintAt` once per sample), so
+  "one dab per call" is parity, not a gap. A fast drag leaves the same gaps
+  it leaves in the reference.
+- **`paint_commit`'s staleness.** Still marks `Civ` and correctly recomputes
+  nothing -- a mid-chain edit does not make its own upstreams stale.
+  Confirmed as intended, not an oversight.
+- **The debug views do not merge paint, and should not.** `buildBiomeRaster`
+  and `currentCartBiome` both take the *unpainted* classifier output in the
+  reference; only the editor export (12435) replaces per cell. The port
+  matches.
+
+### The two real defects
+
+**1. The map never showed a committed cell.** `render.rs`'s module doc had
+listed *"the paint-brush biome/terrain override"* on its Excluded list since
+milestone 1, when there was genuinely no producer for a painted-cell array;
+`UNIFIED_TOOL_PLAN.md` milestone C built that producer and nothing went back
+to the exclusion. So `paint_commit` wrote real cells,
+`build_paint_preview_texture` drew them as a separate opaque overlay, and
+`build_color_texture()` was byte-identical before and after -- while the
+reference's `_paintAt` ends in `render()` and tints the map on the first dab.
+
+`land_color` now takes a `PaintOverride { bio, ter, splat }`:
+
+- **Biome and Terrain**, 7897-7901 verbatim: `l = l + (COLS[p-1] - l) * 0.60`
+  on the *fully shaded* colour, applied sequentially in that order, sitting
+  after the haze and before the NPR block -- the reference's own slot, chosen
+  so "hand-drawn styles still apply consistently on top of painted cells"
+  and painted cells "don't read as flat pasted stickers".
+- **Splat**, 7765-7773: forces one pack ground texture at full coverage
+  instead of the `materialWeights`-weighted multi-slot blend. Inert without
+  a pack, which is the reference's own "empty slots stay procedural".
+- **`_paintedTex` is unreachable, and that is disclosed rather than hidden.**
+  The v1.28 refinement blends a *pack* texture's true colour instead of the
+  flat swatch; `pack.rs` parses but does not decode the `biomes`/`terrains`
+  families, so there is nothing to reach for -- which is exactly the branch
+  `_t || CART_BIOME_COLS[pBio-1]` takes for a pack-less world there too.
+
+`RenderCtx::with_paint` carries the three committed grids (a grid shorter
+than the field is dropped rather than indexed -- that panic would fire once
+per pixel inside a rayon `par_chunks_mut`, and a panic must not cross the
+gdext boundary). `build_color_texture` supplies them from `WorldGen::paint`.
+Committed cells only: the reference has no draft stage for paint at all, so
+there is no reference answer for an uncommitted dab, and showing the
+committed state matches Sculpt's own split.
+
+**2. The overlay preview named every class in the wrong colour.**
+`swatch_color` spaced classes around the hue wheel, on the written grounds
+that *"no literal RGB table behind it ... has been ported"*. That was true
+when written and had already stopped being true: `CART_BIOME_COLS` and
+`CART_TERRAIN_COLS` were in the same crate, for the `bclass`/`cterrain`
+debug views. Preview and map therefore named the same class in two unrelated
+colours. Both tables now live in `render.rs` -- its `landColorCore` port is
+the primary consumer, and `render.rs` is `#[path]`-included standalone by
+five test targets so it cannot reach a sibling module -- and
+`sample_bridge.rs` re-exports them, leaving every existing call path valid.
+Splat keeps a generated hue and that is the honest answer, not a leftover:
+`SPLAT_PAINT_SLOTS` names ground *textures*, and a texture has no swatch.
+
+**3 (shell).** Both `_on_paint_commit` handlers (`tool_bar.gd`,
+`world_workspace.gd`) gained the `map_view.texture = bridge.color_texture()`
++ `set_preview_texture(null)` pair `_on_sculpt_commit` already had. Without
+the first the fix is invisible in the running app; without the second the
+opaque draft overlay sits on top of the blend it was standing in for.
+
+### Verified
+
+- `tests/paint_blend.rs`, 9 new tests, pinning the relation exactly rather
+  than to a tolerance: a painted cell is `blend(unpainted_cell, COLS[v-1])`
+  for **every** legal index of both tables, the two layers compose in the
+  reference's order (with an assertion that the fixture actually
+  distinguishes the two orders, since two 0.60 blends do not commute), only
+  the painted cell changes, water never takes a blend, a short grid is
+  dropped, and three all-zero grids render **bit-identically** to no grids at
+  all. **Mutation-checked, not merely green on the first run**: `0.60` to
+  `0.61` fails three of them; swapping Biome and Terrain fails the
+  composition one.
+- `golden_parity_render.rs` and `golden_parity_npr.rs` pass **unmodified** --
+  `PaintOverride::default()` is the unpainted state, so the pinned JS-parity
+  path never enters the stage. No tolerance touched, no fixture regenerated.
+- `cargo build -p cartalith-godot`, `cargo test -p cartalith-godot`: 312 unit
+  + 53 integration tests across 11 targets, 0 failed.
+- `_paint_shot.gd` on the real GDExtension boundary, 384 x 288: 26 checks,
+  all passing -- the palettes, the three discs at three radii, the gate on
+  open water and on a coast, erase, commit, the preview colour against the
+  literal reference RGB, the map pixel changing at all, two classes moving
+  the map pixel along the reference table's own delta, an LOD tile proving
+  byte-identical with and without paint (it is a shade-*ratio* multiplier
+  over the base raster, so the zoomed view inherits the paint by
+  construction -- the two paths cannot disagree the way `4d266de`'s did), a
+  6-sample drag accumulating overlapping dabs, and erase restoring the exact
+  clean pixel.
+- `_paintgui_shot.gd` in the **real windowed shell** at 2048 x 1311: generate
+  -> arm PAINT on the unified tool bar -> drag a 24-sample stroke through the
+  app's own `map_clicked`/`map_dragged`/`map_released` registry -> press the
+  real Commit chip -> erase and commit again. Screenshots show the draft as
+  flat opaque discs, the commit as the same discs blended at 0.60 with the
+  relief and coastline showing straight through, the status bar reading
+  `painted -- stale: ecology_biomes, resources_soils`, and the erase pass
+  returning the map to its generated appearance with `0 painted`.
+
+### Still open
+
+`GUI_GAP_REGISTER.md` **WW-13**: Commit and Discard gate on the *composite*
+painted-cell count, so both stay enabled after a commit with nothing left to
+do. Small (a `paint_draft_count()` `#[func]` and one bridge passthrough),
+left out of this pass to keep the commit off a fourth file another session
+was holding.
+
+## The CIVIL dock never rebuilt after a world generated (`GUI_GAP_REGISTER.md` RF-01, 2026-08-24)
+
+Found live on real hardware, on both PC and Android: with 40 settlements, 6
+factions and a full road network genuinely on screen and correct everywhere
+else -- the map drawing all of it, the right dock showing it on click --
+Settlements ▸ ROSTER said *"No settlements — generate a world first"*, Politics
+▸ FACTIONS said *"No provinces"*, Roads ▸ NETWORK said *"No roads"*. Ten of the
+eleven sections in the CIVIL dock had been rendering their empty state,
+uninterrupted, since launch.
+
+### What was wrong
+
+`app.gd:386-400` builds every workspace exactly once, at launch, before a world
+exists: `ws.setup()` -> `Workspace.setup()` -> `_build()`.
+`CivilizationWorkspace._build()` drew Settlements/Population/Economy/Politics/
+Culture/Timeline, and `_infra.setup()` drew Roads/Rivers/Ports/Trade/Logistics,
+all against an engine with no `civ` in it. Every one of them correctly rendered
+"generate a world first".
+
+Nothing re-ran them. `app.gd`'s own `generation_finished` handler writes
+status-bar text and nothing more; the subscribers to that signal were
+`world_workspace`, `cartography_workspace`, `right_dock`, `viewport_host` --
+and, inside CIVIL, **Timeline alone**. `_rebuild_readouts()` did exist, but it
+rebuilt `_settlements_body` only, and fired only on a place/roster *edit*
+(`_on_civ_edited`), never on a generate. `world_loaded` (load / revert /
+reopen) had the identical hole.
+
+**Why it went unnoticed for so long.** Any verification that edited a
+settlement or a faction on the way to checking something else tripped
+`_on_civ_edited` -> `_rebuild_readouts()`, which refilled the roster and made
+the dock look alive. The bug is only visible if you generate and then touch
+nothing -- which is also, of course, the first thing a user does.
+
+### The fix
+
+Both files now split every data-backed category into `_build_*` (runs once,
+claims the category's body node) and `_fill_*` (re-runnable), the same shape
+`_rebuild_timeline`/`_tl_body` already used -- clearing the *body* rather than
+replacing it, so the accordion (`categories`, which holds those same nodes)
+is untouched and whichever L2 the user has open stays open. Both subscribe to
+`generation_finished` **and** `world_loaded`.
+
+| Section | Refreshed before | Refreshed now |
+|---|---|---|
+| Settlements ▸ Roster / Land sustains | edit only | edit + generate + load |
+| Population ▸ Totals | **never** | edit + generate + load |
+| Economy ▸ Trade balance | **never** | edit + generate + load |
+| Politics ▸ Factions | **never** | edit + generate + load |
+| Timeline | generate + load | unchanged, folded into the one handler |
+| Roads ▸ Network / Hand-drawn | way commit only | commit + generate + load |
+| Ports ▸ Coastal / Sea lanes | **never** | generate + load |
+| Trade ▸ Flows | **never** | generate + load |
+| Logistics ▸ Journey planning | **never** | generate + load |
+
+Culture and Rivers deliberately get no body field and no rebuild: each writes
+one fixed note about a binding that does not exist (CV-02, IN-01), and a world
+does not change either sentence. `InfrastructureWorkspace` connects its own
+four rather than being driven by the parent, so it keeps working unchanged if
+it is ever un-nested again; `_nested` stays the only concession the 2026-08-20
+domain merge needed.
+
+Two corrections fell out of it. `_rebuild_readouts()`'s own comment claimed
+Population and Economy *"read nothing this touches"* -- wrong on both counts:
+Population sums `get_settlements()`, and SG-02's **Recompute civilisation**
+routes through the same `_on_civ_edited` and rewrites precisely the trade
+balances Economy reads and the provinces Politics reads. Both now follow a
+recompute too. And `_on_world_changed()` resets `_selected_index`, which
+otherwise indexed into a settlement list the new world had already replaced.
+
+### Cost, checked rather than assumed
+
+`8e666ac` established that eagerly cascading civ **recompute** is too expensive
+to hang off an edit (~7 s/stroke), and SG-02 kept it behind an explicit button
+for the same reason. That rule is about *deriving new data*. This is
+*presentation*: rendering already-computed state into Control nodes.
+
+Verified against `lib.rs` rather than asserted -- `get_settlements`,
+`get_provinces`, `get_trade_balances`, `get_roads`, `get_sea_routes`,
+`get_factions` and `route_count` are all `civ.<field>.iter().map(..).collect()`
+over stored `Vec`s, and the one O(grid) call in the set,
+`civ_agrarian_regional_total`, is a single linear pass over the already-stored
+`civ.dens`/`ws.field` with no normalisation behind it. **Measured in the real
+app: 13.99 ms for all ten sections, against a 1 350 ms generate on the same
+world** -- about 1% added, once per generate. The staleness rule is not
+weakened.
+
+### Verified
+
+`_civdock_shot.gd` / `.tscn`, run **windowed** -- a headless boot proves the
+extension loads, which is exactly what never caught this:
+
+- The empty state is asserted *present* before generating, so the rest means
+  something.
+- Generate, switch to CIVIL, **make no edit of any kind**, then read the real
+  `Label`/`Button` text out of the live node tree: all ten sections have
+  dropped the empty state and show real numbers (233 settlements -- 6 capitals,
+  2 cities, 7 towns, 11 villages, 207 hamlets; 8 provinces; 35 ways; the Land
+  sustains readout; a populated Largest-by-population roster).
+- The pre-existing edit path is not regressed: a delete through the real
+  `place_editor_window.place_deleted` signal moves the roster 233 -> 232.
+- A **second, different** world is followed too, and the dock is asserted not
+  to be still showing the first world's count -- a rebuild that only ever runs
+  once is the same bug with a longer fuse.
+- `CIVDOCK RESULT PASS`, plus a screenshot with every accordion body forced
+  open (the dock is an accordion, so a normal screenshot shows two sections of
+  ten).
+
+One check needed relaxing and it was not a defect: seed 771155 genuinely
+produces **0 coastal settlements**, so Ports ▸ Coastal correctly reads "No
+coastal settlements in this world." rather than the N-of-M sentence. Confirmed
+by counting the `coastal` flag directly rather than by loosening the assertion
+and hoping.
+
+### Still open
+
+Nothing from this finding. But the question that found it is worth asking of
+every other panel built at launch: **what re-runs this, and on which signal?**
+The dock passed both a line-by-line read (`GUI_GAP_REGISTER.md` §6.11/§6.12)
+and a live visual sweep (§14), because both looked at it *after* doing
+something.
+
+
+## Phone: the map could not be panned at all (2026-08-24)
+
+`GUI_GAP_REGISTER.md` **SH-13** (closed) and **SH-14** (open, owner design).
+Owner-reported, and phrased as a question about the reference rather than a
+bug report: *"For touch devices I made some specific functions inside the
+html, how to move around, snapping the view back to 100% etc. Do we have that
+functionality?"*
+
+The short answer was **no, almost none of it**, and one member of the set was
+not merely missing but load-bearing: with `SH-10`'s pinch fix landing the same
+day, the phone could zoom and still had **no way to move the camera**. Pan was
+`MMB` or `Space+LMB` only (`viewport_host.gd:393`), and a handheld has
+neither.
+
+### What the reference actually has
+
+Five distinct touch-navigation affordances, all found in
+`reference/Cartalith Gen1 v2.10.html` and cross-checked against
+`reference/FUNCTION_INDEX.md` Part 0 (line 90 names the cluster) rather than
+taken from either source alone:
+
+| Reference | Where | What it does |
+|---|---|---|
+| Two-finger pinch | 13988-14020 | Zoom about the centroid **and** pan by the centroid delta, in one `touchmove` |
+| `#zoomOverlay` ▸ `zoomIn`/`zoomOut` | 749-754, 13464-13465 | `×1.35` about the view centre; mobile-only (`isMobile`, 13435); LOD- and 3D-aware |
+| `#zoomOverlay` ▸ `panBtn` ✋ | 752, 13963 | Hold-to-pan **toggle** — makes single-finger drag pan instead of paint |
+| `#zoomOverlay` ▸ `zoomReset` ⟳ | 753, 13466 | The owner's *"snapping back to 100%"* — clears `panMode` **and** calls `_viewFill()` |
+| `#sculptNavpad` | 759-760, 9146-9200 | Velocity joystick, pans while Sculpt has the single finger captured |
+
+Deliberately **not** in that list: bare single-finger drag-to-pan. The
+reference gives the single finger to the tool — *"one finger keeps
+painting/drawing"* (13988) — which is the same call `viewport_host.gd:407`
+had already made independently, for the same reason.
+
+Two details of ⟳ are worth recording because neither is guessable from the
+name. It does not call `resetView()` (13390, `scale=1, pan=0`); since v1.13 it
+calls `_viewFill()` (13354), so **"100%" in this app is the COVER scale — the
+zoom at which the map fills the display — not scale 1**. And it clears
+`panMode` on the way, so the ✋ toggle never survives a reset.
+
+### Built
+
+One branch, in `viewport_host.gd`'s `_input()`: `InputEventPanGesture` →
+`_camera.position -= pg.delta`, then `_update_lod()`, mirroring the mouse-pan
+branch immediately above it.
+
+Nothing had to be enabled for it. `SH-10` turned on
+`input_devices/pointing/android/enable_pan_and_scale_gestures`, and that
+setting's name is not incidental — it gates **pan and scale** together.
+`dexdump` of the shipped APK shows `GodotGestureHandler.onScroll` emitting
+`handlePanEvent` beside the `onScale` pair `SH-10` confirmed, so the events
+were already arriving at a build that nothing was listening for them on.
+
+### Verified — on the real device, not reasoned
+
+OnePlus 6T, LineageOS / Android 15, two-pointer MT-B drags injected through
+AOSP `uinput` (the technique `ANDROID_BUILD_SCOPE.md` records; note this
+device's `uinput` takes `FILE`, not `-f FILE`). Both fingers travel together
+so the span is constant and `ScaleGestureDetector` never fires — the pan is
+measured in isolation from zoom.
+
+- **Before:** a real single-finger `adb shell input swipe` across the map
+  changed **51 pixels**, all of them the hover cursor. Every map pixel
+  identical.
+- **After:** finger **−400 px → map −163 px**; finger **+400 px → map
+  +163 px**; `z1.0` unchanged throughout; and the round trip returns to a
+  **byte-identical frame (0.000 mean abs diff)**. Reproduced on a 2048×1311
+  and a 1024×655 world.
+- `viewport_host.gd` parses clean in isolation (`--check-only`). The full
+  headless boot is **not** clean this pass, and not from this change: a
+  concurrent session's in-flight edit to `dcc_shell.gd:877`
+  (`var sb := b.get_theme_stylebox(state)`, inferred-from-Variant) fails the
+  parse. Confirmed by running `--check-only` against both files separately.
+
+### Still open
+
+**The gain is uncalibrated, deliberately.** `dexdump` shows Godot's own
+`onScroll` divides the Android delta by **5.0** (`const/high16 0x40A00000`;
+`handlePanEvent` and `setPanEvent` then pass it through untouched), predicting
+a 0.20× gain — but the measured gain is **0.41×**, a factor of ~2 this pass
+could not account for from the bytecode. Picking a multiplier to match an
+unexplained single-device measurement is the kind of guess this port does not
+make, so the handler stays 1:1 with the platform's own delta and the
+discrepancy is written down instead. The result is correct in direction,
+reversible without drift, and usable; it is not yet finger-tracking.
+
+**Everything else the owner asked about is unbuilt and needs a design
+decision, not a guess** — `SH-14`. The zoom pad, the ✋ toggle, ⟳ and the
+sculpt joystick are a mobile-web idiom; this shell has its own §13 phone
+language, and translating one into the other is real design work. `⟳` in
+particular cannot be built correctly without settling the second, larger gap
+it exposes: the reference's default *and* reset view is **cover**
+(`_viewCoverScale`, v1.01, from the owner's own *"big unused areas above and
+below"*) with a **fit**-scale zoom floor (v1.13) and a pan clamp that can
+never expose the letterbox (`_viewClampFill`). This port's `reset_view()` is
+plain fit/letterbox — visibly the state v1.01 was raised to fix, and a phone
+screenshot from this pass shows exactly that: the map as a band with large
+black margins above and below. `reset_view()` also has **no caller in the UI
+at all** today; it runs only on a fresh generate or load.
+
+One further observation, recorded because it was seen and not explained: the
+app restarted twice during the injection sweep, with **no tombstone, no ANR
+and no dropbox entry**. It was not reproducible when tested deliberately —
+pan-with-a-world-loaded survived every time it was checked, and pan with no
+world survived too — and both restarts happened under repeated `screencap`
+pressure with a 2048×1311 world resident. Noted, not attributed.
+
+## The phone had been running a 21-commit-old engine, and the guards that hid it (2026-08-24)
+
+`GUI_GAP_REGISTER.md` §23 · `ANDROID_BUILD_SCOPE.md` (2026-08-24 staleness pass)
+
+An audit sha256-compared the native library inside `builds/android/Cartalith.apk`
+against the build tree and found it **byte-identical to a 2026-08-23 14:34
+build**, with **25 commits** having landed in `cartalith-native/crates/` since.
+Everything downstream of that is the story: the app on the handset looked
+healthy — clean `logcat`, no crash, no ANR — while the NPR panel refused to
+build, Measure's Area/Radius/Cross-section stayed greyed, the faction roster
+read `?` and `0`, the City Viewer drew nothing, and save, undo, the erosion-pass
+parameters, four debug views, GeoJSON export, hand-drawn ways and civ-recompute
+were all inert. None of that work was broken. It was simply not in the binary.
+
+**The silence is the bug worth fixing, not the stale file.** A stale `.so` is a
+process slip and will happen again; a shell that cannot tell "this feature is
+off" from "this engine does not have that function" turns every such slip into
+a week of phantom bug reports. `engine_bridge.gd` had 200
+`world_gen.has_method("…")` guards and not one of them said anything on a miss.
+
+**What changed.** All 200 route through a single probe:
+
+```gdscript
+func _has(method: String) -> bool:
+	if world_gen.has_method(method):
+		return true
+	if not _missing_bindings.has(method):
+		_missing_bindings[method] = true
+		push_warning("Cartalith: the loaded GDExtension has no WorldGen.%s()…" % method)
+	return false
+```
+
+Once per method name, because several of these wrappers are polled from a
+redraw and a per-frame warning would bury its own signal. `missing_bindings()`
+exposes the accumulated set so the fingerprint is readable at runtime.
+`push_warning` rather than `print` because it takes Godot's `_err_print_error`
+path — the one this project's own `logcat` greps have always targeted.
+
+Proved in both directions on a headless harness: **0** warnings against a
+current library across every binding `_ready()` probes plus NPR, factions,
+undo, debug layers, urban layouts, paint and routes; and **exactly one**
+warning for three consecutive calls on a name no binary exports.
+
+**`cartalith.gdextension`'s release entry had the 2026-08-20 bug the debug
+entry had fixed.** `android.release.arm64`'s path was correct for
+`cargo ndk … build --release`, but nothing in this project has ever run that
+command, so it resolved to a **2026-08-16** artifact. Fixed by building it (so
+the path is real and current) and by writing the exact refresh command for each
+Android entry into the manifest beside the entry it refreshes — in `;` comments,
+because `#` is data to `ConfigFile`.
+
+**On device**, after a clean rebuild and a sha256-verified re-export: the
+library maps `r-xp` into the live process, GL ES 3.2 comes up on the Adreno 630,
+a 1024x655 world generates, and `logcat` carries **zero** missing-binding
+warnings. The NPR panel builds and its styles visibly re-render the map
+(Pointillism and Sepia dragged live); the erosion-pass parameters are live.
+**The handset then dropped off USB**, so the roster, City Viewer, paint
+visibility, save/undo, debug views, GeoJSON export, ways and civ-recompute were
+not driven on hardware and are recorded as unverified there rather than assumed
+— along with the one thing the pass wanted and missed: a positive control that
+`push_warning` reaches `logcat` at all.
+
+## Phone: four things the scaling walk could not see (`GUI_GAP_REGISTER.md` PH-07 – PH-10, 2026-08-24)
+
+A second live-device audit the same day, after the PH-01 – PH-06 pass. Four
+findings, all phone-only, and grouped here because three of them are the same
+shape: **a phone-adaptation rule that was written, ran, and silently did not
+apply.** Nothing about any of the four is visible in a headless run or in the
+desktop build, which is the standing lesson of this section rather than a new
+one — but it is worth stating that in three of these cases the *fix* was
+already present and merely never reached the control.
+
+### PH-07 · `phone_fit()`'s font walk cannot see a `RichTextLabel`
+
+`phone_fit()` re-wrote a control's font size where
+`has_theme_font_size_override("font_size")` was true, which is every control
+in this shell but one. **A `RichTextLabel` does not have that theme item at
+all.** Its sizes are five separate ones — `normal_font_size`,
+`bold_font_size`, `italic_font_size`, `bold_italic_font_size`,
+`mono_font_size` — and writing `font_size` on one does nothing whatsoever, with
+no warning.
+
+The control it cost is the right dock's **"Why here?" causal chain**
+(`right_dock.gd`, `normal_font_size` = `FS_SMALL`), the block that explains why
+a settlement sits where it does. On a 1080 × 2340 handset it drew at a flat 11
+*physical* px, roughly a third the height of every row above it in the same
+panel.
+
+The walk now asks for the override list per control class and scales every
+name that is set. A `RichTextLabel` that overrides *nothing* is scaled too, off
+its resolved theme value: it is pure text with no minimum-size floor to catch
+it, so the un-overridden case is the same fault by another route (`app.gd`'s
+credits body is the shell's other one).
+
+**Recorded as a class: a theme override's *name* is per control type, and a
+walk that assumes one name skips the types that use another — in silence.**
+
+### PH-08 · The dock TOOLS block is unlabelled marks on a touch screen
+
+§4.5's tool palette is `dcc_widgets.gd`'s `tool_button`: a 30 × 30 square with
+a 15 px glyph, an **empty** `normal` stylebox, and the tool's name in a
+tooltip. On a pointer that is a complete control — hover names it, 30 px is a
+comfortable target, and eight empty squares deliberately read as one strip with
+hover picking one out. On a handset neither half survives:
+
+- **There is no hover, so the name is unreachable by any route.** CIVIL's block
+  is seven such marks (Inspect, Measure, Region select, Settlement, Territory,
+  Way, Route), WORLD's four, CARTO's five, with nothing on screen to tell any
+  of them apart.
+- **PH-04's 44 dp floor grew the box and not its contents.** The button became
+  121 physical px on the device; the glyph inside stayed 15, about a millimetre
+  on a 400 ppi panel, left-aligned in the cell, with no border to say where the
+  button even was.
+
+`phone_fit()` now *finishes* a tool button rather than only sizing it. The
+glyph is **re-rasterised from the SVG** at 0.42 of the box — which is why
+`dcc_widgets.gd` now stashes the glyph's *name* on the button: `DccIcons`
+caches per `name@px`, so the 15 px `ImageTexture` already in hand cannot be
+grown without resampling it. The `normal` state gains a visible border (and all
+three states gain the same content margin, or `Button` re-lays its content out
+on press and the caption jumps sideways under the finger holding it). The TOOLS
+block's buttons gain a caption under the icon, stacked by
+`vertical_icon_alignment`, carrying the tool's name with the keyboard shortcut
+stripped — the device that needs the caption is the one with no keyboard.
+
+**Caption vs. icon-only-but-bounded was measured, not assumed**, because it is
+a real trade-off: at the phone reference the widest caption ("Region select")
+asks for 112 dp, and CIVIL's four-tool domain row for 338 dp of a 386 dp sheet.
+They fit — but only just, and only at today's vocabulary. So `tools_block()`
+now lays its rows out in an `HFlowContainer`: **a `BoxContainer` handed more
+minimum width than it has does not clip, it overlaps**, so one longer tool name
+would have put the last tool on top of its neighbour rather than on a second
+line. This is not the `HFlowContainer` PH-06's closing note reverted — that one
+was inside the tool sheet's *horizontal* `ScrollContainer`, where a flow
+container is handed unbounded width and can never wrap. A dock sheet scrolls
+vertically only.
+
+The feature picker (`world_workspace.gd`, 13 glyphs in a 5-column grid) uses
+the same widget and gets the touch size and the border, but no caption: its
+labels carry a whole hint sentence, and a grid is not a row.
+
+### PH-09 · PAINT ▸ Class collapses to its own arrow in the tool sheet
+
+PH-04 turned `OptionButton.fit_to_longest_item` **off** on a phone, because
+such a control reports the width of the longest item in its list and one 287 px
+vocabulary label was widening a whole 393 dp window. Down a dock that is
+exactly right and invisible either way — the row is full width and the control
+expands into it.
+
+The tool-options row is not a dock. It is six controls side by side and none of
+them expands, so `fit_to_longest_item = false` plus PH-04's `clip_text` left
+the Class picker with **no content-derived minimum width at all**: measured at
+35 px on the device, showing which class was selected nowhere.
+
+`phone_fit()` gained a `wide` flag for the one caller whose subtree scrolls
+horizontally, and `set_tool_options()` is that caller. Both shrink measures are
+skipped there. The picker now reports 230 dp and reads "Coastal Lowland", and
+the sheet — which already scrolled sideways — is a little wider.
+
+**The class: a "make it fit the screen" rule is wrong inside a container that
+scrolls on that axis, and the two had to be told apart explicitly rather than
+by one global phone flag.**
+
+### PH-10 · The welcome / open-project dialog was never phone-adapted
+
+`open_project_dialog.gd` wrote the *precedent* PH-06 generalised — fill the
+screen and let `content_scale_factor` map the desktop composition onto the
+393 dp reference — and then never took the finished treatment. It kept the
+hand-rolled geometry half and had none of the rest. It is now on
+`DccWidgets.phone_window()` / `phone_present()` plus
+`DccShell.phone_fit(self, 1.0)`, like the other two, and its hand-made
+`phone_insets_changed` connection is replaced by the shared guarded relay plus
+one that carries only what is specific to this screen.
+
+Two things beyond the shared treatment, both measured:
+
+1. **The toolbar had to stack.** A search well that expands beside a three-chip
+   scope row is one row too many for 393 dp: the chips' own minimum is ~230 dp,
+   and an over-constrained `BoxContainer` overlaps rather than clipping — so
+   the well's outlined panel drew straight over `Recent / All worlds / Shared`,
+   and the `LineEdit` inside it got the ~110 dp left over, which is where the
+   reported "Search wo…" came from. The two symptoms the audit reported
+   separately are one fault. `phone_window()` returns a boolean for exactly
+   this case, and this is its first caller to use it.
+2. **An `AcceptDialog` sizes its content child on resize, and on nothing
+   else.** Hiding the too-wide subtitle (which this file already did, and had
+   to) is a minimum-size change, not a resize — so the body kept the **497 dp**
+   width it had been measured at with the subtitle still in it, inside a 393 dp
+   window. The search well ran 82 dp off the right edge and took the gallery
+   tiles and the *Open selected* button with it. Root-caused by dumping
+   `get_combined_minimum_size()` down the tree against the window's real
+   visible rect (nothing exceeded 380 dp) and by presenting
+   `new_world_dialog.gd` beside it in the same run (377 dp, correct) — which is
+   what ruled out the shared `phone_present()` and pointed at the stale rect.
+   `child_controls_changed()` is the engine's own re-measure for this; it runs
+   last in the phone fit, and again at the end of every `_refresh()`, since the
+   gallery it measures is rebuilt on every keystroke in the search well.
+
+### Verification
+
+`_phonefix_probe.gd` (temporary, uncommitted) drives the real shell at 540 ×
+1170 with `--force-touch`, which puts `_phone_scale` at 1.374 — chosen over a
+clean 2.0 because 786 × 1704 does not fit this dev box's screen and Godot
+clamps it, which flips the aspect test and silently drops the phone
+composition entirely. Measured, all four:
+
+| | before | after |
+|---|---|---|
+| PH-07 `normal_font_size` | 11 (unscaled) | 15 = round(11 × 1.374) |
+| PH-08 tool button | 30 dp box, 15 px icon, no caption, no border | 60 dp box, 25 px icon, captioned, bordered |
+| PH-09 Class picker | ~35 px, no text | 230 dp, "Coastal Lowland" |
+| PH-10 dialog body | 497 dp in a 393 dp window | 380 dp |
+
+Screenshots confirm each: CIVIL's seven captioned tools across two flowed rows;
+the Class picker readable in the sheet with its horizontal scrollbar; the
+welcome dialog with the full placeholder, the chips below the well rather than
+under it, and the ✕ and both foot buttons on screen.
+
+**Desktop control run** (`_deskcheck_shot.gd`, 1600 × 900, all three domains):
+the TOOLS block is unchanged by the `HFlowContainer` swap — same 30 × 30
+buttons at the same 32 px pitch, same 15 px icons, no captions.
+
+**On-device: not re-run this pass.** A debug `.apk` carrying these changes was
+built and signed (`builds/android/Cartalith-phonefix.apk`), but the OnePlus 6T
+dropped off `adb` before it could be installed — `device offline`, then gone
+from `adb devices` entirely — while a concurrent Android pass was using the
+same handset. The measurements above are from the desktop phone-size preview
+and are **lower confidence than an on-device run**, which is the bar this class
+of fault has earned; the `.apk` is ready to install the moment the device is
+back.
+
+## The touch navpad, and what "100%" actually means (`GUI_GAP_REGISTER.md` SH-14, 2026-08-24)
+
+**SH-14 closed; SH-03 narrowed.** The other half of the owner's question that
+`SH-13` answered the first half of — *"how to move around, snapping the view
+back to 100% etc."* Two owner decisions, both taken as given here:
+
+1. **Reset means cover, not fit.**
+2. **The cluster gets designed in this shell's language first**, rather than
+   transliterating the reference's four floating buttons — a mobile-web idiom
+   §13 uses nowhere else.
+
+### The reference, read line by line rather than assumed
+
+Three of the four behaviours are not guessable from the markup, and one is
+actively misleading:
+
+| Reference | Line | What it really does |
+|---|---|---|
+| `zoomIn` / `zoomOut` | 13464-13465 | `zoomAt(viewCenter(), 1.35)` and its inverse — the **view centre**, because a button press carries no map position of its own |
+| `panBtn` ✋ | 13963 | `panMode=!panMode`. A **latching toggle, not a press-and-hold** — the whole handler is that one assignment, despite the ✋ glyph |
+| ↳ what the mode does | 9623, 13924 | Routes a plain button-0 pointerdown to the pan drag, and suppresses the armed tool (`wantSculpt = … && !panMode && …`) |
+| `zoomReset` ⟳ | 13466 | Clears `panMode` **and** calls `_viewFill()` (13294) — explicitly **not** `resetView()` (13390, `scale=1, pan=0`), which has not been what this button does since v1.13 |
+
+So **"100%" in this app is the COVER scale** — the zoom at which the map fills
+the display — and not scale 1.
+
+### `reset_view()` was the larger half, and it was dead code
+
+It was plain fit: `_zoom = 1`, `_camera.position = ZERO`, which over a
+`STRETCH_KEEP_ASPECT_CENTERED` raster is exactly the letterboxed state the
+reference's own v1.01 was raised to eliminate. **And nothing in the shell
+called it** — it ran only on a fresh generate or load, so the app had no way
+back to a known view at all.
+
+Measured, not asserted: at 393×852 against a 2048×1311 world the fit view is a
+**251 px band with 300 px of dead ground above and below it**.
+
+Now cover. `_viewCoverScale()` (13264) is `max(1, availW/natW, availH/natH)`
+over the canvas's *natural* size; this camera's `zoom == 1` is already the
+letterbox-fit rect rather than a natural pixel size, so the same quantity here
+is `max(size.x / fit.x, size.y / fit.y)` over `overlay.displayed_rect()` — and
+it is `>= 1` by construction, which is the reference's `max(1, …)` floor for
+free, with the fit math reused rather than written a third time.
+
+**Two deviations, disclosed rather than taken silently** (`CLAUDE.md`):
+
+- **Centred, where the reference is not.** Its `_viewFill` sets `panX/panY = 0`
+  and lets `_viewClampFill` settle it; worked through, that lands the map
+  exactly aligned on the tight axis and **asymmetrically cropped on the loose
+  one** — an artifact of `transform-origin: 0 0` over a flex-centred
+  `.canvas-wrap`, not an intent. The reference's own comment at 13290 says
+  *"cover scale, centred"*. This centres, so the crop is even on both edges.
+  The **scale** is the reference's exactly.
+- **The standing pan clamp is not ported.** `_viewClampFill` (13295) runs on
+  every `applyView()`, not just reset, so porting it is a change to all four
+  pan routes rather than to this function — and it would fight `ZOOM_MIN =
+  0.4`, which lets this camera zoom *below* fit where the reference floors at
+  fit. Recorded as open in the register instead of bundled in here.
+
+### The navpad
+
+Designed against `design/Cartalith Android Phone.dc.html` before any GDScript
+was written, and published as a canvas ("Cartalith Phone Navpad": a viewport
+artboard with the cluster in place, and an anatomy/states artboard carrying the
+geometry and the fit-vs-cover diagram). The phone canvas's own artboard 01
+already puts a floating cluster at `right:14px` in a 10 px-gap column — so this
+is that column, not a new idiom: **four 44 dp pills**, riding the existing
+`_safe_insets` so they clear the app bar, bottom bar, timeline and gesture
+strip with no second set of numbers, stacked above the coordinate readout that
+owns the corner.
+
+Glyphs are **drawn** (`dcc_icons.gd`: `zoom_in`, `zoom_out`, `view_fill`, plus
+the existing `tool_pan` reused unchanged) rather than left as the reference's
+`+` / `−` / ✋ / ⟳ text. Two reasons: four controls in one column have to read
+as one family, which a type glyph beside a 1.2 px stroke never does — and `⟳`
+(U+27F3) is missing from Plex Mono *and* the whole fallback chain, the same
+tofu case `search`/`import` were drawn for. The pan pill latches to **accent
+fill with a dark glyph**, the phone canvas's own on-toggle idiom.
+
+Almost nothing new had to be built underneath it:
+
+- **Zoom** is `_zoom_at(size * 0.5, factor)` — the existing handler with one
+  argument filled in, so the readout, `overlay`'s pin compensation and the
+  deep-zoom tile pass all follow for free.
+- **Pan mode** reuses `_panning` wholesale. One `elif` on
+  `MOUSE_BUTTON_LEFT and _pan_mode` sets it, and the motion branch needed **no
+  change at all**. Handling the press in `_input` — before GUI dispatch — is
+  what keeps the armed tool from also seeing the finger, which is the
+  reference's `!panMode` guard by another route. On the phone that press is a
+  single finger via `emulate_mouse_from_touch`; two fingers still go to the
+  magnify/pan gesture pair, untouched.
+- **Reset** calls `reset_view()`, which now also clears the latch.
+
+One guard the reference does not need: its buttons live outside the canvas
+element, while this column sits *over* the map, so without a rect test a tap on
+✋ or ⟳ would start a pan drag as well as press the button.
+
+### Reachability: every touch device, not phones only
+
+Gated on `_touch`, deliberately **not** `DccShell._phone`. What the reference's
+own `isMobile` gate is really testing is *"there is no wheel, no middle button
+and no space bar"* — as true of a tablet as of a phone. And `_phone` is an
+**aspect-ratio** test (`_PHONE_ASPECT_MAX`) that exists to pick a layout: a
+tablet fails it and takes the desktop shell, i.e. desktop chrome with no mouse,
+which is the case that needs this most. Desktop keeps all four already (wheel,
+MMB/Space) and is excluded.
+
+`viewport_host.gd` adopted `DccShell._ready()`'s `--force-touch` testing
+override verbatim, for the reason it exists there: without it `_build_navpad()`
+is unreachable outside a real device and could only ever be verified on one.
+
+### Verified — windowed at 393×852, not headless
+
+`_navpad_probe.gd`, driving the real shell:
+
+- Pad built, **4 buttons, each 44×44**, at x=335 (14 px clear of the edge,
+  since portrait phone reports `right: 0.0` — correct for a text readout,
+  wrong for a round target against the bezel), 10 px apart, above the
+  coordinate readout at y=656.
+- Reset zoom **3.3866811** against an independently computed cover of
+  **3.3866811**; `covers_x`, `covers_y` and `centred` all true; the map's
+  on-screen rect is `(-469, 0) … (862, 852)` in a `393 × 852` viewport.
+- Zoom in **×1.35**, zoom out **×0.740741** — exact.
+- A synthetic one-finger drag moves the camera **0 px with pan mode off** and
+  **−120 px with it on**; a drag starting **on the pad** moves it 0 px; ⟳
+  restores cover **and** clears the latch.
+- Screenshots at 393×852 confirm the pills render over terrain in both states
+  (dark with a hairline, accent with a dark glyph when latched).
+
+One harness limitation found and recorded rather than worked around:
+`Viewport.push_input()` reaches GUI dispatch in this setup (a pushed tap does
+press a `Button`) but **never reaches any node's `_input`** — proven against
+code this pass did not touch, since a pushed `WHEEL_UP` leaves `zoom()`
+bit-identical while wheel zoom demonstrably works in the shipped build. The
+drag tests therefore call `_input` directly; the dispatch wiring is what a
+device pass verifies.
+
+One implementation trap worth writing down: **`Button.flat = true` suppresses
+the background stylebox entirely**, so a flat button with a `normal` override
+draws that override nowhere. Caught by screenshot — the first cut was flat
+(copying `_layers_btn`) and the pills were invisible over the terrain with only
+their glyphs showing.
+
+**On-device: blocked, not skipped.** The handset sat at `device offline` across
+repeated `adb kill-server` / `reconnect` cycles for the whole pass, with a
+concurrent Android session using the same phone. The 393×852 windowed run above
+is the standing evidence; the three live checks still owed are that reset
+visibly crops rather than letterboxes, that the two zoom buttons step, and that
+✋ lets a real finger drag the map.
+
+**Still open, deliberately:** the pan clamp above, and **desktop still has no
+`reset_view()` caller** — the navpad is touch-only by design, and a View-menu
+entry is a menu-naming decision `GUI_GAP_REGISTER.md` §7's audit owns.
+
+## Android Back destroyed unsaved worlds (`GUI_GAP_REGISTER.md` BK-01, 2026-08-24)
+
+The first entry in this log recording **real, observed user data loss**. On the
+handset, the hardware/gesture Back button ended the process outright on a
+generated but never-saved world. Nothing recovered it: autosave only writes
+beside a project that has already been saved somewhere, and this one never had
+been.
+
+**Root cause — two faults, either sufficient on its own:**
+
+1. **The back chain's last step was a bare `get_tree().quit()`.**
+   `DccShell._notification()` had answered `NOTIFICATION_WM_GO_BACK_REQUEST`
+   since the phone-menu pass and correctly popped a sheet, then a menu level,
+   then an overlay. Past those it quit, at once. `SceneTree.quit()` does **not**
+   raise `NOTIFICATION_WM_CLOSE_REQUEST`, so the three-button unsaved-changes
+   prompt File ▸ Close project gained earlier in the same session could not have
+   intervened even in principle — it was never on the path.
+2. **`quit_on_go_back = false` was inside `if _phone:`.** The phone/tablet split
+   is decided by *aspect ratio*, so any Android device the shell reads as a
+   tablet kept the SceneTree default: back quits, with none of our code running
+   at all. A second, wider door onto the same outcome.
+
+**Fixed:**
+
+- `quit_on_go_back = false` for **every** layout mode. Inert on desktop, where
+  no windowing system sends the request.
+- `DccShell._notification()` is now a four-step chain, one press leaving exactly
+  one level, innermost first: **a dialog or popup window** → **a phone-menu
+  level** → **a phone overlay** → `_back_exhausted()`. The dialog step is new
+  and needed a tree walk (`_topmost_subwindow()`): a dialog is parented to
+  whichever `Control` opened it, `Viewport` exposes no subwindow list to
+  GDScript, and without it the phone menu ate a gesture aimed at a dialog
+  drawn over it.
+- `DccApp._back_exhausted()` — the overridable tail. An armed tool is a mode, so
+  back leaves it (Escape's own action); then, if a world exists, the **same**
+  prompt as Close project; only with no world does it quit.
+- `DccApp.confirm_unsaved_world()` — `close_project()` refactored into one
+  shared gate taking a continuation, rather than the back button growing a
+  second, subtly different prompt. It keeps the close-project rule that the
+  prompt appears *whenever a world exists*, not only when `bridge.world_dirty`
+  is set.
+
+**Navigation-model decision, recorded because the alternative was defensible:**
+prompt on the first press, **not** "press back again to exit". That pattern
+earns its place where the back stack is one level deep and a stray edge swipe is
+the only thing an unexpected press can be; here back already walks four real
+levels before it can reach the exit, and the hint has nowhere to draw on the
+phone composition, where the status bar is parked hidden as the phone menu's
+model. Where there is nothing to lose, back exits at once — the platform
+convention, and the only way out of a full-screen app.
+
+**A regression the fix introduced and the probe caught:**
+`GlobalTools._measure_escape()` deliberately clears the measured chain and
+leaves Measure **armed** — right for a pointer user. Back inheriting that made
+the gesture a permanent no-op: every press cleared an already-clear chain,
+`armed_tool` never reached `inspect`, and the app could not be exited at all
+while Measure was armed. `_escape_action(force_disarm)` now runs the handler's
+cleanup *and then* disarms for back, while Escape is unchanged.
+
+**Two measured phone-presentation traps, both silently producing 29 dp
+buttons** on the one dialog standing between a gesture and a destroyed world:
+
+- `DccShell.phone_fit()` walks `get_children()`, and `AcceptDialog` parents its
+  whole button bar as an **internal** child — so every stock OK/Cancel row in
+  this shell is outside every fit it performs. It has mattered little elsewhere
+  (a window's real controls are in its content child); here the buttons *are*
+  the dialog.
+- **`Window.popup()` clears `custom_minimum_size` on them.** Isolated in a
+  two-node scene: the value survives `content_scale_mode`/`_aspect`/`_factor`,
+  `min_size` and `max_size`, and reads `(0, 0)` the instant the window is shown.
+  The floor is therefore applied *after* the popup and re-applied from
+  `phone_insets_changed`, since a rotation re-pops the window.
+- A third on the way: `b.custom_minimum_size.y = 44` through an **untyped** loop
+  element writes to a temporary copy of the vector and is silently lost.
+
+**Verified — `_backnav_probe.gd` (committed), the real shell, a really generated
+world, the real notification:**
+
+- `393x852` (canvas reference), `540x1170` (half the OnePlus 6T, exercising
+  `content_scale_factor` 1.374) and `1600x1000` (desktop/tablet): all checks
+  pass in all three.
+- The chain proved step by step: menu level pops without exiting; a dialog
+  opened over an open menu closes first and leaves the menu standing; an armed
+  Measure disarms; the next press raises `Exit Cartalith` with **Save and
+  exit / Discard and exit / Cancel**, full-screen, borderless, content-scaled,
+  every answer ≥ 44 dp and the row inside the screen width; a further press
+  cancels it and does **not** stack a second.
+- Desktop regression checked in the same harness: File ▸ Close project keeps its
+  title bar, its `wrap_controls`, its three answers and a readable size, and
+  does not gain the phone's in-body title.
+- `--headless --path . --quit` clean.
+
+**Not verified on the device, and stated as such.** The handset was `offline` to
+`adb` throughout — `kill-server`, `start-server` and `reconnect offline` all
+failed; it needs a physical replug and re-authorisation. A desktop probe cannot
+prove that Android *delivers* the notification; everything downstream of
+delivery, which is where the data loss lived, is proven. Delivery itself was
+verified on this handset in the phone-menu pass, which is evidence for the
+mechanism but not for this change.
+
+**Registered, not fixed:** `GUI_GAP_REGISTER.md` **BK-02** — the desktop
+window's close box has no gate either (`NOTIFICATION_WM_CLOSE_REQUEST` is not
+intercepted and `auto_accept_quit` is at its default), the same data loss on
+Windows. Left alone deliberately: `auto_accept_quit = false` makes the app
+unquittable if the prompt ever fails to appear, which is a worse failure than
+the one it fixes, and nobody reported it. The shared gate takes a continuation,
+so wiring it is small when the owner wants it.
+
+**Closed as a non-finding:** **BK-03**, "`KEYCODE_M` does not reach Godot's
+shortcut path on Android". `M` is bound to nothing on any platform — every
+accelerator in `menus.gd` carries Ctrl or Shift, and no bare `KEY_<letter>`
+exists anywhere in the shell. There is no desktop behaviour for an on-screen
+equivalent to mirror.
+
+## The desktop close box destroyed unsaved worlds too (`GUI_GAP_REGISTER.md` BK-02, 2026-08-24)
+
+BK-01's twin, one platform over, and registered by that entry rather than fixed
+by it. Nothing in the shell handled `NOTIFICATION_WM_CLOSE_REQUEST` and
+`SceneTree.auto_accept_quit` was at its default `true`, so the title bar's ×,
+Alt+F4 and the taskbar's Close each ended the process outright — a generated,
+never-saved world gone with no prompt, with the same aggravation that autosave
+only writes beside a project already saved somewhere.
+
+`DccShell._ready()` now sets `auto_accept_quit = false` beside the
+`quit_on_go_back` line BK-01 added, and `_notification()` routes the close
+request to a new `_close_requested()` hook that `DccApp` overrides onto **the
+same `confirm_unsaved_world()` gate** File ▸ Close project and the back gesture
+already share — a third caller, not a third prompt. The gate needed one change:
+it returns its dialog, so the caller can check that it really went up.
+
+Deliberately **not** routed through the back chain. Back means "leave the
+innermost thing" and walks dialogs, menu levels, overlays and armed tools first;
+× means "close the application", so it goes straight to the exit gate. One
+structural fact makes the wiring safe: Godot propagates a window's close request
+*down its own subtree* (`Window::_propagate_window_notification` stops at nested
+`Window`s), and every tool window and dialog here is a **child** of the shell,
+never a parent — so closing one cannot reach this handler. The main window is
+the only source.
+
+**The reason BK-01 declined this fix was a real objection, and it is answered
+rather than accepted.** `auto_accept_quit = false` does make the app
+un-closeable if the prompt fails to appear — unless the handler carries its own
+escape hatch. The invariant `_close_requested()` keeps is: *every close request
+either quits, or leaves a visible prompt on screen whose three answers all
+resolve.* Four branches, in order:
+
+1. **A visible prompt is already up** → re-raise it. Not quit: exiting on a
+   double-click of × would destroy the world the first click just asked about,
+   which is the bug and not a fallback.
+2. **Already asked, nothing on screen** → quit, unconditionally. The escape
+   hatch, covering exactly the named failure: a script error part-way through
+   building the prompt, or a window that never shows. `_quit_asked` is set
+   *before* the attempt so it survives an attempt that dies halfway.
+3. **Nothing to lose** (`not bridge.has_world`) → quit at once.
+4. Otherwise prompt, then **verify the dialog is really visible**, and quit
+   immediately if it is not — so even the first × is enough against a prompt
+   that fails on its first use.
+
+From the other side: Cancel hides the dialog, which frees it, which clears both
+flags and re-arms the gate; Discard quits; Save writes and quits through the
+same continuation. A **failed** save is the one path that neither quits nor
+prompts — `_write_project()` does not call its continuation when the write
+fails, which is correct, and is not a trap either, because the flags are already
+clear and the next × prompts again.
+
+**Verified** by extending BK-01's own `_backnav_probe.gd` (`_close_box_pass()`,
+`_resolve_pass()`, `_await_real_close()`) against the real shell at `1600x1000`
+with a really generated, never-saved world. The synthesised request puts up the
+shared "Exit Cartalith" gate and it is the object the shell tracks; a second
+request neither stacks nor quits; Cancel clears and re-arms it so a later ×
+prompts afresh; both escape-hatch branches are asserted by branch, since
+pressing them ends the harness. Each answer was then **pressed for real**, one
+process per answer (`-- --resolve=discard|save|cancel`): Discard exited, Save
+wrote a 420 KB `.zip` and *then* exited, Cancel left the app running with
+nothing on screen.
+
+The link BK-01 could not close on Android — that the OS request reaches this
+code at all — **is** closed here. `-- --hold` boots the real shell with a real
+unsaved world and waits; `WM_CLOSE` posted to its `HWND` from outside (what the
+title bar's × sends) leaves the process alive with the gate drawn over the map,
+and the probe saves the screenshot proving it. `cargo build -p cartalith-godot`
+and a headless boot are both clean.
+
+**One repository note:** the `dcc_shell.gd` half of this change was swept into a
+concurrent agent's commit (`0fc9d1c`, PH-11) before it could be committed here,
+so this commit carries only the `app.gd` and probe halves. The tree is
+consistent; nothing is missing.
+
+## Cartography and map coloration: `TerrainAppearance` was bound to nothing (`GUI_GAP_REGISTER.md` CA-01 / PR-09 / RN-03, 2026-08-24)
+
+Owner question, third of the same kind this session: *"There also was a new
+section for cartography and map coloration. Can we check."* The two before it
+(touch navigation, terrain/biome painting) each found a real gap. So did this.
+
+**What the reference actually has.** `reference/Cartalith Gen1 v2.10.html`
+lines 1612-1783, `FUNCTION_INDEX.md` §0.7 — the Cartography tab has eight
+blocks, not one. Tools, Region names, Manual icons, Paint brush and the pack
+inspector were already built; the Painter (NPR) styles and the overlays came
+live in the NPR pass one day earlier. **Two blocks had no live control at all:**
+
+- **Map view** (1706-1717) — `modeSeg` (Biome / Relief / Height / Shade),
+  `bioBlend`, `exag`, `sun`, `shadeOnHypso`.
+- **Map style** (1719-1783) — `stylePresetSeg` (Default / Antique / Ink /
+  Watercolor / Print) with its `styleCustomNote`, and the eighteen-slider
+  **Rendering — advanced** accordion.
+
+**What the port had.** `render.rs`'s `TerrainAppearance` — 21 scalar fields
+plus 31 material palettes, all real, all driving every rendered pixel, all
+tier-tested — reachable through **no `#[func]` at all**. Three separate places
+in the shell said so honestly (`render_workspace.gd`'s "not built" note,
+`cartography_workspace.gd`'s Layer-properties note, and `app.gd`'s CARTO
+tool-options caption), and the register had been carrying it as CA-01 / PR-09 /
+RN-01 with the standing description *"the single largest cheap surface in the
+shell."* It was.
+
+**Bound by name, not by twenty `#[func]` pairs.**
+
+- `WorldGen::list_appearance_tunables()` publishes `(key, min, max, label)` for
+  21 scalars; `get_appearance()` returns the **merged, actually-rendering**
+  values; `set_appearance(Dictionary)` writes them on `set_npr`'s existing
+  contract — every key optional, clamped to the published range, returns the
+  count applied so a typo reads as `0` rather than as a silent no-op;
+  `reset_appearance()` hands them back to the quality tier.
+- One binding rather than twenty means the shell never has to know which
+  individual methods the cdylib it is running against happens to carry —
+  `EngineBridge.appearance_api` is one `has_method` gate, as `npr_api` already
+  was, and the panel builds itself from the engine's own ranges. A slider that
+  *cannot* offer a value the engine would clamp is a different thing from a
+  slider whose maximum merely happens to be right today.
+- The key-to-field table is a single `tunables!` list in `render.rs`, so the
+  name table, the reader and the writer cannot drift.
+- **Overrides layer over the tier, they do not replace it.** `WorldGen` holds
+  an override map, not a `TerrainAppearance`; `appearance()` applies
+  `for_tier(quality)` first and the user's edits second. Storing the merged
+  struct would have meant switching quality tier silently discarding the
+  user's sun azimuth — or, worse, keeping it and quietly undoing the tier.
+- `relief_lights` is deliberately **outside** the f64 table: `1` is not "a
+  small amount of multidirectional", it takes `shade`'s single-light early
+  return, which is what keeps `js_reference()` bit-identical to JS.
+
+**The panel** (`render_workspace.gd`, nested into CARTO), in the reference's
+own order: **Map view** (relief exaggeration · sun azimuth · sun elevation ·
+relief-to-biome) then **Map style** (the reference's own five presets as
+absolute bundles, plus its `Custom — controls edited since the last preset`
+note) then **Rendering — advanced** (Relief & light · The sheet · Materials,
+and Reset to quality tier) then the existing Painter styles and Water & light.
+
+**Three deliberate divergences from the reference, stated in the panel itself
+rather than left to be discovered:**
+
+1. **`modeSeg` is not rebuilt.** Base-mode switching is the Layers popover's
+   job here (§8.7's "arrived, better than specified" — 18 debug views), and a
+   second competing picker is worse than one good one.
+2. **The presets do not carry the reference's `parchment` numbers.** Its
+   parchment is off by default and Antique sets `0.6`; **this port's paper
+   ground is on at `0.85`** and is what `VISION.md` asks for, so importing the
+   reference's number would *reduce* the parchment on the very preset that
+   wanted more of it. Parchment is its own live slider instead, and the presets
+   leave it where the tier put it — which is also what keeps `Default`
+   reproducing this port's base look exactly rather than approximately.
+3. **Antique's `icons: true`** — the stylized mountain/hill/tree glyph layer —
+   is not ported at all, and the note says so.
+
+**Verified non-headlessly, on a real world, on the real GPU** (`_carto_shot.gd`,
+untracked; a real generate, then every published key driven one at a time and
+measured against the base raster):
+
+- **18 of 21 keys move the map**, from 3.8 % of pixels (`relief_lights` at 1)
+  to 97.5 % (`paper_strength` at 0). Restoring every one returns the
+  **byte-identical** base raster (`0.0000 %`).
+- `Default` reproduces the base look at **0.0000 %**; Antique 74.9 %, Ink
+  10.7 %, Watercolor 25.9 %, Print 74.6 %.
+- Driven **through the dock**, not through the bridge: a real `HSlider` moved
+  and `drag_ended` emitted reaches the engine (`bio_blend` to `0.0`,
+  `sun_az_deg` to `135`), the `Custom` note appears exactly then, and the
+  scaled rows round-trip their display maths (`border_width_frac` shows
+  `1.40 %` and writes `0.04` from `4.0`).
+- The **Reset button** restores the engine *and* the sliders showing it
+  (`sun=315.0 border=1.40 bio=0.90`, raster back to `0.0000 %`).
+- `--headless --path .` clean; `golden_parity_render` (2), `golden_parity_npr`
+  (5) and `appearance_tiers` (now 12) all pass — no shipped pixel moved.
+
+**Three new tests, one of which is the point.** Round-trip and range/clamp are
+cheap; `no_two_tunables_alias_the_same_field` catches the realistic macro typo
+(a copy-pasted line pointing two keys at one field still compiles, still
+renders, and still reports "1 applied"); and `every_tunable_is_load_bearing`
+re-renders the whole synthetic world per key and **fails a row that changes no
+pixel** — the mutation-testing convention applied to a control surface rather
+than to a constant table.
+
+**One real engine defect found by that measurement, registered not fixed —
+`GUI_GAP_REGISTER.md` CA-11.** `hydro_wet_strength` (the reference's Wetness)
+is bound correctly and renders nothing anyone can see, and it gets **worse with
+resolution**: driving `0` to `1` on the same world moves **0.208 %** of pixels
+at 512x384, **0.095 %** at 1024x768, and **0.000 %** at the app's own 2048x1311,
+where the worst per-channel delta is 4 levels. `build_hydro_wetness` gates on
+`smoothstep(0.55, 0.88, …)` of the log-flow *range* — a 1-D drainage network,
+whose area share shrinks as cells shrink — then blurs at `gw * 0.006`, diluting
+what survives. Milestone 3 was tuned at a small grid. Not fixed here because
+the default is `0.38` and a retune moves the shipped look, which is an owner
+call; the row's tooltip says so, and the load-bearing test exempts it by name
+with the reason attached rather than skipping it silently.
+
+**Two non-findings, checked rather than assumed.** `splat_strength` moves
+nothing because no asset pack is loaded — correct, and the tooltip says so.
+`relief_lights` moves nothing from 6 to 12 because the normalized weighted
+light sum has converged by then; from 6 to 1 it moves 3.81 %.
+
+**Still open after this, and none of it improvised into existence:** the
+elevation-keyed **colour ramp** with its stop editor (**CA-02** — `render.rs`
+holds colour as a 31-entry material palette, so this is a renderer change, not
+a binding), **saving a look** (**CA-08** — `TerrainAppearance` derives no
+`Serialize` and nothing writes appearance into the project file, so an edited
+style is per-session), and the ten reference Rendering-advanced sliders whose
+stages this port has never had at all: surface texture, sky view factor, ridge
+crests, ridged relief, slope rock, cast shadows, curvature shading, minor
+channels, season blend, and the three SDF layers.
+
+## Manual map authoring, audited live end to end — and a committed route drew nothing (`GUI_GAP_REGISTER.md` IN-09, 2026-08-24)
+
+The owner's question was blunt: *"Is the whole system to place assets/labels/
+manually create routes and POI's and settlements there and wired? Basically
+is all functionality there?"* Five capabilities, audited by driving the real
+shell rather than by reading it — arm the tool through `app.arm_tool`, click
+through `app._on_map_clicked` (the same handler registry the viewport's own
+pointer path uses), then check the engine list, the overlay's array, the dock
+list, a zoom, and a delete.
+
+**Four of the five were already real. One was committing into a void.**
+
+**Found: `route_commit` worked perfectly and rendered nothing.** A live run
+solved a 572 km, 506-point mixed land/sea path with zero unreachable legs.
+`route_count()` returned 1. `route_get(0)` returned the whole polyline with
+its `brks`. And not one pixel reached the map, nor one row any list — the
+status hint said so itself, and gave the wrong reason: *"no manual-route
+display getter."* There is one, and there has been since the Journey Planner
+milestone. Nothing on the GDScript side had ever called it.
+
+This is the third gap of exactly this shape in this register (IN-02, ways;
+**WW-12**, painting; now IN-09, routes) — *the engine does the right thing
+and nothing renders it* — which is now a stated rule rather than a
+coincidence: **a `#[func]` that returns geometry proves nothing about whether
+anything draws it. Check the pixels.**
+
+**Why IN-02's pass missed it.** That note reasoned, correctly, that a
+committed route does not belong in `get_roads()`/`get_sea_routes()` — a route
+is a journey *along* geometry, not durable geometry — and stopped there,
+without noticing the conclusion left routes belonging to **no** layer at all.
+
+**Fixed as a port, not an invention.** The reference gives `civJourneys` its
+own draw pass (`drawCivLayer` block 2b, lines 15552-15560): dark underlayer
+`rgba(40,25,5,.5)` at width 3, then dashed amber `rgba(200,160,60,.85)` at
+width 1.5 with `setLineDash([5,3])`. `map_overlay.gd` now carries that pass
+verbatim (`_manual_routes`, `_draw_manual_route_segment`), honouring `brks`
+the way the sea-lane pass already does and drawing after both network layers
+so a route running along a road stays visible on top of it.
+`_draw_dashed_polyline` gained an optional `gap_len` — defaulting to
+`dash_len`, so the sea-lane overlay is unchanged — because the reference's
+journey dash is `[5,3]`, not `[5,5]`. `ViewportHost.manual_routes()` owns the
+`route_count`/`route_get` loop and `refresh()` pushes it, so a regenerate
+clears the old world's routes rather than leaving them over the new one.
+
+**Verified in the real app, non-headless**, on a generated 2048×1311 world:
+overlay route rows 0 → 1 on commit, the dock's new "Routes committed this
+session" group 0 → 1 rows, both surviving a zoom, and the dashed amber line
+visible in the screenshot crossing land and water. Headless boot clean, zero
+script errors across the whole five-capability run.
+
+**The other four, stated precisely rather than lumped together:**
+
+- **Settlements — fully working.** 40 → 43 on three drops, real generated
+  names and tier-appropriate populations, engine and overlay both updated;
+  the edit popup opens, `civ_edit_settlement` renames, `civ_delete_settlement`
+  removes and both lists follow. Two earlier "delta 0" readings during this
+  audit were the *harness's* fault, not the app's, and are worth recording so
+  the next person does not re-derive them: `civ_drop_settlement` refuses water
+  without Snap-to-water (the status bar says so), and for a click inside an
+  existing place's pick radius it returns **that place's** index rather than
+  making a new one. Both look identical to a naive count check. Land clear of
+  existing places was needed to see the truth.
+- **Labels — fully working**, and the most complete of the five. Create via
+  the real click → prompt → `label_create` path; `label_set` moves size, angle,
+  arc and colour; the three on-canvas handles (resize / rotate / arc) draw and
+  drag; the arced text renders per-glyph on its circle; it survives zoom; the
+  list and delete work. Screenshot-confirmed.
+- **Ways — working**, unchanged since IN-02 closed. 49 → 50 roads on commit,
+  tagged `manual`, drawn and listed.
+- **Icons — working, but gated behind an asset pack the app does not ship**
+  (new **CA-12**). On a fresh world `has_asset_pack()` is `false`, `icon_arm`
+  refuses, `icon_armed()` is `{}` and clicking places nothing. Load
+  `cartalith-assets/tests/fixtures/reference_pack.zip` and the identical
+  clicks place and draw three icons at once. The gate's stated reason —
+  *"arming a family/slot this port cannot yet draw"* — is now obsolete:
+  `map_overlay.gd` draws every family from built-in vector shapes and never
+  reads the pack (the pack path, `composite_map_icons`, is the *scattered*
+  auto-icon bake, a different feature), and the reference has no such gate at
+  all (`iconVariantsFor` returns "pack or built-in glyphs", `drawIconGlyph` is
+  the fallback). **Not changed here** — it reverses a written decision in
+  `icon_arm`'s doc comment, so it is raised for the owner.
+- **POI — genuinely, deliberately absent, re-verified and upheld.** No
+  `civ_drop_poi`, no record type, and the tool options bar says so to the
+  user's face: *"POI has no engine call (`civ_tools_bridge.rs`) and is not
+  offered."* One nuance recorded so it is not misread later: the **Icon**
+  tool's families include `"poi"`, so a user can place a marker that *looks*
+  like a POI. It carries no record, name, faction or inspector. It is an icon.
+
+**Still open after this, and not improvised into existence:** there is no
+`route_delete`/`route_set_name` `#[func]`, so the new Routes list is
+read-only and a route can only be cleared by regenerating — the reference's
+own journey list has a per-row delete (line 17250). `map_overlay.gd` has no
+selected-journey branch (the reference's brighter `sel` stroke) because this
+shell has no route selection to drive one. Both are the same shape as the
+`way_set_name`/`way_delete` gap IN-02 left open, and CA-05 (an `icon_handles()`
+to match `label_handles()`) is still the Icon tool's own missing piece.
+
+## Phone: a dock sheet remembered its scroll position across close/reopen (`GUI_GAP_REGISTER.md` PH-11, 2026-08-24)
+
+Found on a device pass: scroll a phone dock sheet down, close it, reopen it —
+it comes back still scrolled, never at the top. Six attempts earlier this
+session missed the actual cause.
+
+**The cause was absence.** `_build_left_dock()`/`_build_right_dock()`
+(`dcc_shell.gd`) each wrap their body in a `ScrollContainer` built by
+`_scroll()`, but the return value was a bare local variable, kept nowhere.
+`_set_sheet_open()` only ever toggled `left_dock.visible`/`right_dock.visible`
+— a dock sheet's body is built once at shell-build time and never torn down
+between opens, unlike `phone_menu.gd`'s own sheet, which rebuilds its body and
+zeroes `scroll_vertical` on every `_render()`. With no reference to the
+`ScrollContainer` anywhere else, nothing ever wrote `scroll_vertical` back to
+0 on either dock, closed or open — the position from the previous open just
+sat on the node.
+
+Fixed with two new fields, `_left_dock_scroll`/`_right_dock_scroll`, captured
+where `_scroll()`'s return value used to be discarded, and a new
+`_reset_dock_scroll()` called from `_set_sheet_open()` on every open (not
+close). It writes `scroll_vertical = 0` immediately and once more
+`call_deferred`, since a `ScrollContainer` that was `visible = false` a
+moment ago has not necessarily run its own sort/clamp pass yet and a bare
+synchronous write can still be re-clamped on the frame the sheet actually
+becomes visible.
+
+**Verified** with a new `_sheetscroll_probe.gd` (`--resolution 393x852
+--force-touch`, mirrors PH-05's `_scrolldrag_probe.gd`): opened each sheet,
+appended a 4000 px filler control so both docks have guaranteed overflow
+regardless of their real content, scrolled to the bottom (4287 px left,
+3764 px right), closed, reopened — both read `scroll_vertical = 0`
+afterward. Also confirmed against the left dock's real WORLD content with no
+filler (0 → 287 → close → reopen → 0). `cargo build -p cartalith-godot` and
+a headless boot both clean.
+
+## A committed route could not be deleted or renamed (`GUI_GAP_REGISTER.md` IN-09, second half, 2026-08-24)
+
+IN-09's own closing note named what it had not fixed: the Routes list it
+added was read-only, because no `route_delete`/`route_set_name` `#[func]`
+existed, and `map_overlay.gd` had no selected-journey stroke because nothing
+could select one. The reference has all three — a per-row `×`
+(`civJourneys.splice(ji,1)`, line 17250), a live name field
+(`nameInput.oninput`, line 17245) and a brighter/thicker `sel` branch in
+`drawCivLayer` block 2b. That is the whole of this entry.
+
+**Engine (`infra_tools_bridge.rs`, `lib.rs`):**
+
+- `CommittedRoute` gained a `name: String`, empty until set. Empty is the
+  *reference's* resting state, not a placeholder: a `civJourneys` entry has
+  no `name` until the field is typed into, and `_civRenderJourneyList` falls
+  back to `'Journey '+(ji+1)` at draw time. That fallback is therefore
+  deliberately **not** stored — a stored one would survive a delete and leave
+  "Journey 3" sitting at index 1.
+- `InfraTools::route_delete` (`Vec::remove`) and `route_set_name`, plus the
+  two `#[func]`s over them and a `"name"` key on `route_get`.
+- **Indices renumber**, stated in both doc comments and in
+  `engine_bridge.gd`'s wrapper: `jp_compute`'s `route` key and `jp_reroute`'s
+  `route_index` name routes by index, so everything holding one must re-read
+  after a delete, exactly as the reference's list does by re-rendering
+  itself. A tombstone would have kept those indices stable at the price of
+  `route_count()` no longer meaning "how many routes there are", which every
+  existing consumer already assumes it does.
+
+**Shell:**
+
+- Each row of "Routes committed this session" is now the reference journey
+  card's own layout in its own order — select glyph · name field · km · `×`
+  — minus its planner summary, which that card computes with `_jpPlan` and
+  which is `journey_planner_view.gd`'s screen in this shell; duplicating it
+  would mean two places computing a plan and disagreeing.
+- `map_overlay.gd` carries block 2b's `sel` branch verbatim: underlay width
+  5 instead of 3, amber `rgba(255,210,80,.98)` at width 2.5 instead of
+  `rgba(200,160,60,.85)` at 1.5. The dash pattern is not selection-dependent
+  in the reference and is not made so here.
+
+**Two deliberate divergences, both in the code as comments:**
+
+1. The name field renames per keystroke (`text_changed`, the reference's
+   `oninput`) but does **not** rebuild the row — rebuilding would steal focus
+   mid-word, the same reasoning `civilization_workspace.gd`'s
+   `_settlement_name_field` already records.
+2. Deleting a *lower-indexed* route decrements the selection rather than
+   leaving it in place. The reference clears the selection only when the
+   index runs off the end (`if(_civSelectedJourneyIdx>=civJourneys.length)`),
+   which silently moves it onto a different journey — harmless in a list, but
+   here it would highlight the wrong line on the map.
+
+**Verified.** `cargo build -p cartalith-godot` clean; `cargo test -p
+cartalith-godot --lib` 318 passed (three new: renumbering after a delete,
+out-of-range refusal on both calls, and rename-then-clear). A headless probe
+drove the engine directly — three commits, names round-tripping through
+`route_get`, delete the middle one and confirm the *geometry* at the
+renumbered index is the one that used to be at index 2 (104 pts, 1347.1 km),
+out-of-range delete and rename both refused, list emptied and still usable.
+
+Then, **windowed, on the real shell** (this is the half a headless run cannot
+prove, which is the whole reason IN-09 existed): generated a 384x288 world,
+committed two routes through `_commit_route`, opened INFRA ▸ Roads ▸ Routes
+committed this session. Renamed row 0 to "Salt road" and confirmed row 1 was
+untouched and the field was not rebuilt under the caret; selected row 1 and
+saw the glyph fill and the map stroke thicken and brighten; deleted row 0 and
+watched that line vanish from the map while the survivor renumbered to index
+0, kept the selection pointing at *it*, and showed its placeholder as
+"Journey 1"; deleted the last one and got the empty-state note back with a
+map carrying no routes. Screenshots at each step.
+
+**Still open:** `way_set_name`/`way_delete` — only routes got theirs — and
+`journey_planner_view.gd`'s cached `_route_index` is not re-validated when
+the INFRA dock deletes a route out from under it (it re-reads `route_count()`
+on open, so the failure is a wrong selection in a window that is rarely open
+at the same time, never a crash).
+
+## Icon tool gained its on-canvas resize handle (`GUI_GAP_REGISTER.md` CA-05, 2026-08-24)
+
+The Icon tool's own doc comments and the register both named this precisely:
+`icon_hit_test`'s `None` handle and `icon_bridge.rs`'s own "no on-canvas
+resize-handle geometry is tracked by this bridge yet" — a placed icon could
+only be resized by deleting and re-placing it, unlike a label, which already
+had three (resize/rotate/arc, `label_handles()`). The register's own
+diagnosis was exact: `icon_resize`/`icon_hit_test`/`icon_get` were all
+already exposed; the one missing piece was `icon_handles()` itself.
+
+**Engine (`icon_bridge.rs`, `lib.rs`):**
+
+- `icon_bridge::icon_handle(box_, env) -> IconHandle` ports the reference's
+  `drawCivLayer` icon-handle geometry (lines 15883-15893 of `Cartalith Gen1
+  v2.10.html`) verbatim: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`,
+  `hy=py+side/2*0.7`, stored hit-circle `r=hr*1.6`. Transcribed rather than
+  sliced, the same reasoning `label_bridge::handle_circles` already gives —
+  inline canvas drawing code the reference itself has no callable function
+  for. One handle only: a manually-placed icon carries no rotate/arc field
+  at all (`manual.rs`'s own module doc), so there was nothing else to
+  compute.
+- `IconEditor::handles(index, env) -> Option<IconHandle>` mirrors
+  `LabelBridge::handles`'s own contract exactly — any valid index works, not
+  only the current selection, matching how a caller decides which index to
+  ask for rather than the editor enforcing it.
+- `WorldGen::icon_handles(index, zoom) -> Dictionary` returns `{"resize":
+  {"x","y","r"}}`, the same `"resize"` key and `{x,y,r}` shape
+  `label_handles` already uses, so `tool_overlay.gd`'s existing
+  `set_handles()` primitive needed no reshaping to consume either.
+- `WorldGen::icon_get_selected() -> i64`, new: `label_get_selected`'s own
+  icon counterpart. `IconEditor`'s `selected` field had no accessor before
+  this — `icon_resize` already required a caller to know it (its own
+  contract: `index` must already be the selection), and `icon_handles`'s
+  caller needs to know which index to ask for and when to draw nothing at
+  all.
+- Six new tests in `icon_bridge.rs` pin the handle formula at zero zoom, at
+  a bigger per-instance `scale`, and at the low-zoom `max(4,...)` floor
+  (mirroring `label_bridge`'s own three geometry tests), plus `IconEditor::
+  handles`'s out-of-range/not-currently-selected contract.
+
+**Shell (`engine_bridge.gd`, `cartography_workspace.gd`):**
+
+- `engine_bridge.gd` gained typed wrappers for both new `#[func]`s
+  (`icon_get_selected() -> int`, `icon_handles(index, zoom) -> Dictionary`),
+  the same `_has()`-guarded pattern every other binding in that file uses.
+  **Found the hard way**: without these, `cartography_workspace.gd`'s own
+  `var sel := bridge.icon_get_selected()` (`:=` type inference) failed to
+  *compile* — `bridge` is statically typed `EngineBridge`, so GDScript's
+  analyzer resolves a call's return type from that class's own method
+  signatures, not from whatever `world_gen` (a dynamically-dispatched
+  `Node`) actually returns at runtime. A headless boot caught it immediately
+  (`Cannot infer the type of "sel" variable`) — the kind of break
+  `TOOLCHAIN.md`'s own "grep the DLL for a string" advice does not catch,
+  since the DLL was fine; the *script* failed to parse.
+- `IconDragMode { NONE, RESIZE }` — the Icon tool's own one-handle mirror of
+  the Label tool's five-mode `DragMode`, since there is no rotate/arc to
+  capture.
+- `_on_icon_click` now checks the currently-selected icon's resize-handle
+  circle *before* falling through to place/select, exactly the reference's
+  own pointerdown precedence (`_carIconHitTest` checked ahead of the click
+  handler's own place branch, reference lines 9664-9671). A hit begins a
+  resize drag (`_begin_icon_handle_drag`, capturing `cx`/`cy`/`start_dist`
+  the same way `_begin_label_handle_drag` does); a miss places as before.
+- `_on_icon_drag`/`_on_icon_release` registered as the tool's drag/release
+  handlers. Unlike the Label tool's resize (`label_resize_size` computes a
+  value the caller must then commit via `label_set`), `icon_resize` already
+  writes the result straight into the icon's own `scale` — so the drag
+  handler has no separate commit call to make.
+- `_update_icon_handles_overlay()` draws through the same `tool_overlay.gd`
+  primitive the Label tool's own handles use, called after every place/
+  delete/clear-all/selection change (`_rebuild_icon_panel`'s own end, the
+  same place `_rebuild_label_edit_form` already calls its label
+  equivalent). The placed-icon list also now highlights the selected row,
+  matching the label list's own convention.
+- The panel's stale note (*"There is no on-canvas resize handle yet…
+  delete and re-place to change one"*) is rewritten to describe what is
+  actually there now.
+
+**Deliberately not folded in:** `icon_hit_test`'s box-hit half is still
+unused by this file — clicking a previously-placed, currently-unselected
+icon to re-select it has no GDScript wiring. That is a real, separate gap
+this entry does not close; CA-05 was specifically about the missing handle
+geometry, and the register's own row said so.
+
+**Verified.** `cargo build -p cartalith-godot` clean and `cargo test -p
+cartalith-godot --lib` 321 passed (27 in `icon_bridge::`, 6 new) — both were
+blocked for part of this session by an unrelated, concurrently in-flight
+`lib.rs` change elsewhere in the same file (a `cartalith_terrain::
+amplify::AmplifyOpts` field addition, someone else's work, not this entry's
+— re-run clean once it landed) and, separately, by a live Godot editor
+holding the debug DLL open (`TOOLCHAIN.md`'s own documented "Windows holds
+an open file handle" failure mode). A headless boot
+(`--headless --path godot-project --quit`) is clean.
+
+Then a new `_iconhandle_probe.gd`/`.tscn` (`_authoring_shot.gd`'s own
+pattern: drive the real shell through `app.arm_tool`/`app._on_map_clicked`/
+`_on_map_dragged`/`_on_map_released`, not a mock) — **windowed**, 1600×1000,
+against a real 2048×1311 world with the repo's own `reference_pack.zip`
+loaded: armed Icon, placed a Settlement/Hamlet at the grid centre
+(`scale=1.0`), read back a non-empty resize handle immediately
+(`icon_handles` returned `{"resize": {x:1035.9, y:667.4, r:12.9}}` at the
+view's own zoom), clicked that exact point (hitting the handle, not
+re-placing — confirmed by the icon count staying at 1), dragged it outward
+over six samples and released: `scale` `1.0 → 2.9999947` (the drag's own
+distance ratio, not a round number, which is the point — it is really
+`icon_resize_scale`'s formula running, not a stub). A `zoom_step(1.35)` plus
+an explicit `refresh_annotations()` followed, and the scale read back
+**unchanged** (`is_equal_approx` true) while `icon_handles` re-queried at
+the new zoom returned a **different**, still-correct circle (`r` shrank
+from 12.9 to 9.5, matching `lsc`'s own inverse relationship with
+`_civZoomK`). Three screenshots confirm it visually: the placed icon's
+built-in vector glyph (an orange square — `map_overlay.gd`'s honest
+placeholder shapes, CA-12's own finding) next to a light-blue circle at the
+handle's own screen position; the square visibly larger and the circle
+correctly repositioned to the bigger box's own corner after the drag; both
+still present, correctly sized and positioned, after the zoom step.
+
+## A staleness indicator, and the dials that were never marked stale (`GUI_GAP_REGISTER.md` SG-01 / SG-03, 2026-08-24)
+
+The two open rows of §21's staleness register, closed together because they
+are the same feature seen from both ends: SG-03 produces staleness that
+nothing was recording, SG-01 shows staleness that nothing was reading. The
+graph itself has existed since **The staleness graph gets its consumer**, and
+`recompute_civilisation` (SG-02) has been the control that clears it since the
+same day; neither was visible anywhere in the shell.
+
+### SG-01 — the indicator
+
+**Engine.** New `#[func] WorldGen::stale_stages() -> Dictionary`, keyed by
+stage name, `{origin, reason, tiles}` per entry, `{}` for the healthy state.
+`origin` is the graph's *most upstream* unconsumed change — a sculpted ridge
+reads at `civ` as `height`, not as a chain of "my upstream moved" — and
+`reason` is that change's own recorded string (`"sculpt"`, `"carve_fjords"`,
+`"paint"`, `"param:climate.rain_k"`, `"reset_params"`). A pure query: every
+`StageGraph` accessor takes `&self`, so a status bar can poll it without ever
+triggering work.
+
+**The one staleness source the graph structurally cannot carry.** A
+hand-dropped, hand-edited or deleted settlement makes roads, territory,
+provinces and trade balances out of date — but those are `civ`'s *own*
+outputs, and `civ` is the leaf. `mark_changed(Civ)` therefore marks nothing
+stale at all (pinned by `staleness.rs`'s
+`a_downstream_only_edit_recomputes_nothing_upstream_of_it`), and marking any
+upstream node instead would be a lie that also drags a pointless
+`refresh_climate` along. Without something, the indicator would read "up to
+date" immediately after the edit `ED-03d`'s Recompute button exists for. So
+`WorldGen::civ_dirty` is a plain `bool`, set by exactly the three `#[func]`s
+`ED-03d` names (`civ_drop_settlement`, `civ_edit_settlement`,
+`civ_delete_settlement`), cleared by `recompute_civilisation` and by
+`absorb`, and reported as `origin: "settlements"`, `reason: "place_edited"`,
+`tiles: 0`. A flag rather than a mark, because the stage graph is a
+*dependency* structure and this is not a dependency: it is one pass of one
+stage being behind another pass of the same stage.
+
+**Shell — two surfaces, neither of them new chrome.** The shell has reserved
+a `stale` status slot since `dcc_shell.gd`'s `_build_status_bar()` was
+written, with a `stale` colour token and an unused `DccWidgets.stale_mark()`
+beside it; the slot was occupied by the last generation's *duration*, which
+moves into `pass` ("generated · 3.2s") where the rest of that run's outcome
+already was. `app.gd::refresh_staleness()` now writes it as `stale: climate ·
+civ — sculpt`. The second surface is a badge above the Civilization dock's
+Recompute button, saying the same thing in that button's own vocabulary
+("Stale over 12 tiles — sculpt. Recompute to catch it up." / "Up to date —
+nothing has changed under it since the last recompute." / "No world yet.").
+
+Both poll on a 1 s `Timer` rather than a signal. Staleness is produced by
+half a dozen unrelated `#[func]`s across three workspaces, and six
+notification couplings for what is a plain query is the wrong trade; the
+recompute button additionally refreshes both readouts synchronously, since
+the control that just cleared the state is the one place a lagging badge
+would read as "it did not work".
+
+**The Recompute button still does not grey itself out**, and the reason has
+changed. Its old comment said a disabled button would be reporting a state
+the user cannot see, and pointed at SG-01. That objection is gone. It stays
+enabled because "stale" is not the only reason to press it — a recompute is
+also how a user re-derives roads and borders after an edit the engine cannot
+classify — and because the badge already delivers what greying out was only a
+proxy for.
+
+### SG-03 — the per-parameter → stage table
+
+`params::invalidates(key) -> Option<PipelineStage>`, consulted by `set_params`
+per applied key and by `reset_params` wholesale. **25 of the 81 parameters
+mark something; 56 mark nothing at all**, and that split is the design.
+
+**The rule, derived rather than judged.** A parameter belongs in the table
+only if some function *other than* `generate_terrain` reads it, because
+marking a stage stale is a promise that recomputing it will apply the new
+value — and no live path re-runs terrain. Exactly two functions qualify:
+
+| Live consumer | Parameters | Marks | Effect |
+|---|---|---|---|
+| `refresh_climate` (all of what `recompute_stale` runs) | every `climate.*` row — the **climate** and **weather** groups, 20 keys — plus `peak_m`, `planet.g`, `planet.rotation_hours`, `planet.axial_tilt_deg` (24) | `Hydrology` | climate *and* civ go stale; `recompute_stale`'s gate fires, one `refresh_climate` runs |
+| `compute_civilisation` via `recompute_civilisation` | `river_density` (1), through `fresh_river_order` → affordances, roads, territory | `Climate` | **only** civ goes stale; `recompute_stale` runs nothing at all, leaving `still_stale = ["civ"]` for the dock's button |
+| — | the other 56: every tectonic, volcanic, crater, stream, erosion-pass and world-structure knob, plus `carve_rivers`, `use_gpu`, `sea_level`, `world` | nothing | generation-time only; Generate is the honest control |
+
+`sea_level` and `world` are the two rows that *are* read by
+`climate_params_for`/`weather_params_for` and still mark nothing:
+`recompute_stale` is handed `WorldState::sea_level` (a World-Structure
+archetype re-anchors it during generation, so the dial is not what the
+recompute reads), and `recompute_params` pins `world` to the value `absorb`
+snapshotted, because a moved geometry switch must not make a recompute
+describe a different world.
+
+**Why the node marked is one *above* the stage that goes stale.**
+`StageGraph` has no "this stage's own inputs moved" state: `mark_changed(S)`
+means *S's output changed*, which makes S's consumers stale and leaves S
+itself current. The node to mark is therefore the one immediately upstream of
+the shallowest stage the dial invalidates. For the climate half that is
+`Hydrology`, which is not a fiction for the weather knobs —
+`refresh_climate`'s first statement recomputes `flow_discharge` from the new
+rainfall, and that *is* hydrology's output. It is one node coarser than the
+truth for the few temperature-only dials (`lapse_rate`, `albedo_k`), where
+discharge genuinely does not move; representing those exactly would need a
+fifth `params` source node, a change to the four-node graph
+`the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` pins, and
+was not taken.
+
+**Marking only — nothing is recomputed in the setter.**
+`world_workspace.gd` writes a slider's value on every drag tick, so a
+recompute here would run `refresh_climate` sixty times a second.
+
+**The drift guard is mechanical, not a second list.**
+`every_key_that_moves_refresh_climate_is_marked_and_no_other` walks all 81
+rows, moves each to the far end of its own range, re-runs `refresh_climate`
+over a fixed height field, and asserts that "the output moved" and
+"`invalidates()` returns `Hydrology`" agree. A new parameter cannot be added
+without deciding this, and a wrong decision fails there rather than in the
+shell. Its baseline deliberately turns `wind_manual` on and widens the
+latitude band, because otherwise `wind_dir_deg` and `albedo_k` are provably
+inert — true of the *default world*, false of the parameter.
+
+**Finding, recorded because it bounds what SG-03 is worth today: no shipped
+GDScript path leaves one of these marks standing.** Every parameter row in
+`world_workspace.gd` calls `_regenerate_live()` on release — the reference's
+own `tparam()` `change` behaviour, verified live in the 2026-08-19 Playwright
+pass — and a full `generate()` rebuilds the graph from scratch in `absorb()`.
+`reset_params()` has no shell caller at all. So the table is today a correct
+engine-boundary contract and a prerequisite, not a user-visible change. What
+would consume it is a cheap "apply the climate dials without regenerating"
+path, and that cannot simply be switched on: a full regenerate with a new
+`rain_k` produces different *terrain*, not merely different rainfall, because
+weather runs inside the carve and the `evolve_cycles` loop. That is a parity
+decision, not a wiring one, and it is left to the owner.
+
+### Verified
+
+- `cargo build -p cartalith-godot`, and `cargo test -p cartalith-godot --test
+  params_mapping`: **21 passed, 4 new** — the mechanical derivation above,
+  `river_density`'s "civ stale, no climate pass, fields bit-identical", the
+  climate half's end-to-end "marks `Hydrology`, `recompute_stale` runs
+  hydrology+climate, rainfall actually moves, civ waits for its own button",
+  and the generation-time-only set.
+- **The real GDExtension boundary** (`_stalegraph_shot.gd`, 26 assertions,
+  all passing): a freshly generated world reports `{}`; `climate.rain_k`
+  marks exactly `climate` + `civ` with `origin=hydrology`,
+  `reason=param:climate.rain_k` — **and no others**, checked explicitly
+  against `tect.plates`, `stream.k`, `passes.evolve_cycles`, `sea_level`,
+  `world` and `use_gpu`, every one of which leaves `{}`; `river_density`
+  marks `civ` alone and `recompute_stale_stages()` then runs **nothing**; a
+  sculpt commit marks `civ` with `origin=height`, `reason=sculpt` and a real
+  tile count; a hand-dropped, hand-edited and hand-deleted settlement each
+  mark `civ` with `origin=settlements`; `recompute_civilisation()` clears
+  every one of them; and a regenerate resets the graph.
+- **A windowed run of the real shell** (`_stalegraph_ui_shot.gd`), reading
+  the actual `Label` text out of the live tree rather than the engine:
+  `pass` reads *"generated · 1.4s"* (the duration moved rather than
+  vanished), both surfaces clean after a generate, then *"stale: civ —
+  sculpt"* in the status bar and *"Stale over 30 tiles — sculpt. Recompute to
+  catch it up."* on the badge after a commit — arriving on the 1 s poll, not
+  a direct call, so the clock itself is under test — then *"stale: climate ·
+  civ — param:climate.rain_k"* after a real `bridge.param_set`, then both
+  empty and the badge back to *"Up to date"* after pressing the real button,
+  then *"stale: civ — place_edited"* after a hand-dropped settlement.
+- A headless boot of `shell/app.tscn`: extension initialises, no errors.
+
+**One bug only the real shell found, and only at a large enough grid.** The
+readout took the *first* stale tile's origin. `recompute_stale`'s own
+`mark_recomputed` bumps hydrology over the **whole** map, so at any tile the
+brush missed, civ's most-upstream unconsumed change is hydrology's
+`"flow_recomputed"` bookkeeping string — and tile 0 is usually such a tile.
+A sculpt therefore reported *"stale: civ — flow_recomputed"*, naming the
+recompute instead of the edit that caused it. Invisible in the boundary
+probe at 256×192, where one stroke covers all twelve tiles and tile 0 *is*
+height-marked. `stale_stages` now takes the most-upstream origin across every
+stale tile — the same "smallest id wins" rule `StageGraph::staleness` already
+applies within one tile.
+
+## Three cartography follow-ups: a slider that rendered nothing, a ramp that did not exist, and a look that could not be saved (`GUI_GAP_REGISTER.md` CA-11 / CA-02 / CA-08, 2026-08-24)
+
+The three things the previous entry's measurement pass left behind. Each was
+a real engine gap rather than a missing binding, which is why none of them
+closed with the twenty-one sliders.
+
+### CA-11 — the Wetness slider
+
+Found by measurement the day before and registered rather than fixed, because
+`hydro_wet_strength` ships at `0.38` and a retune moves the default look.
+Owner-authorised this pass.
+
+**Both halves of `build_hydro_wetness` had been tuned at a small grid, and
+both shrank as the grid got finer.**
+
+- The gate was `smoothstep(0.55, 0.88, …)` over the world's own **min-max
+  normalized** log-flow range. That reads as adaptive, and it is — but the
+  quantity being normalized, `flow / (gw*gh)`, is *already* scale-free: it is
+  the fraction of the whole map a cell drains. Re-normalizing it bought
+  nothing and cost the threshold its meaning. In practice `lo` pinned to the
+  `1e-4` clamp floor and `hi` to the largest basin, putting the 0.55 knee at
+  ~0.8 % of map area drained — the trunk river and nothing else. Replaced
+  with an **absolute** upstream-area gate, `WET_AREA_LO = 6e-4` to
+  `WET_AREA_HI = 8e-3`: the same set of *channels* at any resolution, which
+  is what resolution-invariance means for a drainage network.
+- The blur then diluted what survived. A box blur conserves the mean, so
+  smearing a one-cell line over a radius-`r` window drops its peak by about
+  `1/(2r+1)` — and `r` is `gw * 0.006`, so the dilution got **worse** exactly
+  as the grid got finer (3 cells at 512 wide, 12 at 2048). The blur is what
+  makes the halo soft and it stays; what is new is the matching **gain that
+  restores its peak**, `2r + 1`, clamped.
+
+Measured on one generated world, driving 0 → 1, pixels moved:
+
+| grid | before | after |
+|---|---|---|
+| 512×384 | 1.216 % | 10.785 % |
+| 1024×768 | 0.184 % | 4.966 % |
+| 2048×1311 (the app's own) | 0.002 % | 2.589 % |
+
+At the shipped `0.38` default and working resolution: **0.000 % → 1.422 %**,
+worst per-channel delta **3 → 59 levels**.
+
+**The constants were swept, not guessed.** `1e-3 … 1.2e-2` left working
+resolution at 0.67 % and `3e-4 … 5e-3` took it to 3.4 %, which reads as a
+wet-valley wash rather than a river corridor. The shipped pair is the middle
+one.
+
+**One trade, stated rather than discovered later**: the gate is absolute, so
+a world whose basins are all smaller than `6e-4` of the map gets no wetness,
+where the old min-max gate would have tinted its largest stream whatever its
+size. That is the honest answer — an island with no river has no river to
+tint — and it is exactly the choice `build_ao` declines to make, because
+occlusion is a *relief* statistic and really is relative, while drainage area
+is an absolute one.
+
+### CA-02 — an elevation-keyed colour ramp
+
+`render.rs`'s own module doc has recorded since milestone 1 that there is no
+elevation breakpoint ramp anywhere in this renderer — colour comes from
+`material_weights`, a continuous climate/slope/relief blend — and that a
+literal one *"would be a genuinely new visual layer to design on top of (or
+blended with) this material model"*. This is that layer, built the way the
+finding said it had to be.
+
+- `RampStop { at, col }` and `ElevationRamp`, keyed to **relative land
+  elevation** (`0` = shoreline, `1` = the world's highest point), not metres.
+  Metres are a presentation of that (`peak_m` converts, and the panel does);
+  storing them would make a saved ramp mean a different picture on a world
+  with a different peak, which is the one thing a saved look must not do.
+- `ElevationRamp::normalized` is the single place the sort invariant is
+  established, and it carries the NaN policy `cartalith-rust-conventions`
+  requires wherever floats are ordered: **a stop with no position is not a
+  stop**. Without it `sort_by(partial_cmp().unwrap())` panics, and a panic
+  from `set_color_ramp` would cross the gdext boundary.
+- Applied in `land_color` **before the light curve** — after splat and bedrock
+  exposure, before the beach blend — so the hillshade, AO, paper ground, haze,
+  vignette and the whole Painter block still act on it. That ordering is the
+  entire difference between a hypsometric tint over shaded relief (the atlas
+  construction) and a flat elevation key pasted over a map. Land only: water
+  already has its own depth-keyed ramp in `sea_color_core`.
+- **Ships off.** `ramp_strength` defaults to `0.0`, the stage is skipped
+  rather than entered and no-opped, and `js_reference()` never sees it — so
+  `golden_parity_render.rs` needed no change and the shipped look did not
+  move. The ramp behind it is populated anyway (the `Earth` preset), because
+  an empty default would make the one control that turns the feature on look
+  dead, which is precisely what CA-11 was.
+- Nine named ramps as pure data (`RAMP_PRESETS`), the set
+  `DCC_SHELL_SPEC.md` §7's colour-ramp popover lists. `Earth` is first, and
+  is deliberately the closest of the nine to what `material_weights` already
+  produces, so raising the strength slider reads as the ramp *taking over*
+  rather than as a different planet.
+- **Linear interpolation only.** §7 also lists Ease and Step, and Step is how
+  a classic banded hypsometric plate is drawn, but a per-stop interpolation
+  mode is a second axis of state to save, load, edit and test. Stated in the
+  code, in the register and in the panel rather than left as a silent
+  omission.
+
+Bound as `list_ramp_presets` / `get_color_ramp` / `set_color_ramp` /
+`load_ramp_preset`. **Add, delete and reorder are all one call**: the panel
+sends the list it wants and the engine sorts by position, so dragging a stop
+past its neighbour *is* the reorder, rather than a list-index shuffle that
+would mean something different from what the gradient shows. An empty array
+is refused — a ramp with no stops renders nothing, and the honest way to turn
+the stage off is `ramp_strength`, which is already a published tunable.
+
+Panel: CARTO ▸ **Colour relief** — the strength slider, the nine named ramps,
+a live `GradientTexture1D` bar, one row per stop (colour swatch · position ·
+metre readout · delete), Add stop and Reverse.
+
+### CA-08 — saving a look
+
+`TerrainAppearance`, `Npr` and `ElevationRamp` derive `Serialize`/
+`Deserialize` — §7.15's *"the one Rust line the whole feature depends on"* —
+with `#[serde(default)]` at struct level, so a preset written before a field
+existed loads with that field at its own default instead of failing whole.
+
+**A named sidecar file, not a block in the world `.zip`, and the reasoning is
+recorded because it is the kind of thing that gets re-litigated.** A look is
+reusable *across* worlds, which is the whole reason to save one; and
+`SAVEFILE_COMPAT.md`'s format is the reference HTML app's, whose `loadZip()`
+shallow-merges `state`, so a block this port invented would be one more
+unshimmed key for that app to choke on. Looks live in
+`user://appearance_presets/<slug>.json`.
+
+`WorldGen::appearance()` is now **three layers**, cheapest authority first:
+the quality tier, then a loaded preset, then the user's own overrides and
+ramp. A loaded preset replaces the *tier* rather than merging into the
+session — and clears the override map — because otherwise loading a saved
+look would reproduce something other than the saved look. Its cost is the
+tier's: a look saved at `Ultra` renders at `Ultra` wherever it is opened,
+because that is what the file says. `reset_appearance()` drops all three.
+
+Panel: CARTO ▸ **Saved looks** — name field, Save look, a picker built from
+the folder listing (through `peek_appearance_preset`, so a stray JSON file
+that is not a Cartalith preset is skipped rather than offered), Load look.
+
+**Verified — non-headlessly, at the app's own 2048×1311, deliberately not at
+512×384**, since CA-11 was invisible *only* at working resolution and a small
+grid would have verified the bug away.
+
+- 10 new tests in `appearance_tiers.rs` (22 total, all passing) — ramp sort
+  and clamp, the NaN policy, flat-outside/linear-between sampling, coincident
+  stops, every preset loading and ordered, every preset rendering a distinct
+  image, the ramp inert at zero strength, land-only (measured with local
+  contrast off in both renders, because that whole-raster pass legitimately
+  bleeds a land change a few levels into the water beside it), a JSON
+  round-trip asserted **through the render** rather than through field
+  equality, and a sparse preset loading at defaults.
+- `hydro_wet_strength` **left** `every_tunable_is_load_bearing`'s exemption
+  list, which is the cheap standing guard that CA-11 stays fixed;
+  `appearance_ab_dump.rs`'s new `hydro_wetness_visibility_by_resolution` is
+  the expensive one, measuring all three grid sizes on real generated worlds
+  and reporting the whole table before asserting, so a run shows every size
+  rather than stopping at the first failure.
+- `golden_parity_render.rs` and `golden_parity_npr.rs` unchanged and passing:
+  every new stage is off on the JS-parity path. Every other `cartalith-godot`
+  test target re-run green too (nonsquare, pack compositing, paint blend,
+  params mapping, save round-trip).
+- A real windowed run (`_ramp_shot.gd`/`.tscn`) on a generated 2048×1311
+  world: Wetness default → 0 moves **0.821 %** of pixels and default → 1
+  moves **1.295 %**, with the corridors reading as wet valley floors along the
+  actual drainage; all nine ramps render distinct maps (mean |d| 21.0–50.7
+  levels) and strength back to 0 returns the base at **0.0000 %**; through the
+  real dock a slider drag reaches the engine (0.6), Add lands a stop in the
+  widest gap (0.39, between 0.28 and 0.50), a drag from index 7 down to 0.02
+  lands it at **index 1 with its colour**, delete and Reverse both re-render;
+  and an authored look saved, the session mangled to **99.999 %** different,
+  then the preset loaded back at **0.0000 % moved, worst 0 levels** —
+  including the hand-authored four-stop ramp — with Reset then returning the
+  tier's own look at 0.0000 %.
+
+**Still owed on these three**: per-stop alpha, the Ease/Step interpolation
+modes, stop duplicate, an absolute elevation domain and Auto Fit / Auto
+Breakpoints on the ramp; rename, delete and a thumbnail on saved looks. The
+panel's own "Still owed" block says so.
+
+## The City Viewer draws a town, because milestone 12 gave it one to draw (`URBAN_MORPHOLOGY_SCOPE.md` milestone 12, 2026-08-24)
+
+The owner asked for the City Viewer's rendering to be improved, with a
+MapEffects-style battle-map illustration as the reference and its own caption
+as the brief: *"mix up the brightness and saturation of the rooftops for a
+more natural look."*
+
+**That technique needs rooftops, and there were none.** The viewer drew the
+street graph and the site boundary, and no amount of styling was going to fix
+that: a street graph has nothing discrete in it to fill — no shape smaller
+than the whole town. So the work is not mainly a rendering change.
+
+### Why milestone 12 rather than a shortcut
+
+Three options were weighed. A visual-only pass on the street graph could not
+reach the reference's look, because the look *is* per-building colour
+variation. Inventing a Voronoi or straight-skeleton subdivision would have
+produced colourable shapes, but would have been a competing algorithm sitting
+next to the one this subsystem already plans. And milestone 12 —
+`buildBlocks`/`buildParcels`, reference lines 30193-30344 — turned out to be
+**smaller than either**: two functions, and every primitive they need was
+already built and golden-tested at milestones 1-2 (`ensureCCW`, `insetPoly`,
+`polyCentroid`, `pointInPoly`, `polyArea`, `polySelfIntersects`, `segInt`,
+`edgeBetween`, `extractFaces`, and the `logn`/`chance`/`range` draws). No new
+kernel. So the laziest path and the honest path were the same path.
+
+### `cartalith-urban::blocks` (new)
+
+`build_blocks` insets each planar face by half the width of the street
+fronting it; `build_parcels` plats that interior into strip lots by the
+vertex-bisector method — angle bisectors capped by ray-cast to the opposite
+boundary, a per-edge depth clamp cast from each edge midpoint, log-normal
+frontage grants subdivided by the burgage cycle, reflex-vertex overlap
+rejection, and an area-conservation trim.
+
+**One field is this port's own and is marked so.** `Parcel::tone`, a stable
+0..1 scalar the renderer varies a rooftop's brightness and saturation with. It
+is drawn from a **separate** RNG substream (`'roof-tone'`), never from the
+per-block `'parcels/…'` stream the geometry comes out of: one extra draw from
+that stream would shift every subsequent frontage width and the parcels would
+stop matching the reference's. Colour itself is not decided in the engine —
+`urban_layout_draw.gd` owns the palette, as it already did for streets and
+water.
+
+### Verified
+
+**Golden**, on milestones 2 and 7's terms. The reference's own
+`buildBlocks`/`buildParcels` run under `vm.runInContext` over block 4 of the
+frozen file, with both slice boundaries and the block-comment balance
+asserted, and the two functions exposed by a single anchored replacement
+asserted to match exactly once. The frozen file is never modified. Five
+scenarios (three site kinds on a wide grid, a shallow-row grid, a diagonal-cut
+grid), ~5,400 parcels, compared by a hash over **complete** state — both
+polygons, face ids, edge distances, and every parcel field, each double
+written as its exact 64 bits — plus written-out anchors and separate count
+assertions. **All five passed unmodified on the first run.**
+
+**The mutation sweep is the part worth reading.** Every ported constant was
+mutated by one unit and the suite re-run. Ten were caught. Three survivors
+were real, and two new scenarios closed two of them:
+
+1. **The 2000 m probe ray survived** the first three scenarios entirely,
+   because their blocks are far deeper than the 14-46 m plot depth, so
+   `min(t_min*0.42, depthTarget*1.35)` is always won by the depth term and the
+   ray-cast caps never bind at all. `narrow_rows` (~30 m rows) fixed it.
+2. **`depthTarget*1.35` survived** because rectangular faces have no acute
+   vertices, and that cap only binds where a vertex ray-cast is tighter than
+   its edge one. `wedges` (diagonal cuts) fixed it.
+3. **The 120 m² face floor cannot be reached at all**, and this is the finding
+   to carry forward rather than a hole to plug: `attach_point`'s `SNAP` is
+   11 m, so any two nodes closer than that merge, and an ~11 m cell — the only
+   rectangular shape with an area near 120 m² — collapses before
+   `extract_faces` ever sees it. Measured, not assumed: cutting a frame at
+   10.95 m and at 10.98 m both yield a 4-node graph with one face. The floor
+   guards the degenerate slivers `splitEdge` and crossing-resolution produce,
+   not anything a clean street lay can make. **Milestone 11's `lanePass` is the
+   first stage that could produce one**, and is where to revisit it.
+
+The 140,000 m² ceiling is pinned by its own boundary fixture. The 7 m minimum
+frontage, 4 m minimum depth, `riverW/2 + 1` wet margin and the 0.97
+area-conservation trim are pinned by the hash for every value the fixtures
+produce but **not** at their own boundaries — the test module's header says so
+rather than leaving it implied.
+
+### The drawing (`urban_layout_draw.gd`)
+
+Back to front: parchment ground, water, block ground, street casing, street
+fill, roof shadow, roof fill, roof ink, roof ridge, annotation. The reference
+image's technique is applied for real — every roof a different brightness and
+saturation of one warm palette, with brightness up and saturation *down*
+together off the one scalar, because a weathered, sun-bleached roof is both at
+once. That is also why the engine emits one number rather than three
+independent jitters.
+
+Map content keeps its ink-and-parchment language and deliberately does **not**
+follow the shell's light/dark theme — the same rule this file already recorded
+for streets and water, and `map_overlay.gd` for faction colour. The shell's
+amber `accent` appears only on annotation drawn *over* the map (the market
+anchor, the approach-road ends), never as map ink, which is how the DCC shell
+and a hand-drawn plan sit together without competing.
+
+### Two things were measured, and both changed the code
+
+Neither was predictable from reading, and both came from running it on real
+towns rather than on fixtures.
+
+- **577 ms to redraw six towns** — not something anyone can pan. Every roof
+  took its own `draw_polyline` and `draw_line`; folding all roof edges into
+  one `draw_multiline` and all ridges into another took it to **102 ms**, and
+  the City Viewer's own worst case (a 4,370-lot capital) to **46 ms**.
+- **A dense city rendered as a black mass.** A town's lot count runs from 11
+  to 4,370, so the same canvas at the same fit shows a roof at ~40 px or at
+  ~3 px — and at 3 px the ink outline is wider than the roof it surrounds and
+  swallows the tone variation completely. The ink and ridge passes are now
+  gated on the **measured** on-screen lot size (sampled, median) rather than
+  on zoom. For the same reason the street casing is capped in pixels rather
+  than scaled: fitting an 11-lot hamlet to a window zooms far enough that a
+  scaled casing turns the town into a black cross with a few roofs adrift in
+  it.
+
+`map_overlay.gd` passes `detail = 0.0` below a 620 px site box, where a lot is
+under ~4 px and the three per-roof passes are drawing sub-pixel detail over
+and over.
+
+### What is still missing, and is said on screen
+
+**Three upstream stages do not run**, and this is the honest cost of taking
+milestone 12 out of order — a property of its *input*, not of the port:
+
+- ~~**`buildPlaza` (milestone 8) runs on the organic branch too**~~ (reference
+  line 31024), not only the radial one. Without it no block is marked a plaza,
+  so **a drawn town had no open market square** — the block over the market
+  anchor was platted like any other. It was the most visible gap and the
+  smallest remaining change with a visible payoff, and it was **closed the same
+  day** — see "The town has a market square" below.
+- **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
+  cross the channel. Milestone 12's own guards absorb most of it: a block whose
+  inset centroid is wet is dropped, and a lot with *any* corner in the water is
+  rejected (the reference's footprint test, not a centroid test).
+- **`lanePass` (milestone 11)** does not run, so faces are coarser than the
+  reference's would be from the same seed.
+
+**And one place the drawing is ahead of the generator**, which `stages` cannot
+say for itself and the info panel therefore says in words: a rooftop is a whole
+parcel, inset. `buildBuildings` (milestone 13) would put a smaller footprint
+inside each lot with a grammar per district and a terrain gate that leaves
+some lots empty — so this town has no gaps and every roof is the same simple
+quad. Buildings, districts, amenities and the wall circuit remain absent
+rather than stubbed: the bridge still emits **no key** for any of them.
+
+### Verified — actually ran
+
+- `cargo test -p cartalith-urban` (90 passed, 6 new), `-p cartalith-civ`,
+  clippy clean on both, `cargo build -p cartalith-godot`.
+- One clippy suggestion **declined and commented**: `!(120.0..=140_000.0)
+  .contains(&a)` differs from the reference's `A<120||A>140000` on NaN (both
+  comparisons are false for NaN, so a NaN face is *kept*; `!contains` would
+  skip it).
+- **Non-headless, on a real world**: six settlements from pop 121 to 21,179 —
+  283 blocks / 4,370 parcels down to 2 / 11 — tone spanning 0..1 within every
+  town and the sequence distinct across all six, so no two settlements share a
+  roof palette. Then the real `CityViewerWindow` opened on the largest, with
+  its legend, info panel and fit box exercised as a user meets them.
+- `--headless --path . --quit`: clean, exit 0.
+- Golden-parity **does** apply here and was used, contrary to the initial
+  expectation that this was purely visual work: two reference functions were
+  ported, so they are checked against the reference engine rather than
+  eyeballed.
+
+### Follow-up: a NaN plot rule reached lot geometry, because JS `||` is falsy for NaN
+
+Found reading the port back against the reference rather than from a failing
+test — and **no golden could have caught it**, which is this document's
+recurring finding again: every scenario's rules are finite, so not one of the
+five reaches the branch at all.
+
+`buildParcels` stretches its frontage widths with `(eLen)/(acc||eLen)`. JS
+`||` is falsy for **NaN as well as zero**, so a NaN `acc` takes the `eLen`
+branch and the scale comes out `1`. The port tested `acc == 0.0` alone, which
+misses NaN and divides by it instead — pushing a NaN into all four corners of
+every lot on that frontage, which **draws as nothing at all rather than as an
+error**, the worst failure mode for a visual subsystem.
+
+Reachable in the app, not hypothetical: `applyPlotChaos` writes a NaN slider
+straight into `frontageWidthVariance`, `logn` returns NaN from it, and
+`js_min`/`js_max` propagate NaN by design — which is the whole reason those two
+exist (`cartalith-rust-conventions`). `-0.0` is covered by the same test, since
+`-0.0 == 0.0`.
+
+`a_nan_rule_does_not_reach_lot_geometry` pins both NaN paths the parcel rules
+can produce: the frontage variance above, and the NaN `subdivisionCap` that
+`ParcelRules`' own doc comment describes, which must run the burgage cycle zero
+times rather than panicking. All five golden scenarios pass **unchanged** — the
+fix only moves behaviour no finite input can reach.
+
+## Bake, tile pyramid, persistent atlas and the finalize lock (`GUI_GAP_REGISTER.md` WW-01 / PR-10 / PR-12 / SH-07, `PARITY_AUDIT.md` §3, 2026-08-24)
+
+`PARITY_AUDIT.md`'s largest genuinely-unstarted row with no owner ruling
+against it — ~50 reference functions (`bakeAllTiles`, `atlas*`, `setFinalized`,
+`applyFinalizedUI` and the pyramid geometry beneath them).
+
+**Understanding first, because two different things in the reference share the
+verb.** Deep zoom there does not magnify the base raster; it *re-synthesises*
+the ground at tile resolution — `refineTile` bilinearly upsamples the coarse
+field and adds world-space sub-cell detail, then `addZoomDetail` (reference
+10467) adds `z − zBase` further octaves, each 2× frequency, *"so deeper zoom ⇒
+more octaves ⇒ more intricate relief"*. That is expensive and it is
+deterministic, which is exactly the shape of thing worth caching. **Baking is
+running that synthesis ahead of time for every tile of the pyramid and writing
+the results to a persistent, per-world store**, so a later zoom reads bytes
+instead of recomputing octaves.
+
+**Finalizing is not a UI mode.** The atlas is namespaced by `worldKey`
+(reference 10703), an FNV-1a hash of the generation parameters. Change one and
+every baked chunk in the world becomes *unreachable* — not wrong, unreachable,
+which is worse, because the user paid minutes of compute for it and the app
+would look as though it had thrown the work away. `state.finalized` is what
+makes that a refusal with an explanation instead. The reference's own comment
+puts it better than a summary can: *"the moment the simulation stops being the
+tool and the map starts being it."*
+
+What it exempts is exactly what it must: anything that only changes how the
+field is *drawn*. `applyFinalizedUI` skips `#genV3dSec` because *"the 3D-view
+dials style the drape, never the data"* — and that has to be the same cut
+`worldKey` makes, or a control the lock permits would invalidate the atlas it
+was allowed to change. Here the two are the same cut by construction:
+`bake_bridge::world_key_signature` hashes `params::save_state` (every value
+`generate_terrain` reads, by construction — it is `SAVEFILE_COMPAT.md`'s own
+table) plus the six call-argument fields, and nothing `render.rs` owns.
+
+**Built, in five pieces, each in the crate that owns it:**
+
+| where | what |
+|---|---|
+| `cartalith-spatial/src/pyramid.rs` (new) | `pyramidDims` (10461), `pyramidTileBounds` (10594), `pyramidLevelForZoom` (10600), `tilesInView` (10637), `chunkParent`/`chunkChildren` (10933-4), `bakedCover` (10715), and `pyramid_tile_count` |
+| `cartalith-terrain/src/amplify.rs` | `addZoomDetail` (10467), plus `z_base`/`zoom_detail_k` on `AmplifyOpts` — the reference's own single shared bag, reproduced rather than split |
+| `cartalith-io/src/atlas.rs` (new) | `worldKey`'s FNV-1a, `atlasKeyStr`/`atlasMetaKey`/`atlasChunkFile`, chunk encode/decode over `packHeight16`, `buildAtlasManifest`, `AtlasMeta`, and the store |
+| `cartalith-engine/src/bake.rs` (new) | `pyramidTile` (10575), `bakeAllTiles` (10809), `bakeVisibleTiles` (10765) minus its camera, `atlasExportEntries`/`atlasImportEntries` (10890/10910), and `FinalizeLock` |
+| `cartalith-godot/src/bake_bridge.rs` (new) + 14 `#[func]`s | the atlas root, the world-key signature, the status readout, the cost estimate, and five guard call sites |
+
+**Why `pyramid.rs` is not `TiledField`.** Both are "tiling", and only one of
+them is this. `TiledField` cuts a field it *owns* into fixed-size tiles; a
+pyramid level splits the *whole* field into `2^z × 2^z` tiles whose coarse-cell
+footprint therefore shrinks with depth and is generally fractional. The
+one-cell inset every function works over (`cW − 1`, not `cW`) is the
+reference's own and is deliberate: a tile is sampled by `refineTile`, whose
+coordinates are cell *centres* with endpoints inclusive, so the addressable
+span of a `cW`-wide field is `[0, cW−1]`.
+
+**IndexedDB is the one necessary divergence.** The reference's store is a
+browser API it itself feature-detects and degrades to a no-op without
+(*"browser-only; feature-detected → headless / no-IDB no-op"*). `AtlasStore`
+is a filesystem directory instead, with the same durability contract: survives
+a reload, survives a regenerate, per-world, clearable. What is deliberately
+kept byte-identical is everything a `World/` archive written by either side
+has to agree on — the key string, the chunk encoding, the ancestor-coverage
+rule and the manifest — and all four are golden-pinned.
+
+**Golden parity: 16 tests across three files, every one matching on the first
+run.** Six FNV-1a-64 hashes of `addZoomDetail` output and seven of
+`pyramidTile`'s, so the octave loop is bit-identical to V8's; the atlas
+manifest byte for byte against `JSON.stringify(m, null, 2)`; `pyramidDims`,
+`pyramidTileBounds` (fractional steps of 47/2, 47/4, 47/8), `tilesInView`
+(including the case a "clamp the rect first" port gets wrong — a view entirely
+off the north-west still names tile (0,0)), `pyramidLevelForZoom`, the key and
+path spellings, and the `rg16` round trip.
+
+**Two harness notes worth keeping, both of which cost real time.** `GW`, `GH`,
+`state` and `VERSION` are `let`/`const` in block #1, so they are **not** `vm`
+context properties and `ctx.GW` reads `undefined` — `CLAUDE.md`'s own
+documented hazard ("host-side assignment shadowing `let`-declared reference
+globals"), met by *appending the probe to the block's own source* and running
+the two as one script, which is the only way it shares that lexical scope. And
+block #1's boot line (14554) reads `typeof indexedDB === 'undefined'` and,
+headless, **auto-generates a full world** at the default `state.resW` of 2048
+— minutes per extraction run. The harness supplies a truthy `indexedDB` stub so
+boot takes the browser branch; none of the functions under test reads it.
+
+**Mutation testing found two real things rather than confirming nothing.**
+
+1. **Inserting a `[0,1]` clamp on `addZoomDetail`'s write-back survived every
+   case**, because no fixture pushed a value out of range. Rather than assume,
+   the claim was checked against the reference directly: a cliff fixture at
+   `detailAmp 9.0`, run through the real `addZoomDetail`, comes back spanning
+   `[-0.963, 2.825]`. `amplifyRegion` clamps; this pass does not, and a port
+   that "tidied" that would silently flatten every peak a deep bake touches.
+   Now pinned by its own case.
+2. **Three constants governing the second-and-later octaves** (`f *= 2`,
+   `amp *= 0.6`, the six-octave cap) were invisible to the engine-level test,
+   whose deepest case reached only one octave. `z = 5` and `z = 7` cases added;
+   the terrain-level test had killed all three from the start, so this was a
+   coverage gap between two files rather than a hole.
+
+**Verified end to end on a real generated world** —
+`cartalith-engine/tests/bake_real_world.rs`, `#[ignore]`d and size-configurable
+by environment variable so the same test answers both "does this work" and
+"what does it cost at shipping size":
+
+| world | tile | depth | chunks | time | on disk | archive |
+|---|---|---|---|---|---|---|
+| 384×256 | 256 px | 3 | 85 | 0.17 s (2 ms/tile) | 16.4 MiB | 9.3 MiB gzipped |
+| 2048×1311 | 1024 px | 3 | 85 | 1.64 s (19 ms/tile) | **233.7 MiB** | 104.6 MiB gzipped |
+
+A deep-zoom read comes back within one `rg16` LSB (7.63e-6) of what live
+synthesis produces, the stored visual is a real decodable PNG at the tile's own
+size, a re-bake of the same depth writes nothing and skips all 85, the archive
+round-trips into a fresh store byte for byte, and `clear_world` frees exactly
+85.
+
+**That 233.7 MiB changed the UI.** Every tile at every level has the *same*
+pixel dimensions — `tile_dims` picks them from the region's aspect ratio, and a
+level-`z` tile's footprint is `(gw−1)/2^z × (gh−1)/2^z`, whose aspect is
+`(gw−1)/(gh−1)` regardless of `z` — so the pyramid's height storage is exactly
+`tiles × tw × th × 4`, and depth 5 at those settings is about **3.7 GiB**. The
+Bake depth row therefore leads with the byte figure rather than the tile count,
+because a tile count alone reads as small and is not. `bake_estimate`'s
+prediction is checked against the measured 233.7 MiB by a test, not merely
+computed.
+
+**The shell.** `GUI_GAP_REGISTER.md` §7's own note said to take the design
+canvas's three-row split when WW-01 was built, so the dock foot's single
+disabled button is now Bake depth · Bake ALL levels & finalize · Un-finalize
+(plus a fourth row for Clear), with the reference's own show/hide swap between
+the bake button and Un-finalize (`applyFinalizedUI` lines 10861-10864). The
+status bar's `atlas` slot, built since the shell shipped and never written, now
+carries chunk count, deepest level, bytes and the finalize state — blank when
+nothing is baked, because an empty slot is the honest reading of "no atlas" and
+a permanent "Atlas: empty" would spend a slot saying nothing. Preferences ▸
+Memory ▸ Clear caches is live (PR-12). The atlas root is `DccSettings`' own
+existing `atlas_cache` path, exactly as §7.7 item 3 asked when the cache
+shipped.
+
+**Five guards, not a DOM sweep.** The reference disables controls in the
+Generate → World panel and backs that with three hand-written guards in
+`generate()`, `confirmRegenerate()` and `_sculptEditorActive()`. Here the rule
+is one predicate (`FinalizeLock::check`) called from `generate_sized`,
+`generate_world_structure_sized`, `load_save`, `set_params` and
+`sculpt_commit`, so a sixth mutator added later cannot forget it, and
+`finalize_check(kind)` returns the same sentence as a query so the shell can
+grey a control and say *why*. `set_params` rejects the whole write rather than
+half of it: a partial apply would leave the parameter state describing a world
+the atlas was not baked from, which is the exact condition the lock exists to
+prevent.
+
+**Deliberately not ported, and said so in `pyramid_tile`'s own doc comment:**
+the reference's `coarseFlow` burn-in (`burnChannels`/`sharpDelta`) and its
+`featureDetailPass`/`tileErode` extras. Both are behind `_lodBurnRivers` /
+`_lodMicroErode`, off by default there, so a default bake matches; wiring them
+needs the live flow field and the feature registry routed down to a per-tile
+call, which is a rendering-integration milestone rather than part of the bake.
+`GENPOOL.runTiles` has no counterpart either — `bake_tiles` is already
+`rayon`-parallel across a level's tiles, which is the same parallelism, and
+the reference's `_lodGen` race guard has nothing to guard because the whole
+level completes before the caller regains control.
+
+**Still open.**
+
+- **Nothing reads the atlas at draw time yet.** `atlas_tile_png()` and
+  `atlas_is_covered()` exist and are verified; `viewport_host.gd`'s deep-zoom
+  compositor still calls `lod_synthesize_tile` unconditionally. The cache is
+  written and correct but not yet consulted — the single most valuable
+  follow-up here.
+- No progress signal: `bake_all` is synchronous and blocks the UI for its
+  duration. Threading it is the same unsolved question
+  `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` raises for `generate()`.
+- §7.7's atlas size cap in GB, and its item-1 split of the interactive-LOD
+  toggles into the Layers popover and tile size / LOD levels into Export ▸
+  Maps. The engine has `atlas_set_tile_size()` and `bake_visible()`; nothing
+  in Preferences calls either.
+- RD-13's finalize-lock note in the right dock's Stamp stack. Now unblocked
+  and small — the engine refuses the commit and `finalize_check("height_edit")`
+  returns the sentence — but the right dock was outside this pass.
+- `app.gd:316-318`'s second copy of the Finalize control in the tool options
+  bar.
+
+**A scoping correction, recorded because the earlier scoping was wrong.**
+`PARITY_AUDIT.md` §5 item 14 held that the four header-bar export controls
+(`bakeRes` 2K/4K/8K, `bakeTiles`, `chanAtlasChk`, `layersPreviewChk`) belong to
+this system. They do not. The reference has **two separate systems that share
+the verb**: the LOD tile pyramid above, and the **export raster** —
+`bakeDims`/`bakePixel`/`bakeSingle`/`bakeTiled`, which is `exportZip`'s
+`map.png`. `bakePixel` is the full material path (`landColorCore`,
+`seaColorCore`, lakes, SDF coast/river, crest, AO × SVF × cast shadows) at a
+*fractional* sample position, and this port's `render::cell_color` takes
+integer cell indices only — so `bakeRes`/`bakeTiles` are a rendering milestone,
+not an export one. `chanAtlasChk` is a third thing again and much cheaper:
+`_chanEnc`/`packRGB8`/`channelAtlasGroups` pack up to three affordance fields
+into one RGB8 PNG plus a decode manifest, and every input already exists
+(`cartalith_civ::build_soil_fertility`/`build_water_access`/
+`build_carrying_capacity`/`build_settlement_suitability`/
+`build_resource_potentials`, `RESOURCE_KEYS`). `layersPreviewChk` is the f32
+layer previews. **None of the four was built here**; both audit rows are
+corrected rather than left to mislead the next pass.
+
+---
+
+## Three capabilities the owner could not reach (2026-08-24) — `GUI_GAP_REGISTER.md` §27
+
+Owner, live: *"There is no way to plan a Journey or draw a route"* and *"It
+isn't possible to drop a name for a region on the map as in the HTML version."*
+All three capabilities existed and worked. Two of the three **paths** to them
+did not, and the third was there but unnamed. Found by launching the real
+windowed shell and doing the obvious thing — nothing in any of these files
+reads as broken.
+
+**IN-10 — `Data ▸ Journey planner… ⇧J` did nothing from the launch domain.**
+The planner is a tool takeover that only paints while CIVIL is the active
+domain (`journey_planner_view.gd`'s `_recompute_visibility()`, correctly — it
+swaps that domain's whole region). The shell opens on **WORLD**. So the menu
+item, and the right dock's "Plan a journey" with it, armed the tool and changed
+not one pixel: the only feedback was `Journey armed — Esc to release` in ghost
+text in the far corner. Of the three entry points only the INFRA dock's
+Logistics button worked, and only because it is unclickable from anywhere else.
+`app.gd`'s `open_journey_planner()` now selects the domain first.
+
+**IN-11 — every tool's advertised letter was bound to nothing.** `"Way (W)"`,
+`"Route (⇧R)"`, `"Label (L)"`, `"Biome paint (B)"`, `"Settlement (S)"` … ten
+tooltips across four domains, and no key handler anywhere in `shell/` matched a
+letter — Escape, Backspace, Delete and the layers popover's digits were the
+whole keyboard. That is the second half of "no way to draw a route" that a
+working Route button does not explain: the tooltip tells you to press `⇧R`.
+`DccWidgets._tools_row` now parses the key out of the label it already shows
+and hangs a `Shortcut` on the button. A `Shortcut` rather than a key table,
+because `BaseButton::shortcut_input` fires only while the button is visible and
+enabled — and only the active domain's panel is visible, so `W` arms Way in
+CIVIL and is inert in WORLD for free. It also runs after GUI input, so a focused
+`LineEdit` eats its own letters.
+
+**CA-13 — region naming works; nothing said so.** The reference calls these
+*region labels* everywhere it names them, and the port has had the whole thing
+since the label milestone: CARTO ▸ TOOLS ▸ Label, click empty ground, a prompt
+whose placeholder is literally `Region name`, then a drawn label with
+resize/rotate/arc handles. Driven live end to end. But the dock section was
+titled "Placed labels" with a "none placed" empty state — neither says *region*,
+neither names the tool — and no menu mentions labels at all. Renamed to **Region
+labels**, with an empty state that says which tool places one, in the same shape
+as Logistics' own "No committed routes yet — draw one with the Route tool
+above". No menu route was added; that is a menu-structure change, not a wording
+fix, and it is stated as still owed.
+
+**What was never broken, and is proven to still work.** From a fresh launch with
+real synthesised pointer events: CIVIL ▸ TOOLS carries Way and Route enabled;
+Route arms; two real map clicks reach `_route_click`; ✓ Commit takes
+`route_count()` 0 → 1; and the planner opens on `Route #0 — 506 km (mixed)` with
+a live route map, elevation profile, stage bands and stops strip. IN-09's own
+verification still holds.
+
+**Verified:** `_fixprobe_shot.gd` drives the real windowed shell over a really
+generated world — 24 assertions, all passing, including the cross-domain
+inertness of every letter and the focused-`LineEdit` case. Headless boot of
+`shell/app.tscn` clean.
+
+**The rule this pass adds**, one layer above IN-09's *"check the pixels"*: **a
+control that exists, is enabled, and works when invoked proves nothing about
+whether a user can find it.** Neither of these two fixes was findable by
+reading; both were one action into a real launch.
+
+## The rail, the wheel and the measure row (2026-08-24) — `GUI_GAP_REGISTER.md` §28
+
+Three owner reports from one live session against the vendored canvases. The
+middle one was much the largest: **no `ScrollContainer` anywhere in the
+application could be scrolled with the wheel**, and none ever had been.
+
+**SH-01 — the rail expansion is withdrawn.** The mockup's head chevron had been
+a real `Button` since 2026-08-19, growing the rail to 200 px and swapping the
+domain column for a phone-drawer list of each domain's sub-structure —
+`DCC_SHELL_SPEC.md` §3 asks for exactly that. The canvas never draws it: all
+eight desktop artboards across `design/Cartalith DCC Shell.dc.html` and
+`design/Cartalith Measurement Toolbar.dc.html` open the rail with the same
+literal `width:40px;flex:none`, and the state that got built instead carried the
+*phone* type scale into a 200 px column — screenshotted live, `CARTOGRAPHY` ran
+under the left dock. Gone, with `W_RAIL_EXPANDED` and `DOMAINS[i].subnodes`. The
+29 px head cell and its dim `›` stay, as the `Label` the canvas actually
+specifies. `Window ▸ Domain rail` is untouched: that is the same region toggle
+the other four layout regions have, and not what "collapsible" meant.
+
+**IN-12 — one `_input` handler swallowed every wheel event in the shell.**
+`viewport_host.gd::_input()` handled the wheel with no rect test and then called
+`set_input_as_handled()`. `_input` fires on every node for every event wherever
+the cursor is, and before GUI dispatch — which is why the handler is there, and
+is equally why a notch over the left dock zoomed the map and cancelled GUI
+dispatch for that event. Measured: the left dock holds 836 px of content in a
+774 px window and read `scroll_vertical == 0` after five notches at three
+different hover points. Fixed by generalising the guard the LMB branch already
+carried for the navpad — a *press* belongs to the camera only when it lands on
+`ViewportHost`'s own rect. Releases stay exempt, or a pan that ends over a dock
+leaves the camera stuck to the cursor.
+
+This is the third instance of one pattern class (`4e000a3`, `695821f`): a
+control that participates in input dispatch affects nodes it does not own. The
+first two were `mouse_filter`; this one is `set_input_as_handled()`.
+
+**MT-01 — the measurement quick-buttons were one flat run of six.** The canvas
+draws three groups separated by rules — `[Distance Bearing Area Radius]` │
+`CROSS-SECTION [Elevation … Custom▾]` │ `[Δ vertical  3D distance]` —
+identically in all three of its states. `tool_bar.gd` had flattened all six
+`MEASURE_MODES` into one run and hidden the channel row behind a `Field`
+dropdown that only appeared once Cross-section was armed, so every button after
+Radius sat at the wrong x and five canvas buttons were not on the bar at all.
+Rebuilt to the canvas's grouping, made explicit rather than derived from the
+engine list's declaration order. A channel button now arms Cross-section, which
+is how the canvas reaches it — its first group has exactly four buttons in every
+state.
+
+**Verified live and windowed**, because all three are invisible to a headless
+boot. `_railprobe_shot.gd` at 1600 × 900: the rail holds `Rect2(0, 70, 40, 804)`
+at window widths 1600 → 640 and has no expansion method left; the wheel over the
+rail no longer moves the camera; the left dock scrolls its full 62 px range at
+all three hover points, including with a `Button` under the cursor; the wheel
+over the map still zooms one `ZOOM_WHEEL_STEP`; and the measure row reads
+`Distance 195 · Bearing 265 · Area 329 · Radius 375` │ `CROSS-SECTION 440 ·
+Elevation 556 … Geology 836` │ `Δ vertical 907`, with `Climate` taking mode to
+`section` and channel to `climate` in one click. Headless boot clean.
+
+## The bake system, actually driven: a dead Bake button, and a header copy that lied (`GUI_GAP_REGISTER.md` WW-01, 2026-08-24)
+
+The verification half of the bake/atlas/finalize work committed in `e0dfa44`,
+`948e15a` and `f11111f`. That pass shipped its engine and its shell, but its own
+commit message discloses that it was "verified headlessly against the *stale*
+cdylib" — the guard discipline working, and not the same thing as having driven
+the feature. This entry is what happened when it was driven.
+
+**The engine held up.** `cargo check -p cartalith-godot` is clean, which settles
+the `AmplifyOpts` question a sibling agent raised against `e0dfa44`: the caller
+uses `..AmplifyOpts::default()`, so `z_base`/`zoom_detail_k` are supplied.
+`cargo test` across `cartalith-spatial/-terrain/-io/-engine` is 480 tests green,
+`params_mapping` 21 green.
+
+**The `#[ignore]`d acceptance test, run rather than described.** At its default
+384 × 256 / 256 px: `generate_terrain` 0.15 s, 85 chunks baked in 0.17 s
+(2 ms/tile), 16.42 MiB on disk, a deep-zoom read within one `rg16` LSB
+(7.63e-6) of live synthesis, 171 archive entries at 9.34 MiB gzipped. Re-run at
+shipping size (`CARTALITH_BAKE_GW=2048 GH=1311 TILE=1024`): 2.26 s to generate,
+85 chunks in 1.65 s (19 ms/tile), **233.73 MiB** — which confirms to two decimal
+places the "234 MiB (measured)" figure `948e15a` put in front of the user, and is
+the reason that readout leads with bytes rather than a tile count.
+
+**A headless probe over `EngineBridge`** (`_bake_probe.gd`, 35 assertions):
+namespace, estimate, bake, read-back, PNG decode, coverage, all five lock
+guards, un-finalize, archive round trip, clear. Two of its own failures were the
+probe's, and worth recording because the shape recurs: it restored `sea_level`
+to its default *before* asserting that changing `sea_level` moved the world key,
+so it compared the key against itself and indicted a correct engine. The
+namespace really does move — `3a15d969` → `7d883d31` → back.
+
+**The two real bugs were both only findable by pressing the button.**
+
+1. **"Bake ALL levels & finalize" was permanently disabled.**
+   `_refresh_finalize()` sets `disabled = not has_world` and runs when the
+   workspace is *built* — which is before any world exists. Nothing re-ran it on
+   generation, and the only callers that would have were the bake and clear
+   buttons, one of which was the disabled one. A user could never bake.
+   `app.gd` gained `_refresh_world_dependent()`, fired on `generation_finished`
+   and `world_loaded`; it also calls `refresh_atlas_status()`, whose own doc
+   comment had claimed since it was written that it was "called after every
+   bake, clear, finalize and generate" — the generate call site never existed.
+2. **The tool-options bar's copy of the control was a dead placeholder**
+   (`func(): pass`, `disabled = true`) whose tooltip still read "No bake/LOD
+   pipeline exists yet; finalize has nothing to freeze." It had been true, and
+   stopped being true the day WW-01 shipped. WW-01's register row already named
+   it as the last open item. It now presses the same `_on_bake_all` and takes
+   its state *pushed* from `_refresh_finalize()` rather than computing it a
+   second time — two buttons with two independent state computations is drift
+   this shell has been bitten by before.
+
+**Verified windowed at 1600 × 900** (`_bakeui_shot.gd`, 26 assertions, all
+passing), because none of the above is visible to a headless boot: the four
+Finalize rows exist; Bake is enabled after a generate; the status bar's `atlas`
+slot goes blank → `atlas: 85 chunks · LOD 0–3 · 16.5 MiB · FINALIZED` → drops
+`FINALIZED` on un-finalize → blank on clear; the dock button swaps to
+Un-finalize and the header shortcut hides with it; a `set_params` through the
+real bridge is refused while finalized; and pressing the *header* button bakes
+all 85 chunks and finalizes exactly as the dock one does. Screenshots confirm
+the readouts render as written. Headless boot clean, no errors.
+
+One durability note: a GDScript error aborts `_ready()` without reaching
+`get_tree().quit()`, and headless Godot then idles forever rather than failing —
+this cost a 10-minute timeout on a one-line typo. Both probes now arm a watchdog
+timer that quits non-zero, which turns that into a visible failure.
+
+## The roads were curved all along, and the renderer drew their chords (2026-08-24) — `GUI_GAP_REGISTER.md` §29
+
+Owner: *"settlement roads all render as straight lines — no organic
+curvature."* Three suspects were obvious and all three were wrong. The
+smoothing **is** ported faithfully (`civ_smooth_path` = `_civSmoothPath`,
+reference 21892), it **does** run on the live path, and `map_overlay.gd`
+**does** `draw_polyline` every point it is handed. Measured over a real
+384×288 world, the ways come back at **mean sinuosity 1.072, ~11° of turn per
+vertex**. They curve.
+
+**The fourth thing was the sampling rate.** `_civSmoothPath` samples its spline
+every **3 grid cells** and rounds each sample to a whole cell, and
+`rdpSimplify`'s own comment says what that is calibrated against — *"eps in
+grid units (caller passes ~1 screen px)"*. The reference draws at roughly one
+cell per screen pixel, so a 3-cell chord is a 3 px chord. Fitted to this
+port's centre panel a 384-cell grid is already ~3.6 px/cell, and
+`ViewportHost.ZOOM_MAX` is 8 — one cell reaches **~29 screen px**, and the same
+chord is an ~87 px straight line meeting the next at a visible angle. The curve
+was real; the chords were what reached the screen.
+
+The reference had already met the near end of this and written it down.
+`_civSmoothPath`'s v0.92 note is an earlier owner report — *"roads nearly miss
+settlements when zooming in"* — fixed by un-rounding a way's **endpoints**,
+reasoning that half a cell is *"imperceptible at low zoom but, amplified by LOD
+zoom (one grid cell can span many screen pixels), visibly"* wrong. It leaves
+the interior rounded because *"their precision was never load-bearing"*. Under
+a DCC camera it is.
+
+**Fixed at the boundary, not in the engine.** `get_roads()` now re-samples each
+way through its own control points at `WAY_RENDER_STEP_CELLS = 0.25`, remapping
+`brks`, using `cartalith_civ::civ_catmull_rom_sample` — the same one
+definition, made `pub`, so this is a refinement of the curve the engine already
+computed and not a second smoothing pass. `Way::pts` never moves, so `km`, the
+network metrics, `um_primary_paths` and every road golden test see exactly what
+they saw. Putting it in `cartalith-civ` would have meant re-baselining
+`_civSmoothPath`'s goldens for a presentational reason; putting it in
+`map_overlay.gd` would have put geometry in GDScript, and that file was under
+concurrent edit.
+
+**Measured in the real shell**, windowed at 1600 × 900, same seed and the same
+pinned view at `ZOOM_MAX` with and without the re-sample: 589 → **6,342**
+points across 35 ways, mean chord **2.78 → 0.245** cells, max chord 4.24 →
+0.328, turn per vertex **14.47° → 1.70°** — the same total turning spread over
+twelve times the vertices, which is the difference between a corner and a
+curve. `km` unchanged at 1243.3 on the longest way; its *drawn* length rises
+0.35%, because a 0.25-cell polyline measures the arc instead of cutting it.
+
+**A fixture lesson worth the line.** The first probe put settlements on an
+exact lattice and 27 of 47 ways came back with *precisely* zero deviation from
+their chord, which read as a dead cost field and nearly became the diagnosis.
+It was the fixture — an axis-aligned pair has exactly one minimum-step
+8-connected path and is forced straight whatever the terrain costs. Jittering
+the placements off the lattice took it to 8/51. `CLAUDE.md`'s "shape fixtures
+to reach the code", read from the other side: a fixture can hide the code by
+making its answer degenerate.
+
+`cargo test -p cartalith-civ` 493 passing, every golden-parity suite included
+and unchanged; `cargo test -p cartalith-godot --lib` 334 passing with three new
+`way_render_tests` (density, `brks` remap, degenerate inputs). Headless boot
+clean. **Left open and registered**: `get_sea_routes()` and the Route tool's
+committed routes have the same chord geometry and want the same three lines,
+deferred only because `map_overlay.gd`'s route rendering was being edited in
+parallel this round.
+
+## The map overlay rasterised in the wrong space, twice (2026-08-24) — `GUI_GAP_REGISTER.md` §30
+
+Three owner reports against the live map: settlement names *"go blurry quickly
+and don't scale"*, minor settlements are *"always visible instead of
+zoom-gated"*, routes draw *"slightly see-through and blurry"*. Two of the three
+turned out to be one bug.
+
+**`ViewportHost` scales this control, and Godot does not re-run a
+`CanvasItem`'s draw commands when an ancestor's `scale` changes — it re-scales
+the geometry those commands already produced.** So a `font_size` and a
+`draw_polyline` width, both expressed in the overlay's own local pixels, are
+magnified *along with their rasterisation*: at `ZOOM_MAX` a 9 px glyph is a 9 px
+bitmap stretched over 72 screen px, and a 1.5 px antialiased line is 12 px wide
+with ~8 px of soft fringe on each side. That is the blur in report 1 and the
+"see-through" in report 3, and it is the same defect in two primitives.
+
+`_civ_zoom_k()` already fixes the *size* half of this and could never have
+fixed the *resolution* half. Worse, the label's `maxi(9, …)` floor — faithfully
+ported from the reference's own `Math.max(9, sz+lsc)` — defeated even the size
+half: `sc` at a typical viewport is 0.63, `radius + sc` never reaches 9, so the
+label sat pinned at 9 **local** px and its on-screen size became `9 × zoom`.
+Constant-on-screen pins with labels growing linearly beside them is exactly
+"doesn't scale".
+
+The fix is one mechanism, `_crisp_begin()`/`_crisp_end()`: a `draw_set_transform`
+of `1/zoom` inside which every coordinate and every size is a **screen** pixel.
+Text is measured, rasterised and drawn at its final on-screen size; the three
+linear layers build their strokes and their antialiasing at screen resolution,
+which also restores the reference's `rsc` (line 15470) that every way and
+journey `lineWidth` there is multiplied by and this port had dropped.
+
+**The third report was independent, and its dominant cause was a disclosed
+porting inference that does not hold.** `lib.rs` folds `civ_seed_villages`'
+output into the roster as plain `Hamlet`s, on the reasoning that *"a village
+renders exactly like any other hamlet, which is what the reference's own
+hamlet-tier tagging for these already implies"*. The reference tags them
+`villageAddon` **so the renderer will not treat them as hamlets**: they gate at
+`CIV_VILLAGE_ADDON_LOD = 2.4`, not `CIV_LOD_PLACE.hamlet = 1.4`, and below it
+they are hidden outright with no dot fallback — the constant's own comment names
+the complaint ("waay too populated") it exists for. Measured on the shell's
+default world: **200 of 209 hamlets are addon villages**, against 24 real
+settlements, and the shell defaults `villages` to `true` where the reference
+defaults it `false`.
+
+A second, smaller cause sat underneath: `SETTLEMENT_LOD` was compared against
+the raw `_camera_zoom`, whose meaning moved on 2026-08-23 when `reset_view()`
+became the reference's **cover** scale. Cover is `>= 1` by construction and
+window-shaped — the same world opens at `z = 1.04` in one dock layout and `1.36`
+in another — so a threshold's meaning depended on the window. Both are fixed:
+addon villages gate at 2.4 and are neither drawn nor pickable below it, and every
+threshold is now compared against zoom normalised by `_lod_zoom_base()`, so `1.0`
+means "the view a world opens at" on any window shape.
+
+**Verified live, non-headlessly** at 1600 × 1000 and 2400 × 800, seed 483920 over
+384 × 288 with all six tiers and one committed 2,070 km route, captured at the
+reset view and at 1.5×, 3× and 5.9× it. Before: 54 px of stretched bitmap text,
+233 places drawn at the default view, the route a soft amber band. After: crisp
+text at every zoom, 33 places at the default view with the addon layer revealing
+at 2.4×, the route a thin dashed line over its dark underlay. Headless boot and
+`smoke_test.gd` clean; one file changed.
+
+**Left open and registered.** An addon village is identified by its
+unconditional `pop: 0` — exact for the default pipeline, and a proxy for
+`CivData::village_tids`, which the engine already keeps beside the `tid`
+`get_settlements()` already emits. Exposing it is one line; not taken because
+`crates/cartalith-godot/src/lib.rs` was under concurrent edit this round.
+
+## The tool overlay had the map overlay's bug too, and four surfaces had stopped telling the truth (2026-08-24) — `GUI_GAP_REGISTER.md` §31
+
+Another pass with the method that keeps paying: read a `design/*.dc.html`
+canvas as ground truth, **drive the live shell non-headlessly**, and measure —
+across areas §29/§30 had not covered.
+
+**The big one is §30's own bug, in the overlay nobody looked at.**
+`ViewportHost` parents *two* drawing controls under `_camera` and scales that
+camera; §30 fixed `map_overlay.gd` and told it the zoom. `tool_overlay.gd` —
+the measure ruler, the region marquee, the way/route/sculpt path preview, the
+brush ring, the label and icon handles — was never told anything, so every
+constant in it was in the control's local pixels and was magnified along with
+its rasterisation. **Measured by frame difference** (the same frame with and
+without the primitive, so nothing about terrain colour enters the test), at
+1600 × 1000 on seed 483920 / 384 × 288:
+
+| | zoom 1 | zoom 2 | zoom 4 | zoom 6 |
+|---|---|---|---|---|
+| 1.6 px measure ruler, **before** | 2 px | 6 px | 12 px | **16 px** |
+| 1.6 px measure ruler, **after** | 2 px | 2 px | 2 px | 2 px |
+| 11 px `A` end-label bbox, **before** | 17 × 18 | — | **69 × 74** | — |
+| 11 px `A` end-label bbox, **after** | 17 × 18 | — | 17 × 18 | — |
+| 20-cell brush ring (must keep scaling) | 94 px | — | 372 px | — |
+
+The fix is `map_overlay.gd`'s, verbatim: `_crisp_begin()`/`_crisp_end()` put a
+`1/zoom` `draw_set_transform` in force, inside which every coordinate is a
+**screen** pixel and every width, dash, marker radius and `font_size` is left
+alone. Applied to the whole `_draw()` here rather than to the text and linear
+layers alone — this control emits nothing but tool chrome, which is screen
+furniture by definition; a 3 px ruler dot has no business being 24 px across
+because the map under it was magnified. The two radii that *are* real map
+distances multiply by `cell_px` and keep scaling.
+
+**One implementation note worth keeping.** The zoom is read off
+`get_parent().scale.x` in `_process` rather than pushed from
+`viewport_host.gd`, because that file was under concurrent edit by another
+agent and `CLAUDE.md`'s territory rule applies. `set_notify_transform(true)`
+was tried first and **does not work**: Godot sends
+`NOTIFICATION_TRANSFORM_CHANGED` for a `Control`'s own transform, and an
+ancestor's `scale` change does not propagate it to children — measured, the
+ruler went straight back to 16 px at zoom 6. One float compare per frame,
+against a value that changes a few times a second at most, is cheaper than the
+redraw it guards.
+
+**And a units bug the same file was hiding.** `HandleCircle.r` — the label
+tool's resize/rotate/arc handles and the icon tool's resize handle — is in
+**grid cells**, not pixels: both producers build it in the same space as
+`x`/`y` (`label_bridge::handle_circles` from `LabelBox.px/py`,
+`icon_bridge::icon_handle` from `IconBox.px/py`), both floor it at `4.0`
+*cells*, and both hit-test it at that radius against a grid-space cursor.
+`tool_overlay.gd` passed it to `draw_circle` untouched, as four *pixels*, so
+the circle you saw and the region that answered your click were different
+sizes. `r = 6.4` cells at 2.31 screen px/cell now draws 32 px against the ~30 px
+the hit test answers; it drew ~13 px before.
+
+**Three surfaces whose copy had gone stale, and one blank panel.**
+
+- **CIVIL ▸ Politics** offered *Recalculate territories* and *Generate
+  provinces* under a heading reading **Not built**, greyed, with tooltips
+  asserting that no `#[func]` re-runs either — while **Recompute civilisation,
+  eight rows up in the same dock, does both**. `civ_recompute()`'s own result
+  dictionary reports `provinces` rebuilt and `_recompute_civ()` re-uploads
+  `territory_texture()`; this same file's Settlement-tool status hint has said
+  so since SG-02 shipped. Both rows are live **shortcuts onto `_recompute_civ`**
+  now — the bake pass's own pattern, one owner of the action and two ways in.
+  Driven for real: pressing *Recalculate territories* printed *"Recomputed in
+  0.8 s: 233 settlements kept, 60 ways and 8 provinces rebuilt against the
+  current terrain."* *Clear territory* stays disabled (genuinely absent) with
+  its "Same:" premise corrected.
+- **`Export pack .zip… ⌘⇧P`** printed its shortcut twice — baked into the label
+  *and* set as an accelerator — one of them naming a modifier key neither
+  Windows nor Android has. The canvas draws it in the popup's accelerator
+  column, not in the label; the port copied the glyph and kept the column.
+  Sibling: **`Delete ⌫`** in the same submenu advertised a Backspace binding
+  that exists nowhere (`app.gd` routes Backspace to the armed tool and no
+  further; `asset_library_window.gd` has no key handling at all) on a row that
+  opens a window rather than deleting anything.
+- **§10's timeline strip was 70 px of blank panel across the whole window** in
+  CIVIL, and `Window ▸ Timeline` toggled that blank band on and off. The
+  controls deliberately live in the CIVIL dock's Timeline category
+  (`TIMELINE_SCOPE.md` §4) — but leaving the reserved region on screen and
+  *empty* was never part of that decision. It carries a pointer now: a caption,
+  one clipped line, and an **Open Timeline** action that presses the dock
+  category's own header. Re-filled by `toggle_region()` too, so switching it on
+  from another domain does not bring the blank band back. Strip minimum width
+  236 px against a 1600 px window — no dock squeeze.
+
+**What was driven and found clean.** Recorded because a negative result stops
+the next pass re-walking it. **The Layers popover's 37 field views**: all 33
+available rows clicked through the real `pressed` path, every one setting the
+view it claimed and producing a **distinct raster** (37 FNV hashes, no
+duplicates, no nulls), all four unavailable rows correctly disabled, and
+**hotkeys 1-8 each selecting exactly their badged row**; still correct after a
+regenerate to a different grid size. **A dead-control sweep of the whole live
+tree** — every enabled, visible `Button`/`CheckBox`/`OptionButton`/`Slider`/
+`LineEdit`/`SpinBox` with no connection on any of its signals — across the
+shell chrome, three domain docks, four right-dock contexts, **all nine
+tool-options bars** and eight windows: **no dead controls**, the four flagged
+by a first cruder heuristic all false positives. **All 11 menu accelerators**,
+each matching its label. And camera-space rasterisation is now closed
+exhaustively: `map_overlay` and `tool_overlay` are the only two `_camera`
+children that draw at all.
+
+**Files:** `tool_overlay.gd`, `app.gd`, `menus.gd`,
+`workspaces/civilization_workspace.gd`. No Rust. `GUI_GAP_REGISTER.md` §31 has
+the full table, the clean-sweep list and three items reported rather than taken
+(the map readout's canvas content, a keyboard delete for the Asset Library, and
+four orphan `ID_*` constants in `menus.gd`).
+
+## The GPU path could not open a buffer big enough for 8192², and crashed instead of falling back (`PERFORMANCE_BENCHMARKS.md`, 2026-08-24)
+
+Found while measuring, not while reading — which is the only reason it was
+found at all. `PERFORMANCE_BENCHMARKS.md` set out to compare CPU/Rayon against
+each of this machine's two real GPUs at 2048² and 8192², 40 plates. The 2048²
+runs all completed. The first 8192² GPU run died:
+
+```
+wgpu error: Validation Error
+  In Device::create_bind_group, label = 'warp bind group'
+    Buffer binding 1 range 268435456 exceeds `max_*_buffer_binding_size` limit 134217728
+```
+
+**The cause.** `request_gpu_device_from` built its device limits as
+`Limits::downlevel_defaults()` then `.using_resolution(adapter.limits())` —
+and `using_resolution` raises only the three `max_texture_dimension_*` fields.
+The two *buffer* ceilings stayed at `downlevel_defaults()`'s 128 MiB binding
+and 256 MiB allocation whatever the card actually reported. One full-grid
+`f32` buffer is `w*h*4` bytes, so the GPU path was silently capped at 5792²:
+4096² (64 MiB) fit, 8192² (256 MiB) did not. Both adapters on this machine
+report 2047 MiB / 2048 MiB, so the ceiling was this crate's own request, not
+the hardware.
+
+**Why it is a crash and not a fallback.** A `wgpu` validation error is raised
+on the device's uncaptured-error path, which panics — and `8192` is a
+`new_world_dialog.gd` `RESOLUTION_PRESETS` entry while the shell's GPU toggle
+defaults to *on*, so the reachable user action is "pick the largest offered
+resolution and press Generate". A panic inside a loaded GDExtension takes the
+Godot process with it (`cartalith-rust-conventions`). This is a *different*
+bug from `3d167eb`'s device-selection race and from the GL-backend instance
+crash `COMPUTE_BACKENDS` documents; it shares only the ">2k" symptom.
+
+**Fixed, in two parts, because the request alone is not a guarantee.**
+
+1. `request_gpu_device_from` now also raises `max_storage_buffer_binding_size`
+   and `max_buffer_size` to the adapter's own reported ceilings.
+   `HARDWARE_ACCELERATION.md` §10's "request the minimum actually needed, never
+   `Limits::unlimited()`" is intact — this still never asks for more than the
+   hardware reports, it stops asking for less than the pipeline needs.
+2. New `cartalith_gpu::device_supports_grid` / `GpuDeviceSet::supports_grid` /
+   `device_grid_limit_bytes`, and `generate_terrain` now filters its opened
+   device set through `supports_grid(gw, gh)`. An adapter that genuinely cannot
+   reach a size takes the CPU path (`HARDWARE_ACCELERATION.md` §27) instead of
+   panicking. This is a *hard device* limit, deliberately separate from
+   `vram_verdict`'s user-set budget: the budget is a policy the owner chooses,
+   this is arithmetic the driver enforces.
+
+**Verified.** New `an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution`
+in `cartalith-gpu/tests/multi_gpu.rs` asserts the limit at all five
+`RESOLUTION_PRESETS` sizes *and* runs the real 8192² warp dispatch that used to
+die. `cargo test --release -p cartalith-gpu -p cartalith-engine`: 10/10 in
+`multi_gpu`, every golden-parity suite unmodified, 0 failures. `cargo clippy
+--release -p cartalith-gpu -p cartalith-engine --all-targets` adds no warning.
+Determinism unchanged: 2048²/`gpu0` still yields `field[0] = 0.4297` before and
+after, and 8192² now completes on the discrete GPU in **54.4 s** against the
+CPU path's **78.1 s**.
+
+**One failure deliberately left unfixed and reported instead.** The
+*integrated* GPU at 8192² still dies, further down, on
+`rx.recv().expect("buffer map failed")` in the base-field blur — an allocation
+failure on a device that physically cannot hold ~2.5 GB of working set. That is
+not the same fix: `cartalith-gpu` has **ten** `expect`-on-readback sites, and
+making them fallible means threading `Option` through every dispatch and every
+engine call site. Real work, its own milestone, not folded into a limits fix.
+`PERFORMANCE_BENCHMARKS.md` §5 has the bracket — the integrated GPU is fine
+through 4096² (15.4 s) and dies at 8192².
+
+**Also added:** `cartalith-engine/examples/compute_config_bench.rs`, the
+harness the whole comparison was measured with — `devices` / `gen` / `tiles` /
+`tilepar` / `interactive` modes, one process per configuration so the OS peak
+working set belongs to that configuration alone. `timing_bench.rs` next door is
+untouched.
+
+**Files:** `cartalith-gpu/src/lib.rs`, `cartalith-gpu/src/multi.rs`,
+`cartalith-gpu/tests/multi_gpu.rs`, `cartalith-engine/src/lib.rs`,
+`cartalith-engine/examples/compute_config_bench.rs`.
+
+## Deep zoom stopped at 100 km and the tile it drew had run out of octaves (2026-08-24) — `GUI_GAP_REGISTER.md` §32
+
+Owner report: *"LOD zooming doesn't seem to go that deep either."* Measured
+before touching anything, on a default 800 km × 512×384 world at 1600×1000: the
+camera stopped at **z8, a 100 km visible span**, where the reference's own
+`lodMaxZoom()` reaches **z160, a 5 km span**. Twenty times short — and the
+deepest view this port could reach was a featureless blur.
+
+**Three ceilings, of which the cap was only the first.**
+
+1. **`ZOOM_MAX = 8.0` was copied off the wrong camera.** 8 is the reference's
+   cap on `viewT.scale` (13381), but the reference *hands off* at 2.2×:
+   `enterLodFromView` (13953) pins `viewT.scale` to 1 and gives zoom to the
+   tiled-LOD viewer, whose `_lodZoom` runs to
+   `lodMaxZoom() = max(64, ceil(mapWidthKm/5))` (10672) — a function that exists
+   because of an owner report with this exact shape, and whose v0.88 comment
+   reads *"highest zoom stops at 20km, I'd like to drop down to 5km."* The cap
+   is now that function, computed per world in `ViewportHost.refresh()`.
+2. **The tile's footprint was fixed, so its resolution saturated.**
+   `lod_bridge` tiled on a fixed 64-coarse-cell grid and grew the *output*
+   (256/512/1024 px) with a `detail_level` capped at 2 — 16 px per cell, which
+   is exactly where `ZOOM_MAX = 8` had been set to match. A tile is now a
+   **pyramid chunk** (`cartalith_spatial::pyramid`): level `z` splits the map
+   `2^z` ways per axis at one fixed pixel size, so the footprint shrinks with
+   depth and the cost per tile does not.
+3. **The tile carried no progressive detail at all.** It called
+   `amplify_region` alone — the failure the reference names in `addZoomDetail`'s
+   own header: *"amplifyRegion adds detail at a FIXED coarse-space frequency, so
+   the fbm runs out of octaves at high zoom and the surface goes smooth."*
+   Synthesis is now `cartalith_engine::bake::pyramid_tile` verbatim
+   (`refine_tile` + `add_zoom_detail`), so a tile on screen and a chunk in the
+   atlas over the same ground are the same numbers. `z_base()` is shifted by
+   `log2(1024/TILE_PX)` — the reference's `zBase = 2` is quoted against its
+   1024 px `_lodTile`, and an unshifted 2 on a 256 px tile would add two octaves
+   past what the tile can resolve.
+
+**Three things only live driving found.**
+
+- **The hillshade faded to nothing with depth even with the octaves in.**
+  `shade_tile` differences adjacent *pixels* at fixed `exag`, so one cell spread
+  over many pixels shades `1/px_per_cell` as hard: 34% of mask pixels carried
+  any shading at level 4, 3% at level 7. The exaggeration is now normalised by
+  the tile's own pixels-per-cell — a free parameter, since the shade *ratio* is
+  this port's construct and not a reference quantity. Same fixture, mean
+  adjacent-pixel difference across four levels: **0.30 → 0.20 → 0.096 → 0.031
+  becomes 2.44 → 3.36 → 4.31 → 5.49.**
+- **`gui/common/snap_controls_to_pixels` destroys a deep-zoom `TextureRect`.**
+  It rounds a `Control` to whole *local* pixels, and `_camera`'s local pixel is
+  `_zoom` screen pixels: at z160 the map is 5.5 local px wide, so a 1.74 px tile
+  snapped to 1 or 2 — 160 or 320 screen px instead of 278. A diff of the same
+  frame with the layer shown and hidden came back with 40 px and 120 px bands
+  the layer changed *not at all*, from a tile set whose own arithmetic covered
+  the screen with a one-pixel overlap. Tiles are `Sprite2D` now.
+- **The scale bar printed the map's full width at every zoom**, so the deepest
+  view still read "800 km across". It is `lodSpanKm()` now (10675, *"the single
+  source of truth for both the scale bar and any future 'current view width'
+  readout"*) and reads **5.00 km across** at the cap.
+
+**Verified, run rather than described.** 18 `lod_bridge` tests (5 new, including
+a regression test that measures the octaves' contribution against a no-octave
+baseline at four depths) and 335 `cartalith-godot` lib tests green; smoke test
+PASS; headless boot clean. Live at 1600×1000 on a real world: **z160, a 5.00 km
+span**, seamless — the LOD-on/off diff covers the whole map area with no bands.
+Cost is *flat with depth*: **24 tiles per viewful at every level from z3 to z9**,
+`_update_lod()` in 0.1–0.2 ms with no backlog, 12–34 ms per 256×192 tile against
+the old **251 ms** per 1024² one. Frame time at z160 is 27.2 ms with the layer
+visible and 26.7 ms hidden (16.7 ms at the reset view) — the layer is worth
+0.4 ms; the rest is the base raster and `map_overlay` at 160× magnification,
+newly reachable rather than newly slow.
+
+**Left open, checked rather than assumed.** Reading the baked atlas at draw time
+is *not* the depth fix and would have reintroduced the bug fixed the day before:
+a baked chunk's PNG is `region_export::tile_png_bytes`, the **Relief**
+coloriser, which is the ramp the 2026-08-23 pass removed from this path. Its
+reusable half is the chunk's height (`rg16`, `decode_chunk`), which has no
+`#[func]` — and a depth-7 pyramid is 21 845 tiles, so the atlas can only ever
+serve shallow levels, where synthesis is now 12 ms. Separately, the *colour* at
+depth is still an interpolation of the coarse raster; only `renderBiomeTileRGBA`
+fixes that, and it stays the named milestone it has been.
+
+**Files:** `cartalith-godot/src/lod_bridge.rs`, `cartalith-godot/src/lib.rs`
+(the three `#[func]`s only), `godot-project/shell/viewport_host.gd`,
+`godot-project/shell/engine_bridge.gd`, `godot-project/map_overlay.gd`
+(two stale `ZOOM_MAX` references).
+
+## Three small, independent UI fixes: a dock that would not collapse, a stale lock note, and a readout that showed the wrong content (2026-08-24)
+
+Three unrelated single-file (plus one two-file) fixes from the same pass —
+no engine change in any of them.
+
+**The dock-collapse `ScrollContainer` lookup.** `dcc_shell.gd`'s
+`_toggle_dock()` hid the collapsed dock's content by walking
+`dock.get_child(0)`'s children for a `ScrollContainer`. On desktop
+`get_child(0)` is the drag-handle `HBoxContainer` `_dock_drag_handle()` wraps
+around the real content column and the 6 px grip — the actual
+`ScrollContainer` lives one level deeper, inside that column. Nothing ever
+matched: the content stayed visible and its own minimum size kept forcing the
+dock past `W_RAIL_COLLAPSED` (40 px) on collapse, reported live at 293 px.
+Fixed by reading the stored `_left_dock_scroll`/`_right_dock_scroll`
+references `_build_left_dock()`/`_build_right_dock()` already populate,
+instead of re-deriving the node from tree shape. Left dock now collapses to
+54 px (the residual 14 px over the nominal 40 is the collapse chevron and the
+grip, both deliberately still visible — "the chevron is all that fits, and it
+is the only affordance for getting the dock back"). Found by the rail-fix
+agent's own report this session (`37aac2d`, logged in `STATUS.md` as "still
+open, noted not fixed").
+
+**`GUI_GAP_REGISTER.md` RD-13 — the Stamp stack's finalize-lock note, taken.**
+`right_dock.gd`'s Sculpt context used to say outright "No finalize/lock state
+exists in this engine yet" — true when written, stale since `948e15a` gave
+`FinalizeLock` a real five-guard engine with `sculpt_commit` as one of the
+guarded call sites. `_build_sculpt()` now calls
+`bridge.finalize_check("height_edit")` on every rebuild: Commit disables
+alongside the pre-existing empty-stack case, and once the world is finalized
+the engine's own refusal sentence is shown verbatim as a note, replacing the
+placeholder that claimed no lock state existed.
+
+**The map's top-right readout carries what the canvas puts there.**
+`design/Cartalith DCC Shell.dc.html` draws projection over style preset —
+`2D · equirect · z 5.2` / `relief · atlas preset` — in that corner; the port
+was drawing grid size and extent instead (`GUI_GAP_REGISTER.md` §28's own
+"left open, reported rather than taken" note, from the same-day rail/wheel/
+measure pass, closed here). "2D" and "equirect" are honest constants, not a
+lookup — this port has one flat km projection throughout (`DCC_SHELL_SPEC.md`
+§2.4) — so only the zoom and the style-preset name are runtime state. The
+style preset was already real, tracked state (`render_workspace.gd`'s five
+Map-style chips plus "Custom" once a manual edit or a loaded named look
+diverges from all five); nothing outside that workspace could see it.
+`ViewportHost` gained `set_style_readout()`, pushed from `render_workspace.gd`'s
+`_apply_preset()`/`_mark_custom()`, the same push-not-poll shape
+`set_camera_zoom()` already uses on `overlay`. Grid size/extent lost no
+display: the WORLD dock readout and the Sample panel already show both.
+
+**Verified live and windowed** (`_uifix_shot.gd`, 1600 × 900, a small
+generated world): left dock 372 → 54 px collapsed with the real
+`ScrollContainer` hidden, restores to 372 px on re-expand; right dock
+300 → 101 px collapsed by the same mechanism (wider because `_toggle_dock()`
+never hides `right_dock_title` the way it hides `left_dock_title` — a second,
+separate, unreported gap, left alone here). Readout reads `2D · equirect ·
+z1.2` / `Default` at boot and updates to `.../Ink` after pressing the Ink
+style chip through its real `pressed` signal. Stamp stack:
+`finalize_check("height_edit")` returns empty and Commit is enabled
+pre-bake; after a real `bake_all` + `set_finalized(true)`, it returns "This
+world is finalized: the baked atlas is the authoritative surface, so the
+heightfield is read-only. Un-finalize first.", Commit disables, and that exact
+sentence is present as a `Label` in the dock. Headless boot clean throughout.
+
+**Files:** `godot-project/shell/dcc_shell.gd`,
+`godot-project/shell/right_dock.gd`, `godot-project/shell/viewport_host.gd`,
+`godot-project/shell/workspaces/render_workspace.gd`.
+
+## The integrated GPU's 8192² readback panicked, and behind it a lost device panicked again (`PERFORMANCE_BENCHMARKS.md` §9.2, 2026-08-24)
+
+`504c2a6` fixed the *limits* half of the 8192² GPU crash and deliberately left
+the other half on the table, naming it precisely: the integrated Radeon passes
+every limits check at 8192², dispatches, and then dies on
+`rx.recv().expect("buffer map failed")` — `BufferAsyncError` — in the
+base-field blur. Ten such `.expect`-on-readback sites in `cartalith-gpu`.
+This closes it, and found a second bug hiding behind the first.
+
+**Bug 1 — the readback was infallible.** Every dispatch ended with the same
+eight lines of map/poll/copy/unmap, `.expect`ed four ways. A panic there is not
+a failed generation; a panic inside a loaded GDExtension takes the Godot
+process with it (`cartalith-rust-conventions`).
+
+*Fixed by making the tail exist once.* New `read_back`/`read_back_vec` behind a
+small `DispatchDevice` trait implemented for `GpuContext`, `GpuBlurContext`,
+`GpuWeatherContext`, `GpuFlowContext` and `GpuDevice` (all five already carried
+the device handle and the adapter identity; the trait only names them). All
+**eleven** dispatch functions now return `Option` —
+`dispatch_gpu`, `_warp`, `_warp_band`, `_warp_band_into`, `_heterogeneity`,
+`_height`, `_resistance`, `_gauss_blur`, `_weather`, `_assign_plates`, `_flow`
+— as do the public entry points above them (`warp_grid_gpu_with`,
+`warp_band_gpu_with`, `warp_grid_gpu_split`, `heterogeneity_grid_gpu_with`,
+`gauss_blur_grid_gpu_with`, `assign_plates_grid_gpu_with`,
+`simulate_weather_loop_gpu_with`, `dispatch_gpu_flow`,
+`flow_accumulation_gpu_with`). The engine needed almost nothing: every call
+site was already `match gpu_device.map(…) { Some(v) => …, None => cpu(…) }`,
+so it was `map` → `and_then` seven times. `vnoise_grid` falls *through* to its
+CPU branch rather than returning, so the reported `ComputePath` stays honest.
+
+**Bug 2 — a device that loses a readback is gone, not merely full.** This one
+was only visible after bug 1 was fixed and the real 8192² integrated-GPU
+generation was re-run: the blur fell back cleanly, and the **next** stage —
+weather, on a 240² coarse grid, nowhere near any size limit — panicked
+immediately on a **32-byte uniform buffer**:
+
+```
+Failed to get mapped range for buffer created with mapped_at_creation:
+MapRangeError("Buffer with 'weather params' label is invalid")
+```
+
+*Fixed by marking the live device lost.* `GpuDevice` and all four context
+types now carry a shared `Arc<AtomicBool>`; `read_back` sets it on any failure,
+and `on_grid` — the gate every `_with` entry point runs first — refuses
+*before the pipeline is even built*, since shader-module and pipeline creation
+are device calls too. A **new** device (the next `generate_terrain` opens its
+own) starts clean, so this is a verdict on one `wgpu` device, not on the
+hardware. `device_usage` returns `None` for a lost device rather than
+interrogating it, which is why the run below honestly reports "device actually
+used: none".
+
+**And the session-wide half, extending `504c2a6`'s own mechanism as intended.**
+`device_supports_grid` now answers on *two* grounds: the binding arithmetic it
+already had (what the device promises) and a new session record of measured
+readback failures (what it actually did), keyed by adapter identity, keeping
+the **smallest** failing cell count so the ban is monotone — at-or-above is
+refused, below is still tried. `GpuDeviceSet::supports_grid` inherits it
+unchanged, so `generate_terrain`'s existing top-level filter now steers the
+*next* generation away from a size this adapter has already proved it cannot
+reach. `clear_readback_failures()` exists for tests and for a future "try the
+GPU again" affordance.
+
+**Verified on the real device, not a mock.** The exact command that used to
+panic:
+
+```
+compute_config_bench gen gpu1 8192 40 1
+cartalith-gpu: buffer map failed (BufferAsyncError) on AMD Radeon(TM) Graphics
+at 67108864 cells -- this device is done for this run; falling back to CPU
+# gpu_stages_used = ["warp", "plate_assignment", "base_field_blur"]
+RESULT gen cfg=gpu1 size=8192 plates=40 best=81905.1ms
+RESULT peak_working_set_mb cfg=gpu1 size=8192 7571
+```
+
+81.9 s and a correct world, against the CPU path's 78.1 s — the 5% is the three
+GPU stages that ran before the device gave out. Two new tests in
+`cartalith-gpu/tests/multi_gpu.rs` pin it:
+`a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back` runs
+that whole generation, and
+`the_integrated_gpu_at_8192_falls_back_instead_of_panicking` exists to show why
+the slow one is necessary — an *isolated* 8192² warp on the same device
+completes fine in ~1.0 s, so no single-dispatch test can reach this bug. A
+hardware-free unit test in `multi.rs` covers the record's own arithmetic.
+
+**Also.** `warp_grid_gpu_split` now returns `None` if *any* band fails (a
+partial grid is not an answer), joining every thread before deciding so a later
+band's failure is recorded too; and `generate_terrain` pushes the
+`warp_split` marker on success rather than on attempt, so a stage that fell
+back to CPU no longer appears in `gpu_stages_used`. The in-crate test module
+gets same-named unwrapping shims that shadow the glob import: the shipped path
+must fall back silently, but a *test* whose readback fails must be loud, not
+compare an empty result against an empty result (root `CLAUDE.md`'s
+silently-empty-golden-output rule).
+
+**Files:** `cartalith-gpu/src/lib.rs`, `cartalith-gpu/src/multi.rs`,
+`cartalith-gpu/tests/multi_gpu.rs`,
+`cartalith-gpu/examples/flow_downstream_settlements.rs`,
+`cartalith-engine/src/lib.rs`,
+`cartalith-godot/tests/sculpt_live_l0_bench.rs`.
+
+## The town has a market square, because `buildPlaza` is ported (`URBAN_MORPHOLOGY_SCOPE.md` milestone 8a, 2026-08-24)
+
+Milestone 12 shipped the day before naming its own biggest gap in its own
+words — *"no block is marked a plaza, so the town has no open market square"* —
+and the City Viewer said so on screen. This closes it.
+
+**`buildPlaza` alone, out of milestone 8**, reference lines **28941-28965**,
+new module `cartalith-urban::plaza`. The milestone's other two functions
+(`buildRadialStreets`, `buildWaterway`) serve the radial (Venus) planning mode
+only; `buildPlaza` runs on **both** branches of `generate()` (lines 31018 and
+31024), which is what made it the one piece of milestone 8 worth taking out of
+order. 60 lines of Rust.
+
+### What it does
+
+It carves the market square by widening the principal street nearest the market
+anchor, on the side away from the river (M-DEN-6, "additive plaza mode"). Three
+streets are laid — **not four**: `p1 → p2` is the primary being widened and is
+already in the graph — so the widened band becomes a *face* of the street graph.
+`buildBlocks` then finds that face by `pointInPoly(plaza.center, face)` and
+flags it, and `buildParcels` plats nothing on a flagged block. Nothing marks
+anything unbuilt directly; that chain is the whole mechanism.
+
+**Nothing new was built for it.** `distPtSeg`, `V.norm`/`lerp`/`rot90`,
+`polyCentroid` and `addStreet` came from milestones 1-2, `stream`/`range` from
+milestone 1, `site.riverDist` from milestone 5. No new kernel, no new libm, and
+no new RNG semantics: `stream(seed, 'plaza')` is its own labelled substream
+taking exactly two draws (`range(55, 80)` then `range(26, 40)`, declaration
+order), so adding the stage **cannot** perturb any other milestone's sequence.
+Only the graph changes, which is the point of it.
+
+**Where it runs is part of the port.** `generate()` calls it *between*
+`buildPrimaries` and `grow` on the organic branch, not after growth, so the
+three plaza streets are in the graph before the epoch loop starts and the town
+accretes *around* the square. `cartalith_civ::urban_adapter::run_layout` calls
+it there. Moving it below `grow` would still produce a plaza and would produce
+a different town.
+
+### Verified
+
+**Golden: 17 scenarios** — five site kinds × three seeds, plus both ways the
+function returns `null` (an empty graph, and a graph of live non-primary
+edges). The capture adds `buildPlaza` to `UME._test` by a single anchored
+replacement asserted to match exactly once; the frozen reference file is
+untouched. Bit-exact on the plaza quad and on the market anchor; `graph_hash`
+and `blocks_hash` are the reference's own `fnv1a` over its own dumps, each
+double as its exact 64 bits. The capture refuses to write unless ten scenarios
+produced a plaza, at least one block came back flagged, and the river-side
+ternary took **both** signs. All 17 passed on the first run.
+
+**Mutation-tested: 20 mutations, zero survivors — the first sweep in this
+subsystem to close completely.** Five survived the first pass, every one
+milestone 7's *"exact tie on a continuous value"* class, and unlike milestone
+7's thirteen these were closable: the compared quantity is distance to a
+centreline and `site.river` is a plain field a fixture may set, so a river laid
+**parallel** to the street under test turns the probe gap into an *input*
+(`c = 0` an exact tie, `c = 0.25` a 0.5 m gap). The general form, worth
+carrying forward: **a survivor resting on a continuous comparison is closable
+exactly when one side of that comparison is a field the fixture can set rather
+than an output of an earlier stage.**
+
+That tie fixture also caught the one mutation that looks like a no-op and is
+not. Negating the edge normal cancels bit-exactly away from a tie — `nl` is
+read to build both probe points and again as `nl * (side * wd)` — so it
+survived all 15 real towns. At an exact tie both arms of the ternary yield the
+same `side`, the product flips, and the square opens the other way.
+
+**Range wrong again, seven for seven.** The stated 28835-28970 runs five lines
+past `buildPlaza`'s close at **28965**, into the harbour section comment
+milestone 9 owns — the failure mode root `CLAUDE.md`'s rule was written for,
+since an end that is too *late* does not fail to parse.
+
+**`cargo test -p cartalith-urban`: 102 passed.** Clippy clean on the crate,
+`cargo build -p cartalith-godot` clean, headless boot clean.
+
+### Three findings recorded for later milestones
+
+1. **The graph is mutated before the return value exists, and the two do not
+   agree.** `addStreet`'s 11 m `attachPoint` snap moves plaza corners by up to
+   **6.1 m** across the fixture set, and the reference builds `plaza.poly` and
+   `plaza.center` from the **pre-snap** points regardless. That is why
+   `buildBlocks` tests a *point* against each face rather than comparing
+   polygons, and why a consumer must not assume the returned quad is the face
+   the graph holds.
+2. **"Away from the river" is a statement about the fixed 20 m probe, not about
+   the finished square**, which is up to 40 m wide — on `river7` the chosen
+   side's far edge ends up 0.05 m *nearer* the water than the rejected side's
+   would have been. Reference behaviour, captured and asserted so it is not
+   later read as a port bug.
+3. **A landlocked site still resolves the ternary**, off the synthetic dummy
+   centreline, so the branch is live rather than degenerate. Three landlocked
+   scenarios are in the golden for that.
+
+### Wired through to the screen
+
+`urban_adapter` runs it in `generate()`'s position and puts `plaza` plus a
+`block_plaza` flag parallel to `blocks` on `UrbanLayout`; `urban_bridge` passes
+both across (`block_plaza` as a `PackedByteArray`, `plaza` as the square's own
+outline, **absent** rather than empty when there was no primary to widen — an
+empty polygon would read as "this town's square has no outline"). `stages` now
+says `buildPlaza (m8)`, or `buildPlaza (m8) — no primary to widen`.
+
+`urban_layout_draw.gd` fills the flagged block a shade lighter — the
+reference's own rgb(208,192,154) against rgb(182,172,148), moved by the same
+ratio into this drawing's range — and strokes the square's outline **over** the
+roofs, where the reference strokes it (line 23046), because the edge is where
+the built frontages stop. The City Viewer's legend gains a "Market place" row
+and its stage note now describes the square instead of apologising for its
+absence; both are conditional on the layout actually having one.
+
+**Verified non-headless in the real City Viewer**, all 33 settlements of one
+world (pop 115 to 19,596): 33/33 carry a plaza, every one with **exactly one**
+flagged block, and the plaza colour is measurably on screen in the rendered
+frame and is the minority (90 sampled pixels against 8,570 of block ground).
+One degenerate case is visible and correct: `Crungrimcrag` has a single block
+and it *is* the plaza, so it plats zero parcels.
+
+**Files:** `cartalith-urban/src/plaza.rs` (new), `plaza/tests.rs`,
+`plaza/tests/golden.rs`, `cartalith-urban/src/blocks.rs` (doc + `Plaza`
+re-export + `Option<&Plaza>`), `cartalith-urban/src/lib.rs`,
+`cartalith-civ/src/urban_adapter.rs`, `cartalith-godot/src/urban_bridge.rs`,
+`godot-project/shell/urban_layout_draw.gd`,
+`godot-project/shell/city_viewer_window.gd`.
+
+## The colour ramp got its other two axes, and the Asset Library got a key that deletes (2026-08-24) — `GUI_GAP_REGISTER.md` CA-02a, §31
+
+Two follow-ups, unrelated to each other except that both were the *"stated in
+the panel rather than left to be discovered"* residue of an earlier pass — the
+kind that stays owed forever unless someone closes it on purpose.
+
+### CA-02a — Ease/Step interpolation and per-stop alpha
+
+CA-02 shipped the elevation colour ramp and named five things it did not have.
+These are the two that were **renderer work rather than a binding**, which is
+exactly why they were deferred and exactly why they had to be taken together:
+they are the two axes `DCC_SHELL_SPEC.md` §7's stop editor draws.
+
+`RampStop` gains an `a`, and `ElevationRamp` a `RampMode` — `Linear`, `Ease`,
+`Step`.
+
+**The mode belongs to the ramp, not to a stop.** §7 draws one picker above the
+stop list, and that is also the honest model: "banded" is a statement about the
+whole plate, not about one breakpoint. `Ease` is this file's own `k²(3-2k)`,
+which flattens the ramp at each stop and puts the change in the middle of the
+interval. `Step` tests `k >= 1.0` rather than returning a flat `0.0`, so a
+sample landing exactly *on* a stop takes that stop's own colour — which is what
+keeps two coincident stops drawing the hard edge they already draw under
+`Linear`.
+
+**Alpha rides the same `k` as the colour** and multiplies into
+`ramp_strength`, so a stop at alpha 0 reveals the material model at that
+elevation. That is how a ramp is authored to tint only the summits and leave
+the lowlands alone, and it is a different thing from turning the strength down,
+which fades the whole plate uniformly.
+
+**Two traps, both taken, and both of the "would have shipped silently" kind:**
+
+1. `#[serde(default = "one")]` for the alpha, **not** `#[serde(default)]`. A
+   look saved before the field existed described *opaque* stops, and
+   `f64::default()` would have loaded every one of them as invisible — a saved
+   look opening as a blank ramp, with nothing in the file to blame.
+2. `ElevationRamp::normalized` always returns a `Linear` ramp, because it is
+   built from a stop list and a stop list has no mode. So `set_color_ramp` and
+   `load_ramp_preset` carry the current mode over by hand. Without that, a user
+   who chose Step and then nudged one stop — or browsed the nine named ramps —
+   would have watched the mode silently reset, with the picker still saying
+   "Step".
+
+Bound as `list_ramp_modes`/`get_ramp_mode`/`set_ramp_mode`, behind a **third**
+`EngineBridge` feature flag (`ramp_mode_api`) rather than widening `ramp_api`:
+an in-between binary then loses the mode picker instead of failing to draw the
+stop list. The row shape of `get_color_ramp`/`set_color_ramp` did **not**
+change — the alpha rides in the `Color` that was already there — so a panel
+written against the older engine still round-trips, it simply always sends
+opaque stops.
+
+Panel (CARTO ▸ Colour relief): a `Blend` picker above the gradient bar, built
+from the engine's list rather than a second copy of the names in GDScript, and
+an alpha slider on every stop row. The bar renders `Step` exactly and `Ease`
+**approximately** — `Gradient` offers cubic, not smoothstep — which the code
+says rather than hides; the bar is a preview, and `render.rs` is what draws the
+map. The panel's own "not built" note is replaced by what the two controls
+actually do.
+
+**Ten tests** in `appearance_tiers.rs`: every mode renders a distinct image,
+`Step` draws flat bands with the edge on the stop, the modes reshape the
+interval and nothing else, the mode survives a stop replacement, alpha rides
+the colour's curve, an all-transparent ramp is exactly as inert as
+`ramp_strength = 0`, and half alpha lands between the material colour and the
+full ramp.
+
+**Verified non-headlessly** at the app's working 2048×1311 on a real world
+(seed 483920), through the live shell:
+
+- the three modes render three distinct maps — Linear↔Step **67.4 %** of pixels
+  moved, mean |d| 14.1, worst 177; Linear↔Ease 41.5 %, mean 2.1 — and `Step` is
+  visibly the classic banded hypsometric plate where `Linear` is a wash;
+- an alpha-0 ramp at `ramp_strength = 1.0` returns the base at **0.0000 %**,
+  and a graded ramp (transparent lowlands, opaque summits) paints 31.7 % of the
+  map, the summits, and nothing else;
+- `set_ramp_mode("Cubic")` returns `false` and changes nothing; the mode
+  survives both `set_color_ramp` and `load_ramp_preset`;
+- through the real dock, an alpha drag re-renders (33.4 % moved) and **a colour
+  edit afterwards leaves the alpha at 0.40** — the `edit_alpha = false` trap,
+  where the picker emits an opaque colour and taking it whole would silently
+  reset every stop's alpha on every colour edit;
+- a saved look round-trips both axes at **0 moved**, and the picker follows the
+  reload rather than continuing to name the old mode.
+
+### §31 — the Asset Library's keyboard delete
+
+§31 dropped the `⌫` glyph from Assets ▸ Batch ▸ Delete because the binding it
+advertised existed nowhere, and left the binding itself open: *"a destructive
+batch delete in that window is a real design question — confirmation, scope,
+undo — and was not improvised here."*
+
+Answered the least clever way available. `_unhandled_key_input` on the library
+`Window` routes Delete and Backspace **into `_on_batch_delete`**, so the key
+does exactly what the button does and raises the same confirmation, with the
+same count and the same "custom slots are removed entirely, frozen slots are
+emptied" wording. A second, key-only prompt would have been a second place for
+that wording to drift. Scope is the grid selection; undo stays what it was —
+there is none, and the prompt now says so.
+
+Two guards, both of them the ones `app.gd`'s own `_unhandled_key_input` found
+it needed: **a focused text field wins** (`LineEdit`/`TextEdit`/`SpinBox` —
+Backspace in the rename prompt or the tag field is never a delete), and **an
+empty selection says so** in the status bar rather than returning silently,
+which would make the key look dead on exactly the press that teaches a user it
+exists. It lives on the window rather than on `DccApp` because a `Window` is
+its own `Viewport`: the key arrives only while the library has focus, which is
+why no "is the library open?" check is needed and why the slicer modal does not
+steal it. The menu glyph stays **off** — that row opens the window, it does not
+delete, and `menus.gd`'s comment now records which half of MN-09's reasoning
+became false and which half still stands.
+
+**Verified non-headlessly** on a live 7-slot library: empty selection → **0
+dialogs** and a hint; Delete with 2 selected → 1 dialog titled *"Delete 2
+asset(s)?"* and **Cancel keeps both**; Backspace → the same dialog, OK runs the
+batch (both were frozen slots, so the slot count correctly stays 7); Backspace
+with a `LineEdit` focused → **0 dialogs**.
+
+**Files:** `cartalith-godot/src/render.rs`, `cartalith-godot/src/lib.rs`,
+`cartalith-godot/tests/appearance_tiers.rs`,
+`godot-project/shell/engine_bridge.gd`,
+`godot-project/shell/workspaces/render_workspace.gd`,
+`godot-project/shell/asset_library_window.gd`, `godot-project/shell/menus.gd`.
+
+## The sea lanes and committed routes drew their chords too — and the road fix had been shipping a NaN (2026-08-24) — `GUI_GAP_REGISTER.md` §33
+
+§29 ("The roads were curved all along, and the renderer drew their chords")
+fixed `get_roads()` and registered its own leftover in writing: `get_sea_routes()`
+and the committed Route-tool list have the same shape and the same problem, and
+were left alone because that round's report was about roads. This closes them,
+and turned up a live defect in §29's own shipped code on the way.
+
+**The expected half.** `get_sea_routes()` — both the generated `sea_routes` and
+the manual `sea` ways out of `InfraTools` — now returns its Catmull-Rom curve
+re-sampled at `WAY_RENDER_STEP_CELLS` through the same `way_render_geometry`
+helper §29 introduced. `route_get()` does too, but as a **second key**
+(`render_points`/`render_brks`) rather than in place, which is the one real
+design difference from §29: `jp_compute` plans over `CommittedRoute::pts` and
+returns `plan.stages[i].{i0, i1}` as indices into exactly that list, which
+`journey_planner_view.gd` slices to colour the route map per stage and to derive
+stop fractions. Densifying `points` would have silently mis-sliced every stage.
+So `points` stays the engine's own list and only the drawn polyline is refined;
+`map_overlay.gd`'s route pass reads the `render_*` pair with a fallback to
+`points` for an older GDExtension binary.
+
+Measured on §29's own world and probe (seed 483920, 384×288, 2400 km): sea
+lanes 807 points across 2 lanes at chord mean **0.246** cells; the committed
+route **124 → 1437** points, chord mean **2.856 → 0.245**, turn/vertex **13.607°
+→ 1.665°**. `km` did not move (2195.460), both endpoints byte-identical. Roads
+re-measured in the same run come back at 6342 points / 35 ways / chord mean
+0.2450 — §29's recorded figures to the digit, so the shared helper did not
+disturb them.
+
+**The unexpected half — a NaN in already-shipped code.** The first sea-lane
+measurement came back `chord mean -nan`. `civ_catmull_rom_sample` parameterises
+each segment by `sqrt(chord)` and the Barry-Goldman evaluation then divides by
+**all three** knot intervals, while only the middle one (`t2 - t1`) is guarded.
+Two equal consecutive control points zero `t1 - t0` or `t3 - t2` in a
+*neighbouring* window, `lerp` computes `0 * (x / 0)`, and one NaN coordinate
+ruins the whole `PackedVector2Array` the renderer is handed.
+
+It is unreachable from `civ_smooth_path`, the reference's only caller, because
+that splines `civ_rdp_simplify`'s output and RDP always drops a duplicate. §29
+introduced the first caller that can reach it: `way_render_polyline` re-splines
+`_civSmoothPath`'s **rounded** output, where two successive samples landing in
+the same cell is routine — `golden_parity_sea_routes.rs` records two case-1
+routes carrying `km: 0` for precisely that reason. So this was live in road
+rendering since §29 shipped; it had simply never been measured on a way that
+stalls.
+
+**Fixed in `civ_catmull_rom_sample` itself**, not avoided at the new call site,
+so roads, sea lanes and committed routes are covered by one guard: repeated
+consecutive control points are collapsed before the phantom endpoints are built.
+Parity-neutral rather than a deviation, by an exhaustive argument — for input
+with no repeated consecutive point `dedup` is the identity, and *every* input
+that has one previously produced either NaN (runs of 3+) or an empty result (a
+two-point run, via the existing `t2 - t1` skip, which the new `< 2` check
+reproduces exactly). No fixture can tell the two versions apart.
+
+Mutation-tested rather than assumed: with the guard forced off, three of the
+five new tests fail and **two stay green** — the two that pin *reference*
+behaviour the guard must not change (`catmull_rom_degenerate_inputs_match_the_reference`,
+and `catmull_rom_keeps_a_near_coincident_pair`, which exists so nobody later
+widens the exact-equality test into an epsilon and quietly moves the curve).
+
+**Verified:** `cargo build -p cartalith-godot` clean; `cargo test -p
+cartalith-civ` 372 lib tests plus every golden-parity suite, unchanged;
+`cargo test -p cartalith-godot --lib` 337 (five new); headless boot of
+`shell/app.tscn` clean; and a real non-headless 1600×900 run scanning all three
+getters reports **0 non-finite of 6342 road, 807 sea and 1437 route points**,
+with a 31× before/after pair on the committed route showing a kinked polyline
+becoming one continuous sweep.
+
+**Files:** `cartalith-civ/src/lib.rs`, `cartalith-godot/src/lib.rs`,
+`godot-project/map_overlay.gd`.
+
+## The renderer was never the problem — its defaults were (2026-08-24) — `GUI_GAP_REGISTER.md` §34
+
+Owner analysis, and an unusually precise one: the reference's renderer is
+already a full pipeline — climate → material weights → biome/material colour →
+texture → relief → multi-scale hillshade → curvature/AO → atmospheric haze →
+optional painter effects → rivers/coast — and what makes its output muted is
+that **most of its enhancement sliders sit at `0` by default** and its base
+palettes are low-chroma. Not a missing-features problem. The instruction was
+explicit: *do not rewrite the renderer*.
+
+So nothing here is a rewrite. Four unported reference stages became literal
+ports in the reference's own pipeline slots, three genuinely new presentation
+controls landed beside them, and the shipped look moved through a **new layer**
+rather than through the tier ladder or the parity path.
+
+### The four ports
+
+All four are `state.viz.*`-gated in the reference and all four were on
+`render.rs`'s own Excluded list:
+
+- **Ridge crests** (`buildCrestField`/`applyCrest`, reference 8005-8023, applied
+  at 8171 and 11971) — `build_crest`/`apply_crest`, a whole-grid precompute of
+  convexity times a `G^1.5` slope weight, blended toward the reference's own
+  `(240, 238, 232)` sunlit-rock tone. `RenderCtx.crest` is an **empty `Vec`**
+  unless the stage is on, and both consumers test the length rather than a flag,
+  which is `coast_d`'s own contract from the NPR pass.
+- **Surface texture** (7841-7851) — a 1:4:16 fbm stack,
+  `C' = C·(1 + 0.2·k·(T − ½))`, in grid coordinates so a tiled bake stays
+  seamless.
+- **Ridged relief** (7853-7862) — a five-octave ridged multifractal weighted by
+  `r²`. `cartalith-noise` had transcribed only the fixed six-octave `ridged`;
+  `ridged_oct` is the reference's general `ridgedFbm(x, y, oct, s)`, added
+  beside it rather than by rewriting the golden-verified one.
+- **Curvature shading** (7870-7876) — `1 + k·0.28·clamp(−curv·90, −1, 1)`, land
+  only. Sun-independent, so a landform stays legible where it runs parallel to
+  the sun.
+
+### The three that are not ports
+
+- **`relief_chroma`** — the answer to the owner's second point. The reference's
+  relief blend is `grey = 185·light` and a `bio_blend` under 1 lerps toward it,
+  which costs **value as well as chroma**: every shaded pixel is dragged toward
+  one fixed neutral, so a map at the shipped `0.90` reads as faded rather than
+  as lit. At `relief_chroma = 1` the grey target becomes a grey of *the pixel's
+  own* luminance — making the blend exactly a desaturation — and the light
+  factor additionally cools and slightly desaturates shadow while warming and
+  slightly saturating sun (±11% chroma, ±5.4% on the red/blue axis, both about
+  luma). `0.0` is the reference byte for byte, and that is what `js_reference()`
+  keeps.
+- **`biome_sat`** — chroma of the material mix about its own Rec.709 luma, so it
+  cannot move one material lighter or darker relative to its neighbour, only
+  more or less colourful. The reference has no such control; its only chroma
+  knob is `bio_blend`, which flattens as it desaturates.
+- **`haze_strength`** — the reference's own `0.18` literal, hoisted out of
+  `land_color` into the tunable table. The haze *colour* `(208, 218, 230)` stays
+  the reference's: that is the sky it fades toward, not a taste.
+
+### The colour grade — a genuinely new pipeline stage
+
+`apply_color_grade`, over the **finished raster**, after `apply_local_contrast`
+and before the Godot overlays draw rivers, labels, settlement markers, territory
+and the scale bar. That is the owner's stated ordering read into this port's
+split: a grade is a statement about the terrain image, and grading the vector
+furniture on top of it would move a label's ink along with the ground.
+
+Six parameters — exposure, contrast, saturation, temperature, shadow tint,
+highlight tint — applied in that order in one pass. Saturation is **exactly**
+luminance-preserving and both hue axes are luminance-compensated (green carries
+the `−0.1963` share that cancels the red/blue swing), so a graded map keeps the
+value structure the relief pipeline built. The two tints are a blue↔amber axis
+rather than free colour pickers, which is a real reduction from the design and
+is stated in the panel. Every parameter is `0.0` at rest and the pass
+early-returns on `grade_is_identity()`.
+
+**Presentation only, structurally**: it is handed an RGB8 buffer and the
+appearance and nothing else, so there is no path from it to the heightmap,
+climate, geology, hydrology or the seed. It runs in `build_color_texture` and in
+the export raster, in the same slot in both.
+
+> **Annotated 2026-08-24, after the fact.** That last sentence was written one
+> commit *ahead* of the code: `export_raster.rs` did not exist yet when this
+> entry landed (`423a6a2`); it arrived in the next commit (`57b1214`), which
+> did honour the claim and call `apply_color_grade` in the stated slot. So the
+> sentence was aspirational when written and is true now — but nothing
+> *verified* it either way until the entry below, and the reason that gap could
+> sit unnoticed is worth reading there.
+
+Unlike local contrast, the grade **does** cover the plate frame. That is the
+difference between the two stages: local contrast is about making terrain
+legible and has no business sharpening a neatline, while a warm print with a
+cold margin is not a print.
+
+### Named looks — how the shipped default moved without touching the parity path
+
+The hard constraint: `TerrainAppearance::js_reference()` is `Default` with the
+stage gates zeroed, so **changing a palette in `Default` changes the JS-parity
+path**. `golden_parity_render.rs` is not re-baselineable — `DECISIONS.md` §7a's
+principled-equivalence carve-out is scoped to paths where JS parity is
+*impractical*, and says in as many words that the CPU rendering port stays
+golden-verified.
+
+So the four re-pitched palettes, the enabled stages and the grade live in a
+**named look** (`LOOK_PRESETS`, `TerrainAppearance::with_look`) layered over the
+quality tier, and `WorldGen` opens on **`Natural Vibrant`**:
+
+- **Quality tier** — the identity; the image milestones 1-7 tuned.
+- **Natural Vibrant** — the new shipped default. Temperate grass
+  `104,132,58 → 156,181,82`, tropical forest `20,78,35 → 35,138,55`, desert
+  `202,154,72 → 238,194,105`, red desert `174,83,47 → 224,123,69` (each pushed
+  into its own **hue family**, not merely brightened, and each keeping its own
+  low-to-high progression, which is what `ramp3`'s micro-ramp reads as surface
+  variety); `relief_chroma 1.0`, `ao 0.20`, `crest 0.12`, `texture 0.18`,
+  `ridged 0.10`, `curvature 0.28`, `wetness 0.12`, `biome_sat +0.20`,
+  `haze 0.09`; multi-sun on.
+- **Antique Parchment** — the warm hand-illustrated plate the owner's MapEffects
+  reference asks for. Refines rather than duplicates: the existing **Antique**
+  Map-style chip was `{"sepia": 0.35}` — a toning matrix over the muted base,
+  not a palette — and now names this look as well, so Antique is a warm sheet
+  *and* the sepia. Ochre/umber palettes, a warmer parchment tint at full
+  strength, a heavier wash and mottle, and the warmth carried in the grade
+  (`temperature +0.26`, `saturation −0.10`, `contrast +0.08`) rather than in the
+  material colours, so relief and biome separation survive it.
+
+**Why a layer and not a replacement.** `for_tier` decides what the renderer
+*spends*; a look decides what the picture *is*. A phone answers only the first
+question differently, so a look that replaced the tier would hand a phone the
+workstation's cost. Every look is a struct-update over the tier and touches only
+colour, chroma, light shaping and grade — never a radius, a light count, or a
+stage a cheap tier switched off.
+
+**Multi-sun** is seeded on `WorldGen`'s own `npr` field rather than in
+`Npr::default()`, for exactly the same reason the palettes are not in `Default`:
+`js_reference()` inherits its `npr` from `Default`, and the reference's macro
+shade is single-sun.
+
+### Where the owner's numbers and the port's state disagreed
+
+The specification was written against the reference, where every enhancement
+slider is `0`. Three are not zero here:
+
+- **Geology 25%** — this port's equivalent is `litho_strength`/`litho_exposure`,
+  already at `0.62`/`0.55` since milestone 5, i.e. *more* geology than the
+  figure asks for. Lowering them would have made the vibrant look less
+  geological than the plain tier. **Left at the tier's values**, disclosed.
+- **AO 20%** — the tier ships `0.28`; the look takes it **down** to `0.20` as
+  specified, coherent because crests, curvature and ridged relief now carry the
+  local relief the broad cavity map used to carry alone.
+- **Wetness 12%** — the tier ships `0.38` after the same day's CA-11 retune; the
+  look takes it to `0.12`. A real reduction of an owner-authorised value, made
+  because this instruction is the later one and names the number.
+
+### The shell
+
+`render_workspace.gd`'s **Map style** block gains a **Base look** picker built
+from `WorldGen::list_looks()`, and every Map-style chip now names a look *and* a
+Painter bundle — which is what lets Ink put pen lines over the vibrant base
+rather than over the reference's muted one, and what makes Default mean the
+tier's own image. Picking a chip moves the look picker with it and re-syncs the
+Rendering-advanced rows, since a look is where their values come from.
+**Rendering — advanced** gains the four new relief stages, biome saturation,
+surface texture, an Atmosphere group for haze, and a **Colour grade** group.
+`EngineBridge` gains a fourth capability flag, `look_api`.
+
+`reset_appearance()` deliberately does **not** clear the look: it has its own
+picker, and a button in another section silently moving that picker is the
+desync this register keeps having to fix one control at a time.
+
+### Tests
+
+`golden_parity_render.rs` and `golden_parity_npr.rs` are **untouched** and green
+— every new field is a no-op in `Default`, and `apply_npr`/`apply_waves` read
+only the `npr` block. Every generation golden suite is untouched.
+`appearance_tiers.rs` gained the grade to its render harness (without it, six
+tunables would have looked inert to `every_tunable_is_load_bearing`, which is
+the exact class of bug that test exists to catch) and six new tests: the
+identity look really is the identity, every look renders a distinct image,
+Natural Vibrant gains chroma **without doubling it** (the owner's own "not a
+rainbow biome map" bound, asserted rather than eyeballed), every new stage is
+load-bearing on its own, the grade is inert at rest and real otherwise, the
+grade preserves luminance where it claims to, and the JS-parity path has none of
+it. The thirteen new tunables ride the existing round-trip / no-aliasing /
+clamping / load-bearing sweeps with no exemptions.
+
+### Verified — a real world at 2048x1311, not a synthetic fixture
+
+`cargo test --workspace` green with no failures; `cargo build -p
+cartalith-godot` clean; headless boot of `shell/app.tscn` clean. And a
+non-headless run (`_look_shot.tscn`, seed 483920, 2048x1311) measuring the real
+raster:
+
+| | moved | mean chroma | mean luma | luma sd |
+|---|---|---|---|---|
+| Quality tier (the look this port shipped until today) | — | 48.67 | 139.61 | 42.71 |
+| **Natural Vibrant** (the new default) | 73.29 % | **63.37** (+30 %) | 138.36 | **48.44** (+13 %) |
+| Antique Parchment | 99.91 % | 66.05 | 140.69 | 47.54 |
+
+That is the owner's stated goal, measured: **+30 % chroma at unchanged
+brightness with 13 % more tonal spread** — richer and more dimensional, and
+nowhere near the 2x that would be a rainbow biome map. Looked at, not only
+measured: the forests read as real green instead of grey-olive, the drylands as
+warm ochre-gold, water is untouched, and the sheet still reads as an atlas
+plate.
+
+Per stage, alone over the tier base (moved at a >3-level tolerance / mean |d| /
+worst channel):
+
+| stage | at | moved | mean \|d\| | worst |
+|---|---|---|---|---|
+| ridge crests | 0.12 | 0.210 % | 0.031 | 13 |
+| surface texture | 0.18 | 0.000 % | 0.203 | 3 |
+| ridged relief | 0.10 | 0.009 % | 0.192 | 6 |
+| curvature shading | 0.28 | 2.468 % | 0.343 | 19 |
+| biome saturation | +0.20 | 52.90 % | 1.607 | 12 |
+| chroma-preserving light | 1.00 | 70.05 % | 4.052 | 18 |
+| haze 0.18 -> 0.09 | — | 35.46 % | 2.040 | 13 |
+| multi-sun | on | 72.53 % | 5.492 | 24 |
+
+**Disclosed rather than tuned away**: surface texture and ridged relief are
+nearly invisible at the specified levels, and that is the reference's own
+arithmetic, not a porting error. `1 + 0.2·k·(T − ½)` at `k = 0.18` is a ±1.8 %
+modulation, which on a 140-luma pixel is ±2.5 levels — under the 3-level
+tolerance this harness counts at. Ridged relief is additionally weighted by
+`r²`, so it only reaches the highlands. Both were left at the numbers the
+specification names rather than being quietly multiplied up; the sliders are
+live and reach real strength.
+
+The grade, each parameter alone: exposure +0.25 moves 99.85 % (luma 139.6 ->
+170.7), contrast +0.30 99.83 % (sd 42.7 -> 52.3), saturation +0.30 99.43 %
+(chroma 48.7 -> 63.1), temperature +0.30 98.91 %, shadow tint −0.40 88.97 %,
+highlight tint +0.40 82.11 % — and **all six back to rest returns the base at
+0.0000 % moved, worst 0 levels**, which is the statement that the stage is a
+true identity at its defaults.
+
+Through the real dock: the Base look picker builds and opens on Natural
+Vibrant, the Natural Vibrant style chip is the lit one, 35 appearance rows draw
+(every new key has one), a real slider drag on Colour grade > Saturation reaches
+the engine (reads back 0.45) and moves 98.5 % of the raster, the Default chip
+moves both the engine and the picker to Quality tier, and the Antique chip lands
+Antique Parchment **and** sepia 0.35 together. A saved look round-trips the new
+fields at **0.0000 % moved**.
+
+---
+
+## The export raster is real, and it was shipping a world with no rivers in it (`PARITY_AUDIT.md` §5 item 14, 2026-08-24)
+
+`bakeRes` (2K/4K/8K), `bakeTiles` and `chanAtlasChk` — three of the four
+header-bar export controls the 2026-08-24 re-scope correctly split away from the
+LOD tile pyramid and then recorded as *"none of the four was built"*. They are
+built now. The fourth, `layersPreviewChk`, is drawn in its position and disabled
+with its reason, because it belongs to `exportZip`'s f32 layer blobs and this
+route does not write those either.
+
+### Why it could not simply call `cell_color` in a loop
+
+The export raster is *finer than the grid*: 8192 px across a 2048-cell world is
+four output pixels per cell on each axis. `cell_color` takes `(x, y): usize` — a
+cell index — so a loop over output pixels could only ever ask it for the nearest
+cell, which is a nearest-neighbour upscale of the screen image rather than a
+higher-resolution render of the world.
+
+The reference's answer, reproduced here: sample every *field* bilinearly at the
+fractional grid position the output pixel lands on, and run the **whole material
+path** on those sampled values. That meant widening `land_color`, `apply_npr`,
+`paper_tone`, `apply_border`, `bio_jitter` and `splat_sample` to `f64`
+coordinates and adding six fractional twins on `RenderCtx` — the reference has
+two of them itself (`curvatureAtF`/`aspectFactorF`), and its comment at 7620 is
+the argument for why this is parity-safe: *"sampleArr at an integer point
+returns the exact cell value with zero interpolation weight on its neighbours"*.
+
+**The prologue is not an optimisation.** `BakeFields` precomputes slope, macro
+shade and meso shade at **grid** resolution, exactly as the reference's bake
+prologue does. Computing them from bilinearly-sampled neighbours instead would
+be *wrong, not merely different*: all three are per-*cell* height differences,
+so evaluating them on a 4× finer lattice divides every slope by four, and
+`material_weights`' own normalizers (`slope/0.04`, `slope/0.08`) would
+reclassify most rock and scree as grass.
+
+### The bug, and why only a live measurement could have found it
+
+A grid-resolution export was compared byte for byte against what the viewport
+actually draws — a 2048×1312 world, exported at 2048, against
+`build_color_texture()`. It came back **291,815 of 8,060,928 bytes different,
+worst channel delta 132**, and every differing byte was a river.
+
+`build_color_texture` composites a **river-channel tint** over its finished
+raster. Its own doc comment says what that is: a stand-in for the reference's
+vector `drawRiverWays` overlay, which is not wired into this port, and which is
+what keeps `MVP_SCOPE.md`'s "rivers visible" satisfied. It reads a mask
+(`channels.chan` for a generated world, the save's `strahler_order` for a loaded
+one) that `RenderCtx` does not carry — so `bake_rect` never saw it, and the
+export was a picture of a world with no rivers in it. Not a subtle discrepancy;
+simply not the map the user was looking at when they pressed the button.
+
+No unit test could have caught it. The tests compare `bake_rect` against
+`cell_color`, and the tint lives in **neither** — it is composited by
+`build_color_texture`'s own loop, which is a `#[func]` the test target cannot
+call. `tests/bake_raster.rs` now transcribes that loop's two lines verbatim and
+requires the export to match them, and the live probe re-measures the same thing
+end to end.
+
+**Before quantization, not after.** The tint runs inside `bake_rect`'s pixel
+loop on `f64` colour. A second pass over the finished bytes would not be
+bit-identical to the screen, which tints in `f64` and quantizes *once*:
+re-deriving `r` from an already-truncated byte shifts the blue channel by a
+level for half of all inputs, because `b*0.5 + 0.45` lands on a `.75` fraction
+where `floor` stops commuting with the halving. (The red and green expressions
+do commute — `+0.3` lands on `.5` — which is exactly the sort of near-miss that
+makes "close enough" the wrong instinct here.)
+
+**Nearest cell, not a bilinear sample.** The mask is categorical: `chan` is a
+channelization flag, `strahler_order` is a stream order, and neither has a
+meaningful value between two cells. Interpolating would fringe every river with
+a band of half-tinted pixels, and would do it *more* visibly at 8K than at 2K —
+exactly backwards. Nearest-cell keeps a river the same width in **world** terms
+at every export resolution, which is what the on-screen tint means, and a test
+pins that the tinted fraction of the image moves less than 5 points across
+1×/2×/4×.
+
+### Where "bit-identical" stops, stated rather than assumed
+
+After the fix the same live comparison is **a dozen or so bytes of 8,060,928,
+every one off by a single level** (12 on one run, 17 on another — it is a
+knife-edge count, so the assertions are bounds and not figures).
+
+The cause is `BakeFields`' own documented choice: it stores the three prologue
+fields as `f32`, because the reference's bake prologue stores
+`gridSlope`/`gridShade`/`gridShadeMeso` in `Float32Array`s while its screen path
+computes them on the fly in doubles. **The reference has exactly this
+discrepancy between its own bake and its own screen.** Widening here would
+*remove* a divergence the original has, which is not what parity means, and
+would cost 1.6 GB instead of 805 MB of prologue at this port's 8192 grid
+ceiling.
+
+So the module doc, `BakeFields::pixel`'s doc, `PARITY_AUDIT.md` and the pane's
+own tooltip were all corrected: the four existing tests assert exact equality on
+a 24×17 fixture and get it, and that is **fixture luck**. Measured on a 401×277
+fixture, `pixel` at an integer cell differs from `cell_color` in `f64` on 51% of
+cells, by at most `2.4e-8`, and after quantization on none of them.
+`the_integer_identity_is_f32_tight_not_bit_exact_at_scale` asserts the bound.
+
+### A probe that was wrong twice before the code was wrong once
+
+Worth recording, because both mistakes are the same shape — asserting a property
+the system was never claimed to have.
+
+1. *"The export must equal the screen at the cells they share."* A 2K export of
+   a 512-cell world **shares no cells** except the two ends: the mapping is
+   `pixel p → cell p*(GW-1)/(W-1)`, so cell `c` lands on the *fractional* pixel
+   `c*2047/511`. Rounding to the nearest real pixel is worth an eighth of a
+   cell, and the material path an eighth of a cell from a coastline is
+   legitimately a different colour — 56% of cells, by up to 139 levels, with
+   local contrast off entirely. The question is only well-posed at the grid's
+   own resolution, so the probe now regenerates at 2048×1312 to ask it.
+2. *"A 4K pixel should differ from the co-located 2K pixel."* It does — under
+   *either* hypothesis, because the two sample mappings put those pixels at
+   different world positions anyway. The null hypothesis worth killing is "the
+   export is the screen resampled up", so the probe now compares the 2K export
+   against a real bilinear upscale of the 512-cell screen image: **5.4 byte
+   levels apart**. (4K against a bilinear upscale of 2K is only 1.4, and is
+   reported rather than asserted — by 2K the export already resolves everything
+   the 512-cell fields carry.)
+
+### The channel atlas
+
+`chanAtlasChk`, in `cartalith_engine::channel_atlas` — data, not a picture, and
+sharing nothing with the raster but the destination folder. Eight RGB8 PNGs plus
+`atlas/index.json`: soil fertility / water access / carrying capacity in one,
+settlement suitability in another, the fifteen resource potentials three to a
+file, biome / lithology / Köppen indices in a third, with the manifest
+documenting which channel of which file holds which field.
+
+Its inputs are **rebuilt rather than retained**, on the same reasoning
+`MEMORY_OPTIMIZATION_SCOPE.md` used to stop retaining them in the first place —
+the fifteen resource fields alone measured ~96 MB at 2048², and holding them for
+the lifetime of a world to serve an export the user runs once is exactly the
+trade that document rejected. The call order mirrors `compute_civilisation`'s so
+the exported data is the data the civ layer actually scored against.
+
+Generated worlds only: a loaded `.zip` save carries none of the tectonic
+substrate these fields derive from (`SAVEFILE_COMPAT.md`), the same condition
+that makes `CivData` `None` for one — and an absent file beats a file of zeros
+labelled "soil fertility". The **Köppen channel is documented and left at
+zero**, which is what the reference does when `state.climate.seasons` never
+built a `koppenField`; dropping it would shift `classes.png`'s meaning silently.
+
+### The route that had outlived its own excuse
+
+Data manager ▸ Export ▸ World Data was a `"gap"` row whose stated reason —
+*"cartalith-io reads .zip saves but does not write them"* — had been untrue
+since FI-01 landed the save writer the day before. It is now live, with
+`bakeRes` as three segments, `bakeTiles` as a checkbox, the atlas as its own
+column, and a live `export_raster_estimate` readout showing the real output size
+and the run's **peak memory** before the user commits to an 8K one. That number
+is worth seeing first: 615 MB.
+
+`encode_png_rgb8` was added to `cartalith-assets::raster` for the same reason —
+routing an 8K raster through `DecodedImage` would widen to RGBA (+33%) and then
+`to_rgba_image`'s own `clone()` (+100%), roughly 470 MB of transient allocation
+against the 129 MB the pixels occupy, for an alpha channel that is 255
+everywhere and makes the PNG bigger.
+
+**Tiled and single are the same pixels.** The raster is rendered *once* either
+way and only the file layout differs, so ticking `bakeTiles` cannot change what
+the map looks like. That is a deliberate departure from the reference, which
+re-renders per tile because a browser canvas has a hard area cap (~16.7 MP on
+iOS Safari, which its own `canvasWorks` probe exists to detect) — a constraint
+no native build has. Rendering once is strictly less work and removes any chance
+of a seam.
+
+### Measured
+
+Headless, through the real bindings, on a 512×328 world unless stated:
+
+| | |
+|---|---|
+| 2K single | 0.21 s, 2.5 MB, 2048 × 1312 |
+| 4K tiled | 0.80 s, 12 tiles + `index.json`, pixel-identical to the single file |
+| **8K single** | **4.5 s, 30.5 MB, 8192 × 5248 (43.0 MP, 615 MB peak)** |
+| atlas | 0.11 s, 0.57 MB, 8 PNGs + manifest |
+| grid-res vs. viewport | ~15 bytes of 8,060,928, all ±1 |
+
+52 probe assertions headless; 30 more non-headless against the real pane (the
+route is live, the pane builds, the segments swap, the checkbox toggles, both
+footer chips are enabled and connected, pressing one writes a real 7.1 MB PNG,
+and the run appears in the pane's own recent-runs list). 11 `bake_raster.rs`
+tests (13 after the colour-grade entry below). `golden_parity_render.rs` unmodified and passing. The 2K PNG was opened
+and looked at: terrain, coastline, snow, biome variation, the plate frame, and
+rivers.
+
+**Still open:** `exportZip`'s single-archive form. This route writes loose files;
+whether World Data should also assemble one `.zip` (params + f32 layers + raster
++ atlas + features) or defer to File ▸ Save is not an export task's decision to
+make, and the pane's OUTPUT column says so.
+
+## The graded export was right, and nothing could have told you (2026-08-24)
+
+A follow-up to the two entries above, and mostly a lesson about what a passing
+test proves.
+
+### What was checked, and what was found
+
+The question put to this pass was whether `export_raster.rs` skips the colour
+grade — the entry above says the grade "runs in `build_color_texture` and in
+the export raster, in the same slot in both", and that sentence was written a
+commit before the export raster existed.
+
+**It does not skip it.** `export_raster_png` has called
+`render::apply_color_grade(&appearance, &mut px)` since the commit that created
+it (`57b1214`), immediately after `apply_local_contrast`, off the same
+`self.appearance()` the viewport uses — so the same tier, the same named look,
+the same saved preset, the same ramp and the same per-key overrides. The code
+needed no change. What it needed was evidence.
+
+### Why the existing evidence was worth nothing
+
+`_exportraster_probe.gd` section 13 already compares a grid-resolution export
+against `build_color_texture` **byte for byte**, and it passes at ~15 bytes of
+8,060,928, all ±1. That looks like exactly the assertion that would catch a
+missing grade.
+
+It is not, and the reason is the shipped default. `Natural Vibrant` — the look
+`WorldGen` opens on — leaves all six grade axes at `0.0`, so
+`apply_color_grade` early-returns on `grade_is_identity()` on **both** sides of
+that comparison. Delete the call from the export entirely and section 13 still
+passes, unchanged, at the same ~15 bytes. `Quality tier` is identity too. Of the
+three shipped looks only `Antique Parchment` grades at all.
+
+That is the root `CLAUDE.md` "silently-empty golden output" failure one level
+up: not an empty fixture, but a fixture that reaches the stage under test and
+finds it configured to do nothing. Both halves of the comparison were correct,
+both were graded, and the grade was zero.
+
+### Built
+
+Two tests in `bake_raster.rs` (11 → 13; see the sequencing note below for which
+commit they ride in on), transcribing `build_color_texture`'s sequence the way
+that file already transcribes its river-tint loop:
+
+- `a_grid_resolution_export_carries_the_colour_grade` — under
+  **`Antique Parchment`**, asserts the grade is not vacuous at that look
+  (>50 % of pixels, >2 mean byte levels), that the export's
+  bake → local-contrast → grade sequence lands on the viewport's bytes, and
+  that the two whole-raster stages **do not commute**, so a reordered export
+  would fail the middle assertion rather than slip through it.
+- `the_export_is_unchanged_by_the_grade_at_the_shipped_look` — the other half:
+  under `Quality tier` and `Natural Vibrant` the grade must move nothing, so
+  adding the call cannot have moved any baseline taken under them. It also
+  asserts `grade_is_identity()` for both, which is what makes the *first* test
+  necessary rather than redundant — the day a shipped look starts grading, that
+  assertion fires and says so.
+
+Mutation-checked: removing the grade from the export sequence fails the first
+test at "the grade moved only 0 of 408 pixels".
+
+> **Sequencing, disclosed rather than discovered.** This pass ran while a
+> concurrent session was adding CA-14's four field-influence weights, which
+> changed `apply_color_grade`'s signature to take an `influence: &[f32]` third
+> argument and added `build_grade_influence`. Both new tests call the real
+> three-argument form, as `export_raster.rs` and `build_color_texture` now
+> both do, so **they compile only against that change** and land with the
+> commit carrying it — not with this documentation commit. Whole
+> `cartalith-godot` suite green against the combined tree: 337 lib tests, 13
+> `bake_raster.rs`, 39 `appearance_tiers.rs`, every other target unchanged.
+
+### Verified — non-headless, real bindings, 2048 × 1312 (seed 20260824)
+
+`_gradeexport_probe.gd`, a real session on an RX 7800 XT. Grid resolution
+because that is the only width at which "the export equals the screen" is a
+well-posed byte-for-byte question at all.
+
+| | worst | bytes differing of 8,060,928 |
+|---|---|---|
+| Natural Vibrant, export vs viewport | 1 level | ~16 (0.0002 %, derived) |
+| **Antique Parchment, export vs viewport** | **2 levels** | **10** |
+| Antique with the grade zeroed, export vs viewport | 1 level | 9 |
+
+And the grade's own effect, isolated by zeroing the six axes through
+`set_appearance` with the look otherwise unchanged:
+
+| | moved | mean | worst |
+|---|---|---|---|
+| graded vs ungraded **export** | 87.85 % | 4.23 levels | 16 |
+| graded vs ungraded **screen** | 87.85 % | 4.23 levels | 16 |
+
+The export feels the grade to the third decimal place of the amount the screen
+feels it. Vibrant vs Antique as whole exports: 94.19 % moved, mean 12.94.
+
+**The worst of 2, explained rather than tolerated.** Every other pairing in this
+project reads worst 1 — the `f32` bake prologue, documented since
+`bake_raster.rs` was written. Antique reads 2, and the third row above is what
+settles it: the *same look with the grade off* drops back to 1. Antique's
+contrast is `+0.08`, a slope of `1/(1 − 0.06) = 1.064` about mid-grey, with the
+temperature and tint shifts adding local gain on top. A one-level pre-grade
+difference passed through a gain above 1 and re-quantized lands two levels apart
+whenever both sides straddle a `floor` boundary. Ten bytes of eight million do.
+That is the existing rounding bound amplified, not a second defect, and the
+probe asserts the relationship (`graded ≤ ungraded + 1`) rather than the
+loosened number.
+
+Looked at, not only measured: a 512 px crop of the graded viewport, the graded
+export and the ungraded export side by side. The first two are
+indistinguishable warm parchment; the third is visibly cooler and greener, the
+sea a colder blue, which is what `+0.26` temperature and `+0.18` shadow tint do.
+
+### Corrected
+
+The entry above now carries a dated annotation saying its claim was written a
+commit ahead of its code. `GUI_GAP_REGISTER.md` #34's Verified block covered
+the viewport only and said nothing about the export; it now carries the table
+above.
+
+**Still open:** nothing for the grade. Worth noting for whoever adds the next
+look — a look with a non-identity grade is now load-bearing test surface, and
+`the_export_is_unchanged_by_the_grade_at_the_shipped_look` will fail loudly if
+the shipped default ever becomes one.
+
+## The grade got its last four axes and its midtone bend (`GUI_GAP_REGISTER.md` CA-14, 2026-08-24)
+
+`apply_color_grade` shipped six of ten axes. This closes the other four plus
+gamma, which is what CA-14 has listed as still-owed since the stage was built.
+
+### What the design actually asked for, and where it says so
+
+"The four field-influence weights" was recorded in two places and neither is
+ambiguous about *which* four:
+
+- `design/Cartalith Menu Structure v2.dc.html`, MAP ▸ TERRAIN APPEARANCE ▸
+  COLOUR, nested under the colour controls: **"+ Field influence weights ·
+  Biome · elevation · moisture · geology"**.
+- `TERRAIN_APPEARANCE_RESEARCH.md` §17 (COLOUR VIBRANCY SYSTEM), whose control
+  list ends with the same four names after Vibrancy/Saturation/Contrast/
+  Brightness/Gamma/Temperature/Tint.
+
+Both place them *under* the colour group rather than beside it, which settles
+the semantics the register left open: they are **weights on the grade**, not
+axes of their own. A weight lets the grade's strength track one underlying
+field instead of landing flat across the sheet.
+
+### Built
+
+**Gamma** (`grade_gamma`, −1..1) — a symmetric power curve with exponent
+`2^-gamma`, applied per channel immediately after exposure, which is the
+lift-gamma-gain order every grading tool uses. `0` runs no `powf` at all
+(gated like the temperature axis), so the default path is bit-identical to the
+six-axis grade rather than merely close to it. The base is floored at `0`
+rather than clamped to `0..1`: a negative base with a fractional exponent is
+NaN in Rust as it is in JS, while a base above `1` is a highlight exposure
+already pushed there and crushing it would undo the axis above.
+
+**The four weights** (`grade_field_biome`/`_elevation`/`_moisture`/`_geology`,
+each −1..1) — `render::build_grade_influence(ctx, w, h)` reduces each field to
+a `0..1` per-cell signal, centres it, and sums:
+`m = 1 + Σ wₖ·(2·sₖ − 1)`, clamped to `0..2`. `apply_color_grade` gained a
+third parameter and now scales **every axis' departure from rest** by `m`.
+
+| weight | signal |
+|---|---|
+| elevation | relative land elevation `(h − sea)/(1 − sea)`; `0` on water |
+| moisture | the rainfall field, clamped `0..1` |
+| biome | `BIOME_VEGETATION_COVER[classify_biome(t, m)]`; `0` on water |
+| geology | Rec.709 luma of the cell's own rock in the current lithology palette; the neutral `0.5` where there is no lithology |
+
+**The one part that is this port's own choice, stated rather than buried.**
+Biome is a *category* and a weight needs a scalar, and no document says which
+scalar. `BIOME_VEGETATION_COVER` (14 entries, `BIOME_KEYS` order) is a standing-
+vegetation-cover ordering — bare ice and desert at the bottom, closed temperate
+and tropical rainforest at the top. That ordering is the claim; the exact
+figures are not. Geology deliberately avoids a second such table by reading the
+**lithology palette's own lightness**, so it tracks whatever palette the user is
+looking at instead of a hand-ranked rock list.
+
+The multiplier is a *field* quantity, so it is built per grid cell and sampled
+nearest-neighbour into the output raster — the identity at grid resolution, a
+block sample at 8K, which is right for a term that only scales how hard a
+restrained grade lands.
+
+### Two invariants the implementation is built around
+
+1. **All four weights at rest is byte-identical to the old six-axis grade.**
+   `build_grade_influence` returns an **empty** `Vec` (the `coast_d`/`crest`
+   contract: the consumer reads the length, never a flag), and multiplying by
+   an exactly-`1.0` multiplier is exact in IEEE-754, so the equality is
+   structural rather than approximate.
+2. **A weight with no grade under it is still the identity.**
+   `grade_is_identity()` deliberately ignores the four — scaling nothing is
+   still nothing, and a grade with weights but no axes must early-return like
+   one. `build_grade_influence` checks it too, so a set of weights over a
+   resting grade allocates nothing.
+
+Both call sites pass the buffer: `build_color_texture` at `(gw, gh)` and
+`export_raster_png` at the export's own `(w, h)`, so the screen and the file
+cannot disagree.
+
+### GUI
+
+`render_workspace.gd`: gamma joins the **Colour grade** group in its
+colourist-order slot (second, right after exposure), and the four weights get
+their own adjacent **Grade field influence** group. The design nests them
+inside COLOUR; this shell has no in-group nesting, so an adjacent named group
+is the closest honest arrangement, and each row's help line says outright that
+it does nothing while the grade itself is at rest. The dock's own "Still owed"
+prose is updated: of colour grading, only the free colour pickers for the two
+tints remain.
+
+### Verified
+
+- `cargo build -p cartalith-godot` clean.
+- Whole `cartalith-godot` suite green: 337 lib, 39 `appearance_tiers.rs`
+  (37 → 39), 13 `bake_raster.rs`, every other target unchanged. Golden-parity
+  render and NPR targets both still pass, which is the assertion that matters
+  most here — `render.rs` is `#[path]`-included by them, and the grade is
+  downstream of everything they pin.
+- **`gamma_is_a_symmetric_power_curve_that_pins_both_endpoints`** — pure black
+  and pure white do not move at any gamma; `+k` lifts and `−k` sinks; and
+  `g(−k, g(+k, v)) == v` within one quantisation step. The first draft of this
+  test asserted *linear* symmetry (`+Δ == −Δ`) and failed at 40/255 — a power
+  curve is symmetric in log space, which is the whole difference between gamma
+  and the exposure axis above it. The test was wrong, not the code.
+- **`the_field_influence_weights_move_a_grade_and_only_a_grade`** — over a
+  grade with real work in every axis, each of the four moves the picture; each
+  of the four over an **ungraded** appearance leaves it byte-identical; the
+  influence buffer is empty for a flat grade, one entry per cell otherwise,
+  every multiplier inside `0..2`, and not constant.
+- `every_tunable_is_load_bearing` now exempts the four **by name, with the
+  reason in the doc comment** rather than silently: at the default appearance
+  the grade is at rest, so a weight on it cannot move a pixel and the mutation
+  rule genuinely does not apply. That is the third and fourth such exemption in
+  that test and both are stated the way `splat_strength` and
+  `border_width_frac` already are.
+- Headless boot-check green (`--headless --quit-after 3`, extension initialised).
+
+### Verified — non-headless, real bindings, 1024 × 655 (seed 483920)
+
+`_gradeaxes_shot.gd`, a real windowed session against the built cdylib. Grid
+resolution deliberately below the usual 2048: every claim here is per-pixel and
+the harness compares ~15 whole rasters in interpreted GDScript.
+
+All five keys are published with their real ranges and labels
+(`grade_gamma [-1..1] 'Gamma'`, `grade_field_biome [-1..1] 'Biome influence'`,
+and the other three), so an older cdylib would drop the rows rather than draw
+dead ones.
+
+**Gamma**, against the ungraded base (mean luma 133.11):
+
+| gamma | pixels moved | mean \|d\| | worst | mean luma |
+|---|---|---|---|---|
+| −0.6 | 99.23 % | 32.79 | 39 | **100.29** |
+| −0.3 | 99.23 % | 16.61 | 20 | **116.49** |
+| *rest* | — | — | — | **133.11** |
+| +0.3 | 98.90 % | 15.04 | 19 | **148.16** |
+| +0.6 | 99.10 % | 29.54 | 38 | **162.67** |
+
+Monotone in both directions and roughly symmetric about the base, which is the
+axis behaving as a midtone bend rather than as a second exposure.
+
+**The four weights over a grade that is at rest** — the claim the identity gate
+is built around, on the real bindings rather than in a unit test:
+
+| weight at `1.0` | pixels moved | worst |
+|---|---|---|
+| biome | **0.000 %** | **0** |
+| elevation | **0.000 %** | **0** |
+| moisture | **0.000 %** | **0** |
+| geology | **0.000 %** | **0** |
+
+**And over a grade that is doing something** (exposure `0.25`, contrast `0.30`,
+saturation `0.35`, temperature `0.40`, gamma `0.30` — itself 99.23 % moved,
+mean 43.05 against the base), each measured against that *flat* graded image:
+
+| weight | pixels moved | mean \|d\| | worst |
+|---|---|---|---|
+| biome `+1` | 97.95 % | 31.34 | 113 |
+| elevation `+1` | 94.68 % | 23.06 | 101 |
+| moisture `−1` | 95.51 % | 28.32 | 113 |
+| geology `+1` | 95.75 % | 12.50 | 51 |
+
+Returning every key to rest reproduces the base **byte for byte** (`0.0 %`
+moved, worst `0`).
+
+Looked at, not only measured: the elevation weight's own frame is the clearest
+statement of what the feature is for — the sea and the highest ground read
+essentially ungraded (their signal sits at the low end of the axis, so the
+multiplier lands near `0`) while the lowlands take the warm graded look at full
+strength. A grade that follows the terrain instead of lying flat across the
+sheet, which is what the design's nesting under COLOUR asked for.
+
+Dock: `Gamma`, `Biome influence`, `Elevation influence`, `Moisture influence`
+and `Geology influence` all drawn in the real RENDER workspace. The probe also
+looked for the group heading `Grade field influence` and reported it missing —
+that is the probe, not the dock: `DccWidgets.group` renders a heading as an
+upper-cased `Button`, and the sweep only collected `Label` text.
+
+**Still open:** free colour pickers for the shadow and highlight tints — they
+remain a blue↔amber axis, which is the last row of CA-14. And
+`BIOME_VEGETATION_COVER`'s figures are a first pass; the ordering is what the
+tests pin, so a retune is a table edit and nothing else.
+
+## `layersPreviewChk` is real — the last disabled control in Export ▸ World Data (`GUI_GAP_REGISTER.md` DM-04, 2026-08-24)
+
+The reference puts four controls in its export header bar. Three of them
+(`bakeRes`, `bakeTiles`, `chanAtlasChk`) became real when the World Data route
+was built; the fourth was drawn in its position and disabled, with the reason
+*"belongs with the f32 layer blobs"*. That reason conflated two things.
+
+### What `layersPreviewChk` actually does
+
+`exportZip` (reference line 12452) reads the box and, when it is ticked, adds
+four entries and nothing else:
+
+```js
+E.push({name:'layers/biome.png',       data:await layerBytes('biome','off')});
+E.push({name:'layers/hillshade.png',   data:await layerBytes('shade','off')});
+E.push({name:'layers/temperature.png', data:await layerBytes('biome','temp')});
+E.push({name:'layers/rainfall.png',    data:await layerBytes('biome','rain')});
+```
+
+`layerBytes(mode, debug)` (12301) sets `state.mode`/`state.debug`, re-runs
+`renderNow`, and grabs the canvas at `GW × GH`. So the box does **not** write
+the `.f32` blobs — those are unconditional, six lines higher, and belong to the
+archive question DM-04 already carries. It writes four *pictures* of layers the
+archive stores as numbers, and the README line it adds calls them
+`reference only`. That is a separable capability, and it is now built.
+
+### Built
+
+`WorldGen::export_layer_previews(dir)` — writes `dir/layers/{biome,
+hillshade,temperature,rainfall}.png`, all RGB8 at the **grid's** own size.
+This port has no global `state.mode`/`state.debug` to swap, so each file is
+built from the pass the reference's own branch would have taken:
+
+| file | `layerBytes` call | built from |
+|---|---|---|
+| `biome.png` | `('biome', 'off')` | `render::bake_rect` at `(gw, gh)` + local contrast + the grade — `export_raster_png`'s own three stages at 1:1 |
+| `hillshade.png` | `('shade', 'off')` | **`render::hillshade_raster`**, new — `renderNow`'s `mode === 'shade'` branch (line 8535) |
+| `temperature.png` | `('biome', 'temp')` | `sample_bridge::debug_raster("temp")` — `tempColor(tempField[i])` |
+| `rainfall.png` | `('biome', 'rain')` | `sample_bridge::debug_raster("rain")` — `rainColor` over land, `[18, 34, 64]` over water |
+
+**The last two are whole-image replacements, not overlays**, and that is the
+reference's behaviour rather than a simplification: `renderNow` blends the debug
+layer over the base map only when `state.debugOpacity < 1`, and its default is
+`1` (line 2260). The preview the reference produces at its own defaults is the
+bare palette raster, which is what these two are.
+
+`render::hillshade_raster` is the only new port:
+
+```js
+const s = 0.15 + 0.85 * shadeFactor(x, y); let c = s * 235; r = g = b = c;
+if (isWater(vw)) { r = c*0.45; g = c*0.6; b = Math.min(255, c*0.9 + 40); }
+```
+
+It lives in `render.rs` rather than beside the other layer rasters in
+`sample_bridge.rs` because `shadeFactor` is `RenderCtx::macro_shade`, and that
+module deliberately carries no `RenderCtx`. **It leaves out what the reference
+puts in**, and says so: the reference reaches this branch through the whole of
+`renderNow`, so its own `hillshade.png` also carries whatever river, wave and
+tide overlays are enabled at the time. A hillshade with rivers painted into it
+is not a hillshade, and `biome.png` beside it already carries them.
+
+**Grid resolution, deliberately**, as the reference's are. These preview `.f32`
+blobs that hold one value per cell; baking them at the map raster's 2K/4K/8K
+would be four more full-size renders of data that has no more detail to give.
+
+**Generated worlds only**, the same rule and the same reason as the channel
+atlas: the temperature and rainfall views read `sample_refs()`, which a loaded
+save has none of (`SAVEFILE_COMPAT.md`).
+
+### GUI
+
+`data_manager_window.gd`: the checkbox in the MAP RASTER column is live, off by
+default exactly as the reference has it (v0.92 made these opt-in on the grounds
+that nothing reads them back on load). Ticking it makes the raster export write
+`layers/` beside whatever it just produced — the tiled route already picked a
+directory, the single route picked a file, so its own directory is the base.
+An older cdylib without the binding gets the "rebuild cartalith-godot" note
+this pane already uses for the other two, rather than a dead row.
+
+### Verified
+
+- `cargo build -p cartalith-godot` clean; whole `cartalith-godot` suite green
+  (337 lib, `appearance_tiers.rs` 39 → **40**, 13 `bake_raster.rs`, every other
+  target unchanged, golden-parity render and NPR included).
+- **`the_hillshade_layer_is_grey_relief_and_blue_water`** — every land cell
+  satisfies `r == g == b` (a colour leak is the obvious failure and nothing else
+  would catch it), every water cell satisfies `b >= g >= r`, nothing on land
+  falls below the `0.15` ambient floor or past the `235` ceiling, the image is
+  not flat, `exag` and `sun_az_deg` both move it, and `biome_sat`/`ramp_strength`
+  both leave it byte-identical.
+- Headless boot-check green.
+
+**Non-headless, real bindings, 1024 × 655 (seed 483920):** `_layerprev_shot.gd`.
+
+Before any world, the binding refuses rather than writing four black PNGs:
+`ok=false, "no world to export -- generate or load one first"`.
+
+After generation, all four written in **176 ms**, 1.73 MB total, every one at
+`1024 × 655`:
+
+| file | mean chroma | mean luma | pixels with `r == g == b` | bytes |
+|---|---|---|---|---|
+| `biome.png` | 61.32 | 142.77 | 0.82 % | 1 009 462 |
+| `hillshade.png` | 34.95 | 164.70 | **71.78 %** | 236 127 |
+| `temperature.png` | 112.88 | 178.28 | 0.00 % | 311 536 |
+| `rainfall.png` | 74.92 | 121.54 | 0.00 % | 174 775 |
+
+The grey share is the load-bearing number: 71.78 % is the land fraction of this
+world, so the hillshade is grey everywhere except the water, and the other three
+are colour rasters throughout.
+
+`layers/biome.png` reproduces the **live viewport raster byte for byte** —
+`0.000 %` of pixels differ, over the whole 1024 × 655 image. Each of the other
+three differs from it at 100.00 % of pixels, and temperature differs from
+rainfall at 100.00 %, so no two files are the same picture and none of them is
+the map.
+
+Through the real dock: `_wd_layers` defaults to `false`, and driving
+`data_manager_window.gd`'s own `_run_layer_previews` wrote all four into
+`layers/`.
+
+Looked at, not only measured: the hillshade is grey shaded relief with flat blue
+water, the ridges and crater rims reading as relief and no biome colour anywhere;
+rainfall is the reference's arid-tan-to-wet-blue ramp over land with the dark
+`[18, 34, 64]` navy over water, wet coasts and dry interior exactly where the
+climate model puts them.
+
+**Still open:** the archive question DM-04 has always carried, unchanged —
+whether this route should additionally assemble `exportZip`'s single `.zip`
+(params + the f32 blobs + raster + atlas + features). The four previews are the
+*picture* half; the blobs remain the archive half.
+
+## The Markdown vault is real, and continents had to be invented to hold it (`MARKDOWN_VAULT_SCOPE.md` milestones 0-1, 2026-08-24)
+
+Owner instruction, 2026-08-24: start the Markdown Vault integration, for
+**continents, provinces and settlements** — not POIs. `ROADMAP.md` had it under
+"Options kept open, not scheduled" with one precondition: write
+`MARKDOWN_VAULT_SCOPE.md` first, because the owner-supplied design's own
+acceptance criteria (`MARKDOWN_VAULT_INTEGRATION.md` §35) assume entity
+concepts this port might not have.
+
+**That precondition earned its keep on the first question asked.**
+
+### Continents did not exist
+
+`generate_continentality_field` (`cartalith-terrain`) is what the roadmap audit
+had been calling a "world structure archetype": a per-cell `Vec<f32>` biasing
+height from a `continentality`/`fragmentation` knob. It has no per-instance
+identity, no name and no boundary. Searching `cartalith-terrain`,
+`cartalith-engine` and `cartalith-civ` for continent/landmass/region turned up
+no entity of any kind.
+
+What it *did* turn up, one layer along, was
+`cartalith_civ::build_landmass_quality` — reference line 5970, golden-verified,
+an 8-neighbour flood fill that labels every land component and returns
+`LandmassQuality { quality, comp, sizes, count }`. Its own doc comment says
+`comp`/`sizes`/`count` are *"not consumed by this milestone, kept … for later
+milestones"*, and `compute_civilisation` has computed and dropped them on every
+generate since Phase 2.
+
+So **milestone 0** is that bookkeeping kept rather than dropped:
+`cartalith_civ::Continent` + `civ_continents()`, exposed as
+`WorldGen::get_continents()`. Rank by area (1-based, largest first — chosen
+over the raw component index, which is scan order and would renumber every
+landmass when an island appears in the top-left), a generated name, an
+inclusive cell bounding box, a centroid, a cell count, and the faction holding
+the most of it. **No new per-cell memory**: `CivData` gains a `Vec<Continent>`
+and deliberately no raster — the obvious companion lookup would be 268 MB at
+the 8192² ceiling for a query nothing performs, which is
+`MEMORY_OPTIMIZATION_SCOPE.md`'s standing objection to exactly that shape.
+
+**A continent's id is derived, not persistent**, and the binding's doc comment
+says so at the point a caller would store one. A settlement's `tid` is a real
+stable id; a continent's rank is stable under anything that does not change the
+size ordering and renumbers when a sculpted land bridge merges two landmasses.
+Every knowledge link therefore also stores the entity's *name at link time* —
+never as a fallback key, only so a stale id can be re-bound by a person.
+
+Settlements (`tid`) and provinces (`id`) were real as expected. **POIs are
+confirmed absent and were not built as a side effect**: `EntityKind` has three
+variants and no `Poi`, and §35's criteria 6 and 7 are recorded as unsatisfiable
+in this port rather than faked.
+
+### Milestone 1: `cartalith-vault`, a new crate
+
+The whole subsystem, in one crate that depends on `serde`/`serde_json` and
+nothing else in the workspace — no engine crate, no `gdext`. That is what let
+the guarantee be asserted 41 times before any UI existed:
+
+> *A write that changes nothing produces a byte-identical document, and a write
+> that changes one section leaves every other byte alone.*
+
+This is **new scope, not a port** — `reference/FUNCTION_INDEX.md` has no
+markdown/vault/note/obsidian/knowledge function at all — so it sits outside
+`DECISIONS.md` §7d entirely and there is no golden fixture. Round-trip and
+non-destruction are what replace it.
+
+- **`markdown.rs` is not a Markdown parser, and must not become one.** A parser
+  produces an AST, and rendering an AST back to text rewrites the whole
+  document — normalising list markers, collapsing blank lines. §33's own
+  non-goal list names "arbitrary Markdown rewriting" and §10 requires
+  unsupported constructs be "preserved as source text". So it never
+  reconstructs text: it computes **byte spans** and splices, and the bytes
+  outside the span are the same bytes by construction rather than by care. It
+  understands exactly three things — ATX headings, fenced code blocks (a `#`
+  inside a fence is not a heading) and YAML frontmatter. Wikilinks, tags,
+  callouts and embeds pass through as opaque bytes, which is §10's actual
+  requirement.
+- **`block.rs`** — the machine-owned `CARTALITH:BEGIN` / `CARTALITH:END` block.
+  §23's five rules, each mapped to a line of code: insert below frontmatter and
+  title, update replaces only the block, and a `BEGIN` with no `END` or two
+  blocks for one entity **refuse outright**. `render()` is public so the
+  preview and the write share one definition — "deterministic regeneration" is
+  only true if there is one renderer.
+- **`links.rs`** — `KnowledgeLink`, `LinkStore`, and §27's five states plus the
+  local-edit state §15 adds. The content hash **outranks** the timestamp when
+  both are known: a file touched by a sync client has a new mtime and identical
+  bytes, and calling that stale would train the user to ignore the warning.
+- **`provider.rs`** — `FsVault`. Bounded listing (no file opened, dot-
+  directories skipped, so `.obsidian/` is never read), `..` rejected outright
+  rather than normalised, and **write-to-sibling-temp-then-rename**: a vault is
+  someone's worldbuilding corpus and a half-written note is not an acceptable
+  failure mode.
+- **`export.rs`** — §19's registry as data, filtered twice: by what an entity
+  kind *can* have, and by what this entity *does* have. A field with no value
+  never reaches a checkbox and therefore never reaches a note as a blank row,
+  which is §20's rule enforced once instead of in every panel.
+- **The `expect_hash` contract.** Every write takes a hash the caller can only
+  have obtained from a preview of the current file. A source edited between the
+  preview and the confirmation produces a different hash and the write refuses
+  — §16's *"If the source changed in the meantime, Cartalith must not blindly
+  overwrite it"*, as a type signature rather than as a hope.
+
+**§23's contradiction, reconciled rather than left in place.** §23 says user
+content outside the block is immutable; the owner's 2026-08-18 amendment asks
+Cartalith to also populate the author's own template fields. Both exist, split
+by policy: the block is machine-owned and regenerated unattended;
+`markdown::fill_field` is `OnlyIfEmpty` by default, previewed, and reports
+*"skipped — you had already filled it"* rather than overwriting. Field names
+come from the owner's real templates in `design/vault-templates/` verbatim, and
+the two trailing spaces that make a Markdown hard break survive the write.
+
+### The shell
+
+`vault_bridge.rs` (the `#[func]` surface, every method returning
+`{ok, error, …}` rather than unwrapping — a panic crossing the gdext boundary
+takes the process down, and a vault lives on a user's disk where the file *will*
+be missing), `vault_window.gd` (connect, browse, attach, the §29 reader, and the
+three previewed writes), `vault_store.gd` (`user://markdown_vault.json`), plus
+§28's requirement that the vault live in the entity's own panel: a **Knowledge**
+section in `place_editor_window.gd` keyed on `tid`, and **Linked notes** rows
+for every province and continent in the Civilization dock.
+
+**Links are profile-scoped, not project-scoped, and the reason is structural.**
+`cartalith-io` writes the reference app's own `.zip` (`SAVEFILE_COMPAT.md`),
+which carries **no civ layer at all** — `load_save`'s own doc comment says
+`get_settlements()` comes back empty. A link stored inside a save would come
+back pointing at a `tid` that no longer exists. `MARKDOWN_VAULT_SCOPE.md`
+milestone 3 is the change that makes §26 possible; `vault_store.gd` is the one
+file that moves when it lands.
+
+**`DCC_SHELL_SPEC.md` §9's vault block was deliberately not touched.** It
+assumes `obsidian://` links, note links in exported GeoJSON, and a two-way sync
+toggle — §33's explicit V1 non-goal. Nothing here writes an `obsidian://` link,
+a wikilink or a block reference anywhere; the block Cartalith writes is plain
+Markdown that renders identically in Obsidian, in a plain viewer and in a diff.
+
+### Verified
+
+**41 `cartalith-vault` tests**, three of which failed on first run and were
+real bugs, not test bugs:
+
+- an add-then-remove cycle of the Cartalith block **widened the note by a blank
+  line each time** — `remove` took the block's own terminator back but not the
+  pad `upsert` had added on the other side. Caught by asserting `remove` returns
+  the document `==` to the original, not merely that the prose survived.
+- `LinkStore::attach` minted its id *before* dropping the link it was
+  superseding, so re-attaching the same section walked the id up `_2`, `_3`, …
+  on every click.
+- a replacement-section span that dropped the document's own trailing blank
+  line, so a no-op round trip was not byte-identical.
+
+**4 `cartalith-civ` tests** for milestone 0 on a hand-built three-landmass
+fixture whose every number the fixture states — rank order, exact bounding
+boxes, exact centroid, plurality-faction naming, determinism, the empty-ocean
+case.
+
+**`_vault_probe.gd`: 54 end-to-end checks, headless and windowed, both green** —
+the real app, the real shell, a real generated world, and **a real folder of
+real Markdown files on disk**. It writes a hand-authored note with frontmatter
+and four sections, attaches a real settlement by `tid`, edits, previews, writes
+back, and then asserts on disk that the section changed and that each of seven
+hand-authored fragments is still there; writes and updates the Cartalith block
+and asserts the file is otherwise byte-identical; fills the author's template
+fields and asserts the filled one was skipped; edits the file behind Cartalith's
+back and asserts the write refuses and changes nothing.
+
+**Two defects only the live run could find:**
+
+1. Continent 1 and settlement 1 came out **with the same name** in a real
+   world. `civ_name_rng`'s seed is a fixed reference quirk (`state.seed||12345`
+   — see its own doc comment), so its first draw is the same string in every
+   world, and both were taking it. Continents have their own stream now,
+   `civ_continent_name_rng`, same generator and a different starting point, with
+   a test named after the failure.
+2. `String(d.get("cells", 0))` in the new Politics rows — GDScript has no
+   `String(int)` constructor, so the dock threw on every rebuild. No Rust test
+   could have reached it.
+
+`cargo build -p cartalith-godot` clean; `cargo clippy -p cartalith-vault` with
+all targets, clean.
+
+**Still open, each stated in the panel's own footer as well as here**: the map
+snapshot (§21), Compare-with-source (§14 — Reload and Keep ship, and they are
+the two actions that cannot lose work), project-scoped links (§26, blocked
+above), the Android SAF provider, and §35's criteria 6-7, which name entity
+kinds this port does not have.
+
+## The town was on the map; the pin was sitting on top of it (`GUI_GAP_REGISTER.md` UM-01, 2026-08-24)
+
+Owner report: *"I don't see the settlement rendered on the map itself, the dot
+yes. But not the place."* The obvious suspect was the reveal gate — the
+previous pass had left a note saying `_umLayoutAlpha`'s km band was now
+reachable and had deliberately not been swapped in. The obvious suspect was
+wrong, and driving it live found three separate defects instead.
+
+`_umreveal_shot.gd` (untracked probe): generate an 800 km world with
+settlements, pick the largest, and walk the zoom range printing the span in km,
+the site box in screen px, the reveal alpha and how many layouts were drawn,
+with a screenshot and a 3x crop of the town at each stop.
+
+**1 · The layer was off by default, behind a button that does not mention it.**
+The gate was working the whole time. `civUrbanLayoutsChk` shipped `on: false`
+in the CARTO rail dock's "Visible layers" list, while the map canvas has its
+own **Layers** button whose popover lists field rasters only. Look at the map,
+press the thing labelled Layers, and town layouts are not in it. Now `on: true`
+— the one divergence from the reference's own default, affordable precisely
+because of the band below — and the popover's footnote names them.
+
+**2 · The pixel reveal gate was the wrong number, and not in the direction the
+note predicted.** Not unreachable: too *early*. `URBAN_MIN_BOX_PX = 16` first
+fires at a **47 km** span on that map area, and a revealed town replaces its
+pin, so the layer traded a legible marker for a 16 px speck two octaves before
+the town was worth drawing. `_umLayoutAlpha` is ported now, verbatim —
+`UM_FADE_FAR_KM = 24`, `UM_FADE_NEAR_KM = 10`, against a `lodSpanKm()`
+equivalent — and `draw_layout`'s `alpha` argument, plumbed since the layer was
+written and passed a constant `1.0` ever since, finally carries the crossfade
+it exists for. Measured after: α = 0.00 at a 25 km span, 0.03 at 23.5, 0.44 at
+17.8, 0.76 at 13.3, 1.00 at 10.0 and deeper. The pixel constant stays as a
+floor beneath the band, which is what keeps a narrow map area from drawing a
+sub-pixel town just because the span qualifies.
+
+**3 · The pin grew 32x and sat on the town — and this one was visible with the
+layer off, which is the state the owner was actually in.** `_civ_zoom_k()`
+ported `_civZoomK`'s `1/max(0.35, min(5, z))` including the `min(5, …)`. That
+cap costs the reference nothing because `viewT.scale` **stays at 1 under Tiled
+LOD**; its deep zoom is `_lodZoom`, a different variable. Here `_camera_zoom`
+*is* the deep zoom, so past 5 the inverse-zoom term stops cancelling the
+camera's own multiply and the pin, glyph, name and label outline all resume
+growing linearly with it. That was a 1.6x overshoot while `ViewportHost` capped
+at `ZOOM_MAX = 8.0` — annoying, invisible — and became 32x when the cap became
+`lodMaxZoom()`. Screenshotted at z=60: the pin and its name cover the entire
+settlement. The cap is no longer ported. The `0.35` zoom-*out* floor is, and is
+untouched.
+
+**Verified live, non-headless**, on the real shell with a real generated world:
+the town draws on the main map at a 10 km span and deeper — water body, roof
+mass, market anchor, approach roads — with the pin handed over, and the pin and
+label hold constant on-screen size at every zoom in the range. Headless boot
+clean.
+
+**One thing checked and deliberately left alone.** `URBAN_FINE_BOX_PX = 620`
+(the per-roof ink outline, ridge and shadow) is unreachable on the map at that
+map width, and that is correct rather than a fourth defect: the deepest span is
+5 km, so the site box tops out near 150 px, an ~11 m lot is ~1 px, and the
+outline would be wider than the roof it surrounds — which is the measurement
+that put the constant there. The fine pass is the City Viewer's.
+
+### Is the layout actually *aligned* with the geography? Measured, not eyeballed
+
+The owner asked, because the HTML original had a bug class here: a "coastal"
+town whose layout did not touch the coast, a river town whose streets floated
+off the river. `_umalign_shot.gd` (untracked probe) answers it with numbers.
+Every geometry is pushed through the *same* local-metres → grid transform
+`_draw_urban_layouts` draws with, then compared against `sample_cell()`'s real
+water mask and Strahler order, and against `roads()`'s real way polylines.
+
+**The world size is part of the method.** At 800 km a 1.7 km site box is about
+**one** grid cell across (1.56 km/cell), so no displacement smaller than a cell
+is measurable there at all — a "test" at that scale would have proved nothing
+either way. At 60 km / 512 the box is 14.5 cells, which is the regime where a
+displacement shows up. 41 settlements, 41 layouts.
+
+- **No rotation is applied at all**: `orient` is `0.000000` on all 41. That is
+  the reference's own rule — `const orient = water ? 0 : _umTerrainOrient(...)`
+  — and every site here has real water, so the local frame is world-aligned and
+  the rotation-displacement bug class cannot arise.
+- **Rooftops: 0.00% land on a real water cell**, on every town measured (57,
+  94, 101, 140, 141, 325 rooftops). Sweeping the whole layout ±3 cells in
+  half-cell steps cannot get below zero, and the minimising offset is exactly
+  **(0.0, 0.0)** every time. This is the decisive one: it does not depend on
+  the layout choosing to *draw* its water.
+- **River towns are exact.** Every drawn river vertex sits **0.71 cells** from
+  the nearest real river cell centre — √2⁄2, which is the distance from a cell
+  *corner* to the centres around it. The drawn river is the real river.
+- **The coastal case is within one cell.** `Skalbjorkellwick`, a `bay` capital,
+  carries a 78-vertex traced shoreline: **mean 0.75 cells (88 m), worst 1.12
+  cells (131 m)** from the real coastline, where a cell is 117 m.
+- **Roads connect.** Where a real way reaches the town, the approach-road ends
+  land **3-146 m** from the nearest real way polyline point. `Skalbjorkellwick`
+  is the one exception and is not a defect: the nearest real way is 4 km off,
+  so its ends are the reference's synthesised box-exit bearings with nothing to
+  meet.
+
+**One real gap, and it is content rather than displacement**: three of the four
+`bay` sites draw **no sea** — one box is 72.3% real ocean and draws 0.5% water,
+another is 32.1% real and draws 0.0%; only the fourth gets a traced shoreline.
+Invisible on the map, where the terrain raster already shows the real sea under
+a correctly-placed town; visible in the City Viewer, which has no terrain under
+it. `URBAN_MORPHOLOGY_SCOPE.md` milestone 9's ground (harbour, quay,
+shoreline), recorded rather than papered over.
+
+**One divergence from the reference, stated.** It fades the pin out as the
+layout fades in (`pinAlpha = 1 - _umAlpha`); this hands the pin over at the end
+of the fade instead. A pin here is a disc, an outline, a glyph, a capital ring
+and a label, each with its own colour constant, so fading it means threading an
+alpha through five draw calls to soften a transition you cross in a second —
+and holding the pin for the whole fade keeps the thing you are navigating by
+legible, which is the half of that behaviour that matters.
+
+## Every land way was the same colour (`GUI_GAP_REGISTER.md` RD-02 / CA-15, 2026-08-24)
+
+§29 and §33 fixed how ways, sea lanes and committed routes are *shaped*. This
+is the matching pass over how they are *typed and coloured* — `drawCivLayer`
+§2a/§2b (reference 15494-15560) compared branch by branch against
+`map_overlay.gd`, driven live and measured in pixels.
+
+**The reference's §2a is a six-branch ladder and every branch strokes twice**:
+a dark underlayer, then the type's own colour over it — solid for the two trunk
+tiers, dashed for the three minor ones. That is what makes a highway, a track
+and an ancient way tell apart at a glance rather than by width.
+
+**This port drew land ways with one flat stroke**, `ROAD_COLOR`, with only the
+width varying. Measured before the fix rather than read: `_waycolor_probe.gd`
+drives the real `_draw_way_segment` over pure black and pure white, which makes
+colour and effective alpha exactly recoverable (`a = 1 − (w − b)`, `C = b/a`),
+at `set_camera_zoom(0.2)` so `_crisp_begin()`'s `1/k` transform lands every
+width 5× thicker and the stroke centre is fully covered. All five land types
+returned the identical `C = (91, 75, 40)`, `a = 0.549`.
+
+`WAY_STYLE` now carries the reference's five land branches verbatim. Re-measured
+after, against the composite the reference's own literals predict, every type
+lands within **0.6/255 and 0.002 alpha**: highway (206,142,54) a=0.991 vs.
+(206.0,142.2,54.0) a=0.991; regional (158,105,46) a=0.935; road (123,77,46)
+a=0.851 exact to 0.0; track (78,92,46) a=0.839; ancient (81,73,66) a=0.773; and
+the three that were already right — sea lane (22,94,147) a=0.818, route
+(173,138,51) a=0.924, selected route (250,206,79) a=0.990. Dash periods off the
+same shots: road 15 px / 15.5 expected, track 16 / 16.5, ancient 19 / 19, sea
+lane 23 / 23, route 40 / 40, highway and regional flat solid.
+
+**One real bug in the sea lane, which was otherwise exact**: its dash gap was
+2.6, not 2.0. `_draw_dashed_polyline`'s `gap_len` defaults to `dash_len`, the
+sea lane was the one caller taking that default, and the reference's pattern is
+`setLineDash([2.6·rsc, 2·rsc])` — unequal. Measured period 26 px against the
+reference's 23. Every caller passes its gap explicitly now.
+
+**And the filter could not see two thirds of the network.**
+`cartography_workspace.gd`'s **Ways · by type** listed `road`/`track`/`ancient`
+— `parse_way_type`'s *manual* vocabulary — while the switches filter on
+`get_roads()`' `way_type`, which the generated network classifies by
+`cartalith_civ::WayType`. On a real 384×288 world that is **13 highways and 17
+regional roads against 4 roads and 1 track**: unchecking "Roads" hid 4 of 35
+ways and the other 30 could not be hidden at all. The reference lists all five
+(`CIV_WAY_TYPES`, line 14743). Verified live by toggling each type and counting
+the pixels that vanished along a way of that type: highway 284, regional 241,
+road 102, track 66.
+
+**Layering re-verified as a measurement**, not carried over from IN-09's single
+case: a route committed deliberately along the world's longest highway (552 km
+solved over a 609 km host, 0 unreachable legs) is explained by the route's
+composite and not the host's at 13 of 13 coincident pixels. Sea lanes and land
+ways never contest a pixel; within `_roads` the reference itself draws in array
+order with no per-type z-order, which this matches.
+
+**No Rust.** The type data was already correct on the boundary — `get_roads()`
+has emitted `highway`/`regional`/`road`/`track` since Phase 2 milestone 14 and
+appended `ancient` since IN-02. This was a renderer and a filter list.
+
+**Cataloguing audited and left alone**: INFRA's per-tier tally, "longest"
+ranking with the type in each row, Sea lanes group, hand-drawn-ways group and
+editable Routes list all label type honestly. The reference marks it with a
+per-row emoji where this uses the word.
+
+Full detail, both probes and the measured tables: `GUI_GAP_REGISTER.md` §36.
+
+## The left rail is v3's, and the mode switch that hid half of WORLD is gone (`design/Cartalith Menu Structure v3.dc.html`, `GUI_GAP_REGISTER.md` §37, 2026-08-24)
+
+`design/Cartalith Menu Structure v3.dc.html`, vendored at `8cef062`, revises
+the left-rail domain menus. The owner scoped implementation to **those menus
+only**: the top bar stays as it is, and v3's own top-level `Vault` menu goes
+into the existing **Data** menu instead — verbatim, *"the vault menu can be
+shoved into data"*.
+
+### What changed
+
+| Rail | Before | After (v3's list, v3's order) |
+|---|---|---|
+| WORLD | a `GENERATION PIPELINE \| SCULPT` mode switch over ten numbered stages | **9** categories: Generate · Terrain · Geology · Hydrology · Climate · Biomes · Ecology · Resources · World data |
+| CIVIL | 6 categories, with INFRA's 5 appended below a rule | **14** categories: Civilizations · Factions · Territories · Settlements · Points of interest · Routes & ways · Travel · Trade · Economy · Culture · Politics · Military · Relationships · Simulation |
+| CARTO | 3 categories, with RENDER's flat run of sections below a rule | **10** categories: Map style · Terrain appearance · Colours · Layers · Roads & routes · Labels · Assets & landmarks · Political display · Visibility / zoom · Map presets |
+
+v3's principle, in its own migration audit: *"split by subject rather than by
+run order … the numbered 01-10 stage list disappears as navigation and
+survives as pipeline status."* The engine did not change. `generate()` still
+runs all ten stages in one call, every call, and the pipeline-status readout
+still says so — it just says it once now, instead of ten identical times.
+
+### Re-parenting, not rewriting
+
+v3's closing rule is *"every #id keeps its wiring — this is re-parenting, not
+rewriting"*, and that is literally what shipped. Every builder in the five
+workspace files is the one that was already there, called with a different
+parent:
+
+- `InfrastructureWorkspace` gained `build_ways_into()` / `build_travel_into()`
+  / `build_trade_into()` and a `_dock_hosted` flag that stops it drawing
+  categories of its own. Its `_fill_*` functions and `rebuild_readouts()` are
+  untouched — they are keyed to the body nodes, which is exactly what made
+  re-parenting safe. **Rivers** left CIVIL for WORLD ▸ Hydrology, where v3 puts
+  the river network; **Ports** folded into Routes & ways, since a port is where
+  a sea lane meets a settlement rather than a fifth subject.
+- `RenderWorkspace` gained four `build_*_into()` entry points and an `_h()`
+  host indirection: each builder now attaches to `_h()` instead of `self`, so
+  standalone (non-nested) use is unchanged and CARTO can hand it four
+  different category bodies.
+- `world_workspace.gd`'s `_build_stage()` became `_build_stage_body()`, which
+  draws the same stage — heading, `needs`/`produces` prose, params.rs groups,
+  loose keys, advanced block, disclosed gap — into an L3 section instead of
+  into a category of its own. A `CATEGORIES` table maps the nine names onto
+  the stages each hosts.
+- `civilization_workspace.gd`'s old Politics split three ways: **Factions**
+  (who the polities are), **Territories** (what ground they hold) and
+  **Politics** (change over time, which is what the timeline actually records).
+  The collapse/recovery simulator got its own **Simulation** category, because
+  it is a *model*, not a record — v3's own footnote: *"writes one timeline
+  entry per step: history, never the live editable world."*
+
+**The mode switch went for a reason beyond v3 asking.** It was a mode selector
+over one domain, and the one place in this shell where a dock had a hidden
+half. Sculpt is now a group inside Terrain and Biome paint a group inside
+Biomes; both still appear whenever their tool is armed, which is the "arming a
+tool never changes the workspace" independence every other domain already had.
+
+### Wired to real capability
+
+A menu pass that only produces gap IDs has not done its job. What became
+reachable, or reachable under a name someone would look for:
+
+- **CIVIL ▸ Routes & ways / Travel / Trade** — INFRA's live readouts intact:
+  per-tier tally, longest-ways ranking, sea lanes, hand-drawn ways, the
+  committed-routes list, the journey list, the planner, and the travel library.
+- **CIVIL ▸ Territories** — *Recalculate territories* and *Generate provinces*,
+  the two live `civ_recompute()` shortcuts from `GUI_GAP_REGISTER.md` §31's
+  CV-20 fix, now under a category named for what they do.
+- **CIVIL ▸ Settlements ▸ Linked notes** — the Markdown vault, scoped to the
+  roster above it, keyed on `tid` so a link survives a rename and a recompute.
+- **CARTO ▸ Visibility / zoom ▸ Data overlays** — one button onto
+  `layers_popover.gd`, the shell's existing analysis-field picker, with a live
+  count of what this build's `debug_layers()` offers. Deliberately *not* a
+  second copy of that list: two pickers over one `set_debug_layer()` is the
+  shape this shell keeps having to undo.
+- **WORLD ▸ Generate** — Generate world / New seed / Center landmasses as
+  shortcuts onto `app.gd`'s own handlers. Same one-owner discipline.
+- **Data ▸ Markdown vault ▸ Connect · Browse · Links** — v3's Vault menu,
+  folded into Data. One live row, because there is exactly one window behind
+  it; its tooltip states where v3's frontmatter-mapping and sync-direction
+  rows actually live (a per-write choice in the panel, not a global setting).
+
+### Fifteen new gap IDs, none of them faked
+
+Every v3 row with nothing behind it ships as a disclosed note or a disabled
+control carrying its reason — `menus.gd`'s `_todo()` contract, applied to the
+docks. `GUI_GAP_REGISTER.md` §37 carries the table: **CV-21** faction identity
+colour, **CV-22** faction vault notes, **CV-23** borders/claims/influence,
+**CV-24** the year scrubber as program scope, **CV-25** military, **CV-26**
+relationships, **IN-13** trade flows, **CA-16** per-class way style, **CA-17**
+political display style, **CA-18** the zoom ladder, **CA-19** the biome colour
+table, **WW-14** ecological productivity, **WW-15** coordinate system /
+projection, and the new `VA-` prefix — **VA-01** backlinks and unlinked
+mentions, **VA-02** create-from-template — for the vault's own gaps, as
+distinct from §35's `KV-`, which records what the vault *connected*.
+
+### Verification
+
+`_v3menu_probe.gd` / `.tscn`, temporary and untracked, run **windowed**. A
+headless boot proves the extension loads and the scripts parse, which was
+never the half at risk here. Against a real 384×288 world (seed 483920: 233
+settlements, 8 provinces, 35 ways):
+
+1. Each rail's L2 list asserted **exactly** equal to v3's list, in v3's order,
+   and none of the nine retired category names surviving anywhere.
+2. All 33 categories opened and asserted to have drawn something. An accordion
+   hides its own bugs: a category that throws while building leaves an empty
+   body that looks exactly like a closed one.
+3. Every disabled control asserted to carry a reason, with the four
+   state-gated Sculpt/Paint Commit/Discard buttons named as explicit
+   exemptions rather than pattern-matched past.
+4. The capability-claiming rows driven: the Politics/Simulation split (years
+   under one, the simulator under the other, neither under both), Territories'
+   recompute pressed for real, the Layers/Political-display split, and Data ▸
+   Markdown vault pressed through the real popup with the vault window
+   asserted on screen afterwards.
+5. Screenshots per rail with every category open, then per re-parented
+   category alone.
+
+**PASS, 0 failures**, plus a visual pass over the shots. `cargo check -p
+cartalith-godot` clean — no Rust changed.
+
+**Two defects, both invisible to a headless boot:**
+
+1. **`_dock_hosted` was set too late.** It was assigned inside
+   `build_ways_into()`, which runs *after* `_infra.setup()` — and `setup()` is
+   what runs `_build()`. So INFRA's five retired categories were still being
+   built, under the wrong parent, before the flag took. Both flags now go in
+   before `setup()`, beside `_nested`. This is exactly what the
+   nothing-retired-survives assertion in step 1 exists to catch.
+2. **`_build_simulation()` assigned an undeclared `_sim_body`** — a refactor
+   caught mid-flight by a session-limit kill. The fix is not the declaration:
+   `_rebuild_timeline()` now refills **both** bodies, each guarded
+   independently, so the order `_build()` claims them in cannot leave one
+   empty.
+
+**Three renames the rest of the shell had to follow**, found by grepping for
+the old names rather than by waiting for a user to hit one: the timeline
+strip's hint and its `Open Timeline` tooltip (CIVIL ▸ Timeline → Politics /
+Simulation), `layers_popover.gd`'s footer (the political and way-type switches
+left Cartography ▸ Layers), and three "World ▸ Generation Pipeline" pointers in
+`new_world_dialog.gd` and `tool_bar.gd`. `DccWidgets.stage_category()` lost its
+only caller and is marked as such in place rather than deleted — it is the one
+row type that can carry a marker changing *after* the row is built, which is a
+real capability and not a v3-specific one.
+
+### Files
+
+- `shell/workspaces/world_workspace.gd` — `CATEGORIES`, `_build_categories()`,
+  `_build_stage_body()`, the four category head/foot builders; the mode switch
+  and `_switch_button()` deleted.
+- `shell/workspaces/civilization_workspace.gd` — fourteen categories,
+  Factions/Territories/Simulation/POI/Military/Relationships added, Politics
+  reframed, Population folded into Settlements, `_build_settlement_vault()`.
+- `shell/workspaces/infrastructure_workspace.gd` — `_dock_hosted` and the
+  three `build_*_into()` entry points; `rivers_note()`.
+- `shell/workspaces/cartography_workspace.gd` — ten categories,
+  `_build_way_style()`, `_build_political_display()`, `_build_visibility()`.
+- `shell/workspaces/render_workspace.gd` — `_host`/`_h()` and the four
+  `build_*_into()` entry points; `_build_appearance()` takes a group slice.
+- `shell/menus.gd` — `_build_vault_rows()` under Data.
+- `shell/app.gd`, `shell/layers_popover.gd`, `shell/new_world_dialog.gd`,
+  `shell/tool_bar.gd`, `shell/dcc_widgets.gd` — the cross-reference renames.
+- `DCC_SHELL_SPEC.md` — top-of-file supersession notice plus inline blocks at
+  §3, §5 and §7. `GUI_GAP_REGISTER.md` — §37 and the §6.10-6.13 notices.
+- **No Rust.**
+
+## Conformance sweep: two controls that lied about their own state, and a rename that hit the wrong faction (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §38. A pass over the shell's windows and cross-references
+against `design/Cartalith Menu Structure v3.dc.html` and against what the
+controls actually do, driven live rather than read.
+
+### Two new defects, one mechanism
+
+Removing a focused `Control` from the Godot scene tree releases focus and fires
+`focus_exited` **synchronously**. Both of these editors commit their name field
+on that signal and clear their pane before rebuilding it — so a rebuild was
+itself an edit, committing a dying field's stale text after the id it was meant
+for had already moved on.
+
+**FR-02 — selecting a faction renamed it.** The roster's list rows are
+`FOCUS_NONE` (deliberately: clicking one must not take focus off the name
+field), and their handler sets `_selected = fid` *before*
+`_rebuild_inspector()`. So the teardown wrote the previous faction's name onto
+the faction just selected. Measured on a real 6-faction world: with Aurelia's
+field focused, clicking Veldmark left the roster reading
+`1:Aurelia, 2:Aurelia, 3:Korrath, …`. Silent, no undo.
+
+**PE-01 — the place editor's ⟳ re-roll never took on its first press.**
+`DCC_SHELL_SPEC.md` §4.5.3 has `open_for()` focus the name field, so the first
+⟳ rebuilt the form and the teardown wrote the pre-roll name back. Isolated
+three ways: focused, one press left `Yusnashharwell` unchanged; with
+`release_focus()` first, the identical press gave `Abedomarmarch`; the engine
+call on its own returned ten distinct names in ten calls. Only `open_for()`
+grabs focus, so presses two onward always worked — which is why this needed a
+probe to find. The same file's history `TextEdit` had the cross-entity form:
+`open_for()` sets `_index` before rebuilding, so re-opening on another place
+from the map committed the old form's text onto the new one.
+
+The fix is two halves, because a guard alone silently drops real edits: a
+`_rebuilding` flag across `_clear()`, checked by every `focus_exited` commit;
+and `_commit_focused_field()`, called before the id moves, which releases focus
+so a pending edit lands on the entity it was typed for. The other five
+`focus_exited` commits in the shell were checked and are safe.
+
+### Two register items closed
+
+**SH-11 — the zoom pivot.** `_zoom_at()`'s maths was right; its two `_input`
+callers handed it window-space coordinates while `_camera.position` is
+`ViewportHost`-relative, so the pivot was out by `global_position * (1/z0 -
+1/z1)`. Measured: **32.59 px per wheel notch** on the desktop layout, the
+*same* (32.13, 5.46) at three different probe points — a constant offset, not a
+pivot error — against `zoom_step()`'s **0.00 px**, which passes a local point
+and was always correct. After: 0.00 px everywhere.
+
+**WW-13 — Paint Commit / Discard.** Both gated on
+`paint_painted_counts()["total"]`, the composite of committed *and* pending,
+which a commit does not change — so both stayed live over an empty draft and
+"Discard draft" read as "remove the paint I can see" while doing nothing. New
+`PaintEditor::pending_stamps()` and `paint_draft_count()` count what
+`commit_all` bakes and `discard_all` throws away, across all three drafts. The
+WORLD dock and the tool-options bar draw two Commits over one draft and are on
+screen together, so each now refreshes the other — without that, the same
+defect simply reappeared one control over.
+
+### Knock-on effects of the v3 rail pass
+
+Six rendered pointers still named categories that pass retired — the atlas
+cache's `WORLD ▸ Finalize`, the sculpt stack's `World ▸ Sculpt`, the place
+editor's `Politics ▸ Recalculate territories`, and both way/route commit
+toasts' `Roads ▸ Hand-drawn`, which fire at the exact moment a user goes
+looking for what they just drew. Found by extracting every `A ▸ B` string the
+app renders and checking each against the structure that shipped.
+
+**`rivers_note()` had no caller.** It was written so IN-01 (no `get_rivers()`,
+so v3's per-reach river rows have no entity to hang on) would travel with the
+Rivers category to `WORLD ▸ Hydrology`; CIVIL stopped drawing it and WORLD
+never started. It is `static` now, with one owner and one caller.
+
+And the class behind the renames: every `→ Civilization ▸ Territories`-style
+button switched the rail and stopped, leaving the user among collapsed
+categories. Fine when CIVIL had six; v3 gave it fourteen and CARTO ten.
+`Workspace.open_category()` / `DccShell.select_domain_category()` do both
+halves and `push_warning` on a title that no longer exists.
+
+### Verified
+
+Six temporary, untracked probes, all run **windowed** against a real 384 × 288
+world, seed 483920 (233 settlements, 6 factions, 35 ways):
+
+- the roster is unchanged across a selection switch; the first ⟳ renames; a
+  sentinel typed into settlement 6's history does not reach settlement 7 —
+  **and settlement 6 keeps it**, so the flush works and the guard is not
+  swallowing input;
+- zoom-pivot drift 32.59 px → 0.00 px at three probe points;
+- paint Commit/Discard asserted in all four states and both commit directions,
+  with the composite total asserted *unchanged* across a commit — the premise
+  the fix turns on;
+- all three cross-domain jump buttons pressed for real, each asserted on both
+  the resulting domain and the open category; no retired category named as a
+  destination anywhere, with all 33 categories opened;
+- an unwired-control scan over 14 windows and the docks: **0 genuinely
+  unwired, 0 disabled-without-a-reason** (two were fixed to get there — the
+  welcome screen's `Open selected` and the asset library's anchor chips);
+- press-every-enabled-button over nine windows, snapshotting the whole app's
+  rendered text around each press: six no-change presses, five false
+  positives, one real — PE-01;
+- menu accelerators re-enumerated after the v3 pass: 11, each matching its
+  label, none unreachable except `Ctrl+Z` on an empty undo stack. The top bar
+  needed no correction.
+
+`cargo check -p cartalith-godot` clean, two new Rust tests pass, headless
+boot-check clean.
+
+### Files
+
+- `shell/faction_roster_window.gd`, `shell/place_editor_window.gd` —
+  `_rebuilding`, `_commit_focused_field()`, guarded `focus_exited` commits.
+- `shell/viewport_host.gd` — the two `_input` call sites convert to local
+  space; `_zoom_at()`'s own maths untouched.
+- `crates/cartalith-godot/src/paint_bridge.rs` — `pending_stamps()` + 2 tests.
+- `crates/cartalith-godot/src/lib.rs` — `paint_draft_count()`.
+- `shell/engine_bridge.gd`, `shell/tool_bar.gd`,
+  `shell/workspaces/world_workspace.gd` — the WW-13 gate and the cross-refresh;
+  `_build_hydrology_foot()` (IN-01).
+- `shell/workspaces/workspace.gd`, `shell/dcc_shell.gd` —
+  `open_category()` / `select_domain_category()`.
+- `shell/app.gd`, `shell/menus.gd`, `shell/right_dock.gd`,
+  `shell/workspaces/infrastructure_workspace.gd`,
+  `shell/workspaces/cartography_workspace.gd`,
+  `shell/workspaces/civilization_workspace.gd` — the stale pointers and the
+  jump buttons.
+- `shell/open_project_dialog.gd`, `shell/asset_library_window.gd` — the two
+  disabled controls that stated no reason.
+
+### Still open
+
+Everything §37 registered as unbacked (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14,
+WW-15, VA-01, VA-02) is unchanged — all want design or engine work. ED-02 (an
+undo *history panel*) stays (C). *(Superseded by the next entry, 2026-08-25:
+**nine of the fifteen closed**, four of them because the capability already
+existed.)*
+
+## §37's fifteen, worked — nine closed, four of them already built (2026-08-25)
+
+`GUI_GAP_REGISTER.md` **§39**, on the owner's instruction to implement §37's
+backable items. §37 registered fifteen v3 rows as "no backing capability".
+Every one was checked against the crates before anything was written, and
+**that check is the headline: four of the nine closed had working engine
+capability the whole time**, and the register's stated reason is factually
+wrong for CV-21, WW-14 and WW-15 — and, since §36 five days earlier, for
+CA-16 too.
+
+### Closed
+
+| ID | What it turned out to be |
+|---|---|
+| **WW-14** ecology | **Already built, both halves.** `build_npp` is the Miami model; `cartalith_civ::wildlife` is a fauna model with guild rosters and per-species populations. §37: *"no crate computes either, here or in the reference"* |
+| **CV-21** faction identity colour | **Already built.** `FactionEntry::color` existed and nothing read it. §37: *"stores no colour field"* |
+| **CA-19** biome colour table | **Already readable.** `debug_layers()`' `bclass` legend is that table, all fifteen classes |
+| **WW-15** CRS | **Already declared.** The GeoJSON writes `geojson::CRS_NOTE` in its own `note`; RFC 7946 deprecated the `crs` member |
+| **CA-16** way style | Reference port: `#civWayScaleR` + `#wayOpacityR` |
+| **CA-17** political display | Reference port: `#territoryOpacityR` |
+| **CA-18** zoom ladder (partly) | Reference port: `CIV_LOD_ROAD` |
+| **CV-22** faction vault notes | New — and exactly the one enum variant §37 estimated |
+| **VA-02** create from template | New |
+
+### Built
+
+**A new `npp` analysis field and `ecology_summary()`.** NPP was computed only
+*inside* `wildlife_regions`, as one of the ecoregion scorer's five inputs, and
+discarded; the ecoregion records with their species rosters were reachable
+only by clicking the map with the Wildlife view already open. WORLD ▸ Ecology
+is a live readout of both.
+
+**`CivData::faction_rgb`, one path for every surface that draws a faction.**
+`FactionEntry::color_override` (default `None`, so a world at rest is
+bit-identical) is now the source of truth for the territory wash, the
+Political-control analysis field and the roster banner. The "cannot disagree"
+was not hypothetical: the control field indexed `FACTION_RGB[(owner-1) % len]`
+while the wash used the no-wrap rule, so on a seven-faction world the field
+drew faction 7 in faction 1's colour and the map did not. The override is a
+*second* field rather than a write into `color`, because `color` is the
+*reference's* palette and this port renders in Okabe-Ito — one roster must not
+carry two rules.
+
+**Three reference display controls this port had as constants.**
+`territory_opacity` (was a hardcoded `82/255`), `_way_scale` and
+`_way_opacity`, all identity at their defaults. The way scale multiplies dash
+lengths too, because the reference writes one `rsc` into both. Plus
+`CIV_LOD_ROAD`, whose effect here is narrower than there and deliberately not
+widened: `ZOOM_MIN` is 0.4, so `road`'s 0.35 threshold is unreachable and only
+`track`/`ancient` drop out.
+
+**`EntityKind::Faction`** plus the export rows a faction can fill — Name,
+Entity type, Culture, Government, Religion, its capital's coordinates, member
+settlements, population, claimed area. `ALL` gained a sibling `EVERY`, because
+a faction has no position of its own and the three *place* kinds do.
+
+**`cartalith-vault`'s `template` module.** Templates come from the vault, not
+from the program: a `.md` with "template" in its path is a template, which is
+how the owner's own `design/vault-templates/` names its files. Creating a note
+is safe where editing one is not — an existing path is refused outright — so
+the body is the author's template copied verbatim with only the entity's name
+substituted; `[If applicable]` and `[Optional]` survive untouched, because
+those are instructions to the author.
+
+**`world_crs()`.** The frame is real and is two different frames: world mode
+is a plate carrée graticule over 90°N–90°S with `lat_n`/`lat_s` ignored;
+regional mode has real latitudes driving the climate model and no longitude
+model at all.
+
+### Verified
+
+`_gap37_probe` (temporary, untracked), **windowed**, on a real 384 × 288
+world, seed 483920 — 233 settlements, 6 factions, 35 ways. **PASS, 0
+failures**, everything measured:
+
+- **WW-14** mean NPP **801 g/m²/yr** over 88,629 land cells, peak **2590.7**;
+  **70 ecoregions, 235 species records**; the `npp` raster drew.
+- **CV-21** wash *and* control field both moved on an identity colour and both
+  returned on Reset; the picker wrote through the real window.
+- **CA-17** wash alpha `0.322 → 1.000 → 0.102`, monotone.
+- **CA-16** way opacity 0 moved **0.396 %** of screen pixels; width 2.5×
+  moved **0.929 %**.
+- **CA-18** the ladder's single `track` of 35 ways is visible in the frame
+  diff at 0.5× zoom.
+- **CV-22** four entity kinds; faction 1 offered 8 fields and produced a
+  636-character block; faction 0 and 999 both returned empty.
+- **VA-02** a real note written to a real folder from a real template,
+  byte-identical on disk, and the duplicate refused with the file unchanged.
+- **WW-15** regional, 55.0°→5.0°, **6.25 km/cell, 0.1742°/row**.
+
+`cartalith-godot` 343 lib tests plus its integration targets, one new roster
+test; `cartalith-vault` **41 → 48**, including one end-to-end against a real
+folder proving the created note is attachable by the ordinary path — and
+therefore a real note, not a special one. `cargo check -p cartalith-godot`
+clean; headless boot clean.
+
+### Files
+
+- `crates/cartalith-godot/src/sample_bridge.rs` — the `npp` layer, its ramp
+  and legend; `FieldRefs::faction_colors`; the `control` layer's wrap removed.
+- `crates/cartalith-godot/src/lib.rs` — `ecology_summary()`, `world_crs()`,
+  `CivData::faction_rgb`, `civ_set_faction_color`/`civ_clear_faction_color`/
+  `civ_has_faction_colors`, `set_territory_opacity` and its two readers,
+  `TERRITORY_ALPHA_DEFAULT`, `faction_rgb_default`.
+- `crates/cartalith-godot/src/civ_roster_bridge.rs` — `color_override`,
+  `set_color`, `any_color_override`, 1 test.
+- `crates/cartalith-godot/src/vault_bridge.rs` — the `Faction` arm of
+  `entity_values`, `vault_entity_kinds`, `vault_templates`,
+  `vault_suggested_path`, `vault_create_from_template`.
+- `crates/cartalith-vault/src/template.rs` — **new**, 5 tests.
+- `crates/cartalith-vault/src/links.rs`, `export.rs`, `lib.rs` —
+  `EntityKind::Faction`, `EVERY`/`F`/`PF`, `templates()`,
+  `create_from_template()`, `Error::AlreadyExists`, 2 tests.
+- `map_overlay.gd` — `WAY_LOD_MIN`, `_way_scale`/`_way_opacity`/`_way_lod`
+  and their setters, `_way_ink()`, the three segment drawers.
+- `shell/engine_bridge.gd` — 10 new wrappers.
+- `shell/faction_roster_window.gd` — the colour picker and `_head_banner`.
+- `shell/vault_window.gd` — *New note from a template*.
+- `shell/workspaces/world_workspace.gd` — Ecology and the coordinate frame,
+  both refilled on every generate/load.
+- `shell/workspaces/cartography_workspace.gd` — Way style, Territory tint,
+  and CA-18's corrected note.
+- `shell/workspaces/civilization_workspace.gd` — Identity colour, faction
+  Linked notes, the VA-02 note.
+- `shell/workspaces/render_workspace.gd`, `shell/menus.gd` — CA-19's and
+  VA-02's corrected disclosures.
+
+### Still open
+
+**CV-23, CV-24, CV-25, CV-26, IN-13, VA-01** — every one re-checked and
+sharpened in §39 rather than merely restated. The one worth carrying here:
+**CV-23's influence field is computed today and thrown away** —
+`assign_territory`'s `best_effective` is the per-cell cost-distance to the
+winning capital, and a contested value is one more array, not one more
+Dijkstra. What blocks it is memory (268 MB at the 8192² ceiling, so it has to
+be an on-demand recompute) and the fact that `compute_civilisation` frees the
+`cost` field that recompute would need. **CV-24, CV-25 and CV-26 want an
+owner decision, not wiring.** ED-02 stays (C) for the same reason. CA-18's
+declutter budget and CA-19's *writable* palette stay open with their costs
+now stated.
+
+## CV-25 and CV-26 — one was a port nobody had recognised, the other needed an edge that did not exist (`GUI_GAP_REGISTER.md` §40, 2026-08-25)
+
+Owner's decision on the two §37 IDs parked pending design: *"build a minimal
+version now"*. Both built, **neither closed** — each keeps a real, separable
+feature open, and each category says so on screen.
+
+### CV-25 (Military) — three ports, and a coefficient that had been dead
+
+`GUI_GAP_REGISTER.md` §37 said *"`cartalith-civ` models none of them and
+neither does the reference."* The second half is wrong, and this is the fifth
+§37 entry wrong in that direction. The frozen snapshot has:
+
+- **`_umWallSpec`** (22109) — the `none · ditch · palisade · stone` ladder,
+  derived from tier + function + threat (the `fortified` trait) + wealth +
+  age + command of ground.
+- **`_umInferWalls`** (22134) — its boolean view.
+- **`_civPlaceDefensibility`** (23802) — per-settlement defensive strength
+  `0..1`: `0.6 · terrainRuggednessD(r) + 0.4 if walled`.
+
+and a fourth, `_civFactionAggregates`' `power.military`
+(`0.45·normPop + 0.35·fortifiedFraction + 0.20·capitalTierNorm`), was
+**already ported and golden-verified** — with no reader.
+
+**Built:**
+
+- `cartalith-civ::military` — `um_wall_spec`, `um_infer_walls`,
+  `civ_place_defensibility`, `civ_relative_elevation`. `terrain_ruggedness_d`
+  went `pub`, because the reference calls it a *shared* primitive and this is
+  its second and third caller. `urban_adapter.rs`'s provenance table row for
+  the two `_um*` functions changed from **skipped** to **ported, and not
+  here**, with the reason: their first real consumer is the aggregate's
+  `fortifiedFraction`, not the layout adapter.
+- `cartalith-godot::civ_military_bridge` — a `#[godot_api(secondary)]` block
+  (the `geojson_bridge.rs` / `export_raster.rs` precedent) with
+  `civ_military_summary()` and `civ_faction_relations()`. No `unwrap`/`expect`
+  anywhere in the file; every absent-world path returns an empty value,
+  because a panic here unwinds through a GDExtension callback.
+- CIVIL ▸ Military: *Faction strength* ranked by military power (with the
+  three-way wall breakdown and the capital in the tooltip), *Fortifications*
+  ranked by defensive strength, and a *Not built* section naming exactly what
+  is still absent.
+
+**The defect the ports exposed.** `FactionPlace::from_settlement` hard-wires
+`fortified: false` — `cartalith-civ` is stateless and the `umWalls` override
+lives at the boundary in `place_extras` — so **every** caller of
+`civ_faction_aggregates` in this workspace had been feeding the military axis
+a constant zero for its `0.35 · fortifiedFraction` term. A third of the
+formula, dead. The new bridge composes the place rows itself, which is what
+the reference's own aggregate pass does (`if(_umInferWalls(p))
+b.fortifiedCount++`). Measured: de-walling one faction's five settlements
+moves its military power **89.00 → 61.00**.
+
+`civ_faction_terrain_fits` is deliberately **left alone** rather than
+perturbed: its output is the terrain mix, nothing in it reads `power`, and it
+has golden numbers.
+
+This also gives `umWalls` and `umAge` their first consumer anywhere.
+`civ_roster_bridge.rs`'s module doc has said since ED-03 that an edited
+`umWalls`/`umAge` *"reaches nothing"* — it reaches this, and that doc is now
+corrected.
+
+**Still open, and only this:** garrison headcounts, campaigns, unit movement,
+combat.
+
+### CV-26 (Relationships) — the edge, and nothing else
+
+No reference implementation exists: the snapshot's only hits for `diplomacy`,
+`alliance`, `vassal`, `treaty` or `rivalry` are prose. §37/§39's structural
+objection was the right one — *"there is no edge between two factions to hold
+a value"* — and creating that edge is the whole of what was built.
+
+`cartalith-civ::relations::civ_faction_relations` returns one **symmetric**
+value per unordered faction pair, **derived and recomputed** like
+`civ_faction_aggregates` and `wildlife_regions` — stored nowhere, saved
+nowhere, changing on nothing's clock. Four terms, each symmetric by
+construction and each reported beside the verdict:
+
+| term | weight | source |
+|---|---|---|
+| shared culture | `+0.30` | `civFactionCulture` |
+| shared / opposed faith | `±0.20` | `civFactionReligion`; `none` on either side is silence, not division |
+| trade complement | `+0.25` | the aggregate's `imports` / `exports` |
+| border friction | `−0.55` | shared-border cells × `(0.35 + 0.65 · rivalry)` |
+
+Three decisions worth stating:
+
+1. **Friction is border × rivalry, not border.** A long border with a weak
+   neighbour is a frontier, not a rivalry. `rivalry` is high only when both
+   sides are strong *and* evenly matched.
+2. **The border is relative to the widest border on this map**, not an
+   absolute cell count — the same discipline the reference's own v1.30/v1.32/
+   v1.37 trade-balance fixes settled on after absolute margins proved
+   unreachable on some worlds.
+3. **A good nobody supplies is discounted** from the trade term's
+   denominator. That is the reference's own v1.33 finding — a deficit no route
+   can cover is not an import relationship (line 24500) — and it matters here
+   concretely: this port retains no `currentPopulationDensity()` equivalent
+   (`CivData::dens` is `civ_current_agrarian_density`, a *different field*,
+   and substituting it would silently move `foodProductionCapacity` off the
+   reference's number), so `food` sits in every faction's imports and nobody's
+   exports. Without the rule it would have diluted every pair toward zero.
+
+The bridge **does** rebuild the resource rasters on demand (biome →
+lithology → potentials, at `scarcity=true, scarcity_legacy=false`, the
+production defaults), because the trade term reads the aggregate's
+import/export lists and `compute_civilisation` frees those rasters. Same
+on-demand shape `civ_faction_terrain_fits` already uses, same modal-open cost
+class.
+
+**NaN policy, stated because it changes an answer.** The aggregate can
+legitimately produce a `NaN` power axis and propagates it on purpose. A `NaN`
+reaching a stance comparison would fall through every branch to `"hostile"` —
+the loudest answer from the least information — so a non-finite value is
+collapsed to `0.0`/`"neutral"` at the one place a number becomes a claim about
+two polities.
+
+**Still open:** diplomacy actions, treaties, vassalage, and change over time.
+
+### Verified
+
+- **`cargo test -p cartalith-civ`**: 401 lib tests (9 new in `military`, 11 in
+  `relations`) plus a new `tests/golden_parity_military.rs` (3 tests) —
+  Node `vm.runInContext` over six reference slices, with boundary and
+  shape assertions ahead of the goldens. All green.
+- **`cargo test -p cartalith-godot`**: 343 lib tests and every integration
+  target green. `cargo check -p cartalith-godot` clean.
+- **Mutation-tested**: `1200 → 1100`, `260 → 250`, `0.6 → 0.65`,
+  `rank>=3 → rank>=4` and `0.9 → 0.8` all fail. `terrainD>0.9 → >=0.9`
+  survives and is an **equivalent mutant** — `1 − 4·|r − 0.35|` never
+  evaluates to exactly `0.9` for any `f64` `r` in the neighbourhood (the
+  reachable results step from `0.9000000000000001` to `0.8999999999999999`).
+  Recorded in the test rather than chased; the constant is pinned from both
+  sides instead.
+- **`_military_probe.gd`** (temporary, untracked; 384 × 288, seed 483920, 33
+  settlements, 6 factions) — **PASS**. Military power 45.43 … 89.00, not
+  all-equal and not all-zero; 12 stone / 2 ditch / 19 none; defensibility
+  0.000 … 0.988; 15 pairs for 6 factions; widest shared border 250 cells;
+  trade term 0.00 … 0.67; and — because a fresh world seeds distinct cultures
+  and no religion — an explicit proof that those two terms are wired rather
+  than dead: giving two factions one culture and one faith moved their value
+  **+0.125 → +0.625**, exactly `+0.30 +0.20`, and an opposing faith moved it
+  back to `+0.225`.
+- **`_mildock_shot.gd`** (temporary, untracked; the real `app.tscn`, 233
+  settlements) — **PASS windowed *and* headless**. Both categories render real
+  rows (`Veldmark -- 66/100 · 7 of 49 fortified`,
+  `Garnstokgrimfornward -- ditch wall · defence 99%`,
+  `Veldmark ↔ Korrath -- wary (-34)`), both old *Not built* disclosures are
+  gone, and **both narrowed gaps are still disclosed** — the probe asserts all
+  four, because closing a register entry by deleting its honest note is the
+  failure mode that document exists to catch.
+
+**Two boundary assertions failed on the first extraction and both were real.**
+The `_umWallSpec` slice started at 22105, inside the v1.17 provenance comment
+rather than at the `function` line (22109). And the four-rung assertion was
+written as four `return 'x';` statements, which the reference does not
+contain — `palisade` reaches its caller only through the ternaries
+`pop>=1200?'stone':'palisade'` and `rank>=1?'palisade':'ditch'`. Both failed
+loudly rather than emitting a short, plausible golden.
+
+**One GDScript defect the parse check caught**: a `sort_custom` lambda body
+cannot wrap onto a second line. Three of them did; they are named `static
+func` comparators now rather than one unreadable long line each.
+
+## CV-23 — the influence field was already being computed, and thrown away on the last line (`GUI_GAP_REGISTER.md` §41, 2026-08-25)
+
+`GUI_GAP_REGISTER.md` §39 had sharpened this row rather than closed it, and its
+diagnosis held up in full: `assign_territory`'s local `best_effective` — the
+per-cell cost-distance to the winning capital divided by that capital's
+population weight — **is** the influence field CV-23 asks for, computed on
+every `generate()` since Phase 2 milestone 10 and dropped by the function's own
+`owner` return. A contested value is the runner-up beside it, not a second
+Dijkstra.
+
+**Built:**
+
+- `cartalith_civ::territory_sweep` — the one cost-distance Voronoi pass both
+  `assign_territory` and the new `territory_influence` share, so the two cannot
+  drift into disagreeing about who owns a cell. `want_rival` is a **memory**
+  switch, not a behaviour switch: with it `false` the loop body is
+  character-for-character what `assign_territory` ran before and allocates
+  exactly what it allocated, so **generation pays nothing** for a layer nobody
+  may open.
+- `cartalith_civ::TerritoryInfluence` / `territory_influence` — borders
+  (`owner`), claims (`rival`), influence (`best_effective`, kept) and
+  `contested` = `influence / rival_influence` in `0..=1`. The runner-up is
+  exact in one pass: `rival_effective >= best_effective` always holds, because
+  it is only ever written from the outgoing winner at a change of owning
+  faction (the incoming winner being strictly smaller) or from a candidate that
+  already lost — so the value dropped at a displacement is always `>=` the
+  value kept, and the kept one belongs to a faction that is by construction not
+  the new owner.
+- `WorldGen::civ_territory_influence()` (`#[func]`) — per-faction rows and
+  per-**pair** border rows, plus `transient_bytes`/`resident_bytes`. The pair
+  rows are the "claims" half the register asked for: they name *who* disputes
+  *whom*, which an owner grid alone cannot.
+- `sample_bridge::territory_influence` — the on-demand builder both the raster
+  and the `#[func]` go through, so the layer a user looks at and the numbers a
+  panel reports cannot come from two different sweeps (the `wildlife_regions`
+  rule, applied again).
+- **Layers ▸ Civilization ▸ Contested borders** — a real `LAYER_GROUPS` row
+  with a hint, a five-swatch legend and a per-world `layer_available` check
+  (settlements present *and* at least one capital, not merely "has a civ
+  layer": a capital-less world would draw a flat unowned wash reading as data).
+- **CIVIL ▸ Territories ▸ Borders & influence** — the numbers, behind a button,
+  because the computation costs something and refilling on every dock rebuild
+  would run one Dijkstra per capital on every place rename.
+
+**Two design decisions worth stating.**
+
+*No new hue.* Every colour the raster draws is a faction's own swatch
+(`CivData::faction_rgb`, identity colours included), dimmed to `0.26` in a
+secure interior and lifted by `0.26 + 0.74·t²`. An added highlight would have
+collided with `FACTION_RGB`'s Okabe-Ito orange and yellow, and would have said
+"contested" without saying *with whom*. Past `t = 0.88` — literally "the
+runner-up is within 12 % of the winner" — the cell alternates with the rival's
+swatch on a three-cell diagonal stripe, which is CA-17's claim hatching drawn
+in the analysis layer rather than in the map's territory wash.
+
+*The contested band is wider far from either capital, and that is the model.*
+One step in from a border the winner's distance is `d` and the rival's about
+`d + 2·step`, so the ratio is near `1` when `d` is large and well under `1`
+when the border runs close to a capital.
+
+**No golden parity, and that is correct here.** The reference has no
+algorithmic territory generation at all — `_civGenerateProvinces` partitions an
+already-painted raster and nothing computes one — so `assign_territory` was new
+design under `DECISIONS.md` §7a/§7b, and so is this. `reference/FUNCTION_INDEX.md`
+was checked: its only territory hits are `_jpClaimedAt` (a lookup) and the
+faction-roster editors. Verified by tests and by live measurement instead.
+
+**Verified:**
+
+- **Five new `cartalith-civ` lib tests** (401 in the crate at the time of writing; the baseline moved under a concurrent CV-25/CV-26 pass, so the delta is the honest number, not the total). They are
+  `influence_owner_matches_assign_territory` (four layouts: same-faction
+  displacement, cross-faction displacement, a third faction that never wins, an
+  unreachable half), `influence_rival_is_the_true_runner_up_faction` (against
+  the brute-force per-faction minimum over a ragged three-faction fixture),
+  `influence_is_low_at_a_capital_and_contest_peaks_at_the_frontier`
+  (strict monotonicity towards the frontier, `contested = 1.0` at the exact
+  tie), `influence_without_a_rival_is_zero_and_never_nan`, and
+  `influence_handles_two_capitals_on_one_cell` — the one input that would hand
+  `0/0` to a colour ramp as NaN.
+- `cartalith-godot` 343 lib tests green, including the two that police the
+  Layers table: `every_advertised_layer_draws_and_only_advertised_ones_do`
+  (the new row must produce a non-uniform, fully opaque raster) and
+  `available_matches_debug_raster` (the cheap `available` answer must equal the
+  expensive "did it draw?" answer, with and without a civ layer). The test
+  fixture gained two real capitals of two factions, placed at the first and
+  last land cell in scan order so the sweep genuinely meets in the middle.
+- `cargo check -p cartalith-godot` clean, `cargo clippy` clean on both touched
+  crates, headless boot clean.
+- **`_cv23_probe.gd` (temporary, untracked), run windowed** on the real world
+  §39 used — seed 483920, 384 × 288, 233 settlements, 6 factions, 35 ways.
+  **PASS, 0 failures.** 88,621 owned cells, **14,225 (16.05 %) on a frontier**,
+  mean contest 0.595, mean influence 43.6; all six factions hold ground;
+  **nine faction pairs actually meet**, mean contest 0.938-0.969, Veldmark ↔
+  Korrath longest at 4,412 cells and Aurelia ↔ Veldmark shortest at 60. Two
+  rebuilds agree cell-for-cell.
+- **Borders really read as contested, measured off the drawn pixels.** The
+  ramp is invertible, so the contested scalar was recovered back out of the
+  raster by dividing it by the Political-control raster: **mean t = 0.960 at a
+  border cell against 0.551 in an interior cell, 0.410 apart**, over 1,480
+  border and 78,934 interior cells. 2,461 frontier pixels carry the rival
+  faction's own colour.
+- **Memory, measured from Windows' own process counters** (Godot's monitors see
+  only Godot's allocator; every byte here is Rust's). 25 consecutive rebuilds at
+  384 × 288: `517.8 → 518.0 peak → 513.8 MB`, net **−4.0 MB** where retention
+  would have been +140 MB. At 1024 × 768 (786,432 cells, 510,600 owned, 59,717
+  frontier, **343 ms**, a 39.8 MB build) the process's own **peak** working set
+  does not move at all — `891.5 → 891.5 MB` — and resident comes back 127.5 MB
+  below where it started.
+
+**What `transient_bytes` actually reports**, itemised rather than flattered: 53
+bytes a cell — 4 for the rebuilt `build_travel_cost` field, 24 for the sweep,
+25 for one capital's `road_dijkstra` at a time including the heap's own
+`with_capacity(n)`. **41 of those 53 are what `assign_territory` already spends
+inside `generate()` on the same world**, so opening this layer costs 12 bytes a
+cell more than the world's own generation already paid, and holds none of it.
+`resident_bytes` is `0` and `CivData` gained no field. At the 8192² ceiling the
+same arithmetic is 3.3 GB transient against generation's own 2.6 GB for the
+same world's territory pass — both enormous, and the ceiling is theoretical for
+the whole civ pipeline rather than for this row.
+
+**The freed `cost` field, solved rather than dodged.** §39 recorded
+`compute_civilisation` building `build_travel_cost`'s output as a local and
+freeing it as the blocker on any recompute. It is rebuilt, not retained:
+`build_travel_cost` is a pure function of the height field and the sea level,
+both of which `FieldRefs` already borrows, so recovering it costs one parallel
+pass and zero resident bytes. Leaking a `gw × gh` f32 back into `CivData` to
+avoid that pass is exactly what `MEMORY_OPTIMIZATION_SCOPE.md` exists to
+prevent.
+
+**Still open, and narrowly:** historical occupation over time. The timeline
+records settlement snapshots per year, not a per-year ownership grid, so there
+is nothing to scrub territory against — timeline work, not territory work,
+exactly as §39 scoped it. The Territories ▸ Not built note now says only that.
+
+## IN-13, VA-01, ED-02 — the last three open register items, designed and built (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §42. Owner instruction, two parts: design proper menus
+for the remaining open items with `ui-ux-pro-max` and `design`, then build the
+three that are buildable against those designs.
+
+**The design** is a five-artboard canvas in v3's own visual language — the
+same tokens, the same category/section structure, the same disclosure depth —
+covering CIVIL ▸ Trade at its real 372 px dock width, the trade surfaces on
+the map and in the place editor, the vault index and its per-entity backlinks,
+the undo ledger at the right dock's 284 px, and a consistent **anatomy for a
+"Not built" row** that the six narrowed remainders (CV-23, CV-25, CV-26,
+CA-18, CA-19, WW-15) now share: the noun named exactly, the blocker named
+specifically, and what does exist instead — plus a state chip separating
+*needs a decision* from *blocked on* from *costs a re-baseline*.
+
+### IN-13 — the reference already had a bipartite match routed over the ways
+
+The register's sharpening said *"a bipartite assignment plus a network flow,
+neither of which exists in either codebase"*. Wrong on its second half, and
+the sixth item this session whose stated reason was:
+
+- `_civFoodShed` (24050) enumerates **every other settlement** as a candidate
+  supplier — the bipartite match.
+- `_civFoodConnected` (24044) filters them through `_civRoadComponents`
+  (24076), a **union-find over the way network's own endpoints** — the tie to
+  the way that carries it.
+
+The reference runs that machinery for one good, `food`, and separately wrote
+`_civGoodReach` (24442) to classify the reach of twenty-two goods — then used
+it only for display. `cartalith_civ::trade` is five ports and one new step:
+run the match over the fifteen `CIV_RESOURCE_KEYS` `TradeBalance` already
+judges, gated by that reach rule.
+
+Ported literally, with their reference lines at each function: `_civGoodReach`,
+`_civFoodMode` (23997), `_civFoodDeliverable` (24004), `_civFoodConnected`,
+`_civRoadComponents`, `_civPlaceNavigability` (24361) branches (a) and (b),
+and the constants — 160/880/8000 km doubling, 220/1600/9000 km reach,
+`FOOD_LOCAL_RADIUS_KM` 50, `FOOD_SUPPLIER_SHARE` 0.6.
+
+**The one invented rule, stated at the function**: demand is the importer's
+population — the only per-settlement scale this port holds that is not itself
+derived from trade — split across reachable exporters in proportion to
+`_civFoodDeliverable` and capped per flow at `SUPPLIER_SHARE × the supplier's
+own population`, which is that constant's own sentence applied where the
+sentence is about.
+
+**Two divergences, recorded rather than silent**: road connectivity reads
+`Way::a_idx`/`b_idx` instead of re-deriving them with the reference's endpoint
+snap (this port stores what the snap recovers), and `_civPlaceNavigability`'s
+distance-field branch (c) is not ported because `_umSiteProfile`'s distance
+locals are not exposed here — branch (b) sweeps the same `um_water_reach_km`
+radius that (c) thresholds against.
+
+Nothing is stored: `trade_flows` allocates, answers and drops, the way
+`territory_influence` and `wildlife` do. `WorldGen::civ_trade_flows()` returns
+the whole answer once and `trade_store.gd` holds it on the shell side, where
+`app.gd` drops it on every world change. Three surfaces share the one
+computation: **CIVIL ▸ Trade** (world → good → pair, the ladder the design
+settled on), the **place editor's** per-settlement ledger naming each partner,
+and **CARTO ▸ Roads & routes ▸ Trade load**, which thickens each way by
+carried volume on the way's own colour. Width and not hue, because a way's
+colour is already its type; in Roads & routes and not the Layers popover,
+because that popover is the one picker for field rasters and this is a value
+on a way.
+
+### VA-01 — a stat is not a read
+
+The register poses the index as a choice between one that stalls a large vault
+and one that goes stale. `FsVault::meta` already returns `(modified, len)`
+without opening the file — §14's own change-detection basis — so
+`cartalith_vault::backlinks` is persisted **and** correct: built only when
+asked, invalidated per file, and a refresh over an untouched vault opens
+nothing at all.
+
+Per note it stores the `(modified, len)`, the outgoing link targets, the
+entity keys of any Cartalith blocks, and a 64-bit word fingerprint — **never
+the prose**, asserted by serialising a record and searching it for its own
+words. `mention_candidates` uses that fingerprint to narrow the vault before
+one file is opened; false positives cost one read and false negatives are
+impossible, which is the property the tests pin.
+
+An entity finds its incoming notes three ways, and the third is what an index
+of note-to-note links alone would miss: every note carrying
+`entity="settlement:42"` **directly**, which finds the entity even when it has
+no note of its own. `broken_links()`/`orphans()` fall out of the same index,
+which is what `Data ▸ Missing & orphan notes report…` had been disabled
+waiting for.
+
+The index is saved in its own file, not inside the link store: §5's store is
+portable project data and this is a cache of one folder on this device.
+
+### ED-02 — the ledger, not the five-row list
+
+§39 recorded that a previous pass declined the flat list because it would
+answer the easy half and foreclose the design. `undo::HistoryLedger` is what
+that was protecting: it **records every commit** and **reverses the ones it
+can**, per row — `▲` a held height snapshot, `·` recorded with the specific
+reason nothing is retained, `◼` a floor.
+
+The ledger and `HeightUndo` are deliberately not cross-wired: `rows()` takes
+the live stack depth and marks the newest that many height rows reversible, so
+one source of truth answers "is there a snapshot" at read time and the two
+cannot drift. Linear only, per §7.1's own conclusion.
+
+`Edit ▸ Undo history…` opens it as a right-dock context (proposal 3's own
+recommendation) in two tiers: the open Sculpt draft above, reversible in place
+by its own tool, then the commits newest first.
+
+**Verified windowed**, `_in13_probe.gd` against a real 384 × 288 world, seed
+483920 — 233 settlements, 6 factions, 35 ways. **PASS, 0 failures.** 624 flows
+in 1 ms at 0.18 MB transient and `resident_bytes` 0; volumes 0.38–1 276.80 and
+distances 106–2 409 km (differentiated, not uniform); every one of the 624
+checked against independently-restated constants for mode, reach cliff, decay
+curve and supplier cap; two matches agreeing row for row; 20 consecutive
+matches moving the working set +5.0 MB. Trade load ON moves 0.3342 % of screen
+pixels and OFF returns 0.0000 %. The vault index: 5 notes read on the first
+build, **0** on a refresh over an untouched folder, **exactly 1** after one
+edit; backlinks exactly the wiki and markdown references (the wiki one counted
+twice from one note) and not the prose mention; the prose mention found with
+its excerpt and nothing else. The ledger: a generate leaving exactly one floor
+row, a territory commit frozen with its reason on screen, a revert to the
+older of two height rows taking 2 steps and leaving no height row behind, and
+the same revert refused the second time.
+
+`cartalith-civ` 401 → 421 tests, `cartalith-vault` 48 → 65, `cartalith-godot`
+343 → 351. `cargo check -p cartalith-godot` clean; headless import clean with
+`project.godot` diffed and unchanged.
+
+**Three defects only the live run could find.** `way_load` was emitted in
+`CivData::ways` order while the overlay indexes `get_roads()` order — which
+filters hidden ways and appends manual ones — so it handed the shell 60
+entries for 35 rows, silently misaligned. The Generate-world floor row read
+`seed 0` against a status bar reading `483920`, because it recorded before
+`self.seed` was assigned; only a screenshot shows the two together. And the
+Match button was built once from CIVIL's `setup()`, before any world exists,
+with nothing to re-enable it — `GUI_GAP_REGISTER.md` **RF-01** again.
+
+**Still open, and disclosed on screen:** prices, tariffs, caravans as
+entities, and trade that changes over time. None is derivable from anything
+the civ layer holds, and each needs a decision about what a currency is here.
+
+## CV-25's other half — military manpower, on an owner-supplied specification (2026-08-25)
+
+`MILITARY_MANPOWER_SCOPE.md` (new) · `GUI_GAP_REGISTER.md` §43 ·
+`ECONOMY_SCOPE.md`'s own tail section.
+
+§40 built CV-25 as a minimal military model and closed its manpower half with
+*"a headcount would be a fabricated number wearing a real one's clothes"*.
+That was right about the evidence available then and wrong as a permanent
+verdict: a headcount is fabricated when nothing implies it, and the owner has
+now supplied five variables and two derivation chains that do. This builds
+them.
+
+**The reference has nothing this time, and that is checked rather than
+assumed.** §40's headline was that the register's stated reason was wrong —
+the reference models fortification three times over. This one grepped the same
+way and found the opposite: `manpower`, `mobiliz`, `levy`, `conscript` and
+`militia` return **two hits in the whole frozen snapshot**, both
+`JP_COST_TOLL_PER_BORDER`'s comment using "levy" to mean a toll, and
+`FUNCTION_INDEX.md` returns zero. So no golden fixture and none fabricated —
+14 unit tests and two live probes instead.
+
+**Built:** `cartalith_civ::manpower` — one pure module, derived and recomputed,
+stored nowhere. `CivData` gained no field and the save format is untouched;
+`resident_bytes` is 0 and the only pass over the grid is one `O(cells)` sweep
+of `civ.territory` shared with the land-capacity sum, so the working set does
+not move measurably.
+
+**Four outputs, not one "military size" statistic**, because they diverge
+radically — Imperial Rome kept ~250 000 regulars over 45-120 million people
+while Republican Rome mobilised 17-29 % of its citizen body in one war:
+
+- **standing army** — fiscal. `non-agricultural population × ecological factor
+  × extraction / SOLDIER_UPKEEP`, plus a `professional_core` split off it.
+- **field army** — logistical. `emergency × (0.34 + 0.20 · logistics)`.
+- **emergency mobilization** — demographic. `pool × levy_reach`, pool being
+  25 % of total population.
+- **maximum war duration**, as a four-rung force ladder at 30 / 90 / 180 / 365
+  days from a curve **fitted through the owner's own two anchors** (*"10 % for
+  30 days, 2 % for a multi-year war"*), so those two points are the only thing
+  to argue with. The same curve inverted gives the ladder.
+
+**Five variables, and technology is deliberately not the driver.** The
+agricultural labour ratio comes from ag-tech; everything else comes from
+government, road connectivity to the capital, way tiers per unit territory,
+navigable water, sea access, and how well the faction's own territory feeds
+the people on it. Proved live rather than asserted: with every faction forced
+onto identical institutions, standing armies still spread 199 … 1 435 and
+logistics 0.415 … 0.841.
+
+**Two more inert tables got their first consumer**, the §40 pattern twice
+over. `AG_TECH_LEVELS`' own doc said `farmers_per_urbanite` was *"as inert as
+Government/Religion are in the reference"* and `CIV_GOVERNMENTS`' said *"no
+simulation reads or writes this, and nothing in this port does either"*.
+`traditionalAgrarian → improvedAgrarian` now moves a standing army **1 435 →
+2 615**; `chiefdom → empire` moves it **948 → 1 841**. Both roster tooltips
+said they reached nothing and now say what they reach.
+
+**`power.military` is kept exactly as it is**, and the decision is recorded in
+three places because it is the one somebody would undo. It is a golden-verified
+port of the reference's own formula; rewriting it to derive from a model the
+reference does not have would break parity to gain nothing, and it answers a
+different question (relative 0-100 against the other factions on this map)
+from the headcounts (absolute). Reported side by side, each labelled.
+
+**Verified.** Both worked examples reproduced: Kingdom A **5 846 / 41 221 /
+15 870** against a stated ~5 000 / ~40 000 / 15 000-20 000, Kingdom B
+**19 067 / 98 889 / 47 368** against ~20 000 / 100 000+ / 40 000-60 000. Every
+figure in range; the worst is A's standing army at +17 %, left rather than
+tuned. Three things fall out that the specification does not state and so
+cannot have been fitted to: A's full levy sustains **77 days** (the feudal
+~2-month obligation), B's 90- and 180-day rungs bracket its own stated field
+army, and the standing shares land at Imperial Rome's ratio. Live on a real
+233-settlement six-faction world (seed 483920), windowed **and** headless,
+**PASS**: standing 87 … 1 509, field 3 444 … 9 305, levy 8 009 … 20 262, with
+standing < field < levy holding for every faction, the ladder decreasing
+everywhere, pool-capped at 30 days and fiscally capped at 365. `cartalith-civ`
+**421 → 435** tests, `cartalith-godot` 351, `cargo check -p cartalith-godot`
+and `cargo clippy -p cartalith-civ` clean.
+
+**Four findings, one of them a question back to the owner.**
+
+1. **The specification's era table and its worked example disagree with each
+   other**, and the table disagrees with its own Imperial Rome figure —
+   Kingdom A's stated 40 000 levy is 4 % of population, below the 5-15 % band
+   of every pre-modern era listed, and Rome's 250 000 over 45-120 million is
+   0.21-0.56 % against a classical floor of 1 %. Calibrated on the worked
+   example, with the band reported as the sanity check the specification asks
+   for and never enforced. **Reconciliation offered rather than implemented:
+   the bands may be shares of a citizen or free population** — the
+   specification's own Republican Rome citation says "17-29 % of its *citizen*
+   population" — in which case the live figures land inside them. One owner
+   decision changes every verdict and nothing else in the model.
+2. The standing shares agree with the specification's *example* and not its
+   *table*, in the same direction and for the same reason.
+3. **`ecological_factor` saturates on real worlds**: five of six factions'
+   territory sustains at least twice the population the settlement layer puts
+   on it, which is `civ_agrarian_regional_total`'s own long-standing "Land
+   sustains ≈ N vs. settled" divergence, quantified per faction for the first
+   time. Geography therefore does its real work at the low end — Draumr
+   League's 87-strong standing army against Veldmark's 1 509 on otherwise
+   identical institutions.
+4. **The road-density reference was wrong on the first try, and measuring is
+   what found it.** Anchoring on the Roman empire's ~16 km of road per
+   1 000 km² made roads a dead term (0.03-0.23, contributing ≤0.10 of
+   logistics), because this port's way network is *inter-settlement trunk
+   roads only* — no lanes, tracks or streets — and is not comparable to a road
+   inventory. Recalibrated against what the network produces, roads spread
+   0.11-0.91.
+
+**Still open, and disclosed on screen:** per-settlement garrisons (the
+per-*faction* headcounts are real; which settlement holds which part of a
+standing army is a placement rule nothing implies), campaigns, unit movement,
+combat, and change over time.
+
+## The era bands' denominator — the owner ruled, and it is the citizen population (`MILITARY_MANPOWER_SCOPE.md` §1a, `GUI_GAP_REGISTER.md` §44, 2026-08-25)
+
+The previous entry's finding 1 was a question back to the owner rather than an
+answer: the manpower model's era-band verdicts read `below` persistently,
+because the supplied specification's era table, its worked example and its own
+cited Imperial Rome figure disagree in one consistent direction. A
+reconciliation was offered and not implemented.
+
+**The owner has ruled: the table's percentages are shares of the citizen /
+free population, not of the total.** The evidence is inside the specification —
+its Republican Rome figure is stated as *"17-29 % of its **citizen**
+population"* (Hopkins), the one place it names a denominator at all. Under that
+reading Imperial Rome's ~250 000 regulars over 45-120 million stops being a
+factor of two to five under a 1 % classical floor.
+
+`MILITARY_MANPOWER_SCOPE.md` carries the specification **verbatim**, so the
+ruling is recorded as a clearly-marked annotation (§1a) rather than an edit to
+the owner's text, with the derivation at §2.6.
+
+### The denominator, and what grounds it
+
+**Grepped before inventing one.** Nothing in `cartalith-civ` distinguished a
+citizen, free or full-status subset of population — `citizen`, `free`, `serf`,
+`slave`, `caste`, `social`, `status` return nothing but unrelated prose.
+`FactionEntry::culture` was checked too and is `CIV_CULTURES`: name-syllable
+pools, no social content. This is the eighth time this session that checking
+first was the right move, in both directions.
+
+So it is derived from what exists:
+
+```
+citizen_fraction   = clamp(CITIZEN_SHARE[government] + 0.68 × urbanisation, 0.20, 0.98)
+citizen_population = total_population × citizen_fraction
+```
+
+Government is the driver **on the merits**, not merely by availability: the two
+cases the specification cites sit on either side of exactly this distinction. A
+republic's citizen body is a much larger share of its polity than a
+pre-Caracalla empire's, which is what makes Hopkins' 17-29 % and Rome's
+0.21-0.56 % consistent with one table. `chiefdom` 0.90 → `monarchy`/`theocracy`
+0.55 → `republic` 0.50 → `city_state` 0.45 → `oligarchy` 0.40 → `empire` 0.30,
+each grounded (Domesday's slaves/villeins/sokemen, Attica c. 431 BC's citizens
+against slaves and metics, Polybius' 225 BC census against Italy's population),
+with `oligarchy` disclosed as the least-grounded row. Unknown keys fall back to
+`chiefdom` — the same fallback `government_extraction` takes and for the
+**opposite** reason: a *high* citizen fraction is the conservative one here,
+because it makes a share of that body smaller and so cannot flatter a faction
+into its band.
+
+**`CITIZEN_MODERNISATION = 0.68` is derived rather than chosen.** Legal
+servitude is an agrarian institution — chattel slavery, serfdom and villeinage
+all bind labour to land and all disappear as the agricultural labour ratio
+collapses — so the value follows from one statement: *at full
+industrialisation, civic status is universal whatever the government is
+called.* That is `CITIZEN_CEILING − min(CITIZEN_SHARE)` = `0.98 − 0.30`, and a
+test pins the identity so editing the lowest row without editing this fails.
+It also makes the owner's own table self-consistent at the top: its industrial
+rows quote 30-50 % mobilization, only reachable against a denominator close to
+the whole population.
+
+### The four outputs did not move, and that is asserted
+
+Standing, field, emergency and the war-duration curve are calibrated on the
+specification's worked examples and were **not** recalibrated. The duration
+anchors ("10 % for 30 days, 2 % for a year") are stated as shares of a whole
+population and stay that way, as does the force ladder's `share`. Era
+*assignment* is untouched — `era_for` still reads the five variables. Only the
+two verdicts changed basis.
+
+`the_citizen_ruling_moves_no_headcount` pins every Kingdom A and B figure to
+the value published before the citizen population existed, and the live probe
+pins that total population does not move when only the government does and that
+every levy restores exactly when the roster is put back.
+
+**Re-validated:** Kingdom A **5 846 / 41 221 / 15 870**, Kingdom B **19 067 /
+98 889 / 47 368** — unchanged to the unit. Their verdicts now read
+`within`/`within` on both, where A's mobilization previously read `below` its
+5 % floor. A's citizen body is 745 500 (74.6 %, monarchy) at 0.784 % standing
+and 5.53 % mobilization; B's is 651 900 (65.2 %, empire) at 2.925 % and
+15.17 %.
+
+### What the verdicts read on real worlds
+
+On the 233-settlement six-faction world, **five of six read `within` on both
+bands** where all six read `below` on standing before:
+
+| faction | citizens / total | standing | mobilization |
+|---|---|---|---|
+| Veldmark | 215 862 / 343 620 | 0.70 % within | 9.4 % within |
+| Korrath | 198 078 / 315 310 | 0.70 % within | 8.7 % within |
+| Aurelia | 144 737 / 230 400 | 0.72 % within | 9.4 % within |
+| Sythe Dominion | 138 958 / 221 200 | 0.69 % within | 8.4 % within |
+| Mirelle | 129 516 / 206 170 | 0.68 % within | 8.1 % within |
+| Draumr League | 97 962 / 155 940 | 0.09 % **below** | 8.2 % within |
+
+Draumr League is honestly still below, for a reason the model already
+discloses: its `ecological_factor` is 0.428, so its land feeds well under half
+the people on it. That is the previous entry's finding 3, not a denominator
+problem — no denominator was going to move an 87-strong standing army into a
+band.
+
+A default roster is all-`monarchy`, so the engine probe also assigns one
+government per faction (33 settlements, 1200 km) to prove the denominator
+*discriminates*: the citizen fraction spreads **0.378 … 0.978**, mobilization
+reads `within` for five of six, and standing `within` only for the oligarchy —
+the narrowest citizen body of the set. **The residual is reported, not tuned**:
+this model's standing armies sit at Imperial Rome's ratio, which the table's
+standing column never agreed with, and correcting *that* would mean
+recalibrating outputs validated against the worked example.
+
+### Surfaced, not an invisible divisor
+
+A band verdict whose denominator a reader cannot see is a number they cannot
+argue with. CIVIL ▸ Military gains a **Who the bands are measured against**
+group — per faction: citizen headcount, its share of the total, both
+citizen-based shares with verdicts, the era — with a tooltip quoting what the
+same two figures read against total population, so the previous basis stays
+legible rather than deleted. The Faction Roster's Military block names the
+citizen population and the government that conferred it on the line above its
+verdict. The category's closing note states the ruling instead of warning that
+`below` should be expected.
+
+**Verified:** `cargo test -p cartalith-civ` **435 → 440** (5 new), 
+`cartalith-godot` 351, `cargo check -p cartalith-godot` clean, `cargo clippy -p
+cartalith-civ` clean, headless script load clean, and the shell probe PASS both
+windowed and headless on the 233-settlement world. `CivData` gained no field;
+`resident_bytes` still 0.
+
+## The "is every control wired" sweep — seven defects, and the surfaces that were clean (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §45. The owner asked for confirmation that every GUI
+control does what it claims, reaches real capability, and does not silently do
+nothing. Nothing below was found by reading; every one came out of driving the
+live app.
+
+### The class no sweep had ever driven
+
+`_deadwire_probe.gd` reads connection lists. `_pressall_probe.gd` presses
+buttons in *windows*. Neither had ever **changed a value** on an `OptionButton`,
+an `HSlider` or a `SpinBox` and asked whether anything happened — and both skip
+`OptionButton` by name. That is most of WORLD's rail and all of CARTO's.
+
+So: **11 option buttons and 110 ranges**, each moved to the far end of its range,
+snapshotted against the whole app plus the viewport's own state, and put back.
+**Zero dead.** Also new: every enabled button in all **33 rail categories**, the
+right dock in **7 contexts**, **11 tool-options rows** and the section strip —
+`_pressall` had never reached any of them.
+
+### RF-01, four more times, and one of them is a signal *order*
+
+§23 asked *"what re-runs this, and on which signal?"* of every panel built at
+launch. It never asked it of a **window**, because those are built on `open()` —
+correct only if nothing can change while they are up. A world can.
+
+**RF-02 / RF-03** are the two windows keyed to an identity a generate renumbers,
+and both are destructive rather than merely stale, because every field in them
+writes by that identity. The place editor left open across a generate showed
+`Sevjuniana` pop **19 332** at (142, 14) while the engine's settlement 0 was pop
+**19 774** at (208, 183) — the form character-for-character identical, so a
+commit would have written the previous world's name, kind and traits onto the
+new world's place. The faction roster showed Aurelia:27 / Veldmark:49 /
+Mirelle:57 against a live Aurelia:57 / Veldmark:27 / Mirelle:7, with two cached
+per-world fields taken at `open()` and never re-taken. Both now rebuild on
+`generation_finished`/`world_loaded` when visible — the shape `city_viewer`,
+`world_data` and `performance` already use. **Rebuilt and not closed**: half of
+`world_loaded`'s emitters (`load_asset_pack`, `as_apply_to_map`) do not touch a
+single settlement. And through `_rebuild()` rather than `open_for()`, whose
+focused-field commit against the world that just replaced the one it was typed
+for *is* the bug.
+
+The name RNG is seeded the same way in every world, so settlement 0 and faction
+0 come out with the **same name** on both seeds. The first cut of the probe
+compared names and passed. Population, coordinates and counts discriminate.
+
+**RF-04 is the first signal-ordering bug this register has had.**
+`infrastructure_workspace.gd`'s own comment claimed the Flows body *"refills
+from whatever `TradeStore` holds, which `app.gd` has just cleared on this same
+world change"*. It had not: Godot delivers a signal in **connection order**, and
+`_register_workspaces()` runs at `app.gd:313` while `_wire_status()` runs at 333.
+So on every generate the INFRA refill read the **previous** world's match and
+redrew its flow count, its timing and its settlement names — and only then was
+the store dropped, with nothing left to re-run the fill. Measured: after
+regenerating under a live **624-flow** match, CIVIL ▸ Trade ▸ Flows still
+reported 624 while `TradeStore.last()` was empty, so the dock and its two fellow
+readers disagreed about whether a match existed at all. The clear is now the
+first thing connected to either signal. *Two correct handlers can still be wrong
+together.*
+
+**RF-05 is RF-01 exactly, on a control that worked perfectly.** CARTO ▸ Roads &
+routes ▸ Trade load disables itself when `has_trade_load()` is false; the
+category is built once at launch over an empty world, and the match that makes
+it valid runs in a different workspace. After a real 624-flow match it was still
+`disabled = true` while `has_trade_load()` returned true — forced on it moved
+**0.6028 %** of the map's pixels and off returned **0.0000 %**. Fixed at the
+funnel: `map_overlay.set_trade_load()` is the single path both the match and the
+world-change clear pass through, so it emits `trade_load_changed(available)` and
+CARTO follows it **in both directions**, turning the switch off rather than
+merely greying it when the reading goes away.
+
+### Three controls that did nothing, and one piece of copy
+
+**MN-10** — `Assets ▸ Asset pack ▸ Pack metadata…` was enabled, carried an id,
+and had a handler branch written for it that nothing could reach: the
+`AssetPack` popup's `id_pressed` was never connected. Its three child submenus
+each connect their own, which is exactly what made it invisible — the submenu
+below it worked. A submenu's `id_pressed` does not bubble to its parent in Godot
+4. One line.
+
+**RL-01** — CIVIL ▸ Relationships lists one row per faction *pair* and every row
+called `show_faction(a)`, opening the left-hand party. Any run of rows sharing
+that party was a press with **no visible effect anywhere**: measured **5 of 15
+rows dead** on the 233-settlement six-faction world. The right dock now takes
+both parties and draws a **Relations** section from the same
+`civ_faction_relations()` read the list itself makes — so the two cannot
+disagree about a value — with the clicked pair marked `▸`. All 15 rows move the
+dock now.
+
+**CA-20** — `Clear all labels` / `Clear all icons` were live over an empty list,
+with neither the count `DCC_SHELL_SPEC.md` §4.5.5 asks for nor a stated reason.
+Both carry the count and go dead at zero now.
+
+**FI-04** — *"load failed — see console"* named somewhere an exported build has
+no access to, and was the only thing said about the commonest cause: `File ▸
+Recent worlds` remembers a **path**, not a file. All three rows of a real recent
+list named saves a previous session had since deleted. One `file_exists`
+separates the list's problem from the save's.
+
+### Driven and found clean, and that is the other half of the answer
+
+- **89 surfaces fingerprinted at no world → world A → world B** — 33 rail
+  categories, the right dock, the Layers popover, 11 tool-options rows, the
+  section strip, 23 menu popups. **Not one kept an empty state across a
+  generate.** §23's eleven sections and §37's fifteen all still refresh.
+- **148 menu items across 23 popups**, with `about_to_popup` fired first (half
+  this shell's menus compute their gating there, and reading them cold produced
+  four false positives). 41 pressed; the only dead one was MN-10.
+- **The Layers popover measured in pixels**: 35 entries, 34 repaint the map and
+  **all 34 hash differently** — no two layers draw the same frame, which is
+  RD-02's failure mode and it is clean.
+- **Windows across a generate**: City viewer and World data rebuild;
+  Performance, Travel library, Vault, Data manager, Asset library and the Layers
+  popover render identically and correctly so.
+
+### Verified
+
+`cargo check -p cartalith-godot` clean (no Rust touched). Headless script-load
+check clean; the headless lifecycle harness **PASS** (save / save-as / revert /
+close / reopen / autosave, 19 assertions). Windowed, on a real 233-settlement
+six-faction world: `_wiredfix_probe` **PASS/0**, `_winstale_probe` **PASS/0**,
+`_newsurf_probe` **PASS/0**, `_rf01_probe` **0 failures**, `_menuwire_probe`
+down to its one registered non-gap.
+
+## Nine screens the phone pass never reached (`GUI_GAP_REGISTER.md` PH-12, 2026-08-25)
+
+The owner ran the Android build on a OnePlus 12 — 1440x3168, about 510 ppi, so
+the shell's phone scale is 1440/393 = 3.664, a third again higher than the 1080
+short side every prior phone measurement in this project was taken at. He named
+one screen and described the rest: *"not all screens are optimised for a mobile
+phone, among others the asset manager screen. Plus the layout is impractical and
+doesn't listen well to touch input and isn't intuitive."*
+
+What was wrong is not that those screens were badly adapted. They were not
+adapted at all. This shell has had a working four-call phone pattern since PH-06
+— `phone_window()` at setup, `phone_present()` on open, `phone_fit()` after the
+body is built, `phone_head()` for the header a borderless window draws in place
+of its title bar — and nine `Window`-derived scripts called none of it. Zero
+occurrences of any of the four, in any of them. So each one opened as its
+desktop composition drawn at the device's native resolution, which on a 510 ppi
+panel makes a 24 px `dcc_widgets` row about 1.2 mm of glass. Measured in a real
+windowed run at 1440x3168 with the force-touch path: the asset library's 59
+tappable controls were all 59 under section 13's 44 dp floor, the smallest 13
+physical pixels; the data manager's route rows 22; the layers popover 40 of 52,
+its opacity slider 14; the travel library's animal rows 26.
+
+The content scale answers density and the fit walk answers tap size. Neither
+answers composition, and that is the half worth writing down. The asset library's
+design canvas is a 266 px family rail, a slot grid and a 330 px inspector — the
+rail and the inspector alone are 596 of the 393 dp a phone has before the grid
+gets a pixel. Section 13 already says what a dock does on a phone: it becomes a
+full-height sheet, one at a time. So the three columns became three panes behind
+a segmented switcher, and the switcher follows the work rather than waiting to be
+pressed — picking a family moves to SLOTS, tapping a slot moves to SLOT, which is
+what the desktop layout does implicitly by having all three visible at once. The
+data manager and the travel library are the same shape with two panes. The
+sprite-sheet slicer stacks its preview over a settings column that now scrolls.
+The journey planner's centre panel — the one screen here that is not a Window at
+all, and therefore has no content scale to lean on — stacks its route totals
+under its map and its stage matrix under its inspector, and is fitted with the
+phone scale rather than 1.0, because in the main viewport the compositor has
+applied nothing.
+
+Two screens needed an argument rather than a stack.
+
+World data is a spreadsheet, and dropping a spreadsheet on a phone is not a
+scaling problem. Six clip_text columns across 393 dp is 55 dp each, wide enough
+for "Popul…" and nothing else, and the settlements tab was building roughly 1 470
+individual Label nodes for 240 rows reachable through an 8 px scrollbar. A row
+now lays out on two lines, name over the remaining columns, so every column
+survives instead of the ones that fit worst being dropped; the header builds the
+identical two-line shape, which is what keeps it over its own cells. And the
+table stops at 50 rows with a "showing 50 of 240" foot and a button for the next
+page, because the filter field above it is the real answer to "find this
+settlement" and seventeen hundred nodes to scroll past is not.
+
+The layers popover had to be checked before it was built, because a popover may
+simply be the wrong control on a handset and section 13 routes several desktop
+affordances into the overflow sheet instead. It is reachable on a phone, by three
+separate routes, so it needed real work — and it became a full-screen sheet
+rather than a shrunken popover. A popover is a pointer idiom: anchored to the
+control that opened it, dismissed by clicking away from it. A phone has neither a
+stable anchor, since the Layers button moves with the safe insets, nor a reliable
+"away". Which is also why it grew an explicit Close, a sheet that covers the
+screen having no outside left to tap, and why its foot moved inside the scroll:
+the six-line Cartography cross-reference note, pinned below a 393 dp list, pushed
+its own last two lines off the bottom edge where no scroll could reach them.
+
+Five things came out of measuring rather than looking, and each is a blind spot
+the next pass would otherwise re-discover. `AcceptDialog` parents its whole
+button bar as an internal child, so `phone_fit()` — which walks `get_children()`
+— has never once reached it; on four of these windows that button is the only way
+out, and it measured 29 dp. It is floored in `phone_present()` now, after the
+popup rather than before, because `Window.popup()` clears `custom_minimum_size`
+when it re-lays that bar — the same trap `_floor_prompt_buttons()` recorded for
+the quit prompt. `TabContainer`'s tab strip is an internal `TabBar` with the same
+blind spot and no height property at all, so its height has to be bought through
+the stylebox's vertical content margins. `phone_fit()`'s ellipsis pass reaches
+only Buttons, so an unclipped Label still reports its full natural width — and a
+Window cannot be narrower than its content's minimum, so three separate label
+rows each widened a whole window past the screen on their own, one of them by
+exactly one pixel because of a panel's 1 px border. An embedded subwindow is laid
+out in its parent viewport's 2D space, so the slicer modal, being a child of a
+window content-scaled by 3.664, would have been sized in units 3.66 times larger
+than the screen it was asked to fill; it is parented to the shell now.
+
+And the credits window's body was empty. Not on a phone — everywhere, and for as
+long as `open_credits()` has looked the way it did. `_ready()` fires when a node
+enters the tree, and `add_child(dlg)` is what puts it there, so by the time
+`set_script()` attached `credits.gd` that script's `_ready()` had already missed
+its only chance to run; attaching a script to a node already inside the tree does
+not re-run it. The window opened with a correctly built, correctly named,
+entirely blank RichTextLabel, and the attribution `PROVENANCE.md` calls a
+standing obligation was reaching nobody. It measures 4 420 characters now where
+it measured 0.
+
+**Verified.** `_ph9_probe.gd`, driven windowed at 1440x3168 (scale 3.664) and
+1080x2400 (scale 2.748), `--force-touch --nowelcome`, on a generated world. Per
+window: content scale factor, size against the screen, every tappable's height
+against the floor, every control's combined minimum width against *the window's
+own 393 dp column* rather than the screen's 1440 px — comparing dp against
+physical px finds nothing and misses this entire class of fault — and whether
+each body actually scrolls. All nine screens plus the slicer: content scale
+3.664, **zero** tappables under the floor out of 42/20/18/18/41/1/2/0/0, **zero**
+controls whose minimum width exceeds the column, every pane scrolling.
+Identical at 1080x2400, so no regression at the size every prior pass used.
+Desktop re-measured and unchanged: 1440x1002 under the menu bar for the two
+full-bleed windows, 1180x780 / 760x620 / 560x480 / 560x420 for the dialogs,
+760x560 for the slicer, 230x600 for the anchored popover, six-column asset grid,
+three columns side by side.
+
+**Still open.** The layers sheet and a phone overlay can be open at once —
+`_close_all_phone_overlays()` knows about the drawer, the panel picker, the phone
+menu and both dock sheets, and nothing about subwindows. The one-line fix belongs
+in `dcc_shell.gd`, which a concurrent agent held during this pass; committing
+that file would have carried their in-flight work with it, so it is registered
+rather than done. One back press already closes the sheet first, so the state is
+reachable but not a trap. Two probe artifacts are recorded in the register so the
+next pass does not chase them: `--resolution` is silently clamped to the dev
+monitor's work area and the shell then boots into tablet mode off the wrong size,
+and `Window.popup(Rect2i)` clamps to the host monitor's usable rect rather than
+to the root viewport, which makes a correctly-filling phone window read as
+1440x1002 on a desktop box and has no counterpart on Android.
+
+## The blur on the OnePlus 12 was the font raster (`GUI_GAP_REGISTER.md` §47, 2026-08-25)
+
+The other half of the same device report: *"blurriness"*. The screens the pass
+above re-laid out were also, on this panel, soft — and the cause was neither the
+layout nor the map, but **type**.
+
+**Godot 4.7.1 does not oversample fonts for a `Window`'s own content scale, and
+its automatic oversampling says so if you ask it.** Every phone modal goes
+through `DccWidgets.phone_present()`, which puts a desktop-authored composition
+in a `CONTENT_SCALE_MODE_CANVAS_ITEMS` sub-Window at `content_scale_factor`
+3.664 so 12 px means 12 dp. Godot 4.5 introduced dynamic font oversampling and
+4.7.1 has it **on by default** — but inside such a window `Viewport
+.get_oversampling()` returns **1.0**. The font is rasterised at 12 texels and
+the canvas transform magnifies the bitmap.
+
+**Measured rather than argued, because "blurry" is an adjective.** The
+discriminator is the largest luminance step between horizontally adjacent
+pixels: a natively-rasterised glyph goes ground-to-ink in one pixel, and a
+bitmap magnified by *k* cannot produce a step steeper than about `1/k` of its
+own contrast. Two windows drawing the same physical glyph height — factor 3.664
+at font 12 measured **0.2667 with zero hard edges**, factor 1.000 at font 44
+measured **0.9843 with 722**. 0.2667 is 1/3.75; at factor 2.75 the same case
+reads 0.3569, which is 1/2.80. That is the magnification recovered out of the
+pixels, and it is why the fault was marginal on every 1080-wide handset this
+project had measured and visible on the first 1440-wide one.
+
+**`Viewport.oversampling` is not the lever.** Turning the boolean off changed
+nothing to four decimal places. `oversampling_override` is — and it carries two
+traps, both of which made the first cut of the fix measure exactly as if it were
+absent. It is **inert until the window is in the tree** (assigned in a
+constructor it reads back on the property and `get_oversampling()` ignores it),
+and **a resize clears it back to 1.0** — measured in isolation, it survives
+eleven frames, a `popup()` and a hide/show cycle, then reads 1.0 the frame after
+`size` is assigned, and reassigning `content_scale_factor` does not bring it
+back. That is the same trap `phone_present()` already carries, in a comment,
+for the `AcceptDialog` button bar. So `DccWidgets.oversample()` sets it and
+re-applies it from `size_changed`. Live on the welcome screen: **0.1827 →
+0.6126 and 0 → 104 hard edges** at 1440x3168, 0.6322 / 74 at 1080x2400 — 0.61
+rather than 0.98 because the shell's body text is `#c8cbcd` on `#17191a`, whose
+own ceiling is ~0.69. One call, no call site changed.
+
+**The icons had the same disease and it is worth 8 call sites, not 66.** The
+brief for this pass counted `DccIcons` hits; ~60 of them are `DccIcons.SYMBOLS`,
+which are typographic and drawn by the font — which is why the fix above, not
+this one, is where the complaint actually lived. `get_icon()` gains a `magnify`
+argument: rasterise at `px * magnify`, **present at `px`** through
+`ImageTexture.set_size_override`, cache on both. Default 1, so the main
+viewport — no content scale, and a finer raster would only be minified back
+through a 1.2 px hairline — is byte-identical.
+
+**Three shapes of that fix were wrong for a real call site before the fourth
+worked**, and all three are recorded at the function rather than deleted: a
+static device scale (wrong in the main viewport); re-rasterising from
+`phone_fit()`, which knows the number exactly but only reaches a subtree that
+exists when it runs — `open_project_dialog.gd` builds its tiles on `navigate()`,
+so the search glyph was fixed and the other three measurably were not; and
+`tree_entered`, which fires before `phone_present()` has set the factor. What
+works is asking the node at draw time — and the call is `get_screen_transform()`
+and **not** `get_global_transform_with_canvas()`, the one that reads like the
+right answer: measured side by side, `gtwc` scale (1.0, 1.0) against `screen`
+scale (3.664122, 3.664122). With the wrong one the fix is silently inert, which
+is exactly how it first measured. Glyph sharpness **0.27 → 1.00 texels per
+physical pixel**, at both resolutions, desktop unchanged.
+
+**A third defect the pass found on the way, and it is not blur.**
+`viewport_host.gd` lives in the main viewport, which has no content scale, so
+its constants are real device pixels — and `NAVPAD_HIT`'s own comment asserted
+the opposite ("the shipped phone's viewport is ~393 px"). It is false:
+`get_viewport_rect()` reports 1440x3168. The Layers button and the four navpad
+pills were **2.19 mm** on a 510 ppi panel against the ~7 mm a 44 dp floor asks
+for. Now **8.02 mm**, with the glyphs re-rasterised at 62 texels rather than a
+17 px bitmap stretched — routed through the existing `set_safe_insets()`
+dictionary so `app.gd`, which owns the one call site and belonged to another
+agent this session, was not touched.
+
+**`project.godot` has no `display/window/stretch` key and now says why.**
+Checked both ways on a 1440x3168 window rather than reasoned about: `disabled`
+(the shipped default) reports a 1440x3168 viewport and a 1.00 transform;
+`canvas_items` reports **1152x648** and 1.25. That would collapse `_phone_scale`
+to one constant 1.6489 on every device, multiply it a second time by a
+per-device stretch, and — because 1152x648 is landscape — make `_landscape`
+read true on a phone held in portrait, putting the entire §13 portrait
+composition out of reach. Written into the `[display]` comment block in
+semicolons, the one comment character that file's parser honours.
+
+**Two leads were proven negative, which is half the value of the pass.** A
+parallel sweep reported that `phone_present()` fills only 31 % of the screen and
+that the left dock does not scroll. Neither is a defect. `Window.popup(rect)`
+clamps componentwise to `DisplayServer.screen_get_usable_rect()` — **1680x1002**
+on this dev box, and 1002 is exactly the dialog height two independent harnesses
+reported. Established as a formula: 1440x900 passes unclamped, 1400x1100 comes
+back 1400x**1002**, 1440x3168 comes back 1440x**1002**. On a OnePlus 12 that
+usable rect *is* the screen, so nothing clamps; and in the real app at a
+phone-aspect viewport that fits the monitor the same code fills **100.0 %**. The
+scroll report came from a `ScrollContainer` whose `max_value` was 165 against a
+`page` of 2318 — `max_value` is content length, not overflow, so there was
+nothing to scroll. On one with real overflow the same gesture moves 439 px from
+6 of 7 points. The seventh was real, though, and small: a bare `Control` used as
+a spacer defaults to `MOUSE_FILTER_STOP` and swallowed the flick. **7 of 7** now,
+with an `HSlider` still deliberately excluded.
+
+One item was carried over from the concurrent pass's own register section and
+closed here because this file owns the answer: `_close_all_phone_overlays()`
+lists five `Control`s, and the Layers popover is a `PopupPanel` — a `Window`, so
+no Control walk ever reached it and the sheet could sit open behind a drawer.
+Matched on `Popup` rather than `Window`, because a popover is transient while an
+`AcceptDialog` is a modal the user is inside; and with `owned = false`, since
+these are built in code and the default would have returned an empty list and
+made it a fourth silently-inert fix.
+
+**Verified windowed, 0 failures**, at 1440x3168 and 1080x2400 in real phone mode
+and at 1600x900 on the desktop composition, with before/after screenshots. The
+harness (`_hidpi_probe.gd`) drives the shell inside a **`SubViewport`**, because
+Windows clamps a real window to the desktop work area: `--resolution 1440x3168`
+came back 1440x1031 and the shell classified it as a *tablet*, so the entire run
+measured the wrong composition. It is also the first probe here to run at a
+phone scale above 1 — **every defect in this entry is arithmetically invisible at
+the 393 dp reference size all the earlier probes booted at.**
+
+**Registered, not fixed:** the base map raster is `TEXTURE_FILTER_NEAREST` while
+the frozen reference smooths — its four `imageSmoothingEnabled` calls are all in
+the asset library, so the map canvas takes the HTML default of `true`. Both
+directions bite on a phone (a 512-cell grid is magnified 2.8x, a 2048-cell one
+minified 1.42x with no mipmap), but the filter belongs to
+`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1, which `viewport_host.gd` already
+names as the thing that exists to close it.
+
+## The optimisation pass: three duplicate computations and the LOD stall (`/ponytail`, 2026-08-25)
+
+On the owner's own instruction — *"use /ponytail to check if all code is
+optimised"* — over `cartalith-native/crates/**` only, the GDScript shell being
+another session's. Ponytail's ladder applied to code that already exists rather
+than to code about to be written, so the whole pass is **deletion and reuse**:
+no new module, no new abstraction, no new dependency, and **not one line of new
+arithmetic**. Every number below is measured on this 16-logical-core machine,
+release build, and the workspace suite is the same **138 binaries / 2 203
+passing / 8 ignored / 0 failing** before and after, unmodified.
+
+**LOD tile synthesis was single-threaded inside one tile, and that was the whole
+stall.** `PERFORMANCE_BENCHMARKS.md` §5 measured the problem exactly and left it
+open: 16–42 ms for one 256 px tile, 100 % of tiles over a 60 Hz frame from z = 6
+on, a **1.3–1.8 second frozen frame** on one wheel notch past the deep-zoom
+threshold, and 4–7 fps while the backlog drains. §5.4 then measured **7.9–8.8×
+of Rayon headroom** — but proposed claiming it by dispatching the *48-tile burst*
+across threads, which is a change to `viewport_host.gd`'s call loop and so needs
+the shell. It is claimable one level down instead, entirely inside the engine
+and with the shell asking for a tile exactly the way it does today:
+`amplify_region` (`cartalith-terrain/src/amplify.rs`), `add_zoom_detail` (same
+file) and `shade_tile` (`tile_render.rs`) are the entirety of a tile's cost, and
+all three are `output[i] = f(frozen input, i)` — `CPU_MULTITHREADING_SCOPE.md`'s
+own bar, the same shape milestones 1–3 parallelised across five other crates.
+Row-parallel via `par_chunks_mut`, arithmetic per pixel untouched and unreordered,
+so the result is **bit-identical** and the goldens pass at exact equality rather
+than a new tolerance. `compute_config_bench tiles cpu 2048 12`, before → after:
+
+| z | per tile | 48-tile `_update_lod()` burst | 6-tile `_process()` catch-up |
+|---|---|---|---|
+| 4 | 15.94 → **2.82 ms** | | |
+| 6 | 27.55 → **4.25 ms** | 1 314.4 → **196.6 ms** | 164.0 → **25.9 ms** |
+| 7 | 32.16 → **4.62 ms** | | |
+| 8 | 36.71 → **5.27 ms** | 1 768.6 → **252.4 ms** | 220.1 → **31.2 ms** |
+| 9 | 41.54 → **5.97 ms** | | |
+
+5.7–7.0× per tile, **6.7–7.0× on the burst**, and the "over 16.7 ms" column goes
+from **100 % to 0 % at every level** — one tile now fits inside a 60 Hz frame at
+the deepest zoom this port has, which is the budget §5's closing section said
+nobody was denominating in. The 1.8 s stall becomes 0.25 s. Peak working set
+498 → 492 MB. Because the win is *per tile* rather than *per burst*, it needs no
+change to `viewport_host.gd` at all; batching the burst on top would still be
+worth roughly the remaining 4× and is left where it belongs, as
+`LOD_TILING_INTEGRATION_SCOPE.md`'s milestone. `bake_tiles` already goes wide
+over tiles one level up and simply nests — Rayon handles that, and the bake
+goldens are unmoved.
+
+**`build_water_bodies` ran twice on every generate — 417 ms of it.**
+`CPU_MULTITHREADING_SCOPE.md`'s 2026-08-19 investigation found this, measured it
+at ~440 ms and deliberately left it (*"not open a second unrelated change while
+investigating a specific report"*). Re-measured here at **417 ms at 2048²**,
+95 ms at 1024², 22 ms at 512² — a fully sequential priority-flood plus flood
+fill, one of the few genuinely un-parallelisable stages, and ~7 % of a whole
+generate. The call's own comment justified itself on the ground that
+`compute_civilisation` *"never retains it past its own local scope"*, which
+stopped being true when `CivData::water_bodies` was added to hold exactly that
+array; the `PaintEditor` now reads it instead of recomputing it. The `.clone()`
+the `CivData` literal made of the same array went too — `wb` is dead after it
+(0.3 ms, cosmetic beside the recompute, but it is a `gw × gh` allocation).
+
+**`build_slope_field` ran twice inside `compute_civilisation`**, with the
+identical four arguments over an immutable `ws.field` — `soil_slope` and
+`slope_n` are the same array, bit for bit. 2.65 ms at 2048². The reference names
+its two slope reads separately and the port had followed it into computing them
+separately; one line.
+
+**Left alone, with the number rather than an opinion.** `build_lithology` is
+recomputed on every repaint in `build_color_texture` rather than retained, and
+its call site argues that holding a `gw × gh` field for the world's lifetime is
+the wrong trade at the 8192 ceiling. That argument was never costed: it is
+**0.78 ms at 2048²**. The trade is right; recorded so nobody re-litigates it.
+
+## `smoothstep`, the fourth copy-divergence — one implementation (`JS_SEMANTICS_AUDIT.md` §3.5, 2026-08-25)
+
+The same `/ponytail` pass, second batch: rung 2 of the ladder ("already in this
+codebase?"), applied to a function the semantics audit never looked at because
+it is not a V8-vs-Rust divergence. It is the same *shape* as the three the audit
+did resolve — one reference function (line 7569) ported independently into four
+crates, with **three different answers**. `t = clamp01((x-a)/((b-a)||1e-6))`:
+the `||` is JS truthiness, so the `1e-6` substitutes for `0`, `-0` **and**
+`NaN`. `cartalith-terrain::sculpt` had the whole rule and was the only copy
+whose doc comment stated it; `cartalith-climate` and `cartalith-godot::render`
+guarded `== 0.0` and let a NaN width through; `cartalith-civ` had no guard at
+all, so a zero-width band was a genuine `0/0` *at* the band.
+
+Consolidated into `cartalith-jsmath::smoothstep` — the correct one of the four —
+with the other three becoming `use` lines. Safe for §3.2's own reason: **every**
+call site in all four crates passes constant literal bounds, so `b - a` is a
+compile-time constant and never zero, and no golden can move. One new test pins
+both degenerate widths and asserts what each superseded form computed instead,
+so the divergence cannot silently come back. `clamp01` and `lerp` are duplicated
+a similar number of times and were deliberately left: one-line wrappers over
+`f64::clamp` and a multiply-add have no semantics to get wrong.
+
+Also removed: `cartalith-vault::export`'s `const SP`, dead since the field
+registry stopped using it and flagged by `rustc` itself.
+
+`cargo test --workspace --no-fail-fast`: 138 binaries, **2 204** passing (the
+new test), 8 ignored, 0 failing.
+
+**Left alone, and named rather than quietly skipped.** `cartalith-gpu` carries
+seven public functions with **zero callers anywhere in the workspace, tests
+included**: the four milestone-6 grid wrappers `warp_grid_gpu`,
+`heterogeneity_grid_gpu`, `gauss_blur_grid_gpu` and `assign_plates_grid_gpu`
+(each superseded by milestone 8's `_with` sibling), plus
+`flow_accumulation_gpu_with` (whose own doc comment tells callers to use
+something else), `gpu_resistance_grid_cpu` and `init_gpu_f64`. That is ~70 lines
+in a 123 000-line workspace and nothing at runtime, and
+`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 8 asserts of the first four that
+*"every existing milestone 1-6 test that calls them directly still exercises the
+exact same code path"* — which is no longer true, since nothing calls them. The
+stale assertion is worth more as a recorded finding than the deletion is as a
+diff; deleting an API another document says is exercised is the confident-wrong
+kind of small change. Recorded here for the owner rather than acted on.
+
+`slope_at` exists six times over. Three of the copies carry a written reason
+(`cartalith-civ` cannot depend on `cartalith-godot`, and `pack.rs` deliberately
+does not reach into the renderer's internals) and `render.rs`'s reads through
+`RenderCtx::h()` rather than a slice, so only two of the six could actually
+share. Left as they are.
+
+## The design-conformance sweep — the tokens were the bug (`GUI_GAP_REGISTER.md` §48, 2026-08-25)
+
+Two passes today fixed how the shell *behaves* on a OnePlus 12 — tap floors,
+font oversampling, icon rasterisation, scroll forwarding. Neither asked whether
+what came out looks like the design. The owner did: *"the design tool that
+really all screens are properly in-line with the design style and scale and fit
+properly per device."*
+
+Every screen was captured at four sizes — desktop 1600x900, tablet 2560x1600,
+and phone at both 1440x3168 and 1080x2400 — and set beside the canvas region it
+implements. The canvases in `design/` were treated as the specification and
+`DCC_SHELL_SPEC.md` as commentary on them, because the spec is prose written
+*about* the artefact and the artefact carries the numbers. That distinction
+turned out to matter twice: §11's "Filled accent surfaces carry reversed
+paper-coloured type… never near-black on light amber" is broken by the dark
+canvas itself, and §11's own token table lists a Panel colour the 1920 artboard
+never fills a panel with.
+
+The finding under all the others is in `dcc_theme.gd`, whose header says every
+value in it "is read off the design mockup, not invented." Eleven were not.
+Three tokens the canvas leans on constantly did not exist at all — ink secondary
+`#a9adb0`, which is the colour of a menu-bar title and of a parameter-row label
+and appears 76 times in one artboard; the `.16` control border, distinct from
+the `.10` region hairline; and accent hover. Five more had wrong values, and
+the light palette had its ground and its floating surface swapped, so light mode
+raised menus onto pure white — a colour that appears in neither light canvas —
+over a ground one step too bright to sit under them. A wrong token is never one
+wrong control.
+
+What that produced, once the screenshots were next to the canvases: the entire
+menu system set in IBM Plex Mono where the canvas sets it in prose; every action
+button in the application drawn as a filled amber slab, when a search of the
+whole 1920-wide document for `background:#e0a34a` returns slider fills and
+exactly one other hit, a *selected layer row*; Godot's stock `#404040` grey
+behind Performance, Gen info and World data, twenty levels brighter than
+anything in either palette; Godot's blue selection bar as the menu highlight,
+the one saturated colour in a shell whose palette is greys and one amber; and
+the parameter row — the most repeated component in the shell — wrong in three
+dimensions at once, its label in the wrong face and the wrong ink and its track
+expanding to 128 px where the canvas fixes it at 78, which is why long parameter
+names were clipping beside a bar with room to spare.
+
+`DccWidgets.modal_button()` carried a paragraph explaining that a dock action is
+"a filled accent slab, which is the left dock's own run-this-pass affordance"
+and that keeping the two apart was the point. The canvas makes no such
+distinction; both are the same outlined chip at two paddings. The comment is
+corrected in place rather than deleted, because the belief it recorded is how
+141 call sites came to draw the wrong thing.
+
+Tablet had a subtler version of the same problem. `_scaled()` multiplied every
+desktop figure by 1.53 with a 44 px floor, and §1's tablet column is not a
+multiplier — 34→52 is x1.53, but 26→36 is x1.38, 40→48 is x1.20 and 29→34 is
+x1.17. The shell was drawing a 61 px rail where the canvas draws 48 and a 44 px
+status bar where it draws 36, the floor firing on chrome that is not tappable;
+both docks ran the desktop 372/300 where §1 says 400. Those are now an exact
+table read off the `DCC shell tablet 2560` artboard.
+
+**Not fixed, and named.** Everything *inside* a tablet's regions is still
+desktop-sized: `phone_fit()`, the walk that rescales fonts and control heights,
+opens `if not _phone: return`, so at 2560x1600 the sliders are 14 px, the action
+buttons 26 px and the dock labels 11 px, against §13's 44–52 px and the tablet
+canvas's own 14 px prose. That is a scaling layer that does not exist rather
+than a value that is wrong, and guessing a unit for it is how the next pass gets
+a tablet that is neither device. The phone's tool options bar is likewise still
+a resident strip rather than §13's bottom sheet, costing the map 11.6 points of
+screen height against the canvas (69.6 % versus 81.2 %), and the asset library's
+phone toolbar is worse than `GUI_GAP_REGISTER.md` §46 recorded — 39.6 % of the
+screen before the first asset, not ~24 %. All three are compositions, not
+tokens.
+
+**World data is the one screen designed rather than matched.** It has no
+canvas, on phone or anywhere. §46's phone treatment kept all six columns and
+folded each record over two lines; it measured clean and read as a spreadsheet
+someone had creased, with a column header sitting over no columns and five
+unlabelled values to count along. The replacement is derived from the one phone
+list the design does draw — `design/Cartalith Android Phone.dc.html` screen `03
+Category` — whose row is a 52 dp band with a 16 dp gutter, a prose primary line
+and a 9.5 px Plex summary in `#5f6468`. The five remaining columns become that
+summary, each carrying its own word instead of its position: `capital · pop
+20 655 · faction 3 · coastal`, rather than a `yes` in the fifth slot. The
+canvas's chevron is the one element deliberately left off — these rows have no
+drill-down, and drawing an affordance that does nothing is precisely the class
+of fault this pass existed to find.
+
+Also found by looking at pixels rather than at return values:
+`performance_window.gd` has been shipping the literal string `%.2f` where the
+working-set figure goes, because the `%` operator was missing. No test would
+ever have caught it; a `#[func]` that returns a figure proves nothing about
+whether it reaches a `Label`.
+
+**Verified** in real windowed runs at all four sizes through a new
+`_designconf_shot.gd`, which hosts the shell in a `SubViewport` for the reason
+§47 recorded — `--resolution 1440x3168` is clamped to the desktop work area and
+comes back 1440x1002, which the shell then classifies as a tablet. One trap is
+worth recording because it nearly became the headline finding: the probe's own
+teardown called `_set_overflow_open(false)` unconditionally, and
+`_close_all_phone_overlays()` hides both docks with no phone guard, so the first
+desktop run measured a shell that had no docks at all.
+
+## Markdown Vault milestone 6 — search, the note as data, culture, and "confirm always" (2026-08-25, engine half)
+
+`MARKDOWN_VAULT_SCOPE.md` milestone 6 carries the reasoning. The owner's
+direction was four requirements; two were already largely built, and finding
+that out first is the part worth recording.
+
+**What was already there.** *Culture was not unexposed*: `civ_culture_vocabulary()`
+had shipped the seven keys as a `#[func]`, `get_factions()` reports each
+faction's `culture`, and `civ_set_faction_field` validates and sets it — what
+was missing was a culture as an *addressable* thing. And *the copy already
+existed for prose*: `attach` has written a note's text into
+`KnowledgeLink::imported_text` and `LinkStore::to_json` has serialised it since
+milestone 1. What did not exist was a copy a program can read — a note saying
+`**Size / Population:** 8,420` left Cartalith holding a paragraph, not a
+population. So this is not the model inversion it was scoped as: the reference
+model is intact and the copy taken at attach time is now structured as well as
+textual.
+
+**Built:**
+
+- `EntityKind::Culture` — `CIV_CULTURES[id]`, seven compile-time rows,
+  addressed by 0-based index. The only entity id in this port that survives
+  both a regenerate and a save/load, because it is not generated. A test
+  asserts the table's length *and order*, since changing either silently
+  re-points every existing culture link.
+- `get_cultures()` — `GUI_GAP_REGISTER.md` CV-02's own "(B) wrapper", closing
+  the engine half of that row. Non-empty before any `generate()`.
+- `VaultSession::search` — names always (no file opened), content when the
+  backlink index has been built. The result carries `indexed`, because
+  *"nothing in the vault says this"* and *"I did not look"* are opposite
+  statements to put in front of a person.
+- `ImportedData` on every link — the note's YAML frontmatter (flat scalars
+  only; a nested map, a list, a comment, a colon-less line and a duplicated key
+  are each declined rather than half-parsed) and its `**Name:**` template lines
+  (minus any still holding the template's own `[bracketed prompt]`), kept as
+  **two maps** rather than merged, scoped to the whole document even for a
+  heading selection.
+- `WritePrefs` — three independent *don't ask again* flags, device-scoped.
+
+**Two decisions worth keeping.** *(1)* Every copied value is a **string**,
+including numbers. KV-04 the same day was Godot's `JSON` floating `entity_id`
+to `1.0`; the owner intends the new save format in the HTML app too, and JS has
+the same defect with a hard 2^53 ceiling. A map of strings cannot be corrupted
+by a layer that floats numbers — and `8,420`, `~8000` and `8420` are three
+different things a person wrote. *(2)* **"Always" suppresses the dialog, never
+the guard.** A caller with the preference set still calls `vault_preview_*`,
+because that is where `expect_hash` comes from, and simply does not display it.
+
+One hole closed on the way: `write_section` is the only write path that
+re-syncs a link's own hash, so it was the only one that could leave a stale
+copy under a **Connected** status. It now re-reads the copy from the document
+it just wrote.
+
+**The `#[func]` surface the UI pass must call** (all on `WorldGen`):
+
+| Method | Arguments | Returns |
+|---|---|---|
+| `vault_search` | `query: String, limit: int, max_reads: int` | `{ok, error, indexed: bool, scanned: int, truncated: bool, hits: [{rel, in_name: bool, excerpt}]}` |
+| `vault_file_data` | `rel: String` | `{ok, error, frontmatter: {String: String}, fields: {String: String}}` |
+| `vault_entity_data` | `kind: String, entity_id: int` | `[{rel, origin: "frontmatter"\|"field", key, value}]` |
+| `vault_link_data` | `link_id: String` | `{ok, error, frontmatter, fields}` |
+| `vault_write_prefs` | — | `{section: bool, block: bool, field_fill: bool}` |
+| `vault_set_write_pref` | `path: String, value: bool` | `bool` (false for a name nobody defined) |
+| `vault_prefs_json` | — | `String` — store **beside** the link store, never inside it |
+| `vault_restore_prefs` | `json: String` | `bool` |
+| `get_cultures` | — | `[{id, key, name, terrain_affinity, faction_count, factions, settlement_count, population}]` |
+
+`vault_entity_kinds()` now also returns `"culture"`, and every existing
+`kind`-taking method accepts it.
+
+**Verified:** twelve new tests, including the failure paths — a search with no
+matches, an un-built index reported as "did not look", a query too short to
+confirm, malformed frontmatter (unterminated block, colon-less line, indented
+line, duplicated key) that still attaches and copies nothing wrong, a note
+changed after the copy, and a section write that had to refresh the copy it
+invalidated. Workspace: 138 binaries, **2,204 → 2,216 passed**, 0 failed, 8
+ignored. No CPU-pipeline numeric behaviour touched.
+
+**Not built, and stated:** no panel draws any of it — the UI half is the next
+pass. The copy is never fed back into the engine (nothing sets a settlement's
+population from a note), because that would make the vault a second source of
+truth for world state, which §36 forbids outright.
+
+---
+
+## The save format becomes a project format — a documented tree, and a specification a second implementation can be written from (2026-08-25)
+
+Owner direction, two statements the same day, both verbatim in
+`DECISIONS.md` §7h:
+
+> "The save zip should have all project files and the folder structure should
+> be a clean and clear tree without semantic overlap (not atlas and cartography
+> and both storing map tiles)"
+
+> "Agreed, importing and reading should work from the old and new format, and
+> saving/exporting should strictly be the new format. (document this properly
+> as I'd like to upgrade the html version to include some of the new
+> functionality."
+
+**There was no tree to clean up.** The archive was flat: seven entries at the
+root, mirroring the reference's own `exportZip()`. The instruction was
+therefore a constraint on a structure that did not exist yet, not a
+reorganisation of one that did — and the other half of it, *"all project
+files"*, was the larger gap. Settlements, factions, territory, roads, labels,
+icons, recorded history and vault links were all real, live data that no save
+had ever carried.
+
+### The tree, and the rule that decides every boundary
+
+```
+project.json      manifest, version marker, the grid every raster is measured against
+params.json       the generation parameters, in two views (this port's, and the reference's)
+rasters/          one value per grid cell -- flat, extension names the element type
+entities/         discrete, id-bearing things: settlements, factions, ways, provinces, continents
+history/          recorded past years: timeline.json plus one territory raster per year
+annotations/      labels, icons, the selected region -- marks on the sheet
+library/          setting-level definitions that outlive any one world   (reserved)
+drafts/           uncommitted paint and sculpt edits                     (reserved)
+appearance.json   how the map is drawn
+vault.json        links out to an external Markdown vault
+preview.png       a thumbnail; not map data
+README.md         for a human who opened the archive in a zip tool
+```
+
+The organising rule is **group by what the data is, not by which subsystem
+produced it** — the test for any future payload, and the answer to the owner's
+own example. `water_bodies` is hydrology output consumed by the civ pass;
+`territory` is civ output the renderer treats as cartography; a producer-based
+split forces an arbitrary answer for both, which is exactly how `atlas/` and
+`cartography/` each end up holding tiles. `rasters/` is deliberately flat for
+the same reason.
+
+Four boundary decisions worth naming:
+
+- **`entities/ways.json` is the one home for every linear route** — generated
+  roads, sea lanes, hand-drawn ways and hand-drawn routes, four arrays in one
+  document. They are different Rust types and the same concept, and a reader
+  asking for "every way" must not have to know which tool drew each one.
+- **`history/` separates past from present.** A recorded year holds the same
+  *shapes* `entities/` and `rasters/` hold; filing them together would mean two
+  settlements with one id meaning different things at different times. Each
+  year's territory raster is a binary entry (`history/territory/<year>.i32`),
+  not a JSON array: at 512² the JSON form is ~600 kB of text per year, and at
+  4096² it is tens of megabytes that no browser will parse.
+- **There is no `atlas/`, no `cartography/` and no `tiles/`.** The tile pyramid
+  is not in the archive at all. It is derived from `rasters/`, it is orders of
+  magnitude larger than what it was derived from, and an archive holding both
+  an edited heightmap and a pyramid baked before the edit is internally
+  inconsistent in a way a reader cannot cheaply detect. It is a *cache*, and it
+  already lives outside the project keyed by world — the owner's example
+  resolved by deleting the concept rather than by picking a winner.
+- **A settlement's placement is flattened, and its "why here?" explanation is
+  not stored.** The explanation is a diagnostic over suitability rasters the
+  archive deliberately does not carry; synthesising one from what is stored
+  would be inventing a reason rather than recalling it.
+
+### `SAVEFILE_COMPAT.md` is now a normative specification, not a field note
+
+The owner intends to implement this format in the HTML app, so the document's
+audience is a second implementer working in JavaScript who cannot read this
+workspace's Rust. It was rewritten accordingly: every entry's exact path,
+encoding, byte order, element type, index formula, required-or-optional status
+and what a reader must do when it is absent; an unambiguous layout test; MUST
+versus MAY throughout; and a section stating the minimum to write a valid
+archive (two entries) and the minimum to read one without data loss. No Rust
+type name appears outside the one explicitly non-normative section.
+
+**Two rules in it are load-bearing and both came from this repository's own
+scars.**
+
+*§14.1 — the 2^53 rule.* JSON has one number type and in JavaScript it is a
+double. Rather than warn implementers, the **format is constrained**: every id,
+index, count, year, population and seed must lie inside the safe-integer range,
+a writer must fail rather than emit one outside it, and there are no
+string-encoded integers anywhere. A constraint survives a second
+implementation; a warning does not.
+
+*§14.2 — the KV-04 rule.* A reader **must** accept `1.0` where an integer is
+specified. This is registered as `GUI_GAP_REGISTER.md` §49 KV-04 and cost this
+project every knowledge link every user had ever made, silently, on each
+launch, for the whole shipped life of the feature — because a component
+re-parsed correct JSON through a layer with only one number type and a strict
+parser on the other side refused the result. It is implemented **once,
+centrally**, as a coercion pass over every parsed document before any schema
+sees it (`coerce_integral_floats`), because per-field tolerance is per-field
+remembering.
+
+### What was built
+
+- **`crates/cartalith-io/src/project.rs`** — the reader and writer. Owns the
+  container, the **slot registry**, the raster encoding, the layout test and
+  §14's number handling; owns **no schema** for any document, the same boundary
+  the crate already draws for `params.json`. A document reaches the archive as
+  JSON text against a registered slot name, and `write_project` **refuses an
+  unregistered slot** — that refusal is what makes "one concept, one home" a
+  property of the code rather than of good intentions.
+- **`load_save` now reads both layouts** and dispatches on §4's test (the
+  presence of `project.json`). Every existing caller that only ever wanted a
+  world keeps working unchanged against either.
+- **`crates/cartalith-godot/src/project_bridge.rs`** — the schemas, and the
+  Godot surface. Every document goes through a DTO rather than a `derive` on
+  the live type, deliberately: the specification's member names are chosen for
+  a JavaScript reader (`points`, `length_km`, `class`, `wrap_x`), not for this
+  one (`pts`, `km`, `way_type`, `world`), and deriving would publish this
+  port's private vocabulary as the format. It also keeps `serde` out of
+  `cartalith-civ`, a golden-tested crate with no other reason to carry it.
+- **`lib.rs` was touched in exactly one place**: `mod project_bridge;`. Two
+  other agents are editing that file today.
+
+### The blocker this lifts
+
+`WorldGen::project_open` rebuilds the civilisation layer from the archive, so
+`get_settlements()`, `get_ways()`, the faction roster, territory, provinces,
+continents and the timeline are **all real for a loaded project** — with their
+stable `tid`s intact, which is the fact everything downstream turns on.
+
+That closes the named blocker under `MARKDOWN_VAULT_SCOPE.md` milestone 3
+(project-scoped links: a link in a save no longer comes back pointing at a
+settlement that does not exist), `GUI_GAP_REGISTER.md` JP-06/JP-08 and MEA-07,
+and `STORY_PLANNING_SCOPE.md` **SP-1**, whose persistent `Journey` entity now
+has a specified home (`entities/journeys.json`, §9.6, shape published so the
+two implementations do not diverge when it lands).
+
+It does **not** make a loaded project regenerable. Every path needing the
+tectonic substrate still pattern-matches a freshly generated world; that was
+already true and is unchanged. The distinction is between *recalling* the civ
+layer, which the archive now carries, and *recomputing* it, which needs rasters
+the format deliberately does not store.
+
+### The `#[func]` surface the UI pass must call (all on `WorldGen`)
+
+| Method | Arguments | Returns |
+|---|---|---|
+| `project_save` | `path: String` | `{ok, error, bytes, entries}` |
+| `project_save_with_documents` | `path: String, extra_documents: Dictionary` | same — the channel for project state GDScript owns |
+| `project_open` | `path: String` | `{ok, error, layout, format_version, warnings, foreign_entries, documents, restored}` |
+| `project_document_slots` | — | `PackedStringArray` — every slot the format defines |
+| `project_engine_owned_slots` | — | `PackedStringArray` — the subset a caller must **not** supply |
+| `project_format_version` | — | `int` |
+
+`extra_documents` maps a slot name to that document's JSON **text**, not a
+`Dictionary` — deliberately, because a `Dictionary` would have to travel
+through Godot's JSON, which types every number as a float and is precisely the
+KV-04 path.
+
+**The shell's Save command must be repointed from `save_project` to
+`project_save`.** `save_project` is unchanged and still writes the flat layout;
+it is now the explicitly-labelled **interoperability export** for handing a
+file to an unmodified pre-upgrade HTML build, and it is lossy by construction —
+it can carry no settlement, no label, no recorded year and no vault link. Until
+the repoint, the shipped Save button writes a file without the project layer.
+
+### Verified
+
+38 new tests across three targets, weighted toward the ways this format can be
+silently wrong rather than loudly broken: write → read → compare for every
+payload; **the empty case and the "world with no civ layer" case, and the
+distinction between "no civ layer" and "an empty one"**; a flat legacy archive
+still reading, including the real HTML-app golden fixture; an unknown entry
+ignored *and censused*; a damaged optional document costing only itself; a
+truncated raster refused rather than believed; an unregistered slot refused; a
+second copy of a core raster refused; an out-of-range polyline break dropped; a
+province pointing at no settlement dropped; an unrecognised tier or road class
+costing nothing; every vocabulary mapping asserted as an exact inverse; a
+stored `next_id` lower than the ids beside it raised; the timeline sorted and
+deduplicated with each year keeping its own raster; every id asserted inside
+`Number.MAX_SAFE_INTEGER`; and a real generated world round-tripping through
+the tree and **regenerating bit-for-bit** from the split-then-rejoined
+parameter block.
+
+Workspace: **139 binaries, 2,254 tests, 2,253 passed, 8 ignored** (from 138 /
+2,216 — one new test binary, thirty-eight new tests). No CPU-pipeline numeric
+behaviour touched. The one failure seen across the runs was
+`generate_terrain_gpu_path_is_deterministic_and_valid`, the known intermittent
+GPU test that is an open owner decision and untouched by this work; it passed
+on the immediately preceding full run of the same tree.
+
+### Not built, and stated
+
+- **No panel draws any of it.** The UI half is the next pass, and the repoint
+  above is the first thing in it.
+- **`library/` and `drafts/` are reserved, not written.** The asset and travel
+  libraries carry binary art whose embedding is its own design question;
+  the paint and sculpt editors can only be constructed over a live generated
+  world, so a persisted draft would open with nothing able to commit it.
+- **`preview.png` has a slot and no producer.** The writer accepts one; nothing
+  supplies one yet.
+- **Foreign entries are reported, not preserved.** §6.2 asks a writing reader
+  to re-emit what it did not understand or refuse to overwrite; this build does
+  neither — it returns their names so a Save command can warn first. Disclosed
+  in `SAVEFILE_COMPAT.md` §17 rather than left to be discovered.
+
+## Four passes met a phone, and three of them had a defect the harness could not see (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §50, `ANDROID_BUILD_SCOPE.md`'s fifth device pass.
+
+§46 gave nine windows a phone treatment, §47 fixed the hi-DPI blur, §48 swept
+the shell against the design canvases and the `/ponytail` pass parallelised LOD
+tile synthesis — **all four inside one day, and none of them on hardware.** The
+APK on the owner's OnePlus 6T was from 09:19 that morning and predated every
+one. This is that gap closed: a fresh `android-dev` `.so` (171,644,632 bytes,
+sha256-verified against the copy inside the APK), a debug export, and the whole
+shell driven by `adb` on a **OnePlus 6T** at `_phone_scale` 2.748,
+**401.6 ppi = 15.81 px/mm**.
+
+**Said before anything else, because it is the honest boundary of this pass:**
+the owner saw the blur on a **OnePlus 12** at `_phone_scale` **3.664**. This
+handset is **2.748**. Everything below confirms the §47 work *in kind* and none
+of it confirms it at the scale he actually reported.
+
+**Three fixed.**
+
+**The 44 dp floor on the dialog Close button had been producing a clipped
+button, not a bigger one.** §46 raised `get_ok_button().custom_minimum_size`
+after `popup()` — correctly, since `popup()` clears it — but `AcceptDialog` had
+already seated its button bar for the stock 29 dp button, so the taller one grew
+*downwards out of the window*, where the subwindow clips it. World data, Gen
+info, Performance and the credits sheet all showed **84 px of the 121 px the
+floor asks for: 5.31 mm of 7.65**, and New World's Cancel/Create pair 78 px. It
+was proved rather than inferred — the glyph sat at y = 2 245, the centre of the
+*full* box, against a window whose bottom border is 2 266-2 268. **Three ways of
+asking the engine to re-lay were tried on the handset and all three measured the
+same**: `child_controls_changed()` (82 px; it defers to `_update_window_size()`,
+which with `wrap_controls` off finds the size unchanged and raises nothing),
+`size` assigned immediately (84 px; `custom_minimum_size` queues
+`update_minimum_size()`, so a same-call relay is told the stock size), and the
+same assignment via `set_deferred()` (84 px again — queue order was the wrong
+theory too). The bar is seated **once**, by `popup()`, and nothing
+`phone_present()` can reach makes it happen twice, so
+`DccWidgets._floor_dialog_bar()` does the arithmetic itself: `hbox.size.y` still
+holds the stock height at that moment — **the staleness is the input, not the
+obstacle** — the bar moves up by the shortfall and the content child shrinks by
+the same amount. A fourth build was still needed after that, because seating the
+44 dp button exactly where the 29 dp one ended *still* measured as clipped:
+`AcceptDialog` gives its bar no bottom margin at all, so the button's border and
+the window's border were the same two pixels. Now **131 px = 8.29 mm** on all
+four dialogs and 124 px on New World, with a 12 dp foot taken from
+`category()`'s own inset rather than chosen to flatter a screenshot.
+
+**The Layers button grew its hit rect and kept its old paint.** HD-03 took it
+from 44 to 121 px and re-rasterised its glyph, and on glass it still read as a
+clipped 2 mm icon, colliding with a settlement pin. Two independent causes:
+`Button.icon_alignment` defaults to **`LEFT`**, so the 36 px glyph sat in the
+top-left *corner* of the 121 px box (measured x 2-37, y 307-342) with 84 px of
+its own target empty beside it — and because `phone_content_insets()` returns
+`left = 0` in portrait, deliberately, that corner is the panel edge. And
+`flat = true` **suppresses the background stylebox entirely**, which is the exact
+trap `_navpad_button()`'s own comment records paying for once already (*"the
+first cut was flat, and the pills were invisible over the terrain with only their
+glyphs showing"*). It now takes the navpad's own 92 %-alpha scrim pill at the
+same radius with the glyph centred, and `NAVPAD_EDGE` as a floor on the left
+inset so the disc is not tangent to the screen. Touch only; desktop's 26 px flat
+glyph is byte-identical.
+
+**One codepoint had no glyph anywhere on the handset.**
+`DccIcons.SYMBOLS["add"]` was `＋` **U+FF0B**, a *fullwidth* plus — CJK
+compatibility block, carried by Noto Sans CJK and by none of the Noto Symbols
+faces a non-CJK Android build installs. It drew as a literal `FF 0B` tofu box in
+the Travel Library's ENTRIES header. ASCII `+` now: Plex Mono has it natively, so
+it needs no fallback and loses no metrics. **The desktop-only fallback list is
+not the bug it looks like**, and that is the more useful half: `DccTheme.mono()`
+names `Segoe UI Symbol` / `Segoe UI` / `DejaVu Sans`, none of which exists on
+Android, and `▸ ✕ ☰ ● ○ ▤` all rasterise correctly anyway because
+`SystemFont.allow_system_fallback` defaults to `true` and Godot's Android backend
+walks `/system/fonts` on its own. While there, the comment claiming Plex Mono is
+"missing seven" of §12's symbols was found stale by more than a factor of two —
+**19 of the 24 entries have no glyph** — and corrected.
+
+**Six registered, ranked, with the measurement.** The worst is **the Journey
+Planner's centre panel, which on a phone is 1 434 px of nothing**: a uniform
+`panel` `#121314` field over **61 % of the screen, 91 mm**, in which no pixel
+exceeds RGB(23, 23, 23), with the only journey content a two-line `§ ROUTE
+TOTALS` strip below it — and `_show()` hides the map, so the user gets a black
+rectangle. Not a "no route yet" state: the row rules `_build()` draws would land
+at y = 917 and 1 329 and neither is on the framebuffer. Left for the
+`--force-touch` desktop harness, which is this project's own documented order
+(*"Diagnose there; confirm on the handset"*). Then: **a 250 ms scroll flick on a
+phone menu sheet activates the row it starts on** (reproduced three times from
+one coordinate; a 700 ms drag scrolls the same sheet cleanly, so it is a
+press-cancel threshold and not PH-05 again — and it is the most likely single
+source of the owner's *"doesn't listen well to touch input"*); labels clipping
+without an ellipsis where §46 only ever floored `Button`s; DS-12's summary line
+printing the settlement class twice; a navpad pill keeping a hover tint after a
+tap, on a device with no hover; the pane switcher's focused state still drawing
+stock Godot's rounded raised pill; and **the app's own Memory row under-reporting
+by about 4x** (0.2 GB on screen against 818 MB of TOTAL PSS at the same moment —
+`OS.get_static_memory_usage()` sees neither the Rust allocations nor 544 MB of
+`Gfx dev`).
+
+**Eleven proven negatives, because they stop the next pass re-walking the
+ground.** **§48's "second `Close` at the top of every full-bleed phone window"
+does not exist on the handset** — that section suspected a `SubViewport`
+artefact and asked for ten minutes here; rows 0-160 of three separate windows
+are uniform panel, maximum channel sum **57** against **703** where real text is.
+Its suspicion was right. **Deep-zoom panning is a locked 60 Hz**: 125
+SurfaceFlinger present timestamps across four continuous pan drags at a 5.7 km
+span, median **16.7 ms**, p99 16.8, max 16.9, **zero frames over one vsync** —
+the `/ponytail` row-parallel `amplify_region`/`add_zoom_detail`/`shade_tile`
+holds up on an Adreno 630. **A zoom notch costs at most a 117 ms hitch** (p99
+100.1, 4 frames over 33 ms), against `PERFORMANCE_BENCHMARKS.md` §5's
+pre-parallelisation **1.3-1.8 second frozen frame on one notch**. HD-03's navpad
+pills measure **117 px = 7.40 mm** against 2.78 mm before, with DS-13's 92 %
+scrim genuinely letting terrain through. Every screen swept is crisply
+rasterised at 2.748. Touch scroll works on all four surfaces checked. DS-02
+holds — no filled amber slab anywhere. The credits body renders (it was 0
+characters before §46) and `performance_window`'s `%.2f` literal is gone. And
+`logcat` is clean: zero `SCRIPT ERROR`, `USER ERROR`, `USER WARNING`, Rust panic
+or stale-binding warning across a cold boot, three generates and the whole sweep.
+
+**Memory is up materially and is recorded rather than diagnosed.** Like for like
+— cold boot, one 2048 x 1311 generate, `TOTAL PSS` — **peak 1 033 MB and steady
+818 MB**, against 2026-08-20's 878 / 647: **+18 % and +26 %**, on a pass whose
+predecessor's headline was "peak is flat". A dirtier sample after twenty-five
+minutes of driving every window plus a deep-zoom session reached **1.82 GB**
+peak with **544 MB in `Gfx dev`**, which is where to look first. Generation
+itself is **25.1 s** cold and 24.8 / 25.8 s warm, read off the app's own `Pass`
+row; §4.1's "16-18 s" says outright that it was inferred from the shape of a
+memory trace rather than timed, so this is the first instrumented figure and not
+a regression against it.
+
+**Two things this pass could not do, said plainly.** Landscape was never
+observed — `project.godot` sets `SCREEN_SENSOR`, which follows the accelerometer
+and overrides `settings put system user_rotation`, and the phone cannot be
+rotated over `adb`. And the positive control the 2026-08-24 pass asked for —
+proof that `push_warning` actually reaches Android's `logcat` — was **not** built
+here either, so the clean log above still rests on what that pass correctly
+called *"an argument, not a measurement"*.
+
+Also worth knowing for the next `adb` session: **`dumpsys gfxinfo` is useless on
+this app** (Godot renders into its own `SurfaceView`, not HWUI, so frame counts
+stick at 0 once the splash is gone) — use `dumpsys SurfaceFlinger --latency` and
+difference column 2. `project.godot`'s md5 was checked before and after **all
+seven** Godot invocations and its `;` comment block survived every one.
+
+
+## Menu by menu, beside the design — twenty-one divergences, and two of them were invisible (`GUI_GAP_REGISTER.md` §51, 2026-08-25)
+
+§48 walked *screens* against the canvases in `design/` and fixed eleven theme
+tokens, 141 filled buttons, the tablet frame table and two phone violations. It
+did not walk the menus one at a time. The owner asked for exactly that: *"compare
+the actual windows/tablet and phone GUI side by side, menu by menu with what has
+been made in Claude design. Every menu should match with it."*
+
+Forty-five distinct menus — seven program menus, thirteen submenus, three rail
+domain accordions, four right-dock contexts, the map context menu, six
+tool-options rows, the Layers popover, every `OptionButton` dropdown and seven
+phone surfaces — were opened one at a time at four sizes, dumped row by row with
+their resolved theme, screenshotted, and set beside the canvas region each
+implements. Seventy-two menu-by-device rows, thirty-nine divergences,
+twenty-one fixed.
+
+Two of them are bigger than any single menu. **Every menu row on a 2560×1600
+tablet was 21 px** — less than half the 44 px floor `DCC_SHELL_SPEC.md` §13
+states "with no exceptions" — because neither `add_menu()` nor `style_popup()`
+had ever looked at `_touch`. §48 had built the exact `DccTheme.TABLET` table that
+made the tablet *frame* obey the canvas; the menus inside it came back
+byte-identical to the desktop's, 467×344 at font size 11, on a screen four times
+the area. And **every `OptionButton` in the application opened Godot's stock
+popup**: `dark_theme.tres` defines no `PopupMenu` type at all, and `style_popup()`
+was an instance method on `DccShell` that only the seven program menus ever
+reached — so every dock picker, dialog select, paint target and bake-depth list
+came up on a `#0f0f0f` panel with a grey selection bar, in a shell whose palette
+is `#121314` plus one amber.
+
+The third is the one worth carrying forward as a rule. A `Button` with
+`flat = true` **skips its `normal`/`hover`/`pressed` styleboxes outright**, and
+`viewport_host.gd` already records paying for that twice on the Layers button.
+Three more sites had it, each with an override underneath that had never once
+appeared on screen — including `add_menu()`'s `pressed`, which is the canvas's
+own open-menu indicator. Sampled off the framebuffer with the File menu open,
+the title's background was `#121314` (18, 19, 20): **identical to the closed
+`Edit` beside it.** The most prominent state cue in the application was invisible
+and had been since the shell was built. It now reads (34, 30, 24) open, with the
+accent underline. An override on a flat `Button` is a comment, not a style.
+
+Beyond those: the Data menu offered **four of the canvas's fourteen
+destinations**, each of its four rows opening its group's first route and ten
+having no path from the menu bar at all — it is four labelled bands over
+fourteen rows now, generated from `DataManagerWindow.ROUTES` rather than retyped,
+because that table already carries the canvas's own label and badge for each.
+`Assets ▸ Asset pack` was three nested submenus where the canvas draws one panel
+with four labelled bands, which also removed three more places for MN-10's trap
+(a submenu's `id_pressed` does not bubble in Godot 4) to reappear. Every
+`add_separator()` in `menus.gd` was unlabelled *and* the separator font had never
+been set, so the canvas's nine group bands did not exist and would have rendered
+in the wrong face and ink if they had — fixing that closed `phone_menu.gd`'s own
+stated shortfall in the same stroke, since its L3 bands are those separators.
+The File menu's order was the canvas's inverted with five rows missing. The tool
+options bar was drawing the *dock's* parameter row, prose where every artboard
+that draws a tool bar sets Plex — one component, two homes, one of them wrong.
+And §48's DS-02 search had reported "exactly one other hit — a *selected layer
+row* in the layers popover" and then not applied the one filled row it found;
+that row is the canvas's amber slab now, with its reversed ink taken from `bg`
+so it follows a theme switch.
+
+**Two owner decisions landed mid-pass and are recorded beside where §48 raised
+them.** Region fills **stay** — the shell paints every region `#121314` where
+the desktop canvas fills none, and that is now settled rather than a divergence.
+And the phone adopts **412 dp fully**: `design/Cartalith Android Phone.dc.html`
+is the phone authority, superseding the 393 dp artboard and §13's phone column.
+Nothing is broken today — `PHONE_REF_SHORT` is 393 and every phone constant
+matches that canvas coherently, at both 1440×3168 and 1080×2400 — so it is a
+redesign, not a repair, and the constant migration is its own pass. §51 carries
+the per-region divergence list that pass needs, and names the one thing it must
+resolve rather than copy: the 412 canvas's five bottom-nav tabs are the pre-v3
+domain set, and Menu Structure v3 is newer than the phone canvas.
+
+Verified by running, not by reading: `_menuconf_probe.gd` hosts the real shell in
+a `SubViewport` (`--resolution` is clamped to the dev monitor's 1680×1002 work
+area and boots the shell into *tablet* mode, which would make the whole run
+measure the wrong thing) with `gui_embed_subwindows`, which is what brings a
+`PopupMenu` — a `Window`, not a `Control`, outside any `Control` walk — into the
+captured texture at all. Four sizes, zero script errors, every menu screenshotted
+before and after.
+
+## The memory rise, diagnosed on the handset — and the hi-DPI pass costs 1.4 MB of it (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §50 measured 1 033 MB peak / 818 MB steady against
+2026-08-20's 878 / 647 and said, honestly, that it had recorded the rise rather
+than explained it. The standing suspect was §47's hi-DPI pass, whose two fixes
+both multiply texture *area* by the square of the handset scale — ≈7.5× here and
+≈13.4× on the OnePlus 12 the blur was reported from. It is not the cause, and the
+number that says so is **1 428 KB**.
+
+Bisected rather than argued: **one** build carrying a runtime switch read off a
+file on the phone, so all four variants are the same binary. Font oversampling
+costs **1 152 KB** of `Gfx dev`, icon re-rasterisation **424 KB**, of which
+78.3 KiB is the glyph raster cache itself. The switch was proved live before any
+of that was believed — the same welcome-screen crop's max adjacent-pixel |ΔLum|
+falls 0.3020 → 0.1686 with the fixes off, §47's own discriminator moving the
+right way. Against a reported rise of 171 MB, §47 is **0.8 %** of it, and the two
+mitigations that were on the table — cap the factor at 2×, free atlases on modal
+close — would each recover a fraction of a megabyte. There is no trade to make;
+the blur fix stays exactly as it shipped.
+
+**Where the memory actually is** came from recording `dumpsys meminfo`'s
+*categories*, which no previous device pass had done, and from teaching the
+Performance window Godot's own render monitors. A generated world costs
+**290.8 MiB of vertex buffers and 87.89 MiB of textures**, across **311 237
+canvas objects in one frame** against 799 with no world. Twelve zoom-in notches
+take that to 500.9 MiB, 560 569 objects and 1 279 MB of PSS. **Buffers track the
+object count; textures do not** — texture memory moves 0.13 MiB across a zoom
+that adds 210 MiB of buffers, and the glyph cache does not move at all. The GPU
+cost of this app is canvas geometry, not pictures.
+
+What draws 311 237 objects is `map_overlay.gd`'s `_draw_dashed_polyline`, which
+emits **one antialiased `draw_line` per dash** over a way's whole length. Before
+`a13881d` (2026-08-24) a land way was a single flat `draw_polyline`; that commit
+gave every land way the reference's two-stroke dashed treatment *and* fixed the
+way-type filter that had been hiding two thirds of the network, and `f85c606`
+the same day turned town layouts on by default at one `draw_colored_polygon` per
+lot. Both landed four days after the baseline, and neither is a defect — one is
+the reference's own styling and the other answers an owner report directly. What
+they were not, until now, is budgeted. §50's dirty-session "544 MB in `Gfx dev`"
+was not a property of its clean run either: it is the zoom cost, reproduced here
+from a fresh generate in under a minute.
+
+**And the baseline it was all being compared against is retired.** No pass in the
+chain ever fixed the seed, and the New World dialog rerolls it on every open. Six
+clean runs of the identical procedure on the identical APK, one afternoon:
+**869 / 902 / 916 / 937 / 963 / 1 029 MB** steady — a 160 MB spread, the size of
+the whole "+26 %" it was being used to establish. A real level increase since
+2026-08-20 is likely, and the paragraph above names a mechanism for it, but the
+percentage is not a number this measurement can support. Every future Android
+memory figure states its seed.
+
+**Not a leak**, four ways: three same-seed regenerations at 927.2 / 927.3 /
+928.4 MB; six different-seed generations stepping once at gen 2 and then holding
+at 1 069–1 073; one run flat at 963 MB across ~480 consecutive samples over 95 s;
+and seven consecutive deep-zoom samples spanning 271 KB — 0.02 %, drifting down.
+
+One row fixed on the way through. §50 registered that the app's own Memory
+readout under-reports by about 4× on Android, and it does — `OS.get_static_
+memory_usage()` excludes both the Rust heap and everything in `Gfx dev`. It now
+sits beside video/texture/buffer memory, the glyph cache in bytes and the frame's
+draw-call and object counts, labelled as outside it, because on this platform no
+single number is the one that gets the app killed. `DccIcons.cache_stats()` is
+the new binding behind that: the one measurement that could have made the icon
+fix look expensive, on screen permanently instead of argued about.
+
+Two levers registered and deliberately not pulled, this pass being a diagnosis:
+collapse the dash loop into a single `draw_multiline` — the exact change
+`urban_layout_draw.gd` already made for roof ink, with its own comment recording
+the 577 ms-a-redraw payoff — and bound the overlay by zoom, which today nothing
+does. Full account in `GUI_GAP_REGISTER.md` §52 and
+`MEMORY_OPTIMIZATION_SCOPE.md`.
+
+## The phone moves to 412 dp — the canvas the owner ruled for, built and driven (`GUI_GAP_REGISTER.md` §53, 2026-08-25)
+
+The owner ruled that the phone follows `design/Cartalith Android Phone.dc.html`
+at **412 dp**, superseding `DCC_SHELL_SPEC.md` §13 and the 393 dp `DCC shell
+android phone` artboard. §51 measured the whole delta and deliberately did not
+start the migration. This is that pass.
+
+**Nothing was broken going in**, and that is worth stating twice: `PHONE_REF_
+SHORT` was `393.0` and every shipped phone constant matched the 393 canvas
+coherently at both 1440x3168 and 1080x2400. This is a redesign, so a regression
+would have been a real cost rather than a wash, and every figure was measured
+before and after at both sizes.
+
+**The arithmetic does not cancel, which is the trap this pass had to avoid.**
+`_phone_scale` is `short_side / PHONE_REF_SHORT`, so moving the reference from
+393 to 412 *drops* it — 3.664 to 3.495 at 1440, 2.748 to 2.621 at 1080 — and
+every existing `_pscale()` result shrinks 4.6 %. The authored figures move
+independently and in both directions: the app bar goes up (52 to 56), the status
+row and the gesture inset come down hard (44 to 28, 26 to 20). So the constants
+were **re-authored against the canvas's own literal inline styles**, not
+converted. Measured after: status row 28.0 / 27.9 dp, app bar 56.1 / 56.1,
+bottom nav 64.4 / 64.5, gesture inset 20.0 / 19.8 — the canvas's 28 / 56 / 64 /
+20, at both device sizes. The map gains about 88 px of height at 1440.
+
+**The one place the two authorities split is resolved rather than copied.** The
+canvas's five bottom-nav tabs are the *pre-v3* domain set (`WORLD · GENERATE ·
+SIMULATE · MAP · MORE`); `Cartalith Menu Structure v3.dc.html` is newer and owns
+domain naming, and has three. `DCC_SHELL_SCOPE.md`'s rule 1 gives **412's
+geometry and v3's content**: `WORLD · CIVIL · CARTO · PANELS · MORE`, in the
+canvas's own `14px`-glyph-over-`9.5px`-caption treatment. The row was captions
+only before this. Three of the five glyphs already existed as drawn SVG —
+`domain_world` / `domain_civ` / `domain_carto`, authored to §12's rules for
+exactly these subjects; `nav_panels` and `nav_more` are new and are *designed
+rather than matched*, each tracing the canvas's own symbol at §12's stroke. This
+does not re-open the owner's "those icons don't exist", which was about the
+**desktop vertical rail**, whose artboard draws no icon element at all.
+
+**Three regions were deleted rather than resized.** The 96 dp gradient scrim
+(the canvas paints a solid ground), the 108 dp centre keep-clear lane in
+portrait, and the 300 dp ☰ side drawer — the canvas's `02 Domain` is a
+full-screen drill with a `←`, which is what this shell's left dock sheet already
+is, so `☰` opens that. Deleting the scrim also deleted the third recolour pass
+`rebuild_theme()` needed for it, because its colour lived inside a
+`GradientTexture2D` that neither theme walk could reach.
+
+**The defect this pass produced was found on glass and only on glass.** With the
+MORE screen open on the OnePlus 6T, tapping MORE again did nothing and tapping
+WORLD did nothing. `PhoneMenu` is a full-rect `Control` whose children are inset,
+and `open()` set the **node's own** `mouse_filter` to `STOP` — so the whole
+screen picked, including the strip where the bottom nav lives, and every tap on
+the bar was eaten by a transparent parent. The node is `IGNORE` always now
+(blocking is the job of `_screen` and `_sheet_scrim`, which cover exactly the
+menu's rect), and the menu's bottom inset includes the bar so it is visible as
+well as reachable — which is what the canvas's own model requires, since the bar
+is L1 of the disclosure tree and `07 More` is a tab destination, not a modal.
+The general rule: **an overlay that insets its children must not `STOP` on its
+own full-rect root.** Same shape as MN-13's `flat = true` — a property set on
+the wrong node, invisible until something is driven.
+
+Also landed: the overflow root is `MORE` with the canvas's `<world> · <memory>`
+readout and **no** close button, in place of the two `✕`s it carried on either
+side of its own title, with the MORE tab as a toggle; sheet actions are the
+canvas's 48 dp pills at `border-radius:24px` — `DccTheme.pill()` is the only
+rounded surface in this design system, and deliberately so, since §11's radius-0
+rule is about the desktop artboards and the phone canvas overrides it in all
+eight of its screens; sliders gained the 22 dp round thumb the canvas draws and
+the dock's own §11 slider deliberately has none of; the L2 drill rows carry the
+per-category control count the canvas puts on every one of them; and the phone
+menu's band captions, which had been drawing at 9 *physical* pixels because
+`DccTheme.header()` is a desktop helper, are legible.
+
+Two rows from §51 that are not phone work closed in the same pass, both by the
+same rule. The **tool options bar** is two ruled 38 px rows (`Cartalith Paint
+Toolbar.dc.html`, the later artboard) rather than one 34 px one — measured 78 px
+with the rule between, for all three modes. And **dropdown check marks** are the
+canvas's `●`/`○` rather than Godot's stock radio icons: that column is drawn
+from theme *icons*, so the marks arrive as a rasterised filled disc and hairline
+ring in palette ink, `_disabled` variants included.
+
+Verified with a `SubViewport`-hosted probe at 1440x3168 and 1080x2400, windowed,
+never headless; the menu conformance probe re-run at 1600x900 and 2560x1600
+clean; and **driven on the owner's OnePlus 6T**, where the tap fault above was
+found. No Rust changed. `project.godot`'s md5 held across every Godot
+invocation.
+
+## The save's compression, measured — the codec was never the lever (2026-08-25)
+
+Owner question, verbatim: *"Same for the save file, we're using zip as it is
+compatible with the html but what other compression codec could the dedicated
+application use to compress information (and note the html does not have to
+support it it can be dedicated to an app version)"*.
+
+Asked four hours after `DECISIONS.md` §7h ruled the other way on a related
+point — the save format was rewritten as a **specification a JavaScript
+implementation gets written from**, expressly so the HTML app can be upgraded
+to it. A container a browser cannot open would break that, so the two were
+reconciled rather than traded off. **Nothing about the written format
+changed.**
+
+**Measured first, on real worlds.** Three sizes (512², 2048×1311, 4096²) from
+`generate_terrain(seed 24601)`, written as the entries `SAVEFILE_COMPAT.md` §5
+defines, every archive round-tripped and compared byte for byte before its size
+was believed. Full table in `SAVEFILE_COMPAT.md` §18.1; the three findings:
+
+1. **Changing the codec changes almost nothing.** deflate → Zstandard moves the
+   archive by **under 3 %** at every size and level short of 19 (152.7 → 151.8
+   MiB at 4096²). Deflate level 9 and Zopfli confirm the ceiling from the other
+   side — Zopfli buys 1.2 % over shuffle+deflate at 4096², for 54× the write
+   time.
+   Both codecs are LZ77 plus entropy coding, and an IEEE-754 grid's low
+   mantissa bytes are near-random to either.
+2. **Rearranging the bytes first does change it** — a byte-plane shuffle is
+   **−27 % / −33 % / −36 %** at the three sizes with deflate unchanged, and it
+   makes the *write faster* (3.04 s → 1.92 s at 4096²) because there are fewer
+   literals left to encode.
+3. **Zstandard's real gain is time, not size**: 3.04 s → 0.44 s write, 0.43 s →
+   0.18 s read at 4096².
+
+Per entry, the whole difference lives in `heightmap`, `temperature` and
+`rainfall`. Every JSON document in a 4096² archive together is under 5 KiB.
+
+**The reconciliation that was tried and does not work.** ZIP standardised
+Zstandard as method 93 (APPNOTE 6.3.8, not 6.3.7 — method 20 was the earlier,
+deprecated id), so a zstd entry sits inside a still-valid ZIP, and the tempting
+move is per-entry choice: deflate for `project.json` so any browser can at
+least read the manifest, zstd for the rasters. **Both known JavaScript readers
+fail the whole archive, eagerly, at open time, on the first unknown method** —
+the reference's own `unzipAny` throws `unsupported zip method N for <name>`
+inside its central-directory loop, and JSZip throws `Corrupted zip :
+compression N unknown` from `readLocalPart`, which `loadAsync` runs for every
+entry before any content is requested. The manifest never survives. Combined
+with finding 1, method 93 is now refused outright rather than made conditional.
+
+**Shipped:**
+
+- **`SAVEFILE_COMPAT.md` §3.3** (new, normative): a writer MUST use only method
+  0 and method 8; a reader MUST support both and MAY support more; and **an
+  entry whose method the reader cannot decode is intact and unreadable, which
+  is not the same thing as absent** — §6.4 then decides (fatal for
+  `project.json` and `rasters/heightmap.f32`, skipped-and-reported otherwise,
+  naming the method). A reader whose zip library refuses the whole archive is
+  also conforming.
+- **`SAVEFILE_COMPAT.md` §18** (new, non-normative): the measurement, the
+  JSZip/`unzipAny` finding, and the two levers held back as owner decisions.
+- **One real read-path defect, found by writing §3.3 down.** `project.rs`'s
+  `read_entry_bytes` did `archive.by_name(name).ok()?`, which collapsed *every*
+  `zip` error into `None` — the same value that means "not in the archive".
+  An entry compressed with a method this build could not decode therefore
+  reported as **absent**, so an optional raster was skipped in silence and
+  `read_project` would have let the next save drop an intact payload without
+  telling anyone (§6.2's exact failure mode, and KV-04's shape). `None` now
+  means `FileNotFound` and nothing else; every other error is `Some(Err(..))`
+  and reaches the warning list. An undecodable heightmap is fatal as
+  `LoadError::Io` carrying the method, rather than the misleading
+  `MissingEntry`.
+- **`SAVEFILE_COMPAT.md` §17**: disclosed that this build decodes far more
+  methods than the format uses (`zip` is taken with default features, so
+  Zstandard, bzip2, LZMA, XZ, PPMd and Deflate64 decoders are all compiled in),
+  and that this is incidental rather than a promise.
+
+**Verified:** `an_undecodable_entry_is_reported_and_never_looks_absent` builds
+an archive by hand-patching one entry's compression-method field in both the
+local header and the central directory — the `zip` crate refuses to *write* a
+method it cannot also compress with, so there is no other way to make one. It
+uses method 1 (Shrink), because 93 is decodable here. Mutation-checked:
+restoring the `.ok()?` collapse makes it fail. Workspace **140 binaries /
+2 260 passed / 0 failed / 8 ignored**, before and after.
+
+**Held back for the owner, not decided here.** The byte-plane shuffle is the
+only measured win worth having and it keeps method 8, so every zip reader still
+opens the container — but it ends §8's promise that a raster is a bare
+little-endian dump a `Float32Array` view can sit straight on, and a reader that
+ignored the marker would read plausible-looking noise rather than fail.
+Quantising the heightmap to `u16` with a scale and offset is larger still and
+is **lossy**, which `PARITY_TESTING.md` and `DECISIONS.md` §7a do not permit
+this port to trade away on its own. Both are costed in §18.4.
+
+## The generation peak, audited on the handset — 618 MiB, 241.5 bytes a cell (2026-08-25)
+
+**Audit only. No `.rs` and no `.gd` file outside two throwaway probes was
+touched, no production code changed.** Full account:
+`MEMORY_OPTIMIZATION_SCOPE.md`, "The generation peak, measured field by field";
+summary on `STATUS.md`'s own known-open entry, which stops being a question.
+
+The owner asked about *"not keeping LOD tiles and most of the information in
+RAM — use a folder on the harddrive."* Two thirds of it were already answered:
+LOD tiles are **already** on disk (`bake.rs`'s persistent `world_key` store),
+and today's steady-state Android memory is canvas geometry, not stored data
+(`GUI_GAP_REGISTER.md` §52). The remaining third — the generation peak — is
+what this pass measured.
+
+**Instrumented rather than inferred.** A `#[global_allocator]` wrapper in an
+*example* target — `cartalith-civ/examples/_peakaudit_peak.rs`, which is the
+only place in the workspace that can reach both halves of the pipeline, since
+`cartalith-civ` depends on `cartalith-engine` and `cartalith-godot` is a
+`cdylib` that cannot host an example. Cross-compiled for
+`aarch64-linux-android` and run **on the owner's OnePlus 6T** out of
+`/data/local/tmp`, with `/proc/self/status`' `VmHWM` read alongside. Windows
+and the handset agree to **0.15 %**, and the phone's real RSS high-water
+(616.90 MiB) is within **0.23 %** of the allocator's requested peak — so the
+desktop measurement of this pipeline transfers unchanged, which no previous
+pass could say.
+
+**The peak is 618.28 MiB at 2048 × 1311, and it is inside
+`build_resource_potentials`** — not `build_settlement_suitability`, where the
+2026-08-16 pass placed it. `WorldState` is **82.0 bytes a cell across 23
+fields** (209.96 MiB); the civ layer adds **105.0 B/cell** at the
+`SuitabilityCtx` point, of which the fifteen `ResourcePotentials` grids are
+153.63 MiB. The census (478.82 MiB) matches the allocator (489.12 MiB) with a
+10.30 MiB residue that is per-settlement structure, not a missing grid.
+
+**It scales exactly linearly and the seed does not move it.** Measured at four
+sizes: 564 / 290 / **241.5** / 241.2 bytes a cell at 512×328, 1024×655,
+2048×1311, 4096×2622 — 4× the cells is 3.998× the peak, and the inflation at
+small grids is `civ_hierarchical_network_topology`'s ~60 MiB transient, which
+is grid-*independent*. Three seeds at 2048×1311: **618.19 / 614.49 / 618.34
+MiB**, and a resident figure identical to the hundredth of a mebibyte. §52
+measured 160 MB of seed spread on the app; **none of it is generation**.
+
+**422 MB no-world PSS + 618 MiB = 1 040 MB against §50's measured 1 033 MB
+peak (0.7 %).** The pipeline is ~60 % of the app's peak and is now accounted
+for to the megabyte.
+
+**The 2026-08-16 "double peak" is explained and is not brief.**
+`generate_sized` calls `generate_terrain` while `self.source`/`self.civ` still
+hold the previous world; `absorb()` replaces them only afterwards. Measured on
+the handset with the previous `WorldState` alone retained: generate #1 peaks at
+335.49 MiB, generate #2 at **545.45 MiB — exactly one `WorldState` more**. With
+the previous `CivData` and `absorb`'s own clones it is ≈269 MiB, so a second
+generate peaks at ≈887 MiB against a first generate's 618.
+
+**Eight options, ranked and costed**, of which three matter: free the previous
+world first (**269 MiB, 0 ms, a reordering**); delete four dead resident grids
+— `flexure_field`, `heterogeneity_field`, `flow_area`, `ChannelResult::slope`,
+each with exactly one reader inside `generate_terrain` and none anywhere else
+(**40.96 MiB off peak *and* resident, 0 ms, a deletion**); and block
+`build_resource_potentials`' `per_cell: Vec<[f32; 15]>`, 60 B/cell of scratch
+on top of its own output (**153.63 MiB for a measured +38–50 ms**, +0.15 % of a
+30 s generate, parity-safe by construction and asserted identical by the second
+probe). All eight together: **618.28 → 469.56 MiB, −24.1 %.**
+
+**And a proven negative, which is half the result.** Past that plateau the peak
+is **irreducible without changing what the civilisation pass computes**. There
+is no third case for the `wildlife_regions` / `territory_influence` on-demand
+pattern — every surviving `WorldState` field has a real post-generation reader
+and thirteen are in `sample_bridge::FieldRefs`, read at an arbitrary cell on
+hover. Quantising the resource grids to `u8` would save 115.2 MiB and move
+where towns are, because placement is a discrete argmax over them. **And
+streaming a pipeline field from disk buys nothing**: every field is read by a
+whole-grid stage that touches every cell exactly once, so there is no locality
+to trade for, and where the input is still resident recomputing is cheaper than
+either — the third time this codebase has found that.
+
+Also settled, with numbers the 2026-08-16 pass explicitly deferred to the
+owner: `RESOLUTION_PRESETS`' **4096 needs 2.41 GiB of heap and 8192 needs
+9.65 GiB**. 4096 × 2622 does complete on the handset as a bare process
+(2 470.63 MiB, `VmHWM` 2 319.07 MiB, ~150 s) and would not survive under
+Godot's own ~420 MB on a device reporting 2.38 GB available. **On Android,
+2048 × 1311 is the last preset that fits.**
+
+## The map overlay drew the whole world at every zoom — 825 MB of `Gfx dev` becomes 103 (`GUI_GAP_REGISTER.md` §54, 2026-08-25)
+
+`MEMORY_OPTIMIZATION_SCOPE.md`'s Android diagnosis registered two levers and, its
+brief being diagnosis, pulled neither. Both pulled here, on the OnePlus 6T,
+**seed 123456 typed into the dialog on every run** — the fixture MEM-03 demanded
+after six clean runs of one APK spanned 160 MB on seed alone. Two APKs from one
+frozen snapshot of `HEAD` differing in `map_overlay.gd` alone; both report
+`generated · 26.3 s` at 2048 × 1311.
+
+**Fixed — `_run_offscreen()`.** The camera is an *ancestor* transform, so this
+file never knew how far off screen a way was: every way in the world was
+projected, dashed and uploaded on every redraw at every zoom, and the viewport
+discarded the ones outside it afterwards. Inverting
+`get_global_transform_with_canvas()` against `get_viewport_rect()` gives the
+visible slice of local space; a run whose bounding box misses it is skipped, for
+ways, sea lanes and committed routes alike.
+
+| seed 123456 | before | after |
+|---|---:|---:|
+| objects / buffers, world up | 87 198 · 93.04 MiB | **43 788 · 45.43 MiB** |
+| `Gfx dev` / PSS, world up | 149.3 · 845.3 MB | **104.9 · 807.7 MB** |
+| objects / buffers, +12 zoom notches | 857 965 · 751.0 MiB | **2 320 · 42.79 MiB** |
+| `Gfx dev` / PSS, +12 zoom notches | 825.2 · 1 593.8 MB | **103.2 · 806.8 MB** |
+
+Twelve zoom notches used to cost 676 MB of `Gfx dev` over the default view; they
+now cost nothing measurable (104.9 → 103.2 MB). The 2 320 is honest but flattered
+by that seed's camera sitting over open sea at full zoom — the old code drew the
+entire network there anyway. Like-for-like over land is the default view's
+87 198 → 43 788, and the desktop harness over a canvas-filling network is
+2 592 846 → 807 765 objects at zoom 8.
+
+**No pixel moves**, and it is checked: `_cull_probe` renders the shipping script
+beside a subclass of it whose only difference is that `_visible_local_rect()`
+returns everything, through a real `Node2D` camera ancestor at four zooms × four
+pans — 16 of 16 frames byte-identical.
+
+**Retired — collapsing the dash loop into one `draw_multiline`.** The more
+attractive lever on paper, since `urban_layout_draw.gd` had made exactly that
+change for roof ink at a recorded 577 ms a redraw. Built, shipped to the handset
+and measured: **87 177 objects against 87 198, 93.16 MiB against 93.04, 857 944
+against 857 965.** Nothing. Reproduced on the desktop where both forms run in one
+process — 336 186 objects and 308 draw calls, both arms, to the digit — and
+redraw wall time inside the noise over 200 redraws.
+
+308 draw calls for 336 186 objects is the whole explanation: Godot's canvas
+renderer already batches adjacent same-material primitives, so the collapse was a
+command-count optimisation against a renderer that had already done it, and an
+antialiased thick line expands to the same triangles whichever call submits it.
+The change was verified pixel-identical first (`_dashbatch_probe`, 108 of 108
+frames) and then **reverted rather than shipped**. Both probes are kept: one as
+the check behind the fix, one as the reason not to try the other again.
+
+**Still open**: one long way crossing the window keeps a bounding box that covers
+it, so its whole run is still walked. Per-segment culling would fix that and is a
+bigger change.
+
+Verified: `_cull_probe` 16/16, `_dashbatch_probe` 108/108 plus identical
+counters, both on Godot 4.7.1 GL Compatibility; three real device installs.
+`project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+Godot invocation. No Rust changed; `export_presets.cfg` and `Cargo.toml`
+untouched.
+
+## Flow overlay — the streaks never saw the camera (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §55, FX-01…FX-03. The owner, on the shipped Wind and
+Ocean-currents views: *"from the ocean and windcurrent visualisation it doesn't
+scale with zoom so. It doesn't show finer patterns. And also can we make the tip
+be an arrow head instead of a square pixel."*
+
+Three faults, one cause. `shell/wind_fx_layer.gd` is a grandchild of
+`ViewportHost._camera`, and pan/zoom is that node's `position`/`scale` — so
+every coordinate the layer computes is magnified by a transform it never reads,
+and nothing in the file compensated for it.
+
+**The obvious suspect was innocent.** Nearest-neighbour field sampling is what
+usually produces this complaint. `_sample()` and `_wet_at()` have both been
+bilinear since the layer landed. There was no stair-stepping to remove; what
+was missing was particles to sample the field with.
+
+**Seeded per grid, not per screen.** `_spawn` picked over the whole grid and the
+count is a constant (260 wind / 200 ocean, the reference's own), so zooming in
+magnified a fixed scattering. On a 512×384 world in a 1600×1000 viewport,
+particles whose head lands on the map:
+
+| zoom | wind, before → after | ocean, before → after |
+|---|---|---|
+| 1 (fit) | 260 → 260 | 200 → 200 |
+| 2 | 95 → **204** | 47 → **163** |
+| 4 | 18 → **209** | 7 → **144** |
+| 8 | **4** → **208** | 2 → **133** |
+| 16 | **1** → **195** | 1 → **93** |
+
+Four streaks. "Doesn't show finer patterns" was not a coarse field, it was an
+empty one. `_update_view()` now projects the host's rect back through
+`get_global_transform().affine_inverse()` into grid cells and both `_spawn` and
+`_step`'s retire test work against that slice, so a grid-space density becomes a
+screen-space one at a constant count. **At the fit view the slice is the whole
+grid and nothing changes at all** — the reference's constants are untouched and
+the 260 / 200 rows agree to the particle.
+
+**The hairline.** `maxf(1.0, sx)` is the reference's one-*cell* stroke, correct
+for a `GW × GH` backing canvas that CSS stretches and wrong the moment a camera
+multiplies it: one cell at 8× is a ribbon eight cells thick. Divided by the
+camera scale now, pinning the on-screen width to what it renders at the fit
+view. A `DECISIONS.md` §7d departure, recorded as one — the reference's intent
+was a hairline, and reproducing its arithmetic stopped reproducing its intent.
+
+**The tip, batched.** `draw_multiline`'s butt caps left a flat stub; at 8× the
+ocean view drew two fat squares on an otherwise empty map. Arrowheads now, at
+`k == 0` only, oriented along the last segment and sized in screen pixels
+divided back out by the camera scale. **One call for all of them** — a
+`draw_colored_polygon` per particle is exactly the mistake §52/§54 measured on
+`map_overlay.gd`'s dashed polylines (311 237 objects in a frame, 751 MiB of
+buffers), being unwound in a concurrent session as this landed.
+`RenderingServer.canvas_item_add_triangle_array` takes the whole batch as loose
+triangles with a single-entry colour array, so the cost of 260 arrowheads is
+**zero objects and one draw call**: the layer adds +3 056 objects and +3 draw
+calls where it added +3 113 and +2 before. The ~3 100 is `draw_multiline`'s own
+segments (260 × 12 depths) and is unchanged — which incidentally shows Godot's
+objects-in-frame counts primitives rather than commands, so the twelve grouped
+calls were never twelve objects.
+
+`water_anim_layer.gd` shares neither fault and is untouched: no particles, so no
+tip, and its noise lattice is already in cell space, with one direction per cell
+in a deliberately `filter_nearest` texture — finer ripples would be invented
+detail, not revealed detail.
+
+Verified: `_flowzoom_probe`, non-headless in a 1600×1000 `SubViewport`
+(`_hidpi_probe.gd`'s idiom), run against committed `HEAD` and against the fix,
+two views × five zooms, full frames and 3× centre crops both ways. The layer's
+cost is taken as view-on minus view-off at one fixed zoom, because the deep-zoom
+tiler swaps 30 000 objects in and out on its own as the camera moves.
+`project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before and after every
+Godot invocation. No Rust changed.
+
+## The generation peak's top three, landed — 618.81 MiB becomes 518.92 (2026-08-25)
+
+The audit two entries above ranked eight changes and wrote no production code.
+The first three are in. **618.81 → 518.92 MiB on Windows and 618.28 → 518.86
+on the OnePlus 6T**, at 2048 × 1311, seed 483920, the same probe both ways —
+a 16.1 % cut, and desktop and handset now agree to 0.01 %. `WorldState` is
+209.96 → 169.00 MiB, 82.0 → 66.0 bytes a cell.
+
+**R1 — free the previous world before generating the next.** `generate_sized`
+ran `generate_terrain` while `self.source`/`self.civ` still owned the previous
+world and only then called `absorb`, so every generate after the first paid
+for two worlds at once. A new `release_world()` drops `source`, `civ`, the six
+per-world editors and the undo stack first; it clears exactly the set `absorb`
+writes unconditionally. Measured on the handset with the old ordering:
+generate #2 peaks at 504.47 MiB against generate #1's 335.48, **+169.0 MiB,
+exactly one `WorldState`** — and more in the app, where the previous `CivData`
+and `absorb`'s clones are held too.
+
+**The audit named one call site and there were two.**
+`generate_world_structure_sized` is an independent `generate_terrain` +
+`absorb` pair rather than a wrapper over `generate_sized`, so fixing only the
+one the audit named would have left every archetype generate — the New World
+dialog's own shape control — still holding the old world. Both release now.
+
+**And a generate that fails now leaves no world where it used to leave the
+stale one, which is the honest state and not a regression.** The one modelled
+refusal, the VRAM budget's `Fail with error`, returns in
+`engine_bridge.gd` before the worker thread even starts. The two Rust-side
+refusals — the finalize lock, an unknown archetype name — return above the
+release. Past that point `generate_terrain` has no `Result` and the only exit
+is `absorb`: a panic ends the process at the gdext boundary, taking the stale
+world with it either way, and an allocation failure aborts — which this
+reordering makes *less* likely, since holding the old world was 269 MiB of the
+reason the new one might not fit. Nothing can observe the gap in between,
+because the generate runs on a `Thread` with the whole `WorldGen` mutably
+borrowed, which is the property the shell's `generating` guard already rests
+on. `import_heightmap` and `load_save` are deliberately untouched: those two
+can fail recoverably, and both promise to leave the previous world alone.
+
+**R2 — four resident grids that nothing outside `generate_terrain` read.**
+`flexure_field`, `heterogeneity_field`, `flow_area` and `ChannelResult::slope`,
+40.96 MiB off the resident set and off the whole civilisation plateau above
+it. Each is still computed and still feeds the stage that needs it; none is
+retained. `import.rs` gets faster as well as smaller — it was running a whole
+extra `compute_flow`, a `compute_flexure` and a `compute_heterogeneity` purely
+to fill fields nobody read, and its own comment naming `build_water_access` as
+`flow_area`'s consumer was wrong twice over (that function takes
+`flow_discharge`, and the "drainage-area debug view" it also named does not
+exist — the right dock's Drainage row reads `flow_discharge` too).
+
+**The audit called all four dead and all four were asserted against the JS
+reference.** Its grep covered production code and missed the goldens:
+`flexure_field`, `heterogeneity_field` and `flow_area` are checked cell for
+cell in `golden_parity_pipeline.rs`, and `ChannelResult::slope` in all three
+cases of `golden_parity_river.rs`. This is `CLAUDE.md`'s own "a deletion is
+the one error that cannot be caught by a test that never existed", arriving
+from the other side, and it changed what landed. **`slope` was not deleted at
+all** — `build_channels` still returns it, so its three assertions stand, and
+`generate_terrain` releases it with one line before storing the result, which
+is the same 10.24 MiB for no coverage. The other three went, and six
+assertions with them, each judged individually: all three have a dedicated
+golden test of their own in `cartalith-terrain`/`cartalith-hydrology` that
+still pins the value, and the *wiring* the pipeline test added survives
+transitively for two of them (both are `compute_height` inputs and its output
+`field` is asserted in the same test, as is every input they are handed).
+`flow_area` is a real, stated loss of one wiring assertion.
+`MEMORY_OPTIMIZATION_SCOPE.md` carries the field-by-field reasoning; so does
+the test's own doc comment, where the next reader will actually meet it.
+
+**R3 — `build_resource_potentials`' scratch, blocked.** Its
+`Vec<[f32; 15]>` was 60 bytes a cell over the whole grid — 153.63 MiB, on top
+of the fifteen output `Vec`s allocated immediately above it, and the single
+largest transient in the pipeline. The same `par_iter` now runs in 262 144-cell
+blocks into one reused 15.0 MiB buffer, scattering per block. The kernel is
+byte-identical; only its wrapper moved. **The costing probe predicted +38–50 ms
+on the handset and the real stage came in at 460 ms against a 470 ms baseline**
+— the branchy geology dominates the dispatch by enough that it is free inside
+run-to-run noise. On Windows it reads +2 to +5 ms.
+
+The binding stage is now `civ_hierarchical_network_topology` at 518.9 rather
+than `build_resource_potentials` at 618.8, exactly where the audit's walk-down
+table put it. Its own headline of 469.56 MiB is the figure for all eight
+changes, not these three; working the arithmetic for R1–R3 alone before
+measuring gave 518.87, against a measured 518.92 and 518.86. **The model is
+right to about 60 KiB**, and R4–R8 remain on the table.
+
+Verified: `cargo test --workspace --no-fail-fast` — **139 binaries, 2 255
+passed, 0 failed, 8 ignored, unchanged before and after** (six assertions came
+out of two existing tests, so the count does not move). Tests passing is not
+the proof, though: a third throwaway probe, `_peakaudit_hash.rs`, fingerprints
+every surviving `WorldState` field, all fifteen resource grids, the
+suitability field and the settlement placement list — the discrete argmax the
+audit warns quantisation would move — with FNV over raw `to_ne_bytes`, and at
+512 × 328 and 1024 × 655 the before and after dumps are **identical line for
+line**. `PEAKAUDIT_REGEN=1` on the same probe asserts two consecutive
+generates are bit-identical whether the first world is held or dropped, on
+Windows and on the handset, which is R1's own case. Clippy on the two touched
+engine crates: 85 warnings before, 85 after. No `.gd` file, no
+`export_presets.cfg`, no `Cargo.toml`, and nothing in `cartalith-io`. The
+handset numbers are the pipeline's own allocator, run out of
+`/data/local/tmp`; R1's Godot-side hunk was not exercised inside a running
+Godot process, and the case for it is the reasoning above rather than a
+screenshot.
+
+## The chrome that was "not stable across boots" was two builds on one phone (`GUI_GAP_REGISTER.md` §56, 2026-08-25)
+
+§54 noticed, while measuring something else, that the same APK came up with two
+different shells on the OnePlus 6T — an icon tab bar one boot, text labels the
+next, worth 9.5 versus 15.1 MB of `Gfx dev` at the welcome screen. It could not
+say why, and it was right to flag it: two boots differing by 5.6 MB *before a
+world exists* would put every device measurement this project has taken in
+doubt.
+
+**The boot is not the problem, and it was measured rather than reasoned about.**
+A probe build from committed `HEAD` (`51b3230`) logs the viewport, window,
+screen, touch and aspect at four points inside `DccShell._ready()`, then on
+every `root.size_changed` and on every frame the viewport size moves, for 900
+frames. **52 instrumented cold starts** on the handset: `get_viewport_rect()`
+reports the real **1080 × 2340 at the first sample, all 52**, `_phone` /
+`_landscape` / `_phone_scale` come out `true` / `false` / `2.6214` every time,
+and **`root.size_changed` never fires at all** — not once in the whole corpus.
+There is no sequence of sizes to race against on this device; `_ready()` runs
+≈3.0 s into the process, long after the surface and its insets have settled. Nor
+can the aspect test flip in principle here: `_phone` needs `_touch`, which is
+fixed for the process, and `min/max` is rotation-invariant.
+
+The chrome is just as stable. A fingerprint six seconds after boot — object
+count, render objects in frame, scene-tree nodes, the phone flags, the L1 bar's
+own labels, both dock sheets, the glyph cache — is **identical to the digit
+across twenty runs**, and `Gfx dev` spans 1.5 %.
+
+**The two "variants" are two commits.** Building the same probe from `c9bb82e`,
+the commit immediately before §53's 412 dp phone migration, reproduces §54's
+lower number on demand: **9 452 / 9 636 / 9 500 kB of `Gfx dev` against `HEAD`'s
+14 796 – 15 016**, with a text-label bottom bar (`WORLD CIVIL CARTO PANELS
+MENU`) where `HEAD` draws the icon tab bar. 9.5 and 15.1 are `c9bb82e` and
+`5600c60`. §54's own harness note contains the cause without naming it: the
+concurrent session it records as mid-edit on `shell/dcc_shell.gd` was §53's
+migration, which was not committed until 21:38 — after every APK in
+`builds/android/` had been exported. Two agents were installing to the **same
+package name on the same handset**, one from committed `HEAD` and one from its
+own working tree, and `adb install -r` from either replaces the other.
+
+**Built**: `DccShell.build_id()`, and one line printed before the shell does
+anything else — `Cartalith shell build 756b59e30bc1`. An MD5 over every file the
+project ships under `res://shell/` plus `res://map_overlay.gd`, paths and
+contents, sorted, truncated to 12 hex. No version constant, so nothing can
+forget to be bumped. It is the GDScript twin of `EngineBridge._has()`, which the
+2026-08-24 pass added after a `.so` ran 21 commits behind its own shell in
+silence; that guard speaks for the native half of the pair and nothing spoke for
+the script half.
+
+Verified three ways: **determinate** (two headless runs of one tree,
+`cc30740ce765` both), **sensitive** (one appended comment line in
+`shell/right_dock.gd` moves it `dcb61a49afd8` → `d1e90bc7c590` in the editor),
+and **it reaches the handset** (`756b59e30bc1` in `logcat` from a real cold
+start of the export). Editor and export digests of one tree differ on purpose —
+an export ships `.gdc` + `.gd.remap` where the editor has `.gd` + `.uid`, and
+those are different builds.
+
+**In an export it fingerprints behaviour rather than source**, which the export
+itself disclosed by refusing to move: `script_export_mode=2` compiles scripts to
+binary tokens, so a comment-only edit leaves `assets/shell/right_dock.gdc`
+byte-identical (`a8ee3535…`) while a one-line code change moves it
+(`ed7b699f…`). Two APKs differing only in prose carry one id. Right granularity
+for "is this the same build?", wrong one for "is this the same commit?" — for
+that, hash the APK.
+
+It identifies the build that is *running*, not that the installed APK is the one
+just exported. `adb shell sha256sum $(adb shell pm path …)` against the exported
+file is what closes that, and it is now the rule for a device pass comparing two
+builds; run against this pass's own APK it matched, `36b71ff0…e4ec0dc1`.
+
+**Audited and deliberately not changed**: `_on_window_resized()`'s
+`if not _phone: return`. The referral flagged it as the bug — a shell that
+latched tablet could never correct itself — and it is not, twice over. There is
+nothing to correct (the 52 cold starts above), and hoisting
+`_compute_layout_mode()` above the guard would **reset a tablet user's dragged
+dock widths (WI-04) to `W_DOCK_TABLET` on every rotation**, because that is what
+the tablet branch of that function assigns. Both reasons are now in the
+function's own doc comment.
+
+**No number in the register is retracted.** §54's A and C runs came up at
+9.5 / 9.7 MB — the pre-412 pair — and both of its APKs were taken from a
+committed `HEAD` that was pre-412 for the whole window in which they were built,
+so they were comparable and its headline stands. The exposure is one evening,
+one handset, and the interval between §53's migration entering a working tree
+and being committed. The cost was diagnostic, not numeric: a register carried a
+startup race that does not exist, and an evening went into disproving it.
+
+Built from committed `HEAD` throughout, never the working tree — `git archive`
+into a scratch tree with a junction back to `cartalith-native/target/` so
+`cartalith.gdextension`'s `res://../target/...` resolves, the one edited file
+layered on top. `project.godot` md5 `ccba27c9280cf8373412e2ba87ed4054` before
+and after every Godot invocation, in the real tree and both snapshots.
+`export_presets.cfg` and `Cargo.toml` untouched, no Rust changed,
+`shell/wind_fx_layer.gd` and `shell/water_anim_layer.gd` not opened. Device
+rotation settings were changed for three runs and restored.
+
+Noticed in passing: the `android-dev` `libcartalith_godot.so` in `target/` is
+behind the shell — `EngineBridge._has()` warns once per boot that
+`WorldGen.project_save()` is missing, which is the 2026-08-24 guard working
+exactly as designed. It wants a `cargo ndk -t arm64-v8a build --profile
+android-dev -p cartalith-godot` before the next device pass measures anything
+that saves.
+
+## 2026-08-26 — Route planner conformance: `_jpEnsurePlan` reaches the shell
+
+Owner: *"check the route planner option and if it still performs as the html —
+finding the optimal path and clipping to a route as soon as that method is
+cheaper and faster."* Full record in `JOURNEY_PLANNER_SCOPE.md`'s new
+"Route-planner conformance re-check" section.
+
+**The pathfinding itself was already right and stays untouched.**
+`civ_dijkstra_path` carries all three cost grids, the ×0.25 existing-way
+discount over land ways *and* sea lanes (with v1.53's `isFinite ? … : 1.0`
+branch), settlement gravity, wrap-aware smoothing with the mode-matched repair
+pass, and the `reachable` flag. `route_commit` and `jp_reroute` both feed it the
+generated network **plus** the manual ways, so "ride the existing route where
+that is cheaper" is live on both. Four golden tests pin it; the new probe
+re-solves the same endpoint pair and gets the identical 34-point polyline.
+
+**What was missing was the *planner's* half.** `jp_ensure_plan` — including the
+`jpAutoPickVessel` correction the reference added in v0.6 precisely to stop "a
+keelboat is auto-selected crossing the ocean, which is then rejected as
+unsuitable" — had been ported since milestone 5 and had **no production
+caller**. The shell seeded its party form from `jp_default_plan()`, which is
+`JpPlan::default()`: Walking, Keelboat, route-blind. Its missing input,
+`_civPathWaterFrac` (reference 21142), had never been ported at all.
+
+- `cartalith_civ::civ_path_water_frac` + `commit_route_water_fraction_decides_
+  the_sea_flag` (threshold, lake class, clamp/round of out-of-range points).
+- `WorldGen::jp_plan_for_route(route_index)` — `_jpEnsurePlan` in full, same
+  shape as `jp_default_plan()` plus `sea_journey`. Empty `Dictionary` on a stale
+  binary or bad index, so `journey_planner_view.gd` falls back rather than
+  breaks. The form seeds from it only while `_plan_values` is empty, which is
+  the reference's own `isNewPlan` gate.
+
+**One latent bug found alongside.** `jp_reroute` sized its `RouteInputs` from
+the route's *committed* mode while `jp_reroute_for_mode` solved under the
+domain the *transport* implies. `RouteInputs::build` derives the biome raster
+and river orders for `Mixed` only, so a river re-route of a route not itself
+committed mixed would have got a cost grid with no navigable-river discount in
+it — a silently worse path, not an error. Unreachable today because the shell
+hardcodes `route_begin("mixed")`, which is exactly why it would have rotted.
+Fixed via `jp_reroute_mode(transport, force_mode)`; a successful re-route now
+also rewrites `CommittedRoute::mode`, so `route_get`'s `"mode"` stops naming
+the domain the original commit used.
+
+`_routeplanner_probe.gd`, on the real GDExtension, seed 24601 at 96×64: 8
+settlements, a 34-point 615.3 km mixed route with no unreachable legs,
+byte-identical on a re-solve, `jp_plan_for_route` correcting Keelboat →
+**Fishing Vessel** from the route's own stages, `jp_compute` deriving 14
+stages, a land re-route between the two nearest settlements succeeding (and
+`route_get` reporting `mode=land` afterwards), and a sea re-route between the
+same two inland points refused with the reference's own message rather than
+faked. `cargo test --workspace`: **2 256 passed, 0 failed, 8 ignored.**
+
+## 2026-08-26 (2) — Pass-aware routes, and per-stage auto-pick that applies
+
+Two owner requests in one pass. Both are deliberate divergences from the
+reference and both are recorded properly: `DECISIONS.md` §7i and §7j carry the
+full reasoning, this entry carries what happened.
+
+### §7i — routes now use the reference's corridor detector
+
+*"Routes should be terrain aware. A steep cliff or mountain or any other
+feature would probably always have a most passable point and humans have a
+tendency to use those points naturally."*
+
+**The first attempt was wrong and the measurement caught it.**
+`_civEnhancedTravelCost` has a mountain-pass test (a cell whose immediate
+neighbours along one axis are both `0.018` higher; slope penalty ×0.40) and the
+manual Route/Way grids have never seen it — only the auto road builder has.
+Wiring it in was two lines and was done first. It then fired on **20 cells out
+of 12 288** on a noise fixture, and reached **zero of four** long crossings on a
+real 512×384 world. It is a one-cell test and generated terrain is smooth at
+one-cell scale; a real col between two summits does not look like that. The
+change would have shipped, read correctly in review, and done nothing.
+
+**Replaced with `buildRouteCorridors`** (reference line 5903) — the reference's
+own answer at a scale that exists: `gw/64` cells out along four axes, the
+**minimum** of the two flanking maxima ("one steep flank is a hillside; two is
+a pass"), knee at `0.45`. Already ported, already golden-covered through
+settlement suitability, and offered to nothing that routes. `RouteContext::
+corridors` carries it; `civ_pass_relief` turns it into `1 - 0.60 × corridor` on
+the land cell's **slope term only** — `0.40` at full strength, which is
+`_civEnhancedTravelCost`'s own factor, so the magnitude is the reference's and
+only the detector changed. A pass is cheaper to climb, never cheaper than flat
+ground.
+
+Measured on the shipped path (`pass_relief_measure.rs`, seed 24601 at 512×384,
+169 558 land cells): 30.8% of land carries some corridor value, **mean 0.064**
+(a 4% slope discount on the average cell), **1.02%** above half strength (30–60%
+off, where the pinch points are), and **2 of 4** long crossings changed route.
+The test asserts loose bounds around those, so a later terrain retune that
+kills the field or broadens it fails there instead of being noticed by eye.
+
+`None` is the reference exactly, and **every golden fixture passes `None`** —
+the 16 `golden_parity_civ_tools` cases still mean "matches v2.10". Suppressed
+for water mode and for worlds under 128 cells wide, where the detector's own
+`max(2, gw/64)` reach collapses to two cells.
+
+### §7j — the Journey Planner applies its per-stage suggestions
+
+*"Per stage should auto pick either according to terrain or animals/carriage.
+Basically it should always pick from technically best and available per stage.
+(and scale to group and cargo size)."*
+
+`_jpBestLandTransportForStage` (v1.53) and `_jpBestPackageForStage` (v1.66)
+were both ported with tests in milestones 2/6 and **neither had a production
+caller** — the eleventh instance of that pattern this port has found. Their
+reference contract is *"measure, never silently apply"*: `_jpRenderResults`
+shows "⚡ faster mode available" past a +10% margin and leaves the swap to the
+user. `jp_auto_stage_picks` applies them, behind `jp_compute`'s `auto_stage`
+key and a party-form toggle that is **off by default**.
+
+**Two things the picker got wrong first, both caught by measuring rather than
+reasoning, both now gated by `jp_stage_mode_available`:**
+
+1. On the m5 fixture it produced four picks, all *"switch to Mounted Rider"*,
+   +39% each — because `jp_capacity_ex`'s v1.83 branch issues
+   `group_size - declared` mounts to a Mounted Rider party. In the reference a
+   human typed that into the form and it *was* a declaration. Here it silently
+   issued a twelve-person caravan ten horses it does not own and left the cargo
+   on the road.
+2. Gated on that, it then found *"switch to Walking"* on every paved-road stage
+   of a real route, +42% each, taking the journey 131.2 → 120.7 days — because
+   Walking is 4.0 km/h against a Baggage Train's 2.6 and the capacity model
+   still counts the mules. A cart does not go on anybody's back. Walking is now
+   available only to a party with no animals and no vehicles, which is exactly
+   what `jp_auto_pick_transport` itself means by the word.
+
+The other rules: the reference's **+10% margin is kept**; a **blocked** stage is
+*not* skipped and the margin does not apply to it (there is no percentage
+between "cannot cross" and "can cross", and a cart-blocked desert crossing is
+the owner scenario v1.66 was written for); a **hand-set per-stage field always
+wins**; and application is **all-or-nothing** — the picks are measured against
+the first plan's stages, so if the replan derives a different stage count,
+nothing is applied.
+
+Scaling to group and cargo is inherited, not re-implemented: every candidate
+goes through the same `jp_calc_land` against the stage's own effective plan,
+which already carries group size, cargo, supply days and animal counts.
+
+### Verification
+
+`cargo test --workspace`: **2 259 passed, 0 failed, 8 ignored**.
+`auto_stage_picks_only_emit_measured_improvements_and_apply_as_overrides` pins
+the owner's own scenario end to end — a mule-and-cart train on Deep Sand comes
+back **blocked**, the pick is **camel + travois**, all ten pack animals re-tack
+(the reference's `packAnimals` is the sum over species, not the current one's
+count), and applying it through the ordinary `stage_overrides` cascade
+reproduces the promised km/day to 1e-9.
+
+`_routeplanner_probe.gd` on the real GDExtension, two worlds: a temperate
+256×192 and a hot one. Both report **0 picks**, correctly and consistently
+(`total_days` identical with the feature off and on) — the existing-way
+discount pulls a route between settlements onto Paved Road, where a mule with
+carts already is the right train. That is the honest shape of this feature: it
+earns its keep on wild ground and on desert transitions, not on the road
+network, and the probe now says so in its own output rather than leaving a
+zero to be misread as a failure.
+
+## 2026-08-26 (3) — Wiring audit pass 5, run mechanically instead of by eye (`PARITY_AUDIT.md` §23)
+
+Owner: *"Do a full audit and check if everything is wired correctly, like you
+said this is the 4th time already."* Fair — every previous find of this class
+was by eye, mid-task, by accident, and four passes of `PARITY_AUDIT.md` found
+them one at a time by reading. This pass asked the question mechanically
+first and verified every hit by hand afterwards.
+
+`cartalith-native/tools/audit_wiring.py`, checked in because §22 rec #5 asked
+for exactly that after passes 1 and 2 both asked and were ignored. Four
+questions: **A** `pub fn` with no caller outside test code (65 of 1 167),
+**B** `#[func]` no `.gd` file names (17 of 361), **C** names the shell asks
+`world_gen` for that don't exist (**0**), **D** `engine_bridge.gd` funcs
+nothing calls (10 of 337). C being zero is the good news — the class that
+disabled File ▸ Save until 2026-08-25 (a stale `_has()` guard degrading
+silently instead of failing) is now empty, and it is the only one of the four
+that can legitimately be zero.
+
+Eight findings, each read individually: **F9** the vault (eight `#[func]`s,
+zero `.gd` references — the search and the "confirm always" half of the
+owner's 2026-08-25 message); **F10** `project_save_with_documents` unwired
+and asymmetric (`entities/journeys.json` has a writer and no reader);
+**F11** the reference's `erode()` — `dropletKernel` → `erodeThermal` →
+`isostaticRebound` — ported at kernel level with golden coverage and never
+assembled; **F12** `jp_compute`'s wildlife forage modifier hard-coded to 1.0
+over a stale comment, though `wildlife.rs` is golden-tested and already
+called elsewhere; **F13** nine more ported-and-unexposed, including
+`jp_pack_range` — which *is* the v1.48 fodder-ceiling fix itself; **F14**
+three dead getters, an unclamped `lod_max_level`, ten dead
+`engine_bridge.gd` wrappers. Also classified as **not** gaps: six superseded
+wrappers, one disclosed non-use, 21 data-structure accessors, the 9
+`cartalith-gpu` feature-gated variants.
+
+No crate code changed in this pass — every finding is an owner decision
+about what to build, and F10 is a decision about what to build *first*: the
+reader, before anything writes.
+
+A same-day scaffolding commit (`5b1a18e`) pre-built the `engine_bridge.gd`
+wrappers every fix below would need plus two empty
+`#[godot_api(secondary)]` impl files (`erode_bridge.rs`, `ops_bridge.rs`),
+so five agents closing these findings in parallel wouldn't collide on the
+same two files. `erode_bridge.rs`'s module doc carries the one constraint
+that matters for F11: `erode()` is an **op**, not a generation stage — in
+the reference it is a button that mutates the field *after* generation, so
+it must never enter `generate_terrain`, which is what keeps every golden and
+every generate-derived hash bit-identical.
+
+## 2026-08-26 (4) — The vault's search and "confirm always" reach the shell
+
+`PARITY_AUDIT.md` §23 F9. Eight `#[func]`s were complete, tested and
+documented on the engine side with zero references in any `.gd` file —
+among them the search the owner's 2026-08-25 message opens with and the
+"option to confirm always" it closes with. `vault_window.gd` 641 → 1140
+lines; nothing else touched.
+
+Search surfaces all four honesty states rather than one: no content index
+(plus an action to build one), notes-opened count, a capped scan, and the
+under-three-characters case where the engine narrows silently and
+`scanned=0` would otherwise have no visible explanation. Runs on Enter or
+the button, never per keystroke — a rebuild per keystroke frees the field
+being typed into. "Don't ask again" lands on the three write dialogs, plus a
+Write-confirmations group that opens itself when any flag is off, since the
+checkbox that set it lives on a dialog that no longer appears. Preferences
+persist as verbatim engine JSON text in both directions — never parsed into
+a `Variant` and re-emitted, which is how KV-04 discarded every knowledge
+link a user had made. `vault_file_data` / `vault_link_data` /
+`vault_entity_data` surface frontmatter and fields as two lists, never
+merged — they are two authoring surfaces entitled to disagree.
+`vault_remove_block` is previewed and confirmed like a write, deliberately
+*without* a confirm-always box: `vault_set_write_pref` takes three names and
+removal is not one of them.
+
+Verified rather than trusted: every caller runs its `vault_preview_*`
+*before* the dialog and closes over the returned hash, and the preference
+shortcut calls that same closure — so a suppressed dialog still carries a
+fresh hash, and a note edited in between still refuses. Confirmed
+behaviourally on a temp vault: a stale write and a stale `remove_block` both
+refused, both succeeded fresh. `godot --check-only`: clean. Not done: no
+control was clicked in a live GUI, and the preview dialogs' Write/Cancel bar
+still misses the 44 dp phone floor — pre-existing, `_floor_dialog_bar` has
+never run for them.
+
+## 2026-08-26 (5) — Project documents: the channel returns what was stored, not a re-serialisation
+
+`PARITY_AUDIT.md` §23 F10 — and the audit's central claim for it was
+**wrong**, corrected in the same pass rather than left for later. §23 said
+*"there is no reader at all"* and concluded that wiring the writer would
+produce files the shell could never load. Checked against `cd02490`:
+`project_open` already built a `documents` dictionary of every
+non-engine-owned slot. The real defect was narrower — the text was
+`serde_json::to_string` of the **coerced** `serde_json::Value`, so it was
+not the document that was saved: `Value`'s object map is a `BTreeMap` (so
+members come back sorted), whitespace is gone, and §14.2's integer coercion
+had already rewritten `1.0` to `1` inside it. The honest statement is *"the
+shell could load them but not get them back unchanged."*
+
+`cartalith-io`'s `ProjectData` now retains `document_text` beside
+`documents`, populated in the same `read_tree` pass, plus `text_of` and
+`read_document(reader, slot)` — one document out of an archive,
+manifest-checked, BOM-stripped, parsed once to prove it's valid JSON and the
+parse discarded. `project_bridge::project_read_document(path, slot)` reads
+an archive on disk **without** replacing the current world, which
+`project_open` cannot do; `present` separates "no such document" from "an
+empty one." Both directions of the channel now share one
+`caller_slot_refusal` predicate. `SAVEFILE_COMPAT.md` gains normative §6.5
+"Documents an implementation does not model": a carried document **must** be
+exposed as text, byte-for-byte as stored, never re-ordered or coerced.
+
+Verified: `cargo test -p cartalith-io` (63/1/2/8, all green) plus a new
+five-test channel suite, re-run independently. The round-trip fixture
+brackets §14.1 rather than sampling it — `4294967297` above 2³¹ and
+`9007199254740991` exactly at the safe-integer ceiling — with escaped
+quotes, an em dash, CJK and an alchemical sigil, pretty-printed with members
+deliberately out of sorted order so byte-identity can't pass by coincidence.
+Mutation-checked: reverting the fix fails two of the five.
+
+A same-day correction (`93ccdc1`) fixed §23's own two errors in place: F10's
+"there is no reader" claim (the harness's own blind spot, committed by hand
+in the prose beside it) and F11's line number (3898, not 3894 — the clamp
+*inside* `erodeFinish`) plus its cause (the erosion kernels are
+**unreachable** across a crate boundary, not merely uncalled — `cartalith-
+godot` has no dependency on `cartalith-erosion` at all).
+
+## 2026-08-26 (6) — The `erode()` op, assembled at last, and a panic it was hiding
+
+`PARITY_AUDIT.md` §23 F11, the largest single item the audit found: the
+reference's `erode()` (`dropletKernel` → `erodeThermal` → clamp →
+`isostaticRebound`, reference line 3898) was ported at kernel level with
+golden-parity coverage and never assembled. The cause was not a missing
+call — `cartalith-godot` has no dependency on `cartalith-erosion` at all,
+and `cartalith-engine` re-exports none of it, so the three kernels were
+**unnameable** from the bridge crate. The fix is `pub fn erode_op` in
+`cartalith-engine`, which already has the dependency, rather than a
+`Cargo.toml` line the owner has asked to leave alone — and the better home
+regardless, since composing four kernels over a `WorldState` is engine work.
+`ErodeOpts` is its own struct, never `WorldParams` fields, so a caller
+cannot erode with a gravity or seed that disagrees with the world being
+eroded.
+
+**The bug the agent's own tests found:** the first version passed `None` for
+rain when `ws.rainfall` was missing or wrong-sized while leaving `ck` at
+whatever `stream.climate_k` said. Two tests panicked at
+`cartalith-erosion/src/lib.rs:162` — `rain.expect("rain field required when
+ck > 0")` — inside `droplet_kernel`'s spawn loop. `climate_k` defaults to
+0.5, so the default op on a world with no rainfall (an imported heightmap, a
+partially-run pipeline) would have taken the whole Godot process down
+through a `#[func]`. The reference can't reach that state — `rainField` is a
+module global that always exists — so this is a port-specific hazard, not a
+parity question, and it would have shipped invisibly since the op had no
+caller until the day the button existed. `ck` and the rain field are now
+decided together: a missing field zeroes `ck` rather than being dropped
+underneath it. Reported on `ErodeSummary::climate_coupled` rather than
+swallowed, surfaced in the UI as *"no rainfall on this world — droplets
+spawned uniformly."*
+
+Verified, not trusted: grep for `erode_op` across every crate but its own
+module and the bridge returns exactly one line, the `pub mod`. No
+`generate()` path reaches it — `WorldParams` is untouched, so no
+`world_key` and no `save_round_trip` input moved. `cargo test -p
+cartalith-engine`: 0 failed across every target including
+`golden_parity_pipeline` and `golden_parity_carve`. `cargo test -p
+cartalith-godot --lib`: 378 passed.
+
+Two shell corrections landed alongside: `world_workspace.gd` had told the
+user that Droplet, Hillslope, Velocity, Glacial and Coastal were "not
+ported"; four of five are ported *and already on screen* (`params.rs` files
+every `passes.*` key under group "erosion"). Droplet genuinely stays a
+button and now has one. And the fjord note claiming flow/rivers/climate
+aren't recomputed after `carve_fjords` was wrong — it marks
+`PipelineStage::Height` and runs the staleness graph, so flow and climate
+*are* recomputed; only the vector river network isn't.
+
+Also in this commit: `apply_force_lake` (§23 F13), joining
+`SculptEditor.water.lake_mask` to `CivData::water_bodies` — that edge never
+existed, so a painted lake was terrain that happened to be lower, and the
+settlement tool, router, trade, military and Journey Planner all read it as
+land. Four tests, a Painted lakes control in Sculpt ▸ Draft. Documented
+ceiling: `PaintEditor`'s `water_mask` is a private snapshot with no setter,
+so the biome brush's land-only gate still doesn't see a forced lake — closed
+two commits later (below).
+
+## 2026-08-26 (7) — Wildlife forage reaches the Journey Planner, behind a fingerprint cache that measures 1.1×
+
+`PARITY_AUDIT.md` §23 F12 and the Journey Planner half of F13. `jp_compute`
+passed `|_,_| 1.0` as the forage modifier over a comment saying the wildlife
+layer "was never built" — stale: `wildlife.rs` exists, is golden-tested, and
+`wildlife_region_at` is already called by the shell. The two functions that
+turn `Ecoregion::richness` into the modifier were ported, tested and
+uncalled.
+
+Measured before designing, which decided the shape (release, 4 runs):
+`jp_compute` core costs 6–8 ms at 1024² / 24–35 ms at 2048²; one
+`wildlife_regions` rebuild costs 69–70 ms / 236–239 ms; one fingerprint
+costs 1.45 ms / 2.85 ms. Naive wiring would have made the planner ~9× slower
+per keystroke; cached, it's ~1.1×. §23's "needs a cache before it needs a
+call site" is now confirmed, not inferred.
+
+The cache keys on a **content fingerprint** of `wildlife_regions`' own nine
+slices and seven scalars, not an epoch counter — an epoch would have needed
+a bump at `sculpt_commit`, `carve_fjords`, `center_landmasses`,
+`undo_last`, `import_heightmap`, the staleness re-runs and
+`recompute_civilisation`, an open list that `erode_bridge`/`ops_bridge`
+(landing the same hour) were free to write `ws.field` without knowing
+existed. A missed bump fails silently, which the brief refused. Completeness
+is provable by construction: the hash covers every argument the function
+takes; chunk hashes fold back in index order, so the value is stable across
+thread counts. Five tests, including the cache agreeing with the uncached
+path at all 9 216 cells, and a rich region (3/2.25 → 1.3333) really foraging
+differently from a poor one (2/2.25 → 0.8889) — an earlier draft routed the
+"poor" case over water, where `jp_calc_water` never consults foraging at
+all, so it would have passed while proving nothing.
+
+`jp_pack_range`, `jp_risk` and `jp_vessel_matrix` bound and placed where the
+reference draws them. §23 called these "exposed nowhere," which understates
+`jp_pack_range`: the view had a hand-rolled stand-in reading the last
+compute's `capacity.fodder` and reporting "roughly N days as configured" —
+restating the current setting rather than stating the ceiling, exactly the
+pre-v1.48 behaviour the reference wrote the function to end. `379` lib
+tests, 0 failed. Two disclosed limits: `jp_auto_stage_picks` still takes a
+scalar where it needs the per-stage closure (closed next commit), and the
+vessel matrix's water columns sort alphabetically because the reference's
+physical order lives in two private consts (also closed next commit via
+`JP_WATER_TERRAINS`).
+
+## 2026-08-26 (8) — File ▸ Open read the tree as flat, and silently dropped the civilisation layer
+
+**The most serious defect this audit produced**, found while wiring F10
+rather than by the audit itself. Measured, not inferred:
+
+```
+settlements before save: 8
+project_save: ok=true entries=18
+load_save (what the shell calls): ok=true settlements=0
+project_open (never called by the shell): ok=true settlements=8
+```
+
+`EngineBridge.save_project` was repointed at `project_save` — the tree
+writer — on 2026-08-25. `EngineBridge.load_save` was never repointed: it
+still called `WorldGen::load_save`, the **flat HTML-format reader**. Every
+project this build saved and reopened came back with terrain intact and its
+entire civilisation layer, appearance and documents silently gone — `ok ==
+true`, no warning, nothing in the console. The user meets it as "my
+settlements vanished," a session later, with no way to tell which operation
+lost them. `project_open` reads **both** layouts — verified in the same
+probe, it opens a flat export and reports `layout == "flat"` — so the fix is
+one call, not a format sniff, satisfying the owner's standing rule: read the
+old format and the new one, write only the new one. `WorldGen::load_save`
+stays as the fallback for a binary too old to have `project_open`.
+
+Also landed now that a reader returns what was actually stored (`afc2d57`):
+`entities/journeys.json` is written *and read* — the saved-journeys list was
+in-session only, and the scope doc had blamed first the missing writer, then
+the missing channel; what was actually missing was a reader returning stored
+bytes rather than a re-serialisation. `jp_auto_stage_picks` takes the
+per-stage closure instead of one scalar for the whole journey. `
+JP_WATER_TERRAINS` made public, so the vessel matrix draws its columns in
+the reference's physical order (calm to rapids, sheltered to rough) instead
+of alphabetical, which had put the rapids before the shallows.
+
+**And the harness had this exact blind spot.** Question B counted every
+`.gd` file, probes included — `project_open` was named by
+`_savetree_probe.gd` and nothing else, so it scored as *reached* while the
+data loss sat underneath it. A capability reached only by a probe is not
+wired: it's a capability with a test and no product behind it, the precise
+thing the harness exists to find. B now scans shell files only and flags
+probe-only hits explicitly. The corrected question immediately returned two
+more — `recompute_stale_stages` and `atlas_is_covered` (closed/declined
+next commit). Fifth distinct instance of this defect class in one day; the
+first four were found by eye.
+
+`cargo test --workspace`: **2 284 passed, 0 failed, 11 ignored**.
+`_savereopen_probe.gd` drives the round trip through the real
+`EngineBridge`: 8 settlements out, 8 back, document byte-identical
+including an integer above 2³¹, old flat archive still opening.
+
+## 2026-08-26 (9) — §23 closed: five wired, four declined with the reason in the code
+
+`PARITY_AUDIT.md` §23's F13/F14/F16 remainder (`44f7d9e`, `8f4068f`).
+Instruction to this pass: fewer done properly beats all of them shallowly,
+since a half-wired control looks finished and an unwired function does not.
+
+**Wired:** `civ_regional_population` — `estimate_regional_density_km2`
+integrated over land plus painted-territory share, on-demand in the
+Civilisation workspace, costing a real slice of Recompute civilisation, not
+run on every refresh. `as_drop_collection` — the Collections rail could
+create and browse a collection but never remove one. The three dead getters
+(`get_villages_enabled`/`get_metropolis_enabled`/`get_recovery_phase`), now
+read on `new_world_dialog`'s `about_to_popup` so the persistent, reused
+dialog shows the reopened project's settings instead of its own stale
+defaults. `lod_max_level`, now explicitly clamped in `viewport_host` — a
+no-op today since `lod_level_for_zoom` already clamps server-side, but
+explicit rather than assumed, the difference between correct and
+accidentally correct. `arc_label_line_width`, bound — though `map_overlay
+.gd`'s own inline one-liner stays, since that file holds no bridge reference
+and the expression sits inside a per-label draw loop, where an FFI
+round-trip would cost more than the multiplication it replaces; the doc
+comment now says why. `recompute_stale_stages` — the shell read staleness
+on a one-second timer and had no way to settle it; a Recompute chip now
+sits beside the stale label, driven by the same poll, refreshing the
+viewport (deliberately not `world_loaded`, which means "different world"
+and would clear the trade match) — desktop/tablet only until phone_menu
+.gd's row list carries it. `PaintEditor::water_mask` gained a setter and
+`apply_force_lake` calls it, closing the ceiling `00a9a3d` had documented —
+one `Arc` per press, nothing per dab, so the 417 ms generation-time cache
+stays untouched. Vault "confirm always" preferences moved from
+`vault_window.gd` to `vault_store.gd`, mirroring every other piece of vault
+state.
+
+**Declined, reasons written into each function's own doc comment:**
+`extract_region_as_world` (orchestration deliberately unported, lives in
+`WorldGen` state), the icon brush (the inside of a tool that doesn't exist
+— nothing arms it, renders it or stores it), `to_library_json` /
+`apply_library_file_with_items` (save-format adjacent, already disclosed),
+`referenced_files` / `slot_paths` (their one real consumer open-codes them),
+`atlas_is_covered` (both its jobs need a baked-imagery reader the shell has
+none of — gating refinement on coverage today would make deep zoom show
+*less* detail), `project_read_document` (the only surface that shows
+anything about a project before opening it — the gallery tile — already
+reads `params.json` with its own `ZIPReader`; no UI was invented to justify
+the binding). One judged **not** a gap: `filled_count` is already derived
+from real engine data by `_refresh_rail_counts`; a second binding would be
+an FFI round-trip answering a question already answered right.
+
+Verified: `cargo check -p cartalith-godot` clean, `--check-only` clean on
+all shell files touched, 378/380 lib tests green across the two commits,
+the new `a_forced_lake_reaches_the_paint_gate` re-run individually and
+mutation-tested (stubbing the setter's body fails exactly that test). One
+correction to my own brief: the vault-prefs placement bug was **latent, not
+live** — `app.gd` constructs and sets up the window eagerly at boot, so
+preferences did load today; the move removes the dependency on that eager
+construction rather than fixing a firing bug.
+
+## 2026-08-26 (10) — HTML v2.11: reads the tree format and the vault, writes neither
+
+Owner: *"can you update the old html (copy a new version) and put in there
+the new save file loading and vault reading... No need to change the
+current ui."* New file, `Cartalith Gen1 v2.11.html`, copied byte-identical
+from the frozen v2.10 snapshot (both md5 `9cba09ace11670c412ee35ca3e266d6c`
+at the copy). `reference/` is untouched and still hashes the same —
+verified after the work, not assumed, since every golden harness in this
+repo slices that file by line number.
+
+**Reading the tree.** `_treeRead(z, warn)` does not load anything — it
+*translates*. It returns exactly the `{GW, GH, state}` object `loadZip`
+already gets from a flat `params.json`, aliasing the tree's rasters onto
+the flat names inside the same `z` map, so the whole existing chain — the
+shims, `allocate()`, the typed-array reads, `buildTectonicSubstrate`,
+`computeFlow`, `syncUI`, and the civ/paint/LOD monkey-patch chains — runs
+unmodified over a tree. The `loadZip` diff is 12 lines. Both layouts still
+open, and `exportZip` is byte-identical, diffed against `HEAD` rather than
+assumed.
+
+**Reading the vault.** `vault.json` read whole, surfaced in three surfaces
+that already exist: the settlement inspector, the faction editor
+(faction + culture links), and one line on the Factions overview for
+province/continent links and unresolvable ones, since neither has an
+inspector. Read-only, no new panel, no new CSS.
+
+**The bug it found on the way.** `Object.assign(state, pk.state)` is a
+**merge**, so a state block the archive omits survives from the previously
+open project. Every pre-v2.11 export writes state whole, so this never bit
+— but §1.1's interoperability export writes a flat `params.json` with no
+civ block at all, so opening a tree and then a flat archive silently kept
+the tree's 10 settlements, 17 ways, territory, timeline, labels, icons and
+vault links over a different world, and reported `ok`. Same defect, same
+shape, as the native File ▸ Open bug fixed the same morning (above): a
+reader that succeeds while silently keeping or dropping a whole layer.
+Fixed by clearing the project-scoped collections before the merge, with a
+regression case asserting nothing leaks across a tree-then-flat open in one
+session.
+
+Verified: 93 assertions over 5 loads driven inside a `vm` context over all
+four `<script>` blocks, covering §14.2 integer coercion, §9.1–§9.4 record
+handling, §10 timeline ordering and per-year territory, §11 annotations,
+§6.3/§6.5 carried documents byte-for-byte (including non-ASCII and an
+integer above 2³¹), and §13.3 stale ids. Six negative controls — bad JSON,
+wrong format, missing `world.seed`, mistyped `wrap_x`, a heightmap short by
+one float, no heightmap — all refuse *and* leave the already-open project
+intact. Ten findings against `SAVEFILE_COMPAT.md` from this file's first
+independent implementer, folded into the spec next commit — sharpest: §13.3
+said "the link store, verbatim" with no shape given, so the vault could
+only be implemented by reading `cartalith-vault`'s Rust, exactly the
+"implementable from this text alone" claim failing.
+
+## 2026-08-26 (11) — v2.11 ponytail: a per-frame world-wide river trace, a cache that could not invalidate, and 50 fallbacks defending a legal value
+
+Top three findings from the read-only ponytail survey of v2.10, applied to
+v2.11. The frozen reference stays untouched, asserted by the checked-in
+harness.
+
+1. `_umWaterCtx` re-traced **every river in the world**, per settlement, per
+   frame. A gen-keyed cache doing exactly that, with an identical argument
+   list, sat ~150 lines below it — `drawCivLayer` §2.5 reaches `_umModelFor`
+   for every in-view settlement each frame, and `_umPlaceContext` runs
+   *before* the model cache is consulted. The comment justifying it claimed
+   the result "is itself cached per settlement" — it is not; `_umModelCache`
+   sits behind it, and that false comment is why the duplicate survived
+   review. At the default 2048-wide grid that's three full `GW×GH` sweeps,
+   two typed-array allocations, a sort and an object per channel cell, once
+   per settlement per frame.
+2. Fixing (1) exposed a real bug in the cache being switched *to*: it keyed
+   on `_fieldGen`, wrong in both directions — of five sites nulling
+   `_riverNet`, three bump `_fieldGen` and two don't (riverDensR's slider,
+   the post-carve `computeFlow(true)`), so it served a stale channel set
+   after a river-density change; two other sites bump `_fieldGen` *without*
+   touching `_riverNet`, so it also re-traced when nothing about the rivers
+   had moved. Now keyed on the **identity** of `_riverNet` — the polylines
+   derive from it and nothing else, so every invalidation path, present or
+   future, invalidates this by construction.
+3. `state.seaLevel||0.42` at 50 sites, against ~130 reading it bare. The
+   slider is `min="0"` with no clamp, and `seaLevel` is initialised in the
+   state literal so it's never undefined — the fallback only ever defended
+   against its own legal zero. At Sea level 0% the renderer drew an all-land
+   map while `_civDropPlace` computed 0.42 and refused to place a
+   settlement on most of the visible land. All 50 removed.
+4. The eight-line derived-field invalidation list, written out identically
+   eight times, is now one function with eight callers. The `_biomeK`
+   toggle keeps its narrower four-cache list, correct and not drift.
+
+`cartalith-native/tools/ponycheck.js`, checked in beside `audit_wiring.py`:
+21 assertions, all green, exercising the **shipped** function text rather
+than a reimplementation — the whole file can't be evaluated under a DOM
+stub, since `let` in a `vm` script is a lexical binding rather than a
+context property. One of ponycheck's own assertions was a false positive
+worth recording: a proximity regex for `_biomeK` near `invalidateDerived`
+matched `invalidateDerived`'s own doc comment, which names `_biomeK` in
+prose. Rewritten to assert on the toggle's actual line.
+
+## 2026-08-26 (12) — The spec's first independent implementer found a false sentence in it, and three real defects under it
+
+`SAVEFILE_COMPAT.md` +637/-44, plus the code fixes its findings implied.
+
+**The correction that matters most.** §15 ended with *"A flat archive
+carries no entities, no history and no annotations this reader can
+restore."* That is **false** — a flat archive carries all three, nested
+inside `params.json`'s `state`: `state.civ` holds sparse territory pairs,
+the timeline, ways, journeys and the year cursor; `state.places` /
+`labels` / `mapIcons` / `roads` hold settlements, labels, icons and the
+older auto-network. A second implementer who believed that sentence would
+discard the entire civilisation layer of every legacy save while being told
+by the spec they were conforming. New §15.1 plus twelve rows in the
+flat→tree mapping table; §15's claimed "seven entries" corrected to eight
+unconditional, ~30 in total.
+
+**Ten findings, nine verified and one rejected.** Rejected, correctly:
+`village_seeded` "has no home in the reference" — it does, as
+`p.villageAddon`; the agent checked rather than accepted, which is the
+point. The rest produced §6.4a's damage ladder (value → element → document
+→ archive, climbing only when the smaller scope has no defined meaning,
+resolving a §7-vs-§6.4 contradiction), §15.2's exact `rg16` packing, §9.1's
+capital↔kind translation, §9.2's rule that faction colour is stored and
+must **not** be regenerated, §9.4 permitting re-derived provinces with two
+obligations, §10.2's `<year>` grammar, §11.3 (w/h below 1 means no region,
+not a region widened to 1), and §13.3 rewritten as eight subsections. §14.4
+now names the one collision a second implementer will actually hit:
+`sea_lane` vs. the reference's own sea-lane, which would otherwise silently
+become `track`.
+
+**Three code defects, fixed here.** (1) `LinkStore::from_json` failed the
+**whole store** when any single link failed to deserialize, and
+`project_open`'s `if let Ok(store)` then skipped the vault in total
+silence — one unrecognised `selection.type` from a newer writer cost every
+knowledge link in the project, `ok == true`, KV-04's exact shape one layer
+up. `Selection` gets a hand-written `Deserialize` folding an unknown type
+onto `whole_document` (hand-written rather than `#[serde(other)]`, which
+would need a third variant that then re-serialises as a type no reader
+knows); mutation-checked, removing the fallback arm fails the new test. (2)
+`world.seed` was read `as i32`, which **saturates silently** in Rust — a
+conforming archive above 2³¹ loaded with a different seed, terrain still
+correct (restored from the raster, not regenerated), but Generate
+afterwards produced a world that wasn't the one on screen, and
+`save_round_trip`'s bit-identical assertion quietly stopped holding. Now
+range-checked and refused via `LoadError::OutOfRange`. (3) §10.2's `<year>`
+was parsed rather than matched, so `+7` and `007` were accepted and could
+silently displace each other in the `BTreeMap`; specified, code fix noted
+in §17 for follow-up.
+
+`cargo test --workspace`: **2 286 passed, 0 failed, 11 ignored**. On
+whether §13.3 is a spec or a paraphrase, the implementing agent's own
+answer is worth keeping: a spec, with one honest caveat — `entity_kind
+"culture"` can't be made self-contained, since its id indexes a vocabulary
+the archive doesn't carry, so §13.3.4 names it as the odd one and requires
+a differing implementation to treat those links as unresolvable rather than
+bind them to whatever sits at that index.

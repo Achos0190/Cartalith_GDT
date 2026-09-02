@@ -425,7 +425,7 @@ fn bench_flow_and_climate(p: &WorldParams, ws: &cartalith_engine::WorldState, gw
                 let (_w, rain) = cartalith_gpu::simulate_weather_loop_gpu_with(
                     gpu, &grid.eh, &grid.tc, &grid.sst_evap, &grid.wx, &grid.wy, &grid.w_init, grid.ww as u32, grid.wh as u32, p.climate.w_iters, grid.sea as f32, grid.ocean_hum as f32,
                     grid.evap as f32, grid.ocean as f32, grid.rain_k as f32, grid.dry as f32, grid.step as f32, grid.bulk_evap, grid.wrap_x,
-                );
+                ).expect("weather loop must complete on this device");
                 let mut rainfall = cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh);
                 apply_climate_moisture_correctors(gw, gh, field, &flow_area, &mut rainfall, sea_level, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
                 std::hint::black_box(&mut temperature);

@@ -52,7 +52,7 @@ pub struct LoadedSheet {
 }
 
 /// The slicer modal's four numbers plus its three toggles, in engine terms.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SliceParams {
     pub cols: i64,
     pub rows: i64,
@@ -66,6 +66,16 @@ pub struct SliceParams {
     pub trim: bool,
     /// `#alSlSkip`, on by default in the reference.
     pub skip_blank: bool,
+    /// AS-17's per-interior-line drag: `cartalith_assets::SliceGrid::with_lines`'s
+    /// own override, carried through unvalidated (`compute_cells` already
+    /// falls back to uniform for a `Some` of the wrong length).
+    pub col_lines: Option<Vec<f64>>,
+    /// The row equivalent of [`SliceParams::col_lines`].
+    pub row_lines: Option<Vec<f64>>,
+    /// AS-17's cell-scoped slicing: when `Some`, [`AssetLibrarySession::apply_slice`]
+    /// cuts only the cell at this flat `row*cols+col` index instead of the
+    /// whole grid. `None` is the reference's own always-whole-sheet slice.
+    pub only_cell: Option<usize>,
 }
 
 /// Where a slice's cells land. The first three are the reference's own
@@ -88,6 +98,11 @@ pub struct SlicePreview {
     pub col_spans: Vec<(f64, f64)>,
     /// `(top, bottom)` per row, in sheet pixels.
     pub row_spans: Vec<(f64, f64)>,
+    /// AS-17: the raw column/row division lines in sheet pixels, `cols+1`/
+    /// `rows+1` of them -- a drag target's hit-test needs the undisplaced
+    /// line, not `col_spans`'/`row_spans`' gutter-displaced cell edges.
+    pub col_lines_px: Vec<f64>,
+    pub row_lines_px: Vec<f64>,
 }
 
 /// What a slice actually did — the numbers behind the reference's own
@@ -220,7 +235,9 @@ impl AssetLibrarySession {
         let Some(rect) = GridRect::inset(sheet.image.w, sheet.image.h, p.margin) else {
             return Err("Margin leaves no room to slice.".to_string());
         };
-        Ok((sheet, SliceGrid::new(rect, p.cols, p.rows, p.spacing)))
+        let grid = SliceGrid::new(rect, p.cols, p.rows, p.spacing)
+            .with_lines(p.col_lines.clone(), p.row_lines.clone());
+        Ok((sheet, grid))
     }
 
     /// §8's `N cells detected · M non-empty` readout, computed by the real
@@ -242,6 +259,8 @@ impl AssetLibrarySession {
             counts: count_cells(&sheet.image, &grid, p.chroma.as_ref()),
             col_spans: computed.column_spans(),
             row_spans: computed.row_spans(),
+            col_lines_px: computed.col_line_px,
+            row_lines_px: computed.row_line_px,
         })
     }
 
@@ -273,16 +292,25 @@ impl AssetLibrarySession {
         let (sheet, grid) = self.build_grid(p)?;
         let base = sheet_base_name(&sheet.name);
         let opts = SliceOptions { chroma: p.chroma, trim: p.trim, skip_blank: p.skip_blank };
-        let cells = slice_sheet(&sheet.image, &grid, &opts);
+        let mut cells = slice_sheet(&sheet.image, &grid, &opts);
+        let grid_total = (grid.cols as usize) * (grid.rows as usize);
+        // AS-17: narrow to one cell -- everything below (naming, counts,
+        // per-target placement) runs unchanged over whatever `cells` holds,
+        // so a scoped slice is not a second code path, just a shorter list.
+        if let Some(idx) = p.only_cell {
+            cells.retain(|c| c.index == idx);
+        }
         if cells.is_empty() {
-            return Err(if p.skip_blank {
+            return Err(if p.only_cell.is_some() {
+                "No cell to add — the selected cell is empty, or out of range for the current grid.".to_string()
+            } else if p.skip_blank {
                 "No cells to add — every cell in this grid is empty (or the grid is too dense).".to_string()
             } else {
                 "No cells to add — the grid is too dense; reduce columns/rows or spacing.".to_string()
             });
         }
         let skipped_blank = if p.skip_blank {
-            let total = (grid.cols as usize) * (grid.rows as usize);
+            let total = if p.only_cell.is_some() { 1 } else { grid_total };
             total - cells.len()
         } else {
             0
@@ -787,7 +815,7 @@ mod tests {
     }
 
     fn params(cols: i64, rows: i64) -> SliceParams {
-        SliceParams { cols, rows, margin: 0.0, spacing: 0.0, chroma: None, trim: false, skip_blank: true }
+        SliceParams { cols, rows, margin: 0.0, spacing: 0.0, chroma: None, trim: false, skip_blank: true, col_lines: None, row_lines: None, only_cell: None }
     }
 
     #[test]
@@ -949,6 +977,95 @@ mod tests {
         let mut s = AssetLibrarySession::new();
         s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
         assert!(s.apply_slice(&params(2, 1), &SliceTarget::Slot { uid: "nope:nope".to_string() }).is_err());
+    }
+
+    // -- AS-17: cell-scoped slicing / draggable interior lines -------------
+
+    #[test]
+    fn only_cell_narrows_the_slice_to_one_cell_out_of_the_grid() {
+        let mut s = AssetLibrarySession::new();
+        // 2x1, cell 0 opaque, cell 1 blank (`half_blank_sheet`).
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet())
+            .unwrap();
+        let p = SliceParams {
+            only_cell: Some(0),
+            skip_blank: false,
+            ..params(2, 1)
+        };
+        let out = s
+            .apply_slice(&p, &SliceTarget::PerCell { set: String::new() })
+            .unwrap();
+        assert_eq!(
+            out.added, 1,
+            "only the scoped cell landed, not the whole 2-cell grid"
+        );
+    }
+
+    #[test]
+    fn only_cell_pointing_at_a_blank_cell_is_an_honest_error() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet())
+            .unwrap();
+        // Cell 1 is blank and skip_blank defaults true in `params`, so nothing
+        // in the scoped selection survives.
+        let p = SliceParams {
+            only_cell: Some(1),
+            ..params(2, 1)
+        };
+        let err = s
+            .apply_slice(&p, &SliceTarget::PerCell { set: String::new() })
+            .unwrap_err();
+        assert!(err.contains("selected cell"), "{err}");
+    }
+
+    #[test]
+    fn only_cell_out_of_range_for_the_current_grid_is_an_error_not_a_panic() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet())
+            .unwrap();
+        let p = SliceParams {
+            only_cell: Some(99),
+            skip_blank: false,
+            ..params(2, 1)
+        };
+        assert!(
+            s.apply_slice(&p, &SliceTarget::PerCell { set: String::new() })
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn col_lines_reach_the_engine_grid_and_change_where_cells_are_cut() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet())
+            .unwrap(); // 4x2
+        // Default 2x1 split is at x=2; dragging the (only) interior line to
+        // .75 moves the cut to x=3, so cell 0 is now 3px wide, not 2.
+        let p = SliceParams {
+            col_lines: Some(vec![0.0, 0.75, 1.0]),
+            skip_blank: false,
+            ..params(2, 1)
+        };
+        let preview = s.slice_preview(&p).unwrap();
+        assert_eq!(preview.col_spans[0], (0.0, 3.0));
+        assert_eq!(preview.col_spans[1], (3.0, 4.0));
+    }
+
+    #[test]
+    fn col_lines_of_the_wrong_length_fall_back_to_uniform_rather_than_erroring() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet())
+            .unwrap();
+        // Stale 3-line array (from a previous cols=2) against a cols=3 grid.
+        let p = SliceParams {
+            cols: 3,
+            col_lines: Some(vec![0.0, 0.75, 1.0]),
+            skip_blank: false,
+            ..params(2, 1)
+        };
+        let preview = s.slice_preview(&p).unwrap();
+        assert_eq!(preview.col_spans.len(), 3);
+        assert_eq!(preview.col_spans[0], (0.0, 4.0 / 3.0));
     }
 
     #[test]

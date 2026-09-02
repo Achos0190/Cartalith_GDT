@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    a { color: #e0a34a; } a:hover { color: #f0bd72; }
+    .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+    .box { border: 1px dashed rgba(255,255,255,0.22); border-radius: 2px;
+           display: flex; align-items: center; justify-content: center;
+           color: #6f7478; font-size: 11px; text-align: center; padding: 6px; }
+  </style>
+</helmet>
+<div style="width: 412px; height: 892px; background: #0d0e0f; color: #c8cbcd;
+            display: flex; flex-direction: column; overflow: hidden">
+  <div style="flex: none; padding: 18px 18px 12px; border-bottom: 1px solid rgba(255,255,255,0.10)">
+    <div class="mono" style="font-size: 9px; letter-spacing: 0.22em; color: #e0a34a">DIRECTION A</div>
+    <div style="font-size: 17px; color: #e8ebec; margin-top: 7px">Command-first</div>
+    <div style="font-size: 12px; color: #8d9296; margin-top: 6px; line-height: 1.45">A search field is the primary surface. You type what you want; the map is secondary.</div>
+  </div>
+  <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 10px; padding: 16px">
+    <div class="box" style="height: 56px; border-color: #e0a34a; color: #e0a34a">search: "what do you want to do?"</div>
+    <div class="box" style="height: 44px">rivers &nbsp;·&nbsp; density &nbsp;·&nbsp; carve</div>
+    <div class="box" style="height: 44px">settlements &nbsp;·&nbsp; place &nbsp;·&nbsp; roads</div>
+    <div class="box" style="height: 44px">export &nbsp;·&nbsp; heightmap &nbsp;·&nbsp; image</div>
+    <div class="box" style="flex-grow: 1">map, pushed down<br>and small</div>
+  </div>
+  <div style="flex: none; padding: 12px 16px 16px; border-top: 1px solid rgba(255,255,255,0.10);
+              display: flex; flex-direction: column; gap: 6px">
+    <div class="mono" style="font-size: 9px; letter-spacing: 0.2em; color: #8d9296">TRADEOFF</div>
+    <div style="font-size: 11.5px; color: #8d9296; line-height: 1.45">Strongest possible discovery — nothing is hidden. But it demands words for things a user may not have yet, and it demotes the map, which is the reason they opened the app.</div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

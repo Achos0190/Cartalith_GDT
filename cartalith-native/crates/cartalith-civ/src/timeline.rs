@@ -52,14 +52,23 @@
 //!   counter after anything reloads or rebuilds the settlement/way lists out
 //!   from under it.
 //!
-//! ## `civ_resync_next_tid`'s milestone-1 scope
+//! ## `civ_resync_next_tid`'s milestone-1 scope, and what milestone 4 did
 //!
 //! The reference's own `_civResyncNextTid` (lines 20565-20574) also scans
-//! every `civTimeline` snapshot's own `places`/`ways`. That type doesn't
-//! exist in this port until milestone 4. This function scans only the live
-//! `settlements`/`ways` slices for now; milestone 4 should extend its
-//! signature (or add a sibling overload) to also fold in snapshot history
-//! rather than quietly duplicating the scan.
+//! every `civTimeline` snapshot's own `places`/`ways`. That type did not
+//! exist in this port at milestone 1, so [`civ_resync_next_tid`] scans only
+//! the live `settlements`/`ways` slices.
+//!
+//! **Milestone 4 landed and took the sibling-overload option**, which this
+//! note asked for and then went on describing as future work until
+//! 2026-09-01. [`civ_resync_next_tid_with_timeline`] is that sibling, and it
+//! is the production path: `cartalith-godot`'s `lib.rs` and
+//! `project_bridge.rs` both call it and neither calls the milestone-1 twin.
+//! The twin is kept, and `UNWIRED_FUNCTIONS.md` registers it under
+//! "Superseded twins" -- it is the honest answer for a caller that genuinely
+//! holds no timeline, and the unit tests below plus one contrast assertion in
+//! `project_bridge.rs`'s own tests keep it exercised. Nothing further is
+//! outstanding here.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
@@ -167,6 +176,57 @@ pub fn civ_current_agrarian_density(
         *o = (*o as f64 * norm) as f32;
     }
     out
+}
+
+/// [`civ_agrarian_regional_total`]'s return: the reference's own
+/// `{total, landKm2}` object (line 23527), both already `Math.round`ed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AgrarianRegionalTotal {
+    /// People the whole land area sustains -- the "Land sustains ≈ N"
+    /// readout's number (`civPopEstimateOut`).
+    pub total: f64,
+    /// Land area in km², the same rounding.
+    pub land_km2: f64,
+}
+
+/// `_civAgrarianRegionalTotal` (reference lines 23516-23528, v0.81): the
+/// agrarian regional ceiling -- Σ density × cellKm² over land -- and the
+/// land area it was summed over. `PARITY_AUDIT.md` §5 item 7: this is the
+/// only world-level population sanity figure the reference shows, and it
+/// had no port at all.
+///
+/// The reference's `dens ? dens[i] : K[i]*AGRARIAN_MAX_KM2` fallback is
+/// dropped for exactly the reason [`civ_catchment_pop`]'s own `K`
+/// parameter is: `typeof currentAgrarianDensity === 'function'` is always
+/// true (a hoisted top-level function declaration), so the `K` branch is
+/// unreachable in the reference as it actually runs. `dens` here is
+/// [`civ_current_agrarian_density`]'s normalised output -- and the
+/// reference's own comment insists on the *normalised* field, because the
+/// normalisation is what holds the world total at the pre-v1.31 basis the
+/// settlement nuclei are themselves sized against.
+///
+/// `cell_km` is `(state.mapWidthKm || 800) / GW`; the caller owns that
+/// division because this crate has no `state`.
+pub fn civ_agrarian_regional_total(
+    dens: &[f32],
+    field: &[f32],
+    sea: f64,
+    cell_km: f64,
+) -> AgrarianRegionalTotal {
+    let cell_km2 = cell_km * cell_km;
+    let mut total = 0.0f64;
+    let mut land = 0.0f64;
+    for i in 0..field.len() {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        land += 1.0;
+        total += dens[i] as f64 * cell_km2;
+    }
+    AgrarianRegionalTotal {
+        total: js_round(total),
+        land_km2: js_round(land * cell_km2),
+    }
 }
 
 /// `_civCatchmentDensityMean` (reference lines 23461-23469): mean value of
@@ -318,6 +378,216 @@ pub fn civ_settlement_population(
     )
 }
 
+// ===================== The food-surplus cluster =====================
+//
+// `ECONOMY_SCOPE.md`'s milestone 2. [`civ_catchment_pop`] and
+// [`civ_settlement_population`] above were its first half and shipped with
+// milestone 1; what follows is the half that turns "people the land
+// sustains" into "people the land will feed SOMEONE ELSE", which is the
+// reference's v1.34 structural fix and the only route by which agricultural
+// technology reaches the economy at all.
+//
+// `_civPlaceCatchmentCeiling` (reference line 23765) is deliberately **not**
+// a function here. It is `_civCatchmentPop(p.x, p.y, p.kind||'village', K)`
+// and nothing else; this port's `kind` is a non-null [`SettlementKind`], so
+// the `||'village'` default has no case to cover and the wrapper would be a
+// pure rename of [`civ_catchment_pop`]. Callers wanting "the Inspector's
+// ceiling" call [`civ_catchment_pop`] directly, which is what the
+// reference's own v1.95 note wanted in the first place -- it records that
+// the ceiling used to be an independent copy of that formula, and that the
+// copy was the bug.
+
+/// `FARMERS_PER_URBANITE` (reference line 23907) -- *"the attested medieval
+/// ratio; 1/9 ~ 11% urbanisation"*. Also the value [`food_surplus_ratio`]
+/// tests `fpu` against to decide whether a world is on the pre-v1.54
+/// shipped path.
+pub const FARMERS_PER_URBANITE: f64 = 9.0;
+
+/// `FOOD_BASE_SURPLUS_RATIO` (reference line 23908), written as the
+/// reference writes it (`1/FARMERS_PER_URBANITE`) rather than as a decimal,
+/// so the bits are the division's and not a transcription's.
+pub const FOOD_BASE_SURPLUS_RATIO: f64 = 1.0 / FARMERS_PER_URBANITE;
+
+/// `GRAIN_YIELD_MAX_KG_HA` (reference line 23913) -- the top of the England
+/// 1250-1450 observed range. `GRAIN_YIELD_MIN_KG_HA` (470) is **not**
+/// ported: the reference's own comment (line 23934) explains that it
+/// deliberately does not floor the yield curve and marks only where
+/// cultivation becomes viable (soil = 0.47), so nothing computes with it.
+pub const GRAIN_YIELD_MAX_KG_HA: f64 = 1000.0;
+
+/// `FOOD_SURPLUS_RATIO_MAX` (reference line 23914) -- *"even Flanders/the
+/// Nile/the Yangtze delta topped out near this"*. A **pre-industrial**
+/// ceiling, applied only on the pre-v1.54 default path; see
+/// [`FOOD_RICH_SOIL_MULT`].
+pub const FOOD_SURPLUS_RATIO_MAX: f64 = 0.35;
+
+/// `FOOD_RICH_SOIL_MULT` (reference line 23927), `= 0.35 / (1/9)`, about
+/// 3.15. Derived here exactly as the reference derives it rather than
+/// written out, because the point of the constant is the *relationship*
+/// (best soil against median soil) that v1.54 reapplies to whatever base
+/// ratio a tech level actually has.
+pub const FOOD_RICH_SOIL_MULT: f64 = FOOD_SURPLUS_RATIO_MAX / FOOD_BASE_SURPLUS_RATIO;
+
+/// `FOOD_SURPLUS_RATIO_ABS_MAX` (reference line 23928) -- *"a farm household
+/// always keeps something back, however advanced"*.
+pub const FOOD_SURPLUS_RATIO_ABS_MAX: f64 = 0.95;
+
+/// `grainYieldKgHa` (reference lines 23932-23940): yield on a cell from soil
+/// fertility alone, scaling from zero rather than from
+/// `GRAIN_YIELD_MIN_KG_HA`.
+///
+/// The reference's `soil||0` is [`js_num_or_zero`], not a clamp: `NaN` is
+/// falsy in JS and becomes `0`, where `Math.min(1, NaN)` would stay `NaN`.
+/// Order matters, so the coercion happens first here too.
+pub fn grain_yield_kg_ha(soil: f64) -> f64 {
+    let f = js_max(0.0, js_min(1.0, js_num_or_zero(soil)));
+    f * GRAIN_YIELD_MAX_KG_HA
+}
+
+/// `currentSoilReference` (reference lines 23979-23990): the world's
+/// **median** soil fertility over land -- the reference
+/// [`food_surplus_ratio`] calibrates against, so that median land in *this*
+/// world yields exactly the baseline whatever the absolute soil scale
+/// happens to be.
+///
+/// Median, not mean, for the reference's own stated reason: *"soil
+/// distributions are skewed and a mean would drag the reference toward
+/// whichever tail is longer."* The reference's `vals[vals.length>>1]` is the
+/// upper median on an even count, which `len / 2` reproduces.
+///
+/// The reference memoises this per field generation. `cartalith-civ` holds
+/// no state (`ARCHITECTURE.md`), so **the caller caches it** -- and should,
+/// because it sorts every land cell while [`food_surplus_ratio`] wants it
+/// once per cell.
+///
+/// Returns the reference's `0.5` fallback when no cell is above `sea`.
+pub fn civ_soil_reference(soil: &[f32], field: &[f32], sea: f64) -> f64 {
+    let n = field.len().min(soil.len());
+    let mut vals: Vec<f32> = Vec::new();
+    for i in 0..n {
+        if (field[i] as f64) >= sea {
+            vals.push(soil[i]);
+        }
+    }
+    if vals.is_empty() {
+        return 0.5;
+    }
+    // `(a,b)=>a-b` over a `Float32Array`'s values. `total_cmp` orders every
+    // finite `f32` exactly the way subtraction does, and
+    // `build_soil_fertility` clamps its output to `[0,1]`, so no NaN
+    // reaches this sort to expose the difference.
+    vals.sort_by(|a, b| a.total_cmp(b));
+    f64::from(vals[vals.len() / 2])
+}
+
+/// `foodSurplusRatio` (reference lines 23954-23967, v1.54): the fraction of
+/// a cell's farm output that can leave the cell -- zero on land that barely
+/// feeds its own farmers, capped so no soil produces an implausible surplus.
+///
+/// **This is [`crate::roster::AG_TECH_LEVELS`]' economic consumer.**
+/// `farmers_per_urbanite` is the faction's own row
+/// ([`crate::roster::civ_ag_tech_by_key`]), and it moves both the base ratio
+/// (`1/(R+1)`, not `1/R` -- R farmers plus one urbanite is R+1 mouths) and
+/// the cap.
+///
+/// Two of the reference's nullable arguments are the caller's job here, the
+/// same convention [`civ_settlement_population`]'s `norm_b` already uses:
+/// `refSoil==null -> 0.5` means **pass `0.5`** when there is no soil field,
+/// and `farmersPerUrbanite==null -> FARMERS_PER_URBANITE` means **pass
+/// [`FARMERS_PER_URBANITE`]**. Both collapse onto exactly the arithmetic the
+/// reference's own defaults produce, so nothing is lost by dropping the
+/// `Option`.
+///
+/// The `is_default` test is deliberately an exact float equality against
+/// [`FARMERS_PER_URBANITE`], reproducing the reference's `fpu===9`: v1.54
+/// pins Traditional Agrarian to the *shipped* `0.35` cap rather than
+/// re-deriving it, precisely so existing worlds' numbers do not move. It is
+/// exact-comparison-on-purpose, not a missing epsilon.
+pub fn food_surplus_ratio(soil: f64, ref_soil: f64, farmers_per_urbanite: f64) -> f64 {
+    let fpu = js_max(0.0, farmers_per_urbanite);
+    #[allow(clippy::float_cmp)]
+    let is_default = fpu == FARMERS_PER_URBANITE;
+    let base_ratio = if is_default { FOOD_BASE_SURPLUS_RATIO } else { 1.0 / (fpu + 1.0) };
+    let cap = if is_default {
+        FOOD_SURPLUS_RATIO_MAX
+    } else {
+        js_min(FOOD_SURPLUS_RATIO_ABS_MAX, base_ratio * FOOD_RICH_SOIL_MULT)
+    };
+    let y = grain_yield_kg_ha(soil);
+    let y_med = grain_yield_kg_ha(ref_soil);
+    let y_sub = y_med * (1.0 - base_ratio);
+    // Kept in the reference's negated form: `!(y>ySub)` is `true` for NaN in
+    // both languages, where `y <= y_sub` would be `false` in Rust
+    // (`cartalith-rust-conventions`). And `GRAIN_YIELD_MAX_KG_HA` is *not*
+    // cancelled out of `(y - y_sub) / y` even though it algebraically could
+    // be -- that would reorder the arithmetic and move the bits.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(y > y_sub) {
+        return 0.0; // feeds its own farmers and no one else
+    }
+    js_min(cap, (y - y_sub) / y)
+}
+
+/// [`civ_place_food_surplus`]'s return -- the reference's own object
+/// (line 23778), with its `Math.round`s already applied.
+///
+/// Not to be confused with `FactionAggregate::food_surplus` in this crate's
+/// `lib.rs`, which is the *faction*-level `capacity - pop` and reads neither
+/// soil nor ag-tech.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FoodSurplus {
+    /// People the catchment feeds at the full agrarian ceiling, farmers
+    /// included.
+    pub ceiling: f64,
+    /// The nucleus' share of that ceiling: `ceiling` x
+    /// [`civ_surplus_fraction`].
+    pub sustainable: f64,
+    /// The settlement's actual population, neither rounded nor clamped.
+    pub actual: f64,
+    /// `sustainable - actual`, rounded.
+    pub net: f64,
+    /// `sustainable >= actual`, tested on the **unrounded** values, as the
+    /// reference tests it.
+    pub surplus: bool,
+}
+
+/// `_civPlaceFoodSurplus` (reference lines 23774-23779): the population the
+/// catchment alone -- **no** trade concentration -- would sustain, against
+/// the settlement's actual population.
+///
+/// A trade-boosted settlement above its catchment ceiling reads as running a
+/// deficit made up by trade. That is by construction and consistent with
+/// [`civ_settlement_population`]'s own model, which multiplies the same
+/// ceiling by the same [`civ_surplus_fraction`] and *then* applies the
+/// trade-concentration term this one does not.
+///
+/// The reference's `_CIV_SURPLUS_FRACTION[p.kind]!=null?...:0.15` fallback is
+/// dropped: [`civ_surplus_fraction`] is total over a six-variant enum, so the
+/// `0.15` branch has no input that reaches it.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_place_food_surplus(
+    kind: SettlementKind,
+    x: usize,
+    y: usize,
+    pop: f64,
+    dens: &[f32],
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world_wrap: bool,
+    map_width_km: f64,
+) -> FoodSurplus {
+    let ceiling = civ_catchment_pop(x, y, kind, dens, field, gw, gh, sea, world_wrap, map_width_km);
+    let sustainable = ceiling * civ_surplus_fraction(kind);
+    FoodSurplus {
+        ceiling: js_round(ceiling),
+        sustainable: js_round(sustainable),
+        actual: pop,
+        net: js_round(sustainable - pop),
+        surplus: sustainable >= pop,
+    }
+}
 // ===================== Shared tier tables =====================
 
 /// `_CIV_TIER_FLOOR` (reference line 24617) -- the full six-entry table.
@@ -1577,9 +1847,16 @@ pub fn civ_snapshot_load(timeline: &[TimelineSnapshot], year: i64, territory: &m
 /// `_civResyncNextTid` (lines 20565-20574), which scans `civTimeline` entries too -- milestone 1's
 /// version here couldn't, since `TimelineSnapshot` didn't exist yet (see that function's own doc
 /// comment, and this file's top-of-file "milestone-1 scope" note pointing at this exact gap). A
-/// sibling function rather than widening [`civ_resync_next_tid`]'s own signature -- that one
-/// already has real callers/tests and a legitimate no-timeline case (a fresh `compute_civilisation`
-/// run, before any year has ever been recorded, `cartalith-godot/src/lib.rs`).
+/// A sibling function rather than widening [`civ_resync_next_tid`]'s own signature, because that
+/// one has tests and a legitimate no-timeline case (a caller that genuinely holds no recorded
+/// history).
+///
+/// **This is the production path, and the twin has no production caller** -- corrected 2026-09-01,
+/// where this said the twin "already has real callers". `cartalith-godot`'s `lib.rs` (the
+/// `compute_civilisation` carry-across and the `#[func]` of the same name) and
+/// `project_bridge.rs`'s `civ_from_project` all call *this* function; the only remaining reference
+/// to the twin outside this file is one contrast assertion in `project_bridge.rs`'s tests, proving
+/// a fixture the live-only scan cannot cover.
 pub fn civ_resync_next_tid_with_timeline(
     settlements: &[NamedSettlement],
     ways: &[Way],
@@ -1997,6 +2274,160 @@ mod tests {
             f64::NAN,
         );
         assert_eq!(pop, 0.0);
+    }
+
+    // ---------- food-surplus cluster: soil ref / yield / ratio / place surplus ----------
+    //
+    // `ECONOMY_SCOPE.md` milestone 2. These four functions had zero tests and
+    // zero callers before this pass (`OUTSTANDING_WORK.md` §1 found the
+    // module-level gap; `cargo test -p cartalith-civ --lib` before this
+    // change runs none of them). No golden fixture, for the same reason
+    // `civ_resource_trade_balance`'s own tests give: pure, branch-complete,
+    // no RNG/iteration order, every branch traceable to the reference
+    // literal by literal.
+
+    #[test]
+    fn grain_yield_kg_ha_scales_linearly_and_clamps_soil_to_zero_one() {
+        assert_eq!(grain_yield_kg_ha(0.5), 500.0);
+        assert_eq!(grain_yield_kg_ha(0.0), 0.0);
+        assert_eq!(grain_yield_kg_ha(1.0), GRAIN_YIELD_MAX_KG_HA);
+        // Clamped, not saturated-to-NaN or negative.
+        assert_eq!(grain_yield_kg_ha(-1.0), 0.0);
+        assert_eq!(grain_yield_kg_ha(2.0), GRAIN_YIELD_MAX_KG_HA);
+        // `soil||0` -- NaN is falsy in JS, so it is absorbed to zero yield,
+        // not propagated.
+        assert_eq!(grain_yield_kg_ha(f64::NAN), 0.0);
+    }
+
+    #[test]
+    fn soil_reference_falls_back_to_one_half_with_no_land() {
+        assert_eq!(civ_soil_reference(&[], &[], 0.42), 0.5);
+        let field = vec![0.1f32; 4]; // all sea
+        let soil = vec![0.9f32; 4];
+        assert_eq!(civ_soil_reference(&soil, &field, 0.42), 0.5);
+    }
+
+    #[test]
+    fn soil_reference_is_the_upper_median_of_land_cells_only() {
+        // Four exact-in-f32-and-f64 values so the comparison needs no
+        // epsilon; sea cell 0.05 must be excluded from the ranking.
+        let field = vec![0.1f32, 0.6, 0.6, 0.6, 0.6];
+        let soil = vec![0.9f32, 0.125, 0.75, 0.25, 0.5];
+        // Land values sorted: 0.125, 0.25, 0.5, 0.75 -- even count, upper
+        // median (index len/2 = 2) is 0.5, matching `vals[vals.length>>1]`.
+        assert_eq!(civ_soil_reference(&soil, &field, 0.42), 0.5);
+
+        // Odd count: 0.25, 0.5, 0.75 -- true median either way, index 1.
+        let field3 = vec![0.6f32; 3];
+        let soil3 = vec![0.75f32, 0.25, 0.5];
+        assert_eq!(civ_soil_reference(&soil3, &field3, 0.42), 0.5);
+    }
+
+    #[test]
+    fn food_surplus_ratio_at_reference_soil_is_exactly_the_base_ratio() {
+        // The whole point of calibrating against the median: land AT the
+        // reference always reads the base ratio, whatever the absolute
+        // soil scale is. `1/9`, not `1/10` -- the `is_default` branch pins
+        // `FOOD_BASE_SURPLUS_RATIO` rather than re-deriving `1/(fpu+1)`,
+        // which is the reference's own v1.54 "don't move old-save numbers"
+        // rule.
+        for soil in [0.1, 0.4, 0.5, 0.9] {
+            let got = food_surplus_ratio(soil, soil, FARMERS_PER_URBANITE);
+            assert!(
+                (got - FOOD_BASE_SURPLUS_RATIO).abs() < 1e-9,
+                "soil={soil}: got {got} want {FOOD_BASE_SURPLUS_RATIO}"
+            );
+        }
+        // The general formula at fpu=9 would give 1/10, not 1/9 -- the
+        // `is_default` branch is what keeps these apart, and this is the
+        // test a mutant deleting that branch would fail.
+        let general_formula = 1.0 / (FARMERS_PER_URBANITE + 1.0);
+        assert!((FOOD_BASE_SURPLUS_RATIO - general_formula).abs() > 1e-3);
+    }
+
+    #[test]
+    fn food_surplus_ratio_is_zero_on_land_too_marginal_to_feed_its_own_farmers() {
+        // Soil far below the reference: y <= ySub, the "feeds its own
+        // farmers and no one else" branch.
+        assert_eq!(food_surplus_ratio(0.02, 0.5, FARMERS_PER_URBANITE), 0.0);
+        // The boundary itself: y == ySub exactly must also read zero (the
+        // guard is `!(y>ySub)`, inclusive of equality).
+        let ratio = food_surplus_ratio(0.5 * (1.0 - FOOD_BASE_SURPLUS_RATIO), 0.5, FARMERS_PER_URBANITE);
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn food_surplus_ratio_caps_rich_soil_at_the_default_ceiling() {
+        // Best possible soil against a poor world median: the raw ratio
+        // would be far above 0.35, so the default-path cap must bind.
+        let got = food_surplus_ratio(1.0, 0.05, FARMERS_PER_URBANITE);
+        assert_eq!(got, FOOD_SURPLUS_RATIO_MAX);
+    }
+
+    #[test]
+    fn food_surplus_ratio_off_the_default_fpu_uses_the_general_formula_and_its_own_cap() {
+        // fpu=1.0 ("mastered the plow"), soil==refSoil: base_ratio =
+        // 1/(1+1) = 0.5 exactly (both operands exact in f64), cap =
+        // min(0.95, 0.5*3.15=1.575) = 0.95, and the ratio itself is exactly
+        // 0.5 (uncapped) -- far above the default level's 1/9.
+        let got = food_surplus_ratio(0.5, 0.5, 1.0);
+        assert_eq!(got, 0.5);
+        assert!(got > FOOD_SURPLUS_RATIO_MAX, "advanced ag-tech clears the traditional-level cap entirely");
+    }
+
+    #[test]
+    fn food_surplus_ratio_clamps_negative_fpu_and_absorbs_nan_fpu_to_zero() {
+        // js_max(0, negative) == 0 -- same answer as fpu=0 outright.
+        let neg = food_surplus_ratio(0.5, 0.5, -5.0);
+        let zero = food_surplus_ratio(0.5, 0.5, 0.0);
+        assert_eq!(neg, zero);
+
+        // A NaN fpu is a defensive case (no real roster value), not a real
+        // soil input, so `grain_yield_kg_ha`'s own `js_num_or_zero` cannot
+        // absorb it -- it reaches `base_ratio`/`ySub` as NaN instead. The
+        // reference's negated `!(y>ySub)` form is what still collapses this
+        // to a clean `0.0` rather than propagating NaN as a "surplus
+        // ratio" (`cartalith-rust-conventions`: NaN compares differently in
+        // Rust than JS, and `y<=ySub` would NOT catch this, since
+        // `500.0<=NaN` is also `false` in Rust).
+        let ratio = food_surplus_ratio(0.5, 0.5, f64::NAN);
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn place_food_surplus_matches_catchment_pop_and_surplus_fraction_in_closed_form() {
+        // Same fixture as `catchment_pop_scales_density_mean_by_catchment_area`:
+        // uniform density 10.0 -> catchment mean is exactly 10.0, so
+        // `ceiling = 10.0 * catchmentKm2(Village) = 250.0` and
+        // `sustainable = 250.0 * 0.55 = 137.5`.
+        let gw = 10usize;
+        let gh = 10usize;
+        let field = vec![0.6f32; gw * gh];
+        let dens = vec![10.0f32; gw * gh];
+        let map_width_km = 800.0;
+        let kind = SettlementKind::Village;
+
+        let surplus = civ_place_food_surplus(
+            kind, 5, 5, 100.0, &dens, &field, gw, gh, 0.42, false, map_width_km,
+        );
+        assert_eq!(surplus.ceiling, 250.0);
+        assert_eq!(surplus.sustainable, 138.0, "js_round(137.5) rounds UP (half-up), matching Math.round");
+        assert_eq!(surplus.actual, 100.0);
+        assert_eq!(surplus.net, 38.0, "round(137.5-100)");
+        assert!(surplus.surplus);
+
+        // Same catchment, a population above what it sustains: `net` must
+        // go negative and round the reference's way -- toward +infinity,
+        // not away from zero. This is the discriminating case
+        // `f64::round`/`(x+0.5).floor()` both get wrong (`-62` vs `-63`),
+        // the same class of bug `_civFactionAggregates`' own `foodSurplus`
+        // mutation-testing already found once for the faction-level sibling
+        // of this exact field.
+        let deficit = civ_place_food_surplus(
+            kind, 5, 5, 200.0, &dens, &field, gw, gh, 0.42, false, map_width_km,
+        );
+        assert_eq!(deficit.net, -62.0, "round(137.5-200) = round(-62.5), half-up toward +inf");
+        assert!(!deficit.surplus);
     }
 
     // ---------- tier tables ----------

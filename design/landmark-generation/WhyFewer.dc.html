@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; background: #0d0e0f; }
+    svg.g { width: 12px; height: 12px; flex: none; }
+    svg.g path { fill: none; stroke: currentColor; stroke-width: 1.2;
+      stroke-linecap: round; stroke-linejoin: round; }
+  </style>
+</helmet>
+
+<!-- ══════════ DETAIL · “40 asked for, 11 placed — why?” ══════════
+     The brief's hardest sentence, answered at three depths:
+     the under-bar shows it at a glance, the reason token names it in one
+     word, and this popover proves it in five numbers. Shape and division of
+     labour are lifted from explain_settlement (lib.rs:4920), which already
+     returns sorted terms plus an `excluded` reason and whose doc comment
+     states the rule: “All wording is left to the caller — this returns facts,
+     not prose.”                                                             -->
+
+<div style="width:960px;height:620px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;overflow:hidden;position:relative">
+
+  <div style="width:372px;flex:none;border-right:1px solid rgba(255,255,255,.10);font:10.5px 'IBM Plex Mono',monospace;background:rgba(224,163,74,.05);padding-top:14px">
+
+    <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:22px;color:#5f6468;font-size:9px">LOC</span>
+        <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Cliff</span>
+        <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:60%;height:2px;background:#8d9296"></div></div></div>
+        <span style="width:44px;text-align:right;color:#c8cbcd">30 max</span>
+      </div>
+      <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">18 placed · spacing</div>
+    </div>
+
+    <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+        <span style="flex:1;color:#c8cbcd;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Gorge</span>
+        <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:75%;height:2px;background:#8d9296"></div></div></div>
+        <span style="width:44px;text-align:right;color:#c8cbcd">8 max</span>
+      </div>
+      <div style="padding:1px 0 0 30px;font-size:9px;color:#5f6468">6 placed · no terrain</div>
+    </div>
+
+    <!-- the row the popover belongs to -->
+    <div style="padding:4px 14px 5px 22px;border-left:2px solid #e0a34a;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.10)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:22px;color:#5f6468;font-size:9px">REG</span>
+        <span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Waterfall</span>
+        <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.16)"><div style="width:100%;height:2px;background:#e0a34a"></div></div><div style="height:2px;margin-top:2px"><div style="width:27.5%;height:2px;background:#8d9296"></div></div></div>
+        <span style="width:44px;text-align:right;color:#e8ebec">40 max</span>
+      </div>
+      <div style="padding:1px 0 0 30px;font-size:9px;color:#e0a34a">11 placed · <span style="border-bottom:1px solid #e0a34a">spacing</span></div>
+    </div>
+
+    <div style="padding:4px 14px 5px 22px;border-bottom:1px solid rgba(255,255,255,.05);opacity:.6">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:22px;color:#4c5155;font-size:9px">LOC</span>
+        <span style="flex:1;color:#6f7478;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Spring</span>
+        <div style="width:78px"><div style="height:2px;background:rgba(255,255,255,.10)"></div></div>
+        <span style="width:44px;text-align:right;color:#5f6468">off</span>
+      </div>
+      <div style="padding:1px 0 0 30px;font-size:9px;color:#4c5155">was 60</div>
+    </div>
+  </div>
+
+  <!-- ══════ the popover ══════ -->
+  <div style="position:absolute;left:300px;top:132px;width:342px;background:#121314;border:1px solid rgba(255,255,255,.16);box-shadow:0 18px 40px rgba(0,0,0,.6);z-index:40;padding:0 0 4px">
+    <div style="padding:10px 14px 8px;border-bottom:1px solid rgba(255,255,255,.07);font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296">WATERFALL · LAST PASS</div>
+
+    <div style="padding:11px 14px 6px;font:10.5px 'IBM Plex Mono',monospace">
+      <div style="display:flex;justify-content:space-between;padding:3.5px 0"><span style="color:#8d9296">candidates evaluated</span><span style="color:#e8ebec">1 284</span></div>
+      <div style="display:flex;justify-content:space-between;padding:3.5px 0"><span style="color:#6f7478">failed minimum flow · 1 200</span><span style="color:#6f7478">− 902<span style="color:#4c5155;padding-left:12px">382 left</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:3.5px 0"><span style="color:#6f7478">failed minimum drop · 40 m</span><span style="color:#6f7478">− 247<span style="color:#4c5155;padding-left:12px">135 left</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:3.5px 0"><span style="color:#6f7478">below importance floor · 0.35</span><span style="color:#6f7478">− 0<span style="color:#4c5155;padding-left:12px">135 left</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:3.5px 0;background:rgba(224,163,74,.10);margin:2px -14px;padding-left:14px;padding-right:14px"><span style="color:#e0a34a">rejected by spacing · 34 km</span><span style="color:#e0a34a">− 124<span style="color:#8d9296;padding-left:12px">11 left</span></span></div>
+      <div style="display:flex;justify-content:space-between;padding:3.5px 0"><span style="color:#6f7478">cap · 40</span><span style="color:#5f6468">not reached</span></div>
+      <div style="display:flex;justify-content:space-between;padding:9px 0 3px;border-top:1px solid rgba(255,255,255,.09);margin-top:6px"><span style="color:#e8ebec">11 placed</span><span style="color:#8d9296">29 of the cap unused</span></div>
+    </div>
+
+    <div style="padding:8px 14px 4px;border-top:1px solid rgba(255,255,255,.07);font:9.5px/1.8 'IBM Plex Mono',monospace;color:#6f7478">
+      Raising the cap will not place more. <span style="color:#c8cbcd">Crowding</span> or this type's <span style="color:#c8cbcd">Minimum separation</span> will.
+    </div>
+    <div style="padding:2px 14px 9px;display:flex;gap:5px;font:10px 'IBM Plex Mono',monospace">
+      <span style="padding:3px 9px;border:1px solid #e0a34a;color:#e0a34a">Lower crowding to × 0.70</span>
+      <span style="padding:3px 9px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd">Show rejected</span>
+    </div>
+  </div>
+
+  <!-- ══════ annotation ══════ -->
+  <div style="flex:1;padding:18px 20px 18px 26px;font:9.5px/1.9 'IBM Plex Mono',monospace;color:#6f7478;display:flex;flex-direction:column;gap:14px;margin-left:200px">
+
+    <div>
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">ONE ARITHMETIC, NO PROSE</div>
+      Six rows and a total. Every line is a subtraction the pass actually performed, in the order it performed it, and each names the threshold it applied so the user can go and change that exact number. Nothing here is a sentence explaining the algorithm; the algorithm explains itself by showing its own working.
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:12px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">THE HIGHLIGHTED ROW IS THE ANSWER</div>
+      The binding constraint is washed in accent and it is the <span style="color:#a9adb0">only</span> accent in the popover. Whatever else the funnel says, the eye lands on the line that produced the reason token in the row above, so the two agree by construction rather than by the reader's arithmetic.
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:12px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">“CAP · NOT REACHED” EARNS ITS ROW</div>
+      It subtracts nothing, and it is the most important line here. It is the panel stating, in its own funnel, that the number the user set was <span style="color:#a9adb0">not what limited them</span> — which is the whole of the owner's <span style="color:#a9adb0">“a maximum number does not mean that the maximum number of a certain type should be placed.”</span> Omit it and the funnel silently drops the one term the user came to check.
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:12px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">TWO ACTIONS, BOTH SPECIFIC</div>
+      <span style="color:#a9adb0">Lower crowding to × 0.70</span> is computed, not offered as a gesture: it is the multiplier at which the 124 rejected candidates would have fit under the remaining cap. A generic “adjust spacing” would send the user back to guessing.<br><br>
+      <span style="color:#a9adb0">Show rejected</span> draws the 124 as dashed markers inside the placed ones' exclusion rings — the state <span style="color:#5f6468">Dock.dc.html</span>'s viewport is already drawn in. Seeing the rings overlap is the moment the concept lands, and it needs no vocabulary at all.
+    </div>
+
+    <div style="border-top:1px solid rgba(255,255,255,.08);padding-top:12px">
+      <div style="letter-spacing:.2em;color:#e8ebec;font-size:10px;padding-bottom:8px">WHAT THE ENGINE OWES THIS</div>
+      Six integers and one threshold each. Nothing here needs a retained raster: the pass is counting its own rejections as it makes them. The division of labour is <span style="color:#5f6468">explain_settlement</span>'s — engine returns facts, shell writes the six labels — which is also why the labels can be reworded without touching Rust.
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

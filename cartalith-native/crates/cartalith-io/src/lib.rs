@@ -1,13 +1,34 @@
-//! save/load — reads the HTML app's .zip saves (SAVEFILE_COMPAT.md)
+//! save/load — the HTML app's .zip save format (SAVEFILE_COMPAT.md)
 //!
-//! `MVP_SCOPE.md` point 12: **reading only**, one specific thing — not a
-//! general save/load licence. Writing a save is explicitly out of scope
-//! (`SAVEFILE_COMPAT.md`'s own "Deferred" section).
+//! `MVP_SCOPE.md` point 12 scoped this to **reading only**, and that was
+//! the whole of this crate for Phases 1-5. [`save`] is the other half,
+//! authorised by the owner (2026-08-23) once `GUI_GAP_REGISTER.md` FI-01,
+//! DM-04, JP-06/JP-08 and MEA-07 had all queued up behind the same missing
+//! writer. `SAVEFILE_COMPAT.md`'s own "Deferred" section is updated to
+//! match.
 
+pub mod atlas;
 pub mod gzip;
+pub mod project;
+pub mod save;
 pub mod tiles;
 
+pub use atlas::{
+    atlas_chunk_file, atlas_key_str, atlas_meta_key, build_atlas_manifest, decode_chunk,
+    encode_chunk, fnv1a32_hex, world_key, AtlasChunk, AtlasChunkDesc, AtlasChunkRecord, AtlasKey,
+    AtlasManifest, AtlasMeta, AtlasStore, ATLAS_KIND, ATLAS_MANIFEST,
+};
 pub use gzip::{gunzip_bytes, gzip_bytes};
+// `project::manifest_json` is deliberately NOT re-exported here: `tiles`
+// already owns that name at the crate root and two `manifest_json`s in one
+// namespace is the kind of collision this format exists to avoid. Call it
+// as `project::manifest_json`.
+pub use project::{
+    coerce_integral_floats, read_project, write_project, Element, Layout, ProjectData, ProjectWrite, Raster,
+    RasterSlot, CORE_RASTERS, DEFAULT_README, DOCUMENT_SLOTS, HISTORY_TERRITORY_PREFIX, PROJECT_FORMAT,
+    PROJECT_FORMAT_VERSION, PROJECT_MANIFEST, RASTER_SLOTS,
+};
+pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};
 pub use tiles::{
     build_tile_manifest, js_num, json_string, manifest_json, pack_height16, unpack_height16, CoarseBounds, TileManifest,
     TileManifestOpts, TileRecord,
@@ -50,6 +71,21 @@ pub struct SaveFields {
 pub struct SaveData {
     pub params: SaveParams,
     pub fields: SaveFields,
+    /// `params.json`'s whole `state` object, exactly as it was read.
+    ///
+    /// [`SaveParams`] above is the handful of values this port's terrain
+    /// pipeline needs; this is everything else the file carried, kept so a
+    /// caller can pull what it models out of it — `cartalith-godot`'s
+    /// `params::apply_saved_state` reads the generation-parameter block
+    /// [`save::write_save`] wrote — without this crate having to grow a
+    /// struct for 200+ keys of civ and UI state it has nothing to
+    /// deserialize into (`SAVEFILE_COMPAT.md`'s own reasoning for approach
+    /// 1 over approach 2).
+    ///
+    /// `Value::Null` when the file had no `state` object at all. Reading it
+    /// never fails, so a save whose `state` is unrecognisable still loads
+    /// its terrain.
+    pub state: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -59,6 +95,39 @@ pub enum LoadError {
     MissingEntry(&'static str),
     Json(serde_json::Error),
     MissingField(&'static str),
+    /// `project.json` exists but its `format` is not this format's
+    /// (`SAVEFILE_COMPAT.md` §4). Carries whatever it said — empty when the
+    /// member was absent entirely. Refused rather than guessed: §4 makes
+    /// that entry's *presence* the layout test, so an unrelated file of the
+    /// same name must not be read as a world.
+    NotAProject(String),
+    /// A raster's byte length disagrees with the grid the manifest
+    /// declares. A raster entry carries no length of its own, so this is
+    /// the only place a truncated world can be caught (`SAVEFILE_COMPAT.md`
+    /// §8). Only fatal for the heightmap; every other raster is skipped
+    /// with a warning (§6.4).
+    RasterLength(String),
+    /// A numeric member is inside `SAVEFILE_COMPAT.md` §14.1's safe-integer
+    /// range but outside what this implementation can represent.
+    ///
+    /// Today that is `world.seed` alone: the format allows +/-(2^53 - 1),
+    /// this engine's RNG is seeded with an `i32`, and the read used to be a
+    /// bare `as i32` — which in Rust **saturates silently**. A conforming
+    /// archive with a large seed therefore loaded with a different seed, and
+    /// nothing said so. The terrain itself still came back correct (it is
+    /// restored from `rasters/heightmap.f32`, not regenerated), so the damage
+    /// was narrow and nasty: pressing Generate afterwards produced a world
+    /// that was not the one on screen, and `save_round_trip`'s own
+    /// "regenerate from restored parameters and assert bit-identical" promise
+    /// quietly stopped holding.
+    ///
+    /// Refusing is the honest answer. §6.4a's damage ladder puts a value with
+    /// no representable meaning at the archive level when the value decides
+    /// what every later regeneration produces.
+    OutOfRange {
+        field: &'static str,
+        value: f64,
+    },
 }
 
 impl std::fmt::Display for LoadError {
@@ -69,6 +138,17 @@ impl std::fmt::Display for LoadError {
             LoadError::MissingEntry(name) => write!(f, "missing zip entry: {name}"),
             LoadError::Json(e) => write!(f, "params.json parse error: {e}"),
             LoadError::MissingField(name) => write!(f, "params.json missing field: {name}"),
+            LoadError::NotAProject(found) if found.is_empty() => {
+                write!(f, "project.json has no \"format\" member; this is not a Cartalith project")
+            }
+            LoadError::NotAProject(found) => {
+                write!(f, "project.json says format \"{found}\"; this is not a Cartalith project")
+            }
+            LoadError::RasterLength(message) => write!(f, "{message}"),
+            LoadError::OutOfRange { field, value } => write!(
+                f,
+                "{field} is {value}, which this build cannot represent \n(the format allows the full safe-integer range; this engine seeds with a 32-bit value)"
+            ),
         }
     }
 }
@@ -126,10 +206,25 @@ fn json_bool(v: &serde_json::Value, path: &[&str]) -> Option<bool> {
 /// always carries more than this reader wants (biome/lithology rasters,
 /// civ data, a baked atlas, `map.png`, a README), and that's normal, not
 /// corruption (`SAVEFILE_COMPAT.md`'s own explicit instruction).
+///
+/// **Reads both layouts** (`SAVEFILE_COMPAT.md` §1, owner decision
+/// 2026-08-25): a flat legacy archive, and the tree a
+/// [`project::write_project`] writes. It returns only the terrain half of a
+/// tree archive — the entities, history and annotations need
+/// [`project::read_project`] — so every caller that only ever wanted a
+/// world keeps working unchanged against either.
 pub fn load_save<R: Read + std::io::Seek>(reader: R) -> Result<SaveData, LoadError> {
-    let mut archive = zip::ZipArchive::new(reader)?;
+    project::read_project(reader).map(|p| p.save)
+}
 
-    let params_bytes = read_entry(&mut archive, "params.json")?;
+/// The flat legacy layout's reader (`SAVEFILE_COMPAT.md` §15), over an
+/// already-opened archive. Split out of [`load_save`] so
+/// [`project::read_project`] can dispatch to it after §4's layout test
+/// without opening the archive twice.
+pub(crate) fn load_from_archive(
+    archive: &mut zip::ZipArchive<impl Read + std::io::Seek>,
+) -> Result<SaveData, LoadError> {
+    let params_bytes = read_entry(archive, "params.json")?;
     let params_json: serde_json::Value = serde_json::from_slice(&params_bytes).map_err(LoadError::Json)?;
 
     let gw = json_num(&params_json, &["GW"]).ok_or(LoadError::MissingField("GW"))? as usize;
@@ -140,16 +235,17 @@ pub fn load_save<R: Read + std::io::Seek>(reader: R) -> Result<SaveData, LoadErr
     let sea_level = json_num(&params_json, &["state", "seaLevel"]).ok_or(LoadError::MissingField("state.seaLevel"))?;
     let world = json_bool(&params_json, &["state", "world"]).unwrap_or(false);
 
-    let heightmap = read_f32_entries(&read_entry(&mut archive, "heightmap.f32")?);
-    let temperature = read_f32_entries(&read_entry(&mut archive, "temperature.f32")?);
-    let rainfall = read_f32_entries(&read_entry(&mut archive, "rainfall.f32")?);
-    let volcanic_field = read_f32_entries(&read_entry(&mut archive, "volcanic_field.f32")?);
-    let impact_field = read_f32_entries(&read_entry(&mut archive, "impact_field.f32")?);
-    let strahler_order = read_entry(&mut archive, "strahler_order.bin")?;
+    let heightmap = read_f32_entries(&read_entry(archive, "heightmap.f32")?);
+    let temperature = read_f32_entries(&read_entry(archive, "temperature.f32")?);
+    let rainfall = read_f32_entries(&read_entry(archive, "rainfall.f32")?);
+    let volcanic_field = read_f32_entries(&read_entry(archive, "volcanic_field.f32")?);
+    let impact_field = read_f32_entries(&read_entry(archive, "impact_field.f32")?);
+    let strahler_order = read_entry(archive, "strahler_order.bin")?;
 
     Ok(SaveData {
         params: SaveParams { gw, gh, seed, map_width_km, sea_level, world },
         fields: SaveFields { heightmap, temperature, rainfall, volcanic_field, impact_field, strahler_order },
+        state: params_json.get("state").cloned().unwrap_or(serde_json::Value::Null),
     })
 }
 

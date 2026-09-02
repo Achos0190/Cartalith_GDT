@@ -1,11 +1,20 @@
 # GPU layer integration: per-layer feasibility and sequencing
 
-Follows the GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`, done) and the
+Follows the GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`) and the
 owner's "principled equivalence" authorization (`DECISIONS.md` §7a) and
 static-generation scope correction (`HARDWARE_ACCELERATION.md`, updated
 2026-08-16). This document is the "connect GPU to each layer" work itself
 — scoped and sequenced, not improvised layer-by-layer as forks happen to
 reach them.
+
+> **This document defines the GPU milestones, the per-layer feasibility
+> reasoning that sequences them, and what each pass measured. It does not
+> track which of them are built.** Every "As built" record below reports the
+> pass that wrote it, on the date in its own heading, and every tolerance,
+> timing table and caller count in it is a reading of that day. Current status
+> — including whether a given kernel is reached from the pipeline at all —
+> lives in `cartalith-native/docs/STATUS.md`, the single source of truth for
+> this port.
 
 ## What the pilot already established
 
@@ -64,7 +73,7 @@ integration work should actually go once noise is unblocked, roughly in
 pipeline order (terrain → climate → erosion's per-cell parts → Phase 2's
 per-cell affordance fields → rendering).
 
-## Milestone 1 — GPU-safe noise redesign: **done** (2026-08-16)
+## Milestone 1 — GPU-safe noise redesign (2026-08-16)
 
 **In scope**: design and implement a new hash/value-noise function that
 is `f32`/`u32`-safe (no operation exceeding `f32`'s exact-integer range at
@@ -116,7 +125,7 @@ comparison at the pilot's own tested sizes (128/512/1024/2048) using the
 function that turned out non-portable — the real throughput picture for
 noise generation specifically isn't confirmed until this lands.
 
-**Done.** `cartalith_noise::gpu_hash`/`gpu_vnoise` — single-round PCG3D
+**As built.** `cartalith_noise::gpu_hash`/`gpu_vnoise` — single-round PCG3D
 (Jarzynski & Olano, JCGT 2020), pure `u32` wrapping arithmetic. Verified
 CPU vs. GPU (not vs. JS) at 512×512: 0/262144 cells exceed `1e-5`
 tolerance, max abs diff 1.28e-6. Existing `hash`/`vnoise` and every
@@ -126,7 +135,7 @@ sizes: 0.10× at 128² (dispatch overhead), 2.85× at 512², 10.39× at
 1024², 11.94× at 2048². See `CHANGELOG.md`'s "GPU-safe noise redesign"
 entry for the full record.
 
-## Milestone 2 — domain warp + crustal heterogeneity on GPU: **done** (2026-08-16)
+## Milestone 2 — domain warp + crustal heterogeneity on GPU (2026-08-16)
 
 Checked 2026-08-16: `compute_warp` (`cartalith-terrain/src/lib.rs:36`) and
 `compute_heterogeneity` (line 914) are both genuinely per-cell —
@@ -175,7 +184,7 @@ UI-per-milestone process, but this is backend-only work with no
 user-visible payoff yet — a GPU toggle isn't meaningful until enough of
 the pipeline actually runs on it end-to-end).
 
-**Done.** Non-`world` branch only (world-wrap/`pfbm`-equivalent deferred,
+**As built.** Non-`world` branch only (world-wrap/`pfbm`-equivalent deferred,
 as anticipated). `cartalith_noise::gpu_fbm` + `cartalith-gpu`'s
 `gpu_warp.wgsl`/`gpu_heterogeneity.wgsl`. `gpu_heterogeneity` (single
 `gpu_fbm` call/cell) matches its CPU twin at `1e-5`, 0/262144 mismatches
@@ -197,7 +206,7 @@ workspace run) — a real fragility worth knowing as this crate's
 GPU-context-per-test count grows. See `CHANGELOG.md`'s "GPU layer
 integration milestone 2" entry for the full record.
 
-## Milestone 3 — `compute_height` itself, as a standalone GPU kernel: **done** (2026-08-16)
+## Milestone 3 — `compute_height` itself, as a standalone GPU kernel (2026-08-16)
 
 Checked 2026-08-16: `compute_height` (`cartalith-terrain/src/lib.rs:1001`)
 is the same per-cell shape as milestone 2 — one noise evaluation
@@ -236,7 +245,7 @@ needed and not already built).
 portability (separate future investigation), pipeline integration, UI
 exposure.
 
-## Milestone 4 — `gauss_blur` + `compute_resistance` on GPU: **done** (2026-08-16)
+## Milestone 4 — `gauss_blur` + `compute_resistance` on GPU (2026-08-16)
 
 Traced `generate_terrain`'s real call order (`cartalith-engine/src/lib.rs:
 394`) before scoping this: `compute_height` needs `base_field` (=
@@ -281,7 +290,8 @@ orogeny's graph-tracing functions (`trace_boundaries`/`tag_boundary_types`/
 `build_orogeny_field`, likely poor GPU fit given "graph-driven" framing in
 this project's own earlier CHANGELOG entries — confirm rather than assume).
 
-**Done.** `gpu_compute_height` (`cartalith-gpu`'s `gpu_height.wgsl` +
+**Milestone 3 as built** (recorded here, under milestone 4's heading, by the
+pass that wrote both). `gpu_compute_height` (`cartalith-gpu`'s `gpu_height.wgsl` +
 `dispatch_gpu_height`), non-`world` branch only (matching milestones 1-2's
 own deferral). Both `ridged=false` and `ridged=true` verified against a
 fresh `gpu_height_grid_cpu` CPU twin at 512×512 (5 distinct synthetic
@@ -314,7 +324,7 @@ confirms every existing golden-parity test (including `cartalith-terrain`'s
 own `compute_height` tests) passes unmodified. See `CHANGELOG.md`'s "GPU
 layer integration milestone 3" entry for the full record.
 
-**Milestone 4 done, genuine three-way JS/CPU/GPU parity** — the headline
+**Milestone 4 as built, genuine three-way JS/CPU/GPU parity** — the headline
 result, verified rather than assumed: `gauss_blur`/`compute_resistance`
 touch no noise, so unlike milestones 1-3 they could be (and were) checked
 directly against the real, untouched `cartalith_terrain::gauss_blur`/
@@ -332,7 +342,7 @@ amortize, reported plainly rather than hidden. `compute_flexure` (a thin
 pass. See `CHANGELOG.md`'s "GPU layer integration milestone 4" entry for
 the full record.
 
-## Milestone 5 — plate assignment (JFA) on GPU: **done** (2026-08-16)
+## Milestone 5 — plate assignment (JFA) on GPU (2026-08-16)
 
 Investigated 2026-08-16 (confirming/refuting the hypothesis milestone 3
 recorded): read `assign_plates` (`cartalith-terrain/src/lib.rs:400`) and
@@ -386,7 +396,7 @@ verify don't assume" item for a future milestone), `build_age_field`
 (confirmed poor fit, milestone 4's own finding — a genuine two-pass
 chamfer distance transform with sequential sweep dependency).
 
-**Done.** `gpu_jfa_plates.wgsl` + `dispatch_gpu_assign_plates`
+**As built.** `gpu_jfa_plates.wgsl` + `dispatch_gpu_assign_plates`
 (double-buffered JFA, NOT a port of the CPU's in-place variant — see the
 shader's own header comment). Verified against brute-force exact-nearest
 ground truth (not the CPU function directly, since the two JFA variants
@@ -442,7 +452,7 @@ already work** (`base_field` via JFA, `hetero`/`warp`, `flex` via
 `stress`/`age`/`oro` on CPU and uploaded as buffers — a real integration
 milestone, not another individual-kernel one.
 
-## Milestone 6 — first real partial-GPU pipeline integration: **done** (2026-08-16)
+## Milestone 6 — first real partial-GPU pipeline integration (2026-08-16)
 
 Every prior milestone built and verified a **standalone** kernel in
 `cartalith-gpu` — none has ever been called from `generate_terrain`
@@ -512,7 +522,7 @@ silently added as a checkbox), `compute_stress`'s gather reformulation,
 orogeny's parallel-graph redesign, climate/erosion/hydrology's own GPU
 integration (later milestones, once this one proves the pattern).
 
-**Done.** `WorldParams.use_gpu: bool` (default `false`) added.
+**As built.** `WorldParams.use_gpu: bool` (default `false`) added.
 `generate_terrain` (`cartalith-engine/src/lib.rs`) gained a `p.use_gpu`
 branch that runs domain warp, crustal heterogeneity, plate assignment,
 and the flexure/base-field blur through four new public wrappers in
@@ -598,20 +608,23 @@ in," and flagged here rather than silently eaten into the timing table.
 iterating with `zip` instead of an index range; everything else
 pre-existing).
 
-**Answers a live question**: generating a new map today still runs on
-CPU by construction — `use_gpu` defaults to `false` and this milestone
-adds no UI to flip it (explicitly out of scope, see above). Before this
-milestone, the answer to "why CPU not GPU" was structural: no GPU kernel
-was ever called from `generate_terrain` at all, regardless of any flag,
-because milestones 1-5 only built and verified standalone kernels. This
-milestone is the fix — `generate_terrain` can now genuinely run four
-stages on GPU — but the flag stays off by default and unexposed in the
-UI until a real UI/UX pass adds the "this may produce a different world"
-messaging `DECISIONS.md` §7c requires, and — per the timing table above —
-until context-reuse work makes the GPU path an actual win at realistic
-map sizes, not just at 2048×2048.
+**Answers a live question**: before this milestone, the answer to "why CPU
+not GPU" was structural — no GPU kernel was ever called from
+`generate_terrain` at all, regardless of any flag, because milestones 1-5
+only built and verified standalone kernels. This milestone is the fix:
+`generate_terrain` gained a real four-stage GPU path.
 
-## Milestone 7 — climate's wind/rain loop on GPU: done (2026-08-17), a real loss even with milestone 8's own fix
+The engine default was deliberately left at `use_gpu: false`, and this
+milestone added no UI to flip it (explicitly out of scope, above). It set
+two conditions for exposing it, and those conditions are the durable part
+of this entry: a UI/UX pass carrying the "this may produce a different
+world" messaging `DECISIONS.md` §7c requires, and — per the timing table
+above — context-reuse work making the GPU path an actual win at realistic
+map sizes, not just at 2048×2048. Whether either has since been met, and
+what the flag and the UI do now, is a status question:
+`cartalith-native/docs/STATUS.md`.
+
+## Milestone 7 — climate's wind/rain loop on GPU (2026-08-17): a real loss even with milestone 8's own fix
 
 Built exactly what the investigation below scoped: `gpu_weather.wgsl`
 (three entry points -- `evap_main`/`advect_main`/`deposit_main`, one
@@ -748,7 +761,7 @@ milestone never touched — scoping it further (kernel count, whether
 overhead repeats milestone 6's own context-creation lesson) is real
 future work, not assumed complete by this investigation.
 
-## Milestone 8 — GPU context reuse across `generate_terrain`'s stages: done (2026-08-17)
+## Milestone 8 — GPU context reuse across `generate_terrain`'s stages (2026-08-17)
 
 Milestone 6's own flagged next optimization, picked up directly: each of
 its five GPU dispatches (warp, heterogeneity, plate assignment, and two
@@ -777,6 +790,19 @@ stage, since the caller already handled that failure mode once by holding
 a `GpuDevice`). The original standalone `init_gpu_X()`/`X_grid_gpu()`
 functions are completely untouched — every existing milestone 1-6 test
 that calls them directly still exercises the exact same code path.
+**Corrected 2026-08-25: that sentence had stopped being true.** The
+`/ponytail` pass grepped the whole workspace, tests included, and found
+`warp_grid_gpu`, `heterogeneity_grid_gpu`, `gauss_blur_grid_gpu` and
+`assign_plates_grid_gpu` with **zero callers** — the milestone-1-6 tests
+had themselves been migrated to the `_with` siblings, so the sentence above
+went stale without anyone editing it. That is exactly why this document
+records what each pass did rather than what the tree holds. The same-day
+audit pass independently counted seven `cartalith-gpu` public functions
+with no caller (those four, plus `flow_accumulation_gpu_with`,
+`gpu_resistance_grid_cpu` and `init_gpu_f64`): ~70 lines, nothing at
+runtime. **Deleting them is an owner call**, not a documentation fix —
+`CHANGELOG.md`'s ponytail entry says why it declined to. What the caller
+count is today is a status question: `cartalith-native/docs/STATUS.md`.
 `REUSED_STAGE_MAX_STORAGE_BUFFERS = 8` (JFA's own bind-group size, the
 largest of the four reused kernels) sizes the shared device's limits up
 front, since `wgpu` limits can't be raised after device creation —
@@ -845,10 +871,10 @@ kernel's pipeline across repeated `generate_terrain` calls, e.g. a UI
 "regenerate" loop) — this milestone only shares the device *within* one
 call, not *across* calls; averaging the timing benchmark over multiple
 runs to reduce the single-run-variance noise visible in the 2048² number
-above; GPU milestone 7 (climate) remains investigated-not-built, untouched
-by this pass.
+above; GPU milestone 7 (climate), investigated but not built at the time,
+left untouched by this pass.
 
-## Milestone 9 — flow accumulation on GPU: **done** (2026-08-17), the first genuinely sequential algorithm redesigned rather than ported
+## Milestone 9 — flow accumulation on GPU (2026-08-17): the first genuinely sequential algorithm redesigned rather than ported
 
 The owner's "do the algorithms for the GPU" directive, aimed squarely at
 this document's own repeatedly-deferred "poor GPU fit without a real
@@ -1027,8 +1053,9 @@ changes which equal-cost predecessor wins, so roads would visibly move.
 Second, and more decisively: it is already called *many times over a small,
 downsampled road grid* (`rw`×`rh`, once per road hub, at four separate call
 sites), all of them independent. The obvious parallelism here is **across
-sources on CPU** — those call sites are still plain `.iter().map()` and
-Rayon would take them today — not within a single traversal on GPU.
+sources on CPU** — at this reading those call sites were plain
+`.iter().map()` that Rayon would take directly — not within a single
+traversal on GPU.
 Recommending the cheap CPU win over the expensive GPU redesign is the
 honest answer, not a dodge.
 

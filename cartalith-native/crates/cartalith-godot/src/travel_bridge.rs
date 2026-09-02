@@ -347,6 +347,41 @@ impl TravelLibrary {
         rejected.extend(unknown);
         (out, rejected)
     }
+
+    /// Every library vessel that can stand in for `plan.vessel`, keyed by
+    /// its **display name** -- `GUI_GAP_REGISTER.md` IN-06's stated
+    /// remainder (*"a vessel/vehicle resolver equivalent to the animal
+    /// one"*) and what makes JP-09's vessel picker offer more than the
+    /// built-in eleven.
+    ///
+    /// Two differences from [`Self::animal_overrides`], both forced by the
+    /// shape of the data rather than chosen:
+    ///
+    /// * **Keyed by name, not by slot.** `JpPlan::vessel` is a name string
+    ///   and `jp_ship_stats` is a name lookup, so a vessel needs no
+    ///   `animal_species_slot` equivalent -- any definition can be named.
+    /// * **Stock entries are carried only when the engine does not already
+    ///   know the name.** As of this writing the eleven stock vessels are a
+    ///   1:1 copy of `JP_SHIPS`, so this branch takes nothing today and a
+    ///   fresh library overrides nothing at all -- exactly like
+    ///   [`Self::animal_overrides`]. It is written as a name test rather
+    ///   than an `origin == Custom` test so that a stock hull *added* to
+    ///   `stock_vessels()` later reaches the planner on its own, instead of
+    ///   silently becoming another greyed-out row.
+    ///
+    /// Entries still missing a numeric field are carried; `vessel_resolver_fn`
+    /// is what declines them, so an incomplete definition falls back to the
+    /// built-in table rather than to a zero-capacity hull.
+    pub fn vessel_overrides(&self) -> HashMap<String, VesselDef> {
+        let mut out = HashMap::new();
+        for v in self.vessels.iter() {
+            if v.origin != EntryOrigin::Custom && cartalith_civ::jp_ship_stats(&v.name).is_some() {
+                continue;
+            }
+            out.insert(v.name.clone(), v.clone());
+        }
+        out
+    }
 }
 
 fn species_count(party: &cartalith_civ::JpParty, species_key: &str) -> i64 {
@@ -1585,5 +1620,60 @@ mod tests {
             let slug = terrain_slug(tl_key);
             assert_eq!(terrain_key_from_slug(slug), Some(tl_key));
         }
+    }
+
+    /// IN-06's vessel half. Three properties, one per rule
+    /// `vessel_overrides`' own doc comment states.
+    #[test]
+    fn vessel_overrides_hands_the_engine_every_hull_it_does_not_already_know() {
+        let lib = TravelLibrary::new();
+        let ov = lib.vessel_overrides();
+
+        // (1) The built-in table keeps ownership of every name it answers
+        // for: no stock row may shadow a `JP_SHIPS` hull. As of this writing
+        // the stock list is a 1:1 copy of it, so a fresh library overrides
+        // nothing at all -- and (2) whatever it does carry is by definition
+        // a name `jp_ship_stats` does not know, which is the invariant that
+        // survives a stock hull being added later.
+        for name in cartalith_civ::JP_VESSEL_PREFERENCE {
+            assert!(
+                !ov.contains_key(name),
+                "{name} is a built-in hull and must not be overridden by a stock row"
+            );
+        }
+        assert!(
+            ov.keys().all(|n| cartalith_civ::jp_ship_stats(n).is_none()),
+            "a stock override may only ever cover a name the engine does not know"
+        );
+        // (3) A custom entry always wins, even on a built-in name.
+        let mut lib2 = TravelLibrary::new();
+        let id = lib2.fresh_id();
+        lib2.vessels.duplicate("cog", id.clone());
+        {
+            let v = lib2.vessels.get_mut(&id).expect("the duplicate exists");
+            v.name = "Cog".to_string();
+            v.base_speed_kmh = Some(20.0);
+        }
+        let ov2 = lib2.vessel_overrides();
+        let resolver = cartalith_civ::travel_library::vessel_resolver_fn(&ov2);
+        let got = resolver("Cog").expect("a complete custom Cog resolves");
+        assert_eq!(got.speed_kmh, 20.0);
+        assert_ne!(
+            got.speed_kmh,
+            cartalith_civ::jp_ship_stats("Cog").unwrap().speed_kmh,
+            "the override must actually differ from the built-in row"
+        );
+
+        // An incomplete definition declines rather than resolving to a hull
+        // with a zero hold -- the fallback is the built-in table.
+        let mut lib3 = TravelLibrary::new();
+        let id3 = lib3.fresh_id();
+        lib3.vessels.add(cartalith_civ::travel_library::VesselDef::blank(id3, "Ghost Hull"));
+        let ov3 = lib3.vessel_overrides();
+        assert!(ov3.contains_key("Ghost Hull"), "the row is carried");
+        assert!(
+            cartalith_civ::travel_library::vessel_resolver_fn(&ov3)("Ghost Hull").is_none(),
+            "but an incomplete definition resolves to nothing"
+        );
     }
 }

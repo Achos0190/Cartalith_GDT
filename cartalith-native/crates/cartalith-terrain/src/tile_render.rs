@@ -54,6 +54,7 @@
 //! semantics, not a choice.
 
 use crate::amplify::{js_max, js_min};
+use rayon::prelude::*;
 
 /// `SEA` (reference 8330): the bathymetric ramp, deepest first.
 pub const SEA: [[f64; 3]; 3] = [[10.0, 28.0, 46.0], [26.0, 86.0, 140.0], [70.0, 140.0, 196.0]];
@@ -216,6 +217,66 @@ pub fn render_height_tile_rgba(
     out
 }
 
+/// The shade multiplier alone — `s` in [`render_height_tile_rgba`]'s own loop,
+/// returned per pixel without the hypsometric tint it is normally multiplied
+/// into.
+///
+/// # Why this exists
+///
+/// The reference picks its LOD tile coloriser off the view mode
+/// (`_lodBuildTileRGBA`, reference 11148: `biome ? renderBiomeTileRGBA :
+/// renderHeightTileRGBA`), so the height ramp is what *Relief* mode shows and
+/// the full `landColorCore` look is what the default *Biome* mode shows. This
+/// port has only the height-ramp half, and `cartalith-godot`'s deep-zoom
+/// compositor needs the biome half: `lod_bridge` therefore composites the
+/// *ratio* of this shade with and without `amplify_region`'s procedural detail
+/// over the base map's own colours, which are already the biome look. See
+/// `lod_bridge.rs`'s own module doc for the whole argument.
+///
+/// Deliberately **not** factored out of [`render_height_tile_rgba`], which is
+/// pinned byte-for-byte against the reference by
+/// `golden_parity_tile_render.rs`: the arithmetic below is that function's,
+/// copied unchanged, so extracting it would buy nothing and risk a reordering
+/// the goldens would then have to re-prove. `shade_tile(t, ..) [i]` equals the
+/// `s` that call computes for pixel `i`, and the test below asserts exactly
+/// that against the real function's output rather than restating the formula.
+///
+/// # Panics
+///
+/// Panics if `tile` is shorter than `w * h`, or if either dimension is zero —
+/// the same preconditions [`render_height_tile_rgba`] has.
+pub fn shade_tile(tile: &[f32], w: usize, h: usize, sea: f64, sun_az_deg: f64, exag: f64) -> Vec<f64> {
+    assert!(w > 0 && h > 0, "shade_tile needs a non-empty tile");
+    assert!(tile.len() >= w * h, "tile is smaller than {w}x{h}");
+    let mut out = vec![0.0f64; w * h];
+    let az = sun_az_deg * std::f64::consts::PI / 180.0;
+    let alt = SUN_ALT_DEG * std::f64::consts::PI / 180.0;
+    let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
+    // Row-parallel: a fixed 4-neighbour stencil read of the frozen `tile`, one
+    // write per output pixel, no reduction -- bit-identical to the sequential
+    // form and the same `output[i] = f(input, i)` bar `CPU_MULTITHREADING_
+    // SCOPE.md` applied to every other per-cell pass in this workspace. Two of
+    // these run per synthesised LOD tile (`lod_bridge::synthesize_tile_rgba`).
+    out.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
+        let ro = y * w;
+        for (x, o) in out_row.iter_mut().enumerate() {
+            let v = tile[ro + x] as f64;
+            let l = edge_l(tile, w, x, ro);
+            let r = edge_r(tile, w, x, ro);
+            let u = edge_u(tile, w, h, x, y);
+            let d = edge_d(tile, w, h, x, y);
+            let (mut nx, mut ny, mut nz) = (-(r - l) * exag, -(d - u) * exag, 1.0_f64);
+            let il = 1.0 / js_hypot3(nx, ny, nz);
+            nx *= il;
+            ny *= il;
+            nz *= il;
+            let sh = js_max(0.0, nx * lx + ny * ly + nz * lz);
+            *o = if v < sea { 0.75 + 0.25 * sh } else { 0.4 + 0.6 * sh };
+        }
+    });
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,4 +400,46 @@ mod tests {
         assert_ne!(a, b);
     }
 
+    #[test]
+    fn shade_tile_is_exactly_the_multiplier_render_height_tile_rgba_applies() {
+        // The whole point of `shade_tile` existing separately: it must be the
+        // same `s`, not a lookalike. Asserted by reconstruction -- tint the
+        // hypso colour by this shade and the bytes must come back identical to
+        // the pinned renderer's, for every pixel and every channel. A mutated
+        // constant (0.4/0.6 <-> 0.75/0.25, a dropped `js_max`, a sign flip in
+        // the light vector) breaks this immediately.
+        for (w, h, sea) in [(7usize, 5usize, 0.42), (16, 11, 0.10), (5, 5, 0.9)] {
+            let t = mk_tile(w, h, 3);
+            let px = render_height_tile_rgba(&t, w, h, sea, 200.0, 3.4);
+            let s = shade_tile(&t, w, h, sea, 200.0, 3.4);
+            assert_eq!(s.len(), w * h);
+            for i in 0..w * h {
+                let c = hypso(t[i] as f64, sea);
+                for k in 0..3 {
+                    assert_eq!(
+                        px[i * 4 + k],
+                        u8_clamped(c[k] * s[i]),
+                        "pixel {i} channel {k} at {w}x{h} sea {sea}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn shade_tile_reaches_both_bands_and_is_not_flat() {
+        // Non-emptiness and shape, stated rather than assumed (this port's own
+        // "watch for silently-empty golden output" rule): a tile straddling sea
+        // level must produce shades in both the underwater band (>= 0.75) and
+        // the land band (< 0.75 wherever the Lambert term is small).
+        let t = mk_tile(16, 16, 5);
+        let s = shade_tile(&t, 16, 16, 0.5, 315.0, 3.4);
+        assert!(t.iter().any(|v| (*v as f64) < 0.5), "fixture never goes underwater");
+        assert!(t.iter().any(|v| (*v as f64) >= 0.5), "fixture never reaches land");
+        for i in 0..s.len() {
+            let floor = if (t[i] as f64) < 0.5 { 0.75 } else { 0.4 };
+            assert!((floor..=1.0).contains(&s[i]), "pixel {i}: {} outside [{floor}, 1]", s[i]);
+        }
+        assert!(s.iter().any(|v| *v != s[0]), "a shade tile must not be flat");
+    }
 }

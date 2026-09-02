@@ -1,0 +1,32 @@
+{
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 980,
+      "h": 1180,
+      "title": "All 49"
+    },
+    {
+      "file": "Contrast.dc.html",
+      "x": 1090,
+      "y": 0,
+      "w": 560,
+      "h": 1180,
+      "title": "The pairs that decide it"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "rules",
+      "x": 0,
+      "y": -140,
+      "w": 1650,
+      "text": "DCC_SHELL_SPEC \u00a712, applied: 16x16 viewBox, fill none, stroke currentColor at 1.2, round caps and joins, ONE weight, no fills except a 0.7 dot where a mark must survive at 12 px, nothing inside a glyph smaller than 1 px at render size.\n\nDrawn to join the shipped sculpt-feature family, which \u00a712 describes as terrain cross-sections reading as one family -- so two or three strokes, no interior detail, and a horizon-like reading. A glyph of six paths would be wrong for this set even if it were prettier.\n\nWhere a shipped glyph already served the meaning it is marked reuse rather than redrawn."
+    }
+  ],
+  "launch": {
+    "view": "canvas"
+  }
+}

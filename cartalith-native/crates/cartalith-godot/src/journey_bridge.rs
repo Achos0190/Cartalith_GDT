@@ -34,41 +34,72 @@
 //! (`jp_road_cells`). All three are pure functions of already-computed
 //! state; none is a new generation stage.
 //!
-//! ## Three inputs that are honestly absent, not quietly faked
+//! ## Three inputs that used to be honestly absent — corrected below
 //!
-//! - **`ocean_field`/`wind_field`** are `Option<&JpCoarseField>` and are
-//!   passed `None`. The reference reads them from `currentOceanField()`/
-//!   `currentWindField()`, its *visualisation* layer's cached coarse fields;
-//!   this port's climate stage computes the current field inside
-//!   `cartalith_climate::ocean_sst_anomaly` and discards it — nothing in
-//!   `WorldState` retains a `u`/`v` pair at any resolution. `None` is
-//!   `jp_sea_condition`'s own supported "no field" input, not a stand-in
-//!   value, so a sea leg reads its structural condition and skips the
-//!   wind/current term rather than reading an invented one. Retaining the
-//!   coarse fields past generation is real work in `cartalith-engine`, not
-//!   something to improvise at this boundary.
-//! - **`road_cells` sees the generated way network only.** `jp_road_cells`
-//!   takes `&[Way]`; hand-drawn ways are `tools::ManualWay`, a different
-//!   type whose `Ancient` variant `jp_road_cells` has no branch for (the
-//!   reference's `_jpRoadCells` does — `'ancient' -> ["Dirt Track",
-//!   "Deteriorated"]` — because its one `civWays` array holds both kinds).
-//!   Widening `jp_road_cells` is a `cartalith-civ` change against
-//!   golden-tested code, so the gap is reported here rather than
-//!   approximated with an invented type mapping.
-//! - **`road_edges` is empty.** The reference's second road source is
-//!   `state.roads.edges`, the terrain tab's reference roads. This port's
-//!   generated network is `civ_consolidate_and_smooth_ways`' `Vec<Way>`;
-//!   `build_road_network`'s `RoadEdge` list is not retained by
-//!   `compute_civilisation` and has no live equivalent to pass.
+//! **All three bullets below used to describe a real gap.** Each is
+//! corrected in place rather than left as a stale decline nobody
+//! re-checked, the same discipline the wildlife paragraph below already
+//! modelled.
+//!
+//! - **`ocean_field`/`wind_field` are now real**, computed at each
+//!   `jp_plan`-driving `#[func]` in `lib.rs` and passed `Some(&JpCoarseField)`.
+//!   This paragraph used to say this port's climate stage computes the
+//!   coarse current field inside `cartalith_climate::ocean_sst_anomaly` and
+//!   discards it, with nothing on `WorldState` retaining a `u`/`v` pair —
+//!   true of the generation *pipeline*, but beside the point:
+//!   `cartalith_climate::current_ocean_field`/`current_wind_field` already
+//!   exist as `pub fn`s callable on demand from any already-generated world
+//!   (`sea`/`peak_m`/`lat_n`/… generation *parameters*, not pipeline
+//!   internals), and are already called exactly this way — deliberately
+//!   uncached — by the Wind/Ocean-currents debug views
+//!   (`sample_bridge::flow_fx_raster`). No `WorldState` retention was ever
+//!   required; `None` remains `jp_sea_condition`'s own supported "no field"
+//!   input for a caller that genuinely has neither.
+//! - **`road_cells` now reads hand-drawn ways too.** `jp_road_cells` took
+//!   `&[Way]` only; hand-drawn ways are `tools::ManualWay`, a different
+//!   type whose `Ancient` variant it had no branch for (the reference's
+//!   `_jpRoadCells` does — `'ancient' -> ["Dirt Track","Deteriorated"]` —
+//!   because its one `civWays` array holds both kinds). `jp_road_cells` now
+//!   takes a `manual_ways: &[tools::ManualWay]` parameter and applies that
+//!   same mapping (`cartalith-civ`'s own doc comment on the function has
+//!   the full split); `JourneyWorld::build` below still passes `&[]` for
+//!   it, for the same reason it always has for `road_edges` — see that
+//!   bullet.
+//! - **`road_edges` is no longer empty.** This paragraph used to say the
+//!   reference's second road source (`state.roads.edges`) had no live
+//!   equivalent in this port, because `build_road_network`'s `RoadEdge`
+//!   list was not retained by `compute_civilisation`. That was true when
+//!   written and is stale now: `CivData::road_edges` retains the
+//!   auto-populate topology's own edges (`civ_hierarchical_network_
+//!   topology`'s output — a **different** producer than the never-called
+//!   `build_road_network` the original claim named) precisely so this
+//!   function would have a live source to pass. `JourneyWorld::build`
+//!   still passes `&[]` for it: widening `build`'s own signature to also
+//!   take `road_edges`/`manual_ways` would mean re-deriving `road_cells` a
+//!   second time whenever a caller also needs the world's other two
+//!   tables, so `lib.rs`'s `jp_plan`-driving `#[func]`s overwrite
+//!   `jw.road_cells` right after `build` returns, with the real
+//!   `&civ.road_edges` and the real hand-drawn ways — see their own
+//!   comment for why that one extra call is cheaper than widening `build`.
 //!
 //! ## Wildlife
 //!
-//! `jp_plan` takes `wildlife_forage_mod: &dyn Fn(f64, f64) -> f64` and
-//! `lib.rs` passes `|_, _| 1.0`. That is the reference's own answer on a
-//! world with no wildlife layer (`JOURNEY_PLANNER_SCOPE.md`'s "Two quality
-//! ceilings"), and also what an exactly-average region gives — the
-//! ecoregion/species-richness subsystem behind it is unported and on no
-//! milestone anywhere.
+//! `jp_plan` takes `wildlife_forage_mod: &dyn Fn(f64, f64) -> f64`, and it is
+//! **live**: `lib.rs`'s `jp_plan_ex` call site builds it as
+//! `|mx, my| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my))`
+//! over `sample_bridge::WildlifeCache`, which is `cartalith_civ::wildlife` —
+//! real, golden-tested, and the same model behind `wildlife_region_at` and the
+//! Wildlife debug view. See that call site's own comment (`PARITY_AUDIT.md`
+//! §23 F12) for why the missing piece was a cache and never the model.
+//!
+//! `1.0` survives only as the **fallback**, in exactly the reference's own
+//! three positions: no civilisation layer (a loaded save), no region under the
+//! stage midpoint, or a world mean of zero.
+//!
+//! **This paragraph used to say the subsystem was "unported and on no
+//! milestone anywhere".** That was true when it was written and was false from
+//! F12 onward; it is corrected here rather than left as a decline nobody
+//! re-checked.
 
 use std::collections::HashMap;
 
@@ -336,8 +367,8 @@ impl JourneyWorld {
         JourneyWorld {
             cart_biome: build_cart_biome(field, water_bodies, temp, rain, gw, gh, world, sea),
             cart_terrain: build_cart_terrain(field, water_bodies, temp, rain, gw, gh, world, sea),
-            // No `road_edges`: see the module doc's third bullet.
-            road_cells: jp_road_cells(ways, &[], gw),
+            // No `manual_ways`/`road_edges`: see the module doc's third bullet.
+            road_cells: jp_road_cells(ways, &[], &[], gw),
             places: settlements
                 .iter()
                 .map(|s| JpPlace {

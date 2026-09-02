@@ -32,6 +32,7 @@
 //! user control — its range is this port's own judgement, flagged as such
 //! rather than presented as parity.
 
+use cartalith_engine::staleness::PipelineStage;
 use cartalith_engine::WorldParams;
 
 /// What a parameter's value *is*, for the GUI's control-type choice and for
@@ -252,6 +253,90 @@ pub const PARAMS: &[ParamSpec] = &[
         label: "Rain \u{2192} erosion", unit: "", reference_control: "sClim",
         get_fn: |p| Value::Num(p.stream.climate_k), set_fn: |p, v| p.stream.climate_k = v },
 
+    // ---- erosion passes (the reference's manual buttons, as parameters) ---
+    // `GUI_GAP_REGISTER.md` §19 / WW-02 / MS-04 / MS-05, and
+    // `cartalith_engine::ErosionPassParams`' own doc comment for why these are
+    // parameters here and buttons there. The six `.enabled` rows have an empty
+    // `reference_control` for exactly that reason -- the reference's control is
+    // a *button*, not a checkbox, so this port's toggle is a §7d addition and
+    // says so. Every knob row *does* name its reference slider, and carries
+    // that slider's real reachable range through its own `eparam` mapping.
+    ParamSpec { key: "passes.velocity", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Velocity (momentum) erosion", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.velocity), set_fn: |p, v| p.passes.velocity = v != 0.0 },
+    ParamSpec { key: "passes.velo_iters", group: "erosion", kind: Kind::Int, min: 10.0, max: 160.0, step: 1.0,
+        label: "Velocity iterations", unit: "", reference_control: "vIt",
+        get_fn: |p| Value::Num(p.passes.velo_iters as f64), set_fn: |p, v| p.passes.velo_iters = v as i32 },
+    ParamSpec { key: "passes.velo_strength", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "Velocity strength", unit: "", reference_control: "vStr",
+        get_fn: |p| Value::Num(p.passes.velo_strength), set_fn: |p, v| p.passes.velo_strength = v },
+    ParamSpec { key: "passes.velo_meander", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "Velocity meander", unit: "", reference_control: "vMnd",
+        get_fn: |p| Value::Num(p.passes.velo_meander), set_fn: |p, v| p.passes.velo_meander = v },
+    ParamSpec { key: "passes.glacial", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Glacial erosion", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.glacial), set_fn: |p, v| p.passes.glacial = v != 0.0 },
+    ParamSpec { key: "passes.glacial_snowline", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "Snowline", unit: "", reference_control: "gSnow",
+        get_fn: |p| Value::Num(p.passes.glacial_snowline), set_fn: |p, v| p.passes.glacial_snowline = v },
+    ParamSpec { key: "passes.glacial_kg", group: "erosion", kind: Kind::Float, min: 0.01, max: 1.0, step: 0.01,
+        label: "Glacial intensity", unit: "", reference_control: "gKg",
+        get_fn: |p| Value::Num(p.passes.glacial_kg), set_fn: |p, v| p.passes.glacial_kg = v },
+    ParamSpec { key: "passes.glacial_mg", group: "erosion", kind: Kind::Float, min: 0.0, max: 2.0, step: 0.05,
+        label: "Glacial discharge exponent", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.passes.glacial_mg), set_fn: |p, v| p.passes.glacial_mg = v },
+    ParamSpec { key: "passes.glacial_u_factor", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "U-width", unit: "", reference_control: "gUF",
+        get_fn: |p| Value::Num(p.passes.glacial_u_factor), set_fn: |p, v| p.passes.glacial_u_factor = v },
+    ParamSpec { key: "passes.glacial_passes", group: "erosion", kind: Kind::Int, min: 1.0, max: 30.0, step: 1.0,
+        label: "Glacial passes", unit: "", reference_control: "gPas",
+        get_fn: |p| Value::Num(p.passes.glacial_passes as f64), set_fn: |p, v| p.passes.glacial_passes = v as i32 },
+    ParamSpec { key: "passes.coastal", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Coastal processes", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.coastal), set_fn: |p, v| p.passes.coastal = v != 0.0 },
+    ParamSpec { key: "passes.wave_str", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "Wave strength", unit: "", reference_control: "cWave",
+        get_fn: |p| Value::Num(p.passes.wave_str), set_fn: |p, v| p.passes.wave_str = v },
+    ParamSpec { key: "passes.estuary_depth", group: "erosion", kind: Kind::Float, min: 0.0, max: 0.2, step: 0.002,
+        label: "Estuary depth", unit: "", reference_control: "cEst",
+        get_fn: |p| Value::Num(p.passes.estuary_depth), set_fn: |p, v| p.passes.estuary_depth = v },
+    ParamSpec { key: "passes.marsh_band", group: "erosion", kind: Kind::Float, min: 0.0, max: 0.1, step: 0.001,
+        label: "Marsh band", unit: "", reference_control: "cMar",
+        get_fn: |p| Value::Num(p.passes.marsh_band), set_fn: |p, v| p.passes.marsh_band = v },
+    ParamSpec { key: "passes.coastal_passes", group: "erosion", kind: Kind::Int, min: 1.0, max: 15.0, step: 1.0,
+        label: "Coastal passes", unit: "", reference_control: "cPas",
+        get_fn: |p| Value::Num(p.passes.coastal_passes as f64), set_fn: |p, v| p.passes.coastal_passes = v as i32 },
+    ParamSpec { key: "passes.hillslope", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Hillslope diffuse", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.hillslope), set_fn: |p, v| p.passes.hillslope = v != 0.0 },
+    ParamSpec { key: "passes.diffuse_d", group: "erosion", kind: Kind::Float, min: 0.002, max: 0.2, step: 0.002,
+        label: "Diffusivity D", unit: "", reference_control: "edD",
+        get_fn: |p| Value::Num(p.passes.diffuse_d), set_fn: |p, v| p.passes.diffuse_d = v },
+    ParamSpec { key: "passes.diffuse_passes", group: "erosion", kind: Kind::Int, min: 1.0, max: 40.0, step: 1.0,
+        label: "Diffuse passes", unit: "", reference_control: "edPas",
+        get_fn: |p| Value::Num(p.passes.diffuse_passes as f64), set_fn: |p, v| p.passes.diffuse_passes = v as i32 },
+    ParamSpec { key: "passes.sediment_fill", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Sediment fill (route + redeposit)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.sediment_fill), set_fn: |p, v| p.passes.sediment_fill = v != 0.0 },
+    ParamSpec { key: "passes.sediment_capacity", group: "erosion", kind: Kind::Float, min: 0.0, max: 20.0, step: 0.5,
+        label: "Sediment transport capacity", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.passes.sediment_capacity), set_fn: |p, v| p.passes.sediment_capacity = v },
+    // 0 is off -- the reference's own slider starts at 2 because pressing the
+    // button *is* the "on", which a parameter has no equivalent of.
+    ParamSpec { key: "passes.evolve_cycles", group: "erosion", kind: Kind::Int, min: 0.0, max: 12.0, step: 1.0,
+        label: "Evolve climate \u{2194} terrain cycles", unit: "", reference_control: "evoCyc",
+        get_fn: |p| Value::Num(p.passes.evolve_cycles as f64), set_fn: |p, v| p.passes.evolve_cycles = v as i32 },
+    // The seventh pass. Unlike the six above it, the reference gates its
+    // button on `state.planet.tides.enabled` as well -- this toggle is both,
+    // because turning it on is what builds the tide field it reads. See
+    // `ErosionPassParams::tidal_flats`.
+    ParamSpec { key: "passes.tidal_flats", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Tidal flats (mudflat accretion)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.tidal_flats), set_fn: |p, v| p.passes.tidal_flats = v != 0.0 },
+    ParamSpec { key: "passes.tidal_k", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "Tidal accretion rate", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.passes.tidal_k), set_fn: |p, v| p.passes.tidal_k = v },
+
     // ---- climate & biomes ------------------------------------------------
     ParamSpec { key: "climate.lat_n", group: "climate", kind: Kind::Float, min: -90.0, max: 90.0, step: 1.0,
         label: "North edge", unit: "\u{b0}", reference_control: "latN",
@@ -317,6 +402,290 @@ pub const PARAMS: &[ParamSpec] = &[
         get_fn: |p| Value::Bool(p.climate.bulk_evap), set_fn: |p, v| p.climate.bulk_evap = v != 0.0 },
 ];
 
+// ===========================================================================
+// Saving and restoring the table (`SAVEFILE_COMPAT.md`, FI-01)
+// ===========================================================================
+//
+// The `.zip` save's `params.json` carries a `state` object, and this module
+// is where that object's *parameter* half is built and read back.
+//
+// ## Two copies of every value, deliberately
+//
+// A save written here holds each parameter twice:
+//
+// 1. Under [`NATIVE_PARAMS_KEY`] (`state.cartalith`), keyed by this table's
+//    own dotted key. **This is the authoritative copy** and the only one
+//    [`apply_saved_state`] reads. It is lossless by construction: every row
+//    below round-trips, including the ten this port added that the reference
+//    has no equivalent for (`use_gpu`, the six erosion-pass toggles,
+//    `passes.sediment_capacity`, `passes.tidal_k`,
+//    `climate.terrain_wind_deflection`).
+// 2. At its **reference** `state` path (`tect.blurR`, `climate.latN`, ...),
+//    where the row has one. This copy exists for one reader only: the
+//    original HTML app, whose `loadZip()` can then reopen a file this port
+//    wrote.
+//
+// The duplication is what keeps both honest. Without (1), the ten port-only
+// parameters would be silently lost on every save. Without (2), a save this
+// port wrote would reopen in the reference app with the reference app's
+// *defaults* silently standing in for the world's real settings.
+//
+// ## Why (2) is not optional even if reference compatibility were dropped
+//
+// `loadZip()` merges the saved state **shallowly** — `Object.assign(state,
+// pk.state)` — so any nested block written here *replaces* the reference's
+// whole default block rather than merging into it. `state.tect.seed` is
+// mandatory (this port's own reader requires it, `SAVEFILE_COMPAT.md`), so
+// `tect` is written no matter what; writing it with only a seed in it would
+// leave the reference app with an undefined plate count, drift, warp and
+// blur radius. Once `tect` must be complete, every sibling block costs one
+// table column.
+//
+// ## The one block deliberately not written: `state.erosion`
+//
+// `loadZip()` has no `Object.assign` shim for `erosion` (it does for
+// `climate`, `stream`, `velo`, `glacial`, `coastal`, `planet`,
+// `world_structure` and `viz`), and this port models 2 of its 16 keys —
+// `diffuseD` and `diffusePasses`. Writing those two would replace the
+// reference's entire droplet-erosion parameter set with a two-key object.
+// Both rows therefore carry an empty reference path and travel in
+// `state.cartalith` only; a save this port writes leaves the reference app
+// on its own `erosion` defaults, which is a visible, documented limitation
+// rather than a silently mangled block.
+
+/// Where the parameter half of a save lives inside `state` — this port's
+/// own dotted keys, verbatim, as the lossless copy. A key the reference
+/// never wrote, so `loadZip()`'s `Object.assign` carries it through
+/// untouched and `serializeState()` writes it back out: a save can make a
+/// round trip *through the reference app* without losing this port's
+/// parameters.
+pub const NATIVE_PARAMS_KEY: &str = "cartalith";
+
+/// Each [`PARAMS`] key's path inside the reference's own `state` object, or
+/// `""` where the reference has no equivalent. Kept as its own table rather
+/// than a tenth column on [`ParamSpec`] because it is a property of the
+/// *reference*, not of this port's parameter — and because a row here that
+/// names no key is caught by `every_param_has_a_reference_path_decision`,
+/// which is the drift guard a column would otherwise provide.
+///
+/// Every path was read out of `reference/Cartalith Gen1 v2.10.html`'s own
+/// `state` literal (line 2257) and its `loadZip()` shims (line 12624).
+#[rustfmt::skip]
+const JS_PATHS: &[(&str, &str)] = &[
+    ("world", "world"),
+    // The *effective* sea level is written over this by
+    // `cartalith_io::params_json` -- the reference's own `state.seaLevel` is
+    // likewise post-`deriveFromWorldStructure`, so the two agree. The input
+    // value stays in the `cartalith` copy.
+    ("sea_level", "seaLevel"),
+    ("peak_m", "peakM"),
+    ("carve_rivers", "carveRivers"),
+    ("river_density", "viz.riverDensity"),
+    // No reference equivalent: this port's own GPU switch.
+    ("use_gpu", ""),
+
+    ("planet.g", "planet.g"),
+    ("planet.rotation_hours", "planet.rotationHours"),
+    ("planet.axial_tilt_deg", "planet.axialTiltDeg"),
+
+    ("world_structure.enabled", "world_structure.enabled"),
+    ("world_structure.continentality", "world_structure.continentality"),
+    ("world_structure.fragmentation", "world_structure.fragmentation"),
+    ("world_structure.tectonic_energy", "world_structure.tectonicEnergy"),
+    ("world_structure.ocean_depth", "world_structure.oceanDepth"),
+    ("world_structure.hotspot_density", "world_structure.hotspotDensity"),
+
+    ("tect.plates", "tect.plates"),
+    ("tect.vel", "tect.vel"),
+    ("tect.warp", "tect.warp"),
+    ("tect.blur_r", "tect.blurR"),
+    ("tect.alpha", "tect.alpha"),
+    ("tect.beta", "tect.beta"),
+    ("tect.age_inf", "tect.age"),
+    ("tect.ridged", "tect.ridged"),
+    ("tect.flexure", "tect.flexure"),
+    ("tect.hetero", "tect.hetero"),
+    ("tect.resist", "tect.resist"),
+    ("tect.dynamic_lithology", "tect.dynamicLithology"),
+    ("tect.lloyd", "tect.lloyd"),
+
+    ("volc.count", "volc.count"),
+    ("volc.age", "volc.age"),
+    ("volc.provinces", "volc.provinces"),
+    ("crater.count", "crater.count"),
+    ("crater.age", "crater.age"),
+
+    ("stream.uplift", "stream.uplift"),
+    ("stream.k", "stream.k"),
+    ("stream.iters", "stream.iters"),
+    ("stream.deposit", "stream.deposit"),
+    ("stream.climate_k", "stream.climateK"),
+
+    // The six pass *toggles* are this port's own (`ParamSpec`'s own comment:
+    // the reference's control is a button, not a checkbox), so none of them
+    // has a reference path -- only the knobs behind them do.
+    ("passes.velocity", ""),
+    ("passes.velo_iters", "velo.iters"),
+    ("passes.velo_strength", "velo.strength"),
+    ("passes.velo_meander", "velo.meander"),
+    ("passes.glacial", ""),
+    ("passes.glacial_snowline", "glacial.snowline"),
+    ("passes.glacial_kg", "glacial.kg"),
+    ("passes.glacial_mg", "glacial.mg"),
+    ("passes.glacial_u_factor", "glacial.uFactor"),
+    ("passes.glacial_passes", "glacial.passes"),
+    ("passes.coastal", ""),
+    ("passes.wave_str", "coastal.waveStr"),
+    ("passes.estuary_depth", "coastal.estuaryDepth"),
+    ("passes.marsh_band", "coastal.marshBand"),
+    ("passes.coastal_passes", "coastal.passes"),
+    ("passes.hillslope", ""),
+    // See the module note above: `state.erosion` is unshimmed and only
+    // 2/16 modelled, so it is not written at all.
+    ("passes.diffuse_d", ""),
+    ("passes.diffuse_passes", ""),
+    ("passes.sediment_fill", ""),
+    ("passes.sediment_capacity", ""),
+    ("passes.evolve_cycles", "stream.cycles"),
+    // Turning this on is what builds the tide field the pass reads, so the
+    // reference's own gate (`state.planet.tides.enabled`) is the closest
+    // thing it has. `planet.tides` is `Object.assign`-shimmed, so writing
+    // `enabled` alone leaves `k2` and `moons` intact.
+    ("passes.tidal_flats", "planet.tides.enabled"),
+    ("passes.tidal_k", ""),
+
+    ("climate.lat_n", "climate.latN"),
+    ("climate.lat_s", "climate.latS"),
+    ("climate.equator_temp", "climate.equatorTemp"),
+    ("climate.pole_temp", "climate.poleTemp"),
+    ("climate.lapse_rate", "climate.lapseRate"),
+    ("climate.albedo_k", "climate.albedo"),
+    ("climate.currents", "climate.currents"),
+    ("climate.current_k", "climate.currentK"),
+    // Reference v1.78 deleted `state.climate.terrainWind` outright
+    // (`loadZip` still runs `delete state.climate.terrainWind`), so there is
+    // no key to write it to.
+    ("climate.terrain_wind_deflection", ""),
+    ("climate.w_iters", "climate.wIters"),
+    ("climate.rain_k", "climate.rainK"),
+    ("climate.evap", "climate.evap"),
+    ("climate.rain_dep", "climate.rainDep"),
+    ("climate.ocean", "climate.ocean"),
+    // A bool here, the string `'manual'`/`'auto'` there -- written by
+    // `save_state` rather than through this table, which only carries
+    // same-typed values.
+    ("climate.wind_manual", ""),
+    ("climate.wind_dir_deg", "climate.windDir"),
+    ("climate.press_k", "climate.pressK"),
+    ("climate.zonal_k", "climate.zonalK"),
+    ("climate.ocean_hum", "climate.oceanHum"),
+    ("climate.bulk_evap", "climate.bulkEvap"),
+];
+
+/// A parameter's path inside the reference's own `state` object; `Some("")`
+/// for a row this port added that the reference has no equivalent for, and
+/// `None` only for a [`PARAMS`] row nobody has decided about — which
+/// `every_param_has_a_reference_path_decision` fails on.
+pub fn reference_path(key: &str) -> Option<&'static str> {
+    JS_PATHS.iter().find(|(k, _)| *k == key).map(|(_, p)| *p)
+}
+
+/// Writes `value` at a dotted path, creating intermediate objects. A
+/// non-object sitting where an intermediate object is needed is replaced —
+/// this only ever builds a fresh map, so that branch is unreachable in
+/// practice and exists so the function has no panic in it.
+fn put(root: &mut serde_json::Map<String, serde_json::Value>, path: &str, value: serde_json::Value) {
+    match path.split_once('.') {
+        None => {
+            root.insert(path.to_string(), value);
+        }
+        Some((head, rest)) => {
+            let child = root.entry(head).or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if !child.is_object() {
+                *child = serde_json::Value::Object(serde_json::Map::new());
+            }
+            if let Some(map) = child.as_object_mut() {
+                put(map, rest, value);
+            }
+        }
+    }
+}
+
+/// One parameter as JSON. [`Kind::Int`] rows become JSON integers so a
+/// reference-app slider reading `state.tect.plates` gets `14`, not `14.0`.
+///
+/// A non-finite value becomes `null` rather than panicking — [`set`] rejects
+/// non-finite input, so this is unreachable via the public API, but a save
+/// writer is the wrong place to discover that assumption was wrong.
+fn as_json(spec: &ParamSpec, p: &WorldParams) -> serde_json::Value {
+    match (spec.get_fn)(p) {
+        Value::Bool(b) => serde_json::Value::Bool(b),
+        Value::Num(n) if spec.kind == Kind::Int => serde_json::Value::from(n as i64),
+        Value::Num(n) => serde_json::Number::from_f64(n).map_or(serde_json::Value::Null, serde_json::Value::Number),
+    }
+}
+
+/// The `state` object for a save (`SAVEFILE_COMPAT.md`): every parameter in
+/// this table, twice — once under [`NATIVE_PARAMS_KEY`] by this port's own
+/// key, once at its reference path where it has one. See the module note
+/// above for why both.
+///
+/// Does **not** carry `GW`, `GH`, `state.tect.seed`, `state.seaLevel`,
+/// `state.mapWidthKm` or `state.world` as authoritative values —
+/// `cartalith_io::params_json` fills those in from the world's own
+/// `SaveParams`, so the file cannot disagree with itself.
+pub fn save_state(p: &WorldParams) -> serde_json::Value {
+    let mut state = serde_json::Map::new();
+    let mut native = serde_json::Map::new();
+    for spec in PARAMS {
+        let value = as_json(spec, p);
+        native.insert(spec.key.to_string(), value.clone());
+        match reference_path(spec.key) {
+            Some(path) if !path.is_empty() => put(&mut state, path, value),
+            _ => {}
+        }
+    }
+    // The one type-changing mapping (see `JS_PATHS`).
+    put(
+        &mut state,
+        "climate.windMode",
+        serde_json::Value::from(if p.climate.wind_manual { "manual" } else { "auto" }),
+    );
+    state.insert(NATIVE_PARAMS_KEY.to_string(), serde_json::Value::Object(native));
+    serde_json::Value::Object(state)
+}
+
+/// Restores what [`save_state`] wrote, from a save's `state` object.
+/// Returns how many parameters were applied.
+///
+/// Reads **only** [`NATIVE_PARAMS_KEY`], never the reference paths. A
+/// genuine HTML-app export carries no such key, so opening one leaves every
+/// parameter at its default — exactly the behaviour this port had before a
+/// writer existed, rather than a new and differently-wrong reconstruction
+/// from a state object whose 200+ keys this port models a fraction of.
+///
+/// Every value goes through [`set`], so an out-of-range or wrong-typed entry
+/// in a hand-edited (or future-version) save is clamped or rejected on the
+/// same terms as a GUI write, and never panics.
+pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
+    let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
+        return 0;
+    };
+    let mut applied = 0;
+    for (key, value) in native {
+        let parsed = match value {
+            serde_json::Value::Bool(b) => Some(Value::Bool(*b)),
+            serde_json::Value::Number(n) => n.as_f64().map(Value::Num),
+            _ => None,
+        };
+        let Some(parsed) = parsed else { continue };
+        if set(p, key, parsed) != Outcome::Rejected {
+            applied += 1;
+        }
+    }
+    applied
+}
+
 /// Every distinct `group`, in first-appearance order — the section order a
 /// generated dialog should use.
 pub fn groups() -> Vec<&'static str> {
@@ -332,6 +701,81 @@ pub fn groups() -> Vec<&'static str> {
 /// The spec for a dotted key, or `None` if no such parameter exists.
 pub fn spec(key: &str) -> Option<&'static ParamSpec> {
     PARAMS.iter().find(|s| s.key == key)
+}
+
+/// `GUI_GAP_REGISTER.md` **SG-03**: which node of
+/// [`cartalith_engine::staleness::pipeline_stage_graph`] a moved dial has to
+/// mark changed — or `None` for a parameter with **no live-apply path at
+/// all**, which is most of them (56 of the 81 rows).
+///
+/// ## The rule the table is derived from, not a judgement call
+///
+/// A parameter belongs here only if some function *other than*
+/// `generate_terrain` reads it, because marking a stage stale is a promise
+/// that recomputing it will apply the new value. There are exactly two such
+/// functions today, and each fixes one row's answer:
+///
+/// - [`cartalith_engine::refresh_climate`] — the whole of what
+///   `recompute_stale` runs. It reads `climate_params_for` +
+///   `weather_params_for` (which between them take every `climate.*` field,
+///   plus `peak_m` and all three `planet.*` fields) and, directly,
+///   `climate.w_iters`, `climate.zonal_k` and `climate.currents`. Those 24
+///   keys map to **[`PipelineStage::Hydrology`]**.
+/// - `compute_civilisation` via `WorldGen::recompute_civilisation` — reads
+///   exactly one `WorldParams` field the user can move, `river_density`
+///   (through `fresh_river_order`, so it reaches affordances, roads and
+///   territory). That one key maps to **[`PipelineStage::Climate`]**.
+///
+/// The two remaining `ClimateParams`/`WeatherParams` inputs are deliberately
+/// absent: `sea_level`, because `recompute_stale` is handed
+/// `WorldState::sea_level` (a World-Structure archetype re-anchors it during
+/// generation, so the dial is not what the recompute reads); and `world`,
+/// because `WorldGen::recompute_params` pins it to the value `absorb`
+/// snapshotted rather than reading the dial — a moved geometry switch must
+/// not make a recompute describe a different world.
+/// `params_mapping.rs`'s `every_key_that_moves_refresh_climate_is_marked`
+/// derives the Hydrology half mechanically, by running `refresh_climate`
+/// twice per key, so the list cannot drift from the code.
+///
+/// ## Why the node marked is one *above* the stage that goes stale
+///
+/// [`cartalith_spatial::StageGraph`] has no "this stage's own inputs moved"
+/// state: `mark_changed(S)` means *S's output changed*, which makes S's
+/// **consumers** stale and S itself current (`staleness.rs`'s own
+/// `a_downstream_only_edit_recomputes_nothing_upstream_of_it`). So the node
+/// to mark is the one immediately upstream of the shallowest stage the dial
+/// actually invalidates:
+///
+/// - a climate dial ⇒ mark `Hydrology` ⇒ climate **and** civ go stale, and
+///   `recompute_stale`'s `any_stale(clim)` gate fires, so one
+///   `refresh_climate` runs. Not a fiction for the weather half —
+///   `refresh_climate`'s first statement recomputes `flow_discharge` from the
+///   new rainfall, which *is* hydrology's output. It is one node coarser than
+///   the truth for the few temperature-only dials (`lapse_rate`, `albedo_k`),
+///   where discharge does not in fact move; representing those exactly would
+///   need a fifth, `params` source node, which SG-03 was briefed against the
+///   existing four-node set rather than adding.
+/// - `river_density` ⇒ mark `Climate` ⇒ **only** civ goes stale, and
+///   `recompute_stale` runs nothing at all (neither hydrology nor climate has
+///   a changed upstream), leaving `still_stale = ["civ"]` for the
+///   Civilization dock's Recompute button. Marking `Civ` itself would mark
+///   nothing stale — it is the leaf.
+pub fn invalidates(key: &str) -> Option<PipelineStage> {
+    match key {
+        "river_density" => Some(PipelineStage::Climate),
+        // The four non-`climate.` fields `climate_params_for`/
+        // `weather_params_for` read. `sea_level` and `world` are the two
+        // documented exclusions above.
+        "peak_m" | "planet.g" | "planet.rotation_hours" | "planet.axial_tilt_deg" => {
+            Some(PipelineStage::Hydrology)
+        }
+        // Every `climate.*` row — the `climate` and `weather` groups both —
+        // is read by `refresh_climate`, without exception. A future row that
+        // is not fails the mechanical test rather than silently promising a
+        // recompute that would apply nothing.
+        _ if key.starts_with("climate.") => Some(PipelineStage::Hydrology),
+        _ => None,
+    }
 }
 
 /// Current value of `key` on `p`, or `None` for an unknown key.
