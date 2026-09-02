@@ -581,6 +581,11 @@ func _on_civ_tool_armed(id: String) -> void:
 		"territory":
 			_active_civ_tool = "territory"
 			_tool_options_territory()
+			## `05-right-dock-and-bars.md` §1.12, GUI replacement stage 5:
+			## `rdMode4()` rule 4 -- unconditional on the tool. `leave_
+			## territory_context()` below is the disarm half.
+			if app.right_dock_ctrl.has_method("show_territory"):
+				app.right_dock_ctrl.show_territory(_territory_faction)
 		_:
 			if _active_civ_tool != "":
 				_active_civ_tool = ""
@@ -592,6 +597,8 @@ func _on_civ_tool_armed(id: String) -> void:
 				## stale.
 				if id == "inspect":
 					_tool_options_civ_idle()
+			if app.right_dock_ctrl.has_method("leave_territory_context"):
+				app.right_dock_ctrl.leave_territory_context()
 
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
 ## substrate's own instructions (`app.gd`'s `_wire_selection` forwards every
@@ -798,7 +805,14 @@ func _tl_apply_filters(settlements: Array) -> Array:
 func _tool_options_territory() -> void:
 	app.set_tool_options(func(row: HBoxContainer):
 		_tool_options_label(row, "CIVIL · TERRITORY")
-		_faction_choice(row, _territory_faction, func(fid: int): _territory_faction = fid)
+		_faction_choice(row, _territory_faction, func(fid: int):
+			_territory_faction = fid
+			## Unlike Radius/Mode just below, a faction re-pick changes
+			## WHICH faction's stats this dock's own right-dock companion
+			## is showing -- `right_dock.gd`'s CTX_TERR keeps no state of
+			## its own, so it has to be told.
+			if app.right_dock_ctrl.has_method("show_territory"):
+				app.right_dock_ctrl.show_territory(fid))
 		DccWidgets.slider(row, "Radius", 1.0, 20.0, 1.0, _territory_radius, " c",
 			func(v: float): _territory_radius = v)
 		DccWidgets.choice(row, "Mode", ["Add", "Subtract (⇧)"], 1 if _territory_subtract else 0,
@@ -830,16 +844,15 @@ func _commit_territory() -> void:
 	## territory texture, without that call's camera-resetting side effects.
 	app.viewport.territory_view.texture = bridge.territory_texture()
 	## §4.5.3's own right-dock column: "Faction inspector with live area,
-	## claimed-cell count, and contested-cell warning." `right_dock.gd`'s
-	## Faction context (`_build_faction`) predates `civ_faction_territory_
-	## stats` and still says outright "no per-faction cell count or area
-	## query exists" -- true when that sentence was written, no longer true,
-	## but `right_dock.gd` is explicitly not this pass's to change. Pinning
-	## the faction is still the closest honest equivalent (same "select what
-	## was just edited" pattern `_settlement_click` above uses); the live
-	## cells/area/contested numbers §4.5.3 actually wants live in THIS file's
-	## own tool options row instead (above), which can read the real binding.
-	app.right_dock_ctrl.show_faction(_territory_faction)
+	## claimed-cell count, and contested-cell warning." **This used to pin
+	## `show_faction()` instead**, with a comment explaining `right_dock.gd`'s
+	## real Territory context "is explicitly not this pass's to change" --
+	## true when that sentence was written; `right_dock.gd`'s CTX_TERR
+	## (`05-right-dock-and-bars.md` §1.12) now exists and is the exact live
+	## cells/area/contested reading that comment was waiting for, so this
+	## points at it instead. `civ_faction_territory_stats` is unchanged --
+	## this dock's own tool-options row above still reads it too.
+	app.right_dock_ctrl.show_territory(_territory_faction)
 	app.set_status("hint",
 		"Territory committed -- provinces/trade were computed before this edit.", "text_ghost")
 	if _active_civ_tool == "territory":
@@ -849,6 +862,11 @@ func _discard_territory() -> void:
 	bridge.civ_territory_discard()
 	if _active_civ_tool == "territory":
 		_tool_options_territory()
+	## Discard only touches the draft (`civ_territory_discard`'s own doc);
+	## the committed stats CTX_TERR reads are unaffected, but re-announcing
+	## costs nothing and keeps this symmetric with commit and arm above.
+	if app.right_dock_ctrl.has_method("show_territory"):
+		app.right_dock_ctrl.show_territory(_territory_faction)
 
 
 # -- Settlements --------------------------------------------------------

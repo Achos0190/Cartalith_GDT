@@ -22,6 +22,55 @@ defaults at lines 2258-2310 and `syncUI` at 12648), `docs/GENERATOR_PARAMETERS.m
 mappings that still match v2.10 exactly for every parameter below),
 `GUI_FEATURE_PARITY_SCOPE.md` Category 1, and `FUNCTIONAL_CONTRACT.md`.
 
+**How this document is derived, and how to redo it.** Every row in every table
+below is read mechanically off `cartalith-godot/src/params.rs`'s own two
+tables — `PARAMS` (key, group, kind, range, step, label, unit,
+`reference_control`) and `JS_PATHS` (which key has a save-format counterpart
+in the reference's own `state` object, `""` when it does not) — not retyped
+by hand or copied from an earlier revision of this file. To regenerate it:
+`grep -c "ParamSpec { key:" crates/cartalith-godot/src/params.rs` for the row
+count (**85** as of 2026-09-02 — see the note below on why this moved twice in
+one session), then walk `PARAMS` in file order for the per-row facts and
+`JS_PATHS` for which keys are genuinely this port's own. **The two "has no
+reference" signals are not the same question** and both are recorded below,
+per row, rather than collapsed into one: `reference_control: ""` means the
+reference never gave a user a *control* for the field (the field can still
+exist in `state`, e.g. `climate.current_k` does); `JS_PATHS` carrying `""`
+means the reference has **no such field at all**, not even internally — the
+stronger claim, and the one that answers "does this parameter have a
+reference counterpart". As of this regeneration, 15 keys are in the second,
+stronger category: `use_gpu`, `volc.exclude_transform`, `passes.velocity`,
+`passes.glacial`, `passes.coastal`, `passes.hillslope`, `passes.diffuse_d`,
+`passes.diffuse_passes`, `passes.sediment_fill`, `passes.sediment_capacity`,
+`passes.tidal_k`, `climate.terrain_wind_deflection`, `climate.wind_manual`,
+and the two newest members this lane's own reconciliation was scoped to,
+`crater.physical_model` and `crater.surface_age_myr` (`DECISIONS.md` §7l,
+2026-09-02 — the reference has no crater density model and no geological
+surface-age concept to hang a save path off).
+
+**The count moved twice while this document was being regenerated, which is
+itself worth recording.** This lane's task was scoped to two rows
+(`crater.physical_model`, `crater.surface_age_myr`, taking the table from 81
+to 83), but `params.rs` gained an 85th row, `volc.exclude_transform`, from a
+concurrent change in this same tree while this pass was underway (`DECISIONS.md`
+§7l's crater precedent, cited directly in that field's own doc comment as the
+reason it is *not yet* turned on — see the `volcanism` table below). Regenerated
+against the file as it stood when this pass finished, not as it stood when the
+task was assigned — a document that mechanically reflects `params.rs` has to
+track whichever version is actually on disk, and 85 is that version's true
+count. If another concurrent change lands after this, re-run the same grep
+rather than trust this number.
+
+**Cross-check against `world_workspace.gd`'s own header count, and it does
+not currently agree.** That file's header comment was corrected from a stale
+"58 parameters" to "81 parameters" in an earlier pass (its own text: `grep -c
+"ParamSpec { key:"`). Four rows landed after that correction — the two
+crater ones this lane was scoped to, plus `volc.exclude_transform` and `volc.edifice_model` from
+concurrent changes — so the real count moved to 85 while the comment stayed at
+81. That comment is now itself four rows behind, the same drift this document
+just went through. Not fixed here: `world_workspace.gd` is outside this
+lane's owned files; flagged so whoever owns it next can re-run the same grep.
+
 ## What changed
 
 Before this pass, `WorldGen` exposed **7** of the engine's generation
@@ -37,6 +86,12 @@ After it, **58** parameters are reachable, covering all eight structs. The
 seven that were already reachable keep their old `#[func]`s (`main.gd` drives
 them) — those are now thin sugar over the same storage, so the two surfaces
 cannot disagree.
+
+**That 58 is this section's own historical snapshot, not the current total.**
+27 rows were added in later passes — most recently `volc.exclude_transform`,
+`volc.edifice_model`, `crater.physical_model` and `crater.surface_age_myr` (`DECISIONS.md` §7l,
+2026-09-02) — bringing the table to **85** as of this regeneration. The
+tables below are the current 85, not the 58 this paragraph describes.
 
 ## The API
 
@@ -205,17 +260,50 @@ overshooting slider do nothing at all, which reads as a broken control.
 re-read `get_params()` for those keys and update the widget. If `"rejected"`
 is non-empty, that is a bug in the caller, not user error.
 
-## Zero behaviour change at defaults
+## Zero behaviour change at defaults — with one owner-ruled exception
 
-`WorldGen::params` is initialised to `WorldParams::defaults(0, 0, 0)`, and
-`generate()` overwrites only `gw`/`gh`/`tect.seed`/`map_width_km` before
-calling `generate_terrain`. An instance nobody calls a setter on therefore
-builds a byte-identical `WorldParams` to the one the old code built inline.
-Verified: `cargo test --workspace` passes with **0 regressions** (83 test
-binaries, every golden-parity fixture unmodified), and
-`tests/params_mapping.rs::defaults_round_trip_through_every_key` asserts that
-writing every parameter's own default back leaves `WorldParams` `PartialEq`-
-identical to `WorldParams::defaults`.
+`WorldGen::params` is initialised to `cartalith_godot::params::defaults()`
+(**not** raw `cartalith_engine::WorldParams::defaults(0, 0, 0)` — the two used
+to be the same call and no longer are, see below), and `generate()` overwrites
+only `gw`/`gh`/`tect.seed`/`map_width_km` before calling `generate_terrain`.
+An instance nobody calls a setter on therefore builds a `WorldParams`
+byte-identical to the one the old code built inline, **except for the three
+fields below**.
+
+**The three deliberate divergences**, all owner rulings of 2026-09-02, all
+turned on in `params::defaults()` and all left `false` in
+`WorldParams::defaults` — the goldens' own parity baseline:
+
+| field | ruling | what it changes |
+|---|---|---|
+| `crater.physical_model` | `DECISIONS.md` §7l | craters from a physically-scaled area-density model, not the reference's fixed count |
+| `volc.exclude_transform` | §7l-ii, ruling 1 | shear-dominant cells drop out of the arc/rift pools; the measured 34.3%/32.3% transform contamination becomes 0.0% |
+| `volc.edifice_model` | §7l-ii, ruling 1 | shield/strato/cone edifices instead of one power-law profile at every scale |
+
+Those defaults live at this one boundary specifically so the parity baseline
+underneath them stays untouched. Every other parameter is unaffected, and
+`tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`
+asserts that — it neutralises exactly these three and requires the result to
+equal `WorldParams::defaults`, so a fourth divergence added without a ruling
+fails there rather than being discovered later.
+
+**A fourth change of 2026-09-02 is not a divergence but does change behaviour**:
+§7l-ii ruling 2 made `passes.diffuse_d` the world's one hillslope diffusivity,
+which `cartalith_terrain::crater_degradation_tau` now reads. Its *default* is
+unchanged in both functions, so nothing above moves — but under
+`crater.physical_model` the slider now also weathers craters, which is why its
+label reads *"Diffusivity D (also weathers craters)"*. See its row below.
+
+Verified: `cargo test --workspace` passes with **0 regressions** (every
+golden-parity fixture unmodified — the six crater-touching golden cases
+(`golden_parity_volc_craters` x2, `golden_parity_pipeline` x2,
+`golden_parity_carve` x2) pin `physical_model = false` explicitly rather than
+being re-baselined, per §7l),
+and `tests/params_mapping.rs::defaults_round_trip_through_every_key` asserts
+that writing every parameter's own default back through `params::set`/
+`params::get` leaves `params::defaults()` unchanged — a self-consistency
+check on the table, not (since §7l) a claim that `params::defaults()` equals
+`WorldParams::defaults`, which is no longer true by design.
 
 ## Reading the tables
 
@@ -330,8 +418,20 @@ Stamped after the base height is built and normalized, before erosion.
 | `volc.count` | `volc.count` | int | `20` | 0 .. 100, step 1 | `volc`, raw 0-100 step 1 | Number of volcanic edifices stamped into `field` and recorded in `volcanic_field` for biome tinting. Ignored when World Structure is on (derived from hotspot density). |
 | `volc.age` | `volc.age` | float | `0.40` | 0.0 .. 1.0, step 0.01 | `volca`, raw 0-100, `v/100` | Weathering of volcanoes. Old (high) = lower, softer, wider; young (low) = tall and sharp with a caldera notch. |
 | `volc.provinces` | `volc.provinces` | bool | `true` | — | `volcProv` | Province mode: clusters volcanoes on convergent boundaries and hotspots with power-law sizes, instead of the simple boundary scatter. |
-| `crater.count` | `crater.count` | int | `100` | 0 .. 200, step 2 | `crat`, raw 0-100 step 1, `v·2` | Number of impact craters recorded in `impact_field`. Sizes follow a realistic D⁻² distribution: mostly small (0.5-5 km), rare large basins (25-200 km). Crater radius scales with `g^−0.22`. |
+| `volc.exclude_transform` | `volc.exclude_transform` | bool | `false`¹ | — | **—** | Drops shear-dominant (transform-margin) cells from the arc/rift candidate pools before placement. The reference selects arcs on the *sign* of blurred normal stress, which cannot see shear, so a measured **34.3%** of the arc pool and **32.3%** of the rift pool land on transform boundaries — not a major real volcanic environment. **`true` in the shipped app, `false` in `WorldParams::defaults`** (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii): turning it on moves the height field and therefore lithology, biomes, carrying capacity, settlements, roads and sea routes, so it ships at the app boundary while the parity baseline stays the reference's. Re-measured with it on (256×160, 12 seeds): both pools **0.0%** transform, with 65.7% of arc sites and 67.7% of rift sites surviving — it corrects placement rather than starving it. No reference counterpart: the reference has no transform-exclusion concept, because it never noticed it was placing arcs on transforms. |
+| `volc.edifice_model` | `volc.edifice_model` | bool | `false`¹ | — | **—** | Shaped edifices (shield/strato/cone): switches volcano rendering between featureless cones and morphologically-constrained edifice families. **`true` in the shipped app, `false` in `WorldParams::defaults`** (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii) — same split, and for the same reason, as the row above. No reference counterpart: the reference has one profile only. |
+| `crater.count` | `crater.count` | int | `100` | 0 .. 200, step 2 | `crat`, raw 0-100 step 1, `v·2` | Number of impact craters recorded in `impact_field`, when `crater.physical_model` is off (`WorldParams::defaults`, the reference's own path): sizes drawn from the reference's own three flat bands (90% at 0.5-5 km radius, 9% at 5-25, 1% at 25-200), sampled uniformly *within* each band — **not** actually a realistic D⁻² distribution, which is exactly what `DECISIONS.md` §7l found wrong with it (too many large craters relative to small ones) and built `crater.physical_model` to fix. When `crater.physical_model` is **on** (the shipped default), this key becomes the intensity multiplier `I = count/100` on the area-density law instead of a raw count — see that row. Crater radius scales with `g^−0.22` in both modes. |
 | `crater.age` | `crater.age` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `crata`, raw 0-100, `v/100` | Crater degradation. Old = shallow and infilled; young = crisp rim with a central peak. |
+| `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. |
+| `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. |
+
+¹ All three flags share one shape, and the `Default` column gives
+`WorldParams::defaults`' value throughout this document: `false` restores the
+reference's own path byte-for-byte and is the goldens' parity baseline, while
+the **shipped app** defaults all three `true` at the
+`cartalith-godot::params::defaults()` boundary (see "Zero behaviour change at
+defaults" below for why the two differ, and
+`exactly_the_ruled_divergences_ship_at_the_app_boundary` for the enforced list).
 
 ## Group `erosion` — the stream-power pass, and the manual passes
 
@@ -362,9 +462,10 @@ condition `DECISIONS.md` §7d attaches to a superset, and it is asserted
 They run **at the end of `generate_terrain`, after `carve_rivers`** — "the
 finished field" is what each of these buttons operates on in the reference —
 in the reference's own panel order: `velocity → glacial → coastal → hillslope
-→ evolve → sediment_fill`, followed by one `refresh_climate`. Composing two of
-them in a single run is this port's addition; the reference never does, so
-each *kernel* is golden-parity bit-exact alone and the *sequence* is a choice.
+→ evolve → sediment_fill → tidal_flats`, followed by one `refresh_climate`.
+Composing two of them in a single run is this port's addition; the reference
+never does, so each *kernel* is golden-parity bit-exact alone and the
+*sequence* is a choice.
 
 Every toggle's **Reference control is `—`** for one reason, stated once here
 rather than repeated per row: the reference's control is a **button**, not a
@@ -389,21 +490,20 @@ does have a real reference slider and carries its reachable range.
 | `passes.marsh_band` | `passes.marsh_band` | float | `0.03` | 0.0 .. 0.1, step 0.001 | `cMar`, raw 0-100, `v/100·0.1` | Height band above sea level where tidal marsh accretes, on slopes under 0.08. |
 | `passes.coastal_passes` | `passes.coastal_passes` | int | `4` | 1 .. 15, step 1 | `cPas`, raw 1-15 step 1 | Wave/estuary passes. The marsh pass runs once, after them. |
 | `passes.hillslope` | `passes.hillslope` | bool | `false` | — | — (`#diffuseBtn` is a button) | Run `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z` by explicit forward Euler. Rounds ridge detail and softens relief everywhere at once. X wraps only in world mode; Y never (the poles are hard edges). |
-| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D. |
+| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D — **and the one knob in this group that changes terrain with every pass off.** Since owner ruling 2 of 2026-09-02 (`DECISIONS.md` §7l-ii) it is the world's single hillslope diffusivity, read by `cartalith_terrain::crater_degradation_tau` as well as by `hillslope_diffuse`: under `crater.physical_model` (on in the shipped app) raising it relaxes craters further at the same surface age, whether or not `passes.hillslope` is enabled. Hence the label *"Diffusivity D (also weathers craters)"*. Craters read the **raw** value, not `hillslope_extent_scale`'s corrected one — that correction is a discretisation fix for the one-cell Laplacian (§7m), not a different `kappa`. The default is unchanged and `0.15` is the anchor `crater_degradation_tau` was calibrated at, so the shipped configuration is bit-identical to the private anchor it replaced. |
 | `passes.diffuse_passes` | `passes.diffuse_passes` | int | `6` | 1 .. 40, step 1 | `edPas`, raw 1-40 step 1 | Forward-Euler steps. |
 | `passes.sediment_fill` | `passes.sediment_fill` | bool | `false` | — | — (`#sedimentBtn` is a button) | Run `depositSediment` — a stream-power carve, then route the eroded mass downstream and redeposit it (mass-conserving) instead of the broad isostatic rebound. Builds deltas, shelves and floodplains. |
 | `passes.sediment_capacity` | `passes.sediment_capacity` | float | `6.0` | 0.0 .. 20.0, step 0.5 | — | `routeSediment`'s transport capacity (`capacity × discharge × slope`); load above it deposits. The reference has no slider — this is its own `opts.capacity` default. |
 | `passes.evolve_cycles` | `passes.evolve_cycles` | int | `0` | 0 .. 12, step 1 | `evoCyc`, raw 2-12 step 1 | Run `evolveCoupled` for N coupled climate ↔ terrain cycles: carve → isostatic rebound → **full climate refresh**, so the rain driving the next cycle's incision reflects the orography the last one built. **`0` is off** — the reference's slider starts at 2 because pressing the *button* is its "on", which a parameter has no equivalent of. |
+| `passes.tidal_flats` | `passes.tidal_flats` | bool | `false` | — | — (`#tidalFlatsBtn` is a button) | Run `applyTidalSedimentation` — submerged cells inside the spring tidal range accrete toward sea level, hardest where shallowest. **The seventh pass, and its toggle is doing two jobs.** The reference gates its button on a separately-built `tideField`, which only exists while `state.planet.tides.enabled` (Tides & intertidal zones) is checked — its own alert says so: *"Enable Tides (Planet → Tides) first."* This port has no separate enable: turning this toggle on **both** computes the tide field (`cartalith_climate::tides::compute_tide_field`, a single Earth–Moon-equivalent companion at this world's own `planet.g` — `PlanetParams` carries no moon roster) **and** runs the kernel, in one step. (`planet.tides.enabled` is this row's `JS_PATHS` **save-format** path — the closest the reference has, not a UI control of its own.) |
+| `passes.tidal_k` | `passes.tidal_k` | float | `0.45` | 0.0 .. 1.0, step 0.01 | **—** | `applyTidalSedimentation`'s accretion rate. `0.45` is the reference's own default and its only caller's. No reference control — the reference never exposed this as a slider. |
 
-**Not exposed: tidal flats.** `apply_tidal_sedimentation` is ported and golden-
-tested, but it takes a tide field this port does not generate
-(`GUI_GAP_REGISTER.md` **WW-07**). A toggle over an always-absent field is a
-control that cannot work, so no key was added.
-
-**Not exposed: droplet hydraulic erosion.** `droplet_kernel` has existed since
-Phase 1 and has no parameters here; its `erodeFinish` tail (thermal pass +
-clamp + isostatic rebound) is a second orchestration to transcribe, and it was
-outside the pass that wired the other four.
+**Droplet hydraulic erosion is still not exposed**, and is the one manual-pass
+gap left. `droplet_kernel` has existed since Phase 1 and has no parameters
+here; its `erodeFinish` tail (thermal pass + clamp + isostatic rebound) is a
+second orchestration to transcribe, and it was outside the passes wired above
+(now six: velocity, glacial, coastal, hillslope, sediment fill and tidal
+flats).
 
 **One deliberate deviation, disclosed** (`CLAUDE.md`'s no-silent-deviation
 rule): the pass block ends with `erodeFinish`'s own `if(f<0)f=0; else
@@ -528,36 +628,40 @@ Recorded so the gap is a decision, not an omission. Every one of these belongs
 to a pipeline stage `cartalith-engine` has not ported, not to a parameter that
 was skipped:
 
-> **Update, 2026-08-23 — most of this list moved out of it.** Velocity,
-> glacial, coastal, hillslope diffusion, sediment fill and evolve cycles are
-> now **exposed parameters**, default-off, in the `erosion` group above ("The
-> manual passes, as parameters"); `GUI_GAP_REGISTER.md` §19 records the
-> decision and `DECISIONS.md` §7d licenses it. What is left below is what is
-> genuinely still absent — and two of the three remaining erosion rows are
-> absent for a *reason that is not the pipeline*: droplet needs a second
-> orchestration transcribed, and tidal flats needs a field
-> (`tideField`, **WW-07**) this port does not generate at all.
+> **Update, 2026-08-23 — most of this list moved out of it; 2026-09-02
+> regeneration — tidal flats moved out too.** Velocity, glacial, coastal,
+> hillslope diffusion, sediment fill and evolve cycles are **exposed
+> parameters**, default-off, in the `erosion` group above ("The manual passes,
+> as parameters"); `GUI_GAP_REGISTER.md` §19 records the decision and
+> `DECISIONS.md` §7d licenses it. **Tidal flats (`passes.tidal_flats`,
+> `passes.tidal_k`) is also now exposed there** — this document's own earlier
+> claim that it wasn't (citing `GUI_GAP_REGISTER.md` **WW-07**, "no tide field
+> generated at all") had gone stale: `cartalith_climate::tides::compute_tide_field`
+> exists and `passes.tidal_flats`'s own toggle both builds that field and runs
+> the kernel, in one step (see the row above). What is left below is genuinely
+> still absent.
 
 - **Droplet hydraulic erosion** (`drops`, `estr`, `edep`, `ethr`, `etal`) —
   the reference's manual "Erode (droplet)" button. `droplet_kernel` has been
   ported since Phase 1, but no parameters are exposed: its `erodeFinish` tail
   (thermal pass + 0..1 clamp + isostatic rebound) is a second orchestration to
-  transcribe, and it was outside the pass that wired the other four buttons.
-  **Hillslope diffusion (`edD`, `edPas`) is no longer in this list** — see
-  `passes.hillslope` / `passes.diffuse_d` / `passes.diffuse_passes` above.
-- **Tidal flats** — `apply_tidal_sedimentation` is ported and golden-tested,
-  but it takes a tidal-range field this port does not generate (**WW-07**), and
-  the reference's own op is equally conditional (`if(!tideField) return;`). A
-  toggle over an always-absent field is a control that cannot work, so no key
-  exists for it.
+  transcribe, and it was outside the passes wired above. The one remaining gap
+  in the `erosion` group's manual passes.
 - **Structured-orogeny tuning** (`foldI`, `trenchD`, `faultB`) — the T5 knobs.
   `generate_terrain` hardcodes them to the exact values the reference's own
   null-coalescing defaults produce (`0.16`, `1.0`, `0`), documented in the
   engine's module doc comment. Exposing them means threading three new fields
   through `OrogenyParams`' call site — real work, not a wiring gap.
-- **Geoid** (`geoidChk`, `geoidAmp`) and **tides** (`tidesChk`, `tideMass`,
-  `tideDist`, `tideK2`) — both default-off sub-objects of `state.planet`, not
-  ported (`PlanetParams`' own doc comment says so).
+- **Geoid** (`geoidChk`, `geoidAmp`) — a default-off sub-object of
+  `state.planet`, not ported.
+- **The moon roster** (`tidesChk`, `tideMass`, `tideDist`, `tideK2`) — the
+  tide *field itself* is generated now (feeding `passes.tidal_flats` above),
+  but `PlanetParams` carries no moon roster to hang these four sliders off:
+  the field is always built from `TideParams::default()`'s single
+  Earth–Moon-equivalent companion at this world's own `planet.g`, per
+  `ErosionPassParams::tidal_flats`'s own doc comment. Exposing a real moon
+  roster is separate work from the enable, which the tidal-flats toggle above
+  already subsumes.
 - **Seasons / Köppen** (`seasons`) — `computeSeasons()` is deliberately
   deferred.
 - **`radiusRel`** — read only by `circulationCells`, which `simulate_weather`
@@ -567,8 +671,17 @@ was skipped:
 
 ## Verification
 
-- `cargo test --workspace`: 83 test binaries, all pass, 0 regressions, every
-  golden-parity fixture unmodified.
+**The counts below are this section's own historical snapshot** (the pass
+that first exposed the parameter API), unrevised except for the one line
+marked. The table above is kept current by regenerating this whole document
+against `params.rs`'s `PARAMS`/`JS_PATHS` (see the derivation note near the
+top) — that is a stronger guarantee than re-typing a stale test count here
+would be, and this pass did not re-run the full suite (`cargo check
+--workspace` only; see `STATUS.md`/git history for the current
+`cargo test --workspace` figure).
+
+- `cargo test --workspace`: 83 test binaries (at the time of the original
+  pass), all pass, 0 regressions, every golden-parity fixture unmodified.
 - `cargo clippy -p cartalith-engine -p cartalith-godot --all-targets`: clean.
 - `cartalith-native/crates/cartalith-godot/tests/params_mapping.rs`: 11 tests
   over the mapping layer — default round-trip through every key, defaults
@@ -579,4 +692,10 @@ was skipped:
   `GUI_FEATURE_PARITY_SCOPE.md` Category-1 items (`use_gpu`, the raw
   World-Structure knobs) reachable.
 - `Godot_v4.7.1 --headless --quit main.tscn`: loads clean, extension
-  initialises, `get_param_info()` returns 58 entries.
+  initialises, `get_param_info()` returned **58** entries at the time of that
+  pass. **Corrected here**: as of this regeneration (2026-09-02) `PARAMS`
+  carries **85** rows (`grep -c "ParamSpec { key:" params.rs` — this moved
+  from 83 to 85 mid-regeneration; see the note near the top on why), so a
+  current `get_param_info()` call returns 85, not 58 — the number in this
+  bullet was never updated as later passes added rows, which is the exact
+  drift this regeneration exists to close.

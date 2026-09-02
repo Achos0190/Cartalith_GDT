@@ -145,8 +145,8 @@ use cartalith_terrain::{
     apply_world_structure_sea_level, assign_plates, build_age_field, build_orogeny_field, build_plates,
     compute_flexure, compute_height, compute_heterogeneity, compute_resistance, compute_stress, compute_warp,
     gauss_blur, generate_continentality_field, normalize_field, smooth_orogeny, stamp_craters,
-    stamp_volcanoes_provinces, stamp_volcanoes_simple, tag_boundary_types, trace_boundaries, HeightParams,
-    OrogenyParams, WorldStructure,
+    stamp_volcanoes_provinces_shaped, stamp_volcanoes_simple_shaped, tag_boundary_types, trace_boundaries,
+    HeightParams, OrogenyParams, WorldStructure,
 };
 
 // `Math.round` (ties toward `+Infinity`), from `cartalith-jsmath`.
@@ -179,15 +179,54 @@ pub struct TectonicParams {
 }
 
 /// `state.volc` (reference HTML line 2266). `provinces` selects
-/// `stamp_volcanoes_provinces` (JS default, `true`) vs. `stamp_volcanoes_simple`
-/// (`false`) — see `generate_terrain`'s own volcanism section and
-/// `WorldParams::defaults`'s doc comment on why `false` is this port's own
-/// default for now, not JS's.
+/// `stamp_volcanoes_provinces` (JS default, `true`, and this port's default
+/// too since 2026-08-15) vs. `stamp_volcanoes_simple` (`false`) — see
+/// `generate_terrain`'s own volcanism section.
 #[derive(Clone, Debug, PartialEq)]
 pub struct VolcanismParams {
     pub count: i32,
     pub age: f64,
     pub provinces: bool,
+    /// Drop shear-dominant (`btype::TRANSFORM`) cells from the arc and rift
+    /// candidate pools. Transform margins are not a major volcanic
+    /// environment — they make earthquakes and fault scarps, not
+    /// stratocones — but the reference selects arcs on the *sign of the
+    /// blurred normal stress*, which cannot see shear, so a measured 34% of
+    /// the arc pool and 32% of the rift pool sit on transform boundaries
+    /// (`cartalith-terrain/tests/volcano_transform_boundaries.rs`).
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`**, the
+    /// same split `crater.physical_model` uses and for the same reason. Turning
+    /// it on moves the height field, and therefore lithology, biomes, carrying
+    /// capacity, settlements, roads and sea routes — so it ships at the app
+    /// boundary (owner ruling 1, 2026-09-02, `DECISIONS.md` §7l-ii) while this
+    /// function stays what ~28 golden suites mean by "the reference's
+    /// baseline". With the flag on, the 34.3%/32.3% contamination above is
+    /// 0.0% by construction, and both pools stay populated on every one of the
+    /// twelve seeds measured.
+    pub exclude_transform: bool,
+
+    /// Build volcanoes as **shaped edifices** — a shield, a stratocone or a
+    /// scoria cone chosen by the province's own volcanic setting — instead of
+    /// the reference's one power-law cone at every scale, and give each one a
+    /// summit that has genuinely *collapsed* rather than a crater subtracted
+    /// from its peak.
+    ///
+    /// The reference has no edifice-type distinction at all: `stampOneVolcano`
+    /// stamps `H*(1-t)^(1.6-age*0.8)` for a 200 m scoria cone and a 7 000 m
+    /// shield alike, and its summit dip (`add -= H*0.5*(1-t/0.16)`) bottoms out
+    /// at a single point with no floor and no ring-fault wall. The
+    /// arc/rift/hotspot classification that would say *which* edifice to build
+    /// already exists one frame up, in `placeProvinceVolcanoes`, and is
+    /// discarded there. See `cartalith_terrain::EdificeModel`.
+    ///
+    /// **`false` here and `true` in `cartalith_godot::params::defaults`.**
+    /// Changing an edifice's shape moves the height field, and therefore
+    /// lithology, biomes, carrying capacity, settlements, roads and sea routes;
+    /// §7l's authorisation was **for craters**, so this needed its own — which
+    /// it has, as owner ruling 1 of 2026-09-02 (`DECISIONS.md` §7l-ii). It
+    /// ships at the app boundary and this function stays the parity baseline.
+    pub edifice_model: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -195,6 +234,28 @@ pub struct VolcanismParams {
 pub struct CraterParams {
     pub count: i32,
     pub age: f64,
+    /// Generate craters from an area density and a size-frequency law instead
+    /// of an absolute count.
+    ///
+    /// **Defaults to `true`. This diverges from the reference deliberately**,
+    /// on the owner's ruling of 2026-09-02 — see `DECISIONS.md` §7l. The
+    /// reference stamps exactly `count` craters whatever the map represents, so
+    /// the same slider is a negligible density on a 40 000 km world and an
+    /// unrenderably dense one on a 5 km region; the two differ in area by
+    /// 64 000 000x. Setting this `false` restores the reference's own path byte
+    /// for byte, and the import/inversion path keeps using it.
+    ///
+    /// See `cartalith_terrain::crater_lambda`.
+    pub physical_model: bool,
+
+    /// **Geological** surface exposure age, in millions of years — how long
+    /// this surface has been accumulating impacts.
+    ///
+    /// Not the civilisation Timeline, which runs in years to millennia and is
+    /// six orders of magnitude away; and not [`Self::age`], which is a
+    /// morphological 0-1 term for how worn each crater looks. Three different
+    /// quantities. See `cartalith_terrain::CRATER_SURFACE_AGE_MYR`.
+    pub surface_age_myr: f64,
 }
 
 /// `state.planet` (reference HTML lines 2277-2279), minus `radiusRel`
@@ -329,6 +390,17 @@ pub struct ErosionPassParams {
     /// `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z`.
     pub hillslope: bool,
     /// `state.erosion.diffuseD`. Default `0.15`.
+    ///
+    /// **Not only an erosion-pass knob.** Since owner ruling 2 of 2026-09-02
+    /// (`DECISIONS.md` §7l-ii) this is the world's hillslope diffusivity, and
+    /// `cartalith_terrain::crater_degradation_tau` reads it: under
+    /// `CraterParams::physical_model` — on at the app boundary — raising it
+    /// relaxes craters further at the same surface age, **whether or not
+    /// [`Self::hillslope`] is enabled**. So this is the one member of this
+    /// struct whose value alone changes generated terrain with every pass off,
+    /// and the exception to `erosion_passes_off_leave_generation_bit_identical`
+    /// is deliberate. Pinned by
+    /// `the_erosion_diffusivity_reaches_craters_only_under_the_physical_model`.
     pub diffuse_d: f64,
     /// `state.erosion.diffusePasses`. Default `6`.
     pub diffuse_passes: i32,
@@ -515,8 +587,36 @@ impl WorldParams {
             // has NOT been re-extracted yet -- it also covers
             // terrain_wind_deflection/currents, both still `false`, so
             // re-extracting it belongs with flipping those too, not here.
-            volc: VolcanismParams { count: 20, age: 0.40, provinces: true },
-            crater: CraterParams { count: 100, age: 0.50 },
+            // `exclude_transform: false` is the parity baseline: the
+            // reference puts volcanoes on transform margins and the goldens
+            // pin that. See `VolcanismParams::exclude_transform`.
+            // `edifice_model: false` for the same reason: the goldens pin the
+            // reference's single cone shape. See `VolcanismParams::edifice_model`.
+            volc: VolcanismParams {
+                count: 20,
+                age: 0.40,
+                provinces: true,
+                exclude_transform: false,
+                edifice_model: false,
+            },
+            // `physical_model: false` HERE and `true` in the shipped app, on
+            // purpose. `WorldParams::defaults` is what ~28 golden suites mean
+            // by "the reference's baseline" -- 16 of them in `cartalith-civ`
+            // alone run `generate_terrain(&defaults())` and compare the civ
+            // layer against fixtures captured from the reference under Node.
+            // Flipping this here changes the height field, so lithology,
+            // biomes, carrying capacity, settlement placement, roads and sea
+            // routes all move, and every one of those goldens stops being a
+            // parity test. The owner's §7l ruling was to change the *shipped
+            // generation*, not to delete the parity baseline; so the divergence
+            // lives at the app boundary (`params.rs`'s `crater.physical_model`,
+            // default on) and this stays the reference's own behaviour.
+            crater: CraterParams {
+                count: 100,
+                age: 0.50,
+                physical_model: false,
+                surface_age_myr: cartalith_terrain::CRATER_SURFACE_AGE_MYR,
+            },
             planet: PlanetParams { g: 1.0, rotation_hours: 24.0, axial_tilt_deg: 23.4 },
             climate: ClimateInputParams {
                 lat_n: 55.0,
@@ -1003,10 +1103,18 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     let mut volcanic_field = vec![0f32; gw * gh];
     let mut impact_field = vec![0f32; gw * gh];
     if volc_count > 0 {
+        // `EdificeModel::Reference` is `stampOneVolcano` exactly; the
+        // morphological model is opt-in and needs its own owner ruling before
+        // it can be the default. See `VolcanismParams::edifice_model`.
+        let edifice = if p.volc.edifice_model {
+            cartalith_terrain::EdificeModel::Morphological
+        } else {
+            cartalith_terrain::EdificeModel::Reference
+        };
         // stampVolcanoes() (reference HTML lines 3474-3478): dispatches on
         // state.volc.provinces, JS default true.
         if p.volc.provinces {
-            stamp_volcanoes_provinces(
+            stamp_volcanoes_provinces_shaped(
                 gw,
                 gh,
                 p.tect.seed as u32,
@@ -1014,15 +1122,17 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 p.peak_m,
                 &stress.boundary_mask,
                 &stress.stress_field,
+                p.volc.exclude_transform.then_some(&stress.boundary_type[..]),
                 &plate_id,
                 &plates,
                 volc_count,
                 p.volc.age,
                 &mut field,
                 &mut volcanic_field,
+                edifice,
             );
         } else {
-            stamp_volcanoes_simple(
+            stamp_volcanoes_simple_shaped(
                 gw,
                 gh,
                 p.tect.seed as u32,
@@ -1033,17 +1143,52 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 p.volc.age,
                 &mut field,
                 &mut volcanic_field,
+                edifice,
             );
         }
     }
+    // Craters as a density over the map's real area, not an absolute count
+    // (`DECISIONS.md` §7l). `physical_model: false` restores the reference's
+    // own path exactly.
+    let crater_d_min = cartalith_terrain::crater_min_diameter_km(p.map_width_km, gw);
+    let crater_count = if p.crater.physical_model {
+        let height_km = p.map_width_km * gh as f64 / gw.max(1) as f64;
+        cartalith_terrain::auto_crater_count(
+            p.tect.seed as u32,
+            p.crater.count,
+            p.map_width_km * height_km,
+            crater_d_min,
+            p.crater.surface_age_myr,
+        )
+    } else {
+        p.crater.count
+    };
     stamp_craters(
         gw,
         gh,
         p.tect.seed as u32,
         p.map_width_km,
         p.planet.g,
-        p.crater.count,
+        crater_count,
         p.crater.age,
+        p.crater.physical_model,
+        crater_d_min,
+        // One geological exposure age drives both how many craters accumulated
+        // and how far each has since relaxed -- see
+        // `cartalith_terrain::crater_degradation_tau`. Inert under
+        // `physical_model: false`.
+        p.crater.surface_age_myr,
+        // One world, one diffusivity: crater relaxation is the same physics as
+        // `hillslope_diffuse` (`DECISIONS.md` §7m) at a different scale, so it
+        // reads the same coefficient rather than a private anchor -- owner
+        // ruling 2, 2026-09-02, §7l-ii. Read RAW, not through
+        // `hillslope_extent_scale`: that correction is a discretisation fix for
+        // the one-cell Laplacian below, while `crater_degradation_tau` works in
+        // km and Myr and wants the physical quantity. Read whether or not
+        // `passes.hillslope` is on, because a diffusivity is a property of the
+        // landscape rather than of which passes the user enabled. Also inert
+        // under `physical_model: false`.
+        p.passes.diffuse_d,
         &mut field,
         &mut impact_field,
     );
@@ -1510,7 +1655,16 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             );
         }
         if q.hillslope {
-            hillslope_diffuse(&mut field, gw, gh, q.diffuse_passes, q.diffuse_d, world);
+            // The one call site that knows the map's real extent, so the one
+            // that can correct for it. `diffuse_d` is a coefficient over a
+            // one-cell Laplacian, so it must scale as 1/cell_km^2; without
+            // this a 5 km region and a 40 000 km world diffused identically,
+            // wrong by the same 64 000 000x factor `DECISIONS.md` §7l cites
+            // for craters. Exactly 1.0 at the app's own 800 km / 2048 default,
+            // so nothing moves there. `DECISIONS.md` §7m.
+            let d_scale =
+                cartalith_erosion::hillslope_extent_scale(p.map_width_km, gw, q.diffuse_d);
+            hillslope_diffuse(&mut field, gw, gh, q.diffuse_passes, q.diffuse_d, d_scale, world);
         }
         // ---- evolveCoupled(cycles) (reference HTML lines 4270-4279) ----
         // Pure orchestration in the reference too; the per-cycle
@@ -1828,6 +1982,77 @@ mod tests {
         assert_eq!(base.temperature, same.temperature);
         assert_eq!(base.rainfall, same.rainfall);
         assert_eq!(base.flow_discharge, same.flow_discharge);
+    }
+
+    /// **Owner ruling 2, 2026-09-02, and the one exception it carves into the
+    /// contract above.**
+    ///
+    /// `crater_degradation_tau` now reads `passes.diffuse_d`, so under
+    /// `crater.physical_model` that knob is no longer a pure erosion-pass knob:
+    /// it is the world's hillslope diffusivity, and craters relax at it whether
+    /// or not the hillslope *pass* runs. Moving it therefore changes generation
+    /// with every toggle off — which is the intended coupling, not a leak.
+    ///
+    /// Pinned in both directions so neither half can rot silently: inert on the
+    /// reference path (which is what keeps the test above true, and with it the
+    /// sixteen `cartalith-civ` golden suites), live on the shipped path.
+    #[test]
+    fn the_erosion_diffusivity_reaches_craters_only_under_the_physical_model() {
+        // A REGION, deliberately, and an old surface. Under the physical model
+        // the crater count is a Poisson draw about an area density, and at the
+        // app's own 800 km extent a small test grid resolves nothing below
+        // ~33 km, giving lambda ~ 0.12 -- i.e. usually **no craters at all**,
+        // and a test that proves nothing while passing. (Written that way
+        // first; it passed once and then flipped. The fifth instance of this
+        // project's silently-empty-output trap.) At 64 km over 96x72 the floor
+        // is 1.33 km and lambda ~ 15, and the assertion below makes the
+        // population's existence a precondition rather than a hope.
+        let mut p = WorldParams::defaults(96, 72, 913);
+        p.map_width_km = 64.0;
+        p.crater.count = 200;
+        p.crater.surface_age_myr = 2000.0;
+        assert!(!p.passes.any(), "the coupling must be visible with every pass off");
+
+        // Reference path: `physical_model` is false in `WorldParams::defaults`,
+        // so degradation never runs and the diffusivity is inert.
+        assert!(!p.crater.physical_model);
+        let a = generate_terrain(&p);
+        p.passes.diffuse_d = 0.02;
+        let b = generate_terrain(&p);
+        assert_eq!(a.field, b.field, "the reference path must ignore diffuse_d entirely");
+
+        // Shipped path: the same move now changes the world.
+        p.crater.physical_model = true;
+        p.passes.diffuse_d = 0.15;
+        let c = generate_terrain(&p);
+        p.passes.diffuse_d = 0.02;
+        let d = generate_terrain(&p);
+        let craters = c.impact_field.iter().filter(|&&v| v > 0.0).count();
+        assert!(
+            craters > 50,
+            "only {craters} shocked cells -- the physical model drew no crater \
+             population, so this test would pass on emptiness"
+        );
+        assert_ne!(c.field, d.field, "diffuse_d did not reach crater degradation");
+        assert_ne!(
+            c.impact_field, d.impact_field,
+            "diffuse_d did not reach the shock record (owner ruling 3)"
+        );
+    }
+
+    /// The anchor `cartalith_terrain::crater_degradation_tau` was calibrated at
+    /// must be the diffusivity this crate actually ships, or the "bit-identical
+    /// at the default" claim in its doc comment is quietly false. The two live
+    /// in different crates — `cartalith-terrain` cannot import this one — so
+    /// this is where they are compared.
+    #[test]
+    fn the_crater_anchor_matches_the_shipped_diffusivity() {
+        assert_eq!(
+            cartalith_terrain::CRATER_DEGRADATION_DIFFUSE_D_REF,
+            ErosionPassParams::off().diffuse_d,
+            "crater degradation was calibrated at a diffusivity this crate no longer \
+             ships -- re-anchor it deliberately or restore the default"
+        );
     }
 
     /// `DECISIONS.md` §7f's proof obligation: skipping the pre-carve

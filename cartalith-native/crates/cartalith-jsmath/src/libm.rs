@@ -508,6 +508,132 @@ pub fn js_log(mut x: f64) -> f64 {
         dk * LN2_HI - ((s * (f - r) - dk * LN2_LO) - f)
     }
 }
+
+/// `Math.log10(x)` — FDLIBM's `__ieee754_log10`, expressed over [`js_log`].
+///
+/// The platform's `f64::log10` is a *different* implementation, and this
+/// project has twice been bitten by assuming two libms agree (`js_hypot`,
+/// `js_exp`). Written in terms of [`js_log`], which is the FDLIBM
+/// `__ieee754_log` right above, so the only arithmetic here that is not already
+/// pinned is fdlibm's own three-constant scaling.
+///
+/// Ported by `cartalith-urban`'s milestone 15 (`amenities::build_civic`'s rank
+/// scaling), which noted it belonged here and could not move it while it did
+/// not own this crate. Its V8 golden rows stayed with that module.
+#[allow(clippy::excessive_precision, clippy::eq_op, clippy::approx_constant)]
+pub fn js_log10(x: f64) -> f64 {
+    const TWO54: f64 = 1.80143985094819840000e+16;
+    const IVLN10: f64 = 4.34294481903251816668e-01;
+    const LOG10_2HI: f64 = 3.01029995663611771306e-01;
+    const LOG10_2LO: f64 = 3.69423907715893089906e-13;
+
+    let mut x = x;
+    let mut hx = (x.to_bits() >> 32) as i32;
+    let lx = x.to_bits() as u32;
+    let mut k = 0i32;
+
+    if hx < 0x0010_0000 {
+        if ((hx & 0x7fff_ffff) as u32 | lx) == 0 {
+            return -TWO54 / 0.0; // log10(+-0) = -inf
+        }
+        if hx < 0 {
+            return (x - x) / 0.0; // log10(negative) = NaN
+        }
+        k -= 54;
+        x *= TWO54; // subnormal: scale up
+        hx = (x.to_bits() >> 32) as i32;
+    }
+    if hx >= 0x7ff0_0000 {
+        return x + x; // Inf or NaN
+    }
+    k += (hx >> 20) - 1023;
+    let i = ((k as u32) & 0x8000_0000) >> 31;
+    hx = (hx & 0x000f_ffff) | ((0x3ff - i as i32) << 20);
+    let y = (k + i as i32) as f64;
+    // SET_HIGH_WORD(x, hx) -- on the possibly-rescaled x, not the original
+    x = f64::from_bits(((hx as u32 as u64) << 32) | (x.to_bits() & 0xffff_ffff));
+    let z = y * LOG10_2LO + IVLN10 * js_log(x);
+    z + y * LOG10_2HI
+}
+
+/// `Math.acos(x)` — FDLIBM's `__ieee754_acos`, not the platform's.
+///
+/// `cartalith-urban`'s milestone 10 measured `Math.acos` disagreeing with
+/// `f64::acos` on **544 of 60 000** arguments. Its one call site,
+/// `fortify::corner_cut`, compares the result against `minAng`, so a last bit
+/// decides whether a wall corner is cut — the same class of threshold that made
+/// `js_hypot` and `js_exp` change real results here.
+///
+/// Ported literally from the 1993 fdlibm source (the same one V8 vendors in
+/// `src/base/ieee754.cc`), constants written as bit patterns so no decimal
+/// transcription can round one. Verified against V8 by a **bulk hash** over
+/// 40 000 arguments; that golden stayed in `cartalith-urban::fortify`, which
+/// captured it.
+pub fn js_acos(x: f64) -> f64 {
+    const PIO2_HI: f64 = f64::from_bits(0x3FF9_21FB_5444_2D18);
+    const PIO2_LO: f64 = f64::from_bits(0x3C91_A626_3314_5C07);
+    const PI_HI: f64 = f64::from_bits(0x4009_21FB_5444_2D18);
+    const PS0: f64 = f64::from_bits(0x3FC5_5555_5555_5555);
+    const PS1: f64 = f64::from_bits(0xBFD4_D612_03EB_6F7D);
+    const PS2: f64 = f64::from_bits(0x3FC9_C155_0E88_4455);
+    const PS3: f64 = f64::from_bits(0xBFA4_8228_B568_8F3B);
+    const PS4: f64 = f64::from_bits(0x3F49_EFE0_7501_B288);
+    const PS5: f64 = f64::from_bits(0x3F02_3DE1_0DFD_F709);
+    const QS1: f64 = f64::from_bits(0xC003_3A27_1C8A_2D4B);
+    const QS2: f64 = f64::from_bits(0x4000_2AE5_9C59_8AC8);
+    const QS3: f64 = f64::from_bits(0xBFE6_066C_1B8D_0159);
+    const QS4: f64 = f64::from_bits(0x3FB3_B8C5_B12E_9282);
+
+    // The rational approximation `p/q`, shared by all three in-range branches.
+    fn r(z: f64) -> f64 {
+        let p = z * (PS0 + z * (PS1 + z * (PS2 + z * (PS3 + z * (PS4 + z * PS5)))));
+        let q = 1.0 + z * (QS1 + z * (QS2 + z * (QS3 + z * QS4)));
+        p / q
+    }
+
+    let bits = x.to_bits();
+    let hx = (bits >> 32) as u32;
+    let ix = hx & 0x7fff_ffff;
+    if ix >= 0x3ff0_0000 {
+        // |x| >= 1
+        let lx = bits as u32;
+        if ((ix - 0x3ff0_0000) | lx) == 0 {
+            // acos(1) = 0, acos(-1) = pi
+            return if (hx as i32) > 0 { 0.0 } else { PI_HI + 2.0 * PIO2_LO };
+        }
+        // fdlibm's own out-of-domain idiom, kept verbatim rather than
+        // simplified to `f64::NAN`: `(x-x)/(x-x)` also raises the invalid
+        // flag for a NaN argument, which a bare constant does not. Clippy
+        // reads it as a redundant self-subtraction; here that IS the point.
+        #[allow(clippy::eq_op)]
+        return (x - x) / (x - x);
+    }
+    if ix < 0x3fe0_0000 {
+        // |x| < 0.5
+        if ix <= 0x3c60_0000 {
+            return PIO2_HI + PIO2_LO; // |x| < 2^-57
+        }
+        let z = x * x;
+        return PIO2_HI - (x - (PIO2_LO - x * r(z)));
+    }
+    if (hx as i32) < 0 {
+        // x < -0.5
+        let z = (1.0 + x) * 0.5;
+        let s = z.sqrt();
+        let w = r(z) * s - PIO2_LO;
+        PI_HI - 2.0 * (s + w)
+    } else {
+        // x > 0.5
+        let z = (1.0 - x) * 0.5;
+        let s = z.sqrt();
+        // `SET_LOW_WORD(df, 0)`: the top half of `s`, so `df * df` is exact.
+        let df = f64::from_bits(s.to_bits() & 0xffff_ffff_0000_0000);
+        let c = (z - df * df) / (s + df);
+        let w = r(z) * s + c;
+        2.0 * (df + w)
+    }
+}
+
 /// `Math.atan2`, as V8 actually computes it.
 ///
 /// **This is not `f64::atan2`.** V8 does not call the platform libm for

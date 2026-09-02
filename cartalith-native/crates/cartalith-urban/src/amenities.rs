@@ -56,66 +56,23 @@
 //! ## `Math.log10`
 //!
 //! [`build_civic`]'s rank scaling is the first place in this crate to need
-//! `Math.log10`, which `cartalith-jsmath` does not carry. [`js_log10`] is the
-//! fdlibm `__ieee754_log10` V8 runs, expressed over
-//! [`js_log`](crate::geom::js_log) — the same treatment `js_log` itself got,
-//! and for the same reason: the platform's `f64::log10` is a different
-//! implementation and this one is pinned against V8's own output in the tests.
+//! `Math.log10`. Milestone 15 wrote the fdlibm `__ieee754_log10` V8 runs here,
+//! because `cartalith-jsmath` did not carry it and this milestone did not own
+//! that crate; the integration pass **moved it there**, beside `js_log`, which
+//! it is expressed over. [`js_log10`](crate::geom::js_log10) is now that one,
+//! reached through `geom` like every other V8 libm this module uses. Its V8
+//! golden rows stayed here, where they were captured.
 
-use crate::geom::{Vec2, js_cos, js_hypot, js_log, js_max, js_sin, point_in_poly, seg_int};
+use crate::geom::{
+    Vec2, js_cos, js_hypot, js_log10, js_max, js_sin, point_in_poly, seg_int,
+};
 use crate::graph::Graph;
+use crate::hinterland::crosses_street;
 use crate::plaza::Plaza;
 use crate::rng::stream;
 use crate::routes::Anchors;
 use crate::rules::CultureProfile;
 use crate::site::Site;
-
-/// `Math.log10`, as fdlibm computes it and therefore as V8 does.
-///
-/// The platform's `f64::log10` is a *different* implementation, and this
-/// project has twice been bitten by assuming two libms agree
-/// (`js_hypot`, `js_exp`). Written in terms of [`js_log`], which
-/// `cartalith-jsmath` already carries as the fdlibm `__ieee754_log`, so the
-/// only new arithmetic here is fdlibm's own three-constant scaling.
-///
-/// It belongs in `cartalith-jsmath` beside `js_log`; it is here because this
-/// milestone does not own that crate. Moving it is a one-line change at each
-/// end and costs nothing.
-#[allow(clippy::excessive_precision, clippy::eq_op, clippy::approx_constant)]
-pub fn js_log10(x: f64) -> f64 {
-    const TWO54: f64 = 1.80143985094819840000e+16;
-    const IVLN10: f64 = 4.34294481903251816668e-01;
-    const LOG10_2HI: f64 = 3.01029995663611771306e-01;
-    const LOG10_2LO: f64 = 3.69423907715893089906e-13;
-
-    let mut x = x;
-    let mut hx = (x.to_bits() >> 32) as i32;
-    let lx = x.to_bits() as u32;
-    let mut k = 0i32;
-
-    if hx < 0x0010_0000 {
-        if ((hx & 0x7fff_ffff) as u32 | lx) == 0 {
-            return -TWO54 / 0.0; // log10(+-0) = -inf
-        }
-        if hx < 0 {
-            return (x - x) / 0.0; // log10(negative) = NaN
-        }
-        k -= 54;
-        x *= TWO54; // subnormal: scale up
-        hx = (x.to_bits() >> 32) as i32;
-    }
-    if hx >= 0x7ff0_0000 {
-        return x + x; // Inf or NaN
-    }
-    k += (hx >> 20) - 1023;
-    let i = ((k as u32) & 0x8000_0000) >> 31;
-    hx = (hx & 0x000f_ffff) | ((0x3ff - i as i32) << 20);
-    let y = (k + i as i32) as f64;
-    // SET_HIGH_WORD(x, hx) -- on the possibly-rescaled x, not the original
-    x = f64::from_bits(((hx as u32 as u64) << 32) | (x.to_bits() & 0xffff_ffff));
-    let z = y * LOG10_2LO + IVLN10 * js_log(x);
-    z + y * LOG10_2HI
-}
 
 /* ---------------------------------------------------------------- markets */
 
@@ -193,7 +150,7 @@ pub fn build_markets(
         let mut best: Option<Vec2> = None;
         let mut bs = f64::INFINITY;
         for nd in &g.nodes {
-            if nd.adj.iter().filter(|&&id| g.edges[id].alive).count() < 3 {
+            if g.live_degree(nd.id) < 3 {
                 continue;
             }
             let p = nd.pt();
@@ -621,6 +578,16 @@ pub fn build_games(
 
     // Map bounds, water, the live street graph (the same `edgesNear`+`segInt`
     // pair `grow` itself uses) and the civic hall.
+    //
+    // The street half is [`crosses_street`] — the reference open-codes it here
+    // and factors the *identical* loop out as `crossesStreet` (line 30711) for
+    // milestone 15's farmland, which is a duplicate this port does not need to
+    // keep. What that does change is the *interleaving*: the reference tests
+    // streets and then the hall for each polygon edge in turn, and this tests
+    // every edge against streets before any against the hall. Both tests are
+    // pure — no RNG draw, no mutation — so `∃k(street(k) ∨ hall(k))` and
+    // `(∃k street(k)) ∨ (∃k hall(k))` are the same boolean, and the goldens
+    // below compare the placements bit for bit either way.
     let blocked = |poly: &[Vec2]| -> bool {
         if poly
             .iter()
@@ -631,20 +598,14 @@ pub fn build_games(
         if poly.iter().any(|v| site.is_water(*v)) {
             return true;
         }
-        for k in 0..poly.len() {
-            let a = poly[k];
-            let b = poly[(k + 1) % poly.len()];
-            for eid in g.edges_near(a, b) {
-                let Some(e) = g.edges.get(eid) else { continue };
-                if !e.alive {
-                    continue;
-                }
-                if seg_int(a, b, g.nodes[e.a].pt(), g.nodes[e.b].pt()).is_some() {
-                    return true;
-                }
-            }
-            if let Some(cv) = civic {
-                let h = &cv.hall;
+        if crosses_street(g, poly) {
+            return true;
+        }
+        if let Some(cv) = civic {
+            let h = &cv.hall;
+            for k in 0..poly.len() {
+                let a = poly[k];
+                let b = poly[(k + 1) % poly.len()];
                 for j in 0..h.len() {
                     if seg_int(a, b, h[j], h[(j + 1) % h.len()]).is_some() {
                         return true;

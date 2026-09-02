@@ -195,15 +195,14 @@ fn an_inland_settlement_gets_a_real_street_skeleton() {
     assert!(layout.uses_real_terrain, "the relief raster is always available");
 
     assert!(!layout.edges.is_empty(), "grow() placed no streets at all");
-    assert!(layout.placed_len > 0.0, "grow() reported zero placed length");
-    assert!(!layout.primaries.is_empty(), "no primary route was laid");
+    assert!(layout.street_len > 0.0, "computeMetrics reported zero live street");
     assert!(!layout.route_ends.is_empty(), "buildSite produced no approach roads");
 
-    // Only the three classes milestones 1-7 can produce.
+    // The reference's own five classes (`_umDrawLayout`'s `wFill`, line 22811).
     for e in &layout.edges {
         assert!(
-            matches!(e.cls, "primary" | "street" | "lane"),
-            "unexpected street class {:?} -- milestone 8+ leaked in",
+            matches!(e.cls, "primary" | "ringroad" | "quay" | "street" | "lane"),
+            "unexpected street class {:?} -- not one of the reference's five",
             e.cls
         );
     }
@@ -233,11 +232,111 @@ fn the_same_settlement_lays_out_identically_twice() {
     let a = settlement_layout(&w, &settlement(50, 8, 4_000), &[]).expect("a layout");
     let b = settlement_layout(&w, &settlement(50, 8, 4_000), &[]).expect("a layout");
     assert_eq!(a.edges.len(), b.edges.len());
-    assert_eq!(a.placed_len, b.placed_len);
+    assert_eq!(a.street_len, b.street_len);
+    assert_eq!(a.buildings.len(), b.buildings.len());
     assert_eq!(a.market, b.market);
     // ...and a different position is a different town.
     let c = settlement_layout(&w, &settlement(51, 8, 4_000), &[]).expect("a layout");
     assert_ne!(a.edges.len(), c.edges.len(), "two positions produced the same graph");
+}
+
+/// The five layers `run_layout` gained when it became a caller of
+/// `cartalith_urban::generate` rather than a second pipeline beside it: the
+/// wall circuit, buildings, per-parcel districts, markets and farmland.
+///
+/// Written against `CLAUDE.md`'s "assert non-emptiness **and shape**" rule —
+/// every one of these was an absent key before 2026-09-02, and an empty vector
+/// arriving under a new name would look exactly like success.
+#[test]
+fn a_town_gets_a_wall_buildings_districts_markets_and_fields() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    // `_umWallSpec`'s ladder, not a hardcoded flag: a `Town` of 4 000 is rank 2
+    // with pop >= 1200, which is the `stone` rung.
+    let ctx = um_place_context(&w, &s, &[]);
+    assert_eq!(ctx.wall_style, "stone");
+    assert!(ctx.walls);
+    // Landlocked, so `_umHarbourScale`'s own "unused" return.
+    assert_eq!(ctx.harbour_scale, 1.0);
+
+    let l = run_layout(&ctx).expect("a layout");
+    assert_eq!(l.wall_spec, "stone");
+    let ring = l.wall.ring.as_ref().expect("buildWall built no circuit");
+    assert!(ring.len() > 2, "a wall ring needs at least a triangle, got {}", ring.len());
+    // `build_wall` renames the `stone` rung onto the legacy `curtain` tag.
+    assert_eq!(l.wall.style, "curtain");
+    assert!(!l.wall.gates.is_empty(), "a walled town with primaries has gates");
+
+    assert!(!l.buildings.is_empty(), "buildBuildings put nothing inside the lots");
+    for b in &l.buildings {
+        assert!(b.poly.len() >= 3, "a building footprint is a polygon");
+    }
+    // A lot can carry several footprints (the courtyard grammar puts a street
+    // range, two wings and a rear range on one plot), so the count is not the
+    // check. The check is that some lots carry **none** -- `assignDistricts`
+    // leaves lots empty and the terrain gate empties more, and a town where
+    // every lot is built is the parcels-as-roofs stand-in this replaced.
+    let mut built_lots: Vec<&str> = l.buildings.iter().map(|b| b.parcel.as_str()).collect();
+    built_lots.sort_unstable();
+    built_lots.dedup();
+    assert!(
+        built_lots.len() < l.parcels.len(),
+        "{} of {} lots built -- every lot built is not a real town",
+        built_lots.len(),
+        l.parcels.len()
+    );
+
+    // Districts: assigned, from the reference's own radial vocabulary, and
+    // more than one of them (a single tag would mean the pass never branched).
+    let mut kinds: Vec<&str> = l.parcels.iter().map(|p| p.district).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    assert!(kinds.len() > 1, "every lot got the same district: {kinds:?}");
+    for d in &kinds {
+        assert!(
+            matches!(
+                *d,
+                "market" | "burgher" | "artisan" | "craftriver" | "harbour" | "suburb"
+                    | "agrarian" | "church"
+            ),
+            "unknown district {d:?}"
+        );
+    }
+
+    assert!(!l.markets.is_empty(), "buildMarkets produced no specialised square");
+    for m in &l.markets {
+        assert!(m.poly.len() >= 3, "a market square is a polygon");
+    }
+
+    assert!(!l.farmland.is_empty(), "buildFarmland produced no fields");
+    for d in &l.farmland {
+        assert!(matches!(d.kind, "field" | "pasture"), "non-farm detail leaked in: {}", d.kind);
+    }
+
+    // The head count is derived, not echoed: 5.2 per built non-churchyard lot.
+    assert!(l.pop > 0.0, "generate() counted nobody");
+    assert_eq!(l.pop_target, 4_000.0);
+    // Milestone 7's scalars now come off `Town` rather than being restated.
+    assert_eq!(l.target_len, 4_000.0 * 2.1);
+}
+
+/// A hamlet gets **no** wall, and that is the ladder's answer rather than a
+/// missing builder — the distinction this whole change exists to make.
+#[test]
+fn a_hamlet_is_not_walled() {
+    let f = Fixture::new();
+    let w = f.world();
+    let mut s = settlement(50, 8, 4_000);
+    s.placement.kind = SettlementKind::Hamlet;
+    s.pop = 120;
+    let ctx = um_place_context(&w, &s, &[]);
+    assert_eq!(ctx.wall_style, "none");
+    assert!(!ctx.walls);
+    let l = run_layout(&ctx).expect("a layout");
+    assert!(l.wall.ring.is_none(), "a hamlet was given a circuit");
+    // ...and it is still a real town: the street graph does not depend on it.
+    assert!(!l.edges.is_empty());
 }
 
 /// Real roads reaching a settlement override `build_site`'s synthetic
@@ -277,3 +376,1026 @@ fn real_roads_become_the_towns_primaries() {
         "injecting a real road changed nothing -- primaryPaths was ignored"
     );
 }
+
+// =========================== milestone 17: the last three adapters ==========
+//
+// `_umHarbourScale`, `_umSiteProfile` and `_umOreBearing`. Every test below
+// names the constant or branch it exists to keep alive; a mutation sweep over
+// the literals these three functions introduce is what shaped the list, and
+// each survivor it found got a test written for it by name.
+
+fn zero_pots(n: usize) -> ResourcePotentials {
+    let z = || vec![0.0f32; n];
+    ResourcePotentials {
+        copper: z(),
+        tin: z(),
+        iron: z(),
+        gold: z(),
+        salt: z(),
+        timber: z(),
+        lead: z(),
+        silver: z(),
+        clay: z(),
+        buildstone: z(),
+        flint: z(),
+        obsidian: z(),
+        gems: z(),
+        sulfur: z(),
+        alum: z(),
+    }
+}
+
+// --------------------------------------------------------- _umHarbourScale --
+
+#[test]
+fn harbour_scale_is_one_when_landlocked() {
+    // The reference's own "unused" return: no harbour is built there at all.
+    assert_eq!(um_harbour_scale(50_000.0, "landlocked"), 1.0);
+    // ...and only for that exact site kind -- every water kind scales.
+    assert!(um_harbour_scale(50_000.0, "coast") > 1.0);
+    assert!(um_harbour_scale(50_000.0, "bay") > 1.0);
+    assert!(um_harbour_scale(50_000.0, "river") > 1.0);
+    assert!(um_harbour_scale(50_000.0, "riverthrough") > 1.0);
+}
+
+#[test]
+fn harbour_scale_reference_port_is_exactly_one() {
+    // 3000 souls is the anchor: `(3000/3000)^0.4 == 1`, the ~120-150 m base
+    // quay `buildHarbour` draws unscaled. A mutated divisor moves this off 1.
+    assert_eq!(um_harbour_scale(3_000.0, "coast"), 1.0);
+}
+
+#[test]
+fn harbour_scale_is_sublinear_not_linear() {
+    // The exponent is the point of the function. Ten times the population is
+    // 10^0.4 ~ 2.51x the quay, not 10x -- and the value is pinned exactly, so
+    // 0.4 -> 0.5 (3.16) or 0.3 (2.00) both fail here rather than merely
+    // staying "sub-linear".
+    assert_eq!(um_harbour_scale(30_000.0, "coast"), 10f64.powf(0.4));
+    // Half the anchor: still above the floor, so this reads the exponent too.
+    assert_eq!(um_harbour_scale(1_500.0, "coast"), 0.5f64.powf(0.4));
+}
+
+#[test]
+fn harbour_scale_is_clamped_at_both_ends() {
+    // A hamlet-port is not a pinprick: the 0.6 floor. Raw would be
+    // (1/3000)^0.4 ~ 0.0166.
+    assert_eq!(um_harbour_scale(1.0, "coast"), 0.6);
+    // `max(1,pop)` -- zero and negative populations floor to 1 before the
+    // power, so neither produces a 0 or a NaN.
+    assert_eq!(um_harbour_scale(0.0, "coast"), 0.6);
+    assert_eq!(um_harbour_scale(-500.0, "coast"), 0.6);
+    // A metropolis-port is not unbounded: the 3 ceiling. Raw would be ~7.9.
+    assert_eq!(um_harbour_scale(1_000_000.0, "coast"), 3.0);
+    // Just inside the ceiling, so the clamp is a clamp and not a constant.
+    // (46 765 souls is where `(pop/3000)^0.4` reaches 3.)
+    let inner = um_harbour_scale(40_000.0, "coast");
+    assert!(inner < 3.0 && inner > 2.5, "expected ~2.82, got {inner}");
+    assert_eq!(inner, (40_000.0f64 / 3_000.0).powf(0.4));
+}
+
+// ------------------------------------------------------------ _umOreBearing --
+
+/// A 64x64 potentials field with one hot iron cell.
+fn pots_with(x: usize, y: usize, v: f32) -> ResourcePotentials {
+    let mut p = zero_pots(GW * GH);
+    p.iron[y * GW + x] = v;
+    p
+}
+
+#[test]
+fn ore_bearing_is_none_below_the_floor() {
+    // 0.25 is a floor, not a threshold to reach: `v > best` with best = 0.25.
+    let at = pots_with(34, 32, 0.25);
+    assert_eq!(um_ore_bearing(&at, GW, GH, 32.0, 32.0, 0.0), None);
+    let below = pots_with(34, 32, 0.24);
+    assert_eq!(um_ore_bearing(&below, GW, GH, 32.0, 32.0, 0.0), None);
+    // Just above it, the same cell is found (due east: atan2(0,+2) = 0).
+    let above = pots_with(34, 32, 0.2501);
+    assert_eq!(um_ore_bearing(&above, GW, GH, 32.0, 32.0, 0.0), Some(0.0));
+}
+
+#[test]
+fn ore_bearing_is_none_when_the_deposit_is_underfoot() {
+    // `bx===0&&by===0` -- the ore-yard rule then falls back to "periphery,
+    // away from the market", so None is a real instruction.
+    let under = pots_with(32, 32, 0.9);
+    assert_eq!(um_ore_bearing(&under, GW, GH, 32.0, 32.0, 0.0), None);
+    // ...and an empty world (nothing anywhere) is the same answer by the same
+    // branch.
+    assert_eq!(um_ore_bearing(&zero_pots(GW * GH), GW, GH, 32.0, 32.0, 0.0), None);
+}
+
+#[test]
+fn ore_bearing_points_at_the_deposit_and_subtracts_orient() {
+    // Due north in grid terms is -y, and atan2(-1,0) = -pi/2.
+    let north = pots_with(32, 31, 0.9);
+    let b = um_ore_bearing(&north, GW, GH, 32.0, 32.0, 0.0).expect("a bearing");
+    assert!((b + std::f64::consts::FRAC_PI_2).abs() < 1e-12, "got {b}");
+    // Due east: atan2(0,+1) = 0.
+    let east = pots_with(33, 32, 0.9);
+    assert_eq!(um_ore_bearing(&east, GW, GH, 32.0, 32.0, 0.0), Some(0.0));
+    // `- (orient||0)` maps the map frame onto the layout's local one.
+    assert_eq!(um_ore_bearing(&east, GW, GH, 32.0, 32.0, 0.75), Some(-0.75));
+    // A NaN orient is JS-falsy, so it must NOT poison the answer.
+    assert_eq!(um_ore_bearing(&east, GW, GH, 32.0, 32.0, f64::NAN), Some(0.0));
+}
+
+#[test]
+fn ore_bearing_radius_is_max_two_and_gw_over_64() {
+    // GW/64 = 1 here, so the floor of 2 is what is in force: a deposit two
+    // cells out is inside the disc and one three cells out is not.
+    let inside = pots_with(34, 32, 0.9);
+    assert!(um_ore_bearing(&inside, GW, GH, 32.0, 32.0, 0.0).is_some());
+    let outside = pots_with(35, 32, 0.9);
+    assert_eq!(um_ore_bearing(&outside, GW, GH, 32.0, 32.0, 0.0), None);
+    // On a grid where GW/64 wins (256/64 = 4), a three-cell deposit is inside.
+    let mut wide = zero_pots(256 * 8);
+    wide.iron[4 * 256 + 131] = 0.9; // three cells east of (128,4)
+    assert!(um_ore_bearing(&wide, 256, 8, 128.0, 4.0, 0.0).is_some());
+}
+
+#[test]
+fn ore_bearing_first_maximum_wins_in_scan_order() {
+    // `v > best`, `dy` outer and `dx` inner: among equal maxima the smallest
+    // dy wins, then the smallest dx. Two equal deposits, one north-west and
+    // one south-east, must resolve to the north-west one.
+    let mut p = zero_pots(GW * GH);
+    p.iron[31 * GW + 31] = 0.9; // dy = -1, dx = -1
+    p.iron[33 * GW + 33] = 0.9; // dy = +1, dx = +1
+    let b = um_ore_bearing(&p, GW, GH, 32.0, 32.0, 0.0).expect("a bearing");
+    assert!((b - (-1.0f64).atan2(-1.0)).abs() < 1e-12, "scan order changed: {b}");
+}
+
+#[test]
+fn ore_bearing_reads_all_five_metals_and_ignores_the_rest() {
+    for pick in ["copper", "tin", "iron", "gold", "salt"] {
+        let mut p = zero_pots(GW * GH);
+        let f = match pick {
+            "copper" => &mut p.copper,
+            "tin" => &mut p.tin,
+            "iron" => &mut p.iron,
+            "gold" => &mut p.gold,
+            _ => &mut p.salt,
+        };
+        f[32 * GW + 33] = 0.9;
+        assert_eq!(
+            um_ore_bearing(&p, GW, GH, 32.0, 32.0, 0.0),
+            Some(0.0),
+            "{pick} is not being read"
+        );
+    }
+    // Timber is not an ore: the reference's max is over exactly five fields.
+    let mut t = zero_pots(GW * GH);
+    t.timber[32 * GW + 33] = 0.9;
+    assert_eq!(um_ore_bearing(&t, GW, GH, 32.0, 32.0, 0.0), None);
+}
+
+#[test]
+fn ore_bearing_is_none_without_potentials() {
+    // The Rust stand-in for the reference's `!pots` guard.
+    assert_eq!(um_ore_bearing(&zero_pots(4), GW, GH, 32.0, 32.0, 0.0), None);
+    assert_eq!(um_ore_bearing(&zero_pots(0), 0, 0, 0.0, 0.0, 0.0), None);
+}
+
+// ----------------------------------------------------------- _umSiteProfile --
+
+/// Every optional source absent: the reference's own missing-source answers.
+fn bare_profile_world<'a>(res: &'a ResourcePotentials, ways: &'a [Way]) -> SiteProfileWorld<'a> {
+    SiteProfileWorld {
+        coast_dt: &[],
+        flood: &[],
+        biome: &[],
+        temp: &[],
+        rain: &[],
+        carry_k: &[],
+        res,
+        ways,
+        world_wrap: false,
+        walled: false,
+    }
+}
+
+#[test]
+fn site_profile_is_none_without_a_field() {
+    let f = Fixture::new();
+    let mut w = f.world();
+    let res = zero_pots(0);
+    w.field = &[];
+    assert!(um_site_profile(&w, &bare_profile_world(&res, &[]), 8.0, 8.0).is_none());
+}
+
+/// The shape check `CLAUDE.md`'s "watch for silently-empty output" rule asks
+/// for: a real settlement on a real synthetic world gets a profile whose
+/// every field is populated for the reason the reference populates it.
+#[test]
+fn site_profile_on_a_real_world_is_fully_populated() {
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(GW * GH);
+    let coast = civ_coast_dist_field(&f.field, GW, GH, SEA);
+    assert_eq!(coast.len(), GW * GH, "the chamfer produced nothing");
+    let temp = vec![11.5f32; GW * GH];
+    let rain = vec![0.4f32; GW * GH];
+    let carry = vec![0.3f32; GW * GH];
+    let biome = vec![7u8; GW * GH]; // grass
+    let e = SiteProfileWorld {
+        coast_dt: &coast,
+        flood: &[],
+        biome: &biome,
+        temp: &temp,
+        rain: &rain,
+        carry_k: &carry,
+        res: &res,
+        ways: &[],
+        world_wrap: false,
+        walled: false,
+    };
+    let p = um_site_profile(&w, &e, 50.0, 8.0).expect("a profile");
+
+    assert_eq!((p.x, p.y), (50.0, 8.0));
+    assert_eq!(p.site_kind, "landlocked");
+    assert_eq!(p.elevation, f.field[8 * GW + 50] as f64);
+    assert_eq!(p.elev_n, (p.elevation - SEA) / (1.0 - SEA));
+    // The field falls southward, so the downslope aspect points +y and the
+    // slope is real rather than the flat-world zero.
+    assert!(p.slope_n > 0.0, "slopeN collapsed to zero");
+    let asp = p.aspect.expect("a sloping cell has an aspect");
+    assert!((asp - std::f64::consts::FRAC_PI_2).abs() < 1e-9, "aspect {asp}");
+    // Coast distance is a real, finite number of km -- the sea starts at
+    // y = 48, so 40 cells at 12.5 km.
+    assert_eq!(p.coast_dist_km, 40.0 * 12.5);
+    assert_eq!(p.temp_c, 11.5);
+    assert!((p.rain - 0.4).abs() < 1e-7);
+    assert!((p.carry_k - 0.3).abs() < 1e-7);
+    assert_eq!(p.biome, Some("grass"));
+    assert!(p.resources.is_some(), "a full-length potentials set gives a mean");
+    assert_eq!(p.resources_nearby, Vec::<&str>::new());
+    assert!(p.buildable_frac > 0.0, "buildableFrac collapsed to 0 -- the v1.32 bug");
+}
+
+#[test]
+fn site_profile_missing_sources_are_the_references_own_answers() {
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(0); // wrong length: no potentials at all
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.0, 8.0).expect("a profile");
+    assert_eq!(p.coast_dist_km, f64::INFINITY, "`cdt?...:Infinity`");
+    assert_eq!(p.floodplain, 0.0);
+    assert_eq!(p.biome, None, "`BIOME_KEYS[undefined-1]` is undefined");
+    assert_eq!(p.temp_c, 0.0);
+    assert_eq!(p.rain, 0.0);
+    assert_eq!(p.carry_k, 0.0);
+    assert_eq!(p.resources, None, "the reference's own `mean:null`");
+    assert!(p.resources_nearby.is_empty());
+    assert_eq!(p.road_count, 0);
+    assert!(p.road_types.is_empty());
+    // No traced stems at all: the river block never runs.
+    assert_eq!(p.river_dist_km, f64::INFINITY);
+    assert_eq!(p.river_order, 0.0);
+    assert_eq!(p.river_width_m, 0.0);
+    assert!(!p.confluence);
+}
+
+#[test]
+fn site_profile_elev_n_floors_at_zero() {
+    // A sub-sea-level cell: `elevN` clamps to 0, while `_civPlaceDefensibility`
+    // is handed the UNclamped ratio, as in the reference. (The two arguments
+    // happen to give the same defensibility for every input -- see the
+    // equivalent-mutant note at the end of this file -- so only `elevN`'s own
+    // clamp is observable here.)
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(0);
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 30.0, 60.0).expect("a profile");
+    assert!(f.field[60 * GW + 30] < SEA as f32);
+    assert_eq!(p.elev_n, 0.0);
+    let raw = (f.field[60 * GW + 30] as f64 - SEA) / js_max(1e-6, 1.0 - SEA);
+    assert_eq!(p.defensibility, civ_place_defensibility(raw, false));
+}
+
+#[test]
+fn site_profile_defensibility_reads_the_caller_resolved_walls() {
+    // The `walled` input is the whole data-gap answer: it must reach the
+    // number, and the 0.4 wall term is what it is worth.
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(0);
+    let mut e = bare_profile_world(&res, &[]);
+    let open = um_site_profile(&w, &e, 50.0, 8.0).expect("a profile").defensibility;
+    e.walled = true;
+    let fortified = um_site_profile(&w, &e, 50.0, 8.0).expect("a profile").defensibility;
+    assert!(fortified > open, "the walls input is being ignored");
+    assert!((fortified - js_min(1.0, open + 0.4)).abs() < 1e-12);
+}
+
+#[test]
+fn site_profile_visibility_and_relief_read_the_real_disc() {
+    // A cone: one high cell in a flat plain. From the summit every sampled
+    // neighbour is lower.
+    let mut field = vec![0.50f32; GW * GH];
+    field[32 * GW + 32] = 0.90;
+    let flow = vec![0.0f32; GW * GH];
+    let wb = vec![0u8; GW * GH];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 800.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let summit = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    // defR = max(4, round(64/70)) = 4, stepping by 2 over [-4,4]: a 5x5
+    // lattice, 25 samples, 24 of them below the summit.
+    assert!((summit.visibility - 24.0 / 25.0).abs() < 1e-12, "{}", summit.visibility);
+    assert!((summit.local_relief - 0.4).abs() < 1e-6, "{}", summit.local_relief);
+    // From the plain, nothing is below and the peak is above: visibility 0,
+    // relief still the full span.
+    let plain = um_site_profile(&w, &bare_profile_world(&res, &[]), 30.0, 32.0).expect("a profile");
+    assert_eq!(plain.visibility, 0.0);
+    assert!((plain.local_relief - 0.4).abs() < 1e-6);
+    // A flat cell has no gradient, so `aspect` is the reference's `null`.
+    assert_eq!(plain.aspect, None);
+    assert_eq!(plain.slope_n, 0.0);
+}
+
+#[test]
+fn site_profile_visibility_needs_the_0_004_deadband() {
+    // A neighbourhood only 0.002 below the site is NOT "lower": the reference
+    // requires `hv < elevation - 0.004`. Without the deadband this reads 24/25
+    // instead of 0.
+    let mut field = vec![0.500f32; GW * GH];
+    field[32 * GW + 32] = 0.502;
+    let flow = vec![0.0f32; GW * GH];
+    let wb = vec![0u8; GW * GH];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 800.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    assert_eq!(p.visibility, 0.0, "the 0.004 deadband is gone");
+    // 0.006 below clears it.
+    let mut deeper = field.clone();
+    deeper[32 * GW + 32] = 0.506;
+    let w2 = UrbanWorld { field: &deeper, ..w };
+    let q = um_site_profile(&w2, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    assert!((q.visibility - 24.0 / 25.0).abs() < 1e-12, "{}", q.visibility);
+}
+
+/// The v1.32/v1.35 river gate, which is the part of this function that has
+/// actually been wrong in the field twice.
+#[test]
+fn site_profile_river_order_only_fills_in_within_reach() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    // One traced stem running down x = 20; the settlement sits on it.
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let polys = vec![stem];
+    let w = UrbanWorld { order: Some(&order), river_polys: &polys, ..f.world() };
+    let res = zero_pots(0);
+
+    let on_it = um_site_profile(&w, &bare_profile_world(&res, &[]), 20.0, 8.0).expect("a profile");
+    assert_eq!(on_it.river_dist_km, 0.0);
+    assert_eq!(on_it.river_order, 4.0);
+    // `max(12, min(46, 10 + order*7))` -- the `_umWaterCtx` width convention.
+    assert_eq!(on_it.river_width_m, 38.0);
+    assert!(!on_it.confluence, "one stem is not a junction");
+
+    // Two cells away is 25 km at this resolution: past the 18.75 km reach, so
+    // order and width stay UNfilled -- but the distance is still honest, and
+    // still inside the 25 km context radius.
+    assert_eq!(um_water_reach_km(GW, 800.0), 18.75);
+    let near = um_site_profile(&w, &bare_profile_world(&res, &[]), 22.0, 8.0).expect("a profile");
+    assert_eq!(near.river_dist_km, 25.0);
+    assert_eq!(near.river_order, 0.0);
+    assert_eq!(near.river_width_m, 0.0);
+
+    // Three cells out is 37.5 km: beyond UM_RIVER_CONTEXT_KM, so the profile
+    // reports no river at all rather than claiming one 37 km away.
+    let far = um_site_profile(&w, &bare_profile_world(&res, &[]), 23.0, 8.0).expect("a profile");
+    assert_eq!(far.river_dist_km, f64::INFINITY);
+    assert_eq!(UM_RIVER_CONTEXT_KM, 25.0);
+}
+
+#[test]
+fn site_profile_river_order_zero_and_no_net_both_read_one() {
+    let f = Fixture::new();
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let polys = vec![stem];
+    let res = zero_pots(0);
+
+    // `(_riverNet && ...) || 1`: a Strahler order of 0 is JS-falsy.
+    let zeros = vec![0i16; GW * GH];
+    let w0 = UrbanWorld { order: Some(&zeros), river_polys: &polys, ..f.world() };
+    let p0 = um_site_profile(&w0, &bare_profile_world(&res, &[]), 20.0, 8.0).expect("a profile");
+    assert_eq!(p0.river_order, 1.0);
+    assert_eq!(p0.river_width_m, 17.0);
+
+    // ...and so is a missing network entirely.
+    let wn = UrbanWorld { order: None, river_polys: &polys, ..f.world() };
+    let pn = um_site_profile(&wn, &bare_profile_world(&res, &[]), 20.0, 8.0).expect("a profile");
+    assert_eq!(pn.river_order, 1.0);
+}
+
+#[test]
+fn site_profile_river_width_is_clamped_at_both_ends() {
+    let f = Fixture::new();
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let polys = vec![stem];
+    let res = zero_pots(0);
+    // order 6 -> 10+42 = 52, clamped to 46.
+    let big = vec![6i16; GW * GH];
+    let wb = UrbanWorld { order: Some(&big), river_polys: &polys, ..f.world() };
+    let pb = um_site_profile(&wb, &bare_profile_world(&res, &[]), 20.0, 8.0).expect("a profile");
+    assert_eq!(pb.river_width_m, 46.0);
+    // The 12 floor is unreachable from a positive order (10+7 = 17), so it is
+    // only load-bearing for a negative one -- pinned so the clamp is a clamp.
+    let impossible_order = -1.0f64;
+    assert_eq!(js_max(12.0, js_min(46.0, 10.0 + impossible_order * 7.0)), 12.0);
+}
+
+#[test]
+fn site_profile_confluence_needs_a_second_distinct_stem() {
+    let f = Fixture::new();
+    let order = vec![3i16; GW * GH];
+    let res = zero_pots(0);
+    // nearR = max(1, round(2.125 / 12.5)) = 1 cell. A second stem half a cell
+    // away is a junction; three cells away is not.
+    let a: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let near: Vec<(f64, f64)> = (0..48).map(|y| (20.5, y as f64)).collect();
+    let far: Vec<(f64, f64)> = (0..48).map(|y| (23.0, y as f64)).collect();
+
+    let joined = vec![a.clone(), near];
+    let wj = UrbanWorld { order: Some(&order), river_polys: &joined, ..f.world() };
+    let pj = um_site_profile(&wj, &bare_profile_world(&res, &[]), 20.0, 8.0).expect("a profile");
+    assert!(pj.confluence, "a second stem within the near radius is a junction");
+
+    let apart = vec![a, far];
+    let wa = UrbanWorld { order: Some(&order), river_polys: &apart, ..f.world() };
+    let pa = um_site_profile(&wa, &bare_profile_world(&res, &[]), 20.0, 8.0).expect("a profile");
+    assert!(!pa.confluence);
+}
+
+#[test]
+fn site_profile_counts_connected_roads_and_dedupes_their_types() {
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(0);
+    let way = |ty: WayType, pts: Vec<(f64, f64)>, hidden: bool| Way {
+        tid: 0,
+        pts,
+        brks: vec![],
+        km: 10.0,
+        name: "w".into(),
+        way_type: ty,
+        a_idx: 0,
+        b_idx: 1,
+        hidden,
+    };
+    let ways = vec![
+        way(WayType::Road, vec![(50.0, 8.0), (56.0, 8.0)], false), // starts on it
+        way(WayType::Road, vec![(44.0, 8.0), (50.0, 8.0)], false), // ends on it
+        way(WayType::Highway, vec![(50.0, 8.0), (50.0, 2.0)], false),
+        way(WayType::Track, vec![(50.0, 8.0), (44.0, 2.0)], true), // hidden
+        way(WayType::Track, vec![(50.0, 8.0)], false),             // < 2 points
+        way(WayType::Track, vec![(10.0, 40.0), (14.0, 40.0)], false), // elsewhere
+    ];
+    let p = um_site_profile(&w, &bare_profile_world(&res, &ways), 50.0, 8.0).expect("a profile");
+    assert_eq!(p.road_count, 3, "hidden/short/distant ways must not count");
+    // `[...new Set(...)]` is insertion-ordered, and "road" is seen first.
+    assert_eq!(p.road_types, vec!["road", "highway"]);
+}
+
+#[test]
+fn site_profile_nearby_resources_are_over_0_4_and_descending() {
+    let f = Fixture::new();
+    let w = f.world();
+    let mut res = zero_pots(GW * GH);
+    res.iron = vec![0.9f32; GW * GH];
+    res.gold = vec![0.7f32; GW * GH];
+    res.salt = vec![0.5f32; GW * GH];
+    // Both f32-exact, straddling the 0.4 bar: a mutated bar loses one or gains
+    // the other.
+    res.copper = vec![0.40625f32; GW * GH];
+    res.tin = vec![0.375f32; GW * GH];
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.0, 8.0).expect("a profile");
+    assert_eq!(p.resources_nearby, vec!["iron", "gold", "salt", "copper"]);
+    let mean = p.resources.expect("a mean");
+    assert!((mean["iron"] - 0.9).abs() < 1e-6);
+    assert_eq!(mean.len(), CIV_RESOURCE_KEYS.len(), "every key gets a mean");
+    assert_eq!(mean["timber"], 0.0);
+}
+
+#[test]
+fn site_profile_biome_maps_ocean_lake_and_the_key_table() {
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(0);
+    let n = GW * GH;
+    for (code, want) in [(0u8, "ocean"), (1, "ice"), (7, "grass"), (12, "tropWet"), (13, "lake")] {
+        let biome = vec![code; n];
+        let mut e = bare_profile_world(&res, &[]);
+        e.biome = &biome;
+        let p = um_site_profile(&w, &e, 50.0, 8.0).expect("a profile");
+        assert_eq!(p.biome, Some(want), "biome code {code}");
+    }
+}
+
+#[test]
+fn site_profile_buildable_fraction_reads_slope_and_sea() {
+    let n = GW * GH;
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let mk = |field: &[f32]| -> f64 {
+        let w = UrbanWorld {
+            field,
+            flow: &flow,
+            water_bodies: &wb,
+            order: None,
+            river_polys: &[],
+            gw: GW,
+            gh: GH,
+            sea_level: SEA,
+            map_width_km: 800.0,
+            flow_thresh: 1_000.0,
+            world_seed: 7,
+        };
+        um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0)
+            .expect("a profile")
+            .buildable_frac
+    };
+    // Flat dry land: every one of the 11x9 samples builds -- a real 99, not an
+    // empty lattice.
+    assert_eq!(mk(&vec![0.60f32; n]), 1.0);
+    // Below sea level: none of them do.
+    assert_eq!(mk(&vec![0.10f32; n]), 0.0);
+    // Dry but far too steep: `slopeAt*GW < 4` rejects it. A 0.05-per-cell ramp
+    // gives slopeN ~3.2 (buildable); 0.20 gives ~12.8.
+    let ramp = |step: f32| -> Vec<f32> {
+        let mut v = vec![0.0f32; n];
+        for y in 0..GH {
+            for x in 0..GW {
+                v[y * GW + x] = 0.60 + step * x as f32;
+            }
+        }
+        v
+    };
+    assert_eq!(mk(&ramp(0.05)), 1.0);
+    assert_eq!(mk(&ramp(0.20)), 0.0);
+}
+
+#[test]
+fn coast_dist_field_is_a_real_chamfer_and_empty_when_it_cannot_be() {
+    let f = Fixture::new();
+    let dt = civ_coast_dist_field(&f.field, GW, GH, SEA);
+    assert_eq!(dt.len(), GW * GH);
+    // The sea starts at y = 48, so a sea cell is 0 and the far north is 48 out.
+    assert_eq!(dt[50 * GW + 30], 0.0);
+    assert_eq!(dt[30], 48.0);
+    // The reference's `null` return.
+    assert!(civ_coast_dist_field(&[], GW, GH, SEA).is_empty());
+    assert!(civ_coast_dist_field(&f.field, 0, 0, SEA).is_empty());
+}
+
+// ------------------------------- mutation survivors, killed one by one -----
+//
+// The sweep over the sixteen new literals left thirteen survivors. Nine were
+// real gaps and each has a test below; the other four are proved equivalent
+// mutants and are recorded as such at the end of this file rather than
+// papered over with a test that cannot distinguish them.
+
+/// `defR = max(4, round(GW/70))` -- at GW = 64 the floor wins, so every test
+/// above reads the floor and none reads the divisor. A 384-wide grid puts
+/// `round(384/70) = 5` in charge, and the lattice steps by 2 from `-defR`,
+/// so an offset is sampled only if it has `defR`'s parity and magnitude. Two
+/// planted cells fence the radius in from both sides: one at `dx = 5` (seen
+/// at radius 5, invisible at radius 4) and one at `dx = 9` (invisible at
+/// radius 5, seen at the radius 11 that `/35` would give).
+#[test]
+fn site_profile_relief_disc_radius_reads_gw_over_70() {
+    const W: usize = 384;
+    const H: usize = 16;
+    let mut field = vec![0.50f32; W * H];
+    field[9 * W + 197] = 0.30; // dx = +5, dy = +1
+    field[9 * W + 201] = 0.90; // dx = +9, dy = +1
+    let flow = vec![0.0f32; W * H];
+    let wb = vec![0u8; W * H];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: W,
+        gh: H,
+        sea_level: SEA,
+        map_width_km: 800.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 192.0, 8.0).expect("a profile");
+    // 6 x 6 = 36 samples, exactly one of them the planted low cell.
+    assert!((p.visibility - 1.0 / 36.0).abs() < 1e-12, "{}", p.visibility);
+    // ...and the high cell at dx = 9 is out of reach, so the span is only the
+    // low one's.
+    assert!((p.local_relief - 0.2).abs() < 1e-6, "{}", p.local_relief);
+}
+
+/// `slopeN = slopeAt(xi,yi) * GW` -- the resolution-normalised convention.
+/// Dropping the `* GW` leaves a number 64x too small that still passes every
+/// `> 0` check.
+#[test]
+fn site_profile_slope_n_is_normalised_by_gw() {
+    let n = GW * GH;
+    let mut field = vec![0.0f32; n];
+    for y in 0..GH {
+        for x in 0..GW {
+            field[y * GW + x] = 0.60 + 0.05 * x as f32;
+        }
+    }
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 800.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    // 0.05 per cell -> central difference 0.05 -> x 64.
+    assert!((p.slope_n - 3.2).abs() < 1e-3, "slopeN {}", p.slope_n);
+    // Downslope is -x here, so the aspect points due west.
+    let asp = p.aspect.expect("a sloping cell");
+    assert!((asp.abs() - std::f64::consts::PI).abs() < 1e-9, "aspect {asp}");
+}
+
+/// The order/width gate is `_umWaterReachKm`, not `_umWaterNearKm`. At this
+/// resolution they are 18.75 km and 2.125 km, and a stem exactly one cell out
+/// lands between them -- which is the v1.35 bug in miniature: on the near
+/// radius `riverOrder` came out 0 for every settlement in the world.
+#[test]
+fn site_profile_river_gate_is_the_reach_not_the_near_radius() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let polys = vec![stem];
+    let w = UrbanWorld { order: Some(&order), river_polys: &polys, ..f.world() };
+    let res = zero_pots(0);
+    assert!(um_water_near_km() < 12.5 && 12.5 < um_water_reach_km(GW, 800.0));
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 21.0, 8.0).expect("a profile");
+    assert_eq!(p.river_dist_km, 12.5);
+    assert_eq!(p.river_order, 4.0);
+    assert_eq!(p.river_width_m, 38.0);
+}
+
+/// `_civPlaceResourceContext`'s default radius, `max(3, round(GW/128))`. Every
+/// other resource test uses uniform fields, where the radius cannot be seen;
+/// this one splits the map so the windowed mean is an exact, radius-specific
+/// fraction (11 of the 29 cells of the r = 3 disc lie east of the site).
+#[test]
+fn site_profile_resource_window_is_the_reference_radius() {
+    let f = Fixture::new();
+    let w = f.world();
+    let mut res = zero_pots(GW * GH);
+    for y in 0..GH {
+        for x in 51..GW {
+            res.iron[y * GW + x] = 1.0;
+        }
+    }
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.0, 8.0).expect("a profile");
+    let mean = p.resources.expect("a mean");
+    assert!((mean["iron"] - 11.0 / 29.0).abs() < 1e-12, "iron mean {}", mean["iron"]);
+}
+
+/// The buildable lattice: 11 x 9 samples spread over the real `SITE_WM x
+/// SITE_HM` box, each offset by `(si/10 - 0.5)` / `(sj/8 - 0.5)`. Every test
+/// above runs at 800 km across a 64-cell grid, where the whole 1.7 km box is
+/// a fraction of one cell and any lattice gives the same answer. At 8 km the
+/// box is 13.6 x 10 cells, so the lattice geometry is finally visible: over a
+/// plane tilted twice as steeply in x as in y, exactly 55 of the 99 samples
+/// are at or above sea level.
+#[test]
+fn site_profile_buildable_lattice_is_eleven_by_nine_over_the_site_box() {
+    let n = GW * GH;
+    let mut field = vec![0.0f32; n];
+    for y in 0..GH {
+        for x in 0..GW {
+            field[y * GW + x] =
+                (SEA as f32) + (32.5 - x as f32) * 0.02 + (32.5 - y as f32) * 0.01;
+        }
+    }
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 8.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    // The slope is gentle enough everywhere that only the sea test can reject
+    // a sample -- so this number is the lattice, not the slope ladder.
+    assert!(p.slope_n < 4.0, "slopeN {} would confound the count", p.slope_n);
+    assert!((p.buildable_frac - 55.0 / 99.0).abs() < 1e-12, "{}", p.buildable_frac);
+}
+
+/// `_civPlaceConnectedRoads`' `eps = max(1, GW/250)`. At GW = 64 the floor
+/// governs and the divisor is invisible; at GW = 2500 it is 10 cells.
+#[test]
+fn connected_roads_eps_scales_with_gw() {
+    let way = |pts: Vec<(f64, f64)>| Way {
+        tid: 0,
+        pts,
+        brks: vec![],
+        km: 1.0,
+        name: "w".into(),
+        way_type: WayType::Road,
+        a_idx: 0,
+        b_idx: 1,
+        hidden: false,
+    };
+    // Five cells out: inside eps = 10 on a 2500-wide grid...
+    let near = vec![way(vec![(105.0, 100.0), (200.0, 100.0)])];
+    assert_eq!(civ_place_connected_roads(&near, 100.0, 100.0, 2500).len(), 1);
+    // ...and outside eps = 1 on a 64-wide one.
+    assert_eq!(civ_place_connected_roads(&near, 100.0, 100.0, 64).len(), 0);
+    // Fifteen cells out is beyond eps at either resolution.
+    let far = vec![way(vec![(115.0, 100.0), (200.0, 100.0)])];
+    assert_eq!(civ_place_connected_roads(&far, 100.0, 100.0, 2500).len(), 0);
+}
+
+/// `gradAt`'s `*0.5` is invisible through `aspect` -- `atan2` is scale
+/// invariant, and `aspect` is its only consumer -- so it is pinned directly.
+#[test]
+fn grad_at_is_the_halved_central_difference() {
+    // 4x3, heights = 10*x + 100*y, so the central difference is (20, 200) and
+    // the halved one is (10, 100).
+    let (w, h) = (4usize, 3usize);
+    let mut field = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            field[y * w + x] = 10.0 * x as f32 + 100.0 * y as f32;
+        }
+    }
+    assert_eq!(grad_at(&field, w, h, false, 1, 1), (10.0, 100.0));
+    // At the edges the reference clamps rather than wraps, halving the span.
+    assert_eq!(grad_at(&field, w, h, false, 0, 0), (5.0, 50.0));
+    // ...unless `state.world`, where x wraps: x=0 reads x=3 and x=1.
+    assert_eq!(grad_at(&field, w, h, true, 0, 0), ((10.0 - 30.0) * 0.5, 50.0));
+}
+
+/// `_civPlaceResourceContext` is called with `world_wrap: false`, because the
+/// reference's own loop is `if(xx<0||xx>=GW) continue` -- it does NOT wrap.
+/// A site three cells from the east edge with ore only in the far west says
+/// which: wrapping would pull six of those cells into the window.
+#[test]
+fn site_profile_resource_window_does_not_wrap() {
+    let f = Fixture::new();
+    let w = f.world();
+    let mut res = zero_pots(GW * GH);
+    for y in 0..GH {
+        res.iron[y * GW] = 1.0;
+        res.iron[y * GW + 1] = 1.0;
+    }
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 62.0, 8.0).expect("a profile");
+    let mean = p.resources.expect("a mean");
+    assert_eq!(mean["iron"], 0.0, "the window wrapped around the east edge");
+}
+
+/// The buildable lattice reads the **nearest** cell's slope
+/// (`round(sx)`), not the containing one. A ridge column at x = 32 makes
+/// x = 31 and x = 33 too steep to build on; the rounded sample columns hit
+/// both, the floored ones hit only 33.
+#[test]
+fn site_profile_buildable_slope_sample_is_the_nearest_cell() {
+    let n = GW * GH;
+    let mut field = vec![0.60f32; n];
+    for y in 0..GH {
+        field[y * GW + 32] = 0.74;
+    }
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 8.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    // Nothing here is under water, so only the slope ladder can reject a
+    // sample: 9 of the 11 sampled columns survive it.
+    assert!((p.buildable_frac - 9.0 / 11.0).abs() < 1e-12, "{}", p.buildable_frac);
+}
+
+/// The row half of the lattice's nearest-cell rule -- `round(sy)`, not
+/// `floor(sy)`. A ridge row at y = 32 makes y = 31 and y = 33 unbuildable;
+/// the rounded sample rows hit both, the floored ones only 33.
+#[test]
+fn site_profile_buildable_slope_sample_is_the_nearest_row() {
+    let n = GW * GH;
+    let mut field = vec![0.60f32; n];
+    for x in 0..GW {
+        field[32 * GW + x] = 0.74;
+    }
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 8.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    assert!((p.buildable_frac - 7.0 / 9.0).abs() < 1e-12, "{}", p.buildable_frac);
+}
+
+/// Every optional grid is length-checked against `GW*GH`, not merely tested
+/// for emptiness: a short-but-present grid is a wrong grid, and reading it
+/// would either panic or report another cell's value as this settlement's.
+#[test]
+fn site_profile_short_optional_grids_read_as_absent() {
+    let f = Fixture::new();
+    let w = f.world();
+    let res = zero_pots(3);
+    let short_f = vec![9.0f32; 3];
+    let short_b = vec![7u8; 3];
+    let e = SiteProfileWorld {
+        coast_dt: &short_f,
+        flood: &short_f,
+        biome: &short_b,
+        temp: &short_f,
+        rain: &short_f,
+        carry_k: &short_f,
+        res: &res,
+        ways: &[],
+        world_wrap: false,
+        walled: false,
+    };
+    let p = um_site_profile(&w, &e, 50.0, 8.0).expect("a profile");
+    assert_eq!(p.coast_dist_km, f64::INFINITY);
+    assert_eq!(p.floodplain, 0.0);
+    assert_eq!(p.biome, None);
+    assert_eq!(p.temp_c, 0.0);
+    assert_eq!(p.rain, 0.0);
+    assert_eq!(p.carry_k, 0.0);
+    assert_eq!(p.resources, None);
+}
+
+/// A half-built potentials set is no potentials. `_civPlaceResourceContext`
+/// reads all fifteen `CIV_RESOURCE_KEYS` fields, so checking only one would
+/// index off the end of the others.
+#[test]
+fn site_profile_partial_potentials_are_no_potentials() {
+    let f = Fixture::new();
+    let w = f.world();
+    let mut res = zero_pots(GW * GH);
+    res.copper = Vec::new(); // salt is still full length
+    assert_eq!(res.salt.len(), GW * GH);
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.0, 8.0).expect("a profile");
+    assert_eq!(p.resources, None);
+    assert!(p.resources_nearby.is_empty());
+}
+
+/// The profile's own cell is `round(p.x)`, the sampling convention
+/// `_civPlaceDefensibility` and `_civPlaceGrainYield` share -- not the
+/// containing cell.
+#[test]
+fn site_profile_samples_the_rounded_cell() {
+    let n = GW * GH;
+    let mut field = vec![0.60f32; n];
+    field[8 * GW + 51] = 0.74;
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: SEA,
+        map_width_km: 800.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    // 50.6 rounds to 51 and floors to 50, and the two cells differ.
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 50.6, 8.0).expect("a profile");
+    assert_eq!(p.elevation, 0.74f32 as f64);
+    // ...and the reported position is the settlement's own, not the cell's.
+    assert_eq!(p.x, 50.6);
+}
+
+/// `denom = max(1e-6, 1-sea)`. At a sea level of exactly 1 the divisor would
+/// be zero and every normalised elevation a NaN; the floor is what keeps
+/// `elevN` a number.
+#[test]
+fn site_profile_elev_n_divisor_is_floored_at_1e_minus_6() {
+    let n = GW * GH;
+    let field = vec![1.0f32; n];
+    let flow = vec![0.0f32; n];
+    let wb = vec![0u8; n];
+    let res = zero_pots(0);
+    let w = UrbanWorld {
+        field: &field,
+        flow: &flow,
+        water_bodies: &wb,
+        order: None,
+        river_polys: &[],
+        gw: GW,
+        gh: GH,
+        sea_level: 1.0,
+        map_width_km: 800.0,
+        flow_thresh: 1_000.0,
+        world_seed: 7,
+    };
+    let p = um_site_profile(&w, &bare_profile_world(&res, &[]), 32.0, 32.0).expect("a profile");
+    assert_eq!(p.elev_n, 0.0, "elevN went NaN -- the 1e-6 floor is gone");
+    assert!(!p.defensibility.is_nan());
+}
+
+// ---- Proved-equivalent mutants, recorded rather than tested ----------------
+//
+// Three sweeps over the new literals left six survivors that cannot be killed
+// by any test, because the mutated program computes the same function. Each is
+// written out here so the next sweep does not spend the same time
+// rediscovering it. Everything else the sweeps raised now has a test above.
+//
+// 1. `_umHarbourScale`'s `max(1, pop)` -> `max(0, pop)`. Both feed the same
+//    `max(0.6, ...)` clamp, and `(pop/3000)^0.4` only exceeds 0.6 above ~836
+//    souls, where the floor is not in play. The floor's real job is refusing a
+//    NEGATIVE base to `pow` -- removing it outright (rather than lowering it)
+//    yields NaN and IS killed, by `harbour_scale_is_clamped_at_both_ends`'s
+//    `-500` case.
+// 2. `_umSiteProfile`'s `bio === 13 -> 'lake'` -> any other code. The fall-
+//    through is `BIOME_KEYS[13-1]`, and `BIOME_KEYS[12]` is `"lake"`. The
+//    reference carries the same redundancy; it is ported because it is there.
+// 3. `_civPlaceDefensibility((elevation-sea)/denom, ...)` -> `(elev_n, ...)`.
+//    `terrain_ruggedness_d(r) = max(0, 1-4|r-0.35|)` is 0 for every r <= 0.1,
+//    and `elev_n` differs from `r` only when `r < 0`. So the two arguments
+//    always produce the same ruggedness. The unclamped ratio is passed anyway,
+//    because that is what the reference passes.
+// 4. `gradAt`'s `*0.5` as seen through `_umSiteProfile`: `aspect` is its only
+//    consumer and `atan2` is scale invariant. Pinned directly instead, by
+//    `grad_at_is_the_halved_central_difference`.
+// 5. `_umSiteProfile`'s river-width floor, `max(12, ...)`. The width is only
+//    computed once `riverOrder` has been through `|| 1`, so the smallest
+//    input is `10 + 1*7 = 17` and the floor can never bind. It is dead in the
+//    reference too; `site_profile_river_width_is_clamped_at_both_ends` pins
+//    the arithmetic directly rather than pretending otherwise.
+// 6. `_umOreBearing`'s `n == 0` guard. On a zero-sized grid every candidate
+//    cell fails the range test, so `bx`/`by` stay 0 and the underfoot branch
+//    returns `None` anyway. The guard is a readability statement, not a
+//    behaviour.

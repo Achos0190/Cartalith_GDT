@@ -280,6 +280,7 @@ fn wall_state_from(c: &Case) -> WallState {
             land_arc: w.land_arc.map(pts),
             generation: if w.generation < 0 { None } else { Some(w.generation as u32) },
             history: Vec::new(),
+            ..WallState::default()
         },
     }
 }
@@ -329,10 +330,11 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
             walls: c.walls,
             wall_generations: c.wall_generations,
             settlement_age: c.settlement_age,
-            harbour: c.harbour_quay.map(|q| HarbourFront { quay: pts(q) }),
+            harbour: c.harbour_quay.map(|q| HarbourFront { quay: pts(q), pt: Vec2::default() }),
             rules: c.rules.map(rules_from),
             wall_style: Some("stone".to_string()),
             fortified: false,
+            wet_moat: false,
             pop: 4000.0,
         };
         let mut rec = Recorder::default();
@@ -796,7 +798,7 @@ fn no_node_ever_holds_a_dead_edge_in_its_adjacency() {
             walls: c.walls,
             wall_generations: c.wall_generations,
             settlement_age: c.settlement_age,
-            harbour: c.harbour_quay.map(|q| HarbourFront { quay: pts(q) }),
+            harbour: c.harbour_quay.map(|q| HarbourFront { quay: pts(q), pt: Vec2::default() }),
             rules: c.rules.map(rules_from),
             ..GrowOpts::default()
         };

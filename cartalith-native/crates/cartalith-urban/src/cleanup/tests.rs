@@ -129,6 +129,7 @@ mod golden;
 use super::*;
 use crate::geom::Vec2;
 use crate::graph::Graph;
+use crate::fortify::Fort;
 use crate::growth::Gate;
 use crate::rng::fnv1a;
 use crate::routes::Anchors;
@@ -751,6 +752,11 @@ fn fort_golden(name: &str) -> &'static golden::Fort {
     golden::FORTS.iter().find(|f| f.name == name).unwrap_or_else(|| panic!("no fort {name}"))
 }
 
+/// `style` and `glacis_off` go **onto the `WallState`** now, which is where
+/// `clearFortZone` reads them from in the reference. `glacis_off: None` is a
+/// circuit with no `fort` at all — the `wallState.fort &&` half of the
+/// reference's `||` chain — and `Some(0.0)` is a fort whose offset is falsy,
+/// the other half. Both must land on 60.
 fn fort_scenario(name: &str, style: &str, glacis_off: Option<f64>, gates: Vec<Gate>) {
     let ring = ring_poly(850.0, 620.0, 380.0, 300.0, 24);
     let land_arc: Vec<Vec2> = ring[..13].to_vec();
@@ -761,6 +767,9 @@ fn fort_scenario(name: &str, style: &str, glacis_off: Option<f64>, gates: Vec<Ga
         land_arc: Some(land_arc),
         generation: None,
         history: Vec::new(),
+        style: style.to_string(),
+        fort: glacis_off.map(|off| Fort { glacis_off: off, ..Fort::default() }),
+        ..WallState::default()
     };
     let mut g = Graph::new();
     grid(&mut g, 350.0, 250.0, 7, 6, 120.0, 110.0, "street", 6.0, 1, true);
@@ -787,7 +796,7 @@ fn fort_scenario(name: &str, style: &str, glacis_off: Option<f64>, gates: Vec<Ga
     let (polys, details) = fort_fixture();
     let before = alive(&g);
 
-    let sweep = clear_fort_zone(&wall, style, glacis_off, &mut g, &polys, &polys, &details);
+    let sweep = clear_fort_zone(&wall, &mut g, &polys, &polys, &details);
     check(name, &g, before);
 
     let fg = fort_golden(name);
@@ -893,13 +902,15 @@ fn the_gate_corridor_radius_at_its_boundary() {
         land_arc: Some(ring[..13].to_vec()),
         generation: None,
         history: Vec::new(),
+        style: "wall".to_string(),
+        ..WallState::default()
     };
     let mut g = Graph::new();
     grid(&mut g, 350.0, 250.0, 7, 6, 120.0, 110.0, "street", 6.0, 1, true);
     g.add_street(1100.0, 620.0, 1400.0, 620.0, "street", 5.0, 2, "probe-street");
     g.add_street(850.0, 500.0, 850.0, 100.0, "primary", 9.0, 2, "probe-primary");
     let before = alive(&g);
-    let sweep = clear_fort_zone(&wall, "wall", None, &mut g, &[], &[], &[]);
+    let sweep = clear_fort_zone(&wall, &mut g, &[], &[], &[]);
     check("fort_corridor_probe", &g, before);
     assert_eq!(sweep, FortZoneSweep { edges_killed: sweep.edges_killed, ..Default::default() });
     assert!(sweep.edges_killed > 0, "the probe swept no road at all");
@@ -928,12 +939,15 @@ fn fort_zone_without_a_ring_is_a_no_op() {
         land_arc: None,
         generation: None,
         history: Vec::new(),
+        style: "bastioned".to_string(),
+        fort: Some(Fort { glacis_off: 70.0, ..Fort::default() }),
+        ..WallState::default()
     };
     let mut g = Graph::new();
     grid(&mut g, 350.0, 250.0, 7, 6, 120.0, 110.0, "street", 6.0, 1, true);
     let snapshot = canon(&g);
     let (polys, details) = fort_fixture();
-    let sweep = clear_fort_zone(&wall, "bastioned", Some(70.0), &mut g, &polys, &polys, &details);
+    let sweep = clear_fort_zone(&wall, &mut g, &polys, &polys, &details);
     assert_eq!(canon(&g), snapshot);
     assert_eq!(sweep, FortZoneSweep::default());
 }
@@ -1209,14 +1223,126 @@ fn fort_zone_prunes_last() {
         land_arc: Some(ring[..13].to_vec()),
         generation: None,
         history: Vec::new(),
+        style: "bastioned".to_string(),
+        fort: Some(Fort { glacis_off: 70.0, ..Fort::default() }),
+        ..WallState::default()
     };
     let mut g = Graph::new();
     grid(&mut g, 350.0, 250.0, 7, 6, 120.0, 110.0, "street", 6.0, 1, true);
     g.add_street(850.0, 100.0, 850.0, 1150.0, "primary", 9.0, 0, "radial");
     let (polys, details) = fort_fixture();
-    clear_fort_zone(&wall, "bastioned", Some(70.0), &mut g, &polys, &polys, &details);
+    clear_fort_zone(&wall, &mut g, &polys, &polys, &details);
     let after = alive(&g);
     prune_largest(&mut g);
     assert_eq!(alive(&g), after, "clear_fort_zone did not prune last");
     assert!(after > 0);
 }
+
+// ------------------------------------------------- the generate() ordering --
+
+/// **The runtime seam between milestones 9 and 11, walked in `generate()`'s own
+/// order** — reference lines 31030-31076.
+///
+/// `generate()` calls, in this order and no other:
+/// [`remove_water_crossings`] (31030), [`privatize_alleys`] (31069),
+/// [`clear_fort_zone`] (31072, `if wallState.ring`) and then
+/// [`crate::water::detect_river_crossings`] (31076). Its own comment at 31073
+/// says why: those three are the last passes in the subsystem that can kill an
+/// edge, and `detectRiverCrossings` records a bridge wherever a **live** road
+/// meets the centreline, so any earlier position would export a span sitting on
+/// a road that no longer exists.
+///
+/// Milestone 9's module header states that constraint and cannot enforce it —
+/// nothing in `detect_river_crossings`' signature can. This is the enforcement:
+/// it runs the detector **before** the passes and **after** them on the same
+/// town and asserts the two disagree, so the ordering is a measured property
+/// rather than a comment. If a future `generate()` hoists the call, the
+/// disagreement this test pins is exactly the bug it would ship.
+///
+/// `privatize_alleys` is a no-op on `MEDIEVAL` (its `deadEndBias` is zero, which
+/// milestone 4 asserts against the reference's own key list) and the wall here
+/// is deliberately placed so `clear_fort_zone` sweeps as well; the pass that
+/// does the damage on this fixture is `remove_water_crossings`, which is the one
+/// the reference's 29127 comment names.
+#[test]
+fn the_generate_ordering_seam() {
+    let site = build_site(
+        88,
+        1700.0,
+        1250.0,
+        "coastal",
+        SiteOpts { water: Some(w_spec()), ..Default::default() },
+    );
+    assert!(site.uses_real_water && site.real_river, "the detector's own two guards");
+
+    let mut g = Graph::new();
+    // The grid starts at x = 250 so that the designated span below lies on no
+    // grid column: `add_street` returns an existing edge rather than laying a
+    // second one over it, so a "primary" drawn along a street column would
+    // silently become that street.
+    grid(&mut g, 250.0, 150.0, 7, 6, 200.0, 160.0, "street", 6.0, 1, true);
+    // Four north-south roads straight through the channel, far from any bridge
+    // point: exactly the fabric `removeWaterCrossings` exists to cull.
+    for k in 0..4usize {
+        let x = 400.0 + k as f64 * 260.0;
+        g.add_street(x, 200.0, x, 1100.0, "street", 5.0, 0, "through-channel");
+    }
+    // And one legitimate span: a primary (exempt from the base sweep) whose wet
+    // samples all lie inside `riverW * 1.5 + 34` = 259 m of `site.bridgePt`
+    // (0, 625) — the furthest is 165 m — so the real-water sweep spares it too.
+    // Without a survivor the last assertion below would be vacuous.
+    g.add_street(150.0, 470.0, 150.0, 790.0, "primary", 9.0, 0, "bridge-primary");
+    g.add_street(150.0, 470.0, 250.0, 470.0, "street", 5.0, 0, "bridge-link-n");
+    g.add_street(150.0, 790.0, 250.0, 790.0, "street", 5.0, 0, "bridge-link-s");
+
+    // 1. BEFORE any cleanup — what a mis-ordered `generate()` would export.
+    let early = crate::water::detect_river_crossings(&site, &g);
+    let crate::water::Crossings::Bridges(early_bridges) = &early else {
+        panic!("the fixture laid no crossing at all: {early:?}");
+    };
+    assert!(!early_bridges.is_empty());
+
+    // 2. The three edge-killing passes, in `generate()`'s order.
+    remove_water_crossings(&site, &mut g);
+    privatize_alleys(1, &MEDIEVAL, &mut g, None);
+    let wall = WallState {
+        ring: Some(ring_poly(850.0, 300.0, 380.0, 180.0, 24)),
+        gates: Vec::new(),
+        epoch: 0,
+        land_arc: Some(ring_poly(850.0, 300.0, 380.0, 180.0, 24)[..13].to_vec()),
+        generation: None,
+        history: Vec::new(),
+        style: "wall".to_string(),
+        ..WallState::default()
+    };
+    clear_fort_zone(&wall, &mut g, &[], &[], &[]);
+
+    // 3. AFTER — the position the reference calls it from.
+    let late = crate::water::detect_river_crossings(&site, &g);
+
+    assert_ne!(early, late, "the ordering would be free, and it is not");
+    let late_bridges = match &late {
+        crate::water::Crossings::Bridges(b) => b.clone(),
+        _ => Vec::new(),
+    };
+    assert!(
+        late_bridges.len() < early_bridges.len(),
+        "the cleanup passes killed no bridged road: early {}, late {}",
+        early_bridges.len(),
+        late_bridges.len()
+    );
+    // Measured: nine spans before the passes, one after. A mis-ordered
+    //  would export eight bridges on roads that no longer exist.
+    assert!(!late_bridges.is_empty(), "the designated span must survive all three passes");
+    // Every surviving span must sit on a road that is still alive — the
+    // property the ordering buys, asserted directly rather than inferred.
+    for br in &late_bridges {
+        let carried = g.edges.iter().any(|e| {
+            e.alive
+                && e.cls != "quay"
+                && crate::geom::dist_pt_seg(br.pt, g.nodes[e.a].pt(), g.nodes[e.b].pt()) < 1e-6
+        });
+        assert!(carried, "a recorded bridge at {:?} has no live road under it", br.pt);
+    }
+}
+

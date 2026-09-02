@@ -14,13 +14,13 @@ section rather than by quietly rewriting the original text.
 
 ## Phase 0 — Walking skeleton
 
-No engine logic. Prove `gdext` + Godot + Rust builds and runs on all three targets
+No engine logic. Prove `gdext` + Godot + Rust builds and runs on two targets
 with placeholder content: a triangle, a button, a printed line. Steps in
 `TOOLCHAIN.md`.
 
-"All three targets" means the three `DECISIONS.md` §2 names: Windows, Android,
-and a WASM build. Only the first two have ever been committed to — WASM is
-listed under *Options kept open* below and has no export preset.
+The two targets are Windows and Android — committed at `export_presets.cfg`.
+A WASM target was considered (`DECISIONS.md` §2) but has never been committed to
+and is not scheduled.
 
 **The Android export is the risk.** gdext's own docs call Android support
 experimental (`REFERENCES.md`). Surface trouble here immediately rather than
@@ -101,7 +101,8 @@ independent.
 
 Block 4, procedural city layouts. Already a self-contained DOM-free engine in the
 JS codebase, which suggests it ports cleanly into `cartalith-urban`, depending on
-`cartalith-civ` for settlement context. `URBAN_MORPHOLOGY_SCOPE.md` carries the
+`cartalith-rng` alone; the civ coupling lives one layer up in block 2's `_um*`
+adapter (`cartalith-civ` depends on `cartalith-urban`). `URBAN_MORPHOLOGY_SCOPE.md` carries the
 milestone definitions.
 
 **Started 2026-08-18. Two corrections to the paragraph above, from actually
@@ -113,10 +114,9 @@ reading the code — see `URBAN_MORPHOLOGY_SCOPE.md`:**
   ~3,860 lines, **the largest single unported subsystem** this port found,
   bigger than the Journey Planner and the Asset Library. ~17 milestones, not one
   phase-sized push.
-- **"depending on `cartalith-civ`" is wrong for the engine.** `generate(seed,
-  opts)` takes only scalars and two plain rasters; no civ types anywhere. The
-  civ coupling lives one layer up in block 2's `_um*` adapter. `cartalith-urban`
-  depends on `cartalith-rng` alone.
+- **The engine has no civ dependency.** `generate(seed, opts)` takes only scalars
+  and two plain rasters; no civ types anywhere. The coupling is inverted:
+  `cartalith-civ/Cargo.toml` carries `cartalith-urban`, not the other way.
 
 ## Not a phase: LOD and large worlds
 
@@ -136,9 +136,9 @@ its own and is no longer an unscheduled option:
 
 ~~Save-file **writing** (`SAVEFILE_COMPAT.md`)~~ — **no longer open.**
 Authorised by the owner 2026-08-23 after five register rows (FI-01, DM-04,
-JP-06, JP-08, MEA-07) had queued up behind it. `SAVEFILE_COMPAT.md`'s own
-"Writing a save" section carries the format decisions and the one disclosed
-limitation (`state.erosion`).
+JP-06, JP-08, MEA-07) had queued up behind it. The format decisions and the one
+disclosed limitation (`state.erosion`) are recorded in
+`crates/cartalith-godot/src/params.rs`.
 
 Store distribution (`DECISIONS.md` §6) and a WASM target sharing
 `cartalith-engine` (`DECISIONS.md` §2) are things the architecture permits

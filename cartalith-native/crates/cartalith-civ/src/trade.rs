@@ -79,11 +79,16 @@
 //!   v1.31), the charcoal-limited iron constraint.
 //! - [`civ_salt_access`] — `_civSaltAccess` (24430, v1.37).
 
-use crate::timeline::{civ_catchment_pop, food_surplus_ratio, FARMERS_PER_URBANITE};
+use crate::timeline::{
+    civ_catchment_pop, civ_subsistence_mode_at, food_surplus_ratio, FoodSurplus,
+    FARMERS_PER_URBANITE,
+};
 use crate::urban_adapter::{um_site_kind_from_terrain, UrbanWorld};
 use crate::{
-    civ_catchment_km2, civ_catchment_radius_cells, civ_place_resource_context, NamedSettlement,
-    ResourcePotentials, SettlementKind, TradeBalance, Way, BIOME_LAKE, CIV_RESOURCE_KEYS,
+    civ_catchment_km2, civ_catchment_radius_cells, civ_place_resource_context,
+    civ_resource_trade_balance, NamedSettlement, ResourcePotentials, SettlementKind, TradeBalance,
+    Way, BIOME_BOREAL, BIOME_CONIFER, BIOME_LAKE, BIOME_TEMP_FOREST, BIOME_TEMP_RAIN,
+    BIOME_TROP_WET, CIV_CONSUMED_RESOURCES, CIV_RESOURCE_KEYS,
 };
 use cartalith_jsmath::{js_hypot, js_max, js_min, js_round};
 
@@ -1249,6 +1254,638 @@ pub fn civ_salt_access(w: &PlaceWorld, x: usize, y: usize, nav: NavKind) -> Salt
         }
     }
     SaltAccess::default()
+}
+
+// ===================== v1.31/v1.37: the settlement inspector card (settlement-resources.md §6-9) =====
+//
+// `OUTSTANDING_WORK.md` §2.3 named this cluster "the natural consumer of
+// `civ_place_smelting`/`civ_salt_access`" once both existed: `_civPlaceTrade`
+// (reference line 24459) is the per-settlement inspector view that
+// integrates them — plus the hinterland/food/specialisation sources already
+// ported elsewhere in this crate — into one card. Four pieces, in the
+// reference's own order:
+//
+// - [`CIV_TRADE_CATEGORIES`] / [`CIV_SETTLEMENT_ARCHETYPES`] — the two
+//   static tables (reference lines 24252, 24270).
+// - [`civ_place_archetype`] — `_civPlaceArchetype` (24278).
+// - [`civ_place_pastoral_balance`] — `_civPlacePastoralBalance` (24313).
+// - [`civ_place_trade`] — `_civPlaceTrade` itself (24459).
+//
+// **Two inputs neither this port nor the reference's own generated worlds
+// actually have**, both handled the same way [`civ_salt_access`]'s own doc
+// comment already handles the identical gap for its branch 3:
+//
+// 1. **`p.specialisation`.** The reference assigns it via
+//    `_civDeriveSpecialisation` (line 22578), which itself needs
+//    `_umSiteProfile` and `p.traits` — neither exists here
+//    (`OUTSTANDING_WORK.md` §2.1's "settlements carry no `specialisation` and
+//    no `traits`"). `_civPlaceTrade` and `_civPlaceArchetype` only ever
+//    *read* `p.specialisation`, never derive it, so both are ported as
+//    written with `specialisation: Option<&str>` — a caller with no source
+//    for it passes `None`, exactly the value every settlement starts at
+//    before `_civDeriveSpecialisation` runs.
+// 2. **`_umSiteProfile`'s `floodplain`/`rain` fields**, read only by
+//    [`civ_place_archetype`]. `rain` is a direct `rainField[i]` read, already
+//    in [`PlaceWorld::rain`]. `floodplain` is, unindirected,
+//    `currentFloodField()[i]||0` (reference line 22533) —
+//    [`crate::build_flood_field`]'s own output at this settlement's cell, not
+//    a profile field at all. Both are passed in already resolved by the
+//    caller at the same clamped `[0,GW-1]x[0,GH-1]` index
+//    [`civ_salt_access`]'s branch 3 uses for the same reason.
+
+/// One row of [`CIV_TRADE_CATEGORIES`] (reference line 24252).
+#[derive(Debug, Clone, Copy)]
+pub struct TradeCategory {
+    pub key: &'static str,
+    pub label: &'static str,
+    /// `"critical"`, `"important"` or `"ordinary"` — the reference's own
+    /// three literals.
+    pub severity: &'static str,
+    pub resources: &'static [&'static str],
+    /// Only the `salt` row sets this (reference: `seaSourced:true` on that
+    /// row alone). See [`civ_place_trade`]'s salt override.
+    pub sea_sourced: bool,
+}
+
+/// `CIV_TRADE_CATEGORIES` (reference lines 24252-24260, v1.31): settlement-
+/// resources.md §9's seven-question checklist, each carrying the doc's own
+/// severity.
+pub const CIV_TRADE_CATEGORIES: [TradeCategory; 7] = [
+    TradeCategory {
+        key: "metals",
+        label: "Metals",
+        severity: "critical",
+        resources: &["iron", "copper", "tin", "lead", "silver", "gold"],
+        sea_sourced: false,
+    },
+    TradeCategory {
+        key: "salt",
+        label: "Salt",
+        severity: "critical",
+        resources: &["salt"],
+        sea_sourced: true,
+    },
+    TradeCategory {
+        key: "fibre",
+        label: "Fibre & dye",
+        severity: "important",
+        resources: &["alum"],
+        sea_sourced: false,
+    },
+    TradeCategory {
+        key: "fuel",
+        label: "Fuel",
+        severity: "critical",
+        resources: &["timber"],
+        sea_sourced: false,
+    },
+    TradeCategory {
+        key: "husbandry",
+        label: "Husbandry",
+        severity: "important",
+        resources: &[],
+        sea_sourced: false,
+    },
+    TradeCategory {
+        key: "ceramics",
+        label: "Ceramics",
+        severity: "ordinary",
+        resources: &["clay", "lead"],
+        sea_sourced: false,
+    },
+    TradeCategory {
+        key: "luxury",
+        label: "Luxury",
+        severity: "ordinary",
+        resources: &["gems", "gold", "silver", "obsidian"],
+        sea_sourced: false,
+    },
+];
+
+/// One row of [`CIV_SETTLEMENT_ARCHETYPES`] (reference line 24270).
+#[derive(Debug, Clone, Copy)]
+pub struct SettlementArchetype {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub note: &'static str,
+}
+
+/// `CIV_SETTLEMENT_ARCHETYPES` (reference lines 24270-24277, v1.31):
+/// settlement-resources.md §8's composite terrain/resource packages, most-
+/// specific first — [`civ_place_archetype`] returns the first match's `key`.
+pub const CIV_SETTLEMENT_ARCHETYPES: [SettlementArchetype; 6] = [
+    SettlementArchetype {
+        key: "bog_iron",
+        label: "Bog-iron smithing",
+        note: "wetland iron; exports tools, imports grain and timber",
+    },
+    SettlementArchetype {
+        key: "bronze_hub",
+        label: "Bronze-age hub",
+        note: "tin and copper co-located \u{2014} rare, so a natural trade nexus",
+    },
+    SettlementArchetype {
+        key: "obsidian",
+        label: "Obsidian tool tradition",
+        note: "good-enough stone edges may delay metallurgy",
+    },
+    SettlementArchetype {
+        key: "arid_salt",
+        label: "Arid salt & textile",
+        note: "mudbrick; imports timber and metal, exports salt and cloth",
+    },
+    SettlementArchetype {
+        key: "pastoral",
+        label: "Pastoral / steppe",
+        note: "exports livestock, wool, leather; imports grain and metal",
+    },
+    SettlementArchetype {
+        key: "floodplain",
+        label: "Generalist floodplain",
+        note: "narrow, luxury-skewed import needs rather than subsistence ones",
+    },
+];
+
+/// `_CIV_SPEC_EXPORT` (reference line 23850): a specialisation's primary
+/// export, or `None` for the three that imply none (`trade_hub`/`monastic`/
+/// `garrison`).
+pub const CIV_SPEC_EXPORT: &[(&str, Option<&str>)] = &[
+    ("fishing", Some("fish")),
+    ("grain", Some("grain")),
+    ("pastoral", Some("livestock")),
+    ("timber", Some("timber")),
+    ("mining", Some("ore")),
+    ("vineyard", Some("wine")),
+    ("trade_hub", None),
+    ("monastic", None),
+    ("garrison", None),
+];
+
+/// `_CIV_SPEC_NEEDS_FOOD` (reference line 23852): specialisations that imply
+/// a standing food dependency.
+pub const CIV_SPEC_NEEDS_FOOD: &[&str] =
+    &["fishing", "mining", "timber", "trade_hub", "monastic", "garrison"];
+
+/// `_civPlaceArchetype` (reference lines 24278-24297, v1.31): match a
+/// settlement to one of [`CIV_SETTLEMENT_ARCHETYPES`]'s six composite
+/// profiles. First match wins, most-specific first — see this module's own
+/// doc comment for why `flood`/`rain` are caller-resolved scalars rather
+/// than a site-profile struct, and why `specialisation` is `Option`.
+///
+/// `rich`'s comparison is the reference's own NaN-respecting
+/// `!(wm[k]>0)` (24289), reached here through a match guard rather than a
+/// negated comparison: a guard that fails (including on `NaN > 0.0`, which
+/// is `false`) falls through to the absolute `0.25` branch exactly like the
+/// reference's `!(x>0)` does — `cartalith-rust-conventions`.
+pub fn civ_place_archetype(
+    mean: &std::collections::HashMap<&str, f64>,
+    world_mean: &std::collections::HashMap<&str, f64>,
+    flood: f64,
+    rain: f64,
+    specialisation: Option<&str>,
+) -> Option<&'static str> {
+    if mean.is_empty() {
+        return None;
+    }
+    let rich = |key: &str, mult: f64| -> bool {
+        let v = mean.get(key).copied().unwrap_or(0.0);
+        match world_mean.get(key) {
+            Some(&w) if w > 0.0 => v > w * mult,
+            _ => v > 0.25,
+        }
+    };
+    let wet = flood > 0.55;
+    let arid = rain < 0.30;
+    if rich("iron", 1.8) && wet {
+        return Some("bog_iron");
+    }
+    if rich("tin", 1.6) && rich("copper", 1.4) {
+        return Some("bronze_hub");
+    }
+    if rich("obsidian", 2.0) {
+        return Some("obsidian");
+    }
+    if rich("salt", 1.6) && arid {
+        return Some("arid_salt");
+    }
+    if specialisation == Some("pastoral") {
+        return Some("pastoral");
+    }
+    if flood > 0.35 && rich("clay", 1.1) {
+        return Some("floodplain");
+    }
+    None
+}
+
+/// `MANURE_MAX_UPLIFT` (reference line 24311) — ceiling on yield gain from
+/// manuring, labour-bound.
+pub const MANURE_MAX_UPLIFT: f64 = 0.35;
+
+/// `PASTURE_IDEAL_SHARE` (reference line 24312) — the pasture share that
+/// best supports adjacent cropland.
+pub const PASTURE_IDEAL_SHARE: f64 = 0.45;
+
+/// `_civPlacePastoralBalance`'s return (reference line 24314).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PastoralBalance {
+    pub pasture_share: f64,
+    pub crop_share: f64,
+    pub manure_uplift: f64,
+    pub competition: f64,
+    /// `"arable"`, `"pastoral"` or `"mixed"` — the reference's own three
+    /// literals.
+    pub mode: &'static str,
+}
+
+impl Default for PastoralBalance {
+    /// The reference's own baseline object (reference line 24314), returned
+    /// unchanged when the catchment disc has no land cell at all.
+    fn default() -> Self {
+        PastoralBalance {
+            pasture_share: 0.0,
+            crop_share: 0.0,
+            manure_uplift: 0.0,
+            competition: 0.0,
+            mode: "mixed",
+        }
+    }
+}
+
+/// `_civPlacePastoralBalance` (reference lines 24313-24338, v1.31):
+/// settlement-resources.md §6's land-use tension between pasture and
+/// cropland over a settlement's own catchment.
+///
+/// `k`/`water`/`biome`/`rain` mirror the reference's own
+/// `currentCarryingCapacity()`/`currentWaterAccess()`/`buildBiomeRaster()`/
+/// `rainField` reads, each falling back the way the reference's own guarded
+/// reads do when the slice is absent or mis-sized: `Wa?Wa[i]:1`,
+/// `bio?bio[i]:5` ([`BIOME_TEMP_FOREST`]), `rainField[i]:0.5` — an absent `k`
+/// is the one hard guard (`if(!K) return out;`), matched here by the
+/// `k.len() != n` early-out.
+///
+/// `forested` is the reference's own five-biome set (line 24328:
+/// `b===3||b===4||b===5||b===6||b===12`), which
+/// [`crate::BIOME_KEYS`]'s numbering resolves to
+/// [`BIOME_BOREAL`]/[`BIOME_CONIFER`]/[`BIOME_TEMP_FOREST`]/
+/// [`BIOME_TEMP_RAIN`]/[`BIOME_TROP_WET`] — checked against the same table
+/// [`civ_subsistence_mode_at`]'s own doc comment already cross-references
+/// rather than reused as a bare magic-number match.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_place_pastoral_balance(
+    k: &[f32],
+    water: &[f32],
+    biome: &[u8],
+    rain: &[f32],
+    field: &[f32],
+    x: usize,
+    y: usize,
+    kind: SettlementKind,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    map_width_km: f64,
+) -> PastoralBalance {
+    let mut out = PastoralBalance::default();
+    let n = gw * gh;
+    if n == 0 || field.len() != n || k.len() != n {
+        return out;
+    }
+    let rad = civ_catchment_radius_cells(civ_catchment_km2(kind), map_width_km, gw) as i64;
+    let r2 = rad * rad;
+    let (x0, y0) = (x as i64, y as i64);
+    let water_present = water.len() == n;
+    let biome_present = biome.len() == n;
+    let rain_present = rain.len() == n;
+
+    let mut pasture = 0i64;
+    let mut crop = 0i64;
+    let mut tot = 0i64;
+    for dy in -rad..=rad {
+        let yy = y0 + dy;
+        if yy < 0 || yy >= gh as i64 {
+            continue;
+        }
+        for dx in -rad..=rad {
+            if dx * dx + dy * dy > r2 {
+                continue;
+            }
+            let xx = x0 + dx;
+            if xx < 0 || xx >= gw as i64 {
+                continue;
+            }
+            let i = yy as usize * gw + xx as usize;
+            if (field[i] as f64) < sea {
+                continue;
+            }
+            tot += 1;
+            let wv = if water_present { water[i] as f64 } else { 1.0 };
+            let bv = if biome_present { biome[i] } else { BIOME_TEMP_FOREST };
+            let rv = if rain_present { rain[i] as f64 } else { 0.5 };
+            let mode = civ_subsistence_mode_at(k[i] as f64, wv, bv, rv);
+            let forested = matches!(
+                bv,
+                BIOME_BOREAL | BIOME_CONIFER | BIOME_TEMP_FOREST | BIOME_TEMP_RAIN | BIOME_TROP_WET
+            );
+            if mode >= 2 {
+                crop += 1; // short fallow / annual cultivation
+            } else if !forested && mode >= 1 {
+                pasture += 1; // open land that grows fodder but not grain
+            }
+        }
+    }
+    if tot == 0 {
+        return out;
+    }
+    out.pasture_share = pasture as f64 / tot as f64;
+    out.crop_share = crop as f64 / tot as f64;
+    let d = (out.pasture_share - PASTURE_IDEAL_SHARE).abs() / PASTURE_IDEAL_SHARE;
+    out.manure_uplift = MANURE_MAX_UPLIFT * js_max(0.0, 1.0 - d) * js_min(1.0, out.crop_share * 3.0);
+    out.competition = js_min(1.0, 4.0 * out.pasture_share * out.crop_share);
+    out.mode = if out.crop_share > out.pasture_share * 2.0 {
+        "arable"
+    } else if out.pasture_share > out.crop_share * 2.0 {
+        "pastoral"
+    } else {
+        "mixed"
+    };
+    out
+}
+
+/// One [`CIV_TRADE_CATEGORIES`] row's verdict for one settlement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TradeChecklistRow {
+    pub key: &'static str,
+    pub label: &'static str,
+    pub severity: &'static str,
+    pub met: bool,
+    /// This category's own resources sitting at or below the 10% floor —
+    /// the reference's own `short` (line 24551), restricted to
+    /// [`CIV_CONSUMED_RESOURCES`] the same way [`civ_resource_trade_balance`]
+    /// already restricts its own import test.
+    pub missing: Vec<&'static str>,
+}
+
+/// `_civPlaceTrade`'s return (reference line 24460), minus the two fields a
+/// Rust caller already owns rather than needs echoed back: `smelting` and
+/// `foodShed` are both arguments to [`civ_place_trade`] already, so this
+/// does not duplicate them the way the reference's single dynamically-typed
+/// object does.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlaceTrade {
+    pub exports: Vec<&'static str>,
+    pub imports: Vec<&'static str>,
+    /// Which of the four sources contributed — `"specialisation"`,
+    /// `"hinterland"`, `"food surplus"`, `"food deficit (importable)"`,
+    /// `"food deficit \u{2014} no viable supply"`, `"fuel-limited smelting"`
+    /// or `"surplus fuel"` — the reference's own literal strings, in the
+    /// order they were pushed (line 24461 onward), duplicates included: a
+    /// world with both a resource surplus and a food surplus can e.g. push
+    /// `"hinterland"` once.
+    pub basis: Vec<&'static str>,
+    pub checklist: Vec<TradeChecklistRow>,
+    pub archetype: Option<&'static str>,
+    pub pastoral: PastoralBalance,
+    pub navigability: Navigability,
+    /// Parallel to `exports` — [`good_reach`] for each (reference's
+    /// `out.reach[g]`, a plain object; a `Vec` here keeps the golden-tested
+    /// export order rather than a `HashMap`'s unspecified one).
+    pub reach: Vec<(&'static str, Reach)>,
+    /// A bulk-only exporter with no navigable water is a local economy
+    /// however much it produces.
+    pub trade_isolated: bool,
+    /// `true` only on the sub-branch of a food deficit that no reachable
+    /// settlement can cover — a population the land and its trade cannot
+    /// support, not an import relationship.
+    pub food_unsupported: bool,
+    /// `_civSaltAccess(p).source` when it `has` access — the reference's own
+    /// `out.saltSource` (line 24541).
+    pub salt_source: Option<&'static str>,
+}
+
+/// `_civPlaceTrade` (reference lines 24459-24557, v1.30 restructured onto
+/// §9's checklist by v1.31): the per-settlement trade inspector card —
+/// specialisation, hinterland balance vs. the same world mean
+/// [`crate::civ_faction_aggregates`] uses, the food balance, the v1.31 fuel
+/// gate, the v1.37 salt override, then the §9 checklist, the archetype
+/// match, the §6 pastoral tension and the §7 reach a settlement's water
+/// actually gives its exports. See this module's own doc comment for the
+/// two inputs (`specialisation`, `flood`/`rain`) neither this port nor the
+/// reference's generated worlds currently populate, and for why `smelt`
+/// (from [`civ_place_smelting`]), `salt` (from [`civ_salt_access`]) and
+/// `nav` (from [`place_navigability`]) are caller-supplied rather than
+/// recomputed here — the same convention [`FoodShedInput::navigability`]
+/// already documents, now with three more per-settlement values a real
+/// caller has already computed once for its own reasons.
+///
+/// `mean` — the settlement's own windowed resource context — is computed
+/// once here at [`civ_salt_access`]'s own default radius (`max(3,
+/// round(gw/128))`, reference line 24463's `_civPlaceResourceContext(p)`
+/// with no radius argument) and reused for the hinterland balance, the fuel-
+/// surplus test, the checklist and the archetype match — the reference
+/// itself reuses one `rc` the same way. [`civ_place_pastoral_balance`] is
+/// likewise computed once and reused for both `out.pastoral` and the
+/// checklist's `fibre` category, where the reference calls
+/// `_civPlacePastoralBalance` a second time for the same settlement.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_place_trade(
+    world: &PlaceWorld,
+    k: &[f32],
+    water: &[f32],
+    flood: &[f32],
+    x: usize,
+    y: usize,
+    kind: SettlementKind,
+    specialisation: Option<&str>,
+    world_mean: &std::collections::HashMap<&str, f64>,
+    food: FoodSurplus,
+    food_shed: FoodShed,
+    smelt: Smelting,
+    salt: SaltAccess,
+    nav: Navigability,
+) -> PlaceTrade {
+    fn add(arr: &mut Vec<&'static str>, v: &'static str) {
+        if !arr.contains(&v) {
+            arr.push(v);
+        }
+    }
+    fn remove(arr: &mut Vec<&'static str>, v: &str) {
+        if let Some(j) = arr.iter().position(|&e| e == v) {
+            arr.remove(j);
+        }
+    }
+
+    let mut exports: Vec<&'static str> = Vec::new();
+    let mut imports: Vec<&'static str> = Vec::new();
+    let mut basis: Vec<&'static str> = Vec::new();
+    let mut food_unsupported = false;
+
+    // 1 -- specialisation
+    let spec = specialisation.filter(|&s| s != "none");
+    if let Some(spec) = spec {
+        let export = CIV_SPEC_EXPORT.iter().find(|&&(key, _)| key == spec).and_then(|&(_, e)| e);
+        if let Some(export) = export {
+            add(&mut exports, export);
+            basis.push("specialisation");
+        }
+        if CIV_SPEC_NEEDS_FOOD.contains(&spec) {
+            add(&mut imports, "food");
+        }
+    }
+
+    // 2 -- hinterland, measured against the same world mean the faction rule
+    // uses. `mean` is reused below by the fuel-surplus test, the checklist
+    // and the archetype match.
+    let n = world.gw * world.gh;
+    let radius = js_max(3.0, js_round(world.gw as f64 / 128.0)) as usize;
+    let mean: std::collections::HashMap<&str, f64> = if world.field.len() == n {
+        civ_place_resource_context(
+            world.res, world.field, world.gw, world.gh, world.sea, x, y, radius, false,
+        )
+    } else {
+        std::collections::HashMap::new()
+    };
+    if !mean.is_empty() && !world_mean.is_empty() {
+        let bal = civ_resource_trade_balance(&mean, world_mean);
+        for &g in &bal.exports {
+            add(&mut exports, g);
+        }
+        for &g in &bal.imports {
+            add(&mut imports, g);
+        }
+        // The reference tests `out.exports`/`out.imports`, not `bal`'s own —
+        // "hinterland" is recorded whenever either is non-empty at this
+        // point, specialisation's own contribution included.
+        if !exports.is_empty() || !imports.is_empty() {
+            basis.push("hinterland");
+        }
+    }
+
+    // 3 -- food balance (overrides the specialisation guess above, which is
+    // only an implication)
+    if food.net > 0.0 {
+        remove(&mut imports, "food");
+        add(&mut exports, "food");
+        basis.push("food surplus");
+    } else if food.net < 0.0 {
+        let deliverable = food_shed.import_capacity + food_shed.hinterland_capacity;
+        if deliverable >= -food.net {
+            add(&mut imports, "food");
+            basis.push("food deficit (importable)");
+        } else {
+            remove(&mut imports, "food");
+            food_unsupported = true;
+            basis.push("food deficit \u{2014} no viable supply");
+        }
+    }
+
+    // 4 -- v1.31 fuel gate: iron in the ground is not iron you can make
+    if smelt.fuel_poor {
+        remove(&mut exports, "iron"); // ore, yes; finished iron, no
+        add(&mut imports, "charcoal");
+        basis.push("fuel-limited smelting");
+    } else if smelt.ore_rich && mean.get("timber").copied().unwrap_or(0.0) > 0.45 {
+        add(&mut exports, "charcoal");
+        basis.push("surplus fuel");
+    }
+
+    // v1.37 -- never import salt a settlement can make or mine itself
+    let mut salt_source = None;
+    if salt.has {
+        remove(&mut imports, "salt");
+        salt_source = Some(salt.source);
+    }
+
+    // a good can't be both -- a genuine surplus wins over an inferred need
+    imports.retain(|g| !exports.contains(g));
+
+    // Computed once, read by both `out.pastoral` and the checklist's
+    // `fibre` category below.
+    let pastoral = civ_place_pastoral_balance(
+        k, water, world.biome, world.rain, world.field, x, y, kind, world.gw, world.gh, world.sea,
+        world.map_width_km,
+    );
+
+    // sec9's checklist view over the same `mean`
+    let mut checklist = Vec::new();
+    if !mean.is_empty() {
+        for cat in CIV_TRADE_CATEGORIES.iter() {
+            let mut have = cat.resources.iter().any(|&r| {
+                let mine = mean.get(r).copied().unwrap_or(0.0);
+                let w = world_mean.get(r).copied().unwrap_or(0.0);
+                if w > 0.002 {
+                    mine >= w * 0.9
+                } else {
+                    mine > 0.05
+                }
+            });
+            if cat.key == "fuel" && smelt.fuel_poor {
+                have = false; // ore-rich, fuel-poor reads as a fuel gap
+            }
+            if cat.sea_sourced && cat.key == "salt" && salt.has {
+                have = true;
+                salt_source = Some(salt.source);
+            }
+            if cat.key == "husbandry" {
+                have = specialisation == Some("pastoral")
+                    || mean.get("timber").copied().unwrap_or(0.0) < 0.5;
+            }
+            if cat.key == "fibre" {
+                have = pastoral.pasture_share > 0.05 || pastoral.crop_share > 0.05;
+            }
+            let missing: Vec<&'static str> = cat
+                .resources
+                .iter()
+                .copied()
+                .filter(|&r| {
+                    mean.get(r).copied().unwrap_or(0.0) <= 0.10 && CIV_CONSUMED_RESOURCES.contains(&r)
+                })
+                .collect();
+            checklist.push(TradeChecklistRow {
+                key: cat.key,
+                label: cat.label,
+                severity: cat.severity,
+                met: have,
+                missing,
+            });
+        }
+    }
+
+    // Archetype match — `flood`/`rain` at the settlement's own cell, clamped
+    // the same way `civ_salt_access`'s branch 3 clamps its `_umSiteProfile`
+    // read (see this module's own doc comment).
+    let clamped_i = if world.gw > 0 && world.gh > 0 {
+        Some(y.min(world.gh - 1) * world.gw + x.min(world.gw - 1))
+    } else {
+        None
+    };
+    let flood_here = match clamped_i {
+        Some(i) if flood.len() == n => f64::from(flood[i]),
+        _ => 0.0,
+    };
+    let rain_here = match clamped_i {
+        Some(i) if world.rain.len() == n => f64::from(world.rain[i]),
+        _ => 0.0,
+    };
+    let archetype = civ_place_archetype(&mean, world_mean, flood_here, rain_here, specialisation);
+
+    // Section 6/7 -- the land-use tension, and what the settlement's water
+    // lets it actually ship
+    let reach: Vec<(&'static str, Reach)> = exports.iter().map(|&g| (g, good_reach(g, nav))).collect();
+    let trade_isolated = !exports.is_empty() && reach.iter().all(|&(_, r)| r == Reach::Local);
+
+    PlaceTrade {
+        exports,
+        imports,
+        basis,
+        checklist,
+        archetype,
+        pastoral,
+        navigability: nav,
+        reach,
+        trade_isolated,
+        food_unsupported,
+        salt_source,
+    }
 }
 
 #[cfg(test)]

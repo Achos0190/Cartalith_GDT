@@ -133,7 +133,7 @@
 use crate::blocks::{Block, Parcel};
 use crate::districts::{Building, Lot, bmap};
 use crate::geom::{
-    Vec2, js_cos, js_max, js_min, js_round, js_sin, dist_pt_seg, point_in_poly, poly_centroid,
+    Vec2, js_cos, js_max, js_min, js_num_cmp, js_or, js_round, js_sin, point_in_poly, poly_centroid,
     seg_int,
 };
 use crate::graph::Graph;
@@ -693,16 +693,11 @@ pub fn build_details(
         .nodes
         .iter()
         .filter(|n| {
-            n.adj.iter().filter(|&&id| g.edges[id].alive).count() >= 3 && site.river_dist(n.pt()) > 40.0
+            g.live_degree(n.id) >= 3 && site.river_dist(n.pt()) > 40.0
         })
         .collect();
-    // The reference's comparator verbatim: a difference, not an ordering. A NaN
-    // difference is `+0` per ECMA-262, i.e. "equal", which is what `unwrap_or`
-    // reproduces; both sorts are stable, so equal elements keep their order.
-    cand.sort_by(|a, b| {
-        let d = a.pt().dist(anchors.market) - b.pt().dist(anchors.market);
-        d.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // The reference's comparator verbatim: a difference, not an ordering.
+    cand.sort_by(|a, b| js_num_cmp(a.pt().dist(anchors.market), b.pt().dist(anchors.market)));
     let mut wells: Vec<Vec2> = Vec::new();
     if let Some(pl) = plaza {
         wells.push(Vec2::new(pl.center.x, pl.center.y));
@@ -851,28 +846,20 @@ pub fn build_details(
                 let c = poly_centroid(&par.par.poly);
                 if site.river_dist(c) < 80.0 && !site.no_water {
                     // A short boom line just off the yard's water frontage,
-                    // along the local bank direction. `<` so the first of two
-                    // equally-near segments wins and a NaN never displaces one.
-                    let mut bi = 0usize;
-                    let mut bd = f64::INFINITY;
-                    for i in 0..site.river.len().saturating_sub(1) {
-                        let dd = dist_pt_seg(c, site.river[i], site.river[i + 1]);
-                        if dd < bd {
-                            bd = dd;
-                            bi = i;
-                        }
-                    }
+                    // along the local bank direction. The reference open-codes
+                    // the nearest-segment scan here and then calls `bankSide`,
+                    // which walks the same loop again; both read
+                    // `Site::nearest_river_seg` now. `b` stays local because
+                    // the reference resolves it differently on the two sides —
+                    // see that method's doc.
+                    let bi = site.nearest_river_seg(c);
                     let a = site.river[bi];
                     let b = site.river[(bi + 1).min(site.river.len() - 1)];
                     let t = (b - a).norm();
                     let off = t.rot90();
                     let sgn = site.bank_side(c);
                     // `site.riverW || 16` -- falsy on 0 and on NaN.
-                    let rw = if site.river_w == 0.0 || site.river_w.is_nan() {
-                        16.0
-                    } else {
-                        site.river_w
-                    };
+                    let rw = js_or(site.river_w, 16.0);
                     let p0 = a.lerp(b, 0.5) + off * (sgn * js_max(4.0, rw * 0.25));
                     let p1 = p0 + t * rb.range(24.0, 40.0);
                     details.push(Detail {
@@ -978,15 +965,10 @@ fn med(arr: &[f64]) -> f64 {
     if arr.is_empty() { 0.0 } else { arr[arr.len() / 2] }
 }
 
-/// `Array.prototype.sort((a,b) => a-b)`, comparator and all.
-///
-/// ECMA-262 maps a NaN comparator result to `+0`, i.e. "equal", which is what
-/// `unwrap_or(Equal)` does. Both V8's sort and Rust's `sort_by` are stable, so
-/// a list with no NaN in it comes out identically ordered; a list *with* one is
-/// left implementation-defined by the specification and is out of contract on
-/// both sides.
+/// `Array.prototype.sort((a,b) => a-b)` over a plain number list, through the
+/// crate's one JS comparator ([`js_num_cmp`]).
 fn js_sort_asc(v: &mut [f64]) {
-    v.sort_by(|a, b| (a - b).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
+    v.sort_by(|a, b| js_num_cmp(*a, *b));
 }
 
 /// `computeMetrics` (line 30902) — the morphometric readout.
@@ -1006,12 +988,12 @@ fn js_sort_asc(v: &mut [f64]) {
 ///   averaging them, which is a real half-metre on a frontage list.
 pub fn compute_metrics(g: &Graph, blocks: &[Block], parcels: &[Parcel]) -> Metrics {
     let nodes: Vec<&crate::graph::Node> =
-        g.nodes.iter().filter(|n| n.adj.iter().any(|&id| g.edges[id].alive)).collect();
+        g.nodes.iter().filter(|n| g.live_degree(n.id) > 0).collect();
     let live: Vec<&crate::graph::Edge> = g.edges.iter().filter(|e| e.alive).collect();
 
     let (mut d1, mut d3, mut d4, mut dsum) = (0usize, 0usize, 0usize, 0f64);
     for n in &nodes {
-        let deg = n.adj.iter().filter(|&&id| g.edges[id].alive).count();
+        let deg = g.live_degree(n.id);
         dsum += deg as f64;
         if deg == 1 {
             d1 += 1;

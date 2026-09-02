@@ -25,17 +25,22 @@
 //! Milestone 7 adds [`growth`] — the epoch loop that grows the town onto that
 //! backbone, and the successive-wall-generation machinery it drives.
 //! Milestone 12 adds [`blocks`] — `buildBlocks` and `buildParcels`, the first
-//! stage whose output is *building-sized*. It is deliberately out of order
-//! (8-11 are still unbuilt): the City Viewer needed discrete, colourable
-//! shapes, parcels are the smallest stage that produces them, and every
-//! primitive it needs was already built and golden-tested at milestones 1-2.
-//! [`blocks`]'s own header records what the missing upstream stages cost it.
-//! Milestone 8's [`plaza`] then closed the most visible of those: `buildPlaza`
-//! carves the market square out of the principal street, and it runs on the
-//! organic branch as well as the radial one, so every drawn town now has the
-//! one open space a viewer expects at its centre. The rest of milestone 8
-//! (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only
-//! and is still outstanding.
+//! stage whose output is *building-sized*. It was written **out of order, while
+//! 8-11 were unbuilt**: the City Viewer needed discrete, colourable shapes,
+//! parcels are the smallest stage that produces them, and every primitive it
+//! needs was already built and golden-tested at milestones 1-2. [`blocks`]'s
+//! own header records what the missing upstream stages cost it at the time.
+//!
+//! Those stages have since landed, and this file is the evidence: milestone 8
+//! is [`plaza`] and [`radial`] (`buildPlaza` carves the market square out of
+//! the principal street on the organic branch as well as the radial one;
+//! `buildRadialStreets` and the Venus waterway are [`radial`]'s), milestone 9
+//! is [`water`], 10 is [`fortify`], 11 is [`cleanup`], and 13-15 are
+//! [`districts`], [`hinterland`] and [`amenities`]. **What is built is
+//! `docs/STATUS.md`'s to say, not this file's** — the list above is a map of
+//! what each module *is*, and the previous parenthetical "(8-11 are still
+//! unbuilt)" is exactly the kind of progress claim that goes stale in a
+//! header. It was still there in the file that declares `pub mod radial`.
 //!
 //! **Wired as of 2026-08-23, and only through one door.**
 //! `cartalith_civ::urban_adapter` is this crate's sole consumer: it supplies
@@ -56,6 +61,7 @@ pub mod blocks;
 pub mod cleanup;
 pub mod districts;
 pub mod fortify;
+pub mod generate;
 pub mod geom;
 pub mod graph;
 pub mod growth;
@@ -68,10 +74,46 @@ pub mod rules;
 pub mod site;
 pub mod water;
 
+// Every module's types and free functions are re-exported here, so a consumer
+// spells `cartalith_urban::build_wall` rather than reaching through the module
+// path. Six of the seventeen were missing — `amenities`, `cleanup`, `districts`,
+// `fortify`, `radial` and `water` — which is why `cartalith-civ` would have had
+// to write `cartalith_urban::fortify::build_wall`.
+//
+// **Constants are deliberately not re-exported**, following what the eleven
+// existing lines already did: `hinterland`'s seven `FARM_*`/`BAND_*` and
+// `plaza`'s `PROV` are reached through their modules. The provenance strings
+// are the bulk of what that leaves out, and they are compared against in tests
+// and read by a renderer, both of which name the module anyway.
 pub use astar::astar;
+pub use generate::{GenOpts, Town, TownGraph, TownParcel, TownSite, generate, hash_model};
 pub use blocks::{Block, Parcel, build_blocks, build_parcels};
 pub use plaza::{Plaza, build_plaza};
-pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
+pub use geom::{
+    Vec2, js_acos, js_cos, js_exp, js_hypot, js_log, js_log10, js_max, js_min, js_num_cmp, js_or,
+    js_round, js_sin, js_truthy_num,
+};
+pub use amenities::{
+    Civic, GamesBuilding, GamesSpec, Market, Markets, build_civic, build_games, build_markets,
+    games_shape_at, games_spec, oriented_rect,
+};
+pub use cleanup::{
+    FortZoneSweep, clear_fort_zone, kill_edge, lane_pass, privatize_alleys, prune_largest,
+    remove_water_crossings,
+};
+pub use districts::{
+    Building, FaithSite, Lot, Tower, assign_districts, bmap, build_buildings, build_faith_sites,
+    peristyle, rect_poly, rect_pts,
+};
+pub use fortify::{
+    Annulus, Bastion, BuiltMass, Curtain, Fort, FortOpts, FortificationBuilder, Spur,
+    apply_star_fort, build_wall, built_mass_hull, corner_cut, densify_loop, nearest_idx, town_bank,
+};
+pub use radial::{RadialStreets, Waterway, build_radial_streets, build_waterway};
+pub use water::{
+    Bridge, Crossings, Defence, Ford, HarbourOpts, HarbourOutcome, HarbourWorks, Pier,
+    add_river_bridges, build_harbour, detect_river_crossings,
+};
 pub use graph::{Edge, Face, Graph, Node};
 pub use hinterland::{
     Decay, Detail, DetailGeom, FarmSpec, Metrics, apply_decay, build_details, build_farmland,

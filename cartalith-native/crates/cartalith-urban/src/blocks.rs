@@ -48,7 +48,7 @@
 //! golden was re-run rather than trusted (`plaza/tests.rs`).
 
 use crate::geom::{
-    Vec2, ensure_ccw, inset_poly, js_max, js_min, point_in_poly, poly_area, poly_centroid,
+    Vec2, ensure_ccw, inset_poly, js_max, js_min, js_or, point_in_poly, poly_area, poly_centroid,
     poly_self_intersects, seg_int,
 };
 use crate::graph::Graph;
@@ -380,8 +380,7 @@ pub fn build_parcels(
             // slider straight into `frontageWidthVariance`, `logn` returns
             // NaN, and `js_min`/`js_max` propagate it by design (which is why
             // they exist). `-0.0` is covered too: `-0.0 == 0.0` is true.
-            let denom = if acc == 0.0 || acc.is_nan() { e_len } else { acc };
-            let scale = e_len / denom;
+            let scale = e_len / js_or(acc, e_len);
             let mut f0 = 0.0f64;
             for w in &widths {
                 let f1 = f0 + w * scale / e_len;

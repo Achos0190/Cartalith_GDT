@@ -42,8 +42,44 @@
 // this crate still sees exactly `cartalith-rng` and nothing else in the
 // pipeline (milestone 6's rule).
 pub use cartalith_jsmath::{
-    js_atan2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin,
+    js_acos, js_atan2, js_cos, js_exp, js_hypot, js_log, js_log10, js_max, js_min, js_round, js_sin,
+    js_truthy_num,
 };
+
+/// JS `x || d` on a number: `0`, `-0` and **`NaN`** are falsy, so all three
+/// fall through to `d`.
+///
+/// The reference writes this idiom ~15 times across block 4 — `riverW || 20`,
+/// `hypot || 1`, `acc || eLen`, `deadEndBias || 0`, `bastions.length || 6`,
+/// `fort.glacisOff || 60` — and the `NaN` arm is the load-bearing one: a plain
+/// Rust `if v == 0.0` would let a NaN through, and `applyPlotChaos` can write a
+/// NaN straight into the rule table. Three modules had each grown their own
+/// private copy of this (`site::js_or`, `fortify::js_or`, `cleanup::or_zero`)
+/// plus eight open-coded ones; this is the one they all read now.
+pub fn js_or(v: f64, d: f64) -> f64 {
+    if js_truthy_num(v) { v } else { d }
+}
+
+/// A numeric `sort((a, b) => a - b)`, with JS's own NaN convention.
+///
+/// ECMA-262 maps a NaN comparator result to `+0`, i.e. "equal", and V8's sort
+/// is stable — as is Rust's `sort_by` — so a NaN difference keeps the existing
+/// order on both sides. Comparing the **difference** rather than the two values
+/// keeps that mapping literal: it is the expression the reference writes.
+///
+/// Five copies of this existed before the milestone-15 reconciliation pass
+/// (`fortify::js_num_cmp`, `hinterland::js_sort_asc`, and open-coded ones in
+/// `site`, `districts` and `hinterland`).
+pub fn js_num_cmp(a: f64, b: f64) -> std::cmp::Ordering {
+    let d = a - b;
+    if d < 0.0 {
+        std::cmp::Ordering::Less
+    } else if d > 0.0 {
+        std::cmp::Ordering::Greater
+    } else {
+        std::cmp::Ordering::Equal
+    }
+}
 
 /// `V` (reference line 28286): a plain 2-D point/vector. `f64` throughout —
 /// these are JS `Number`s and the engine's thresholds are tuned against their
@@ -72,8 +108,7 @@ impl Vec2 {
     /// rather than to NaN. Kept exactly, since several call sites rely on it.
     /// (JS `||` treats NaN as falsy too, so a NaN length also becomes 1.)
     pub fn norm(self) -> Vec2 {
-        let h = js_hypot(self.x, self.y);
-        let l = if h == 0.0 || h.is_nan() { 1.0 } else { h };
+        let l = js_or(js_hypot(self.x, self.y), 1.0);
         Vec2::new(self.x / l, self.y / l)
     }
     /// `V.dot`

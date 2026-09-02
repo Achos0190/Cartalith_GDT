@@ -1049,6 +1049,20 @@ func _on_workspace_changed(id: String) -> void:
 	_fill_timeline_strip()
 	if id != "world":
 		right_dock_ctrl.leave_sculpt_context()
+		## Biome paint is a WORLD-only tool (`world_workspace.gd`'s own TOOLS
+		## block), the same reason Sculpt is cleared on the line above.
+		right_dock_ctrl.leave_paint_context()
+	## `05-right-dock-and-bars.md` §1.9, GUI replacement stage 5:
+	## `rdMode4()` rule 6, `domain==='CARTO' && tool==='inspect'`. A domain
+	## switch alone fires no `tool_armed` of its own, so this is the half of
+	## the rule `cartography_workspace.gd`'s own `_on_any_tool_armed` cannot
+	## cover -- that file's own doc names the split. Gated on `armed_tool`
+	## rather than firing unconditionally, so switching into CARTO mid-Measure
+	## (say) does not steal the dock from the reading that tool is showing.
+	if id == "cartography" and armed_tool == "inspect":
+		right_dock_ctrl.show_stops()
+	elif id != "cartography":
+		right_dock_ctrl.leave_stops_context()
 	match id:
 		"world": _tool_options_generate()
 		## CARTO absorbed RENDER's one subject (terrain appearance) the same
@@ -1061,9 +1075,11 @@ func _on_workspace_changed(id: String) -> void:
 		## Labels panel with the rail's `Labels` node lit and the rail foot
 		## reading LABELS. Three surfaces agreeing and one disagreeing is worse
 		## than four saying nothing. `_tool_options_*` is otherwise stage 5's
-		## rewrite (blocked on the prototype's truncated `tbLabel`); this is the
-		## one word of it stage 2 is obliged to fix, because stage 2 is what
-		## made it wrong.
+		## rewrite; this is the one word of it stage 2 is obliged to fix,
+		## because stage 2 is what made it wrong. (This comment used to say the
+		## whole of stage 5 was blocked on the prototype's truncated `tbLabel`
+		## -- that blocker was cleared the same day the plan was written; see
+		## `05-right-dock-and-bars.md` §0.)
 		"cartography": _tool_options_simple("CARTOGRAPHY · " + active_mode("cartography").to_upper(),
 			"presentation only — no control here marks a generation stage stale. Map view, Map style and Rendering-advanced drive render.rs's TerrainAppearance live; the quality tier those values start from lives in Preferences.")
 		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/

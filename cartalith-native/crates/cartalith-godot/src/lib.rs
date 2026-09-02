@@ -47,6 +47,7 @@ mod travel_bridge;
 mod undo;
 mod urban_bridge;
 mod vault_bridge;
+mod vault_saf;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
@@ -13347,14 +13348,23 @@ fn landmark_settings_dict(s: &cartalith_civ::landmark::LandmarkSettings) -> VarD
     }
 }
 
-/// §14/§8/§12's route-corridor and resource-potential fields.
-/// `compute_civilisation` (above) already derives both from `ws`/`civ`, but
-/// does not retain either past its own return — only `CivData::
+/// §14/§8/§12's route-corridor and resource-potential fields, plus the
+/// lithology classification `resources` is itself derived from.
+/// `compute_civilisation` (above) already derives all three from `ws`/`civ`,
+/// but does not retain any past its own return — only `CivData::
 /// water_bodies` survives onto the struct this pass can otherwise reuse.
 /// This is a repeat of that function's own composition (same inputs, same
 /// call order, `scarcity`/`scarcity_legacy` pinned to its literal
 /// `true, false` production default), not a new one — see
 /// `compute_civilisation`'s body for the calls this mirrors.
+///
+/// **`lithology` used to be computed here and dropped** — `landmark.rs`
+/// named this exact function as the reason `rock_formation` stayed
+/// unbuildable ("`build_lithology` runs on every `landmark_run()` call but
+/// is discarded after deriving resource potentials rather than reaching this
+/// pass"). It is retained now; `volcanism`/`resistance` need no such
+/// retention since they are plain `WorldState` fields the caller already
+/// holds — see [`WorldGen::landmark_run_inner`] for where those two are set.
 ///
 /// Not cheap: an extra lithology + biome + resource-potential + slope +
 /// corridor pass. `landmark_run()` is already a synchronous, user-
@@ -13370,7 +13380,7 @@ fn landmark_geology_inputs(
     world: bool,
     sea_level: f64,
     map_width_km: f64,
-) -> (cartalith_civ::ResourcePotentials, Vec<f32>) {
+) -> (cartalith_civ::ResourcePotentials, Vec<f32>, Vec<u8>) {
     let lithology = cartalith_civ::build_lithology(
         &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field,
         &ws.rainfall, sea_level,
@@ -13397,7 +13407,7 @@ fn landmark_geology_inputs(
     let corridors = cartalith_civ::build_route_corridors(
         &ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh,
     );
-    (resources, corridors)
+    (resources, corridors, lithology)
 }
 
 /// `RESOURCE_KEYS`' own declaration order (`cartalith-civ/src/lib.rs`),
@@ -13650,11 +13660,13 @@ impl WorldGen {
     /// `WorldGen`, `channel`/`recv`/`order` from `WorldState::channels`/
     /// `stream_order` (already retained, no recompute), `water` from
     /// `CivData::water_bodies` (also already retained), `settlements` from
-    /// `CivData::settlements`, and `resources`/`corridors` from
+    /// `CivData::settlements`, `resources`/`corridors`/`lithology` from
     /// [`landmark_geology_inputs`] (recomputed — see that function's own
-    /// doc for why neither survives past `compute_civilisation`). All of
-    /// `resources`/`corridors`/`water`/`settlements` degrade to absent
-    /// (`None`/empty) when there is no civ layer, which
+    /// doc for why none of the three survives past `compute_civilisation`),
+    /// and `volcanism`/`resistance` straight off `WorldState` like the
+    /// required six, since neither needs a civ layer to exist. All of
+    /// `resources`/`corridors`/`lithology`/`water`/`settlements` degrade to
+    /// absent (`None`/empty) when there is no civ layer, which
     /// `LandmarkInputs`/`generate`'s own "honest degradation is a hard
     /// rule" handles by reporting `NoTerrain` for the kinds that needed
     /// them — never a panic, never an invented placement.
@@ -13693,8 +13705,9 @@ impl WorldGen {
             landmark_geology_inputs(ws, civ, gwu, ghu, self.world, self.sea_level, self.map_width_km)
         });
         let resource_pairs: Vec<(&str, &[f32])> =
-            geology.as_ref().map(|(rp, _)| landmark_resource_pairs(rp)).unwrap_or_default();
-        let corridors: Option<&[f32]> = geology.as_ref().map(|(_, c)| c.as_slice());
+            geology.as_ref().map(|(rp, _, _)| landmark_resource_pairs(rp)).unwrap_or_default();
+        let corridors: Option<&[f32]> = geology.as_ref().map(|(_, c, _)| c.as_slice());
+        let lithology: Option<&[u8]> = geology.as_ref().map(|(_, _, l)| l.as_slice());
         let sites: Vec<cartalith_civ::landmark::LandmarkSite> = self
             .civ
             .as_ref()
@@ -13713,6 +13726,9 @@ impl WorldGen {
         inputs.order = ws.stream_order.as_deref();
         inputs.water = self.civ.as_ref().map(|c| c.water_bodies.as_slice());
         inputs.corridors = corridors;
+        inputs.lithology = lithology;
+        inputs.volcanism = Some(&ws.volcanic_field);
+        inputs.resistance = Some(&ws.resistance_field);
         inputs.resources = &resource_pairs;
         inputs.settlements = &sites;
 

@@ -38,7 +38,7 @@
 //! the spatial index. `nodes`, `edges` and `adj` are read widely (always as
 //! `n.adj.filter(id => g.edges[id].alive)`), which is why they are public here.
 
-use crate::geom::{Vec2, dist_pt_seg, js_atan2, js_hypot, poly_area, seg_int};
+use crate::geom::{Vec2, dist_pt_seg, js_atan2, js_hypot, js_or, poly_area, seg_int};
 use std::collections::HashMap;
 
 /// A street-graph node. `id` always equals the index into [`Graph::nodes`] —
@@ -229,6 +229,26 @@ impl Graph {
         out
     }
 
+    /// `n.adj.filter(id => g.edges[id].alive)` — the incident edges of `nid`
+    /// that are still alive, **in `adj` order**.
+    ///
+    /// The reference writes this filter at every one of its ~10 read sites and
+    /// never removes an edge, only tombstones it (see [`Edge::alive`]), so
+    /// "degree" always means the live degree. Order matters: `grow`'s
+    /// continuation picks `live_adj(n).len() == 1`'s single edge and
+    /// `built_mass_hull` indexes the list, so this must not become a set.
+    pub fn live_adj(&self, nid: usize) -> impl Iterator<Item = usize> + '_ {
+        self.nodes[nid].adj.iter().copied().filter(|&id| self.edges[id].alive)
+    }
+
+    /// `n.adj.filter(id => g.edges[id].alive).length`.
+    ///
+    /// Six modules had open-coded this before the milestone-15 reconciliation
+    /// pass, one of them (`cleanup`) as a private function of its own.
+    pub fn live_degree(&self, nid: usize) -> usize {
+        self.live_adj(nid).count()
+    }
+
     /// `addNode` (line 28379).
     fn add_node(&mut self, x: f64, y: f64) -> usize {
         let id = self.nodes.len();
@@ -390,11 +410,8 @@ impl Graph {
             let d = dist_pt_seg(p, a, b);
             if d < bd {
                 let ab = b - a;
-                let l2 = {
-                    let v = ab.x * ab.x + ab.y * ab.y;
-                    // JS `|| 1`: a zero (or NaN) squared length becomes 1.
-                    if v == 0.0 || v.is_nan() { 1.0 } else { v }
-                };
+                // JS `|| 1`: a zero (or NaN) squared length becomes 1.
+                let l2 = js_or(ab.x * ab.x + ab.y * ab.y, 1.0);
                 let t = (((x - a.x) * ab.x + (y - a.y) * ab.y) / l2).clamp(0.03, 0.97);
                 bd = d;
                 best_e = Some(eid);
@@ -481,10 +498,7 @@ impl Graph {
         // laid along an earlier one.
         let mut seen_n: std::collections::HashSet<usize> = [na, nb].into_iter().collect();
         let ab = b - a;
-        let abl2 = {
-            let v = ab.x * ab.x + ab.y * ab.y;
-            if v == 0.0 || v.is_nan() { 1.0 } else { v }
-        };
+        let abl2 = js_or(ab.x * ab.x + ab.y * ab.y, 1.0);
         for &eid in &near_ids {
             let Some(e) = self.edges.get(eid) else { continue };
             if !e.alive {

@@ -56,23 +56,18 @@
 //! rather than panicking — a `NaN` probe point, a `dt` shorter than its mask,
 //! and a one-column terrain raster all reach it, and all three are goldens.
 
-use crate::geom::{Vec2, chaikin, dist_pt_seg, js_exp, js_hypot, js_max, js_min};
+use crate::geom::{Vec2, chaikin, dist_pt_seg, js_exp, js_hypot, js_max, js_min, js_num_cmp, js_or};
 use crate::rng::stream;
-use std::cmp::Ordering;
 
 #[cfg(test)]
 mod tests;
 
-/// JS `x || d` on a number: `0`, `-0` and `NaN` are falsy, everything else is
-/// not. `buildSite` leans on this five times (`riverWidthM || 20`,
+/// JS `x || d` for a field the reference may simply not have set at all.
+///
+/// `buildSite` leans on the plain [`js_or`] five times (`riverWidthM || 20`,
 /// `riverOrder || 0`, `seaLakeCells || 0`, `hMax || 0`, `hMin || 0`) and
-/// [`terrain_suitability`] a sixth (`site.riverW || 0`); the `NaN` arm is the
-/// only one of the three that is not a no-op for the `|| 0` cases.
-fn js_or(v: f64, d: f64) -> f64 {
-    if v == 0.0 || v.is_nan() { d } else { v }
-}
-
-/// The same, for a field the reference may simply not have set at all.
+/// [`terrain_suitability`] a sixth (`site.riverW || 0`); this is the same thing
+/// one level out, for an absent field rather than a falsy one.
 fn js_or_opt(v: Option<f64>, d: f64) -> f64 {
     match v {
         Some(x) => js_or(x, d),
@@ -277,8 +272,7 @@ impl Site {
             if x <= c[i + 1].x {
                 // `(c[i+1].x - c[i].x) || 1` — a duplicated vertex would
                 // otherwise divide by zero.
-                let dx = c[i + 1].x - c[i].x;
-                let denom = if dx == 0.0 || dx.is_nan() { 1.0 } else { dx };
+                let denom = js_or(c[i + 1].x - c[i].x, 1.0);
                 let t = (x - c[i].x) / denom;
                 return c[i].y + t * (c[i + 1].y - c[i].y);
             }
@@ -369,15 +363,22 @@ impl Site {
         js_hypot(hx, hy) * 900.0
     }
 
-    /// `site.bankSide(p)` — which side of the nearest centreline segment a
-    /// point lies on, as `+1` or `-1`.
+    /// `let bi=0,bd=Infinity; for(…) if(d<bd){bd=d;bi=i;}` — the index of the
+    /// centreline segment nearest `p`.
     ///
-    /// `Math.sign(x) || 1` never returns `0`: a point exactly on the line, a
-    /// `-0` cross product and a `NaN` one all come back `+1`. `grow`'s
-    /// bridgehead rule and `buildWall`'s far-bank test both read it, so the
-    /// on-the-line case having a definite answer is load-bearing rather than
-    /// incidental.
-    pub fn bank_side(&self, p: Vec2) -> f64 {
+    /// Strict `<` from `Infinity`, so the **first** of several equidistant
+    /// segments wins and a `NaN` distance never wins at all; an empty or
+    /// single-vertex centreline gives `0`, which is the reference's own answer.
+    ///
+    /// The reference writes this loop twice — once inside `bankSide` (line
+    /// 28696) and once inside `buildDetails`' log-boom branch (line 30872),
+    /// which then *also* calls `bankSide` and so walks it a second time. Both
+    /// call sites read it here now; what they do **not** share is how they
+    /// resolve the far end, and that difference is the reference's, not a
+    /// port artefact: `bankSide` writes `river[bi+1] || river[bi]` and
+    /// `buildDetails` writes `river[Math.min(bi+1, river.length-1)]`. The two
+    /// agree on every input, and each caller keeps its own.
+    pub fn nearest_river_seg(&self, p: Vec2) -> usize {
         let mut bi = 0usize;
         let mut bd = f64::INFINITY;
         for i in 0..self.river.len().saturating_sub(1) {
@@ -387,6 +388,19 @@ impl Site {
                 bi = i;
             }
         }
+        bi
+    }
+
+    /// `site.bankSide(p)` — which side of the nearest centreline segment a
+    /// point lies on, as `+1` or `-1`.
+    ///
+    /// `Math.sign(x) || 1` never returns `0`: a point exactly on the line, a
+    /// `-0` cross product and a `NaN` one all come back `+1`. `grow`'s
+    /// bridgehead rule and `buildWall`'s far-bank test both read it, so the
+    /// on-the-line case having a definite answer is load-bearing rather than
+    /// incidental.
+    pub fn bank_side(&self, p: Vec2) -> f64 {
+        let bi = self.nearest_river_seg(p);
         let a = self.river[bi];
         let b = self.river.get(bi + 1).copied().unwrap_or(a);
         let s = (b - a).cross(p - a);
@@ -462,22 +476,14 @@ pub fn shore_from_mask(w: &WaterCtx) -> Option<Vec<Vec2>> {
         vx = l1 - syy;
         vy = sxy;
     }
-    let hl = js_hypot(vx, vy);
-    let vl = if hl == 0.0 || hl.is_nan() { 1.0 } else { hl };
+    let vl = js_or(js_hypot(vx, vy), 1.0);
     vx /= vl;
     vy /= vl;
-    // JS `sort` is stable and coerces a `NaN` comparator result to `0`, which
-    // `Ordering::Equal` is; comparing the *difference* rather than the two
-    // projections keeps that mapping literal.
+    // `js_num_cmp` compares the *difference* of the two projections, which is
+    // the expression the reference writes and is what maps a NaN to "equal"
+    // under a stable sort.
     pts.sort_by(|a, b| {
-        let d = ((a.x - mx) * vx + (a.y - my) * vy) - ((b.x - mx) * vx + (b.y - my) * vy);
-        if d < 0.0 {
-            Ordering::Less
-        } else if d > 0.0 {
-            Ordering::Greater
-        } else {
-            Ordering::Equal
-        }
+        js_num_cmp((a.x - mx) * vx + (a.y - my) * vy, (b.x - mx) * vx + (b.y - my) * vy)
     });
     Some(pts)
 }

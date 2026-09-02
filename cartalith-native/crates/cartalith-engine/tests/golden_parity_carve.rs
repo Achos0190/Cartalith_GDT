@@ -61,6 +61,13 @@ fn generate_terrain_carve_case_0_region() {
     let expected_river_mask: Vec<u8> = vec![1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
+    // Craters pinned to the reference's own band path. `DECISIONS.md` §7l made
+    // the density model the default, which changes this stage deliberately; these
+    // fixtures were captured from the reference under Node, so re-baselining them
+    // against our own output would turn a parity test into a self-referential
+    // snapshot. Pinned instead, so every OTHER stage here stays real parity. The
+    // new model has its own tests in cartalith-terrain::crater_density_tests.
+    p.crater.physical_model = false;
     p.world = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
@@ -82,6 +89,13 @@ fn generate_terrain_carve_case_1_world_wrap() {
     let expected_river_mask: Vec<u8> = vec![0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
+    // Craters pinned to the reference's own band path. `DECISIONS.md` §7l made
+    // the density model the default, which changes this stage deliberately; these
+    // fixtures were captured from the reference under Node, so re-baselining them
+    // against our own output would turn a parity test into a self-referential
+    // snapshot. Pinned instead, so every OTHER stage here stays real parity. The
+    // new model has its own tests in cartalith-terrain::crater_density_tests.
+    p.crater.physical_model = false;
     p.world = true;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);

@@ -13,8 +13,9 @@ pub mod passes;
 
 pub use passes::{
     apply_tidal_sedimentation, centrifugal_shear, coastal_process, glacial_kernel,
-    hillslope_diffuse, route_sediment, velocity_erode_kernel, CoastalParams, GlacialParams,
-    VelocityField, VelocityParams,
+    hillslope_diffuse, hillslope_extent_scale, route_sediment, velocity_erode_kernel,
+    CoastalParams, GlacialParams, VelocityField, VelocityParams, HILLSLOPE_REF_CELL_KM,
+    HILLSLOPE_STABLE_D,
 };
 
 struct HGrad {

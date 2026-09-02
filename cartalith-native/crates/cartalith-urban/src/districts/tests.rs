@@ -310,6 +310,7 @@ fn setup(c: &Case) -> Fixture {
                 rules: Some(rules),
                 wall_style: None,
                 fortified: false,
+                wet_moat: false,
                 pop: pop_target,
             };
             let mut walls = RecordingWallBuilder::default();
@@ -886,4 +887,96 @@ fn the_wall_ring_takes_the_other_branch_of_in_wall() {
         "the ring is tighter than 0.72 * maxRF, so more parcels fall outside it"
     );
     assert_ne!(plain.lots_hash, walled.lots_hash);
+}
+
+/// The pastoral paddock radius partitions suburbs at `maxRF * 0.62` — and this
+/// test states exactly how far the fixtures can pin that constant, which is
+/// less far than you would want.
+///
+/// Added 2026-09-02 after an adversarial pass planted `0.62 -> 0.60` and **all
+/// twelve districts tests passed**. The golden tallies cannot see it: the
+/// aggregate `agrarian` count is dominated by the radial base assignment, so
+/// the handful of parcels this override moves is lost in it.
+///
+/// **A razor test was written for it and could not kill it either**, and the
+/// measurement is the useful part. Across both pastoral scenarios the branch is
+/// offered exactly **two** eligible (`suburb`) lots, at `r = 0.5000` and
+/// `0.5750` of `maxRF`, and the nearest parcel it actually retags sits at
+/// `0.6250`. Nothing lies between. So these fixtures constrain the constant
+/// only to the open interval **(0.575, 0.625)**, and `0.60` is indistinguishable
+/// from `0.62` inside it — not because the test is weak, but because no fixture
+/// straddles the boundary. Killing that mutant needs a scenario with a suburb
+/// parcel in the gap; that is fixture work, recorded here rather than faked.
+///
+/// What this test does catch: a constant moved *outside* the bracket, in either
+/// direction — which is the whole of the observable range and includes every
+/// plausible transcription slip (0.72 from the `in_wall` line two hundred lines
+/// up, 0.5, 0.7, 1.0).
+///
+/// Reference line 30417: `if(V.dist(c,anchors.market)>maxRF*0.62){ ... }`,
+/// inside `eco==='pastoral'`. Note the sibling constant on line 30347 is
+/// `maxRF*0.72` and is a *different* value in the reference itself — the
+/// reconciliation pass confirmed merging the two would have been the bug.
+#[test]
+fn the_pastoral_paddock_radius_is_exactly_62_percent_of_max_rf() {
+    let mut cases = 0usize;
+    // The observable bracket: the furthest lot the branch declined to retag,
+    // and the nearest one it did. The constant must lie between them.
+    let mut furthest_suburb = 0.0f64;
+    let mut nearest_paddock = f64::INFINITY;
+
+    for c in golden::GOLDEN {
+        let Some((spec, _)) = c.economy else { continue };
+        if spec != "pastoral" {
+            continue;
+        }
+        cases += 1;
+        let f = setup(c);
+        let (lots, _, _) = run(c, &f);
+        let cut = f.max_rf * 0.62;
+
+        for lot in &lots {
+            let d = poly_centroid(&lot.par.poly).dist(f.anchors.market);
+            let retagged = lot.prov_district == super::PROV_PASTORAL_AGRARIAN;
+
+            // Every retagged parcel is beyond the radius. A LARGER constant
+            // would leave one inside and fail here.
+            if retagged {
+                assert!(
+                    d > cut,
+                    "{}: a paddock at {d:.3} is inside maxRF*0.62 = {cut:.3}",
+                    c.name
+                );
+            }
+
+            // A lot still reading `suburb` is provably eligible and provably
+            // not retagged, so it must be inside the radius. A SMALLER constant
+            // would have swept it up and failed here.
+            if lot.district == "suburb" {
+                assert!(
+                    d <= cut,
+                    "{}: a suburb at {d:.3} survived outside maxRF*0.62 = {cut:.3}",
+                    c.name
+                );
+                furthest_suburb = furthest_suburb.max(d / f.max_rf);
+            }
+            if retagged {
+                nearest_paddock = nearest_paddock.min(d / f.max_rf);
+            }
+        }
+    }
+
+    assert!(cases >= 2, "only {cases} pastoral scenarios");
+    // Non-vacuity: both sides of the partition must actually be populated, or
+    // the assertions above are decoration over an empty loop.
+    assert!(furthest_suburb > 0.0, "no eligible suburb lot in any pastoral scenario");
+    assert!(nearest_paddock.is_finite(), "the pastoral branch retagged nothing at all");
+    // And the bracket is where it was measured. If either edge moves, the
+    // fixtures changed and the stated (0.575, 0.625) limit above needs redoing
+    // -- which is the thing most likely to silently rot about this test.
+    assert!(
+        furthest_suburb < 0.62 && nearest_paddock >= 0.62,
+        "the observable bracket moved: suburbs reach {furthest_suburb:.4}, \
+         paddocks start at {nearest_paddock:.4}; 0.62 must lie between them"
+    );
 }

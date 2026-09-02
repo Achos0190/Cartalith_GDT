@@ -5,25 +5,25 @@ class_name CityViewerWindow
 ## `cityViewerModal` with its `cvCanvas`, `cvLegend`, `cvInfoPanel` and
 ## `cvCloseBtn`, ported as far as this port's engine can fill it.
 ##
-## **It shows a town plan, not a finished city, and it says so on screen.**
-## `URBAN_MORPHOLOGY_SCOPE.md` has milestones 1-7 plus 12 of ~17 built: the
-## site model, the market anchor, the arterial primaries, the organic street
-## growth off them, and the blocks and parcels platted out of that graph.
-## Buildings, districts, amenities and the wall circuit are milestones 10 and
-## 13-17 and do not exist, so this window draws none of them and its own info
-## panel names each one as missing rather than leaving a viewer to conclude
-## the town simply has no buildings. That disclosure is read off the engine's
-## own `stages` array, so it cannot drift from what actually ran — and the
-## panel additionally names the two places where the *drawing* is ahead of
-## the generator (a rooftop is a whole parcel; there is no open market
-## square), which is the one thing `stages` cannot say for itself.
+## **It shows a whole town.** `run_layout` became a caller of the reference's
+## own `generate()` on 2026-09-02 — all 29 stages, in its own order — so this
+## window draws the site, the streets by class, the blocks and the lots, the
+## districts tinted on those lots, the buildings inside them, the wall circuit
+## and its gates, the market squares and the farmland outside.
+##
+## The disclosure discipline is unchanged and now says less: the info panel is
+## still read off the engine's own `stages` array, so it cannot drift from what
+## actually ran, and it still names what is generated but not drawn (the
+## crossings, the civic and religious buildings, the hinterland clutter). What
+## it no longer has to say is that the *drawing* is ahead of the generator — the
+## rooftop-is-a-whole-parcel stand-in is gone.
 ##
 ## The canvas's wheel-zoom and drag-pan are the reference's (`_cvZoomAt` and
 ## its pointer-drag handler); the initial fit is `_umDrawLayoutPreview`'s
-## fit-to-*built-mass* box, degraded honestly — with no wall ring and no
-## buildings to bound, the graph's own extent is the only thing left to fit,
-## which is the reference's own third fallback (`else { for(const n of
-## model.graph.nodes) ext(n.x,n.y); }`).
+## fit-to-*built-mass* box, which is now literally that — the wall ring first
+## and the blocks second, which are the reference's own first two choices, with
+## the street graph's extent still there as the third for a town that produced
+## neither.
 
 ## `preload`, not the `UrbanLayoutDraw` global class name -- a global name
 ## only resolves once the editor has rescanned and written
@@ -253,18 +253,29 @@ func _reset_view() -> void:
 ## mass* (wall ring, else building footprints) precisely so the long approach
 ## roads running to the box edge do not shrink the town to a speck.
 ##
-## Milestone 12 is what finally makes that possible: the blocks *are* the built
-## mass, near enough, so the fit is now the reference's own second choice
-## rather than its third. The graph's extent stays as the fallback for a
-## layout that produced no blocks at all — a hamlet whose faces all fell under
-## the 120 m² floor, or a settlement whose growth never closed a loop.
+## All three of its choices are available now and this is its order exactly
+## (reference lines 22909-22911, repeated verbatim at 23003-23005 for the
+## interactive viewer's own camera): the wall ring, else the building
+## footprints, else the graph. The street-graph fallback below is the third; the
+## site box under it is the reference's `if(!(maxx>minx))` guard.
+##
+## **The wall crops extramural buildings, and that is the reference's own
+## trade-off, not an oversight.** A riverside suburb outside the circuit runs
+## off the frame at the opening fit, exactly as the approach roads do — the
+## comment at line 22906 accepts it in those words. The canvas pans and zooms,
+## so nothing is unreachable.
 func _fit_box() -> Rect2:
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
-	for blk: PackedVector2Array in _layout.get("blocks", []) as Array:
-		for p in blk:
-			lo = lo.min(p)
-			hi = hi.max(p)
+	var ring: PackedVector2Array = _layout.get("wall_ring", PackedVector2Array())
+	for p in ring:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		for b: PackedVector2Array in _layout.get("buildings", []) as Array:
+			for p in b:
+				lo = lo.min(p)
+				hi = hi.max(p)
 	if not (hi.x > lo.x and hi.y > lo.y):
 		var streets: Dictionary = _layout.get("streets", {})
 		for cls in streets.keys():
@@ -352,15 +363,26 @@ func _rebuild_side() -> void:
 
 	var leg := DccWidgets.section(_legend, "Legend")
 	_swatch(leg, DRAW._roof_color(0.62),
-		"Rooftops — one per parcel, each a slightly different weathered shade")
+		"Rooftops — one per building footprint, each a slightly different weathered shade")
 	_swatch(leg, DRAW.BLOCK_GROUND, "Block ground — the built interior between streets (buildBlocks)")
 	## Only when the town has one: a site with no primary to widen gets no
 	## plaza, and a swatch for a colour that is not on screen is a lie.
-	if _layout.has("plaza"):
+	if _layout.has("plaza") or not (_layout.get("markets", []) as Array).is_empty():
 		_swatch(leg, DRAW.PLAZA_GROUND,
-			"Market place — the block kept open, no lots platted (buildPlaza)")
+			"Open squares — the market place and the specialised markets, swept clear of lots")
+	## The wall is the ladder's verdict, so its swatch appears only when this
+	## settlement was actually walled -- and in the colour its own style got.
+	if _layout.has("wall_ring"):
+		var wstyle := String(_layout.get("wall_style", "curtain"))
+		var wcol: Color = DRAW.WALL_PALISADE if wstyle == "palisade" \
+			else (DRAW.WALL_DITCH if wstyle == "ditch" else DRAW.WALL_STONE)
+		_swatch(leg, wcol, "The circuit — a %s wall with its gates (buildWall)" % wstyle)
 	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets — the arterial backbone (buildPrimaries)")
 	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes — organic growth (grow)")
+	_swatch(leg, DRAW.DISTRICT_FILL["market"],
+		"District tints on the lots — market, burgher, artisan, riverside craft, "
+		+ "harbour, suburb, agrarian (assignDistricts)")
+	_swatch(leg, DRAW.FARM_FIELD, "Farmland — the strip or ring fields outside the town")
 	_swatch(leg, DRAW.WATER, "The site's water — the map's own river/coast")
 	_swatch(leg, DRAW.MARKET, "Market anchor — the point the town organises around")
 	_swatch(leg, DRAW.ROUTE_END, "Approach-road endpoints")
@@ -379,14 +401,28 @@ func _rebuild_side() -> void:
 
 	var gen := DccWidgets.section(_info, "Generation")
 	_field(gen, "Target population", str(int(_layout.get("pop_target", 0))))
+	## The head count `generate()` derives, 5.2 per built non-churchyard lot --
+	## what the town actually houses, against what was asked for.
+	_field(gen, "Housed", "%d in %d built lots"
+		% [int(_layout.get("pop", 0)), int(round(float(_layout.get("pop", 0)) / 5.2))])
 	_field(gen, "Inferred age", "%d years" % int(_layout.get("settlement_age_years", 0)))
-	_field(gen, "Street placed", "%.0f m of %.0f m target"
-		% [float(_layout.get("placed_len_m", 0)), float(_layout.get("target_len_m", 0))])
+	## `computeMetrics.totalLen` on the final graph, not `grow`'s own return --
+	## the live network after the lane passes, `removeWaterCrossings`,
+	## `privatizeAlleys` and `clearFortZone` have each removed edges from it.
+	_field(gen, "Street network", "%.0f m live, %.0f m target"
+		% [float(_layout.get("street_len_m", 0)), float(_layout.get("target_len_m", 0))])
 	_field(gen, "Urban radius", "%.0f m" % float(_layout.get("max_rf_m", 0)))
 	_field(gen, "Street segments", str(int(_layout.get("edge_count", 0))))
-	_field(gen, "Primary routes", str((_layout.get("primaries", []) as Array).size()))
 	_field(gen, "Blocks", str((_layout.get("blocks", []) as Array).size()))
 	_field(gen, "Parcels", str((_layout.get("parcels", []) as Array).size()))
+	_field(gen, "Buildings", str((_layout.get("buildings", []) as Array).size()))
+	_field(gen, "Wall", "%s circuit, %d gates"
+		% [String(_layout.get("wall_style", "—")),
+			(_layout.get("wall_gates", PackedVector2Array()) as PackedVector2Array).size()] \
+		if _layout.has("wall_ring") \
+		else "none — %s on the wall ladder" % String(_layout.get("wall_spec", "?")))
+	_field(gen, "Markets", str((_layout.get("markets", []) as Array).size()))
+	_field(gen, "Farm plots", str((_layout.get("farmland", []) as Array).size()))
 
 	var stages := DccWidgets.section(_info, "What produced this")
 	var ran := ""
@@ -394,26 +430,30 @@ func _rebuild_side() -> void:
 		ran += "· " + s + "\n"
 	DccWidgets.note(stages, ran.strip_edges())
 	DccWidgets.note(stages,
-		"Not generated, and so not drawn: buildings (milestone 13), districts "
-		+ "and amenities (13-14), the wall circuit and its gates (10), the "
-		+ "harbour and quay (9), bridges and fords (9), farmland and "
-		+ "hinterland detail (15). URBAN_MORPHOLOGY_SCOPE.md has 8 of ~17 "
-		+ "milestones built.")
+		"Every line above is the reference's own generate() — all 29 stages, in "
+		+ "its own order, golden-verified whole against its own hashModel. It "
+		+ "replaced a hand-ordered subset on 2026-09-02, which is where the "
+		+ "buildings, the wall, the districts, the markets and the farmland "
+		+ "came from all at once.")
 	DccWidgets.note(stages,
-		"One thing on screen is ahead of the generator, and it is drawing "
-		+ "rather than data. A rooftop is a whole parcel, inset — "
-		+ "buildBuildings (13) would put a smaller footprint inside each lot, "
-		+ "with a grammar per district and a terrain gate that leaves some "
-		+ "lots empty, so this town has no gaps and every roof is the same "
-		+ "simple shape. The rooftop shading is real per-parcel engine output, "
-		+ "not a drawing effect.")
-	if _layout.has("plaza"):
+		"Three of the model's own layers are generated and not drawn: the "
+		+ "justified crossings (a stone deck where a road really crosses the "
+		+ "river, a stippled ford band where a through-town has none), the "
+		+ "civic hall and places of worship, and the hinterland clutter — "
+		+ "trees, fences, drying racks, log booms. They are on the engine's "
+		+ "Town and are one bridge field each away.")
+	DccWidgets.note(stages,
+		"Nothing on screen is ahead of the generator any more. A rooftop was a "
+		+ "whole parcel until 2026-09-02; it is now buildBuildings' own "
+		+ "footprint, with the grammar its district calls for and the ridge "
+		+ "line the engine laid, and a lot with no roof on it is a lot the "
+		+ "engine left empty.")
+	if not _layout.has("wall_ring"):
 		DccWidgets.note(stages,
-			"The lighter, outlined square at the centre is the market place — "
-			+ "buildPlaza (milestone 8) widening the principal street away "
-			+ "from the water. It is real generated geometry: the engine "
-			+ "flags that block and plats no lots on it, which is why it is "
-			+ "the one piece of open ground in the town.")
+			"This settlement has no wall, and that is _umWallSpec's verdict on "
+			+ "its tier, function, threat, wealth, age and command of ground — "
+			+ "not a missing stage. A town of 1,200 or 260 years gets stone; a "
+			+ "hamlet on flat ground gets nothing.")
 
 	## Legend and info are both rebuilt here, so this is where the touch fit
 	## belongs -- see `place_editor_window.gd`'s own call for the reasoning.

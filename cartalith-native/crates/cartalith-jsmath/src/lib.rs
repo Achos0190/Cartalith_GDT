@@ -54,7 +54,7 @@
 
 mod libm;
 
-pub use libm::{js_atan, js_atan2, js_cos, js_exp, js_log, js_sin};
+pub use libm::{js_acos, js_atan, js_atan2, js_cos, js_exp, js_log, js_log10, js_sin};
 
 
 /// `Math.hypot(x, y)` as V8 actually computes it — **not** `f64::hypot`.

@@ -9,9 +9,11 @@ extends AcceptDialog
 ## `reference/Cartalith Gen1 v2.10.html` (`#creditsModal`, line ~2043) --
 ## the port inherits this standing, since it re-implements the same
 ## published methods in Rust. Second section is this port's own layer:
-## the real crate license audit (`cargo license --all-features`,
-## 2026-08-17) that `PROVENANCE.md`'s "Licence position" section requires
-## before Phase 1 is considered done.
+## the real crate license audit (`cargo license --all-features
+## --avoid-dev-deps`, refreshed 2026-09-02 against `Cargo.lock`'s 219
+## packages -- see also `cartalith-native/deny.toml`, the standing
+## `cargo deny` check that `PROVENANCE.md`'s "Licence position" section
+## requires before Phase 1 is considered done, alongside this screen.
 ##
 ## One bullet in the first section is deliberately **not** condensed from the
 ## reference's modal, because it is not in it: the Nortantis row.
@@ -56,9 +58,9 @@ func _bbcode() -> String:
 	s += "• Gravity model of migration -- flow proportional to attractiveness / distance^β (Zipf 1946; Ravenstein 1885).\n"
 	s += "• Logistic population growth -- Verhulst (1838) regrowth toward a catchment ceiling.\n\n"
 
-	s += "[b]This port's own dependencies -- crate license audit[/b] (cargo license, 2026-08-17)\n"
-	s += "Unlike the original HTML app, this native port is a Rust/Godot binary and depends on real third-party crates. Every dependency in the workspace was enumerated and checked:\n"
-	s += "• The overwhelming majority ([b]~190 of ~200[/b] dependencies) are permissively licensed -- MIT, Apache-2.0, BSD-2-Clause, Zlib, ISC, Unlicense, CC0-1.0, or 0BSD, individually or dual/tri-licensed. This covers every core dependency: rayon (CPU parallelism), wgpu/naga (GPU compute), serde/serde_json (save format), zip/flate2/crc32fast (the .zip save format), glam (vector math), and this project's own nine crates.\n"
+	s += "[b]This port's own dependencies -- crate license audit[/b] (cargo license, 2026-09-02)\n"
+	s += "Unlike the original HTML app, this native port is a Rust/Godot binary and depends on real third-party crates. Every one of the 219 packages in Cargo.lock was enumerated and checked (of which 16 are this project's own crates, one per cartalith-native/crates/*):\n"
+	s += "• The overwhelming majority ([b]~194 of the 203 third-party[/b] packages) are permissively licensed -- MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, Zlib, ISC, Unlicense, CC0-1.0, MIT-0, or 0BSD, individually or dual/tri-licensed. This covers every core dependency: rayon (CPU parallelism), wgpu/naga (GPU compute), serde/serde_json (save format), zip/flate2/crc32fast (the .zip save format), glam (vector math), and the Android logging path (android_logger, android_log-sys, env_filter).\n"
 	s += "• [b]godot / gdext[/b] (godot, godot-core, godot-ffi, godot-macros, godot-codegen, godot-cell, godot-bindings, gdextension-api) -- [b]MPL-2.0[/b] (Mozilla Public License 2.0), a file-level weak-copyleft license. Used here as an unmodified upstream dependency (the Rust-Godot binding this whole port is built on) -- MPL-2.0's copyleft applies to modifications of MPL-licensed files themselves, not to separate code that merely links against them.\n"
 	s += "• [b]libbz2-rs-sys[/b] -- the original bzip2 license (Julian Seward), a permissive BSD-style license, pulled in transitively via the zip crate's optional bzip2 support.\n"
 	s += "No GPL, LGPL, AGPL, or other strong-copyleft dependency was found anywhere in the workspace (all features, all platforms).\n\n"

@@ -52,7 +52,7 @@
 //! [`WallState`] rather than added to it, because milestone 10 owns that
 //! struct.
 
-use crate::geom::{Vec2, js_round, point_in_poly, poly_centroid};
+use crate::geom::{Vec2, js_or, js_round, js_truthy_num, point_in_poly, poly_centroid};
 use crate::graph::Graph;
 use crate::growth::{WallState, dist_to_line, ring_crossings};
 use crate::rng::stream;
@@ -60,17 +60,6 @@ use crate::routes::Anchors;
 use crate::rules::{CultureProfile, DEFAULT_RULES, Rules, clamp};
 use crate::site::Site;
 use std::collections::{HashMap, HashSet};
-
-/// JS `x || 0` over a float: zero **and NaN** both fall through to zero.
-///
-/// Used twice by [`privatize_alleys`], where the reference writes
-/// `(profile.deadEndBias||0)` and `(…street.deadEndBias||0)`. A Rust
-/// `if v == 0.0` misses the NaN half, and `applyPlotChaos` can write a NaN
-/// straight into the rule table (milestone 12 found the same trap in
-/// `(eLen)/(acc||eLen)`).
-fn or_zero(v: f64) -> f64 {
-    if v == 0.0 || v.is_nan() { 0.0 } else { v }
-}
 
 /// The provenance the reference stamps on every back lane (line 30188),
 /// verbatim.
@@ -246,7 +235,7 @@ pub fn remove_water_crossings(site: &Site, g: &mut Graph) {
     if site.uses_real_water {
         let bp = site.bridge_pt;
         // JS `(site.riverW || 20)` — a zero or NaN width falls back to 20.
-        let rw = if site.river_w == 0.0 || site.river_w.is_nan() { 20.0 } else { site.river_w };
+        let rw = js_or(site.river_w, 20.0);
         let bridge_r = rw * 1.5 + 34.0;
         let mut victims: Vec<usize> = Vec::new();
         for e in &g.edges {
@@ -309,11 +298,6 @@ fn reaches_without(g: &Graph, skip_id: usize, from_id: usize, to_id: usize) -> b
     false
 }
 
-/// Live degree — `n.adj.filter(id => g.edges[id].alive).length`.
-fn live_degree(g: &Graph, nid: usize) -> usize {
-    g.nodes[nid].adj.iter().filter(|&&id| g.edges[id].alive).count()
-}
-
 /// `privatizeAlleys(seed, profile, g, rules)` (line 30093) — cul-de-sac
 /// formation (M-ISL-2): close a share of minor streets without disconnecting
 /// the network.
@@ -337,11 +321,17 @@ fn live_degree(g: &Graph, nid: usize) -> usize {
 /// would consume the same number of draws only by accident.
 pub fn privatize_alleys(seed: u32, profile: &CultureProfile, g: &mut Graph, rules: Option<&Rules>) {
     let bias = clamp(
-        or_zero(profile.dead_end_bias) + or_zero(rules.unwrap_or(&DEFAULT_RULES).street.dead_end_bias),
+        // `(profile.deadEndBias||0) + (rules.street.deadEndBias||0)` — JS `||`
+        // is falsy for NaN as well as zero, and `applyPlotChaos` can write a
+        // NaN straight into the rule table.
+        js_or(profile.dead_end_bias, 0.0)
+            + js_or(rules.unwrap_or(&DEFAULT_RULES).street.dead_end_bias, 0.0),
         0.0,
         0.40,
     );
-    if bias == 0.0 || bias.is_nan() {
+    // `if (!bias) return` — a truthiness test, not a `||` fallback, so this is
+    // `js_truthy_num` rather than [`js_or`]. The clamp cannot rescue a NaN.
+    if !js_truthy_num(bias) {
         return;
     }
     let mut r = stream(seed, "privatize");
@@ -361,7 +351,7 @@ pub fn privatize_alleys(seed: u32, profile: &CultureProfile, g: &mut Graph, rule
             continue;
         }
         let (ea, eb) = (g.edges[eid].a, g.edges[eid].b);
-        if live_degree(g, ea) < 2 || live_degree(g, eb) < 2 {
+        if g.live_degree(ea) < 2 || g.live_degree(eb) < 2 {
             continue;
         }
         if !r.chance(0.5) {
@@ -416,22 +406,24 @@ pub struct FortZoneSweep {
 ///   verified by scanning all 40 lines of the body, there is not one `site.`
 ///   in it. Carrying a parameter no line touches would earn a clippy lint for
 ///   nothing.
-/// - **`style` and `glacis_off` are passed separately.** They are
-///   `wallState.style` and `wallState.fort.glacisOff`, which milestone 10 stages
-///   on [`crate::fortify::WallExtras`] rather than on [`WallState`] — neither
-///   struct belongs to this module. The call is
-///   `clear_fort_zone(&wall, &extras.style, extras.fort.as_ref().map(|f|
-///   f.glacis_off), …)`, and it is deliberately written against those two
-///   *values* rather than against `&WallExtras`, so a rename on either side of
-///   the milestone boundary cannot break the other. `glacis_off` is
-///   `Option<f64>` covering the whole JS expression `fort && fort.glacisOff ||
-///   60`: `None` **and** `Some(0.0)` **and** a NaN all fall through to 60,
-///   because `||` is falsy-tested.
+/// - **`style` and `glacis_off` used to be passed separately, and are not any
+///   more.** Milestone 11 was written before milestone 10 landed, when
+///   `wallState.style` and `wallState.fort` were staged on a
+///   `fortify::WallExtras` this module could not name; it therefore took the
+///   two *values* rather than the struct. The integration pass folded those
+///   fields onto [`WallState`] — which this function already takes — so the
+///   parameters were redundant and are gone. That is not only shorter, it
+///   closes a hole: a caller could previously hand a `style` that disagreed
+///   with `wall.style`, and now the ring, the arc, the gates, the style and the
+///   fort all come off one object, exactly as `wallState` does in the
+///   reference.
 /// - **The three collections are slices of geometry, not of milestone types.**
 ///   `detail_pts` is the *resolved* anchor point per detail: the reference's own
 ///   chain is `d.x !== undefined ? {x: d.x, y: d.y} : (d.a ? V.lerp(d.a, d.b,
 ///   0.5) : (d.poly ? polyCentroid(d.poly) : null))`, and a `None` here is that
 ///   chain's `null`, which is skipped rather than swept.
+///   [`crate::hinterland::Detail::anchor`] is that chain, and is what a caller
+///   holding milestone 15's details maps with.
 ///
 /// ## The road sweep is a true crossing test, not a proximity test
 ///
@@ -444,11 +436,8 @@ pub struct FortZoneSweep {
 ///
 /// The gate corridor is wider for a primary (`clearDist + 16`) than for anything
 /// else (`clearDist * 0.85`) — the approach road gets its causeway.
-#[allow(clippy::too_many_arguments)]
 pub fn clear_fort_zone(
     wall: &WallState,
-    style: &str,
-    glacis_off: Option<f64>,
     g: &mut Graph,
     building_polys: &[Vec<Vec2>],
     parcel_polys: &[Vec<Vec2>],
@@ -459,13 +448,10 @@ pub fn clear_fort_zone(
         return out;
     };
 
-    let clear_dist = if style == "bastioned" {
-        // JS `(fort && fort.glacisOff || 60) + 8`.
-        let go = match glacis_off {
-            Some(v) if v != 0.0 && !v.is_nan() => v,
-            _ => 60.0,
-        };
-        go + 8.0
+    let clear_dist = if wall.style == "bastioned" {
+        // JS `(fort && fort.glacisOff || 60) + 8` — one falsy test covering all
+        // three of "no fort", "a zero offset" and "a NaN one".
+        js_or(wall.fort.as_ref().map_or(0.0, |f| f.glacis_off), 60.0) + 8.0
     } else {
         15.0
     };

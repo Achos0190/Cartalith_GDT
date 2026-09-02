@@ -1,7 +1,8 @@
 //! CIVIL ▸ Trade — `GUI_GAP_REGISTER.md` **IN-13**, plus `ECONOMY_SCOPE.md`
-//! milestone 2's food shed (2026-09-01).
+//! milestone 2's food shed (2026-09-01) and EC-2/EC-7's smelting and salt
+//! access (2026-09-02).
 //!
-//! Two entry points, each its own dictionary shape. Its own file with a
+//! Four entry points, each its own dictionary shape. Its own file with a
 //! `#[godot_api(secondary)]` block, the shape `civ_military_bridge.rs` and
 //! `geojson_bridge.rs` already use.
 //!
@@ -17,6 +18,21 @@
 //!   reports local/hinterland/import capacity per settlement rather than
 //!   routed flows. See "`civ_food_shed` recomputes..." below for the one
 //!   thing it does not thread through from `compute_civilisation`.
+//! - [`WorldGen::civ_place_smelting`] runs
+//!   [`cartalith_civ::trade::civ_place_smelting`] once per settlement over a
+//!   shared [`cartalith_civ::trade::PlaceWorld`] — the iron a catchment's
+//!   ore and fuel can jointly sustain, and which of the two binds.
+//! - [`WorldGen::civ_salt_access`] runs
+//!   [`cartalith_civ::trade::civ_salt_access`] once per settlement over the
+//!   same `PlaceWorld` shape, plus the navigability sweep
+//!   [`WorldGen::civ_food_shed`] already runs (`place_navigability`) — salt
+//!   access needs a `NavKind` and that sweep is where every other reader of
+//!   this file already gets one.
+//!
+//! Both new entry points rebuild `lithology`/`biome`/`resources` on demand
+//! rather than reading a stored field, the same tradeoff
+//! [`WorldGen::civ_food_shed`] already makes — see "`civ_food_shed`
+//! recomputes..." below, which applies to both just as it does to that one.
 //!
 //! ## Why the whole answer, and not a query API
 //!
@@ -57,11 +73,12 @@
 use godot::prelude::*;
 
 use cartalith_civ::trade::{
-    FoodShed, FoodShedInput, Navigability, RoadComponents, TradeInput, TradeMode, TradeNetwork,
+    FoodShed, FoodShedInput, Navigability, PlaceWorld, RoadComponents, SaltAccess, Smelting,
+    TradeInput, TradeMode, TradeNetwork,
 };
 use cartalith_civ::urban_adapter::UrbanWorld;
 
-use crate::{WorldGen, WorldSource};
+use crate::{CivData, WorldGen, WorldSource};
 
 /// Rows past this are summarised rather than listed. The dock shows a dozen;
 /// the cap exists so a pathological world cannot hand GDScript a
@@ -237,6 +254,139 @@ impl WorldGen {
             + rows.len() * std::mem::size_of::<FoodShed>();
 
         Some((rows, t0.elapsed().as_millis(), bytes))
+    }
+
+    /// Builds the [`PlaceWorld`] both [`Self::smelting_rows`] and
+    /// [`Self::salt_access_rows`] read: `lithology`/`biome`/`resources`
+    /// recomputed the same way [`Self::food_shed_rows`] recomputes
+    /// `lithology`/`soil` — see this file's module doc for why. Kept as one
+    /// function so the two callers cannot silently drift onto different
+    /// resource compositions.
+    fn place_world(&self, ws: &cartalith_engine::WorldState, civ: &CivData, gw: usize, gh: usize) -> (Vec<u8>, cartalith_civ::ResourcePotentials) {
+        let sea_level = self.sea_level;
+        let lithology = cartalith_civ::build_lithology(
+            &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field,
+            &ws.rainfall, sea_level,
+        );
+        let biome =
+            cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
+        // Same composition `landmark_geology_inputs` (`lib.rs`) and
+        // `compute_civilisation` both use — see either's own doc comment for
+        // the calls this mirrors.
+        let resources = cartalith_civ::build_resource_potentials(
+            &lithology,
+            Some(&ws.boundary_type),
+            Some(&ws.shear_field),
+            Some(&ws.flow_discharge),
+            Some(&biome),
+            &ws.field,
+            &ws.rainfall,
+            &ws.age_field,
+            gw,
+            gh,
+            sea_level,
+            Some(&ws.volcanic_field),
+            true,
+            false,
+        );
+        (biome, resources)
+    }
+
+    /// Every settlement's smelting economics — `_civPlaceSmelting` run once
+    /// per settlement over a shared [`PlaceWorld`]. `None` under the same
+    /// conditions [`Self::trade_network`] returns `None`.
+    fn smelting_rows(&self) -> Option<(Vec<Smelting>, u128)> {
+        let (Some(WorldSource::Generated(ws)), Some(civ)) =
+            (self.source.as_ref(), self.civ.as_ref())
+        else {
+            return None;
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || civ.settlements.is_empty() {
+            return None;
+        }
+        let t0 = std::time::Instant::now();
+        let (biome, resources) = self.place_world(ws, civ, gw, gh);
+        let world = PlaceWorld {
+            res: &resources,
+            field: &ws.field,
+            biome: &biome,
+            rain: &ws.rainfall,
+            gw,
+            gh,
+            sea: self.sea_level,
+            map_width_km: self.map_width_km,
+        };
+        let rows: Vec<Smelting> = civ
+            .settlements
+            .iter()
+            .map(|s| {
+                cartalith_civ::trade::civ_place_smelting(
+                    &world,
+                    s.placement.x,
+                    s.placement.y,
+                    s.placement.kind,
+                )
+            })
+            .collect();
+        Some((rows, t0.elapsed().as_millis()))
+    }
+
+    /// Every settlement's salt access — `_civSaltAccess` run once per
+    /// settlement over the same [`PlaceWorld`] shape [`Self::smelting_rows`]
+    /// builds, plus the navigability sweep [`Self::food_shed_rows`] already
+    /// runs (`place_navigability`, over the same `UrbanWorld` shape both
+    /// share) — salt access takes a `NavKind`, and that sweep is the one
+    /// place this file already computes one. `None` under the same
+    /// conditions [`Self::trade_network`] returns `None`.
+    fn salt_access_rows(&self) -> Option<(Vec<SaltAccess>, u128)> {
+        let (Some(WorldSource::Generated(ws)), Some(civ)) =
+            (self.source.as_ref(), self.civ.as_ref())
+        else {
+            return None;
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || civ.settlements.is_empty() {
+            return None;
+        }
+        let t0 = std::time::Instant::now();
+        let (biome, resources) = self.place_world(ws, civ, gw, gh);
+        let world = PlaceWorld {
+            res: &resources,
+            field: &ws.field,
+            biome: &biome,
+            rain: &ws.rainfall,
+            gw,
+            gh,
+            sea: self.sea_level,
+            map_width_km: self.map_width_km,
+        };
+        // Same `UrbanWorld` shape `trade_network`/`food_shed_rows` build,
+        // with the same deliberately-empty `river_polys` — see
+        // `trade_network`'s own comment on why that is safe here too.
+        let polys: Vec<Vec<(f64, f64)>> = Vec::new();
+        let uw = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &polys,
+            gw,
+            gh,
+            sea_level: self.sea_level,
+            map_width_km: self.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
+            world_seed: self.seed,
+        };
+        let rows: Vec<SaltAccess> = civ
+            .settlements
+            .iter()
+            .map(|s| {
+                let nav = cartalith_civ::trade::place_navigability(&uw, s).kind;
+                cartalith_civ::trade::civ_salt_access(&world, s.placement.x, s.placement.y, nav)
+            })
+            .collect();
+        Some((rows, t0.elapsed().as_millis()))
     }
 }
 
@@ -524,6 +674,95 @@ impl WorldGen {
             // Deliberately reported, and deliberately zero — see
             // `civ_trade_flows`'s own comment on the same key.
             "resident_bytes" => 0i64,
+        };
+        d.set("rows", &out_rows);
+        d
+    }
+
+    /// CIVIL ▸ Trade's smelting half — `_civPlaceSmelting` run for every
+    /// settlement: the iron a catchment's ore and fuel can jointly sustain,
+    /// and which of the two binds (`ECONOMY_SCOPE.md` EC-2).
+    ///
+    /// **Derived on demand and held nowhere**, the same contract
+    /// [`WorldGen::civ_trade_flows`] ships on.
+    ///
+    /// `{}` before any `generate()`, on a loaded save (which carries no
+    /// civilisation layer at all), and on a world with no settlements.
+    ///
+    /// Returned shape:
+    /// - `rows` — one entry per settlement, in `get_settlements()` order:
+    ///   `index`, `name`, `iron_kg_yr`, `charcoal_kg_yr`, `ore_kg_yr`,
+    ///   `woodland_ha`, `limited_by` (`"fuel"`/`"ore"`), `fuel_poor`,
+    ///   `ore_rich`, `coppice_ha_needed`.
+    /// - `settlement_count`, `elapsed_ms`.
+    #[func]
+    fn civ_place_smelting(&self) -> VarDictionary {
+        let Some((rows, ms)) = self.smelting_rows() else {
+            return VarDictionary::new();
+        };
+        let civ = self.civ.as_ref().expect("smelting_rows() proved this is Some");
+        let out_rows: Array<VarDictionary> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                dict! {
+                    "index" => i as i64,
+                    "name" => civ.settlements.get(i).map_or_else(String::new, |s| s.name.clone()),
+                    "iron_kg_yr" => r.iron_kg_yr,
+                    "charcoal_kg_yr" => r.charcoal_kg_yr,
+                    "ore_kg_yr" => r.ore_kg_yr,
+                    "woodland_ha" => r.woodland_ha,
+                    "limited_by" => r.limited_by,
+                    "fuel_poor" => r.fuel_poor,
+                    "ore_rich" => r.ore_rich,
+                    "coppice_ha_needed" => r.coppice_ha_needed,
+                }
+            })
+            .collect();
+        let mut d = dict! {
+            "settlement_count" => civ.settlements.len() as i64,
+            "elapsed_ms" => ms as i64,
+        };
+        d.set("rows", &out_rows);
+        d
+    }
+
+    /// CIVIL ▸ Trade's salt half — `_civSaltAccess` run for every
+    /// settlement: which of sea salt, a salt deposit or a salt lake this
+    /// place can actually reach (`ECONOMY_SCOPE.md` EC-7).
+    ///
+    /// **Derived on demand and held nowhere**, the same contract
+    /// [`WorldGen::civ_trade_flows`] ships on.
+    ///
+    /// `{}` before any `generate()`, on a loaded save (which carries no
+    /// civilisation layer at all), and on a world with no settlements.
+    ///
+    /// Returned shape:
+    /// - `rows` — one entry per settlement, in `get_settlements()` order:
+    ///   `index`, `name`, `has`, `source` (`"none"`/`"sea salt"`/
+    ///   `"salt deposit"`/`"salt lake"`).
+    /// - `settlement_count`, `elapsed_ms`.
+    #[func]
+    fn civ_salt_access(&self) -> VarDictionary {
+        let Some((rows, ms)) = self.salt_access_rows() else {
+            return VarDictionary::new();
+        };
+        let civ = self.civ.as_ref().expect("salt_access_rows() proved this is Some");
+        let out_rows: Array<VarDictionary> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                dict! {
+                    "index" => i as i64,
+                    "name" => civ.settlements.get(i).map_or_else(String::new, |s| s.name.clone()),
+                    "has" => r.has,
+                    "source" => r.source,
+                }
+            })
+            .collect();
+        let mut d = dict! {
+            "settlement_count" => civ.settlements.len() as i64,
+            "elapsed_ms" => ms as i64,
         };
         d.set("rows", &out_rows);
         d

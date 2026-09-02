@@ -770,3 +770,429 @@ has no reference feature to be equivalent to, so there is nothing it could
 regress. Recorded per this section's own pattern (§7e, §7f) because
 deviating from "the reference has none at all" is still a decision, not
 because §7d's own test applies to it.
+
+## 7l. Crater frequency is an area density, behind an off-by-default flag (2026-09-02)
+
+**The defect.** `stampCraters` (reference line 3569) stamps exactly
+`state.crater.count` craters whatever the map represents:
+`while(placed<c.count && guard<c.count*40)`. `cellKm=state.mapWidthKm/GW`
+scales crater *size* correctly and the *count* not at all. Cartalith's own
+width range runs 5 km to 40 000 km, an area ratio of **64 000 000:1**, so the
+same slider position is a negligible density on a world and an unrenderably
+dense one on a region. Verified in the reference and in
+`cartalith_terrain::stamp_craters`, which ports it faithfully.
+
+**Owner ruling, 2026-09-02: break parity here.** Raised as a §7a conflict and
+ruled on directly — *"I'm the user telling you to break that on this point on
+basis of the new information that I've provided to make the generation more
+scientifically accurate."* So the density model is the **shipped default**
+(`CraterParams::physical_model: true`), not an opt-in. Setting it `false`
+restores the reference's own path byte for byte, and the import/inversion path
+keeps it.
+
+**What the goldens did instead of being re-baselined.** Six golden cases run
+craters (`golden_parity_volc_craters` x2, `golden_parity_pipeline` x2,
+`golden_parity_carve` x2). Their expected values were captured *from the
+reference under Node*; regenerating them from this port's own output would turn
+a parity test into a self-referential snapshot and silently delete the parity
+coverage of every other stage in those pipelines. So each pins
+`physical_model = false` instead, with the reason in the file. They remain true
+reference parity; the new model has its own tests in
+`cartalith_terrain::crater_density_tests`. **No golden data was discarded.**
+
+**The model.** `lambda = R20 * T * A * (20/Dmin)^b * I`, then
+`N ~ Poisson(lambda)`, then diameters drawn from a truncated `D^-b` law over
+`[Dmin, 400 km]`.
+
+- `R20 = 5.6e-15 km^-2 yr^-1` — Grieve & Shoemaker's rate for `D >= 20 km`.
+- `T` — a **geological** surface exposure age, default 100 Myr.
+- `A` — the map's real area, so a 5 km region and a 40 000 km world differ by
+  the 64 000 000x they actually differ by.
+- `Dmin` — **resolution-aware**: `max(1 km, 2 cells)`. This is what makes the
+  physical model tractable. At 2048 cells a 40 000 km map has 19.5 km cells, so
+  its smallest *resolvable* crater is ~39 km, not 1 km — and under `D^-2` that
+  floor removes the overwhelming majority of a population that would otherwise
+  number in the hundreds of thousands. Physics and performance agree.
+- `I = count/100` — the existing 0-200 slider as an intensity multiplier, so
+  the reference's own default of 100 means "physically calibrated".
+
+**The calibration is a coincidence worth stating**: at the app's untouched
+default (800 km, 2048x1311) with `T = 100 Myr`, `lambda ~= 92` — against the
+reference's hand-tuned default `count` of 100. The physical model lands almost
+exactly where the tuned constant already sat. Asserted in
+`the_physical_model_lands_near_the_references_own_default`, so the claim fails
+loudly if it stops being true.
+
+**Three clocks, and they must not be confused.** The owner's second ruling the
+same day: *"the timeline for civilisation is different than a timeline for a
+geological scale."* Cartalith now carries three distinct age quantities:
+
+| Quantity | Scale | What it means |
+|---|---|---|
+| the civilisation Timeline (`TIMELINE_SCOPE.md`, the year cursor) | years - millennia | when things happened to people |
+| `CraterParams::surface_age_myr` | 10^4 - 10^9 years | how long this surface has collected impacts |
+| `CraterParams::age` | 0-1, unitless | how *worn* each crater looks (morphology) |
+
+Reading the year cursor into crater density would make a civilisation's rise
+change the crater count, which is nonsense. They are not points on one axis and
+nothing converts between them. `surface_age_myr` is deliberately its own
+parameter for this reason.
+
+**The size-frequency law is now built**, which the first cut deliberately left
+out: the reference's three flat bands (90% at 0.5-5 km radius, 9% at 5-25, 1%
+at 25-200) sampled *uniformly within* each band, which produces far too many
+large craters relative to small ones. `crater_diameter_km` replaces them with
+the inverse-CDF of a truncated power law. Morphology thresholds (`large`,
+`basin`) are keyed off the drawn radius in both modes, so a crater of a given
+size still looks the same — only how often each size is drawn changes.
+
+**Sources, checked rather than accepted.** The owner supplied a research note;
+these are the citations that survived verification:
+
+- Grieve, R. A. F., & Dence, M. R. (1979). *The terrestrial cratering record:
+  II. The crater production rate.* Icarus **38**, 230-242. **Confirmed** —
+  volume and pages exact.
+- Grieve, R. A. F., & Robertson, P. B. (1979). *The terrestrial cratering
+  record: I. Current status of observations.* Icarus **38**. **Confirmed.**
+- Grieve, R. A. F. (1984). *The impact cratering rate in recent time.* JGR,
+  doi:10.1029/JB089iS02p0B403. **Confirmed.**
+- Grieve, R. A. F., & Shoemaker, E. M. (1994), in *Hazards Due to Comets and
+  Asteroids*, Univ. Arizona Press, pp. 417-462. **Chapter confirmed; the title
+  in the supplied note is wrong** — it is *"The record of past impacts on
+  Earth"*. This is the source of **(5.6 ± 2.8) x 10⁻¹⁵ km⁻² yr⁻¹ for D ≥ 20 km**,
+  which is confirmed.
+- Oetting, A., et al. (2025). *Slopes of Lunar Crater Size-Frequency
+  Distributions on Exterior Impact Melt Deposits of Young Craters.* JGR Planets
+  **130**, e2024JE008589. **Confirmed** — and it measures a CSFD slope of
+  **2.85** for craters ≤10 m, i.e. the slope is *not* −2 across all sizes.
+- French, B. M. (1998). *Traces of Catastrophe*, LPI Contribution 954. Cited
+  twice in the supplied note's body and **absent from its reference list**.
+- Fassett (2016), Hartmann (2008), Cai & Fa (2020), Wünnemann et al. (2010):
+  confirmed real.
+- **Not found: "Grieve (1981), The record of large scale impact on Earth."**
+  The 1981 Grieve paper that exists is Grieve, Robertson & Dence, *Constraints
+  on the formation of ring impact structures* — different topic, three authors.
+  Treat that citation as unverified.
+
+**Three caveats the supplied note understates, recorded because they bound
+what this model may later claim:**
+
+1. **5.6 x 10⁻¹⁵ is the highest of the published estimates**, not a consensus.
+   Hughes (1981) gives (2.6 ± 0.9) x 10⁻¹⁵ and Hughes (2000) (3.46 ± 0.30) x
+   10⁻¹⁵ km⁻² yr⁻¹ — roughly *half*. The note presents the high end as *the*
+   figure without saying so.
+2. **The −2 cumulative slope is for D ≳ 20 km and must not be extrapolated
+   down.** The note's own table runs it to D = 1 km, which is exactly the
+   extrapolation its §4 warns against — and this engine's smallest band is
+   radius 0.5 km, i.e. **D = 1 km**, squarely in the invalid zone. Oetting
+   (2025)'s 2.85 slope is direct evidence the exponent moves with size.
+3. **The note's central formula is dimensionally incomplete.** The rate is per
+   *year*; a density needs a surface age `T` (`rho = rate x T`). Its §7
+   `lambda = rho_max I^gamma A F_scale` has no age term and never assigns
+   `rho_max` a value, so it cannot be evaluated as written. **This is why the
+   implementation anchors on the app's own default rather than on the
+   terrestrial rate**: the physics fixes the *shape* (density x area, Poisson),
+   and the anchor fixes the *scale*, without pretending to a calibration the
+   source does not supply. `crater.age` is a morphological degradation term
+   (0-1), **not** a surface exposure age in years; conflating the two would be
+   a bug.
+
+**Still not built:** a piecewise size-frequency exponent. `CRATER_SFD_EXPONENT`
+is a single `2.0` across 1-400 km, which is knowingly outside the range its
+evidence covers (caveat 2 above). A piecewise law would be more faithful, but no
+source in the supplied research gives a terrestrial exponent for the 1-20 km
+band, and inventing one would be worse than extrapolating a measured one. The
+constant is named and documented so it can be tuned when a source exists.
+
+### 7l-i. Degradation over geological time (2026-09-02, same authorisation)
+
+§7l built crater **frequency** and **size**; it did not build **morphology with
+age**, which is what made its own record incoherent. `stamp_one_crater` scaled
+depth by `1 - age*0.8` — linear in a unitless 0-1 term, carrying no length at
+all, so a 1 km crater and a 100 km crater of the same age came out equally
+fresh. Built now under the same crater authorisation, gated behind the same
+`crater.physical_model` flag, so every golden stays bit-identical.
+
+**The physics, and why it is the missing piece.** Crater topography relaxes
+diffusively, so relief decays as `exp(-t/t_diff)` with `t_diff ∝ L²/kappa`. The
+`L²` is the whole finding: at one diffusivity a 100 km crater's timescale is
+**10 000x** a 1 km crater's, so one surface of one age holds fresh large craters
+and erased small ones. That is why Earth's crater record is a *preserved subset*
+rather than a census — the question §7l left open when it computed a production
+rate but no survival.
+
+**The anchor, and what it is not.** `kappa` is **not** measured and no
+diffusivity is claimed. It is pinned exactly the way §7l pinned density — one
+free constant chosen so the default lands where the tuned default already sat:
+
+> a crater of `CRATER_D_MIN_KM` loses **half** its relief in one
+> `CRATER_SURFACE_AGE_MYR`,
+
+giving `tau = ln2 · (T/T_ref) · (D_ref/D)²` and introducing no numeric constant
+that §7l had not already named. Averaged over the population the model actually
+draws, the default map keeps **0.72** of its crater relief — worn, not erased;
+asserted in `the_default_map_keeps_most_of_its_crater_relief` so the claim fails
+loudly if it stops being true. The implied `kappa ≈ 7e-3 m² yr⁻¹` does land
+inside the order of magnitude usually quoted for terrestrial hillslope
+diffusion, which is recorded as a sanity check and nothing more — unlike §7l's
+citations, that range has **not** been verified against a paper here.
+
+**Each feature relaxes on its own length, not the crater's.** The four
+`CRATER_FEATURE_*` fractions are read off the profile `stamp_one_crater`
+already draws (bowl `1.00 D`, rim `0.20 D`, central peak `0.18 D`, basin rings
+`0.33 D`), so they carry no calibration of their own — and the rim, a fifth of
+the diameter wide, ages **25x** faster than the bowl it encloses. **This is the
+visible change**: below about 2 km at the default surface age, craters lose
+their rims entirely and become shallow depressions, which under §7l's `D^-2`
+population is most of the count. The relief total barely moves (~13% over the
+whole 0-4000 Myr range) because the few largest craters carry it and they are
+the ones that barely relax.
+
+**`crater.age` multiplies the physical term; it does not feed it.** The two
+answer different questions — `crater.age` is an authoring control that shallows
+the whole population uniformly regardless of size, `tau` is size-dependent
+physics. Folding `age` into the elapsed time was rejected: `age = 0` would then
+mean "no degradation at all", so a cosmetic-looking slider would silently switch
+off the physical model. Caveat 3 above already warned that conflating those two
+would be a bug; a multiplier is what keeps them distinct.
+
+**Two things deliberately left alone, both needing their own ruling.**
+`impact_field` is **not** degraded — it marks shocked rock and impact melt for
+the lithology stage, which survives the topography, and damping it would move
+biomes, settlement placement and roads, outside what §7l authorised. And
+degradation is **not** wired to `stream.diffuse_d` (§7m's hillslope
+diffusivity), which is the same physics at a different scale: coherent, but it
+would make craters change when a user touches an erosion slider.
+
+> **Superseded the same day.** Both were put to the owner and both were ruled
+> in — see §7l-ii immediately below, which also disposes of the two volcanism
+> flags §7l-i's neighbours were holding open. Nothing above is retracted; the
+> reasoning stands, the answer changed.
+
+### 7l-ii. The owner's three rulings of 2026-09-02
+
+Three questions were put to the owner on 2026-09-02 and **all three were
+answered yes**. They are recorded together because they landed together, and
+implemented so that **any one is revertible without the others** — the volcano
+flags are two independent lines in `cartalith_godot::params::defaults`, the
+diffusivity coupling is one parameter on `crater_degradation_tau`, and the
+`impact_field` damping is one multiplier in `stamp_one_crater`.
+
+The pattern §7l established carries all three: **`WorldParams::defaults` keeps
+the reference's behaviour** and `cartalith_godot::params::defaults` — the app
+boundary every `WorldGen` routes through — turns divergence on. That is what
+lets ~28 golden suites, sixteen of them in `cartalith-civ`, keep meaning "what
+the reference does" while the shipped generator diverges.
+`exactly_the_ruled_divergences_ship_at_the_app_boundary` now enumerates the
+roster and fails if a fourth divergence appears in either function.
+
+#### Ruling 1 — both volcanism flags ship
+
+`volc.exclude_transform` and `volc.edifice_model` were built, tested and left
+`false` at both boundaries because §7l's authorisation was *for craters*. They
+now default `true` at the app boundary, `false` in `WorldParams::defaults`.
+
+**The exclusion, re-measured with the flag on** (`volcano_transform_boundaries.rs`,
+`arc_and_rift_pools_are_polluted_by_transform_cells`, 256x160 over 12 seeds —
+26 960 boundary cells, 10 022 of them transform, 37.2%):
+
+| pool | flag off | flag on |
+|---|---|---|
+| arc (`conv`) | 11 248 cells, **3 863 transform (34.3%)** | 7 385 cells, **0 transform (0.0%)**, 65.7% of the sites survive |
+| rift (`div`) | 13 278 cells, **4 292 transform (32.3%)** | 8 986 cells, **0 transform (0.0%)**, 67.7% of the sites survive |
+
+Zero is by construction, not by luck — the filter drops exactly the cells this
+crate's own `classify_boundary` types `TRANSFORM`. The figure worth having is
+the second one in each cell: **the correction removes about a third of the
+candidate sites and leaves two thirds**, on every one of the twelve seeds, so
+it corrects placement rather than starving it. `excluding_transform_leaves_both_pools_populated`
+asserts the per-seed floor and the measurement test now asserts the aggregate.
+
+**End to end at the shipped defaults** (96x72, seed 2026 — all three *flags*
+against the parity baseline; ruling 2 contributes nothing here, since it
+changes no default): **6 911 of 6 912 cells differ, mean |Δ| 0.0129,
+max |Δ| 0.3416, land 5 578 → 5 589 cells.** Recorded because the first figure
+invites the wrong conclusion. Essentially every cell moves — the field is
+renormalised and then routed and carved, so any perturbation propagates
+globally, the same chaotic sensitivity §7a already relies on. The *magnitude*
+is what says this is the same world differently detailed: about 1% of full
+scale on average, and a land fraction that moved by 11 cells in 6 912.
+`the_shipped_defaults_generate_a_different_world_from_the_parity_baseline`
+bounds the magnitude and deliberately does **not** bound the count.
+
+#### Ruling 2 — crater degradation reads the erosion diffusivity
+
+`crater_degradation_tau` carried a private `kappa`. It now takes
+`ErosionPassParams::diffuse_d`, because `hillslope_diffuse` (§7m) is the same
+physics at a different scale and a world cannot coherently hold two unrelated
+diffusivities.
+
+**The calibration is preserved exactly, not approximately.** The formula becomes
+
+```text
+tau = ln2 · (d / d_ref) · (T / T_ref) · (D_ref / D)²
+```
+
+with `d_ref = CRATER_DEGRADATION_DIFFUSE_D_REF = 0.15`, the reference's own
+`state.erosion.diffuseD`. At the default `d` that middle factor is `1.0` **bit
+for bit**, and it is written first so the remaining operand order is untouched,
+so the whole expression is the anchor it replaces, unchanged. §7l-i's half-life
+still holds and is still asserted; `the_default_diffusivity_reproduces_the_old_anchor`
+adds a direct `assert_eq!` against the old closed form at four `(D, T)` pairs.
+`the_crater_anchor_matches_the_shipped_diffusivity`, in `cartalith-engine`
+because the two constants live in crates that cannot see each other, fails if
+either side moves.
+
+**It reads the raw `diffuse_d`, not `hillslope_extent_scale`'s corrected
+value.** That correction exists to make a one-cell Laplacian mean the same
+physical diffusion at any cell size (§7m) — a discretisation fix for the kernel,
+not a different `kappa`. `crater_degradation_tau` already works in kilometres
+and megayears, so it wants the physical quantity. It also reads it whether or
+not the hillslope *pass* is enabled: a diffusivity is a property of the
+landscape, not of which buttons the user pressed.
+
+**The coupling is the point, and it is made visible in three places**, because
+a coupling nobody can see is worse than no coupling: the function's doc comment,
+`stamp_craters`' doc comment, and the GUI control itself, whose label is now
+*"Diffusivity D (also weathers craters)"*.
+
+**One contract was narrowed, deliberately.** `ErosionPassParams`' documented
+promise is *"off is bit-identical"* — every pass off means every knob inert.
+`diffuse_d` is now the exception: under `crater.physical_model` it changes
+generated terrain with every pass off, because it is no longer only an erosion
+knob. Pinned in both directions by
+`the_erosion_diffusivity_reaches_craters_only_under_the_physical_model`, which
+asserts it is inert on the reference path — which is what keeps
+`erosion_passes_off_leave_generation_bit_identical`, and the sixteen
+`cartalith-civ` suites, true.
+
+#### Ruling 3 — `impact_field` degrades, gated behind `crater.physical_model`
+
+`impact_field` marks shocked rock and impact melt for the lithology stage, and
+was written pristine no matter how relaxed the crater — a fully degraded crater
+still stamped a fresh impact signature.
+
+**The gate is kept, and the reason first recorded here was wrong.** This
+paragraph originally claimed that damping `impact_field` "moves lithology, and
+through it biomes, carrying capacity, settlement placement, roads and sea
+routes: sixteen `cartalith-civ` golden suites… Ungated, sixteen suites fail.
+That is measured history, not caution."
+
+**Corrected 2026-09-02, by measurement.** It does not. `impact_field` reaches no
+downstream consumer in the civilisation layer at all: `grep -rn impact_field
+crates/cartalith-civ/src/` returns **nothing**, `build_lithology` takes no
+impact field, and `compute_affordance_fields` passes only `field`, `age_field`,
+`volcanic_field`, `crust_field`, `resistance_field` and `rainfall`. Run with the
+gate deliberately removed, `cargo test -p cartalith-civ --no-fail-fast` gives
+**27 of 27 binaries passing, 0 failures** — while `cartalith-terrain`'s own
+`golden_parity_volc_craters` fails 2 of 5, which is what proves the ungate was
+actually live.
+
+The claim came from this session's own briefing, which carried the sixteen-suite
+figure forward from the crater **height-field** change — where it was real and
+measured — and attached it to a different field that does not share those
+consumers. Two changes to the same subsystem, one blast radius, applied to the
+wrong one.
+
+**The gate stays**, on its true and smaller justification: `impact_field` is
+saved (`cartalith-io`) and is pinned by `golden_parity_volc_craters`' two
+reference-extracted `expected_impact` arrays. Those are the fixtures the gate
+protects. `tau` is `None` whenever `crater.physical_model` is false —
+`WorldParams::defaults` — so the factor is exactly `1.0` there and `(1 - t) ·
+1.0` is bit-identical to the value it always was.
+`the_reference_path_writes_an_undamped_shock_record` asserts the gate directly,
+and an ungate mutant is killed by it.
+
+**The physics, stated honestly: the shock record outlives the landform.** A
+relaxed crater still has shatter cones and a melt sheet, so the damping must be
+*gentler* than the topographic one, not equal to it. The rate is expressed the
+only way this file already knows how — a feature length fed through the same
+`1/(frac·D)²` law §7l-i's four `CRATER_FEATURE_*` fractions use — so it adds no
+second mechanism. `CRATER_FEATURE_SHOCK = 2.0` is the shocked zone's own extent:
+a continuous ejecta blanket and its shock aureole reach roughly one crater
+*radius* beyond the rim, so the affected patch is about twice the crater's
+diameter across, against the bowl's `1.00 D`. The shock timescale is therefore
+exactly **4x** the bowl's.
+
+**What is not claimed.** The 2:1 extent is a standard order-of-magnitude figure
+for an ejecta blanket; **no shock-annealing rate was measured, fitted, or taken
+from a source, and no source in this repository has been checked for one.** What
+is defensible is the sign and the shape — monotone decay, on the same diffusive
+law, slower than the relief. `the_shock_record_fades_but_outlives_the_landform`
+asserts exactly that pair of claims and nothing stronger, and
+`the_shock_aureole_relaxes_four_times_slower_than_the_bowl` pins the ratio
+against the closed form with the `2.0` written as a literal, so a mutation of
+the constant cannot move both sides of the comparison together.
+
+One consequence worth naming: the `max` that resolves overlapping craters now
+means "the fresher or larger signature wins" rather than "the one whose centre
+is nearer", so a young crater overprints an ancient one. That is the right
+behaviour and it was not available before.
+
+## 7m. Hillslope diffusion is corrected for real map extent (2026-09-02)
+
+**The defect.** `hillslope_diffuse` (`cartalith-erosion/src/passes.rs`) computes
+`delta = d * (l + r + u + dn - 4h)` — an explicit five-point Laplacian at a grid
+spacing of exactly one cell, so `delta = d · dx² · ∇²z_real`. Matching the
+physical `dz = D·dt/dx²·∇²z` requires `d` to scale as `1/cell_km²`. It did not:
+`cartalith-erosion` contained **zero occurrences of `map_width_km`**, verified,
+and the same literal `diffuse_d` applied at every extent.
+
+At 2048 cells a 5 km region has 0.00244 km cells and a 40 000 km world 19.53 km
+cells. The ratio of cell **areas** is 8 000² = **64 000 000** — the identical
+figure §7l cites for the crater count, one layer up the pipeline.
+
+**Scope, deliberately narrow.** The owner ruled 2026-09-02: *"let's only fix the
+hillslope extent blindness."* Two investigations had shown why the larger
+geological-clock feature was the wrong first move — at the app default
+`stream.uplift = 0.0`, so a duration term wired to erosion today would mean
+exactly one thing, a flatter world; and stream power equilibrates (measured in
+this engine: per-iteration change falls to 2e-5 by 360 iterations), so more time
+stops changing anything. **This is the extent fix alone. No clock.**
+
+**Not a defect everywhere.** `stream_power_kernel`'s extent-blindness is
+dimensionally *correct* and was deliberately left alone: it computes
+`area^0.5 / l` with both in cells, and `area_cells^0.5 / l_cells =
+A_real^0.5 / L_real` — the cell size cancels identically at m=0.5, n=1. A 5 km
+region and a 40 000 km world genuinely should incise the same per unit time.
+"Fixing" it would introduce a bug.
+
+**The correction is one-sided, and that is the safety story.**
+`hillslope_extent_scale(map_width_km, gw, d)` returns `(REF_CELL_KM/cell_km)²`
+anchored at 800 km / 2048 — the app's own untouched default, the same
+anchor-at-the-default discipline `terrain_detail_k` and `_V3D_RATIO0` use, so
+the correction is **exactly 1.0** there and every golden fixture is
+bit-identical. Reducing `d` for a coarse map is unconditionally safe. Raising it
+is not: at 5 km / 2048 the raw factor is ~25 600x, which would take `d = 0.15`
+to 3840 and detonate an explicit FTCS scheme whose stability bound is `d ≤ 0.25`.
+Increases are therefore capped at `HILLSLOPE_STABLE_D`.
+
+**That cap is a real ceiling, recorded rather than hidden**: a very fine region
+cannot express its full physical diffusion in one pass, and the correct upgrade
+is **more passes**, not a larger coefficient — the explicit scheme's own
+constraint. Named as the path if it ever matters.
+
+**Parity preserved without touching a single golden.** `d_scale` defaults to
+`1.0` at every existing call site, so all five erosion golden suites pass
+unedited. One subtlety made this non-obvious: `golden_parity_passes`'
+`hillslope_diffuse_case_2` pins the reference at **`d = 0.9`**, already past the
+stability wall. A blanket clamp would have broken parity, so the correction may
+*reduce* `d` freely but may only *raise* it to the bound, and a `d` the caller
+already chose above the bound passes through untouched. Asserted in
+`an_already_unstable_d_is_never_reduced_by_the_correction`.
+
+**Reachability.** `passes.hillslope` is `false` by default, so this was a latent
+bug, not an active one — and wrong by seven orders of magnitude the moment a
+user ticked Hillslope on a region or a world. No new user-facing parameter: the
+scale is derived from `map_width_km` and `gw` at the one call site that knows
+them.
+
+**Verified:** `cargo test --workspace` 2 626 passed, 0 failed (up from 2 619 —
+seven new tests, nothing moved). No golden file edited.
+
+**Two siblings found and deliberately not fixed**, recorded so they are not lost:
+`erode_thermal`'s `talus` is a raw normalised height difference across one cell,
+so `tan θ = talus · peak_m / cell_km` gives 87° at 5 km, 7.0° at 800 km and
+0.14° at 40 000 km against a real scree repose of 30-37°; and the velocity and
+glacial kernels were not audited. `erode_thermal` is manual-op only, which is
+why it waits.

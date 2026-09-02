@@ -48,12 +48,14 @@ use godot::prelude::*;
 use std::collections::BTreeMap;
 
 /// `{"ok": false, "error": …}` — the single failure shape every method here
-/// returns, so GDScript has one thing to check.
-fn err(message: impl std::fmt::Display) -> VarDictionary {
+/// returns, so GDScript has one thing to check. `pub(crate)` so
+/// `vault_saf.rs`'s `#[func]` returns the identical shape rather than
+/// inventing a second one for the same boundary.
+pub(crate) fn err(message: impl std::fmt::Display) -> VarDictionary {
     vdict! { "ok" => false, "error" => message.to_string() }
 }
 
-fn ok() -> VarDictionary {
+pub(crate) fn ok() -> VarDictionary {
     vdict! { "ok" => true, "error" => "" }
 }
 
@@ -97,15 +99,17 @@ impl WorldGen {
         self.vault.disconnect();
     }
 
-    /// `{bound, root, display_name, vault_id, link_count}`. `root` is the
-    /// device-local path and is for showing the user where they pointed
-    /// Cartalith, never for storing in project data (§5).
+    /// `{bound, root, display_name, vault_id, link_count}`. `root` is
+    /// whatever [`VaultProvider::describe`] says — a filesystem path for a
+    /// desktop vault, a tree URI for a Storage-Access-Framework one — and is
+    /// for showing the user where they pointed Cartalith, never for storing
+    /// in project data (§5).
     #[func]
     fn vault_info(&self) -> VarDictionary {
         let v = self.vault.store.vaults.first();
         vdict! {
             "bound" => self.vault.is_bound(),
-            "root" => self.vault.vault().map(|v| v.root().display().to_string()).unwrap_or_default(),
+            "root" => self.vault.vault().map(|v| v.describe()).unwrap_or_default(),
             "display_name" => v.map(|v| v.display_name.clone()).unwrap_or_default(),
             "vault_id" => v.map(|v| v.id.clone()).unwrap_or_default(),
             "link_count" => self.vault.store.links.len() as i64,
@@ -605,8 +609,17 @@ impl WorldGen {
             let names: Vec<&str> = export::MAP_RADII.iter().map(|(_, r, _)| *r).collect();
             return err(format!("unknown snapshot radius \"{radius}\" -- offered: {}", names.join(", ")));
         };
-        let Some(vault) = self.vault.vault() else {
+        let Some(binding) = self.vault.vault() else {
             return err("no vault is connected on this device, so there is nowhere inside it to put a map");
+        };
+        // A snapshot is written through `export_snapshot_png`, which needs a
+        // real filesystem path -- `FsVault` has one; a Storage-Access-
+        // Framework-backed vault does not (`VaultProvider::as_fs_vault`'s own
+        // doc comment). Milestone 4 built the SAF *provider*; writing an
+        // image through a `content://` grant is separate, unbuilt work this
+        // says plainly rather than silently mis-writing to nowhere.
+        let Some(vault) = binding.as_fs_vault() else {
+            return err("this vault is not on this device's filesystem, so a map snapshot cannot be written into it yet");
         };
         let Some((cx, cy)) = self.entity_cell(k, entity_id) else {
             return err("this entity has no position on the map, so there is nothing to centre a snapshot on");

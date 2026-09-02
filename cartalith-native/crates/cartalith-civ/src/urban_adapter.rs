@@ -1,8 +1,18 @@
 //! The civ-side adapter between this port's world state and
 //! `cartalith-urban` — the reference's block-2 `_um*` functions
 //! (`reference/FUNCTION_INDEX.md`, "Urban-morphology adapter", HTML lines
-//! 22040-22940), restricted to the subset that milestones **1-7** of
-//! `URBAN_MORPHOLOGY_SCOPE.md` can actually consume and produce.
+//! 22040-22940), restricted to a subset of `URBAN_MORPHOLOGY_SCOPE.md`'s
+//! stages.
+//!
+//! **That restriction was written as "the subset milestones 1-7 can actually
+//! consume and produce", and it is no longer a subset of the *pipeline* at
+//! all.** Milestones 8-16 have all landed and [`run_layout`] is now a thin
+//! caller of [`cartalith_urban::generate`] — the reference's own `generate()`,
+//! all 29 stages in its own order, golden-verified whole against `hashModel`.
+//! What is still a subset is the `_um*` **adapter** surface: the table below
+//! marks what is ported, what is deliberately absent, and why. Read
+//! `cartalith-native/docs/STATUS.md` for what is built — not this header, which
+//! is exactly the second source that rule exists to prevent.
 //!
 //! `URBAN_MORPHOLOGY_SCOPE.md` milestone 17 is where this module eventually
 //! lands in full, and that document already names this crate as its home
@@ -27,27 +37,36 @@
 //! | `_umWaterCtx` | **ported** — `WaterCtx` is a milestone-5 `build_site` input |
 //! | `_umTerrainCtx` | **ported** — `TerrainCtx` likewise |
 //! | `_umPlaceContext` | **ported, minus four fields** — see below |
-//! | `_umWallSpec`, `_umInferWalls` | **ported, and not here**: they live in [`crate::military`], because their first real consumer is `_civFactionAggregates`' `fortifiedFraction` (`GUI_GAP_REGISTER.md` CV-25), not this adapter. `grow`'s own `walls` input is still passed `false` — the wall *builder* is milestone 10 and a spec is still a value nothing can draw; what changed is that the spec now has a reader |
-//! | `_umHarbourScale` | **skipped**: consumed only by `buildHarbour`, milestone 9 |
-//! | `_umSiteProfile` | **skipped**: its consumers are the wall spec (m10), harbour/bridge validity (m9), economic districts (m13) and the Settlement Inspector — none of which exist |
-//! | `_umOreBearing` | **skipped**: feeds `economy.oreBearing`, read only by milestones 13/15; and this port's settlements carry no `specialisation`, so `economy` is `None` regardless (the gap `URBAN_MORPHOLOGY_SCOPE.md` milestone 17 already predicted) |
+//! | `_umWallSpec`, `_umInferWalls` | **ported, and not here**: they live in [`crate::military`], because their first real consumer was `_civFactionAggregates`' `fortifiedFraction` (`GUI_GAP_REGISTER.md` CV-25), not this adapter. [`um_place_context`] now calls `um_wall_spec` too, exactly as `_umPlaceContext` line 22638 does, and [`UrbanContext::wall_style`]/[`UrbanContext::walls`] are its answer. The `walls: false` this adapter passed until 2026-09-02 is gone — a settlement's circuit is now the ladder's verdict on its tier, function, threat, wealth, age and command of ground |
+//! | `_umHarbourScale` | **ported** ([`um_harbour_scale`]) and **fed**: [`UrbanContext::harbour_scale`] reaches [`cartalith_urban::GenOpts::harbour_scale`], and `generate()` calls `build_harbour` on both branches |
+//! | `_umSiteProfile` | **ported** ([`um_site_profile`]) — it was skipped because "its consumers are the wall spec (m10), harbour/bridge validity (m9), economic districts (m13) and the Settlement Inspector — none of which exist", and three of those four now do. Its one input this port lacks, `_civPlaceDefensibility`'s wall test, is caller-resolved: see [`SiteProfileWorld::walled`] |
+//! | `_umOreBearing` | **ported** ([`um_ore_bearing`]) — feeds [`cartalith_urban::GenOpts::ore_bearing`], whose reader (`assign_districts`' ore-yard rule) now exists. The function itself reads only `currentResourcePotentials()`, which this port has; what is still missing is its *sibling* district input, `site.economy.specialisation`, which is host data this port's settlements do not carry. Note also that `cartalith_urban::site::Economy::ore_bearing` is a `bool` and the reference's `oreBearing` is a nullable **angle**; `generate`/`assign_districts` both take the bearing as a separate parameter until that is corrected |
 //! | `_umPt` | **not applicable**: a JS `[x,y]`-vs-`{x,y}` normaliser. [`Way::pts`] is typed |
 //! | `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | **explicitly out of scope for every milestone** (scope document, "Out of scope"): an LRU plus a `setTimeout(…,0)` queue working around the browser's single thread. Caching is the caller's business; `cartalith-godot`'s GDScript side keys one layout per settlement and drops the lot on world change |
 //! | `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | **out of scope for every milestone** likewise — canvas rendering, Godot's job |
 //!
-//! Four `_umPlaceContext` fields are absent because their *inputs* are:
+//! Three `_umPlaceContext` fields are still absent, because their *inputs*
+//! are — and all three are host data, not unported code:
 //!
 //! - **`fortified`** — reads `p.traits.includes('fortified')`; this port's
 //!   [`NamedSettlement`] has no traits. `false`, the reference's own answer
-//!   on a world where nobody set one.
-//! - **`economy`** — reads `p.specialisation`; likewise absent. `None`.
+//!   on a world where nobody set one. It is why no town generated here gets a
+//!   bastioned trace: `generate()` gates `applyStarFort` on it.
+//! - **`economy`** — reads `p.specialisation`; likewise absent. `None`, which
+//!   takes the reference's own no-specialisation path through
+//!   `assignDistricts` — and `oreBearing` with it, since the reference computes
+//!   a bearing only for `specialisation === 'mining'` (line 22659). So
+//!   [`um_ore_bearing`] is ported and unreached, and that is the reference's
+//!   own branch rather than a gap.
 //! - **`culture`** — reads `civFactionCulture[p.faction]`; this port has no
-//!   faction-culture table at all (verified by grep). `"medieval"`, which is
-//!   also `resolve_profile`'s own fallback. That matters: the other live
-//!   profile, `venus`, dispatches `generate()` onto `buildRadialStreets`,
-//!   which is milestone 8 and unported — so a `venus` settlement could not
-//!   be laid out here even if the data existed.
-//! - **`harbourScale`** — see `_umHarbourScale` above.
+//!   faction-culture table at all (verified by grep). `None`, which is
+//!   `resolve_profile`'s own `medieval` fallback and the `|| 'medieval'` arm of
+//!   the reference's own expression. A `venus` settlement would lay out today —
+//!   `generate()` dispatches the radial branch itself — what is missing is the
+//!   host data that would ask for one.
+//!
+//! **`harbourScale` is no longer on that list.** [`um_harbour_scale`] is
+//! ported, [`UrbanContext`] carries it, and `generate()` calls `buildHarbour`.
 //!
 //! # Golden status — stated plainly
 //!
@@ -55,60 +74,91 @@
 //! milestone by milestone against the reference. **This module is not.** The
 //! block-2 `_um*` functions run inside the host app's full civ scope
 //! (`field`, `flowField`, `civWays`, `state`, `_riverNet`,
-//! `currentWaterBodies`), and the capture harness this repository's goldens
-//! were generated with slices *block 4* (reference lines 28167-31103) as one
-//! contiguous unit — it has no block-2 fixture, and building one is a real
-//! harness effort, not something to improvise. Every function below is
-//! therefore ported by reading the reference line by line, with its constants
-//! carried verbatim and cited, and covered by ordinary unit tests over
-//! synthetic fields — not by golden parity. Milestone 17 is where that gets
-//! closed.
+//! `currentWaterBodies`), and the capture harness slices *block 4* (reference
+//! lines 28167-31103) as one contiguous unit — it has no block-2 fixture, and
+//! building one is a real harness effort, not something to improvise. Every
+//! function below is therefore ported by reading the reference line by line,
+//! with its constants carried verbatim and cited, and covered by ordinary unit
+//! tests over synthetic fields — not by golden parity. Milestone 17 is where
+//! that gets closed.
 //!
-//! # `run_layout` is not `generate()`
+//! That harness is no longer only a description: milestone 16 reconstructed it
+//! and it lives at `cartalith-native/tools/um_capture.js`. A block-2 fixture
+//! would be a second capture beside it, not a new apparatus from scratch.
 //!
-//! [`run_layout`] runs a *subset* of the reference's `generate()`
-//! (line 30931) — the milestones that exist, in the reference's own order:
-//! scalar derivation, `buildSite`, the `routeEnds` override, `placeAnchors`,
-//! the real-water market pin, `buildPrimaries`/`buildPrimariesFromPaths`,
-//! `buildPlaza` (milestone 8), `grow` (milestones 1-7), then `buildBlocks` and
-//! `buildParcels` (milestone 12).
+//! **A divergence recorded here until 2026-09-02 is gone, by deletion rather
+//! than by correction.** `run_layout` used to transliterate `generate()`'s
+//! real-water market pin itself and computed its ring offsets with Rust's
+//! native `ang.cos()`/`ang.sin()` where [`cartalith_urban::generate`] uses
+//! `js_cos`/`js_sin` — so the two could put a market on two different points
+//! from identical inputs (milestone 6 measured 1 942 and 2 160 disagreements
+//! with V8 over 80 214 arguments). There is now one copy of that block, inside
+//! `generate()`, and it is the `js_*` one. Two native calls remain in the
+//! block-2 rotation helpers ([`um_terrain_orient`], [`um_route_ends`]), which
+//! no golden covers either way.
 //!
-//! It is a subset rather than a prefix, and the gap in the middle is the
-//! important part: `buildHarbour` and `addRiverBridges` (milestone 9) and
-//! `lanePass`/`removeWaterCrossings` (milestone 11) all run *between*
-//! `buildPlaza` and `buildBlocks` in the reference, and none of them exists
-//! here. So milestone 12 is faithful to its own contract while its **input
-//! graph** is not yet the graph the reference would hand it — coarser (no lane
-//! pass) and still crossing water (no `removeWaterCrossings`).
-//! `cartalith_urban::blocks`' own header itemises what is left.
+//! # `run_layout` **is** `generate()`
 //!
-//! **`buildPlaza`'s position is load-bearing.** The reference calls it between
-//! `buildPrimaries` and `grow` (line 31024), so the market square is in the
-//! graph before the epoch loop and the town accretes around it. That is where
-//! [`run_layout`] calls it.
+//! [`run_layout`] builds a [`cartalith_urban::GenOpts`] out of an
+//! [`UrbanContext`] and calls [`cartalith_urban::generate`]. It runs no
+//! generation stage of its own, in no order of its own: every stage, and the
+//! order they run in, is milestone 16's, which is golden-verified whole against
+//! the reference's own `hashModel` over 29 scenarios.
 //!
-//! `assignDistricts`, `buildBuildings`, `applyDecay`, `buildFaithSites`,
-//! `buildMarkets`, `buildCivic`, `buildGames`, `buildDetails`,
-//! `buildFarmland`, `buildWaterway`, `privatizeAlleys`, `clearFortZone`,
-//! `detectRiverCrossings` and `hashModel` are all still unported and are not
-//! called, stubbed or approximated. A town produced here is a **street
-//! skeleton with real blocks and lots on it** — but no buildings, no wall, no
-//! districts and no amenities.
+//! That is a deliberate reversal, and the reason is recorded because the old
+//! shape looked harmless. Until 2026-09-02 this function ran a hand-ordered
+//! *subset* — `buildSite`, `placeAnchors`, the market pin,
+//! `buildPrimaries`/`buildPrimariesFromPaths`, `buildPlaza`, `grow`,
+//! `buildBlocks`, `buildParcels` — and skipped `buildHarbour`,
+//! `addRiverBridges`, `lanePass` and `removeWaterCrossings`, which the
+//! reference runs *between* `buildPlaza` and `buildBlocks`. The blocks it
+//! platted therefore came off a graph the reference would never have handed
+//! `buildBlocks`: coarser (no lane pass) and still crossing water. Every stage
+//! it skipped had existed and been golden-tested for days. A second pipeline
+//! beside a verified one does not stay equivalent to it, and this one already
+//! was not.
+//!
+//! Two consequences follow, and both are visible in [`UrbanLayout`]:
+//!
+//! - **`primaries` and `placed_len` are gone.** They were `buildPrimaries`' and
+//!   `grow`'s own return values, and `generate()` discards both (reference
+//!   lines 31021 and 31029). Recovering them would mean calling those stages a
+//!   second time — and both mutate the graph, so a second call is a second
+//!   town, not a second reading. [`UrbanLayout::street_len`] is
+//!   `computeMetrics`' `totalLen` instead, which is the live network measured
+//!   *after* the cleanup passes rather than the metres `grow` laid before them.
+//! - **Nine layers arrived at once**: the wall circuit and its gates, buildings,
+//!   per-parcel districts, markets, farmland, the harbour, the crossings, the
+//!   civic hall and the head count. Five are surfaced through this type today
+//!   (walls, buildings, districts, markets, farmland); the rest are in the
+//!   [`cartalith_urban::Town`] this function projects from and are one field
+//!   each away.
 
 use cartalith_urban::{
-    build_blocks, build_parcels, build_plaza, build_primaries, build_primaries_from_paths,
-    build_site, grow, js_hypot, js_max, js_min, js_round, place_anchors, resolve_profile,
-    resolve_rules, Graph, GrowOpts, RecordingWallBuilder, Site, SiteOpts, TerrainCtx, WallState,
-    WaterCtx,
+    GenOpts, TerrainCtx, WaterCtx, generate, js_hypot, js_max, js_min, js_round,
 };
 
-/// Re-exported so a caller can name the point type this module's output is
+/// Re-exported so a caller can name the types this module's output is
 /// expressed in without taking its own dependency on `cartalith-urban` —
 /// `cartalith-godot` is exactly that caller (`ARCHITECTURE.md`: the boundary
 /// crate depends on what it must and no more).
-pub use cartalith_urban::{Plaza, Vec2};
+///
+/// The list grew on 2026-09-02 with [`UrbanLayout`]'s five new layers: a
+/// consumer that reads `buildings`, `wall`, `markets` or `farmland` has to be
+/// able to spell their types.
+pub use cartalith_urban::{Building, Detail, DetailGeom, Gate, Market, Plaza, Vec2, WallState};
 
-use crate::{NamedSettlement, Way};
+/// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
+/// `military.rs` already takes them from `cartalith-jsmath` directly.
+use cartalith_jsmath::{js_atan2, js_num_or_zero};
+
+use std::collections::HashMap;
+
+use crate::{
+    BIOME_KEYS, CIV_RESOURCE_KEYS, NamedSettlement, ResourcePotentials, Way, WayType,
+    civ_place_resource_context,
+    military::{WallPlace, civ_place_defensibility, civ_relative_elevation, um_wall_spec},
+};
 
 /// `UME.SITE_WM`/`UME.SITE_HM` — the site box, in metres (reference
 /// `generate()` line 30969: `const Wm=1700,Hm=1250`).
@@ -279,6 +329,37 @@ pub fn um_site_kind_from_terrain(w: &UrbanWorld, px: f64, py: f64) -> &'static s
 pub fn um_infer_age(pop: f64) -> f64 {
     let p = js_max(1.0, if pop.is_nan() { 0.0 } else { pop });
     js_max(30.0, js_min(1000.0, js_round(60.0 + 240.0 * js_max(1.0, p / 100.0).log10())))
+}
+
+/// `_umHarbourScale` (reference lines 22146-22150) — the multiplier on the
+/// harbour's built extent (quay length, pier count, mole), from the port's
+/// population.
+///
+/// The reference's own reasoning is the reason for the exponent and is
+/// carried verbatim rather than rounded off: waterfront is a ~1D measure of
+/// throughput, so quay length tracks trade ~ population but **sub-linearly**
+/// (a city ten times larger does not need a ten-times-longer quay), hence
+/// `pow(…, 0.4)` and not a linear scale. `3000` souls is the reference point
+/// that maps to `buildHarbour`'s own ~120-150 m base quay, and the `0.6..3`
+/// clamp keeps a hamlet-port from being a pinprick and a metropolis-port from
+/// being unbounded.
+///
+/// `site_kind` is [`um_site_kind_from_terrain`]'s answer; `landlocked`
+/// returns `1` because no harbour is built there at all (the reference marks
+/// that return "unused").
+///
+/// [`cartalith_urban::GenOpts::harbour_scale`] is the consumer this feeds —
+/// an `Option<f64>` there, so a caller with no port passes `Some(1.0)` or
+/// `None` alike. This adapter's own [`run_layout`] does not call
+/// `build_harbour` at all (see the module header), so nothing in *this* file
+/// reads the value yet; that is a wiring gap in `run_layout`, not a missing
+/// port.
+pub fn um_harbour_scale(pop: f64, site_kind: &str) -> f64 {
+    if site_kind == "landlocked" {
+        return 1.0;
+    }
+    let s = (js_max(1.0, pop) / 3000.0).powf(0.4);
+    js_max(0.6, js_min(3.0, s))
 }
 
 // ----------------------------------------------------- routes and roads --
@@ -899,11 +980,562 @@ pub fn um_terrain_ctx(w: &UrbanWorld, px: f64, py: f64) -> Option<TerrainCtx> {
     Some(TerrainCtx { grid, mw, mh, cell_m, h_min, h_max })
 }
 
+// ------------------------------------------------------------ site profile --
+
+/// `UM_RIVER_CONTEXT_KM` (reference line 22054) — how far out a river is
+/// still worth *reporting* as this settlement's context. Beyond it
+/// [`SiteProfile::river_dist_km`] is `Infinity`, i.e. "no river at all",
+/// which is the reference's own way of refusing to claim a river a
+/// settlement does not have.
+pub const UM_RIVER_CONTEXT_KM: f64 = 25.0;
+
+/// `gradAt` (reference line 7586) — `∇field`, the central difference this
+/// crate's [`crate::slope_at`] already takes the hypot of. Both are ported
+/// because [`um_site_profile`] reads both: the magnitude for `slopeN` and the
+/// vector for `aspect`.
+fn grad_at(field: &[f32], gw: usize, gh: usize, world: bool, x: usize, y: usize) -> (f64, f64) {
+    let (xl, xr) = if world {
+        ((x + gw - 1) % gw, (x + 1) % gw)
+    } else {
+        (if x > 0 { x - 1 } else { x }, if x + 1 < gw { x + 1 } else { x })
+    };
+    let (yu, yd) = (if y > 0 { y - 1 } else { y }, if y + 1 < gh { y + 1 } else { y });
+    let l = field[y * gw + xl] as f64;
+    let r = field[y * gw + xr] as f64;
+    let u = field[yu * gw + x] as f64;
+    let d = field[yd * gw + x] as f64;
+    ((r - l) * 0.5, (d - u) * 0.5)
+}
+
+/// `_civCoastDistField` (reference lines 22435-22443) — chamfer distance in
+/// **cells** from every cell to the nearest sub-sea-level one.
+///
+/// The reference memoises this on `_fieldGen|sea|GWxGH` for exactly the
+/// reason it must not be recomputed here: it is one `O(GW·GH)` pass and
+/// [`um_site_profile`] is called once *per settlement*. It is therefore a
+/// producer the caller runs once and hands in as
+/// [`SiteProfileWorld::coast_dt`] — the same hoist [`UrbanWorld::river_polys`]
+/// already documents, with the call itself unchanged.
+///
+/// Returns an empty vector for a wrong-length field, which is the reference's
+/// own `null` return.
+pub fn civ_coast_dist_field(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    let n = gw * gh;
+    if n == 0 || field.len() != n {
+        return Vec::new();
+    }
+    let mut src = vec![0u8; n];
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            src[i] = 1;
+        }
+    }
+    cartalith_terrain::infer::chamfer_dist(&src, gw, gh)
+}
+
+/// `_civPlaceConnectedRoads` (reference lines 23813-23822, the range read
+/// off the file rather than off the index) — the ways whose **endpoint**
+/// lands within the same `eps`
+/// [`um_route_ends`] and [`um_primary_paths`] already use.
+///
+/// Private: [`um_site_profile`] is its only consumer, exactly as
+/// `_civPlaceConnectedRoads`' `roadCount`/`roadTypes` are the only fields the
+/// profile derives from it. The reference also skips `w.sea`; this port keeps
+/// sea lanes in a separate type that never reaches here, the same note
+/// [`um_route_ends`] carries.
+fn civ_place_connected_roads(ways: &[Way], px: f64, py: f64, gw: usize) -> Vec<&Way> {
+    if ways.is_empty() {
+        return Vec::new();
+    }
+    let eps = js_max(1.0, gw as f64 / 250.0);
+    let mut out = Vec::new();
+    for w in ways {
+        if w.pts.len() < 2 || w.hidden {
+            continue;
+        }
+        let (ax, ay) = w.pts[0];
+        let (bx, by) = w.pts[w.pts.len() - 1];
+        if js_hypot(ax - px, ay - py) < eps || js_hypot(bx - px, by - py) < eps {
+            out.push(w);
+        }
+    }
+    out
+}
+
+/// The `w.type` strings the reference's ways carry (`'highway'` |
+/// `'regional'` | `'road'` | `'track'`, reference line 21683) — the vocabulary
+/// [`SiteProfile::road_types`] is expressed in.
+fn way_type_key(t: WayType) -> &'static str {
+    match t {
+        WayType::Highway => "highway",
+        WayType::Regional => "regional",
+        WayType::Road => "road",
+        WayType::Track => "track",
+    }
+}
+
+/// The grids and caller-resolved inputs [`um_site_profile`] needs on top of
+/// [`UrbanWorld`].
+///
+/// Every field is state the pipeline already produced, hoisted out of the
+/// per-settlement path for the reason the reference itself caches each of
+/// them (`_civCoastDistField`, `currentFloodField`, `buildBiomeRaster`,
+/// `currentCarryingCapacity`, `currentResourcePotentials` are all `current*()`
+/// memos there). An **empty** slice is accepted everywhere and means the
+/// reference's own missing-source answer, named per field below — never a
+/// fabricated value.
+pub struct SiteProfileWorld<'a> {
+    /// [`civ_coast_dist_field`]'s output, cells. Empty → `coast_dist_km` is
+    /// `Infinity`, the reference's `cdt?…:Infinity`.
+    pub coast_dt: &'a [f32],
+    /// `currentFloodField()`. Empty → `floodplain` is `0`.
+    pub flood: &'a [f32],
+    /// [`crate::build_biome_raster`]'s output. Empty → `biome` is `None`,
+    /// which is precisely the reference's `BIOME_KEYS[undefined-1]` →
+    /// `undefined`; see [`SiteProfile::biome`].
+    pub biome: &'a [u8],
+    /// `tempField`, °C. Empty → `temp_c` is `0`.
+    pub temp: &'a [f32],
+    /// `rainField`. Empty → `rain` is `0`.
+    pub rain: &'a [f32],
+    /// `currentCarryingCapacity()`. Empty → `carry_k` is `0`.
+    pub carry_k: &'a [f32],
+    /// `currentResourcePotentials()`. Short/absent → `resources` is `None`
+    /// and `resources_nearby` empty, the reference's own
+    /// `{mean:null, nearby:[]}`.
+    pub res: &'a ResourcePotentials,
+    /// `civWays`.
+    pub ways: &'a [Way],
+    /// `state.world` — the horizontal wrap `slopeAt`/`gradAt` read.
+    pub world_wrap: bool,
+    /// **Caller-resolved `_umInferWalls(p)`.**
+    ///
+    /// The reference's profile calls `_civPlaceDefensibility(p)`, which calls
+    /// `_umInferWalls(p)`, which reads `p.traits`, `p.specialisation`,
+    /// `p.umWalls` and `p.kind` — and this port's [`NamedSettlement`] carries
+    /// none of the first three (`OUTSTANDING_WORK.md` §2.1: "settlements carry
+    /// no `specialisation` and no `traits`"). Rather than fabricate them, the
+    /// caller supplies the answer, the same shape [`crate::trade::civ_salt_access`]'s
+    /// `nav` and [`crate::military::civ_place_defensibility`]'s own `walled` already
+    /// take.
+    ///
+    /// **What the caller must supply:**
+    /// [`crate::military::um_infer_walls`] over a
+    /// [`crate::military::WallPlace`] built from the settlement — with
+    /// `specialisation: None`, `fortified_trait: false` and
+    /// `walls_override: None` where the host has no source for them, which is
+    /// the value every settlement holds in the reference before anything sets
+    /// one, and `relative_elevation` from
+    /// [`crate::military::civ_relative_elevation`]. Keeping the two functions
+    /// one-directional here also makes the recursion the reference's own
+    /// `_umWallSpec` comment warns about impossible to reintroduce.
+    pub walled: bool,
+}
+
+/// `_umSiteProfile`'s return (reference lines 22559-22571) — every field, in
+/// the reference's own order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SiteProfile {
+    pub x: f64,
+    pub y: f64,
+    /// [`um_site_kind_from_terrain`]'s answer.
+    pub site_kind: &'static str,
+    /// `field[i]`, raw.
+    pub elevation: f64,
+    /// `max(0,(elevation-sea)/max(1e-6,1-sea))` — note the `max(0)`, which
+    /// [`crate::military::civ_relative_elevation`] does *not* apply.
+    pub elev_n: f64,
+    /// `slopeAt(xi,yi)*GW`, the resolution-normalised convention used
+    /// file-wide.
+    pub slope_n: f64,
+    /// Downslope direction, radians. `None` = flat, the reference's own
+    /// `null`.
+    pub aspect: Option<f64>,
+    /// Height span of the sampled disc.
+    pub local_relief: f64,
+    /// Fraction of the sampled disc lying below the site.
+    pub visibility: f64,
+    /// `Infinity` when there is no coast-distance field.
+    pub coast_dist_km: f64,
+    /// Always honest, however far — but `Infinity` beyond
+    /// [`UM_RIVER_CONTEXT_KM`].
+    pub river_dist_km: f64,
+    /// Strahler order, and `0` unless a stem is inside
+    /// [`um_water_reach_km`]: v1.32's fix, so the profile cannot claim a river
+    /// the settlement does not have.
+    pub river_order: f64,
+    pub river_width_m: f64,
+    /// A *second* distinct traced stem within the near radius.
+    pub confluence: bool,
+    pub floodplain: f64,
+    pub road_count: usize,
+    /// Distinct `way_type` keys among the connected roads, in first-seen
+    /// order — JS `[...new Set(...)]`, which is insertion-ordered.
+    pub road_types: Vec<&'static str>,
+    /// `_civPlaceResourceContext`'s `mean`. `None` is the reference's own
+    /// `mean:null` when there are no potentials.
+    pub resources: Option<HashMap<&'static str, f64>>,
+    /// Keys with mean `>0.4`, descending by mean.
+    pub resources_nearby: Vec<&'static str>,
+    /// `'ocean'` | `'lake'` | a [`crate::BIOME_KEYS`] entry. `None` only when
+    /// no biome raster was supplied — the reference's `undefined`.
+    pub biome: Option<&'static str>,
+    pub temp_c: f64,
+    pub rain: f64,
+    pub carry_k: f64,
+    /// [`crate::military::civ_place_defensibility`] with the caller-resolved
+    /// [`SiteProfileWorld::walled`].
+    pub defensibility: f64,
+    /// Fraction of an 11×9 lattice over the town box that is land and
+    /// gentle enough to build on.
+    pub buildable_frac: f64,
+}
+
+/// `_umSiteProfile` (reference lines 22476-22575) — the settlement Site
+/// Profile: everything about the *ground* a settlement stands on, assembled
+/// from fields the pipeline has already produced.
+///
+/// The reference's own header (line 22425) is the scope statement: built
+/// "ENTIRELY from existing engine primitives … nothing here is a new full-grid
+/// pass except the one cached coast distance transform". That holds here —
+/// [`civ_coast_dist_field`] is that one pass, and it is the caller's to run
+/// once.
+///
+/// Three v1.32/v1.35 fixes are carried, not just the final expressions, and
+/// each exists because dropping it produced a *wrong readout* rather than a
+/// crash:
+///
+/// - river **order and width** are filled in only when a stem is within
+///   [`um_water_reach_km`] (the old test was `bestD < GW/8` **cells**, which
+///   reported "river ord 1 ~618 km" for a settlement with no river near it);
+/// - that reach is floored at one cell, because a km threshold finer than the
+///   grid is unsatisfiable by construction and made `river_order` `0` for
+///   *every* settlement in the world;
+/// - the buildable-fraction samples are clamped into the grid before reading
+///   slope, because at a coarse resolution the whole 1.7 km town box is
+///   sub-cell and the fraction degenerated to 0 % or 100 %.
+///
+/// **Not cached here.** The reference keeps a 64-entry LRU
+/// (`_umSiteProfileCache`); this module's header already records caching as
+/// the caller's business, the same call this port makes for `_umCacheKey` and
+/// friends.
+///
+/// `None` for an absent or wrong-length field — the reference's own
+/// `if(typeof field==='undefined'||!field||!field.length) return null`.
+pub fn um_site_profile(
+    w: &UrbanWorld,
+    e: &SiteProfileWorld,
+    px: f64,
+    py: f64,
+) -> Option<SiteProfile> {
+    let n = w.gw * w.gh;
+    if n == 0 || w.field.len() != n {
+        return None;
+    }
+    let sea = w.sea_level;
+    let denom = js_max(1e-6, 1.0 - sea);
+    let xi = js_max(0.0, js_min((w.gw - 1) as f64, js_round(px))) as usize;
+    let yi = js_max(0.0, js_min((w.gh - 1) as f64, js_round(py))) as usize;
+    let i = yi * w.gw + xi;
+    let cell_km = w.map_width_km / w.gw as f64;
+    let elevation = w.field[i] as f64;
+    let elev_n = js_max(0.0, (elevation - sea) / denom);
+    let slope_n = crate::slope_at(w.field, w.gw, w.gh, e.world_wrap, xi, yi) * w.gw as f64;
+    let (gx, gy) = grad_at(w.field, w.gw, w.gh, e.world_wrap, xi, yi);
+    let aspect =
+        if gx.abs() + gy.abs() > 1e-9 { Some(js_atan2(-gy, -gx)) } else { None };
+
+    // Local relief + visibility: the sampled-disc idiom the suitability
+    // defensibility term uses.
+    let def_r = js_max(4.0, js_round(w.gw as f64 / 70.0)) as i64;
+    let (mut lower, mut tot) = (0u64, 0u64);
+    let (mut h_min, mut h_max) = (elevation, elevation);
+    // `dy+=2`/`dx+=2` — the lattice steps by two from `-defR`, so with an odd
+    // `defR` the site's own cell is never sampled. That is the reference's
+    // behaviour and `visibility` depends on it.
+    for dy in (-def_r..=def_r).step_by(2) {
+        for dx in (-def_r..=def_r).step_by(2) {
+            let xx = xi as i64 + dx;
+            let yy = yi as i64 + dy;
+            if xx < 0 || yy < 0 || xx >= w.gw as i64 || yy >= w.gh as i64 {
+                continue;
+            }
+            let hv = w.field[yy as usize * w.gw + xx as usize] as f64;
+            tot += 1;
+            if hv < elevation - 0.004 {
+                lower += 1;
+            }
+            if hv < h_min {
+                h_min = hv;
+            }
+            if hv > h_max {
+                h_max = hv;
+            }
+        }
+    }
+    let visibility = if tot != 0 { lower as f64 / tot as f64 } else { 0.0 };
+    let local_relief = h_max - h_min;
+
+    let coast_dist_km =
+        if e.coast_dt.len() == n { e.coast_dt[i] as f64 * cell_km } else { f64::INFINITY };
+
+    // River: nearest traced stem → distance, Strahler order, width;
+    // `confluence` = a SECOND distinct stem also within the near radius, which
+    // (traced stems being non-overlapping) is a junction of the drainage tree.
+    let mut river_dist_km = f64::INFINITY;
+    let mut river_order = 0.0f64;
+    let mut river_width_m = 0.0f64;
+    let mut confluence = false;
+    if !w.river_polys.is_empty() {
+        let near_r = js_max(1.0, js_round(um_water_near_km() / js_max(1e-6, cell_km)));
+        let mut best: Option<&Vec<(f64, f64)>> = None;
+        let mut best_d = f64::INFINITY;
+        let mut second = f64::INFINITY;
+        for pl in w.river_polys {
+            let mut pl_best = f64::INFINITY;
+            for &(qx, qy) in pl {
+                let d = js_hypot(qx - px, qy - py);
+                if d < pl_best {
+                    pl_best = d;
+                }
+            }
+            if pl_best < best_d {
+                second = best_d;
+                best_d = pl_best;
+                best = Some(pl);
+            } else if pl_best < second {
+                second = pl_best;
+            }
+        }
+        if let Some(best) = best {
+            river_dist_km = best_d * cell_km; // always honest, however far
+            if river_dist_km <= um_water_reach_km(w.gw, w.map_width_km) {
+                let mut bi = 0usize;
+                let mut bd = f64::INFINITY;
+                for (k, &(qx, qy)) in best.iter().enumerate() {
+                    let d = js_hypot(qx - px, qy - py);
+                    if d < bd {
+                        bd = d;
+                        bi = k;
+                    }
+                }
+                // `(_riverNet && _riverNet.order[…]) || 1` — a missing net, an
+                // out-of-range index (the reference does not clamp here, and
+                // JS reads `undefined`) and a genuine order `0` all read `1`.
+                let raw = w.order.and_then(|ord| {
+                    let ox = js_round(best[bi].0) as i64;
+                    let oy = js_round(best[bi].1) as i64;
+                    if ox < 0 || oy < 0 {
+                        return None;
+                    }
+                    let idx = oy * w.gw as i64 + ox;
+                    usize::try_from(idx).ok().and_then(|k| ord.get(k)).map(|&v| v as f64)
+                });
+                river_order = match raw {
+                    Some(v) if v != 0.0 && !v.is_nan() => v,
+                    _ => 1.0,
+                };
+                river_width_m = js_max(12.0, js_min(46.0, 10.0 + river_order * 7.0));
+                confluence = second < near_r;
+            }
+            if river_dist_km > UM_RIVER_CONTEXT_KM {
+                river_dist_km = f64::INFINITY; // beyond context: no river at all
+            }
+        }
+    }
+
+    let flood = if e.flood.len() == n { js_num_or_zero(e.flood[i] as f64) } else { 0.0 };
+    let roads = civ_place_connected_roads(e.ways, px, py, w.gw);
+    let mut road_types: Vec<&'static str> = Vec::new();
+    for r in &roads {
+        let k = way_type_key(r.way_type);
+        if !road_types.contains(&k) {
+            road_types.push(k);
+        }
+    }
+    // `_civPlaceResourceContext(p)` with its own default radius,
+    // `max(3, round(GW/128))`, and no world wrap — the reference's own
+    // `if(xx<0||xx>=GW) continue`.
+    let has_pots = CIV_RESOURCE_KEYS.iter().all(|&k| crate::resource_field_all(e.res, k).len() == n);
+    let (resources, resources_nearby) = if has_pots {
+        let radius = js_max(3.0, js_round(w.gw as f64 / 128.0)) as usize;
+        let mean = civ_place_resource_context(
+            e.res, w.field, w.gw, w.gh, sea, xi, yi, radius, false,
+        );
+        let mut nearby: Vec<&'static str> =
+            CIV_RESOURCE_KEYS.iter().copied().filter(|k| mean[k] > 0.4).collect();
+        // `.sort((a,b)=>mean[b]-mean[a])` — descending, and JS's sort is
+        // stable, so `CIV_RESOURCE_KEYS`' own order is the tie-break.
+        nearby.sort_by(|a, b| mean[b].total_cmp(&mean[a]));
+        (Some(mean), nearby)
+    } else {
+        (None, Vec::new())
+    };
+    let biome = if e.biome.len() == n {
+        let bio = e.biome[i];
+        Some(if bio == 0 {
+            "ocean"
+        } else if bio == 13 {
+            "lake"
+        } else {
+            BIOME_KEYS[bio as usize - 1]
+        })
+    } else {
+        None
+    };
+
+    // Buildable-area fraction over the town box: bilinear land test (the v0.99
+    // convention — at coarse resolutions the whole box is sub-cell) + nearest-
+    // cell slope, on an 11×9 sample lattice.
+    let grid_per_meter = w.gw as f64 / (w.map_width_km * 1000.0);
+    let bw = SITE_WM * grid_per_meter;
+    let bh = SITE_HM * grid_per_meter;
+    let (mut buildable, mut b_tot) = (0u64, 0u64);
+    for sj in 0..9 {
+        for si in 0..11 {
+            let sx = px + (si as f64 / 10.0 - 0.5) * bw;
+            let sy = py + (sj as f64 / 8.0 - 0.5) * bh;
+            if sx < 0.0 || sx >= (w.gw - 1) as f64 || sy < 0.0 || sy >= (w.gh - 1) as f64 {
+                continue;
+            }
+            let x0 = sx.floor();
+            let y0 = sy.floor();
+            let fx = sx - x0;
+            let fy = sy - y0;
+            let (x0, y0) = (x0 as usize, y0 as usize);
+            let hv = w.field[y0 * w.gw + x0] as f64 * (1.0 - fx) * (1.0 - fy)
+                + w.field[y0 * w.gw + x0 + 1] as f64 * fx * (1.0 - fy)
+                + w.field[(y0 + 1) * w.gw + x0] as f64 * (1.0 - fx) * fy
+                + w.field[(y0 + 1) * w.gw + x0 + 1] as f64 * fx * fy;
+            b_tot += 1;
+            let bx = js_max(0.0, js_min((w.gw - 1) as f64, js_round(sx))) as usize;
+            let by = js_max(0.0, js_min((w.gh - 1) as f64, js_round(sy))) as usize;
+            // slopeMax=4, the `buildSettlementSuitability` convention.
+            if hv >= sea
+                && crate::slope_at(w.field, w.gw, w.gh, e.world_wrap, bx, by) * (w.gw as f64) < 4.0
+            {
+                buildable += 1;
+            }
+        }
+    }
+
+    Some(SiteProfile {
+        x: px,
+        y: py,
+        site_kind: um_site_kind_from_terrain(w, px, py),
+        elevation,
+        elev_n,
+        slope_n,
+        aspect,
+        local_relief,
+        visibility,
+        coast_dist_km,
+        river_dist_km,
+        river_order,
+        river_width_m,
+        confluence,
+        floodplain: flood,
+        road_count: roads.len(),
+        road_types,
+        resources,
+        resources_nearby,
+        biome,
+        temp_c: if e.temp.len() == n { e.temp[i] as f64 } else { 0.0 },
+        rain: if e.rain.len() == n { e.rain[i] as f64 } else { 0.0 },
+        carry_k: if e.carry_k.len() == n { js_num_or_zero(e.carry_k[i] as f64) } else { 0.0 },
+        defensibility: civ_place_defensibility((elevation - sea) / denom, e.walled),
+        buildable_frac: if b_tot != 0 { buildable as f64 / b_tot as f64 } else { 0.0 },
+    })
+}
+
+/// `_umOreBearing` (reference lines 22613-22627) — the direction of the
+/// strongest ore deposit in the settlement's hinterland, as an angle in the
+/// layout's **local** frame (map-frame `atan2` minus `orient`; on the
+/// real-water path `orient` is `0`, so local = map).
+///
+/// `None` when there is no meaningful deposit (nothing in the disc beats the
+/// `0.25` floor) **or** it sits under the settlement itself — the reference's
+/// own `bx===0&&by===0` test. `assign_districts`' ore-yard rule then falls
+/// back to plain "periphery, away from the market", so `None` is a real
+/// instruction there, not an error.
+///
+/// The scan is `dy` outer, `dx` inner with a strict `v>best`, so among equal
+/// maxima the **first** in that order wins; the order is part of the answer.
+///
+/// # What the caller supplies
+///
+/// The reference reads `currentResourcePotentials()`, which this port has
+/// ([`crate::ResourcePotentials`]) — so unlike its sibling consumer this
+/// function needs no host data the port lacks. The consumer does:
+/// [`cartalith_urban::GenOpts::ore_bearing`] takes exactly this
+/// `Option<f64>`, but `assign_districts`' *other* ore input,
+/// `site.economy.specialisation`, is host data this port's settlements do not
+/// carry (`OUTSTANDING_WORK.md` §2.1), so a caller must supply that
+/// separately or accept the reference's own no-specialisation path.
+pub fn um_ore_bearing(
+    res: &ResourcePotentials,
+    gw: usize,
+    gh: usize,
+    px: f64,
+    py: f64,
+    orient: f64,
+) -> Option<f64> {
+    let n = gw * gh;
+    if n == 0
+        || res.copper.len() != n
+        || res.tin.len() != n
+        || res.iron.len() != n
+        || res.gold.len() != n
+        || res.salt.len() != n
+    {
+        return None;
+    }
+    let r = js_max(2.0, js_round(gw as f64 / 64.0)) as i64;
+    let cx = js_round(px) as i64;
+    let cy = js_round(py) as i64;
+    let mut best = 0.25;
+    let (mut bx, mut by) = (0i64, 0i64);
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let xx = cx + dx;
+            let yy = cy + dy;
+            if xx < 0 || yy < 0 || xx >= gw as i64 || yy >= gh as i64 {
+                continue;
+            }
+            let mi = yy as usize * gw + xx as usize;
+            // `pots.k[mi]||0` — JS falsiness, so a NaN potential reads 0
+            // rather than poisoning the max.
+            let v = js_max(
+                js_max(
+                    js_max(
+                        js_max(
+                            js_num_or_zero(res.copper[mi] as f64),
+                            js_num_or_zero(res.tin[mi] as f64),
+                        ),
+                        js_num_or_zero(res.iron[mi] as f64),
+                    ),
+                    js_num_or_zero(res.gold[mi] as f64),
+                ),
+                js_num_or_zero(res.salt[mi] as f64),
+            );
+            if v > best {
+                best = v;
+                bx = dx;
+                by = dy;
+            }
+        }
+    }
+    if bx == 0 && by == 0 {
+        return None;
+    }
+    Some(js_atan2(by as f64, bx as f64) - js_num_or_zero(orient))
+}
+
 // ------------------------------------------------------------- the context --
 
-/// `_umPlaceContext` (line 22635), restricted to the fields milestones 1-7
-/// can consume. See this module's header table for the four that are absent
-/// and why each is absent rather than invented.
+/// `_umPlaceContext` (line 22635) — every field the reference returns except
+/// the three whose *host inputs* this port does not have. See this module's
+/// header for which three, and why each is absent rather than invented.
 pub struct UrbanContext {
     /// Per-settlement deterministic seed — `hash(p.x|0, p.y|0, state.tect.seed)`
     /// mapped onto `u32`, the reference's own `pickIconVariant` precedent.
@@ -913,6 +1545,23 @@ pub struct UrbanContext {
     pub site_kind: &'static str,
     pub orient: f64,
     pub settlement_age: f64,
+    /// `_umWallSpec(p)` (line 22638) — `none` | `ditch` | `palisade` | `stone`
+    /// ([`crate::military::WALL_SPECS`]). Handed to `generate()` untouched;
+    /// `build_wall` writes it onto [`cartalith_urban::WallState::style`]
+    /// (mapping `stone` onto the legacy `curtain` tag), and a renderer draws a
+    /// timber palisade, an earth ditch-and-bank and a masonry curtain as three
+    /// different things.
+    pub wall_style: &'static str,
+    /// `wallStyle !== 'none'` (line 22639) — whether a circuit is built at all.
+    ///
+    /// A hamlet on flat ground gets `false`, and that is the ladder's verdict:
+    /// it means *this settlement was never walled*, where the `false` this
+    /// adapter hardcoded until 2026-09-02 meant *no wall builder is ported*.
+    pub walls: bool,
+    /// `_umHarbourScale(pop, site)` (line 22667) — the multiplier on the
+    /// harbour's built extent. `1.0` on a landlocked site, where no harbour is
+    /// built at all.
+    pub harbour_scale: f64,
     pub water: Option<UmWater>,
     pub terrain: Option<TerrainCtx>,
     pub route_ends: Option<Vec<Vec2>>,
@@ -933,12 +1582,31 @@ pub fn um_place_context(w: &UrbanWorld, s: &NamedSettlement, ways: &[Way]) -> Ur
     // v0.98: with real water the geometry is already in position, so no
     // rotation is needed and the reference bypasses `_umTerrainOrient`.
     let orient = if water.is_some() { 0.0 } else { um_terrain_orient(w, px, py, site_kind) };
+    // Lines 22638-22639. The three inputs this port's [`NamedSettlement`] does
+    // not carry (`umWalls`, `traits`, `specialisation`) take the value every
+    // settlement holds in the reference before anything sets one —
+    // [`SiteProfileWorld::walled`] documents the same construction, for the
+    // same reason, for the other caller of this same ladder.
+    let wall_style = um_wall_spec(&WallPlace {
+        walls_override: None,
+        kind: s.placement.kind,
+        pop,
+        fortified_trait: false,
+        // `None` makes the ladder call `um_infer_age(pop)` itself, which is the
+        // same `age` computed above — the reference's `p.umAge` is absent here.
+        age_override: None,
+        specialisation: None,
+        relative_elevation: civ_relative_elevation(w.field, w.gw, w.gh, w.sea_level, px, py),
+    });
     UrbanContext {
         seed,
         pop: js_min(20000.0, js_max(400.0, pop)),
         site_kind,
         orient,
         settlement_age: age,
+        wall_style,
+        walls: wall_style != "none",
+        harbour_scale: um_harbour_scale(pop, site_kind),
         water,
         terrain,
         route_ends: um_route_ends(ways, px, py, w.gw, SITE_WM, SITE_HM, orient),
@@ -953,35 +1621,46 @@ pub fn um_place_context(w: &UrbanWorld, s: &NamedSettlement, ways: &[Way]) -> Ur
 pub struct LayoutEdge {
     pub a: Vec2,
     pub b: Vec2,
-    /// `primary` | `street` | `lane` — the only three classes milestones 1-7
-    /// produce (`ringroad` needs `supersede_wall`, which needs a real
-    /// `WallBuilder`; `quay` needs `buildHarbour`).
+    /// `primary` | `ringroad` | `quay` | `street` | `lane` — the reference's
+    /// own five (`_umDrawLayout`'s `wFill` table, line 22811). `ringroad` comes
+    /// from `supersedeWall` demolishing a superseded circuit and `quay` from
+    /// `buildHarbour`; both were unreachable while [`run_layout`] ran its own
+    /// stage subset, and both are reachable now.
     pub cls: &'static str,
     pub w: f64,
 }
 
 /// One buildable lot, flattened for the bridge: the reference's strip parcel,
-/// which is the smallest thing this port generates and the shape a renderer
-/// draws a rooftop on.
+/// which is the smallest thing this port generates.
+///
+/// **A parcel is not a building.** [`UrbanLayout::buildings`] is the footprints
+/// `buildBuildings` puts *inside* these lots, and a lot with no building on it
+/// is a real generated answer (`assignDistricts` leaves some empty, and the
+/// terrain-suitability gate empties more).
 pub struct LayoutParcel {
     /// The lot quad, in the reference's `[P0, P1, Q1, Q0]` winding —
     /// `poly[0]`/`poly[1]` are the street frontage, `poly[3]`/`poly[2]` the
-    /// back, which is what a renderer finds the roof ridge from.
+    /// back.
     pub poly: Vec<Vec2>,
     pub area: f64,
     pub edge_cls: &'static str,
     /// 0..1, stable per lot. See `cartalith_urban::Parcel::tone`.
     pub tone: f64,
+    /// `assignDistricts`' tag: `market` | `burgher` | `artisan` | `craftriver`
+    /// | `harbour` | `suburb` | `agrarian` | `church`, plus the five economy
+    /// overrides no settlement in this port can reach (see the module header on
+    /// `economy`). `""` on a lot the pass never tagged.
+    pub district: &'static str,
 }
 
-/// What [`run_layout`] produces. Every field is engine output, never a
-/// placeholder: there is still no `buildings`, `wall` or `districts` field
-/// here because milestones 10 and 13-17 do not exist, and an empty array named
-/// `buildings` would read as "this town has no buildings" rather than "this
-/// port cannot build any yet".
+/// What [`run_layout`] produces — a projection of [`cartalith_urban::Town`],
+/// which is `generate()`'s own return value.
 ///
-/// `blocks` and `parcels` **are** present as of milestone 12 — they are real
-/// generator output, not a stand-in for the buildings that are still missing.
+/// Every field is engine output, never a placeholder. Where a collection is
+/// **empty** that is now a real answer rather than a missing port: a hamlet the
+/// wall ladder never walled has no [`Self::wall_ring`], a Venus profile has no
+/// [`Self::farmland`] of the strip kind, a landlocked site has no
+/// [`Self::harbour_pt`].
 pub struct UrbanLayout {
     pub wm: f64,
     pub hm: f64,
@@ -1002,19 +1681,22 @@ pub struct UrbanLayout {
     /// one; the traced shoreline for a purely coastal site).
     pub river: Vec<Vec2>,
     pub river_w: f64,
-    /// `site.bridgePt` — the flattest real crossing point `buildSite` chose.
-    /// This is **not** `site.bridges` (milestone 9's `detectRiverCrossings`),
-    /// which does not exist; nothing is drawn as a bridge deck from it.
+    /// `site.bridgePt` — the flattest crossing point `buildSite` chose, which
+    /// is a *site* fact. It is **not** `site.bridges`, `detectRiverCrossings`'
+    /// answer about where a live road really crosses; that now exists on the
+    /// [`cartalith_urban::Town`] this projects from and is not surfaced here.
     pub bridge_pt: Option<Vec2>,
     /// `site.routeEnds` — the approach-road endpoints on the box edge, real
     /// (from [`um_route_ends`]) or `build_site`'s synthetic ones.
     pub route_ends: Vec<Vec2>,
-    /// `site.harbour.pt` when the site has one.
+    /// `harbour.pt` — `buildHarbour`'s own works, not `buildSite`'s candidate
+    /// point. `None` both when the site has no harbour and when `buildHarbour`
+    /// refused one (unnavigable water, or a cliff shore).
     pub harbour_pt: Option<Vec2>,
     pub edges: Vec<LayoutEdge>,
-    /// Milestone 12's town blocks — the faces of the street graph, inset to
-    /// their buildable interiors. The polygon only; the face, ids and edge
-    /// distances stay engine-side, since nothing draws them.
+    /// The town blocks — the faces of the street graph, inset to their
+    /// buildable interiors. The polygon only; the face, ids and edge distances
+    /// stay engine-side, since nothing draws them.
     pub blocks: Vec<Vec<Vec2>>,
     /// Parallel to [`Self::blocks`]: `true` for the one face holding the market
     /// square, which is kept unbuilt. Empty-parallel rather than folded into a
@@ -1022,21 +1704,64 @@ pub struct UrbanLayout {
     /// a town runs to a few thousand of these and the renderer only ever walks
     /// them in order.
     pub block_plaza: Vec<bool>,
-    /// Milestone 8's market place, when the site had a primary to widen.
-    /// [`Plaza::poly`] is the square's own outline, which the reference strokes
-    /// over the block fill (`_cvDrawCity`, declared at reference line 23021;
-    /// the plaza stroke itself is line 23046). `_umDrawLayoutDetailed`, cited
-    /// here until 2026-08-31, exists nowhere in the reference -- the line
-    /// number was right and the name was invented.
+    /// The market place, when the site had a primary to widen. [`Plaza::poly`]
+    /// is the square's own outline, which the reference strokes over the block
+    /// fill (`_cvDrawCity`, declared at reference line 23021; the plaza stroke
+    /// itself is line 23046). `_umDrawLayoutDetailed`, cited here until
+    /// 2026-08-31, exists nowhere in the reference -- the line number was right
+    /// and the name was invented.
     pub plaza: Option<Plaza>,
-    /// Milestone 12's strip parcels.
+    /// The strip parcels, each now carrying its district.
     pub parcels: Vec<LayoutParcel>,
-    /// The primary routes as polylines, before they were laid into the graph
-    /// — `buildPrimaries`' own return value, which the reference's
-    /// `generate()` discards.
-    pub primaries: Vec<Vec<Vec2>>,
-    /// `grow`'s return: metres of street actually placed.
-    pub placed_len: f64,
+    /// `buildBuildings` plus `buildFaithSites`' inserts — the footprints inside
+    /// the lots, with the ridge line the reference strokes over each roof.
+    pub buildings: Vec<Building>,
+    /// Parallel to [`Self::buildings`]: the `tone` of the lot each footprint
+    /// stands on, resolved here from `Building::parcel` so a renderer does not
+    /// have to.
+    ///
+    /// It is resolved **once per layout** rather than once per redraw, which is
+    /// the whole reason it exists as a field: `urban_layout_draw.gd` shades
+    /// every roof by this scalar and a town runs to a few thousand of them.
+    ///
+    /// `0.5` — the middle of the weathering range — for a footprint whose lot
+    /// id does not resolve. Nothing in the engine produces one today: every
+    /// `Building` is constructed with `parcel: par.id.clone()` (four sites in
+    /// `districts.rs`, checked one at a time), and the only other thing that
+    /// touches the vector is `build_faith_sites`, which *retains* — it removes
+    /// buildings and never pushes one. The fallback is there because a missing
+    /// key must not panic across the gdext boundary, not because it is expected.
+    pub building_tone: Vec<f64>,
+    /// The whole wall record: the closed containment ring, its gates (land and
+    /// water), its spurs, its style tag and its centroid. Carried entire rather
+    /// than picked apart because that is one field against six and `WallState`
+    /// is what `buildWall` writes — `ring: None` is an unwalled town.
+    pub wall: WallState,
+    /// `wallStyle` as *requested* ([`UrbanContext::wall_style`]), before
+    /// `build_wall` maps `stone` onto its legacy `curtain` tag. The two differ
+    /// by that one rename, and both are worth having: this one is the ladder's
+    /// verdict, `wall.style` is what a renderer draws.
+    pub wall_spec: &'static str,
+    /// `buildMarkets`' specialised squares — the ones that multiply with rank
+    /// (M-AMEN-1), each with a name and an outline. Distinct from
+    /// [`Self::plaza`], which is the one chartered square carved out of the
+    /// principal street.
+    pub markets: Vec<Market>,
+    /// `buildFarmland`'s strip or ring fields, filtered out of the detail list
+    /// by kind (`field` / `pasture`, which are the only two kinds
+    /// `strip_fields`/`ring_fields` emit). The rest of `build_details`' output —
+    /// trees, fences, spoil heaps, drying racks, log booms — stays engine-side;
+    /// neither of the reference's own map renderers draws them either.
+    pub farmland: Vec<Detail>,
+    /// `computeMetrics`' `totalLen`: metres of live street, measured after the
+    /// lane passes, `removeWaterCrossings`, `privatizeAlleys` and
+    /// `clearFortZone`. **Not** `grow`'s return, which `generate()` discards —
+    /// see this module's header.
+    pub street_len: f64,
+    /// The head count `generate()` derives, 5.2 per built non-churchyard lot
+    /// accumulated in parcel order. Distinct from [`Self::pop_target`], which
+    /// is what was asked for.
+    pub pop: f64,
     pub target_len: f64,
     pub max_rf: f64,
     pub pop_target: f64,
@@ -1045,9 +1770,12 @@ pub struct UrbanLayout {
     pub uses_real_terrain: bool,
 }
 
-/// The prefix of the reference's `generate()` (line 30931) that milestones 1-7
-/// supply. **Not `generate()`** — see this module's header for the full list
-/// of stages that are not run.
+/// [`cartalith_urban::generate`] — the reference's `generate()` (line 30931),
+/// all 29 stages, called with a [`GenOpts`] built out of `ctx`.
+///
+/// This function runs no generation stage itself. Everything below the
+/// `GenOpts` literal is projection: [`cartalith_urban::Town`] into
+/// [`UrbanLayout`].
 ///
 /// `None` when the settlement sits in open water (`ctx.water.mostlyWater`),
 /// which is `_umModelFor`'s own refusal: there is no shore to build on, so the
@@ -1056,198 +1784,127 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
     if ctx.water.as_ref().is_some_and(|w| w.mostly_water) {
         return None;
     }
-    // No faction-culture data exists in this port, so `resolveProfile` takes
-    // its own fallback. `medieval`'s `planning` is `organic`, which is the
-    // branch milestones 6-7 implement; `venus` would need `buildRadialStreets`
-    // (milestone 8).
-    let profile = resolve_profile("medieval");
-    debug_assert_eq!(profile.planning, "organic");
-    let rules = resolve_rules(None);
-
-    let settlement_age = js_max(30.0, js_min(1000.0, ctx.settlement_age));
-    let epochs = 8i32; // `opts.epochs || 8`
-    let pop_target = js_max(400.0, js_min(20000.0, ctx.pop));
-    // M-DEN-1/2/M-PAR-1: ~150 p/ha and ~8 m frontages give ~2.1 m of street
-    // per inhabitant; the floor keeps a hamlet a small crossroads cluster.
-    let target_len = js_max(1600.0, js_min(42000.0, pop_target * 2.1));
-    let max_rf = js_min(720.0, (pop_target * 21.0).sqrt() * 1.35 + 80.0);
-
-    let uses_real_water = ctx.water.is_some();
-    let uses_real_terrain = ctx.terrain.is_some();
-    let opts = SiteOpts {
+    let opts = GenOpts {
+        // `civFactionCulture[p.faction] || 'medieval'` — this port has no
+        // faction-culture table, so the `|| 'medieval'` arm, which is also
+        // `resolve_profile`'s own fallback for a `None`.
+        culture: None,
+        // `_umPlaceContext` passes no `rules`; `generate()` takes DEFAULT_RULES.
+        rules: None,
+        site: Some(ctx.site_kind.to_string()),
+        // `terrainAware:!!terrain` (line 22663) — real relief in, so let it gate
+        // building suitability too.
+        terrain_aware: ctx.terrain.is_some(),
+        // Not a `_umPlaceContext` field at all: the reference's `opts.ruined`
+        // is the settlement-editor's own toggle, which this port has no source
+        // for. `false` is `generate()`'s reading of an absent key.
+        ruined: false,
+        // `wallGenerations:true`, unconditionally (line 22665).
+        wall_generations: true,
+        settlement_age: Some(ctx.settlement_age),
+        // `opts.epochs || 8` — `None` takes that default inside `generate`.
+        epochs: None,
+        pop: Some(ctx.pop),
+        // `_umWallSpec`'s verdict, not a constant. `generate()` tests
+        // `!== false`, so this must be an explicit `Some`.
+        walls: Some(ctx.walls),
+        // `!!(p.traits&&p.traits.includes('fortified'))` — no traits in this
+        // port, so no bastioned trace. See the module header.
+        fortified: false,
+        wall_style: Some(ctx.wall_style.to_string()),
+        // Neither is a `_umPlaceContext` field; `generate()` reads
+        // `profile.defaultFaith` / `profile.defaultCivic` for a falsy value.
+        faith: None,
+        civic_style: None,
+        harbour_defence: None,
+        harbour_scale: Some(ctx.harbour_scale),
         water: ctx.water.as_ref().map(|w| w.ctx.clone()),
         terrain: ctx.terrain.clone(),
-        // `p.specialisation` does not exist in this port — see the header.
+        // `economy` is `null` whenever `p.specialisation` is absent (line
+        // 22658), and this port's settlements carry none — so the reference's
+        // own no-specialisation path, and `oreBearing` with it, which it
+        // computes only for `specialisation === 'mining'`.
         economy: None,
+        ore_bearing: None,
+        route_ends: ctx.route_ends.clone().unwrap_or_default(),
+        primary_paths: ctx.primary_paths.clone().unwrap_or_default(),
     };
-    let mut site: Site = build_site(ctx.seed, SITE_WM, SITE_HM, ctx.site_kind, opts);
+    let t = generate(ctx.seed, &opts);
 
-    // The one integration point the reference's own port notes flagged as
-    // needing a real bridge: real approach roads override the synthetic
-    // map-edge endpoints verbatim.
-    if let Some(re) = &ctx.route_ends
-        && !re.is_empty()
-    {
-        site.route_ends = re.clone();
-    }
-
-    let mut anchors = place_anchors(ctx.seed, &site);
-    // v0.98: with real water supplied, pin the market onto the box centre so
-    // the drawn town overlays the map's own water pixel for pixel; nudge it
-    // outward ring by ring if the centre lands in the channel, since
-    // settlements sit on the bank, not in it.
-    if uses_real_water {
-        let mut mc = Vec2::new(SITE_WM / 2.0, SITE_HM / 2.0);
-        if site.is_water(mc) {
-            let max_r = js_max(SITE_WM, SITE_HM) * 0.5;
-            let mut best: Option<Vec2> = None;
-            let mut rr = 30.0;
-            while rr <= max_r && best.is_none() {
-                for a in 0..24 {
-                    let ang = a as f64 / 24.0 * std::f64::consts::PI * 2.0;
-                    let q = Vec2::new(mc.x + ang.cos() * rr, mc.y + ang.sin() * rr);
-                    if q.x < 25.0 || q.y < 25.0 || q.x > SITE_WM - 25.0 || q.y > SITE_HM - 25.0 {
-                        continue;
-                    }
-                    if !site.is_water(q) {
-                        best = Some(q);
-                        break;
-                    }
-                }
-                rr += 30.0;
-            }
-            if let Some(b) = best {
-                mc = b;
-            }
-        }
-        anchors.market = mc;
-    }
-
-    let mut g = Graph::new();
-    let mut wall_state = WallState::default();
-
-    // v0.97: grow the town around the host's real inter-settlement roads when
-    // supplied, else synthesise primaries from `routeEnds`.
-    let primaries: Vec<Vec<Vec2>> = match &ctx.primary_paths {
-        Some(paths) if !paths.is_empty() => {
-            build_primaries_from_paths(ctx.seed, &site, &anchors, &mut g, paths)
-        }
-        _ => build_primaries(ctx.seed, &site, &anchors, &mut g),
-    }
-    .into_iter()
-    .map(|r| r.pts)
-    .collect();
-
-    // Milestone 8, and it belongs **here** — `generate()` line 31024 calls
-    // `buildPlaza` between `buildPrimaries` and `grow`, not after growth. The
-    // three streets it lays are in the graph before the epoch loop starts, so
-    // the town grows *around* the market square rather than having one punched
-    // through it afterwards. Moving this below `grow` would still produce a
-    // plaza and would produce a different town.
-    //
-    // `None` is a real state, not a failure: no live primary edge means nothing
-    // to widen, which is what a site whose route traces all failed looks like.
-    let plaza = build_plaza(ctx.seed, &site, &anchors, &mut g);
-
-    let grow_opts = GrowOpts {
-        target_len,
-        max_rf,
-        // Milestone 10 (`buildWall`) does not exist, so no `WallBuilder` can
-        // build anything. `false` is not a default chosen here — it is the
-        // only honest value while the fortification pipeline is unported.
-        walls: false,
-        // `_umPlaceContext` sets this unconditionally, and unlike the wall
-        // flags it has a real effect milestones 1-7 implement: the
-        // urbanisation front advances through `logistic_ramp` scaled by the
-        // carrying-capacity estimate rather than linearly, which moves every
-        // street. `settlement_age` is only read on this branch.
-        wall_generations: true,
-        settlement_age: Some(settlement_age),
-        // `buildHarbour` is milestone 9. `None` is `grow`'s own supported
-        // "no quay" input (it then takes the plain market distance), not a
-        // stand-in value.
-        harbour: None,
-        rules: Some(rules),
-        wall_style: None,
-        fortified: false,
-        pop: pop_target,
-    };
-    let mut walls = RecordingWallBuilder::default();
-    let placed_len = grow(
-        ctx.seed,
-        &site,
-        &anchors,
-        &mut g,
-        epochs,
-        &mut wall_state,
-        &grow_opts,
-        &mut walls,
-    );
-
-    let edges = g
+    let edges = t
+        .graph
         .edges
         .iter()
-        .filter(|e| e.alive)
         .map(|e| LayoutEdge {
-            a: g.nodes[e.a].pt(),
-            b: g.nodes[e.b].pt(),
+            // `TownGraph::edges` is already filtered to the live ones and
+            // `nodes` is not, so `e.a`/`e.b` are still node ids.
+            a: t.graph.nodes[e.a].pt(),
+            b: t.graph.nodes[e.b].pt(),
             cls: e.cls,
             w: e.w,
         })
         .collect();
-
-    // Milestone 12, now with milestone 8's plaza: the face containing
-    // `plaza.center` comes back flagged and `build_parcels` leaves it
-    // unplatted, so the market square is open ground.
-    //
-    // The reference also runs `lanePass` and `removeWaterCrossings`
-    // (milestone 11) between `grow` and here; neither exists, so these blocks
-    // come off a coarser graph than the reference's would. Milestone 12 is
-    // faithful; its *input* is closer than it was, and still not the
-    // reference's.
-    let blocks_raw = build_blocks(&g, plaza.as_ref(), &site);
-    let parcels_raw = build_parcels(
-        ctx.seed,
-        &g,
-        &blocks_raw,
-        anchors.market,
-        epochs,
-        &site,
-        Some(&rules),
-    );
-    let block_plaza: Vec<bool> = blocks_raw.iter().map(|b| b.plaza).collect();
-    let blocks: Vec<Vec<Vec2>> = blocks_raw.into_iter().map(|b| b.poly).collect();
-    let parcels: Vec<LayoutParcel> = parcels_raw
+    let block_plaza: Vec<bool> = t.blocks.iter().map(|b| b.plaza).collect();
+    let blocks: Vec<Vec<Vec2>> = t.blocks.into_iter().map(|b| b.poly).collect();
+    // Lot id -> roof tone, built once so the renderer never has to. See
+    // [`UrbanLayout::building_tone`].
+    let tone_of: HashMap<&str, f64> =
+        t.parcels.iter().map(|p| (p.par.id.as_str(), p.par.tone)).collect();
+    let building_tone: Vec<f64> =
+        t.buildings.iter().map(|b| tone_of.get(b.parcel.as_str()).copied().unwrap_or(0.5)).collect();
+    let parcels: Vec<LayoutParcel> = t
+        .parcels
         .into_iter()
-        .map(|p| LayoutParcel { poly: p.poly, area: p.area, edge_cls: p.edge_cls, tone: p.tone })
+        .map(|p| LayoutParcel {
+            poly: p.par.poly,
+            area: p.par.area,
+            edge_cls: p.par.edge_cls,
+            tone: p.par.tone,
+            district: p.district,
+        })
+        .collect();
+    let farmland: Vec<Detail> = t
+        .details
+        .into_iter()
+        .filter(|d| d.kind == "field" || d.kind == "pasture")
         .collect();
 
     Some(UrbanLayout {
-        wm: site.wm,
-        hm: site.hm,
-        market: anchors.market,
-        market_prov: anchors.prov,
-        site_kind: site.kind.clone(),
+        wm: t.wm,
+        hm: t.hm,
+        market: t.anchors.market,
+        market_prov: t.anchors.prov,
+        site_kind: t.site.kind,
         orient: ctx.orient,
-        water_poly: site.water_poly.clone(),
-        river: site.river.clone(),
-        river_w: site.river_w,
-        bridge_pt: site.bridge_pt,
-        route_ends: site.route_ends.clone(),
-        harbour_pt: site.harbour.pt,
+        water_poly: t.site.water_poly,
+        river: t.site.river,
+        river_w: t.site.river_w,
+        bridge_pt: t.site.bridge_pt,
+        route_ends: t.site.route_ends,
+        harbour_pt: t.harbour.as_ref().map(|h| h.pt),
         edges,
         blocks,
         block_plaza,
-        plaza,
+        plaza: t.plaza,
         parcels,
-        primaries,
-        placed_len,
-        target_len,
-        max_rf,
-        pop_target,
-        settlement_age,
-        uses_real_water,
-        uses_real_terrain,
+        buildings: t.buildings,
+        building_tone,
+        wall: t.wall,
+        wall_spec: ctx.wall_style,
+        markets: t.markets,
+        farmland,
+        street_len: t.metrics.total_len,
+        pop: t.pop,
+        // `generate()`'s own, not restated here. Both are one-line expressions
+        // over `pop_target` and both were copied into this file until
+        // 2026-09-02 -- which is how two copies of a constant start disagreeing,
+        // so `Town` returns them instead.
+        target_len: t.target_len,
+        max_rf: t.max_rf,
+        pop_target: t.pop_target,
+        settlement_age: t.settlement_age,
+        uses_real_water: ctx.water.is_some(),
+        uses_real_terrain: ctx.terrain.is_some(),
     })
 }
 

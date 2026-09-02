@@ -359,6 +359,94 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
 use cartalith_engine::staleness::PipelineStage;
 use cartalith_engine::{WorldParams, WorldState};
 
+/// **The divergence roster, enumerated rather than described.**
+///
+/// `params::defaults` is where `DECISIONS.md`'s rulings turn on, and
+/// `WorldParams::defaults` is the ~28 golden suites' parity baseline. Which
+/// fields differ is therefore load-bearing in *both* directions: a divergence
+/// that quietly stopped shipping is a reverted owner ruling, and one that
+/// quietly appeared in `WorldParams::defaults` instead would break sixteen
+/// `cartalith-civ` suites. Listing them here makes either failure loud.
+///
+/// Three today, all from 2026-09-02: `crater.physical_model` (§7l) and the two
+/// volcano flags (§7l-ii, owner ruling 1).
+#[test]
+fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
+    let app = params::defaults();
+    let parity = WorldParams::defaults(0, 0, 0);
+
+    assert!(app.crater.physical_model && !parity.crater.physical_model, "DECISIONS.md §7l");
+    assert!(app.volc.exclude_transform && !parity.volc.exclude_transform, "§7l-ii ruling 1");
+    assert!(app.volc.edifice_model && !parity.volc.edifice_model, "§7l-ii ruling 1");
+
+    // And nothing else. Neutralising the three must make the two identical --
+    // which catches a fourth divergence added without a ruling, in either
+    // function, without this test needing to know what it is.
+    let mut neutral = app.clone();
+    neutral.crater.physical_model = false;
+    neutral.volc.exclude_transform = false;
+    neutral.volc.edifice_model = false;
+    assert_eq!(
+        neutral, parity,
+        "the app boundary diverges from the parity baseline somewhere other than the \
+         three fields DECISIONS.md authorises"
+    );
+}
+
+/// The three shipped divergences are not cosmetic: they generate a genuinely
+/// different world. Guards against the exact failure a flag flip has — landing
+/// in `params::defaults` while the code path behind it is dead.
+#[test]
+fn the_shipped_defaults_generate_a_different_world_from_the_parity_baseline() {
+    let mut app = params::defaults();
+    app.gw = 96;
+    app.gh = 72;
+    app.tect.seed = 2026;
+    let mut parity = app.clone();
+    parity.crater.physical_model = false;
+    parity.volc.exclude_transform = false;
+    parity.volc.edifice_model = false;
+
+    let a = cartalith_engine::generate_terrain(&app);
+    let b = cartalith_engine::generate_terrain(&parity);
+    assert_eq!(a.field.len(), 96 * 72, "the probe generated nothing");
+    assert!(a.field.iter().any(|&v| v > 0.0), "the probe generated an empty field");
+
+    let moved = a.field.iter().zip(&b.field).filter(|(x, y)| x != y).count();
+    let pct = 100.0 * moved as f64 / a.field.len() as f64;
+    let mean_abs = a.field.iter().zip(&b.field).map(|(x, y)| (x - y).abs() as f64).sum::<f64>()
+        / a.field.len() as f64;
+    let max_abs =
+        a.field.iter().zip(&b.field).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max);
+    let land = |f: &[f32], s: f32| f.iter().filter(|&&v| v > s).count();
+    println!(
+        "shipped vs parity: {moved} of {} cells differ ({pct:.1}%), mean |d| {mean_abs:.4}, \
+         max |d| {max_abs:.4}, land {} -> {}",
+        a.field.len(),
+        land(&b.field, b.sea_level as f32),
+        land(&a.field, a.sea_level as f32)
+    );
+    assert!(moved > 0, "the three shipped divergences changed nothing at all");
+
+    // **Not** an upper bound on how many cells move. Measured: essentially all
+    // of them do, because the field is renormalised and then routed and carved,
+    // so any perturbation of volcanism or cratering propagates globally -- the
+    // same chaotic sensitivity `DECISIONS.md` §7a already relies on. The
+    // meaningful bound is on the *magnitude*: this must still be the same
+    // world, differently detailed, not a different one.
+    assert!(a.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "height escaped [0,1]");
+    assert!(
+        mean_abs < 0.1,
+        "mean height moved by {mean_abs} -- three volcanism/crater corrections should \
+         perturb the surface, not re-baseline it"
+    );
+    let (l_a, l_b) = (land(&a.field, a.sea_level as f32), land(&b.field, b.sea_level as f32));
+    assert!(
+        l_a * 2 > l_b && l_b * 2 > l_a,
+        "the land fraction moved from {l_b} to {l_a} cells -- that is a different world"
+    );
+}
+
 /// A world small enough to run `refresh_climate` seventy-odd times, with
 /// every *gating* toggle in a state that lets the knob behind it register.
 ///

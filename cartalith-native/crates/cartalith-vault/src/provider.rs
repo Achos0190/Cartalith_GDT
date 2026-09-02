@@ -1,21 +1,36 @@
-//! The filesystem vault provider (`MARKDOWN_VAULT_INTEGRATION.md` §6).
+//! The vault provider trait, and the filesystem implementation of it
+//! (`MARKDOWN_VAULT_INTEGRATION.md` §6).
 //!
 //! The spec asks for a platform-neutral provider with Windows and Android
-//! implementations behind it. This is the Windows/desktop one, and the shape
-//! it presents is the neutral one: a vault is a **root plus relative paths**,
-//! never an absolute path passed around. §5's rule — "the absolute path or
-//! Android document URI is a platform binding, not the semantic identity of
-//! the file" — is enforced here by construction: every method takes a
-//! relative path and refuses one that escapes the root.
+//! implementations behind it. [`VaultProvider`] is that neutral shape: a
+//! vault is a **root plus relative paths**, never an absolute path passed
+//! around. §5's rule — "the absolute path or Android document URI is a
+//! platform binding, not the semantic identity of the file" — is enforced by
+//! the trait itself: every method takes a relative path, and the one method
+//! that can hand back something filesystem-specific
+//! ([`VaultProvider::as_fs_vault`]) is opt-in and `None` unless a provider
+//! overrides it.
 //!
-//! ## Android is not implemented, and that is a scoped decision
+//! [`FsVault`] is the Windows/desktop implementation and the only one this
+//! crate ships. It refuses a relative path that escapes the root via
+//! [`is_safe_relative_path`], kept as its own function so another provider
+//! can reuse the same containment check rather than re-derive it.
 //!
-//! Android needs the Storage Access Framework (a `content://` tree URI and a
-//! persisted permission grant), which is a Java/JNI surface `std::fs` cannot
-//! reach. `MARKDOWN_VAULT_SCOPE.md` carries it as its own milestone. What
-//! this file does is keep the seam honest: nothing above it takes a
-//! `PathBuf`, so the SAF implementation slots in beside [`FsVault`] rather
-//! than through it.
+//! ## Android is a different crate's implementation, not a missing one
+//!
+//! `MARKDOWN_VAULT_SCOPE.md` milestone 4. Android needs the Storage Access
+//! Framework (a `content://` tree URI and a persisted permission grant),
+//! which is a Java-adjacent surface `std::fs` cannot reach — and this crate
+//! must not learn to reach either; its own contract (`lib.rs`'s module doc)
+//! is "no engine crate, no `gdext`". So the seam is [`VaultProvider`] itself,
+//! not a `cfg(target_os = "android")` branch in this file: the
+//! Storage-Access-Framework-backed provider lives in `cartalith-godot`
+//! (`vault_saf::SafVaultProvider`), which *can* depend on Godot and holds a
+//! `Callable` a GDScript handler supplies, so every operation this trait
+//! defines is delegated to whatever platform code that handler is backed by.
+//! That module's own doc states plainly what a real device pass still has to
+//! verify — nothing about real SAF behaviour is or can be confirmed from a
+//! crate this one exercises in a `cargo test`.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -62,6 +77,91 @@ impl std::error::Error for VaultError {}
 impl From<std::io::Error> for VaultError {
     fn from(e: std::io::Error) -> Self {
         VaultError::Io(e)
+    }
+}
+
+/// Whether `rel` is safe to treat as a single vault-relative path: not
+/// empty, and every component a plain name — never `..`, a root, or (on
+/// Windows) a drive/UNC prefix.
+///
+/// [`FsVault::resolve`] uses this before joining `rel` onto a real
+/// [`PathBuf`]; a provider with nothing to join it onto — a
+/// `content://`-tree-backed one, say — has exactly the same reason to refuse
+/// the same paths, so this is `pub` rather than private to that one caller.
+/// §30's least-privilege rule applies to every provider, not just this
+/// crate's own.
+pub fn is_safe_relative_path(rel: &str) -> bool {
+    !rel.is_empty() && Path::new(rel).components().all(|c| matches!(c, Component::Normal(_)))
+}
+
+/// The platform-neutral operations a Markdown vault provider gives
+/// [`crate::VaultSession`] — `MARKDOWN_VAULT_INTEGRATION.md` §6's
+/// `MarkdownVaultProvider` interface, narrowed to exactly the subset the
+/// session calls. (§6 also lists `watchChanges`/`moveFile`/`deleteFile` as
+/// *optional* capabilities; V1 offers none of the three on either platform,
+/// so they are not here to implement as `unimplemented!()` on one side.)
+///
+/// [`FsVault`] is this crate's own implementation. `cartalith-godot`'s
+/// `vault_saf::SafVaultProvider` is the other one this port ships, and lives
+/// in a different crate on purpose — see this file's module doc.
+pub trait VaultProvider: std::fmt::Debug {
+    /// §7's Connected-vs-Missing, asked cheaply enough to ask on every panel
+    /// open. A directory check for [`FsVault`]; whatever confirms the
+    /// permission grant is still live for anything else.
+    fn available(&self) -> bool;
+
+    /// Relative paths of the Markdown files in the vault, bounded at `limit`
+    /// (§31) — see [`FsVault::list_markdown`].
+    fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError>;
+
+    fn read(&self, rel: &str) -> Result<String, VaultError>;
+    fn meta(&self, rel: &str) -> Result<FileMeta, VaultError>;
+    fn exists(&self, rel: &str) -> bool;
+    fn write(&self, rel: &str, text: &str) -> Result<(), VaultError>;
+
+    /// Where this vault points, for **display only** — never stored in
+    /// project data (§5). A filesystem path for [`FsVault`]; a tree URI for
+    /// a Storage-Access-Framework-backed one.
+    fn describe(&self) -> String;
+
+    /// Down-casts to the filesystem provider, for the one caller
+    /// (`vault_snapshot` in `cartalith-godot`) that needs a real [`PathBuf`]
+    /// to hand an image writer. `None` unless a provider overrides it.
+    ///
+    /// This is not a temporary gap a future milestone closes — it is what
+    /// §5's "the absolute path or Android document URI is a platform
+    /// binding" means concretely: a `content://` tree has no [`PathBuf`] to
+    /// give, so the one caller that needs one must ask first and handle
+    /// `None` rather than assume every provider can answer.
+    fn as_fs_vault(&self) -> Option<&FsVault> {
+        None
+    }
+}
+
+impl VaultProvider for FsVault {
+    fn available(&self) -> bool {
+        FsVault::available(self)
+    }
+    fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+        FsVault::list_markdown(self, limit)
+    }
+    fn read(&self, rel: &str) -> Result<String, VaultError> {
+        FsVault::read(self, rel)
+    }
+    fn meta(&self, rel: &str) -> Result<FileMeta, VaultError> {
+        FsVault::meta(self, rel)
+    }
+    fn exists(&self, rel: &str) -> bool {
+        FsVault::exists(self, rel)
+    }
+    fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
+        FsVault::write(self, rel, text)
+    }
+    fn describe(&self) -> String {
+        self.root.display().to_string()
+    }
+    fn as_fs_vault(&self) -> Option<&FsVault> {
+        Some(self)
     }
 }
 
@@ -174,17 +274,10 @@ impl FsVault {
     /// resolver still lets `a/../../b` through when `a` is a symlink, and
     /// Cartalith has no need to support a path that climbs at all.
     pub fn resolve(&self, rel: &str) -> Result<PathBuf, VaultError> {
-        let p = Path::new(rel);
-        if rel.is_empty() {
+        if !is_safe_relative_path(rel) {
             return Err(VaultError::Escapes(rel.to_string()));
         }
-        for c in p.components() {
-            match c {
-                Component::Normal(_) => {}
-                _ => return Err(VaultError::Escapes(rel.to_string())),
-            }
-        }
-        Ok(self.root.join(p))
+        Ok(self.root.join(rel))
     }
 }
 
@@ -212,6 +305,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(&p);
         std::fs::create_dir_all(&p).unwrap();
         p
+    }
+
+    /// Same fixtures `resolve`'s own test uses, checked directly against the
+    /// helper it now delegates to — proof the extraction changed nothing.
+    #[test]
+    fn is_safe_relative_path_matches_resolves_own_boundary() {
+        for bad in ["..", "../x.md", "a/../../b.md", "/etc/passwd", "C:/Windows/x.md", ""] {
+            assert!(!is_safe_relative_path(bad), "{bad} must be unsafe");
+        }
+        assert!(is_safe_relative_path("Locations/Nareth.md"));
     }
 
     #[test]

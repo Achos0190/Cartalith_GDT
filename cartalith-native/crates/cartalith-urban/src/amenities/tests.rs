@@ -115,9 +115,11 @@
 mod golden;
 
 use crate::amenities::{
-    build_civic, build_games, build_markets, games_shape_at, games_spec, js_log10, oriented_rect,
+    build_civic, build_games, build_markets, games_shape_at, games_spec, oriented_rect,
 };
-use crate::geom::{Vec2, js_cos, js_sin, poly_centroid};
+// `js_log10` moved to `cartalith-jsmath` with the integration pass; these V8
+// rows stayed here, where milestone 15 captured them, and now pin the moved one.
+use crate::geom::{Vec2, js_cos, js_log10, js_sin, poly_centroid};
 use crate::graph::Graph;
 use crate::plaza::{Plaza, build_plaza};
 use crate::routes::{Anchors, place_anchors};

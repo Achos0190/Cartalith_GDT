@@ -119,8 +119,36 @@ pub struct ParamSpec {
 /// The defaults every row's `default` is read from — `WorldParams::defaults`
 /// itself, at a zero grid/seed (neither of which is a settable parameter;
 /// both are `generate()` arguments).
+/// The **shipped app's** starting parameters.
+///
+/// Deliberately not identical to `WorldParams::defaults`. That function is the
+/// goldens' parity baseline — some 28 golden suites call
+/// `generate_terrain(&WorldParams::defaults(..))` and compare against fixtures
+/// captured from the reference under Node, 16 of them in `cartalith-civ` alone.
+/// It therefore has to keep meaning "what the reference does".
+///
+/// This function is where the product's own rulings land instead: a divergence
+/// recorded in `DECISIONS.md` turns on here, not there, so it reaches every
+/// generated world without deleting the parity baseline underneath it. Today
+/// that is three flags, each independently revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
-    WorldParams::defaults(0, 0, 0)
+    let mut p = WorldParams::defaults(0, 0, 0);
+    // `DECISIONS.md` §7l (owner ruling, 2026-09-02): craters generate from an
+    // area density and a size-frequency law, not a fixed count.
+    p.crater.physical_model = true;
+    // `DECISIONS.md` §7l-ii, owner ruling 1 (2026-09-02): both volcano
+    // divergences ship. Transform margins make earthquakes and fault scarps,
+    // not stratocones, and the reference's arc selector -- the sign of the
+    // blurred normal stress -- cannot see shear, so a measured 34.3% of the arc
+    // pool and 32.3% of the rift pool sat on cells this engine's own
+    // `classify_boundary` types as TRANSFORM
+    // (`cartalith-terrain/tests/volcano_transform_boundaries.rs`). With this on
+    // both figures are 0.0% by construction.
+    p.volc.exclude_transform = true;
+    // Same ruling: a 200 m scoria cone and a 7 000 m shield stop sharing one
+    // power-law profile, and a summit collapses rather than being subtracted.
+    p.volc.edifice_model = true;
+    p
 }
 
 /// Every exposed generation parameter, in the order the GUI should show them
@@ -229,12 +257,49 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "volc.provinces", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Provinces & arc/rift placement", unit: "", reference_control: "volcProv",
         get_fn: |p| Value::Bool(p.volc.provinces), set_fn: |p, v| p.volc.provinces = v != 0.0 },
+    // No reference counterpart: the reference has no transform-exclusion
+    // control, because it never noticed it was placing arcs on transforms.
+    // Defaulted ON at the app boundary on the owner's ruling 1 of 2026-09-02
+    // (`DECISIONS.md` §7l-ii), and OFF in `WorldParams::defaults`, which stays
+    // the goldens' parity baseline -- same shape as `crater.physical_model`.
+    ParamSpec { key: "volc.exclude_transform", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Exclude transform margins", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.exclude_transform), set_fn: |p, v| p.volc.exclude_transform = v != 0.0 },
+    // No reference counterpart either: the reference stamps one cone shape at
+    // every scale and has no control for the thing it does not distinguish.
+    // Also ON at the app boundary on the same ruling.
+    ParamSpec { key: "volc.edifice_model", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Shaped edifices (shield/strato/cone)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.volc.edifice_model), set_fn: |p, v| p.volc.edifice_model = v != 0.0 },
     ParamSpec { key: "crater.count", group: "volcanism", kind: Kind::Int, min: 0.0, max: 200.0, step: 2.0,
         label: "Craters", unit: "", reference_control: "crat",
         get_fn: |p| Value::Num(p.crater.count as f64), set_fn: |p, v| p.crater.count = v as i32 },
+    // MORPHOLOGICAL wear, 0-1 and unitless: how worn craters look, uniformly
+    // across the population. NOT an elapsed time, and not `surface_age_myr`
+    // below, which is a geological age in Myr. It multiplies the physical
+    // degradation term rather than replacing it -- see `stamp_one_crater`.
     ParamSpec { key: "crater.age", group: "volcanism", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
         label: "Crater age", unit: "", reference_control: "crata",
         get_fn: |p| Value::Num(p.crater.age), set_fn: |p, v| p.crater.age = v },
+    // `DECISIONS.md` §7l. No `reference_control`: the reference has no such
+    // control, because it has no such model. Defaulted ON at the app boundary
+    // rather than in `WorldParams::defaults`, which stays the goldens' parity
+    // baseline -- see the comment on `defaults`' own `crater` block.
+    //
+    // The label covers BOTH halves of the flag: it gates the area-density
+    // count/size law (§7l) and the diffusive degradation that relaxes each
+    // crater over `surface_age_myr` (`crater_degradation_tau`). It read
+    // "Scale craters to map area" while it only did the first.
+    ParamSpec { key: "crater.physical_model", group: "volcanism", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Physical crater model (map area + wear)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.crater.physical_model), set_fn: |p, v| p.crater.physical_model = v != 0.0 },
+    // GEOLOGICAL, not the civilisation Timeline -- six orders of magnitude
+    // apart and not convertible. See `cartalith_terrain::CRATER_SURFACE_AGE_MYR`.
+    // Drives BOTH how many craters accumulated and how far each has since
+    // relaxed; one exposure age, both consequences.
+    ParamSpec { key: "crater.surface_age_myr", group: "volcanism", kind: Kind::Float, min: 0.0, max: 4000.0, step: 10.0,
+        label: "Surface age", unit: "Myr", reference_control: "",
+        get_fn: |p| Value::Num(p.crater.surface_age_myr), set_fn: |p, v| p.crater.surface_age_myr = v },
 
     // ---- erosion (the stream-power pass carveRiverValleys runs) ----------
     ParamSpec { key: "stream.uplift", group: "erosion", kind: Kind::Float, min: 0.0, max: 0.4, step: 0.004,
@@ -309,8 +374,15 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "passes.hillslope", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Hillslope diffuse", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.passes.hillslope), set_fn: |p, v| p.passes.hillslope = v != 0.0 },
+    // The label says "also craters" ON PURPOSE. Owner ruling 2 of 2026-09-02
+    // (`DECISIONS.md` §7l-ii) made this the world's one hillslope diffusivity:
+    // `cartalith_terrain::crater_degradation_tau` reads it, so under
+    // `crater.physical_model` -- on above -- moving this slider changes how worn
+    // craters look, even with `passes.hillslope` off. A coupling the user cannot
+    // see is worse than no coupling, so it is named in the control itself and
+    // not only in the doc comments.
     ParamSpec { key: "passes.diffuse_d", group: "erosion", kind: Kind::Float, min: 0.002, max: 0.2, step: 0.002,
-        label: "Diffusivity D", unit: "", reference_control: "edD",
+        label: "Diffusivity D (also weathers craters)", unit: "", reference_control: "edD",
         get_fn: |p| Value::Num(p.passes.diffuse_d), set_fn: |p, v| p.passes.diffuse_d = v },
     ParamSpec { key: "passes.diffuse_passes", group: "erosion", kind: Kind::Int, min: 1.0, max: 40.0, step: 1.0,
         label: "Diffuse passes", unit: "", reference_control: "edPas",
@@ -512,8 +584,16 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("volc.count", "volc.count"),
     ("volc.age", "volc.age"),
     ("volc.provinces", "volc.provinces"),
+    ("volc.exclude_transform", ""),
+    // No reference path: `stampOneVolcano` has one profile, so there is nothing
+    // in `state.volc` to map this onto.
+    ("volc.edifice_model", ""),
     ("crater.count", "crater.count"),
     ("crater.age", "crater.age"),
+    // No reference path: the reference has no density model and no geological
+    // surface age. Both are this port's own, `DECISIONS.md` §7l.
+    ("crater.physical_model", ""),
+    ("crater.surface_age_myr", ""),
 
     ("stream.uplift", "stream.uplift"),
     ("stream.k", "stream.k"),

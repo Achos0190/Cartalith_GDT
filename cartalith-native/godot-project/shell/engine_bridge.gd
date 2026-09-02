@@ -711,17 +711,26 @@ func provinces() -> Array:
 func trade_balances() -> Array:
 	return world_gen.get_trade_balances()
 
-## Town layouts for the given settlement indices (`urban_bridge.rs`,
-## `URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7 and 12). Shorter than `indices`
-## whenever the engine refuses a settlement -- a pin in open water gets no
-## town, which is the reference's own `_umModelFor` refusal. Each entry
-## carries its own `index` back, and its `stages` array names which generator
-## stages produced it. Milestone 12 added `blocks`, `parcels`, `parcel_tone`
-## and `parcel_cls`; there is still no `buildings` or `wall` key at all,
-## because milestones 13 and 10 do not exist and an empty array would read as
-## "this town has none". Empty against a binary built before this landed, the
-## same `has_method` guard `lod_level_for_zoom()` above uses for its own
-## milestone.
+## Town layouts for the given settlement indices (`urban_bridge.rs`). Shorter
+## than `indices` whenever the engine refuses a settlement -- a pin in open
+## water gets no town, which is the reference's own `_umModelFor` refusal. Each
+## entry carries its own `index` back, and its `stages` array reports what each
+## generator stage actually produced.
+##
+## Since 2026-09-02 the adapter calls the reference's own `generate()` end to
+## end, so an entry is a whole town: `buildings`/`building_ridge`/
+## `building_tone`, `parcel_district`, `wall_ring`/`wall_gates`/`wall_style`,
+## `markets` and `farmland` all arrived at once. `primaries` and `placed_len_m`
+## went the other way -- `generate()` discards both, so `street_len_m`
+## (`computeMetrics.totalLen`) replaces the second.
+##
+## The absent-vs-empty rule the keys are written to is unchanged: an **absent**
+## key means the engine cannot produce the thing, an **empty** one means this
+## town does not have it. So `wall_ring` is absent on a settlement the wall
+## ladder never walled, and `buildings` is always present.
+##
+## Empty against a binary built before this landed, the same `has_method` guard
+## `lod_level_for_zoom()` above uses for its own milestone.
 func urban_layouts(indices: PackedInt32Array) -> Array:
 	if not _has("urban_layouts"):
 		return []
@@ -3123,6 +3132,20 @@ func vault_disconnect() -> void:
 	if _has("vault_disconnect"):
 		mark_world_dirty()
 		world_gen.vault_disconnect()
+
+## `MARKDOWN_VAULT_SCOPE.md` milestone 4 -- the Android Storage Access
+## Framework half of `vault_connect`. `tree_uri` is a `content://` document
+## tree Android has already granted (this call binds it, it does not request
+## or persist the grant); `dispatch` is `Callable(handler, "_saf_dispatch")`
+## for a GDScript object speaking the op/args/result contract
+## `crates/cartalith-godot/src/vault_saf.rs`'s own module doc specifies in
+## full -- read that before writing `handler`, since it is also where the
+## real Android work this call cannot do on its own is named plainly.
+func vault_connect_saf(tree_uri: String, display_name: String, dispatch: Callable) -> Dictionary:
+	if not _has("vault_connect_saf"):
+		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
+	return world_gen.vault_connect_saf(tree_uri, display_name, dispatch)
 
 func vault_info() -> Dictionary:
 	if not _has("vault_info"):

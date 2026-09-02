@@ -264,6 +264,7 @@ fn fixture(c: &Case) -> Fx {
         land_arc: None,
         generation: None,
         history: Vec::new(),
+        ..WallState::default()
     };
     let harbour = if c.harbour { Some(harbour_at(m)) } else { None };
     Fx { site, anchors, g, plaza, blocks, parcels, wall, harbour, profile }
@@ -1353,6 +1354,7 @@ fn the_urban_radius_is_seven_tenths_of_max_rf() {
         land_arc: None,
         generation: None,
         history: Vec::new(),
+        ..WallState::default()
     };
 
     let on = razor_road(a.market, 350.0);

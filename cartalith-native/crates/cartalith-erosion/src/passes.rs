@@ -88,6 +88,83 @@ fn store_clamped01(slot: &mut f32, v: f64) {
 // hillslope diffusion
 // ===================================================================
 
+/// Cell size the hillslope coefficient is calibrated at: the app's own untouched
+/// default, 800 km across 2048 cells.
+///
+/// Same **anchor-at-the-default** discipline `terrain_detail_k`
+/// (`REF_CELLKM = 800/2048`) and `_V3D_RATIO0` already use, for the same
+/// reason: at the anchor the correction is exactly `1.0`, so the default
+/// configuration — and every golden fixture — is bit-identical.
+pub const HILLSLOPE_REF_CELL_KM: f64 = 800.0 / 2048.0;
+
+/// Stability bound for the explicit FTCS Laplacian below.
+///
+/// `delta = d * (l + r + u + dn - 4h)` is forward-Euler on a 5-point stencil,
+/// which is stable only for `d <= 1/4`. Past it the scheme diverges and the
+/// height field explodes — and that does not present as a numerical bug, it
+/// presents as bad terrain, which is far harder to diagnose.
+///
+/// **This is a ceiling on the correction below, not on `d` itself.** The
+/// reference permits `d` up to 0.9 and `golden_parity_passes`'
+/// `hillslope_diffuse_case_2` pins that behaviour at `d = 0.9`. Parity is the
+/// contract, so an already-unstable `d` the caller chose is passed through
+/// untouched; what must never happen is this port *amplifying* a stable `d`
+/// into an unstable one through its own scale correction.
+pub const HILLSLOPE_STABLE_D: f64 = 0.25;
+
+/// How much to scale the hillslope coefficient for a map of this real extent.
+///
+/// # The defect this exists to fix
+///
+/// [`hillslope_diffuse`] computes its Laplacian at a grid spacing of exactly
+/// one cell, so `delta = d * dx^2 * grad^2(z_real)`. Matching the physical
+/// `dz = D * dt / dx^2 * grad^2(z)` therefore requires `d` to scale as
+/// `1 / cell_km^2` — and it did not, at all. The same literal `diffuse_d`
+/// applied at every extent.
+///
+/// At 2048 cells a 5 km region has 0.00244 km cells and a 40 000 km world has
+/// 19.53 km cells; the ratio of cell **areas** is 8000^2 = **64 000 000** — the
+/// identical figure `DECISIONS.md` §7l cites for the crater count, one layer
+/// up in the pipeline. Verified: `cartalith-erosion` contained zero
+/// occurrences of `map_width_km` before this.
+///
+/// # Why it is one-sided
+///
+/// Reducing `d` for a coarse map is unconditionally safe — a 19.5 km cell
+/// should diffuse far less per pass than a 390 m one, and a smaller `d` only
+/// moves further inside the stability bound. **Raising it for a fine map is
+/// not**: the correction at 5 km / 2048 is ~25 600x, which would take a
+/// `d` of 0.15 to 3840 and detonate the field. So the increase is capped at
+/// [`HILLSLOPE_STABLE_D`].
+///
+/// That cap is a real ceiling, honestly: a very fine region cannot express its
+/// full physical diffusion in one pass, and the correct upgrade is **more
+/// passes**, not a larger coefficient — the explicit scheme's own constraint,
+/// not a shortcut. Recorded rather than hidden.
+///
+/// ponytail: the scale is computed here and passed in, rather than threading
+/// `map_width_km` into a kernel that has never known about real extent, so the
+/// kernel stays a pure function of its own arguments and every existing
+/// caller keeps working by passing `1.0`.
+pub fn hillslope_extent_scale(map_width_km: f64, gw: usize, d: f64) -> f64 {
+    if !(map_width_km > 0.0) || gw == 0 || !(d > 0.0) {
+        return 1.0;
+    }
+    let cell_km = map_width_km / gw as f64;
+    if !(cell_km > 0.0) {
+        return 1.0;
+    }
+    let raw = (HILLSLOPE_REF_CELL_KM / cell_km).powi(2);
+    if raw <= 1.0 {
+        // Coarser than the anchor: always safe to apply in full.
+        return raw;
+    }
+    // Finer than the anchor: allow the increase only up to the stability bound,
+    // and never below 1.0 (which would silently *weaken* a `d` the caller
+    // already chose above the bound -- see HILLSLOPE_STABLE_D).
+    raw.min((HILLSLOPE_STABLE_D / d).max(1.0))
+}
+
 /// `hillslopeDiffuseCPU()` (reference HTML lines 3872-3882) — the *Hillslope
 /// diffuse* button's kernel: `∂z/∂t = D∇²z` by explicit forward Euler, one
 /// fresh `Float32Array` of deltas per pass.
@@ -100,7 +177,21 @@ fn store_clamped01(slot: &mut f32, v: f64) {
 /// Y never wraps in either mode — the poles are hard edges, and a row-0 or
 /// row-(h−1) cell uses its own height as the missing neighbour, which makes
 /// the Laplacian vanish there rather than pulling the edge downhill.
-pub fn hillslope_diffuse(fld: &mut [f32], w: usize, h: usize, passes: i32, d: f64, world: bool) {
+///
+/// `d_scale` multiplies `d` and is **exactly `1.0` for the reference's own
+/// behaviour** — every golden fixture passes it, so they are bit-identical.
+/// `generate_terrain` passes [`hillslope_extent_scale`] instead, which is what
+/// makes the pass aware of the map's real extent (`DECISIONS.md` §7m).
+pub fn hillslope_diffuse(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    passes: i32,
+    d: f64,
+    d_scale: f64,
+    world: bool,
+) {
+    let d = d * d_scale;
     let n = w * h;
     for _ in 0..passes {
         let mut delta = vec![0f32; n];
@@ -992,8 +1083,8 @@ mod tests {
         let mut flat = vec![0.5f32; 8];
         flat[0] = 1.0;
         let mut wrapped = flat.clone();
-        hillslope_diffuse(&mut flat, 8, 1, 1, 0.2, false);
-        hillslope_diffuse(&mut wrapped, 8, 1, 1, 0.2, true);
+        hillslope_diffuse(&mut flat, 8, 1, 1, 0.2, 1.0, false);
+        hillslope_diffuse(&mut wrapped, 8, 1, 1, 0.2, 1.0, true);
         assert_eq!(flat[7], 0.5, "no wrap: the far edge must not see the spike");
         assert!(wrapped[7] > 0.5, "world wrap: the far edge must see it");
     }
@@ -1021,5 +1112,119 @@ mod tests {
         assert!(fld[1] > 0.41, "inside the tidal band: accretes");
         assert_eq!(fld[2], 0.10, "deeper than the tidal range: untouched");
         assert!(deposited > 0.0);
+    }
+}
+
+#[cfg(test)]
+mod hillslope_extent_tests {
+    use super::*;
+
+    /// The anchor is the whole safety story: at the app's own default the
+    /// correction is exactly 1.0, so `WorldParams::defaults()` output — and
+    /// every golden fixture — is unchanged, bit for bit.
+    #[test]
+    fn the_correction_is_exactly_one_at_the_anchor() {
+        assert_eq!(hillslope_extent_scale(800.0, 2048, 0.15), 1.0);
+        // Same cell size reached a different way must agree exactly.
+        assert_eq!(hillslope_extent_scale(400.0, 1024, 0.15), 1.0);
+    }
+
+    /// The defect, stated as a test: a coarse world must diffuse far less per
+    /// pass than the anchor, because one 19.5 km cell is not one 390 m cell.
+    ///
+    /// Two ratios live here and they are easy to confuse — I did, first time.
+    /// Against the **anchor**, 40 000 km / 2048 is 50x the cell size, so 2 500x
+    /// less diffusion. The **64 000 000x** figure `DECISIONS.md` §7l cites is
+    /// the span between the two extremes of the app's own range, 5 km to
+    /// 40 000 km: 8 000x in cell size, squared. That full span is the raw
+    /// physical correction and is *not* observable through this function,
+    /// because the fine end is clamped at the stability bound — which is the
+    /// next test.
+    #[test]
+    fn a_coarse_world_diffuses_far_less_than_the_anchor() {
+        let world = hillslope_extent_scale(40_000.0, 2048, 0.15);
+        assert!(world < 1.0e-3, "40 000 km / 2048 should be tiny, got {world}");
+        let vs_anchor = 1.0 / world;
+        assert!(
+            (2_400.0..2_600.0).contains(&vs_anchor),
+            "expected ~2 500x less than the anchor, got {vs_anchor}"
+        );
+        // And the raw, pre-clamp span across the app's whole extent range is
+        // the 64 000 000x the crater ruling names. Computed from cell sizes
+        // directly, since the clamp hides it in the returned value.
+        let raw = |w: f64| (HILLSLOPE_REF_CELL_KM / (w / 2048.0)).powi(2);
+        let span = raw(5.0) / raw(40_000.0);
+        assert!(
+            (6.0e7..7.0e7).contains(&span),
+            "expected ~64 000 000x across 5 km..40 000 km, got {span}"
+        );
+    }
+
+    /// **The one that stops an exploded height field.** A fine region wants a
+    /// ~25 600x increase, which would take d = 0.15 to 3840 and detonate an
+    /// explicit FTCS scheme whose stability bound is 0.25.
+    #[test]
+    fn a_fine_region_is_capped_at_the_stability_bound() {
+        for (w, gw, d) in [(5.0, 2048, 0.15), (1.0, 2048, 0.2), (50.0, 4096, 0.05)] {
+            let s = hillslope_extent_scale(w, gw, d);
+            let effective = d * s;
+            assert!(
+                effective <= HILLSLOPE_STABLE_D + 1e-12,
+                "{w} km / {gw} at d={d} gives d_eff={effective}, past the {HILLSLOPE_STABLE_D} wall"
+            );
+            assert!(s >= 1.0, "a finer-than-anchor map should never diffuse less: {s}");
+        }
+    }
+
+    /// A `d` the caller already chose above the stability bound is passed
+    /// through untouched rather than quietly weakened — `golden_parity_passes`'
+    /// `hillslope_diffuse_case_2` pins the reference at d = 0.9, and parity is
+    /// the contract.
+    #[test]
+    fn an_already_unstable_d_is_never_reduced_by_the_correction() {
+        assert_eq!(hillslope_extent_scale(800.0, 2048, 0.9), 1.0);
+        assert_eq!(hillslope_extent_scale(5.0, 2048, 0.9), 1.0, "must not scale it down");
+        // ...but a coarse map still reduces it, which is correct: that is the
+        // real-extent term, not the stability guard.
+        assert!(hillslope_extent_scale(40_000.0, 2048, 0.9) < 1.0);
+    }
+
+    /// Degenerate inputs return the identity rather than a NaN or an infinity
+    /// that would silently poison the field.
+    #[test]
+    fn degenerate_inputs_return_the_identity() {
+        assert_eq!(hillslope_extent_scale(0.0, 2048, 0.15), 1.0);
+        assert_eq!(hillslope_extent_scale(-5.0, 2048, 0.15), 1.0);
+        assert_eq!(hillslope_extent_scale(800.0, 0, 0.15), 1.0);
+        assert_eq!(hillslope_extent_scale(800.0, 2048, 0.0), 1.0);
+        assert_eq!(hillslope_extent_scale(f64::NAN, 2048, 0.15), 1.0);
+        assert!(hillslope_extent_scale(800.0, 2048, 0.15).is_finite());
+    }
+
+    /// Monotonic in extent: a larger map never diffuses more per pass.
+    #[test]
+    fn the_correction_is_monotonic_in_extent() {
+        let mut prev = f64::INFINITY;
+        for w in [1.0, 10.0, 100.0, 800.0, 5_000.0, 40_000.0] {
+            let s = hillslope_extent_scale(w, 2048, 0.15);
+            assert!(s <= prev + 1e-12, "not monotonic at {w} km: {s} after {prev}");
+            prev = s;
+        }
+    }
+
+    /// And it reaches the kernel: scaling must actually change the field, or
+    /// the whole correction is dead code.
+    #[test]
+    fn the_scale_actually_reaches_the_kernel() {
+        let base: Vec<f32> = (0..64).map(|i| if i % 8 < 4 { 0.8 } else { 0.2 }).collect();
+        let mut full = base.clone();
+        let mut damped = base.clone();
+        hillslope_diffuse(&mut full, 8, 8, 2, 0.15, 1.0, false);
+        hillslope_diffuse(&mut damped, 8, 8, 2, 0.15, 1.0e-4, false);
+        assert_ne!(full, damped, "d_scale changed nothing -- the parameter is dead");
+        // The damped run should barely move off the input.
+        let moved_full: f32 = full.iter().zip(&base).map(|(a, b)| (a - b).abs()).sum();
+        let moved_damped: f32 = damped.iter().zip(&base).map(|(a, b)| (a - b).abs()).sum();
+        assert!(moved_full > moved_damped * 100.0, "{moved_full} vs {moved_damped}");
     }
 }

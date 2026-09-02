@@ -309,6 +309,7 @@ fn town(c: &Case) -> (Site, Anchors, Graph, f64) {
         rules,
         wall_style: None,
         fortified: false,
+        wet_moat: false,
         pop: 0.0,
     };
     let mut recorder = RecordingWallBuilder::default();
@@ -399,7 +400,7 @@ fn golden_every_wall_reproduces_the_reference_exactly() {
         check_poly(&town_bank(&site, &anchors), &c.bank, &format!("{what}: townBank"));
 
         // The wall.
-        let harbour = c.harbour.map(|h| HarbourMouth {
+        let harbour = c.harbour.map(|h| HarbourFront {
             pt: Vec2::new(h.pt.0, h.pt.1),
             quay: pts(h.quay),
         });
@@ -409,26 +410,16 @@ fn golden_every_wall_reproduces_the_reference_exactly() {
             wet_moat: c.wet_moat,
         };
         let mut ws = WallState::default();
-        let mut extras = WallExtras::default();
         let before = graph_dump(&g);
-        build_wall(
-            c.wall_seed,
-            &site,
-            &anchors,
-            &g,
-            &mut ws,
-            &mut extras,
-            c.ep,
-            harbour.as_ref(),
-            &opts,
-        );
+        build_wall(c.wall_seed, &site, &anchors, &g, &mut ws, c.ep, harbour.as_ref(), &opts);
         assert_eq!(graph_dump(&g), before, "{what}: buildWall must not touch the graph");
 
         assert_eq!(ws.ring.is_some(), c.built, "{what}: a circuit was/was not built");
         if !c.built {
-            // A refusal leaves the state exactly as it found it.
+            // A refusal leaves the state exactly as it found it — and since the
+            // integration pass folded the nine staged fields onto `WallState`,
+            // this one comparison now covers all fifteen rather than six.
             assert_eq!(ws, WallState::default(), "{what}: a refusal must write nothing");
-            assert_eq!(extras, WallExtras::default(), "{what}: a refusal must write nothing");
             continue;
         }
 
@@ -441,27 +432,27 @@ fn golden_every_wall_reproduces_the_reference_exactly() {
         assert_eq!(ws.epoch, c.ep, "{what}: epoch");
 
         let want_ww = c.water_walls.expect("built");
-        assert_eq!(extras.water_walls.len(), want_ww.len(), "{what}: waterWalls run count");
-        for (i, (run, w)) in extras.water_walls.iter().zip(want_ww).enumerate() {
+        assert_eq!(ws.water_walls.len(), want_ww.len(), "{what}: waterWalls run count");
+        for (i, (run, w)) in ws.water_walls.iter().zip(want_ww).enumerate() {
             check_poly(run, w, &format!("{what}: waterWalls[{i}]"));
         }
         let want_spurs = c.spurs.expect("built");
-        assert_eq!(extras.spurs.len(), want_spurs.len(), "{what}: spur count");
-        for (i, (s, w)) in extras.spurs.iter().zip(want_spurs).enumerate() {
+        assert_eq!(ws.spurs.len(), want_spurs.len(), "{what}: spur count");
+        for (i, (s, w)) in ws.spurs.iter().zip(want_spurs).enumerate() {
             eq_bits(s.a.x, w.0, &format!("{what}: spurs[{i}].a.x"));
             eq_bits(s.a.y, w.1, &format!("{what}: spurs[{i}].a.y"));
             eq_bits(s.b.x, w.2, &format!("{what}: spurs[{i}].b.x"));
             eq_bits(s.b.y, w.3, &format!("{what}: spurs[{i}].b.y"));
             assert_eq!(fnv1a(s.prov), w.4, "{what}: spurs[{i}].prov");
         }
-        assert_eq!(Some(extras.spans_water), c.spans_water, "{what}: spansWater");
-        assert_eq!(Some(extras.style.as_str()), c.style, "{what}: style");
-        assert_eq!(Some(fnv1a(&extras.prov)), c.prov_hash, "{what}: prov");
-        let cen = extras.centroid.expect("built");
+        assert_eq!(Some(ws.spans_water), c.spans_water, "{what}: spansWater");
+        assert_eq!(Some(ws.style.as_str()), c.style, "{what}: style");
+        assert_eq!(Some(fnv1a(&ws.prov)), c.prov_hash, "{what}: prov");
+        let cen = ws.centroid.expect("built");
         eq_bits(cen.x, c.centroid.expect("built").0, &format!("{what}: centroid.x"));
         eq_bits(cen.y, c.centroid.expect("built").1, &format!("{what}: centroid.y"));
-        assert_eq!(Some(extras.terrain_deflected), c.terrain_deflected, "{what}: terrainDeflected");
-        match (&extras.water_closure, &c.water_closure) {
+        assert_eq!(Some(ws.terrain_deflected), c.terrain_deflected, "{what}: terrainDeflected");
+        match (&ws.water_closure, &c.water_closure) {
             (Some(w), Some(spec)) => check_poly(w, spec, &format!("{what}: _waterClosure")),
             (None, None) => {}
             _ => panic!("{what}: _waterClosure presence differs"),
@@ -475,7 +466,7 @@ fn golden_every_wall_reproduces_the_reference_exactly() {
             assert_eq!(fnv1a(&gt.prov), w.3, "{what}: gates[{i}].prov");
         }
 
-        match (&extras.fort, c.fort) {
+        match (&ws.fort, c.fort) {
             (Some(f), Some(w)) => check_fort(f, w, &format!("{what}: fort")),
             (None, None) => {}
             _ => panic!("{what}: fort presence differs"),
@@ -488,6 +479,9 @@ fn golden_apply_star_fort_on_hand_built_rings() {
     for s in golden::STAR {
         let what = s.name;
         let site = build_site(s.site_seed, 1700.0, 1250.0, s.site_kind, SiteOpts::default());
+        // `style` is preset because `applyStarFort` is reached only through
+        // `buildWall`, which has already tagged the circuit `'curtain'`; the
+        // assertion below is that the trace overwrites that with `'bastioned'`.
         let mut ws = WallState {
             ring: Some(pts(s.ring_in)),
             gates: Vec::new(),
@@ -495,17 +489,18 @@ fn golden_apply_star_fort_on_hand_built_rings() {
             land_arc: None,
             generation: None,
             history: Vec::new(),
+            style: "curtain".to_string(),
+            ..WallState::default()
         };
-        let mut extras = WallExtras { style: "curtain".to_string(), ..WallExtras::default() };
         let opts = FortOpts { wall_style: None, fortified: true, wet_moat: s.wet_moat };
-        apply_star_fort(s.seed, &site, &mut ws, &mut extras, &opts);
+        apply_star_fort(s.seed, &site, &mut ws, &opts);
 
-        assert_eq!(extras.style == "bastioned", s.applied, "{what}: did the trace apply?");
+        assert_eq!(ws.style == "bastioned", s.applied, "{what}: did the trace apply?");
         if !s.applied {
             // Both early returns leave the ring exactly as they found it.
             assert_eq!(ws.ring.as_deref(), Some(pts(s.ring_in).as_slice()), "{what}: ring untouched");
             assert!(ws.land_arc.is_none(), "{what}: landArc untouched");
-            assert!(extras.fort.is_none(), "{what}: no fort");
+            assert!(ws.fort.is_none(), "{what}: no fort");
             continue;
         }
         check_poly(ws.ring.as_deref().expect("applied"), s.ring.as_ref().expect("applied"), &format!("{what}: ring"));
@@ -514,12 +509,12 @@ fn golden_apply_star_fort_on_hand_built_rings() {
             s.land_arc.as_ref().expect("applied"),
             &format!("{what}: landArc"),
         );
-        let cen = extras.centroid.expect("applied");
+        let cen = ws.centroid.expect("applied");
         eq_bits(cen.x, s.centroid.expect("applied").0, &format!("{what}: centroid.x"));
         eq_bits(cen.y, s.centroid.expect("applied").1, &format!("{what}: centroid.y"));
-        assert_eq!(Some(extras.water_walls.len()), s.water_walls, "{what}: waterWalls emptied");
-        assert_eq!(Some(fnv1a(&extras.prov)), s.prov_hash, "{what}: prov");
-        check_fort(extras.fort.as_ref().expect("applied"), s.fort.expect("applied"), &format!("{what}: fort"));
+        assert_eq!(Some(ws.water_walls.len()), s.water_walls, "{what}: waterWalls emptied");
+        assert_eq!(Some(fnv1a(&ws.prov)), s.prov_hash, "{what}: prov");
+        check_fort(ws.fort.as_ref().expect("applied"), s.fort.expect("applied"), &format!("{what}: fort"));
     }
 }
 
@@ -1122,8 +1117,7 @@ fn a_bastioned_style_without_a_fort_reads_the_bastion_count_as_zero() {
     grow(5, &site, &anchors, &mut g, 8, &mut ws, &opts, &mut RecordingWallBuilder::default());
 
     let mut plain = WallState::default();
-    let mut plain_extras = WallExtras::default();
-    build_wall(5, &site, &anchors, &g, &mut plain, &mut plain_extras, 9, None, &FortOpts::default());
+    build_wall(5, &site, &anchors, &g, &mut plain, 9, None, &FortOpts::default());
     assert_eq!(
         plain.gates.iter().filter(|g| !g.water).count(),
         3,
@@ -1131,14 +1125,12 @@ fn a_bastioned_style_without_a_fort_reads_the_bastion_count_as_zero() {
     );
 
     let mut ws = WallState::default();
-    let mut extras = WallExtras::default();
     build_wall(
         5,
         &site,
         &anchors,
         &g,
         &mut ws,
-        &mut extras,
         9,
         None,
         &FortOpts {
@@ -1147,8 +1139,8 @@ fn a_bastioned_style_without_a_fort_reads_the_bastion_count_as_zero() {
             wet_moat: false,
         },
     );
-    assert_eq!(extras.style, "bastioned", "the style tag is taken verbatim");
-    assert!(extras.fort.is_none(), "no trace was applied, so there is no fort");
+    assert_eq!(ws.style, "bastioned", "the style tag is taken verbatim");
+    assert!(ws.fort.is_none(), "no trace was applied, so there is no fort");
     // `max(2, min(3, round(6 / 3)))` == 2 land gates kept, one fewer than the three
     // the same circuit produces untagged.
     assert_eq!(ws.gates.iter().filter(|g| !g.water).count(), 2, "the || 6 default caps at two");
@@ -1170,6 +1162,11 @@ fn a_refusal_leaves_the_previous_circuit_standing() {
     let anchors = place_anchors(5, &site);
     let g = Graph::new(); // no nodes at all: builtMassHull refuses
     let ring = pts(&[100., 100., 400., 100., 400., 400., 100., 400.]);
+    // Every field the previous circuit could have carried is set to something
+    // non-default, so `ws == before` below is a real fifteen-field assertion
+    // rather than a comparison of mostly-empty values. Before the integration
+    // pass the nine on the second half lived in a separate `WallExtras` and
+    // were checked by a separate, weaker `== WallExtras::default()`.
     let mut ws = WallState {
         ring: Some(ring.clone()),
         gates: vec![Gate { pt: Vec2::new(250., 100.), water: false, prov: "g".into() }],
@@ -1177,12 +1174,19 @@ fn a_refusal_leaves_the_previous_circuit_standing() {
         land_arc: Some(ring.clone()),
         generation: Some(1),
         history: Vec::new(),
+        water_walls: vec![ring.clone()],
+        spurs: vec![Spur { a: Vec2::new(1., 2.), b: Vec2::new(3., 4.), prov: SPUR_PROV }],
+        spans_water: true,
+        style: "curtain".to_string(),
+        prov: WALL_PROV_BANK.to_string(),
+        fort: None,
+        centroid: Some(Vec2::new(250., 250.)),
+        terrain_deflected: 7,
+        water_closure: Some(ring.clone()),
     };
     let before = ws.clone();
-    let mut extras = WallExtras::default();
-    build_wall(7, &site, &anchors, &g, &mut ws, &mut extras, 9, None, &FortOpts::default());
+    build_wall(7, &site, &anchors, &g, &mut ws, 9, None, &FortOpts::default());
     assert_eq!(ws, before, "a refusal must leave the standing circuit alone");
-    assert_eq!(extras, WallExtras::default());
 }
 
 #[test]
@@ -1190,9 +1194,16 @@ fn the_builder_keeps_a_supersession_s_extra_fields() {
     // Milestone 7's warning: `supersedeWall` copies six of `buildWall`'s nine
     // extra fields into its history record, and adding them to `WallState`
     // without adding them to `WallGeneration` would produce a silently lossy
-    // history that every structural test still passes. Until the integration
-    // pass folds `WallExtras` in, `history_extras` is what carries them, and it
-    // has to stay index-aligned with `WallState::history`.
+    // history that every structural test still passes.
+    //
+    // Milestone 10 answered that with a `history_extras` vector on the builder,
+    // hand-kept index-aligned with `WallState::history`. The integration pass
+    // deleted both: the six fields are on `WallGeneration` now and
+    // `supersede_wall` copies them in the same statement as the other four, so
+    // the record IS the alignment. This test now reads them off
+    // `ws.history[0]`, which is what milestone 7 asked for in the first place —
+    // and it is a stronger assertion, because a `WallGeneration` cannot exist
+    // without them the way a missing `history_extras` push could.
     let site = build_site(7, 1700.0, 1250.0, "river", SiteOpts::default());
     let anchors = place_anchors(7, &site);
     let mut g = Graph::new();
@@ -1204,32 +1215,55 @@ fn the_builder_keeps_a_supersession_s_extra_fields() {
         walls: false,
         ..GrowOpts::default()
     };
-    let mut builder = FortificationBuilder::default();
+    let mut builder = FortificationBuilder;
     grow(7, &site, &anchors, &mut g, 8, &mut ws, &opts, &mut RecordingWallBuilder::default());
 
     // First circuit: nothing retired yet.
     builder.build_wall(7, &site, &anchors, &mut g, &mut ws, 9, &opts);
     assert!(ws.ring.is_some(), "the real builder must build a real circuit");
-    assert!(builder.history_extras.is_empty(), "nothing has been superseded");
-    let first = builder.extras.clone();
+    assert!(ws.history.is_empty(), "nothing has been superseded");
+    let first = ws.clone();
     assert!(!first.prov.is_empty() && !first.style.is_empty());
 
-    // Supersede it: `supersede_wall` pushes the history record and then calls us,
-    // so the retiring circuit's extras must land in `history_extras[0]`.
+    // Supersede it: `supersede_wall` pushes the history record and then calls
+    // the builder, so the retiring circuit's six extra fields must land in
+    // `history[0]` — and be the values the FIRST circuit had, not the second's.
     crate::growth::supersede_wall(7, &site, &anchors, &mut g, &mut ws, 12, &opts, &mut builder);
     assert_eq!(ws.history.len(), 1, "one circuit retired");
-    assert_eq!(builder.history_extras.len(), 1, "and one extras snapshot kept");
-    assert_eq!(builder.history_extras[0], first, "the snapshot is the retired circuit's");
-    assert_eq!(builder.history_extras[0].prov, first.prov);
+    let h = &ws.history[0];
+    assert_eq!(h.water_walls, first.water_walls, "waterWalls");
+    assert_eq!(h.spurs, first.spurs, "spurs");
+    assert_eq!(h.spans_water, first.spans_water, "spansWater");
+    assert_eq!(h.style, first.style, "style");
+    assert_eq!(h.prov, first.prov, "prov");
+    assert_eq!(h.fort, first.fort, "fort");
+    // ... and the four the reference's object literal also picks.
+    assert_eq!(h.ring, first.ring, "ring");
+    assert_eq!(h.gates, first.gates, "gates");
+    assert_eq!(h.land_arc, first.land_arc, "landArc");
+    assert_eq!(h.epoch, first.epoch, "epoch");
+    // The three the literal deliberately omits are NOT on `WallGeneration` at
+    // all, which is the half of milestone 7's warning that is now unforgeable:
+    // `_waterClosure`, `centroid` and `terrainDeflected` cannot be read back off
+    // a history record because the reference does not put them there.
 }
 
 #[test]
 fn wet_moat_is_an_input_nothing_in_the_reference_supplies() {
-    // `opts.wetMoat` appears at exactly two lines in the frozen file, both
-    // consumers (29998, 29999); no producer sets it. It is modelled because the
-    // reference reads it, and it is reachable only by a direct call -- which is
-    // what `fortLandlockedWet` and the `hexWetMoat` / `fourWet` / `fiveWet` star
-    // cases are. Asserted here as the behavioural difference it makes.
+    // **The name is milestone 10's claim, and it is wrong** -- kept only so the
+    // test stays greppable across the integration pass that disproved it. That
+    // milestone grepped for `opts.wetMoat` and found its two consumers (29998,
+    // 29999) and no producer; but a producer spells the KEY, not the read.
+    // Reference line 31017 is one:
+    //
+    //   if(walls)buildWall(seed,site,anchors,g,wallState,1,harbour,
+    //     {fortified,wetMoat:profile.waterway,wallStyle:opts.wallStyle});
+    //
+    // on the `profile.planning === 'radial'` branch, where `VENUS.waterway` is
+    // true (line 28209) -- so every fortified Venus town gets one, and line
+    // 31063 reads `wallState.fort.canalFed` back. Rename this when the radial
+    // branch is wired; until then what it asserts -- the behavioural difference
+    // `wetMoat` makes -- is unaffected and is the reason to keep it.
     let site = build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts::default());
     let ring: Vec<Vec2> = (0..6)
         .map(|i| {
@@ -1239,9 +1273,8 @@ fn wet_moat_is_an_input_nothing_in_the_reference_supplies() {
         .collect();
     let run = |wet_moat: bool| {
         let mut ws = WallState { ring: Some(ring.clone()), ..WallState::default() };
-        let mut ex = WallExtras::default();
-        apply_star_fort(4, &site, &mut ws, &mut ex, &FortOpts { wet_moat, ..FortOpts::default() });
-        ex.fort.expect("the hexagon applies")
+        apply_star_fort(4, &site, &mut ws, &FortOpts { wet_moat, ..FortOpts::default() });
+        ws.fort.expect("the hexagon applies")
     };
     let dry = run(false);
     let wet = run(true);

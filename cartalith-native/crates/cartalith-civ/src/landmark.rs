@@ -263,9 +263,8 @@ pub fn kinds() -> &'static [LandmarkKindSpec] {
             not_built: "A river mouth is detectable; a delta is a deposition landform and this engine carries no sediment budget. Placing one at every mouth would be a rename, not a detection." },
         LandmarkKindSpec { key: "river_confluence", label: "River confluence", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "volcanic_feature", label: "Volcanic feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: true, buildable: false,
-            not_built: "The volcanism raster is not among this pass's inputs — it drives lithology and resource potentials in cartalith-godot's landmark_geology_inputs and is discarded there, never threaded through — and §9.3 marks this as one of the six types whose dominant term is the missing viewshed besides." },
-        LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: false,
-            not_built: "Needs a differential-erosion signal — resistant rock standing proud of soft rock. build_lithology runs on every landmark_run() call but is discarded after deriving resource potentials rather than reaching this pass, and even wired in, nothing computes the neighbour-contrast a differential signal needs." },
+            not_built: "The volcanism raster now reaches this pass (LandmarkInputs::volcanism, plumbed from WorldState::volcanic_field alongside lithology and resistance) — but nothing here reads it yet, and §9.3 still marks this as one of the six types whose dominant term is the missing viewshed. Owner decision 2 (LM-7) is the real blocker, not the input." },
+        LandmarkKindSpec { key: "rock_formation", label: "Rock formation", family: F::Physical, class: C::Local, default_cap: 20, needs_viewshed: false, buildable: true, not_built: "" },
         LandmarkKindSpec { key: "glacial_feature", label: "Glacial feature", family: F::Physical, class: C::Regional, default_cap: 10, needs_viewshed: false, buildable: false,
             not_built: "No general glaciation model. cartalith-terrain's fjord module reconstructs one specific glacial landform from paleoclimate temperature, relief and lithology, but covers coastal fjords only — not a cirque, moraine or esker inland — and needs three inputs this pass does not take." },
         LandmarkKindSpec { key: "ancient_forest", label: "Ancient forest", family: F::Physical, class: C::Continental, default_cap: 8, needs_viewshed: false, buildable: false,
@@ -802,6 +801,21 @@ pub struct LandmarkInputs<'a> {
     /// `DECISIONS.md` §7i measured. Mountain passes read this and nothing else
     /// can substitute for it.
     pub corridors: Option<&'a [f32]>,
+    /// `build_lithology`'s categorical rock type, `0..=6` indexing
+    /// `crate::LITH_NAMES`. Rock formation reads this for its causal fact
+    /// string only — nothing scores on it, since a bare category says
+    /// nothing about contrast with its neighbours.
+    pub lithology: Option<&'a [u8]>,
+    /// `WorldState::volcanic_field`, raw — not the `> 0.35` cut
+    /// `build_lithology` reduces it to. Threaded through so a viewshed pass
+    /// can reach it; Volcanic feature is blocked on that being absent, not
+    /// on this (`kinds()`'s own `not_built` string for that kind).
+    pub volcanism: Option<&'a [f32]>,
+    /// `WorldState::resistance_field`, `[0,1]` — `compute_resistance`'s
+    /// erosion resistance. Rock formation's whole domain is differential
+    /// erosion, resistant rock standing proud of soft rock, and this is the
+    /// "resistant" half of that test.
+    pub resistance: Option<&'a [f32]>,
     /// Named resource-potential fields, `0..1`, keyed by `RESOURCE_KEYS`.
     /// Empty is legal and disarms Mine and Quarry.
     pub resources: &'a [(&'a str, &'a [f32])],
@@ -866,6 +880,9 @@ impl<'a> LandmarkInputs<'a> {
             order: None,
             water: None,
             corridors: None,
+            lithology: None,
+            volcanism: None,
+            resistance: None,
             resources: &[],
             settlements: &[],
         }
@@ -973,6 +990,7 @@ impl Needs {
             "ridge" => (true, false, true, true),
             "cliff" => (true, true, false, true),
             "gorge" => (true, false, true, true),
+            "rock_formation" => (false, false, true, true),
             "waterfall" => (true, false, false, true),
             "spring" => (false, false, false, true),
             "river_confluence" => (false, false, false, true),
@@ -1488,6 +1506,25 @@ const RIDGE_MIN_RELIEF_M: f64 = 100.0;
 const RIDGE_TERMS: [(&str, f64); 3] =
     [("topographic position", 0.40), ("crest relief", 0.35), ("flank slope", 0.25)];
 
+/// **Category C**, echoing `build_lithology`'s own inline `res_hard` cut
+/// (`cartalith-civ/src/lib.rs`) at the same value: no basis exists to call a
+/// cell "resistant" here by any different line than the one that already
+/// decides granite/metamorphic there.
+const ROCK_FORMATION_MIN_RESISTANCE: f64 = 0.55;
+/// **Category C.** The neighbour-contrast this kind's own `not_built` reason
+/// named as the missing half even with resistance wired in — uniformly hard
+/// ground is not a formation, a hard patch inside soft ground is.
+const ROCK_FORMATION_MIN_CONTRAST: f64 = 0.20;
+/// **Category C**, smaller than [`RIDGE_MIN_TPI_M`]: an outcrop is a point
+/// feature, not a crest line, and reads as "standing proud" at a smaller
+/// rise than a whole ridge needs.
+const ROCK_FORMATION_MIN_TPI_M: f64 = 30.0;
+const ROCK_FORMATION_TERMS: [(&str, f64); 3] = [
+    ("resistance contrast", 0.45),
+    ("stands above its surroundings", 0.30),
+    ("local relief", 0.25),
+];
+
 /// A face, not a hillside — and stated for the grid this engine actually runs
 /// on rather than for a rock climber.
 ///
@@ -1611,6 +1648,8 @@ struct Ctx<'a> {
     order: Option<&'a [i16]>,
     water: Option<&'a [u8]>,
     corridors: Option<&'a [f32]>,
+    lithology: Option<&'a [u8]>,
+    resistance: Option<&'a [f32]>,
     up: Option<Upstream>,
     flow_thresh: f64,
     cell_km: f64,
@@ -1669,6 +1708,8 @@ impl<'a> Ctx<'a> {
             order: inp.grid(inp.order),
             water: inp.grid(inp.water),
             corridors: inp.grid(inp.corridors),
+            lithology: inp.grid(inp.lithology),
+            resistance: inp.grid(inp.resistance),
             up,
             flow_thresh: if flow_thresh.is_finite() && flow_thresh > 0.0 { flow_thresh } else { 1.0 },
             cell_km: inp.cell_km(),
@@ -2123,6 +2164,81 @@ fn pool_ridge(c: &Ctx<'_>) -> Option<Pool> {
     Some(p)
 }
 
+/// **Category C** — §29 gives Rock formation a name and no formula, the same
+/// position `resource_extraction_site` was in (see that kind's own doc
+/// comment). The domain is the phrase this kind's own `not_built` reason used
+/// before this pass closed it: **resistant rock standing proud of soft
+/// rock**. Both halves are load-bearing constraints, not one scoring the
+/// other:
+///
+/// - **resistant**: this cell's own [`Ctx::resistance`] is the local maximum
+///   of its window *and* meaningfully higher than that window's minimum —
+///   the neighbour-contrast the `not_built` reason named as missing even
+///   with resistance wired in. Uniformly hard ground the whole way across a
+///   window is not a formation.
+/// - **standing proud**: positive TPI at the fine scale, the same signal
+///   [`pool_ridge`]/[`pool_peak`] read — differential erosion means the
+///   softer rock around it eroded away, so the resistant patch reads as
+///   topography, not just as a geology-map anomaly with no expression.
+///
+/// [`Ctx::lithology`] is read only for the causal fact string, when present —
+/// it degrades to a generic description rather than gating the kind, since a
+/// bare rock-type category says nothing about contrast on its own.
+fn pool_rock_formation(c: &Ctx<'_>) -> Option<Pool> {
+    let resist = c.resistance?;
+    if c.d.tpi_fine.is_empty() {
+        return None;
+    }
+    let gw = c.inp.gw;
+    let (rmin, rmax) = sep_min_max(resist, gw, c.inp.gh, c.d.r_fine, c.inp.world);
+    let mut p = Pool::new();
+    let (mut t_c, mut t_t, mut t_r) = (vec![], vec![], vec![]);
+    for i in 0..c.n {
+        // Domain: the local maximum of resistance represents the outcrop —
+        // without this every hard-rock cell on its flank is its own
+        // candidate, the same reasoning `pool_resource`'s own comment gives
+        // for a deposit.
+        if !c.is_land(i) || resist[i] < rmax[i] {
+            continue;
+        }
+        let contrast = resist[i] as f64 - rmin[i] as f64;
+        let tpi = c.inp.dh_m(c.d.tpi_fine(i) as f64);
+        let relief = c.relief_m(i);
+        if (resist[i] as f64) < ROCK_FORMATION_MIN_RESISTANCE
+            || contrast < ROCK_FORMATION_MIN_CONTRAST
+            || tpi < ROCK_FORMATION_MIN_TPI_M
+        {
+            p.rejected_constraint += 1;
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let rock_name = c.lithology.and_then(|l| crate::LITH_NAMES.get(l[i] as usize)).copied();
+        let headline = match rock_name {
+            Some(name) => format!("{name}, standing proud of its softer surroundings"),
+            None => "resistant rock standing proud of its softer surroundings".to_string(),
+        };
+        p.cands.push(Cand {
+            i,
+            x,
+            y,
+            facts: vec![
+                headline,
+                format!("resistance {:.2} against {:.2} nearby", resist[i], rmin[i]),
+                format!("stands {} above its surroundings", fmt_m(tpi)),
+            ],
+        });
+        t_c.push(contrast as f32);
+        t_t.push(tpi as f32);
+        t_r.push(relief as f32);
+    }
+    p.terms = vec![
+        (ROCK_FORMATION_TERMS[0].0, ROCK_FORMATION_TERMS[0].1, t_c),
+        (ROCK_FORMATION_TERMS[1].0, ROCK_FORMATION_TERMS[1].1, t_t),
+        (ROCK_FORMATION_TERMS[2].0, ROCK_FORMATION_TERMS[2].1, t_r),
+    ];
+    Some(p)
+}
+
 /// §5: curvature "can contribute to candidate detection for cliffs" — but the
 /// load-bearing test is gradient over a real height difference, with curvature
 /// only deciding whether the face is a convex break or a smooth bowl.
@@ -2435,6 +2551,7 @@ fn detect(key: &str, c: &Ctx<'_>) -> Option<Pool> {
         "ridge" => pool_ridge(c),
         "cliff" => pool_cliff(c),
         "gorge" => pool_gorge(c),
+        "rock_formation" => pool_rock_formation(c),
         "mine" => pool_resource(c, &MINE_RESOURCES, MINE_MIN_POTENTIAL, &MINE_TERMS, true),
         "quarry" => {
             pool_resource(c, &QUARRY_RESOURCES, QUARRY_MIN_POTENTIAL, &QUARRY_TERMS, false)
@@ -2850,6 +2967,12 @@ mod tests {
         /// fixtures get `iron`/`stone`, so Resource extraction site needs its
         /// own so `every_buildable_kind_can_actually_place_one` can reach it.
         timber: Vec<f32>,
+        /// A tight, high-contrast patch centred on `test_field`'s own first
+        /// summit blob (cell ~(26,42) at this fixture's size) — an outcrop
+        /// with real topographic expression, standing well above the
+        /// uniform low background everywhere else. Rock formation's whole
+        /// domain; nothing else reads this field.
+        resistance: Vec<f32>,
         settlements: Vec<LandmarkSite>,
     }
 
@@ -2919,6 +3042,26 @@ mod tests {
                 }
                 v
             },
+            resistance: {
+                // Centred on `test_field`'s first summit blob (px=0.10,
+                // py=0.22) so the outcrop has genuine positive TPI, not just
+                // a geology-map anomaly with no topographic expression.
+                // sigma=1 cell: within `r_fine` (2 cells at this fixture's
+                // resolution) the value has already fallen most of the way
+                // back to baseline, so the contrast is real, not smoothed
+                // away by too wide a window -- the failure
+                // `rock_formation_needs_contrast_not_just_high_resistance`
+                // pins directly.
+                let (cx, cy) = ((0.10 * gw as f64).round(), (0.22 * gh as f64).round());
+                let mut v = vec![0f32; gw * gh];
+                for y in 0..gh {
+                    for x in 0..gw {
+                        let d2 = (x as f64 - cx).powi(2) + (y as f64 - cy).powi(2);
+                        v[y * gw + x] = (0.10 + 0.85 * (-d2 / 2.0).exp()) as f32;
+                    }
+                }
+                v
+            },
             settlements: vec![
                 LandmarkSite { x: gw / 4, y: gh / 3, population: 12_000.0 },
                 LandmarkSite { x: gw / 3, y: (gh * 2) / 3, population: 4_000.0 },
@@ -2935,6 +3078,7 @@ mod tests {
         i.order = Some(&w.order);
         i.water = Some(&w.water);
         i.corridors = Some(&w.corridors);
+        i.resistance = Some(&w.resistance);
         i.resources = res;
         i.settlements = &w.settlements;
         i
@@ -3002,10 +3146,11 @@ mod tests {
                 "resource_extraction_site",
                 "ridge",
                 "river_confluence",
+                "rock_formation",
                 "spring",
                 "waterfall",
             ],
-            "the fourteen kinds this engine actually generates"
+            "the fifteen kinds this engine actually generates"
         );
         // Every buildable key must have a detector, and no non-buildable key
         // may have one — otherwise the table and the pass disagree about what
@@ -3024,6 +3169,7 @@ mod tests {
                         | "ridge"
                         | "cliff"
                         | "gorge"
+                        | "rock_formation"
                         | "mine"
                         | "quarry"
                         | "resource_extraction_site"
@@ -3220,6 +3366,52 @@ mod tests {
                 r.funnel(k.key)
             );
         }
+    }
+
+    /// **The whole justification for closing `rock_formation`'s `not_built`
+    /// reason rather than just relaxing it**: uniformly hard rock is not a
+    /// formation, only a hard patch standing out from its own neighbourhood
+    /// is — the neighbour-contrast the reason named as missing even with
+    /// resistance wired in. Pinned directly, by mutation of the fixture
+    /// rather than trusted from the doc comment: flatten the contrast and
+    /// the kind must fall silent, restore it and it must fire again.
+    #[test]
+    fn rock_formation_needs_contrast_not_just_high_resistance() {
+        let w = world(256, 192, 1000.0);
+        // Off for the same reason `every_buildable_kind_can_actually_place_one`
+        // turns it off: this fixture's outcrop sits on the same summit Peak
+        // and Ridge also read, and cross-type competition would let whichever
+        // of them is processed first claim the cell before Rock formation's
+        // own turn — testing spacing order, not the contrast constraint.
+        let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
+
+        // Uniformly high resistance: every land cell ties for its own
+        // window's maximum, and none of them contrast with it.
+        let flat = vec![0.95f32; w.gw * w.gh];
+        let mut inp = inputs(&w, &[]);
+        inp.resistance = Some(&flat);
+        let r = generate(&inp, &s, 5);
+        assert_eq!(
+            r.placed("rock_formation"),
+            0,
+            "uniformly hard ground placed a formation with no contrast to stand out from"
+        );
+        let f = r.funnel("rock_formation").unwrap();
+        assert!(
+            f.rejected_constraint > 0,
+            "nothing even reached the contrast test: {:?}",
+            f
+        );
+
+        // The fixture's own resistance field — one outcrop standing out from
+        // a low background, over real topography — places at least one.
+        let inp2 = inputs(&w, &[]);
+        let r2 = generate(&inp2, &s, 5);
+        assert!(
+            r2.placed("rock_formation") > 0,
+            "an outcrop with real contrast and real relief placed nothing: {:?}",
+            r2.funnel("rock_formation")
+        );
     }
 
     /// **The M8 residual's whole justification for `resource_extraction_site`

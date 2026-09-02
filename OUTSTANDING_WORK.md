@@ -41,26 +41,26 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**153 outstanding items across 24 subsystems** (was 168 that morning, then 164
-after four of §1's eight rows closed outright 2026-09-01; a same-day second
-pass closed two more; a same-day third pass then closed all six of §2.3's
-journey/route cluster rows — four built, two confirmed already done; full
-evidence in `STATUS.md`, Journey Planner ledger JP-QC2/QC3/QC4 and the
-2026-09-01 dated log; verifying that pass then found and closed one more —
-§3.2's "Manual road tool" row, which cited the same claim `UNWIRED_FUNCTIONS.md`
-did and is resolved the same way, see below; a same-day stale-record pass then
-took four more — §4's Units question, answered by the ruling; §2.5's WW-06,
-whose "never consumed" premise the paint-falloff work falsified; and both of
-§2.8's own document-correction rows, executed in that pass — 157 → 153). Of
-those:
+**136 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-02**, after a pass left four different totals in this
+file at once (a headline of 142, a table summing to 143, and a report claiming
+145). That is §6.8's own "counts that disagree with themselves", reintroduced;
+the fix is the count, and the lesson is that the arithmetic here is not safe to
+delegate.
+
+The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
+outside it. Two independent cross-checks say the recount is right: §3.1 comes
+out at **14**, matching this file's own long-standing claim that exactly 14 rows
+are blocked on an owner decision, and §4 at **19**, matching the count after the
+Units question was answered. Of those:
 
 | | Count | Meaning |
 |---|---:|---|
 | In flight | 3 | Code exists, committed but partial (§1) |
-| Ready to start | 98 | Nothing blocks them; someone has to pick them up (§2) |
-| Blocked | 33 | A named blocker, listed in §3 |
+| Ready to start | 80 | Nothing blocks them; someone has to pick them up (§2) |
+| Blocked | 34 | A named blocker, listed in §3 |
 | Open decisions | 19 | Not work yet — the owner owes an answer first (§4) |
-| Declined / shelved | 23 entries, 3 groups | §5, kept so nobody re-proposes them |
+| Declined / shelved | 25 entries | §5, kept so nobody re-proposes them |
 
 Of the 33 blocked, **14 are blocked on an owner decision and nothing else** —
 that is the largest single category of stalled work in the project, and §4 is
@@ -108,12 +108,13 @@ Four caveats on that number, stated rather than buried:
 
 If you stop reading here:
 
-1. **Urban morphology milestones 8–16 and half of 17** — ~28 reference
-   functions, ~1 500 lines, nothing started. `cartalith-urban/src/` holds
-   exactly one module per shipped milestone (`astar, blocks, geom, graph,
-   growth, plaza, rng, routes, rules, site`) and not one more. Milestone 10
-   alone is 9 functions and the plan's self-declared largest. This is the
-   biggest single block of work in the project and it has no blocker.
+1. **Urban morphology milestone 16 and half of 17** — Milestones 8-15 shipped in
+   `4ec07f5` (6 077 lines of module source, 7 251 test lines). What remains:
+   milestone 16 (`generate()` orchestration + `hashModel`), the block-2 capture
+   harness, and three `_um*` adapter functions (`_umHarbourScale`,
+   `_umSiteProfile`, `_umOreBearing`). Milestone 16 is ready: its blocker
+   (milestones 8-15 existing) has lifted. This is the largest single block of
+   work in the project.
 2. **The GUI/shell replacement, stages 3, 5, 6 and 7** — `00-REPLACEMENT-PLAN.md`
    still opens with a truncated-prototype blocker that was resolved the same
    day (`BUILD_ANSWERS.md` §1). Stages 1, 2 and (as of 2026-09-01, second
@@ -191,28 +192,19 @@ been reduced to.
 Nothing blocks these. They are ordered largest-first within each group, and the
 groups are ordered by how much of the remaining project they represent.
 
-### 2.1 Urban morphology — the largest outstanding block
+### 2.1 Urban morphology — what remains
 
-Phase 5. Verified absent by module listing and by a grep for every function
-name across all sixteen crates: the only hit among twenty searched names is
-`build_wall`, which resolves to the no-op `WallBuilder` trait and its
-`RecordingWallBuilder` stub at `growth.rs:202-232`. That stub is the whole of
-milestone 10 today.
+Phase 5. Milestones 8-15 are **built and committed** in `4ec07f5`. Milestone 16
+(`generate()` + `hashModel`), milestone 17's last three `_um*` adapters
+(`_umHarbourScale`, `_umSiteProfile`, `_umOreBearing`) and the downstream wiring
+into `run_layout`, `urban_bridge.rs` and `urban_layout_draw.gd` are **built and
+uncommitted** — `git log 4ec07f5..HEAD` returns nothing, so a clean checkout
+still loses them. The remaining unbuilt work is the block-2 capture harness
+needed to golden-verify the `_um*` adapter.
 
 | Milestone | What it is | Size | Note |
 |---|---|---|---|
-| **10** | Fortification — `ringCrossings`, `densifyLoop`, `nearestIdx`, `cornerCut`, `townBank`, `builtMassHull`, `buildWall`, `applyStarFort` (ref. 29631-30037, 9 fns, ~407 lines) | large | The plan's self-declared largest single milestone. Needs `Graph::from_paths` (milestone 2's finding 2) for `builtMassHull`; introduces the "ringroad" street class; `WallState` must be extended, as milestone 7 warned |
-| **13** | Districts and buildings — `assignDistricts`, `bmap`, `rectPoly`, `buildBuildings`, `_rectPts`, `_peristyle`, `buildFaithSites` (ref. 30345-30710, 7 fns) | large | Reads `opts.economy`, which needs `_umOreBearing` and a settlement `specialisation` this port does not have. Honest fallback is `economy: null` |
-| **15** | Hinterland, decay, details, metrics — 7 fns (ref. 30711-30930) | medium | |
-| **11** | Graph cleanup — `_killEdge`, `pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `clearFortZone`, `lanePass` (ref. 30038-30192, 6 fns) | medium | Ordering between these is load-bearing, and `_killEdge`'s `if (k >= 0)` guard must **not** be unified with `splitEdge`. `clearFortZone` is only meaningful after 10 |
-| **14** | Amenities — `buildMarkets`, `buildCivic`, `orientedRect`, `gamesShapeAt`, `buildGames` (ref. 29160-29382, 5 fns) | medium | |
-| **9** | Water infrastructure — `distToLine`, `buildHarbour`, `addRiverBridges`, `detectRiverCrossings` (ref. 28967-29159, 4 fns) | medium | `detectRiverCrossings` must run after milestone 11's cleanup passes |
-| **8** | Radial (Venus) streets and waterway — `buildRadialStreets`, `buildWaterway` (ref. 28835-28939, 2 fns) | small | Only `buildPlaza` from this line range shipped, as 8a |
-| **17a caveat** | Golden-verify the block-2 `_um*` adapter | medium | The one live exception to `PARITY_TESTING.md`'s stage-by-stage rule not covered by `DECISIONS.md` §7a. Covered today by 11 unit tests over synthetic fields. Needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only |
-
-Milestone **16** (`generate()` orchestration + `hashModel`, the whole-subsystem
-golden) and milestone **17**'s remaining five `_um*` functions are blocked by
-definition and appear in §3.2.
+| **17a caveat** | Golden-verify the block-2 `_um*` adapter | medium | The one live exception to `PARITY_TESTING.md`'s stage-by-stage rule not covered by `DECISIONS.md` §7a. Covered by 11 unit tests over synthetic fields. Needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only |
 
 > **Before executing any ruling that says "add `cartalith-urban` as a dependency
 > of `cartalith-godot`": the substance is already done.** `urban_bridge.rs`
@@ -263,7 +255,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Story planning **SP-3** — the settlement timeline strip (simulated history + authored vault events + journey passes) | `STORY_PLANNING_SCOPE.md` | large | No per-settlement history accessor in `timeline.rs`; `civilization_workspace.gd:1633` is the world-level strip, not a per-settlement one |
 | Story planning **SP-4** — the conflict overlay in CIVIL, reading real manpower figures | `STORY_PLANNING_SCOPE.md` | large | Blocks landmark M9. Its attachment model is undecided (§4) |
 | **CV-23** — historical territorial occupation over time | `STATUS.md` | large | Timeline work, not territory work |
-| Landmark **M1 residual** — consolidate the three duplicate slope/TPI/curvature copies onto the canonical field | `LANDMARK_GENERATION_SCOPE.md` | medium | M1's own "Done when" demands `build_ao`'s output be proven **bit-identical** before and after. `DECISIONS.md` §7a protects it; needs a golden-safe refactor pass |
 | `_civPlaceSmelting` | `ECONOMY_SCOPE.md` m1 | medium | "A clean, unblocked first slice." No `place_smelting` symbol anywhere under `crates/` |
 | **VA-01** — the vault scan *index* (not the scan) | `STATUS.md` | medium | |
 | `_civSaltAccess` | `ECONOMY_SCOPE.md` | small | |
@@ -274,7 +265,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| Vault **milestone 4** — the Android SAF provider (§6) | `MARKDOWN_VAULT_SCOPE.md` | large | Cross-device vault identity (§35 criterion 2) is designed for and unverified until this exists |
 | Vault **milestone 3** — project-scoped links (§26), inside the save rather than `user://` | `MARKDOWN_VAULT_SCOPE.md` | medium | **The doc's "blocked" status is stale.** The blocker lifted 2026-08-25 with the §7h project tree, and `cartalith-io/src/project.rs:292` already registers a `vault.json` slot. The move has not happened: `vault_store.gd:36` is still `user://markdown_vault.json` |
 | Vault **milestone 2** — the map snapshot (§21, §22) at immediate/local/regional radii | `MARKDOWN_VAULT_SCOPE.md` | medium | Its own record: "blocked on nothing — `export_raster.rs` already crops" |
 | Project archive remainder — project-layer panels, the `library/` and `drafts/` slots, a `preview.png` producer, foreign-entry preservation | `STATUS.md`, `SAVEFILE_COMPAT.md` §17 | medium | Nothing draws any of it; `preview.png` has a writer and no producer; foreign entries are reported rather than preserved |
@@ -320,11 +310,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Previews re-upload the whole texture — `touched_tiles`/`touched_bounds` unused | `UNWIRED_FUNCTIONS.md` | medium | Producer at `cartalith-spatial/src/pass.rs:193/199`; zero consumers |
 | Integrate `QuadTree` and `TiledField` into a real caller, or retire them | `LOD_TILING_BASE_SCOPE.md` | medium | **Two of the crate's three data structures are unconsumed** three weeks and six dependent crates later — every external reference is a doc comment, and `lod_bridge.rs:54-63` argues at length why using `QuadTree` there "would be strictly worse than not using it". `DirtyTracker` does have real callers. Also leaves the deferred `tile_size` benchmark with no workload |
 | Rayon across `road_dijkstra`'s independent sources | `GPU_LAYER_INTEGRATION_SCOPE.md` m9 | small | **The cheapest real win adjacent to the four hard-hazard algorithms.** All three call sites are still plain `.iter().map()` (`cartalith-civ/src/lib.rs:5901`, `:5972`, `:7709` — shifted from `:5834`/`:5905`/`:7486` by the 2026-09-01 journey/route cluster edits; re-verified at the new locations) |
-| **R4** — `plate_id: Vec<usize>` → `Vec<u16>` (15.36 MiB, 0 ms) | `MEMORY_OPTIMIZATION_SCOPE.md` | small | Consumers still take `&[usize]` in four places |
-| **R5** — `jfa_dist`'s three scratch grids → i32/i32/u32 (32.2 MiB, bit-identical) | `MEMORY_OPTIMIZATION_SCOPE.md` | small | `cartalith-civ/src/lib.rs:2005-2007` unchanged |
-| **R8** — chunk `civ_hierarchical_network_topology`'s parallel Dijkstras (~45 MiB) | `MEMORY_OPTIMIZATION_SCOPE.md` | small | Same three call sites as the Rayon row above |
-| **R6** — stop reserving grid-sized capacity in the two heaps (42.96 + 32.2 MiB) | `MEMORY_OPTIMIZATION_SCOPE.md` | small | Low value on Android, per its own note |
-| **R7** — `road_dijkstra`'s discarded `prev` (10.24 MiB): add a `want_prev` flag | `MEMORY_OPTIMIZATION_SCOPE.md` | small | |
 | Per-pipeline caching across repeated `generate_terrain` calls | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | Milestone 8 shares the device within one call only |
 | Average the GPU-vs-CPU benchmark over multiple runs | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | The 2048² ratio moved 1.19×→0.98× with no code change; single-run variance is currently indistinguishable from a result |
 | Investigate the `gpu_height` throughput drop from 1024² (8.13×) to 2048² (4.84×) | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | A plausible cause (memory-bandwidth-bound at 9 buffers) is stated and untested |
@@ -357,11 +342,7 @@ measurement.
 |---|---|---|---|
 | **Re-freeze the reference to v2.11 and regenerate `FUNCTION_INDEX.md` in the same pass** | `CLAUDE.md`, `FUNCTIONAL_CONTRACT.md` | medium | `Cartalith Gen1 v2.11.html` (2.37 MB) is committed at this repository's root while `reference/` holds only v2.10 and the index still enumerates v2.10's 1 094 functions. **Every capability tag in `FUNCTIONAL_CONTRACT.md` is now measured against a reference one version behind the one this project ships.** `CLAUDE.md` requires both to move together |
 | **21 menu commands still unavailable**, each carrying a stated reason | `STATUS.md` | medium | 356 total entries, 21 unavailable (was 245 / 24) |
-| Carry the Nortantis studied-not-copied disclosure into the credits screen | `PROVENANCE.md` | small | The constants are live (`cartalith-assets/src/scatter.rs`; `cartalith-civ/src/naming.rs:3` cites Nortantis directly) and `grep -i nortantis godot-project/credits.gd` returns nothing |
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
-| Make the dependency licence audit a standing check rather than a snapshot | `PROVENANCE.md` | small | `credits.gd` carries a real audit dated 2026-08-17 (~200 deps); no `deny.toml` exists in the workspace. `cargo deny` belongs in Phase 1's definition of done |
-| Re-verify the pinned Godot version rather than trusting the recorded number | `DECISIONS.md` §9 | small | The same discipline `CLAUDE.md` states for gdext maturity and crate specifics |
-| `world_workspace.gd` parameter count — header claims 58 but actual count is 81 | `cartalith-native/godot-project/shell/workspaces/world_workspace.gd` | small | Comment-text fix (lines 7-10): `grep -c "ParamSpec { key:" cartalith-native/crates/cartalith-godot/src/params.rs` confirms 81 parameters |
 | Five "left undetermined" questions from the unwired re-cut — light-theme inertness of the CARTO panels, the phone measure strip / label bar / way card, the 44 vs 48 dp target sweep, whether `sculpt_stroke_point` can reject an appended point, landscape composition beyond the sheet handle, and whether any `_todo` reason cites a `PARITY_AUDIT.md` section number that has moved | `UNWIRED_FUNCTIONS.md` | small | Three of the six need a handset or a light-theme capture, not a read |
 
 ---
@@ -418,6 +399,7 @@ owner answer, the question itself is in §4.
 | **GPU §21** — thermal / mobile-adaptive GPU scheduling | `GPU_COMPUTE_PILOT_SCOPE.md` | medium | **No Android GPU compute path exists to adapt.** The handset runs the CPU pipeline entirely; the device passes treat "zero `wgpu` lines in logcat" as a *pass* condition. Both `project.godot` renderer keys are `gl_compatibility` |
 | Owner question 3 — should the WORLD left-dock A/B switch come back? | `UNWIRED_FUNCTIONS.md` | small | Doubly blocked: an owner call, *and* the captions and gate (`ldSwitch`/`ldSwA`/`ldSwB`) are in the truncated tail of `02-rail-and-domains.md` §8, so there is no label to build it with |
 | The 3D research's three commissioned questions (`gl_compatibility` rationale; wgpu/Godot GPU coexistence; what a raised device floor buys) | `3D_TERRAIN_RENDER_RESEARCH.md` | medium | Parked with the 3D viewport. Question 2 is named the highest-value unanswered question and gates `RenderingDevice`, compute shaders and GPU-driven culling. Resuming is cheap — the research is complete at 1 530 lines |
+| Vault **milestone 4** — device pass verifying the Android SAF provider (folder picker, persisted grant, revocation) | `MARKDOWN_VAULT_SCOPE.md` | large | Needs a real Android device |
 
 ---
 
@@ -511,6 +493,8 @@ Kept so nobody re-proposes them. Nothing here is a gap.
   named, not assumed. **Three separate documents defer the same four
   algorithms for the identical reason**; they are the shared ceiling on both
   the GPU and the Rayon efforts, and none has an owner.
+- **Landmark M1's consolidation** — consolidate the three duplicate slope/TPI/curvature copies onto the canonical field. M1's own "Done when" demands `build_ao`'s output be proven **bit-identical** before and after refactoring. `DECISIONS.md` §7a protects the rendered output, and `cartalith-terrain/src/analysis.rs` module doc explains the reasoning: refactoring `build_ao` would put a golden-protected render path at risk to share four lines of box blur. Declined rather than scheduled.
+- **R6** — stop reserving grid-sized capacity in the two heaps (42.96 + 32.2 MiB). Declined as low-value, with its own note already recording that the saving is small on Android.
 - **A bounded thread pool** — declined as "this port has no interactive editing
   mid-generation to protect against". The Sculpt/paint tool system has since
   landed, so the premise is worth re-checking.

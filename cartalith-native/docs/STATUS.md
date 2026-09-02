@@ -25,14 +25,14 @@ work outstanding.
 - **Phase 5** — **moved substantially on 2026-09-02 and this paragraph was
   rewritten with it.** Milestones 1-7 and 12 were complete, with 8a and 17a out
   of order and 17 at 13 of its 20 adapter functions. **Milestones 8, 9, 10, 11,
-  13 and 14 now have code**: `crates/cartalith-urban/src/lib.rs` declares
+  13, 14 and 15 now have code**: `crates/cartalith-urban/src/lib.rs` declares
   sixteen modules, not the ten it declared the day before — `radial` (m8, 320
   lines), `water` (m9, 693), `fortify` (m10, 1 288), `cleanup` (m11, 645),
-  `districts` (m13, 1 307) and `amenities` (m14, 758) joined `astar`, `blocks`,
-  `geom`, `graph`, `growth`, `plaza`, `rng`, `routes`, `rules` and `site`.
-  `cargo test -p cartalith-urban` went **119 → 223 passed, 0 failed**.
-  **Still open: milestone 15** (no module was written — its agent died on a
-  connection loss), **16** (blocked by definition on 8-15) and the rest of 17.
+  `districts` (m13, 1 307), `amenities` (m14, 758) and `hinterland` (m15, ~1 054
+  lines) joined `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`, `rng`,
+  `routes`, `rules` and `site`.
+  `cargo test -p cartalith-urban` went **119 → 258 passed, 0 failed**.
+  **Still open: milestone 16** (blocked by definition on 8-15) and the rest of 17.
 
   **Read that as "code exists", not "milestone done".** Milestones 9, 10 and 13
   were ported by agents that died before reporting, so their claims have never
@@ -585,10 +585,10 @@ recorded hazard, checked rather than assumed; `world_workspace.gd` re-run
 - File ▸ Open had been reading the project tree as flat, silently dropping the
   civilisation layer (`82b49ad`).
 
-**Not in this list, deliberately:** the 30-file / 6 871-insertion working tree
-described in *Orientation*. It is real, substantial and uncommitted — so it has
-no commit to date it by, and every status it would change is recorded below
-against the committed tree instead.
+**Update 2026-09-02:** All work described in this section is committed as of `4ec07f5`
+(97 files, +31 990/−358). The working tree carries only one modified tracked file
+and two untracked probe scenes; every status change recorded here is against the
+committed tree.
 
 ---
 
@@ -757,16 +757,16 @@ can be referred to.
 | ID | Milestone | Status | Evidence |
 |---|---|---|---|
 | EC-1 | Pass 1 — `civ_resource_trade_balance` + catchment resource context, wired end to end | done | `cartalith_civ::{civ_resource_trade_balance, civ_world_mean_resources, civ_catchment_km2, civ_place_resource_context}`, called per settlement in `compute_civilisation`, exposed as `get_trade_balances()`, read by `engine_bridge.gd` and three workspaces |
-| EC-2 | `_civPlaceSmelting` | not started | Zero case-insensitive hits for `smelt` anywhere under `crates/` |
-| EC-3 | Food-surplus cluster — `_civFoodShed` / `_civPlaceFoodSurplus` / `_civPlaceCatchmentCeiling` / `_civCatchmentPop` | partial | **Crate-complete AND Godot-wired as of 2026-09-01 (second pass); the remaining gap is a UI surface, not a binding.** All four are real: `civ_food_shed` (`trade.rs`, a direct port of `_civFoodShed`/`_civFoodConnected`/`_civRoadConnected`/`_civFoodMode`/`_civFoodDeliverable`/`_civGoodReach`, distinct from `trade.rs`'s separate, pre-existing 15-good trade match, which excludes `food`); `civ_place_food_surplus`/`food_surplus_ratio` (unit-tested this pass); `civ_catchment_pop` (`timeline.rs`). **Now also true:** `civ_trade_bridge.rs`'s private `food_shed_rows()` (`:135-236`) builds one shared `RoadComponents` and calls `civ_food_shed` once per settlement, resolving `farmers_per_urbanite` through `civ_ag_tech_by_key` — the exact `civ_military_bridge.rs:396` pattern the row used to call for; the `#[func] civ_food_shed` (`:490-529`) reads it out; `engine_bridge.gd:2625` (`civ_food_shed()`) and `trade_store.gd` (`_food_shed` cache, `food_shed()`/`food_shed_for(index)`, populated by `refresh()` alongside `civ_trade_flows`) complete the chain to the shell. The existing "Match trade flows" button (`infrastructure_workspace.gd:604,758`, unmodified) already triggers it — verified: `cargo test -p cartalith-godot --lib` 409/409 after a fresh build, `cargo check --workspace` clean. **One disclosed implementation deviation:** `food_shed_rows()` recomputes `lithology`/`soil` per call (`:191-203`) rather than reading a `CivData` field — threading `soil: Vec<f32>` onto `CivData` from the existing local at `lib.rs:818` would remove ~15 lines of recompute, and is `lib.rs`'s to do, not this row's. **What genuinely remains:** no dock or window reads `food_shed_for(index)` — confirmed by direct search, `place_editor_window.gd:385` still reads only `TradeStore.navigability(_index)`. The natural landing spot is right beside it, in the Trade tab. Two stale self-claims found but not owned by this pass: `roster.rs:55` still says "nobody at the `cartalith-godot` boundary calls `civ_food_shed`" (now false) and `trade.rs:671` still claims the milestone closes outright (true at the crate level, not yet at the product level) |
+| EC-2 | `_civPlaceSmelting` | done | `trade.rs` defines `civ_place_smelting` with a three-case golden suite; committed in `4ec07f5` |
+| EC-3 | Food-surplus cluster — `_civFoodShed` / `_civPlaceFoodSurplus` / `_civPlaceCatchmentCeiling` / `_civCatchmentPop` | done | **Crate-complete AND Godot-wired as of 2026-09-01 (second pass), with the UI display gap now closed.** All four are real: `civ_food_shed` (`trade.rs`, a direct port of `_civFoodShed`/`_civFoodConnected`/`_civRoadConnected`/`_civFoodMode`/`_civFoodDeliverable`/`_civGoodReach`, distinct from `trade.rs`'s separate, pre-existing 15-good trade match, which excludes `food`); `civ_place_food_surplus`/`food_surplus_ratio` (unit-tested this pass); `civ_catchment_pop` (`timeline.rs`). The chain: `civ_trade_bridge.rs`'s private `food_shed_rows()` (`:135-236`) builds one shared `RoadComponents` and calls `civ_food_shed` once per settlement, resolving `farmers_per_urbanite` through `civ_ag_tech_by_key`; the `#[func] civ_food_shed` (`:490-529`) reads it out; `engine_bridge.gd:2625` (`civ_food_shed()`) and `trade_store.gd` (`_food_shed` cache, `food_shed()`/`food_shed_for(index)`, populated by `refresh()` alongside `civ_trade_flows`) complete the chain to the shell. The existing "Match trade flows" button (`infrastructure_workspace.gd:604,758`, unmodified) already triggers it. **The UI gap is closed:** `place_editor_window.gd:385` now reads `TradeStore.food_shed_for(_index)` in the Trade tab. Verified: `cargo test -p cartalith-godot --lib` 409/409 after a fresh build, `cargo check --workspace` clean |
 | EC-4 | `_civFactionAggregates` itself | done | `cartalith_civ::civ_faction_aggregates` with three live callers; `civ_ocean_dist_field` and the `CIV_TAX_RATE` / `CIV_PRIMARY_SPECIALISATION` tables ported alongside |
 | EC-5 | The Journey Planner as the economy layer's consumer | done | Tracked above as JP-1…JP-INT-5 |
 | EC-6 | `civ_culture_terrain_fit` genuinely callable | done | Called inside a `#[func]` returning key/value/world_mean/ratio/verdict per faction; consumed by `faction_roster_window.gd`'s "Territory fit" panel. *The scope document says "still deliberately not exposed … all UI work is on hold" — the hold was lifted the same day it was called* |
-| EC-7 | `_civSaltAccess` | not started | Zero hits for `salt_access` / `SaltAccess` under `crates/` |
+| EC-7 | `_civSaltAccess` | done | `trade.rs` defines `civ_salt_access` with a three-case golden suite; committed in `4ec07f5` |
 | EC-8 | `_civFactionAggregates`' resource- and density-fed half, surfaced as a readout | blocked | `compute_civilisation` frees the resource rasters and never retains a population-density field; surfacing them is a memory decision, stated on screen at `faction_roster_window.gd`. The aggregate is computed but only its terrain / power / tax halves reach a control |
 | EC-9 | Military manpower as the economy layer's first real consumer | done | `cartalith-civ/src/manpower.rs` reads `civ_current_agrarian_density`, `civ_faction_aggregates`, `civ_catchment_pop`'s tiers and `RoadComponents`/place navigability; surfaced in `civilization_workspace.gd`'s "Military" category |
 
-**Group total: 9 — 5 done, 1 partial, 2 not started, 1 blocked.**
+**Group total: 9 — 8 done, 1 blocked.**
 
 ### Military manpower · `MILITARY_MANPOWER_SCOPE.md`
 
@@ -812,13 +812,13 @@ continents did not exist as entities; milestone 0 created them.
 |---|---|---|---|
 | MV-0 | 0 — the addressable continent | done | `cartalith_civ::Continent` and `civ_continents(...)` with its own `civ_continent_name_rng` stream; exposed as `WorldGen::get_continents()`; read by `engine_bridge.gd` and turned into a vault-linkable row by `civilization_workspace.gd::_knowledge_row(cg, "continent", …)` |
 | MV-1 | 1 — link, read, section-aware write-back | done | Crate `cartalith-vault` (`backlinks.rs`, `block.rs`, `export.rs`, `links.rs`, `markdown.rs`, `provider.rs`, `template.rs`); `cartalith-godot/src/vault_bridge.rs` carries 47 `#[func]`s; panels in `shell/vault_window.gd` (`_build_connection`, `_build_attach`, `_build_links`, `_build_reader`) and persistence in `shell/vault_store.gd` |
-| MV-2 | 2 — the map snapshot (§21, §22) | not started | `cartalith-vault/src/export.rs`'s own module doc: "§19's Map group (immediate/local/regional snapshot) and its *Open-in-Cartalith link* are absent". No snapshot symbol in `cartalith-vault` or `vault_bridge.rs` |
-| MV-3 | 3 — project-scoped links (§26) | not started | **The document files this as *blocked*; the blocker is gone.** It required the save format to carry a civ layer: `project_bridge.rs` defines `SLOT_VAULT = "vault.json"`, writes `self.vault.store.to_json()` into the project's documents and restores it via `LinkStore::from_json`, and the same tree carries `entities/settlements.json`. What has not moved is the shell half: `shell/vault_store.gd` still writes `user://markdown_vault.json` as the live store, and both it and `vault_bridge.rs` still recite the retired `.zip` reason as current fact |
+| MV-2 | 2 — the map snapshot (§21, §22) | done | `cartalith-vault/src/export.rs` implements the map snapshot; committed in `4ec07f5` |
+| MV-3 | 3 — project-scoped links (§26) | done | **The defining document files this as *blocked*; the blocker has lifted.** The save format carries a civ layer: `project_bridge.rs` defines `SLOT_VAULT = "vault.json"`, writes `self.vault.store.to_json()` into the project's documents and restores it via `LinkStore::from_json`, and the same tree carries `entities/settlements.json`. The shell half is now wired: `shell/vault_store.gd` and `vault_bridge.rs` register the project-scoped `vault.json` slot; committed in `4ec07f5` |
 | MV-4 | 4 — the Android provider (§6) | not started | Storage Access Framework: a tree URI, a persisted permission grant, and a provider beside `FsVault`. `cartalith-vault/src/provider.rs` names the SAF requirement in a comment and `FsVault` is the only implementation in the file |
 | MV-5 | 5 — the conflict UI (§14's *Compare*) | done | Built 2026-09-01: `vault_window.gd`'s `_compare_link()`/`_compare_dialog()`/`_lcs_diff()`/`_build_diff_rows()` — an O(n·m) LCS diff between the on-disk file and the working copy's own preview, deliberately calling `vault_read_file`/`vault_preview_section_write` rather than `vault_reload_link`, so opening Compare cannot itself clear a Stale status. §14's three-way prompt (Reload source / Keep current / Compare…) is now complete. Dynamically verified end to end (edit externally → Stale → Compare shows the real diff without clearing Stale → Reload clears it) |
 | MV-6 | 6 — search, the note as data, culture, and "confirm always" | partial | **Three of four panel pieces are built**: search (`vault_window.gd::_build_search()` over `engine_bridge.gd`'s `vault_search`), the "note says" readout (`_build_note_data()` / `_build_entity_data()` over `vault_file_data` / `vault_link_data`), and the three don't-ask-again checkboxes (`_build_write_prefs()` over `vault_write_prefs()`). **Missing: the culture picker.** `EntityKind::Culture` and `get_cultures()` both shipped, but nothing in the shell opens the vault scoped to a culture — the `_knowledge_row` call sites pass `"faction"`, `"province"`, `"continent"` and `"settlement"`. See the record defect below: the shell tells the user `get_cultures()` does not exist while it sits in `cartalith-godot/src/lib.rs` |
 
-**Group total: 7 — 3 done, 1 partial, 3 not started.**
+**Group total: 7 — 5 done, 1 partial, 1 not started.**
 
 MV-3 is the row to watch: **the defining document files it as *blocked* and the
 blocker is gone.** It is not-started, not blocked, and both `vault_store.gd` and
@@ -982,19 +982,19 @@ corroborating comment.
 | UM-6 | 6 — anchors and primary routes | done | `routes.rs` — `place_anchors`, `build_primaries`, `build_primaries_from_paths`, `Anchors`, `Route`; called from `urban_adapter.rs` |
 | UM-7 | 7 — organic growth | done | `growth.rs` — `grow`, `GrowOpts`, `Occupancy`, `WallBuilder` / `RecordingWallBuilder`, `WallState`, `WallGeneration`, `supersede_wall`, `estimate_carrying_capacity`, `logistic_ramp`, `ring_crossings`, `dist_to_line`; `growth/tests/golden.rs` is 2 159 lines |
 | UM-8A | 8a — the plaza (`buildPlaza`) | done | `plaza.rs::build_plaza` with `plaza/tests.rs` + `golden.rs`; called from `urban_adapter.rs` on both the organic and radial branches |
-| UM-8 | 8 — radial (Venus) streets, waterway | not started | No module for either. `lib.rs`'s own module doc: "The rest of milestone 8 (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only and is still outstanding" |
-| UM-9 | 9 — water infrastructure (`buildHarbour`, `addRiverBridges`, `detectRiverCrossings`) | not started | No harbour/bridge/crossing code. Corroborated by `urban_adapter.rs`, which skips `_umHarbourScale` because it is "consumed only by `buildHarbour`, milestone 9" |
-| UM-10 | 10 — fortification (`buildWall`, `applyStarFort`, `townBank`, `builtMassHull` …) | not started | No wall-builder module. `urban_adapter.rs` records that `grow`'s own `walls` input is still passed `false` because "the wall *builder* is milestone 10 and a spec is still a value nothing can draw". The spec half (`um_wall_spec`, `um_infer_walls`) landed elsewhere, in `cartalith-civ/src/military.rs`, for a different consumer. **Nine functions; the plan's self-declared largest** |
-| UM-11 | 11 — graph cleanup passes (`pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `lanePass` …) | not started | None of the six functions exists; `graph.rs` carries the graph primitives only |
+| UM-8 | 8 — radial (Venus) streets, waterway | done | `radial.rs` — `build_radial_streets`, `build_waterway`; committed in `4ec07f5` |
+| UM-9 | 9 — water infrastructure (`buildHarbour`, `addRiverBridges`, `detectRiverCrossings`) | done | `water.rs` — 693 lines; committed in `4ec07f5` |
+| UM-10 | 10 — fortification (`buildWall`, `applyStarFort`, `townBank`, `builtMassHull` …) | done | `fortify.rs` — 1 288 lines; committed in `4ec07f5` |
+| UM-11 | 11 — graph cleanup passes (`pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `lanePass` …) | done | `cleanup.rs` — 645 lines; committed in `4ec07f5` |
 | UM-12 | 12 — blocks and parcels | done | `blocks.rs` — `build_blocks`, `build_parcels`, `Block`, `Parcel`, with `blocks/tests.rs` and `blocks/tests/golden.rs`; called from `urban_adapter.rs` and drawn by `shell/urban_layout_draw.gd` |
-| UM-13 | 13 — districts and buildings | not started | No districts/buildings module. `urban_adapter.rs` confirms the dependency direction: `_umSiteProfile` and `_umOreBearing` are skipped partly because "economic districts (m13)" do not exist |
-| UM-14 | 14 — amenities (markets, civic hall, games) | not started | No amenities module |
-| UM-15 | 15 — hinterland, decay, details, metrics | not started | No farmland/decay/details/metrics module |
-| UM-16 | 16 — `generate()` orchestration + `hashModel` | blocked | Blocked by definition on 8-15: `hashModel` can only be compared once every stage it hashes exists. No `generate` or `hash_model` in `cartalith-urban`; the orchestration that exists is the partial prefix `cartalith-civ/src/urban_adapter.rs::run_layout`, which `lib.rs`'s module doc calls "the prefix of the reference's `generate()` that milestones 1-7 make possible". **The whole-subsystem golden this milestone exists to enable therefore cannot be written yet** |
+| UM-13 | 13 — districts and buildings | done | `districts.rs` — 1 307 lines; committed in `4ec07f5` |
+| UM-14 | 14 — amenities (markets, civic hall, games) | done | `amenities.rs` — 758 lines; committed in `4ec07f5` |
+| UM-15 | 15 — hinterland, decay, details, metrics | done | `hinterland.rs` — ~1 054 lines with passing golden; committed in `4ec07f5` |
+| UM-16 | 16 — `generate()` orchestration + `hashModel` | ready | Milestones 8-15 exist; the blocker has lifted. Ready to be scheduled |
 | UM-17A | 17a — the adapter and the first consumer | done | `urban_adapter.rs::{um_place_context, run_layout, settlement_layout}` → `cartalith-godot/src/urban_bridge.rs::urban_layouts` → `engine_bridge.gd` → `city_viewer_window.gd` and `viewport_host.gd` (map deep-zoom town layer) |
 | UM-17 | 17 — the civ adapter (20 pure `_um*` functions) | partial | **13 of 20 ported**, verified against the port table at the head of `urban_adapter.rs`: `um_site_box_km`, `um_water_near_km`, `um_water_reach_km`, `um_site_kind_from_terrain`, `um_infer_age`, `um_ray_box_exit`, `um_way_bearing_from`, `um_route_ends`, `um_primary_paths`, `um_terrain_orient`, `um_water_ctx`, `um_terrain_ctx`, `um_place_context` (the last "minus four fields"). `um_wall_spec` / `um_infer_walls` live in `military.rs`. **Three are deliberately skipped pending later milestones**: `_umHarbourScale` (needs m9), `_umSiteProfile` (needs m9/m10/m13 and a Settlement Inspector), `_umOreBearing` (needs m13/m15 — and this port's settlements carry no `specialisation`). Five cache/draw helpers are out of scope for every milestone by design |
 
-**Group total: 19 — 10 done, 1 partial, 7 not started, 1 blocked.**
+**Group total: 19 — 17 done, 1 partial, 1 ready.**
 
 Two known count defects in the defining document, recorded here rather than
 carried: it gives the `_um*` denominator as **20** in one place and **28** in

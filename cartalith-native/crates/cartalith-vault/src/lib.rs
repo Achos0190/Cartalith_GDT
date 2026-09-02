@@ -52,7 +52,7 @@ pub use backlinks::{Backlink, BacklinkIndex, LinkForm, RefreshStats, excerpt};
 pub use block::{BlockAction, BlockError};
 pub use links::{EntityKind, ImportedData, KnowledgeLink, LinkStatus, LinkStore, Selection, VaultRef};
 pub use markdown::{FieldFill, FieldOutcome, Section, SectionError};
-pub use provider::{FileMeta, FsVault, VaultError};
+pub use provider::{FileMeta, FsVault, VaultError, VaultProvider};
 pub use template::Template;
 
 /// Why an operation refused. Every variant maps to something §32 requires be
@@ -251,7 +251,11 @@ impl WritePrefs {
 /// usable without the vault).
 pub struct VaultSession {
     pub store: LinkStore,
-    binding: Option<FsVault>,
+    /// `Box<dyn VaultProvider>` rather than `FsVault` directly — this is the
+    /// seam `provider`'s module doc describes: a Storage-Access-Framework
+    /// provider built in a different crate binds here exactly the way
+    /// [`FsVault`] does, through [`VaultSession::connect_provider`].
+    binding: Option<Box<dyn VaultProvider>>,
     /// `GUI_GAP_REGISTER.md` **VA-01**'s reverse index. Built only when asked
     /// for, invalidated per file by `(modified, len)`, and persisted beside
     /// the link store rather than inside it -- see
@@ -315,7 +319,40 @@ impl VaultSession {
                     .unwrap_or_else(|| "Vault".to_string())
             });
         let id = self.store.add_vault(&name);
-        self.binding = Some(vault);
+        self.binding = Some(Box::new(vault));
+        Ok(id)
+    }
+
+    /// Binds an already-constructed provider under a device-chosen display
+    /// name, exactly as [`Self::connect`] does for a filesystem path — the
+    /// extension point a platform integration this crate cannot itself
+    /// implement uses (`provider`'s module doc: a Storage-Access-Framework
+    /// vault is `cartalith-godot`'s to build, not this crate's).
+    ///
+    /// Refuses a provider that reports itself unavailable, for the same
+    /// reason `connect` refuses a missing directory: a binding that cannot
+    /// be reached the moment it is registered will not become reachable a
+    /// moment later either, and registering it anyway would hand back a
+    /// `vault_id` for a vault every subsequent read reports as
+    /// [`Error::NotBound`] — worse than refusing up front, because it looks
+    /// like it worked.
+    pub fn connect_provider(
+        &mut self,
+        provider: Box<dyn VaultProvider>,
+        display_name: Option<&str>,
+    ) -> Result<String, Error> {
+        if !provider.available() {
+            return Err(Error::Vault(VaultError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotConnected,
+                format!("\"{}\" is not reachable", provider.describe()),
+            ))));
+        }
+        let name = display_name
+            .map(str::to_string)
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| provider.describe());
+        let id = self.store.add_vault(&name);
+        self.binding = Some(provider);
         Ok(id)
     }
 
@@ -324,15 +361,15 @@ impl VaultSession {
     }
 
     pub fn is_bound(&self) -> bool {
-        self.binding.as_ref().is_some_and(|v| v.available())
+        self.binding.as_deref().is_some_and(|v| v.available())
     }
 
-    pub fn vault(&self) -> Option<&FsVault> {
-        self.binding.as_ref()
+    pub fn vault(&self) -> Option<&dyn VaultProvider> {
+        self.binding.as_deref()
     }
 
-    fn bound(&self) -> Result<&FsVault, Error> {
-        self.binding.as_ref().filter(|v| v.available()).ok_or(Error::NotBound)
+    fn bound(&self) -> Result<&dyn VaultProvider, Error> {
+        self.binding.as_deref().filter(|v| v.available()).ok_or(Error::NotBound)
     }
 
     /// Markdown files in the bound vault (§9, bounded — see
@@ -354,7 +391,7 @@ impl VaultSession {
     /// background pass — a person presses **Refresh**, and this is what that
     /// does.
     pub fn refresh_backlinks(&mut self, limit: usize) -> Result<RefreshStats, Error> {
-        let vault = self.binding.as_ref().filter(|v| v.available()).ok_or(Error::NotBound)?;
+        let vault = self.binding.as_deref().filter(|v| v.available()).ok_or(Error::NotBound)?;
         Ok(self.backlinks.refresh(vault, limit)?)
     }
 
@@ -589,7 +626,7 @@ impl VaultSession {
     /// rebuild.
     pub fn status(&self, link_id: &str) -> LinkStatus {
         let Some(l) = self.store.get(link_id) else { return LinkStatus::Missing };
-        let Some(v) = self.binding.as_ref().filter(|v| v.available()) else {
+        let Some(v) = self.binding.as_deref().filter(|v| v.available()) else {
             return l.status(false, None, None);
         };
         let meta = v.meta(&l.relative_path).ok();
@@ -651,7 +688,7 @@ impl VaultSession {
     /// prose was not, under a status that could only describe one of them.
     /// It is also what fills the copy on a link made before 2026-08-25.
     pub fn reload(&mut self, link_id: &str) -> Result<(), Error> {
-        let v = self.binding.as_ref().filter(|x| x.available()).ok_or(Error::NotBound)?;
+        let v = self.binding.as_deref().filter(|x| x.available()).ok_or(Error::NotBound)?;
         let l = self.store.get(link_id).ok_or_else(|| Error::NoSuchLink(link_id.into()))?;
         let text = v.read(&l.relative_path)?;
         let imported = match &l.selection {
@@ -1439,5 +1476,150 @@ rows
         ));
         assert!(s.store.links.is_empty(), "no half-made link left behind");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- milestone 4: `VaultSession` does not care what backs a provider ----
+
+    /// An in-memory stand-in for a `content://` tree — no `std::fs` under it
+    /// at all, the way `cartalith-godot`'s real Storage-Access-Framework
+    /// provider will have none either. `Rc` so a test can hold a second
+    /// handle to the same map and mutate it "from outside Cartalith",
+    /// standing in for another app writing through the same SAF grant.
+    #[derive(Debug, Default, Clone)]
+    struct FakeProvider {
+        files: std::rc::Rc<std::cell::RefCell<std::collections::BTreeMap<String, String>>>,
+    }
+
+    impl FakeProvider {
+        fn seeded(files: &[(&str, &str)]) -> Self {
+            let map = files.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+            FakeProvider { files: std::rc::Rc::new(std::cell::RefCell::new(map)) }
+        }
+
+        /// Writes as if some other app on the device changed the file
+        /// through the same grant — bypassing every guard `VaultSession`
+        /// itself provides, exactly what `std::fs::write` does directly
+        /// against the real folder in the `FsVault`-backed version of this
+        /// test.
+        fn write_external(&self, rel: &str, text: &str) {
+            self.files.borrow_mut().insert(rel.to_string(), text.to_string());
+        }
+    }
+
+    impl provider::VaultProvider for FakeProvider {
+        fn available(&self) -> bool {
+            true
+        }
+        fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
+            let mut out: Vec<String> = self.files.borrow().keys().cloned().collect();
+            out.truncate(limit);
+            Ok(out)
+        }
+        fn read(&self, rel: &str) -> Result<String, VaultError> {
+            self.files.borrow().get(rel).cloned().ok_or_else(|| {
+                VaultError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, rel.to_string()))
+            })
+        }
+        fn meta(&self, rel: &str) -> Result<FileMeta, VaultError> {
+            let text = self.read(rel)?;
+            Ok(FileMeta { modified: 0, len: text.len() as u64 })
+        }
+        fn exists(&self, rel: &str) -> bool {
+            self.files.borrow().contains_key(rel)
+        }
+        fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
+            self.files.borrow_mut().insert(rel.to_string(), text.to_string());
+            Ok(())
+        }
+        fn describe(&self) -> String {
+            "fake://vault".to_string()
+        }
+    }
+
+    /// Milestone 4's whole claim, proven rather than asserted: every
+    /// property `FsVault`'s own tests establish — list, attach, edit,
+    /// hash-guarded write, and the source-changed refusal that stops
+    /// Cartalith clobbering a concurrent edit — holds through *any*
+    /// [`VaultProvider`], not only the filesystem one. If this compiles and
+    /// passes, `cartalith-godot`'s `SafVaultProvider` slotting in beside
+    /// [`FsVault`] is a real claim about `VaultSession`, not just about the
+    /// trait's shape.
+    #[test]
+    fn a_non_filesystem_provider_supports_the_full_attach_edit_write_cycle() {
+        let mut s = VaultSession::new();
+        let provider = FakeProvider::seeded(&[("Locations/Nareth.md", HAND)]);
+        let external = provider.clone(); // same map: "another app" writing through the same grant
+        let id = s.connect_provider(Box::new(provider), Some("Fake SAF Vault")).unwrap();
+        assert!(id.starts_with("vault_"));
+        assert!(s.is_bound());
+        assert_eq!(s.list(100).unwrap(), ["Locations/Nareth.md"]);
+        assert!(s.vault().unwrap().as_fs_vault().is_none(), "a non-filesystem provider has no PathBuf to give");
+
+        let link = s
+            .attach(EntityKind::Settlement, 42, "Nareth", "Locations/Nareth.md", Selection::Heading { value: "History".into() })
+            .unwrap();
+        assert_eq!(s.status(&link), LinkStatus::Connected);
+
+        s.set_working_text(&link, "## History\n\nRewritten through the fake SAF path.\n").unwrap();
+        let (_, hash) = s.preview_section_write(&link).unwrap();
+        s.write_section(&link, &hash).unwrap();
+
+        let after = s.read("Locations/Nareth.md").unwrap();
+        assert!(after.contains("Rewritten through the fake SAF path."));
+        assert!(!after.contains("Founded in the third age by the Ashfall clans."), "the History section was replaced");
+        assert!(after.contains("Narrow streets, older than the walls."), "the sibling section survived untouched");
+
+        // The same conflict guard `FsVault`'s own
+        // `a_source_that_changed_since_the_preview_is_not_overwritten` proves,
+        // now through the other implementation.
+        s.set_working_text(&link, "## History\n\nSecond edit.\n").unwrap();
+        let (_, stale_hash) = s.preview_section_write(&link).unwrap();
+        external.write_external("Locations/Nareth.md", &after.replace("Grain downriver, salt up.", "Grain downriver, salt up, and wool."));
+        assert_eq!(s.status(&link), LinkStatus::Stale);
+        assert!(matches!(s.write_section(&link, &stale_hash), Err(Error::SourceChanged { .. })));
+
+        let (_, fresh_hash) = s.preview_section_write(&link).unwrap();
+        s.write_section(&link, &fresh_hash).unwrap();
+        let after2 = s.read("Locations/Nareth.md").unwrap();
+        assert!(after2.contains("Second edit."));
+        assert!(after2.contains("and wool."), "the concurrent external edit survived");
+    }
+
+    #[derive(Debug)]
+    struct NeverAvailable;
+    impl provider::VaultProvider for NeverAvailable {
+        fn available(&self) -> bool {
+            false
+        }
+        fn list_markdown(&self, _limit: usize) -> Result<Vec<String>, VaultError> {
+            Ok(Vec::new())
+        }
+        fn read(&self, _rel: &str) -> Result<String, VaultError> {
+            Ok(String::new())
+        }
+        fn meta(&self, _rel: &str) -> Result<FileMeta, VaultError> {
+            Ok(FileMeta { modified: 0, len: 0 })
+        }
+        fn exists(&self, _rel: &str) -> bool {
+            false
+        }
+        fn write(&self, _rel: &str, _text: &str) -> Result<(), VaultError> {
+            Ok(())
+        }
+        fn describe(&self) -> String {
+            "never://reachable".to_string()
+        }
+    }
+
+    /// The same refusal `connect` gives a missing directory
+    /// (`a_missing_root_is_reported_not_panicked` in `provider.rs`), proven
+    /// for the generic entry point too: a provider that cannot be reached
+    /// right now must never be registered as if it were.
+    #[test]
+    fn connect_provider_refuses_a_provider_that_reports_itself_unavailable() {
+        let mut s = VaultSession::new();
+        assert!(s.connect_provider(Box::new(NeverAvailable), None).is_err());
+        assert!(!s.is_bound());
+        assert!(s.store.vaults.is_empty(), "no vault registered for a binding that was never reachable");
     }
 }

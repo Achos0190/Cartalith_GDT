@@ -81,15 +81,14 @@
 
 use crate::blocks::{Parcel, Plaza};
 use crate::geom::{
-    Vec2, dist_pt_seg, js_cos, js_hypot, js_max, js_min, js_round, js_sin, point_in_poly, poly_area,
-    poly_centroid,
+    Vec2, dist_pt_seg, js_cos, js_hypot, js_max, js_min, js_num_cmp, js_round, js_sin,
+    point_in_poly, poly_area, poly_centroid,
 };
 use crate::growth::{WallState, dist_to_line};
 use crate::rng::{Substream, fnv1a, stream};
 use crate::routes::Anchors;
 use crate::rules::{CultureProfile, MEDIEVAL};
 use crate::site::{Site, terrain_suitability};
-use std::cmp::Ordering;
 use std::f64::consts::PI;
 
 #[cfg(test)]
@@ -314,16 +313,7 @@ pub fn assign_districts<'a>(
             }
         }
         // The reference's `(a,b)=>a.s-b.s`, encoded. See this function's docs.
-        list.sort_by(|a, b| {
-            let diff = a.1 - b.1;
-            if diff < 0.0 {
-                Ordering::Less
-            } else if diff > 0.0 {
-                Ordering::Greater
-            } else {
-                Ordering::Equal
-            }
-        });
+        list.sort_by(|a, b| js_num_cmp(a.1, b.1));
         list
     }
     // `for(let i=0;i<Math.min(n,list.length);i++)` — `take` is that cap.

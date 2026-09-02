@@ -7,8 +7,9 @@ class_name WorldWorkspace
 ## Every stage row reads and writes through `bridge.param_keys()` /
 ## `param_info()` / `param_get()` / `param_set()` -- the same live table
 ## `main.gd`'s old Generate menu built its per-stage dialogs from
-## (`cartalith-godot/src/params.rs`, 81 parameters -- `grep -c "ParamSpec { key:"`,
-## 2026-09-01; this line read 58 until then, so re-count rather than cite it).
+## (`cartalith-godot/src/params.rs`, 85 parameters -- `grep -c "ParamSpec { key:"`,
+## 2026-09-02; this line read 58 until 2026-09-01 and 81 until this count, so
+## re-count rather than cite it).
 ## No range, step, label or default is copied into this file; only which stage
 ## a group/key belongs to, which rows are L5 Advanced, and the prose -- exactly
 ## the division main.gd's own GEN_STAGES comment already argued for.
@@ -2159,6 +2160,13 @@ func _on_tool_armed(id: String) -> void:
 		app.viewport.tool_overlay.set_brush_cursor(false, 0.0, 0.0, 0.0)
 	if id == "sculpt" and app.right_dock_ctrl.has_method("show_sculpt_stack"):
 		app.right_dock_ctrl.show_sculpt_stack()
+	## `05-right-dock-and-bars.md` §1.8. Mirrors the Sculpt line right above --
+	## `leave_paint_context()` is the other half, called from `app.gd`'s own
+	## workspace-switch handler the same way `leave_sculpt_context()` is,
+	## since Biome paint is a WORLD-only tool with nothing else that clears
+	## this context on a domain switch.
+	if id == "paint" and app.right_dock_ctrl.has_method("show_paint"):
+		app.right_dock_ctrl.show_paint(_paint_layer, _on_paint_value_picked_from_dock)
 
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
 ## substrate's own instructions -- `app.gd`'s `_wire_selection` forwards every
@@ -2302,6 +2310,30 @@ func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
 	_paint_brush["value"] = 1
 	_sync_paint_brush()
 	_build_paint(_paint_body)
+	_refresh_right_dock_paint()
+
+## `right_dock.gd`'s CTX_PAINT (§1.8) reads `bridge.paint_painted_counts()`,
+## which answers for whichever layer is active server-side -- so this dock
+## must re-announce itself every time that changes here (layer switch,
+## commit, discard, stroke release), the same "no private draft" contract
+## every other `show_*` call in this file already keeps. A no-op while some
+## other context owns the right dock, since `show_paint` would otherwise
+## steal it back from e.g. a Settlement selection made mid-paint.
+func _refresh_right_dock_paint() -> void:
+	if app.armed_tool == "paint" and app.right_dock_ctrl.has_method("show_paint"):
+		app.right_dock_ctrl.show_paint(_paint_layer, _on_paint_value_picked_from_dock)
+
+## Bound into `show_paint()` so this dock's own legend can arm a palette
+## value without right_dock.gd guessing at radius/hardness/softness/
+## land_only -- see that method's own doc. Mirrors `_on_paint_value_changed`
+## exactly, just keyed by the real palette index rather than a position into
+## the `OptionButton`'s own option list (the right dock already has the real
+## index off `get_paint_palette()`, so no lookup is needed here).
+func _on_paint_value_picked_from_dock(value_index: int) -> void:
+	_paint_brush["value"] = value_index
+	_sync_paint_brush()
+	if is_instance_valid(_paint_body):
+		_build_paint(_paint_body)
 
 func _on_paint_value_changed(i: int, palette: Array) -> void:
 	var pd: Dictionary = palette[i]
@@ -2347,12 +2379,14 @@ func _on_paint_commit() -> void:
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	_build_paint(_paint_body)
 	_rebuild_tool_bar()
+	_refresh_right_dock_paint()
 
 func _on_paint_discard() -> void:
 	bridge.paint_discard()
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
 	_build_paint(_paint_body)
 	_rebuild_tool_bar()
+	_refresh_right_dock_paint()
 
 ## The other half of the WW-13 cross-refresh -- see `rebuild_paint_panel()`.
 func _rebuild_tool_bar() -> void:
@@ -2398,6 +2432,7 @@ func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
 	if is_instance_valid(_paint_body):
 		_build_paint(_paint_body)
 	_refresh_tool_bar()
+	_refresh_right_dock_paint()
 
 ## The unified tool bar (`tool_bar.gd`) shows this panel's own stamp count /
 ## painted count in its options row, so a stroke that ends here has to tell

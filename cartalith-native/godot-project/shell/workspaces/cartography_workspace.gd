@@ -575,14 +575,28 @@ func _register_tools() -> void:
 func _on_any_tool_armed(id: String) -> void:
 	if id != "icon":
 		bridge.icon_disarm()
+	## `05-right-dock-and-bars.md` §1.10/§1.9, GUI replacement stage 5.
+	## `rdMode4()`'s own fall-through: Label/Icon (rule 3) always win the
+	## right dock over Stops (rule 6), which is why the Anno calls sit inside
+	## their own branches below and the Stops call sits only in `_`, gated on
+	## `id == "inspect"` so it never fires while Measure/Region are arming
+	## through this same signal (`global_tools.gd`'s own handler owns those
+	## two, and connection order between the two listeners is not something
+	## to depend on -- `leave_stops_context()`/`leave_anno_context()` below
+	## are no-ops unless THIS file's own context is the live one, so this is
+	## safe regardless of which handler runs first).
 	match id:
 		"icon":
 			_arm_icon_from_ui()
 			app.set_tool_options(_build_icon_tool_options_row)
 			_rebuild_icon_panel()
+			if app.right_dock_ctrl.has_method("show_anno"):
+				app.right_dock_ctrl.show_anno()
 		"label":
 			app.set_tool_options(_build_label_tool_options_row)
 			_rebuild_label_panel()
+			if app.right_dock_ctrl.has_method("show_anno"):
+				app.right_dock_ctrl.show_anno()
 		_:
 			_label_drag_mode = DragMode.NONE
 			_label_drag_index = -1
@@ -591,6 +605,27 @@ func _on_any_tool_armed(id: String) -> void:
 			app.viewport.tool_overlay.set_handles([])
 			if app.active_domain() == "cartography":
 				_show_style_tool_options()
+			if app.right_dock_ctrl.has_method("leave_anno_context"):
+				app.right_dock_ctrl.leave_anno_context()
+			if id == "inspect" and app.active_domain() == "cartography" and app.right_dock_ctrl.has_method("show_stops"):
+				app.right_dock_ctrl.show_stops()
+			elif app.right_dock_ctrl.has_method("leave_stops_context"):
+				app.right_dock_ctrl.leave_stops_context()
+
+
+## `right_dock.gd`'s CTX_ANNO (§1.10) reads `label_get_selected()`/
+## `label_list()`/`icon_list()` fresh on every rebuild, so a selection or a
+## count change here (create, select, drag-release, delete, clear-all) has
+## to re-announce it the same way `_refresh_right_dock_paint()`
+## (`world_workspace.gd`) does for Paint. Called from both `_rebuild_label_
+## panel()`'s and `_rebuild_icon_panel()`'s own tails rather than from every
+## individual click/drag/delete handler that already funnels into one of
+## those two -- gated on the armed tool so `_on_world_changed`'s own
+## unconditional rebuild of both panels on every regenerate cannot steal the
+## right dock from whatever context was actually showing.
+func _refresh_right_dock_anno() -> void:
+	if (app.armed_tool == "label" or app.armed_tool == "icon") and app.right_dock_ctrl.has_method("show_anno"):
+		app.right_dock_ctrl.show_anno()
 
 
 ## `GUI_GAP_REGISTER.md` **RF-05**: the row follows the data, in both
@@ -891,6 +926,7 @@ func _rebuild_icon_panel() -> void:
 		row.add_child(del)
 		_icon_list_body.add_child(row)
 	_update_icon_handles_overlay()
+	_refresh_right_dock_anno()
 
 
 ## Draws the selected icon's resize handle (`icon_handles`,
@@ -1530,6 +1566,7 @@ func _rebuild_label_panel() -> void:
 		_label_list_body.add_child(row)
 
 	_rebuild_label_edit_form()
+	_refresh_right_dock_anno()
 
 
 ## The full seven-field form (`DCC_SHELL_SPEC.md` §4.5.5's right-dock

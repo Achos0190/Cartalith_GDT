@@ -27,6 +27,14 @@ class_name TradeStore
 ## beside its existing [navigability] read, so that section can be added
 ## without a second engine call.
 ##
+## The smelting and salt-access passes (`ECONOMY_SCOPE.md` EC-2/EC-7,
+## 2026-09-02) are cached the same way again, one dictionary each: neither
+## is cheap enough to recompute per place-editor open (both rebuild
+## `lithology`/`biome`/`resources` on demand -- `civ_trade_bridge.rs`'s own
+## module doc explains why), and both read the same
+## `civ_place_smelting()`/`civ_salt_access()` shape [refresh] already
+## triggers everything else from.
+##
 ## ## When it is dropped
 ##
 ## `app.gd`'s `_refresh_world_dependent()` calls [`clear`] — the same one
@@ -46,6 +54,16 @@ static var _last: Dictionary = {}
 ## change. Populated by [refresh] alongside the trade-flow match -- see this
 ## file's own module doc for why the two share one trigger.
 static var _food_shed: Dictionary = {}
+
+## The last smelting pass, or `{}` when none has run since the last world
+## change. Populated by [refresh] alongside everything else -- see this
+## file's own module doc.
+static var _smelting: Dictionary = {}
+
+## The last salt-access pass, or `{}` when none has run since the last world
+## change. Populated by [refresh] alongside everything else -- see this
+## file's own module doc.
+static var _salt: Dictionary = {}
 
 ## True when a match has been run against the current world.
 static func is_matched() -> bool:
@@ -77,20 +95,45 @@ static func food_shed_for(index: int) -> Dictionary:
 		return {}
 	return rows[index]
 
-## Run the trade-flow match and the food-shed pass, and keep both. Bundled
-## behind this one call rather than two: both are on-demand, held-nowhere
-## reads of the same settlement/way state, and the shell offers exactly one
-## trigger for either (`infrastructure_workspace.gd`'s "Match trade flows").
-## Returns the same dictionary [`last`] will.
+## One settlement's smelting economics from the last pass -- `{}` when none
+## has run, or when this index has no row. `iron_kg_yr`, `charcoal_kg_yr`,
+## `ore_kg_yr`, `woodland_ha`, `limited_by` (`fuel`/`ore`), `fuel_poor`,
+## `ore_rich`, `coppice_ha_needed` (`civ_place_smelting()`'s own doc comment
+## names every key).
+static func smelting_for(index: int) -> Dictionary:
+	var rows: Array = _smelting.get("rows", [])
+	if index < 0 or index >= rows.size():
+		return {}
+	return rows[index]
+
+## One settlement's salt access from the last pass -- `{}` when none has run,
+## or when this index has no row. `has`, `source` (`none`/`sea salt`/
+## `salt deposit`/`salt lake` -- `civ_salt_access()`'s own doc comment names
+## both keys).
+static func salt_access_for(index: int) -> Dictionary:
+	var rows: Array = _salt.get("rows", [])
+	if index < 0 or index >= rows.size():
+		return {}
+	return rows[index]
+
+## Run the trade-flow match and every per-settlement pass, and keep all four.
+## Bundled behind this one call rather than four: all are on-demand,
+## held-nowhere reads of the same settlement/way state, and the shell offers
+## exactly one trigger for any of them (`infrastructure_workspace.gd`'s
+## "Match trade flows"). Returns the same dictionary [`last`] will.
 static func refresh(bridge) -> Dictionary:
 	_last = bridge.civ_trade_flows()
 	_food_shed = bridge.civ_food_shed()
+	_smelting = bridge.civ_place_smelting()
+	_salt = bridge.civ_salt_access()
 	return _last
 
-## Drop both. Called from `app.gd` on every world change.
+## Drop all four. Called from `app.gd` on every world change.
 static func clear() -> void:
 	_last = {}
 	_food_shed = {}
+	_smelting = {}
+	_salt = {}
 
 ## Every flow touching one settlement, split by direction, from the last
 ## match. `{"imports": [...], "exports": [...]}` — both empty when no match

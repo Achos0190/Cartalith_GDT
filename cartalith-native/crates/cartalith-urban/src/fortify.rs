@@ -23,32 +23,35 @@
 //! crosses the finished circuit. `opts.fortified` then replaces the whole thing
 //! with [`apply_star_fort`]'s bastioned trace.
 //!
-//! # `WallState` is not extended here, and that is deliberate
+//! # `WallState` **is** extended here now — the staging is gone
 //!
 //! Milestone 7 recorded that `buildWall` writes nine fields
-//! [`WallState`](crate::growth::WallState) does not model — `waterWalls`,
+//! [`WallState`](crate::growth::WallState) did not model — `waterWalls`,
 //! `spurs`, `spansWater`, `style`, `prov`, `fort`, `centroid`,
 //! `terrainDeflected`, `_waterClosure` — and that `supersedeWall` copies six of
 //! them into its history record, and asked milestone 10 to add them there.
+//! Milestone 10 could not: [`Fort`] is defined in *this* module, and this module
+//! was not declared in `lib.rs` yet, so `growth.rs` could not name it without
+//! leaving the crate not compiling for every other milestone in flight. It
+//! staged them in a `WallExtras` instead and threaded that through as a second
+//! `&mut`.
 //!
-//! **They are in [`WallExtras`] instead, and `growth.rs` is untouched.** The
-//! reason is mechanical, not stylistic: `WallState::fort` would have to name a
-//! type defined in *this* module, and this module is not declared in `lib.rs`
-//! yet (a dedicated integration pass owns that file). Editing `growth.rs` to
-//! reference `crate::fortify::Fort` before the `mod` line exists would leave the
-//! crate not compiling for every other milestone in flight. So the extension is
-//! staged here, in a struct whose fields are named for the reference's, and the
-//! integration pass folds it in: move [`WallExtras`]' nine fields onto
-//! `WallState`, its first six onto `WallGeneration`, add `pt` to
-//! `HarbourFront`, add `wet_moat` to `GrowOpts`, and
-//! [`FortificationBuilder`]'s three staging fields disappear. Nothing else
-//! changes — the algorithms below already read and write exactly what the
-//! reference does.
+//! **`lib.rs` declares all seventeen modules now, so the integration pass paid
+//! that debt.** All nine fields are on `WallState`, the first six are on
+//! [`WallGeneration`](crate::growth::WallGeneration), `wet_moat` is on
+//! [`GrowOpts`](crate::growth::GrowOpts) and `pt` is on
+//! [`HarbourFront`](crate::growth::HarbourFront). What that **deleted**, which
+//! is the point of doing it: the `WallExtras` struct, the `HarbourMouth`
+//! duplicate, [`build_wall`]'s and [`apply_star_fort`]'s extra `&mut`
+//! parameter, all four of [`FortificationBuilder`]'s staging fields, and the
+//! `history_extras` loop that hand-maintained index-alignment with
+//! `WallState::history` — the alignment is now [`supersede_wall`]'s own record,
+//! which cannot drift from the thing it is a record of.
 //!
-//! Until then [`FortificationBuilder`] keeps `history_extras` index-aligned with
-//! `WallState::history`, so a superseded circuit's six extra fields are recorded
-//! rather than silently dropped — which is the *"silently lossy history that
-//! every structural test still passes"* the scope document warned about.
+//! That loop was the mitigation for the *"silently lossy history that every
+//! structural test still passes"* the scope document warned about; the warning
+//! is answered rather than mitigated now, because the six fields are copied by
+//! the same statement that copies the other four.
 //!
 //! # `'ringroad'` was already the street class
 //!
@@ -63,22 +66,30 @@
 //!
 //! [`cornerCut`](corner_cut) is the subsystem's only `Math.acos` call site and
 //! it feeds a **threshold** (`angI < minAng`), which is the shape of comparison
-//! this port has twice had bitten by a last bit. `cartalith-jsmath` has no
-//! `js_acos`, so the FDLIBM one is [here](js_acos), golden-checked against V8
-//! over 40 000 arguments by bulk hash. It belongs in `cartalith-jsmath` beside
-//! `js_atan2`; the integration pass should move it there, exactly as milestone
-//! 15 will need `js_log10` on the same terms.
+//! this port has twice had bitten by a last bit. Milestone 10 wrote the FDLIBM
+//! one here because `cartalith-jsmath` had no `js_acos` and it did not own that
+//! crate; the integration pass **moved it there**, beside `js_atan2`, together
+//! with `amenities::js_log10` — which is where every other V8 libm this
+//! workspace needed already lives (`JS_SEMANTICS_AUDIT.md` recommendation #2).
+//! Neither move needed a `Cargo.toml` edit: both functions are pure `f64` bit
+//! twiddling and `js_log10` is written over `js_log`, already in that module,
+//! so the dependency-free leaf stayed dependency-free.
+//!
+//! Their V8 goldens **stayed where they were captured** — the 40 000-argument
+//! bulk hash in this module's tests, the `log10` rows in `amenities`'. Moving
+//! them would have deleted nothing and carried a transcription risk, and the
+//! test still calls the one function that exists, now through
+//! [`geom::js_acos`](crate::geom::js_acos).
 
 use crate::geom::{
-    Vec2, chaikin, convex_hull, js_atan2, js_hypot, js_max, js_min, js_round, poly_centroid,
-    seg_int, simplify,
+    Vec2, chaikin, convex_hull, js_acos, js_atan2, js_hypot, js_max, js_min, js_num_cmp, js_or,
+    js_round, poly_centroid, seg_int, simplify,
 };
 use crate::graph::Graph;
-use crate::growth::{Gate, GrowOpts, WallBuilder, WallState};
+use crate::growth::{Gate, GrowOpts, HarbourFront, WallBuilder, WallState};
 use crate::rng::stream;
 use crate::routes::Anchors;
 use crate::site::Site;
-use std::cmp::Ordering;
 use std::f64::consts::PI;
 
 #[cfg(test)]
@@ -110,123 +121,7 @@ pub const GATE_PROV_PLAIN: &str =
 pub const GATE_PROV_RIVER: &str = "Water-gate: the river passes under the wall where the town grew \
                                    across both banks (M-NET-9).";
 
-// ------------------------------------------------------------------ js_acos --
-
-/// `Math.acos` — the FDLIBM `__ieee754_acos` V8 computes it with, not the
-/// platform's.
-///
-/// The scope document measured `Math.acos` disagreeing with `f64::acos` on
-/// **544 of 60 000** arguments and filed the port under this milestone.
-/// [`corner_cut`] is the one call site and it compares the result against
-/// `minAng`, so a last bit decides whether a corner is cut — the same class of
-/// threshold that made `js_hypot` and `js_exp` change real results here.
-///
-/// Ported literally from the 1993 fdlibm source (the same one V8 vendors in
-/// `src/base/ieee754.cc`), constants written as bit patterns so no decimal
-/// transcription can round one. Verified against V8 by a **bulk hash** over
-/// 40 000 arguments, which is what the scope document asked for.
-pub fn js_acos(x: f64) -> f64 {
-    const PIO2_HI: f64 = f64::from_bits(0x3FF9_21FB_5444_2D18);
-    const PIO2_LO: f64 = f64::from_bits(0x3C91_A626_3314_5C07);
-    const PI_HI: f64 = f64::from_bits(0x4009_21FB_5444_2D18);
-    const PS0: f64 = f64::from_bits(0x3FC5_5555_5555_5555);
-    const PS1: f64 = f64::from_bits(0xBFD4_D612_03EB_6F7D);
-    const PS2: f64 = f64::from_bits(0x3FC9_C155_0E88_4455);
-    const PS3: f64 = f64::from_bits(0xBFA4_8228_B568_8F3B);
-    const PS4: f64 = f64::from_bits(0x3F49_EFE0_7501_B288);
-    const PS5: f64 = f64::from_bits(0x3F02_3DE1_0DFD_F709);
-    const QS1: f64 = f64::from_bits(0xC003_3A27_1C8A_2D4B);
-    const QS2: f64 = f64::from_bits(0x4000_2AE5_9C59_8AC8);
-    const QS3: f64 = f64::from_bits(0xBFE6_066C_1B8D_0159);
-    const QS4: f64 = f64::from_bits(0x3FB3_B8C5_B12E_9282);
-
-    // The rational approximation `p/q`, shared by all three in-range branches.
-    fn r(z: f64) -> f64 {
-        let p = z * (PS0 + z * (PS1 + z * (PS2 + z * (PS3 + z * (PS4 + z * PS5)))));
-        let q = 1.0 + z * (QS1 + z * (QS2 + z * (QS3 + z * QS4)));
-        p / q
-    }
-
-    let bits = x.to_bits();
-    let hx = (bits >> 32) as u32;
-    let ix = hx & 0x7fff_ffff;
-    if ix >= 0x3ff0_0000 {
-        // |x| >= 1
-        let lx = bits as u32;
-        if ((ix - 0x3ff0_0000) | lx) == 0 {
-            // acos(1) = 0, acos(-1) = pi
-            return if (hx as i32) > 0 { 0.0 } else { PI_HI + 2.0 * PIO2_LO };
-        }
-        // fdlibm's own out-of-domain idiom, kept verbatim rather than
-        // simplified to `f64::NAN`: `(x-x)/(x-x)` also raises the invalid
-        // flag for a NaN argument, which a bare constant does not. Clippy
-        // reads it as a redundant self-subtraction; here that IS the point.
-        #[allow(clippy::eq_op)]
-        return (x - x) / (x - x);
-    }
-    if ix < 0x3fe0_0000 {
-        // |x| < 0.5
-        if ix <= 0x3c60_0000 {
-            return PIO2_HI + PIO2_LO; // |x| < 2^-57
-        }
-        let z = x * x;
-        return PIO2_HI - (x - (PIO2_LO - x * r(z)));
-    }
-    if (hx as i32) < 0 {
-        // x < -0.5
-        let z = (1.0 + x) * 0.5;
-        let s = z.sqrt();
-        let w = r(z) * s - PIO2_LO;
-        PI_HI - 2.0 * (s + w)
-    } else {
-        // x > 0.5
-        let z = (1.0 - x) * 0.5;
-        let s = z.sqrt();
-        // `SET_LOW_WORD(df, 0)`: the top half of `s`, so `df * df` is exact.
-        let df = f64::from_bits(s.to_bits() & 0xffff_ffff_0000_0000);
-        let c = (z - df * df) / (s + df);
-        let w = r(z) * s + c;
-        2.0 * (df + w)
-    }
-}
-
-// --------------------------------------------------------------- JS helpers --
-
-/// JS `x || d` on a number: `0`, `-0` and `NaN` are falsy. Used for
-/// `site.terrainRelief || 0`, `V.len(AB) || 1` and
-/// `wallState.fort.bastions.length || 6`, all of which the reference writes.
-fn js_or(v: f64, d: f64) -> f64 {
-    if v == 0.0 || v.is_nan() { d } else { v }
-}
-
-/// A numeric `sort((a, b) => a - b)`, with JS's own NaN convention: V8 reads a
-/// non-positive, non-negative comparator result as "equal", and its sort is
-/// stable, so a `NaN` difference keeps the existing order.
-fn js_num_cmp(a: f64, b: f64) -> Ordering {
-    let d = a - b;
-    if d < 0.0 {
-        Ordering::Less
-    } else if d > 0.0 {
-        Ordering::Greater
-    } else {
-        Ordering::Equal
-    }
-}
-
 // ------------------------------------------------------------------- types --
-
-/// `buildHarbour`'s return value **as `buildWall` reads it** — reference lines
-/// 29864-29865.
-///
-/// Milestone 9 owns the real object (quay, piers, mole, defence spec).
-/// [`HarbourFront`](crate::growth::HarbourFront) models only `quay`, because
-/// that is all `grow` reads; `buildWall` also reads `pt`, so this carries both.
-/// The integration pass should add `pt` to `HarbourFront` and delete this.
-#[derive(Debug, Clone, PartialEq)]
-pub struct HarbourMouth {
-    pub pt: Vec2,
-    pub quay: Vec<Vec2>,
-}
 
 /// One end-of-wall spur — `{a, b, prov}`, reference lines 29856-29859.
 #[derive(Debug, Clone, PartialEq)]
@@ -242,7 +137,7 @@ pub struct Spur {
 /// true anywhere in block 4 (a demi-bastion would be a half one at a water
 /// front, which the closed trace has no need of). Carried because it is the
 /// reference's object and the renderer reads it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Bastion {
     pub salient: Vec2,
     pub outline: Vec<Vec2>,
@@ -259,7 +154,7 @@ pub struct Curtain {
 
 /// An outwork stored as `{outer, inner}` — drawn with an even-odd fill so the
 /// town shows through the hole (reference line 30005).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Annulus {
     pub outer: Vec<Vec2>,
     pub inner: Vec<Vec2>,
@@ -267,7 +162,7 @@ pub struct Annulus {
 
 /// `wallState.fort` — the bastioned trace and its outworks, reference lines
 /// 30029-30031.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Fort {
     pub trace: Vec<Vec2>,
     pub bastions: Vec<Bastion>,
@@ -287,35 +182,6 @@ pub struct Fort {
     pub prov: String,
 }
 
-/// The nine `wallState` fields `buildWall` writes that
-/// [`WallState`](crate::growth::WallState) does not model yet.
-///
-/// See this module's header for why they are staged here rather than added to
-/// `growth.rs`, and for exactly what the integration pass does with them.
-/// `Default` is the state before any circuit exists, matching `generate()`'s
-/// `{ring: null, gates: [], epoch: 0}` — every one of these is `undefined`
-/// there, and every consumer tests it for truthiness first.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct WallExtras {
-    /// The *drawn* water frontage, split at the harbour mouth. Note the empty
-    /// inner run the v1.04 needle guard produces: `[[]]`, not `[]`.
-    pub water_walls: Vec<Vec<Vec2>>,
-    pub spurs: Vec<Spur>,
-    pub spans_water: bool,
-    /// `'curtain'`, `'bastioned'`, or whatever `opts.wallStyle` said when it was
-    /// neither absent nor `'stone'`.
-    pub style: String,
-    pub prov: String,
-    pub fort: Option<Fort>,
-    pub centroid: Option<Vec2>,
-    /// v1.17 (S4c) diagnostic: how many circuit vertices moved onto higher
-    /// ground.
-    pub terrain_deflected: u32,
-    /// `_waterClosure` — the bank run the *containment* ring uses, as opposed to
-    /// the drawn `water_walls`, which have the harbour mouth cut out of them.
-    pub water_closure: Option<Vec<Vec2>>,
-}
-
 /// [`built_mass_hull`]'s return value — `{hull, spansWater}`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuiltMass {
@@ -325,12 +191,28 @@ pub struct BuiltMass {
 
 /// The three `opts` fields `buildWall` and `applyStarFort` read.
 ///
-/// `wall_style` and `fortified` are on [`GrowOpts`] already, exactly so that
-/// milestone 10 could read them. `wet_moat` is not, and **nothing in the
-/// reference sets it either**: grep over the whole frozen file finds
-/// `opts.wetMoat` at its two consumer lines (29998, 29999) and at no producer,
-/// so the Venus canal-fed moat is an input the shipped app never supplies. It
-/// is modelled because the reference reads it, and the golden reaches it.
+/// All three are on [`GrowOpts`] now — `wet_moat` was the one the integration
+/// pass added — so [`FortificationBuilder`] builds this from the same options
+/// object `grow` was given, and the *radial* branch (which calls `buildWall`
+/// directly, not through `grow`) fills one in for itself.
+///
+/// # Milestone 10's "nothing in the reference supplies it" was wrong
+///
+/// It read: *"grep over the whole frozen file finds `opts.wetMoat` at its two
+/// consumer lines (29998, 29999) and at no producer, so the Venus canal-fed
+/// moat is an input the shipped app never supplies."* The grep was for the
+/// **read** spelling; a producer spells the *key*. Reference line 31017 is one:
+///
+/// ```text
+/// if(walls)buildWall(seed,site,anchors,g,wallState,1,harbour,
+///   {fortified,wetMoat:profile.waterway,wallStyle:opts.wallStyle});
+/// ```
+///
+/// on the `profile.planning === 'radial'` branch, where `VENUS.waterway` is
+/// `true` (line 28209) — so every fortified Venus town gets a canal-fed moat,
+/// and line 31063 reads `wallState.fort.canalFed` back to decide whether the
+/// irrigation ring still needs drawing on its own. The behaviour this port
+/// models was already right; only the claim about reachability was not.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct FortOpts {
     pub wall_style: Option<String>,
@@ -508,7 +390,7 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
     let mut near: Vec<Vec2> = Vec::new();
     let mut far: Vec<Vec2> = Vec::new();
     for n in &g.nodes {
-        let alive: Vec<usize> = n.adj.iter().copied().filter(|&id| g.edges[id].alive).collect();
+        let alive: Vec<usize> = g.live_adj(n.id).collect();
         if alive.len() < 2 {
             continue;
         }
@@ -606,11 +488,12 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
 /// asserts the graph hash is unchanged across every one of its scenarios rather
 /// than taking that on inspection.
 ///
-/// Returns without touching `wall_state` or `extras` on any of the reference's
-/// three refusals: no built mass at all, a hull that is entirely in the water,
-/// and a finished ring under six points. A refusal leaves the previous circuit
+/// Returns without touching `wall_state` on any of the reference's three
+/// refusals: no built mass at all, a hull that is entirely in the water, and a
+/// finished ring under six points. A refusal leaves the previous circuit
 /// standing, which is what makes `wallState.ring` mean "the active, outermost
-/// circuit" throughout.
+/// circuit" throughout — and now that the nine extra fields are on
+/// `WallState` too, "untouched" covers all fifteen in one assertion.
 ///
 /// # Where the seed goes
 ///
@@ -624,9 +507,8 @@ pub fn build_wall(
     anchors: &Anchors,
     g: &Graph,
     wall_state: &mut WallState,
-    extras: &mut WallExtras,
     ep: i32,
-    harbour: Option<&HarbourMouth>,
+    harbour: Option<&HarbourFront>,
     opts: &FortOpts,
 ) {
     let Some(bmh) = built_mass_hull(site, anchors, g) else { return };
@@ -866,25 +748,25 @@ pub fn build_wall(
 
     wall_state.ring = Some(ring.clone());
     wall_state.land_arc = Some(land_arc);
-    extras.water_walls = water_walls;
-    extras.spurs = spurs;
-    extras.spans_water = spans_water;
-    extras.water_closure = water_closure;
+    wall_state.water_walls = water_walls;
+    wall_state.spurs = spurs;
+    wall_state.spans_water = spans_water;
+    wall_state.water_closure = water_closure;
     // v1.17 (S4b): ditch/palisade are lighter circuits on the same ring geometry
     // — a style tag the renderer draws distinctly. `'stone'` (and the no-opts
     // synthetic path) keeps the byte-identical legacy `'curtain'` tag.
-    extras.style = match opts.wall_style.as_deref() {
+    wall_state.style = match opts.wall_style.as_deref() {
         Some(s) if !s.is_empty() && s != "stone" => s.to_string(),
         _ => "curtain".to_string(),
     };
-    extras.terrain_deflected = terrain_deflected;
+    wall_state.terrain_deflected = terrain_deflected;
     wall_state.epoch = ep;
-    extras.centroid = Some(poly_centroid(&ring));
-    extras.prov =
+    wall_state.centroid = Some(poly_centroid(&ring));
+    wall_state.prov =
         if spans_water { WALL_PROV_SPANS } else { WALL_PROV_BANK }.to_string();
     // Optional bastioned trace for a decent-size, strategically fortified town.
     if opts.fortified {
-        apply_star_fort(seed, site, wall_state, extras, opts);
+        apply_star_fort(seed, site, wall_state, opts);
     }
 
     // Gates where primaries cross the circuit (M-NET-9). A crossing on the water
@@ -909,7 +791,7 @@ pub fn build_wall(
         }
     };
     let ws_ring = wall_state.ring.clone().expect("set above, possibly replaced by the star fort");
-    let bastioned = extras.style == "bastioned";
+    let bastioned = wall_state.style == "bastioned";
     let mut gates: Vec<Gate> = Vec::new();
     for e in &g.edges {
         if !e.alive || e.cls != "primary" {
@@ -950,9 +832,9 @@ pub fn build_wall(
         // `opts.wallStyle` can reach this branch. A missing fort is read as a
         // zero-length bastion list, i.e. the `|| 6` default, rather than
         // panicking across the gdext boundary.
-        let bastions = extras.fort.as_ref().map_or(0.0, |f| f.bastions.len() as f64);
+        let bastions = wall_state.fort.as_ref().map_or(0.0, |f| f.bastions.len() as f64);
         let cap = js_max(2.0, js_min(3.0, js_round(js_or(bastions, 6.0) / 3.0)));
-        let centroid = extras.centroid.unwrap_or_default();
+        let centroid = wall_state.centroid.unwrap_or_default();
         land.sort_by(|a, b| {
             js_num_cmp(a.pt.dist(anchors.market), b.pt.dist(anchors.market))
         });
@@ -1012,13 +894,7 @@ pub fn build_wall(
 ///
 /// `stream(seed, 'starfort')` yields exactly one number, `range(34, 42)`, the
 /// bastion depth. Nothing else in the subsystem reads that substream.
-pub fn apply_star_fort(
-    seed: u32,
-    site: &Site,
-    wall_state: &mut WallState,
-    extras: &mut WallExtras,
-    opts: &FortOpts,
-) {
+pub fn apply_star_fort(seed: u32, site: &Site, wall_state: &mut WallState, opts: &FortOpts) {
     let mut r = stream(seed, "starfort");
     let ws_ring = wall_state.ring.clone().unwrap_or_default();
     let base = convex_hull(&ws_ring);
@@ -1173,18 +1049,18 @@ pub fn apply_star_fort(
         let apex = cu.mid + out * (DITCH_W + COVERED_W * 0.5);
         ravelins.push(vec![base1, apex, base2]);
     }
-    extras.style = "bastioned".to_string();
+    wall_state.style = "bastioned".to_string();
     wall_state.land_arc = Some(trace.clone()); // the closed trace is the drawn wall
-    extras.water_walls = Vec::new(); // the trace wraps every front
+    wall_state.water_walls = Vec::new(); // the trace wraps every front
     // Containment ring = the GORGE polygon through the bastion throats.
     let mut gorge: Vec<Vec2> = Vec::with_capacity(bastions.len() * 2);
     for b in &bastions {
         gorge.push(b.outline[0]);
         gorge.push(b.outline[b.outline.len() - 1]);
     }
-    extras.centroid = Some(poly_centroid(&gorge));
+    wall_state.centroid = Some(poly_centroid(&gorge));
     wall_state.ring = Some(gorge);
-    extras.fort = Some(Fort {
+    wall_state.fort = Some(Fort {
         trace,
         bastions,
         curtains,
@@ -1200,7 +1076,7 @@ pub fn apply_star_fort(
         canal_fed,
         prov: fort_prov(wet, canal_fed, double_moat),
     });
-    extras.prov = wall_prov_bastioned(wet, canal_fed, double_moat);
+    wall_state.prov = wall_prov_bastioned(wet, canal_fed, double_moat);
 }
 
 /// `fort.prov` — reference line 30031, built by concatenation.
@@ -1249,27 +1125,22 @@ fn wall_prov_bastioned(wet: bool, canal_fed: bool, double_moat: bool) -> String 
 /// captured against it and are a statement about `grow`, not about walls. This
 /// is the builder a real town gets.
 ///
-/// # The three staging fields
+/// # It has no state at all now
 ///
-/// `harbour`, `wet_moat` and `extras`/`history_extras` exist only because
-/// `GrowOpts`, `HarbourFront` and `WallState` do not carry them yet — see this
-/// module's header. `harbour` must be set from the **same** `buildHarbour`
-/// result the caller puts in `GrowOpts::harbour`; `grow` reads the quay from
-/// there and `buildWall` reads the quay and the point from here.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct FortificationBuilder {
-    /// `opts.harbour`, with the `pt` that `HarbourFront` cannot carry yet.
-    pub harbour: Option<HarbourMouth>,
-    /// `opts.wetMoat`, which `GrowOpts` does not carry yet. Nothing in the
-    /// reference sets it either — see [`FortOpts`].
-    pub wet_moat: bool,
-    /// The active circuit's nine extra fields.
-    pub extras: WallExtras,
-    /// One snapshot per `supersede_wall` record, index-aligned with
-    /// `WallState::history`, so the six fields `WallGeneration` copies but does
-    /// not model yet are not silently lost.
-    pub history_extras: Vec<WallExtras>,
-}
+/// It carried four staging fields, and the integration pass deleted every one:
+/// `harbour` (now `opts.harbour`, the same [`HarbourFront`] `grow` reads, so a
+/// caller can no longer hand the wall a *different* harbour from the one the
+/// town grew against), `wet_moat` (now [`GrowOpts::wet_moat`]), and
+/// `extras`/`history_extras` (now `WallState`'s nine fields and
+/// `WallGeneration`'s six). The `history_extras` loop that hand-maintained
+/// index-alignment with `WallState::history` went with them — the six fields
+/// are recorded by the same `supersede_wall` statement that records the other
+/// four, so there is no second sequence left to fall out of step.
+///
+/// Everything it needs is now on the `opts` the trait already passes it, which
+/// is what makes it a unit struct: `FortificationBuilder` is the whole value.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FortificationBuilder;
 
 impl WallBuilder for FortificationBuilder {
     fn build_wall(
@@ -1282,19 +1153,11 @@ impl WallBuilder for FortificationBuilder {
         ep: i32,
         opts: &GrowOpts,
     ) {
-        // Disjoint field borrows: `harbour` is read while `extras` is written.
-        let Self { harbour, wet_moat, extras, history_extras } = self;
-        // `supersede_wall` pushes the retiring circuit into `history` and then
-        // calls us, so a longer history means the circuit `extras` describes is
-        // the one just retired.
-        while history_extras.len() < wall_state.history.len() {
-            history_extras.push(extras.clone());
-        }
         let fort_opts = FortOpts {
             wall_style: opts.wall_style.clone(),
             fortified: opts.fortified,
-            wet_moat: *wet_moat,
+            wet_moat: opts.wet_moat,
         };
-        build_wall(seed, site, anchors, g, wall_state, extras, ep, harbour.as_ref(), &fort_opts);
+        build_wall(seed, site, anchors, g, wall_state, ep, opts.harbour.as_ref(), &fort_opts);
     }
 }

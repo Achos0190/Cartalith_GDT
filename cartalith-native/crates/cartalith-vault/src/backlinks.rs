@@ -6,10 +6,10 @@
 //! > store to keep in step with a folder the user edits outside Cartalith."*
 //!
 //! It is a false pair, because the filesystem already answers *"which files
-//! changed"* for free. A `stat` is not a read: [`FsVault::meta`] returns
-//! `(modified, len)` without opening the file, and that is the whole basis of
-//! §14's own change detection, which this reuses rather than inventing a
-//! second mechanism beside it.
+//! changed"* for free. A `stat` is not a read: [`VaultProvider::meta`]
+//! returns `(modified, len)` without opening the file, and that is the whole
+//! basis of §14's own change detection, which this reuses rather than
+//! inventing a second mechanism beside it.
 //!
 //! So the index is persisted **and** correct:
 //!
@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::block;
-use crate::provider::{FsVault, VaultError};
+use crate::provider::{VaultError, VaultProvider};
 
 /// Bits set per token. Two is the standard low-fill choice; with 64 bits and
 /// the few hundred distinct words a note carries the filter saturates, which
@@ -170,13 +170,16 @@ impl BacklinkIndex {
 
     /// Bring the index up to date against `vault`, reading only what changed.
     ///
-    /// `limit` is passed straight to [`FsVault::list_markdown`], so the same
-    /// bound that keeps browsing cheap bounds this too.
+    /// `limit` is passed straight to [`VaultProvider::list_markdown`], so
+    /// the same bound that keeps browsing cheap bounds this too. `vault` is
+    /// any provider — [`crate::FsVault`] in every test in this file, and
+    /// this method has no idea and no need to know when it is something
+    /// else.
     ///
     /// **Never partially applies a failure.** A note that cannot be read is
     /// counted and dropped; every other note is still updated. There is no
     /// state in which half an index is presented as a whole one.
-    pub fn refresh(&mut self, vault: &FsVault, limit: usize) -> Result<RefreshStats, VaultError> {
+    pub fn refresh(&mut self, vault: &dyn VaultProvider, limit: usize) -> Result<RefreshStats, VaultError> {
         let listed = vault.list_markdown(limit)?;
         let mut stats = RefreshStats { seen: listed.len(), ..Default::default() };
         let mut keep: std::collections::BTreeSet<&str> = Default::default();

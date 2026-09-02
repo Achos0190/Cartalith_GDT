@@ -53,7 +53,7 @@
 //! amplitude is 5.5% — deliberately small enough that consecutive rings, which
 //! are `(outerR - hubR) / 5` apart, can never cross.
 
-use crate::geom::{Vec2, js_cos, js_max, js_min, js_round, js_sin};
+use crate::geom::{Vec2, js_cos, js_max, js_min, js_round, js_sin, js_truthy_num};
 use crate::graph::Graph;
 use crate::rng::stream;
 use crate::routes::Anchors;
@@ -185,11 +185,8 @@ pub fn build_radial_streets(
     // `site.riverW ? site.riverW/2+8 : 0` — JS truthiness, so 0 and NaN both
     // fall to the `0` arm. A landlocked site has `riverW = 0` and therefore no
     // channel margin at all, which is right: it has no channel.
-    let river_margin = if site.river_w == 0.0 || site.river_w.is_nan() {
-        0.0
-    } else {
-        site.river_w / 2.0 + 8.0
-    };
+    let river_margin =
+        if js_truthy_num(site.river_w) { site.river_w / 2.0 + 8.0 } else { 0.0 };
     let land = |p: Vec2| -> bool {
         !site.is_water(p)
             && site.river_dist(p) > river_margin

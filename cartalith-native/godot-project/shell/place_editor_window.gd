@@ -389,6 +389,7 @@ func _build_trade() -> void:
 		DccWidgets.note(sec, "Water: %s (%s). Bulk reach is %s."
 			% [kind, String(n.get("basis", "?")), reach])
 	_food_shed_note(sec)
+	_smelting_salt_note(sec)
 
 ## `ECONOMY_SCOPE.md` milestone 2's per-settlement half -- `_civFoodShed`, run
 ## for every settlement by `TradeStore.refresh()` in the same pass as the trade
@@ -437,6 +438,47 @@ func _food_shed_note(sec: Control) -> void:
 			% [pop, FactionRosterWindow._thousands(int(round(float(shed.get("over_by", 0.0)))))]
 			+ "A diagnostic, not a correction -- the reference's _civApplyFoodShedCeilings is "
 			+ "not ported, so nothing here shrinks the settlement to fit.")
+
+## `ECONOMY_SCOPE.md` EC-2/EC-7 -- `_civPlaceSmelting`/`_civSaltAccess`, run for
+## every settlement by `TradeStore.refresh()` in the same pass as everything
+## above. Beside the food shed for the same reason that sits beside Water: all
+## three answer what this one place can actually reach, from its own ground.
+##
+## Smelting is gated by **fuel, not ore** -- the reference's own point, kept in
+## the note rather than buried: `limited_by` names whichever of the two
+## catchment budgets binds, and `fuel_poor`/`ore_rich` flag the two lopsided
+## cases (ore to spare with no wood to fire it, and the converse -- a charcoal
+## exporter with nothing to smelt).
+func _smelting_salt_note(sec: Control) -> void:
+	var smelt := TradeStore.smelting_for(_index)
+	if smelt.is_empty():
+		DccWidgets.note(sec, "Smelting: — no row for this settlement. civ_place_smelting() "
+			+ "returned nothing, the same defensive case civ_food_shed()'s own reader states above.")
+	elif float(smelt.get("iron_kg_yr", 0.0)) <= 0.0:
+		DccWidgets.note(sec, "Smelting: none possible here -- ore, fuel, or both are absent from "
+			+ "this catchment.")
+	else:
+		var iron := FactionRosterWindow._thousands(int(round(float(smelt.get("iron_kg_yr", 0.0)))))
+		var ore := FactionRosterWindow._thousands(int(round(float(smelt.get("ore_kg_yr", 0.0)))))
+		var charcoal := FactionRosterWindow._thousands(int(round(float(smelt.get("charcoal_kg_yr", 0.0)))))
+		var woodland := FactionRosterWindow._thousands(int(round(float(smelt.get("woodland_ha", 0.0)))))
+		var flag := ""
+		if bool(smelt.get("fuel_poor", false)):
+			flag = " Fuel-poor: ore to spare, not enough woodland to fire it."
+		elif bool(smelt.get("ore_rich", false)):
+			flag = " A charcoal exporter: more fuel here than this catchment's ore can use."
+		DccWidgets.note(sec, ("Smelting: %s kg iron/yr, limited by %s -- %s kg ore/yr, %s kg "
+			+ "charcoal/yr from %s ha of woodland.%s") % [iron, String(smelt.get("limited_by", "ore")),
+				ore, charcoal, woodland, flag])
+
+	var salt := TradeStore.salt_access_for(_index)
+	if salt.is_empty():
+		DccWidgets.note(sec, "Salt: — no row for this settlement. civ_salt_access() "
+			+ "returned nothing, the same defensive case civ_food_shed()'s own reader states above.")
+	elif bool(salt.get("has", false)):
+		DccWidgets.note(sec, "Salt: yes, from %s." % String(salt.get("source", "?")))
+	else:
+		DccWidgets.note(sec, "Salt: none in reach -- no sea route, salt deposit or salt lake.")
 
 func _trade_row(parent: Control, flow: Variant, name_key: String, arrow: String) -> void:
 	var f: Dictionary = flow

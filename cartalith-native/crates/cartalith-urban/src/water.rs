@@ -19,14 +19,31 @@
 //!
 //! ## The runtime ordering constraint, which is not a porting order
 //!
-//! **[`detect_river_crossings`] must RUN after milestone 11's cleanup passes**
-//! — specifically after `removeWaterCrossings`, which culls every unbridged
-//! crossing away from `site.bridgePt`. The reference's own header (line 29126)
-//! is explicit about why: the function records a bridge wherever a *live* road
-//! meets the centreline, so running it before the cull would record spans on
-//! roads that are about to be deleted. That constrains where milestone 16's
-//! `generate()` calls it from; it does not constrain when it is ported, and
-//! this module is written and tested without milestone 11 existing.
+//! **[`detect_river_crossings`] must RUN after milestone 11's cleanup passes.**
+//! The function records a bridge wherever a *live* road meets the centreline,
+//! so running it before an edge-killing pass would record spans on roads that
+//! are about to be deleted.
+//!
+//! Milestone 11 has since landed, so the constraint can be stated against the
+//! real names rather than the one this module could see when it was written.
+//! `generate()` (reference lines 31030-31076, and its own comment at 31073
+//! says exactly this) calls, in order:
+//!
+//! 1. [`crate::cleanup::remove_water_crossings`] — line 31030, culls every
+//!    unbridged crossing away from `site.bridgePt`;
+//! 2. [`crate::cleanup::privatize_alleys`] — line 31069;
+//! 3. [`crate::cleanup::clear_fort_zone`] — line 31072, `if wallState.ring`;
+//! 4. **[`detect_river_crossings`]** — line 31076.
+//!
+//! Those are the last three passes in the whole subsystem that can kill an
+//! edge, which is what makes 4 the first position where a recorded bridge is
+//! guaranteed to have a live road under it in the exported model. The order is
+//! `generate()`'s to honour — milestone 16 — and nothing in this signature can
+//! enforce it; `crate::cleanup::tests::the_generate_ordering_seam` walks it on
+//! a real graph so a future reordering fails a test rather than a render.
+//!
+//! It constrains runtime only, not porting order: this module was written and
+//! tested without milestone 11 existing.
 //!
 //! [`add_river_bridges`] has the mirror-image constraint and it is a *site*
 //! one, not an ordering one: it returns immediately on `site.usesRealWater`, so
@@ -73,12 +90,13 @@
 //! real-water channel whose `kind` is something else. Both are computed here
 //! from `kind` exactly as the reference computes them.
 
-use crate::geom::{Vec2, js_cos, js_max, js_min, js_round, js_sin, seg_int, simplify};
+use crate::geom::{
+    Vec2, js_cos, js_max, js_min, js_round, js_sin, js_truthy_num, seg_int, simplify,
+};
 use crate::graph::Graph;
 use crate::rng::stream;
 use crate::routes::Anchors;
 use crate::site::Site;
-use cartalith_jsmath::js_truthy_num;
 
 // ---------------------------------------------------------------------------
 // Provenance strings, verbatim from the reference
@@ -206,11 +224,16 @@ pub struct HarbourWorks {
 }
 
 impl HarbourWorks {
-    /// The view of this harbour that `grow` takes — [`crate::growth::GrowOpts`]
-    /// wants a [`HarbourFront`](crate::growth::HarbourFront), and the quay is
-    /// all of it that milestone 7 reads.
+    /// The view of this harbour that `grow` and `buildWall` take —
+    /// [`crate::growth::GrowOpts`] wants a
+    /// [`HarbourFront`](crate::growth::HarbourFront), which is `quay` (all
+    /// milestone 7 reads) plus `pt` (which milestone 10's `buildWall` reads to
+    /// leave the harbour mouth out of the drawn water wall).
+    ///
+    /// One conversion, one field each, so the wall and the growth that
+    /// preceded it cannot be handed two different harbours.
     pub fn front(&self) -> crate::growth::HarbourFront {
-        crate::growth::HarbourFront { quay: self.quay.clone() }
+        crate::growth::HarbourFront { quay: self.quay.clone(), pt: self.pt }
     }
 }
 

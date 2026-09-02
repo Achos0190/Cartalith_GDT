@@ -55,6 +55,10 @@ fn stamp_volcanoes_provinces_matches_js() {
         4000.0,
         &boundary_mask,
         &stress_field,
+        // `None` = the reference's own two-pool split, transform margins
+        // included. This fixture pins the reference, so it stays `None`;
+        // the exclusion is covered by volcano_transform_boundaries.rs.
+        None,
         &plate_id,
         &plates,
         20,

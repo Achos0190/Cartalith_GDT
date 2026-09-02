@@ -66,6 +66,7 @@ use crate::geom::{
     Vec2, dist_pt_seg, js_atan2, js_cos, js_exp, js_max, js_min, js_sin, point_in_poly, poly_area,
     seg_int,
 };
+use crate::fortify::{Fort, Spur};
 use crate::graph::Graph;
 use crate::rng::stream;
 use crate::routes::Anchors;
@@ -97,15 +98,19 @@ pub struct Gate {
 /// `generate()` initialises it as `{ring: null, gates: [], epoch: 0}` (reference
 /// line 31003) and `buildWall` fills the rest.
 ///
-/// **This struct carries only the fields milestone 7 reads or writes**, exactly
-/// as milestone 2 left `Graph::_fromPaths` out until milestone 6 became the
-/// milestone that set it. `buildWall` also writes `waterWalls`, `spurs`,
-/// `spansWater`, `style`, `prov`, `fort`, `centroid`, `terrainDeflected` and
-/// `_waterClosure`, and [`supersede_wall`] copies the first six of those into
-/// its history record — so **milestone 10 must add them here and to
-/// [`WallGeneration`]'s copy list in the same pass**. Guessing their shapes now,
-/// from a function this milestone does not port, is exactly the running-ahead
-/// this port avoids; leaving a hole milestone 10 cannot miss is not.
+/// Milestone 7 carried only the fields it read or wrote, and left the nine
+/// `buildWall` also writes to milestone 10. Milestone 10 could not add them —
+/// [`fort`](Self::fort) names a type in `fortify`, which was not yet declared in
+/// `lib.rs` — so it staged them in a `fortify::WallExtras` and threaded that
+/// through `build_wall` as a second `&mut`. **The integration pass folded them
+/// in here**, which is what that struct existed to be folded into; it, its
+/// `history_extras` index-alignment loop and `build_wall`'s extra parameter are
+/// all gone.
+///
+/// Every added field is `Default` at the same value the reference's `undefined`
+/// reads as, so `WallState::default()` is still `generate()`'s
+/// `{ring: null, gates: [], epoch: 0}` (reference line 31003) and every existing
+/// construction site is unchanged.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WallState {
     /// The closed containment polygon. `None` is the reference's `null` — the
@@ -123,6 +128,25 @@ pub struct WallState {
     pub generation: Option<u32>,
     /// Superseded circuits, oldest first.
     pub history: Vec<WallGeneration>,
+    // --- written by `buildWall`; the first six are copied into `history` ---
+    /// The *drawn* water frontage, split at the harbour mouth. Note the empty
+    /// inner run the v1.04 needle guard produces: `[[]]`, not `[]`.
+    pub water_walls: Vec<Vec<Vec2>>,
+    pub spurs: Vec<Spur>,
+    pub spans_water: bool,
+    /// `'curtain'`, `'bastioned'`, or whatever `opts.wallStyle` said when it was
+    /// neither absent nor `'stone'`.
+    pub style: String,
+    pub prov: String,
+    pub fort: Option<Fort>,
+    // --- written by `buildWall`, deliberately NOT copied into `history` ---
+    pub centroid: Option<Vec2>,
+    /// v1.17 (S4c) diagnostic: how many circuit vertices moved onto higher
+    /// ground.
+    pub terrain_deflected: u32,
+    /// `_waterClosure` — the bank run the *containment* ring uses, as opposed to
+    /// the drawn `water_walls`, which have the harbour mouth cut out of them.
+    pub water_closure: Option<Vec<Vec2>>,
 }
 
 /// One superseded wall circuit — reference lines 29617-29620.
@@ -130,14 +154,20 @@ pub struct WallState {
 /// The reference builds a **fresh object literal** picking ten `wallState`
 /// fields plus `generation` and the two supersession metrics; it is not a copy
 /// of `wallState` (it deliberately omits `_waterClosure`, `centroid`,
-/// `terrainDeflected` and `history` itself). Six of those ten fields are
-/// milestone 10's and are not modelled yet — see [`WallState`].
+/// `terrainDeflected` and `history` itself). All ten are modelled now — the six
+/// that were milestone 10's landed with the [`WallState`] fold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WallGeneration {
     pub ring: Option<Vec<Vec2>>,
     pub gates: Vec<Gate>,
     pub land_arc: Option<Vec<Vec2>>,
     pub epoch: i32,
+    pub water_walls: Vec<Vec<Vec2>>,
+    pub spurs: Vec<Spur>,
+    pub spans_water: bool,
+    pub style: String,
+    pub prov: String,
+    pub fort: Option<Fort>,
     /// The generation number **being retired**, i.e. `wallState.generation || 1`
     /// read *before* the increment.
     pub generation: u32,
@@ -147,12 +177,19 @@ pub struct WallGeneration {
 
 // -------------------------------------------------------------------- opts --
 
-/// `opts.harbour` as `grow` sees it.
+/// `opts.harbour` as `grow` and `buildWall` see it.
 ///
 /// The real object is `buildHarbour`'s return value (milestone 9, reference
-/// line 28974) and carries piers, a mole and a defence spec besides. `grow`
-/// reads **`quay` only**, through [`dist_to_line`], so that is all this
-/// milestone models; milestone 9 owns the rest.
+/// line 28974) and carries piers, a mole and a defence spec besides; build one
+/// with [`HarbourWorks::front`](crate::water::HarbourWorks::front). `grow`
+/// reads **`quay` only**, through [`dist_to_line`]; `buildWall` (line 29867)
+/// also reads `pt`, to leave the harbour mouth out of the drawn water wall.
+/// Those two fields are the whole of what block 4 reads off the harbour after
+/// it is built, and milestone 9 owns the rest.
+///
+/// Milestone 10 staged `pt` in a `fortify::HarbourMouth` of its own, because
+/// this struct could not be edited while `fortify` was not yet in `lib.rs`.
+/// The reconciliation pass folded it in here and deleted that duplicate.
 ///
 /// Note the reference tests the *object* for truthiness and then indexes
 /// `.quay`, so a harbour with an empty quay is still a harbour —
@@ -162,14 +199,17 @@ pub struct WallGeneration {
 #[derive(Debug, Clone, PartialEq)]
 pub struct HarbourFront {
     pub quay: Vec<Vec2>,
+    /// `H.pt` — the harbour point. Read by `buildWall` only; `grow` ignores it.
+    pub pt: Vec2,
 }
 
 /// `grow`'s options object — reference line 31027, field for field.
 ///
-/// `wall_style`, `fortified` and `pop` are **not read by `grow`**; they are on
-/// the object because `grow` forwards the whole thing to `buildWall`, which
-/// reads `wallStyle` (line 29881) and `fortified` (line 29888). Dropping them
-/// would make [`WallBuilder`] unwireable in milestone 10.
+/// `wall_style`, `fortified`, `wet_moat` and `pop` are **not read by `grow`**;
+/// they are on the object because `grow` forwards the whole thing to
+/// `buildWall`, which reads `wallStyle` (line 29881) and `fortified` (line
+/// 29888) and passes `wetMoat` on to `applyStarFort` (lines 29998-29999).
+/// Dropping them would make [`WallBuilder`] unwireable.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GrowOpts {
     /// Metres of street to place across the whole run, derived from the target
@@ -190,6 +230,24 @@ pub struct GrowOpts {
     // --- forwarded to `buildWall`, unread here ---
     pub wall_style: Option<String>,
     pub fortified: bool,
+    /// `opts.wetMoat` — the star fort's ditch is flooded even inland.
+    ///
+    /// Milestone 10 recorded this as an input *"nothing in the reference
+    /// supplies"*, on a grep for the literal string `opts.wetMoat`, which finds
+    /// only its two consumers (lines 29998-29999). **That conclusion is wrong**:
+    /// the producer spells the key, not the read, and reference line 31017
+    /// supplies it — `buildWall(..., {fortified, wetMoat: profile.waterway,
+    /// wallStyle: opts.wallStyle})`, on the `profile.planning === 'radial'`
+    /// branch, where `VENUS.waterway` is `true` (line 28209). Line 31063 then
+    /// reads `wallState.fort.canalFed` back to decide whether the irrigation
+    /// ring still needs drawing separately. So on the Venus branch it is set on
+    /// every fortified town.
+    ///
+    /// That branch calls `buildWall` **directly**, not through `grow`, so the
+    /// field is here for the organic path — where `grow` forwards this whole
+    /// object — and [`crate::fortify::FortOpts`] is what the radial path will
+    /// fill in for itself.
+    pub wet_moat: bool,
     pub pop: f64,
 }
 
@@ -386,7 +444,7 @@ pub fn wall_occupancy(g: &Graph, ring: &[Vec2]) -> Occupancy {
     let mut interior: Vec<Vec2> = Vec::new();
     let mut exterior_count = 0usize;
     for n in &g.nodes {
-        let built = n.adj.iter().filter(|&&id| g.edges[id].alive).count() >= 2;
+        let built = g.live_degree(n.id) >= 2;
         if !built {
             continue;
         }
@@ -533,8 +591,7 @@ pub fn grow(
                 let Some(n) = usize::try_from(ni).ok().and_then(|i| g.nodes.get(i)) else {
                     continue;
                 };
-                let live_adj: Vec<usize> =
-                    n.adj.iter().copied().filter(|&id| g.edges[id].alive).collect();
+                let live_adj: Vec<usize> = g.live_adj(n.id).collect();
                 if live_adj.len() != 1 {
                     continue;
                 }
@@ -831,6 +888,15 @@ pub fn supersede_wall(
         gates: wall_state.gates.clone(),
         land_arc: wall_state.land_arc.clone(),
         epoch: wall_state.epoch,
+        // The six the reference picks besides — and note it picks, rather than
+        // copying: `_waterClosure`, `centroid`, `terrainDeflected` and `history`
+        // are deliberately left out of the record.
+        water_walls: wall_state.water_walls.clone(),
+        spurs: wall_state.spurs.clone(),
+        spans_water: wall_state.spans_water,
+        style: wall_state.style.clone(),
+        prov: wall_state.prov.clone(),
+        fort: wall_state.fort.clone(),
         generation,
         fill_fraction_at_supersession: occ.fill_fraction,
         exterior_nodes_at_supersession: occ.exterior_count,

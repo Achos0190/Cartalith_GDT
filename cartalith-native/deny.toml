@@ -1,0 +1,62 @@
+# cargo-deny configuration for the Cartalith native port.
+#
+# `PROVENANCE.md`'s "Licence position" section: the port re-implements the
+# reference HTML app's own algorithms, so the only *licensing* question is
+# what third-party crates bring in. That section states the policy already —
+# "[MIT/Apache-2.0] is compatible with anything reasonable" — and this file
+# carries that across rather than inventing a new one: MIT/Apache-2.0 and
+# their usual permissive companions are allowed outright; MPL-2.0 is allowed
+# because `credits.gd` already discloses and accepts it for godot/gdext
+# (file-level weak copyleft, used as an unmodified upstream dependency, so it
+# does not reach this project's own code); the original bzip2 license is
+# allowed because `credits.gd` already discloses it for `libbz2-rs-sys`
+# (transitive via `zip`'s optional bzip2 support). Everything else —
+# including GPL/LGPL/AGPL — is denied by omission: PROVENANCE.md does not
+# state a policy beyond "run the check before assuming", so an unlisted
+# license is refused rather than assumed compatible. Run with:
+#   cargo deny check licenses
+# from this directory (the workspace root).
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "ISC",
+    "Unlicense",
+    "CC0-1.0",
+    "MIT-0",
+    "0BSD",
+    "Unicode-3.0",
+    # File-level weak copyleft. Used here only as an unmodified upstream
+    # dependency (godot/gdext) — see credits.gd's own audit and disclosure.
+    "MPL-2.0",
+    # The original bzip2 license (Julian Seward), permissive/BSD-style.
+    # Pulled in transitively via `zip`'s optional bzip2 support
+    # (libbz2-rs-sys) — see credits.gd.
+    "bzip2-1.0.6",
+]
+
+# Everything not explicitly allowed above is denied — no blanket exception
+# for "unlicensed" or copyleft-family crates. This is the conservative
+# reading PROVENANCE.md calls for when it states no allow-list of its own.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+
+[advisories]
+# Vulnerability advisories are out of scope for this file — PROVENANCE.md's
+# "Licence position" asks only for a licence check. Leave this section at
+# cargo-deny's defaults rather than silently expanding scope.
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

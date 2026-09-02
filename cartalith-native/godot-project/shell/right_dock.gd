@@ -44,6 +44,32 @@ const CTX_WILDLIFE := "wildlife"
 ## context-driven surface.
 const CTX_HISTORY := "history"
 
+## `05-right-dock-and-bars.md` §1.8-§1.12, GUI replacement stage 5. Four
+## contexts from `rdMode4()`'s own fall-through table (§1.2b): `tool ===
+## 'biome'` -> paint, `tool` is `label`/`icon` -> anno, `tool === 'territory'`
+## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops. All four read
+## live engine state fresh on every rebuild, the same "no private draft"
+## shape `CTX_SCULPT` already uses -- there is nothing here for a second
+## editor to disagree with.
+##
+## **One tool id genuinely differs from the design file's own markup**:
+## `PaintTarget` (`paint_bridge.rs`) is `Biome`/`Terrain`/`Splat`, and this
+## shell's own armed-tool id is `"paint"`, not `"biome"` -- `world_workspace
+## .gd` registers `register_tool_click_handler("paint", ...)`. The context
+## constant below is named for what this port actually calls it.
+const CTX_PAINT := "paint"
+## `rdStops` (§1.9). Triggered when the CARTO domain is active with no more
+## specific tool armed -- see `show_stops()`'s own doc for the two call
+## sites this needs (a domain switch fires no `tool_armed` of its own).
+const CTX_STOPS := "stops"
+## `rdAnno` (§1.10) -- Label and Icon share one context, exactly as they
+## share one right-dock title in the design's own table.
+const CTX_ANNO := "anno"
+## `rdTerr` (§1.12). Named `CTX_TERR` (not `CTX_TERRITORY`) to match the
+## design doc's own short id and the grep this stage's own brief was
+## written against.
+const CTX_TERR := "territory"
+
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
 ## UI, not the engine (`ARCHITECTURE.md`), so this is the same wording, not
@@ -183,6 +209,27 @@ var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
 var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
+
+## -- CTX_PAINT. `_paint_ctx_layer` mirrors `world_workspace.gd`'s own private
+## `_paint_layer` -- the caller passes it on every `show_paint()`, the same
+## shape `show_measure(result, mode)` already uses, rather than this file
+## reaching into another workspace's state. `_paint_on_pick` is bound by that
+## same caller so a click on this dock's legend can arm a value without this
+## file guessing at the other four `paint_set_brush` fields (radius/hardness/
+## softness/land_only) it has no way to know -- see `show_paint()`.
+var _paint_ctx_layer := "biome"
+var _paint_on_pick: Callable = Callable()
+
+## -- CTX_STOPS. Which ramp stop (by position in `bridge.color_ramp()`, sorted)
+## this dock's own "Selected stop" section edits -- local to this file, since
+## the ramp itself carries no selection of its own (unlike labels/icons,
+## which do: `label_get_selected()`/`icon_get_selected()`).
+var _stops_selected := -1
+
+## -- CTX_TERR. The faction the Territory tool is currently armed for --
+## passed in on every `show_territory()`, the same reason `_paint_ctx_layer`
+## is: `civilization_workspace.gd` owns `_territory_faction`, not this file.
+var _terr_faction := -1
 
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
@@ -456,6 +503,74 @@ func clear_journey() -> void:
 		_context = CTX_SAMPLE
 		_rebuild()
 
+## Called by `world_workspace.gd`'s own `_on_tool_armed` when `"paint"` arms,
+## and again after every layer switch / commit / discard / stroke release --
+## the same "re-announce the current picture" cadence `show_sculpt_stack()`
+## already uses, since this dock keeps no draft of its own to patch in place.
+## `on_pick_value`, when given, is bound to a closure that knows the other
+## four `Brush` fields this file cannot see; omitted (or an invalid
+## `Callable`), the legend's rows still show swatch/label/count, just not a
+## click-to-arm affordance -- see `_build_paint`.
+func show_paint(layer: String, on_pick_value: Callable = Callable()) -> void:
+	_context = CTX_PAINT
+	if layer != "":
+		_paint_ctx_layer = layer
+	_paint_on_pick = on_pick_value
+	_rebuild()
+
+## Mirrors `leave_sculpt_context()` exactly -- called from `app.gd`'s
+## workspace-switch handler for the same reason: Biome paint is a WORLD-only
+## tool with nothing else that clears this context on a domain switch.
+func leave_paint_context() -> void:
+	if _context == CTX_PAINT:
+		_context = CTX_SAMPLE
+		_rebuild()
+
+## `rdMode4()` rule 6: `domain==='CARTO' && tool==='inspect'`. Two call sites
+## need this, and neither alone covers the rule -- `cartography_workspace.gd`'s
+## `_on_any_tool_armed` (armed tool changes, but a domain switch fires no
+## `tool_armed` of its own) and `app.gd`'s `_on_workspace_changed` (domain
+## changes, but arming Inspect while already in CARTO fires no workspace
+## change). Both are wired to call this only when both halves of the rule
+## already hold, so this file does not re-check them.
+func show_stops() -> void:
+	_context = CTX_STOPS
+	_rebuild()
+
+func leave_stops_context() -> void:
+	if _context == CTX_STOPS:
+		_stops_selected = -1
+		_context = CTX_SAMPLE
+		_rebuild()
+
+## Called by `cartography_workspace.gd`'s `_on_any_tool_armed` for both
+## `"label"` and `"icon"` -- one context for both tools, matching §1.3's own
+## right-dock title table (`ANNOTATION` names neither tool by itself) and
+## `_dispatch()`'s single `CTX_ANNO` branch.
+func show_anno() -> void:
+	_context = CTX_ANNO
+	_rebuild()
+
+func leave_anno_context() -> void:
+	if _context == CTX_ANNO:
+		_context = CTX_SAMPLE
+		_rebuild()
+
+## Called by `civilization_workspace.gd` on arming `"territory"`, on every
+## faction re-pick while it stays armed, and after a commit/discard -- the
+## live stats this shows (`civ_faction_territory_stats`) only change at
+## commit, but re-announcing costs nothing and keeps this in step with
+## whichever faction is actually armed.
+func show_territory(faction_id: int) -> void:
+	_context = CTX_TERR
+	_terr_faction = faction_id
+	_rebuild()
+
+func leave_territory_context() -> void:
+	if _context == CTX_TERR:
+		_context = CTX_SAMPLE
+		_rebuild()
+
 # -- Dispatch ---------------------------------------------------------------
 
 ## §6's own per-context header title, mirroring `DccWidgets.section()`'s title
@@ -467,6 +582,11 @@ const CTX_TITLES := {
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
+	## `05-right-dock-and-bars.md` §1.3. `CTX_PAINT`'s title is dynamic
+	## ("PAINT · BIOME"/"PAINT · TERRAIN"/"PAINT · SPLAT") and built in
+	## `_current_title()` instead -- this static table has no per-instance
+	## data to build it from.
+	CTX_STOPS: "Ramp · stops", CTX_ANNO: "Annotation", CTX_TERR: "Territory",
 }
 
 func _rebuild() -> void:
@@ -494,6 +614,10 @@ func _current_title() -> String:
 		return "Sample"
 	if _context == CTX_JOURNEY and _journey_view == null:
 		return "Sample"
+	## §1.3: `PAINT · ` + the target's own name, upper-cased -- the one
+	## title this table can't hold statically.
+	if _context == CTX_PAINT:
+		return "Paint · %s" % _paint_ctx_layer.capitalize()
 	return String(CTX_TITLES.get(_context, "Sample"))
 
 ## RD-11: §6's own last line -- "elevation for Sample, layer dots for
@@ -544,6 +668,16 @@ func _dock_readout_text() -> String:
 			if _journey_view == null:
 				return _sample_elev.text if _sample_elev != null else "—"
 			return _journey_view.readout_text()
+		CTX_PAINT:
+			return ("%s cells" % _thousands(float(bridge.paint_painted_counts().get("total", 0)))) if bridge.has_world else "no world"
+		CTX_STOPS:
+			var n := bridge.color_ramp().size() if bridge.ramp_api else 0
+			return ("%d stop%s" % [n, "" if n == 1 else "s"]) if n > 0 else "no ramp"
+		CTX_ANNO:
+			return "%d labels · %d icons" % [bridge.label_list().size(), bridge.icon_list().size()]
+		CTX_TERR:
+			var stats := bridge.civ_faction_territory_stats(_terr_faction) if _terr_faction >= 0 else {}
+			return ("%s cells" % _thousands(float(stats.get("claimed_cells", 0)))) if not stats.is_empty() else "no claim"
 		_:
 			return _sample_elev.text if _sample_elev != null else "—"
 
@@ -573,6 +707,14 @@ func _dispatch(body: Control) -> void:
 			_build_journey(body)
 		CTX_HISTORY:
 			_build_history(body)
+		CTX_PAINT:
+			_build_paint(body)
+		CTX_STOPS:
+			_build_stops(body)
+		CTX_ANNO:
+			_build_anno(body)
+		CTX_TERR:
+			_build_territory(body)
 		_:
 			_build_sample(body)
 
@@ -1015,12 +1157,7 @@ func _build_faction(body: Control) -> void:
 	## the third time on 2026-08-31, in a pass with nothing else editing the
 	## tree, and every number here now carries the symbol name beside it so the
 	## next drift is a `grep` away instead of a silent lie.)
-	var roster: Dictionary = {}
-	for f in bridge.get_factions():
-		var d: Dictionary = f
-		if int(d.get("id", -1)) == _faction_id:
-			roster = d
-			break
+	var roster := _faction_roster(_faction_id)
 
 	_field(sec, "Faction", str(_faction_id))
 	## `Government` and `Ag. technology` ride the same `roster` dict `Culture`
@@ -1142,6 +1279,18 @@ func _build_faction_relations(body: Control) -> void:
 				int(round(25.0 * float(d.get("trade_term", 0.0)))),
 				int(round(100.0 * float(d.get("rivalry_term", 0.0))))],
 			true)
+
+## `bridge.get_factions()`'s own row for one faction id, or an empty
+## Dictionary if this world has none (no world yet, or a stale id). Factored
+## out of `_build_faction` on 2026-09-02 so `_build_territory` -- which needs
+## the same lookup for the same reason (a swatch and a name, not a province
+## roster) -- reads it rather than growing a second copy of the loop.
+func _faction_roster(faction_id: int) -> Dictionary:
+	for f in bridge.get_factions():
+		var d: Dictionary = f
+		if int(d.get("id", -1)) == faction_id:
+			return d
+	return {}
 
 ## Colour swatch + hex -- the same 11×11 `ColorRect` legend `layers_popover
 ## .gd`'s `_refresh_legend` already uses for a faction/layer colour, just
@@ -1832,6 +1981,618 @@ func _on_stamp_move_down(index: int) -> void:
 func _on_stamp_delete(index: int) -> void:
 	bridge.sculpt_delete_stamp(index)
 	show_sculpt_stack()
+
+# -- Paint (`rdPaint`, §1.8) -------------------------------------------------
+#
+# Shown while the "paint" tool is armed (this port's own id for the design's
+# `biome` tool -- see the `CTX_PAINT` const's own doc). Reads
+# `world_workspace.gd`'s live paint-editor state fresh every rebuild, the
+# same "no private draft" shape `CTX_SCULPT` already uses -- Commit/Discard
+# here and Commit/Discard in the left-dock Biome paint panel are the same two
+# engine calls, so neither can disagree with the other about what is pending.
+# (They CAN both be on screen showing the same number, which is fine -- see
+# `CTX_SCULPT`'s own header comment on why that is not the two-drafts bug
+# class `WW-13` was.)
+#
+# **The legend does not match §1.8's own table**, and that is a divergence in
+# the engine, not a guess: that table names six biome / four soil / four
+# vegetation entries (`bpLegend()`, the truncated prototype's own fixture).
+# This port's real `PaintTarget` (`paint_bridge.rs`) is `Biome`/`Terrain`/
+# `Splat` -- Biome alone has 13 paintable values, and neither Terrain nor
+# Splat is named "soil" or "vegetation". Read from `bridge.get_paint_layers()`
+# / `get_paint_palette()` instead of the design's fixed table, matching
+# `world_workspace.gd::_build_paint`'s own precedent for the identical
+# mismatch.
+
+func _build_paint(body: Control) -> void:
+	if not bridge.has_world:
+		DccWidgets.note(DccWidgets.section(body, "Paint"), "Generate a world first.")
+		return
+	var layers := bridge.get_paint_layers()
+	if layers.is_empty():
+		DccWidgets.note(DccWidgets.section(body, "Paint"),
+			"No paint editor for this world -- a loaded save has no draft session, same ceiling as Sculpt.")
+		return
+	var layer: String = _paint_ctx_layer if layers.has(_paint_ctx_layer) else String(layers[0])
+
+	var sec := DccWidgets.section(body, "Painted · %s" % layer.capitalize())
+	var counts: Dictionary = bridge.paint_painted_counts()
+	var total := int(counts.get("total", 0))
+	_accent_readout(sec, "Painted cells", _thousands(float(total)),
+		"paint_painted_counts() for the active layer -- the composite of every committed dab and whatever is " +
+		"still in the draft, the same figure the left-dock Biome paint panel's own Legend group totals.")
+	var pending := bridge.paint_draft_count()
+	DccWidgets.note(sec, "Nothing pending across any layer." if pending == 0 else
+		("%d dab%s pending across every layer, not just %s -- Commit/Discard below act on all three at once " +
+			"(paint_bridge.rs's own PaintEditor::commit_all).") % [pending, "" if pending == 1 else "s", layer])
+
+	var palette := bridge.get_paint_palette(layer)
+	var by_index: Dictionary = counts.get("counts", {})
+	var swatches := _paint_swatch_colors(layer)
+	var legend := DccWidgets.group(sec, "Legend · painted counts")
+	if palette.is_empty():
+		DccWidgets.note(legend, "No palette for this layer.")
+	else:
+		for i in palette.size():
+			var pd: Dictionary = palette[i]
+			var idx := int(pd.get("index", i + 1))
+			_paint_legend_row(legend, String(pd.get("label", "?")), int(by_index.get(idx, 0)),
+				swatches[i] if i < swatches.size() else {}, idx)
+
+	var commit_group := DccWidgets.group(sec, "Commit")
+	var commit_btn := DccWidgets.action(commit_group, "%s Commit" % DccIcons.SYMBOLS["tick"], _on_paint_commit_from_dock, true)
+	commit_btn.disabled = pending == 0
+	var discard_btn := DccWidgets.action(commit_group, "Discard draft", _on_paint_discard_from_dock)
+	discard_btn.disabled = pending == 0
+	if pending == 0:
+		var why := "Nothing pending. Paint on the map to enable this." if total == 0 \
+			else "Nothing pending -- the %s cells above are already committed." % _thousands(float(total))
+		commit_btn.tooltip_text = why
+		discard_btn.tooltip_text = why
+	DccWidgets.note(sec,
+		"Commit writes every layer's pending dabs into their own override arrays and refreshes the map -- which " +
+		"stages that marks stale depends on the layer (paint_bridge.rs's own reason string per target); the " +
+		"status bar names them once you press it.")
+
+## Real per-value colour for the Biome and Terrain palettes, pulled from
+## `bridge.debug_layers()`'s own "Biomes"/"Terrain" legend rows (`"bclass"`/
+## `"cterrain"`, `sample_bridge::legend()`) rather than invented -- there is
+## no `get_paint_palette` colour, so this is the one real source. Verified
+## directly against `paint_bridge.rs`: `PaintTarget::palette()` slices
+## `CART_BIOMES[..13]` / the whole of `CART_TERRAINS`, and `legend()` builds
+## `"bclass"`/`"cterrain"` by enumerating `CART_BIOME_COLS`/`CART_TERRAIN_COLS`
+## over those same arrays in the same order -- position `i` in one is
+## position `i` in the other. Splat has no debug-layer legend (it forces a
+## ground texture, not a colour -- `world_workspace.gd`'s own "Splat has no
+## map colour of its own" note), so this returns empty for it and the legend
+## row below falls back to no swatch.
+func _paint_swatch_colors(layer: String) -> Array:
+	var debug_id: String = {"biome": "bclass", "terrain": "cterrain"}.get(layer, "")
+	if debug_id == "":
+		return []
+	for g in bridge.debug_layers():
+		for it in (g as Dictionary).get("items", []):
+			var item: Dictionary = it
+			if String(item.get("id", "")) == debug_id:
+				return item.get("legend", [])
+	return []
+
+## One legend row: swatch (when known) + label + painted count, and -- only
+## when the caller wired one into `show_paint()` -- a click that arms this
+## value for painting (§1.8: "Click arms that value"). This file cannot
+## build that click itself: `paint_set_brush` takes radius/hardness/
+## softness/land_only alongside the value, and only `world_workspace.gd`
+## knows the brush's current values for those -- see `show_paint()`'s own
+## doc. Read-only when no callback was given, which is still the swatch,
+## label and count §1.8 asks for.
+func _paint_legend_row(parent: Control, label_text: String, count: int, swatch: Dictionary, value_index: int) -> void:
+	var tablet := DccTheme.is_tablet()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	if not swatch.is_empty():
+		var sw := ColorRect.new()
+		sw.color = Color8(int(swatch.get("r", 0)), int(swatch.get("g", 0)), int(swatch.get("b", 0)))
+		sw.custom_minimum_size = Vector2(10, 10)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(sw)
+	var fs := DccTheme.role_px("fs_prose") if tablet else DccTheme.FS_SMALL
+	var l := DccTheme.label(label_text, "text", fs)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.clip_text = true
+	row.add_child(l)
+	row.add_child(DccTheme.mono_label(str(count), "text_dim", fs))
+	if _paint_on_pick.is_valid():
+		var pick := Button.new()
+		pick.text = "arm"
+		pick.tooltip_text = "Arms %s for painting -- the same brush value the left-dock Biome paint panel's own Value picker sets." % label_text
+		pick.focus_mode = Control.FOCUS_NONE
+		pick.custom_minimum_size = Vector2(34, _chip_btn_h(tablet))
+		pick.pressed.connect(func(): _paint_on_pick.call(value_index))
+		row.add_child(pick)
+	parent.add_child(row)
+
+## Both call sites are a "select this one of several" row button --
+## `_sculpt_stamp_row`'s own "select"/"selected" precedent (`right_dock.gd`
+## §57 tier B: "the same 'one of a set is lit' shape as a mode chip, so it
+## takes `chip_min_h`... rather than the discrete-action `btn_min_h`"), not a
+## standalone Commit/Delete-class action -- `chip_min_h` on tablet accordingly,
+## not `btn_min_h`.
+func _chip_btn_h(tablet: bool) -> int:
+	return int(DccTheme.role_px("chip_min_h")) if tablet else 20
+
+func _on_paint_commit_from_dock() -> void:
+	var summary: Dictionary = bridge.paint_commit()
+	if app != null and app.viewport != null:
+		app.viewport.map_view.texture = bridge.color_texture()
+		app.viewport.set_preview_texture(null)
+	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
+	if app != null:
+		app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
+	show_paint(_paint_ctx_layer, _paint_on_pick)
+
+func _on_paint_discard_from_dock() -> void:
+	bridge.paint_discard()
+	if app != null and app.viewport != null:
+		app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	show_paint(_paint_ctx_layer, _paint_on_pick)
+
+# -- Ramp · stops (`rdStops`, §1.9) ------------------------------------------
+#
+# Shown whenever the CARTO domain is active with nothing more specific armed
+# (`rdMode4()` rule 6) -- see `show_stops()`'s own doc for the two triggers
+# this needs. Reads and writes the exact engine ramp `render_workspace.gd`'s
+# own "Colour relief" panel already edits (`bridge.color_ramp()`/
+# `set_color_ramp()`) -- there is no second ramp to disagree with, only a
+# second view of the one the map actually draws from.
+#
+# **Two real divergences from §1.9's own table, adjudicated per §7's own
+# instruction for a "contradiction in the delivered design" rather than
+# guessed:**
+#
+# - **A stop's position is not an elevation in metres.** `get_color_ramp()`'s
+#   own doc: "relative land elevation... 0 = the shoreline, 1 = the world's
+#   highest point" -- not §1.9's literal `eMin=-410, eMax=4210`, which was
+#   the truncated prototype's own placeholder range for a fixed-size demo
+#   world. Metres shown here are that fraction of THIS world's own relief
+#   (`peak_m`), so the same stop reads a different metre figure on a
+#   different world -- correct, because the ramp is defined relative to each
+#   world's own peak, not to a constant.
+# - **Interpolation is the ramp's, not a stop's.** §1.9 draws `interp` inside
+#   the "selected stop" editor; `render.rs`'s own `ElevationRamp::set_mode`
+#   takes no stop index, and `render_workspace.gd`'s own note already says
+#   so ("This belongs to the ramp rather than to a stop"). Drawn once, above
+#   the stop list, not per stop.
+
+func _build_stops(body: Control) -> void:
+	if not bridge.ramp_api:
+		DccWidgets.note(DccWidgets.section(body, "Ramp · stops"),
+			"No colour-ramp editor: this build's engine has no set_color_ramp() binding.")
+		return
+	var sec := DccWidgets.section(body, "Ramp · stops")
+	var modes: Array = bridge.ramp_modes()
+	if not modes.is_empty():
+		DccWidgets.choice(sec, "Blend", modes, maxi(0, modes.find(bridge.ramp_mode())),
+			_on_stops_mode_changed.bind(modes),
+			"How the colour crosses from one stop to the next -- the whole ramp's own setting, not this stop's (see this section's own header note).")
+
+	var stops: Array = bridge.color_ramp()   ## [[position, Color], ...], already sorted by get_color_ramp()
+	_build_ramp_bar(sec, stops, bridge.ramp_mode())
+
+	if stops.is_empty():
+		DccWidgets.note(sec, "This ramp has no stops -- Add one below.")
+	else:
+		var list := DccWidgets.group(sec, "Stops")
+		for i in stops.size():
+			_stops_row(list, i, stops)
+
+	var edit_group := DccWidgets.group(sec, "Edit")
+	DccWidgets.action(edit_group, "+ add", _on_stops_add)
+	var reverse_btn := DccWidgets.action(edit_group, "reverse", _on_stops_reverse)
+	reverse_btn.disabled = stops.size() < 2
+
+	if _stops_selected >= 0 and _stops_selected < stops.size():
+		_build_selected_stop(body, _stops_selected, stops)
+
+	var actions := DccWidgets.group(body, "Actions")
+	var compare_btn := DccWidgets.action(actions, "Compare", func(): pass)
+	compare_btn.disabled = true
+	compare_btn.tooltip_text = "Would hold the previous ramp for an A/B toggle -- §1.9's own \"(mock)\" caption in the design file. No such store exists here."
+	DccWidgets.note(actions,
+		"Every edit above is already live -- render_workspace.gd's own ramp editor, this dock and the map all " +
+		"read the one engine ramp, so there is no separate Apply step to press (§1.9's own Apply is a mock in " +
+		"the delivered prototype).")
+
+## A small live gradient preview, mirroring `render_workspace.gd`'s own
+## `_update_ramp_bar` -- duplicated rather than shared because that one is
+## private to a panel built once and this one is rebuilt wholesale on every
+## `_rebuild()`, the tradeoff every other section in this file already makes.
+func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
+	var offsets := PackedFloat32Array()
+	var colors := PackedColorArray()
+	var sorted := stops.duplicate()
+	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	for s in sorted:
+		offsets.append(clampf(float(s[0]), 0.0, 1.0))
+		colors.append(s[1] as Color)
+	if offsets.is_empty():
+		return
+	if offsets.size() == 1:
+		offsets.append(1.0)
+		colors.append(colors[0])
+	var grad := Gradient.new()
+	match mode:
+		"Step": grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+		"Ease": grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
+		_: grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_LINEAR
+	grad.offsets = offsets
+	grad.colors = colors
+	var tex := GradientTexture1D.new()
+	tex.gradient = grad
+	tex.width = 256
+	var bar := TextureRect.new()
+	bar.texture = tex
+	bar.stretch_mode = TextureRect.STRETCH_SCALE
+	bar.custom_minimum_size.y = 16
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(bar)
+
+func _stops_row(parent: Control, idx: int, stops: Array) -> void:
+	var tablet := DccTheme.is_tablet()
+	var pair: Array = stops[idx]
+	var col := pair[1] as Color
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	var sw := ColorRect.new()
+	sw.color = Color(col.r, col.g, col.b, 1.0)
+	sw.custom_minimum_size = Vector2(14, 14)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(sw)
+	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
+	var l := DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "accent" if idx == _stops_selected else "text_dim", fs)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(l)
+	row.add_child(DccTheme.mono_label("%d m" % int(round(_ramp_metres(float(pair[0])))), "text_dim", fs))
+	var sel := Button.new()
+	sel.text = "selected" if idx == _stops_selected else "select"
+	sel.disabled = idx == _stops_selected
+	sel.focus_mode = Control.FOCUS_NONE
+	sel.custom_minimum_size = Vector2(58, _chip_btn_h(tablet))
+	sel.pressed.connect(func(): _stops_selected = idx; _rebuild())
+	row.add_child(sel)
+	parent.add_child(row)
+
+func _build_selected_stop(body: Control, idx: int, stops: Array) -> void:
+	var pair: Array = stops[idx]
+	var col := pair[1] as Color
+	var sec := DccWidgets.section(body, "Selected stop")
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	var picker := ColorPickerButton.new()
+	## Opaque on purpose, the same reasoning `render_workspace.gd`'s own
+	## swatch carries: this control owns hue, the stop's own alpha rides
+	## along untouched by it -- **and it replaces §1.9's own hue slider
+	## rather than reproducing it**: §7 item 26 flags that slider's thumb as
+	## permanently pinned at 50%, never tracking the real hue, a documented
+	## bug in the delivered prototype. A real colour picker is strictly
+	## better and is what `render_workspace.gd`'s own editor already uses.
+	picker.color = Color(col.r, col.g, col.b, 1.0)
+	picker.custom_minimum_size = Vector2(34, 22)
+	picker.edit_alpha = false
+	picker.color_changed.connect(_on_stop_color_changed.bind(idx))
+	head.add_child(picker)
+	head.add_child(DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "text", DccTheme.FS_SMALL))
+	head.add_child(DccTheme.spacer())
+	head.add_child(DccTheme.mono_label("%d m" % int(round(_ramp_metres(float(pair[0])))), "accent",
+		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_SMALL))
+	sec.add_child(head)
+
+	## Hand-built rather than `DccWidgets.slider()`: the readout is a
+	## DERIVED metre figure (position × peak_m), not the raw 0..1 value that
+	## helper's own unit-suffix formatter would print -- the same reason
+	## `render_workspace.gd`'s own position slider bypasses it too.
+	var pos_row := HBoxContainer.new()
+	pos_row.add_theme_constant_override("separation", 8)
+	pos_row.custom_minimum_size.y = 24
+	var pos_l := DccTheme.label("Elevation", "text_dim", DccTheme.FS_SMALL)
+	pos_l.custom_minimum_size.x = _FIELD_LABEL_W
+	pos_row.add_child(pos_l)
+	var pos_slider := HSlider.new()
+	pos_slider.min_value = 0.0
+	pos_slider.max_value = 1.0
+	pos_slider.step = 0.005
+	pos_slider.value = float(pair[0])
+	pos_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pos_slider.custom_minimum_size.y = 14
+	pos_slider.focus_mode = Control.FOCUS_NONE
+	pos_row.add_child(pos_slider)
+	var pos_readout := DccTheme.mono_label("%d m" % int(round(_ramp_metres(float(pair[0])))), "text", DccTheme.FS_SMALL)
+	pos_readout.custom_minimum_size.x = 56
+	pos_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	pos_row.add_child(pos_readout)
+	pos_slider.value_changed.connect(func(v: float): pos_readout.text = "%d m" % int(round(_ramp_metres(v))))
+	pos_slider.drag_ended.connect(func(_c: bool): _on_stop_position_committed(idx, pos_slider.value))
+	sec.add_child(pos_row)
+
+	var del := DccWidgets.action(sec, "Delete", _on_stop_delete.bind(idx))
+	del.disabled = stops.size() <= 1
+	if stops.size() <= 1:
+		del.tooltip_text = "A ramp needs at least two stops (§1.9's own refusal toast)."
+
+## Metres above sea level a relative ramp position stands for on THIS world --
+## the same formula `render_workspace.gd::_ramp_metres` uses, duplicated for
+## the same "no shared home for a two-line helper" reason `_build_ramp_bar`
+## gives. `0` before parameters are read, which reads as `0 m` honestly
+## rather than a metre figure derived from a peak nobody has measured yet.
+func _ramp_metres(at: float) -> float:
+	if not bridge.params_available():
+		return 0.0
+	var peak = bridge.param_get("peak_m")
+	return at * (float(peak) if peak != null else 0.0)
+
+## Re-finds a stop by the position it should now have, after any edit that
+## can change `get_color_ramp()`'s own sort order (a moved stop crossing a
+## neighbour, an add, a reverse). `_stops_selected` is a plain index into
+## that sorted list, so it cannot simply be kept from before such an edit --
+## this re-derives it from the one thing that is still true: the position the
+## edit itself just gave the stop we care about.
+func _find_stop_near(stops: Array, position: float) -> int:
+	var best := -1
+	var best_d := INF
+	for i in stops.size():
+		var d: float = absf(float(stops[i][0]) - position)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+func _on_stops_mode_changed(i: int, modes: Array) -> void:
+	bridge.set_ramp_mode(String(modes[i]))
+	_rebuild()
+
+func _on_stop_color_changed(c: Color, idx: int) -> void:
+	var stops: Array = bridge.color_ramp()
+	if idx < 0 or idx >= stops.size():
+		return
+	var old := stops[idx][1] as Color
+	stops[idx][1] = Color(c.r, c.g, c.b, old.a)
+	if bridge.set_color_ramp(stops) <= 0:
+		return
+	_rebuild()
+
+func _on_stop_position_committed(idx: int, target: float) -> void:
+	var stops: Array = bridge.color_ramp()
+	if idx < 0 or idx >= stops.size():
+		return
+	stops[idx][0] = target
+	if bridge.set_color_ramp(stops) <= 0:
+		return
+	_stops_selected = _find_stop_near(bridge.color_ramp(), target)
+	_rebuild()
+
+func _on_stop_delete(idx: int) -> void:
+	var stops: Array = bridge.color_ramp()
+	if stops.size() <= 1 or idx < 0 or idx >= stops.size():
+		return
+	stops.remove_at(idx)
+	if bridge.set_color_ramp(stops) <= 0:
+		return
+	_stops_selected = -1
+	_rebuild()
+
+## New stop in the widest gap, coloured with what the ramp already shows
+## there, and selected -- `render_workspace.gd::_on_add_stop`'s own
+## algorithm, reused rather than reinvented; the "and selects it" half is
+## §1.9's own spec, which that panel (no stop-selection concept) doesn't need.
+func _on_stops_add() -> void:
+	var stops: Array = bridge.color_ramp()
+	var sorted := stops.duplicate()
+	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	var at := 0.5
+	var col := Color(0.5, 0.5, 0.5)
+	if sorted.size() >= 2:
+		var best := -1.0
+		for i in sorted.size() - 1:
+			var gap: float = float(sorted[i + 1][0]) - float(sorted[i][0])
+			if gap > best:
+				best = gap
+				at = (float(sorted[i][0]) + float(sorted[i + 1][0])) * 0.5
+				col = (sorted[i][1] as Color).lerp(sorted[i + 1][1] as Color, 0.5)
+	elif sorted.size() == 1:
+		at = clampf(float(sorted[0][0]) + 0.25, 0.0, 1.0)
+		col = sorted[0][1] as Color
+	stops.append([at, col])
+	if bridge.set_color_ramp(stops) <= 0:
+		return
+	_stops_selected = _find_stop_near(bridge.color_ramp(), at)
+	_rebuild()
+
+## The design's own Reverse: the same colours, top to bottom.
+func _on_stops_reverse() -> void:
+	var stops: Array = bridge.color_ramp()
+	var target := -1.0
+	if _stops_selected >= 0 and _stops_selected < stops.size():
+		target = 1.0 - float(stops[_stops_selected][0])
+	for s in stops:
+		s[0] = 1.0 - float(s[0])
+	if bridge.set_color_ramp(stops) <= 0:
+		return
+	if target >= 0.0:
+		_stops_selected = _find_stop_near(bridge.color_ramp(), target)
+	_rebuild()
+
+# -- Annotation (`rdAnno`, §1.10) --------------------------------------------
+#
+# Shown while the Label or Icon tool is armed (`rdMode4()` rule 3) -- one
+# context for both, matching §1.3's own title table. Reads
+# `bridge.label_get_selected()`/`label_list()`/`icon_list()` fresh every
+# rebuild, so there is no draft of its own to fall out of step.
+#
+# **The selected label's own text field commits on submit/defocus, not on
+# every keystroke.** `cartography_workspace.gd`'s own left-dock Labels panel
+# already carries a fuller seven-field form for the same selection (size,
+# size mode, angle, font, colour, plus Confirm/Cancel over the same
+# `label_bridge` edit session `label_confirm_edit`/`label_cancel_edit` gates)
+# -- its own doc comment names §1.10's own shape as what it was standing in
+# for. Both this section and that form write through the identical
+# `label_set()`, so neither can hold a value the other disagrees with once
+# either one loses focus; committing on submit/defocus here (matching that
+# form's own Font field, not its Text field's more eager live-apply) keeps
+# the two from visibly disagreeing while one is mid-keystroke.
+
+func _build_anno(body: Control) -> void:
+	var sel := bridge.label_get_selected()
+	if sel >= 0:
+		var lb := bridge.label_get(sel)
+		if not lb.is_empty():
+			_build_anno_selected(body, sel, lb)
+
+	var sec := DccWidgets.section(body, "Placed · this session")
+	var label_count := bridge.label_list().size()
+	var icon_count := bridge.icon_list().size()
+	_field(sec, "Labels", str(label_count))
+	_field(sec, "Icons", str(icon_count))
+	var clear := DccWidgets.action(sec, "Clear all", _on_anno_clear_all)
+	clear.disabled = label_count == 0 and icon_count == 0
+	if clear.disabled:
+		clear.tooltip_text = "Nothing placed yet."
+	DccWidgets.note(sec,
+		"Labels and icons are presentation -- they add nothing to and take nothing from the world model.")
+
+func _build_anno_selected(body: Control, idx: int, lb: Dictionary) -> void:
+	var sec := DccWidgets.section(body, "Selected label")
+
+	var text_row := HBoxContainer.new()
+	text_row.add_theme_constant_override("separation", 8)
+	text_row.custom_minimum_size.y = 24
+	var text_edit := LineEdit.new()
+	text_edit.text = String(lb.get("text", ""))
+	text_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	text_edit.text_submitted.connect(func(v: String): _on_anno_text_committed(idx, v))
+	text_edit.focus_exited.connect(func(): _on_anno_text_committed(idx, text_edit.text))
+	text_row.add_child(text_edit)
+	sec.add_child(text_row)
+
+	## `arc` is clamped `[-1,1]` in the engine (`label_bridge.rs`'s own
+	## `set_arc`) -- §1.10 draws it `-50…+50`. `/50` is an exact round-trip of
+	## that range, not a fabricated one: the reference's own arc control is a
+	## percentage, and this port renormalised it the same way Hardness/
+	## Softness were renormalised to `0..1` rather than kept as a second,
+	## differently-scaled percentage field (`DECISIONS.md` §7k).
+	var arc_pct := int(round(float(lb.get("arc", 0.0)) * 50.0))
+	var arc_row := HBoxContainer.new()
+	arc_row.add_theme_constant_override("separation", 8)
+	arc_row.custom_minimum_size.y = 24
+	var arc_l := DccTheme.label("Arc", "text_dim", DccTheme.FS_SMALL)
+	arc_l.custom_minimum_size.x = _FIELD_LABEL_W
+	arc_row.add_child(arc_l)
+	var arc_slider := HSlider.new()
+	arc_slider.min_value = -50
+	arc_slider.max_value = 50
+	arc_slider.step = 1
+	arc_slider.value = arc_pct
+	arc_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	arc_slider.custom_minimum_size.y = 14
+	arc_slider.focus_mode = Control.FOCUS_NONE
+	arc_row.add_child(arc_slider)
+	var arc_readout := DccTheme.mono_label(str(arc_pct), "text", DccTheme.FS_SMALL)
+	arc_readout.custom_minimum_size.x = 34
+	arc_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	arc_row.add_child(arc_readout)
+	arc_slider.value_changed.connect(func(v: float): arc_readout.text = str(int(v)))
+	arc_slider.drag_ended.connect(func(_c: bool): _on_anno_arc_committed(idx, arc_slider.value))
+	sec.add_child(arc_row)
+
+	var del := DccWidgets.action(sec, "✕ delete label", _on_anno_delete.bind(idx))
+	del.add_theme_color_override("font_color", DccTheme.c("block"))
+	DccWidgets.note(sec,
+		"Size, size mode, angle, font and colour, plus Confirm/Cancel over this same edit -- Cartography ▸ Labels.")
+
+func _on_anno_text_committed(idx: int, text: String) -> void:
+	bridge.label_set(idx, {"text": text})
+	if app != null and app.viewport != null:
+		app.viewport.refresh_annotations()
+	_rebuild()
+
+func _on_anno_arc_committed(idx: int, pct: float) -> void:
+	bridge.label_set(idx, {"arc": clampf(pct / 50.0, -1.0, 1.0)})
+	if app != null and app.viewport != null:
+		app.viewport.refresh_annotations()
+	_rebuild()
+
+func _on_anno_delete(idx: int) -> void:
+	bridge.label_delete(idx)
+	if app != null and app.viewport != null:
+		app.viewport.refresh_annotations()
+	if app != null:
+		app.set_status("hint", "label deleted", "text_ghost")
+	_rebuild()
+
+func _on_anno_clear_all() -> void:
+	bridge.label_clear_all()
+	bridge.icon_clear_all()
+	if app != null and app.viewport != null:
+		app.viewport.refresh_annotations()
+	if app != null:
+		app.set_status("hint", "labels and icons cleared", "text_ghost")
+	_rebuild()
+
+# -- Territory (`rdTerr`, §1.12) ---------------------------------------------
+#
+# Shown while the Territory tool is armed (`rdMode4()` rule 4 -- unconditional
+# on the tool, so it wins over Faction/Settlement whenever Territory is
+# armed). `civilization_workspace.gd` used to route a territory commit to
+# this dock's own Faction context instead, with its own comment naming this
+# exact gap ("right_dock.gd is explicitly not this pass's to change" --
+# `_commit_territory`'s doc) -- that call is repointed to `show_territory`
+# as part of wiring this context in.
+#
+# **Stats are commit-only, not live per dab.** `civ_faction_territory_stats`
+# reads the COMMITTED `civ.territory`, never the in-progress draft
+# (`CivTools::paint_at` only touches `territory_draft`, baked in on
+# `commit()`) -- the same reason `civilization_workspace.gd`'s own
+# tool-options row only refreshes this figure at arm/commit/discard, not per
+# drag sample. `show_territory()` is called at exactly those same three
+# events, never per dab.
+
+func _build_territory(body: Control) -> void:
+	if _terr_faction < 0:
+		DccWidgets.note(DccWidgets.section(body, "Territory"), "No faction armed.")
+		return
+	var roster := _faction_roster(_terr_faction)
+	var sec := DccWidgets.section(body, "Territory")
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	if not roster.is_empty():
+		var sw := ColorRect.new()
+		sw.color = Color8(int(roster.get("color_r", 0)), int(roster.get("color_g", 0)), int(roster.get("color_b", 0)))
+		sw.custom_minimum_size = Vector2(12, 12)
+		sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		head.add_child(sw)
+	var name_text := ("%d · %s" % [_terr_faction, String(roster.get("culture", "?")).capitalize()]) \
+		if not roster.is_empty() else "faction %d" % _terr_faction
+	head.add_child(DccTheme.mono_label(name_text, "text", DccTheme.FS_SMALL))
+	sec.add_child(head)
+
+	var stats := bridge.civ_faction_territory_stats(_terr_faction)
+	if stats.is_empty():
+		_accent_readout(sec, "Claimed cells", "0",
+			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.")
+		_field(sec, "Area", "—", "No committed territory to measure.", false)
+		_field(sec, "Contested", "—", "No committed territory to measure.", false)
+	else:
+		_accent_readout(sec, "Claimed cells", _thousands(float(stats.get("claimed_cells", 0))),
+			"civ_faction_territory_stats() over the committed territory raster -- redrawn at arm, commit and " +
+			"discard, not per paint dab (see this section's own header note).")
+		_field(sec, "Area", "%s km²" % _thousands(float(stats.get("area_km2", 0.0))))
+		_field(sec, "Contested", str(int(stats.get("contested_cells", 0))), "Cells more than one faction has claimed.")
+
+	DccWidgets.note(sec,
+		"A claim dab is an ungated circle -- civ_tools_bridge::CivTools::paint_at pushes no coastline mask, so " +
+		"painting into open water claims it too (civilization_workspace.gd's own disclosed gap, not new here).")
 
 # -- Shared row/field vocabulary ------------------------------------------
 #

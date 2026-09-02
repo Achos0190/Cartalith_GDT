@@ -1008,3 +1008,384 @@ fn salt_branch_order_is_sea_then_deposit_then_lake() {
     assert_eq!(w(&dry, NavKind::River).source, "salt lake");
     assert_eq!(w(&dry, NavKind::Stream).source, "salt lake");
 }
+
+// ===================== `civ_place_archetype` / `civ_place_pastoral_balance` / `civ_place_trade` =====
+
+use std::collections::HashMap;
+
+fn wm(pairs: &[(&'static str, f64)]) -> HashMap<&'static str, f64> {
+    pairs.iter().copied().collect()
+}
+
+#[test]
+fn archetype_empty_mean_returns_none_before_any_branch_runs() {
+    // The reference's `if(!rc||!rc.mean) return null;` fires before even the
+    // specialisation check -- an empty `mean` must short-circuit past a
+    // `specialisation` that would otherwise have matched.
+    let mean = HashMap::new();
+    let world_mean = HashMap::new();
+    assert_eq!(civ_place_archetype(&mean, &world_mean, 0.9, 0.9, Some("pastoral")), None);
+}
+
+#[test]
+fn archetype_bog_iron_needs_both_iron_richness_and_wet() {
+    let mean = wm(&[("iron", 0.19)]);
+    let world_mean = wm(&[("iron", 0.10)]); // threshold = 0.10*1.8 = 0.18
+    assert_eq!(
+        civ_place_archetype(&mean, &world_mean, 0.56, 0.9, None),
+        Some("bog_iron"),
+        "rich and wet must match"
+    );
+    assert_eq!(
+        civ_place_archetype(&mean, &world_mean, 0.54, 0.9, None),
+        None,
+        "rich but not wet must fall through every branch"
+    );
+}
+
+#[test]
+fn archetype_priority_order_is_most_specific_first() {
+    // bog_iron and bronze_hub are both satisfiable at once; bog_iron is
+    // listed first and must win.
+    let mean = wm(&[("iron", 1.0), ("tin", 1.0), ("copper", 1.0)]);
+    let world_mean = wm(&[("iron", 0.1), ("tin", 0.1), ("copper", 0.1)]);
+    assert_eq!(civ_place_archetype(&mean, &world_mean, 0.9, 0.9, None), Some("bog_iron"));
+}
+
+#[test]
+fn archetype_without_a_world_mean_falls_back_to_the_absolute_quarter() {
+    let world_mean = HashMap::new();
+    assert_eq!(
+        civ_place_archetype(&wm(&[("obsidian", 0.30)]), &world_mean, 0.0, 0.9, None),
+        Some("obsidian"),
+        "0.30 clears the reference's absolute 0.25 floor"
+    );
+    assert_eq!(
+        civ_place_archetype(&wm(&[("obsidian", 0.20)]), &world_mean, 0.0, 0.9, None),
+        None,
+        "0.20 does not"
+    );
+}
+
+#[test]
+fn archetype_pastoral_specialisation_only_fires_with_no_richer_match_ahead_of_it() {
+    // Non-empty but irrelevant to every earlier branch, so only the
+    // specialisation check can fire.
+    let mean = wm(&[("dummy", 0.0)]);
+    let world_mean = HashMap::new();
+    assert_eq!(
+        civ_place_archetype(&mean, &world_mean, 0.0, 0.9, Some("pastoral")),
+        Some("pastoral")
+    );
+    assert_eq!(
+        civ_place_archetype(&mean, &world_mean, 0.0, 0.9, Some("none")),
+        None,
+        "'none' is not a real specialisation, matching the reference's own filter"
+    );
+}
+
+#[test]
+fn archetype_arid_salt_needs_both_salt_richness_and_aridity() {
+    let mean = wm(&[("salt", 1.0)]);
+    let world_mean = wm(&[("salt", 0.1)]); // threshold = 0.1*1.6 = 0.16
+    assert_eq!(civ_place_archetype(&mean, &world_mean, 0.0, 0.20, None), Some("arid_salt"));
+    assert_eq!(
+        civ_place_archetype(&mean, &world_mean, 0.0, 0.50, None),
+        None,
+        "rich in salt but not arid must not match"
+    );
+}
+
+/// A 3x3 all-land world at the default 800 km map width, Village tier --
+/// radius 1, so the disc is exactly the five orthogonally-connected cells
+/// (matching `uniform_smelt`'s own established fixture shape above).
+struct PastoralFixture {
+    k: Vec<f32>,
+    water: Vec<f32>,
+    biome: Vec<u8>,
+    rain: Vec<f32>,
+    field: Vec<f32>,
+}
+
+impl PastoralFixture {
+    fn new() -> Self {
+        PastoralFixture {
+            k: vec![0.0; 9],
+            water: vec![0.9; 9],
+            biome: vec![7u8; 9], // grass -- open, non-forested
+            rain: vec![0.9; 9],
+            field: vec![1.0; 9],
+        }
+    }
+    fn run(&self) -> PastoralBalance {
+        civ_place_pastoral_balance(
+            &self.k, &self.water, &self.biome, &self.rain, &self.field, 1, 1,
+            SettlementKind::Village, 3, 3, 0.42, 800.0,
+        )
+    }
+}
+
+#[test]
+fn pastoral_balance_forested_open_land_is_not_pasture() {
+    let mut fx = PastoralFixture::new();
+    // k=0.15 is mode 1 (pastoral-eligible) everywhere in the disc: below the
+    // 0.28 crop floor, at or above the 0.10 pasture floor.
+    fx.k = vec![0.15; 9];
+    fx.biome = vec![5u8; 9]; // BIOME_TEMP_FOREST
+    let forested = fx.run();
+    assert_eq!(forested.pasture_share, 0.0, "mode-1 forest must not count as pasture");
+    assert_eq!(forested.crop_share, 0.0);
+
+    fx.biome = vec![7u8; 9]; // grass -- the same mode, open land
+    let open = fx.run();
+    assert_eq!(open.pasture_share, 1.0, "the same mode-1 cells on open land are pasture");
+    assert_eq!(open.mode, "pastoral");
+}
+
+#[test]
+fn pastoral_balance_manure_uplift_and_competition_match_the_formula() {
+    let mut fx = PastoralFixture::new();
+    // The 3x3 "+"-disc around (1,1) is indices {1,3,4,5,7}. Two crop cells
+    // (mode 3), two pasture cells (mode 1, open), one neither (desert,
+    // forced to mode 0 regardless of k/water/rain).
+    fx.k = vec![0.9, 0.9, 0.9, 0.9, 0.15, 0.15, 0.9, 0.0, 0.9];
+    fx.biome[7] = 9; // BIOME_DESERT
+    let out = fx.run();
+    assert!((out.pasture_share - 0.4).abs() < 1e-9);
+    assert!((out.crop_share - 0.4).abs() < 1e-9);
+    // Pinned against the reference's own literals (0.35 max uplift, 0.45
+    // ideal share) rather than recomputed from `MANURE_MAX_UPLIFT`/
+    // `PASTURE_IDEAL_SHARE` -- otherwise a mutation to either constant would
+    // pass this test by construction, since both sides would move together.
+    // d = |0.4-0.45|/0.45 = 0.11111...; uplift = 0.35 * (1-d) * min(1,1.2).
+    let expected_uplift = 0.35 * (1.0 - (0.4f64 - 0.45).abs() / 0.45) * (0.4f64 * 3.0).min(1.0);
+    assert!((expected_uplift - 0.311_111_111_111).abs() < 1e-9, "hand check of the pin itself");
+    assert!(
+        (out.manure_uplift - expected_uplift).abs() < 1e-9,
+        "got {} expected {expected_uplift}",
+        out.manure_uplift
+    );
+    assert!((out.competition - 0.64).abs() < 1e-9);
+    assert_eq!(out.mode, "mixed", "neither share exceeds twice the other");
+}
+
+#[test]
+fn pastoral_balance_degenerate_inputs_return_the_default_not_a_panic() {
+    let fx = PastoralFixture::new();
+    // Mismatched `k` length -- the reference's own `if(!K) return out;`.
+    let short_k = civ_place_pastoral_balance(
+        &[], &fx.water, &fx.biome, &fx.rain, &fx.field, 1, 1, SettlementKind::Village, 3, 3, 0.42,
+        800.0,
+    );
+    assert_eq!(short_k, PastoralBalance::default());
+
+    // Every cell below sea level -- the disc has land but zero of it here.
+    let all_ocean = vec![0.0f32; 9];
+    let ocean = civ_place_pastoral_balance(
+        &fx.k, &fx.water, &fx.biome, &fx.rain, &all_ocean, 1, 1, SettlementKind::Village, 3, 3,
+        0.42, 800.0,
+    );
+    assert_eq!(ocean, PastoralBalance::default());
+}
+
+/// A 9x9 all-land world, Village tier, settlement at the centre -- both the
+/// hinterland window (`max(3,round(9/128))=3`) and the catchment disc
+/// (`radius 1`) fit inside it without clipping.
+struct TradeFixture {
+    res: ResourcePotentials,
+    field: Vec<f32>,
+    biome: Vec<u8>,
+    rain: Vec<f32>,
+    k: Vec<f32>,
+    water: Vec<f32>,
+    flood: Vec<f32>,
+}
+
+impl TradeFixture {
+    fn new() -> Self {
+        let n = 81;
+        TradeFixture {
+            res: zero_pots(n),
+            field: vec![1.0; n],
+            biome: vec![7u8; n],
+            rain: vec![0.5; n],
+            k: vec![0.0; n],
+            water: vec![0.5; n],
+            flood: vec![0.0; n],
+        }
+    }
+    fn world(&self) -> PlaceWorld<'_> {
+        PlaceWorld {
+            res: &self.res,
+            field: &self.field,
+            biome: &self.biome,
+            rain: &self.rain,
+            gw: 9,
+            gh: 9,
+            sea: 0.42,
+            map_width_km: 800.0,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_trade(
+    fx: &TradeFixture,
+    specialisation: Option<&str>,
+    world_mean: &HashMap<&str, f64>,
+    food: FoodSurplus,
+    food_shed: FoodShed,
+    smelt: Smelting,
+    salt: SaltAccess,
+    nav_kind: NavKind,
+) -> PlaceTrade {
+    civ_place_trade(
+        &fx.world(), &fx.k, &fx.water, &fx.flood, 4, 4, SettlementKind::Village, specialisation,
+        world_mean, food, food_shed, smelt, salt, nav(nav_kind),
+    )
+}
+
+fn no_food() -> FoodSurplus {
+    FoodSurplus { ceiling: 0.0, sustainable: 0.0, actual: 0.0, net: 0.0, surplus: true }
+}
+
+#[test]
+fn place_trade_specialisation_exports_its_good_and_implies_a_food_import() {
+    let fx = TradeFixture::new();
+    let out = run_trade(
+        &fx, Some("mining"), &HashMap::new(), no_food(), FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::None,
+    );
+    assert_eq!(out.exports, vec!["ore"]);
+    assert_eq!(out.imports, vec!["food"]);
+    assert_eq!(out.basis, vec!["specialisation"], "hinterland must not fire with no world mean");
+    assert_eq!(out.checklist.len(), 7);
+}
+
+#[test]
+fn place_trade_food_surplus_overrides_the_specialisation_food_need() {
+    let fx = TradeFixture::new();
+    let food = FoodSurplus { ceiling: 100.0, sustainable: 80.0, actual: 30.0, net: 50.0, surplus: true };
+    let out = run_trade(
+        &fx, Some("mining"), &HashMap::new(), food, FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::None,
+    );
+    assert!(!out.imports.contains(&"food"), "a genuine surplus must clear the inferred need");
+    assert!(out.exports.contains(&"food"));
+    assert_eq!(out.basis, vec!["specialisation", "food surplus"]);
+}
+
+#[test]
+fn place_trade_food_deficit_with_no_reachable_supply_is_unsupported_not_an_import() {
+    let fx = TradeFixture::new();
+    let food = FoodSurplus { ceiling: 50.0, sustainable: 40.0, actual: 140.0, net: -100.0, surplus: false };
+    let shed = FoodShed { import_capacity: 6.0, hinterland_capacity: 4.0, ..FoodShed::default() };
+    let out = run_trade(
+        &fx, Some("mining"), &HashMap::new(), food, shed, Smelting::default(), SaltAccess::default(),
+        NavKind::None,
+    );
+    assert!(
+        !out.imports.contains(&"food"),
+        "the specialisation-implied need must be actively removed, not just never added"
+    );
+    assert!(out.food_unsupported);
+    assert!(out.basis.iter().any(|b| b.contains("no viable supply")));
+}
+
+#[test]
+fn place_trade_food_deficit_within_reach_is_a_real_import() {
+    let fx = TradeFixture::new();
+    let food = FoodSurplus { ceiling: 50.0, sustainable: 40.0, actual: 50.0, net: -10.0, surplus: false };
+    let shed = FoodShed { import_capacity: 6.0, hinterland_capacity: 6.0, ..FoodShed::default() };
+    let out = run_trade(
+        &fx, None, &HashMap::new(), food, shed, Smelting::default(), SaltAccess::default(),
+        NavKind::None,
+    );
+    assert!(out.imports.contains(&"food"));
+    assert!(!out.food_unsupported);
+    assert!(out.basis.contains(&"food deficit (importable)"));
+}
+
+#[test]
+fn place_trade_fuel_poor_smelting_pulls_iron_back_out_of_exports() {
+    let mut fx = TradeFixture::new();
+    fx.res.iron = vec![0.5; 81]; // uniform -> the windowed mean is ~0.5 too
+    let world_mean = wm(&[("iron", 0.1)]); // ratio 5 > 1.35 -> hinterland export
+    let smelt = Smelting { fuel_poor: true, ..Smelting::default() };
+    let out = run_trade(
+        &fx, None, &world_mean, no_food(), FoodShed::default(), smelt, SaltAccess::default(),
+        NavKind::None,
+    );
+    assert!(!out.exports.contains(&"iron"), "ore in the ground, not iron you can make");
+    assert!(out.imports.contains(&"charcoal"));
+    assert!(out.basis.contains(&"fuel-limited smelting"));
+}
+
+#[test]
+fn place_trade_salt_access_clears_the_inferred_import_and_records_its_source() {
+    let mut fx = TradeFixture::new();
+    fx.res.salt = vec![0.01; 81]; // scarce here
+    let world_mean = wm(&[("salt", 0.5)]); // ratio 0.02 < 0.65 -> hinterland import
+    let salt = SaltAccess { has: true, source: "sea salt" };
+    let out = run_trade(
+        &fx, None, &world_mean, no_food(), FoodShed::default(), Smelting::default(), salt,
+        NavKind::None,
+    );
+    assert!(!out.imports.contains(&"salt"), "never import salt this settlement can make itself");
+    assert_eq!(out.salt_source, Some("sea salt"));
+}
+
+#[test]
+fn place_trade_checklist_husbandry_reads_specialisation_and_timber_not_its_own_empty_list() {
+    let mut fx = TradeFixture::new();
+    fx.res.timber = vec![0.9; 81]; // plenty of timber -- would read "met" on a naive test
+    let out = run_trade(
+        &fx, None, &HashMap::new(), no_food(), FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::None,
+    );
+    let husbandry = out.checklist.iter().find(|c| c.key == "husbandry").unwrap();
+    assert!(!husbandry.met, "high timber with no pastoral specialisation is not husbandry access");
+
+    fx.res.timber = vec![0.1; 81]; // scarce timber -> open grazing land, per the reference's own rule
+    let out = run_trade(
+        &fx, None, &HashMap::new(), no_food(), FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::None,
+    );
+    let husbandry = out.checklist.iter().find(|c| c.key == "husbandry").unwrap();
+    assert!(husbandry.met);
+}
+
+#[test]
+fn place_trade_checklist_fibre_reads_pastoral_shares_not_alum() {
+    let mut fx = TradeFixture::new();
+    // Zero alum everywhere -- a resources-only test would call this unmet.
+    // k=0.15 in the pastoral catchment disc is mode 1 on open (grass) land,
+    // so the pastoral pass reports real pasture share.
+    fx.k = vec![0.15; 81];
+    let out = run_trade(
+        &fx, None, &HashMap::new(), no_food(), FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::None,
+    );
+    let fibre = out.checklist.iter().find(|c| c.key == "fibre").unwrap();
+    assert!(out.pastoral.pasture_share > 0.05);
+    assert!(fibre.met, "fibre access follows land use, not the alum resource field");
+}
+
+#[test]
+fn place_trade_isolated_flag_follows_reach_not_export_count() {
+    let mut fx = TradeFixture::new();
+    fx.res.timber = vec![0.9; 81];
+    let world_mean = wm(&[("timber", 0.1)]); // ratio 9 > 1.35 -> hinterland export
+    let landlocked = run_trade(
+        &fx, None, &world_mean, no_food(), FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::None,
+    );
+    assert_eq!(landlocked.exports, vec!["timber"]);
+    assert!(landlocked.trade_isolated, "a bulk good with no navigable water is a local economy");
+
+    let coastal = run_trade(
+        &fx, None, &world_mean, no_food(), FoodShed::default(), Smelting::default(),
+        SaltAccess::default(), NavKind::Sea,
+    );
+    assert!(!coastal.trade_isolated, "the same bulk export reaches long range from a sea port");
+}
