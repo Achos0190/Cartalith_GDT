@@ -283,6 +283,16 @@ func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	bridge.generation_finished.connect(func(ok: bool): if ok: refresh())
 	bridge.world_loaded.connect(refresh)
+	## The landmark pass's placements reach the map through here and nowhere
+	## else. Connected in the ONE place that owns `overlay` rather than left to
+	## whoever presses the button: `CivilizationWorkspace._lm_run()` was the
+	## only caller of `landmark_run()` and it did not push the result at the
+	## map, which is the second half of the owner's 2026-09-01 report -- the
+	## pass placed 239 landmarks and `MapOverlay._landmarks` stayed `[]`
+	## forever, so the rings only ever appeared if the user happened to go to
+	## Cartography afterwards and drag an icon. A caller that forgets is the
+	## bug; a caller that cannot forget is the fix.
+	bridge.landmark_finished.connect(func(_r: Dictionary): refresh_annotations())
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1173,6 +1183,16 @@ func refresh() -> void:
 	## recompute against the now-current size costs nothing and doesn't rely
 	## on trusting that reasoning held.
 	_apply_safe_insets()
+	## The annotation layers, for the same reason the `set_manual_routes` line
+	## above is here: a regenerate must *clear* what the previous world left
+	## drawn, not leave it over the new terrain. `WorldGen::landmark_run`'s
+	## store is invalidated by `generate`, `absorb`, the rotate path and the
+	## project loader -- so `landmarks()` correctly answers `[]` here -- but
+	## `MapOverlay._landmarks` is shell-side state and nothing was clearing it,
+	## which left world A's rings drawn over world B while the Landmarks panel
+	## reported no run. Subsumes the `set_manual_routes` call above; that one
+	## stays because its comment is the reasoning for this one.
+	refresh_annotations()
 
 ## §4.5.5's Icon/Label tools (`UNIFIED_TOOL_PLAN.md` milestone F) -- lighter
 ## than `refresh()`: placing/editing one icon or label shouldn't re-fetch the

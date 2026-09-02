@@ -81,12 +81,26 @@ func _rebuild() -> void:
 		DccWidgets.note(gpu, "No generate yet -- stages actually dispatched are only known after one.")
 	else:
 		var used := bridge.gpu_stages_used()
+		## `WorldGen.gpu_last_backend` -- the backend the last generate really
+		## opened, recorded by `cartalith_gpu::record_opened_backend` at the
+		## moment `generate_terrain` decides. Not `menus.gd::_active_backend()`,
+		## which reads the device enumeration and reports what a request *would*
+		## prefer: that answer is identical whether the request succeeded, landed
+		## on another backend, or opened nothing at all, so it cannot be used to
+		## check a claim about what ran.
+		var backend := bridge.gpu_last_backend()
 		if not gpu_on:
 			DccWidgets.note(gpu, "Last generate ran entirely on CPU (GPU acceleration was off).")
+		elif backend == "":
+			## Was "likely no eligible adapter", hedged because nothing in the
+			## app could tell. It can now: an empty backend means the device was
+			## never opened, which is a different fact from every stage falling
+			## back off one that was.
+			DccWidgets.note(gpu, "GPU acceleration is on, but the last generate opened no GPU device at all -- no eligible adapter, over the VRAM budget, or an adapter that cannot bind a grid this size. It ran on the CPU.")
 		elif used.is_empty():
-			DccWidgets.note(gpu, "GPU acceleration is on, but the last generate reported no stages dispatched to it -- likely no eligible adapter (cartalith_gpu::init_gpu() found none).")
+			DccWidgets.note(gpu, "Backend the last generate actually opened: %s. No stage was dispatched to it, though -- every one fell back to the CPU." % backend)
 		else:
-			DccWidgets.note(gpu, "Stages the last generate actually ran on the GPU: %s." % ", ".join(used))
+			DccWidgets.note(gpu, "Backend the last generate actually opened: %s. Stages that ran on it: %s." % [backend, ", ".join(used)])
 
 	var quality := DccWidgets.section(_body, "Render quality")
 	var tiers := bridge.quality_tiers()

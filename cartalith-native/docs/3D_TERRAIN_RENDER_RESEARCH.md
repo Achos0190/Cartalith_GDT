@@ -1528,3 +1528,181 @@ this document are still keyed to `gl_compatibility` as a named floor. They
 should be re-cast to key off *detected* capability — renderer in use, Vulkan
 version, compute availability, VRAM, device class — so that changing the
 minimum device is a policy constant rather than an architectural rewrite.
+
+## Answered 2026-09-01 — questions 1 and 2, the second by measurement
+
+Prompted by the owner, 2026-09-01: *"check vulkan and direct
+implementation."* Five investigations and three adversarial reviews.
+**This section answers the three questions parked above and changes
+nothing else.** The 3D work stays parked — that is the owner's ruling of
+2026-08-31 and only the owner lifts it. No `project.godot` key, no
+`Cargo.toml`, no shader and no source file was touched producing this;
+the measurements below were taken with launch flags against the committed
+`_shot.tscn` harness, which edits nothing.
+
+### Question 1 — answered: inherited, and the rationale was never missing
+
+`git log --all -S'gl_compatibility' -- godot-project/project.godot`
+returns exactly one commit, `d1922fe` (2026-08-11 14:05), the Phase 0
+walking skeleton that *created* `project.godot`. Both renderer keys have
+been untouched since. `DECISIONS.md` contains no renderer decision at all
+— a case-insensitive grep for `gl_compatibility|rendering_method|
+forward_plus|RenderingDevice` returns nothing. So the setting was
+inherited, not forced and not traded for.
+
+But "no rationale was ever recorded" would be wrong, and it was the first
+thing four of five investigations assumed. The rationale is in
+`.claude/skills/godot-shell/SKILL.md` §"Choose the renderer before you
+build the UI", which `git show d1922fe --stat` puts in the *same commit*
+as `project.godot`: *"The MVP is a 2D map on desktop and Android, which
+points at **Compatibility** — it reaches the most Android hardware and
+asks the least of it… Compatibility has no compute shaders, and
+`GPUParticles2D`/`GPUParticles3D` silently do nothing under it. Neither
+matters for a terrain viewer whose work happens in Rust. Both would
+matter if the later 3D phase wants GPU terrain work, so revisit the
+choice there rather than inheriting it by default."* The cost was named,
+knowingly accepted, and given a revisit trigger. **A `DECISIONS.md` entry
+restating it would be a second source for one claim — the habit
+`CLAUDE.md` §"One place holds state" exists to stop — so none is
+proposed.**
+
+**Correction, and it lands on this document rather than on
+`ANDROID_BUILD_SCOPE.md`.** Question 1 above states that
+`ANDROID_BUILD_SCOPE.md:707-717` *"attributes it to the `6a97911`
+GL-context bug"*. It does not. Lines 704-718 there are a narrative of
+tapping **Create a new world** and a logcat-cleanliness statement; the
+quoted phrase is at 723-724, inside a section headed *"The `6a97911`
+GL-context bug does not bite on Android — verified"*, which checks
+whether a hazard *recurs* on Android and makes no claim about why the
+renderer was chosen. That file is accurate as written. The false
+attribution — and the mis-cited line range — originate in question 1's
+own text on this page, and are corrected here rather than by rewriting
+it. The chronology is also backwards: `6a97911` is 2026-08-20, nine days
+after the setting.
+
+### Question 2 — answered, and the answer is negative for the pairing that matters
+
+Two different pairings have been confused under one question.
+
+**Godot-on-GL alongside wgpu-on-Vulkan is answered, fixed, and shipping.**
+`6b2c4d9` (2026-08-23) diagnosed the `6a97911` crash as wgpu standing up
+a *second OpenGL context* inside Godot's own GL process via
+`InstanceDescriptor::new_without_display_handle()`, whose `backends`
+field defaults to `Backends::all()`. `cartalith-gpu/src/multi.rs`'s
+`COMPUTE_BACKENDS` (`VULKAN | DX12 | METAL | BROWSER_WEBGPU`) now masks
+GL off the descriptor, and `compute_instance()` is the crate's only
+`wgpu::Instance` construction site. Note the mechanism: **the fix works
+by keeping the two GPU stacks on different APIs.** Godot-on-GL is not an
+untidy accident awaiting a renderer switch; it is half of the mitigation.
+
+**Godot-on-Vulkan alongside wgpu-on-Vulkan — the pairing a renderer
+switch would actually create, and the only one that can reach
+`RenderingDevice` — had never been run. It has now, and it fails.**
+Measured 2026-09-01 on the dev desktop (Godot 4.7.1 stable official, AMD
+Radeon RX 7800 XT, driver 26.7.1, Windows 11), driving the committed
+`_shot.tscn`/`_shot.gd` harness at 1280x800, generating 512 x 384 with
+the shell's own GPU-on default:
+
+| Godot renderer / driver | boot + render | boot + generate |
+|---|---|---|
+| `gl_compatibility` / opengl3 | clean | **clean**, exit 0, PNG saved |
+| `forward_plus` / vulkan | clean | **`VK_ERROR_DEVICE_LOST`**, signal 4, 3 of 3 |
+| `forward_plus` / d3d12 | clean, exit 0 | **`DXGI_ERROR_DEVICE_REMOVED` (0x887a0005)**, segfault, 1 of 1 |
+| `mobile` / vulkan | not run | **`VK_ERROR_DEVICE_LOST`**, signal 4, 1 of 1 |
+
+Four observations follow, and the third is the one nobody predicted.
+
+1. **The 2D shell really is backend-portable.** Every RenderingDevice
+   configuration boots, renders the full `app.tscn` and saves a
+   screenshot. The grep-based audits — no `GPUParticles`, no
+   `SubViewport` in the render path, both shaders `shader_type
+   canvas_item`, three keys in `[rendering]` — were all correct about the
+   node graph.
+2. **They were measuring the wrong thing.** The failure is not in the
+   shell's primitives; it is process-level GPU device loss during a
+   generate. No enumeration of node types could have found it.
+3. **It is not same-API contention.** Godot-on-D3D12 with wgpu-on-Vulkan
+   puts the two stacks on *different* APIs — precisely the separation
+   that makes today's arrangement work — and it still loses the device,
+   reporting it as failed 2 688-byte and 992-byte canvas vertex/index
+   buffer creations that cascade into RID failures and a segfault inside
+   GDScript UI construction (`dcc_widgets.gd:438` ←
+   `world_workspace.gd::_build_paint` ← `_on_generation_finished`).
+   Under Vulkan the last breadcrumbs are `UI_PASS`/`BLIT_PASS` and
+   `VK_EXT_device_fault` reports "No fault detected", consistent with a
+   driver reset (TDR) rather than a page fault.
+4. **Boot is clean and generate is not, on all three.** Whatever this is,
+   it is triggered by the work a generation does, not by the renderer
+   coming up.
+
+**What is *not* isolated, stated plainly: whether wgpu causes it at
+all.** The control is one generate under `forward_plus` with
+`use_gpu=false`, and it cannot be run with launch flags —
+`godot-project/shell/engine_bridge.gd` line 201 calls `param_set
+("use_gpu", true)` unconditionally in `_ready`, overriding the Rust
+`WorldParams::default()` of `false`. That is a one-line temporary edit
+and one run, and this investigation was read-only, so it was not made.
+Until it is, the honest statement is: **on this hardware, a Godot
+RenderingDevice renderer and this application's generate do not survive
+one process together, mechanism unattributed.**
+
+### Question 3 — collapses, and not for the reason expected
+
+Its own text says it branches on question 2. Question 2 resolved
+negative, so the branch is taken: a raised device floor buys nothing,
+because the floor was never the constraint. Godot 4.7's own system
+requirements name the Adreno 630 — the OnePlus 6T's GPU — as the
+*recommended* example for the Mobile renderer (and for Compatibility),
+so the attached handset already clears the Mobile minimum comfortably
+(verified in Godot 4.7 docs). What blocks Mobile on that handset is not
+its hardware.
+
+Two arguments offered for the floor question should be struck rather than
+carried forward. **Android reach percentages do not price anything
+here**: `godot-project/export_presets.cfg` has
+`gradle_build/use_gradle_build=false` and the recorded distribution is a
+sideloaded APK to the owner's own two handsets, so Play Store device
+counts are not a cost this project pays in either direction. And
+**Godot 4.7 already degrades per device at runtime**:
+`rendering/rendering_device/fallback_to_opengl3` defaults true, so a
+Vulkan-incapable handset falls back to Compatibility rather than being
+excluded (verified in Godot 4.7 docs; the Android implementation detail
+was reported by review from the engine source and is not re-verified
+here).
+
+### What remains open
+
+- **The wgpu isolation control.** One line in `engine_bridge.gd`, one
+  run. It converts "a renderer switch is dangerous on this machine" into
+  either "wgpu and Godot-RD cannot share this process" or "this app's
+  generate trips a GPU reset regardless of who else is on the device" —
+  and the second would be a bug worth chasing on its own terms.
+- **Whether any of this is true off this desktop.** Every failing run
+  above is one RX 7800 XT on one driver. The same matrix on other
+  hardware is unknown, and this GPU already has a recorded history of
+  renderer-specific misbehaviour (`GUI_GAP_REGISTER.md` §14.1).
+- **What the GPU path actually does on the 6T.** Unchanged from the
+  parked text, and still the highest-value cheap unknown in this area:
+  wgpu, wgpu-hal and ash *are* compiled into the shipped
+  `libcartalith_godot.so` (both arm64 binaries contain `libvulkan.so`
+  and `vkGetInstanceProcAddr`), there is no `cfg(target_os = "android")`
+  gate anywhere in `cartalith-gpu/src/`, and the shell turns GPU on at
+  startup on every platform. The claim that Android "runs the CPU
+  pipeline entirely" traces to a Performance readout taken thirteen
+  hours *before* that GPU-on default landed, and the device passes' PASS
+  condition — zero `wgpu` lines in logcat — cannot fail, because no
+  logger is installed anywhere in the workspace, so wgpu's `log` output
+  goes to the default no-op logger and `cartalith-gpu`'s own
+  `eprintln!` failure path is not routed to logcat. Opening
+  **View ▸ Performance** on the handset after one generate answers it.
+- **Two stale cross-references, noted not fixed** (this document is not
+  their home): `TERRAIN_APPEARANCE_SCOPE.md:44` and `:814` both cite
+  `STATUS.md` for a finding that `gl_compatibility` cannot dispatch
+  compute; `STATUS.md` contains no such statement, and the finding lives
+  in the retired `cartalith-native/docs/CHANGELOG.md`.
+
+**Nothing here unparks 3D, and nothing here proposes changing
+`renderer/rendering_method`.** The Milestone 0 decision in §D — stay on
+`gl_compatibility`, because switching means re-verifying every prior
+Android device pass — stands, and now stands on a measurement rather than
+on caution.

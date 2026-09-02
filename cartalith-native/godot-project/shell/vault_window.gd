@@ -45,11 +45,18 @@ class_name VaultWindow
 ## answering that with a bare "no results" would be telling the user their
 ## vault does not contain a word nobody searched for.
 ##
+## ## The map snapshot (§21, §22 — milestone 2, 2026-09-02)
+##
+## `_build_snapshots` is §21's immediate/local/regional crop, and it is the
+## one section here that writes a file into the vault that is not a `.md`. Its
+## own doc comment carries §22's "must not silently pollute the Markdown
+## vault" and how the folder is accepted. The three Map checkboxes in
+## `_build_feedback` appear only once a snapshot exists — `export::offer`
+## filters on the value being there, so the block can never carry a link to an
+## image that was never written.
+##
 ## ## What is deliberately not here
 ##
-## - **No map snapshot** (§21). It needs a crop of the current renderer at
-##   three radii; `MARKDOWN_VAULT_SCOPE.md` holds it as milestone 2 rather
-##   than shipping a button that writes a broken image link.
 ## - **No `obsidian://` link, no wikilink generation, no two-way sync.** The
 ##   first two are Obsidian-specific (owner, 2026-08-18: nothing may require
 ##   Obsidian); the third is §33's explicit V1 non-goal.
@@ -92,6 +99,23 @@ var _prefs_loaded := false
 
 ## The Cartalith-feedback checkbox set (§20), by export-field key.
 var _selected_fields := {}
+
+## §22's proposed structure, and the folder the user is currently accepting.
+##
+## `_snapshot_dir` is session state and deliberately not persisted anywhere: it
+## is a *choice being made*, not a setting, and §22's requirement is that the
+## person sees the destination and presses Generate — which is only true if the
+## field is on screen at the moment of the write. A remembered folder would
+## turn the second snapshot into a silent write to a path nobody re-read.
+const DEFAULT_SNAPSHOT_DIR := ".cartalith/maps"
+
+## The snapshot's edge, in pixels. One number rather than a control: §21 says
+## the *radius* may be configurable and says nothing about resolution, and 512
+## is what a note renders inline at without a scrollbar in either Obsidian or a
+## plain Markdown viewer.
+const SNAPSHOT_PX := 512
+
+var _snapshot_dir := ""
 
 ## The last index Refresh/Rebuild result, shown on the Index section until the
 ## next one. A one-shot line, not a persistent state: the numbers above it are
@@ -190,6 +214,12 @@ func _rebuild() -> void:
 			_build_create()
 			_build_attach()
 		_build_links()
+		## Above the reader, and deliberately not inside it: a snapshot is a
+		## picture of the *place*, so it exists whether or not a note is open,
+		## and the Map checkboxes in `_build_feedback` appear only once one has
+		## been generated. Ordering it here is what makes that sequence visible.
+		if bound:
+			_build_snapshots()
 		if _reader_link != "":
 			_build_reader()
 			_build_feedback()
@@ -906,6 +936,82 @@ func _confirm_section_write() -> void:
 
 # -- Cartalith feedback (§18-§20, §23) -------------------------------------
 
+# -- The map snapshot (§21, §22) -------------------------------------------
+
+## §21's immediate/local/regional crop of the live renderer, and §22's
+## explicit acceptance of where it goes.
+##
+## ## What "user-accepted location" is, here
+##
+## §22 is emphatic — *"the user must explicitly accept the proposed structure
+## or choose another location"*, and *"the integration must not silently
+## pollute the Markdown Vault"*. So the folder is a visible, editable field
+## prefilled with §22's own proposed `.cartalith/maps`, and nothing is written
+## until a Generate button is pressed with that folder on screen. There is no
+## default-on, no background generation and no first-run write.
+##
+## ## Inside the vault, and why that is not a shortcut
+##
+## The folder is relative to the vault root and `vault_snapshot` refuses
+## anything that escapes it (`FsVault::resolve`, the same containment check
+## that refuses `..` for a note). That is not laziness about §22's
+## "user-selected location": the path Cartalith writes into the note has to be
+## one the note can still resolve on another machine, and an absolute path to
+## somewhere else on this disk would be a §5 violation living in the user's
+## own file, where nothing here could later correct it.
+func _build_snapshots() -> void:
+	var radii := bridge.vault_snapshot_radii(_kind, _entity_id)
+	if radii.is_empty():
+		return
+	var sec := DccWidgets.group(_body, "Map snapshot", false)
+	## `cells` is 0 when the world does not say how wide it is in km, which is
+	## the one case a radius cannot be scaled honestly. Said out loud rather
+	## than silently falling back to a cell count that would mean a different
+	## distance in every world.
+	var scaled := int((radii[0] as Dictionary).get("cells", 0)) > 0
+	if not scaled:
+		DccWidgets.note(sec, "No world is loaded, or it does not say how wide it is in kilometres — so \"local\" has no distance to mean. Generate a world first.")
+		return
+
+	var dir_edit := LineEdit.new()
+	dir_edit.text = _snapshot_dir if _snapshot_dir != "" else DEFAULT_SNAPSHOT_DIR
+	dir_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dir_edit.text_changed.connect(func(t: String): _snapshot_dir = t)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 24
+	row.tooltip_text = "Where snapshots go, relative to the vault folder. §22's own proposal is .cartalith/maps — change it if your vault is arranged differently. Nothing is written until you press a Generate button."
+	var lab := DccTheme.mono_label("Folder", "text_dim", DccTheme.FS_SMALL, 0)
+	lab.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	row.add_child(lab)
+	row.add_child(dir_edit)
+	sec.add_child(row)
+
+	for r in radii:
+		var d: Dictionary = r
+		var radius := String(d.get("radius", ""))
+		var have := String(d.get("path", ""))
+		var caption := "%s — %d km across, %d cells" % [
+			String(d.get("label", radius)), int(round(float(d.get("km", 0.0)) * 2.0)), int(d.get("cells", 0)) * 2 + 1]
+		DccWidgets.note(sec, caption + ("\n✓ %s" % have if have != "" else "\n○ not generated"))
+		var b := DccWidgets.action(sec, ("Regenerate " if have != "" else "Generate ") + radius, func():
+			_generate_snapshot(radius, dir_edit.text.strip_edges()))
+		b.tooltip_text = "Crops the map you are looking at — the same renderer, the same look — around this entity and writes a %d px PNG into the folder above. Regenerating replaces that file, so a note already pointing at it shows the new picture." % SNAPSHOT_PX
+
+
+func _generate_snapshot(radius: String, subdir: String) -> void:
+	var r := bridge.vault_snapshot(_kind, _entity_id, radius, subdir, SNAPSHOT_PX)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Snapshot: %s" % String(r.get("error", "refused")), "accent")
+		return
+	## The store changed — the snapshot's path is filed on it, and that is what
+	## rides `vault.json` into the project archive.
+	store_changed.emit()
+	app.set_status("hint", "%s map written to %s (%d x %d)." % [
+		radius, String(r.get("rel", "")), int(r.get("width", 0)), int(r.get("height", 0))], "text")
+	_rebuild()
+
+
 func _build_feedback() -> void:
 	var sec := DccWidgets.section(_body, "Cartalith feedback")
 	var fields := bridge.vault_export_fields(_kind, _entity_id)
@@ -925,7 +1031,16 @@ func _build_feedback() -> void:
 			host = DccWidgets.group(sec, group)
 		if not _selected_fields.has(key):
 			_selected_fields[key] = true
-		DccWidgets.toggle(host, "%s — %s" % [String(d.get("label", key)), String(values.get(key, ""))],
+		## A Map field's value is the Markdown image that goes in the note,
+		## `![](path)`. Shown here as the path alone: the checkbox is a list of
+		## what this entity has, and `![](` in front of every map row is
+		## syntax the reader has to skip past to find the answer. The note gets
+		## the value verbatim either way -- this trims the *label*, never what
+		## `vault_block_body` writes.
+		var shown := String(values.get(key, ""))
+		if shown.begins_with("![](") and shown.ends_with(")"):
+			shown = shown.substr(4, shown.length() - 5)
+		DccWidgets.toggle(host, "%s — %s" % [String(d.get("label", key)), shown],
 			bool(_selected_fields[key]),
 			func(v: bool): _selected_fields[key] = v)
 

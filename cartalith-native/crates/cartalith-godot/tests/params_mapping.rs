@@ -50,6 +50,22 @@ fn every_default_lies_inside_its_own_range() {
     }
 }
 
+/// `WorldState::plate_id` is a `Vec<u16>` (`MEMORY_OPTIMIZATION_SCOPE.md`
+/// R4), and every write to it goes through `assign_plates`, whose ids are
+/// `0..tect.plates`. `set` clamps to this spec, so this `max` is the only
+/// thing standing between a plate id and a silent `as u16` truncation.
+/// Raising the slider past 65 535 must fail here, not wrap in the field.
+#[test]
+fn the_plate_count_ceiling_still_fits_the_u16_plate_id_field() {
+    let s = params::PARAMS.iter().find(|s| s.key == "tect.plates").expect("tect.plates spec");
+    assert!(s.max <= f64::from(u16::MAX), "tect.plates max {} would truncate in WorldState::plate_id: Vec<u16>", s.max);
+    // And the clamp is real: a request above the ceiling is written as the
+    // ceiling, not stored raw.
+    let mut p = params::defaults();
+    assert_eq!(params::set(&mut p, "tect.plates", Value::Num(70_000.0)), Outcome::Clamped);
+    assert_eq!(params::get(&p, "tect.plates"), Some(Value::Num(s.max)));
+}
+
 #[test]
 fn keys_are_unique_and_grouped() {
     let mut keys: Vec<&str> = params::PARAMS.iter().map(|s| s.key).collect();

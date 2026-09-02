@@ -12,6 +12,17 @@ extends AcceptDialog
 ## the real crate license audit (`cargo license --all-features`,
 ## 2026-08-17) that `PROVENANCE.md`'s "Licence position" section requires
 ## before Phase 1 is considered done.
+##
+## One bullet in the first section is deliberately **not** condensed from the
+## reference's modal, because it is not in it: the Nortantis row.
+## `PROVENANCE.md` §1 records that the reference discloses that source only in
+## an inline comment (v2.10 ~line 6915) and in `docs/BIOME_AND_VISUALS_PLAN.md`
+## §B3, and rules that since this port inherits the constants
+## (`cartalith-assets/src/scatter.rs`'s `preset_scatter_rule`, and
+## `cartalith-civ/src/naming.rs` for the naming half) *"the disclosure should
+## travel with them -- the native credits screen is the natural home."* The
+## wording below carries `PROVENANCE.md`'s framing, and claims nothing about
+## AGPL-3.0 beyond naming it.
 
 func _ready() -> void:
 	get_ok_button().text = "Close"
@@ -27,7 +38,8 @@ func _bbcode() -> String:
 	s += "• River geometry / drainage synthesis -- Pasternack Lab / RiverBuilder (UC Davis), Genevaux et al. (2013), Galin et al. (2019).\n"
 	s += "• Optical water shading -- Beer-Lambert depth + flow-map UV, after Premože & Ashikhmin, \"Rendering Natural Waters\" (Stanford).\n"
 	s += "• Procedural noise -- fractal Brownian motion / gradient (Perlin-style) noise, original implementation; this port's GPU noise path additionally uses the PCG3D hash (Jarzynski & Olano, JCGT 2020).\n"
-	s += "• Cartalith V1.915 editor -- the routes / settlements / territory / journey-planner layer is ported from the original author's own earlier cartographic editor.\n\n"
+	s += "• Cartalith V1.915 editor -- the routes / settlements / territory / journey-planner layer is ported from the original author's own earlier cartographic editor.\n"
+	s += "• Nortantis (AGPL-3.0) -- [b]studied for ALGORITHM only[/b], the reference's own words. The map-icon placement takes its elevation thresholds (mountainTh 0.58, hillTh 0.53, and placeMapIcons' own defaults, carried into this port's default scatter rules) and its ridge-clustering / z-order approach from studying Nortantis; the settlement- and feature-naming rejection rule was shaped by comparing against Nortantis 3.18. No Nortantis code is used or included, and no license claim over it is made here.\n\n"
 
 	s += "[b]Academic principles -- terrain, tectonics & climate[/b]\n"
 	s += "• Plate tectonics -- plate partition, boundary classification (collision / subduction / island-arc / rift / transform) and stress fields drive orogeny and crustal age.\n"

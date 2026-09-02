@@ -1738,6 +1738,11 @@ impl WorldGen {
                     // `WorldGen::load_save` (run a few dozen lines above)
                     // has already emptied the outgoing project's.
                     self.vault.store.links = store.links;
+                    // Snapshots are this project's too, and for the same
+                    // reason. Assigning `links` alone left the outgoing
+                    // project's snapshots in place, so an archive that carries
+                    // none inherited whatever was already loaded.
+                    self.vault.store.snapshots = store.snapshots;
                     // The vault *registry* is merged, not replaced. A
                     // `VaultRef` is `{id, display_name}` and the first entry
                     // is what `vault_info()` reports as the device's bound

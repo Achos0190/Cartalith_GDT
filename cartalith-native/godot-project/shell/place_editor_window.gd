@@ -388,6 +388,55 @@ func _build_trade() -> void:
 		var reach := String(REACH_BY_WATER.get(kind, "local"))
 		DccWidgets.note(sec, "Water: %s (%s). Bulk reach is %s."
 			% [kind, String(n.get("basis", "?")), reach])
+	_food_shed_note(sec)
+
+## `ECONOMY_SCOPE.md` milestone 2's per-settlement half -- `_civFoodShed`, run
+## for every settlement by `TradeStore.refresh()` in the same pass as the trade
+## match above. Here, beside Water, because both answer the same question about
+## this one place: what can actually reach it. The import term is even routed
+## over the navigability `n` just read.
+##
+## **Every figure is a headcount, not a tonnage.** `civ_food_shed` scales each
+## catchment's yield by that culture's farmers-per-urbanite ratio before summing
+## (`cartalith_civ::trade::food_surplus_ratio`), so `supported` is the *urban
+## population* this settlement's food logistics can carry -- which is why it is
+## directly comparable to `pop`, and why the label says "people".
+##
+## Diagnostic only, and said so in the note: the reference reconciles the
+## overshoot in `_civApplyFoodShedCeilings`, and **that function is not ported**
+## (checked repo-wide 2026-09-01 -- `cartalith-civ` names it in a comment and
+## nothing implements it). Nothing here clamps a population, so a reader must
+## not take an unsustainable settlement for one the engine will shrink.
+func _food_shed_note(sec: Control) -> void:
+	var shed := TradeStore.food_shed_for(_index)
+	if shed.is_empty():
+		DccWidgets.note(sec, "Food shed: — no row for this settlement. civ_food_shed() "
+			+ "returned nothing, which is what an engine build older than ECONOMY_SCOPE.md "
+			+ "milestone 2 does.")
+		return
+	var supported := FactionRosterWindow._thousands(int(round(float(shed.get("supported", 0.0)))))
+	var local := FactionRosterWindow._thousands(int(round(float(shed.get("local_capacity", 0.0)))))
+	var hinter := FactionRosterWindow._thousands(int(round(float(shed.get("hinterland_capacity", 0.0)))))
+	var suppliers := int(shed.get("suppliers", 0))
+	## `best_mode` is `land` whether or not anything was imported, so it is only
+	## reported when a supplier actually contributed -- the engine's own caveat.
+	var import_clause := "nothing imported -- no settlement with spare capacity is in reach"
+	if suppliers > 0:
+		import_clause = "%s imported from %d settlement%s over %s" % [
+			FactionRosterWindow._thousands(int(round(float(shed.get("import_capacity", 0.0))))),
+			suppliers, "" if suppliers == 1 else "s", String(shed.get("best_mode", "land"))]
+	DccWidgets.note(sec, "Food shed: supports %s people -- %s from its own catchment, %s from the "
+		% [supported, local, hinter]
+		+ "countryside within land reach, %s. Limited by %s." % [import_clause,
+			String(shed.get("limited_by", "local"))])
+	var pop := FactionRosterWindow._thousands(int(shed.get("pop", 0)))
+	if bool(shed.get("sustainable", true)):
+		DccWidgets.note(sec, "Population %s when the match ran, inside that ceiling." % pop)
+	else:
+		DccWidgets.note(sec, "Population %s when the match ran, over the ceiling by %s. "
+			% [pop, FactionRosterWindow._thousands(int(round(float(shed.get("over_by", 0.0)))))]
+			+ "A diagnostic, not a correction -- the reference's _civApplyFoodShedCeilings is "
+			+ "not ported, so nothing here shrinks the settlement to fit.")
 
 func _trade_row(parent: Control, flow: Variant, name_key: String, arrow: String) -> void:
 	var f: Dictionary = flow

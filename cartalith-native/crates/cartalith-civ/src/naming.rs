@@ -40,7 +40,7 @@
 //! a bare stem per feature kind, entirely independent of how the stem was
 //! made, which is why it transfers to syllable pools unchanged.
 
-use crate::{CIV_CULTURES, Culture, civ_default_culture, civ_settle_name};
+use crate::{Culture, civ_default_culture, civ_settle_name};
 use std::collections::BTreeSet;
 
 /// How far past the mean a name may run before it is rejected.
@@ -185,6 +185,8 @@ pub fn decorate(stem: &str, kind: FeatureKind, rng: &mut cartalith_rng::Mulberry
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only the tests read the culture table; the module body does not.
+    use crate::CIV_CULTURES;
 
     #[test]
     fn every_culture_has_a_workable_length_limit() {

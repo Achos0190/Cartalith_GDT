@@ -80,6 +80,15 @@ cartalith-gpu = { path = "../cartalith-gpu" }
 # workspace and on no Godot type.
 cartalith-vault = { path = "../cartalith-vault" }
 
+# The `log` facade, so `lib.rs` can register a backend at the gdext entry
+# point. `wgpu` reports everything it knows through this facade -- which
+# adapter it selected, why a device request failed, every Vulkan validation
+# message -- and until now NO crate in this workspace had ever registered a
+# backend, so all of it went to `log`'s default no-op on every platform. Not a
+# new dependency in the tree: `wgpu` already pulls the same 0.4 in (0.4.33 in
+# `Cargo.lock` before this change, unmoved by it). This only makes it direct.
+log = "0.4"
+
 [dev-dependencies]
 # `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
 # (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
@@ -98,3 +107,22 @@ cartalith-vault = { path = "../cartalith-vault" }
 # declared the same version since the MVP; this only makes it visible to
 # this crate's test targets.
 zip = { version = "8.6.0", features = ["deflate"] }
+
+# The Android half of the logger above -- the half that reaches logcat, which
+# is the only place an `ANDROID_BUILD_SCOPE.md` device pass can read a `wgpu`
+# line at all. Platform-gated, so no desktop build grows by a single crate:
+# the desktop half is `StderrLogger` in `lib.rs`, ~15 lines of `impl log::Log`
+# over `eprintln!` and no dependency whatsoever.
+#
+# `default-features = false` drops the crate's `regex` default and with it
+# `env_filter/regex`, leaving only `android_log-sys` (the liblog FFI shim) and
+# a regex-less `env_filter`. Nothing is lost: that feature buys per-module
+# filter grammar, and an Android app's environment is not settable from `adb`,
+# so `RUST_LOG` never arrives on the handset to be parsed.
+#
+# `init_once` is the entry point, not `init`: it is idempotent by construction
+# (`log::set_logger`'s `Err` is logged and swallowed) and the crate ships its
+# own `multiple_init` test proving a second call is silently ignored. That is
+# what keeps a reload from panicking across the gdext boundary.
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = { version = "0.15.1", default-features = false }

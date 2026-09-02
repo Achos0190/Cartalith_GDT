@@ -714,3 +714,297 @@ fn food_shed_sustainable_flag_honours_the_reference_slack() {
     let mut rc_out = RoadComponents::build(1, &[]);
     assert!(!civ_food_shed(&input_out, &mut rc_out, 0).sustainable, "past the slack");
 }
+
+// ------------------------------------- smelting and salt (`ECONOMY_SCOPE.md`)
+//
+// `golden_parity_smelting_salt.rs` compares both functions against the
+// reference over three worlds. These tests exist because a mutation sweep
+// over the new constants and branches found six the golden fixtures could
+// not reach -- every test below was written to kill a named survivor, and
+// says which.
+
+fn zero_pots(n: usize) -> ResourcePotentials {
+    let z = || vec![0.0f32; n];
+    ResourcePotentials {
+        copper: z(),
+        tin: z(),
+        iron: z(),
+        gold: z(),
+        salt: z(),
+        timber: z(),
+        lead: z(),
+        silver: z(),
+        clay: z(),
+        buildstone: z(),
+        flint: z(),
+        obsidian: z(),
+        gems: z(),
+        sulfur: z(),
+        alum: z(),
+    }
+}
+
+/// A 3x3 all-land world at the default 800 km map width, where every tier's
+/// catchment radius is the `max(1, ...)` floor, so the disc around the
+/// centre is exactly the five orthogonally-connected cells.
+fn uniform_smelt(iron: f32, timber: f32, sea: f64, height: f32) -> Smelting {
+    let n = 9;
+    let field = vec![height; n];
+    let mut res = zero_pots(n);
+    res.iron = vec![iron; n];
+    res.timber = vec![timber; n];
+    let w = PlaceWorld {
+        res: &res,
+        field: &field,
+        biome: &[],
+        rain: &[],
+        gw: 3,
+        gh: 3,
+        sea,
+        map_width_km: 800.0,
+    };
+    civ_place_smelting(&w, 1, 1, SettlementKind::Village)
+}
+
+/// Kills `ocean < sea -> <= sea`. The reference excludes a cell only when
+/// `field[i] < sea`, so a cell sitting *exactly* at sea level is land and
+/// counts -- a boundary no generated fixture lands on.
+#[test]
+fn smelting_counts_a_cell_exactly_at_sea_level() {
+    let at = uniform_smelt(1.0, 0.0, 0.5, 0.5);
+    assert!(at.ore_kg_yr > 0.0, "a cell at exactly sea level must count as land");
+    let below = uniform_smelt(1.0, 0.0, 0.5, 0.499);
+    assert_eq!(below.ore_kg_yr, 0.0, "a cell below sea level must not");
+    // Five cells (the r=1 disc), each 800/3 km square, 100 ha per km^2.
+    let cell_ha = (800.0f64 / 3.0) * (800.0 / 3.0) * 100.0;
+    assert!((at.ore_kg_yr - 5.0 * cell_ha * ORE_KG_PER_HA_YR).abs() < 1e-6);
+}
+
+/// Kills `fuel_poor 0.5 -> 0.6` and `ore_rich 2.0 -> 1.9`. Both flags are
+/// bracketed from each side, at fuel/ore ratios no generated world produced:
+/// `iron_from_fuel/iron_from_ore` is `(1000/6.7)/(900*0.33) = 0.50254` times
+/// `timber/iron`, so the four pairs below sit at 0.283, 0.565, 1.950 and
+/// 2.010 -- two of them inside the `[0.5,0.6)` and `(1.9,2.0]` windows the
+/// mutants would have moved the thresholds into.
+#[test]
+fn fuel_poor_and_ore_rich_brackets_are_the_reference_multiples() {
+    let ratio = |iron: f32, timber: f32| {
+        let s = uniform_smelt(iron, timber, 0.42, 1.0);
+        let from_fuel = s.charcoal_kg_yr / CHARCOAL_PER_IRON_KG;
+        let from_ore = s.ore_kg_yr * ORE_TO_BLOOM_RECOVERY;
+        (s, from_fuel / from_ore)
+    };
+
+    let (poor, r) = ratio(0.8, 0.45);
+    assert!(r < 0.5, "ratio {r} should be under the fuel-poor threshold");
+    assert!(poor.fuel_poor && poor.limited_by == "fuel");
+
+    let (just_ok, r) = ratio(0.8, 0.9);
+    assert!((0.5..0.6).contains(&r), "ratio {r} must sit between 0.5 and 0.6");
+    assert!(!just_ok.fuel_poor, "0.5 is the threshold, not 0.6");
+    assert_eq!(just_ok.limited_by, "fuel", "fuel still binds below 1.0");
+
+    let (just_under, r) = ratio(0.25, 0.97);
+    assert!((1.9..2.0).contains(&r), "ratio {r} must sit between 1.9 and 2.0");
+    assert!(!just_under.ore_rich, "2.0 is the threshold, not 1.9");
+
+    let (over, r) = ratio(0.25, 1.0);
+    assert!(r > 2.0, "ratio {r} should clear the ore-rich threshold");
+    assert!(over.ore_rich && over.limited_by == "ore");
+}
+
+/// `Math.min` propagates `NaN`; `f64::min` absorbs it. A single unusable
+/// resource cell must leave `iron_kg_yr` unusable rather than silently
+/// reporting the other budget as the answer.
+#[test]
+fn smelting_propagates_nan_the_way_math_min_does() {
+    let mut res = zero_pots(9);
+    res.iron = vec![f32::NAN; 9];
+    res.timber = vec![1.0; 9];
+    let field = vec![1.0f32; 9];
+    let w = PlaceWorld {
+        res: &res,
+        field: &field,
+        biome: &[],
+        rain: &[],
+        gw: 3,
+        gh: 3,
+        sea: 0.42,
+        map_width_km: 800.0,
+    };
+    let s = civ_place_smelting(&w, 1, 1, SettlementKind::Village);
+    assert!(s.iron_kg_yr.is_nan(), "f64::min would have returned the fuel budget here");
+    assert!(s.charcoal_kg_yr > 0.0, "the fuel side is still real");
+    assert_eq!(s.limited_by, "ore", "`NaN < x` is false in JS and in Rust");
+}
+
+/// The reference's two early-outs (`!field`, `!pots.iron`) and its
+/// `if(pots.timber)` guard, which is the only one that still produces a
+/// number: no woodland at all is maximally fuel-poor, not an error.
+#[test]
+fn smelting_absent_fields_match_the_reference_guards() {
+    let res = zero_pots(9);
+    let field = vec![1.0f32; 9];
+    let world = |res: &ResourcePotentials, field: &[f32]| civ_place_smelting(
+        &PlaceWorld {
+            res,
+            field,
+            biome: &[],
+            rain: &[],
+            gw: 3,
+            gh: 3,
+            sea: 0.42,
+            map_width_km: 800.0,
+        },
+        1,
+        1,
+        SettlementKind::Village,
+    );
+    // `!field`
+    assert_eq!(world(&res, &[]), Smelting::default());
+    // `!pots.iron`
+    let mut no_iron = zero_pots(9);
+    no_iron.iron = vec![];
+    assert_eq!(world(&no_iron, &field), Smelting::default());
+    // `if(pots.timber)` -- ore with no woodland field at all.
+    let mut no_timber = zero_pots(9);
+    no_timber.iron = vec![1.0; 9];
+    no_timber.timber = vec![];
+    let s = world(&no_timber, &field);
+    assert_eq!(s.woodland_ha, 0.0);
+    assert!(s.ore_kg_yr > 0.0 && s.iron_kg_yr == 0.0 && s.fuel_poor && s.limited_by == "fuel");
+}
+
+/// A world whose only variable is the salt mean, so the 0.25 threshold can
+/// be approached from both sides. Kills `SALT_DEPOSIT_MEAN .25 -> .20`
+/// (0.22 must stay `none`) and pins the reference's strict `>` (an exact
+/// 0.25 is not a deposit).
+#[test]
+fn salt_deposit_threshold_is_strictly_above_one_quarter() {
+    let verdict = |salt: f32| {
+        let n = 81;
+        let mut res = zero_pots(n);
+        res.salt = vec![salt; n];
+        let field = vec![1.0f32; n];
+        let w = PlaceWorld {
+            res: &res,
+            field: &field,
+            biome: &[],
+            rain: &[],
+            gw: 9,
+            gh: 9,
+            sea: 0.42,
+            map_width_km: 800.0,
+        };
+        civ_salt_access(&w, 4, 4, NavKind::None)
+    };
+    assert_eq!(verdict(0.22).source, "none", "0.22 is not a deposit");
+    assert_eq!(verdict(0.25).source, "none", "the reference's test is `>0.25`, not `>=`");
+    assert_eq!(verdict(0.26), SaltAccess { has: true, source: "salt deposit" });
+}
+
+/// Kills `salt radius /128 -> /8`. `_civSaltAccess` calls
+/// `_civPlaceResourceContext(p)` with **no** radius, so the window is that
+/// function's own default `max(3, round(GW/128))` -- not the settlement's
+/// catchment radius and not any other derivation of `GW`. A nine-cell salt
+/// blob on a 32-wide grid means 9/29 = 0.310 at radius 3 (a deposit) and
+/// 9/49 = 0.184 at radius 4 (not one), so the verdict names the radius.
+#[test]
+fn salt_deposit_window_is_the_resource_contexts_own_default_radius() {
+    let (gw, gh) = (32usize, 32usize);
+    let n = gw * gh;
+    let mut res = zero_pots(n);
+    for dy in -1i64..=1 {
+        for dx in -1i64..=1 {
+            res.salt[(16 + dy) as usize * gw + (16 + dx) as usize] = 1.0;
+        }
+    }
+    let field = vec![1.0f32; n];
+    let w = PlaceWorld {
+        res: &res,
+        field: &field,
+        biome: &[],
+        rain: &[],
+        gw,
+        gh,
+        sea: 0.42,
+        map_width_km: 800.0,
+    };
+    // The default radius really is 3 here, and it is not the catchment one.
+    assert_eq!(js_max(3.0, js_round(gw as f64 / 128.0)) as usize, 3);
+    let mean3 = crate::civ_place_resource_context(&res, &field, gw, gh, 0.42, 16, 16, 3, false);
+    let mean4 = crate::civ_place_resource_context(&res, &field, gw, gh, 0.42, 16, 16, 4, false);
+    assert!(mean3["salt"] > SALT_DEPOSIT_MEAN && mean4["salt"] < SALT_DEPOSIT_MEAN);
+    assert_eq!(civ_salt_access(&w, 16, 16, NavKind::None).source, "salt deposit");
+}
+
+/// Kills `salt-lake cell clamp removed`. Branch 3 comes from
+/// `_umSiteProfile`, which clamps its cell into the grid before indexing;
+/// branch 2 comes from `_civPlaceResourceContext`, which does not clamp and
+/// bounds-tests each disc cell instead. Both are reproduced, so an
+/// out-of-range position reads the corner cell for the lake test while its
+/// resource window comes back empty -- an asymmetry no in-range fixture can
+/// show.
+#[test]
+fn salt_lake_cell_is_clamped_while_the_deposit_window_is_not() {
+    let (gw, gh) = (8usize, 8usize);
+    let n = gw * gh;
+    let mut res = zero_pots(n);
+    res.salt = vec![1.0f32; n]; // a deposit everywhere, if the window reached
+    let field = vec![1.0f32; n];
+    let mut biome = vec![crate::BIOME_GRASS; n];
+    biome[n - 1] = BIOME_LAKE;
+    let mut rain = vec![0.9f32; n];
+    rain[n - 1] = 0.1;
+    let w = PlaceWorld {
+        res: &res,
+        field: &field,
+        biome: &biome,
+        rain: &rain,
+        gw,
+        gh,
+        sea: 0.42,
+        map_width_km: 800.0,
+    };
+    // Far enough out that the whole radius-3 disc misses the grid.
+    let out = civ_salt_access(&w, gw + 10, gh + 10, NavKind::None);
+    assert_eq!(out, SaltAccess { has: true, source: "salt lake" }, "clamped to (gw-1, gh-1)");
+    // In range on the same corner, the deposit branch fires first.
+    assert_eq!(civ_salt_access(&w, gw - 1, gh - 1, NavKind::None).source, "salt deposit");
+}
+
+/// The reference tries sea, then deposit, then lake, and the first that
+/// fires wins. A coastal settlement standing on an arid salt lake with a
+/// deposit under it still reports `sea salt`.
+#[test]
+fn salt_branch_order_is_sea_then_deposit_then_lake() {
+    let n = 81;
+    let mut res = zero_pots(n);
+    res.salt = vec![1.0f32; n];
+    let field = vec![1.0f32; n];
+    let biome = vec![BIOME_LAKE; n];
+    let rain = vec![0.1f32; n];
+    let w = |r: &ResourcePotentials, nav: NavKind| {
+        civ_salt_access(
+            &PlaceWorld {
+                res: r,
+                field: &field,
+                biome: &biome,
+                rain: &rain,
+                gw: 9,
+                gh: 9,
+                sea: 0.42,
+                map_width_km: 800.0,
+            },
+            4,
+            4,
+            nav,
+        )
+    };
+    assert_eq!(w(&res, NavKind::Sea).source, "sea salt");
+    assert_eq!(w(&res, NavKind::River).source, "salt deposit");
+    // Without the deposit, the same place falls through to the lake.
+    let dry = zero_pots(n);
+    assert_eq!(w(&dry, NavKind::River).source, "salt lake");
+    assert_eq!(w(&dry, NavKind::Stream).source, "salt lake");
+}

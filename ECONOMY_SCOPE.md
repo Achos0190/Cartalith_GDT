@@ -531,7 +531,10 @@ relative to their carrying capacity is a real question for whoever revisits
 `civ_settlement_population`'s surplus fractions, and it is older than this
 pass.
 
-**The three items from the list above that no pass recorded here has taken
-up** — `_civPlaceSmelting`, `_civSaltAccess`, and `_civFactionAggregates`'
-resource- and density-fed half as a *surfaced* readout — are defined above and
-tracked in `cartalith-native/docs/STATUS.md`.
+**Three further items** — `_civPlaceSmelting`, `_civSaltAccess`, and
+`_civFactionAggregates`' resource- and density-fed half as a *surfaced*
+readout — are defined above and tracked in `cartalith-native/docs/STATUS.md`.
+(This paragraph used to assert that no pass had taken any of them up. That was
+a status claim in a document that does not track status, and it is the kind of
+leftover `CLAUDE.md` says to fix rather than believe; the claim is removed,
+not restated with a newer answer.)

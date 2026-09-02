@@ -5,17 +5,29 @@
 //! should silently become the other" — is why this type holds *references*
 //! and a working copy, never the vault's own content as world data.
 //!
-//! ## Where this is stored, and why not in the save
+//! ## Where this is stored (corrected 2026-09-02)
 //!
-//! §25 and §26 ask for a separate JSON layer, and this port has a second,
-//! harder reason to obey that: `cartalith-io`'s save format is the reference
-//! HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), it carries **no civ data at
-//! all**, and `WorldGen::load_save` documents that `get_settlements()` comes
-//! back empty after a load. There is therefore no entity in a loaded save for
-//! a link inside that save to point at. [`LinkStore`] is its own JSON
-//! document beside the project instead — which is also what makes the vault
-//! block in `DCC_SHELL_SPEC.md` §9 (note links written into exported GeoJSON
-//! and tiles) something to leave alone rather than build.
+//! §25 and §26 ask for a separate JSON layer, and this is it: [`LinkStore`]
+//! is one JSON document, and `cartalith-godot`'s `project_bridge.rs` writes
+//! it into the project archive's `vault.json` slot and reads it back through
+//! [`LinkStore::from_json`].
+//!
+//! **The paragraph that used to stand here said the opposite, and it was
+//! stale.** It read: *"`cartalith-io`'s save format is the reference HTML
+//! app's own `.zip` … it carries no civ data at all … There is therefore no
+//! entity in a loaded save for a link inside that save to point at."* That
+//! stopped being true on 2026-08-25, when `DECISIONS.md` §7h replaced the
+//! flat reference archive with the project tree — `cartalith_io::
+//! DOCUMENT_SLOTS` lists `entities/settlements.json` and `vault.json` side by
+//! side, so the entity a link points at and the link itself now travel in one
+//! file. `MARKDOWN_VAULT_SCOPE.md` milestone 3 is that move; it does not
+//! change one line of this module, which is the point of the crate boundary.
+//!
+//! What is still true and still worth stating: this crate holds *references*,
+//! not the vault's content as world data, and a vault's **location** is never
+//! in here (§5) — which is also what makes the vault block in
+//! `DCC_SHELL_SPEC.md` §9 (note links written into exported GeoJSON and
+//! tiles) something to leave alone rather than build.
 //!
 //! ## Entity identity is only as stable as the entity
 //!
@@ -411,6 +423,32 @@ pub struct LinkStore {
     pub vaults: Vec<VaultRef>,
     #[serde(default)]
     pub links: Vec<KnowledgeLink>,
+    /// §21's map snapshots, keyed [`snapshot_key`] and valued with the
+    /// image's path **relative to the vault root** — the same convention
+    /// [`KnowledgeLink::relative_path`] uses and for the same reason (§5: a
+    /// device path is not project data).
+    ///
+    /// Keyed by *entity*, not by link. A snapshot is a picture of a place and
+    /// exists whether or not anyone has attached a note to it; a settlement
+    /// with three notes has one immediate map, not three.
+    ///
+    /// `#[serde(default)]` plus `skip_serializing_if`, not a
+    /// [`STORE_VERSION`] bump — the same call milestone 6 made for
+    /// `imported_data`, and for the same reason: an older store simply has no
+    /// snapshots yet, and a document with none writes no member at all rather
+    /// than an empty object every reader then has to ignore.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub snapshots: BTreeMap<String, String>,
+}
+
+/// The key one entity's snapshot at one radius is filed under:
+/// `settlement:42|local`.
+///
+/// `|` because [`entity_key`] already spends the `:` and a radius name is
+/// lowercase ASCII — so the key splits unambiguously at the last `|` and
+/// there is nothing to escape.
+pub fn snapshot_key(entity_key: &str, radius: &str) -> String {
+    format!("{entity_key}|{radius}")
 }
 
 /// The `version` written into the store, so a later format can recognise an
@@ -441,6 +479,22 @@ impl LinkStore {
 
     pub fn vault(&self, id: &str) -> Option<&VaultRef> {
         self.vaults.iter().find(|v| v.id == id)
+    }
+
+    /// The vault-relative path of one entity's snapshot at one radius, if one
+    /// has been generated. `None` is the normal state and is what keeps the
+    /// Map fields out of `export::offer`'s list until there is an image to
+    /// point at — §20's "must not expose information that the entity does not
+    /// possess", enforced by the data rather than by the panel.
+    pub fn snapshot(&self, entity_key: &str, radius: &str) -> Option<&str> {
+        self.snapshots.get(&snapshot_key(entity_key, radius)).map(String::as_str)
+    }
+
+    /// Files a freshly written snapshot. Overwrites, deliberately: a second
+    /// snapshot at the same radius is a *newer picture of the same place*,
+    /// and keeping the first would leave the note pointing at a stale map.
+    pub fn set_snapshot(&mut self, entity_key: &str, radius: &str, rel: &str) {
+        self.snapshots.insert(snapshot_key(entity_key, radius), rel.to_string());
     }
 
     /// Registers a vault, returning its id. Re-connecting a vault with the
@@ -549,6 +603,35 @@ mod tests {
         assert_eq!(back, s);
         assert_eq!(back.get(&id).unwrap().entity_key(), "settlement:42");
         assert_eq!(LinkStore::from_json("").unwrap(), LinkStore::default());
+    }
+
+    /// Milestone 2's snapshots ride the store that milestone 3 puts in the
+    /// project archive, so this asserts both halves at once: the map survives
+    /// `to_json`/`from_json` (which is what `project_bridge.rs` writes into
+    /// and reads out of `vault.json`), a store with no snapshots writes **no
+    /// member at all** rather than an empty object, and a document written
+    /// before this member existed still parses.
+    #[test]
+    fn snapshots_round_trip_and_an_older_store_without_them_still_parses() {
+        let mut s = LinkStore::default();
+        assert!(!s.to_json().contains("snapshots"), "an empty map writes no member");
+
+        s.set_snapshot("settlement:42", "local", ".cartalith/maps/settlement_42_local.png");
+        s.set_snapshot("continent:1", "regional", ".cartalith/maps/continent_1_regional.png");
+        // A second snapshot at the same radius is a newer picture of the same
+        // place, not a second entry.
+        s.set_snapshot("settlement:42", "local", ".cartalith/maps/settlement_42_local_v2.png");
+        assert_eq!(s.snapshots.len(), 2);
+
+        let back = LinkStore::from_json(&s.to_json()).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(back.snapshot("settlement:42", "local"), Some(".cartalith/maps/settlement_42_local_v2.png"));
+        assert_eq!(back.snapshot("settlement:42", "immediate"), None, "an ungenerated radius is absent, not empty");
+        assert_eq!(back.snapshot("settlement:43", "local"), None);
+
+        // The shape every store written before 2026-09-02 has.
+        let older = r#"{"version":1,"vaults":[],"links":[]}"#;
+        assert_eq!(LinkStore::from_json(older).unwrap().snapshots.len(), 0);
     }
 
     #[test]

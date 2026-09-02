@@ -7,10 +7,11 @@ class_name WorldWorkspace
 ## Every stage row reads and writes through `bridge.param_keys()` /
 ## `param_info()` / `param_get()` / `param_set()` -- the same live table
 ## `main.gd`'s old Generate menu built its per-stage dialogs from
-## (`cartalith-godot/src/params.rs`, 58 parameters). No range, step, label or
-## default is copied into this file; only which stage a group/key belongs to,
-## which rows are L5 Advanced, and the prose -- exactly the division main.gd's
-## own GEN_STAGES comment already argued for.
+## (`cartalith-godot/src/params.rs`, 81 parameters -- `grep -c "ParamSpec { key:"`,
+## 2026-09-01; this line read 58 until then, so re-count rather than cite it).
+## No range, step, label or default is copied into this file; only which stage
+## a group/key belongs to, which rows are L5 Advanced, and the prose -- exactly
+## the division main.gd's own GEN_STAGES comment already argued for.
 ##
 ## The STAGES table below re-derives that stage/group mapping for the spec's
 ## own ten stage names and dependency order, which differ from main.gd's old

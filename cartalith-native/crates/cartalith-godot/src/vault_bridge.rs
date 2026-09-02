@@ -15,19 +15,32 @@
 //!    file *will* be missing, the permission *will* be revoked, and none of
 //!    that may be a crash.
 //!
-//! ## Where the links live, and the honest limitation
+//! ## Where the links live (rewritten 2026-09-02 — the old text was stale)
 //!
-//! `vault_state_json()`/`vault_restore_state()` hand the whole link store to
-//! GDScript as text; the shell persists it to `user://markdown_vault.json`.
+//! **The links are project-scoped.** `project_bridge.rs` writes
+//! `self.vault.store.to_json()` into the archive's `SLOT_VAULT`
+//! (`vault.json`) and reads it back through `LinkStore::from_json`;
+//! `WorldGen::load_save` clears `self.vault.store.links` first, so one
+//! project's notes cannot follow the user into the next.
+//! `SAVEFILE_COMPAT.md` §13.3 is the document's shape.
 //!
-//! That is **profile-scoped, not project-scoped**, and the reason is worth
-//! stating rather than discovering: `cartalith-io`'s save format is the
-//! reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`) and carries no civ
-//! data at all — `WorldGen::load_save` produces a world whose
-//! `get_settlements()` is empty. A link stored *inside* a save would come back
-//! pointing at settlements that no longer exist. Until the save format carries
-//! the civ layer, there is no project for a project-scoped link store to
-//! belong to. `MARKDOWN_VAULT_SCOPE.md` carries this as milestone 3.
+//! `vault_state_json()`/`vault_restore_state()` still hand the whole store to
+//! GDScript as text, and `shell/vault_store.gd` still writes
+//! `user://markdown_vault.json` — but **only the device binding, and the
+//! links only while no project is open**. That file's own header states the
+//! rule and what happens to a sidecar written before it.
+//!
+//! **What used to stand here, and why it was wrong.** This paragraph read:
+//! *"That is profile-scoped, not project-scoped … `cartalith-io`'s save
+//! format is the reference HTML app's own `.zip` and carries no civ data at
+//! all … Until the save format carries the civ layer, there is no project for
+//! a project-scoped link store to belong to."* `DECISIONS.md` §7h replaced
+//! that flat archive with the project tree on 2026-08-25;
+//! `cartalith_io::DOCUMENT_SLOTS` has listed `entities/settlements.json` and
+//! `vault.json` side by side ever since. The claim outlived its blocker by a
+//! week in two source files (this one and `cartalith-vault/src/links.rs`),
+//! which is the exact hazard `CLAUDE.md`'s *"a document's claim about itself
+//! is a claim, not evidence"* names.
 
 use crate::WorldGen;
 use cartalith_vault::{export, links::entity_key, BlockAction, EntityKind, FieldFill, FieldOutcome, LinkStatus, Selection};
@@ -530,6 +543,107 @@ impl WorldGen {
         let mut d = VarDictionary::new();
         for (key, value) in self.entity_values(k, entity_id) {
             d.set(key, value);
+        }
+        d
+    }
+
+    // -- the map snapshot (§21, §22) ---------------------------------------
+
+    /// §21's three radii for a UI that would otherwise hardcode them:
+    /// `{key, radius, label, km, cells, path}` per row, where `cells` is this
+    /// world's own conversion and `path` is the snapshot already generated
+    /// for `kind`/`entity_id` (empty when there is none).
+    ///
+    /// `cells` is `0` before a world exists or when the world declares no
+    /// width in km, which is the caller's cue that a snapshot cannot be
+    /// scaled honestly — not a cue to substitute a cell count.
+    #[func]
+    fn vault_snapshot_radii(&self, kind: GString, entity_id: i64) -> Array<VarDictionary> {
+        let key = kind_of(&kind).map(|k| entity_key(k, entity_id)).unwrap_or_default();
+        export::MAP_RADII
+            .iter()
+            .map(|(field, radius, km)| {
+                vdict! {
+                    "key" => *field,
+                    "radius" => *radius,
+                    "label" => export::field(field).map(|f| f.label).unwrap_or(*radius),
+                    "km" => *km,
+                    "cells" => self.snapshot_radius_cells(*km),
+                    "path" => self.vault.store.snapshot(&key, radius).unwrap_or_default(),
+                }
+            })
+            .collect()
+    }
+
+    /// Writes one entity's map snapshot into the bound vault and files its
+    /// path on the link store — `MARKDOWN_VAULT_SCOPE.md` milestone 2.
+    ///
+    /// `radius` is one of [`export::MAP_RADII`]' names. `subdir` is the
+    /// folder **inside the vault** the user accepted (§22's *"the user must
+    /// explicitly accept the proposed structure or choose another
+    /// location"*); empty means `.cartalith/maps`, the structure §22 itself
+    /// proposes.
+    ///
+    /// # Inside the vault, deliberately
+    ///
+    /// §22 offers "user-selected location" *or* "project-local generated
+    /// assets" as two concepts. V1 here is the first, narrowed to a folder
+    /// inside the connected vault, and the narrowing is what makes the note
+    /// portable: the block carries a **vault-relative** path, so a vault
+    /// copied to another machine still renders its own maps. An absolute path
+    /// to somewhere else on this disk would be a §5 violation written into
+    /// the user's own note, where it outlives anything Cartalith could later
+    /// correct. `FsVault::resolve` is what enforces it — the same containment
+    /// check that refuses `..` for a note.
+    ///
+    /// Returns `{ok, error, path, rel, width, height, bytes, cells_across}`.
+    #[func]
+    fn vault_snapshot(&mut self, kind: GString, entity_id: i64, radius: GString, subdir: GString, size: i64) -> VarDictionary {
+        let Some(k) = kind_of(&kind) else { return err(format!("unknown entity kind \"{kind}\"")) };
+        let radius = radius.to_string();
+        let Some((_, _, km)) = export::MAP_RADII.iter().find(|(_, r, _)| *r == radius) else {
+            let names: Vec<&str> = export::MAP_RADII.iter().map(|(_, r, _)| *r).collect();
+            return err(format!("unknown snapshot radius \"{radius}\" -- offered: {}", names.join(", ")));
+        };
+        let Some(vault) = self.vault.vault() else {
+            return err("no vault is connected on this device, so there is nowhere inside it to put a map");
+        };
+        let Some((cx, cy)) = self.entity_cell(k, entity_id) else {
+            return err("this entity has no position on the map, so there is nothing to centre a snapshot on");
+        };
+        let cells = self.snapshot_radius_cells(*km);
+        if cells < 1 {
+            return err("this world does not say how wide it is in km, so a radius cannot be scaled to it");
+        }
+
+        // `<subdir>/<entity_key>_<radius>.png`, with the `:` of the entity
+        // key spent -- it is not a filename character on Windows. Stable, so
+        // regenerating a snapshot replaces the file the note already points
+        // at rather than accumulating a folder of orphans.
+        let subdir = subdir.to_string();
+        let subdir = subdir.trim().trim_matches('/');
+        let subdir = if subdir.is_empty() { ".cartalith/maps" } else { subdir };
+        let key = entity_key(k, entity_id);
+        let rel = format!("{subdir}/{}_{radius}.png", key.replace(':', "_"));
+        let full = match vault.resolve(&rel) {
+            Ok(p) => p,
+            Err(e) => return err(format!("{rel} is not a path inside the vault ({e})")),
+        };
+
+        let r = self.export_snapshot_png(GString::from(full.display().to_string().as_str()), cx, cy, cells, size);
+        if !r.get("ok").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false) {
+            return err(r.get("error").map(|v| v.to_string()).unwrap_or_else(|| "the snapshot could not be rendered".into()));
+        }
+        // Filed only after the bytes are on disk, so a failed render can
+        // never leave the note pointing at an image that was not written.
+        self.vault.store.set_snapshot(&key, &radius, &rel);
+
+        let mut d = ok();
+        d.set("rel", rel);
+        for pass in ["path", "width", "height", "bytes", "cells_across"] {
+            if let Some(v) = r.get(pass) {
+                d.set(pass, &v);
+            }
         }
         d
     }
@@ -1098,6 +1212,21 @@ impl WorldGen {
             // worth a way to crash.
             EntityKind::Culture => {}
         }
+        // §19's Map group — the one set of values that is not read out of
+        // `CivData` at all, because a snapshot is a file somebody generated
+        // rather than a property of the world. Filed on the link store by
+        // `vault_snapshot`, and absent until one exists, which is what keeps
+        // `export::offer` from putting a Map checkbox in front of a user with
+        // no image behind it.
+        //
+        // The value is the Markdown image `export.rs`'s module doc specifies:
+        // a relative path, never a base64 payload (§22).
+        let key = entity_key(kind, entity_id);
+        for (field, radius, _) in export::MAP_RADII {
+            if let Some(rel) = self.vault.store.snapshot(&key, radius) {
+                out.insert(*field, format!("![]({rel})"));
+            }
+        }
         out
     }
 
@@ -1120,6 +1249,69 @@ impl WorldGen {
             .map(|e| e.name.clone())
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| format!("Faction {faction}"))
+    }
+
+    /// The grid cell one entity sits on, for §21's snapshot — `None` for an
+    /// entity this world does not have and for a **culture**, which has no
+    /// position at all (`export::PLACED`'s own reasoning: a culture is a
+    /// naming vocabulary several factions share, so any point offered for it
+    /// would be a fabrication).
+    ///
+    /// The three lookups mirror [`WorldGen::entity_values`]' own arms — a
+    /// settlement by `tid`, a province by its capital, a continent by its
+    /// centroid — deliberately rather than parsing the `coordinates` string
+    /// that function formats. A snapshot centred on a re-parsed display
+    /// string would be one rounding decision away from a different cell.
+    pub(crate) fn entity_cell(&self, kind: EntityKind, entity_id: i64) -> Option<(i64, i64)> {
+        let civ = self.civ.as_ref()?;
+        let (gw, gh) = (self.gw.max(0) as i64, self.gh.max(0) as i64);
+        let (x, y) = match kind {
+            EntityKind::Settlement => {
+                let s = civ.settlements.iter().find(|s| s.tid as i64 == entity_id)?;
+                (s.placement.x as i64, s.placement.y as i64)
+            }
+            EntityKind::Province => {
+                let p = civ.province_list.iter().find(|p| p.id as i64 == entity_id)?;
+                let cap = civ.settlements.get(p.capital_settlement_index)?;
+                (cap.placement.x as i64, cap.placement.y as i64)
+            }
+            EntityKind::Continent => {
+                let c = civ.continents.iter().find(|c| c.id as i64 == entity_id)?;
+                (c.cx.round() as i64, c.cy.round() as i64)
+            }
+            EntityKind::Faction => {
+                // The seat of power, and **only** that -- exactly as
+                // `entity_values` answers `coordinates` for a faction, which
+                // has no centroid of its own. Deliberately without a
+                // fall-back to any other settlement of the faction: a note
+                // that shows no coordinate must not show a map centred on
+                // one, and a faction with no capital is a real state
+                // (`civ_recompute` can leave one) rather than a lookup to
+                // paper over.
+                if entity_id < 1 || entity_id as usize >= civ.faction_roster.0.len() {
+                    return None;
+                }
+                let fid = entity_id as i32;
+                let cap = civ.settlements.iter().find(|s| s.placement.faction == fid && s.placement.capital)?;
+                (cap.placement.x as i64, cap.placement.y as i64)
+            }
+            EntityKind::Culture => return None,
+        };
+        (x >= 0 && y >= 0 && x < gw && y < gh).then_some((x, y))
+    }
+
+    /// One of §21's radii, in cells of *this* world. `0` when the world does
+    /// not say how wide it is, which the caller reports rather than guesses.
+    ///
+    /// Floored at 4 cells — below that `bake_rect` is magnifying nine samples
+    /// across a whole image, and the result is a picture of the interpolator
+    /// rather than of the place.
+    fn snapshot_radius_cells(&self, km: f64) -> i64 {
+        let side = self.cell_km_side();
+        if side <= 0.0 {
+            return 0;
+        }
+        ((km / side).round() as i64).max(4)
     }
 
     /// One grid cell's side in km, or `0.0` before a world exists.

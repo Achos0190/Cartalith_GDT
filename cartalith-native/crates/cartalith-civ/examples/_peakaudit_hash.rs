@@ -68,6 +68,15 @@ impl Fingerprint for [usize] {
         }
     }
 }
+// Widened to u64 on the way in, like `[usize]` above, so `plate_id`'s
+// recorded fingerprints survived R4's `Vec<usize>` -> `Vec<u16>` narrowing.
+impl Fingerprint for [u16] {
+    fn feed(&self, h: &mut Fnv) {
+        for v in self {
+            h.eat(&(*v as u64).to_ne_bytes());
+        }
+    }
+}
 
 fn row<T: Fingerprint + ?Sized>(name: &str, d: &T, len: usize) {
     let mut h = Fnv::new();

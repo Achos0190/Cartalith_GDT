@@ -64,6 +64,7 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 use cartalith_terrain::analysis;
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 
 // ===========================================================================
@@ -1090,6 +1091,15 @@ impl Derived {
 /// (its prominence proxy). Calling `local_relief` as well would run the same
 /// `O(n · r)` separable pass a second time for a difference this already has.
 /// The window rule matches it exactly — X wraps when `world`, Y always clamps.
+///
+/// Both passes are parallel over output rows, added 2026-09-01 for
+/// [`cartalith_terrain::analysis`]'s `box_h` reason and with its guarantee:
+/// this is called five times per landmark run (once at `r_broad` from
+/// `Derived::build`, then again at `r_fine` from `pool_ridge` and from each of
+/// `pool_resource`'s three invocations) and was the single largest line in the
+/// pass. Each output cell still takes its own min and max over its own window
+/// in the same order; only whole rows go to different cores, so the output is
+/// bit-identical and `relief_agrees_with_the_analysis_module` still pins it.
 fn sep_min_max(field: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> (Vec<f32>, Vec<f32>) {
     let n = gw * gh;
     let mut hmin = vec![0f32; n];
@@ -1101,49 +1111,53 @@ fn sep_min_max(field: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> (V
     let (w, h) = (gw as i64, gh as i64);
     let mut rmin = vec![0f32; n];
     let mut rmax = vec![0f32; n];
-    for y in 0..gh {
-        let row = y * gw;
-        for x in 0..gw {
-            let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
-            for d in -rad..=rad {
-                let mut xx = x as i64 + d;
-                if world {
-                    xx = xx.rem_euclid(w);
-                } else if xx < 0 || xx >= w {
-                    continue;
+    rmin.par_chunks_mut(gw).zip(rmax.par_chunks_mut(gw)).enumerate().for_each(
+        |(y, (lo_row, hi_row))| {
+            let row = y * gw;
+            for x in 0..gw {
+                let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+                for d in -rad..=rad {
+                    let mut xx = x as i64 + d;
+                    if world {
+                        xx = xx.rem_euclid(w);
+                    } else if xx < 0 || xx >= w {
+                        continue;
+                    }
+                    let v = field[row + xx as usize];
+                    if v < lo {
+                        lo = v;
+                    }
+                    if v > hi {
+                        hi = v;
+                    }
                 }
-                let v = field[row + xx as usize];
-                if v < lo {
-                    lo = v;
-                }
-                if v > hi {
-                    hi = v;
-                }
+                lo_row[x] = lo;
+                hi_row[x] = hi;
             }
-            rmin[row + x] = lo;
-            rmax[row + x] = hi;
-        }
-    }
-    for y in 0..gh {
-        for x in 0..gw {
-            let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
-            for d in -rad..=rad {
-                let yy = y as i64 + d;
-                if yy < 0 || yy >= h {
-                    continue;
+        },
+    );
+    hmin.par_chunks_mut(gw).zip(hmax.par_chunks_mut(gw)).enumerate().for_each(
+        |(y, (lo_row, hi_row))| {
+            for x in 0..gw {
+                let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+                for d in -rad..=rad {
+                    let yy = y as i64 + d;
+                    if yy < 0 || yy >= h {
+                        continue;
+                    }
+                    let j = yy as usize * gw + x;
+                    if rmin[j] < lo {
+                        lo = rmin[j];
+                    }
+                    if rmax[j] > hi {
+                        hi = rmax[j];
+                    }
                 }
-                let j = yy as usize * gw + x;
-                if rmin[j] < lo {
-                    lo = rmin[j];
-                }
-                if rmax[j] > hi {
-                    hi = rmax[j];
-                }
+                lo_row[x] = lo;
+                hi_row[x] = hi;
             }
-            hmin[y * gw + x] = lo;
-            hmax[y * gw + x] = hi;
-        }
-    }
+        },
+    );
     (hmin, hmax)
 }
 

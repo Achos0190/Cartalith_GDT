@@ -22,14 +22,23 @@ work outstanding.
   with its recommendation made and its own *Status: parked* heading listing
   three unanswered questions. `DECISIONS.md` §4 continues to stand and **no 3D
   work of any kind is scheduled**.
-- **Phase 5** — **milestones 1-7 and 12 are complete**, 8a and 17a shipped out
-  of order, and 17 is 13 of its 20 adapter functions. **Open: the rest of 8,
-  plus 9, 10, 11, 13, 14, 15, 16 and the rest of 17.**
-  `crates/cartalith-urban/src/lib.rs` declares exactly ten modules — `astar`,
-  `blocks`, `geom`, `graph`, `growth`, `plaza`, `rng`, `routes`, `rules`,
-  `site` — and there is no fortification, districts, amenities,
-  water-infrastructure, hinterland or `generate()` module. That is the single
-  largest block of unbuilt work in the project.
+- **Phase 5** — **moved substantially on 2026-09-02 and this paragraph was
+  rewritten with it.** Milestones 1-7 and 12 were complete, with 8a and 17a out
+  of order and 17 at 13 of its 20 adapter functions. **Milestones 8, 9, 10, 11,
+  13 and 14 now have code**: `crates/cartalith-urban/src/lib.rs` declares
+  sixteen modules, not the ten it declared the day before — `radial` (m8, 320
+  lines), `water` (m9, 693), `fortify` (m10, 1 288), `cleanup` (m11, 645),
+  `districts` (m13, 1 307) and `amenities` (m14, 758) joined `astar`, `blocks`,
+  `geom`, `graph`, `growth`, `plaza`, `rng`, `routes`, `rules` and `site`.
+  `cargo test -p cartalith-urban` went **119 → 223 passed, 0 failed**.
+  **Still open: milestone 15** (no module was written — its agent died on a
+  connection loss), **16** (blocked by definition on 8-15) and the rest of 17.
+
+  **Read that as "code exists", not "milestone done".** Milestones 9, 10 and 13
+  were ported by agents that died before reporting, so their claims have never
+  been checked by anything but the compiler and their own tests — the largest
+  two, 10 and 13, most of all. A verification pass is in flight. Until it
+  reports, the honest status of 9/10/13 is *ported, unreviewed*.
 
 | Phase | `ROADMAP.md` says | This file says | The one thing to know |
 |---|---|---|---|
@@ -43,7 +52,21 @@ work outstanding.
 
 **What landed most recently** (full week in *The last seven days* below):
 
-1. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in
+1. **2026-09-02** — **the landmark ("point of interest") pass, reported broken
+   by the owner, root-caused to three defects and fixed**; nine backlog rows
+   closed across memory, Rayon and economy; and **Vulkan / DirectX /
+   `RenderingDevice` answered by measurement — all three "no"**. The renderer
+   answer is not caution: on the owner's RX 7800 XT, `forward_plus`/vulkan
+   loses the GPU device during generate **3 runs of 3** (`VK_ERROR_DEVICE_LOST`),
+   `forward_plus`/d3d12 segfaults (`DXGI_ERROR_DEVICE_REMOVED`), and
+   `gl_compatibility` is clean. Four verified defects were found in passing
+   that nobody was looking for — `use_gpu` forced on over a `false` default so
+   **the shipped app does not generate the world the 88 golden suites verify**;
+   a software-rasterizer fallback the code's own comment denies; no `log`
+   backend anywhere, which makes the Android "zero wgpu lines in logcat" PASS
+   condition unfalsifiable; and LOD tiles in the route-map cutout registered
+   half a world cell off. Detail in *2026-09-02* below. **Uncommitted.**
+2. **2026-09-01** — `OUTSTANDING_WORK.md` §1's eight in-flight items worked in
    parallel and independently re-verified against the code, not the reports:
    `UNWIRED_FUNCTIONS.md` re-cut from scratch (75 open rows → 23, dangerous
    class 25 → 3); `UNIFIED_TOOL_PLAN.md` got its "Milestone F as built"
@@ -73,11 +96,11 @@ work outstanding.
    terms) and two confirmed already done. **All four Journey Planner quality
    ceilings are now closed.** Detail in each affected ledger row above and in
    *2026-09-01* below. **Still entirely uncommitted.**
-2. **2026-08-31** — GUI replacement **stages 1 and 2** (`c03b43c`): the new
+3. **2026-08-31** — GUI replacement **stages 1 and 2** (`c03b43c`): the new
    token system, and the rail folding five domains into three
    (`dcc_shell.gd`'s `DOMAINS` now holds exactly world / civilization /
    cartography; `RAIL_NODES` holds 3 heads and 10 nodes — counted in the file).
-3. **2026-08-30** — **landmark generation, end to end** (`a6feec3`,
+4. **2026-08-30** — **landmark generation, end to end** (`a6feec3`,
    `ae62adf`, `f084650`): `crates/cartalith-civ/src/landmark.rs`,
    `crates/cartalith-terrain/src/analysis.rs`, `landmark_bridge.rs`, ten
    `#[func]`s, 49 glyphs, and a CIVIL ▸ Landmarks panel. **13 of 49 declared
@@ -88,14 +111,18 @@ work outstanding.
 **The next three things.** These are the three with the most work behind them
 and no blocker; the full list is `OUTSTANDING_WORK.md`.
 
-1. **Commit the working tree.** Grown since 2026-08-31: **132 tracked files**
-   now differ from `HEAD`, with **17 576 insertions** uncommitted (re-measured
-   2026-09-01, second pass; `git diff --shortstat`), and **three documents
-   exist only in the working tree**: `LARGE_ITEM_RULINGS.md` (the owner's rulings on all eighteen
-   Large rows), `OUTSTANDING_WORK.md`, and
-   `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md`. A clean checkout
-   loses all three. This is the cheapest high-value act available, and only
-   getting more expensive to defer.
+1. **~~Commit the working tree.~~ Done — and this row was wrong for a day.**
+   Corrected 2026-09-02. It claimed **132 tracked files / 17 576 insertions**
+   uncommitted and that `LARGE_ITEM_RULINGS.md`, `OUTSTANDING_WORK.md` and
+   `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md` "exist only in the
+   working tree", so "a clean checkout loses all three". **All three are
+   tracked in `HEAD`** (`git cat-file -e HEAD:<path>` for each), and commit
+   `fd9de7c` ("Three rounds finishing in-flight work, then two bugs found by
+   hand") landed **237 files / 90 718 insertions**. The row survived its own
+   resolution because nothing re-checked it — the exact failure this file
+   exists to prevent, committed by this file. What *is* uncommitted today is
+   the 2026-09-02 work below. **The live successor task is to commit that**,
+   not to re-do this.
 2. **Urban morphology milestones 8-16 and the rest of 17**
    (`URBAN_MORPHOLOGY_SCOPE.md`). ~28 reference functions, ~1 500 lines,
    nothing started, nothing blocking. Milestone 10 (fortification) alone is
@@ -163,6 +190,130 @@ and are given only where a symbol name is not enough; prefer the symbol.
 Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
+
+### 2026-09-02
+
+Four parallel workflows (33 agents). Every claim below was re-verified against
+the code by an agent that did not make it, and then re-run once more by hand
+before being written here — `cargo test -p cartalith-civ -p cartalith-terrain
+-p cartalith-engine -p cartalith-godot` aggregates **1 543 passed, 0 failed,
+21 ignored** against a `cartalith_godot.dll` confirmed newer than every touched
+`.rs`, and all seven touched `.gd` files are `--headless --check-only` clean.
+**All of it is uncommitted.**
+
+**The landmark / point-of-interest pass, reported broken by the owner** ("seems
+to make the program freeze and doesn't render on the map"). Two symptoms, three
+causes:
+
+1. **`landmark_run()` was synchronous on Godot's main thread.** Measured before
+   the fix by `_poifreeze_probe.tscn`: **0 main-loop frames served** during a
+   1 224.9 ms pass, against 255 served during a `generate()` doing four times
+   the work — because `engine_bridge.gd` runs *that* on a `Thread`. The landmark
+   path never got the same treatment, and both its own doc comment and the run
+   button's tooltip said so outright.
+2. **Nothing pushed the placements at the map.** `MapOverlay._landmarks`' only
+   writer in the entire shell is `ViewportHost.refresh_annotations()`, and
+   `civilization_workspace.gd::_lm_run()` never called it — nor did
+   `ViewportHost.refresh()`, so a regenerate also left world A's rings drawn
+   over world B. Baseline: `overlay after the UI run: _landmarks=0 (engine has 239)`.
+3. **The one nobody predicted: a `#[func]` that builds a `Dictionary` cannot be
+   called from a worker thread.** The first fix simply moved `landmark_run` onto
+   a `Thread` and produced
+   `attempted to access binding from different thread than main thread; this is UB`
+   out of `godot-ffi-0.5.5/src/binding/single_threaded.rs`. Without the
+   `experimental-threads` feature — and `crates/cartalith-godot/Cargo.toml` pins
+   `godot = "0.5.5"` with only `features = ["api-4-7"]` — every `Dictionary`,
+   `Array` and `GString` operation routes through `ensure_main_thread()`.
+   `generate_sized` has been thread-safe all along **only because it takes and
+   returns primitives.** That forces the shape of the fix and is the reusable
+   lesson: *a worker-thread `#[func]` must be primitives-in, primitive-out.*
+
+   Fixed accordingly: `landmark_run` now returns `bool` with the reason in a
+   plain `String` field, a new `#[func] landmark_last_run()` builds the
+   `{ok, placed, seconds, error, funnels}` reply on the main thread,
+   `engine_bridge.gd` reuses `generate()`'s exact `Thread` →
+   `call_deferred` → signal pattern (reusing `generating` and `_thread`, but a
+   *new* `landmark_finished` signal — 30-odd listeners read
+   `generation_finished` as "the world was replaced"), and
+   `viewport_host.gd` connects the push in `setup()` so a caller cannot forget
+   it. Separately, `box_h`/`box_v` (`cartalith-terrain/src/analysis.rs`) and
+   both halves of `sep_min_max` were parallelised over **output rows**
+   (`par_chunks_mut(gw)`) — each cell's own accumulation runs in exactly the
+   order it always did, so this is bit-identical, not a float reordering.
+   **Measured at the shipping 2048×1311 default: 4.14 s → 0.39-0.86 s**, and
+   off the main thread. `_poifreeze_probe.tscn` is the committed regression
+   check: `fails=0`, 23 frames served during the pass, overlay count == engine
+   count, and a regenerate clears the rings.
+
+**Vulkan, DirectX and `RenderingDevice` — all three answered "no", the first by
+measurement.** Driving the committed `_shot.tscn` harness on the owner's RX
+7800 XT (driver 26.7.1, Godot 4.7.1) via `--rendering-method`/`--rendering-driver`
+launch flags, so **no file was edited to produce the table**: `gl_compatibility`
+boots *and generates* clean; `forward_plus`/vulkan loses the device during
+generate **3 of 3** (`VK_ERROR_DEVICE_LOST`, signal 4); `forward_plus`/d3d12
+segfaults (`DXGI_ERROR_DEVICE_REMOVED`); `mobile`/vulkan matches Vulkan. Boot is
+clean on all of them — it is the *generate* that kills the device.
+`RenderingDevice` is separately disqualified: null under `gl_compatibility`
+(**both** `get_rendering_device()` and `create_local_rendering_device()`) and
+null under `--headless`, which would delete the 68 `cartalith-gpu` tests with no
+CI-shaped replacement. DirectX needs no work at all — `COMPUTE_BACKENDS` already
+unions `DX12` and masks out only OpenGL (itself a bisected signal-11 fix), and
+`backend_rank`'s Vulkan-first order turns out to restate wgpu-core 30's own HAL
+registration order. 178 lines appended to `3D_TERRAIN_RENDER_RESEARCH.md`, zero
+deletions, **3D left parked**.
+
+**Four defects found while looking for something else**, each verified:
+
+- **`engine_bridge.gd` forces `param_set("use_gpu", true)` at boot**, over a
+  `WorldParams::defaults()` of `use_gpu: false` whose own comment says the GPU
+  path "produces a different" world. **So the shipped app does not generate the
+  world the 88 `golden_parity_*.rs` files verify.** Worse, the default grid is
+  2 684 928 cells — *below* 2048², inside the band where
+  `GPU_LAYER_INTEGRATION_SCOPE.md` m6 records "GPU loses". Untested and possibly
+  slower. **Not fixed: this is a product default, an owner call.**
+- **`multi.rs`'s `is_software` doc comment is wrong.** It says a software
+  rasterizer is "never selected by default … every `request_adapter` in this
+  crate already passes `force_fallback_adapter: false`". That flag means
+  *restrict to* fallback adapters; `false` merely declines to restrict, and
+  nothing filters `DeviceType::Cpu`. On a box with no working hardware adapter
+  the pipeline opens Microsoft Basic Render Driver and runs on it. **Not fixed.**
+- **No `log` backend is registered anywhere in the workspace**, so wgpu's
+  logging is a runtime no-op on every platform. The Android passes' PASS
+  condition — zero `wgpu` lines in logcat — **cannot fail**, and every "the
+  handset runs pure CPU" claim rests on it. wgpu, wgpu-hal and ash *are*
+  compiled into the shipped arm64 `.so`; there is no `cfg(target_os = "android")`
+  gate; GPU is forced on at boot. §21 is unblocked by one 60-second device
+  readout, not by a renderer migration. **Not fixed.**
+- **The route-map cutout placed LOD tiles half a world cell off the colour they
+  multiply** — a registration error that scales with zoom, live in this
+  session's own in-flight work while its probe reported green. The probe
+  asserted UVs lay in `0…1` but never that a tile's UV footprint agreed with
+  where the sprite was placed. *Ranges are not registration.* Fixed, with two
+  smaller defects beside it.
+
+**Nine backlog rows closed** (`OUTSTANDING_WORK.md` §2.3/§2.6), each
+golden-verified: Rayon across `road_dijkstra`'s three independent source maps
+(ordering **proved by mutation** — reversing collection order fails four golden
+tests, so the guarantee is tested, not argued); R8 (~45 MiB, by probe reduction
+and early release — **the scope document's prescribed "chunk it" mechanism is
+impossible**, since Prim reads an arbitrary source's result until the pass ends;
+the saving is real, the named mechanism is not); R7 (`want_prev`, 10.24 MiB);
+R5 (`jfa_dist` → i32/i32/u32, 32.2 MiB, bit-identity **proved by mutation** —
+`dd + 1` fails `golden_parity_settlement_prereqs` 3/3); R4 (`plate_id` → `u16`,
+15.36 MiB); `_civPlaceSmelting` and `_civSaltAccess` ported with a new
+`golden_parity_smelting_salt` suite; the food-shed readout surfaced in the place
+editor's Trade tab; and the Nortantis disclosure added to `credits.gd`.
+
+**Documented-but-false claims corrected in place**, beyond the commit row above:
+`DECISIONS.md` §7i, `JOURNEY_PLANNER_SCOPE.md`'s 2026-08-19 update (both by
+dated correction, not silent rewrite), `world_workspace.gd`'s "58 parameters"
+(really 81), the `paint_set_brush` doc comment, and `roster.rs`'s food-shed
+self-claim. Also: **the GPU determinism flake is not open** — filed as
+blocked-on-owner in four places, but `803b725` (2026-08-25) replaced the
+`assert_eq!` with a 1e-6 worst-element tolerance. And **a `gl_compatibility`
+rationale does exist**, in `.claude/skills/godot-shell/SKILL.md`, committed
+alongside `project.godot` with its cost and a revisit trigger — four of five
+investigators reported it as never recorded.
 
 ### 2026-09-01
 

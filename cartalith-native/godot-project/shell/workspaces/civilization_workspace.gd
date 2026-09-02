@@ -2126,7 +2126,8 @@ func _lm_not_built(parent: Control) -> void:
 			+ "would hold is withheld rather than drawn inert.")
 	DccWidgets.note(sec,
 		"What it expects, and nothing more: landmark_kinds, landmark_settings, "
-		+ "landmark_run, landmark_funnels, landmark_headroom, and the five "
+		+ "landmark_run, landmark_last_run, landmark_funnels, landmark_headroom, "
+		+ "and the five "
 		+ "setters (cap, armed, crowding, class radius, cross-type competition). "
 		+ "The moment they exist this category fills itself -- no type list, "
 		+ "family or class name is written down in this file.")
@@ -2513,10 +2514,11 @@ func _lm_type_row(parent: Control, kind: Dictionary, st: Dictionary,
 
 # -- § LAST RUN ---------------------------------------------------------------
 
-## §9.1 rows 15-17. The run button follows `_recompute_civ` below exactly --
-## relabel, disable, let two frames actually paint that, then block -- because
-## `landmark_run()` is a synchronous engine call with no progress signal to
-## subscribe to and the honest minimum is to say so before blocking.
+## §9.1 rows 15-17. The run button relabels and disables itself for the length
+## of the pass. It used to do that and then *block the main thread* for the
+## whole run, which is what the owner reported on 2026-09-01 as a freeze;
+## `EngineBridge.landmark_run()` is threaded now, so the relabel is a live
+## busy state rather than the last thing the window painted before dying.
 func _lm_last_run(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Last run")
 	_lm_stale_note = DccWidgets.note(sec, "")
@@ -2524,8 +2526,9 @@ func _lm_last_run(parent: Control) -> void:
 	_lm_run_btn = DccWidgets.action(sec, "Run landmark pass", _lm_run, true)
 	_lm_run_btn.tooltip_text = ("Generates candidates for every armed type, scores "
 		+ "them, and spaces them under the exclusion radii above. Seconds, not "
-		+ "milliseconds, and it runs on the main thread -- the window will hold "
-		+ "still.\n\nDeliberately a button and not a cascade after every slider: a "
+		+ "milliseconds -- but it runs on a worker thread, so the window stays "
+		+ "live and the map updates itself when it lands.\n\nDeliberately a "
+		+ "button and not a cascade after every slider: a "
 		+ "panel that silently re-ran on every drag would have no *last run* to "
 		+ "report, and '11 placed' is a fact about a run.")
 	## Always pressable, for `_build_recompute`'s own reason: pressing it with
@@ -2550,19 +2553,23 @@ func _lm_last_run(parent: Control) -> void:
 		func(): app.select_domain_category("cartography", "Assets & landmarks"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
-## `_recompute_civ`'s pattern, in this panel's own subject. Two frames rather
-## than one because a single `process_frame` await returns before the redraw has
-## reached the screen on the frame the label changed.
+## `_recompute_civ`'s pattern, in this panel's own subject.
+##
+## The `await` on `landmark_run()` is not optional and not cosmetic: the bridge
+## runs the pass on a `Thread` and hands the reply back through
+## `landmark_finished`, so a bare call would return the coroutine rather than
+## the result and every row below would read an empty funnel. Nothing here
+## pushes the placements at the map -- `ViewportHost` connects itself to
+## `landmark_finished` for that, so a second caller of `landmark_run()` cannot
+## forget the way this one did.
 func _lm_run() -> void:
 	var b := _lm_run_btn
 	if b != null and is_instance_valid(b):
 		b.text = "Running…"
 		b.disabled = true
-		await get_tree().process_frame
-		await get_tree().process_frame
 	var r: Dictionary = {}
 	if bridge != null and bridge.has_method("landmark_run"):
-		r = bridge.landmark_run()
+		r = await bridge.landmark_run()
 	if b != null and is_instance_valid(b):
 		b.disabled = false
 		b.text = "Run landmark pass"

@@ -43,12 +43,50 @@ class_name VaultStore
 ##   which is `project_open`'s documented behaviour and the right precedence:
 ##   the archive is the record, this is the scratch that survives a quit.
 ##
-## Whether the fallback should keep the `store` half **at all**, now that the
-## archive carries it, is a question this file cannot settle alone — the writer
-## is `app.gd`'s `store_changed` → `save_from` wiring, and simply dropping it
-## would lose links for anyone who has not adopted projects. Recorded here
-## rather than acted on; `MARKDOWN_VAULT_SCOPE.md` milestone 3 is the row, and
-## its remaining half is this decision and not a blocked format.
+## ## The rule milestone 3 landed (2026-09-02), stated once
+##
+## The header above used to end by saying the remaining question — whether the
+## `store` half should exist at all — was one this file could not settle
+## alone. It is settled now, and this is the rule:
+##
+## > **While a project is open, the archive owns the links and this file does
+## > not write them.** With no project open it writes them exactly as before,
+## > because that session has no archive to write them to.
+##
+## Which closes a real defect and not only a tidiness one. Before it, the boot
+## restore handed *whatever links were last in the sidecar* to whichever
+## project was saved next: open project A, quit, boot, save a brand-new
+## project C, and A's notes were in C's `vault.json`. `WorldGen::load_save`
+## guards the *open* path against exactly that ("keeping the links would leave
+## them pointing at settlements that no longer exist") and the boot path had
+## no such guard.
+##
+## ### Nothing is orphaned and nothing is destroyed
+##
+## An existing `user://markdown_vault.json` is **read at boot as it always
+## was**, so links made before projects existed are still restored — they are
+## then carried into the first project saved, which is the migration. The
+## first time a write would drop the `store` half, the whole sidecar is copied
+## to `PRE_PROJECT_PATH` first, once. So the pre-project links survive on
+## disk, under a name that says what they are, whatever happens next. This is
+## a one-way move by design: there is no path that copies them back, because
+## two writable copies of one link store is the state this change exists to
+## end.
+##
+## The cost, stated rather than discovered: links attached **while a project
+## is open** and never saved are lost on quit, exactly like a paint draft or an
+## unsaved journey. `app.gd` marks the project dirty on every `store_changed`
+## for that reason, so File ▸ Save is offered and the autosave picks them up.
+##
+## ### No `format_version` bump, and why not
+##
+## `SAVEFILE_COMPAT.md` §4's `format_version` versions the *archive*, and
+## nothing about the archive changed: `vault.json` was already a slot
+## (`cartalith_io::DOCUMENT_SLOTS`), already written by
+## `project_save_with_documents` and already read by `project_open`. §13.3's
+## own table says the link store's `version` is independent of it. This change
+## is which of two existing writers is authoritative, which the format cannot
+## see.
 ##
 ## ## It never blocks and never throws
 ##
@@ -58,6 +96,16 @@ class_name VaultStore
 ## returns `false`, which is why this reports rather than assumes).
 
 const PATH := "user://markdown_vault.json"
+
+## Where `PATH`'s link store is kept when a project takes ownership of it —
+## the one-way move's safety net, written at most once and never read back by
+## this file.
+##
+## Deliberately **not** deleted afterwards and deliberately not versioned. It
+## is a person's own knowledge links, made before this app had projects to put
+## them in; the cost of keeping a few kilobytes forever is nothing against the
+## cost of being wrong about whether the migration worked.
+const PRE_PROJECT_PATH := "user://markdown_vault.pre_project.json"
 
 ## `GUI_GAP_REGISTER.md` **VA-01**'s backlink index, in its **own** file.
 ##
@@ -209,11 +257,16 @@ static func save_prefs_from(bridge: EngineBridge) -> void:
 	f.close()
 
 
-## Writes the engine's current link store and this device's binding. Called
-## after every mutation — attaching, detaching, editing a working copy,
-## connecting or disconnecting. Cheap: the store is small JSON, and this is
-## never on a per-frame path.
-static func save_from(bridge: EngineBridge) -> void:
+## Writes this device's binding, and the link store **only when no project is
+## open**. Called after every mutation — attaching, detaching, editing a
+## working copy, connecting or disconnecting. Cheap: the store is small JSON,
+## and this is never on a per-frame path.
+##
+## `project_open` is the caller's `current_project_path != ""`, and it defaults
+## to `false` so that a probe with no shell around it keeps the pre-project
+## behaviour rather than silently exercising a path it is not testing. The one
+## caller that knows is `app.gd`; the header above is the rule.
+static func save_from(bridge: EngineBridge, project_open := false) -> void:
 	var state := bridge.vault_state_json()
 	if state == "":
 		return
@@ -237,11 +290,61 @@ static func save_from(bridge: EngineBridge) -> void:
 	var doc := {
 		"binding": String(info.get("root", "")),
 		"display_name": String(info.get("display_name", "")),
-		"store": state,
 	}
+	## The archive owns the links while a project is open
+	## (`project_save_with_documents` writes `vault.json`), so this write drops
+	## them — but only once anything already on disk is safely copied aside.
+	## A backup that could not be written keeps the old behaviour instead of
+	## losing the store: the whole reason the copy exists is that this is the
+	## one write whose failure is unrecoverable.
+	if not project_open or not _keep_pre_project_copy():
+		doc["store"] = state
 	var f := FileAccess.open(PATH, FileAccess.WRITE)
 	if f == null:
 		push_warning("Cartalith: could not write %s (%s)" % [PATH, error_string(FileAccess.get_open_error())])
 		return
 	f.store_string(JSON.stringify(doc, "  "))
 	f.close()
+
+
+## Copies the sidecar to `PRE_PROJECT_PATH`, **once**, before a project takes
+## ownership of the links. Returns whether it is now safe to drop the `store`
+## half — which is `true` in the two cases where there is nothing to lose (no
+## sidecar, or one carrying no `store`) as well as after a successful copy.
+##
+## Four guards, each of which is the whole point of one line:
+##
+## - a backup that already exists is never rewritten, so the *pre-project*
+##   store is the one that is kept rather than whatever the most recent
+##   project-scoped session happened to leave behind;
+## - a sidecar with no `store` key has nothing to preserve and no backup is
+##   made, so a fresh install never grows a file it has no use for;
+## - a sidecar this build cannot parse is copied **anyway**, verbatim. It is
+##   the case where a person's links are most at risk and least understood,
+##   and copying bytes needs no parser to be right;
+## - a copy that could not be written returns `false`, and `save_from()` then
+##   keeps writing the store as it always did. Refusing to migrate is a
+##   recoverable state; migrating with no copy behind it is not.
+static func _keep_pre_project_copy() -> bool:
+	if FileAccess.file_exists(PRE_PROJECT_PATH) or not FileAccess.file_exists(PATH):
+		return true
+	var f := FileAccess.open(PATH, FileAccess.READ)
+	if f == null:
+		push_warning("Cartalith: could not read %s to keep a copy of it (%s); the vault links were left in it."
+			% [PATH, error_string(FileAccess.get_open_error())])
+		return false
+	var raw := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(raw)
+	if typeof(parsed) == TYPE_DICTIONARY and not (parsed as Dictionary).has("store"):
+		return true
+	var out := FileAccess.open(PRE_PROJECT_PATH, FileAccess.WRITE)
+	if out == null:
+		## Reported rather than swallowed: this is the one write whose failure
+		## means a link store would be dropped with no copy behind it.
+		push_warning("Cartalith: could not keep %s before the project took over the vault links (%s); %s was left as it is."
+			% [PRE_PROJECT_PATH, error_string(FileAccess.get_open_error()), PATH])
+		return false
+	out.store_string(raw)
+	out.close()
+	return true

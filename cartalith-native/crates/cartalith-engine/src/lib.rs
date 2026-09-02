@@ -596,7 +596,14 @@ pub struct WorldState {
     /// `p.sea_level` directly.
     pub sea_level: f64,
     pub field: Vec<f32>,
-    pub plate_id: Vec<usize>,
+    /// `u16`, not `usize`: `tect.plates` is clamped to `4..=40` at every
+    /// entry point (`params.rs`'s `ParamSpec`, and the World-Structure
+    /// override's own `.clamp(4, 40)`), and the import path's
+    /// `pick_plate_seeds` caps at 40 too — so 8 B/cell held a number below
+    /// 41. 2 B/cell is 15.36 MiB off both peak and resident at
+    /// 2 048 × 1 311 (`MEMORY_OPTIMIZATION_SCOPE.md` R4). Index `plates[]`
+    /// with `as usize` at the read.
+    pub plate_id: Vec<u16>,
     pub boundary_mask: Vec<u8>,
     pub stress_field: Vec<f32>,
     pub age_field: Vec<f32>,
@@ -759,6 +766,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     };
     let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.as_ref().map(|s| s.primary());
 
+    // What this generation actually opened, for the Performance window to
+    // report instead of inferring. Recorded HERE and not beside the
+    // `record_usage` call at the tail of this function: that one is inside an
+    // `if let Some(set)`, so a CPU-only run would leave the last GPU run's
+    // reading standing. Every path through this line has just decided, so
+    // both answers -- a backend, or "no device at all" -- are written on every
+    // call. See `multi::record_opened_backend`.
+    cartalith_gpu::record_opened_backend(gpu_set.as_ref());
+
     // `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: flow accumulation is
     // called up to FOUR times below (structural drainage, discharge-weighted
     // drainage, the river-network pass, and the post-carve recompute), so
@@ -830,7 +846,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             .filter(|ids| ids.iter().all(|&id| id >= 0)) // any unassigned cell => treat as a failed dispatch, fall back
             .map(|ids| {
                 gpu_stages_used.push("plate_assignment".to_string());
-                ids.into_iter().map(|id| id as usize).collect::<Vec<usize>>()
+                ids.into_iter().map(|id| id as u16).collect::<Vec<u16>>()
             })
             .unwrap_or_else(|| assign_plates(gw, gh, world, &plates, warp_x, warp_y))
     } else {
@@ -872,7 +888,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world)
     };
 
-    let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid].base as f32).collect();
+    let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid as usize].base as f32).collect();
     let base_field = if p.use_gpu {
         match gpu_device.and_then(|gpu| {
             cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world)

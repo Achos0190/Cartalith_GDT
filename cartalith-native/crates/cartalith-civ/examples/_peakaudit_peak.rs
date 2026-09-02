@@ -189,7 +189,7 @@ fn main() {
         println!("  {name:<22} {:9.2} MiB", mib(bytes));
     };
     row("field f32", ws.field.len() * 4, &mut resident);
-    row("plate_id usize", ws.plate_id.len() * std::mem::size_of::<usize>(), &mut resident);
+    row("plate_id u16", ws.plate_id.len() * 2, &mut resident);
     row("boundary_mask u8", ws.boundary_mask.len(), &mut resident);
     row("stress_field f32", ws.stress_field.len() * 4, &mut resident);
     row("age_field f32", ws.age_field.len() * 4, &mut resident);

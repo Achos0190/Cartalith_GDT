@@ -81,9 +81,23 @@ pub struct GpuDeviceInfo {
     /// "Microsoft Basic Render Driver", which this machine's own
     /// enumeration returns). Listed rather than hidden, but never selected
     /// by default: `HARDWARE_ACCELERATION.md` §5/§31's rule is "prefer a
-    /// high-performance real adapter, never a software fallback", and every
-    /// `request_adapter` in this crate already passes
-    /// `force_fallback_adapter: false`.
+    /// high-performance real adapter, never a software fallback".
+    ///
+    /// **What enforces that rule is [`auto_pick_allows`], applied in
+    /// [`pick_primary_adapter_for`] -- not `force_fallback_adapter: false`**,
+    /// which is what this comment claimed until 2026-09-02 and which is
+    /// wrong in the direction that matters. Read against wgpu-core 30's own
+    /// `Instance::request_adapter` (`src/instance.rs`): the flag means
+    /// *restrict to* fallback adapters. `true` runs
+    /// `backend_adapters.retain(|a| a.info.device_type == DeviceType::Cpu)`;
+    /// `false` declines to restrict and runs no filter at all. Nothing else
+    /// in that function excludes a CPU adapter -- `get_order` ranks `Cpu`
+    /// last (5), but the pick is `adapters.into_iter().next()`, which still
+    /// returns it when it is the only thing the sort had to order. So on a
+    /// machine with no usable hardware adapter (a broken or absent Vulkan
+    /// ICD, a VM, a CI box, a laptop in the wrong MUX state) the automatic
+    /// path opened the Basic Render Driver and ran the whole pipeline on it,
+    /// silently, instead of taking the CPU path.
     pub is_software: bool,
 }
 
@@ -283,12 +297,50 @@ pub const COMPUTE_BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN
 /// before, which defaults `backends` to `Backends::all()` and so created an
 /// OpenGL context inside Godot's own GL-Compatibility process. See
 /// [`COMPUTE_BACKENDS`] for the crash that causes.
+///
+/// **`.with_env()` is why `WGPU_BACKEND` works at all** (2026-09-02).
+/// `new_without_display_handle()` reads no environment variable --
+/// `wgpu::Backends::with_env`, and so `WGPU_BACKEND` / `WGPU_DX12_COMPILER` /
+/// `WGPU_VALIDATION`, is reached only from the `*_from_env`/`with_env`
+/// constructors, which nothing here called. The escape hatch was therefore
+/// inert, and the consequence was not cosmetic: nobody could run this
+/// project's compute on DX12, so [`backend_rank`]'s Vulkan-first order was
+/// asserted and **unmeasurable**. This does not change that order -- Vulkan
+/// first is the right default and routing compute through DX12 would import
+/// a DXC/FXC compiler lottery into a determinism-critical pipeline -- it only
+/// makes the comparison runnable.
+///
+/// **The mask is intersected *after* the environment is read, and that
+/// ordering is the whole safety argument.** `&=` can only clear bits, never
+/// set them, so [`COMPUTE_BACKENDS`] is an upper bound no environment value
+/// can lift: `WGPU_BACKEND=gl` cannot put GL back, because `try_add_hal` in
+/// wgpu-core only stands up a backend's `hal::Instance` when
+/// `instance_desc.backends` contains it, and after the `&=` it cannot. That
+/// is the signal-11 fix in [`COMPUTE_BACKENDS`], preserved by construction
+/// rather than by a second check that could drift.
+///
+/// **Unset, this is byte-identical to what it was.** With no variable set
+/// every `with_env` in `wgpu-types` returns its input unchanged, so
+/// `backends` is `Backends::all()`, and `Backends::all() & COMPUTE_BACKENDS`
+/// *is* `COMPUTE_BACKENDS` -- the literal the old code assigned.
 #[must_use]
 pub fn compute_instance() -> wgpu::Instance {
-    wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: COMPUTE_BACKENDS,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    })
+    let mut desc = wgpu::InstanceDescriptor::new_without_display_handle().with_env();
+    desc.backends &= COMPUTE_BACKENDS;
+    if desc.backends.is_empty() {
+        // `WGPU_BACKEND` named only backends this crate refuses (in practice
+        // `gl`). Honouring it is not an option and silently substituting
+        // Vulkan would ignore the request, so the instance really does get
+        // nothing -- which every caller already handles as "no GPU, use the
+        // CPU path". Said out loud, in `read_back`'s idiom, because an
+        // unexplained total loss of the GPU path is the one outcome here
+        // that is impossible to diagnose from the outside.
+        eprintln!(
+            "cartalith-gpu: WGPU_BACKEND selects no backend this crate allows (OpenGL is masked out \
+             deliberately -- see COMPUTE_BACKENDS); running on the CPU path"
+        );
+    }
+    wgpu::Instance::new(desc)
 }
 
 fn adapter_rows() -> Vec<AdapterRow> {
@@ -736,6 +788,47 @@ pub fn last_usage() -> Vec<(String, GpuMemoryUse)> {
     LAST_USAGE.read().map(|v| v.clone()).unwrap_or_default()
 }
 
+/// The backend the last generation actually opened a device on, or `None`
+/// when it opened none.
+///
+/// Recorded rather than inferred, and that is the whole point of it. The
+/// shell's existing readout (`menus.gd::_active_backend`) picks a backend out
+/// of [`enumerate_devices`], which answers "what a device request *would*
+/// prefer" -- it cannot notice that the request landed on something else, or
+/// that it opened nothing at all and the run went to the CPU. On Android that
+/// is the entire question: `wgpu`, `wgpu-hal` and `ash` are compiled into the
+/// shipped arm64 `.so`, no `cfg(target_os = "android")` gates the GPU crate
+/// off, and `engine_bridge.gd::_ready` turns `use_gpu` on at boot -- so "the
+/// handset runs the CPU pipeline" has to be a reading, not an assumption.
+static LAST_BACKEND: RwLock<Option<&'static str>> = RwLock::new(None);
+
+/// Record which backend `set` opened -- or, for `None`, that this generation
+/// opened no device at all.
+///
+/// Called on **every** generation, not only the ones that reach the GPU: a
+/// reading left over from an earlier run is exactly the stale claim this
+/// record exists to replace, so a CPU-only run must overwrite it.
+///
+/// [`GpuDeviceSet::primary`]'s backend, since that is the device every
+/// non-split stage runs on.
+pub fn record_opened_backend(set: Option<&GpuDeviceSet>) {
+    if let Ok(mut w) = LAST_BACKEND.write() {
+        *w = set.map(|s| s.primary().adapter_backend.to_str());
+    }
+}
+
+/// The last recording [`record_opened_backend`] made -- `"vulkan"`, `"dx12"`,
+/// `"metal"`, `"gl"`, … `None` before the first generation of the session as
+/// well as after a CPU-only one.
+///
+/// Read it beside `WorldState::gpu_stages_used`: together they separate three
+/// cases a UI must not conflate -- no device opened, a device opened but every
+/// stage still fell back, and real GPU work.
+#[must_use]
+pub fn last_backend() -> Option<&'static str> {
+    LAST_BACKEND.read().ok().and_then(|v| *v)
+}
+
 // -- Device set ----------------------------------------------------------------
 
 /// One or more live devices plus the mode they were opened for.
@@ -796,11 +889,37 @@ fn adapter_for_key(instance: &wgpu::Instance, key: &str) -> Option<wgpu::Adapter
     matches.into_iter().next()
 }
 
+/// Whether the **automatic** adapter pick may return this device class.
+///
+/// One line, but it is the entire enforcement of
+/// `HARDWARE_ACCELERATION.md` §5/§31's "never a software fallback" -- see
+/// [`GpuDeviceInfo::is_software`] for why `force_fallback_adapter: false`
+/// never enforced it. Named and separate so the rule has a check that runs
+/// with no GPU present, which is the only place it can be tested on a
+/// machine that *has* a real GPU.
+///
+/// Deliberately not applied to [`adapter_for_key`]: an explicitly selected
+/// device is the user's call, and `selected_keys` is that surface.
+const fn auto_pick_allows(t: wgpu::DeviceType) -> bool {
+    !matches!(t, wgpu::DeviceType::Cpu)
+}
+
 /// Adapter for the *primary* device, from an explicit selection: the first
 /// key that still resolves, otherwise the same
 /// `PowerPreference::HighPerformance` request every version of this crate
 /// before this module made. An unresolvable preference degrades to auto
 /// rather than to no GPU.
+///
+/// **`None` when the only adapter left is a software rasterizer.** wgpu's
+/// own request does not exclude one (again, see
+/// [`GpuDeviceInfo::is_software`]), and one `.filter` is enough: the pick is
+/// the minimum of `get_order`, which orders `Cpu` *after* every hardware
+/// class, so a `Cpu` result **proves** no hardware adapter was a candidate.
+/// `None` here becomes [`GpuInitError::NoAdapter`] at [`open_primary`], which
+/// every caller already turns into the CPU pipeline
+/// (`cartalith-engine`'s `init_gpu_device_set().ok()`,
+/// `HARDWARE_ACCELERATION.md` §27) -- the correct behaviour when no real GPU
+/// exists, and the one this used to bypass.
 ///
 /// Takes the keys as an argument rather than reading [`preferences`] itself,
 /// and that is a correctness requirement rather than a style choice: see
@@ -821,6 +940,7 @@ pub(crate) fn pick_primary_adapter_for(instance: &wgpu::Instance, selected_keys:
         apply_limit_buckets: false,
     }))
     .ok()
+    .filter(|a| auto_pick_allows(a.get_info().device_type))
 }
 
 /// [`pick_primary_adapter_for`] against the current ambient preferences, for
@@ -1038,6 +1158,27 @@ mod tests {
 
     fn readback_test_guard() -> std::sync::MutexGuard<'static, ()> {
         READBACK_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The one behaviour that makes `last_backend()` a measurement rather
+    /// than a souvenir: a generation that opened no device must **overwrite**
+    /// the previous reading, not inherit it. A CPU-only run still reporting
+    /// `"vulkan"` from the run before it is precisely the unfalsifiable claim
+    /// this record was added to replace.
+    ///
+    /// The `Some` half needs a real adapter, so it is driven through the
+    /// static directly here and left to the device passes on hardware.
+    ///
+    /// No test lock, unlike `READBACK_FAILURES` above: this is the only test
+    /// in the crate that touches `LAST_BACKEND`, and `record_opened_backend`
+    /// is never reached from one, so there is no sibling to race.
+    #[test]
+    fn a_generation_that_opens_nothing_clears_the_last_backend() {
+        *LAST_BACKEND.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some("vulkan");
+        assert_eq!(last_backend(), Some("vulkan"), "the static is readable through the accessor at all");
+
+        record_opened_backend(None);
+        assert_eq!(last_backend(), None, "a CPU-only generation must not inherit the last GPU one's backend");
     }
 
     fn row(name: &str, vendor: u32, device_id: u32, t: wgpu::DeviceType, b: wgpu::Backend) -> AdapterRow {
@@ -1275,6 +1416,74 @@ mod tests {
             None,
             "the per-adapter ban is gone too, not merely the summary"
         );
+    }
+
+    /// [`compute_instance`] now reads `WGPU_BACKEND`, and the signal-11 fix
+    /// in [`COMPUTE_BACKENDS`] survives that only because the mask is applied
+    /// as an **intersection afterwards**. This is that guarantee, checked
+    /// against the real parser `wgpu::Backends::from_env` uses, without
+    /// touching the process environment (which `cargo test`'s threads share).
+    ///
+    /// The first assertion is the other half: with nothing set, the
+    /// descriptor's `Backends::all()` intersects to exactly the literal the
+    /// old code assigned, so the default path did not move.
+    #[test]
+    fn no_environment_value_can_put_opengl_back() {
+        assert_eq!(
+            wgpu::Backends::all() & COMPUTE_BACKENDS,
+            COMPUTE_BACKENDS,
+            "unset WGPU_BACKEND must leave the mask exactly as it was"
+        );
+        assert!(!COMPUTE_BACKENDS.contains(wgpu::Backends::GL));
+
+        for s in ["gl", "opengl", "gles", "gl,vulkan", "vulkan", "dx12", "d3d12", "noop", "", "nonsense"] {
+            let masked = wgpu::Backends::from_comma_list(s) & COMPUTE_BACKENDS;
+            assert!(!masked.contains(wgpu::Backends::GL), "WGPU_BACKEND={s:?} must not reach the GL backend");
+            assert!(
+                COMPUTE_BACKENDS.contains(masked),
+                "the mask is an upper bound: WGPU_BACKEND={s:?} must not add a backend to it"
+            );
+        }
+
+        // And the escape hatch is not merely safe, it works: dx12 is the
+        // comparison `backend_rank`'s Vulkan-first order could not be
+        // measured against before.
+        assert_eq!(wgpu::Backends::from_comma_list("dx12") & COMPUTE_BACKENDS, wgpu::Backends::DX12);
+    }
+
+    /// `HARDWARE_ACCELERATION.md` §5/§31's "never a software fallback", as a
+    /// check that runs with no GPU -- which is the only way to test it on a
+    /// machine that has one, since there the automatic pick would return the
+    /// real card either way.
+    ///
+    /// Every variant is listed rather than only `Cpu`, so adding a device
+    /// class to `wgpu` cannot silently join the banned set (or the allowed
+    /// one) without this failing to compile or failing here.
+    #[test]
+    fn only_a_software_rasterizer_is_barred_from_the_automatic_pick() {
+        assert!(!auto_pick_allows(wgpu::DeviceType::Cpu), "the whole point: software is never picked for you");
+        assert!(auto_pick_allows(wgpu::DeviceType::DiscreteGpu));
+        assert!(auto_pick_allows(wgpu::DeviceType::IntegratedGpu));
+        assert!(auto_pick_allows(wgpu::DeviceType::VirtualGpu));
+        // `Other` is what an OpenGL adapter reports (see `group_adapters`),
+        // and a real GPU behind a driver that will not say so must not be
+        // refused -- barring it would turn "the driver is vague" into "no
+        // GPU".
+        assert!(auto_pick_allows(wgpu::DeviceType::Other));
+
+        // The class the ban is about is exactly the one `is_software` flags,
+        // and exactly the one a split gives no rows to. Three places, one
+        // rule; this is what keeps them from drifting apart.
+        let sw = group_adapters(vec![row(
+            "Microsoft Basic Render Driver",
+            0x1414,
+            0x008c,
+            wgpu::DeviceType::Cpu,
+            wgpu::Backend::Dx12,
+        )]);
+        assert!(sw[0].is_software);
+        assert!(!auto_pick_allows(sw[0].device_type));
+        assert_eq!(device_weight(sw[0].device_type), 0.0);
     }
 
     /// The default install must behave exactly as it did before this

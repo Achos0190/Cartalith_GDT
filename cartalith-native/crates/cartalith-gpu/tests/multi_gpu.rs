@@ -139,6 +139,54 @@ fn an_unknown_device_key_falls_back_to_auto() {
     println!("unknown key -> fell back to {:?}", set.primary().adapter_name);
 }
 
+/// The automatic pick must never open a software rasterizer, on either
+/// entry into it -- no preference at all, and a preference naming a device
+/// that no longer resolves. Both take the same `HighPerformance` branch, and
+/// wgpu's own request does not exclude a CPU adapter there
+/// (`force_fallback_adapter: false` declines to *restrict to* fallbacks; it
+/// filters nothing). "No GPU" is the right answer on such a machine, and
+/// `init_gpu_device_set(...).ok()` is already how every caller reaches the
+/// CPU path.
+///
+/// **This machine cannot make it fail**: it enumerates the Basic Render
+/// Driver but also two real Radeons, so `get_order` would sort the software
+/// adapter last regardless. It is the regression guard for the machine that
+/// has only the software adapter -- a VM, a CI runner, a broken ICD -- where
+/// it is the whole assertion.
+#[test]
+fn the_automatic_pick_never_opens_a_software_rasterizer() {
+    let software: Vec<_> = enumerate_devices().into_iter().filter(|d| d.is_software).collect();
+    if software.is_empty() {
+        println!("skipped: this machine enumerates no software rasterizer");
+        return;
+    }
+    println!("software adapters present: {:?}", software.iter().map(|d| &d.name).collect::<Vec<_>>());
+
+    for (what, prefs) in [
+        ("no preference", GpuPreferences::default()),
+        (
+            "an unresolvable preference",
+            GpuPreferences { selected_keys: vec!["ffff:ffff:No Such GPU".to_string()], ..Default::default() },
+        ),
+    ] {
+        match init_gpu_device_set_with(&prefs) {
+            Ok(set) => {
+                let d = set.primary();
+                assert_ne!(
+                    d.device_type,
+                    wgpu::DeviceType::Cpu,
+                    "{what}: the automatic pick opened {:?}, a software rasterizer",
+                    d.adapter_name
+                );
+                println!("{what} -> {:?} ({:?})", d.adapter_name, d.device_type);
+            }
+            // The correct outcome when the only adapter is software: no
+            // device set at all, and the caller runs on the CPU.
+            Err(e) => println!("{what} -> no device ({e:?}) -- CPU path, which is the point"),
+        }
+    }
+}
+
 /// A device this crate opens must be able to bind a full-grid `f32` buffer at
 /// **every** resolution the shell offers -- `new_world_dialog.gd`'s
 /// `RESOLUTION_PRESETS = [512, 1024, 2048, 4096, 8192]`.

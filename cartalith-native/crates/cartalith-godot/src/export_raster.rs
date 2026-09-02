@@ -378,6 +378,158 @@ impl WorldGen {
         }
     }
 
+    /// One square crop of the live renderer around a grid cell —
+    /// `MARKDOWN_VAULT_INTEGRATION.md` §21's map snapshot
+    /// (`MARKDOWN_VAULT_SCOPE.md` milestone 2).
+    ///
+    /// §21's requirement is *"V1 shall reuse Cartalith's current renderer …
+    /// there is no separate export renderer in V1"*, and this obeys it
+    /// literally: the same [`render::bake_rect`] over the same
+    /// [`BakeFields`], with the same river-channel mask
+    /// `export_raster_png` picks, differing only in the window asked for.
+    ///
+    /// # How a radius becomes a crop
+    ///
+    /// [`render::bake_rect`] already takes one — `(x0, y0, w, h)` inside a
+    /// virtual `out_w × out_h` image — and samples the grid at
+    /// `pixel * (gw - 1) / (out_w - 1)`. So a zoom is a *choice of `out_w`*
+    /// and nothing else: to put `2·radius + 1` cells across `size` pixels,
+    /// the virtual image is `(gw - 1) · size / span + 1` wide, and only the
+    /// `size × size` window around the entity is ever rasterised. Nothing at
+    /// the full virtual size is allocated — which is the whole reason this is
+    /// a crop and not a render-then-crop, since an immediate view of a 1024²
+    /// world implies a virtual image around 8 000 px on a side.
+    ///
+    /// The window is **clamped into the world**, not centred at any cost: a
+    /// coastal town half a radius from the edge gets a full-size picture that
+    /// is off-centre rather than a black margin. The centre actually used
+    /// comes back in `center_x`/`center_y` so a caller can say so.
+    ///
+    /// # Two post passes, and why only one of them runs
+    ///
+    /// The **colour grade** runs, sampled over this crop's own window (see
+    /// below) — it is a global look, and an ungraded snapshot beside a graded
+    /// map is visibly a different picture of the same place.
+    ///
+    /// [`render::apply_local_contrast`] deliberately does **not**.  Its
+    /// radius is `local_contrast_radius_frac` of the raster's *width*, which
+    /// on screen is the whole world. A crop has no honest width to key that
+    /// to: keyed to the crop's own `size` the boosted band lands at a few
+    /// cells instead of a few dozen, and keyed to the virtual `out_w` it
+    /// exceeds the crop and is capped back to a flat global pass by that
+    /// function's own `gh / 4` limit. Both answers are wrong in a different
+    /// direction, so the snapshot ships the material render with the grade
+    /// over it and this comment instead of a plausible-looking third answer.
+    ///
+    /// Returns `{ok, error, path, width, height, bytes, ms, center_x,
+    /// center_y, cells_across}`.
+    #[func]
+    pub(crate) fn export_snapshot_png(&self, path: GString, cx: i64, cy: i64, radius: i64, size: i64) -> VarDictionary {
+        let started = std::time::Instant::now();
+        let path = PathBuf::from(path.to_string());
+        if path.as_os_str().is_empty() {
+            return fail("no destination path");
+        }
+        // Bounded rather than rounded, the same call `export_raster_widths`
+        // makes: a caller asking for a 5 px snapshot has a bug, and handing
+        // them 64 would hide it.
+        if !(64..=2048).contains(&size) {
+            return fail(format!("snapshot size {size} is outside 64..2048 px"));
+        }
+        if radius < 1 {
+            return fail(format!("snapshot radius {radius} is not a number of cells"));
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        // `bake_rect`'s own sampler divides by `gw - 1`, so a one-cell axis
+        // is not a world it can crop.
+        if gw < 2 || gh < 2 || self.source.is_none() {
+            return fail("no world to snapshot -- generate or load one first");
+        }
+        if cx < 0 || cy < 0 || cx as usize >= gw || cy as usize >= gh {
+            return fail(format!("({cx}, {cy}) is outside this {gw}x{gh} world"));
+        }
+
+        let size = size as usize;
+        let span = (2 * radius + 1) as f64;
+        // The virtual image this crop is a window into. `+ 1` because
+        // `bake_rect` maps the *last* pixel to the last cell, so `out_w`
+        // pixels span `out_w - 1` steps.
+        let virt = |g: usize| ((g - 1) as f64 * size as f64 / span).round().max(2.0) as usize + 1;
+        let (out_w, out_h) = (virt(gw), virt(gh));
+        // The window, clamped so it never leaves the virtual image. `w`/`h`
+        // fall below `size` only when the whole world is narrower than the
+        // requested view, which is a legitimate outcome for a regional
+        // snapshot of a small map.
+        let (w, h) = (size.min(out_w), size.min(out_h));
+        let place = |c: i64, g: usize, out: usize, win: usize| -> usize {
+            let px = c as f64 * (out.max(2) - 1) as f64 / (g - 1) as f64;
+            (px - win as f64 / 2.0).round().clamp(0.0, (out - win) as f64) as usize
+        };
+        let (x0, y0) = (place(cx, gw, out_w, w), place(cy, gh, out_h, h));
+
+        let appearance = self.appearance();
+        // The same mask `export_raster_png` chooses, for the reason
+        // `render::channel_tint`'s doc comment measured: without it the
+        // snapshot is a picture of a place with no rivers in it.
+        let chan: Option<&[u8]> = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => ws.channels.as_ref().map(|c| c.chan.as_slice()),
+            Some(WorldSource::Loaded(save)) => Some(save.fields.strahler_order.as_slice()),
+            None => None,
+        };
+        let Some(bytes) = self.export_render(|ctx| {
+            let bf = BakeFields::new(ctx);
+            let mut px = render::bake_rect(ctx, &bf, chan, out_w, out_h, x0, y0, w, h);
+            // The grade's field influence, taken per **grid cell** and then
+            // sampled over this crop's window. `build_grade_influence(ctx, w,
+            // h)` would spread the whole world across the crop -- it resamples
+            // as though `w × h` covered the map -- so the per-cell map is
+            // asked for at `(gw, gh)`, where that function returns it
+            // untouched, and the window arithmetic is done here where the
+            // window is known.
+            let cell = render::build_grade_influence(ctx, ctx.gw, ctx.gh);
+            let inf = if cell.is_empty() {
+                cell
+            } else {
+                let (sx, sy) = ((ctx.gw - 1) as f64 / (out_w.max(2) - 1) as f64, (ctx.gh - 1) as f64 / (out_h.max(2) - 1) as f64);
+                let mut out = vec![1f32; w * h];
+                for row in 0..h {
+                    let gy = (((y0 + row) as f64 * sy).round() as usize).min(ctx.gh - 1);
+                    for col in 0..w {
+                        let gx = (((x0 + col) as f64 * sx).round() as usize).min(ctx.gw - 1);
+                        out[row * w + col] = cell[gy * ctx.gw + gx];
+                    }
+                }
+                out
+            };
+            render::apply_color_grade(&appearance, &mut px, &inf);
+            px
+        }) else {
+            return fail("could not assemble the render context");
+        };
+
+        let png = match cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, bytes) {
+            Ok(p) => p,
+            Err(e) => return fail(format!("PNG encode failed: {e}")),
+        };
+        if let Err(e) = write_file(&path, &png) {
+            return fail(e);
+        }
+        dict! {
+            "ok" => true,
+            "error" => "",
+            "path" => path.display().to_string().as_str(),
+            "width" => w as i64,
+            "height" => h as i64,
+            "bytes" => png.len() as i64,
+            "ms" => started.elapsed().as_secs_f64() * 1000.0,
+            // What was actually drawn, which is not what was asked for
+            // whenever the window had to be clamped into the world.
+            "center_x" => (x0 + w / 2) as f64 * (gw - 1) as f64 / (out_w.max(2) - 1) as f64,
+            "center_y" => (y0 + h / 2) as f64 * (gh - 1) as f64 / (out_h.max(2) - 1) as f64,
+            "cells_across" => w as f64 * (gw - 1) as f64 / (out_w.max(2) - 1) as f64,
+        }
+    }
+
     /// `layersPreviewChk` (reference line 555, read by `exportZip` at 12452) —
     /// the four human-viewable PNG previews of the `.f32` data layers, written
     /// into `dir/layers/`.

@@ -651,7 +651,7 @@ mod tests {
         order: Vec<i16>,
         water: Vec<u8>,
         zeros_f: Vec<f32>,
-        zeros_u: Vec<usize>,
+        zeros_u: Vec<u16>,
         zeros_b: Vec<u8>,
         params: cartalith_engine::WorldParams,
     }

@@ -728,13 +728,13 @@ pub fn init_gpu_flow_with(gpu: &GpuDevice) -> GpuFlowContext {
 pub fn init_gpu_gauss_blur() -> Result<GpuBlurContext, GpuInitError> {
     let instance = multi::compute_instance();
 
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        compatible_surface: None,
-        apply_limit_buckets: false,
-    }))
-    .map_err(|_| GpuInitError::NoAdapter)?;
+    // Was its own raw `request_adapter(HighPerformance)`, which is the one
+    // adapter request in this crate that neither honoured the device
+    // preference nor excluded a software rasterizer (2026-09-02 --
+    // `multi::GpuDeviceInfo::is_software` has the wgpu-core reading).
+    // `pick_primary_adapter` is that same request plus both rules, so this
+    // is a deletion rather than a second copy of them.
+    let adapter = multi::pick_primary_adapter(&instance).ok_or(GpuInitError::NoAdapter)?;
 
     let info = adapter.get_info();
     let mut limits = wgpu::Limits::downlevel_defaults();
@@ -4016,8 +4016,8 @@ mod tests {
         let (w, h) = (512u32, 512u32);
         let n = (w * h) as usize;
         let num_plates = 9usize;
-        let plate_id_usize: Vec<usize> = (0..n).map(|i| i % num_plates).collect();
-        let plate_id_u32: Vec<u32> = plate_id_usize.iter().map(|&p| p as u32).collect();
+        let plate_id_u16: Vec<u16> = (0..n).map(|i| (i % num_plates) as u16).collect();
+        let plate_id_u32: Vec<u32> = plate_id_u16.iter().map(|&p| u32::from(p)).collect();
         let age = synthetic_field(n, 13);
         // Real Plate structs, some with negative base (oceanic crust) --
         // compute_resistance's `.max(0.0)` clamp only matters if a real
@@ -4034,7 +4034,7 @@ mod tests {
         let crustal_per_plate: Vec<f32> = plates.iter().map(|p| p.base.max(0.0) as f32).collect();
 
         let gpu = dispatch_gpu_resistance(&ctx, w, h, &plate_id_u32, &age, &crustal_per_plate);
-        let real_cpu = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_usize, &plates, &age);
+        let real_cpu = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_u16, &plates, &age);
 
         let mut max_abs_diff = 0.0f64;
         let mut mismatches = 0usize;
@@ -4242,7 +4242,7 @@ mod tests {
 
             let num_plates = 9usize;
             let plate_id_u32: Vec<u32> = (0..n).map(|i| (i % num_plates) as u32).collect();
-            let plate_id_usize: Vec<usize> = plate_id_u32.iter().map(|&p| p as usize).collect();
+            let plate_id_u16: Vec<u16> = plate_id_u32.iter().map(|&p| p as u16).collect();
             let age = synthetic_field(n, 29);
             let plates: Vec<cartalith_terrain::Plate> = (0..num_plates)
                 .map(|k| cartalith_terrain::Plate { x: 0.0, y: 0.0, vx: 0.0, vy: 0.0, base: (k as f64 - 4.0) * 0.3 })
@@ -4253,7 +4253,7 @@ mod tests {
             let _ = dispatch_gpu_resistance(&res_ctx, w, h, &plate_id_u32, &age, &crustal_per_plate);
             let gpu_res_time = t2.elapsed();
             let t3 = Instant::now();
-            let _ = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_usize, &plates, &age);
+            let _ = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_u16, &plates, &age);
             let cpu_res_time = t3.elapsed();
             eprintln!(
                 "gpu_compute_resistance {w}x{h}: GPU = {:?}, CPU (real) = {:?}, ratio (CPU/GPU) = {:.2}x",

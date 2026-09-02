@@ -49,6 +49,7 @@
 //!   become cell counts once the world's extent is known.
 
 use cartalith_jsmath::js_hypot;
+use rayon::prelude::*;
 
 /// One horizontal box-blur pass. `world` wraps the sample window in X.
 ///
@@ -57,12 +58,23 @@ use cartalith_jsmath::js_hypot;
 /// deliberately NOT used: it accumulates differently at each x and the
 /// difference shows up in the tails, and this is cheap enough that matching the
 /// obvious reading is worth more than the constant factor.
+///
+/// ## Parallel over output ROWS, and that is parity-safe
+///
+/// Added 2026-09-01. These two passes and `landmark.rs::sep_min_max` were 71 %
+/// of the landmark pass, which the owner reported as a freeze; the pass runs on
+/// a worker thread now, but 4 s of wall clock at the shipping 2048 default was
+/// still 4 s. Each output cell's own `-rad..=rad` accumulation runs in exactly
+/// the order it always did — only whole rows are handed to different cores —
+/// so this is bit-identical output, not a float reordering, and `CLAUDE.md`'s
+/// re-golden rule does not bite. That is also precisely why the running-sum
+/// form above stays refused: *it* would change the arithmetic.
 fn box_h(src: &[f32], dst: &mut [f32], gw: usize, gh: usize, rad: i64, world: bool) {
     if gw == 0 || gh == 0 {
         return;
     }
     let w = gw as i64;
-    for y in 0..gh {
+    dst.par_chunks_mut(gw).take(gh).enumerate().for_each(|(y, drow)| {
         let row = y * gw;
         for x in 0..gw {
             let mut acc = 0f64;
@@ -77,18 +89,21 @@ fn box_h(src: &[f32], dst: &mut [f32], gw: usize, gh: usize, rad: i64, world: bo
                 acc += src[row + xx as usize] as f64;
                 n += 1;
             }
-            dst[row + x] = if n == 0 { src[row + x] } else { (acc / n as f64) as f32 };
+            drow[x] = if n == 0 { src[row + x] } else { (acc / n as f64) as f32 };
         }
-    }
+    });
 }
 
 /// One vertical box-blur pass. Y never wraps — see the module header.
+///
+/// Parallel over output rows, for [`box_h`]'s reason and with its guarantee:
+/// the window read is `src`, which nothing here writes.
 fn box_v(src: &[f32], dst: &mut [f32], gw: usize, gh: usize, rad: i64) {
     if gw == 0 || gh == 0 {
         return;
     }
     let h = gh as i64;
-    for y in 0..gh {
+    dst.par_chunks_mut(gw).take(gh).enumerate().for_each(|(y, drow)| {
         for x in 0..gw {
             let mut acc = 0f64;
             let mut n = 0usize;
@@ -100,9 +115,9 @@ fn box_v(src: &[f32], dst: &mut [f32], gw: usize, gh: usize, rad: i64) {
                 acc += src[yy as usize * gw + x] as f64;
                 n += 1;
             }
-            dst[y * gw + x] = if n == 0 { src[y * gw + x] } else { (acc / n as f64) as f32 };
+            drow[x] = if n == 0 { src[y * gw + x] } else { (acc / n as f64) as f32 };
         }
-    }
+    });
 }
 
 /// A separable box blur of `field` at `radius` cells.

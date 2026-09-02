@@ -322,12 +322,28 @@ func _ready() -> void:
 	_ok("panel: a continent opens the same window", vw_text.findn("Attach") >= 0 or vw_text.findn("Knowledge") >= 0, vw_text)
 
 	# -- §9 persistence ------------------------------------------------------
+	## `save_from(_bridge)` takes the default `project_open = false`, which is
+	## the right half of milestone 3's rule for this probe: it is testing the
+	## sidecar as the store for a session with no project, and the project half
+	## has its own probe (`_vaultmap_probe.gd`).
 	VaultStore.save_from(_bridge)
 	_ok("persist: the sidecar is written", FileAccess.file_exists(VaultStore.PATH))
 	var side = JSON.parse_string(_read(VaultStore.PATH))
+	## **`store` is a JSON *string*, not a nested object**, and this line read
+	## it as an object from 2026-08-30 (`e1f18cac`) until 2026-09-02. The cast
+	## threw, which aborted `_ready` before `_finish()` — so the probe never
+	## called `quit()` and a headless run hung forever instead of reporting.
+	## The reason for the string is `vault_store.gd::save_from`'s own KV-04
+	## comment: Godot's `JSON` has one number type and it is `float`, so
+	## nesting the engine's store as a Variant re-emits every integer with a
+	## decimal point and serde then refuses the lot. Parsed here for the
+	## assertion only — exactly as `save_from` parses it for validation only.
+	var store_json := String((side as Dictionary).get("store", "")) if typeof(side) == TYPE_DICTIONARY else ""
+	var inner = JSON.parse_string(store_json)
 	_ok("persist: it carries the links and the device binding",
 		typeof(side) == TYPE_DICTIONARY and String((side as Dictionary).get("binding", "")) != ""
-		and (((side as Dictionary).get("store", {}) as Dictionary).get("links", []) as Array).size() == 2, str(side))
+		and typeof(inner) == TYPE_DICTIONARY
+		and ((inner as Dictionary).get("links", []) as Array).size() == 2, str(side))
 
 	_finish()
 

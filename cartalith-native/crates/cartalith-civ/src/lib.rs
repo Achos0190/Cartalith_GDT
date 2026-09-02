@@ -2009,15 +2009,39 @@ pub fn civ_continents(lq: &LandmassQuality, gw: usize, gh: usize, min_cells: usi
 /// (`{euclid:true}`, the only call site in this port's scope).
 fn jfa_dist(seed_mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
     let n = gw * gh;
-    const INF: f64 = 1e30;
-    let mut sx = vec![-1i64; n];
-    let mut sy = vec![-1i64; n];
-    let mut d2 = vec![0f64; n];
+    // `MEMORY_OPTIMIZATION_SCOPE.md` R5: `i64`/`i64`/`f64` was 24 B/cell for a
+    // pair of coordinates that fit in `i32` at every grid this port offers and
+    // a squared distance that is always an exact non-negative integer.
+    // `i32`/`i32`/`u32` is 12 B/cell and **bit-identical**, for three reasons,
+    // each of which was checked rather than assumed:
+    //
+    //  1. `dd` is `ex*ex + ey*ey` with `ex`,`ey` integer cell offsets, so it is
+    //     an exact integer bounded by `2*(max_dim-1)^2`. At the port's largest
+    //     grid (8192) that is 1.34e8 -- 32x below `u32::MAX`, and it was
+    //     equally exact as an `f64` (1.34e8 << 2^53). The `debug_assert`
+    //     below names the real ceiling (46 341, where `2*(d-1)^2` would pass
+    //     `u32::MAX`); the products are formed in `i64` so only storage, not
+    //     arithmetic, has to respect it.
+    //  2. The `dd < d2[i]` test therefore compared exact integers in both
+    //     forms, and the only non-integer `f64` value `d2` ever held was the
+    //     `1e30` sentinel, which `dd` was unconditionally below -- exactly as
+    //     `dd` is unconditionally below the `u32::MAX` sentinel. Same branch,
+    //     every time, including the ties (`<` is strict in both).
+    //  3. `d2[i].sqrt() as f32` becomes `(d2[i] as f64).sqrt() as f32` over
+    //     the identical `f64` value, so the output bits are unchanged.
+    debug_assert!(
+        gw.max(gh) < 46_341,
+        "jfa_dist: u32 `d2` holds 2*(dim-1)^2 exactly only below 46341 cells"
+    );
+    const INF: u32 = u32::MAX;
+    let mut sx = vec![-1i32; n];
+    let mut sy = vec![-1i32; n];
+    let mut d2 = vec![0u32; n];
     for i in 0..n {
         if seed_mask[i] != 0 {
-            sx[i] = (i % gw) as i64;
-            sy[i] = (i / gw) as i64;
-            d2[i] = 0.0;
+            sx[i] = (i % gw) as i32;
+            sy[i] = (i / gw) as i32;
+            d2[i] = 0;
         } else {
             d2[i] = INF;
         }
@@ -2042,9 +2066,9 @@ fn jfa_dist(seed_mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
                             if nx >= 0 && nx < gw as i64 && ny >= 0 && ny < gh as i64 {
                                 let j = ny as usize * gw + nx as usize;
                                 if sx[j] >= 0 {
-                                    let ex = (x as i64 - sx[j]) as f64;
-                                    let ey = (y as i64 - sy[j]) as f64;
-                                    let dd = ex * ex + ey * ey;
+                                    let ex = x as i64 - sx[j] as i64;
+                                    let ey = y as i64 - sy[j] as i64;
+                                    let dd = (ex * ex + ey * ey) as u32;
                                     if dd < d2[i] {
                                         d2[i] = dd;
                                         sx[i] = sx[j];
@@ -2063,7 +2087,7 @@ fn jfa_dist(seed_mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
     }
     let mut out = vec![0f32; n];
     for i in 0..n {
-        out[i] = if sx[i] < 0 { 1e9 } else { d2[i].sqrt() as f32 };
+        out[i] = if sx[i] < 0 { 1e9 } else { (d2[i] as f64).sqrt() as f32 };
     }
     out
 }
@@ -5325,7 +5349,23 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
 /// path ported here. [`civ_sea_routes`]' current/wind-costed lanes
 /// (`DECISIONS.md` §7i, the `_civSeaTimeEdgeCost` port) is now that first
 /// real caller; every pre-existing call site still passes `None` and is
-/// untouched -- this parameter is purely additive.
+/// untouched -- this parameter is purely additive. It is `+ Sync` only so
+/// that [`civ_sea_routes`] may fan its per-port sources out across Rayon;
+/// the traversal below is still strictly sequential (see `want_prev`).
+///
+/// `want_prev` (`MEMORY_OPTIMIZATION_SCOPE.md` R7, the same shape
+/// `territory_sweep`'s own `want_rival` already uses): `prev` is written
+/// and never read inside this function, so a caller that binds `_prev` and
+/// throws it away -- `territory_sweep`, once per capital -- can ask for an
+/// empty `Vec` instead of a `4 * gw * gh` allocation. Passing `false`
+/// cannot change `dist`: the `prev[j] = i` write has no effect on the
+/// relaxation test, the heap, or any float in this function.
+///
+/// **The traversal itself stays sequential and must.** Its heap pops in a
+/// float-comparison order the goldens depend on; only *independent sources*
+/// (whole separate calls) may be parallelised, which is what the three
+/// `par_iter()` call sites below do.
+#[allow(clippy::too_many_arguments)]
 fn road_dijkstra(
     cost: &[f32],
     gw: usize,
@@ -5333,7 +5373,8 @@ fn road_dijkstra(
     sx: usize,
     sy: usize,
     world: bool,
-    edge_cost: Option<&dyn Fn(usize, usize, isize, isize) -> f64>,
+    edge_cost: Option<&(dyn Fn(usize, usize, isize, isize) -> f64 + Sync)>,
+    want_prev: bool,
 ) -> (Vec<f32>, Vec<i32>) {
     // Bit-identical to the reference's own literal `1.4142135623730951`
     // (both parse to the same nearest f64) -- named per clippy's
@@ -5341,7 +5382,7 @@ fn road_dijkstra(
     const SQ2: f64 = std::f64::consts::SQRT_2;
     let n = gw * gh;
     let mut dist = vec![f32::INFINITY; n];
-    let mut prev = vec![-1i32; n];
+    let mut prev = if want_prev { vec![-1i32; n] } else { Vec::new() };
     let mut heap = DijkstraHeap::with_capacity(n);
     let si = sy * gw + sx;
     dist[si] = 0.0;
@@ -5387,7 +5428,9 @@ fn road_dijkstra(
                 let nd = d + step;
                 if nd < dist[j] as f64 {
                     dist[j] = nd as f32;
-                    prev[j] = i as i32;
+                    if want_prev {
+                        prev[j] = i as i32;
+                    }
                     heap.push(nd, j);
                 }
             }
@@ -5441,7 +5484,7 @@ pub fn build_road_network(
     for place in places {
         let sx = place.x.min(gw - 1);
         let sy = place.y.min(gh - 1);
-        let (dist, prev) = road_dijkstra(cost, gw, gh, sx, sy, world, None);
+        let (dist, prev) = road_dijkstra(cost, gw, gh, sx, sy, world, None, true);
         dists.push(dist);
         prevs.push(prev);
     }
@@ -5896,9 +5939,23 @@ pub fn civ_hierarchical_network_topology(
             civ_snap_finite(&cost1, rw, rh, rx, ry, 6)
         })
         .collect();
+    // The `n` sources are independent whole Dijkstras, so they fan out;
+    // `road_dijkstra`'s own traversal stays sequential (a documented hard
+    // hazard). `par_iter().collect()` over the indexed `rp1` writes each
+    // result into its own source's slot, so `res1` is in exactly the order
+    // the sequential `.iter()` produced -- which is what keeps Prim's
+    // `best[i] < bd` tie-breaks, and so the goldens, identical.
+    //
+    // R8: every `dist` read below is `res1[u].0[rp1[v]]` -- a settlement's
+    // own routing cell, never an arbitrary one -- so each source keeps only
+    // its `n` probes and the whole `rw * rh` grid dies inside the closure.
+    // `prev` has to stay whole: `civ_trace_path` walks it from any source.
     let res1: Vec<(Vec<f32>, Vec<i32>)> = rp1
-        .iter()
-        .map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world, None))
+        .par_iter()
+        .map(|&ri| {
+            let (dist, prev) = road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world, None, true);
+            (rp1.iter().map(|&t| dist[t]).collect(), prev)
+        })
         .collect();
 
     {
@@ -5934,7 +5991,9 @@ pub fn civ_hierarchical_network_topology(
                 if in_tree[v] {
                     continue;
                 }
-                let d = res1[u].0[rp1[v]] as f64;
+                // R8: `.0` is now the per-settlement probe row, indexed by
+                // settlement id, not the whole routing grid.
+                let d = res1[u].0[v] as f64;
                 if d.is_finite() && d < best[v] {
                     best[v] = d;
                     from[v] = u as i32;
@@ -5942,6 +6001,12 @@ pub fn civ_hierarchical_network_topology(
             }
         }
     }
+    // R8, the other half: `res1` is read nowhere after pass 1, but it was
+    // declared at function scope, so it stayed resident alongside the equally
+    // large `res2` for the rest of the call. Releasing it here means the two
+    // passes' predecessor trees are never both alive. The compiler enforces
+    // the precondition -- a later read of `res1` would not build.
+    drop(res1);
 
     // --- PASS 2: reuse cost -> fill minimum degree by tier ---
     let mut cost2 = civ_enhanced_travel_cost(
@@ -5967,9 +6032,13 @@ pub fn civ_hierarchical_network_topology(
             civ_snap_finite(&cost2, rw, rh, rx, ry, 6)
         })
         .collect();
+    // Same two changes as pass 1's `res1`, for the same two reasons.
     let res2: Vec<(Vec<f32>, Vec<i32>)> = rp2
-        .iter()
-        .map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world, None))
+        .par_iter()
+        .map(|&ri| {
+            let (dist, prev) = road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world, None, true);
+            (rp2.iter().map(|&t| dist[t]).collect(), prev)
+        })
         .collect();
 
     let mut edge_set: std::collections::HashSet<usize> = all_edges
@@ -6002,7 +6071,7 @@ pub fn civ_hierarchical_network_topology(
             if bi == ai {
                 continue;
             }
-            let d = res2[ai].0[rp2[bi]] as f64;
+            let d = res2[ai].0[bi] as f64;
             if d.is_finite() {
                 by_dist.push((bi, d));
             }
@@ -6030,7 +6099,7 @@ pub fn civ_hierarchical_network_topology(
     // --- PASS 3: shortcut edges (detour relief) ---
     {
         let edge_cost = |a: usize, b: usize| -> f64 {
-            let d = res2[a].0[rp2[b]] as f64;
+            let d = res2[a].0[b] as f64;
             if d.is_finite() { d } else { f64::INFINITY }
         };
         let mut edge_list: Vec<(usize, usize, f64)> = all_edges
@@ -6256,7 +6325,9 @@ fn territory_sweep(
         if !s.placement.capital {
             continue;
         }
-        let (dist, _prev) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, None);
+        // R7: this sweep only ever read `dist`; `want_prev: false` stops the
+        // `4 * gw * gh` predecessor grid being built and dropped per capital.
+        let (dist, _) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world, None, false);
         let weight = territory_weight(s.pop);
         // One capital's Dijkstra pass at a time, same order as before
         // (needed: the running per-cell min IS meant to compare across
@@ -7701,12 +7772,21 @@ pub fn civ_sea_routes(
             }
         }
     });
-    let edge_cost: Option<&dyn Fn(usize, usize, isize, isize) -> f64> =
-        edge_fn.as_ref().map(|f| f as &dyn Fn(usize, usize, isize, isize) -> f64);
+    let edge_cost: Option<&(dyn Fn(usize, usize, isize, isize) -> f64 + Sync)> = edge_fn
+        .as_ref()
+        .map(|f| f as &(dyn Fn(usize, usize, isize, isize) -> f64 + Sync));
 
+    // Same two changes as milestone 12's own two passes: independent sources
+    // fan out (order preserved by `par_iter().collect()` over the indexed
+    // `rp`, which the MST's tie-breaks depend on), and each source keeps only
+    // the `n` port probes `results[u].0[rp[v]]` ever reads. `prev` stays
+    // whole for `civ_trace_path`.
     let results: Vec<(Vec<f32>, Vec<i32>)> = rp
-        .iter()
-        .map(|&ri| road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world, edge_cost))
+        .par_iter()
+        .map(|&ri| {
+            let (dist, prev) = road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world, edge_cost, true);
+            (rp.iter().map(|&t| dist[t]).collect(), prev)
+        })
         .collect();
 
     // Prim's MST using Dijkstra distances (same loop shape as milestone
@@ -7744,7 +7824,8 @@ pub fn civ_sea_routes(
             if in_tree[v] {
                 continue;
             }
-            let d = results[u].0[rp[v]] as f64;
+            // `.0` is the per-port probe row, indexed by port id (R8).
+            let d = results[u].0[v] as f64;
             if d.is_finite() && d < best[v] {
                 best[v] = d;
                 from[v] = u as i32;
@@ -7763,14 +7844,14 @@ pub fn civ_sea_routes(
         } else {
             f64::INFINITY
         };
-        for u in 0..n {
+        for (u, res) in results.iter().enumerate() {
             let mut bv: i32 = -1;
             let mut bd = cap;
             for v in 0..n {
                 if v == u {
                     continue;
                 }
-                let d = results[u].0[rp[v]] as f64;
+                let d = res.0[v] as f64;
                 if d.is_finite() && d < bd {
                     bd = d;
                     bv = v as i32;
@@ -15877,7 +15958,14 @@ mod tests {
     fn road_dijkstra_flat_grid_diagonal_uses_sqrt2() {
         // 3x3 flat land, cost=1 everywhere. Source at (0,0).
         let cost = vec![1.0f32; 9];
-        let (dist, _prev) = road_dijkstra(&cost, 3, 3, 0, 0, false, None);
+        let (dist, no_prev) = road_dijkstra(&cost, 3, 3, 0, 0, false, None, false);
+        // R7's whole claim, asserted rather than argued: `prev` is written
+        // and never read inside `road_dijkstra`, so not building it returns
+        // an empty `Vec` and leaves `dist` bit-for-bit identical.
+        assert!(no_prev.is_empty(), "want_prev: false must return an empty prev");
+        let (dist_with_prev, prev) = road_dijkstra(&cost, 3, 3, 0, 0, false, None, true);
+        assert_eq!(dist, dist_with_prev, "want_prev must not perturb dist");
+        assert_eq!(prev.len(), 9, "want_prev: true still builds the whole prev grid");
         assert!((dist[0] - 0.0).abs() < 1e-6, "source distance should be 0");
         assert!(
             (dist[1] - 1.0).abs() < 1e-5,
@@ -15896,13 +15984,43 @@ mod tests {
     fn road_dijkstra_impassable_water_stays_unreachable() {
         // 1x3 strip, middle cell impassable -> the far end is unreachable from the source.
         let cost = vec![1.0f32, f32::INFINITY, 1.0f32];
-        let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false, None);
+        let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false, None, true);
         assert!((dist[0] - 0.0).abs() < 1e-6);
         assert!(
             dist[2].is_infinite(),
             "cell past an infinite-cost barrier should stay unreachable"
         );
         assert_eq!(prev[2], -1);
+    }
+
+    /// R5's storage change (`i64`/`i64`/`f64` -> `i32`/`i32`/`u32`) pinned
+    /// where it can actually be seen: JFA with a single seed is *exactly*
+    /// Euclidean, so every cell has a closed-form answer that does not
+    /// depend on the propagation order, and the two values that carry the
+    /// whole bit-identity argument are checked directly -- a `d2` that is a
+    /// perfect square (`sqrt` exact in both forms) and one that is not.
+    #[test]
+    fn jfa_dist_is_exact_euclidean_from_one_seed_and_flags_a_seedless_grid() {
+        // 5x5, sole seed at (0,0).
+        let mut mask = vec![0u8; 25];
+        mask[0] = 1;
+        let d = jfa_dist(&mask, 5, 5);
+
+        assert_eq!(d[0], 0.0, "the seed cell itself is at distance 0");
+        // (3,4): d2 = 9 + 16 = 25, a perfect square -> exactly 5.0.
+        assert_eq!(d[4 * 5 + 3], 5.0, "3-4-5 triangle must land exactly on 5.0");
+        // (2,2): d2 = 8 -> sqrt(8), which is where an f64-vs-u32 storage
+        // slip would show up first if `d2` were not held exactly.
+        assert_eq!(d[2 * 5 + 2], (8.0f64).sqrt() as f32, "sqrt(8) must be bit-identical");
+        // The far corner (4,4) proves the halving passes actually reached
+        // it rather than leaving it on the sentinel.
+        assert_eq!(d[24], (32.0f64).sqrt() as f32, "far corner must be reached, not sentinel");
+
+        // No seed anywhere: every cell keeps `sx == -1` and takes the
+        // `1e9` branch -- the `u32::MAX` sentinel must never leak out as a
+        // distance of its own.
+        let empty = jfa_dist(&[0u8; 25], 5, 5);
+        assert!(empty.iter().all(|&v| v == 1e9), "a seedless grid is all 1e9");
     }
 
     /// `civ_swamp_penalty`/`civ_river_crossing_cost` -- `DECISIONS.md` §7i's
@@ -16310,7 +16428,8 @@ mod tests {
         // Brute force: every capital's own effective distance field.
         let mut eff: Vec<(i32, Vec<f64>)> = Vec::new();
         for s in &settlements {
-            let (dist, _) = road_dijkstra(&cost, gw, gh, s.placement.x, s.placement.y, false, None);
+            let (dist, _) =
+                road_dijkstra(&cost, gw, gh, s.placement.x, s.placement.y, false, None, false);
             let w = territory_weight(s.pop);
             eff.push((s.placement.faction, dist.iter().map(|&d| d as f64 / w).collect()));
         }

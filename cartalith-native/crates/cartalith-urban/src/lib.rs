@@ -50,22 +50,33 @@
 //! subsystem at all: a town is generated on demand, per settlement, never as
 //! a generation stage.
 
+pub mod amenities;
 pub mod astar;
 pub mod blocks;
+pub mod cleanup;
+pub mod districts;
+pub mod fortify;
 pub mod geom;
 pub mod graph;
 pub mod growth;
+pub mod hinterland;
 pub mod plaza;
+pub mod radial;
 pub mod rng;
 pub mod routes;
 pub mod rules;
 pub mod site;
+pub mod water;
 
 pub use astar::astar;
 pub use blocks::{Block, Parcel, build_blocks, build_parcels};
 pub use plaza::{Plaza, build_plaza};
 pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
 pub use graph::{Edge, Face, Graph, Node};
+pub use hinterland::{
+    Decay, Detail, DetailGeom, FarmSpec, Metrics, apply_decay, build_details, build_farmland,
+    compute_metrics, crosses_street, farm_spec, ring_fields, strip_fields,
+};
 pub use growth::{
     Gate, GrowOpts, HarbourFront, Occupancy, RecordingWallBuilder, WallBuilder, WallGeneration,
     WallState, dist_to_line, estimate_carrying_capacity, grow, logistic_ramp, ring_crossings,

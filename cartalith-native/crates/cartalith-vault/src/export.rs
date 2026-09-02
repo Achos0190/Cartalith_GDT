@@ -13,14 +13,25 @@
 //! list, not offered-and-blank — a blank row in someone's note is a small lie
 //! about the world.
 //!
-//! ## What §19 lists and this does not carry
+//! ## §19's Map group (added 2026-09-02, milestone 2)
 //!
-//! §19's Map group (immediate/local/regional snapshot) and its
-//! *Open-in-Cartalith link* are absent. The snapshot is §21, a renderer
-//! concern, and `MARKDOWN_VAULT_SCOPE.md` holds it as its own milestone; the
-//! open-in link is `obsidian://`-adjacent URL-scheme registration, which the
-//! owner's 2026-08-18 clarification put outside the core. Both are named in
-//! the scope document rather than stubbed here.
+//! [`MAP_RADII`] and the three `map_*` fields are §21's immediate/local/
+//! regional snapshot. The *rendering* stays out of this crate — that is a
+//! `cartalith-godot` concern and `vault_bridge.rs`'s `vault_snapshot` owns
+//! it — so what lives here is only the vocabulary and the values, which is
+//! the same split every other field already has.
+//!
+//! A Map field's **value is a Markdown image**, `![](relative/path.png)`,
+//! written by the caller from the path `LinkStore::snapshot` remembers. §22
+//! forbids base64-embedding the image itself and this obeys that; the path is
+//! relative to the vault root, so the note stays readable after the vault is
+//! copied to another machine (§5).
+//!
+//! ## What §19 lists and this still does not carry
+//!
+//! §19's *Open-in-Cartalith link* is absent: it is `obsidian://`-adjacent
+//! URL-scheme registration, which the owner's 2026-08-18 clarification put
+//! outside the core. Named in the scope document rather than stubbed here.
 
 use crate::links::EntityKind;
 
@@ -103,7 +114,42 @@ pub const FIELDS: &[ExportField] = &[
     ExportField { key: "imports", group: "Infrastructure", label: "Imports", kinds: S },
     ExportField { key: "river_order", group: "Infrastructure", label: "River order", kinds: S },
     ExportField { key: "settlements", group: "Infrastructure", label: "Settlements", kinds: PF },
+    // §19's Map group — milestone 2. Offered only to the kinds that resolve
+    // to a coordinate (`PLACED`), and, like every other field, only once the
+    // caller has a value: `offer`'s availability test is what keeps these out
+    // of the checkbox list until a snapshot has actually been written, so the
+    // note can never carry a link to an image that is not there.
+    ExportField { key: "map_immediate", group: "Map", label: "Immediate map", kinds: PLACED },
+    ExportField { key: "map_local", group: "Map", label: "Local map", kinds: PLACED },
+    ExportField { key: "map_regional", group: "Map", label: "Regional map", kinds: PLACED },
 ];
+
+/// §21's three radii: `(field key, radius name, half-width in km)`.
+///
+/// **In kilometres, not in cells.** A cell is a different real distance in
+/// every world — `map_width_km / gw` — so a radius in cells would make
+/// "immediate" mean a village's fields on one map and a whole province on the
+/// next. The caller converts through its own cell size and clamps; this table
+/// is the vocabulary, and it lives here rather than in the bridge for §19's
+/// own reason: *"Exportable information shall not be hardcoded into the
+/// Markdown UI."*
+///
+/// The three numbers are a walk, a day's ride and a week's travel, which is
+/// the scale §21's own words ("Immediate / Local / Regional") describe. §21
+/// says *"the exact radius/scale may be configurable"*; it is not yet, and
+/// that is a scope line rather than an oversight.
+pub const MAP_RADII: &[(&str, &str, f64)] =
+    &[("map_immediate", "immediate", 10.0), ("map_local", "local", 50.0), ("map_regional", "regional", 250.0)];
+
+/// The radius name behind a Map field key, or `None` for every other field.
+pub fn map_radius(key: &str) -> Option<&'static str> {
+    MAP_RADII.iter().find(|(k, _, _)| *k == key).map(|(_, r, _)| *r)
+}
+
+/// The Map field key for a radius name — [`map_radius`] the other way round.
+pub fn map_field(radius: &str) -> Option<&'static str> {
+    MAP_RADII.iter().find(|(_, r, _)| *r == radius).map(|(k, _, _)| *k)
+}
 
 // There is deliberately no `continent` field for a settlement or a province,
 // though §19's Geography group would want one. Answering "which landmass is
@@ -182,6 +228,48 @@ mod tests {
         for (k, _) in AUTHOR_FIELDS {
             assert!(field(k).is_some(), "{k} maps an author field but is not in the registry");
         }
+    }
+
+    /// Milestone 2's Map group, from the three sides that have a wrong answer
+    /// available: a culture is not a place and must never be offered a map; a
+    /// placed entity with no snapshot yet must not be offered a blank one
+    /// (§20); and the two lookups must agree with the table they read.
+    #[test]
+    fn the_map_group_is_offered_only_to_places_that_have_a_snapshot() {
+        for (key, radius, km) in MAP_RADII {
+            assert!(field(key).is_some(), "{key} is a radius with no registry row");
+            assert_eq!(map_radius(key), Some(*radius));
+            assert_eq!(map_field(radius), Some(*key));
+            assert!(*km > 0.0);
+        }
+        assert_eq!(map_radius("population"), None);
+        assert_eq!(map_field("planetary"), None);
+
+        // A culture has no coordinate, so no radius means anything for it.
+        let culture = offer(EntityKind::Culture, &|_| true);
+        for (key, _, _) in MAP_RADII {
+            assert!(culture.iter().all(|f| f.key != *key), "a culture was offered {key}");
+        }
+        // A settlement with no snapshot written is not offered a blank row...
+        let none_yet = offer(EntityKind::Settlement, &|k| map_radius(k).is_none());
+        for (key, _, _) in MAP_RADII {
+            assert!(none_yet.iter().all(|f| f.key != *key), "{key} was offered with no image behind it");
+        }
+        // ...and is, once one exists.
+        let one = offer(EntityKind::Settlement, &|k| k != "map_regional");
+        assert!(one.iter().any(|f| f.key == "map_local"));
+        assert!(one.iter().all(|f| f.key != "map_regional"));
+
+        // The block puts them under one **Map** header, after Infrastructure.
+        let body = render_body("Cartalith", &["name".into(), "map_local".into()], &|k| match k {
+            "name" => Some("Nareth".into()),
+            "map_local" => Some("![](.cartalith/maps/settlement_42_local.png)".into()),
+            _ => None,
+        });
+        assert_eq!(
+            body,
+            "\n## Cartalith\n\n**Identity**\n- Name: Nareth\n\n**Map**\n- Local map: ![](.cartalith/maps/settlement_42_local.png)\n"
+        );
     }
 
     #[test]

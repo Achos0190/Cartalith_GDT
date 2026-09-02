@@ -14,7 +14,7 @@ use cartalith_engine::staleness::{pipeline_stage_graph, recompute_stale, Pipelin
 use cartalith_engine::{generate_terrain, WorldParams, WorldStructureParams};
 use godot::classes::image::Format;
 use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
-use godot::init::{ExtensionLibrary, gdextension};
+use godot::init::{ExtensionLibrary, InitStage, gdextension};
 use godot::prelude::*;
 
 mod asset_bridge;
@@ -54,7 +54,117 @@ use rayon::prelude::*;
 struct CartalithExtension;
 
 #[gdextension]
-unsafe impl ExtensionLibrary for CartalithExtension {}
+unsafe impl ExtensionLibrary for CartalithExtension {
+    /// Install a `log` backend, so `wgpu`'s diagnostics reach somebody.
+    ///
+    /// `wgpu` reports through the `log` facade -- which adapter it selected,
+    /// why a device request failed, every Vulkan validation message. Until
+    /// this existed, no crate in this workspace had ever registered a `log`
+    /// backend (`env_logger`, `android_logger`, `log::set_logger` and
+    /// `simple_logger` all returned nothing across `crates/`), so every one
+    /// of those lines went to `log`'s default no-op, on **every** platform.
+    ///
+    /// That is not cosmetic. `ANDROID_BUILD_SCOPE.md`'s device passes treat
+    /// *zero `wgpu` lines in logcat* as a PASS condition proving the handset
+    /// ran the CPU pipeline -- and with no logger installed that condition
+    /// could not fail, so it proved nothing, and every "Android runs pure
+    /// CPU" claim descending from it was unfalsifiable. Meanwhile `wgpu`,
+    /// `wgpu-hal` and `ash` **are** compiled into the shipped arm64 `.so`
+    /// (scanned for it: `vkCreateInstance`, `vkGetInstanceProcAddr` and
+    /// `libvulkan.so` are all present in
+    /// `target/aarch64-linux-android/release/libcartalith_godot.so`), no
+    /// `cfg(target_os = "android")` gates the GPU crate off anywhere in the
+    /// workspace, and `engine_bridge.gd::_ready` sets `use_gpu` on at boot.
+    /// The phone has been asking for a GPU with no way to observe the answer.
+    ///
+    /// Run for every init stage rather than matched against one: both
+    /// registrations are idempotent, so a repeat costs a failed atomic swap
+    /// and nothing else, and neither can panic. gdext does catch a panic
+    /// here, but a logger that took the process down on the editor's second
+    /// load of this library would be a poor trade for a diagnostic.
+    fn on_stage_init(_stage: InitStage) {
+        install_logger();
+    }
+}
+
+/// Default verbosity for the logger installed above.
+///
+/// `Info` reaches `wgpu-hal`'s instance and adapter reporting -- the lines
+/// that answer which backend opened -- plus every `warn!`/`error!` above it,
+/// without `Debug`'s per-dispatch volume. It has to be informative with no
+/// environment set, because the Android device pass has no way to set one.
+const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
+
+/// `RUST_LOG` read as a bare level name (`off`/`error`/`warn`/`info`/`debug`/
+/// `trace`, case-insensitive -- `LevelFilter`'s own `FromStr`), falling back
+/// to [`DEFAULT_LOG_LEVEL`] when it is unset or unparseable.
+///
+/// Deliberately not `env_logger`'s per-module filter grammar: that is a
+/// dependency (and a desktop build that grows) for a string only a desktop
+/// run can supply, and an unparseable value must degrade to the default
+/// rather than to silence.
+fn log_level_from_env() -> log::LevelFilter {
+    std::env::var("RUST_LOG").ok().and_then(|s| s.trim().parse().ok()).unwrap_or(DEFAULT_LOG_LEVEL)
+}
+
+/// The desktop backend: one `stderr` line per record.
+///
+/// **Not** `godot_print!`, and that is a correctness decision rather than a
+/// stylistic one. Generation runs on a `Thread` (`engine_bridge.gd`) and
+/// `wgpu` logs from whichever thread dispatched, while this build does not
+/// enable gdext's `experimental-threads` -- so a logger that called into
+/// Godot would reach the engine off the main thread from inside a `log!`
+/// macro invoked by a dependency, which is exactly the panic-crossing-the-
+/// boundary failure `cartalith-rust-conventions` exists to prevent, in the
+/// one place nothing in this crate could see it coming. `eprintln!` is
+/// thread-safe, needs no dependency at all, and lands in the console
+/// `Cartalith.console.exe` already opens.
+///
+/// The target is printed because it is the provenance: `wgpu_hal::vulkan` in
+/// the line is what makes "was this run on the GPU" greppable.
+#[cfg(not(target_os = "android"))]
+struct StderrLogger;
+
+#[cfg(not(target_os = "android"))]
+impl log::Log for StderrLogger {
+    fn enabled(&self, meta: &log::Metadata) -> bool {
+        meta.level() <= log::max_level()
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            eprintln!("[{} {}] {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+#[cfg(not(target_os = "android"))]
+static STDERR_LOGGER: StderrLogger = StderrLogger;
+
+/// Desktop registration. `log::set_logger` returns `Err` on a second call and
+/// never panics, so that `is_ok()` **is** the once-only guard -- no `Once`
+/// needed. The level is set only on the first success, so a library reload
+/// cannot quietly lower a level a running session already raised.
+#[cfg(not(target_os = "android"))]
+fn install_logger() {
+    if log::set_logger(&STDERR_LOGGER).is_ok() {
+        log::set_max_level(log_level_from_env());
+    }
+}
+
+/// Android registration, reaching logcat through liblog.
+///
+/// No `with_tag`: left alone, `android_logger` uses the record's own module
+/// path as the logcat tag, so a `wgpu-hal` line arrives tagged
+/// `wgpu_hal::vulkan::instance`. That is the provenance the device pass
+/// greps for, and setting a tag of our own would erase it from the tag and
+/// bury it in the message body instead.
+#[cfg(target_os = "android")]
+fn install_logger() {
+    android_logger::init_once(android_logger::Config::default().with_max_level(log_level_from_env()));
+}
 
 /// Placeholder GDExtension class for the Phase 0 walking skeleton.
 #[derive(GodotClass)]
@@ -2242,6 +2352,15 @@ struct WorldGen {
     /// Unlike `civ`, `last` is never auto-computed — the dock's own "Run
     /// landmark pass" button is the only writer.
     landmark_store: cartalith_civ::landmark::LandmarkStore,
+
+    /// Why the last `landmark_run()` refused, empty when it did not.
+    ///
+    /// A plain `String` rather than the `GString` it eventually becomes,
+    /// because `landmark_run()` runs on the shell's worker thread and may
+    /// not construct a Godot value there — see its doc comment. It is read
+    /// back and turned into the reply by `landmark_last_run()`, on the main
+    /// thread. Not saved: it describes one press, not the world.
+    landmark_error: String,
 }
 
 #[godot_api]
@@ -2293,6 +2412,7 @@ impl IRefCounted for WorldGen {
             vault: cartalith_vault::VaultSession::new(),
             wildlife: None,
             landmark_store: cartalith_civ::landmark::LandmarkStore::new(),
+            landmark_error: String::new(),
         }
     }
 }
@@ -2503,6 +2623,14 @@ impl WorldGen {
         // (`vault_info()`), not world state. See `load_save`'s copy of this
         // clear for the longer version.
         self.vault.store.links.clear();
+        // `snapshots` is world state too and must clear with `links`. Added
+        // 2026-09-02: milestone 2 put snapshots in `LinkStore` without adding
+        // them here, so a snapshot filed against world A's `settlement:1`
+        // survived into world B -- `export::offer` then put a Map checkbox in
+        // front of B's settlement and `project_save_with_documents` wrote A's
+        // path into B's `vault.json`. Any future member of `LinkStore` that is
+        // world state belongs in this clear as well.
+        self.vault.store.snapshots.clear();
     }
 
     /// Stores a finished generation: the effective sea level, the render
@@ -3059,6 +3187,28 @@ impl WorldGen {
                 }
             })
             .collect()
+    }
+
+    /// The backend the **last generation actually opened** — `"vulkan"`,
+    /// `"dx12"`, `"metal"`, `"gl"` — or `""` when it opened no GPU device at
+    /// all and the run went to the CPU.
+    ///
+    /// Measured, not inferred, and that distinction is the reason it exists.
+    /// `menus.gd::_active_backend` reads `gpu_enumerate_devices` and reports
+    /// the backend a device request *would* prefer; it cannot notice that the
+    /// request landed elsewhere, or that it opened nothing. On Android that is
+    /// the whole question — the GPU crate is compiled into the shipped `.so`
+    /// with no `cfg` gating it off, and `engine_bridge.gd::_ready` turns
+    /// `use_gpu` on at boot, so "the handset runs the CPU pipeline" is a claim
+    /// nothing in the app could check until this.
+    ///
+    /// `""` before the first generation of the session as well. Read it beside
+    /// `get_gpu_stages_used`, which separates the two failures that look alike
+    /// from outside: no device opened at all, versus a device that opened and
+    /// then had every stage fall back to the CPU anyway.
+    #[func]
+    fn gpu_last_backend(&self) -> GString {
+        cartalith_gpu::last_backend().unwrap_or_default().into()
     }
 
     /// Whether a GPU buffer readback has failed at all this session.
@@ -4050,6 +4200,8 @@ impl WorldGen {
         // which calls this function first), so an archive that carries a
         // `vault.json` still wins.
         self.vault.store.links.clear();
+        // World state, same as `links` -- see `absorb()`'s clear for why.
+        self.vault.store.snapshots.clear();
         // Same reasoning as `absorb()`'s own clear: an undo step holds the
         // *previous* world's height field, which is the wrong content and
         // possibly the wrong length over a loaded save.
@@ -13450,25 +13602,48 @@ impl WorldGen {
 
     /// Runs the landmark placement pass over the current world and current
     /// settings — `LANDMARK_UI_DESIGN.md` §9.1 row 15's "Run landmark
-    /// pass" button. Synchronous and blocking, following
-    /// `civilization_workspace.gd:1154`'s own busy-state pattern (relabel
-    /// -> disable -> two frames -> this call -> result note) rather than a
-    /// worker thread: `engine_bridge.gd`'s `generating` flag is what must
-    /// keep this from ever being reached while a full `generate()` worker
-    /// thread holds this object mutably borrowed (`Gd<T>::bind() failed,
-    /// already bound` — `engine_bridge.gd`'s own `_gpu_read` doc comment,
-    /// around its `generating` guard block, has the 360-panic measurement
-    /// that established the rule this follows; this function does not
-    /// re-check that flag itself, since gdext gives it no way to observe
-    /// GDScript-side state, and does not need to — the borrow itself is
-    /// gdext's own enforcement).
+    /// pass" button.
     ///
-    /// Returns `{ok:bool, placed:int, seconds:float, error:String,
-    /// funnels:Array}`. Refuses (`ok:false`, the rest at their zero value)
-    /// for a loaded save or a session with no generated world yet —
+    /// # This runs on a worker thread, and that is why it returns a bare
+    /// `bool`
+    ///
+    /// It shipped synchronous on 2026-08-30, and the owner reported the
+    /// consequence on 2026-09-01: *"the new point of interest function
+    /// seems to make the program freeze"*. It is seconds of full-raster
+    /// terrain analysis (1.2 s at 1024x768, 4.4 s at the shipping 2048
+    /// default, 23 s at 4096, measured by `_poifreeze_probe.gd`), and on
+    /// the main thread the window served **zero** frames for all of it.
+    /// `engine_bridge.gd::landmark_run()` now calls this from a `Thread`,
+    /// the same way it has always called `generate_sized`.
+    ///
+    /// **So this function must not construct a single Godot value.** Without
+    /// gdext's `experimental-threads` feature, every `interface_fn!` — which
+    /// is every `Dictionary`, `Array` and `GString` operation — goes through
+    /// `sys::get_binding()`, whose `ensure_main_thread()` panics off the main
+    /// thread (`godot-ffi/src/binding/single_threaded.rs`). The first cut of
+    /// this fix left the `dict!{…}` reply here and produced exactly that:
+    /// *"attempted to access binding from different thread than main thread;
+    /// this is UB"*, once per press, with the pass itself completing and its
+    /// reply arriving as nulls. Primitives in, primitive out — the same
+    /// shape `generate_sized` has always had, which is why that one has
+    /// been thread-safe all along.
+    ///
+    /// The reply (`{ok, placed, seconds, error, funnels}`) is built by
+    /// [`Self::landmark_last_run`], which the shell calls back on the main
+    /// thread. Refuses (`false`, with the reason in `landmark_error`) for a
+    /// loaded save or a session with no generated world yet —
     /// `SAVEFILE_COMPAT.md` stores no substrate to place landmarks over,
     /// the same restriction `recompute_civilisation` states for the same
     /// reason.
+    ///
+    /// `engine_bridge.gd`'s `generating` flag is still what keeps this from
+    /// ever running while a full `generate()` holds this object mutably
+    /// borrowed (`Gd<T>::bind() failed, already bound` — `engine_bridge.gd`'s
+    /// own `_gpu_read` doc comment has the 360-panic measurement); it now
+    /// *sets* that same flag for this pass too, so the traffic runs both
+    /// ways. This function does not re-check it, since gdext gives it no way
+    /// to observe GDScript-side state, and does not need to — the borrow
+    /// itself is gdext's own enforcement.
     ///
     /// Assembles `cartalith_civ::landmark::LandmarkInputs` from this
     /// world's own state: the required six straight off `WorldState`/
@@ -13484,22 +13659,34 @@ impl WorldGen {
     /// rule" handles by reporting `NoTerrain` for the kinds that needed
     /// them — never a panic, never an invented placement.
     #[func]
-    fn landmark_run(&mut self) -> VarDictionary {
-        let refuse = |error: &str| -> VarDictionary {
-            dict! {
-                "ok" => false, "placed" => 0i64, "seconds" => 0.0,
-                "error" => error, "funnels" => &Array::<VarDictionary>::new(),
+    fn landmark_run(&mut self) -> bool {
+        match self.landmark_run_inner() {
+            Ok(()) => {
+                self.landmark_error.clear();
+                true
             }
-        };
+            Err(reason) => {
+                self.landmark_error = reason;
+                false
+            }
+        }
+    }
+
+    /// [`Self::landmark_run`]'s whole body, split out only so the refusals
+    /// can be `Err(String)` rather than a mutation of `self` in the middle
+    /// of an outstanding `self.source` borrow. Not a `#[func]`, and builds
+    /// nothing Godot-shaped — see the caller for why that is the rule here.
+    fn landmark_run_inner(&mut self) -> Result<(), String> {
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
-            return refuse(
-                "Landmark generation needs a generated world; a loaded save carries no substrate to place landmarks over (SAVEFILE_COMPAT.md).",
+            return Err(
+                "Landmark generation needs a generated world; a loaded save carries no substrate to place landmarks over (SAVEFILE_COMPAT.md)."
+                    .to_string(),
             );
         };
         let gwu = self.gw.max(0) as usize;
         let ghu = self.gh.max(0) as usize;
         if gwu == 0 || ghu == 0 || ws.field.len() != gwu * ghu {
-            return refuse("No world.");
+            return Err("No world.".to_string());
         }
 
         let geology = self.civ.as_ref().map(|civ| {
@@ -13530,13 +13717,48 @@ impl WorldGen {
         inputs.settlements = &sites;
 
         let seed = self.seed as u64;
-        let result = self.landmark_store.run(&inputs, seed);
-        let placed = result.landmarks.len() as i64;
-        let seconds = result.seconds;
+        self.landmark_store.run(&inputs, seed);
+        Ok(())
+    }
+
+    /// The reply to the last [`Self::landmark_run`] — `{ok:bool, placed:int,
+    /// seconds:float, error:String, funnels:Array}`, the shape the panel has
+    /// always read.
+    ///
+    /// Split off it because `landmark_run` runs on the shell's worker thread
+    /// and may not touch a Godot value there; this is the main-thread half,
+    /// called from `engine_bridge.gd::_finish_landmark` through
+    /// `call_deferred`. `&self`, so it is a read like `landmarks()` and
+    /// `landmark_funnels()` beside it.
+    ///
+    /// `ok` is `true` only when the last run both left no refusal *and* left
+    /// a result behind: after a `generate`, an `absorb` or a project open,
+    /// `LandmarkStore::invalidate()` has dropped `last` and there is nothing
+    /// to report, which this states rather than reporting a hollow success.
+    #[func]
+    fn landmark_last_run(&self) -> VarDictionary {
+        let Some(result) = self.landmark_store.last.as_ref() else {
+            let error = if self.landmark_error.is_empty() {
+                "No landmark pass has run for this world."
+            } else {
+                self.landmark_error.as_str()
+            };
+            return dict! {
+                "ok" => false, "placed" => 0i64, "seconds" => 0.0,
+                "error" => error, "funnels" => &Array::<VarDictionary>::new(),
+            };
+        };
+        if !self.landmark_error.is_empty() {
+            return dict! {
+                "ok" => false, "placed" => 0i64, "seconds" => 0.0,
+                "error" => self.landmark_error.as_str(),
+                "funnels" => &Array::<VarDictionary>::new(),
+            };
+        }
         let funnels: Array<VarDictionary> = result.funnels.iter().map(landmark_funnel_dict).collect();
         dict! {
-            "ok" => true, "placed" => placed, "seconds" => seconds,
-            "error" => "", "funnels" => &funnels,
+            "ok" => true, "placed" => result.landmarks.len() as i64,
+            "seconds" => result.seconds, "error" => "", "funnels" => &funnels,
         }
     }
 

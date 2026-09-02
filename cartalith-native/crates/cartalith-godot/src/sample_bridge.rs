@@ -207,7 +207,7 @@ pub struct FieldRefs<'a> {
     pub rainfall: &'a [f32],
     pub flow_discharge: &'a [f32],
     pub stream_order: Option<&'a [i16]>,
-    pub plate_id: &'a [usize],
+    pub plate_id: &'a [u16],
     pub boundary_mask: &'a [u8],
     pub boundary_type: &'a [u8],
     pub stress_field: &'a [f32],
@@ -1832,7 +1832,7 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
             // has no such table, so plate ids get an evenly-spaced hue
             // through the reference's own `hsl` rather than a second
             // palette convention.
-            let np = f.plate_id.iter().copied().max().unwrap_or(0) + 1;
+            let np = f.plate_id.iter().copied().max().unwrap_or(0) as usize + 1;
             for i in 0..n {
                 let h = (f.plate_id[i] as f64 * 0.618_033_988_749_895) % 1.0;
                 let mut c = hsl(h, 0.46, 0.34 + 0.22 * (f.plate_id[i] as f64 / np.max(1) as f64));
@@ -2650,7 +2650,7 @@ mod tests {
         resist: Vec<f32>,
         volc: Vec<f32>,
         shear: Vec<f32>,
-        plate: Vec<usize>,
+        plate: Vec<u16>,
         mask: Vec<u8>,
         btype: Vec<u8>,
         wb: Vec<u8>,
@@ -2709,7 +2709,7 @@ mod tests {
             // straddles the same order of magnitude the reference's own
             // shear thresholds sit at.
             shear: (0..n).map(|i| (i % 8) as f32 / 7.0).collect(),
-            plate: (0..n).map(|i| i % 3).collect(),
+            plate: (0..n).map(|i| (i % 3) as u16).collect(),
             mask: (0..n).map(|i| u8::from(i % 11 == 0)).collect(),
             btype: (0..n).map(|i| (i % 6) as u8).collect(),
             terr: (0..n).map(|i| ((i % 7) as i32).min(6)).collect(),
@@ -2866,7 +2866,7 @@ mod tests {
         let n = 8 * 8;
         let flat = vec![0.6f32; n];
         let ones = vec![0.5f32; n];
-        let plate = vec![0usize; n];
+        let plate = vec![0u16; n];
         let mask = vec![0u8; n];
         let f = FieldRefs {
             gw: 8,
@@ -2922,7 +2922,7 @@ mod tests {
         let n = gw * gh;
         let field = vec![0.6f32; n];
         let ones = vec![0.5f32; n];
-        let plate = vec![0usize; n];
+        let plate = vec![0u16; n];
         let mut mask = vec![0u8; n];
         // Two seeds: (16,12) is 4 rows straight up; (20,16) is 4 columns
         // right. Both are Chebyshev 4, both Euclidean 4 -- so add a third
@@ -2982,7 +2982,7 @@ mod tests {
         let n = gw * gh;
         let field = vec![0.6f32; n];
         let ones = vec![0.5f32; n];
-        let plate = vec![0usize; n];
+        let plate = vec![0u16; n];
         let mask = vec![0u8; n];
         let f = FieldRefs {
             gw,

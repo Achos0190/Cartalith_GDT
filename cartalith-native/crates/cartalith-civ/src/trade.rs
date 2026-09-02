@@ -66,10 +66,25 @@
 //! [`wildlife`](crate::wildlife) do. There is no flow field on `CivData`,
 //! nothing is saved, and a second call on an unchanged world returns the
 //! same answer because every input is already-computed world state.
+//!
+//! ## Two more of `_civPlaceTrade`'s own sources (2026-09-01)
+//!
+//! `ECONOMY_SCOPE.md`'s two remaining unblocked ports land here rather than
+//! beside `civ_resource_trade_balance` in `lib.rs`, because both are
+//! per-settlement sources the reference's own `_civPlaceTrade` header names
+//! (line 24451: source **4. FUEL**, and v1.37's salt rule at 24538), and
+//! because [`civ_salt_access`] reads [`NavKind`], which lives here:
+//!
+//! - [`civ_place_smelting`] — `_civPlaceSmelting` (reference line 24208,
+//!   v1.31), the charcoal-limited iron constraint.
+//! - [`civ_salt_access`] — `_civSaltAccess` (24430, v1.37).
 
 use crate::timeline::{civ_catchment_pop, food_surplus_ratio, FARMERS_PER_URBANITE};
 use crate::urban_adapter::{um_site_kind_from_terrain, UrbanWorld};
-use crate::{civ_catchment_km2, NamedSettlement, TradeBalance, Way, CIV_RESOURCE_KEYS};
+use crate::{
+    civ_catchment_km2, civ_catchment_radius_cells, civ_place_resource_context, NamedSettlement,
+    ResourcePotentials, SettlementKind, TradeBalance, Way, BIOME_LAKE, CIV_RESOURCE_KEYS,
+};
 use cartalith_jsmath::{js_hypot, js_max, js_min, js_round};
 
 // ---------------------------------------------------------------- constants
@@ -957,6 +972,283 @@ impl WayRouter {
         }
         prev
     }
+}
+
+// ----------------------------------------------- per-settlement resource reads
+
+/// The already-computed world state [`civ_place_smelting`] and
+/// [`civ_salt_access`] read, gathered once instead of threaded through two
+/// nine- and ten-argument signatures — the same convention [`TradeInput`]
+/// and [`FoodShedInput`] already use in this module.
+///
+/// Every field stands in for a reference global the two functions reach for
+/// directly: `currentResourcePotentials()`, `field`, `buildBiomeRaster()`,
+/// `rainField`, `GW`/`GH`, `state.seaLevel`, `state.mapWidthKm`.
+/// [`civ_place_smelting`] never reads `biome`/`rain`, and
+/// [`civ_salt_access`] never reads `map_width_km`; both accept an empty
+/// slice for what they do not use, which reads as the reference's own
+/// "field absent" guard on that branch.
+pub struct PlaceWorld<'a> {
+    pub res: &'a ResourcePotentials,
+    pub field: &'a [f32],
+    /// [`crate::build_biome_raster`]'s output — `buildBiomeRaster()`.
+    pub biome: &'a [u8],
+    /// `rainField`, normalised `[0,1]`.
+    pub rain: &'a [f32],
+    pub gw: usize,
+    pub gh: usize,
+    pub sea: f64,
+    pub map_width_km: f64,
+}
+
+/// `CHARCOAL_PER_IRON_KG` (reference line 24203) — settlement-resources.md
+/// §10.2: 91 kg of charcoal per 13.5 kg of bloom.
+pub const CHARCOAL_PER_IRON_KG: f64 = 6.7;
+
+/// `CHARCOAL_KG_PER_HA_YR` (reference line 24204) — §10.3's conservative
+/// sustained coppice yield.
+///
+/// The reference declares a `CHARCOAL_KG_PER_HA_YR_MAX = 4000` beside it
+/// ("highly managed fast-growing coppice ceiling", line 24205). It is
+/// **not** ported, because it is dead in the reference too: a grep of the
+/// whole file finds the declaration and no reader. Recorded here rather
+/// than silently dropped.
+pub const CHARCOAL_KG_PER_HA_YR: f64 = 1000.0;
+
+/// `ORE_TO_BLOOM_RECOVERY` (reference line 24206) — §10.2: 41 kg of ore
+/// yields ~13.5 kg of bloom.
+pub const ORE_TO_BLOOM_RECOVERY: f64 = 0.33;
+
+/// `_CIV_ORE_KG_PER_HA_YR` (reference line 24207) — the reference's own
+/// `[D]` (derived, not sourced) figure for workable ore a hectare of a good
+/// deposit yields per year at potential 1.0.
+pub const ORE_KG_PER_HA_YR: f64 = 900.0;
+
+/// `_civPlaceSmelting`'s return (reference line 24209).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Smelting {
+    pub iron_kg_yr: f64,
+    pub charcoal_kg_yr: f64,
+    pub ore_kg_yr: f64,
+    pub woodland_ha: f64,
+    /// `"fuel"` or `"ore"` — the reference's own two literal strings, kept
+    /// as `&'static str` for the same reason [`FoodShed::limited_by`] is.
+    pub limited_by: &'static str,
+    /// Enough ore to matter, and woodland that cannot fire it — the Elba
+    /// case, whose attested response was to ship ore to fuel.
+    pub fuel_poor: bool,
+    /// The converse: fuel to spare and nothing to smelt, which makes the
+    /// settlement a charcoal *exporter*.
+    pub ore_rich: bool,
+    /// §10.3's land constraint — hectares of managed coppice this
+    /// settlement's smelting actually needs.
+    pub coppice_ha_needed: f64,
+}
+
+impl Default for Smelting {
+    /// The reference's own baseline object (reference line 24209), returned
+    /// unchanged by both its early-outs (`!field`, `!pots.iron`).
+    fn default() -> Self {
+        Smelting {
+            iron_kg_yr: 0.0,
+            charcoal_kg_yr: 0.0,
+            ore_kg_yr: 0.0,
+            woodland_ha: 0.0,
+            limited_by: "ore",
+            fuel_poor: false,
+            ore_rich: false,
+            coppice_ha_needed: 0.0,
+        }
+    }
+}
+
+/// `_civPlaceSmelting` (reference lines 24208-24239, v1.31):
+/// charcoal-limited iron over a settlement's own catchment.
+///
+/// **This closes `ECONOMY_SCOPE.md`'s milestone 1.** That document read the
+/// function in full in an earlier pass and did not port it, for one stated
+/// reason — `_CIV_CATCHMENT_KM2`/`_civCatchmentRadiusCells` did not exist
+/// here yet. They do ([`civ_catchment_km2`], [`civ_catchment_radius_cells`]),
+/// so this is the "clean, unblocked first slice" that document names.
+///
+/// The constraint itself is the interesting part and is the reference's,
+/// not this port's: smelting iron is gated by **fuel**, not ore. Both
+/// budgets are computed over the same catchment disc so they are
+/// comparable, and the binding one is reported.
+///
+/// Two things are deliberately *not* improved on
+/// (`cartalith-porting-discipline`: match the reference, do not fix it):
+///
+/// 1. **No world wrap.** The reference's own disc scan is
+///    `if(xx<0||xx>=GW) continue;` with no wrap correction, unlike
+///    [`crate::timeline::civ_catchment_density_mean`]'s. A settlement on the
+///    seam gets a clipped catchment, on both sides.
+/// 2. **`js_min`, not `f64::min`.** `Math.min` propagates `NaN`; Rust's
+///    absorbs it. A `NaN` reaching `iron_kg_yr` through a `NaN` resource
+///    cell must stay `NaN` rather than silently become the other budget —
+///    `cartalith-rust-conventions`' standing rule.
+///
+/// An `iron` field that is not `gw*gh` long reads as the reference's
+/// `!pots.iron` early-out (a fully-freed potential); a `timber` field that
+/// is not reads as its `if(pots.timber)` guard, leaving `woodland_ha` at
+/// zero — which makes the settlement maximally fuel-poor, exactly as the
+/// reference computes it.
+pub fn civ_place_smelting(w: &PlaceWorld, x: usize, y: usize, kind: SettlementKind) -> Smelting {
+    let mut out = Smelting::default();
+    let n = w.gw * w.gh;
+    if n == 0 || w.field.len() != n || w.res.iron.len() != n {
+        return out;
+    }
+    let cell_km = w.map_width_km / w.gw as f64;
+    let cell_ha = cell_km * cell_km * 100.0; // 1 km^2 = 100 ha
+    let rad = civ_catchment_radius_cells(civ_catchment_km2(kind), w.map_width_km, w.gw) as i64;
+    let r2 = rad * rad;
+    let (x0, y0) = (x as i64, y as i64);
+    let timber = if w.res.timber.len() == n { Some(&w.res.timber) } else { None };
+
+    let mut ore_ha = 0.0f64;
+    let mut wood_ha = 0.0f64;
+    for dy in -rad..=rad {
+        let yy = y0 + dy;
+        if yy < 0 || yy >= w.gh as i64 {
+            continue;
+        }
+        for dx in -rad..=rad {
+            if dx * dx + dy * dy > r2 {
+                continue;
+            }
+            let xx = x0 + dx;
+            if xx < 0 || xx >= w.gw as i64 {
+                continue;
+            }
+            let i = yy as usize * w.gw + xx as usize;
+            if (w.field[i] as f64) < w.sea {
+                continue;
+            }
+            ore_ha += f64::from(w.res.iron[i]) * cell_ha;
+            if let Some(t) = timber {
+                wood_ha += f64::from(t[i]) * cell_ha;
+            }
+        }
+    }
+
+    out.woodland_ha = wood_ha;
+    out.ore_kg_yr = ore_ha * ORE_KG_PER_HA_YR;
+    out.charcoal_kg_yr = wood_ha * CHARCOAL_KG_PER_HA_YR;
+    let iron_from_ore = out.ore_kg_yr * ORE_TO_BLOOM_RECOVERY;
+    let iron_from_fuel = out.charcoal_kg_yr / CHARCOAL_PER_IRON_KG;
+    out.iron_kg_yr = js_min(iron_from_ore, iron_from_fuel);
+    out.limited_by = if iron_from_fuel < iron_from_ore { "fuel" } else { "ore" };
+    out.fuel_poor = iron_from_ore > 0.0 && iron_from_fuel < iron_from_ore * 0.5;
+    out.ore_rich = iron_from_ore > 0.0 && iron_from_fuel > iron_from_ore * 2.0;
+    out.coppice_ha_needed = if out.iron_kg_yr > 0.0 {
+        (out.iron_kg_yr * CHARCOAL_PER_IRON_KG) / CHARCOAL_KG_PER_HA_YR
+    } else {
+        0.0
+    };
+    out
+}
+
+/// `_civSaltAccess`'s return (reference line 24431).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SaltAccess {
+    pub has: bool,
+    /// `"none"`, `"sea salt"`, `"salt deposit"` or `"salt lake"` — the
+    /// reference's own four literals, and `_civPlaceTrade` copies this
+    /// string straight into `out.saltSource` (reference line 24541).
+    pub source: &'static str,
+}
+
+impl Default for SaltAccess {
+    /// The reference's own baseline object (reference line 24431).
+    fn default() -> Self {
+        SaltAccess { has: false, source: "none" }
+    }
+}
+
+/// `_civSaltAccess`'s salt-deposit threshold (reference line 24437).
+pub const SALT_DEPOSIT_MEAN: f64 = 0.25;
+
+/// `_civSaltAccess`'s salt-lake aridity threshold (reference line 24439).
+pub const SALT_LAKE_MAX_RAIN: f64 = 0.30;
+
+/// `_civSaltAccess` (reference lines 24430-24441, v1.37): which of salt's
+/// three pre-industrial sources this settlement actually has.
+///
+/// **This closes `ECONOMY_SCOPE.md`'s second remaining unblocked port.**
+/// The owner's own sentence is the rule ("literally everyone needs salt.
+/// I'd say anyone living near a sea or salt mine has access to salt"), and
+/// the bug it fixed is worth keeping in view: the trade checklist was
+/// reporting salt as an unmet critical need for essentially every
+/// settlement, because it only ever looked at the salt *resource* field —
+/// arid evaporite deposits — and missed both coastal evaporation and salt
+/// lakes. The three branches are tried in the reference's order and the
+/// first that fires wins:
+///
+/// 1. **Sea salt**, unconditional for any sea-navigable settlement. Boiling
+///    brine works on any coast that has fuel, so what varies is cost, not
+///    availability.
+/// 2. **A salt deposit** — rock salt or brine springs, the resource field's
+///    own signal, over the same windowed mean `_civPlaceResourceContext`
+///    computes.
+/// 3. **A salt lake** — an inland evaporite playa: a `lake` biome cell in a
+///    dry place.
+///
+/// `nav` is caller-supplied ([`place_navigability`]'s
+/// [`Navigability::kind`]), the same convention [`FoodShedInput`] already
+/// uses and for the same reason — a caller runs this per settlement and the
+/// navigability sweep is not free.
+///
+/// Two fidelity details worth stating, because both are easy to get wrong:
+///
+/// - **The deposit window is *not* the catchment radius.** `_civSaltAccess`
+///   calls `_civPlaceResourceContext(p)` with no radius, so it takes that
+///   function's own default, `max(3, round(GW/128))` (reference line 24570)
+///   — a fixed small disc, not the per-tier catchment every other
+///   settlement scan in this module uses. That is why `kind` is not a
+///   parameter here.
+/// - **Branch 3's cell is clamped, branch 2's is not.** `_umSiteProfile`
+///   clamps its read to `[0, GW-1] x [0, GH-1]` (reference line 22481)
+///   before indexing; `_civPlaceResourceContext` does not clamp, it
+///   bounds-tests each disc cell instead. Both are reproduced as written.
+///
+/// The reference reaches branch 3 through `_umSiteProfile`, which this port
+/// deliberately does not have (`urban_adapter`'s module table says why).
+/// Only two of that profile's ~25 fields are read here — `biome` and
+/// `rain` — and both are a direct index into fields this crate already
+/// builds, so they are taken from [`PlaceWorld`] rather than by porting a
+/// 100-line profile builder for two numbers. `_umSiteProfile`'s own
+/// `biome` is `bio===13?'lake':...`, which is [`BIOME_LAKE`]; its own
+/// `rain` is `rainField[i]`, and its `prof.rain!=null` guard cannot fail
+/// once `rainField` exists.
+pub fn civ_salt_access(w: &PlaceWorld, x: usize, y: usize, nav: NavKind) -> SaltAccess {
+    // (1) `if(nav&&nav.kind==='sea')`
+    if nav == NavKind::Sea {
+        return SaltAccess { has: true, source: "sea salt" };
+    }
+    let n = w.gw * w.gh;
+    if n == 0 {
+        return SaltAccess::default();
+    }
+    // (2) `if(rc&&rc.mean&&(rc.mean.salt||0)>0.25)`. `rc.mean` is `null`
+    // exactly when `_civPlaceResourceContext`'s own `!pots||!field` guard
+    // fires, which is what the length test stands in for.
+    if w.field.len() == n && w.res.salt.len() == n {
+        let radius = js_max(3.0, js_round(w.gw as f64 / 128.0)) as usize;
+        let mean =
+            civ_place_resource_context(w.res, w.field, w.gw, w.gh, w.sea, x, y, radius, false);
+        if mean.get("salt").copied().unwrap_or(0.0) > SALT_DEPOSIT_MEAN {
+            return SaltAccess { has: true, source: "salt deposit" };
+        }
+    }
+    // (3) `if(prof&&prof.biome==='lake'&&prof.rain!=null&&prof.rain<0.30)`
+    if w.biome.len() == n && w.rain.len() == n {
+        let i = y.min(w.gh - 1) * w.gw + x.min(w.gw - 1);
+        if w.biome[i] == BIOME_LAKE && f64::from(w.rain[i]) < SALT_LAKE_MAX_RAIN {
+            return SaltAccess { has: true, source: "salt lake" };
+        }
+    }
+    SaltAccess::default()
 }
 
 #[cfg(test)]

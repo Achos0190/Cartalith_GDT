@@ -39,6 +39,10 @@ signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
 ## `_deadwire_probe` found it the first time it audited that surface.
 signal sculpt_draft_changed()
 signal project_saved(path: String) ## A `.zip` was written.
+## A landmark pass finished, carrying that run's own reply dictionary.
+## Deliberately not `generation_finished` -- see `landmark_run()` far below
+## for why a pass that changes no world state must not fire that one.
+signal landmark_finished(result: Dictionary)
 
 var world_gen: WorldGen = WorldGen.new()
 
@@ -613,8 +617,23 @@ func heightmap_grid_size(grid_w: int, image_size: Vector2i) -> Vector2i:
 
 # -- World state readers ------------------------------------------------------
 
+## The last grid size the engine reported, so `grid_size()` can answer while a
+## worker thread holds `world_gen`. Reading through would panic
+## `Gd<T>::bind() failed, already bound` across the gdext boundary, which
+## `cartalith-rust-conventions` forbids -- a panic unwinding through a
+## GDExtension callback can take the whole process down.
+var _grid_size_cache := Vector2i.ZERO
+
 func grid_size() -> Vector2i:
-	return Vector2i(world_gen.get_width(), world_gen.get_height())
+	## Guarded here, once, rather than at each of the ~30 callers: this is the
+	## shared chokepoint they all route through. Became reachable when the
+	## landmark pass moved off the main thread (2026-09-02) -- the freeze had
+	## been making every sibling control unclickable, so responsiveness removed
+	## an accidental guard. Demonstrated by `_poiverify_probe.tscn`.
+	if generating:
+		return _grid_size_cache
+	_grid_size_cache = Vector2i(world_gen.get_width(), world_gen.get_height())
+	return _grid_size_cache
 
 func reference_grid_height(grid_w: int, world: bool) -> int:
 	if sized_api:
@@ -1097,6 +1116,29 @@ func gpu_readback_failed() -> bool:
 		return bool(_gpu_cache.get("readback_failed", false))
 	var v: bool = world_gen.gpu_readback_failed()
 	_gpu_cache["readback_failed"] = v
+	return v
+
+## The backend the **last generate actually opened** -- `"vulkan"`, `"dx12"`,
+## `"metal"`, `"gl"` -- or `""` when it opened no GPU device at all and the run
+## went to the CPU. `""` before the first generate of the session too.
+##
+## Measured, unlike `menus.gd::_active_backend()`, which reads
+## `gpu_enumerate_devices()` and reports the backend a device request *would*
+## prefer. That inference cannot notice that the request landed somewhere else,
+## or that it opened nothing -- and on Android that is the entire question,
+## since `wgpu` is compiled into the shipped `.so` with nothing gating it off
+## and `_ready()` above turns `use_gpu` on at boot.
+##
+## `_has()`-guarded and cached across a generation for exactly the reasons
+## `gpu_readback_failed()` above documents: an older cdylib lacks the binding,
+## and the worker thread owns `world_gen` while a generate runs.
+func gpu_last_backend() -> String:
+	if not _has("gpu_last_backend"):
+		return ""
+	if generating:
+		return String(_gpu_cache.get("last_backend", ""))
+	var v := String(world_gen.gpu_last_backend())
+	_gpu_cache["last_backend"] = v
 	return v
 
 ## Clear the record. `true` if the call reached the engine; `false` if it could
@@ -1972,6 +2014,11 @@ func civ_faction_territory_stats(faction: int) -> Dictionary:
 func get_factions() -> Array:
 	if not _has("get_factions"):
 		return []
+	## See `grid_size()` for why the in-flight guard is here rather than at
+	## every caller. An empty roster is the same answer a world-less session
+	## gives, which every caller already handles.
+	if generating:
+		return []
 	return world_gen.get_factions()
 
 
@@ -2023,6 +2070,18 @@ func civ_delete_settlement(index: int) -> bool:
 func civ_recompute() -> Dictionary:
 	if not _has("recompute_civilisation"):
 		return {"ok": false, "reason": "This build's extension has no recompute_civilisation."}
+	## Refuse while a generate or a landmark pass holds `world_gen` on the
+	## worker thread. Without this the `bind_mut()` panics across the gdext
+	## boundary -- `Gd<T>::bind_mut() failed, already bound` -- which
+	## `cartalith-rust-conventions` says must never happen, since a panic
+	## unwinding through a GDExtension callback can take the process down.
+	##
+	## This became reachable when the landmark pass moved off the main thread
+	## (2026-09-02): the freeze used to make CIVIL's sibling buttons physically
+	## unclickable, so responsiveness removed an accidental guard. Demonstrated
+	## by `_poiverify_probe.tscn`, which presses this path mid-pass on purpose.
+	if generating:
+		return {"ok": false, "reason": "A generation or landmark pass is still running."}
 	mark_world_dirty()
 	return world_gen.recompute_civilisation()
 
@@ -3197,6 +3256,27 @@ func vault_block_body(kind: String, entity_id: int, selected: PackedStringArray)
 		return ""
 	return world_gen.vault_block_body(kind, entity_id, selected)
 
+## §21's three radii, and whether each has been generated for this entity.
+## `[]` on an older binary, which is what the panel checks before drawing the
+## Map section at all — an empty list is "this build cannot make snapshots",
+## not "this world has none".
+func vault_snapshot_radii(kind: String, entity_id: int) -> Array:
+	if not _has("vault_snapshot_radii"):
+		return []
+	return world_gen.vault_snapshot_radii(kind, entity_id)
+
+## Renders one entity's map snapshot into `subdir` inside the bound vault and
+## files it on the link store (`MARKDOWN_VAULT_SCOPE.md` milestone 2).
+##
+## `mark_world_dirty()` for the same reason the two block writers above have
+## it: the snapshot's path is part of the link store, and the link store is
+## part of the project archive (`vault.json`).
+func vault_snapshot(kind: String, entity_id: int, radius: String, subdir: String, size: int) -> Dictionary:
+	if not _has("vault_snapshot"):
+		return _VAULT_UNAVAILABLE
+	mark_world_dirty()
+	return world_gen.vault_snapshot(kind, entity_id, radius, subdir, size)
+
 func vault_preview_block(rel: String, kind: String, entity_id: int, body: String) -> Dictionary:
 	if not _has("vault_preview_block"):
 		return _VAULT_UNAVAILABLE
@@ -3580,9 +3660,11 @@ func jp_vessel_matrix() -> Dictionary:
 # 360-panic measurement): `generate()` holds the whole `WorldGen` mutably
 # borrowed on a worker thread for its run's duration, and any `#[func]`
 # reached from the main thread meanwhile fails its own `Gd<T>::bind()` --
-# a Rust panic per call. `landmark_run()` is synchronous rather than
-# threaded, so it is the one row here that would otherwise race the worker
-# outright rather than merely read stale data; it refuses cleanly instead.
+# a Rust panic per call. `landmark_run()` is threaded too, since 2026-09-01,
+# and sets the SAME `generating` flag while it runs -- so the guard on every
+# row here does double duty: it holds the panel off the engine during a
+# generate, and off the engine during a landmark pass. Neither can start
+# while the other is in flight, for the same reason.
 
 ## Static for the session -- filled once by `_read_landmark_kinds()` (called
 ## from `_ready()` and after `close_world()` swaps in a fresh `WorldGen`),
@@ -3660,25 +3742,75 @@ func landmark_reset_settings() -> void:
 	world_gen.landmark_reset_settings()
 	_landmark_settings_cache = world_gen.landmark_settings() if _has("landmark_settings") else {}
 
-## Synchronous and blocking -- `civilization_workspace.gd:1154`'s exact busy
-## pattern (relabel -> disable -> two frames -> this call -> result note) is
-## the caller's job; this function does the blocking call itself rather than
-## spawning a `Thread`. Refuses cleanly (`ok: false`, an `error` naming why)
-## rather than racing the worker when a full `generate()` is already in
-## flight -- see this block's own header comment for why that race would be
-## a crash, not a stale read.
+## Threaded, and `await`ed by its caller -- `generate()`'s pattern above, in
+## this subject. **It used to be synchronous**, and that was the whole of the
+## owner's 2026-09-01 report *"the new point of interest function seems to
+## make the program freeze"*: the pass is full-raster terrain analysis costing
+## seconds (measured in `_poifreeze_probe.gd`: 1.2 s at 1024x768, 4.4 s at the
+## shipping 2048 default, 23 s at 4096), and running it inside a `#[func]` on
+## the main thread served **zero** frames for that entire time. The control in
+## the same probe run is `generate()`, four times the work, which served 255 --
+## because it is threaded. Nothing about the pass needed to be on the main
+## thread; it was simply never given the treatment `generate()` already had.
+##
+## Reuses `generating` and `_thread` rather than adding a second busy flag:
+## `generating` is what holds every row in this block, `_gpu_read()`,
+## `param_get()` and `ViewportHost._engine_readable()` off a mutably-borrowed
+## `WorldGen`, which is exactly the crash this block's header describes. A
+## private flag would have re-opened it for the landmark pass alone.
+##
+## `generation_started`/`generation_finished` are deliberately NOT reused, the
+## opposite call from `import_heightmap()` below and for the opposite reason:
+## that one *is* a generate, and this is not. Thirty-odd listeners read those
+## two as "the world was replaced" and clear the trade store, the planner's
+## journeys, the water animation and the wind field. A landmark pass changes
+## none of those. It gets one signal of its own, declared at the head of this
+## file with the rest.
+##
+## **Every caller must `await` this.** It is a coroutine on both paths -- the
+## two refusals return without ever reaching the `await`, which `await` on a
+## plain value passes straight through, so `await bridge.landmark_run()` is
+## correct for a refusal too and no caller needs to know which it got.
 func landmark_run() -> Dictionary:
 	if generating:
 		return {
 			"ok": false, "placed": 0, "seconds": 0.0,
 			"error": "A world generation is already running.", "funnels": [],
 		}
-	if not _has("landmark_run"):
+	if not _has("landmark_run") or not _has("landmark_last_run"):
 		return {
 			"ok": false, "placed": 0, "seconds": 0.0,
 			"error": "This build's extension has no landmark_run.", "funnels": [],
 		}
-	return world_gen.landmark_run()
+	generating = true
+	_thread = Thread.new()
+	_thread.start(_landmark_worker)
+	return await landmark_finished
+
+## Runs off the main thread. Touches only `world_gen`, never a node -- the
+## contract `_worker` above holds to, and the reason the `_finish`-shaped
+## hand-back through `call_deferred` is not optional.
+##
+## `landmark_run()` returns a bare `bool` and the REPLY is fetched on the main
+## thread by `_finish_landmark` below. That division is not stylistic: without
+## gdext's `experimental-threads` feature every Godot `Dictionary`, `Array` and
+## `GString` operation asserts the main thread, so a `#[func]` that builds its
+## own reply dictionary panics when called from here -- *"attempted to access
+## binding from different thread than main thread; this is UB"*, measured, with
+## the pass itself completing and its reply arriving as nulls. `generate_sized`
+## has always been safe on this thread for exactly the same reason: primitives
+## in, nothing Godot-shaped out.
+func _landmark_worker() -> void:
+	world_gen.landmark_run()
+	_finish_landmark.call_deferred()
+
+func _finish_landmark() -> void:
+	_thread.wait_to_finish()
+	_thread = null
+	generating = false
+	## Read AFTER `generating` is cleared, on the main thread: this one does
+	## build a Dictionary, so it may not run anywhere but here.
+	landmark_finished.emit(world_gen.landmark_last_run())
 
 ## The last `landmark_run()`'s placements: `[{id,kind,class,x,y,elevation,
 ## score,importance,causal:Array}, …]`.

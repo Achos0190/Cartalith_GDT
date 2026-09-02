@@ -241,7 +241,7 @@ pub fn pick_plate_seeds(relief: &[f32], w: usize, h: usize, count: Option<usize>
 #[must_use]
 pub fn classify_plate_crust(
     fld: &[f32],
-    plate_id: &[usize],
+    plate_id: &[u16],
     n_plates: usize,
     w: usize,
     h: usize,
@@ -251,7 +251,7 @@ pub fn classify_plate_crust(
     let mut sum = vec![0f64; n_plates];
     let mut cnt = vec![0f64; n_plates];
     for i in 0..n {
-        let p = plate_id[i];
+        let p = plate_id[i] as usize;
         if p >= n_plates {
             continue;
         }
@@ -319,7 +319,7 @@ pub struct InferredStress {
 #[must_use]
 pub fn reconstruct_boundary_stress(
     fld: &[f32],
-    plate_id: &[usize],
+    plate_id: &[u16],
     base: &[f32],
     relief: &[f32],
     w: usize,
@@ -370,7 +370,7 @@ pub fn reconstruct_boundary_stress(
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
-            let a = plate_id[i];
+            let a = plate_id[i] as usize;
             // Only the +x and +y neighbours, so each pair is visited once;
             // plus the seam pair on a wrapping world.
             let mut ns: [(usize, bool); 3] = [(0, false); 3];
@@ -388,7 +388,7 @@ pub fn reconstruct_boundary_stress(
                 ns_len += 1;
             }
             for &(j, horiz) in &ns[..ns_len] {
-                let b = plate_id[j];
+                let b = plate_id[j] as usize;
                 if b == a {
                     continue;
                 }
@@ -494,7 +494,7 @@ pub fn stamp_volcanic_arcs(boundary_type: &[u8], w: usize, h: usize, decay: Opti
 /// downstream should treat it as one.
 pub fn infer_plate_velocities(
     plates: &mut [Plate],
-    plate_id: &[usize],
+    plate_id: &[u16],
     boundary_mask: &[u8],
     stress_field: &[f32],
     gw: usize,
@@ -507,7 +507,7 @@ pub fn infer_plate_velocities(
         if boundary_mask[i] == 0 || stress_field[i] <= 0.0 {
             continue;
         }
-        let p = plate_id[i];
+        let p = plate_id[i] as usize;
         if p >= np {
             continue;
         }
@@ -693,7 +693,7 @@ mod tests {
             Plate { x: 1.5, y: 1.5, vx: 9.0, vy: 9.0, base: 0.6 },
             Plate { x: 4.5, y: 1.5, vx: 9.0, vy: 9.0, base: -0.6 },
         ];
-        let plate_id = vec![0usize; 24];
+        let plate_id = vec![0u16; 24];
         let mask = vec![0u8; 24];
         let stress = vec![0f32; 24];
         infer_plate_velocities(&mut plates, &plate_id, &mask, &stress, 6);
@@ -705,7 +705,7 @@ mod tests {
     fn classify_plate_crust_signs_split_at_sea_level_with_a_055_floor() {
         // Two cells, one plate each, one side of sea level each.
         let fld = [0.2f32, 0.8];
-        let ids = [0usize, 1];
+        let ids = [0u16, 1];
         let base = classify_plate_crust(&fld, &ids, 2, 2, 1, 0.5);
         assert!(base[0] < 0.0 && base[1] > 0.0);
         assert!(base[0].abs() >= 0.55 && base[1] >= 0.55);
@@ -715,7 +715,7 @@ mod tests {
     #[test]
     fn classify_plate_crust_treats_an_empty_plate_as_sea_level() {
         let fld = [0.9f32, 0.9];
-        let ids = [0usize, 0];
+        let ids = [0u16, 0];
         let base = classify_plate_crust(&fld, &ids, 2, 2, 1, 0.4);
         // Plate 1 got no cells: mean == sea == 0.4, which is `>= sea`, so
         // continental at exactly the 0.55 floor.

@@ -213,9 +213,15 @@ independently probe-verifiable.
 1. ~~**Re-export the desktop prototype under 256 KiB**~~ (split it, or strip the
    embedded map-drawing code). **Answered 2026-08-31** — see §0. The split file
    carries the bindings stages 2 and 5 were written against.
-2. **CARTO's four nodes all carry an empty `mode`.** Do `Layers & style`,
+2. ~~**CARTO's four nodes all carry an empty `mode`.** Do `Layers & style`,
    `Labels`, `Icons` and `Terrain appearance` select four distinct dock panels,
-   or collapse to one? The design gives four rows and one destination.
+   or collapse to one? The design gives four rows and one destination.~~
+   **Answered 2026-09-02 by the owner: "distinct panels."** Each of the four
+   nodes selects its own left-dock panel; they do not collapse. So each needs a
+   real `mode` string and its own panel builder, on the pattern WORLD and CIVIL
+   already use. The canvas's single destination is the stale party here, not
+   the shell — the same way `Data ▸ Conversion` is still drawn and was removed
+   by decision on 2026-08-20 (see `DCC_SHELL_SCOPE.md`).
 3. ~~**`statusMid` has no candidate anywhere in the delivered file** — what does
    the middle of the status bar show?~~ **Answered 2026-08-31** by the re-export:
    `statusMid` reads

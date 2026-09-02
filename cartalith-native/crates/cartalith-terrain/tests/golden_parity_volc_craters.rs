@@ -78,7 +78,7 @@ fn stamp_volcanoes_provinces_is_deterministic() {
     let n = gw * gh;
     let boundary_mask: Vec<u8> = (0..n).map(|i| if i % 5 == 0 { 1 } else { 0 }).collect();
     let stress_field: Vec<f32> = (0..n).map(|i| if i % 2 == 0 { 0.3 } else { -0.3 }).collect();
-    let plate_id: Vec<usize> = (0..n).map(|i| i % 4).collect();
+    let plate_id: Vec<u16> = (0..n).map(|i| (i % 4) as u16).collect();
     let plates = vec![
         Plate { x: 2.0, y: 2.0, vx: 1.0, vy: 0.2, base: 0.1 },
         Plate { x: 10.0, y: 4.0, vx: -0.5, vy: 0.8, base: -0.2 },

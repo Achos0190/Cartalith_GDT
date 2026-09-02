@@ -555,6 +555,43 @@ absent from the route grids and equally defensible to add. They need
 `flow`/`flow_thresh` plumbed onto `RouteContext`, which this term does not, so
 they are named here as the obvious next step rather than bundled in.
 
+> **Correction notice (2026-09-01).** The paragraph immediately above is
+> history: **the obvious next step was taken.** Both terms are built and
+> wired, and this section's own "not taken" wording is what
+> `OUTSTANDING_WORK.md` §2.8 flagged as stale. Verified by opening each
+> symbol rather than by re-reading a document:
+>
+> - `civ_swamp_penalty` and `civ_river_crossing_cost` are private `fn`s in
+>   `cartalith-civ/src/lib.rs`, factored out of `civ_enhanced_travel_cost`
+>   itself so the auto-network builder and the manual Route/Way tools cannot
+>   drift apart — that function calls the same pair. Magnitudes are the
+>   reference's: `1.8×` for low-lying land (within `0.06` of sea level) whose
+>   flow exceeds `8 × flow_thresh`, and an additive `8 × mag × ford_k` river
+>   crossing with `ford_k` `0.35`/`0.75`/`1.00` by Strahler order.
+> - The plumbing this section said the corridor term did not need is now
+>   there: `RouteContext::flow` and `RouteContext::flow_thresh`
+>   (`cartalith-civ/src/tools.rs`), read by `civ_land_cost_grid` **and**
+>   `civ_mixed_cost_grid` — so the ford term reaches `RouteMode::Land`,
+>   which is why `RouteContext::river_order`'s own doc now names two
+>   consumers instead of one.
+> - All three `RouteContext` construction sites in
+>   `cartalith-godot/src/lib.rs` — `way_commit`, `route_commit` and
+>   `jp_reroute` — pass `Some(&ws.flow_discharge)` and a
+>   `cartalith_hydrology::river_flow_thresh` value. There is no fourth
+>   *production* site; the two others in the crate are test fixtures
+>   (`infra_tools_bridge.rs`'s `#[cfg(test)]` helper and
+>   `tests/pass_relief_measure.rs`), and both pass `flow: None` on purpose —
+>   see the parity note below.
+>
+> **The parity position is unchanged, and deliberately so.** `flow: None`
+> reproduces the reference's own falsy `flow` guard exactly — penalty `1.0`,
+> crossing cost `0.0` — so every golden fixture predating the field still
+> means "matches v2.10", the same argument `corridors: None` carries above.
+> Coverage is the unit test
+> `civ_swamp_penalty_and_river_crossing_cost_match_the_reference_formula` in
+> `cartalith-civ/src/lib.rs`, which pins both formulas including the
+> ford-cheaper-than-bridge ordering and the at-threshold boundary.
+
 **Relationship to §7d.** The §7d test — *"would a user of the HTML app find
 this feature present and its result equivalent or better?"* — is answered by
 both halves already existing in the HTML app: the detector, and the router that

@@ -460,10 +460,26 @@ func _ready() -> void:
 	## `store_changed` -> `VaultStore.save_from` is the only writer of
 	## `user://markdown_vault.json`. The window never touches the disk; it
 	## says what changed and this owns when that is persisted.
+	##
+	## **Two things happen here, and the second is milestone 3's**
+	## (`MARKDOWN_VAULT_SCOPE.md`). Since the project archive carries the links
+	## (`project_save_with_documents` writes `vault.json`), a vault mutation is
+	## an unsaved change to the *project*, exactly like a moved label or a
+	## painted stroke. `mark_world_dirty()` is what makes File ▸ Save offer
+	## itself and the autosave pick them up; without it the archive silently
+	## fell behind the panel. It is a no-op with no world, so a link attached
+	## before anything is generated marks nothing.
+	##
+	## `current_project_path != ""` is the flag `save_from` needs to know which
+	## of the two writers owns the links this session — see `vault_store.gd`'s
+	## own header for the rule and for what happens to a sidecar written
+	## before it.
 	vault_window = VaultWindow.new()
 	add_child(vault_window)
 	vault_window.setup(self, bridge)
-	vault_window.store_changed.connect(func(): VaultStore.save_from(bridge))
+	vault_window.store_changed.connect(func():
+		VaultStore.save_from(bridge, current_project_path != "")
+		bridge.mark_world_dirty())
 	VaultStore.load_into(bridge)
 
 	layers_popover = LayersPopover.new()

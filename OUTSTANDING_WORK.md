@@ -41,36 +41,51 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**157 outstanding items across 24 subsystems** (was 168 that morning, then 164
+**153 outstanding items across 24 subsystems** (was 168 that morning, then 164
 after four of §1's eight rows closed outright 2026-09-01; a same-day second
 pass closed two more; a same-day third pass then closed all six of §2.3's
 journey/route cluster rows — four built, two confirmed already done; full
 evidence in `STATUS.md`, Journey Planner ledger JP-QC2/QC3/QC4 and the
 2026-09-01 dated log; verifying that pass then found and closed one more —
 §3.2's "Manual road tool" row, which cited the same claim `UNWIRED_FUNCTIONS.md`
-did and is resolved the same way, see below). Of those:
+did and is resolved the same way, see below; a same-day stale-record pass then
+took four more — §4's Units question, answered by the ruling; §2.5's WW-06,
+whose "never consumed" premise the paint-falloff work falsified; and both of
+§2.8's own document-correction rows, executed in that pass — 157 → 153). Of
+those:
 
 | | Count | Meaning |
 |---|---:|---|
-| In flight | 3 | Code exists, uncommitted or partial (§1) |
-| Ready to start | 101 | Nothing blocks them; someone has to pick them up (§2) |
+| In flight | 3 | Code exists, committed but partial (§1) |
+| Ready to start | 98 | Nothing blocks them; someone has to pick them up (§2) |
 | Blocked | 33 | A named blocker, listed in §3 |
-| Open decisions | 20 | Not work yet — the owner owes an answer first (§4) |
+| Open decisions | 19 | Not work yet — the owner owes an answer first (§4) |
 | Declined / shelved | 23 entries, 3 groups | §5, kept so nobody re-proposes them |
 
 Of the 33 blocked, **14 are blocked on an owner decision and nothing else** —
 that is the largest single category of stalled work in the project, and §4 is
-the shortest path to unsticking it.
+the shortest path to unsticking it. That 14 is checkable and checks out: §3.1
+holds exactly 14 rows.
+
+**Every count above was re-derived by counting table rows, 2026-09-01,** and
+they hold: §1 3; §2 8+17+9+7+13+27+9+8 = 98; §3 14+10+9 = 33; §4 19. One thing
+does not, and it is a classification defect rather than an arithmetic one:
+**two items are listed twice, once as ready and once as blocked.** *Saved
+measurements + CSV* and *Label collision culling* each appear in §2.2 **and**
+in §3.2, and a row cannot be both. Whichever half is wrong, the count of
+unique items is **151**. Left as found: deciding which classification to drop
+is a judgement about sequencing, not a text fix.
 
 Four caveats on that number, stated rather than buried:
 
 1. **It counts rows, not effort.** Urban milestone 10 is one row and ~407
    reference lines; "delete three probe files" is also one row. Sizes are on
-   every row for this reason. The 142 rows that carry a size (everything except
-   §4's decisions) split **42 large, 56 medium, 44 small** (was 42/60/45 before
-   the same-day third pass closed three medium and three small rows in §2.3
-   outright, then 42/56/42 once the verification pass closed the §3.2 medium
-   duplicate too).
+   every row for this reason. The **134** rows that carry a size (everything
+   except §4's decisions) split **40 large, 54 medium, 40 small** — re-derived
+   2026-09-01 by counting the size cells themselves, which is how the figures
+   this caveat carried until then (142 rows, 42/56/44) were found to be
+   overstated in all three columns before that pass deleted its own three
+   small rows.
 2. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
    not many** — that document is itself a live backlog with a `file:line` per
    row, and re-counting it here would guarantee the two drift (this
@@ -78,7 +93,9 @@ Four caveats on that number, stated rather than buried:
    ready" — the row has only ever lived in §1). It carries **21** open rows
    as of the 2026-09-01 third pass (22 after the second pass, 23 after the
    morning re-cut, 75 before it). Counted individually the true total is
-   nearer **177**, not 155.
+   **173** — this one row swapped for its 21 — not 153. (The figures here
+   were "177, not 155" until 2026-09-01; both were arithmetic against a
+   headline that has since moved twice.)
 3. **Six surveyors returned 487 rows; roughly 300 were `done` or `declined`,**
    and the rest deduplicated heavily — the urban milestones, the landmark
    viewshed and the vault's §26 each arrived from two or three surveys
@@ -108,18 +125,21 @@ If you stop reading here:
    from scratch against the working tree. What §6 records below is therefore
    history plus whatever has not yet been swept; re-verify a §6 row against the
    file it names before acting on it.
-   `LARGE_ITEM_RULINGS.md` — the owner's rulings on all eighteen Large rows,
-   including two scoped authorisations that override standing rules — is
-   **untracked** (`git status` → `?? LARGE_ITEM_RULINGS.md`) and would be lost
-   by a clean checkout. So is `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md`.
-   Committing those two files is the cheapest high-value act on this list.
+   **The "commit the two untracked documents" item this entry used to lead
+   with is done** (corrected 2026-09-01): `LARGE_ITEM_RULINGS.md` and
+   `cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md` are both in `HEAD` —
+   `git cat-file -e HEAD:<path>` succeeds for each, and so does the same check
+   on this file. They landed in `fd9de7c`, along with 235 others. Nothing on
+   this list is lost by a clean checkout any more; what remains here is
+   whatever §6 records that a later pass has not yet swept.
 
 ---
 
 ## 1. In flight right now
 
 Code exists for these; they are neither startable nor blocked, they are
-half-landed. Each needs finishing and, in most cases, committing.
+half-landed. Each needs finishing. (The "and, in most cases, committing" this
+sentence carried until 2026-09-01 is gone — see the correction below.)
 
 **2026-09-01: eight agents worked this section's original eight rows in
 parallel; each claim was independently re-verified against the code (compiled,
@@ -144,13 +164,25 @@ to `STATUS.md` (RP-S4). **Economy milestone 2 narrowed further** — Godot
 wiring is now real; what remains is rewritten below. **Paint brush falloff**
 was not its own §1 row (it lived inside the `UNWIRED_FUNCTIONS.md` backlog
 row and, individually, in §2.2) but closes outright too; both are updated
-below. Nothing in this document is committed.
+below.
+
+**Correction (2026-09-01, later the same day): "nothing in this document is
+committed" is no longer true, and every "still uncommitted" qualifier below
+is history.** Commit `fd9de7c` — *"Three rounds finishing in-flight work,
+then two bugs found by hand"* — landed **237 files, 90 718 insertions**,
+which is all three of the passes described above plus the documents they
+wrote. `git status --short` now shows one modified tracked file (an
+unrelated in-flight `journey_planner_view.gd` change) and two untracked
+probe scenes. The re-verification those qualifiers asked for once the tree
+committed is therefore **owed now**, not later — that is the live half of
+the claim, and it is what §7's "the uncommitted working tree" bullet has
+been reduced to.
 
 | Item | Owns it | Size | Where it stands / next step |
 |---|---|---|---|
-| **The `UNWIRED_FUNCTIONS.md` backlog** — 21 open rows (1 small · 3 medium · 17 large), down from 75, plus 1 dangerous-class entry, down from 25 | `UNWIRED_FUNCTIONS.md` | large | Re-cut from scratch 2026-09-01 morning, not patched: all 75 previously-open rows re-opened at their cited symbol and independently re-verified; 52 closed that pass (17 of 17 trivial, 24 of 25 small, 13 of 17 medium). **Same-day second pass**: one more of the 18 Large rows — Paint brush falloff, the row the morning cut named highest-severity — independently re-verified as built and closed, taking Large to 17 open (of `LARGE_ITEM_RULINGS.md`'s eighteen 2026-08-31 **build** rulings, tracked individually in §2.2 below) and the dangerous class from 3 entries to 1 (the 2 genuinely-dangerous Paint entries close; 1 documented non-defect remains, kept for contrast). **Same-day third pass**: one more Medium row — "Manual road tool / `road_edges` never retained" — independently re-verified as already false (`CivData::road_edges` genuinely retains `civ_hierarchical_network_topology`'s output) and closed alongside the wider journey/route cluster in §2.3. **Still uncommitted**; every closed row needs re-verification once this and the wider working tree commits |
+| **The `UNWIRED_FUNCTIONS.md` backlog** — 21 open rows (1 small · 3 medium · 17 large), down from 75, plus 1 dangerous-class entry, down from 25 | `UNWIRED_FUNCTIONS.md` | large | Re-cut from scratch 2026-09-01 morning, not patched: all 75 previously-open rows re-opened at their cited symbol and independently re-verified; 52 closed that pass (17 of 17 trivial, 24 of 25 small, 13 of 17 medium). **Same-day second pass**: one more of the 18 Large rows — Paint brush falloff, the row the morning cut named highest-severity — independently re-verified as built and closed, taking Large to 17 open (of `LARGE_ITEM_RULINGS.md`'s eighteen 2026-08-31 **build** rulings, tracked individually in §2.2 below) and the dangerous class from 3 entries to 1 (the 2 genuinely-dangerous Paint entries close; 1 documented non-defect remains, kept for contrast). **Same-day third pass**: one more Medium row — "Manual road tool / `road_edges` never retained" — independently re-verified as already false (`CivData::road_edges` genuinely retains `civ_hierarchical_network_topology`'s output) and closed alongside the wider journey/route cluster in §2.3. **Committed in `fd9de7c`** (this row said "still uncommitted" until 2026-09-01); the re-verification of every closed row that the commit was the precondition for is now due |
 | **Landmark M8 residual** — 35 of 49 declared kinds still ship `buildable:false` (was 36) | `LANDMARK_GENERATION_SCOPE.md` | large | Fourteen generate today (`landmark.rs::kinds()`, each unbuilt kind carrying a `not_built:` reason). `resource_extraction_site` went buildable 2026-09-01 — it reads the three resource-potential fields (`timber`, `sulfur`, `alum`) that Mine and Quarry's own resource lists don't, through their identical already-validated detector, so it claims no cell either of them already does. The other 35 reasons were individually re-verified against the code this pass, not just re-read; six were rewritten for precision (`volcanic_feature`, `rock_formation`, `glacial_feature`, `salt_works`, `ruin`, `abandoned_settlement`) with no change to their blocked conclusion. Six still need M7's viewshed; several need §13's route load; the military family is downstream of Fort |
-| **Economy milestone 2** — the food-surplus cluster | `ECONOMY_SCOPE.md` | small | **Crate-complete and Godot-wired as of 2026-09-01 second pass; the remaining gap is a UI surface, not a binding or a port.** `civ_trade_bridge.rs`'s `food_shed_rows()` builds one shared `RoadComponents`, resolves each settlement's `farmers_per_urbanite` via the `civ_ag_tech_by_key` route the manpower model already uses, and calls `civ_food_shed` once per settlement; the `#[func] civ_food_shed` reads it out; `engine_bridge.gd` and `trade_store.gd` (caching alongside `civ_trade_flows`) complete the chain, triggered by the existing "Match trade flows" button — no new UI entry point was needed for the data to compute and cache. **What remains:** no dock or window calls `TradeStore.food_shed_for(index)` — confirmed by direct search, `place_editor_window.gd:385` still reads only `navigability`; the natural landing spot is right beside it, in the Trade tab. Two small residuals disclosed but not fixed this pass: `food_shed_rows()` recomputes `lithology`/`soil` per call rather than reading a `CivData` field (an efficiency nicety for whoever next touches `lib.rs`'s `compute_civilisation`, not a correctness gap); and `roster.rs:55`/`trade.rs:671` each carry one now-stale self-claim about the binding's existence |
+| **Economy milestone 2** — the food-surplus cluster | `ECONOMY_SCOPE.md` | small | **Crate-complete and Godot-wired as of 2026-09-01 second pass; the remaining gap is a UI surface, not a binding or a port.** `civ_trade_bridge.rs`'s `food_shed_rows()` builds one shared `RoadComponents`, resolves each settlement's `farmers_per_urbanite` via the `civ_ag_tech_by_key` route the manpower model already uses, and calls `civ_food_shed` once per settlement; the `#[func] civ_food_shed` reads it out; `engine_bridge.gd` and `trade_store.gd` (caching alongside `civ_trade_flows`) complete the chain, triggered by the existing "Match trade flows" button — no new UI entry point was needed for the data to compute and cache. **What remains:** no dock or window calls `TradeStore.food_shed_for(index)` — confirmed by direct search, `place_editor_window.gd:385` still reads only `navigability`; the natural landing spot is right beside it, in the Trade tab. Two small residuals disclosed but not fixed this pass: `food_shed_rows()` recomputes `lithology`/`soil` per call rather than reading a `CivData` field (an efficiency nicety for whoever next touches `lib.rs`'s `compute_civilisation`, not a correctness gap); and a stale self-claim in the crate's own docs — **half of that second residual is now closed** (2026-09-01): `roster.rs`'s module doc did assert *"nobody at the `cartalith-godot` boundary calls `civ_food_shed`"* and has been corrected against `civ_trade_bridge.rs::food_shed_rows`, while the `trade.rs` half was re-checked line by line and **no such claim is there** — the citation was wrong, not the file |
 
 ---
 
@@ -201,7 +233,8 @@ Eighteen rows, all ruled **build** on 2026-08-31 in `LARGE_ITEM_RULINGS.md`.
 evidence in `UNWIRED_FUNCTIONS.md`'s Large section and `STATUS.md`) and is
 deleted from the table below. Two of the seventeen still carry costs the
 build must honour, and one more is excluded pending an owner answer (§3.1).
-*`LARGE_ITEM_RULINGS.md` is untracked — see §6.*
+*`LARGE_ITEM_RULINGS.md` was untracked when this section was written; it is
+tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Size | Note |
 |---|---|---|
@@ -215,7 +248,7 @@ build must honour, and one more is excluded pending an owner answer (§3.1).
 | Landmark funnel — a crowding parameter plus rejected-candidate coordinates and an overlay layer | large | `landmark_funnels()` returns eight scalars and no coordinates, so the dictionary grows |
 | Colour management — a colour space on the render target, threaded to the texture | large | **The owner overrode the recommendation to defer.** Stated and accepted cost: every golden-parity fixture is sRGB. Must ship behind a default that leaves sRGB byte-identical, or be re-baselined deliberately and said so |
 | Rebindable keyboard shortcuts — a per-context binding table in `DccSettings` with conflict detection | large | The read-only list already ships; what is missing is rebinding, applied over the menu accelerators at build time |
-| Units (km / mi / nautical miles) — one formatter ahead of five hard-coded call sites | large | The owner added nautical miles. Closes the written promise at `phone_menu.gd:84-85` and the `PR-15` row |
+| Units (km / mi / nautical miles) — one formatter ahead of five hard-coded call sites | large | The owner added nautical miles. Closes the written promise at `phone_menu.gd:84-85` and the `PR-15` row. **This row now carries the whole of PR-15**: the *which units* question left §4 on 2026-09-01, answered by the ruling; what survives it is the `_todo` at `menus.gd` (`_todo(p, "Units", …)`, still describing the shell as km-only and offering km/mi), which must be replaced by the real setting rather than reworded |
 | Saved measurements + CSV, as a fifth caller-owned save slot | large | Deliberately *not* a second persistence mechanism — rides the `project_bridge.rs` slot work |
 | CPU worker threads — a configurable Rayon pool at engine init plus a `#[func]` to read and set it | large | `ThreadPoolBuilder` has no call site today |
 | Report an issue → a local save-diagnostic-report action | large | No endpoint required: dump generation info, missing bindings, project format version, GPU state and the last error to a file the user attaches themselves |
@@ -265,7 +298,6 @@ build must honour, and one more is excluded pending an owner answer (§3.1).
 | `rockSlope` refinement and wetness darkening | `render.rs:15` | small | **Registered nowhere else.** Two reference viz features on the renderer's own exclusion list that `FUNCTIONAL_CONTRACT.md`'s absent-entirely list does not name at all |
 | The ocean value-noise lattice blockiness (`seaColorCore`'s `n_low`) | `TERRAIN_APPEARANCE_SCOPE.md` | small | Found by looking during milestone 6 and deliberately not fixed; present in the `js_reference` dump too |
 | **CA-05** — the icon tool has no on-canvas resize handles (labels do) | `FUNCTIONAL_CONTRACT.md` | small | `icon_bridge.rs` has none, `label_bridge.rs` does |
-| **WW-06** — paint hardness/softness are stored and echoed back but never consumed | `FUNCTIONAL_CONTRACT.md` | small | Subsumed by the Large paint-falloff ruling in §2.2 |
 | Hand-lettered settlement glyphs, the fourth atlas element | `TERRAIN_APPEARANCE_SCOPE.md` | small | Ambiguous: `map_overlay.gd:48-53` draws a per-tier glyph set ported from the reference's own table, so markers exist but nothing calligraphic does. Whether the item is met depends which sense of "glyph" was meant |
 
 ### 2.6 GPU, threading and memory
@@ -329,8 +361,6 @@ measurement.
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
 | Make the dependency licence audit a standing check rather than a snapshot | `PROVENANCE.md` | small | `credits.gd` carries a real audit dated 2026-08-17 (~200 deps); no `deny.toml` exists in the workspace. `cargo deny` belongs in Phase 1's definition of done |
 | Re-verify the pinned Godot version rather than trusting the recorded number | `DECISIONS.md` §9 | small | The same discipline `CLAUDE.md` states for gdext maturity and crate specifics |
-| `DECISIONS.md` §7i — swamp/floodplain penalty and ford-vs-bridge costs still marked "not yet closed" but now built | `DECISIONS.md` | small | Closing paragraph still says "not taken in the same pass" and "the obvious next step" but both are now built and wired (`cartalith-civ/src/lib.rs:5583` `civ_swamp_penalty`, `:5599` `civ_river_crossing_cost`, wired via `RouteContext.flow`/`flow_thresh` at `tools.rs:401-410`). One-paragraph text fix |
-| `JOURNEY_PLANNER_SCOPE.md` Update section — ocean/wind fields, `jp_road_cells` ManualWay, and `road_edges` retention marked open but now closed | `JOURNEY_PLANNER_SCOPE.md` | small | All three closed this session (see `STATUS.md` Journey Planner ledger JP-QC2/QC3/QC4, all `done`). Dated narrative text fix — the "Update (2026-08-19)" dateline should get a new correction, not a silent rewrite |
 | `world_workspace.gd` parameter count — header claims 58 but actual count is 81 | `cartalith-native/godot-project/shell/workspaces/world_workspace.gd` | small | Comment-text fix (lines 7-10): `grep -c "ParamSpec { key:" cartalith-native/crates/cartalith-godot/src/params.rs` confirms 81 parameters |
 | Five "left undetermined" questions from the unwired re-cut — light-theme inertness of the CARTO panels, the phone measure strip / label bar / way card, the 44 vs 48 dp target sweep, whether `sculpt_stroke_point` can reject an appended point, landscape composition beyond the sheet handle, and whether any `_todo` reason cites a `PARITY_AUDIT.md` section number that has moved | `UNWIRED_FUNCTIONS.md` | small | Three of the six need a handset or a light-theme capture, not a read |
 
@@ -358,7 +388,7 @@ owner answer, the question itself is in §4.
 | The flaky GPU determinism test `generate_terrain_gpu_path_is_deterministic_and_valid` | `STATUS.md` F1 | small | Fails ~1 run in 3 under full-workspace parallel load, by ~1 ulp. The decision is whether an `assert_eq!` on a whole f32 field is the right bar for a path §7a holds only to principled equivalence |
 | Military manpower **finding 2** — standing armies land at Imperial Rome's ratio, not the era table's standing column | `MILITARY_MANPOWER_SCOPE.md` | medium | Correcting it means recalibrating outputs currently validated against the owner's worked example. Reported, not tuned |
 | Stop shipping the ~218 `_*_probe` / `_*_shot` development scenes inside the APK | `ANDROID_BUILD_SCOPE.md` | small | The owner's call — the pass ran under a standing instruction not to touch `export_presets.cfg` or `Cargo.toml`. `exclude_filter` does not mention them |
-| Shrink `STATUS.md` | `STATUS.md` own header | medium | An editorial decision for the owner, declined twice by audit passes as correctly out of their remit. Still not made; the file is 8 122 lines with four lines over 15 000 characters |
+| Shrink `STATUS.md` | `STATUS.md` own header | medium | An editorial decision for the owner, declined twice by audit passes as correctly out of their remit. Still not made — but **the size that motivated it is gone**: this cell said "8 122 lines with four lines over 15 000 characters" until 2026-09-01, contradicting this document's own header three paragraphs in. `wc -l` gives **1 445** today (1 157 at the 2026-08-31 rewrite, so it is growing again). The decision is open; the emergency is not |
 
 ### 3.2 Blocked on other work in this list
 
@@ -413,11 +443,20 @@ task. Ordered by how much they unblock.
 | 13 | **`--good` and `--accH`** — declared and never used | `UNWIRED_FUNCTIONS.md` Q10 | The prototype records both as declared-and-never-used itself, so a shell with no consumer may be fidelity rather than a gap |
 | 14 | Where do landmarks live in the crate graph? | `LANDMARK_GENERATION_SCOPE.md` OQ 4 | **Answered de facto, never formally**: the code landed in `cartalith-civ/src/landmark.rs` and `cartalith-terrain/src/analysis.rs` rather than a new crate. §4.4 called it "a real architectural fork, not just a filing question" and the fork is not recorded as decided |
 | 15 | How does a generated landmark relate to the manual icon tool (`annotations/icons.json`)? | `LANDMARK_GENERATION_SCOPE.md` OQ 6 | Affects the save format, the renderer, and M6's spacing inputs. Partially touched — 49 glyphs were drawn — but a rendering vocabulary is not the decision |
-| 16 | Which unit systems are offered? (**PR-15**) | `GUI_GAP_REGISTER.md` §10 | Largely settled by the 2026-08-31 Units ruling (km / mi / **nautical miles**); the `_todo` row at `menus.gd:1865` has not been updated |
-| 17 | Should the 16K/32K export be un-shelved? | `EXPORT_SCOPE.md` | See §5 for the four things an un-shelve costs |
-| 18 | Store distribution and signing (`DECISIONS.md` §6) | `ROADMAP.md` | "Things the architecture permits and nobody has committed to." Not work until someone commits. `export_presets.cfg` has only Windows Desktop and Android |
-| 19 | A WASM target sharing `cartalith-engine` (`DECISIONS.md` §2) | `ROADMAP.md` | Same status. Zero `wasm32` hits in any `Cargo.toml` |
-| 20 | Should `STATUS.md` be shrunk, and how? | `STATUS.md` header | Listed in §3.1 as a blocker too, because it taxes every session that follows `CLAUDE.md` literally |
+| 16 | Should the 16K/32K export be un-shelved? | `EXPORT_SCOPE.md` | See §5 for the four things an un-shelve costs |
+| 17 | Store distribution and signing (`DECISIONS.md` §6) | `ROADMAP.md` | "Things the architecture permits and nobody has committed to." Not work until someone commits. `export_presets.cfg` has only Windows Desktop and Android |
+| 18 | A WASM target sharing `cartalith-engine` (`DECISIONS.md` §2) | `ROADMAP.md` | Same status. Zero `wasm32` hits in any `Cargo.toml` |
+| 19 | Should `STATUS.md` be shrunk, and how? | `STATUS.md` header | Listed in §3.1 as a blocker too, because it taxes every session that follows `CLAUDE.md` literally |
+
+**One question left this section on 2026-09-01 and is not renumbered into
+it.** *"Which unit systems are offered? (**PR-15**)"* — formerly #16, owned by
+`GUI_GAP_REGISTER.md` §10 — is **answered**: `LARGE_ITEM_RULINGS.md` rules it
+*"Build, and add nautical miles"*, naming km / mi / nautical miles outright.
+An answered question is not an open decision, so it is deleted here rather
+than carried with a note, per this document's own no-"done"-column rule. The
+work it gated is the Units row in §2.2, which now carries the residual
+`_todo` at `menus.gd`. Questions 17-20 shifted up by one; a citation of
+"question 16" written before this date means Units, not the export shelf.
 
 ---
 
@@ -538,9 +577,19 @@ These are defects in the record, not milestones, and they are worth more than
 any single row above: each one costs a future session either re-derived work or
 a wrong plan. They are ordered by what they cost.
 
-### 6.1 Two documents exist only in the working tree
+### 6.1 Two documents exist only in the working tree — ~~open~~ **closed 2026-09-01**
 
-`git status` → `?? LARGE_ITEM_RULINGS.md` and
+**This defect is fixed, and the paragraph below is kept only because §6 is a
+record of what the project record got wrong.** `LARGE_ITEM_RULINGS.md` and
+`cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md` are both in `HEAD` —
+verified with `git cat-file -e HEAD:<path>` on each, not by reading a
+document — having landed in `fd9de7c` with 235 other files. No clean checkout
+loses either. The stale wording survived in three places at once (here, "The
+three that matter" #3, and §2.2's footnote), which is itself the pattern this
+section exists to name: one fact asserted in three files ages in three
+places.
+
+*What it said, for the record:* `git status` → `?? LARGE_ITEM_RULINGS.md` and
 `?? cartalith-native/docs/3D_TERRAIN_RENDER_RESEARCH.md`. The first carries the
 owner's rulings on all eighteen Large rows, **including two scoped
 authorisations that override standing rules** — editing
@@ -687,13 +736,16 @@ defends. The full correction is in §2.1.
   structural code check that the named module or binding exists. The known
   intermittent failure (`generate_terrain_gpu_path_is_deterministic_and_valid`)
   is listed in §3.1 as a decision, not a result.
-- **The uncommitted working tree.** Grown since the 2026-08-31 count: **126
-  tracked files** now differ from `HEAD` (16 488 insertions, 10 499 deletions,
-  `git diff --shortstat` re-run 2026-09-01), of which **26** are under
-  `godot-project/shell/` — carrying most of the `UNWIRED_FUNCTIONS.md` backlog
-  plus this pass's `statusMid`/RP-S4/vault-compare work in a
-  landed-but-uncommitted state. Every such row needs re-verification once that
-  work commits.
+- **The re-verification that commit was the precondition for.** This bullet
+  used to read *"the uncommitted working tree… **126 tracked files** now
+  differ from `HEAD` (16 488 insertions, 10 499 deletions)… Every such row
+  needs re-verification once that work commits."* **That work committed**
+  (`fd9de7c`, 237 files / 90 718 insertions), so the precondition is met and
+  what is left is the debt, not the tree: `git diff --shortstat` re-run
+  2026-09-01 gives **1 file changed** (an in-flight `journey_planner_view.gd`),
+  and the only untracked paths are two `_routecutout_probe.*` scenes and a
+  `tools/__pycache__/`. Nothing in this document has re-verified a closed row
+  against the committed tree yet.
 - **`UNWIRED_FUNCTIONS.md`'s 21 rows individually** (22 after the same-day
   second pass, 23 after the 2026-08-31 cut's morning pass, 75 before it).
   They are one row here because that document is the live backlog with its
@@ -703,6 +755,7 @@ defends. The full correction is in §2.1.
   re-derived once; a class marker survives on only 54 of 215 rows. Read it as
   history. `UNWIRED_FUNCTIONS.md` is the successor, re-cut 2026-08-31 against
   the three-domain shell.
-- **The stray root files.** `518.86`, `518.92` and `66.0` sit untracked at the
-  repository root and look like accidental shell-redirect artefacts from the
-  memory-measurement work. Not investigated; not work, probably deletion.
+- ~~**The stray root files.**~~ `518.86`, `518.92` and `66.0` — accidental
+  shell-redirect artefacts from the memory-measurement work — **are gone**
+  (`ls` finds none of the three, 2026-09-01). Kept as a struck line rather
+  than deleted so nobody re-investigates the same three filenames.

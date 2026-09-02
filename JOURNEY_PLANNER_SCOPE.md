@@ -986,6 +986,46 @@ typo and a silently wrong journey. Plus one end-to-end test that the assembled
 `JourneyWorld` genuinely drives `jp_plan` — not merely that its buffers are
 non-empty.
 
+### Correction (2026-09-01) — all three "genuinely unavailable" inputs are live
+
+The three bullets above — `ocean_field`/`wind_field`, `road_cells` seeing only
+generated ways, and an empty `road_edges` — described a real gap on 2026-08-19
+and describe none today. Recorded here as a dated correction rather than an
+edit to the text above, the same discipline the "28, not 26" note below already
+follows. Each was re-verified by opening the symbol, not by re-reading a
+document:
+
+- **`ocean_field`/`wind_field` are real, and no `WorldState` retention was
+  needed.** The bullet's premise (the climate stage computes the current field
+  inside `ocean_sst_anomaly` and discards it) is true of the *pipeline* and was
+  beside the point: `cartalith_climate::current_ocean_field` and
+  `current_wind_field` are `pub fn`s callable on demand from any generated
+  world, which is how the Wind and Ocean-currents debug views already drive
+  themselves. `cartalith-godot/src/lib.rs`'s `coarse_ocean_wind_fields` builds
+  both as `JpCoarseField`s and every `jp_plan`-driving `#[func]` passes
+  `Some(&…)`. So this is no longer one of this document's "quality ceilings":
+  **`_civSeaTimeEdgeCost` is ported too**, as `civ_sea_time_edge_cost` in
+  `cartalith-civ/src/lib.rs`, and `civ_sea_routes` reaches it through the same
+  `ocean_f`/`wind_f` pair. `None` remains `jp_sea_condition`'s supported input
+  for a caller that genuinely has neither.
+- **`jp_road_cells` reads hand-drawn ways.** Its signature took `&[Way]` alone;
+  it now takes `manual_ways: &[tools::ManualWay]` as a second parameter and
+  carries the reference's own `'ancient' → ["Dirt Track","Deteriorated"]`
+  mapping the bullet said was missing. Covered by
+  `jp_road_cells_reads_hand_drawn_ways_including_ancient`.
+- **`road_edges` is retained and passed.** `CivData::road_edges` holds
+  `civ_hierarchical_network_topology`'s edges — note this is a **different**
+  producer than the `build_road_network` the original bullet named, which is
+  why the claim read as true for as long as it did. `jp_road_cells` is called
+  with `&civ.road_edges` and the real manual ways at both `jp_plan`-driving
+  sites in `cartalith-godot/src/lib.rs`.
+
+`JourneyWorld::build` still passes `&[]` for the last two and overwrites
+`jw.road_cells` immediately afterwards, deliberately: widening `build`'s
+signature would re-derive `road_cells` a second time for callers that also want
+the world's other tables. `journey_bridge.rs`'s module doc carries that
+reasoning at the call site.
+
 ## Redesign: the distance spine (2026-08-19)
 
 Steps 3 and 5 above closed twice the same day. First as `journey_planner_

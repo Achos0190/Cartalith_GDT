@@ -439,6 +439,14 @@ pub fn build_plates(
 /// brute-force nested loop `build_plates`'s own Lloyd step still uses.
 /// Returns one plate index per cell (row-major, `y*gw+x`).
 ///
+/// `u16`, not `usize`: `tect.plates` is capped at 40 by its own `ParamSpec`
+/// (`cartalith-godot`'s `params.rs`, clamped on every set) and the
+/// World-Structure override clamps to `4..=40` as well, so eight bytes a cell
+/// held a number below 41. 2 B/cell instead of 8 is 15.36 MiB off a
+/// 2 048 × 1 311 world's peak *and* its resident set
+/// (`MEMORY_OPTIMIZATION_SCOPE.md` R4). Callers index `plates[]` with
+/// `as usize` at the read.
+///
 /// Two precision details matter for parity, not just the algorithm shape:
 /// - `bestD2` is a `Float32Array` in JS, so the running best distance is
 ///   rounded to `f32` on every write, and later comparisons read that
@@ -454,7 +462,7 @@ pub fn assign_plates(
     plates: &[Plate],
     warp_x: Option<&[f32]>,
     warp_y: Option<&[f32]>,
-) -> Vec<usize> {
+) -> Vec<u16> {
     let n = gw * gh;
     let np = plates.len();
     let px: Vec<f64> = plates.iter().map(|p| p.x).collect();
@@ -535,10 +543,10 @@ pub fn assign_plates(
         step_u >>= 1;
     }
 
-    let mut plate_id = vec![0usize; n];
+    let mut plate_id = vec![0u16; n];
     for i in 0..n {
         if nearest[i] >= 0 {
-            plate_id[i] = nearest[i] as usize;
+            plate_id[i] = nearest[i] as u16;
             continue;
         }
         let x = i % gw;
@@ -559,7 +567,7 @@ pub fn assign_plates(
                 best = p;
             }
         }
-        plate_id[i] = best;
+        plate_id[i] = best as u16;
     }
     plate_id
 }
@@ -734,7 +742,7 @@ pub fn compute_stress(
     gw: usize,
     gh: usize,
     world: bool,
-    plate_id: &[usize],
+    plate_id: &[u16],
     plates: &[Plate],
     vel: f64,
     blur_r: f64,
@@ -749,7 +757,7 @@ pub fn compute_stress(
     for y in 0..gh {
         for x in 0..gw {
             let i = y * gw + x;
-            let a = plate_id[i];
+            let a = plate_id[i] as usize;
             let mut neighbors: Vec<usize> = Vec::with_capacity(3);
             if x + 1 < gw {
                 neighbors.push(i + 1);
@@ -761,7 +769,7 @@ pub fn compute_stress(
                 neighbors.push(y * gw);
             }
             for j in neighbors {
-                let b = plate_id[j];
+                let b = plate_id[j] as usize;
                 if b == a {
                     continue;
                 }
@@ -1042,7 +1050,7 @@ pub fn compute_heterogeneity(
 pub fn compute_resistance(
     gw: usize,
     gh: usize,
-    plate_id: &[usize],
+    plate_id: &[u16],
     plates: &[Plate],
     age_field: &[f32],
 ) -> Vec<f32> {
@@ -1051,7 +1059,7 @@ pub fn compute_resistance(
     // `resistance[i] = f(plate_id[i], age_field[i])` -- no cross-cell
     // dependency, exact under parallel execution (CPU_MULTITHREADING_SCOPE.md).
     resistance.par_iter_mut().enumerate().for_each(|(i, r)| {
-        let pl = plates[plate_id[i]];
+        let pl = plates[plate_id[i] as usize];
         let crustal = pl.base.max(0.0);
         *r = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
     });
@@ -1412,7 +1420,7 @@ fn place_province_volcanoes(
     volcanic_field: &mut [f32],
     map_width_km: f64,
     peak_m: f64,
-    plate_id: &[usize],
+    plate_id: &[u16],
     plates: &[Plate],
     kind: &str,
     cx: f64,
@@ -1426,7 +1434,7 @@ fn place_province_volcanoes(
     volc_age: f64,
 ) {
     if kind == "hotspot" {
-        let pid = plate_id[(cy as usize) * gw + cx as usize];
+        let pid = plate_id[(cy as usize) * gw + cx as usize] as usize;
         let pl = &plates[pid];
         let (mut ux, mut uy) = (pl.vx, pl.vy);
         let l = ux.hypot(uy);
@@ -1549,7 +1557,7 @@ pub fn stamp_volcanoes_provinces(
     peak_m: f64,
     boundary_mask: &[u8],
     stress_field: &[f32],
-    plate_id: &[usize],
+    plate_id: &[u16],
     plates: &[Plate],
     volc_count: i32,
     volc_age: f64,

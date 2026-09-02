@@ -200,7 +200,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
 
     // `baseField` = per-cell plate base, then the same 0.35x blur the
     // forward substrate applies (reference line 6767).
-    let crust_field: Vec<f32> = plate_id.iter().map(|&pi| plates[pi].base as f32).collect();
+    let crust_field: Vec<f32> = plate_id.iter().map(|&pi| plates[pi as usize].base as f32).collect();
     let _base_field = gauss_blur(&crust_field, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world);
 
     // ---- forward stages, reused verbatim (reference HTML lines 6769-6776) ----

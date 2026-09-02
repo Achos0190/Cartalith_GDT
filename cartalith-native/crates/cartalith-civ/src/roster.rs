@@ -49,17 +49,27 @@
 //!   wired at `civ_military_bridge.rs` (`MILITARY_MANPOWER_SCOPE.md`,
 //!   2026-08-25).
 //!   That route has nothing to do with food logistics -- it is the labour
-//!   force behind an army's headcount -- and it is the only one of the two
-//!   actually reachable from Godot today.
+//!   force behind an army's headcount.
 //!
-//! **What is still genuinely true:** nobody at the `cartalith-godot`
-//! boundary calls `civ_food_shed`. This crate holds no faction roster, so a
-//! real per-settlement `farmers_per_urbanite` (and a soil field) has to be
-//! resolved and threaded in from there before ag-tech influences trade the
-//! way it already influences manpower -- the same shape of wiring
-//! `civ_military_bridge.rs` already did for the other route. The table
-//! itself was ported regardless of who reads it, the same reasoning
-//! `civ_base_pop_for_kind`'s unreachable `Metropolis` row already carries.
+//! **The "still genuinely true" paragraph that stood here is now false too
+//! (corrected 2026-09-01, later the same day).** It read: *"nobody at the
+//! `cartalith-godot` boundary calls `civ_food_shed`"*, and said a real
+//! per-settlement `farmers_per_urbanite` and soil field had yet to be
+//! resolved and threaded in from there. All of that was built in the same
+//! pass, which is why the sentence above no longer calls the manpower route
+//! the only one reachable from Godot: `civ_trade_bridge.rs`'s
+//! `food_shed_rows` resolves each settlement's `farmers_per_urbanite`
+//! through [`crate::roster::civ_ag_tech_by_key`] -- the same entry point the
+//! manpower model uses -- builds the soil field, shares one `RoadComponents`
+//! across the sweep, and calls [`crate::trade::civ_food_shed`] once per
+//! settlement behind the `#[func] civ_food_shed` binding. The wiring is the
+//! shape this paragraph predicted; it simply exists now.
+//!
+//! What has not changed is why the tables live here: this crate still holds
+//! no faction roster (`ARCHITECTURE.md`), so those per-settlement values are
+//! still resolved by the caller and threaded in, never read from state this
+//! module owns. The table was ported regardless of who reads it, the same
+//! reasoning `civ_base_pop_for_kind`'s unreachable `Metropolis` row carries.
 
 /// `CIV_FACTIONS` (reference line 14568), index 0 = "Unclaimed", fixed.
 ///

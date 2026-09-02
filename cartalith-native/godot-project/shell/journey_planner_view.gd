@@ -248,7 +248,15 @@ var _pack_range_label: Label
 var _vessel_matrix: Dictionary = {}
 
 var _center_panel: Control
+var _route_map_wrap: Control
 var _route_map: _RouteMapView
+var _route_line: _RouteLineLayer
+var _route_map_layer_btn: Button
+var _route_map_layer_popup: PopupMenu
+## Which `EngineBridge.debug_texture()` id the route-map backdrop shows --
+## `"off"` (the pre-existing plain background) by default, so this feature is
+## purely additive until picked.
+var _route_map_layer_id := "map"
 var _totals_body: VBoxContainer
 var _profile: _ProfileView
 var _stops_row: HBoxContainer
@@ -1138,6 +1146,7 @@ func _apply_result() -> void:
 		_selected_stage = maxi(0, stages.size() - 1)
 
 	_rebuild_route_map(plan)
+	_refresh_route_map_layer_texture()
 	_rebuild_profile(plan)
 	_rebuild_stops(plan)
 	_rebuild_inspector(plan)
@@ -1358,14 +1367,34 @@ func _build_center_panel() -> void:
 	map_row_pad.add_child(map_row)
 	col.add_child(map_row_pad)
 
-	_route_map = _RouteMapView.new()
-	_route_map.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_route_map.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	## Three stacked layers, tree order not z_index -- `ViewportHost` itself
+	## never needs z_index for exactly this kind of stack (`map_view` then
+	## `_lod_layer` then `overlay`, three siblings added in draw order): a
+	## CHILD always draws after its own PARENT's `_draw()`, but a negative
+	## `z_index` to push behind a PARENT bleeds into comparisons against
+	## ancestors too and can land behind an opaque panel background several
+	## levels up -- found live, not guessed, when the LOD tiles this wrap
+	## exists for went fully invisible under exactly that.
+	_route_map_wrap = Control.new()
+	_route_map_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_route_map_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if _phone:
 		## Stacked, the map needs a height of its own or the totals column takes
 		## the row; 60% of the band, so the numbers under it still read.
-		_route_map.custom_minimum_size.y = _pp(150)
-	map_row.add_child(_route_map)
+		_route_map_wrap.custom_minimum_size.y = _pp(150)
+	map_row.add_child(_route_map_wrap)
+
+	_route_map = _RouteMapView.new()
+	_route_map.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_route_map_wrap.add_child(_route_map)
+
+	_route_line = _RouteLineLayer.new()
+	_route_line.backdrop = _route_map
+	_route_line.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_route_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_route_map_wrap.add_child(_route_line)
+
+	_build_route_map_layer_button()
 
 	var totals_panel := PanelContainer.new()
 	if not _phone:
@@ -1487,6 +1516,146 @@ func _build_center_panel() -> void:
 
 # -- Route map + totals ---------------------------------------------------------
 
+## The route-map backdrop's own layer picker. Default is `"map"` -- the real
+## rendered terrain (`EngineBridge.color_texture()`, the same colour +
+## hillshade texture `ViewportHost.refresh()` puts in `map_view`), which is
+## what "a cutout of the map" meant in the first place. The other options are
+## `debug_texture()`'s field rasters -- the same ones the main map's Layers
+## popover (`layers_popover.gd`) offers, reduced to the four that actually
+## bear on whether a route is viable (what the ground is, what water is near,
+## what lives there, the shape of the land) -- plus None, the plain
+## background this view had before any of this existed. Not a second copy of
+## `LayersPopover`: six rows fit a plain `PopupMenu`, styled the same way this
+## file already styles `mode_ob`/`pace_ob`'s option-button popups
+## (`DccWidgets.style_popup`), with no need for a whole second `PopupPanel`
+## class.
+##
+## `"map"` alone gets `ViewportHost`'s own deep-zoom LOD tiles
+## (`_RouteMapView.set_backdrop`'s own doc explains why the other five
+## can't) -- the same shader that composites them onto `color_texture()`.
+const LOD_TILE_SHADER := preload("res://shell/lod_tile.gdshader")
+## The LOD tile fetch targets THIS resolution on the crop's SHORTER world
+## axis -- `_sync_lod()` takes `maxf()` of the two px-per-cell ratios, so it
+## is the shorter axis that lands on exactly this figure and the longer one
+## that gets proportionally more. Not the panel's own on-screen size:
+## `_RouteMapView._sync_lod()`'s
+## own doc explains why: the panel is ~230 px tall, but the engine can
+## synthesize far more than that, and capping the fetch at display size
+## would throw away real detail the world already has just because the
+## widget showing it is small. Sprites still land on-screen through the
+## panel's own `_fit()`, unchanged -- this only changes how much source
+## detail feeds that downscale.
+const ROUTE_MAP_CAPTURE_PX := 2048.0
+const _ROUTE_MAP_LAYER_IDS := ["map", "water", "bclass", "cterrain", "wildlife", "off"]
+const _ROUTE_MAP_LAYER_LABELS := {
+	"map": "Map", "off": "None", "water": "Water", "bclass": "Biome",
+	"cterrain": "Terrain", "wildlife": "Wildlife",
+}
+
+func _build_route_map_layer_button() -> void:
+	_route_map_layer_btn = Button.new()
+	_route_map_layer_btn.flat = true
+	_route_map_layer_btn.focus_mode = Control.FOCUS_NONE
+	_route_map_layer_btn.icon = DccIcons.get_icon("layers", 15)
+	_route_map_layer_btn.tooltip_text = "Route map background — what the cutout under the line shows."
+	## Icon-only, so `icon_alignment`'s `LEFT` default hangs the glyph off the
+	## left edge of its own hit box -- `ViewportHost`'s own `_layers_btn` (the
+	## same widget, same icon) carries the OnePlus 6T history that found this.
+	_route_map_layer_btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	## Anchored to the panel's top-right, growing LEFT and DOWN off that
+	## corner. `position = Vector2(-26, 6)` + `size = Vector2(20, 20)` (what
+	## this was) does NOT survive: a `Control` is clamped up to its combined
+	## minimum size, and this themed icon button's is 35 x 27 -- so the rect
+	## grew rightwards from a 20-wide assumption and hung 9 px off the panel's
+	## right edge. Measured live, not guessed. `grow_horizontal` is the same
+	## lever `dcc_shell.gd` uses for exactly this ("picks which edge stays put
+	## while it grows"), which makes the inset exact whatever the theme says
+	## the button's minimum is.
+	_route_map_layer_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_route_map_layer_btn.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_route_map_layer_btn.grow_vertical = Control.GROW_DIRECTION_END
+	_route_map_layer_btn.offset_right = -6
+	_route_map_layer_btn.offset_top = 6
+	## On the wrap, not `_route_map` -- `_route_map`/`_route_line` are two
+	## siblings under it now (see `_build_center_panel()`'s own comment), and
+	## the button has to sit above both regardless of which one currently
+	## draws a cutout under it.
+	_route_map_wrap.add_child(_route_map_layer_btn)
+
+	## A child of `app`, not of the button -- `app.gd`'s own `layers_popover`
+	## does the same (`add_child(layers_popover)` on the app root), and a
+	## `Popup`/`Window` node's placement in the tree is about lifetime, not
+	## visual parenting, so it belongs beside every other top-level popup
+	## rather than nested inside this panel's own layout.
+	_route_map_layer_popup = PopupMenu.new()
+	DccWidgets.style_popup(_route_map_layer_popup)
+	_route_map_layer_popup.id_pressed.connect(_on_route_map_layer_picked)
+	app.add_child(_route_map_layer_popup)
+	_route_map_layer_btn.pressed.connect(func():
+		_rebuild_route_map_layer_popup()
+		var pos := _route_map_layer_btn.global_position + Vector2(0, _route_map_layer_btn.size.y)
+		_route_map_layer_popup.position = Vector2i(pos)
+		_route_map_layer_popup.popup())
+
+## Rebuilt on every open rather than held, matching `LayersPopover.rebuild()`:
+## `available` can change between opens (a route drawn, then a save loaded
+## over it) and re-reading `debug_layers()` is the only honest way to know.
+func _rebuild_route_map_layer_popup() -> void:
+	_route_map_layer_popup.clear()
+	var flat := {}
+	for g in bridge.debug_layers():
+		for it in (g as Dictionary).get("items", []):
+			var item: Dictionary = it
+			flat[String(item.get("id", ""))] = item
+	for i in _ROUTE_MAP_LAYER_IDS.size():
+		var id: String = _ROUTE_MAP_LAYER_IDS[i]
+		var label: String = String(_ROUTE_MAP_LAYER_LABELS[id])
+		_route_map_layer_popup.add_radio_check_item(label, i)
+		var idx := i   ## Items are added in `_ROUTE_MAP_LAYER_IDS` order with id == i, so index == id.
+		_route_map_layer_popup.set_item_checked(idx, id == _route_map_layer_id)
+		if id == "off":
+			_route_map_layer_popup.set_item_tooltip(idx, "The plain background this view always had.")
+			continue
+		if id == "map":
+			_route_map_layer_popup.set_item_tooltip(idx, "The rendered terrain — the same colour and hillshade texture the main map shows.")
+			_route_map_layer_popup.set_item_disabled(idx, not bridge.has_world)
+			continue
+		var item: Dictionary = flat.get(id, {})
+		var available: bool = bool(item.get("available", true))
+		_route_map_layer_popup.set_item_disabled(idx, not available)
+		_route_map_layer_popup.set_item_tooltip(idx, String(item.get("hint", "")))
+
+func _on_route_map_layer_picked(id_index: int) -> void:
+	if id_index < 0 or id_index >= _ROUTE_MAP_LAYER_IDS.size():
+		return
+	_route_map_layer_id = _ROUTE_MAP_LAYER_IDS[id_index]
+	_refresh_route_map_layer_texture()
+
+## Re-fetches the current layer id's texture and redraws. Called on a manual
+## pick, and also from `_apply_result()` -- a plan recompute can follow a
+## regenerate, and `color_texture()`/`debug_texture()` build fresh off
+## whatever world is live, so a texture fetched before that regenerate would
+## otherwise sit stale (wrong, not crashing) until the next manual pick.
+func _refresh_route_map_layer_texture() -> void:
+	var id := _route_map_layer_id
+	var tex: Texture2D = null
+	if id == "off":
+		pass
+	elif id == "map":
+		tex = bridge.color_texture()
+	else:
+		## `debug_texture()`'s own contract: null for an unknown id or a view
+		## this world has no input for -- exactly "no cutout", so no branch is
+		## needed here for the disabled case.
+		tex = bridge.debug_texture(id)
+	## LOD tiling only for "map" -- `set_backdrop`'s own doc says why the
+	## other four fields (and the flat base raster all six fall back to)
+	## can't use it.
+	_route_map.set_backdrop(tex, id == "map", bridge)
+	## The halo pass `_route_line` draws is gated on `backdrop.map_texture !=
+	## null`, which just changed.
+	_route_line.queue_redraw()
+
 func _rebuild_route_map(plan: Dictionary) -> void:
 	for c in _totals_body.get_children():
 		_totals_body.remove_child(c)
@@ -1497,6 +1666,7 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		_route_map.stage_segments = []
 		_route_map.stops = []
 		_route_map.queue_redraw()
+		_route_line.queue_redraw()
 		DccWidgets.note(_totals_body, "No committed route selected.")
 		return
 
@@ -1521,6 +1691,7 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		stop_pts.append(Vector2(float(d.get("x", 0.0)), float(d.get("y", 0.0))))
 	_route_map.stops = stop_pts
 	_route_map.queue_redraw()
+	_route_line.queue_redraw()
 
 	if plan.is_empty():
 		var err := String(_last_result.get("error", "No result yet."))
@@ -2947,17 +3118,229 @@ func _build_trace_group(body: Control) -> void:
 ## index range `jp_plan` derived that stage over). No SVG-cloning of the
 ## mockup's specific example curve; whatever route is actually committed
 ## draws its own real shape.
+##
+## **The backdrop is a real cutout, not a mockup.** `map_texture`, when set,
+## is one of `EngineBridge.debug_texture()`'s grid-sized rasters -- the same
+## bitmap the Layers popover paints over the main map -- cropped to exactly
+## the world-space rect `_fit()` already computes for the line (same 12%
+## margin, same bounding box), so the terrain under the line and the line
+## itself are always in registration. The outer script's layer-picker button
+## owns which id (`off`/`water`/`bclass`/`cterrain`/`wildlife`) is live; this
+## class only draws whatever texture it is handed.
 class _RouteMapView extends Control:
+	## `ViewportHost.MAX_LOD_TILES_PER_UPDATE`'s own figure -- what that
+	## budgets per single input event during interactive pan/zoom, this
+	## panel needs once per route pick, layer switch or resize. `_sync_lod()`
+	## backs off to a shallower zoom level rather than truncating the fetch
+	## when a crop would need more than this -- see that call site's own
+	## comment for why a truncated fetch is a real, found-live bug, not a
+	## theoretical one.
+	const _LOD_TILE_BUDGET := 48
 	var pts: PackedVector2Array = PackedVector2Array()
 	var stage_segments: Array = []   ## [{i0,i1,cat,blocked}]
 	var stops: Array = []            ## [Vector2] world grid coords
+	var map_texture: Texture2D = null
+	## True only for the "map" layer -- see `set_backdrop`.
+	var _use_lod := false
+	var _lod_bridge: EngineBridge = null
+	var _lod_sprites: Array = []   ## [Sprite2D] children -- draw order is tree order, see `_build_center_panel()`.
+	## The grid-aligned union of every synthesized tile's own world footprint
+	## -- NOT the route's `[minv,maxv]` (`_bounds()`), which `_sync_lod()` only
+	## uses to pick which tiles to fetch. A tile is grid-square; the route's
+	## own bbox+margin rarely lines up with that grid, so the tiles almost
+	## always cover a bit more ground than the route asked for. `_route_line`
+	## dims exactly this rect, not `[minv,maxv]` -- dimming the tighter box
+	## left an undimmed sliver of full-brightness map wherever a tile stuck
+	## out past it, a real seam, not a rounding nicety.
+	var lod_world_bounds := Rect2()
 
 	func _ready() -> void:
-		resized.connect(func(): queue_redraw())
+		resized.connect(func(): _sync_lod(); queue_redraw())
+		## `map_texture` is a `gw x gh` per-cell raster -- one texel per world
+		## grid cell, cropped to a small local region and magnified well past
+		## 1:1 -- so it needs to lean on smoothing between texels rather than
+		## show them as hard squares. Explicit rather than trusting the
+		## project default: this node has no ancestor that overrides it today,
+		## but `ViewportHost`'s own base map (`_raster()`) deliberately sets
+		## `TEXTURE_FILTER_NEAREST`, and this class living beside that code is
+		## exactly the situation where an inherited default is worth pinning.
+		texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
-	func _fit(rect: Rect2) -> Callable:
-		if pts.is_empty():
-			return func(p: Vector2) -> Vector2: return Vector2.ZERO
+	## The one entry point the outer script uses to change what the backdrop
+	## shows -- replaces a plain `map_texture = ...` assignment because the
+	## "map" layer needs more than a texture swap: it also owns a set of
+	## LOD-tile `Sprite2D` children (`_sync_lod`), which every other layer
+	## must NOT carry.
+	##
+	## **Why only "map" gets LOD tiles.** `lod_bridge.rs`'s own "What a tile
+	## actually contains" section is explicit: a tile is a relief-detail
+	## *shade ratio*, not a picture -- `lod_tile.gdshader` multiplies it into
+	## `color_texture()`'s own colour, sampled at the tile's footprint. There
+	## is no equivalent shade-ratio synthesis for `debug_texture()`'s four
+	## field views: `bclass`/`cterrain` are categorical class ids (no
+	## sub-cell value to refine), and `water`/`wildlife` are derived scores
+	## with no relief-detail model behind them either. Feeding any of those
+	## into `LOD_TILE_SHADER`'s `base_tex` would multiply a real detail ratio
+	## into a field it was never computed against -- wrong, not just blurry.
+	## Those four (and "off") keep the flat, bilinear-smoothed crop `_draw()`
+	## already draws; only "map" gets the sharper composited version.
+	func set_backdrop(tex: Texture2D, use_lod: bool, bridge: EngineBridge) -> void:
+		map_texture = tex
+		_use_lod = use_lod
+		_lod_bridge = bridge
+		_sync_lod()
+		queue_redraw()
+
+	func _clear_lod_sprites() -> void:
+		for s in _lod_sprites:
+			if is_instance_valid(s):
+				s.queue_free()
+		_lod_sprites.clear()
+		lod_world_bounds = Rect2()
+
+	## Rebuilds `_lod_sprites` from scratch against the current route bounds
+	## and world (fetch) and the panel's own size (placement only -- see
+	## `ROUTE_MAP_CAPTURE_PX`). Cheap to just discard and refetch rather than
+	## diff against the previous set: a route-preview panel redraws on a
+	## route pick or a panel resize, neither of which is a per-frame event
+	## the way `ViewportHost`'s camera pan/zoom is -- the incremental
+	## reconciliation `_apply_lod_tiles` needs for THAT doesn't earn its
+	## complexity here.
+	func _sync_lod() -> void:
+		_clear_lod_sprites()
+		if not _use_lod or _lod_bridge == null or pts.size() < 2 or map_texture == null:
+			return
+		var rect := Rect2(Vector2.ZERO, size)
+		var b := _bounds()
+		var minv: Vector2 = b[0]
+		var maxv: Vector2 = b[1]
+		var bw: float = maxf(1e-6, maxv.x - minv.x)
+		var bh: float = maxf(1e-6, maxv.y - minv.y)
+		## Targets `ROUTE_MAP_CAPTURE_PX` on the crop's SHORTER world axis (the
+		## longer one gets proportionally more, since `maxf` picks the bigger
+		## of the two px-per-cell ratios) -- NOT `rect.size`, the panel's own
+		## physical pixel size. Over-asking is safe: the backoff loop below
+		## walks `z` back down until the tile count fits the budget, so this
+		## only sets the ceiling that loop starts from. `_fit()`
+		## still places the resulting tiles on-screen at the panel's real
+		## size below; this only decides how much source detail is fetched
+		## before that downscale, so a small panel still gets a genuinely
+		## sharp capture rather than one throttled to its own display size.
+		var s: float = maxf(ROUTE_MAP_CAPTURE_PX / bw, ROUTE_MAP_CAPTURE_PX / bh)
+		var z: int = _lod_bridge.lod_level_for_zoom(s)
+		var n: int = _lod_bridge.lod_tiles_per_axis(z)
+		if n <= 0:
+			return   ## No LOD binding on this build -- degrade to the flat crop.
+		var g: Vector2i = _lod_bridge.grid_size()
+		if g.x < 2 or g.y < 2:
+			return
+		var fit := _fit(rect, minv, maxv)
+		## `tile_bounds`'s own definition (`lod_bridge.rs`): `[0,gw-1]x[0,gh-1]`
+		## split `n` ways per axis, tiles sharing their edge sample. No half-
+		## texel inset (`_lod_tile_rect`'s own `half`/`tw/(tw-1)` refinement,
+		## for a continuously zooming camera keeping every texel centred on
+		## its sample at any depth) -- this panel draws one static crop, not a
+		## live zoom, and that difference really is sub-texel. `ponytail:` a
+		## deliberate simplification, not an oversight.
+		##
+		## **`_lod_tile_rect`'s OTHER term is not optional, and is kept.**
+		## `TILE_OFFSET` below is its `+ Vector2(0.5, 0.5)`, which is half a
+		## *cell*, not half a texel: the pyramid indexes *samples* (cell
+		## indices, `[0, gw-1]`), while `pts` -- and therefore `_fit`, and
+		## `map_texture`'s own pixels -- are in the continuous cell-span
+		## `[0, gw]` this shell draws route points in (`place_search.gd`'s
+		## coordinate-space note: `_point_to_screen` divides by `gw` with no
+		## `+0.5`, unlike `_cell_to_screen`'s cell-indexed markers). Sample
+		## `i` therefore lives at cell-span `i + 0.5`. Dropping the conversion
+		## slides the relief detail half a cell off the colour it multiplies,
+		## which is the exact registration `lod_tile.gdshader`'s own header
+		## says the two agree by construction on. It is ~1.6 px on a
+		## world-crossing route and tens of px on a short local one, since the
+		## panel's fit scale grows as the crop shrinks.
+		const TILE_OFFSET := Vector2(0.5, 0.5)
+		var step := Vector2(float(g.x - 1) / float(n), float(g.y - 1) / float(n))
+		## Cell-span crop -> sample space, the same shift `_update_lod()`
+		## writes inline as `(gx0 - 0.5) / step.x`.
+		var smin := minv - TILE_OFFSET
+		var smax := maxv - TILE_OFFSET
+		var col0: int = clampi(int(floor(smin.x / step.x)), 0, n - 1)
+		var col1: int = clampi(int(floor(smax.x / step.x)), 0, n - 1)
+		var row0: int = clampi(int(floor(smin.y / step.y)), 0, n - 1)
+		var row1: int = clampi(int(floor(smax.y / step.y)), 0, n - 1)
+		## Back off to a shallower level -- fewer, BIGGER tiles, still real
+		## LOD detail, just less of it -- until the full intersecting grid
+		## fits `_LOD_TILE_BUDGET`. Capping the fetch LOOP instead (tried
+		## first) truncates mid-grid and leaves the untouched remainder of
+		## the panel solid black -- found live, not guessed, not a corner
+		## case: it reproduced at a perfectly ordinary 1024x768 world. Every
+		## tile in the FINAL [col0,col1]x[row0,row1] range always gets
+		## fetched, so there is no resolution at which this can leave a gap.
+		while (col1 - col0 + 1) * (row1 - row0 + 1) > _LOD_TILE_BUDGET and z > 0:
+			z -= 1
+			n = _lod_bridge.lod_tiles_per_axis(z)
+			step = Vector2(float(g.x - 1) / float(n), float(g.y - 1) / float(n))
+			col0 = clampi(int(floor(smin.x / step.x)), 0, n - 1)
+			col1 = clampi(int(floor(smax.x / step.x)), 0, n - 1)
+			row0 = clampi(int(floor(smin.y / step.y)), 0, n - 1)
+			row1 = clampi(int(floor(smax.y / step.y)), 0, n - 1)
+		## The grid-aligned union `lod_world_bounds`'s own doc explains --
+		## the selected tile RANGE, not which fetches happen to succeed
+		## below; a tile that fails to synthesize still occupies its square of
+		## "this is the intended dim area" as far as the line layer is
+		## concerned.
+		var union_min := Vector2(col0 * step.x, row0 * step.y) + TILE_OFFSET
+		var union_max := Vector2((col1 + 1) * step.x, (row1 + 1) * step.y) + TILE_OFFSET
+		lod_world_bounds = Rect2(union_min, union_max - union_min)
+		for row in range(row0, row1 + 1):
+			for col in range(col0, col1 + 1):
+				var tex: Texture2D = _lod_bridge.lod_synthesize_tile(z, col, row)
+				if tex == null:
+					continue
+				## Sample bounds -> cell-span, so the sprite's screen rect AND
+				## its `base_uv*` both land where `map_texture`'s own pixels
+				## are -- see `TILE_OFFSET` above. Shifting both together
+				## keeps the base colour identical to the flat-crop path's
+				## `draw_texture_rect_region` while moving the relief detail
+				## onto the ground it was computed for.
+				var twmin := Vector2(col * step.x, row * step.y) + TILE_OFFSET
+				var twmax := Vector2((col + 1) * step.x, (row + 1) * step.y) + TILE_OFFSET
+				var p0: Vector2 = fit.call(twmin)
+				var p1: Vector2 = fit.call(twmax)
+				var sprite := Sprite2D.new()
+				sprite.texture = tex
+				sprite.centered = false
+				## `LINEAR`, matching `_build_lod_tile`'s own reasoning: a tile
+				## drawn at its own texel size must not reintroduce the hard
+				## single-cell squares this whole feature exists to remove.
+				sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+				sprite.position = p0
+				var tsz := Vector2(maxf(float(tex.get_width()), 1.0), maxf(float(tex.get_height()), 1.0))
+				sprite.scale = (p1 - p0) / tsz
+				## No explicit z_index: default 0, which already draws after
+				## this control's own `_draw()` (nothing to be "behind" for
+				## the LOD case -- `_draw()` skips the flat-crop path
+				## whenever `_use_lod` did produce tiles, see below), and `_route_line`
+				## (the line/markers/dim) is a SIBLING added after this whole
+				## control in `_build_center_panel()`, so it draws after
+				## these sprites without needing z_index at all. A negative
+				## z_index was tried first and made every sprite invisible --
+				## `z_as_relative` compares the accumulated z against
+				## ancestors too, and it landed behind this panel's own
+				## opaque background several levels up, not just behind this
+				## control's `_draw()` as intended.
+				var mat := ShaderMaterial.new()
+				mat.shader = JourneyPlannerView.LOD_TILE_SHADER
+				mat.set_shader_parameter("base_tex", map_texture)
+				mat.set_shader_parameter("base_uv0", twmin / Vector2(g.x, g.y))
+				mat.set_shader_parameter("base_uv1", twmax / Vector2(g.x, g.y))
+				sprite.material = mat
+				add_child(sprite)
+				_lod_sprites.append(sprite)
+
+	## The route's own world-space bounding box, 12% margin included -- the
+	## exact rect `_fit()` used to normalise into before this existed, now
+	## also the crop window for `map_texture`.
+	func _bounds() -> Array:
 		var minv := pts[0]
 		var maxv := pts[0]
 		for p in pts:
@@ -2969,6 +3352,9 @@ class _RouteMapView extends Control:
 		var margin_y: float = maxf(1.0, (maxv.y - minv.y) * 0.12)
 		minv -= Vector2(margin_x, margin_y)
 		maxv += Vector2(margin_x, margin_y)
+		return [minv, maxv]
+
+	func _fit(rect: Rect2, minv: Vector2, maxv: Vector2) -> Callable:
 		var bw: float = maxf(1e-6, maxv.x - minv.x)
 		var bh: float = maxf(1e-6, maxv.y - minv.y)
 		var s: float = minf((rect.size.x - 20.0) / bw, (rect.size.y - 20.0) / bh)
@@ -2976,25 +3362,110 @@ class _RouteMapView extends Control:
 		var oy: float = rect.position.y + (rect.size.y - bh * s) * 0.5
 		return func(p: Vector2) -> Vector2: return Vector2(ox + (p.x - minv.x) * s, oy + (p.y - minv.y) * s)
 
+	## Only the backdrop: the "no route" placeholder, and the flat crop path
+	## for every layer except "map" (which draws nothing here -- `_sync_lod`'s
+	## sprite children are this control's own children, and they need to
+	## render AFTER this call, which is exactly what a plain, non-negative
+	## z_index child already does. The dim wash and the line/markers moved to
+	## `_RouteLineLayer`, a SIBLING added after this whole control -- see
+	## `_build_center_panel()`'s comment for why tree order replaces z_index
+	## here, and `_RouteLineLayer._draw()` for where the rest of this went.
 	func _draw() -> void:
-		var rect := Rect2(Vector2.ZERO, size)
 		if pts.size() < 2:
 			draw_string(ThemeDB.fallback_font, Vector2(14, 20), "no committed route selected",
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DccTheme.c("text_ghost"))
 			return
-		var fit := _fit(rect)
+		## Only when tiles were actually built. `_sync_lod()`'s three early
+		## returns (no LOD binding on this build, a degenerate grid, a null
+		## `color_texture()`) each say "degrade to the flat crop" -- and a
+		## bare `if _use_lod` here made that comment false, leaving the "Map"
+		## layer blank in exactly the cases it promised a fallback for.
+		if _use_lod and not _lod_sprites.is_empty():
+			return
+		var rect := Rect2(Vector2.ZERO, size)
+		var b := _bounds()
+		var minv: Vector2 = b[0]
+		var maxv: Vector2 = b[1]
+		var fit := _fit(rect, minv, maxv)
+		if map_texture != null:
+			var tsz := Vector2(map_texture.get_size())
+			var src := Rect2(minv, maxv - minv).intersection(Rect2(Vector2.ZERO, tsz))
+			if src.size.x > 0.0 and src.size.y > 0.0:
+				var dest := Rect2(fit.call(src.position), fit.call(src.position + src.size) - fit.call(src.position))
+				draw_texture_rect_region(map_texture, dest, src)
+				## Dimmed so the route line and stop markers stay legible
+				## over real map detail instead of competing with it.
+				draw_rect(dest, Color(0, 0, 0, 0.32))
+
+## The line/markers/dim-wash layer -- a SIBLING of `_RouteMapView`, added
+## after it (`_build_center_panel()`), so it always draws on top of both the
+## flat-crop backdrop AND the LOD sprite children by tree order, with no
+## z_index needed anywhere. Reads its geometry from `backdrop` rather than
+## owning a second copy: `pts`/`stage_segments`/`stops`/`map_texture`/
+## `_use_lod` all still live on `_RouteMapView`, which is what
+## `_rebuild_route_map`/`set_backdrop` already write to.
+class _RouteLineLayer extends Control:
+	var backdrop: _RouteMapView = null
+
+	func _ready() -> void:
+		resized.connect(func(): queue_redraw())
+
+	func _draw() -> void:
+		if backdrop == null or backdrop.pts.size() < 2:
+			return   ## `_RouteMapView._draw()` already shows the placeholder text.
+		var pts := backdrop.pts
+		var stage_segments := backdrop.stage_segments
+		var stops := backdrop.stops
+		var map_texture := backdrop.map_texture
+		var rect := Rect2(Vector2.ZERO, size)
+		var b := backdrop._bounds()
+		var minv: Vector2 = b[0]
+		var maxv: Vector2 = b[1]
+		var fit := backdrop._fit(rect, minv, maxv)
+		if backdrop._use_lod and map_texture != null:
+			## The LOD sprites are `backdrop`'s children, drawn before this
+			## whole sibling control -- the dim wash belongs here, not there,
+			## so it lands on top of them instead of under.
+			##
+			## Dims `lod_world_bounds` (what the tiles actually cover), NOT
+			## `[minv,maxv]` (what the route asked for) -- see that field's
+			## own doc. Using `[minv,maxv]` here left an undimmed sliver of
+			## full-brightness map wherever a grid-aligned tile stuck out
+			## past the route's own tighter bbox, a real visible seam.
+			var lb := backdrop.lod_world_bounds
+			if lb.size.x > 0.0 and lb.size.y > 0.0:
+				var dest := Rect2(fit.call(lb.position), fit.call(lb.end) - fit.call(lb.position))
+				draw_rect(dest, Color(0, 0, 0, 0.32))
+		## A halo pass under the line, cutout only. `DccTheme.c("water")`'s
+		## stage colour is exactly the biome/water cutout's own hue family --
+		## plain background never had this problem, so the halo is scoped to
+		## the one condition that creates it rather than changed unconditionally.
+		var halo := map_texture != null
 		if stage_segments.is_empty():
 			var poly := PackedVector2Array()
 			for p in pts:
 				poly.append(fit.call(p))
+			if halo:
+				draw_polyline(poly, Color(0, 0, 0, 0.6), 3.6, true)
 			draw_polyline(poly, DccTheme.c("accent"), 1.6, true)
 		else:
 			for seg in stage_segments:
 				var d: Dictionary = seg
 				var i0: int = clampi(int(d.get("i0", 0)), 0, pts.size() - 1)
 				var i1: int = clampi(int(d.get("i1", i0)), i0, pts.size() - 1)
+				## Extended one point past `i1` (when one exists): a single-
+				## point stage (`i0 == i1`, real -- e.g. a waypoint with no
+				## length of its own) would otherwise build a 1-point `poly`
+				## and hit the `size() < 2` guard below, leaving that point
+				## joined to NEITHER neighbour and a real gap in the line.
+				## Every segment reaching one point into the next makes
+				## consecutive segments always share a point, at the cost of
+				## redrawing one point-length of the junction in each of the
+				## two colours it touches -- imperceptible, and cheaper than
+				## carrying `i1`'s successor across iterations by hand.
+				var i1_ext: int = mini(i1 + 1, pts.size() - 1)
 				var poly := PackedVector2Array()
-				for i in range(i0, i1 + 1):
+				for i in range(i0, i1_ext + 1):
 					poly.append(fit.call(pts[i]))
 				if poly.size() < 2:
 					continue
@@ -3002,6 +3473,8 @@ class _RouteMapView extends Control:
 				var blocked := bool(d.get("blocked", false))
 				var col := DccTheme.c("block") if blocked else (DccTheme.c("water") if cat != "land" else DccTheme.c("accent"))
 				var w := 3.0 if cat != "land" else 1.8
+				if halo:
+					draw_polyline(poly, Color(0, 0, 0, 0.6), w + 2.0, true)
 				draw_polyline(poly, col, w, true)
 		for i in range(0, pts.size(), maxi(1, pts.size() / 40)):
 			var p: Vector2 = fit.call(pts[i])

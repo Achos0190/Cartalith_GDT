@@ -767,7 +767,7 @@ pub fn civ_dijkstra_path(ctx: &RouteContext, sx: f64, sy: f64, ex: f64, ey: f64,
     let rex = js_round(ex * sc).clamp(0.0, rw as f64 - 1.0) as usize;
     let rey = js_round(ey * sc).clamp(0.0, rh as f64 - 1.0) as usize;
 
-    let (_dist, prev) = road_dijkstra(&cost, rw, rh, rsx, rsy, ctx.world, None);
+    let (_dist, prev) = road_dijkstra(&cost, rw, rh, rsx, rsy, ctx.world, None, true);
 
     let si = rsy * rw + rsx;
     let target = rey * rw + rex;
