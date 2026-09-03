@@ -103,14 +103,21 @@
 //! technique is the faithful port, not a `_draw()` glyph layer this
 //! reference view never had.
 //!
-//! **Four reference rows are genuine engine gaps, not unexposed data**,
-//! confirmed by grepping every subsystem crate for the reference's own
-//! algorithm name and finding none: Orogeny (the *signed* preview value
-//! needs the boundary-polyline structure `generate_terrain` folds into
-//! height and never retains — distinct from `crust_field`/`boundary_type`,
-//! which *are* retained), river Velocity-erosion ("Pillar 2",
-//! `cartalith-erosion` has no velocity field at all), regional Population
-//! density and the Site-profile composite. Those four are [`GAP_LAYERS`],
+//! **Four reference rows are genuine engine gaps, not unexposed data.**
+//! Three were confirmed by grepping every subsystem crate for the
+//! reference's own algorithm name and finding none: Orogeny (the *signed*
+//! preview value needs the boundary-polyline structure `generate_terrain`
+//! folds into height and never retains — distinct from
+//! `crust_field`/`boundary_type`, which *are* retained), river
+//! Velocity-erosion ("Pillar 2", `cartalith-erosion` has no velocity field
+//! at all) and the Site-profile composite. **The fourth, regional
+//! Population density, is not that kind of gap, and this paragraph and its
+//! row hint both said it was until 2026-09-03**:
+//! `cartalith_civ::estimate_regional_density_km2` exists, is golden-covered,
+//! and `ops_bridge.rs`'s `civ_regional_population` already builds the whole
+//! per-cell field with it — and then integrates it to a single world total,
+//! keeping no raster. The gap is the missing *retention*, not a missing
+//! estimator, and the row's hint now says so. Those four are [`GAP_LAYERS`],
 //! `available: false` on every world, with the real reason in each row's
 //! hint — disclosed, not omitted, per this shell's `_todo()` convention
 //! (`menus.gd`).
@@ -721,7 +728,7 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "popdensity",
                 "Pop density (persons/km²)",
-                "Not available: no regional population-density estimator exists in this engine.",
+                "Not available: cartalith_civ::estimate_regional_density_km2 does build this field per cell, and civ_regional_population() already runs it -- but that binding integrates it away to one world total, so no drawable raster of it exists.",
             ),
             (
                 "settle",
@@ -784,6 +791,17 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
 /// Two remain honestly unavailable for a *missing computation*
 /// (`oro`, `velo`) and two for a missing composite (`popdensity`,
 /// `siteprofile`).
+///
+/// **What "missing composite" means for each of those two, since it is not
+/// the same thing.** `siteprofile` has no Rust equivalent of the flood +
+/// slope composite at all, only its two inputs. `popdensity` has the
+/// opposite shape: `cartalith_civ::estimate_regional_density_km2` is whole,
+/// golden-covered, and already run by `ops_bridge.rs`'s
+/// `civ_regional_population` — which sums it to one world total and keeps no
+/// grid, so there is nothing for [`debug_raster`] to draw. Neither row is a
+/// missing estimator; the hint that said `popdensity` was one is corrected
+/// (2026-09-03) and `layers_popover.gd`'s `GAP_LAYERS` entry states the same
+/// narrow gap, so the two lines of that tooltip agree.
 const GAP_LAYERS: &[&str] = &["oro", "velo", "popdensity", "siteprofile"];
 
 /// Whether `id` can be drawn for this world, **without building it**.

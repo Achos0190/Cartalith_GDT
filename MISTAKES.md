@@ -35,8 +35,10 @@ its rule before you start.
 | **Call a shell helper** | Grep for `func <name>` first. In `menus.gd` the vocabulary is `_todo` / `_readout` / `_signpost` / `_live`, and the wrong one has consequences | `godot --headless --check-only` on the file |
 | **Change generated output** | Divergence ships `false` in `cartalith_engine::WorldParams::defaults()`, `true` in `cartalith_godot::params::defaults()`; new params need `PARAMS` + `JS_PATHS` rows. **A golden re-baseline needs an owner ruling** | Hash the same render before and after; identity by control flow beats identity by arithmetic |
 | **Re-base a shared token / constant set** | Every *relationship* built on the old values is now unverified — a comment recommending a pair, a hover that was a lift, a contrast that passed. Re-check the pairs, not just the values | Compute the deltas and contrast ratios again; a re-base moves them silently and no test sees it |
+| **Edit a main-loop-owned doc while a verifier is running** | Ownership is not the point — the **baseline** is. `OUTSTANDING_WORK.md` was clean when the verifier took its first `git status` and ` M` by its last; it correctly reported an unexplained mid-run diff it could not attribute to any lane | Hold doc edits until the verdicts are in, or tell the verifier in the brief that the main loop will be writing that file and when |
 | **Commit while a verifier is running** | Don't. A clean tree makes `git diff` empty for **everything**, so every "the diff is empty" check silently stops being evidence | If you must, verify with `git diff <base> HEAD -- <path>`, never a working-tree diff |
 | **Write a Workflow script** | **Escape every backtick inside the template literal**, including ones in prose like `(1080, 2400)`. An unescaped pair terminates the literal and JS then calls the preceding string as a tagged template — `"..." is not a function` | `node --check <script>` before dispatching. Two dispatches lost to this |
+| **Read any shared file while lanes are running** | Not just probe *failures* — any read. The main loop grepped `export_presets.cfg` mid-batch, saw the exclusion already present, and told the owner the row would close without needing their authorisation. The lane was mid-edit; at HEAD the key was absent and the authorisation **was** required | Read the committed state — `git show HEAD:<path>` — for any claim about what was true *before* a running batch |
 | **Read a probe failure while other lanes are running** | A concurrent lane's in-progress save to a shared `.gd` can produce a spurious *"Function X not found"* pointing at a call site whose definition is a few lines below. **Re-run once** before concluding the code broke | The same re-run discipline as a stale binary: a failure that does not reproduce was not a failure |
 | **Assert on pixels** | A threshold is **palette-bound**, and naming the palette in prose does not select it — the harness must **force** it and refuse to run otherwise (this machine boots light). **And measure a control state**: a number with nothing to compare against cannot tell you whose defect it is. Borrowing a dark-theme `> 23` test and running it on a light capture makes every background pixel 251 — the check cannot fail | Assert the palette the threshold was written for, or use a palette-agnostic measure (uniform-row / distinct-colour count) |
 | **Read a layout that overflows the screen** | A `ScrollContainer` with an axis **DISABLED folds its child's minimum size into its own** on that axis, so the overflow propagates to every ancestor with no scrollbar to reveal it. Three instances in this tree | Walk the tree for `get_combined_minimum_size().x` above the screen width and check which ancestor it reached |
@@ -55,7 +57,7 @@ its rule before you start.
 
 ## Why each rule exists
 
-### [2026-09-03] Believing a backlog row instead of re-opening it ×11
+### [2026-09-03] Believing a backlog row instead of re-opening it ×15
 
 **Mistake:** Work was scheduled, and briefs written, against rows already done or
 whose blocker had lifted. Seven described built work (the manual-icon tool's
@@ -63,6 +65,10 @@ three gaps, CA-05's resize handles, the layer sync, `_civSaltAccess`); four
 described lifted blockers — the "no JS runtime" claim was false for 18 days and
 cost a whole dispatched wave. The Religion row claimed `cartalith-civ::belief`
 does not exist; it is 945 lines.
+
+**Four more, batches 18-19, and the pattern is now the expectation rather than the exception.** Urban milestone 16 had shipped a day before the row said it "remains … blocked by definition". Milestone 17's blocker was falsified **six minutes after it was written** and stood eleven days. DS-03's resolver had 87 live call sites across eight shell files while the row called it unstarted — for three days. The APK exclusion row was **half** stale: `_*` was already excluded, the `addons/` payload was not.
+
+**What this changes:** a lane told to re-open a row before acting returns "already done, here is the evidence" often enough that it is a **first-class outcome, not a failed task** — and every one of these four still produced real work, because guarding built-but-unguarded code found defects (`ROLE["h_rail_head"]`, a golden covering 12 of 13 stage modules).
 
 **Root cause:** Treating `OUTSTANDING_WORK.md` as state rather than as a router.
 

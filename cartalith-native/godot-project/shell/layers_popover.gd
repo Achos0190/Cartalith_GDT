@@ -81,10 +81,10 @@ const GAP_LAYERS := {
 	## reached from a shipped `#[func]`: `civ_regional_population()`
 	## (`ops_bridge.rs`) builds the full per-cell `dens` field with it and then
 	## integrates it away to one world total. The sentence below is corrected to
-	## the true narrow gap; **the Rust hint must be corrected in the same pass or
-	## the two lines of this tooltip disagree**, which is the exact failure this
-	## table's header says it exists to prevent. Reported 2026-09-03 -- the Rust
-	## side was not that pass's to edit.
+	## the true narrow gap. **Closed 2026-09-03:** the Rust hint was corrected in
+	## the following pass, so the two lines of this tooltip now agree.
+	## `sample_bridge.rs` names the real gap -- the estimator runs but its field
+	## is integrated away to one total, so no drawable raster is retained.
 	"popdensity":
 		"Never available: a missing composite. The per-cell estimator does " +
 		"exist and civ_regional_population() runs it, but that binding " +

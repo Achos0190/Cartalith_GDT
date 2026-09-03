@@ -103,16 +103,28 @@ func _ready() -> void:
 	_ok("every unavailable row carries a reason", with_reason, unavailable)
 
 	print("\n=== 5: it is generated, so a menu edit reaches it ===")
-	## The Edit menu's Cut row is a `_todo` whose reason was corrected earlier
-	## today. If the index were hand-written it would not know that.
+	## The Edit menu's Cut row. **These two assertions were inverted on
+	## 2026-09-03** and the flip is the point: the row was a `_todo` whose
+	## reason mentioned the missing clipboard, and this probe pinned exactly
+	## that -- `"Cut is reported unavailable" -> false` and a `why` containing
+	## "clipboard". The clipboard landed (`menus.gd`'s `_clipboard`), the row
+	## became a `_live` command, and both assertions had to move with it. A
+	## test that pins the old behaviour is the same defect as prose that
+	## describes it.
+	##
+	## `available` is the row's BUILT state, which is what `_walk_popup` reads
+	## -- Cut goes dark with nothing selected, but only inside
+	## `about_to_popup`, exactly as this file's own header records for
+	## `Edit > Undo` and `Redo`.
 	var cut := idx.search("Cut")
 	var found_cut := false
 	for r in cut:
 		if String(r["title"]) == "Cut":
 			found_cut = true
-			_ok("Cut is reported unavailable", bool(r["available"]), false)
-			_ok("...and its reason is the menu's own, mentioning the clipboard",
-				String(r["why"]).to_lower().find("clipboard") >= 0, true)
+			_ok("Cut is reported available", bool(r["available"]), true)
+			_ok("...with no unavailability reason attached", String(r["why"]), "")
+			_ok("...indexed as a menu command, not a readout", String(r["kind"]), "menu")
+			_ok("...under the Edit menu", String(r["group"]), "Edit")
 	_ok("the Edit menu's Cut row reached the index", found_cut, true)
 
 	print("\n=== 6: groups are real and banded ===")

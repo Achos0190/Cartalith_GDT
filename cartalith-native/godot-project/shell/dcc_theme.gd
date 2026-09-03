@@ -697,6 +697,13 @@ const LAPTOP := {
 # five below were re-measured element-by-element off `DCC shell tablet 2560`
 # against `DCC shell 1920` on 2026-08-30 rather than taken on §57's word:
 #
+# **"At least five" was a floor, and the count is now measured: this table holds
+# 12 colliding desktop integers** (2026-09-03, over 49 rows). Three of them are
+# *three*-way — desktop `10` carries {12, 13, 14} and desktop `11` carries
+# {13, 14, 18}, which no two-column value table of any keying could express. The
+# full enumeration is printed by `_roleresolve_probe.tscn`, which also pins each
+# one; the five §57 named are the subset drawn below.
+#
 # | desktop | tablet, in one place | tablet, in another |
 # |---|---|---|
 # | `14` | **22** — bar `padding:0 14px` → `0 22px` | **18** — sample grid `gap:6px 14px` → `9px 18px` |
@@ -717,9 +724,42 @@ const LAPTOP := {
 # the full spread as ×1.00–×2.06 with no centre. There is no unit to scale by,
 # which is why this is a table.
 #
-# **This table is tokens only.** Nothing in this file applies it — the walk that
-# would push these into live Controls lives in `dcc_shell.gd`, which this pass
-# does not own. See `role_px()`'s header for the predicate it must use.
+# **This table was "tokens only" until stage 2 wired it, and that sentence stood
+# here after it stopped being true.** Counted 2026-09-03 rather than recalled:
+# Counting `role_px("<key>")` **occurrences** outside comments (not matching
+# lines — a line can carry two) gives **87 live call sites in shell code**,
+# spread over eight files rather than the three a `dcc_shell.gd`/`dcc_widgets.gd`
+# grep suggests: `dcc_widgets.gd` 32, **`right_dock.gd` 26**, `app.gd` 9,
+# `workspaces/render_workspace.gd` 6, `dcc_shell.gd` 5, `layers_popover.gd` 5,
+# this file 3 (`header()`, `hero()`, `hero2()`), `civilization_workspace.gd` 1.
+# Plus 4 in `_tabletparity_probe.gd`. The eight shell files read **22 of the 49 rows
+# below**; the other **25** are carried tokens with no consumer yet, and each
+# says so where the reason is interesting. See `role_px()`'s header for the
+# predicate every reader must use.
+#
+# **Where the rows come from, and the one disagreement that follows.** 16 rows
+# are backed by the governing canvas's own `densStr` token block (`ENV:1819`);
+# the other 33 are element-level figures off `DCC shell tablet 2560` against
+# `DCC shell 1920`, measured 2026-08-30 — one day *before* the re-base that made
+# `ENV` the newer authority, and that re-base declared itself "stage 1: token
+# values only". So the two canvases now disagree in at least one place a reader
+# will hit: `ENV`'s `--pad` is 14 → **16**, while `bar_pad_x` below is 14 → 22
+# from the older artboard, and `ENV:109`/`:149`/`:1187` draw the bars at
+# `padding:0 var(--pad)`. **Not resolved here**, deliberately: `ENV` has one
+# `--pad` where this table has three separate desktop-14 roles (`bar_pad_x`,
+# `grid_gap_x`, `rail_label_gap`), so adopting the token wholesale would
+# *destroy* the desktop-14 collision — the exact distinction DS-03 exists to
+# hold. It needs an owner ruling on which canvas governs the interior, not a
+# lane's edit. Four `densStr` tokens likewise have no row at all: `--ctl`
+# (24 → 36), `--btnH` (28 → 44), `--row` (28 → 44) and `--g` (10 → 12, which is
+# dead in the prototype and deliberately not imported — see the palette header).
+#
+# **What guards this table:** `_roleresolve_probe.tscn`, added 2026-09-03. Until
+# then every property below was carried by this prose alone. It pins the
+# predicate (an `is_touch()` "simplification" would hand the phone the tablet
+# column — §57's own refutation), the collision counts, the `TABLET`↔`ROLE`
+# relationship in **both** directions, and each homed figure against `ENV`'s own
+# literals. Run it after touching any row here.
 const ROLE := {
 	# — Type. Sans and mono take different multipliers off the same 11 px rung.
 	"fs_prose": [11, 14],        ## Frame body, dock rows: `font:11px/1.4` → `14px/1.4`.
@@ -751,8 +791,19 @@ const ROLE := {
 	"h_tool_options": [40, 56],
 	"h_status": [26, 36],          ## `--sbH`.
 	"h_timeline": [70, 88],        ## No prototype counterpart; see `H_TIMELINE`.
-	"h_rail_head": [29, 34],       ## Stale; the prototype says `var(--tool)`,
-		## 30 / 44. See `TABLET`'s `29` row.
+	## `--tool` (`ENV:25` / `ENV:1819`) -- the rail-head cell `ENV:284` draws at
+	## `height:var(--tool)`, 30 px pointer and 44 px touch.
+	##
+	## **Was `[29, 34]`, self-labelled "Stale", until 2026-09-03**, and its own
+	## cross-reference pointed at a `TABLET` row (`29`) that no longer existed:
+	## stage 2's `_build_rail()` rebuild moved the shipped cell to `_scaled(30)`
+	## -> `TABLET[30]` = 44 and retired the 29 key, and this row was not moved
+	## with it. It had no consumer -- `grep -rn h_rail_head` over the whole
+	## project returned this line and nothing else -- so correcting it moves no
+	## pixel at either density. What it removes is a resolver that answered 34
+	## where the shell and the canvas both say 44, waiting for the first caller
+	## to read it.
+	"h_rail_head": [30, 44],
 	"w_rail": [40, 48],            ## `--railW`.
 
 	# — Bar interiors.

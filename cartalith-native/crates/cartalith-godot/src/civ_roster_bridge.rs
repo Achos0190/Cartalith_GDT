@@ -39,9 +39,17 @@
 //! output, even though `FactionPlace::specialisation` is a field it reads.
 //! Wiring it would change already-golden economy numbers on a user edit,
 //! which is a decision, not a detail — see `GUI_GAP_REGISTER.md` ED-03.
-//! An edited `umWalls`/`umAge` likewise reaches nothing: their only
-//! consumers are urban-morphology functions (`_umWallSpec`, `_umInferAge`)
-//! that milestones 8-17 have not ported.
+//! An edited `umWalls`/`umAge`, by contrast, **does** reach the engine, and
+//! this paragraph said the opposite until 2026-09-03. Its reason -- "their
+//! only consumers are urban-morphology functions (`_umWallSpec`,
+//! `_umInferAge`) that milestones 8-17 have not ported" -- stopped being
+//! true when those milestones landed. Both are read today by
+//! `civ_military_bridge::defences` (`um_wall_spec`/`um_infer_walls` per
+//! settlement) and by `urban_bridge::urban_layouts` and
+//! `::settlement_diagnostics`, the last of which hands them to
+//! `cartalith_civ::urban_adapter::settlement_layout_with` as
+//! `PlaceOverrides::walls_override`/`age_override`, so an ED-03 edit changes
+//! the generated town.
 
 use std::collections::HashMap;
 

@@ -120,9 +120,11 @@ impl WorldGen {
     ///
     /// Reads the place editor's own `umWalls`/`umAge`/`traits`/
     /// `specialisation` overrides out of `place_extras`, so an edit made in
-    /// ED-03 is visible here — the one place in this port where those two
-    /// overrides finally have a consumer (`civ_roster_bridge.rs`'s module
-    /// doc says outright that they reached nothing).
+    /// ED-03 is visible here. **No longer the only such consumer**, which
+    /// this comment claimed until 2026-09-03:
+    /// [`crate::urban_bridge`]'s `urban_layouts` now hands the same four to
+    /// `settlement_layout_with` as a `PlaceOverrides`, so an override
+    /// changes the drawn town as well as this card's wall rung.
     fn defences(&self) -> Vec<Defence> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {

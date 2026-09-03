@@ -362,6 +362,21 @@ impl WorldGen {
     /// racks). All three are on the `cartalith_urban::Town` the adapter
     /// projects from and are one field each away.
     ///
+    /// **The place editor's overrides reach the layout** (2026-09-03). This
+    /// call took `settlement_layout()` — the entry point that supplies
+    /// `PlaceOverrides::default()` — until then, so a `umWalls`, `umAge`,
+    /// `traits` or `specialisation` edit was stored by ED-03, persisted by
+    /// `project_bridge`, read by `civ_military_bridge::defences` and then
+    /// silently discarded on the way to the town that was actually drawn.
+    /// It now takes `settlement_layout_with()` with the same
+    /// [`crate::civ_roster_bridge::PlaceExtrasTable`] row
+    /// [`Self::settlement_diagnostics`] reads, so a settlement marked walled
+    /// in the editor gets a circuit, a `fortified` one can get
+    /// `apply_star_fort`'s bastions, an `umAge` displaces `_umInferAge`, and
+    /// a specialisation reaches `assign_districts`. An unedited settlement is
+    /// every field absent, which *is* `PlaceOverrides::default()`, so nothing
+    /// about an untouched world changed.
+    ///
     /// Empty on a loaded save or before the first `generate()` — same
     /// restriction the whole civilisation layer already has
     /// (`SAVEFILE_COMPAT.md`: a save carries none of the substrate).
@@ -400,11 +415,84 @@ impl WorldGen {
             world_seed: self.seed,
         };
 
+        // `currentResourcePotentials()`, for the one override that needs a
+        // raster. `um_ore_bearing` is read on `um_place_context_with`'s
+        // `specialisation == "mining"` branch and nowhere else, so this is
+        // built at most once for the whole batch -- the same
+        // once-per-batch/never-per-settlement rule this module's header
+        // argues for `traced_river_polys` -- and not at all when no
+        // settlement in the batch is a mining town. It is deliberately not
+        // `empty_resource_potentials()`: fifteen zero-length rasters would
+        // make `um_ore_bearing` answer "no ore in any direction", which is a
+        // legal bearing-free answer and would read as measured. `None` is its
+        // own documented no-potentials case instead.
+        let wants_ore = indices.as_slice().iter().any(|i| {
+            usize::try_from(*i)
+                .ok()
+                .and_then(|idx| civ.settlements.get(idx))
+                .is_some_and(|s| civ.place_extras.get(s.tid).specialisation == "mining")
+        });
+        let resources = wants_ore.then(|| {
+            let biome = cartalith_civ::build_biome_raster(
+                &civ.water_bodies,
+                &ws.temperature,
+                &ws.rainfall,
+            );
+            let lithology = cartalith_civ::build_lithology(
+                &ws.field,
+                &ws.age_field,
+                &ws.volcanic_field,
+                &ws.crust_field,
+                &ws.resistance_field,
+                &ws.rainfall,
+                self.sea_level,
+            );
+            // `scarcity=true, scarcity_legacy=false` -- the production
+            // defaults `currentResourcePotentials()` runs with, copied from
+            // `civ_military_bridge.rs`'s own call rather than chosen here.
+            cartalith_civ::build_resource_potentials(
+                &lithology,
+                Some(&ws.boundary_type),
+                Some(&ws.shear_field),
+                Some(&ws.flow_discharge),
+                Some(&biome),
+                &ws.field,
+                &ws.rainfall,
+                &ws.age_field,
+                gw,
+                gh,
+                self.sea_level,
+                Some(&ws.volcanic_field),
+                true,
+                false,
+            )
+        });
+
         let mut out = out;
         for i in indices.as_slice() {
             let Ok(idx) = usize::try_from(*i) else { continue };
             let Some(s) = civ.settlements.get(idx) else { continue };
-            if let Some(layout) = urban_adapter::settlement_layout(&world, s, &civ.ways) {
+            // The place editor's own five fields, on their way into the
+            // layout for the first time -- the same `place_extras` read
+            // `settlement_diagnostics` below and `civ_military_bridge.rs`'s
+            // `defences()` already do, handed to the entry point that takes
+            // them. Every field is `None`/`false` until a player sets one,
+            // which is `PlaceOverrides::default()` and therefore the same
+            // layout `settlement_layout()` produced before this call site
+            // changed.
+            let e = civ.place_extras.get(s.tid);
+            let o = urban_adapter::PlaceOverrides {
+                specialisation: if e.specialisation.is_empty() {
+                    None
+                } else {
+                    Some(e.specialisation.as_str())
+                },
+                fortified_trait: e.traits.iter().any(|t| t == "fortified"),
+                walls_override: e.walls,
+                age_override: e.age.map(f64::from),
+                resources: resources.as_ref(),
+            };
+            if let Some(layout) = urban_adapter::settlement_layout_with(&world, s, &civ.ways, &o) {
                 out.push(&layout_dict(idx as i64, &layout));
             }
         }
@@ -448,7 +536,8 @@ impl WorldGen {
     /// source from the one `urban_adapter.rs`'s own module doc calls
     /// absent: that note is about `cartalith_civ::NamedSettlement`, the pure
     /// engine type, which indeed carries no such field
-    /// (`OUTSTANDING_WORK.md` §2.1) — `place_extras` is `cartalith-godot`'s
+    /// (`civ_roster_bridge.rs`'s own module doc says why it never will) —
+    /// `place_extras` is `cartalith-godot`'s
     /// own sidecar for exactly the data that type has no room for, and it is
     /// real the moment a player sets one. Until then it is genuinely `""`,
     /// the reference's own `'none'` default, which the shell should dash

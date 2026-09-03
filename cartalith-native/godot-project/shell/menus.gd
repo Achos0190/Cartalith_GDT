@@ -41,6 +41,15 @@ const ID_REDO := 21
 ## shape this shell keeps having to undo.
 const ID_DELETE := 77
 const ID_DESELECT := 82
+## The four `Edit` clipboard commands (§2.2), step three of the owner's
+## `LARGE_ITEM_RULINGS.md` ruling. `84`-`87` by the same whole-file grep of
+## `^const ID_[A-Z_]+ := [0-9]+` its neighbours record making: `78`-`83` are
+## taken (`ID_HELP_DOCS`, `ID_LOD_TILE_BORDERS`, `ID_LOD_REFINE_VIEW`,
+## `ID_DESELECT` and `83`) and no `*_FIRST` block reaches this range.
+const ID_CUT := 84
+const ID_COPY := 85
+const ID_PASTE := 86
+const ID_SELECT_ALL := 87
 const ID_UNDO_HISTORY := 121
 const ID_PREF_UNDO_CLEAR := 22
 ## `Edit ▸ Find on map…`. Was a `_todo` row (no id, since `_todo` never
@@ -748,33 +757,38 @@ func _edit(p: PopupMenu) -> void:
 	## artefact, not the wiring -- which is exactly why `audit_wiring.py`
 	## cannot see it: every one of those `#[func]`s scores as reached.
 	##
-	## Delete is now live and goes through the same `app.delete_selection()`
-	## the key does. The other five keep a `_todo`, with the reason replaced by
-	## one that is true: what is missing is not selectability, it is a
-	## clipboard model and a multi-selection -- `PARITY_AUDIT.md` §20 classes
-	## ED-03/ED-04 as large for exactly that reason.
-	## **Half of the old reason here stopped being true on 2026-09-03**, and it
-	## is corrected rather than left standing. It read: *"No clipboard model
-	## exists. Icons, labels and settlements are three unrelated single-item
-	## selections with no common representation to cut into one buffer."* The
-	## second sentence is now wrong for the engine's three: `icon_get_selection`
-	## / `label_get_selection` / `sculpt_get_selection` are one `SelectionSet`
-	## type over each (`cartalith-godot/src/selection.rs`), which is step one of
-	## the owner's ruling in `LARGE_ITEM_RULINGS.md` -- *"Selection sets ->
-	## clipboard -> commands, in that order."*
+	## Delete went live on that finding, through the same
+	## `app.delete_selection()` the key does. **The other five followed on
+	## 2026-09-03 and none of them is a `_todo` any more**: the sentence that
+	## stood here -- *"what is missing is not selectability, it is a clipboard
+	## model and a multi-selection"* -- named the two gaps `PARITY_AUDIT.md`
+	## §20 sized ED-03/ED-04 as large for, and both are closed (the
+	## multi-selection by `selection.rs`, the clipboard by `_clipboard` below).
+	## **Steps two and three of the owner's ruling, built 2026-09-03.** These
+	## three rows carried a `_todo` whose reason -- *"No clipboard model
+	## exists ... nothing can serialise an icon or a label into a buffer"* --
+	## was true when it was written and is retired here rather than reworded,
+	## because the buffer now exists: see `_clipboard` and `_carto_snapshot()`
+	## below for the model and for why it is in-process rather than serialised.
 	##
-	## The first sentence is still true, and it is the whole reason these three
-	## rows stay disabled: a set of indices is not a clipboard. Nothing in this
-	## shell can serialise an icon or a label into a buffer, hold it across a
-	## world change, or paste it back at a new position. That is step two, and
-	## the ruling puts it before the commands deliberately.
-	_todo(p, "Cut",
-		"No clipboard model exists. The engine now holds a real selection SET per entity " +
-		"kind (icons, labels, sculpt stamps -- Ctrl-click adds, Shift-click takes a range), " +
-		"but nothing can serialise one into a buffer and paste it back. Selection sets, " +
-		"then a clipboard, then these commands -- in that order (LARGE_ITEM_RULINGS.md).")
-	_todo(p, "Copy", "Same -- the selection is a real set now, but there is still no clipboard to copy it into.")
-	_todo(p, "Paste", "Same -- nothing can be on a clipboard to paste.")
+	## They are `_live` and not `_todo`, and the availability that used to be a
+	## permanent "no" is now a per-popup question the `about_to_popup` handler
+	## at the end of this function answers against real state -- the same shape
+	## `Undo` and `Redo` above already use. A row that is dark because nothing
+	## is selected says so; it does not claim the capability is missing.
+	##
+	## Ctrl+X/C/V do not steal a text field's own clipboard, for the reason the
+	## Delete row below records: Godot delivers `_gui_input` to the focused
+	## `Control` before `_shortcut_input` runs the popup accelerators, so a
+	## `LineEdit` eats its own copy and paste first. That matters more here
+	## than it does for Delete -- this shell has `LineEdit`s in the label
+	## prompt, the vault, the data manager and every search field.
+	_live(p, "Cut", ID_CUT, KEY_MASK_CTRL | KEY_X)
+	var cut_idx := p.item_count - 1
+	_live(p, "Copy", ID_COPY, KEY_MASK_CTRL | KEY_C)
+	var copy_idx := p.item_count - 1
+	_live(p, "Paste", ID_PASTE, KEY_MASK_CTRL | KEY_V)
+	var paste_idx := p.item_count - 1
 	## §2.2 prints this row's shortcut as `⌫`. That glyph is the Mac name for
 	## the key `app.gd` already binds -- `KEY_DELETE`, routed to
 	## `delete_selection()` through every workspace's `on_delete_key()` -- so the
@@ -799,20 +813,14 @@ func _edit(p: PopupMenu) -> void:
 	## `label_select_all()` / `sculpt_select_all_stamps()` are bound and
 	## wrapped. The thing this row said did not exist now does.
 	##
-	## It stays disabled anyway, and the reason below says which half is
-	## missing rather than repeating a claim the engine has outgrown: the
-	## owner's ruling orders selection sets, then a clipboard, then the four
-	## commands, and this is one of the four. What the row itself would need on
-	## top of the engine call is the "scoped to the active layer" dispatch
-	## (§2.2) that `DccApp.clear_selection()` already has a shape for.
-	_todo(p, "Select all",
-		"Step three of a three-step ruling, and steps one and two are not both done. " +
-		"The engine half exists as of 2026-09-03 -- every entity kind holds a real " +
-		"selection set and can select all of its own (icon_select_all, label_select_all, " +
-		"sculpt_select_all_stamps) -- but Cut/Copy/Paste beside this row still have no " +
-		"clipboard, and LARGE_ITEM_RULINGS.md puts the clipboard before the commands. " +
-		"On the canvas today: Ctrl-click adds an icon or label to the selection, " +
-		"Shift-click takes the range.")
+	## **It stopped being disabled on 2026-09-03.** The last thing it was
+	## waiting on was §2.2's "scoped to the active layer" dispatch, which
+	## `_select_all()` below now is: CARTO selects its icons and labels, WORLD
+	## selects the open Sculpt draft's stamps, and CIVIL is dark with the one
+	## true reason left (settlements have no selection set of their own -- the
+	## fourth entity kind `selection.rs` does not cover).
+	_live(p, "Select all", ID_SELECT_ALL, KEY_MASK_CTRL | KEY_A)
+	var select_all_idx := p.item_count - 1
 	## §2.2's other half, live since 2026-08-30. Its reason used to be "no
 	## shared way to clear them", which was true of all three selections at
 	## once: settlements had no `on_deselect`, and icons had no engine call to
@@ -820,13 +828,15 @@ func _edit(p: PopupMenu) -> void:
 	## clear_selection()` is that shared way and `icon_deselect()` is the
 	## binding it needed.
 	##
-	## **Select all above stays disabled, and the two are not the same job.**
-	## The old sentence here -- *"Every selection here holds exactly one item,
-	## so there is nothing for Select all to select INTO"* -- was retired on
-	## 2026-09-03 with the multi-selection model it was waiting for; see that
-	## row's own comment for what is actually left. Deselect never depended on
-	## it either way: clearing a set of any size is `clear_selection()`'s same
-	## one call per owner.
+	## **Select all above is live too now, and the two are still not the same
+	## job.** Two sentences have been retired from this spot in turn: *"Every
+	## selection here holds exactly one item, so there is nothing for Select
+	## all to select INTO"* (2026-09-03, with the multi-selection model), then
+	## *"Select all above stays disabled"* (later the same day, with the
+	## clipboard). Deselect never depended on either: clearing a set of any
+	## size is `clear_selection()`'s same one call per owner, and it is
+	## domain-scoped by the workspace guard rather than by `_select_all()`'s
+	## own `match`.
 	_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)
 	p.set_item_tooltip(p.item_count - 1,
 		"Clears the settlement, label or icon selection in the active domain. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone.")
@@ -883,6 +893,9 @@ func _edit(p: PopupMenu) -> void:
 			p.set_item_tooltip(redo_idx,
 				"Puts back the step Undo took off. Edit ▸ Undo history… shows the whole ledger." if can_redo
 				else "Nothing to redo (WorldGen.redo_available() is false). Edit ▸ Undo history… shows what the ledger is holding.")
+		## The four clipboard rows, in their own function because the state
+		## they read is five questions deep and this lambda is already long.
+		_refresh_clipboard_rows(p, cut_idx, copy_idx, paste_idx, select_all_idx)
 		## Both reset rows go dark for a generation, for `param_set`'s own
 		## reason: the worker thread holds the engine object mutably borrowed,
 		## and reaching a `#[func]` anyway is the `Gd<T>::bind() failed, already
@@ -1032,6 +1045,10 @@ func _on_edit(id: int) -> void:
 		## the key it duplicates already worked.
 		ID_DELETE: _host.delete_selection()
 		ID_DESELECT: _host.clear_selection()
+		ID_CUT: _cut_selection()
+		ID_COPY: _copy_selection()
+		ID_PASTE: _paste_clipboard()
+		ID_SELECT_ALL: _select_all()
 		## `_host` is `dcc_shell.gd`, owned by a different pass -- guarded
 		## rather than called bare so a build that has not yet grown
 		## `open_find_on_map()` still opens every other Edit row cleanly
@@ -1045,6 +1062,416 @@ func _on_edit(id: int) -> void:
 				_bridge.reset_params()
 				_host.set_status("hint",
 					"every generation parameter back to default (next Generate)", "text_dim")
+
+# -- §2.2's clipboard ---------------------------------------------------------
+
+## **The clipboard is in-process, typed, and lives for the session.** Step two
+## of the owner's ruling in `LARGE_ITEM_RULINGS.md` -- *"Selection sets ->
+## clipboard -> commands, in that order"* -- and the four commands above are
+## step three.
+##
+## ## Why in-process rather than serialised
+##
+## The alternative considered was a serialised buffer -- JSON into
+## `DisplayServer.clipboard_set`, the way this shell's export paths encode
+## entities. It was rejected on four counts, and the decision is recorded here
+## because it is a design choice, not a wiring one:
+##
+##   1. **There is nothing to serialise *into* that the engine would read
+##      back.** No entity serialiser exists in `cartalith-godot`; an encoding
+##      would be a second representation of a `ManualIcon` and a `MapLabel`,
+##      hand-maintained beside `icon_dict()`/`label_dict()`, and the first
+##      field either side grew would silently drop on paste.
+##   2. **The engine's own dictionaries already ARE a complete
+##      representation.** `icon_get()` returns every field of `ManualIcon`
+##      (x, y, family, slot, set, scale -- the struct has no seventh) and
+##      `label_get()` every field of `MapLabel` that `label_set()` accepts
+##      (text, font, color, size, size_mode, arc, angle) plus the x/y that
+##      `label_create()` takes. Holding those Dictionaries **is** the buffer.
+##   3. **`DisplayServer.clipboard_set` is the user's text clipboard.**
+##      Writing entity JSON there destroys whatever they had copied, and
+##      nothing can tell our payload from a URL they pasted in.
+##   4. Cross-session and cross-instance paste was not asked for.
+##
+## **The cost, stated rather than discovered:** this clipboard does not
+## survive restarting the app, and does not cross to a second Cartalith
+## window. If either is ever wanted, the fix is a serialiser in
+## `cartalith-godot` with `icon_dict`/`label_dict` as its schema -- not a
+## second encoder here.
+##
+## ## Shape
+##
+## `{}` means *nothing has been copied*. Otherwise the keys present are the
+## entity kinds actually captured -- `"labels"` and/or `"icons"`, each an
+## `Array` of that kind's own engine Dictionary. **A kind with nothing in it
+## is absent, never an empty Array**: `has()` is the question every reader
+## asks, and an empty Array would make "no icons were copied" and "icons were
+## copied" the same value at a glance.
+##
+## ## What it deliberately does not hold
+##
+##   - **Sculpt stamps.** Measured, not assumed: `sculpt_list_stamps()` reports
+##     a stamp's `point_count`, not its points, and no binding adds a stamp to
+##     a draft (`sculpt_begin_stroke`/`sculpt_add_point`/`sculpt_end_stroke`
+##     build one from a live gesture). A stamp cannot be read out or written
+##     back, so Copy in WORLD says exactly that rather than copying a hollow
+##     record. `Select all` there does work, because selecting needs neither.
+##   - **Settlements.** They have no selection set -- `selection.rs` covers
+##     icons, labels and sculpt stamps, and a settlement is a single index on
+##     `CivilizationWorkspace` -- and no create-from-record binding.
+var _clipboard: Dictionary = {}
+
+## How far a pasted entity lands from the one it was copied from, in grid
+## cells. Small enough to stay inside the viewport at any zoom the copy was
+## made at, and non-zero because a paste that lands exactly under the original
+## is indistinguishable from a paste that did nothing -- and a second Ctrl+V
+## would then stack invisibly. Both pasted coordinates are clamped into the
+## grid by `_offset_into_grid()`, so this never pushes an entity off the map.
+const PASTE_OFFSET_CELLS := 4.0
+
+## The `label_set()` keys a pasted label carries over. `label_create()` already
+## takes x/y/text, so this is `label_dict()`'s remainder -- and it is exactly
+## `label_set`'s own accepted set minus `text`, which is why a field added to
+## one has to be added here too.
+const LABEL_PASTE_FIELDS: Array[String] = ["font", "color", "size_mode", "size", "arc", "angle"]
+
+## The active domain, or `""` if `_host` predates `active_domain()` -- the same
+## guard `open_find_on_map` above takes, and for the same reason: `_host`
+## (`dcc_shell.gd`) belongs to a different pass.
+func _active_domain() -> String:
+	if _host == null or not _host.has_method("active_domain"):
+		return ""
+	return String(_host.active_domain())
+
+## Every selected Cartography entity, in the clipboard's own shape. `{}` when
+## nothing is selected -- which is what makes Cut and Copy dark rather than
+## silently copying nothing.
+func _carto_snapshot() -> Dictionary:
+	var buf := {}
+	if not _bridge.has_world:
+		return buf
+	var labels: Array = []
+	for i in _bridge.label_get_selection():
+		var d: Dictionary = _bridge.label_get(int(i))
+		if not d.is_empty():
+			labels.append(d)
+	if not labels.is_empty():
+		buf["labels"] = labels
+	var icons: Array = []
+	for i in _bridge.icon_get_selection():
+		var d: Dictionary = _bridge.icon_get(int(i))
+		if not d.is_empty():
+			icons.append(d)
+	if not icons.is_empty():
+		buf["icons"] = icons
+	return buf
+
+## How many entities a buffer holds, across whichever kinds it carries.
+func _clip_count(buf: Dictionary) -> int:
+	var n := 0
+	for k in buf:
+		n += (buf[k] as Array).size()
+	return n
+
+## One line naming what a buffer holds, by kind. Used for Cut's and Copy's
+## status line and for Paste's own row text.
+func _clip_summary(buf: Dictionary) -> String:
+	var parts: Array[String] = []
+	if buf.has("icons"):
+		var n: int = (buf["icons"] as Array).size()
+		parts.append("%d icon%s" % [n, "" if n == 1 else "s"])
+	if buf.has("labels"):
+		var n: int = (buf["labels"] as Array).size()
+		parts.append("%d label%s" % [n, "" if n == 1 else "s"])
+	return ", ".join(parts) if not parts.is_empty() else "nothing"
+
+## `variant` for `icon_arm()`, from the `family`/`slot` pair `icon_get()`
+## returns. `-1` for a family or a slot this numeric API cannot address.
+##
+## **Read from `CartographyWorkspace.ICON_FAMILIES`, never copied**, exactly as
+## `_build_reset_stage_menu()` reads `WorldWorkspace.STAGES`: that table is
+## already the engine's frozen slot vocabulary transcribed once, its order is
+## load-bearing (`icon_bridge::resolve_variant` indexes a family's list
+## positionally, by `variant`), and a second copy here would be the
+## hand-maintained catalogue `command_index.gd`'s own header calls the most
+## reliably stale document a project can own.
+func _icon_variant_of(family_key: String, slot: String) -> int:
+	for fam in CartographyWorkspace.ICON_FAMILIES:
+		if String(fam["key"]) == family_key:
+			return (fam["slots"] as Array).find(slot)
+	return -1
+
+## Put the Icon tool's armed brush back after a paste borrowed it.
+##
+## `icon_place()` places whatever `icon_arm()` last armed, so pasting an icon
+## necessarily overwrites the user's own arming. This restores it from the
+## `icon_armed()` snapshot taken before the paste, and disarms when there was
+## nothing armed -- leaving the paste's last icon armed would be a side effect
+## nobody asked for.
+func _restore_armed(before: Dictionary) -> void:
+	if not (before.has("family") and before.has("slot")):
+		_bridge.icon_disarm()
+		return
+	var variant := _icon_variant_of(String(before["family"]), String(before["slot"]))
+	if variant < 0:
+		_bridge.icon_disarm()
+		return
+	_bridge.icon_arm(String(before["family"]), variant,
+		float(before["scale"]) if before.has("scale") else 1.0,
+		float(before["rotation"]) if before.has("rotation") else 0.0,
+		float(before["jitter"]) if before.has("jitter") else 0.0)
+
+## A copied entity's paste position: its own, offset, clamped inside the grid.
+##
+## The clamp is not belt-and-braces. `place_manual_icon()` returns `None` --
+## and `icon_place()` therefore `-1` -- for any coordinate at or past `gw`/`gh`,
+## so an icon copied from the right edge would simply fail to paste without it.
+func _offset_into_grid(d: Dictionary, g: Vector2i) -> Vector2:
+	var x: float = (float(d["x"]) if d.has("x") else 0.0) + PASTE_OFFSET_CELLS
+	var y: float = (float(d["y"]) if d.has("y") else 0.0) + PASTE_OFFSET_CELLS
+	return Vector2(
+		clampf(x, 0.0, maxf(0.0, float(g.x) - 1.0)),
+		clampf(y, 0.0, maxf(0.0, float(g.y) - 1.0)))
+
+## Delete `sel` highest index first, so each removal cannot move an index still
+## to be deleted. `IconEditor` and `LabelBridge` both hold a `Vec` whose
+## `remove()` shifts everything after the hole down by one; ascending deletion
+## would skip every second entity.  Returns how many actually went.
+func _delete_descending(sel: PackedInt64Array, del: Callable) -> int:
+	var idx: Array[int] = []
+	for i in sel:
+		idx.append(int(i))
+	idx.sort()
+	idx.reverse()
+	var n := 0
+	for i in idx:
+		if bool(del.call(i)):
+			n += 1
+	return n
+
+## The map and the on-canvas handles after entities appeared, vanished or
+## changed hands. The handle drop is `DccApp.clear_selection()`'s own reason: a
+## resize handle floating over an entity that is gone, or over one the
+## selection no longer holds, is the same class of lie as a menu row claiming a
+## capability it does not have.
+func _repaint_after_entity_change() -> void:
+	if _host == null or _host.viewport == null:
+		return
+	_host.viewport.tool_overlay.set_handles([])
+	_host.viewport.refresh_annotations()
+
+func _copy_selection() -> void:
+	var buf := _carto_snapshot()
+	if buf.is_empty():
+		return
+	_clipboard = buf
+	_host.set_status("pass", "copied %s" % _clip_summary(buf), "text_dim")
+
+func _cut_selection() -> void:
+	var buf := _carto_snapshot()
+	if buf.is_empty():
+		return
+	_clipboard = buf
+	## Both selections are read again here rather than derived from `buf`:
+	## `buf` holds entity *records*, and what has to be deleted is *indices*.
+	_delete_descending(_bridge.label_get_selection(),
+		func(i: int) -> bool: return _bridge.label_delete(i))
+	_delete_descending(_bridge.icon_get_selection(),
+		func(i: int) -> bool: return _bridge.icon_delete(i))
+	_repaint_after_entity_change()
+	_host.set_status("pass", "cut %s" % _clip_summary(buf), "text_dim")
+
+func _paste_clipboard() -> void:
+	if _clipboard.is_empty() or not _bridge.has_world:
+		return
+	var g := _bridge.grid_size()
+	var made_labels := PackedInt64Array()
+	var made_icons := PackedInt64Array()
+	var refused_no_pack := 0
+	var refused_unaddressable := 0
+
+	if _clipboard.has("labels"):
+		for d in _clipboard["labels"]:
+			var pos := _offset_into_grid(d, g)
+			var made: int = _bridge.label_create(pos.x, pos.y,
+				String(d["text"]) if d.has("text") else "")
+			if made < 0:
+				continue
+			var fields := {}
+			for k in LABEL_PASTE_FIELDS:
+				if d.has(k):
+					fields[k] = d[k]
+			if not fields.is_empty():
+				_bridge.label_set(made, fields)
+			made_labels.append(made)
+
+	if _clipboard.has("icons"):
+		var armed_before: Dictionary = _bridge.icon_armed()
+		for d in _clipboard["icons"]:
+			var fam := String(d["family"]) if d.has("family") else ""
+			var variant := _icon_variant_of(fam, String(d["slot"]) if d.has("slot") else "")
+			if variant < 0:
+				refused_unaddressable += 1
+				continue
+			## `arm()` clamps scale to ICON_SCALE_MIN..ICON_SCALE_MAX, which
+			## cannot alter a copied value: the only two producers of a
+			## `ManualIcon` -- `arm` itself and `icon_bridge/generate.rs` --
+			## clamp to that same pair, so no icon can carry a scale outside it.
+			if not _bridge.icon_arm(fam, variant,
+					float(d["scale"]) if d.has("scale") else 1.0, 0.0, 0.0):
+				refused_no_pack += 1
+				continue
+			var pos := _offset_into_grid(d, g)
+			var made: int = _bridge.icon_place(pos.x, pos.y)
+			if made >= 0:
+				made_icons.append(made)
+		_restore_armed(armed_before)
+
+	## The paste owns the selection afterwards -- the platform convention, and
+	## what makes Ctrl+C Ctrl+V Ctrl+V walk down the map instead of piling two
+	## copies on one spot. Set last: `label_create()` selects each new label as
+	## it goes, so anything set earlier would be overwritten.
+	if not made_labels.is_empty():
+		_bridge.label_select_set(made_labels)
+	if not made_icons.is_empty():
+		_bridge.icon_select_set(made_icons)
+	_repaint_after_entity_change()
+
+	var made_total := made_labels.size() + made_icons.size()
+	if made_total == 0:
+		_host.set_status("hint",
+			_paste_failure_reason(refused_no_pack, refused_unaddressable), "text_ghost")
+		return
+	var note := ""
+	if refused_no_pack > 0:
+		note = " · %d icon%s needed an asset pack" % [
+			refused_no_pack, "" if refused_no_pack == 1 else "s"]
+	elif refused_unaddressable > 0:
+		note = " · %d icon%s in a family this API cannot arm" % [
+			refused_unaddressable, "" if refused_unaddressable == 1 else "s"]
+	_host.set_status("pass", "pasted %d%s" % [made_total, note], "text_dim")
+
+## Why a paste produced nothing -- three genuinely different situations, and
+## one "paste failed" for all three would hide the only actionable one.
+func _paste_failure_reason(no_pack: int, unaddressable: int) -> String:
+	if no_pack > 0:
+		return "nothing pasted: no asset pack loaded, and icon_arm refuses without one (Assets ▸ Import asset pack…)"
+	if unaddressable > 0:
+		return "nothing pasted: the clipboard's icons are in a family icon_arm cannot address"
+	return "nothing pasted"
+
+## `Select all`, scoped to the active layer (§2.2). The dispatch `DccApp.
+## clear_selection()` has a shape for, done here as a `match` on the domain
+## rather than as a per-workspace `on_select_all()`: both selectable sets are
+## one engine call each, and adding a method to three workspace files to reach
+## them would put this work in three files this pass does not own.
+func _select_all() -> void:
+	match _active_domain():
+		"cartography":
+			var icons: int = _bridge.icon_select_all()
+			var labels: int = _bridge.label_select_all()
+			_repaint_after_entity_change()
+			_host.set_status("pass", "selected %d icon%s, %d label%s" % [
+				icons, "" if icons == 1 else "s",
+				labels, "" if labels == 1 else "s"], "text_dim")
+		"world":
+			var stamps: int = _bridge.sculpt_select_all_stamps()
+			## The stack list is the right dock's, and it reads the engine's
+			## selection when it paints -- the same re-announce `_redo_last()`
+			## does for the history ledger, guarded the same way.
+			if _host.right_dock_ctrl != null and _host.right_dock_ctrl.has_method("show_sculpt_stack"):
+				_host.right_dock_ctrl.show_sculpt_stack()
+			_host.set_status("pass", "selected %d stamp%s" % [
+				stamps, "" if stamps == 1 else "s"], "text_dim")
+
+## The four rows' availability, re-asked on every popup because every input to
+## it -- the domain, two selection sets, the draft's stamp count, the clipboard
+## and whether a pack is loaded -- moves with no signal to subscribe to.
+##
+## Every disabled state carries the reason it is disabled **now**, never a
+## statement that the feature does not exist. That distinction is the honesty
+## rule at the top of this file, and it is what these four rows spent months
+## getting wrong in the other direction.
+func _refresh_clipboard_rows(p: PopupMenu, cut_idx: int, copy_idx: int, paste_idx: int, select_all_idx: int) -> void:
+	## Nothing below reads the engine while a generation owns it. `param_set`'s
+	## own reason: the worker thread holds the object mutably borrowed, and
+	## reaching a `#[func]` anyway is the `Gd<T>::bind() failed, already bound`
+	## panic that crosses the gdext boundary.
+	if _bridge.generating:
+		for i in [cut_idx, copy_idx, paste_idx, select_all_idx]:
+			p.set_item_disabled(i, true)
+			p.set_item_tooltip(i, CLIP_BUSY_TIP)
+		p.set_item_text(paste_idx, "Paste")
+		return
+
+	var domain := _active_domain()
+	var has_world: bool = _bridge.has_world
+	var sel := 0
+	if has_world and domain == "cartography":
+		sel = _bridge.icon_get_selection().size() + _bridge.label_get_selection().size()
+
+	var can_copy := sel > 0
+	var copy_why := ""
+	if not has_world:
+		copy_why = "No world yet. Generate or open one first."
+	elif domain == "cartography":
+		copy_why = ("Nothing selected. Click an icon or a label on the map -- Ctrl-click adds "
+			+ "to the selection, Shift-click takes the range.")
+	elif domain == "world":
+		copy_why = ("The clipboard carries Cartography's icons and labels. The Sculpt draft's "
+			+ "stamps cannot go on it: sculpt_list_stamps reports a stamp's point COUNT, not "
+			+ "its points, and no binding adds a stamp back to a draft. Select all does work "
+			+ "here -- selecting needs neither.")
+	else:
+		copy_why = ("The clipboard carries Cartography's icons and labels. Settlements have no "
+			+ "selection set (selection.rs covers icons, labels and sculpt stamps) and no "
+			+ "create-from-record binding to paste one back through.")
+
+	p.set_item_disabled(copy_idx, not can_copy)
+	p.set_item_tooltip(copy_idx, COPY_TIP if can_copy else copy_why)
+	p.set_item_disabled(cut_idx, not can_copy)
+	p.set_item_tooltip(cut_idx, CUT_TIP if can_copy else copy_why)
+
+	var held := _clip_count(_clipboard)
+	var can_paste := held > 0 and has_world
+	p.set_item_text(paste_idx, "Paste" if held == 0 else "Paste %s" % _clip_summary(_clipboard))
+	p.set_item_disabled(paste_idx, not can_paste)
+	if can_paste:
+		var pack_note := ""
+		if _clipboard.has("icons") and not _bridge.has_asset_pack():
+			pack_note = (" The clipboard's icons will be refused: icon_arm -- the only way to "
+				+ "add one -- needs an asset pack loaded, and has_asset_pack() is false.")
+		p.set_item_tooltip(paste_idx, PASTE_TIP + pack_note)
+	elif not has_world:
+		p.set_item_tooltip(paste_idx, "No world yet. Generate or open one first.")
+	else:
+		p.set_item_tooltip(paste_idx, PASTE_EMPTY_TIP)
+
+	var can_select_all := false
+	var select_why := ""
+	if not has_world:
+		select_why = "No world yet. Generate or open one first."
+	elif domain == "cartography":
+		can_select_all = true
+	elif domain == "world":
+		can_select_all = _bridge.sculpt_stamp_count() > 0
+		select_why = ("The open Sculpt draft has no stamps. Select all is scoped to the active "
+			+ "domain (§2.2), and WORLD's selectable set is that draft's stamp stack.")
+	else:
+		select_why = ("Nothing in Civilization holds a selection set. selection.rs covers icons, "
+			+ "labels and sculpt stamps; a settlement is a single index on the workspace.")
+	p.set_item_disabled(select_all_idx, not can_select_all)
+	p.set_item_tooltip(select_all_idx,
+		(SELECT_ALL_CARTO_TIP if domain == "cartography" else SELECT_ALL_WORLD_TIP)
+		if can_select_all else select_why)
+
+const CLIP_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and reading a selection out of it mid-run is the bind-already-bound panic engine_bridge.gd documents."
+const CUT_TIP := "Copies the selected icons and labels onto the clipboard and deletes them. The clipboard is in-process: it lasts for this session and does not cross to another window."
+const COPY_TIP := "Copies the selected icons and labels onto the clipboard. The clipboard is in-process: it lasts for this session and does not cross to another window."
+const PASTE_TIP := "Adds the clipboard's entities back, offset a few cells from where they were copied, and selects what it added."
+const PASTE_EMPTY_TIP := "Nothing on the clipboard. Copy or Cut an icon or a label first; the clipboard is in-process and starts empty every time the app opens."
+const SELECT_ALL_CARTO_TIP := "Selects every placed icon and every hand-placed label. Scoped to the active domain (§2.2) -- in WORLD it takes the Sculpt draft's stamps instead."
+const SELECT_ALL_WORLD_TIP := "Selects every stamp in the open Sculpt draft. Scoped to the active domain (§2.2) -- in CARTO it takes the icons and labels instead."
 
 # -- §2.3 Assets --------------------------------------------------------------
 

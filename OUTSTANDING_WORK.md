@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**100 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-03 (twenty-first pass)**, after an earlier pass left four
+**97 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-03 (twenty-third pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -51,12 +51,38 @@ arithmetic here is not safe to delegate.
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
 
+**2026-09-03, nineteenth batch — 101 → 97.** Four rows close: the clipboard model
+and all four Edit commands (step one had closed 10/10 a batch earlier); the APK
+probe-scene exclusion; the coordinate-units probe; and §2.1's last delivery gap.
+`cargo test --workspace` holds at 3 015, 0 failed.
+
+*A fourth consecutive batch found a row describing work that was already built.*
+DS-03's resolver — `DccTheme.ROLE`, `role_px()`, `is_tablet()` — has existed since
+2026-08-31 with **87 live call sites across eight shell files**, and `is_tablet()`
+already avoids the predicate `GUI_GAP_REGISTER.md` §57 refuted. The row called it
+unstarted for three days. The lane guarded it instead (7/7 mutants killed) and
+found a real defect while doing so: `ROLE["h_rail_head"]` read `[29, 34]` against
+both the canvas and the shipped shell, now `[30, 44]`. **The reflow half is what
+remains**, and it is blocked on nothing.
+
+*The owner's scoped `export_presets.cfg` authorisation was needed and was
+exercised* — exactly one line, only the `exclude_filter` key of the Android
+preset: `"addons/godotsteam/*,addons/godot_ai/*"` gains `,_*`. Measured rather
+than assumed: an export pack now stores 147 files, **0** of them beginning
+`res://_`. (The main loop reported mid-batch that `_*` was already present. That
+was a **torn read** of a file the lane was concurrently editing — see MISTAKES.md.)
+
+*The main loop edited this file while a verifier was running* — the APK row below
+— and the verifier caught the mid-run change as an unexplained diff. Recorded in
+MISTAKES.md: a doc the main loop owns is still part of the verifier's baseline.
+
 **2026-09-03, eighteenth batch — 101 → 100.** **Urban morphology is finished.**
 Milestones 16 and 17 both closed, and **neither was open**: 16 shipped in
 `cff1edc` a day before the row said it "remains … blocked by definition", and
 17's stated blocker — "settlements carry no `specialisation` and no `traits`" —
 was falsified **six minutes after it was written** and stood for eleven days. One
-genuine gap surfaced and is filed in §2.1 (`settlement_layout` vs `_with`).
+genuine gap surfaced, was filed in §2.1, and closed the next batch
+(`settlement_layout` → `_with`).
 Lane C corrected nine false shell claims. `cargo test --workspace` **3 010 →
 3 015**, 0 failed.
 
@@ -754,11 +780,12 @@ groups are ordered by how much of the remaining project they represent.
 Phase 5. Milestones 8-15 are **built and committed** in `4ec07f5`; **milestone 16
 shipped in `cff1edc`** and milestone 17's five `_um*` are all built and golden-
 covered (both verified 2026-09-03, batch 18 — see §3.2's closure note). **Every
-urban milestone is now built.** One delivery gap remains, filed here:
-
-| Item | Owns it | Size | Next step |
-|---|---|---|---|
-| Per-settlement wall/age overrides never reach the layout | `URBAN_MORPHOLOGY_SCOPE.md` 17 | small | `urban_bridge.rs:407` calls `urban_adapter::settlement_layout()`, the entry point that supplies `PlaceOverrides::default()`, rather than `settlement_layout_with()`. The editor stores `walls_override`/`age_override`, `um_wall_spec` branches on them first, and `WallPlace` now reads them off `PlaceOverrides` — only the call site is unchanged. Its `place_extras` construction already exists ~100 lines above |
+urban milestone is now built, and the last delivery gap closed 2026-09-03**
+(batch 19): `urban_layouts` now calls `settlement_layout_with`, so a per-settlement
+wall/age override reaches the layout. Proven by delivery, not plumbing — an
+independent probe measured `umWalls=off` taking the wall ring from 41 points to
+absent, edges 1 060 → 1 336 and parcels 3 296 → 3 850, with `auto` restoring a
+byte-identical signature. **This section is empty.**
 
 **The section's earlier row closed as *wrong* rather than merely stale.** The 17a caveat — golden-verify the block-2 `_um*`
 adapter — recorded its blocker as *"needs a block-2 capture harness that can run
@@ -823,13 +850,10 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Item | Size | Note |
 |---|---|---|
 | Religion-diffusion **screens**, the engine half done | large | **Unblocked 2026-09-03, and the row was half false when written**: it claimed `cartalith-civ::belief` does not exist — it was already 945 lines of compatibility tables, with no diffusion, no callers and no bridge. Now built: a diffusion model over those tables, per-settlement adherence that clears on world replacement (measured across all three paths), its own RNG stream, `get_settlements()` emitting religion and adherent counts, and the bridge. The recorded lesson — *the surfaces cannot be designed before the engine half exists* — is now satisfied, so what remains is the screens |
-| **DS-03 — the tablet theme's key space is exhausted** | large | **Content question answered 2026-09-03: keep everything, reflow only.** The tablet gets the full desktop inventory in a denser or scrolling layout; no control is removed, so the ~30% of desktop content currently deleted comes back and the per-control "which controls leave" list does not need building. **What survives the ruling is the architectural half, and it is now the whole row**: `DccTheme.TABLET`'s key space is exhausted, one desktop integer maps to two tablet figures in at least five verified places, and `GUI_GAP_REGISTER.md` §57 refuted the obvious placement for a role-keyed resolver. ~55 paired elements measure ×1.00 to ×2.06 with no centre. Unblocked and startable |
+| **DS-03 — the tablet reflow**, the architectural half done | large | **Re-scoped 2026-09-03 (batch 19): the resolver was already built and had been since 2026-08-31** — `DccTheme.ROLE` (49 rows), `role_px()`, `is_tablet()`, **87 live call sites across eight shell files**, and `is_tablet()` already avoids the predicate `GUI_GAP_REGISTER.md` §57 refuted. The row described it as unstarted for three days. Batch 19 guarded it (`_roleresolve_probe`, 7/7 mutants killed, desktop byte-identity proven by grep: the one changed role has no consumer) and fixed `ROLE["h_rail_head"]` `[29, 34]` → `[30, 44]`, which contradicted both the canvas and the shipped shell. **What actually remains is the reflow half** the owner ruled on — the full desktop inventory returning to tablet in a denser or scrolling layout. Blocked on nothing; not started |
 | **The right dock does not follow the armed tool** (`rdExtraMode` ladder, nine contexts) | medium | **Answered 2026-09-03 — owner question 1: selection wins, the tool appends a section.** The dock keeps showing the selected entity and an armed tool adds its own section *below* it. The naive merge this row was excluded from the 2026-08-31 build to avoid — flipping away from a selected settlement the moment a tool arms — is explicitly rejected, and because nothing is yanked away mid-edit no "is editing" signal is needed. Unblocked and startable |
-| Stop shipping the ~218 `_*_probe` / `_*_shot` development scenes inside the APK | small | **Authorised 2026-09-03: a scoped, narrow permission to edit `export_presets.cfg`'s `exclude_filter` and nothing else in that file.** Every other prohibition stands — `Cargo.toml`, `.gitignore` and `project.godot` remain off limits, and this does not generalise. **Verify the exclusion is actually needed before exercising it**: the Settlement diagnostics row carried a scoped `Cargo.toml` authorisation that was withdrawn as unnecessary once someone read the code |
-| Cut · Copy · Paste · Select all — **steps two and three only** | large | **Step one closed 2026-09-03**, verified 10/10 by an independent pass: a selection *set* per entity kind now replaces the three single-`i64` selections (`icon_get_selected`, `label_get_selected`, `sculpt_get_selected_stamp`), every former caller still behaves, and `LabelEditSession`'s revert snapshot and `sculpt_delete_stamp`'s index bookkeeping were both repaired under a set. The ruling's own words — *"pays for itself even if the clipboard never lands"* — are now cashed. What remains is the clipboard model and the four Edit commands, in that order. Sculpt-stamp multi-select is partial and is the one interaction gap |
 | World provenance is not recorded in the save format | medium | **Narrowed 2026-09-03 from "the atlas `world_key` hashes parameters but never the field".** The live collision is fixed and was measured real first: with no discriminator a generated, an imported and a resampled world at one identical parameter tuple all hashed to `beffe825` — one atlas namespace for three different worlds. `world_key_signature` now carries an `origin` element (`gen`/`import`/`region`), taken by `absorb` as a **required argument** so a new replacement path cannot reach the field by forgetting it. **What remains is a format gap, not a bug in that fix**: `cartalith_io::SaveParams` is `gw`/`gh`/`seed`/`map_width_km`/`sea_level`/`world` and nothing else, so there is nowhere in a `.zip` for an import or a resample to say what it was. `load_save` therefore reports `gen` as a named-cost fallback — chosen because every other key element round-trips exactly, so a distinct fourth value would orphan the atlas on **every** reopen including the common generate→bake→save→open path. Consequence: a saved imported or resampled world reopens claiming it was generated and can collide again. The repair is a provenance field in `cartalith-io` plus both writers |
 | The pack-import warning names biomes and terrains unused — **blocked on a re-baseline ruling** | small | **Reclassified 2026-09-03: this is not a one-line fix and must not be treated as one.** The string `"N pack section(s) not yet used by the live map (…)"` in `cartalith-assets/src/manifest.rs` is **pinned by golden-parity fixtures** — `golden_parity_pack_manifest.rs:131` and `:292`, captured from the reference's own `parsePackManifest` under Node and stored in `tests/fixtures/reference_pack_captured.json:320`. Editing it is a golden re-baseline that `DECISIONS.md` §7a protects, so it needs an owner ruling. **And the urgency is lower than it looked**: `PackManifest::warnings` reaches no user in this build — the shell's `File ▸ Import asset pack` path never surfaces them — so the false statement is false in code, not on screen. The third name the warning carries, `trait`, is *genuinely* still undrawn: `asset_bridge.rs` round-trips `manifest.structures.traits` but `pack.rs` composites no trait sprite. Recommended framing for the ruling: a port-vs-reference divergence, best answered by a port-side annotation wherever the warning is eventually displayed |
-| The Coordinate-system panel's units fix is pinned by nothing | small | **Found 2026-09-03 by a verifier.** `world_workspace.gd`'s panel now routes through `DccUnits` and the stale PR-15 sentence is gone, but `_crsunits_probe.gd` deliberately refuses to call `set_units_mode`, so it is green only on a km-mode machine. Measured: changing `DccUnits.format(cell_km, 3)` to `, 0)` **survived**, and reverting the fix outright to a hardcoded `str(int(...)) + " km"` **also survived**. The fix is real; nothing would catch its removal. Make the probe exercise mi and nautical miles |
 
 ### 2.3 Civilisation, economy and journeys
 
@@ -898,6 +922,7 @@ No Android pass has run since 2026-08-25. All six items below are live.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
+| **Rebuild the APK and drop it on D: — owner request, 2026-09-03** | `ANDROID_BUILD_SCOPE.md` | small | **Trigger: when GUI work is done, not before.** Recipe in memory `cartalith-apk-build-and-drop`, verified: `cargo ndk -t arm64-v8a build --release -p cartalith-godot`, then `--export-release "Android"` (**expect it to fail at signing — there is no release keystore and never has been; the unsigned APK it leaves behind is good**), then sign with Godot own debug keystore via `apksigner`. **Two things must be verified, not assumed:** that the `.so` inside the APK is the one just built — a shipped APK once carried a library 25 commits stale, so features were live in the tree and dead on the handset, and Godot accepts a wrong `.gdextension` key with no error — and the md5 at the destination after copying. Destination `D:\Users\Vincent\Documents\Vincent\Persoonlijk\Writing\Tools & writing hacks\`, which already holds `Cartalith.apk` (57 021 549 bytes, 2026-09-01 14:10, sha256 `6c70b414...`). **Preserve that build rather than overwriting it blind** — date-stamp the old one aside first |
 | Six features never driven on device since the 2026-08-24 USB disconnect — paint visibility, save/undo, the debug views, GeoJSON export, hand-drawn ways, civ-recompute | `ANDROID_BUILD_SCOPE.md` | medium | Recorded as *unverified on device*, not as verified. The 2026-08-25 pass drove a different list and did not pick these up |
 | The phone shell with **no world open** scans 1 494 of 2 400 rows blank | medium | **Re-filed 2026-09-03 from PH-16, which attributed it to the wrong surface.** The register measured one state — planner open, no world — and read the result as the Journey Planner's. With a control state added, opening the planner **removes 447 blank rows**: closed 1 494, open 1 047. So the band belongs to the app with no world loaded, not to this panel, and there is nothing honest to draw into a world that does not exist. Whatever the empty shell should show is a design question `06-phone.md` does not answer |
 | The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
