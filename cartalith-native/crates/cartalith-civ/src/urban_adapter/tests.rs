@@ -569,6 +569,142 @@ fn ore_bearing_is_none_without_potentials() {
     assert_eq!(um_ore_bearing(&zero_pots(0), 0, 0, 0.0, 0.0, 0.0), None);
 }
 
+// ---------------------------------------------------------- PlaceOverrides --
+
+/// The default must be exactly what `um_place_context` produced before
+/// [`PlaceOverrides`] existed. Anything else re-baselines every layout in the
+/// crate, which needs an owner ruling this change does not have.
+#[test]
+fn place_overrides_default_is_the_pre_override_context() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    let ctx = um_place_context(&w, &s, &[]);
+    assert!(!ctx.fortified, "no trait supplied, so no bastioned-trace request");
+    assert!(ctx.economy.is_none(), "the reference's own no-specialisation path");
+    assert_eq!(ctx.ore_bearing, None);
+    // The unconditional `_umInferAge(pop)` this function computed before
+    // `p.umAge` had anywhere to come from.
+    assert_eq!(ctx.settlement_age, um_infer_age(4_000.0));
+    assert_eq!(ctx.wall_style, "stone");
+}
+
+/// `const spec=(p.specialisation&&p.specialisation!=='none')?p.specialisation:null;`
+/// -- one truthiness test, and both of its falsy spellings.
+#[test]
+fn a_specialisation_reaches_the_economy_and_none_is_falsy() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    let o = PlaceOverrides { specialisation: Some("trade_hub"), ..Default::default() };
+    let e = um_place_context_with(&w, &s, &[], &o).economy.expect("an economy");
+    assert_eq!(e.specialisation.as_deref(), Some("trade_hub"));
+    assert!(!e.ore_bearing, "only `mining` gets a bearing");
+
+    for falsy in ["", "none"] {
+        let o = PlaceOverrides { specialisation: Some(falsy), ..Default::default() };
+        let ctx = um_place_context_with(&w, &s, &[], &o);
+        assert!(ctx.economy.is_none(), "{falsy:?} must take the no-specialisation path");
+        assert_eq!(ctx.ore_bearing, None, "{falsy:?}");
+    }
+}
+
+/// `(spec==='mining')?_umOreBearing(p,orient):null` -- the branch, the
+/// rotation into the local frame, and the two ways it honestly comes back
+/// absent.
+#[test]
+fn only_mining_computes_an_ore_bearing_and_it_is_rotated_into_the_local_frame() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    // One hot iron cell two east of the settlement: `atan2(0, +2) = 0` in the
+    // map frame, so the local bearing is exactly `-orient`.
+    let mut pots = zero_pots(GW * GH);
+    pots.iron[8 * GW + 52] = 0.9;
+
+    let mining =
+        PlaceOverrides { specialisation: Some("mining"), resources: Some(&pots), ..Default::default() };
+    let ctx = um_place_context_with(&w, &s, &[], &mining);
+    let b = ctx.ore_bearing.expect("a mining town with a deposit has a bearing");
+    assert!((b + ctx.orient).abs() < 1e-12, "bearing {b}, orient {}", ctx.orient);
+    assert!(ctx.economy.as_ref().expect("an economy").ore_bearing, "presence must be carried");
+
+    // Same deposit, a different trade: the reference computes no bearing.
+    let fishing =
+        PlaceOverrides { specialisation: Some("fishing"), resources: Some(&pots), ..Default::default() };
+    let ctx = um_place_context_with(&w, &s, &[], &fishing);
+    assert_eq!(ctx.ore_bearing, None);
+    assert!(!ctx.economy.expect("an economy").ore_bearing);
+
+    // A mining town whose caller supplied no potentials: the economy is still
+    // real, the bearing is honestly absent, and `assign_districts` falls back
+    // to "outermost parcels" rather than an invented direction.
+    let blind = PlaceOverrides { specialisation: Some("mining"), ..Default::default() };
+    let ctx = um_place_context_with(&w, &s, &[], &blind);
+    assert_eq!(ctx.ore_bearing, None);
+    assert!(!ctx.economy.expect("an economy").ore_bearing);
+}
+
+/// The four place-editor overrides reach the things they are supposed to
+/// reach: the wall ladder, the settlement age, and `GenOpts::fortified`.
+#[test]
+fn the_place_editor_overrides_reach_the_wall_ladder_and_the_age() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    assert_eq!(um_place_context(&w, &s, &[]).wall_style, "stone", "the rung with no override");
+
+    // `p.umWalls === false` beats every rung.
+    let off = PlaceOverrides { walls_override: Some(false), ..Default::default() };
+    let ctx = um_place_context_with(&w, &s, &[], &off);
+    assert_eq!(ctx.wall_style, "none");
+    assert!(!ctx.walls);
+
+    // `(p.umAge!=null)?p.umAge:_umInferAge(pop)` -- 45 is not any inferred age.
+    let aged = PlaceOverrides { age_override: Some(45.0), ..Default::default() };
+    assert_eq!(um_place_context_with(&w, &s, &[], &aged).settlement_age, 45.0);
+
+    // A threatened hamlet digs a ditch, and the trait is also the bastioned-
+    // trace request `generate()` gates `apply_star_fort` on.
+    let mut h = settlement(50, 8, 40);
+    h.placement.kind = SettlementKind::Hamlet;
+    assert_eq!(um_place_context(&w, &h, &[]).wall_style, "none", "an ordinary hamlet");
+    let ft = PlaceOverrides { fortified_trait: true, ..Default::default() };
+    let ctx = um_place_context_with(&w, &h, &[], &ft);
+    assert_eq!(ctx.wall_style, "ditch");
+    assert!(ctx.fortified);
+}
+
+/// The end of the wire: a specialisation set on a settlement changes the town
+/// `generate()` lays out. Without it `assign_districts` returns before its
+/// economy block (`site.economy` is `None`) and no lot can carry an economy
+/// tag; with `mining` the ore yard is tagged.
+#[test]
+fn a_mining_specialisation_reaches_assign_districts_and_tags_an_ore_yard() {
+    let f = Fixture::new();
+    let w = f.world();
+    let s = settlement(50, 8, 4_000);
+    let mut pots = zero_pots(GW * GH);
+    pots.iron[8 * GW + 52] = 0.9;
+
+    let plain = settlement_layout(&w, &s, &[]).expect("a layout");
+    assert!(
+        !plain.parcels.iter().any(|p| p.district == "oreyard"),
+        "no economy in, no economy district out"
+    );
+
+    let mining =
+        PlaceOverrides { specialisation: Some("mining"), resources: Some(&pots), ..Default::default() };
+    let mined = settlement_layout_with(&w, &s, &[], &mining).expect("a layout");
+    let yards = mined.parcels.iter().filter(|p| p.district == "oreyard").count();
+    assert!(yards > 0, "the mining branch of assign_districts was never reached");
+    // `retag(..., 4, "oreyard")` -- the reference's own cap on the block.
+    assert!(yards <= 4, "{yards} ore yards, the reference tags at most 4");
+    // Same seed, same site, same streets: only the district tags moved.
+    assert_eq!(mined.parcels.len(), plain.parcels.len());
+    assert_eq!(mined.market, plain.market);
+}
+
 // ----------------------------------------------------------- _umSiteProfile --
 
 /// Every optional source absent: the reference's own missing-source answers.
@@ -1002,7 +1138,14 @@ fn coast_dist_field_is_a_real_chamfer_and_empty_when_it_cannot_be() {
 /// radius 5, seen at the radius 11 that `/35` would give).
 #[test]
 fn site_profile_relief_disc_radius_reads_gw_over_70() {
-    const W: usize = 384;
+    // **316, and the width is the assertion.** `defR = max(4, round(GW/70))`
+    // is a rounded quotient, so most widths cannot see a one-unit change in
+    // the divisor: at 384, `round(384/70)` and `round(384/71)` are both 5, and
+    // a `70 -> 71` mutant survived the whole crate suite and the block-2
+    // golden alike (measured 2026-09-03). 316 is inside the window where they
+    // disagree -- `round(316/70) = 5` but `round(316/71) = 4` -- so the
+    // divisor is pinned here rather than merely exercised.
+    const W: usize = 316;
     const H: usize = 16;
     let mut field = vec![0.50f32; W * H];
     field[9 * W + 197] = 0.30; // dx = +5, dy = +1

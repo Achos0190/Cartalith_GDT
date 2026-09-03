@@ -307,14 +307,19 @@ func _rebuild_settlements() -> void:
 		## and a fact that is false is simply not stated -- which is how the
 		## canvas's own summary lines read ("4 dials · last run 12 s ago",
 		## "dynamic lithology on"), and it drops two thirds of the noise.
+		var kind_lc := String(d.get("kind", "?")).to_lower()
 		var facts := PackedStringArray([
-			String(d.get("kind", "?")).to_lower(),
+			kind_lc,
 			"pop %s" % _thousands(int(d.get("population", 0))),
 			"faction %d" % int(d.get("faction", 0)),
 		])
 		if d.get("coastal", false):
 			facts.append("coastal")
-		if d.get("capital", false):
+		## `GUI_GAP_REGISTER.md` §50: the capital flag used to append
+		## unconditionally, so a settlement whose *class* already is "capital"
+		## read "capital · pop 20 708 · faction 4 · capital" -- the same word
+		## twice. Drop it exactly when it would only repeat facts[0].
+		if d.get("capital", false) and kind_lc != "capital":
 			facts.append("capital")
 		_row(body, [name, String(d.get("kind", "?")).capitalize(), str(int(d.get("population", 0))),
 			str(int(d.get("faction", 0))), "yes" if d.get("coastal", false) else "no",

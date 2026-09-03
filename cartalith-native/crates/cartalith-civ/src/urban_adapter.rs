@@ -40,24 +40,36 @@
 //! | `_umWallSpec`, `_umInferWalls` | **ported, and not here**: they live in [`crate::military`], because their first real consumer was `_civFactionAggregates`' `fortifiedFraction` (`GUI_GAP_REGISTER.md` CV-25), not this adapter. [`um_place_context`] now calls `um_wall_spec` too, exactly as `_umPlaceContext` line 22638 does, and [`UrbanContext::wall_style`]/[`UrbanContext::walls`] are its answer. The `walls: false` this adapter passed until 2026-09-02 is gone — a settlement's circuit is now the ladder's verdict on its tier, function, threat, wealth, age and command of ground |
 //! | `_umHarbourScale` | **ported** ([`um_harbour_scale`]) and **fed**: [`UrbanContext::harbour_scale`] reaches [`cartalith_urban::GenOpts::harbour_scale`], and `generate()` calls `build_harbour` on both branches |
 //! | `_umSiteProfile` | **ported** ([`um_site_profile`]) — it was skipped because "its consumers are the wall spec (m10), harbour/bridge validity (m9), economic districts (m13) and the Settlement Inspector — none of which exist", and three of those four now do. Its one input this port lacks, `_civPlaceDefensibility`'s wall test, is caller-resolved: see [`SiteProfileWorld::walled`] |
-//! | `_umOreBearing` | **ported** ([`um_ore_bearing`]) — feeds [`cartalith_urban::GenOpts::ore_bearing`], whose reader (`assign_districts`' ore-yard rule) now exists. The function itself reads only `currentResourcePotentials()`, which this port has; what is still missing is its *sibling* district input, `site.economy.specialisation`, which is host data this port's settlements do not carry. Note also that `cartalith_urban::site::Economy::ore_bearing` is a `bool` and the reference's `oreBearing` is a nullable **angle**; `generate`/`assign_districts` both take the bearing as a separate parameter until that is corrected |
+//! | `_umOreBearing` | **ported and reachable** ([`um_ore_bearing`]) — [`um_place_context_with`] computes it on the reference's own `specialisation === 'mining'` branch and [`run_layout`] passes it as [`cartalith_urban::GenOpts::ore_bearing`], whose reader (`assign_districts`' ore-yard rule) exists. Its sibling district input, `site.economy.specialisation`, travels the same way — see [`PlaceOverrides`], and the caller note below. Note that `cartalith_urban::site::Economy::ore_bearing` is a `bool` and the reference's `oreBearing` is a nullable **angle**; `generate`/`assign_districts` take the bearing as a separate parameter until that is corrected, so [`UrbanContext::economy`] carries presence and [`UrbanContext::ore_bearing`] carries the angle |
 //! | `_umPt` | **not applicable**: a JS `[x,y]`-vs-`{x,y}` normaliser. [`Way::pts`] is typed |
 //! | `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | **explicitly out of scope for every milestone** (scope document, "Out of scope"): an LRU plus a `setTimeout(…,0)` queue working around the browser's single thread. Caching is the caller's business; `cartalith-godot`'s GDScript side keys one layout per settlement and drops the lot on world change |
 //! | `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | **out of scope for every milestone** likewise — canvas rendering, Godot's job |
 //!
-//! Three `_umPlaceContext` fields are still absent, because their *inputs*
-//! are — and all three are host data, not unported code:
+//! # `fortified` and `economy` are parameters now, not absences
 //!
-//! - **`fortified`** — reads `p.traits.includes('fortified')`; this port's
-//!   [`NamedSettlement`] has no traits. `false`, the reference's own answer
-//!   on a world where nobody set one. It is why no town generated here gets a
-//!   bastioned trace: `generate()` gates `applyStarFort` on it.
-//! - **`economy`** — reads `p.specialisation`; likewise absent. `None`, which
-//!   takes the reference's own no-specialisation path through
-//!   `assignDistricts` — and `oreBearing` with it, since the reference computes
-//!   a bearing only for `specialisation === 'mining'` (line 22659). So
-//!   [`um_ore_bearing`] is ported and unreached, and that is the reference's
-//!   own branch rather than a gap.
+//! Both were hardcoded here until 2026-09-03 — `fortified: false`,
+//! `economy: None` — with the reason given as *"this port's settlements carry
+//! no traits and no specialisation"*. **That reason was true for six
+//! minutes.** The hardcode landed in `be2d5f7` at 2026-08-23 19:31 and
+//! `cartalith-godot`'s `civ_roster_bridge::PlaceExtrasTable` landed in
+//! `e63d5d9` at 19:37 the same evening (`git log -S`, measured 2026-09-03), so
+//! it stood eleven days after it stopped being true. That table carries
+//! `specialisation`, `traits`, `umAge` and `umWalls` per settlement, keyed by
+//! `tid`; the ED-03 place editor writes them, `project_bridge` persists them
+//! across a save, and `civ_military_bridge::defences` and
+//! `urban_bridge::settlement_diagnostics` both already read them into a
+//! [`WallPlace`]. What was missing was not the data but a **parameter** — this
+//! adapter had no way to accept it.
+//!
+//! [`PlaceOverrides`] is that parameter, and [`um_place_context_with`] /
+//! [`settlement_layout_with`] are the entry points that take it. The
+//! no-argument [`um_place_context`] and [`settlement_layout`] pass
+//! `PlaceOverrides::default()`, which is every field absent — the value every
+//! settlement holds in the reference before anything sets one — so their output
+//! is unchanged and no golden moved.
+//!
+//! One `_umPlaceContext` field is still genuinely absent, because its input is:
+//!
 //! - **`culture`** — reads `civFactionCulture[p.faction]`; this port has no
 //!   faction-culture table at all (verified by grep). `None`, which is
 //!   `resolve_profile`'s own `medieval` fallback and the `|| 'medieval'` arm of
@@ -150,7 +162,7 @@
 //!   each away.
 
 use cartalith_urban::{
-    GenOpts, TerrainCtx, WaterCtx, generate, js_hypot, js_max, js_min, js_round,
+    Economy, GenOpts, TerrainCtx, WaterCtx, generate, js_hypot, js_max, js_min, js_round,
 };
 
 /// Re-exported so a caller can name the types this module's output is
@@ -365,10 +377,17 @@ pub fn um_infer_age(pop: f64) -> f64 {
 ///
 /// [`cartalith_urban::GenOpts::harbour_scale`] is the consumer this feeds —
 /// an `Option<f64>` there, so a caller with no port passes `Some(1.0)` or
-/// `None` alike. This adapter's own [`run_layout`] does not call
-/// `build_harbour` at all (see the module header), so nothing in *this* file
-/// reads the value yet; that is a wiring gap in `run_layout`, not a missing
-/// port.
+/// `None` alike. **It is wired**: [`um_place_context`] writes this value onto
+/// [`UrbanContext::harbour_scale`], [`run_layout`] hands it to
+/// `GenOpts::harbour_scale`, and `generate()` calls `build_harbour` on both of
+/// its branches.
+///
+/// The note that stood here until 2026-09-03 — *"`run_layout` does not call
+/// `build_harbour` at all … a wiring gap in `run_layout`"* — described the
+/// hand-ordered stage subset this adapter ran before 2026-09-02, and this
+/// file's own module header had said the opposite ever since. It is quoted
+/// rather than quietly deleted, because a reader who acted on it would have
+/// gone looking for work that was already done.
 pub fn um_harbour_scale(pop: f64, site_kind: &str) -> f64 {
     if site_kind == "landlocked" {
         return 1.0;
@@ -1127,23 +1146,26 @@ pub struct SiteProfileWorld<'a> {
     ///
     /// The reference's profile calls `_civPlaceDefensibility(p)`, which calls
     /// `_umInferWalls(p)`, which reads `p.traits`, `p.specialisation`,
-    /// `p.umWalls` and `p.kind` — and this port's [`NamedSettlement`] carries
-    /// none of the first three (`OUTSTANDING_WORK.md` §2.1: "settlements carry
-    /// no `specialisation` and no `traits`"). Rather than fabricate them, the
-    /// caller supplies the answer, the same shape [`crate::trade::civ_salt_access`]'s
-    /// `nav` and [`crate::military::civ_place_defensibility`]'s own `walled` already
+    /// `p.umWalls` and `p.kind`. This port's [`NamedSettlement`] carries none of
+    /// the first three — but `cartalith-godot`'s
+    /// `civ_roster_bridge::PlaceExtrasTable` carries all three, so this is a
+    /// *plumbing* boundary rather than a data gap. The caller supplies the
+    /// answer, the same shape [`crate::trade::civ_salt_access`]'s `nav` and
+    /// [`crate::military::civ_place_defensibility`]'s own `walled` already
     /// take.
     ///
     /// **What the caller must supply:**
     /// [`crate::military::um_infer_walls`] over a
-    /// [`crate::military::WallPlace`] built from the settlement — with
-    /// `specialisation: None`, `fortified_trait: false` and
-    /// `walls_override: None` where the host has no source for them, which is
-    /// the value every settlement holds in the reference before anything sets
-    /// one, and `relative_elevation` from
-    /// [`crate::military::civ_relative_elevation`]. Keeping the two functions
-    /// one-directional here also makes the recursion the reference's own
-    /// `_umWallSpec` comment warns about impossible to reintroduce.
+    /// [`crate::military::WallPlace`] built from the settlement, and
+    /// `relative_elevation` from [`crate::military::civ_relative_elevation`].
+    /// `cartalith-godot`'s `urban_bridge::settlement_diagnostics` and
+    /// `civ_military_bridge::defences` both do exactly that, filling
+    /// `specialisation`/`fortified_trait`/`walls_override`/`age_override` off
+    /// the place editor's own overrides; a caller with no source for them
+    /// passes `None`/`false`, the value every settlement holds in the reference
+    /// before anything sets one. Keeping the two functions one-directional here
+    /// also makes the recursion the reference's own `_umWallSpec` comment warns
+    /// about impossible to reintroduce.
     pub walled: bool,
 }
 
@@ -1591,18 +1613,91 @@ pub struct UrbanContext {
     /// harbour's built extent. `1.0` on a landlocked site, where no harbour is
     /// built at all.
     pub harbour_scale: f64,
+    /// `!!(p.traits&&p.traits.includes('fortified'))` — the *request* for a
+    /// bastioned trace-italienne circuit. `generate()` gates `apply_star_fort`
+    /// on it, so this is the difference between a town that could never have
+    /// one and a town that was never asked for one.
+    ///
+    /// Supplied by the caller through [`PlaceOverrides::fortified_trait`];
+    /// `false` when nothing sets it, which is the value every settlement holds
+    /// in the reference before a trait is added.
+    pub fortified: bool,
+    /// `economy` — `{specialisation, oreBearing}` when `p.specialisation` is a
+    /// real key, and `null` when it is absent or `'none'`. The reference's own
+    /// truthiness test is carried: an empty string is falsy there and skips the
+    /// whole `assign_districts` economy block here.
+    ///
+    /// [`cartalith_urban::Economy::ore_bearing`] is a `bool` and the
+    /// reference's `oreBearing` is a nullable **angle**, so this field carries
+    /// only the *presence* of a bearing and the angle itself travels in
+    /// [`Self::ore_bearing`] — see this module's header.
+    pub economy: Option<Economy>,
+    /// [`um_ore_bearing`]'s answer, radians in the layout's local frame.
+    /// Computed only for `specialisation == "mining"`, exactly as the reference
+    /// computes it only on that branch, and `None` when the caller supplied no
+    /// [`ResourcePotentials`] to scan.
+    pub ore_bearing: Option<f64>,
     pub water: Option<UmWater>,
     pub terrain: Option<TerrainCtx>,
     pub route_ends: Option<Vec<Vec2>>,
     pub primary_paths: Option<Vec<Vec<Vec2>>>,
 }
 
-/// `_umPlaceContext`.
+/// The four things `_umPlaceContext` reads off `p` that this port's
+/// [`NamedSettlement`] has no field for, plus the resource grid the mining
+/// branch scans.
+///
+/// **The four are not missing data.** `cartalith-godot` carries all of them in
+/// `civ_roster_bridge::PlaceExtrasTable`, a side table keyed by the
+/// settlement's stable `tid` — the place editor writes them, `project_bridge`
+/// persists them, and both `civ_military_bridge::defences` and
+/// `urban_bridge::settlement_diagnostics` already read them into a
+/// [`WallPlace`]. What did not exist until 2026-09-03 was a way to get them
+/// *here*, into the layout pipeline, and this struct is that parameter.
+///
+/// [`Default`] is every field absent, which is the value every settlement
+/// holds in the reference before anything sets one — so [`um_place_context`]
+/// and [`settlement_layout`] produce exactly what they produced before this
+/// type existed.
+///
+/// No `Debug`: [`ResourcePotentials`] is fifteen full-grid `Vec<f32>`s and
+/// deriving it here would make a stray `{:?}` print the world.
+#[derive(Clone, Copy, Default)]
+pub struct PlaceOverrides<'a> {
+    /// `p.specialisation`, a `crate::roster::CIV_SPECIALISATIONS` key.
+    /// `None`, `Some("")` and `Some("none")` are all the reference's own falsy
+    /// no-specialisation case and are treated alike.
+    pub specialisation: Option<&'a str>,
+    /// `p.traits.includes('fortified')`.
+    pub fortified_trait: bool,
+    /// `p.umWalls` — the explicit per-settlement circuit override.
+    pub walls_override: Option<bool>,
+    /// `p.umAge` — the explicit founding-age override, in years.
+    pub age_override: Option<f64>,
+    /// `currentResourcePotentials()`, for [`um_ore_bearing`]. Read only when
+    /// the specialisation is `mining`; `None` means the caller supplied none,
+    /// which is `um_ore_bearing`'s own no-potentials answer rather than a
+    /// fabricated bearing.
+    pub resources: Option<&'a ResourcePotentials>,
+}
+
+/// `_umPlaceContext` with no place-editor overrides — see [`PlaceOverrides`].
 pub fn um_place_context(w: &UrbanWorld, s: &NamedSettlement, ways: &[Way]) -> UrbanContext {
+    um_place_context_with(w, s, ways, &PlaceOverrides::default())
+}
+
+/// `_umPlaceContext`.
+pub fn um_place_context_with(
+    w: &UrbanWorld,
+    s: &NamedSettlement,
+    ways: &[Way],
+    o: &PlaceOverrides,
+) -> UrbanContext {
     let px = s.placement.x as f64;
     let py = s.placement.y as f64;
     let pop = js_max(20.0, s.pop as f64);
-    let age = um_infer_age(pop);
+    // `(p.umAge!=null)?p.umAge:_umInferAge(pop)`.
+    let age = o.age_override.unwrap_or_else(|| um_infer_age(pop));
     let seed_f = cartalith_noise::hash(px as i32, py as i32, w.world_seed);
     let seed = (seed_f * 4294967295.0).floor() as u32;
     let site_kind = um_site_kind_from_terrain(w, px, py);
@@ -1611,21 +1706,37 @@ pub fn um_place_context(w: &UrbanWorld, s: &NamedSettlement, ways: &[Way]) -> Ur
     // v0.98: with real water the geometry is already in position, so no
     // rotation is needed and the reference bypasses `_umTerrainOrient`.
     let orient = if water.is_some() { 0.0 } else { um_terrain_orient(w, px, py, site_kind) };
-    // Lines 22638-22639. The three inputs this port's [`NamedSettlement`] does
-    // not carry (`umWalls`, `traits`, `specialisation`) take the value every
-    // settlement holds in the reference before anything sets one —
-    // [`SiteProfileWorld::walled`] documents the same construction, for the
-    // same reason, for the other caller of this same ladder.
+    // `wallStyle=_umWallSpec(p)`. The three inputs this port's
+    // [`NamedSettlement`] does not carry (`umWalls`, `traits`,
+    // `specialisation`) come from `o`; `PlaceOverrides::default()` supplies the
+    // value every settlement holds in the reference before anything sets one,
+    // which is what [`SiteProfileWorld::walled`] documents for the other caller
+    // of this same ladder.
     let wall_style = um_wall_spec(&WallPlace {
-        walls_override: None,
+        walls_override: o.walls_override,
         kind: s.placement.kind,
         pop,
-        fortified_trait: false,
-        // `None` makes the ladder call `um_infer_age(pop)` itself, which is the
-        // same `age` computed above — the reference's `p.umAge` is absent here.
-        age_override: None,
-        specialisation: None,
+        fortified_trait: o.fortified_trait,
+        age_override: o.age_override,
+        specialisation: o.specialisation,
         relative_elevation: civ_relative_elevation(w.field, w.gw, w.gh, w.sea_level, px, py),
+    });
+    // `const spec=(p.specialisation&&p.specialisation!=='none')?p.specialisation:null;`
+    // then `const economy=spec?{...}:null` — one truthiness test, two uses.
+    let spec = o.specialisation.filter(|&k| !k.is_empty() && k != "none");
+    // `(spec==='mining')?_umOreBearing(p,orient):null`. Computed after `orient`,
+    // as the reference computes it, because the bearing is expressed in the
+    // layout's local frame.
+    let ore_bearing = spec
+        .filter(|&k| k == "mining")
+        .and_then(|_| o.resources)
+        .and_then(|r| um_ore_bearing(r, w.gw, w.gh, px, py, orient));
+    let economy = spec.map(|k| Economy {
+        specialisation: Some(k.to_string()),
+        // The reference stores the angle in this slot; this port's field is a
+        // `bool`, so it carries presence only and `GenOpts::ore_bearing` carries
+        // the angle. See this module's header.
+        ore_bearing: ore_bearing.is_some(),
     });
     UrbanContext {
         seed,
@@ -1636,6 +1747,9 @@ pub fn um_place_context(w: &UrbanWorld, s: &NamedSettlement, ways: &[Way]) -> Ur
         wall_style,
         walls: wall_style != "none",
         harbour_scale: um_harbour_scale(pop, site_kind),
+        fortified: o.fortified_trait,
+        economy,
+        ore_bearing,
         water,
         terrain,
         route_ends: um_route_ends(ways, px, py, w.gw, SITE_WM, SITE_HM, orient),
@@ -1837,9 +1951,11 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         // `_umWallSpec`'s verdict, not a constant. `generate()` tests
         // `!== false`, so this must be an explicit `Some`.
         walls: Some(ctx.walls),
-        // `!!(p.traits&&p.traits.includes('fortified'))` — no traits in this
-        // port, so no bastioned trace. See the module header.
-        fortified: false,
+        // `!!(p.traits&&p.traits.includes('fortified'))` — the ctx's answer,
+        // which is `PlaceOverrides::fortified_trait`. `false` unless a caller
+        // supplies the trait, and then no bastioned trace: `generate()` gates
+        // `apply_star_fort` on this.
+        fortified: ctx.fortified,
         wall_style: Some(ctx.wall_style.to_string()),
         // Neither is a `_umPlaceContext` field; `generate()` reads
         // `profile.defaultFaith` / `profile.defaultCivic` for a falsy value.
@@ -1849,12 +1965,15 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         harbour_scale: Some(ctx.harbour_scale),
         water: ctx.water.as_ref().map(|w| w.ctx.clone()),
         terrain: ctx.terrain.clone(),
-        // `economy` is `null` whenever `p.specialisation` is absent (line
-        // 22658), and this port's settlements carry none — so the reference's
-        // own no-specialisation path, and `oreBearing` with it, which it
-        // computes only for `specialisation === 'mining'`.
-        economy: None,
-        ore_bearing: None,
+        // `economy` is `null` whenever `p.specialisation` is absent or
+        // `'none'`, which takes the reference's own no-specialisation path
+        // through `assign_districts` — and `ore_bearing` with it, which the
+        // reference computes only for `specialisation === 'mining'`. Both are
+        // [`um_place_context_with`]'s answer, so a caller that supplies no
+        // [`PlaceOverrides`] gets exactly the pair that was hardcoded here
+        // until 2026-09-03.
+        economy: ctx.economy.clone(),
+        ore_bearing: ctx.ore_bearing,
         route_ends: ctx.route_ends.clone().unwrap_or_default(),
         primary_paths: ctx.primary_paths.clone().unwrap_or_default(),
     };
@@ -1937,13 +2056,26 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
     })
 }
 
-/// [`um_place_context`] then [`run_layout`] — the one call a caller needs.
+/// [`um_place_context`] then [`run_layout`] — the one call a caller needs,
+/// with no place-editor overrides.
 pub fn settlement_layout(
     w: &UrbanWorld,
     s: &NamedSettlement,
     ways: &[Way],
 ) -> Option<UrbanLayout> {
-    run_layout(&um_place_context(w, s, ways))
+    settlement_layout_with(w, s, ways, &PlaceOverrides::default())
+}
+
+/// [`um_place_context_with`] then [`run_layout`] — the one call a caller with
+/// place-editor overrides needs. See [`PlaceOverrides`] for where those live in
+/// `cartalith-godot` and what each one reaches.
+pub fn settlement_layout_with(
+    w: &UrbanWorld,
+    s: &NamedSettlement,
+    ways: &[Way],
+    o: &PlaceOverrides,
+) -> Option<UrbanLayout> {
+    run_layout(&um_place_context_with(w, s, ways, o))
 }
 
 #[cfg(test)]

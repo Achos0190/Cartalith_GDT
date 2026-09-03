@@ -566,10 +566,28 @@ func _build_urban(details: Dictionary) -> void:
 		0 if walls < 0 else (1 if walls == 0 else 2),
 		func(i: int): _apply({"walls": (-1 if i == 0 else (0 if i == 1 else 1))}),
 		"The reference's own checkbox cannot return to Auto once clicked (native checkboxes have no third state); this picker can.")
+	## **Corrected 2026-09-03.** This note used to give the reason as
+	## "_umInferAge/_umWallSpec ... which milestones 8-17 have not ported". Both
+	## are ported -- `cartalith_civ::urban_adapter::um_infer_age` and
+	## `cartalith_civ::military::um_wall_spec`, the latter reading
+	## `walls_override` and `age_override` at its first two branches. The
+	## conclusion held and the reason did not. Re-cut 2026-09-03: the reason
+	## given here was itself falsified in the same batch that wrote it --
+	## `urban_adapter`'s `WallPlace` now reads both off a `PlaceOverrides`
+	## struct. The one remaining gap is delivery at a single call site,
+	## `urban_bridge.rs`, which still calls `settlement_layout()` (supplying
+	## `PlaceOverrides::default()`) rather than `settlement_layout_with()`.
 	DccWidgets.note(sec,
-		"Both overrides are stored and neither is consumed: their only readers are "
-		+ "_umInferAge/_umWallSpec in the urban-morphology layer, which milestones 8-17 have "
-		+ "not ported (URBAN_MORPHOLOGY_SCOPE.md). Recorded honestly rather than hidden.")
+		"Both overrides are stored and neither reaches the layout yet -- but every "
+		+ "piece below them is now built. cartalith-civ's um_infer_age and "
+		+ "um_wall_spec are live, um_wall_spec branches on walls_override and "
+		+ "age_override before anything else, and the adapter's WallPlace reads "
+		+ "them straight off a PlaceOverrides struct (urban_adapter.rs) rather "
+		+ "than hardcoding None. What is missing is one call site: "
+		+ "urban_bridge.rs still calls settlement_layout(), the entry point that "
+		+ "supplies PlaceOverrides::default(), instead of the _with() variant "
+		+ "that would carry this editor's values. Recorded honestly rather than "
+		+ "hidden.")
 
 
 # -- History ----------------------------------------------------------------

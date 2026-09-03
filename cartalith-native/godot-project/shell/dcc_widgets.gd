@@ -329,6 +329,17 @@ static func _row(parent: Control, label_text: String, tooltip: String) -> HBoxCo
 	var l := DccTheme.label(label_text, "text_secondary", label_fs)
 	l.custom_minimum_size.x = ROW_LABEL_W
 	l.clip_text = true
+	## GUI_GAP_REGISTER.md phone residue: "World data ▸ Economy rows end
+	## `…silver, clay, buildst` -- a hard cut at the panel edge with no
+	## affordance." This is that row's own builder -- the single most
+	## repeated thing in the shell, per this function's own header, so every
+	## caller inherits the fix from here rather than each patching its own
+	## copy. `dcc_shell.gd::phone_fit()`'s generalised Label pass does not
+	## reach this one: it only trims a `Label` sized by `SIZE_EXPAND`, and
+	## this one is sized by the fixed `ROW_LABEL_W` above instead -- the same
+	## shape `right_dock.gd` and this file's own `_project_picker` header
+	## already fix with this exact pair of properties.
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(l)
 	parent.add_child(row)
 	return row

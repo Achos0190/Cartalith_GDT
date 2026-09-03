@@ -166,11 +166,19 @@ func _init() -> void:
 	var tiny: Array = ov._faith_lines({"population": 900, "religion": "none",
 		"adherents": {"none": 898, "old_gods": 2}})
 	print("  a two-person congregation: ", tiny)
+	## Concatenation, not `%` formatting. These messages are *about* percentages,
+	## so they carry literal `%` characters, and `"… never `0%` (got '%s')" % x`
+	## makes GDScript read `%\`` as a format specifier and throw at runtime —
+	## which it did, printing `(got '%s')` unformatted and emitting a
+	## `validated_evaluate` script error while the assertion itself still
+	## evaluated correctly. A probe whose failure message crashes is a probe that
+	## cannot report the failure it exists to catch.
 	_chk(String(tiny[1]).contains("<1%"),
-		"a congregation too small to round is `<1%`, never `0%` (got '%s')" % String(tiny[1]))
+		"a congregation too small to round is `<1%`, never `0%` (got '"
+			+ String(tiny[1]) + "')")
 	_chk(String(tiny[0]).contains(">99%"),
-		"and the majority beside it is `>99%%`, so the card cannot say 100%% and `also ...` "
-			+ "in the same breath (got '%s')" % String(tiny[0]))
+		"and the majority beside it is `>99%`, so the card cannot say 100% and "
+			+ "`also ...` in the same breath (got '" + String(tiny[0]) + "')")
 	_chk(CIVWS._religion_pct(9999, 10000) == ">99.9%",
 		"the panel carries the same top-end guard (got '%s')"
 			% CIVWS._religion_pct(9999, 10000))

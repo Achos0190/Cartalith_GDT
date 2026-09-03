@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**103 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-03 (sixteenth pass)**, after an earlier pass left four
+**100 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-03 (twenty-first pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,181 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-03, eighteenth batch — 101 → 100.** **Urban morphology is finished.**
+Milestones 16 and 17 both closed, and **neither was open**: 16 shipped in
+`cff1edc` a day before the row said it "remains … blocked by definition", and
+17's stated blocker — "settlements carry no `specialisation` and no `traits`" —
+was falsified **six minutes after it was written** and stood for eleven days. One
+genuine gap surfaced and is filed in §2.1 (`settlement_layout` vs `_with`).
+Lane C corrected nine false shell claims. `cargo test --workspace` **3 010 →
+3 015**, 0 failed.
+
+*The main loop got this batch's premise wrong and the lane caught it.* The brief
+asserted "crates/cartalith-urban has no `tests/` directory at all, so the
+whole-subsystem golden genuinely does not exist" — the premise was true and the
+inference false: this crate puts fixtures at `src/<module>/tests/golden.rs` by
+convention, and the milestone-16 golden is 3 139 lines of it. **Absence of a
+directory is not absence of a test.** The lane re-derived the golden from the
+frozen reference anyway and proved it byte-identical, which is why the wrong
+premise cost nothing.
+
+**2026-09-03, seventeenth batch — 103 → 101.** Three §2.5 rendering rows closed
+(geology microtexture / dune ripples; sky-view-factor and cast-shadow; SDF coast,
+river and biome tinting), one new small row filed for the leg that is genuinely
+unbuilt (the vector river overlay). `cargo test --workspace` **2 992 → 3 010**,
+0 failed, 25 ignored; byte-identical at the default, no golden re-baseline.
+
+*This batch is the clearest evidence yet for the preflight table's first row.
+**Two of the three closed rows named a blocker that was false, and the renderer's
+own module doc was the source of it** — each row cited `render.rs`'s "deliberately
+excludes" list as evidence, in the file that had already implemented them. A third
+lane re-opened six audit rows at their symbols and found all six still open, which
+is the same discipline returning the opposite answer: re-opening is not a formality
+that always closes something.*
+
+*The audit lane also found **three new false claims of the most expensive kind** —
+prose asserting a whole Rust module does not exist. `world_workspace.gd:159` said
+Köppen classification is "not ported" (`cartalith-climate/src/koppen.rs` is
+golden-tested and drives a live layer); `performance_window.gd:140` said no
+per-device GPU enumeration exists (`multi.rs:378`); `civilization_workspace.gd:5405`
+said cartalith-civ has no faction relation (`relations.rs` exists to create that
+edge, and a surface 330 lines above the note already draws it). `git log -S` dates
+all three as false for **fourteen to sixteen days**. They sit in panels that
+otherwise work, so no disabled-control sweep reaches them — see MISTAKES.md.*
+
+*Two of this document's own prior claims were retracted by the same lane: a
+"CORRECTION" that asserted the opposite of the source comment whose line range it
+cited, and a provenance exoneration refuted by `git log -S` on the same note.*
+
+**2026-09-03, sixteenth batch — held at 103.** PH-15, the navpad hover tint and
+the label-clipping residue all closed; PH-16 closed **in the state the panel
+owns** and re-filed for the state it does not; two rows added.
+
+*The lane's most valuable move was one nobody asked for: **it added a control
+state.** The register had measured exactly one — planner open, no world — and read
+the result as this panel's defect. Measured against planner *closed*, opening the
+planner **removes 447 blank rows** (1 494 → 1 047). So most of that band is the
+app with no world loaded, and filling it would have been decoration over a world
+that does not exist. A number with nothing to compare against cannot say whose
+defect it is.*
+
+*The band the panel does own was real: `_RouteMapView._draw()` returned at
+`pts.size() < 2` while `map_texture` already held the world render, and the
+comment beside it asserted there was no texture to show — both halves false.
+With a world and no route, **253 rows → 98**.*
+
+*A defect the register never caught: `_route_map_wrap` laid out **1 437 px wide
+on a 1 080 px screen**, because a `ScrollContainer` with an axis DISABLED folds
+its child's minimum size into its own and the overflow propagates past
+`PRESET_FULL_RECT` with no scrollbar to reveal it. Now 1 080.*
+
+*And a self-inflicted regression it caught by re-measuring rather than assuming:
+`clip_text` plus ellipsis collapses a Label's minimum width to **1**, so beside a
+`SIZE_EXPAND_FILL` sibling the text vanished — removing a real line of text and
+**raising** the blank-row count 1 047 → 1 072. Both are new `MISTAKES.md` rows.*
+
+*The baseline itself had to be rebuilt first: the previous run's `blank_rows=0`
+was 0 by construction, because this machine boots `mode="light"`. The probe now
+forces dark **and refuses to run otherwise** — the mechanism the verification
+brief demanded without supplying.*
+
+**2026-09-03, fifteenth batch — 104 → 103.** The right dock now **appends** as the
+owner ruled, and the unavailable-command row is re-cut against a measurement
+rather than a memory.
+
+*The dock lane's own probe went red on its first run and found a bug the fix
+created: **the Paint section outlived its own tool**, because nothing called
+`leave_paint_context()` when another tool armed inside WORLD — harmless while the
+dock was a whole-panel takeover, a stale panel under a live selection once it
+appends. It also caught the second-order hazard, that `armed_tool` survives a
+domain switch, and gated Paint on WORLD for the reason the old code had.*
+
+*The sharpest finding is about a **test**, not the code: `_rightdock5_probe.gd`
+was green while pinning the design the ruling rejects — six checks asserted
+`_context == "paint"` and friends, and a seventh was literally
+`_check("...", true, ...)`, an unconditional pass. A probe can enforce the wrong
+design as confidently as the right one.*
+
+*Menu commands: the row claimed **21 unavailable of 356**; the probe measures
+**374 total, 15 unavailable**. Two of the sixteen reasons were false — one a
+description of what the command does, standing where its justification should be,
+and `command_index.gd` reads exactly that field as the reason.*
+
+*Both agent failures this batch were **infrastructure** — a `server_error` and a
+`529 Overloaded` — not code. The phone lane was relaunched on a stronger model
+and resumes rather than restarts; its predecessor's output was parse-clean and
+test-green in the tree.*
+
+*Four defects in the verification brief, one of them serious: it demanded a
+dark-theme pixel count while naming **no mechanism for getting dark**, and this
+machine boots light — reproducing, inside a brief that cites the rule, the exact
+trap that rule exists to prevent. `MISTAKES.md` carries it as **citing a rule in
+a brief is not satisfying it**.*
+
+**2026-09-03, fourteenth batch — 103 → 104, and the verification was the batch's
+real output.** Shell stages 5 and 6 landed what the design supplies; the count
+went **up** because measuring properly turned two "done" claims into open rows.
+
+*Stage 5's lane behaved well where it mattered: it **declined** `mapCursor`,
+`layersBtnBg/Col` and the tool-options bar because §0 lists those bindings as
+absent from the delivered prototype, and confirmed `statusMid` prints no invented
+number. All 19 of §0's missing bindings were found in the re-export.*
+
+*Five refutations, four fixed here. **The right dock replaces rather than
+appends** — measured in a booted app, `settlement name SURVIVED=false` on arming
+a tool — which is the naive merge the owner's ruling explicitly rejects, and a
+lane had signed it off as satisfied. Now its own row. **The scale bar lost AA**:
+`_chrome()` moved it from `text_faint` to `text_dim` while giving it no scrim, so
+its background is the map — 3.14:1 over a white map on dark, 4.11:1 over a black
+map on light, both from above the line to below it. The nine ratios the lane did
+compute were all correct and none of them was this pair. **`vpContext` appended
+`EDITED`/`RESOLVED` to every domain** where `ENV:1889` gives the verdict to WORLD
+alone. And a **false rationale had shipped into source**: "leaving the map live
+… buys back the one thing turning it off broke" — flipping that flag changes 0
+of 288 000 pixels, because the panel is the opaque cover.*
+
+*PH-16's own "blank_rows=0" proof was **0 by construction**: the probe borrowed
+the register's dark-theme `>23` threshold and ran it on a light capture where
+every background pixel is 251. Re-run in dark: **1 069 of 2 400 rows** blank
+against the register's original 1 434 — reduced, not gone. The row now carries
+that number.*
+
+*The verifier found **three defects in the verification brief**, all correct —
+including `git diff 0bba2f9 HEAD` where `0bba2f9` **is** HEAD, written while
+anticipating the previous batch's version of the same error. That makes four
+unfalsifiable checks shipped in briefs; `MISTAKES.md` now carries the rule as
+**ask what result would refute the claim, then check the instruction can produce
+it**, plus three new preflight rows the verifier proposed.*
+
+**2026-09-03, thirteenth batch — shell stages 3 and 7, and the religion screens.**
+Stage 3 (menus) came back **already done**: all 29 `PopupMenu.new()` sites route
+through `DccWidgets.style_popup()`, which reads the tokens, so stage 1's re-base
+*was* the restyle — zero edits, `_cmdindex_probe` PASS at 374 entries unchanged.
+Stage 7 restyled the nine windows, and the religion screens shipped over the
+belief engine that landed the same day.
+
+*The stage-7 lane found **four defects the 2026-08-31 token re-base had caused
+and nothing had checked**: an asset-library checkerboard whose contrast fell from
+(7,8,8) to (2,3,4) — in the exact pair a comment two lines above recommended — a
+trait-chip hover that became a darkening where it had been a lift, a drag preview
+invisible on light because `raised` and `panel` had become byte-identical, and a
+verdict green left as a raw literal at **1.96:1** on the light panel. A re-base is
+verified against its sources; the properties that matter are the differences
+between values, and no test covers those. New `MISTAKES.md` entry.*
+
+*It also found the plan's own numbers disagree: §2's "nine windows" and
+`STATUS.md` RP-S7's nine are **not the same nine**. RP-S7's list was used.*
+
+*The verifier found three defects in **the verification brief itself**, all
+correct. Its `project.godot` check stopped being evidence the moment the main
+loop committed mid-verification — a clean tree makes `git diff` empty for every
+file — re-checked properly as `git diff 8382744 HEAD` (unchanged, 75 comment
+lines intact). Its probe-guard check could not discriminate, because another
+lane's `menus.gd` rewiring landed before the baseline was taken. And its "count
+settlements shown a default religion" is always 0 by construction, since
+`religion` and `adherents` are emitted together for every settlement. Two are
+now `MISTAKES.md` preflight rows.*
 
 **2026-09-03, twelfth batch — headline holds at 103.** The layer-stack UI closed
 (section 7's row list in CARTO, RD-10's right-dock Layers section **appended**
@@ -452,7 +627,7 @@ Four caveats on that number, stated rather than buried:
    reference lines; "delete three probe files" is also one row. Sizes are on
    every row for this reason. The **85** rows that carry a size (everything
    except §4's 18 decisions — and 103 − 18 = 85, so the split is checkable
-   against the headline) divide **20 large, 43 medium, 22 small**, re-derived
+   against the headline) divide **20 large, 41 medium, 24 small**, re-derived
    2026-09-02 by the same script that counts the rows. *This caveat has now been
    overstated twice: it read "142 rows, 42/56/44" until 2026-09-01 and "134 rows,
    40/54/40" until today, both times because the sizes were counted by hand
@@ -481,15 +656,22 @@ Four caveats on that number, stated rather than buried:
 
 If you stop reading here:
 
-1. **Urban morphology milestone 16** — and only 16, as of 2026-09-02. Milestones
-   8-15 shipped in `4ec07f5` (6 077 lines of module source, 7 251 test lines);
-   the three `_um*` adapters (`_umHarbourScale`, `_umSiteProfile`,
-   `_umOreBearing`) and their downstream wiring landed in `cff1edc`; and the
-   **block-2 capture harness this entry named as remaining is built and its
-   fixtures are golden-verified** (§2.1, which closed the row as *wrong* rather
-   than stale, and found two real port bugs doing it). What remains is milestone
-   16 alone — `generate()` orchestration + `hashModel` — which is blocked by
-   definition on the stages it hashes and therefore sits in §3.2, not §2.
+1. ~~**Urban morphology milestone 16**~~ — **closed 2026-09-03. Urban morphology
+   has nothing outstanding.** Milestones 8-15 shipped in `4ec07f5`; the three
+   `_um*` adapters and their wiring landed in `cff1edc`; and **milestone 16
+   itself shipped in `cff1edc` too** — `generate.rs`, `generate/tests.rs`,
+   `generate/tests/golden.rs` and `tools/um_capture.js` all enter the tree in
+   that commit (`git log --diff-filter=A`). This entry claimed 16 "remains …
+   blocked by definition" for a day after it had already shipped. The golden was
+   independently re-derived: `node tools/um_capture.js` reproduces
+   `generate/tests/golden.rs` **byte-identically** (md5
+   `cf6487380773a5e13c1fdf2c5d54ff94`, 29 cases) from the frozen reference, and
+   12 of the 13 stage modules are proven mutation-covered by
+   `whole_subsystem_matches_reference`. **Measured limit, not a defect:**
+   `hash_model` hashes five loops (edges, nodes, blocks, parcels, buildings) and
+   none is an amenity, so amenity *placement* is covered by count and presence
+   but not position — `MARGIN 25.0 → 200.0` survives. `rules.rs` is the one
+   stage module with no mutation coverage.
 2. **The GUI/shell replacement, stages 3, 5, 6 and 7** — `00-REPLACEMENT-PLAN.md`
    still opens with a truncated-prototype blocker that was resolved the same
    day (`BUILD_ANSWERS.md` §1). Stages 1, 2 and (as of 2026-09-01, second
@@ -569,12 +751,16 @@ groups are ordered by how much of the remaining project they represent.
 
 ### 2.1 Urban morphology — what remains
 
-Phase 5. Milestones 8-15 are **built and committed** in `4ec07f5`. Milestone 16
-(`generate()` + `hashModel`) is the only remaining milestone, and it is **not in
-this section** — it is blocked by definition and sits in §3.2.
+Phase 5. Milestones 8-15 are **built and committed** in `4ec07f5`; **milestone 16
+shipped in `cff1edc`** and milestone 17's five `_um*` are all built and golden-
+covered (both verified 2026-09-03, batch 18 — see §3.2's closure note). **Every
+urban milestone is now built.** One delivery gap remains, filed here:
 
-**This section is empty as of 2026-09-02, and the row it held closed as *wrong*
-rather than merely stale.** The 17a caveat — golden-verify the block-2 `_um*`
+| Item | Owns it | Size | Next step |
+|---|---|---|---|
+| Per-settlement wall/age overrides never reach the layout | `URBAN_MORPHOLOGY_SCOPE.md` 17 | small | `urban_bridge.rs:407` calls `urban_adapter::settlement_layout()`, the entry point that supplies `PlaceOverrides::default()`, rather than `settlement_layout_with()`. The editor stores `walls_override`/`age_override`, `um_wall_spec` branches on them first, and `WallPlace` now reads them off `PlaceOverrides` — only the call site is unchanged. Its `place_extras` construction already exists ~100 lines above |
+
+**The section's earlier row closed as *wrong* rather than merely stale.** The 17a caveat — golden-verify the block-2 `_um*`
 adapter — recorded its blocker as *"needs a block-2 capture harness that can run
 `_um*` inside the host's full civ scope; the existing harness slices block 4
 only"*. That premise is disproved by a running counter-example:
@@ -670,11 +856,19 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 |---|---|---|---|
 | The stage-by-stage `WorldParams`-field audit against every stage-01…11 slider | `GUI_FEATURE_PARITY_SCOPE.md` | large | The document's own closing "honest size statement": the Generate pipeline's ~60-80 individual stage sliders, "none of which are individually scoped anywhere yet". No such audit document exists |
 | §20 — the high-precision display pipeline | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render.rs` still composites into a `u8` RGB buffer (`apply_local_contrast(… rgb: &mut [u8] …)`, `:3646`) |
-| Geology microtexture / dune ripples | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | On `render.rs`'s own "deliberately excludes" list (`:16`) |
-| Sky-view-factor and cast-shadow fields, and their toggles | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | `render.rs:17`. AO itself has shipped, so the summary row overstates the gap |
-| SDF coast/river/biome tinting and the vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | `render.rs:17-21` — depends on subsystems the renderer's own doc says are not built |
+| The vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | The one leg of the old SDF row still genuinely unbuilt: `map_overlay.gd` has no `drawRiverWays` equivalent (`grep -n river map_overlay.gd` returns only settlement-badge prose and the new faith lines) |
 | GeoJSON **import** | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | Export shipped 2026-08-24; import was explicitly out of scope then |
 | Slippy-map tile addressing (XYZ/TMS/WMTS, a zoom ladder, retina variants) | `FUNCTIONAL_CONTRACT.md` cap. 6/9 | medium | Tile *export* exists; addressing is the remainder |
+
+**Closed from this table 2026-09-03** (batch 17, verified): *Geology microtexture /
+dune ripples* and *Sky-view-factor and cast-shadow fields* — `tests/geology_micro_and_sky_fields.rs`,
+8 tests; *SDF coast tinting, river bands and biome blend* — `tests/sdf_river_and_biome.rs`,
+10 tests, wired into all three `with_appearance` consumers (`lib.rs:6561`, `:8045`,
+`export_raster.rs:100`). Byte-identical at the default: `color_space.rs`'s
+`FINISHED_RENDER_FNV1A = 0x6154_1058_49e7_10d6` is unmodified and still passes, so
+no golden re-baseline was taken. **Two of the three named a blocker that was false**
+— `render.rs`'s own "deliberately excludes" list was each row's cited evidence, and
+it described the file that had already implemented them.
 
 ### 2.6 GPU, threading and memory
 
@@ -705,9 +899,9 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | Six features never driven on device since the 2026-08-24 USB disconnect — paint visibility, save/undo, the debug views, GeoJSON export, hand-drawn ways, civ-recompute | `ANDROID_BUILD_SCOPE.md` | medium | Recorded as *unverified on device*, not as verified. The 2026-08-25 pass drove a different list and did not pick these up |
-| **PH-16** — the Journey Planner takes the whole phone screen, and the map is hidden | medium | **Half fixed 2026-09-03; the row stays open on its second half.** The geometry cause is found and closed: `journey_planner_view.gd` pre-scaled six `custom_minimum_size.y` values by `phone_scale()` itself *and* then let the shared `dcc_shell.gd::phone_fit()` walk multiply the same subtree again, so every pre-scaled row rendered at **`phone_scale()`²** — 236 dp arriving as ~1 623 px instead of ~619 on the §50 handset. **What a verifier measured as still true**: the centre panel still reports `(1080, 2400)`, a full-screen takeover, and `_show()` still sets `app.viewport.visible = false`, so the map is not merely covered — it is switched off. The register's complaint is a *pixel* one ("not one pixel exceeds RGB(23,23,23)") and the fix so far is geometric only. **Note for whoever takes it: 393×852 cannot measure this** — `phone_scale()` is exactly 1.0 at that size, so the defect is arithmetically invisible; use 1080×2400 |
+| The phone shell with **no world open** scans 1 494 of 2 400 rows blank | medium | **Re-filed 2026-09-03 from PH-16, which attributed it to the wrong surface.** The register measured one state — planner open, no world — and read the result as the Journey Planner's. With a control state added, opening the planner **removes 447 blank rows**: closed 1 494, open 1 047. So the band belongs to the app with no world loaded, not to this panel, and there is nothing honest to draw into a world that does not exist. Whatever the empty shell should show is a design question `06-phone.md` does not answer |
+| The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
 | The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
-| **PH-15** and the phone residue — scroll flick activates the row it starts on; label clipping without ellipsis; DS-12 prints the class twice; a stuck hover pill; a stock-Godot focused tab | `STATUS.md` | medium | The Memory row under-reporting, listed with these, has since been fixed |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |
 | Prove `push_warning` reaches Android's `logcat` (a positive control) | `ANDROID_BUILD_SCOPE.md` | small | Owed by two consecutive passes; the second explicitly declined it, noting the alternative "rests on an argument, not a measurement" |
 | The left-panel sheet retains its scroll offset across close/reopen and will not scroll back up | `ANDROID_BUILD_SCOPE.md` | small | Six swipe attempts at three x positions failed. Not investigated |
@@ -722,7 +916,7 @@ measurement.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| **21 menu commands still unavailable**, each carrying a stated reason | `STATUS.md` | medium | 356 total entries, 21 unavailable (was 245 / 24) |
+| **15 menu commands unavailable**, each carrying a true reason | `STATUS.md` | small | **Re-cut 2026-09-03, and the previous figures were wrong in both halves** — this row claimed *21 unavailable of 356 total*; the probe measures **374 total, 15 unavailable, 15 of 15 with a reason**. All 16 were opened at their symbols and **two were false**: `Clear atlas cache now` kept a build-time sentence describing what the command *does* while disabled, and `command_index.gd` reads a disabled row's tooltip as its stated reason — so the searchable index carried a description masquerading as a justification; and `No GPU detected` was minted with raw `add_item` + `set_item_disabled`, bypassing the `_todo`/`_readout`/`_signpost` vocabulary and defaulting to `_todo` when it is an empty-list placeholder. Both fixed, taking 16 → 15. The remaining 15 are genuinely blocked — mostly on the absent 3D viewport, the clipboard step of Cut/Copy/Paste, and stage groups that expose no parameters |
 | Copy in the two upstream owner notes the research briefs cross-reference (`Gravity influence.md`, `Weather Model.md`) | `PROVENANCE.md` | small | They live only in the upstream `Cartalith_RC` / `Cartalith-Gen1` repositories. The alternative the doc itself allows is keeping the paragraph so the dangling reference is a known one |
 | Five "left undetermined" questions from the unwired re-cut — light-theme inertness of the CARTO panels, the phone measure strip / label bar / way card, the 44 vs 48 dp target sweep, whether `sculpt_stroke_point` can reject an appended point, landscape composition beyond the sheet handle, and whether any `_todo` reason cites a `PARITY_AUDIT.md` section number that has moved | `UNWIRED_FUNCTIONS.md` | small | Three of the six need a handset or a light-theme capture, not a read |
 
@@ -753,10 +947,22 @@ owner answer, the question itself is in §4.
 | Item | Owns it | Size | Blocker |
 |---|---|---|---|
 | **Landmark M9** — cultural interpretation and temporal state | `LANDMARK_GENERATION_SCOPE.md` | large | `STORY_PLANNING_SCOPE.md` **SP-4**, which is not started and whose attachment model is undecided, plus open questions 1-2. **Two documents' largest remaining milestones sit behind one unasked question** |
-| Urban **milestone 16** — `generate()` orchestration + `hashModel`, the whole-subsystem golden | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Blocked by definition on milestones 8-15: `hashModel` can only be compared once every stage it hashes exists. Milestone 12 already had to dump state directly for want of it |
-| Urban **milestone 17**'s remaining five `_um*` — `_umWallSpec`, `_umInferWalls`, `_umHarbourScale`, `_umSiteProfile`, `_umOreBearing` | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Each one's only consumer is milestone 9, 10, 13 or 15. Two data gaps compound it: settlements carry no `specialisation` and no `traits`, so the honest fallbacks are `economy: null` / `fortified: false` |
 | Story planning **SP-2** — journey progression over the cursor | `STORY_PLANNING_SCOPE.md` | large | §6's regenerate-semantics question explicitly gates it: whether a journey's route polyline is invalidated, re-snapped, or kept with a staleness mark "needs a ruling before SP-2 ships". The grain question (real date vs fraction of a year) is also unresolved |
 | Story planning **SP-5** — the planning aid, joined up | `STORY_PLANNING_SCOPE.md` | medium | Deliberately last: worth nothing until at least two of SP-1…SP-4 exist. Only SP-1 is partly real |
+**Closed from this table 2026-09-03** (batch 18, verified): **milestone 16** —
+shipped in `cff1edc`, golden byte-reproducible from the frozen reference, 12 of 13
+stage modules mutation-covered. **Milestone 17's five `_um*`** — all five exist,
+all five are golden-covered, and all five survive mutation of a constant each
+(`um_wall_spec` `age >= 260.0 → 261.0` KILLED; `um_site_profile` `gw/70 → gw/71`
+KILLED). **Both rows' stated blockers were false.** Milestone 17's — "settlements
+carry no `specialisation` and no `traits`" — was falsified **six minutes after it
+was written**: `be2d5f7` 19:31:09 added the `economy: None` hardcode, `e63d5d9`
+19:37:15 added the `PlaceExtras` that supplies it, and it stood for eleven days.
+One genuine gap remains and is filed under §2.1: `urban_bridge.rs` still calls
+`settlement_layout()` (which supplies `PlaceOverrides::default()`) rather than
+`settlement_layout_with()`, so a per-settlement wall/age override is stored but
+never reaches the layout.
+
 | The **GUI_GAP_REGISTER §3** A/B/C/D open/closed split, never re-derived | `GUI_GAP_REGISTER.md` | medium | Recovering each dropped class letter is "a judgment per row, not arithmetic" — declined by three consecutive audit passes. The register cannot currently say how many of its 300 IDs are open. `UNWIRED_FUNCTIONS.md` is the live successor; read the register as history |
 
 ### 3.3 Blocked on hardware, or on a design that does not exist

@@ -101,6 +101,13 @@ impl WorldGen {
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
         }
+        // **The same map scale the on-screen path attaches**
+        // (`lib.rs::build_color_texture`), and for the same reason the ground
+        // tiles below record: the B3/B4 SDF legs are built from it, and a
+        // capability wired to one consumer path and not the other is this
+        // file's own documented failure. Inert unless `sdf_rivers` or
+        // `sdf_biomes` is up, so no export moves at the default.
+        ctx = ctx.with_map_scale(self.map_width_km);
         if let Some(loaded) = self.asset_pack.as_ref() {
             ctx = ctx.with_splat(SplatTextures {
                 grass: loaded.splat.get("grass"),

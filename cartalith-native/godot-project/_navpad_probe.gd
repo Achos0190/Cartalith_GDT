@@ -128,6 +128,56 @@ func _ready() -> void:
 		" vp_class=", vp.get_viewport().get_class(),
 		" root_class=", get_viewport().get_class())
 
+	# --- The stuck-hover tint (GUI_GAP_REGISTER.md §50 phone residue) --------
+	#
+	# "The navpad's first pill keeps a hover tint after a tap. Measured
+	# (58, 60, 61) against (18, 19, 20) on the other three, persisting
+	# indefinitely." There is no `NOTIFICATION_MOUSE_EXIT` on a touchscreen, so
+	# `BaseButton.status.hovering` latches true and `_get_draw_mode()` keeps
+	# answering `DRAW_HOVER` (or `DRAW_HOVER_PRESSED` on the one toggle pill)
+	# forever. The fix is that `hover` must be *indistinguishable from* `normal`
+	# -- not merely "not `down`" -- so the latch has nothing left to show.
+	#
+	# Enumerated from `Button`'s own draw modes rather than from the states the
+	# fix happened to touch (MISTAKES.md, "Add a capability ... derive the list
+	# from the definition"): NORMAL / PRESSED / HOVER / HOVER_PRESSED /
+	# DISABLED / and the `focus` overlay. `focus` and `disabled` are checked for
+	# *unreachability* instead -- every caller sets `focus_mode = FOCUS_NONE`
+	# and no pill is ever disabled -- because an override there would be dead
+	# paint, not a fix.
+	var hover_fails := 0
+	for i in btns.size():
+		var b := btns[i] as Button
+		var nrm := b.get_theme_stylebox("normal") as StyleBoxFlat
+		var hov := b.get_theme_stylebox("hover") as StyleBoxFlat
+		var prs := b.get_theme_stylebox("pressed") as StyleBoxFlat
+		var hpr := b.get_theme_stylebox("hover_pressed") as StyleBoxFlat
+		var same_bg: bool = nrm != null and hov != null and nrm.bg_color.is_equal_approx(hov.bg_color)
+		var down_differs: bool = prs != null and nrm != null and not prs.bg_color.is_equal_approx(nrm.bg_color)
+		var hpr_is_down: bool = hpr != null and prs != null and hpr.bg_color.is_equal_approx(prs.bg_color)
+		var ink_same: bool = b.get_theme_color("icon_normal_color").is_equal_approx(
+			b.get_theme_color("icon_hover_color"))
+		var reachable_focus: bool = b.focus_mode != Control.FOCUS_NONE
+		print("[hover] pill %d toggle=%s normal=%s hover=%s pressed=%s hover_pressed=%s ink_same=%s focus_reachable=%s disabled=%s" % [
+			i, b.toggle_mode, nrm.bg_color if nrm else null, hov.bg_color if hov else null,
+			prs.bg_color if prs else null, hpr.bg_color if hpr else null,
+			ink_same, reachable_focus, b.disabled])
+		if not same_bg:
+			print("  FAIL: pill %d hover fill differs from normal -- a latched hover stays visible" % i)
+			hover_fails += 1
+		if not ink_same:
+			print("  FAIL: pill %d icon_hover_color differs from icon_normal_color" % i)
+			hover_fails += 1
+		if not down_differs:
+			print("  FAIL: pill %d pressed is indistinguishable from normal -- no touch feedback at all" % i)
+			hover_fails += 1
+		if not hpr_is_down:
+			print("  FAIL: pill %d hover_pressed does not match pressed -- the toggled-on look falls through to the stock theme" % i)
+			hover_fails += 1
+		if reachable_focus or b.disabled:
+			print("  NOTE: pill %d can reach focus/disabled; those draw modes carry no override" % i)
+	print("[hover] fails=%d over %d pills" % [hover_fails, btns.size()])
+
 	# --- Pan mode ------------------------------------------------------------
 	var centre := vp.get_global_rect().position + vp.size * 0.5
 	var p0: Vector2 = vp._camera.position

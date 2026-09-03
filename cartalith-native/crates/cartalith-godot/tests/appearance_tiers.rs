@@ -68,7 +68,16 @@ fn synth() -> Synth {
 }
 
 fn ctx<'a>(s: &'a Synth, a: TerrainAppearance) -> RenderCtx<'a> {
-    RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, 0.42, false, 55.0, 5.0, a).with_lithology(&s.lith)
+    // `with_map_scale` is the app's own attachment (`lib.rs::
+    // build_color_texture`, `export_raster.rs::export_render`), and without it
+    // here the two SDF legs added 2026-09-03 would be inert in this fixture --
+    // which `every_tunable_is_load_bearing` would report as two dead sliders
+    // and `the_default_is_the_tier_quality_image` would never notice. The
+    // reference's own literal default map width, so `riverFlowThresh` gets the
+    // eases it gets in the app rather than a number chosen to make a test pass.
+    RenderCtx::with_appearance(&s.field, &s.temperature, &s.rainfall, Some(&s.flow), GW, GH, 0.42, false, 55.0, 5.0, a)
+        .with_lithology(&s.lith)
+        .with_map_scale(800.0)
 }
 
 /// The serial reference render: exactly the loop `lib.rs` ran before

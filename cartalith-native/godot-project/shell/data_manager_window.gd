@@ -472,8 +472,18 @@ func _show_phone_pane(pane: String) -> void:
 	for key in _phone_pane_buttons:
 		var b: Button = _phone_pane_buttons[key]
 		var on: bool = key == pane
-		b.add_theme_stylebox_override("normal",
-			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		## `GUI_GAP_REGISTER.md` §50: only "normal" was overridden, so a tap
+		## left this `Button` in Godot's stock "hover" state -- there is no
+		## hover to release on a touchscreen; Android leaves the emulated
+		## pointer where the finger last was (the same mechanism the navpad's
+		## first pill was found stuck in) -- and the theme's own raised grey
+		## pill drew instead of either chip state. Every style a plain Button
+		## can land in has to say the same thing "normal" does.
+		var fill: StyleBox = DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty()
+		b.add_theme_stylebox_override("normal", fill)
+		b.add_theme_stylebox_override("hover", fill)
+		b.add_theme_stylebox_override("pressed", fill)
+		b.add_theme_stylebox_override("focus", DccTheme.empty())
 		b.add_theme_color_override("font_color",
 			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
 

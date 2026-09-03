@@ -34,7 +34,22 @@ its rule before you start.
 | **Mutation-test** | Python only: exact literal replace, occurs-exactly-once assertion, BUILD_ERROR classified separately from SURVIVED, **restore in a `finally`**. Never `sed`. Never a whole-file backup | Grep zero MUTANT residue; hash the file against its pre-run value |
 | **Call a shell helper** | Grep for `func <name>` first. In `menus.gd` the vocabulary is `_todo` / `_readout` / `_signpost` / `_live`, and the wrong one has consequences | `godot --headless --check-only` on the file |
 | **Change generated output** | Divergence ships `false` in `cartalith_engine::WorldParams::defaults()`, `true` in `cartalith_godot::params::defaults()`; new params need `PARAMS` + `JS_PATHS` rows. **A golden re-baseline needs an owner ruling** | Hash the same render before and after; identity by control flow beats identity by arithmetic |
-| **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own | Re-read each prompt for a foreign lane's heading |
+| **Re-base a shared token / constant set** | Every *relationship* built on the old values is now unverified — a comment recommending a pair, a hover that was a lift, a contrast that passed. Re-check the pairs, not just the values | Compute the deltas and contrast ratios again; a re-base moves them silently and no test sees it |
+| **Commit while a verifier is running** | Don't. A clean tree makes `git diff` empty for **everything**, so every "the diff is empty" check silently stops being evidence | If you must, verify with `git diff <base> HEAD -- <path>`, never a working-tree diff |
+| **Write a Workflow script** | **Escape every backtick inside the template literal**, including ones in prose like `(1080, 2400)`. An unescaped pair terminates the literal and JS then calls the preceding string as a tagged template — `"..." is not a function` | `node --check <script>` before dispatching. Two dispatches lost to this |
+| **Read a probe failure while other lanes are running** | A concurrent lane's in-progress save to a shared `.gd` can produce a spurious *"Function X not found"* pointing at a call site whose definition is a few lines below. **Re-run once** before concluding the code broke | The same re-run discipline as a stale binary: a failure that does not reproduce was not a failure |
+| **Assert on pixels** | A threshold is **palette-bound**, and naming the palette in prose does not select it — the harness must **force** it and refuse to run otherwise (this machine boots light). **And measure a control state**: a number with nothing to compare against cannot tell you whose defect it is. Borrowing a dark-theme `> 23` test and running it on a light capture makes every background pixel 251 — the check cannot fail | Assert the palette the threshold was written for, or use a palette-agnostic measure (uniform-row / distinct-colour count) |
+| **Read a layout that overflows the screen** | A `ScrollContainer` with an axis **DISABLED folds its child's minimum size into its own** on that axis, so the overflow propagates to every ancestor with no scrollbar to reveal it. Three instances in this tree | Walk the tree for `get_combined_minimum_size().x` above the screen width and check which ancestor it reached |
+| **Add `clip_text` / ellipsis to a Label** | It collapses `get_minimum_size().x` to **1**. Beside a `SIZE_EXPAND_FILL` sibling the label then vanishes entirely | Confirm the text still renders. Measured once by *removing* a line of real text and watching the blank-row count **rise** |
+| **Claim something covered is now visible** | Reasoning from the scene graph proves nothing under an opaque overlay. **Flip the flag and diff the framebuffer** | A change that moves 0 pixels is inert, whatever the node tree says — and do not write the rationale into a comment before running that test |
+| **Change a widget's ink** | The contrast pair's *second* term is whatever is behind it. If one call restyles several widgets and only some get a background, the un-backed one is a **separate relationship** | Compute its pair too. Nine correct ratios for the scrimmed siblings say nothing about the one without a scrim |
+| **Grade a Godot probe as evidence for a Rust change** | `cargo test` does **not** rebuild `target/debug/cartalith_godot.dll`, and every `.tscn` probe loads it. A probe run after a `.rs` edit and before `cargo build` tests the *previous* engine — the Godot half of the stale-binary rule | Compare the `.dll` mtime against the touched `.rs` mtime and **state both numbers**. Measured once at 11:35 vs 18:42 — a whole batch of probes proved nothing about that batch's Rust |
+| **Cite a test file in a doc comment** | A `pub(crate)` justified by a named test is a load-bearing dependency on that name. `render.rs` cited `tests/geology_micro_and_sky_fields.rs` twice, once as the visibility rationale; the file did not exist | `ls` every test path named in a doc comment in the file you touched |
+| **Write an oracle for a ported function** | The reference's *errors* are part of the contract. A brute-force exact Euclidean transform failed a correct jump-flood port, because the reference jump-flood is exact from one seed and approximate beyond it | Assert the reference's behaviour including its approximations, not the mathematically ideal answer |
+| **Re-resolve a citation late in a long pass** | A line number checked at the start can be stale by the end. Measured this session: **148 and 241 lines** of drift in files other lanes were editing; untouched files held exactly | Grep the quoted string. Never jump to the line |
+| **Conclude a thing does not exist from a directory listing** | Absence of a path is not absence of the thing. `crates/cartalith-urban` has no `tests/` directory because the crate puts fixtures at `src/<module>/tests/golden.rs` — the milestone-16 golden was 3 139 lines of it, and a brief scheduled it as unbuilt work | Grep for the **symbol or its content**, never for the conventional location. `grep -rn golden crates/<crate>/src`, or grep the symbol, before concluding |
+| **Write prose about another lane's subsystem in the same batch** | Two lanes ran concurrently: one removed a hardcode, the other shipped a note explaining that the hardcode was why a control was inert. The note was true at dispatch and **false on arrival** — and it reads as freshly checked | State the other lane's file as *of this batch*, or re-verify at the symbol after the batch lands. A cross-lane claim has a shelf life of one wave |
+| **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
 
@@ -77,7 +92,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×6
+### [2026-09-03] Leaving prose that describes the old behaviour ×15
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had
@@ -86,12 +101,45 @@ naming three deleted probes as "present and uncalled"; a `_todo` false in every
 clause; two chips citing capabilities built hours earlier; a panel formula
 inverted against its own engine, agreeing only at the default.
 
+**Seven more, batch 17:** `world_workspace.gd:159` "Seasons and Köppen-Geiger
+classification are not ported" (`cartalith-climate/src/koppen.rs` is golden-tested
+and drives a live layer); `performance_window.gd:140` "no per-device enumeration
+exists in cartalith-gpu" (`enumerate_devices`, `multi.rs:378`);
+`civilization_workspace.gd:5405` "cartalith-civ has no such relation to record"
+(`relations.rs` exists to create that edge, and three surfaces already draw it —
+one 330 lines above the note in the same file); `FUNCTIONAL_CONTRACT.md:627` and
+`:583`; `STATUS.md` RD-0 and RD-1.
+
 **Root cause:** Behaviour and the prose describing it live apart; one gets edited.
 
-**Prevention:** A stale comment is a defect, not a nit. **A reworded reason that
-is still false is worse than the original — it looks freshly checked.**
+**A sub-shape worth naming: a stale claim that asserts a whole crate module does
+not exist.** b-7 and b-8 do not say "this control is unwired" — they say the Rust
+does not exist. `git log -S` puts both strings *before* their crates (five days,
+one day) and standing sixteen and fourteen. A per-wave diff review sees the young
+entries and neither of these, and `tools/audit_wiring.py` structurally cannot see
+any of them — fourth cut running. All three of batch 17's highest-severity finds
+sit in surfaces that otherwise work, so no disabled-control sweep reaches them.
 
-**Verification:** Grep the touched files for the old behaviour's vocabulary.
+**Root cause of the sub-shape:** the prose was true when written. Nothing re-reads
+a comment because a *different* crate landed.
+
+**Batch 18 added the shortest-lived instance yet, and a new mechanism.** Milestone
+17's backlog blocker — "settlements carry no `specialisation` and no `traits`" —
+was falsified **six minutes after it was written** (`be2d5f7` 19:31:09 added the
+hardcode, `e63d5d9` 19:37:15 added the `PlaceExtras` that supplies it) and stood
+for eleven days. And a *concurrent* instance: one lane removed a hardcode while
+another lane, in the same wave, shipped a note explaining that the hardcode was
+why a control was inert. True at dispatch, false on arrival, and worded as though
+freshly checked. The verifier caught it; nothing else would have.
+
+**Prevention:** A stale comment is a defect, not a nit. **A reworded reason that
+is still false is worse than the original — it looks freshly checked.** Re-opening
+backlog rows does not find these; the grep below does.
+
+**Verification:** Grep the touched files for the old behaviour's vocabulary. To
+sweep for the sub-shape:
+`grep -rn "cartalith[-_]" --include=*.gd shell/ | grep -iE "no |not |never |missing|absent"`
+and open every symbol named.
 
 ---
 
@@ -241,26 +289,115 @@ only change is deletions.
 
 ---
 
-### [2026-09-03] Orchestration errors that waste a wave ×4
+### [2026-09-03] A token re-base silently invalidated four relationships
 
-**Mistake:** Pasted one lane's brief into another's prompt *and* dispatched it
+**Mistake:** The 2026-08-31 token re-base changed values that other code had
+built *relationships* on, and nothing re-checked them. `--ins` moved #101112 ->
+#191c1e, which turned an asset-library checkerboard from (7,8,8) apart to
+**(2,3,4)** — invisible — in the exact pair a comment two lines above had
+recommended. A trait-chip hover became a *darkening* where it had been a lift. On
+light, `raised` and `panel` became byte-identical, so a drag preview was an
+unbordered rectangle the colour of the surface under it. And a verdict green left
+as a raw `Color(0.48, 0.78, 0.49)` sat at **1.96:1** on the light panel.
+
+**Root cause:** A re-base is verified against its *sources* — each new value is
+right — while the properties that matter are *differences between* values, which
+no test and no golden covers.
+
+**Prevention:** After changing a shared token or constant set, re-check every
+relationship expressed over it: contrast ratios, adjacent-pair deltas, and any
+comment recommending one value over another. A literal colour is worse than a
+token twice over — it cannot be remapped, and `remap()` matches a baked colour
+back to its token while matching a literal to none.
+
+**Verification:** Compute the deltas and WCAG ratios for both palettes, not one.
+A defect visible only on light, or only on dark, will not appear in a single
+capture.
+
+---
+
+### [2026-09-03] Citing a rule in a brief is not satisfying it
+
+**Mistake:** A verification brief said *"Dark theme, 1080x2400, count rows with
+no pixel above RGB(23,23,23)"* — and named **no mechanism for getting dark**.
+This machine boots `mode="light"` (`cartalith_settings.cfg`), where every
+background pixel is 251, so a literal execution measures `blank_rows=0` and
+reports a false improvement. **That is the exact trap the brief's own preflight
+row warns about, reproduced inside the brief that cites it.** Only the probe's
+`_force_dark()` plus a refuse-to-run-unless-dark guard makes the check real.
+
+Two smaller ones in the same brief: `cargo test --workspace` was numbered first
+as evidence for a **GDScript-only** lane, where no test result can be caused by
+the work under test (a collateral floor, not evidence — and the brief's own
+preflight row says the Rust suite cannot see the shell); and it asked a verifier
+to check "BOTH lanes" when one had died, so three checks targeted claims that did
+not exist and could not be refuted.
+
+**Root cause:** Writing the rule into the brief feels like applying it. A rule
+names a hazard; a *check* has to establish the conditions the hazard needs.
+
+**Prevention:** For each check, name the **mechanism that establishes its
+precondition**, not just the condition. And build the verifier's input from what
+actually returned — a lane that failed supplies no claims.
+
+**Verification:** Ask of each check: what result would refute the claim, can this
+check produce it, and does the environment it runs in satisfy its premise?
+
+---
+
+### [2026-09-03] Orchestration errors that waste a wave ×12
+
+**Batch 17 — a whole class of brief defect: an item whose premise is false, so
+the check cannot be performed as written.** The verifier found four, three of
+them premise failures. (1) *"Pick at least four rows it calls closed and re-open
+them"* — the audit lane closed exactly **one** thing and said so; there were not
+four closures to sample, and the over-eager-closure risk the check exists to
+catch was structurally absent. (2) *"Mutate one constant introduced by each
+lane"* — two of three lanes introduced no constant (one edited only Markdown,
+one changed a sentinel string). Say **"per lane that introduced one."**
+(3) *"Render before and after"* — the Godot `.dll` predated every `.rs` edit in
+the batch, so no before could be staged and rebuilding destroys it; the real
+before/after was a source-level pinned hash. (4) An item conflated two guard
+pairs (`<1%`/`>99%` is the hover card's; the panel's is `<0.1%`/`>99.9%`), so a
+verifier reading literally checks one surface and reports the other green.
+
+**Why this matters more than a typo:** a false-premise item does not fail loudly.
+The verifier either silently substitutes something else or reports a green it did
+not earn. Three of these were caught only because this verifier was told to check
+the brief itself — the sixth consecutive batch in which it found a brief defect.
+
+**Earlier instances.** Pasted one lane's brief into another's prompt *and* dispatched it
 separately, so a single agent received both. File-ownership partitioning stranded
 corrections twice — a lane found false prose in a file it was forbidden to touch
 and the fix waited a whole wave. A workflow script failed to parse on **unescaped
-backticks inside a template literal**, costing a dispatch. And a verification
+backticks inside a template literal** — twice, costing two dispatches; the second
+was `(1080, 2400)` written in prose inside a verifier's brief, which killed the
+verify phase after both build lanes had already completed. And a brief named a
+fix by its register ID (**DS-12**) whose code lived outside the lane's declared
+file-ownership list, because the ID's backlog wording implied a different file
+than the one it is in. And a verification
 instruction was itself wrong: *"measure PH-16 in a probe at 393x852"* cannot
 discriminate, because `phone_scale()` is exactly `1.0` at that size — the lane's
-choice of 1080x2400 was correct and the brief called it an evasion.
+choice of 1080x2400 was correct and the brief called it an evasion. And a
+commit made *while a verifier was running* emptied the working tree, so its
+"confirm `git diff` on project.godot is empty" check passed for every file
+whether or not it had changed.
 
 **Root cause:** Building briefs by copy-paste; partitioning by file with no
 route for cross-lane findings.
 
 **Prevention:** One brief per lane, checked before launch. Escape every backtick
-inside a workflow template literal. Serialize lanes sharing a file rather than
+inside a workflow template literal and run `node --check` on the script. Resolve a
+named item to its **actual file** before assuming the ownership list covers it. Serialize lanes sharing a file rather than
 forbidding the edit, and always instruct lanes to **report** false prose in files
 they do not own. **Check your own verification instruction is discriminating**
 before demanding a lane satisfy it — a test condition that cannot fail is worse
-than none, because it looks like rigour.
+than none, because it looks like rigour. Four such have now shipped in briefs:
+a 393x852 probe size where `phone_scale()` is 1.0; a count that is 0 by
+construction; a working-tree `git diff` emptied by a mid-verification commit; and
+`git diff <hash> HEAD` where `<hash>` **is** HEAD — written while anticipating the
+previous failure and inheriting the same one. **Ask what result would refute the
+claim, then check the instruction can produce it.**
 
 **Verification:** Re-read each prompt for a foreign lane's heading before
 launching.

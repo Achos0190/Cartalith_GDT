@@ -1,4 +1,4 @@
-//! Milestone 16 — `generate()` and `hashModel` (reference lines 30931-31093).
+//! Milestone 16 — `generate()` and `hashModel` (reference lines 30931-31094).
 //!
 //! The orchestration: 29 stage calls in the reference's own order, over the
 //! options every earlier milestone took a projection of. Nothing new is

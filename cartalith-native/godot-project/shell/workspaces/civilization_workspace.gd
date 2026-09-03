@@ -660,6 +660,13 @@ func _on_civ_tool_armed(id: String) -> void:
 			## `05-right-dock-and-bars.md` §1.12, GUI replacement stage 5:
 			## `rdMode4()` rule 4 -- unconditional on the tool. `leave_
 			## territory_context()` below is the disarm half.
+			##
+			## Both halves add and remove an **appended section**; neither
+			## touches what the right dock is showing (`right_dock.gd`'s
+			## `TOOL_TERR`, and the owner's 2026-09-03 ruling behind it).
+			## Arming Territory over a selected settlement leaves that
+			## settlement on screen, and disarming leaves it there too --
+			## there is nothing here for a disarm to restore.
 			if app.right_dock_ctrl.has_method("show_territory"):
 				app.right_dock_ctrl.show_territory(_territory_faction)
 		_:
@@ -897,8 +904,8 @@ func _tool_options_territory() -> void:
 			_territory_faction = fid
 			## Unlike Radius/Mode just below, a faction re-pick changes
 			## WHICH faction's stats this dock's own right-dock companion
-			## is showing -- `right_dock.gd`'s CTX_TERR keeps no state of
-			## its own, so it has to be told.
+			## is showing -- `right_dock.gd`'s `TOOL_TERR` section keeps no
+			## state of its own, so it has to be told.
 			if app.right_dock_ctrl.has_method("show_territory"):
 				app.right_dock_ctrl.show_territory(fid))
 		DccWidgets.slider(row, "Radius", 1.0, 20.0, 1.0, _territory_radius, " c",
@@ -934,12 +941,18 @@ func _commit_territory() -> void:
 	## §4.5.3's own right-dock column: "Faction inspector with live area,
 	## claimed-cell count, and contested-cell warning." **This used to pin
 	## `show_faction()` instead**, with a comment explaining `right_dock.gd`'s
-	## real Territory context "is explicitly not this pass's to change" --
-	## true when that sentence was written; `right_dock.gd`'s CTX_TERR
-	## (`05-right-dock-and-bars.md` §1.12) now exists and is the exact live
-	## cells/area/contested reading that comment was waiting for, so this
+	## real Territory panel "is explicitly not this pass's to change" --
+	## true when that sentence was written; `right_dock.gd`'s `TOOL_TERR`
+	## section (`05-right-dock-and-bars.md` §1.12) now exists and is the exact
+	## live cells/area/contested reading that comment was waiting for, so this
 	## points at it instead. `civ_faction_territory_stats` is unchanged --
 	## this dock's own tool-options row above still reads it too.
+	##
+	## **This no longer takes the right dock away from a selection.** Under the
+	## owner's 2026-09-03 ruling (`LARGE_ITEM_RULINGS.md`: "Selection wins; the
+	## tool appends a section") `show_territory()` appends the Territory section
+	## and leaves whatever was selected in place, so committing a claim while a
+	## settlement is open adds the stats under it rather than replacing it.
 	app.right_dock_ctrl.show_territory(_territory_faction)
 	app.set_status("hint",
 		"Territory committed -- provinces/trade were computed before this edit.", "text_ghost")
@@ -951,7 +964,7 @@ func _discard_territory() -> void:
 	if _active_civ_tool == "territory":
 		_tool_options_territory()
 	## Discard only touches the draft (`civ_territory_discard`'s own doc);
-	## the committed stats CTX_TERR reads are unaffected, but re-announcing
+	## the committed stats the `TOOL_TERR` section reads are unaffected, but re-announcing
 	## costs nothing and keeps this symmetric with commit and arm above.
 	if app.right_dock_ctrl.has_method("show_territory"):
 		app.right_dock_ctrl.show_territory(_territory_faction)
@@ -2337,6 +2350,7 @@ func _fill_religion(parent: Control) -> void:
 
 	if state == "no_binding" or state == "no_world":
 		DccWidgets.note(run, String(st["reason"]))
+		_religion_stranded_layer(run)
 		return
 
 	## Step 1, not 10. `Range.set_value` snaps to `min + k*step`, so a step of
@@ -2375,6 +2389,7 @@ func _fill_religion(parent: Control) -> void:
 			jump.tooltip_text = ("The roster inspector's Religion picker is the only thing in "
 				+ "this application that ever writes a religion. Setting one re-seeds the "
 				+ "belief layer on the next run.")
+		_religion_stranded_layer(sec)
 		return
 
 	DccWidgets.note(sec,
@@ -2385,6 +2400,7 @@ func _fill_religion(parent: Control) -> void:
 		+ "the same reading as an absent row.")
 	_religion_totals(sec, places)
 	_religion_divergence(sec, places)
+	_religion_by_faction(sec, places)
 
 	var list := DccWidgets.group(sec, "%d settlements" % places.size(), places.size() <= 12)
 	for i in places.size():
@@ -2396,8 +2412,12 @@ func _fill_religion(parent: Control) -> void:
 ## Plain sums over the dictionaries `get_settlements()` already returned --
 ## the same presentation arithmetic CIVIL > Population does over `population`,
 ## not a second model. A faith with no adherents anywhere never appears,
-## because `lib.rs` omits a zero count from `adherents` rather than writing
-## it, so this list's length is the number of faiths really present.
+## because `lib.rs` omits a zero count from `adherents` rather than writing it.
+##
+## So the row list is exactly what is present -- but its **length is not the
+## number of faiths**, because the unaffiliated slot is one of those rows. The
+## headline sentence below counts them apart; see its own comment for the
+## measured sentence that made this worth spelling out.
 func _religion_totals(parent: Control, places: Array) -> void:
 	var people := {}
 	var leads := {}
@@ -2412,9 +2432,25 @@ func _religion_totals(parent: Control, places: Array) -> void:
 			var r: String = String(d["religion"])
 			leads[r] = int(leads.get(r, 0)) + 1
 	var rows := _religion_sorted(people)
-	DccWidgets.note(parent, "%s people across %d settlements, in %d faith%s." % [
-		FactionRosterWindow._thousands(total), places.size(), rows.size(),
-		"" if rows.size() == 1 else "s"])
+	## `rows` carries the unaffiliated slot, because it IS a row -- the list
+	## below prints it, with its own glyph and its own share. It is **not a
+	## faith**, and counting it as one is the one place this panel folded back
+	## in the distinction `_religion_label` and `_religion_swatch_glyph` exist
+	## to keep. Measured before the fix (`_lbrelig_probe.gd`, 2026-09-03): a
+	## world holding sun_cult, sea_lords and old_gods rendered *"138 415 people
+	## across 230 settlements, in 4 faiths."*
+	##
+	## The unaffiliated are named in the same sentence rather than dropped from
+	## it -- a headline that counts three faiths over a population that is
+	## mostly secular would be true and still misread.
+	var faiths := 0
+	for r in rows:
+		if String(r[1]) != "none":
+			faiths += 1
+	DccWidgets.note(parent, "%s people across %d settlements, in %d faith%s%s." % [
+		FactionRosterWindow._thousands(total), places.size(), faiths,
+		"" if faiths == 1 else "s",
+		" and the unaffiliated" if int(people.get("none", 0)) > 0 else ""])
 	_religion_bar(parent, people, total)
 	for r in rows:
 		var key: String = r[1]
@@ -2425,27 +2461,91 @@ func _religion_totals(parent: Control, places: Array) -> void:
 			FactionRosterWindow._thousands(n), _religion_pct(n, total),
 			lead, "" if lead == 1 else "s"])
 
-## The map half's toggle, and the one sentence that says what the ring means.
+## The only way to turn the faith-divergence ring **off** in a world that can
+## no longer draw it, and it exists because the alternative was measured.
+##
+## `_lbrelig_probe.gd`, 2026-09-03: turn the layer on over a live world, then
+## generate another one -- `layer on=true  toggle drawn=false`. The overlay
+## flag survives a world replacement (nothing in `_on_world_changed` clears it,
+## and clearing it would silently undo the user's own choice), while the toggle
+## that owns it is drawn only under the `live` branch below. The control was
+## gone and the layer was still armed.
+##
+## Drawn ONLY when the flag is actually on, so a state that can show nothing
+## does not grow a control that promises something. The note says plainly that
+## the ring is drawing nothing right now, rather than leaving a checked box to
+## imply otherwise.
+##
+## Guarded on the node and the method rather than assumed: `_build_religion()`
+## runs while the workspace is being constructed, and this function is reached
+## from the `no_world` branch that build hits first.
+func _religion_stranded_layer(parent: Control) -> void:
+	if app == null or app.viewport == null or not is_instance_valid(app.viewport):
+		return
+	var ov = app.viewport.overlay
+	if ov == null or not is_instance_valid(ov) or not ov.has_method("faith_divergence_visible"):
+		return
+	if not ov.faith_divergence_visible():
+		return
+	DccWidgets.note(parent,
+		"The faith-divergence ring is still switched on from an earlier world. It is drawing "
+		+ "nothing here -- there is no adherence to compare against a ruler's religion -- and "
+		+ "it will start drawing again by itself once a diffusion has run.")
+	DccWidgets.toggle(parent, "Show on map", true,
+		func(on: bool): app.viewport.overlay.set_faith_divergence_visible(on),
+		"Switch the ring off. It is the same control the Adherence section carries once a "
+		+ "diffusion has run; it appears here only because the layer is armed and that section "
+		+ "is not being drawn.")
+
+## The map half's toggle, the sentence that says what the ring means, and the
+## list of which settlements carry one.
 ##
 ## Written from `map_overlay.gd`'s `_faith_diverged`, which is the definition:
 ## a settlement whose plurality faith differs from its faction's own state
 ## religion. Unclaimed settlements cannot diverge (there is no ruler to differ
 ## from) and are excluded from the count as well as from the drawing, so the
 ## number here and the rings on the map are the same set.
+##
+## Three things this reports, and they are not interchangeable: how many were
+## **compared** (`compared`), how many **diverged** (`diverged.size()`), and
+## **which** ones (`_religion_diverged_rows`). The count alone was what shipped
+## first, and it left the map as the only way to find out where -- one bit per
+## pin, discoverable by hovering all of them.
 func _religion_divergence(parent: Control, places: Array) -> void:
 	var faiths := _religion_faction_column("religion")
-	var n := 0
-	for p in places:
-		var d: Dictionary = p
+	## `compared` is carried beside the divergence count for the same reason
+	## `_religion_by_faction` carries its own: a settlement whose ruler has set
+	## no religion, or which has no ruler, is in neither number. "0 settlements
+	## no longer follow their ruler's faith" is true of a world where nobody has
+	## a ruler with a faith at all, and reads as a measurement of agreement.
+	var compared := 0
+	var diverged: Array = []
+	for i in places.size():
+		var d: Dictionary = places[i]
 		if not d.has("religion"):
 			continue
 		var f := int(d.get("faction", 0))
 		if f <= 0 or f > faiths.size() or faiths[f - 1].is_empty():
 			continue
+		compared += 1
 		if String(d["religion"]) != faiths[f - 1]:
-			n += 1
-	DccWidgets.note(parent, "1 settlement no longer follows its ruler's faith." if n == 1
-		else "%d settlements no longer follow their ruler's faith." % n)
+			diverged.append(i)
+	var n := diverged.size()
+	## "State religion" rather than "faith", deliberately: a ruler who has set
+	## `none` has set one, and `map_overlay.gd::_faith_diverged` compares
+	## against it like any other value -- *"`none` on both sides is agreement,
+	## not absence."* Saying "a ruler with a religion set" would have implied
+	## the denominator counted rulers holding a faith, and it does not.
+	if compared == 0:
+		DccWidgets.note(parent, "No settlement here has a ruler whose state religion this "
+			+ "shell could read, so there is nothing to compare a population against.")
+	elif n == 0:
+		DccWidgets.note(parent, "All %d settlement%s share their ruler's state religion."
+			% [compared, "" if compared == 1 else "s"])
+	else:
+		DccWidgets.note(parent, "%d of %d settlements no longer share their ruler's state "
+			% [n, compared] + "religion.")
+	_religion_diverged_rows(parent, places, faiths, diverged)
 	DccWidgets.toggle(parent, "Show on map", app.viewport.overlay.faith_divergence_visible(),
 		func(on: bool): app.viewport.overlay.set_faith_divergence_visible(on),
 		"Draws a broken ring outside the pin of every settlement whose plurality faith is not "
@@ -2453,6 +2553,256 @@ func _religion_divergence(parent: Control, places: Array) -> void:
 		+ "the plurality map would be a recolour of the faction wash the map already draws, "
 		+ "because every settlement is seeded from its faction's own religion and the model "
 		+ "fixates rather than mixes. The difference is the only part that is new information.")
+
+## The ring's text twin: **which** settlements diverged, not just how many.
+##
+## The map draws one bit per pin and the sentence above draws one number; a
+## reader who wants to act on either had to hover every pin on the map to find
+## the ones carrying a ring. This is the same set, by construction -- it is
+## built from the same comparison in the same pass -- and each row is the
+## established dock vocabulary for a settlement (`_settlement_row` above): a
+## `DccWidgets.action` that pins it in the right dock, which is what clicking
+## it on the map does.
+##
+## Drawn only when there is at least one. A group headed "0 diverged" is an
+## empty container that reads as a missing list rather than as an absence, and
+## the sentence above already states the absence in words.
+##
+## **Not a second definition of divergence.** The caller passes the indices it
+## already computed against `map_overlay.gd`'s `_faith_diverged` rule (no
+## religion key, no ruler, an unread roster row -- none of them a divergence),
+## so this function cannot drift from the ring. It formats; it does not decide.
+func _religion_diverged_rows(parent: Control, places: Array, faiths: PackedStringArray,
+		diverged: Array) -> void:
+	if diverged.is_empty():
+		return
+	var grp := DccWidgets.group(parent, "%d diverged" % diverged.size(), diverged.size() <= 12)
+	for i in diverged:
+		var d: Dictionary = places[i]
+		var place_name := String(d.get("name", "")).strip_edges()
+		if place_name.is_empty():
+			place_name = "— unnamed"
+		var pop := int(d.get("population", 0))
+		var ad: Dictionary = d.get("adherents", {})
+		var here := String(d["religion"])
+		var ruler := faiths[int(d.get("faction", 0)) - 1]
+		## `has(here)` rather than `get(here, 0)`: `lib.rs` omits a zero
+		## adherent count from `adherents` entirely, so a missing key is "no
+		## head-count for this faith", and `_religion_pct(0, pop)` would print
+		## a flat `0.0%` beside the name of the faith that leads the town.
+		var share := _religion_pct(int(ad[here]), pop) if ad.has(here) else ""
+		var b := DccWidgets.action(grp, "%s — %s%s, ruler %s" % [place_name,
+			_religion_label(here), (" " + share) if share != "" else "",
+			_religion_label(ruler)],
+			func(): _religion_pin(int(i)))
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.tooltip_text = ("Pin this settlement in the right dock (same as clicking it on the "
+			+ "map). Which of the two a faction's religion IS has not been decided -- "
+			+ "RELIGION_DIFFUSION_SCOPE.md section 4 -- so neither is called the wrong one.")
+
+## Pin a settlement in the right dock, exactly as `_settlement_row` does.
+##
+## Re-reads `bridge.settlements()` rather than closing over the dictionary the
+## row was built from: this dock is rebuilt on a roster edit, and a captured
+## dictionary would pin the adherence a *previous* fill saw. The index is the
+## same list position `_fill_settlements` uses, which is what
+## `on_settlement_selected` expects.
+func _religion_pin(index: int) -> void:
+	var places := bridge.settlements()
+	if index < 0 or index >= places.size():
+		return
+	_selected_index = index
+	app.arm_tool("inspect")
+	app.right_dock_ctrl.on_settlement_selected(places[index], index)
+
+## Each faction's own religious composition, and whether its people still hold
+## the state religion its ruler has set.
+##
+## # The gap this closes was measured, not assumed
+##
+## `_faithmeasure_probe.gd`, 2026-09-03, over a real generated world with three
+## factions given three different faiths: at 384x256 / 50 years **one** faction's
+## summed adherents put a different faith in the plurality than the roster's own
+## Religion dropdown holds; at 160x112 / 25 years, **two**. Nothing in this shell
+## showed that. The roster window's inspector *edits* the flag
+## (`_vocab_choice(sec, "Religion", ...)`), `right_dock.gd`'s Faction context
+## *prints* the flag ("State religion"), and the roll-up above this is
+## world-wide. A faction is where the hand-set flag and the simulated population
+## meet, and it had no surface.
+##
+## # It reports the disagreement; it deliberately does not resolve it
+##
+## `RELIGION_DIFFUSION_SCOPE.md` §4 is the port's one open fork on this
+## subsystem: *"is a faction's state religion still the player's hand-set
+## `civFactionReligion` flag ... or does it become the derived plurality"* --
+## explicitly milestone 5's decision, not milestone 1's. So both are printed as
+## what they are, the flag is never called stale or wrong, and neither is named
+## the faction's real religion. Naming a winner here would settle an owner
+## decision in a dock row.
+##
+## # Denominator
+##
+## The percentages are over the summed **adherents**, not over
+## `get_factions()`' own `population` column. Those two are equal whenever the
+## layer is live -- `SettlementReligionState::adherents` returns exactly `pop`
+## for every settlement -- but summing the counts makes the shares add to 100 %
+## by construction rather than by that equality holding, and it means a
+## settlement the layer does not cover is absent from both sides of the
+## fraction instead of only the top.
+func _religion_by_faction(parent: Control, places: Array) -> void:
+	var rows := bridge.get_factions()
+	if rows.is_empty():
+		## Reachable while a generate is in flight: `EngineBridge.get_factions`
+		## returns `[]` on `generating` where `settlements()` may still answer
+		## from the previous world. Said rather than skipped -- a breakdown that
+		## silently omits its own middle level reads as "this world has no
+		## factions", which is a different and false claim.
+		DccWidgets.note(parent, "— the faction roster is not readable right now (a world is "
+			+ "being generated), so there is no per-faction breakdown to draw")
+		return
+	## One pass over the settlements, keyed by the faction id
+	## `get_settlements()` reports -- not by position, so a roster gap cannot
+	## shift one faction's people onto its neighbour (the same reason
+	## `_religion_faction_column` writes `out[id - 1]` rather than appending).
+	var people := {}   ## faction id -> {religion key: adherents}
+	var covered := {}  ## faction id -> settlements that carried the keys
+	var held := {}     ## faction id -> settlements assigned to it at all
+	for p in places:
+		var d: Dictionary = p
+		var f := int(d.get("faction", 0))
+		held[f] = int(held.get(f, 0)) + 1
+		if not d.has("religion"):
+			continue
+		covered[f] = int(covered.get(f, 0)) + 1
+		if not people.has(f):
+			people[f] = {}
+		var ad: Dictionary = d.get("adherents", {})
+		for k in ad.keys():
+			people[f][k] = int(people[f].get(k, 0)) + int(ad[k])
+
+	## `compared` is carried beside `disagree` on purpose. A faction with no
+	## settlements, or none the layer covers, has no plurality to compare and is
+	## counted in neither -- so the all-agree sentence below says how many
+	## factions it actually examined rather than claiming something about every
+	## row in the group, some of which are dashed.
+	var disagree := 0
+	var compared := 0
+	for r in rows:
+		var d: Dictionary = r
+		var plurality := _religion_faction_plurality(people.get(int(d.get("id", 0)), {}))
+		if plurality == "":
+			continue
+		compared += 1
+		if plurality != String(d.get("religion", "")):
+			disagree += 1
+	if compared == 0:
+		DccWidgets.note(parent, "No faction has settlements this belief layer covers, so there "
+			+ "is nothing to compare against the state religions below.")
+	elif disagree == 0:
+		DccWidgets.note(parent, "All %d faction%s with people in them hold the faith their "
+			% [compared, "" if compared == 1 else "s"] + "ruler has set.")
+	elif disagree == 1:
+		DccWidgets.note(parent, "1 faction's people no longer put its state religion first, "
+			+ "of %d compared." % compared)
+	else:
+		DccWidgets.note(parent, "%d factions' people no longer put their state religion first, "
+			% disagree + "of %d compared." % compared)
+
+	var grp := DccWidgets.group(parent, "%d factions" % rows.size(), rows.size() <= 8)
+	for r in rows:
+		_religion_faction_row(grp, r, people, covered, held)
+	## Settlements under no ruler are not in `get_factions()` at all -- it
+	## enumerates `1..=count` and skips Unclaimed -- so without this row they
+	## would vanish silently from a breakdown that reads as complete. Drawn
+	## only when there are any: a world where every settlement is claimed
+	## should not carry an empty partition. Measured as reachable but not
+	## generated: `_faithmeasure_probe.gd` found `unclaimed=0` on both worlds
+	## it ran, and `FactionRoster::remove_last` reverts a removed faction's
+	## settlements to `0`, which is how one appears.
+	if int(held.get(0, 0)) > 0:
+		_religion_faction_row(grp, {"id": 0, "name": "Unclaimed", "religion": ""},
+			people, covered, held)
+
+## The largest summed faith in one faction, or `""` when there is nothing to
+## take a plurality of.
+##
+## `""` is not a religion key and cannot collide with one: `"none"` is a real
+## answer here, meaning most of these people follow no religion, exactly as
+## `SettlementReligionState::plurality` reports it per settlement. Ties go to
+## the lower key so two reads of one world order them the same way, matching
+## `_religion_sorted`'s own tie-break.
+static func _religion_faction_plurality(counts: Dictionary) -> String:
+	var rows := _religion_sorted(counts)
+	return "" if rows.is_empty() else String(rows[0][1])
+
+## One faction's row: its name and state religion, its composition, and the one
+## sentence that says whether those two agree.
+##
+## Three absences, each dashed with the reason that produced it rather than
+## with a `0`:
+##
+## - **no settlements** -- a faction with territory but no towns, or one whose
+##   settlements were all reassigned. There is no population to hold a faith,
+##   which is not the same as a secular one;
+## - **not covered** -- it has settlements and the belief layer does not carry
+##   them. Unreachable while `CivData::belief_current` is all-or-nothing
+##   (`belief.len() == settlements.len()` or no layer at all), and printed
+##   rather than assumed away because that guard lives in another crate;
+## - **population 0** -- covered settlements whose head-counts all floor to
+##   nobody. The shares exist; the people do not.
+func _religion_faction_row(parent: Control, row: Dictionary, people: Dictionary,
+		covered: Dictionary, held: Dictionary) -> void:
+	var f := int(row.get("id", 0))
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	var fname := String(row.get("name", "")).strip_edges()
+	if fname.is_empty():
+		fname = "Faction %d" % f
+	var state := String(row.get("religion", ""))
+	## Unclaimed is passed a deliberately empty key, because it has no ruler to
+	## set one -- distinct from a ruler who has set `none`, which is a choice.
+	DccWidgets.note(box, "%s — state religion %s" % [fname,
+		"— (no ruler to set one)" if state.is_empty() else _religion_label(state)])
+
+	var counts: Dictionary = people.get(f, {})
+	var total := 0
+	for k in counts.keys():
+		total += int(counts[k])
+	if int(held.get(f, 0)) == 0:
+		DccWidgets.note(box, "— no settlements, so no population to hold a faith")
+	elif int(covered.get(f, 0)) == 0:
+		DccWidgets.note(box, "— the belief layer does not cover this faction's settlements; "
+			+ "run the diffusion again")
+	elif total == 0:
+		DccWidgets.note(box, "— no adherents to count (population 0); the shares exist, the "
+			+ "head-counts round to nobody")
+	else:
+		_religion_bar(box, counts, total)
+		var parts := PackedStringArray()
+		for r in _religion_sorted(counts):
+			parts.append("%s %s %s" % [_religion_swatch_glyph(r[1]), _religion_label(r[1]),
+				_religion_pct(r[0], total)])
+		DccWidgets.note(box, "%s people · %s" % [FactionRosterWindow._thousands(total),
+			" · ".join(parts)])
+		## The comparison, and the only place the two models are set beside each
+		## other. Never a verdict -- see this block's own header on §4.
+		var plurality := _religion_faction_plurality(counts)
+		if state.is_empty():
+			pass
+		elif plurality == state:
+			pass
+		elif state == "none":
+			DccWidgets.note(box, "Its ruler has set no state religion, and %s leads its people."
+				% _religion_label(plurality))
+		else:
+			DccWidgets.note(box, "Its state religion is %s; %s leads its people. Which of the "
+				% [_religion_label(state), _religion_label(plurality)]
+				+ "two a faction's religion IS has not been decided -- the dropdown stays "
+				+ "authoritative for diplomacy (relations.rs' religion term reads the flag, "
+				+ "not this) and RELIGION_DIFFUSION_SCOPE.md section 4 is where the choice "
+				+ "is made.")
+	parent.add_child(box)
 
 ## The culture half of the staleness question, which the engine deliberately
 ## cannot answer.
@@ -5043,17 +5393,30 @@ func _build_timeline_filters(body: Control) -> void:
 		"pins specifically, the OLD snapshot's settlement data, which no #[func] exposes yet " +
 		"(civ_year_diff() returns tid sets only, not positions/names). Disclosed, not faked.")
 
-## v3 POLITICS' second row -- *"Vassalage · alliances · rivalries"* -- has the
-## same missing model as RELATIONSHIPS below, so it says so here and points at
-## the one category that owns the finding rather than repeating it.
+## v3 POLITICS' second row -- *"Vassalage · alliances · rivalries"* -- rests on
+## the same open question as RELATIONSHIPS below, so it says so here and points
+## at the one category that owns the finding rather than repeating it.
+##
+## **Corrected 2026-09-03.** The note below used to give the reason as
+## *"cartalith-civ has no such relation to record at any year"*. That is false:
+## `cartalith-civ/src/relations.rs` exists precisely to build that edge
+## (`FactionRelation`, `civ_faction_relations`, bound at
+## `civ_military_bridge.rs`), and `_build_relationships()` 330 lines above in
+## this same file already draws it pair by pair. The conclusion survived the
+## correction and the reason did not -- what no recorded year carries is a
+## *snapshot* of a relation, because the relation is derived on every open and
+## stored nowhere.
 func _build_politics_gaps(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Not built")
 	DccWidgets.note(sec,
 		"Vassalage, alliances and rivalries over time (GUI_GAP_REGISTER.md "
-		+ "CV-26). A recorded year snapshots which settlements exist and who "
-		+ "holds which cell; it records no relation between two factions, "
-		+ "because cartalith-civ has no such relation to record at any year. "
-		+ "The whole finding is under Relationships below.")
+		+ "CV-26). The standing between two factions is derived and live -- "
+		+ "cartalith-civ's relations.rs builds exactly that edge, and "
+		+ "Relationships below draws it for every pair. What no recorded year "
+		+ "carries is a snapshot of it: civ_year_diff() records which settlements "
+		+ "exist and who holds which cell, while a relation is recomputed from the "
+		+ "world as it stands, stored nowhere, with no transition over time to "
+		+ "record. The whole finding is under Relationships below.")
 
 
 # -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------

@@ -2260,9 +2260,21 @@ func _refresh_gpu_devices_menu() -> void:
 	pm.add_separator()
 
 	if _gpu_devices.is_empty():
-		pm.add_item("No GPU detected")
-		pm.set_item_disabled(pm.item_count - 1, true)
-		pm.set_item_tooltip(pm.item_count - 1,
+		## **`_readout`, not a bare disabled row.** The sentence itself is true
+		## and stays word for word; what was wrong was the *class*. This is the
+		## empty state of a LIST -- the same shape as `Open recent`'s "No recent
+		## projects", which is already a `_readout` -- and it carries a live
+		## value: what the enumeration returned on this machine. It is not a
+		## command that cannot run yet, which is the only thing `_todo()` and a
+		## bare disabled-plus-tooltip row mean to `command_index.gd`. Indexed
+		## that way it became an `available: false` entry a searcher could find,
+		## tap and get nothing from -- the exact defect that file's own header
+		## opens by describing, and the reason `_readout()` exists at all.
+		##
+		## Found 2026-09-03 by dumping every unavailable row of the index and
+		## reading its stated reason against the code, rather than by reading
+		## this function.
+		_readout(pm, "No GPU detected",
 			"wgpu enumerated no adapters. Generation runs entirely on the CPU, which is the reference path and produces correct worlds -- just slower on the four GPU-eligible substrate stages.")
 	for i in _gpu_devices.size():
 		var d: Dictionary = _gpu_devices[i]
@@ -3156,20 +3168,46 @@ func _refresh_atlas_cache_menu() -> void:
 		"empty" if deepest < 0 else "to LOD %d" % deepest])
 	_atlas_popup.set_item_tooltip(_atlas_stats_idx,
 		"%s\nRoot: %s" % [String(st.get("text", "")), String(st.get("root", ""))])
+	## **The tooltip has to move with the disabling, and until 2026-09-03 it did
+	## not.** This row was built with one build-time sentence -- *"The same
+	## action as Preferences > Memory > Clear caches..., confirmation and all"* --
+	## and a comment here used to argue that Clear, unlike Export below, need
+	## not say why it goes dark. That was wrong for one reader in particular:
+	## `command_index.gd` takes a disabled row's tooltip as its `why`, so the
+	## searchable index carried Clear as an unavailable command whose stated
+	## reason was a description of what the command *does*. A sentence that
+	## looks like a checked reason and is not one is worse than a blank, which
+	## is the whole premise of `_todo()`'s signature.
+	##
+	## `_clear_caches()` already refuses on exactly this condition, with
+	## exactly this wording (*"nothing baked for this world"*), so the row now
+	## says up front what the handler would have said after the click. The
+	## cross-reference survives, on the enabled branch where it is the useful
+	## half: two entry points, one clearer, because SS2.5 lists it in both
+	## groups.
 	var clear_idx := _atlas_popup.get_item_index(ID_LOD_CLEAR_ATLAS)
 	if clear_idx >= 0:
 		_atlas_popup.set_item_disabled(clear_idx, chunks <= 0)
+		_atlas_popup.set_item_tooltip(clear_idx,
+			"Nothing is baked for this world, so there is no cache to clear. Bake ALL levels & finalize (WORLD dock), or Refine detail for the current view above, first."
+			if chunks <= 0 else
+			"Deletes this world's %d baked chunk%s (%s), asking first. The same action as Preferences > Memory > Clear caches..., confirmation and all -- one clearer with two entry points, since SS2.5 lists it in both groups." % [
+				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])
 	## Export has exactly the same precondition Clear does -- an empty store
 	## exports an empty `PackedByteArray`, which would write a .zip holding
-	## nothing -- so it takes the same gate and, unlike Clear, has to say so:
-	## a user who has not baked yet needs to be told that, not left guessing.
+	## nothing -- so it takes the same gate and says so the same way.
 	## Import is deliberately NOT gated on `chunks`: reading an archive in is
 	## the one atlas action that is useful precisely when the store is empty.
+	##
+	## Both empty-state sentences name the dock's button exactly: it reads
+	## `Bake ALL levels & finalize` (`world_workspace.gd`'s `_bake_button`),
+	## where this row used to send the user to a "Bake ALL levels" that is not
+	## what any control is called. Corrected 2026-09-03.
 	var exp_idx := _atlas_popup.get_item_index(ID_LOD_EXPORT_ATLAS)
 	if exp_idx >= 0:
 		_atlas_popup.set_item_disabled(exp_idx, chunks <= 0)
 		_atlas_popup.set_item_tooltip(exp_idx,
-			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels in the WORLD dock, or Refine detail for the current view above, first."
+			"Nothing is baked for this world, so there is nothing to export. Bake ALL levels & finalize (WORLD dock), or Refine detail for the current view above, first."
 			if chunks <= 0 else
 			"Writes this world's %d baked chunk%s (%s) to one portable .zip -- the archive another machine can import to skip the bake. It carries the cache only: the world, its parameters and every edit live in the project .zip and are not in this file." % [
 				chunks, "" if chunks == 1 else "s", String(st.get("bytes_text", "0 B"))])

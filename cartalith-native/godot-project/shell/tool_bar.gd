@@ -598,15 +598,22 @@ func _build_measure_options(row: HBoxContainer) -> void:
 		_bar_hint(row, "two points · the first is the observer", "")
 	else:
 		_bar_hint(row, "click to add a point · ⌫ drops the last · Esc clears", "")
-	## Four of the canvas's own Distance options are not built, and each is a
+	## Three of the canvas's own Distance options are not built, and each is a
 	## real absence rather than an omission -- stated on hover instead of drawn
 	## as a dead control. Registered as GUI gaps, not hidden.
+	##
+	## **Was four until 2026-09-03.** The fourth read "units ▸ km: ... no such
+	## preference exists in this shell yet, so every reading is km". False in
+	## both clauses: `Preferences ▸ Units` is live with km / mi / nmi
+	## (`menus.gd`'s `_units_popup`), and every measure readout this hover sits
+	## above already formats through `DccUnits`. The count lives in the label as
+	## well as the hover, so both change together.
 	if mode_id == "distance" or mode_id == "bearing":
-		_bar_hint(row, "— 4 canvas options unbuilt",
+		_bar_hint(row, "— 3 canvas options unbuilt",
 			"multi-segment / point-to-point: the six mode buttons above are that choice. " +
 			"path ▸ great circle: this map is equirectangular and `cartalith_spatial::measure` is planar with a seam rule; there is no spherical path to offer. " +
 			"snap ▸ settlements/rivers: DCC_SHELL_SPEC.md §4.5.1 lists no snap modifier for Measure, unlike Way/Route. " +
-			"units ▸ km: the canvas itself says this inherits the app-wide unit switch (the reference's `_setUnits`, line 13722); no such preference exists in this shell yet, so every reading is km.")
+			"units ▸ km is BUILT, and is why this reads 3 rather than 4: Preferences ▸ Units carries km / mi / nmi, and every reading below converts through DccUnits.")
 	row.add_child(DccTheme.spacer())
 	row.add_child(DccTheme.mono_label(GlobalTools.measure_status_text(), "text_dim", DccTheme.FS_SMALL))
 	DccWidgets.chip(row, "Clear", func(): GlobalTools.measure_reset(app))

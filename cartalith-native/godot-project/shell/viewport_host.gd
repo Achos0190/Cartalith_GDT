@@ -3,10 +3,19 @@ class_name ViewportHost
 
 ## The map surface (`DCC_SHELL_SPEC.md` §9).
 ##
-## §9 lets the viewport carry exactly five things beyond the map itself: the
+## §9 let the viewport carry exactly five things beyond the map itself: the
 ## brush cursor, the layers button, the scale bar, the projection/zoom readout
 ## and the cursor coordinates. Anything else that could live in a dock does.
-## This node builds those and nothing more.
+##
+## **It is six.** `05-right-dock-and-bars.md` §5.2 puts a *context chip* in the
+## top-left cluster beside the Layers button -- `vpContext`, the one furniture
+## binding §0 of the replacement plan lists as missing and the 2026-08-31
+## re-export supplies. That is a newer canvas than §9 and it wins (owner ruling,
+## 2026-08-25), so the budget is six and this comment says six rather than
+## leaving the count to be discovered by counting. `set_viewport_context()` is
+## its only writer; `DccShell._refresh_viewport_context()` is the only caller.
+## `app.gd`'s own comment on `resource_overlay` still cites the "exactly five
+## things" figure -- that file is not this pass's to edit.
 ##
 ## The three raster layers stack in draw order -- terrain, territory fill,
 ## province boundaries -- and `map_overlay.gd` draws the vector layers
@@ -60,6 +69,13 @@ var _readout_label: Label
 ## matching `_build_map_style()`'s own initial chip selection.
 var _style_readout := "Default"
 var _coords_label: Label
+## §5.2's viewport context chip. Written by `DccShell._refresh_viewport_context()`
+## -- see `set_viewport_context()`.
+var _vp_context: Label
+## §5.3's `vpField`: the active layer's display name, third part of the
+## top-right readout. Held rather than re-read, because it changes only when
+## `set_debug_layer()` runs and `_update_zoom_readout()` runs on every zoom.
+var _vp_field := "relief"
 var _layers_btn: Button
 ## The touch navpad (`GUI_GAP_REGISTER.md` SH-14) and its one stateful member.
 ## `null` on desktop -- see `_build_navpad()` for the reachability call.
@@ -464,7 +480,8 @@ func _ready() -> void:
 	_camera.add_child(_export_grid_layer)
 
 	## §9's chrome, all corner-anchored so it survives any dock width.
-	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT)
+	## `false` on the scale bar: §5.4 gives it the ink and no pill.
+	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT, false)
 	_readout_label = _chrome(Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	_coords_label = _chrome(Control.PRESET_BOTTOM_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 
@@ -491,6 +508,22 @@ func _ready() -> void:
 		DccTheme.flat(DccTheme.c("panel"), 3))
 	_layers_btn.pressed.connect(func(): layers_button_pressed.emit())
 	add_child(_layers_btn)
+
+	## §5.2's context chip, the second item of the top-left cluster (`gap:8px`
+	## after the Layers button). Empty until `set_viewport_context()` first
+	## writes it, and hidden while empty rather than drawing a bare pill.
+	##
+	## `MOUSE_FILTER_PASS`, not `IGNORE`: the chip carries the one sentence that
+	## says which part of the design's string this port cannot answer, and a
+	## `Label` needs to receive the pointer to show a tooltip at all. `PASS`
+	## forwards the event on rather than swallowing it, and `_input()` above --
+	## which runs before GUI dispatch entirely -- is what pans and zooms the
+	## camera, so nothing about navigation changes over these ~90 px.
+	_vp_context = DccTheme.mono_label("", "text_dim", DccTheme.FS_SMALL, 2)
+	_vp_context.add_theme_stylebox_override("normal", _hud_scrim_box())
+	_vp_context.mouse_filter = Control.MOUSE_FILTER_PASS
+	_vp_context.visible = false
+	add_child(_vp_context)
 
 	_build_navpad()
 
@@ -823,13 +856,16 @@ func reset_view() -> void:
 
 ## `GUI_GAP_REGISTER.md`'s top-right-readout note: `design/Cartalith DCC Shell
 ## .dc.html` draws `2D · equirect · z 5.2` over `relief · atlas preset` here --
-## projection and the active style preset, not grid size and extent (those are
+## projection, the active field and the style preset, not grid size and extent
+## (those are
 ## `_bridge.grid_size()`/`last_width_km`/`last_height_km`, and already have a
 ## home: the WORLD dock readout and the Sample panel). "2D" and "equirect" are
 ## not live lookups; they are honest constants, not filler -- this port has no
 ## camera projection to switch and works in one flat km grid throughout
 ## (`DCC_SHELL_SPEC.md` §2.4's own "this port works in one flat km projection
-## throughout"). Only the zoom and the style name are runtime state.
+## throughout"). The zoom, the **field** (`_vp_field`, added by GUI replacement
+## stage 5 -- the `relief` half of the older canvas's line, which this port had
+## dropped) and the style name are the runtime state.
 ## **Is it safe to ask the engine anything right now?**
 ##
 ## Seven functions in this file used to open `if _bridge == null or not
@@ -852,10 +888,27 @@ func reset_view() -> void:
 func _engine_readable() -> bool:
 	return _bridge != null and _bridge.has_world and not _bridge.generating
 
+## `05-right-dock-and-bars.md` §5.3 composes the top-right readout as
+## `equirect · zoom NN% · {{ vpField }}`, and `vpField` -- `UNSPECIFIED:` in that
+## document -- is supplied by the re-export as the active layer's display name
+## (`vpField:{relief:'relief',biome:'biome',...,flow:'flow accumulation'}[s.layer]`).
+## The older `design/Cartalith DCC Shell.dc.html` draws the same corner as
+## `relief · atlas preset`, so **both** canvases put the layer name here and only
+## this port dropped it: `_style_readout` alone answered "which preset", never
+## "which field am I looking at".
+##
+## The two canvases disagree about the rest of the line and the newer wins
+## (owner ruling 2026-08-25), except where the newer says something this port has
+## no referent for: it has no zoom *percentage* (this camera's `_zoom` is a
+## multiplier with its own `ZOOM_MIN`/`_zoom_max`, not the prototype's `view.s`
+## against a fixed 4096² world), so `z%.1f` stays. The style preset stays too --
+## it is the older canvas's, it is live state with a real writer
+## (`set_style_readout()`), and dropping a working readout to match a canvas that
+## simply has no preset concept would be the fold losing something.
 func _update_zoom_readout() -> void:
 	if not _engine_readable():
 		return
-	_readout_label.text = "2D · equirect · z%.1f\n%s" % [_zoom, _style_readout]
+	_readout_label.text = "2D · equirect · z%.1f · %s\n%s" % [_zoom, _vp_field, _style_readout]
 
 ## `render_workspace.gd` owns the Map style preset (the five chips plus
 ## "Custom") as its own UI-only state -- nothing in the engine tracks "the
@@ -929,7 +982,13 @@ func _apply_touch_scale(scale: float) -> void:
 	_layers_btn.flat = false
 	_layers_btn.modulate = Color.WHITE
 	_navpad_paint(_layers_btn, DccTheme.c("panel"), DccTheme.c("text"))
-	for state in ["normal", "hover", "pressed"]:
+	## `hover_pressed` included: `_navpad_paint()` now overrides it too (the
+	## hover-latch fix, this file's own header), and left out of this list it
+	## would keep whatever corner radius it was built with (`NAVPAD_HIT / 2`)
+	## instead of the real device's `hit / 2` -- unreachable for `_layers_btn`
+	## itself (not `toggle_mode`), but this loop's shape is copied by the
+	## navpad-children loop below, where `_pan_btn` can reach it.
+	for state in ["normal", "hover", "pressed", "hover_pressed"]:
 		var lsb: StyleBox = _layers_btn.get_theme_stylebox(state)
 		if lsb is StyleBoxFlat:
 			(lsb as StyleBoxFlat).set_corner_radius_all(int(hit / 2.0))
@@ -944,7 +1003,10 @@ func _apply_touch_scale(scale: float) -> void:
 		b.custom_minimum_size = Vector2(hit, hit)
 		b.icon = DccIcons.get_icon(String(b.get_meta(NAVPAD_GLYPH_META)),
 			maxi(1, int(round(17.0 * scale))))
-		for state in ["normal", "hover", "pressed"]:
+		## `hover_pressed` included -- see the matching comment on the
+		## `_layers_btn` loop above. This is the one that matters: `_pan_btn`
+		## is `toggle_mode` and lives in this exact list.
+		for state in ["normal", "hover", "pressed", "hover_pressed"]:
 			var sb: StyleBox = b.get_theme_stylebox(state)
 			if sb is StyleBoxFlat:
 				(sb as StyleBoxFlat).set_corner_radius_all(int(hit / 2.0))
@@ -1000,6 +1062,23 @@ func _apply_safe_insets() -> void:
 	## §46 and §48 both measured -- and there it is a flat 26 px flat button with
 	## no pill to sit tangent to anything.
 	_layers_btn.position = Vector2(maxf(l, float(NAVPAD_EDGE)) if _touch else l, t)
+
+	## §5.2's cluster: `display:flex; align-items:center; gap:8px`. Centred on the
+	## button rather than top-aligned with it -- the button is a 26/44 px square
+	## and the chip is one line of 11 px mono, so `align-items:center` is the
+	## difference between a row and two things that happen to start at the same y.
+	if _vp_context != null:
+		var chip := _vp_context.get_combined_minimum_size()
+		_vp_context.size = chip
+		## `custom_minimum_size` as the floor, not `size` alone: this button is
+		## positioned directly rather than by a container, so on the first pass
+		## through here -- during `_ready()`, before any layout has run -- its
+		## `size` is still (0, 0) and the chip would land on top of it.
+		var btn := Vector2(maxf(_layers_btn.size.x, _layers_btn.custom_minimum_size.x),
+			maxf(_layers_btn.size.y, _layers_btn.custom_minimum_size.y))
+		_vp_context.position = Vector2(
+			_layers_btn.position.x + btn.x + float(VP_CONTEXT_GAP),
+			_layers_btn.position.y + (btn.y - chip.y) * 0.5)
 
 	## The navpad rides the same insets, so it clears the app bar, the bottom
 	## bar, the timeline and the gesture strip without a second set of
@@ -1135,13 +1214,105 @@ func _navpad_paint(b: Button, fill: Color, ink: Color) -> void:
 	## ink rather than swapped for a token, so it works for both fills.
 	var down := pill.duplicate() as StyleBoxFlat
 	down.bg_color = fill.lerp(ink, 0.22)
-	b.add_theme_stylebox_override("hover", down)
+	## **GUI_GAP_REGISTER.md phone residue: the first pill kept its tint after
+	## a tap, indefinitely.** A real mouse sends `NOTIFICATION_MOUSE_EXIT` when
+	## it leaves; a finger just lifts, and nothing on a touchscreen ever tells
+	## `BaseButton` the point it was over is gone. `_get_draw_mode()` reads
+	## `status.hovering`, which a tap leaves latched true, so every draw after
+	## the release keeps returning `DRAW_HOVER` (or, for a `toggle_mode`
+	## button, `DRAW_HOVER_PRESSED`) forever -- there is no future event on a
+	## touch-only device that would ever clear it. `hover` therefore gets the
+	## SAME stylebox as `normal` rather than `down`: a stuck hover and a
+	## genuine non-hover now render identically, so the latch has nothing left
+	## to show. `pressed` is untouched -- that state tracks the finger
+	## actually being down, which a real release event does clear.
+	##
+	## `hover_pressed` -- reachable only by `_pan_btn`, the one `toggle_mode`
+	## pill built here, and only while toggled on -- gets `down` for the same
+	## reason `pressed` does: the toggled-on look must read as "on" whether or
+	## not the stuck hover flag agrees, not fall through to the engine's own
+	## default theme (a colour this pill's two callers never chose).
+	## `asset_library_window.gd::_slicer_check()`'s own five-name state list
+	## (`normal/pressed/hover/hover_pressed/focus`) is this shell's idiom for
+	## "cover every draw mode a `Button` has" -- the three-state version here
+	## was the incomplete one. `focus` is not part of this set: every caller
+	## of `_navpad_button()` sets `focus_mode = FOCUS_NONE`, so that draw mode
+	## can never be reached.
+	b.add_theme_stylebox_override("hover", pill)
 	b.add_theme_stylebox_override("pressed", down)
-	for state in ["normal", "hover", "pressed"]:
+	b.add_theme_stylebox_override("hover_pressed", down)
+	for state in ["normal", "hover", "pressed", "hover_pressed"]:
 		b.add_theme_color_override("icon_%s_color" % state, ink)
 
-func _chrome(preset: int, align: int) -> Label:
-	var l := DccTheme.label("", "text_faint", DccTheme.FS_SMALL)
+# -- §5.2/5.3/5.5 The HUD scrim -----------------------------------------------
+#
+# `05-right-dock-and-bars.md` gives the viewport context chip (§5.2), the
+# top-right projection/zoom readout (§5.3) and the bottom-right coordinate
+# readout (§5.5) one shared box: `background:{{ scrimBg }}; padding:4px 9px;
+# border-radius:6px`, ink `var(--dim)`. `scrimBg` was `UNSPECIFIED:` in that
+# document and is supplied by the 2026-08-31 re-export (`Cartalith DCC
+# Environment.dc.html`, `scrimBg:s.light?'rgba(244,242,238,.72)':'rgba(13,14,15,
+# .62)'`) and confirmed deliberate in `BUILD_ANSWERS.md` §2.6. The token landed
+# in stage 1 as `DccTheme.hud_scrim` with "nothing consumes it yet -- this port
+# has no desktop viewport HUD"; this is the widget that consumes it.
+#
+# **The scale bar is deliberately excluded.** §5.4 gives it the same `--dim`
+# ink and no background at all -- it is a rule and two ticks, not a pill.
+#
+# **Measured, because a consumed token's *relationships* are what a re-base
+# breaks.** These pills sit over a live relief render, not the prototype's dark
+# radial gradient, so the map is the real second term in every contrast ratio.
+# WCAG 2.1 SC 1.4.3 needs 4.5:1 for text this size. Composited over the scrim,
+# `--dim`:
+#
+#   dark  #8d9296  6.35:1 over a black map · 3.66:1 over mid grey · 1.73:1 over white
+#   light #6b6f6a  2.31:1 over a black map · 3.39:1 over mid grey · 4.72:1 over white
+#
+# So the design's own pairing clears AA only at one end of the range in each
+# theme. It is still a large improvement on what it replaces -- these three
+# labels had **no** background, and `text_faint` straight on a mid-grey map
+# measures **1.20:1** dark and **1.22:1** light, which is the "invisible over
+# terrain" fault `_apply_touch_scale()` below already records paying for once on
+# the Layers button. Shipped as specified rather than quietly darkened: raising
+# the alpha is the lever, and `hud_scrim`'s own comment in `dcc_theme.gd`
+# forbids deriving from it ("Paint with the token as it stands"). Reported to
+# the owner rather than decided here.
+const HUD_PAD_X := 9
+const HUD_PAD_Y := 4
+const HUD_RADIUS := 6
+## §5.2's top-left cluster `gap:8px`.
+const VP_CONTEXT_GAP := 8
+
+static func _hud_scrim_box() -> StyleBoxFlat:
+	var sb := DccTheme.flat(DccTheme.c("hud_scrim"), HUD_RADIUS)
+	sb.content_margin_left = HUD_PAD_X
+	sb.content_margin_right = HUD_PAD_X
+	sb.content_margin_top = HUD_PAD_Y
+	sb.content_margin_bottom = HUD_PAD_Y
+	return sb
+
+## `scrim` follows §5.2/§5.3/§5.5; §5.4's scale bar passes `false`.
+##
+## Ink and family are the design's: `--dim` (`text_dim`) and Plex Mono, where
+## this was prose in `text_faint`. **Size is not** -- §0.1's desktop `--m2` is
+## 9 px and this keeps the 11 px it shipped with, which is that same token's
+## touch figure. Shrinking a readout drawn over terrain is not a restyle, and
+## the scrim above is already spending the legibility budget this pass has.
+func _chrome(preset: int, align: int, scrim: bool = true) -> Label:
+	## **The ink depends on whether there is a scrim, because the second term of
+	## the contrast pair does.** A scrimmed label sits on a known colour and
+	## `text_dim` was measured against it nine ways. An *un*-scrimmed one sits on
+	## the **map**, which is any colour at all, and there `text_dim` fails AA at
+	## the ends: 3.14:1 over a white/snow map on dark, 4.11:1 over a black/ocean
+	## map on light. `text_faint` holds both (4.72 and 6.48).
+	##
+	## Only the scale bar is un-scrimmed -- §5.4 gives it none by design -- so it
+	## was the one label whose ink changed without the background that change was
+	## measured against. Found by a verifier 2026-09-03: the nine ratios computed
+	## for the scrimmed siblings were all correct and none of them was this pair.
+	var l := DccTheme.mono_label("", "text_dim" if scrim else "text_faint", DccTheme.FS_SMALL, 0)
+	if scrim:
+		l.add_theme_stylebox_override("normal", _hud_scrim_box())
 	l.horizontal_alignment = align
 	## PRESET_MODE_MINSIZE bakes offsets from the control's size at call time --
 	## zero, during `_ready` -- and nothing recomputes them on resize, which put
@@ -1402,14 +1573,69 @@ func set_debug_layer(view: String) -> void:
 	if _bridge == null or view == "off" or not _bridge.has_world:
 		_debug_view = "off"
 		_debug_layer.texture = null
+		_refresh_vp_field()
 		return
 	var tex := _bridge.debug_texture(view)
 	_debug_layer.texture = tex
 	_debug_view = view if tex != null else "off"
+	_refresh_vp_field()
 
 ## Which view `set_debug_layer` actually managed to draw.
 func debug_view() -> String:
 	return _debug_view
+
+## §5.3's `vpField` for the view that is actually drawn.
+##
+## **This port's layer set is not the prototype's, and the name comes from this
+## port's own table rather than being mapped onto the prototype's eight.** The
+## prototype's `LAYERS` is `relief · biome · political · elevation · slope · flow
+## · temp · rain`; this shell's Layers popover is driven by `sample_bridge.rs`'s
+## `LAYER_GROUPS`, which is the *reference HTML's* own list (six groups, 20-odd
+## views) and was ported that way deliberately -- `layers_popover.gd`'s header
+## says so. Inventing a correspondence between the two lists is exactly what this
+## project does not do, so this reads the label the popover itself shows.
+##
+## `off` is the one id that needs a word rather than a label: `LAYER_GROUPS`
+## calls it "No overlay (base map)", which is a menu row's phrasing and not a
+## readout's. The base map IS the relief render, so it takes the prototype's own
+## string for that surface -- `relief`, which is also what the older
+## `Cartalith DCC Shell.dc.html` draws in this corner.
+func _refresh_vp_field() -> void:
+	if _debug_view == "off" or _bridge == null:
+		_vp_field = "relief"
+		_update_zoom_readout()
+		return
+	## Lower-cased to match the design's own field names (`elevation field`,
+	## `flow accumulation`) rather than the popover's sentence case.
+	var found := ""
+	for g in _bridge.debug_layers():
+		for item in (g as Dictionary).get("items", []):
+			var d: Dictionary = item
+			if String(d.get("id", "")) == _debug_view and d.has("label"):
+				found = String(d["label"]).to_lower()
+				break
+		if found != "":
+			break
+	## No label for a view that is nevertheless drawn means the two tables have
+	## drifted; say the id rather than print an empty field.
+	_vp_field = found if found != "" else _debug_view
+	_update_zoom_readout()
+
+## §5.2's viewport context chip. `text` is the chip's whole content; `tip` is the
+## sentence explaining anything the string had to leave out. An empty `text`
+## hides the chip, which is what a `DccShell` with no domain selected yet gets.
+##
+## Push-not-poll, matching `set_style_readout()` and `set_camera_zoom()` above:
+## the string is composed from domain, mode and generation state, none of which
+## this leaf node knows or should learn. `DccShell._refresh_viewport_context()`
+## is the one writer.
+func set_viewport_context(text: String, tip: String = "") -> void:
+	if _vp_context == null:
+		return
+	_vp_context.text = text
+	_vp_context.tooltip_text = tip
+	_vp_context.visible = text != ""
+	_apply_safe_insets()
 
 ## The reference's own `#dbgOpacity` (0-100%): blends the active field
 ## raster over the base map so terrain reads through it.

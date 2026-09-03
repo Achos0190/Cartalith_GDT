@@ -45,30 +45,59 @@ const CTX_WILDLIFE := "wildlife"
 const CTX_HISTORY := "history"
 
 ## `05-right-dock-and-bars.md` §1.8-§1.12, GUI replacement stage 5. Four
-## contexts from `rdMode4()`'s own fall-through table (§1.2b): `tool ===
+## sections from `rdMode4()`'s own fall-through table (§1.2b): `tool ===
 ## 'biome'` -> paint, `tool` is `label`/`icon` -> anno, `tool === 'territory'`
 ## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops. All four read
 ## live engine state fresh on every rebuild, the same "no private draft"
 ## shape `CTX_SCULPT` already uses -- there is nothing here for a second
 ## editor to disagree with.
 ##
+## **These are `TOOL_*`, not `CTX_*`, and that is the owner's 2026-09-03
+## ruling rather than a naming preference** (`LARGE_ITEM_RULINGS.md`,
+## verbatim): *"Selection wins; the tool appends a section."* They shipped as
+## four `CTX_` constants with four `CTX_TITLES` rows and four `_dispatch()`
+## arms, which made arming a tool **replace** whatever the dock was showing --
+## measured in a booted app on 2026-09-03, selecting a settlement and then
+## arming Territory: `title=Territory`, `settlement name SURVIVED=false`. That
+## is the exact naive merge the ruling rejects in its own reasoning ("the dock
+## flips away from a selected settlement the moment a tool arms"). They are now
+## section ids, appended by `_append_tool()` **after** `_dispatch()` draws the
+## selection -- `_append_layers()`'s shape, which was already the worked example
+## of this ruling and is one section lower down.
+##
+## Do not give any of these a `CTX_` name, a `CTX_TITLES` row or a `_dispatch()`
+## arm again: each of those three is what made the dock replace the selection.
+##
+## **They are not stored, either.** Which one is drawn is derived from
+## `app.armed_tool` (plus the domain, for Stops) on every rebuild -- that IS
+## `rdMode4()`'s own fall-through table, quoted above, so a remembered copy of
+## it would be a second answer to a question the shell already answers. The
+## `show_*` calls below carry the per-tool *data* these sections cannot
+## otherwise see (`_paint_ctx_layer`, `_paint_on_pick`, `_terr_faction`) and
+## nothing else. Measured reason, not taste: while it was stored, arming a
+## different WORLD tool left the Paint section behind, because the only caller
+## of `leave_paint_context()` is a *domain* switch -- `_rightdock5_probe.gd`
+## had recorded that as expected behaviour when it was a whole-dock takeover,
+## and appending would have turned it into a stale panel sitting under a live
+## selection until the user changed domain. `_tool_section()` is the derivation.
+##
 ## **One tool id genuinely differs from the design file's own markup**:
 ## `PaintTarget` (`paint_bridge.rs`) is `Biome`/`Terrain`/`Splat`, and this
 ## shell's own armed-tool id is `"paint"`, not `"biome"` -- `world_workspace
-## .gd` registers `register_tool_click_handler("paint", ...)`. The context
-## constant below is named for what this port actually calls it.
-const CTX_PAINT := "paint"
+## .gd` registers `register_tool_click_handler("paint", ...)`. The constant
+## below is named for what this port actually calls it.
+const TOOL_PAINT := "paint"
 ## `rdStops` (§1.9). Triggered when the CARTO domain is active with no more
 ## specific tool armed -- see `show_stops()`'s own doc for the two call
 ## sites this needs (a domain switch fires no `tool_armed` of its own).
-const CTX_STOPS := "stops"
-## `rdAnno` (§1.10) -- Label and Icon share one context, exactly as they
-## share one right-dock title in the design's own table.
-const CTX_ANNO := "anno"
-## `rdTerr` (§1.12). Named `CTX_TERR` (not `CTX_TERRITORY`) to match the
+const TOOL_STOPS := "stops"
+## `rdAnno` (§1.10) -- Label and Icon share one section, exactly as they
+## share one entry in the design's own right-dock title table.
+const TOOL_ANNO := "anno"
+## `rdTerr` (§1.12). Named `TOOL_TERR` (not `TOOL_TERRITORY`) to match the
 ## design doc's own short id and the grep this stage's own brief was
 ## written against.
-const CTX_TERR := "territory"
+const TOOL_TERR := "territory"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -229,7 +258,7 @@ var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
 var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
 
-## -- CTX_PAINT. `_paint_ctx_layer` mirrors `world_workspace.gd`'s own private
+## -- TOOL_PAINT. `_paint_ctx_layer` mirrors `world_workspace.gd`'s own private
 ## `_paint_layer` -- the caller passes it on every `show_paint()`, the same
 ## shape `show_measure(result, mode)` already uses, rather than this file
 ## reaching into another workspace's state. `_paint_on_pick` is bound by that
@@ -239,13 +268,13 @@ var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `s
 var _paint_ctx_layer := "biome"
 var _paint_on_pick: Callable = Callable()
 
-## -- CTX_STOPS. Which ramp stop (by position in `bridge.color_ramp()`, sorted)
+## -- TOOL_STOPS. Which ramp stop (by position in `bridge.color_ramp()`, sorted)
 ## this dock's own "Selected stop" section edits -- local to this file, since
 ## the ramp itself carries no selection of its own (unlike labels/icons,
 ## which do: `label_get_selected()`/`icon_get_selected()`).
 var _stops_selected := -1
 
-## -- CTX_TERR. The faction the Territory tool is currently armed for --
+## -- TOOL_TERR. The faction the Territory tool is currently armed for --
 ## passed in on every `show_territory()`, the same reason `_paint_ctx_layer`
 ## is: `civilization_workspace.gd` owns `_territory_faction`, not this file.
 var _terr_faction := -1
@@ -260,6 +289,9 @@ var _terr_faction := -1
 ## axis both read as two unrelated readings and gave each axis its own value
 ## label to size itself against -- see `_field()`'s own note on why that
 ## mattered for the dock's width.
+## `05-right-dock-and-bars.md` §1.4's footnote, held so it can be rewritten
+## without a rebuild. See `_stale_footnote_text()`.
+var _sample_stale_note: Label
 var _sample_pos: Label     ## km from the map's north-west corner, X · Y
 var _sample_cell: Label    ## the raster index every other row in this panel reads
 var _sample_elev: Label
@@ -305,6 +337,35 @@ func _stale_reason(label_text: String, stale: Dictionary) -> String:
 
 func _tip_with(tip: String, why: String) -> String:
 	return tip if why == "" else "%s\n\n%s" % [tip, why]
+
+## `05-right-dock-and-bars.md` §1.4's footnote for the staleness `stale_stages()`
+## reports right now, or `""` when nothing is stale.
+##
+## The first clause is the prototype's own line, verbatim and lower-case. The
+## parenthesis after it is this port's: `stale_stages()`' keys are the stage
+## *names* the graph actually reports (`height`, `hydrology`, `climate`, `civ`),
+## and naming them turns "some of these rows are old" into "these rows are old"
+## without the reader having to hover twelve tooltips to find which. Sorted so
+## the sentence does not reorder itself between two readings of one unchanged
+## state -- `Dictionary.keys()` gives insertion order, and the engine builds that
+## dictionary by walking a graph.
+##
+## **Only the stages this panel actually reads count.** `SAMPLE_STAGE`'s own doc
+## comment lists which row each stage owns; a stale stage that owns no row here
+## would make this footnote claim a dash the reader cannot find. Derived from
+## `SAMPLE_STAGE`'s values rather than from a second hand-written list, so a row
+## added to that table is covered by this sentence on the same edit.
+func _stale_footnote_text(stale: Dictionary) -> String:
+	if stale.is_empty():
+		return ""
+	var owned: Array = []
+	for stage in stale:
+		if SAMPLE_STAGE.values().has(String(stage)) and not owned.has(String(stage)):
+			owned.append(String(stage))
+	if owned.is_empty():
+		return ""
+	owned.sort()
+	return "fields owned by stale stages read — (%s)" % ", ".join(owned)
 
 ## `_field()` hangs the tooltip on the row `HBoxContainer` it returns the value
 ## `Label` out of, and staleness starts and stops without a dock rebuild -- so a
@@ -371,6 +432,18 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## Stops, but only through calls that are conditional on a context, so a
 	## CARTO switch with (say) Measure armed rebuilds nothing.
 	app.workspace_changed.connect(func(_id: String): _rebuild())
+	## The appended tool section is derived from `app.armed_tool` on every
+	## rebuild (`_tool_section()`), so every tool change has to cause one. The
+	## four `show_*` calls cover arming; **nothing covered disarming inside the
+	## same domain** -- `app.gd` calls `leave_paint_context()` only on a domain
+	## switch, so arming any other WORLD tool used to leave Paint on screen.
+	## Measured: `_rdappend_probe.gd`'s "paint: disarm drops the tool's section"
+	## failed on the first run of this pass, with `PAINT · BIOME` still in the
+	## header list after `arm_tool("inspect")`. One connection here, rather than
+	## a `leave_*` call added to each workspace's own `_on_tool_armed`, because
+	## the rule being satisfied is this dock's and the miss was one of the four
+	## already having no owner.
+	app.tool_armed.connect(func(_id: String): _rebuild())
 	bridge.layer_stack_changed.connect(_rebuild)
 	_rebuild()
 
@@ -475,6 +548,13 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	## owns. `Position` and `Cell` above are the cursor's own reading and are
 	## never gated.
 	var stale := _stale_now()
+	## §1.4's footnote, rewritten in place for the same reason `_set_row_tip()`
+	## exists: staleness starts and stops without a dock rebuild, so a footnote
+	## written once at build time would go on explaining dashes that had settled --
+	## a stale sentence about staleness, which is the worst version of it.
+	if _sample_stale_note != null:
+		_sample_stale_note.text = _stale_footnote_text(stale)
+		_sample_stale_note.visible = _sample_stale_note.text != ""
 	var nearest_why := _stale_reason("Nearest", stale)
 	_sample_nearest.text = "—" if nearest_why != "" else _nearest_settlement_text(gx, gy, valid)
 	_set_row_tip(_sample_nearest, _tip_with(_NEAREST_TIP, nearest_why))
@@ -658,8 +738,13 @@ func clear_journey() -> void:
 ## four `Brush` fields this file cannot see; omitted (or an invalid
 ## `Callable`), the legend's rows still show swatch/label/count, just not a
 ## click-to-arm affordance -- see `_build_paint`.
+##
+## **Arms the appended Paint section; it does not claim `_context`.** Whatever
+## the dock was showing -- a selected settlement mid-edit, a route, a river --
+## is still showing after this call, with Paint below it. That is the owner's
+## 2026-09-03 ruling; see `TOOL_PAINT`'s own doc for the measurement that
+## caught this replacing the selection instead.
 func show_paint(layer: String, on_pick_value: Callable = Callable()) -> void:
-	_context = CTX_PAINT
 	if layer != "":
 		_paint_ctx_layer = layer
 	_paint_on_pick = on_pick_value
@@ -667,11 +752,14 @@ func show_paint(layer: String, on_pick_value: Callable = Callable()) -> void:
 
 ## Mirrors `leave_sculpt_context()` exactly -- called from `app.gd`'s
 ## workspace-switch handler for the same reason: Biome paint is a WORLD-only
-## tool with nothing else that clears this context on a domain switch.
+## tool. Named `..._context` because that is what every call site already says.
+##
+## **A plain rebuild, because whether the section draws is `_tool_section()`'s
+## answer and not a flag this could clear.** Kept as a method rather than
+## deleted: `app.gd` calls it by name, and a redraw at a domain switch is
+## exactly what it was asking for.
 func leave_paint_context() -> void:
-	if _context == CTX_PAINT:
-		_context = CTX_SAMPLE
-		_rebuild()
+	_rebuild()
 
 ## `rdMode4()` rule 6: `domain==='CARTO' && tool==='inspect'`. Two call sites
 ## need this, and neither alone covers the rule -- `cartography_workspace.gd`'s
@@ -679,29 +767,35 @@ func leave_paint_context() -> void:
 ## `tool_armed` of its own) and `app.gd`'s `_on_workspace_changed` (domain
 ## changes, but arming Inspect while already in CARTO fires no workspace
 ## change). Both are wired to call this only when both halves of the rule
-## already hold, so this file does not re-check them.
+## already hold.
+##
+## **This file re-checks them anyway now, and that sentence used to say it did
+## not.** `_tool_section()` reads the same `armed_tool == "inspect" && domain
+## == "cartography"` rule directly, so these two calls are re-announcements --
+## a redraw at the moment the answer could have changed -- and not the thing
+## that decides. Trusting the callers is what left the Paint section on screen
+## after its tool disarmed: the rule had a third case neither caller covered.
 func show_stops() -> void:
-	_context = CTX_STOPS
 	_rebuild()
 
+## Drops the ramp-stop *selection* -- the one piece of state this section owns
+## that outlives a rebuild -- and redraws. Whether the section itself draws is
+## `_tool_section()`'s answer, which already reads the same domain-and-tool rule
+## both of this method's call sites check before calling it.
 func leave_stops_context() -> void:
-	if _context == CTX_STOPS:
+	if _stops_selected != -1:
 		_stops_selected = -1
-		_context = CTX_SAMPLE
-		_rebuild()
+	_rebuild()
 
 ## Called by `cartography_workspace.gd`'s `_on_any_tool_armed` for both
-## `"label"` and `"icon"` -- one context for both tools, matching §1.3's own
+## `"label"` and `"icon"` -- one section for both tools, matching §1.3's own
 ## right-dock title table (`ANNOTATION` names neither tool by itself) and
-## `_dispatch()`'s single `CTX_ANNO` branch.
+## `_append_tool()`'s single `TOOL_ANNO` branch.
 func show_anno() -> void:
-	_context = CTX_ANNO
 	_rebuild()
 
 func leave_anno_context() -> void:
-	if _context == CTX_ANNO:
-		_context = CTX_SAMPLE
-		_rebuild()
+	_rebuild()
 
 ## Called by `civilization_workspace.gd` on arming `"territory"`, on every
 ## faction re-pick while it stays armed, and after a commit/discard -- the
@@ -709,14 +803,11 @@ func leave_anno_context() -> void:
 ## commit, but re-announcing costs nothing and keeps this in step with
 ## whichever faction is actually armed.
 func show_territory(faction_id: int) -> void:
-	_context = CTX_TERR
 	_terr_faction = faction_id
 	_rebuild()
 
 func leave_territory_context() -> void:
-	if _context == CTX_TERR:
-		_context = CTX_SAMPLE
-		_rebuild()
+	_rebuild()
 
 # -- Dispatch ---------------------------------------------------------------
 
@@ -724,16 +815,21 @@ func leave_territory_context() -> void:
 ## one call below it -- kept as one table here rather than a `match` inline in
 ## `_rebuild()` so a new `CTX_*` can't add a body section without this table
 ## reminding whoever adds it that the dock chrome needs the same name.
+##
+## **No row here for the four `TOOL_*` sections, by ruling.** §1.3 gives each
+## of them a right-dock title (`PAINT · BIOME`, `RAMP · STOPS`, `ANNOTATION`,
+## `TERRITORY`), and those titles are real -- they are drawn by each section's
+## own `DccWidgets.section()` header inside the body, where an appended section
+## puts its name. Putting one in this table instead is how the dock came to
+## rename itself the moment a tool armed, which is the replacement the owner's
+## 2026-09-03 ruling rejects. The header names the selection; the section names
+## the tool; neither overwrites the other, and the header no longer moves at
+## all when a tool arms or disarms.
 const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
-	## `05-right-dock-and-bars.md` §1.3. `CTX_PAINT`'s title is dynamic
-	## ("PAINT · BIOME"/"PAINT · TERRAIN"/"PAINT · SPLAT") and built in
-	## `_current_title()` instead -- this static table has no per-instance
-	## data to build it from.
-	CTX_STOPS: "Ramp · stops", CTX_ANNO: "Annotation", CTX_TERR: "Territory",
 }
 
 func _rebuild() -> void:
@@ -747,8 +843,12 @@ func _rebuild() -> void:
 	_sample_cell = null
 	_sample_elev = null
 	_sample_nearest = null
+	_sample_stale_note = null
 	_sample_rows.clear()
+	## The selection, then the armed tool below it, then Layers below that.
+	## The order is the whole of the owner's ruling -- see `_append_tool()`.
 	_dispatch(body)
+	_append_tool(body)
 	## **After** the dispatch, deliberately -- see `_append_layers()`.
 	_append_layers(body)
 	app.set_right_dock_title(_current_title())
@@ -758,15 +858,14 @@ func _rebuild() -> void:
 ## when their own data is missing (a settlement deselected out from under the
 ## dock, or Journey armed with no `_journey_view` yet) -- mirrored here so the
 ## header never claims a context the body didn't actually draw.
+##
+## Reads `_context` only. `_tool_section()` deliberately cannot reach this -- see
+## `CTX_TITLES`' own note directly above.
 func _current_title() -> String:
 	if _context == CTX_SETTLEMENT and _settlement_data == null:
 		return "Sample"
 	if _context == CTX_JOURNEY and _journey_view == null:
 		return "Sample"
-	## §1.3: `PAINT · ` + the target's own name, upper-cased -- the one
-	## title this table can't hold statically.
-	if _context == CTX_PAINT:
-		return "Paint · %s" % _paint_ctx_layer.capitalize()
 	return String(CTX_TITLES.get(_context, "Sample"))
 
 ## RD-11: §6's own last line -- "elevation for Sample, layer dots for
@@ -785,16 +884,48 @@ func _current_title() -> String:
 ## therefore mean overwriting the readout of whatever the selection is -- which
 ## is the replacement the ruling rejects, one line lower down. §6's "layer dots
 ## for Layers" is a line about a context this dock deliberately does not have.
+##
+## **The armed tool obeys the same rule, and the design says nothing further.**
+## §6 lists one readout per context and the four tool sections are no longer
+## contexts, so there is no delivered answer for "a settlement is selected AND
+## Paint is armed" -- that pairing could not occur in the shape §6 was written
+## for. Stated rather than guessed: **the selection's readout wins whenever
+## there is a selection.** The tool's own figure fills only the slot the
+## selection was never using -- the `_:` default, which is Sample, and the two
+## arms that already fall back to it -- so a tool armed with nothing selected
+## keeps reporting exactly what it reported before this change (painted cells,
+## stop count, label/icon counts, claimed cells) and a tool armed *over* a
+## selection cannot overwrite it. See `_fallback_readout()`.
 func _push_dock_readout() -> void:
 	if app == null:
 		return
 	app.set_dock_readout("right", _dock_readout_text())
 
+## The readout when `_context` is carrying no selection of its own: the armed
+## tool's own figure, else Sample's elevation. Three call sites, which is the
+## point -- CTX_SETTLEMENT and CTX_JOURNEY both degrade to Sample when their
+## data is missing (`_current_title()` mirrors that), so all three have to give
+## an armed tool the same slot or the readout would change on a deselect for no
+## reason the reader could see.
+func _fallback_readout() -> String:
+	match _tool_section():
+		TOOL_PAINT:
+			return ("%s cells" % _thousands(float(bridge.paint_painted_counts().get("total", 0)))) if bridge.has_world else "no world"
+		TOOL_STOPS:
+			var n := bridge.color_ramp().size() if bridge.ramp_api else 0
+			return ("%d stop%s" % [n, "" if n == 1 else "s"]) if n > 0 else "no ramp"
+		TOOL_ANNO:
+			return "%d labels · %d icons" % [bridge.label_list().size(), bridge.icon_list().size()]
+		TOOL_TERR:
+			var stats := bridge.civ_faction_territory_stats(_terr_faction) if _terr_faction >= 0 else {}
+			return ("%s cells" % _thousands(float(stats.get("claimed_cells", 0)))) if not stats.is_empty() else "no claim"
+	return _sample_elev.text if _sample_elev != null else "—"
+
 func _dock_readout_text() -> String:
 	match _context:
 		CTX_SETTLEMENT:
 			if _settlement_data == null:
-				return _sample_elev.text if _sample_elev != null else "—"
+				return _fallback_readout()
 			return String((_settlement_data as Dictionary).get("name", "—"))
 		CTX_ROUTE:
 			return _route_length_text(_route_entry.get("points", PackedVector2Array()))
@@ -827,20 +958,10 @@ func _dock_readout_text() -> String:
 			return "%d of %d reversible" % [int(st.get("depth", 0)), bridge.undo_ledger().size()]
 		CTX_JOURNEY:
 			if _journey_view == null:
-				return _sample_elev.text if _sample_elev != null else "—"
+				return _fallback_readout()
 			return _journey_view.readout_text()
-		CTX_PAINT:
-			return ("%s cells" % _thousands(float(bridge.paint_painted_counts().get("total", 0)))) if bridge.has_world else "no world"
-		CTX_STOPS:
-			var n := bridge.color_ramp().size() if bridge.ramp_api else 0
-			return ("%d stop%s" % [n, "" if n == 1 else "s"]) if n > 0 else "no ramp"
-		CTX_ANNO:
-			return "%d labels · %d icons" % [bridge.label_list().size(), bridge.icon_list().size()]
-		CTX_TERR:
-			var stats := bridge.civ_faction_territory_stats(_terr_faction) if _terr_faction >= 0 else {}
-			return ("%s cells" % _thousands(float(stats.get("claimed_cells", 0)))) if not stats.is_empty() else "no claim"
 		_:
-			return _sample_elev.text if _sample_elev != null else "—"
+			return _fallback_readout()
 
 ## Named rather than inlined in `_rebuild()` -- a `match` cannot be the tail
 ## statement of a lambda closed with `)` in this GDScript version, and this
@@ -868,16 +989,75 @@ func _dispatch(body: Control) -> void:
 			_build_journey(body)
 		CTX_HISTORY:
 			_build_history(body)
-		CTX_PAINT:
-			_build_paint(body)
-		CTX_STOPS:
-			_build_stops(body)
-		CTX_ANNO:
-			_build_anno(body)
-		CTX_TERR:
-			_build_territory(body)
 		_:
 			_build_sample(body)
+
+# -- The armed tool's appended section (`LARGE_ITEM_RULINGS.md`, 2026-09-03) --
+#
+# The owner's ruling on this dock, verbatim: *"Selection wins; the tool appends
+# a section."* An armed tool adds its own section **below** whatever the dock is
+# showing rather than replacing it -- the ruling's own reasoning being that
+# "merging naively makes the dock flip away from a selected settlement the
+# moment a tool arms". So this runs after `_dispatch()`, never instead of it,
+# and touches neither `_context` nor the dock header.
+#
+# **This is not a second `_dispatch()`.** `_dispatch()` answers *what is
+# selected* from `_context`, and exactly one of its arms draws. This answers
+# *what is armed*, from `app.armed_tool` -- an independent question with an
+# independent source; both answers are on screen at once, which is the whole
+# point. `_append_layers()` below is the same shape with a one-valued question,
+# and was this ruling's first worked example.
+#
+# **No selection is needed for a section to append.** `_dispatch()`'s default
+# arm draws Sample, so a tool armed with nothing selected still gets its own
+# section -- under the cursor readout, which is a useful pairing while painting
+# rather than a fallback being tolerated.
+
+## Which section `_append_tool()` will draw, or `""`. **`rdMode4()`'s own
+## fall-through table (§1.2b) read live, and nothing else** -- rules 3
+## (`label`/`icon`) and 4 (`territory`) are unconditional on the armed tool,
+## rule 6 (`inspect`) also reads the domain. See the `TOOL_*` block at the top
+## of this file for why this is derived rather than remembered.
+##
+## `_rebuild()` therefore has to run on every tool change, which is why
+## `setup()` connects `app.tool_armed` -- the four `show_*` calls cover the
+## arms, but nothing covered a *disarm* that stayed inside the same domain.
+##
+## **Paint carries a domain condition §1.2b's own table does not give it**, and
+## that is behaviour preservation rather than a new rule: `app.gd`'s
+## `_on_workspace_changed` called `leave_paint_context()` on every switch away
+## from WORLD, "Biome paint is a WORLD-only tool", and `armed_tool` survives a
+## domain switch (nothing in the shell re-arms Inspect on one -- checked
+## against every `arm_tool(` call site). Without this the Paint section would
+## follow the still-armed tool into CIVIL, which is one thing the old code
+## demonstrably did not do. Territory and Annotation get no such condition for
+## the same reason in reverse: the old code never cleared them on a domain
+## switch either, and rules 3 and 4 say not to.
+func _tool_section() -> String:
+	if app == null:
+		return ""
+	match app.armed_tool:
+		"paint":
+			return TOOL_PAINT if app.active_domain() == "world" else ""
+		"territory":
+			return TOOL_TERR
+		"label", "icon":
+			return TOOL_ANNO
+		"inspect":
+			if app.active_domain() == "cartography":
+				return TOOL_STOPS
+	return ""
+
+func _append_tool(body: Control) -> void:
+	match _tool_section():
+		TOOL_PAINT:
+			_build_paint(body)
+		TOOL_STOPS:
+			_build_stops(body)
+		TOOL_ANNO:
+			_build_anno(body)
+		TOOL_TERR:
+			_build_territory(body)
 
 # -- Layers (`GUI_GAP_REGISTER.md` RD-10) -----------------------------------
 #
@@ -1086,6 +1266,22 @@ func _build_sample(body: Control) -> void:
 	_sample_nearest = _field(sec, "Nearest", "—",
 		_tip_with(_NEAREST_TIP, nearest_why),
 		valid and nearest_why == "", false, 60)
+
+	## §1.4's footnote, verbatim: *"fields owned by stale stages read —"*. Until
+	## now the reason a row dashed lived only in that row's tooltip, which is
+	## hover-only and therefore absent on the tablet composition this same dock
+	## serves -- so on a touch device a stale panel was a panel of em dashes with
+	## no explanation anywhere on screen.
+	##
+	## **Drawn only while something actually is stale, and it names what.** The
+	## prototype draws it unconditionally, and that is wrong for this panel rather
+	## than a difference worth copying: the two rows immediately below it ("Route
+	## cost", "E-W profile") dash permanently for reasons that have nothing to do
+	## with staleness, and an always-on sentence about stale stages would be read
+	## as their explanation. It also sits **above** them for the same reason --
+	## directly under the rows it actually describes. See `_stale_footnote_text()`.
+	_sample_stale_note = DccWidgets.note(sec, _stale_footnote_text(stale))
+	_sample_stale_note.visible = _sample_stale_note.text != ""
 
 	## §6's no-selection list has two more entries than the rows above, and
 	## both were simply absent rather than disclosed (2026-08-20 menu-structure
@@ -2386,12 +2582,34 @@ func _build_region(body: Control) -> void:
 	if _region_result.is_empty():
 		DccWidgets.note(sec, "Drag a marquee on the map to select a region.")
 		return
+	## `05-right-dock-and-bars.md` §1.6 left `regionRows` `UNSPECIFIED:` because
+	## the delivered prototype was truncated; the 2026-08-31 re-export supplies it
+	## (`Cartalith DCC Environment.dc.html`, the `const regionRows` line in
+	## `valsCore()`), and its **first** row is the origin -- `X · Y` in cells.
+	## This panel had every other row and never said *where* the marquee was, so
+	## two different rects of the same size read identically. `region_get()`
+	## (`cartalith-godot/src/lib.rs`, `fn region_get`) has carried `x`/`y` all
+	## along; nothing had to move on the engine side.
+	##
+	## Read through `has()` rather than `get(k, 0)`: cell `0 · 0` is the map's own
+	## north-west corner and a perfectly legal marquee origin, so a defaulted zero
+	## would be indistinguishable from a real one.
+	if _region_result.has("x") and _region_result.has("y"):
+		_field(sec, "Origin",
+			"%d · %d cells" % [int(_region_result["x"]), int(_region_result["y"])])
+	else:
+		_field(sec, "Origin", "—",
+			"region_get() answered without x/y, so the marquee's corner is not "
+			+ "readable. The extent below is still exact.", false)
 	_field(sec, "Extent",
 		"%d × %d cells" % [int(_region_result.get("w", 0)), int(_region_result.get("h", 0))])
 	_field(sec, "Extent (%s)" % DccUnits.suffix(),
 		"%s × %s" % [DccUnits.format(float(_region_result.get("w_km", 0.0))),
 			DccUnits.format(float(_region_result.get("h_km", 0.0)))])
-	_field(sec, "Cells", str(int(_region_result.get("cell_count", 0))))
+	## §1.6's `CELLS` row is `toLocaleString('en-US')` -- grouped. A marquee over
+	## a working-resolution map runs to seven digits, and `str()` printed them
+	## unbroken.
+	_field(sec, "Cells", _thousands(float(int(_region_result.get("cell_count", 0)))))
 	sec.add_child(DccTheme.rule())
 	var estimates: Array = _region_result.get("tile_estimates", [])
 	for e in estimates:
@@ -2408,6 +2626,14 @@ func _build_region(body: Control) -> void:
 	var actions := DccWidgets.group(sec, "Actions")
 	DccWidgets.action(actions, "Send to Data ▸ Export", func():
 		app.data_manager_window.open_tile_export())
+	## §1.6's footnote, verbatim and lower-case as the prototype writes it. It is
+	## the one line that says why the button above is not a second, competing
+	## export extent -- the marquee and Data ▸ Export ▸ Maps' bounds are one rect
+	## seen twice, which is exactly the "two pickers over one concept" shape this
+	## shell has had to undo three times elsewhere. Worth drawing rather than
+	## leaving to a tooltip: this dock is also the tablet's, where there is no
+	## hover.
+	DccWidgets.note(sec, "the marquee and the export route are two views of one rect")
 
 
 # -- Wildlife ecoregion (the reference's own #wildInfo popup) ---------------
@@ -2798,8 +3024,8 @@ func _on_stamp_delete(index: int) -> void:
 
 # -- Paint (`rdPaint`, §1.8) -------------------------------------------------
 #
-# Shown while the "paint" tool is armed (this port's own id for the design's
-# `biome` tool -- see the `CTX_PAINT` const's own doc). Reads
+# **Appended** while the "paint" tool is armed (this port's own id for the
+# design's `biome` tool -- see the `TOOL_PAINT` const's own doc). Reads
 # `world_workspace.gd`'s live paint-editor state fresh every rebuild, the
 # same "no private draft" shape `CTX_SCULPT` already uses -- Commit/Discard
 # here and Commit/Discard in the left-dock Biome paint panel are the same two
@@ -2829,7 +3055,12 @@ func _build_paint(body: Control) -> void:
 		return
 	var layer: String = _paint_ctx_layer if layers.has(_paint_ctx_layer) else String(layers[0])
 
-	var sec := DccWidgets.section(body, "Painted · %s" % layer.capitalize())
+	## §1.3's own right-dock title for this tool, `PAINT · BIOME`/`· TERRAIN`/
+	## `· SPLAT`, which is drawn here now that the dock header keeps naming the
+	## selection instead (`CTX_TITLES`' own note). It read `Painted · %s` while
+	## the header carried `Paint · %s`; one name for one thing, and the
+	## "painted" wording survives on the count row directly below.
+	var sec := DccWidgets.section(body, "Paint · %s" % layer.capitalize())
 	var counts: Dictionary = bridge.paint_painted_counts()
 	var total := int(counts.get("total", 0))
 	_accent_readout(sec, "Painted cells", _thousands(float(total)),
@@ -2953,8 +3184,8 @@ func _on_paint_discard_from_dock() -> void:
 
 # -- Ramp · stops (`rdStops`, §1.9) ------------------------------------------
 #
-# Shown whenever the CARTO domain is active with nothing more specific armed
-# (`rdMode4()` rule 6) -- see `show_stops()`'s own doc for the two triggers
+# **Appended** whenever the CARTO domain is active with nothing more specific
+# armed (`rdMode4()` rule 6) -- see `show_stops()`'s own doc for the two triggers
 # this needs. Reads and writes the exact engine ramp `render_workspace.gd`'s
 # own "Colour relief" panel already edits (`bridge.color_ramp()`/
 # `set_color_ramp()`) -- there is no second ramp to disagree with, only a
@@ -3239,8 +3470,8 @@ func _on_stops_reverse() -> void:
 
 # -- Annotation (`rdAnno`, §1.10) --------------------------------------------
 #
-# Shown while the Label or Icon tool is armed (`rdMode4()` rule 3) -- one
-# context for both, matching §1.3's own title table. Reads
+# **Appended** while the Label or Icon tool is armed (`rdMode4()` rule 3) --
+# one section for both, matching §1.3's own title table. Reads
 # `bridge.label_get_selected()`/`label_list()`/`icon_list()` fresh every
 # rebuild, so there is no draft of its own to fall out of step.
 #
@@ -3263,7 +3494,12 @@ func _build_anno(body: Control) -> void:
 		if not lb.is_empty():
 			_build_anno_selected(body, sel, lb)
 
-	var sec := DccWidgets.section(body, "Placed · this session")
+	## §1.3's `ANNOTATION` -- the tool's own name, which is this section's job
+	## to carry now that the dock header keeps naming the selection instead
+	## (`CTX_TITLES`' own note). The old header said only "Placed · this
+	## session", which was a fine subtitle under a dock titled `Annotation` and
+	## names nothing on its own once that title is the selection's.
+	var sec := DccWidgets.section(body, "Annotation · placed this session")
 	var label_count := bridge.label_list().size()
 	var icon_count := bridge.icon_list().size()
 	_field(sec, "Labels", str(label_count))
@@ -3355,13 +3591,20 @@ func _on_anno_clear_all() -> void:
 
 # -- Territory (`rdTerr`, §1.12) ---------------------------------------------
 #
-# Shown while the Territory tool is armed (`rdMode4()` rule 4 -- unconditional
-# on the tool, so it wins over Faction/Settlement whenever Territory is
-# armed). `civilization_workspace.gd` used to route a territory commit to
-# this dock's own Faction context instead, with its own comment naming this
-# exact gap ("right_dock.gd is explicitly not this pass's to change" --
+# **Appended** while the Territory tool is armed (`rdMode4()` rule 4 --
+# unconditional on the tool). This comment used to end that sentence "so it
+# wins over Faction/Settlement whenever Territory is armed", which was true of
+# the code and is now the thing the owner's 2026-09-03 ruling overturned:
+# **it wins over nothing.** A selected settlement or faction keeps the dock and
+# this section arrives under it. That is the single case the ruling names --
+# "the dock flips away from a selected settlement the moment a tool arms" --
+# and it was the case measured failing.
+#
+# `civilization_workspace.gd` used to route a territory commit to this dock's
+# own Faction context instead, with its own comment naming that gap
+# ("right_dock.gd is explicitly not this pass's to change" --
 # `_commit_territory`'s doc) -- that call is repointed to `show_territory`
-# as part of wiring this context in.
+# as part of wiring this section in.
 #
 # **Stats are commit-only, not live per dab.** `civ_faction_territory_stats`
 # reads the COMMITTED `civ.territory`, never the in-progress draft

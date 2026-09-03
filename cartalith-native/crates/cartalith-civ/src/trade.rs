@@ -1275,15 +1275,20 @@ pub fn civ_salt_access(w: &PlaceWorld, x: usize, y: usize, nav: NavKind) -> Salt
 // actually have**, both handled the same way [`civ_salt_access`]'s own doc
 // comment already handles the identical gap for its branch 3:
 //
-// 1. **`p.specialisation`.** The reference assigns it via
-//    `_civDeriveSpecialisation` (line 22578), which itself needs
-//    `_umSiteProfile` and `p.traits` — neither exists here
-//    (`OUTSTANDING_WORK.md` §2.1's "settlements carry no `specialisation` and
-//    no `traits`"). `_civPlaceTrade` and `_civPlaceArchetype` only ever
-//    *read* `p.specialisation`, never derive it, so both are ported as
-//    written with `specialisation: Option<&str>` — a caller with no source
-//    for it passes `None`, exactly the value every settlement starts at
-//    before `_civDeriveSpecialisation` runs.
+// 1. **`p.specialisation`.** The reference *derives* it in
+//    `_civDeriveSpecialisation` (v2.11 line 23102), and **that function has
+//    no port** — grep across every crate, 2026-09-03. Its two inputs do:
+//    `_umSiteProfile` is [`crate::urban_adapter::um_site_profile`], in this
+//    crate, and `p.traits` is a real field in `cartalith-godot`'s
+//    `civ_roster_bridge::PlaceExtrasTable`. So what is missing is the
+//    classifier, not its inputs — this comment said the inputs were missing
+//    until 2026-09-03, and a reader would have gone looking for the wrong
+//    thing. `_civPlaceTrade` and `_civPlaceArchetype` only ever *read*
+//    `p.specialisation`, never derive it, so both are ported as written with
+//    `specialisation: Option<&str>` — a caller with no source for it passes
+//    `None`, exactly the value every settlement starts at before
+//    `_civDeriveSpecialisation` runs, and a caller reading the place editor's
+//    override passes that.
 // 2. **`_umSiteProfile`'s `floodplain`/`rain` fields**, read only by
 //    [`civ_place_archetype`]. `rain` is a direct `rainField[i]` read, already
 //    in [`PlaceWorld::rain`]. `floodplain` is, unindirected,

@@ -2314,6 +2314,11 @@ func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 
 ## The hover card's religion lines, or **nothing at all**.
 ##
+## One or two lines normally -- the plurality with its share, then every other
+## faith present -- and a third only while the faith-divergence ring is on and
+## this settlement carries one. See the block at the end of this function: the
+## third line is the ring's caption, not a fact about religion in general.
+##
 ## Empty is the deliberate answer when `get_settlements()` omitted the
 ## `religion` key, i.e. when no diffusion has been run in this world. That
 ## absence is a property of the whole layer, not of this settlement, and it
@@ -2346,9 +2351,11 @@ func _faith_lines(s: Dictionary) -> Array:
 	var adherents: Dictionary = s.get("adherents", {})
 	var plurality := String(s["religion"])
 	var out: Array = ["Faith %s%s" % [_faith_label(plurality), _faith_share(adherents, plurality, pop)]]
-	## Every other faith actually present, largest first. `adherents` omits a
-	## religion with zero adherents (`lib.rs`'s own comment), so its size is
-	## the number of faiths really there and this loop cannot print a 0.
+	## Every other entry actually present, largest first. `adherents` omits a
+	## religion with zero adherents (`lib.rs`'s own comment), so every key here
+	## has at least one follower and this loop cannot print a 0. Its size is the
+	## number of **rows**, not of faiths: the unaffiliated slot is one of them
+	## whenever it is not the plurality, and it is not a faith.
 	var rest: Array = []
 	for k in adherents.keys():
 		if String(k) != plurality:
@@ -2359,6 +2366,22 @@ func _faith_lines(s: Dictionary) -> Array:
 		for r in rest:
 			parts.append("%s%s" % [_faith_label(r[1]), _faith_share(adherents, r[1], pop)])
 		out.append("also " + ", ".join(parts))
+	## The ring's own caption, and the only legend it has.
+	##
+	## The broken arcs are a shape with no key drawn anywhere on the map, so a
+	## reader who has switched the layer on can see *that* a settlement is
+	## marked and not *what it is marked against*. This says it, and says it
+	## from the same predicate that drew the arcs -- `_faith_diverged` is false
+	## whenever the layer is off, so the line appears exactly when the ring
+	## does and cannot describe a mark that is not on screen.
+	##
+	## `_faith_label` rather than the raw key, so a ruler who has set `none`
+	## reads as "no religion" here exactly as the settlement's own row does.
+	## Which of the two is the faction's religion is `RELIGION_DIFFUSION_
+	## SCOPE.md` section 4's open fork, so neither is called the wrong one.
+	if _faith_diverged(s):
+		out.append("Ruler's faith %s -- this settlement's has moved"
+			% _faith_label(_faction_religions[int(s.get("faction", 0)) - 1]))
 	return out
 
 func _faith_label(key: String) -> String:

@@ -37,7 +37,9 @@
 //!    exactly `polyCentroid(x.poly)` from each and writes `par.cleared = true`
 //!    / `buildings.splice(i, 1)`. [`crate::blocks::Parcel`] has no `cleared`
 //!    field (it is milestone 12's, and this milestone does not own it), and
-//!    the building type is milestone 13's and does not exist yet. So
+//!    the building type is milestone 13's, which had not landed when this
+//!    was written (both exist now; the split is kept because it is the
+//!    ownership boundary, not a workaround). So
 //!    [`build_markets`] takes the two **centroid lists** and returns the two
 //!    **index lists** in [`Markets`], leaving the caller to apply them. The
 //!    computation is untouched: a centroid does not change when a market is

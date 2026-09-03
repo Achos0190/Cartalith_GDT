@@ -2451,20 +2451,28 @@ pub fn civ_place_resource_context(
 // `O(GW*GH + nPlaces)` pass over fields this crate already builds, no new
 // simulation and no new upstream stage.
 //
-// **What the port does not have, and how that is handled.** Three of the
+// **What the port does not have, and how that is handled.** Two of the
 // reference's per-settlement reads have no equivalent anywhere in this
-// workspace (verified by grep across every crate): `p.tradeVolume` and
-// `p.economicImportance` (persisted by the reference's own Auto-Populate/
-// Generate-Roads passes, which this port has not ported), `p.specialisation`,
-// and `_umInferWalls(p)` (the reference's `_umWallSpec` inference, which
-// lives in the urban-morphology block). None of them are invented here: they
-// are caller-supplied fields on [`FactionPlace`], defaulting to
-// zero/`None`/`false` -- which is precisely what the reference itself
-// computes for a place that lacks them (`p.tradeVolume||0`,
-// `CIV_PRIMARY_SPECIALISATION[undefined]||'craft'`). A caller with real
-// values gets the real aggregation; this port's own `NamedSettlement`
-// currently supplies none, so `FactionPlace::from_settlement` fills the
-// defaults explicitly rather than pretending.
+// workspace (verified by grep across every crate, 2026-09-03):
+// `p.tradeVolume` and `p.economicImportance`, persisted by the reference's own
+// Auto-Populate/Generate-Roads passes, which this port has not ported.
+//
+// **The other two now do, and this comment claimed otherwise until
+// 2026-09-03.** `_umInferWalls` is [`crate::military::um_infer_walls`] -- in
+// this crate, a hundred lines of Rust away, golden-verified -- and
+// `p.specialisation` is a real per-settlement field in `cartalith-godot`'s
+// `civ_roster_bridge::PlaceExtrasTable`, written by the ED-03 place editor and
+// persisted across a save. `civ_military_bridge::defences` composes both into
+// its `FactionPlace` rows today, which is exactly what the reference's own
+// aggregate pass does (`if(_umInferWalls(p)) b.fortifiedCount++`).
+//
+// None of the four is invented here: all are caller-supplied fields on
+// [`FactionPlace`], defaulting to zero/`None`/`false` -- which is precisely
+// what the reference itself computes for a place that lacks them
+// (`p.tradeVolume||0`, `CIV_PRIMARY_SPECIALISATION[undefined]||'craft'`). A
+// caller with real values gets the real aggregation, and
+// `FactionPlace::from_settlement` fills the defaults explicitly rather than
+// pretending, because `NamedSettlement` alone carries none of them.
 //
 // **Resource residency.** `resources` is `Option`, mirroring the
 // reference's own nullable `pots` (`const pots=(typeof
@@ -2575,10 +2583,15 @@ pub fn civ_ocean_dist_field(
 pub const CIV_TERRAIN_MIX_KEYS: [&str; 5] = ["river", "coast", "arid", "forest", "hills"];
 
 /// A settlement as `_civFactionAggregates`'s `state.places` loop reads it.
-/// `trade_volume`/`economic_importance`/`specialisation`/`fortified` have no
-/// producer in this port yet (see this section's own header comment); their
-/// zero/`None`/`false` defaults reproduce the reference's behaviour for a
-/// place that lacks the fields, which is what `from_settlement` builds.
+///
+/// `trade_volume`/`economic_importance` have no producer in this port;
+/// `specialisation` and `fortified` **do** -- `cartalith-godot`'s
+/// `civ_military_bridge::defences` fills both off
+/// `civ_roster_bridge::PlaceExtrasTable` plus
+/// [`crate::military::um_infer_walls`]. See this section's own header comment.
+/// The zero/`None`/`false` defaults reproduce the reference's behaviour for a
+/// place that lacks the fields, which is what `from_settlement` builds -- a
+/// caller with a source for them sets them instead.
 ///
 /// The reference filters `p.category!=='settlement'` before this point;
 /// this port has no non-settlement place category, so callers simply do not

@@ -580,7 +580,7 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Journey Planner | **6/6 milestones, engine-complete; 5 of 6 individually-registered gaps closed, 1 partly** (corrected 2026-08-24) | Port as-is |
 | Map rendering (default + atlas) | Done, improved | Already modernized |
 | Map rendering (NPR toggles) | **Built and live** (corrected 2026-08-24) | Port as-is, done |
-| Map rendering (geology/AO-SVF-shadow/SDF toggles) | Absent | Port as-is |
+| Map rendering (geology/AO-SVF-shadow/SDF toggles) | **Present** | Shipped 2026-09-03 |
 | Tile pyramid / LOD / region export | **LOD tiling live; region export wired** (corrected 2026-08-23); **persistent atlas + bake + finalize lock also live** (corrected 2026-08-25, `PARITY_AUDIT.md` pass 3, F4) | Modernize (Mapbox-style quadtree); slippy-map addressing is the remainder |
 | Labels/annotation (rule-driven) | Done | Port as-is |
 | Labels/annotation (manual tools) | **Built**, incl. biome/terrain paint (corrected 2026-08-23) | Port as-is |
@@ -624,9 +624,13 @@ genuinely still absent, as of this correction:
   shipped.*
 - **GeoJSON import**: absent. (GeoJSON *export* is no longer on this list —
   it went live end to end on 2026-08-24; see capability 9.)
-- **Geology microtexture, SVF/cast-shadow fields, SDF tinting**:
-  presentation-only, no engine dependency, unscoped — the three still on
-  `render.rs`'s own "Deliberately excludes" list. **Revised 2026-08-24**
+- ~~**Geology microtexture, SVF/cast-shadow fields, SDF tinting**~~: **all three
+  shipped 2026-09-03** and this entry was false when read. `render.rs`'s
+  "Deliberately excludes" list no longer names them; the microtexture and
+  SVF/cast-shadow work is covered by `tests/geology_micro_and_sky_fields.rs`
+  and the SDF river/biome legs by `tests/sdf_river_and_biome.rs`. The one leg
+  still genuinely absent is the **vector river overlay** — `map_overlay.gd` has
+  no `drawRiverWays` equivalent. **Corrected 2026-09-03**
   — NPR Painter styles and contour intervals are removed from this bullet;
   both are built and live (see capability 6). **Revised again 2026-08-25**
   (`PARITY_AUDIT.md` pass 3, F4): **ambient occlusion left this bullet too.**

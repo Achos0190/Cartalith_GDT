@@ -132,19 +132,41 @@ const STYLE_MANAGED := {
 ## than drawing dead ones -- the same degrade `appearance_api` already gives.
 const APPEARANCE_VIEW := ["exag", "sun_az_deg", "sun_alt_deg", "bio_blend"]
 const APPEARANCE_GROUPS := [
+	## `svf_strength` and `shadow_strength` joined this group 2026-09-03
+	## (`OUTSTANDING_WORK.md` §2.5) and sit **beside** the two occlusion rows
+	## rather than in a group of their own, because the engine multiplies all
+	## three into one field (`render.rs`'s `fold_lighting_fields`, which is the
+	## reference's own `aoC`). Both are `0.0` in the shipped default.
 	["Relief & light", ["relief_lights", "relief_directionality", "relief_ambient",
 		"relief_gain", "relief_chroma", "ao_strength", "ao_radius_frac",
+		"svf_strength", "shadow_strength",
 		"crest_strength", "curve_shade", "ridged_strength"]],
 	["The sheet", ["paper_strength", "paper_grain", "paper_mottle", "paper_wash",
 		"stipple_strength", "border_width_frac"]],
 	## `rock_slope`, `wetness` and `sea_grain_warp` joined this group 2026-09-03
-	## (`OUTSTANDING_WORK.md` §2.5). The first two are the reference's own last
-	## two unported `landColorCore` colour stages; the third is not a reference
-	## row at all but the flag over the reference's ocean noise lattice -- see
-	## its help line. All three are `0.0` in the shipped default, so the panel
-	## opens on the same picture it always did.
+	## (`OUTSTANDING_WORK.md` §2.5); `geo_micro` and `sdf_coast` joined it later
+	## the same day, and `sdf_rivers`/`sdf_biomes` on the pass after that. The
+	## first two are the reference's own last two unported `landColorCore`
+	## colour stages; `sea_grain_warp` is not a reference row at all but the
+	## flag over the reference's ocean noise lattice -- see its help line.
+	## `geo_micro` sits directly under the two geology rows because the
+	## reference drives all three from one `geologyR` slider, and the three SDF
+	## rows sit together after the two wetness rows, in the reference's own
+	## panel order, because they are the land tints keyed on distance rather
+	## than on climate. All seven are `0.0` in the shipped default, so the
+	## panel opens on the same picture it always did.
+	##
+	## **Derived from the `sdf_coast` row, not designed.** Owner ruling
+	## 2026-08-25: where no canvas exists, derive from the DCC vocabulary. The
+	## sibling row *is* that vocabulary -- same widget, same 0-1 range from the
+	## engine's own `TUNABLE` table, same help-line shape (what it draws, what
+	## it costs when off). `ui-ux-pro-max` returned no verified match for
+	## "another row in an existing slider group", which is what its own
+	## skip-this-for-non-visual-work rule predicts.
 	["Materials", ["biome_sat", "tex_strength", "rock_slope",
-		"litho_strength", "litho_exposure", "hydro_wet_strength", "wetness",
+		"litho_strength", "litho_exposure", "geo_micro",
+		"hydro_wet_strength", "wetness",
+		"sdf_coast", "sdf_rivers", "sdf_biomes",
 		"local_contrast", "splat_strength", "sea_grain_warp"]],
 	## §19 (`TERRAIN_APPEARANCE_RESEARCH.md`, `OUTSTANDING_WORK.md` §2.5): the
 	## other two atmospheric-perspective axes research named, over the same
@@ -208,6 +230,8 @@ const APPEARANCE_HELP := {
 	"detail_micro_weight": "Weight of a per-pixel high-frequency jitter of the macro band -- fine surface grain, distinct from the sheet's paper grain, which textures colour rather than light.",
 	"ao_strength": "Ambient occlusion: darkens enclosed valleys and gorges that see less sky. The reference's own Ambient occlusion slider.",
 	"ao_radius_frac": "How wide the occlusion samples, as a share of map width -- a basin scale, not a pixel scale.",
+	"svf_strength": "Sky view factor: how much of the sky hemisphere each cell can see, so enclosed valleys and gorge floors lose the diffuse skylight open ridgetops keep. A different measurement from Ambient occlusion above, not a second dial on it -- occlusion compares a cell against a blurred copy of the terrain (does this sit in a hollow), while this ray-casts eight directions for the horizon (how high does the land rise around it). A broad shallow basin is a strong hollow and a weak enclosure; a narrow gorge between two walls is the reverse. The reference multiplies both into one field and so does this. Costs one whole-grid pass when on and nothing when off.",
+	"shadow_strength": "Cast shadows: marches each cell toward the sun and darkens it where terrain rises above the sun ray -- the long soft shadows a mountain range throws, which is the one relief cue a hillshade cannot give however many light directions it is handed, because a hillshade only ever asks about the local surface angle. The sun elevation here is the reference's own fixed 20deg rather than the Sun elevation slider above: a horizon shadow only exists at a low sun, and at this map's 40deg default almost nothing on a real heightfield rises above the ray. Costs one whole-grid pass when on and nothing when off.",
 	"paper_strength": "The paper/vellum ground: fibre, tooth, ageing and a warm tint. The reference's Parchment slider, on by default here because this port's base look is an atlas plate.",
 	"paper_grain": "Amplitude of the sheet's fibre and laid lines.",
 	"paper_mottle": "Amplitude of the broad ageing/staining blotches, at sheet scale.",
@@ -216,6 +240,7 @@ const APPEARANCE_HELP := {
 	"border_width_frac": "Width of the plate frame (bare-paper margin plus neatlines), as a share of map width. 0 removes the frame.",
 	"litho_strength": "Geology tint: how far exposed rock moves from the climate heuristic toward the palette of the rock actually underneath. The reference's Geology materials slider. Inert on a loaded save, which stores no lithology.",
 	"litho_exposure": "How strongly bedrock shows through the soil cover, from slope, vegetation and moisture.",
+	"geo_micro": "Rock microtexture: per-rock-type surface detail over the geology tint above -- granite mineral speckle and fracture creases, basalt lava-field patchiness, andesite ash and cinder, limestone karst pitting, sandstone and shale strata banded by elevation, metamorphic folded gneiss -- plus the wind-ripple banding the same slider gives gentle sandy ground. The reference's Geology materials slider drives its texture and its colour from one number; the colour half already arrives here from Geology tint and Bedrock exposure above, over an editable palette the reference does not have, so this row is the texture only rather than a second geology colour disagreeing with the first. Inert on a loaded save, which stores no lithology, and on ground the soil still covers.",
 	"hydro_wet_strength": "Darkens and cools ground near real channels -- a soft halo around the drainage network, applied to the finished pixel. Not the reference's Wetness slider, which this row was mislabelled as until 2026-09-03 and which is the separate Wet ground (TWI) row below. Gated on real upstream drainage area, so it marks the same rivers whatever the map's resolution (GUI_GAP_REGISTER.md CA-11 -- it used to fade out as the grid got finer, and at 2048 wide it moved nothing at all).",
 	"ramp_strength": "How far the colour relief ramp takes over from the material colour. 0 is the material model alone (climate, slope, relief); 1 is a full hypsometric tint. The ramp is applied before the light, so the hillshade, occlusion and paper still read through it at any strength.",
 	"local_contrast": "Adds band-limited detail back after the paper wash. The gain falls to zero on strong edges, so coastlines and snowlines cannot halo.",
@@ -228,6 +253,9 @@ const APPEARANCE_HELP := {
 	"tex_strength": "A three-frequency fine surface modulation over the material colour -- the reference's Surface texture. Evaluated in map coordinates, so a tiled export stays seamless.",
 	"rock_slope": "Extra rock exposure on steep ground -- the reference's Slope rock. A tint over the finished material mix rather than a change to it, so the climate/slope blend underneath is untouched. Its steepness threshold is the reference's own, which is measured per cell: a cliff crosses it at any map size, but how much of the middle ground qualifies falls as the grid gets finer.",
 	"wetness": "Darkens and cools ground with a high topographic wetness index -- valley bottoms, seeps and saturated soils. This is the reference's Wetness slider, and a different stage from the near-channel wetness directly above: unblurred, keyed on terrain shape rather than on river flow, and applied to the material before the light rather than to the finished pixel. Both can be on.",
+	"sdf_coast": "Coast bands: a bright wet shore-sand band and a lusher coastal plain behind it, keyed on distance from the coastline itself rather than on elevation, so both hold a constant width whatever the relief does and at whatever resolution the map was generated. The reference's SDF coastlines, and the first of its three distance-keyed rows -- the two below are its siblings. Costs one whole-grid distance transform when on and nothing when off.",
+	"sdf_rivers": "River bands: a damp bank, a wetland green behind it and a wide pale floodplain behind that, in three widening rings out from every watercourse. Measured from the channels themselves rather than from height or rainfall, so a river reads as a valley floor at any resolution instead of a coloured line. Same family as Coast bands above, keyed on rivers instead of the shore. Nothing on a loaded save, which stores no flow field and therefore knows where no rivers are. Costs one whole-grid distance transform when on and nothing when off.",
+	"sdf_biomes": "Biome blend: widens the noise that ragged the boundary between two biomes, in proportion to how close the ground is to that boundary -- so grassland dissolves into forest over a band rather than at a line, while each biome's interior stays as crisp as it was. Not a tint: it moves where the materials meet, not what colour they are. Costs a water-body pass and one whole-grid distance transform when on, and nothing when off.",
 	"sea_grain_warp": "Breaks up the rectangular quilt visible in open ocean at low zoom -- squares about eighty cells across, caused by the sea's colour noise being sampled on a grid-aligned lattice. 0 is the reference's exact lattice, artifact included, and is what the shipped default uses: the blockiness is inherited from the reference HTML rather than introduced here, so removing it is a deliberate divergence and this slider is where you opt into it.",
 	"haze_strength": "Atmospheric perspective: how far the plate fades toward sky at its edges. The reference's own fixed 0.18, made adjustable; the shipped look uses 0.09, which reads as air rather than as a vignette.",
 	"atmo_desaturation": "How far the outer plate loses colour toward the haze above, same distance as the sky tint. 0 keeps material colour equally saturated everywhere.",
@@ -532,14 +560,27 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			+ "a button in this section silently moving it is the desync this dock "
 			+ "keeps having to fix. All presentation -- nothing here marks a "
 			+ "generation stage stale.")
+		## **This note has now been wrong twice in one day, in the same
+		## way** -- `MISTAKES.md`'s "prose that describes the old behaviour",
+		## in the surface a user actually reads. The second time it said the
+		## two remaining SDF legs "wait on one thing, the distance transform
+		## their coast sibling already has"; they did not wait on anything.
+		## `build_coast_sdf` **is** that transform over a mask, which is how
+		## the reference writes `buildRiverSDF` too, so both shipped by
+		## composition (`render.rs::build_river_sdf`,
+		## `build_biome_boundary_dist`). What is left is checked rather than
+		## inherited: `minorStreams` and `season` still return zero hits in
+		## `render.rs`.
 		DccWidgets.note(body,
 			"Not bound, because the engine has no such stage: minor "
-			+ "channels, sky view factor, cast shadows, season blend and the three "
-			+ "SDF layers (coastlines, river bands, biome blend). Those are "
-			+ "reference render stages this port has not ported, not bindings it is "
-			+ "missing. Ridge crests, surface texture, ridged relief and curvature "
-			+ "shading left this list on 2026-08-24, and slope rock and the "
-			+ "reference's own TWI wetness on 2026-09-03; all six are live above.")
+			+ "channels and season blend. Those are reference render stages this "
+			+ "port has not ported, not bindings it is missing. Ridge crests, "
+			+ "surface texture, ridged relief and curvature shading left this list "
+			+ "on 2026-08-24, slope rock and the reference's own TWI wetness on "
+			+ "2026-09-03, sky view factor, cast shadows and SDF coastlines later "
+			+ "the same day, and the river-band and biome-blend legs on the pass "
+			+ "after that; all eleven are live above, alongside the rock "
+			+ "microtexture, which this note never listed.")
 	else:
 		DccWidgets.note(body,
 			"A post-process over the finished terrain raster, before rivers, labels "

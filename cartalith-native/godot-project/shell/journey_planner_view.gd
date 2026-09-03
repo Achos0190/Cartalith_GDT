@@ -33,7 +33,11 @@ class_name JourneyPlannerView
 ##   layer read, not a public API this file invented).
 ## - `_center_panel` is appended to `app.viewport_content` next to
 ##   `app.viewport` (the map surface) and swaps places with it -- `app.viewport
-##   .visible = false` while this is showing, restored on disarm.
+##   .visible = false` while this is showing, restored on disarm. **Desktop and
+##   tablet only.** On phone the map stays live underneath instead (`_show()`'s
+##   own comment has the reasoning): `DCC_SHELL_SPEC.md` §13 requires the map
+##   to draw edge-to-edge behind every inset, and `_center_panel` already
+##   covers it opaquely row by row, so nothing is lost by leaving the Node on.
 ## - The right dock is NOT taken over directly. `right_dock.gd` already owns
 ##   `right_dock_body` end to end and rebuilds it on every selection change
 ##   (`RightDock`'s own doc: "contents follow the selection, not the
@@ -340,7 +344,61 @@ func _show() -> void:
 	var civ_panel: Control = app._workspace_panels.get("civilization")
 	if civ_panel != null:
 		civ_panel.visible = false
-	app.viewport.visible = false
+	## PH-16, second half (`GUI_GAP_REGISTER.md` §50): desktop's own swap turns
+	## the live map off, and that is correct there -- `_center_panel` is the
+	## only content `viewport_content` shows either way, on a shell where
+	## nothing else floats over that region. Phone is not that shell.
+	## `DCC_SHELL_SPEC.md` §13 states the phone's own rule in so many words:
+	## "Map draws edge-to-edge behind every inset" -- `dcc_shell.gd::
+	## _build_phone_shell()` builds the live map (`vp`) and every floating
+	## chrome layer (app bar, tool sheet, bottom nav) as siblings under the
+	## SAME `_phone_root`, with the map always rendering underneath. This
+	## panel is parented into that identical stack (`app.viewport_content`,
+	## itself inside `vp`) for the same reason the map is -- so it can sit
+	## under the same floating chrome -- and disabling the map's own Node
+	## while this panel covers it switches the map off instead of covering
+	## it, which is the wrong half of that sentence to satisfy. `_center_panel`
+	## already paints every row of its own stack with an opaque `PanelContainer`
+	## background (verified: `_jp16_probe.gd` at 1080x2400 finds its six panel
+	## rows tiling y=0..2400 with no gap), so leaving the map live underneath
+	## costs nothing visible.
+	##
+	## **It also buys nothing visible, and the sentence that used to end here
+	## claimed otherwise.** It read "buys back the one thing turning it off
+	## broke". A verifier ran the discriminating test — flip
+	## `app.viewport.visible` true->false with the planner open on phone and diff
+	## the framebuffer — and got **0 of 288 000 sampled pixels changed**. The
+	## panel *is* the opaque cover, so the map's own visibility is unobservable
+	## while it is up, in either state.
+	##
+	## The line stays `true` on phone anyway, on the narrower ground that a
+	## covered Node is the reference's own arrangement and switching it off is a
+	## second state to get wrong.
+	##
+	## **What the band actually is, measured 2026-09-03** (`_ph16band_probe.gd`,
+	## real GL render, dark palette forced, 1080x2400, exhaustive full-width
+	## scan — not the every-fifth-row sweep the register describes). Four states,
+	## because the register only ever measured one and one cannot discriminate:
+	##
+	##   | state | blank rows / 2 400 | longest band |
+	##   |---|---|---|
+	##   | planner **closed**, no world (control) | 1 494 | 1 078 |
+	##   | planner open, no world | 1 047 | 253 |
+	##   | planner open, world, no route | 978 -> **694** | 253 -> **98** |
+	##   | planner open, world + route | 331 -> **291** | 66 |
+	##
+	## Two things follow, and they point in opposite directions:
+	##
+	## - **In the no-world state the band is the app's, not this panel's.**
+	##   Opening the planner *removes* 447 blank rows from the same screen. There
+	##   is nothing honest this file can draw into a world that does not exist,
+	##   and filling it would be decoration.
+	## - **With a world and no route there was a real 253-row hole**, and it was
+	##   this panel's: the route-map box refused to draw a texture it was already
+	##   holding. `_RouteMapView.world_bounds` closes it — the arrows above are
+	##   before/after that change.
+	if not _phone:
+		app.viewport.visible = false
 	_left_panel.visible = true
 	_center_panel.visible = true
 	app.set_rail_foot("JOURNEY")
@@ -790,6 +848,11 @@ func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: Str
 	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL)
 	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
 	l.clip_text = true
+	## Same gap `dcc_widgets.gd::_row()` had -- clipped at a fixed width with
+	## no ellipsis, unreachable by `phone_fit()`'s generalised pass (that walk
+	## only trims a `SIZE_EXPAND` label; this one is sized by the constant
+	## above instead). GUI_GAP_REGISTER.md's phone residue.
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(l)
 	for key in [key_a, key_b]:
 		var sb := SpinBox.new()
@@ -1354,6 +1417,35 @@ func _do_phone_refit() -> void:
 	if _phone and is_instance_valid(_center_panel):
 		app.phone_fit(_center_panel, app.phone_scale())
 
+## `clip_text` + `OVERRUN_TRIM_ELLIPSIS` on a Label, **phone only**, with an
+## explicit authored-px floor. Returned for chaining.
+##
+## Three properties, and all three are load-bearing:
+##
+## - The pair `clip_text` / `OVERRUN_TRIM_ELLIPSIS` is what stops a hard cut
+##   with no sign anything was lost (the `GUI_GAP_REGISTER.md` phone residue
+##   `dcc_widgets.gd::_row()` now fixes for every dock row).
+## - It is also what collapses `Label.get_minimum_size().x` to **1**, which is
+##   why `stops_outer` stops setting a 1 314 px minimum on a 1 080 px screen.
+## - And that collapse is exactly why `min_w` is not optional. `stops_outer` is
+##   an `HBoxContainer` whose middle child (`stops_clip`) is `SIZE_EXPAND_FILL`,
+##   so a non-expanding sibling is laid out at its minimum -- 1 -- and vanishes.
+##   Measured: applying only the first two properties took `No stops on this
+##   route.` off the screen and *raised* the blank-row count by 25.
+##
+## Phone-gated because desktop never had the problem: a 1 684 px dock fits both
+## labels at natural width, and a floor there would ellipsise text that used to
+## read in full. `phone_fit()` multiplies `custom_minimum_size` by
+## `phone_scale()` on its single walk, so the number here is authored px like
+## every other constant in this panel (`_build_center_panel()`'s own header).
+func _ellipsised(l: Label, min_w: int) -> Label:
+	if not _phone:
+		return l
+	l.clip_text = true
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	l.custom_minimum_size.x = min_w
+	return l
+
 func _build_center_panel() -> void:
 	_phone = app != null and app.has_method("is_phone") and app.is_phone()
 	_center_panel = Control.new()
@@ -1416,6 +1508,12 @@ func _build_center_panel() -> void:
 
 	_route_map = _RouteMapView.new()
 	_route_map.set_anchors_preset(Control.PRESET_FULL_RECT)
+	## `scale_factor` -- see that field's own doc. Gated on `_phone` rather
+	## than assigned unconditionally so desktop/tablet keep the class default
+	## (1.0) exactly, the same guard every other `phone_scale()` read in this
+	## file already uses.
+	if _phone:
+		_route_map.scale_factor = app.phone_scale()
 	_route_map_wrap.add_child(_route_map)
 
 	_route_line = _RouteLineLayer.new()
@@ -1479,7 +1577,17 @@ func _build_center_panel() -> void:
 	stops_pad.add_theme_constant_override("margin_right", 12)
 	stops_pad.add_child(stops_outer)
 	stops_wrap.add_child(stops_pad)
-	stops_outer.add_child(DccTheme.mono_label("STOPS · LAYOVER DAYS", "text_dim", DccTheme.FS_HEADER, 2, true))
+	## Both fixed labels on this row ellipsise. A `Label` with neither
+	## `clip_text` nor an overrun behaviour reports its whole text width as its
+	## minimum size, and `stops_outer` is the second of the two nodes measured
+	## dragging the centre panel past the screen (`min_w = 1314` against a
+	## 1080 px handset; `inspector_scroll` above was the other). The chip row
+	## between them was already contained by `stops_clip` below -- these two
+	## were not, and a clipped label with no ellipsis is separately the
+	## `GUI_GAP_REGISTER.md` phone residue `dcc_widgets.gd::_row()` now fixes
+	## for every dock row.
+	stops_outer.add_child(_ellipsised(
+		DccTheme.mono_label("STOPS · LAYOVER DAYS", "text_dim", DccTheme.FS_HEADER, 2, true), 150))
 	# The chip row goes inside a plain `Control`, not straight into the
 	# HBox. Measured 2026-08-23 on a real 1684 px-wide session: a 34-stop
 	# route's chips (a settlement name at natural width plus a 60 px SpinBox
@@ -1505,7 +1613,7 @@ func _build_center_panel() -> void:
 	_stops_row.add_theme_constant_override("separation", 8)
 	_stops_row.set_anchors_preset(Control.PRESET_FULL_RECT)
 	stops_clip.add_child(_stops_row)
-	_stops_note = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
+	_stops_note = _ellipsised(DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY), 105)
 	stops_outer.add_child(_stops_note)
 
 	# -- Lower area: inspector + matrix -------------------------------------------
@@ -1523,7 +1631,26 @@ func _build_center_panel() -> void:
 	inspector_wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
 	lower.add_child(inspector_wrap)
 	var inspector_scroll := ScrollContainer.new()
-	inspector_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	## **Phone: AUTO, not DISABLED, and that is not cosmetic.** A
+	## `ScrollContainer` folds its child's minimum size into its own along any
+	## axis whose scrolling is DISABLED, so the inspector's widest row set the
+	## minimum width of every ancestor up to `col` -- which Godot then clamps
+	## `_center_panel` up to, `PRESET_FULL_RECT` or not. Measured 2026-09-03 at
+	## 1080x2400 with a route committed: `inspector_scroll` reported
+	## `min_w = 1436` and `_route_map_wrap` laid out **1437 px wide on a 1080 px
+	## screen** -- 357 px of the centre panel, the route map's right third
+	## included, off the right edge with no scrollbar anywhere to reach it.
+	## `phone_menu.gd::_note_row()`'s own comment records this exact trap ("a
+	## `Label` reports its full text width as its minimum size ... inside a
+	## `ScrollContainer` whose horizontal scrolling is disabled"), and
+	## `stops_clip` below is this file's own second instance of it.
+	##
+	## AUTO stops the propagation and offers a scrollbar when a row genuinely
+	## does not fit, so every field stays reachable instead of being clipped
+	## off-screen. Desktop keeps DISABLED: a 1 684 px dock never triggered it,
+	## and a horizontal scrollbar there would be a regression, not a fix.
+	inspector_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO \
+		if _phone else ScrollContainer.SCROLL_MODE_DISABLED
 	inspector_wrap.add_child(inspector_scroll)
 	_inspector_body = VBoxContainer.new()
 	_inspector_body.add_theme_constant_override("separation", 0)
@@ -1690,6 +1817,15 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 	for c in _totals_body.get_children():
 		_totals_body.remove_child(c)
 		c.queue_free()
+
+	## Set before the no-route early-out below, because the no-route case is
+	## exactly the one that consumes it -- `_RouteMapView.world_bounds`'s own
+	## doc carries the measurement. `Rect2()` whenever there is no world, which
+	## `_draw_world_crop()` reads as "nothing to crop" and falls back to the
+	## bare panel the empty state always had.
+	var grid: Vector2i = bridge.grid_size() if bridge != null else Vector2i.ZERO
+	_route_map.world_bounds = Rect2(Vector2.ZERO, Vector2(grid.x, grid.y)) \
+		if (bridge != null and bridge.has_world and grid.x > 1 and grid.y > 1) else Rect2()
 
 	if _route_index < 0 or not _bound:
 		_route_map.pts = PackedVector2Array()
@@ -1955,6 +2091,10 @@ func _override_number_row(parent: Control, idx: int, ov: Dictionary, field: Stri
 	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL)
 	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
 	l.clip_text = true
+	## Same gap as `_animal_pair()` above -- GUI_GAP_REGISTER.md's phone
+	## residue, unreachable by `phone_fit()`'s generalised Label pass because
+	## this one is sized by the fixed constant above, not `SIZE_EXPAND`.
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(l)
 	var has_ov := ov.has(field)
 	var cb := CheckBox.new()
@@ -1989,6 +2129,10 @@ func _override_toggle_row(parent: Control, idx: int, ov: Dictionary, field: Stri
 	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL)
 	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
 	l.clip_text = true
+	## Same gap as `_animal_pair()` above -- GUI_GAP_REGISTER.md's phone
+	## residue, unreachable by `phone_fit()`'s generalised Label pass because
+	## this one is sized by the fixed constant above, not `SIZE_EXPAND`.
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(l)
 	var has_ov := ov.has(field)
 	var cb := CheckBox.new()
@@ -2246,6 +2390,12 @@ func _rebuild_matrix(plan: Dictionary) -> void:
 		stage_btn.focus_mode = Control.FOCUS_NONE
 		stage_btn.text = "%02d %s%s" % [i + 1, String(s.get("terrain", "?")), mark]
 		stage_btn.clip_text = true
+		## Button half of the same GUI_GAP_REGISTER.md gap -- `dcc_shell.gd`'s
+		## `text_overrun_behavior = OVERRUN_TRIM_ELLIPSIS` companion to
+		## `clip_text` already proven on `Button` there, just never applied to
+		## this one. Not `SIZE_EXPAND`, so `phone_fit()`'s own Button pass
+		## does not reach it either.
+		stage_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		stage_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		stage_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 		stage_btn.add_theme_font_override("font", DccTheme.mono(0, i == _selected_stage))
@@ -3166,6 +3316,14 @@ class _RouteMapView extends Control:
 	## comment for why a truncated fetch is a real, found-live bug, not a
 	## theoretical one.
 	const _LOD_TILE_BUDGET := 48
+	## GUI_GAP_REGISTER.md PH-16's remaining band: `phone_fit()`'s one walk
+	## (`dcc_shell.gd`'s own header) rescales a Control's OWN themed
+	## properties, never what a raw `_draw()` call paints -- and this whole
+	## class is raw `_draw()` -- so the "no route" placeholder below has to
+	## carry its own multiplier rather than ride that walk. Set from
+	## `_build_center_panel()`, fed the exact figure everything else in the
+	## shell already trusts (`app.phone_scale()`), 1.0 off-phone.
+	var scale_factor := 1.0
 	var pts: PackedVector2Array = PackedVector2Array()
 	var stage_segments: Array = []   ## [{i0,i1,cat,blocked}]
 	var stops: Array = []            ## [Vector2] world grid coords
@@ -3183,6 +3341,19 @@ class _RouteMapView extends Control:
 	## left an undimmed sliver of full-brightness map wherever a tile stuck
 	## out past it, a real seam, not a rounding nicety.
 	var lod_world_bounds := Rect2()
+	## The whole world's grid extent, `Rect2()` when no world is loaded. Written
+	## by `_rebuild_route_map()` on every compute from `bridge.grid_size()`.
+	##
+	## **PH-16's remaining band, second half.** Measured 2026-09-03 at 1080x2400,
+	## dark, real GL: with a world generated and NO route committed, the whole
+	## screen scanned 978 of 2 400 rows with no pixel above RGB(23,23,23) and the
+	## longest single band -- 253 rows at y=283..535 -- was exactly this box. The
+	## texture was already in `map_texture` (`_refresh_route_map_layer_texture()`
+	## fetches it on every compute, route or not); `_draw()` simply refused to
+	## use it because `_bounds()` had nowhere to crop from. A world is a perfectly
+	## good crop window, and it is the one a party about to draw a route wants:
+	## it is where they are going to draw it.
+	var world_bounds := Rect2()
 
 	func _ready() -> void:
 		resized.connect(func(): _sync_lod(); queue_redraw())
@@ -3370,7 +3541,15 @@ class _RouteMapView extends Control:
 	## The route's own world-space bounding box, 12% margin included -- the
 	## exact rect `_fit()` used to normalise into before this existed, now
 	## also the crop window for `map_texture`.
+	##
+	## Without a route it is the **whole world** (`world_bounds`), with no
+	## margin: the world edge is the frame. `Rect2()` when no world is loaded
+	## either, which every caller already treats as "nothing to crop". This
+	## branch also removes a latent `pts[0]` index-out-of-range -- the guard
+	## used to live entirely in the two call sites.
 	func _bounds() -> Array:
+		if pts.size() < 2:
+			return [world_bounds.position, world_bounds.end]
 		var minv := pts[0]
 		var maxv := pts[0]
 		for p in pts:
@@ -3402,8 +3581,8 @@ class _RouteMapView extends Control:
 	## here, and `_RouteLineLayer._draw()` for where the rest of this went.
 	func _draw() -> void:
 		if pts.size() < 2:
-			draw_string(ThemeDB.fallback_font, Vector2(14, 20), "no committed route selected",
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, DccTheme.c("text_ghost"))
+			_draw_world_crop()
+			_draw_empty_state()
 			return
 		## Only when tiles were actually built. `_sync_lod()`'s three early
 		## returns (no LOD binding on this build, a degenerate grid, a null
@@ -3426,6 +3605,89 @@ class _RouteMapView extends Control:
 				## Dimmed so the route line and stop markers stay legible
 				## over real map detail instead of competing with it.
 				draw_rect(dest, Color(0, 0, 0, 0.32))
+
+	## The no-route backdrop: the whole world, when one is loaded.
+	##
+	## **This corrects a claim that was written here and is false.** The
+	## comment on `_draw_empty_state()` below used to read *"this box is
+	## genuinely route-relative -- `_bounds()` needs at least one point to know
+	## what region of the world to crop, so there is no texture this view could
+	## show without a route regardless of whether one is loaded -- so the fix is
+	## this state's own legibility, not a missing texture."* Both halves are
+	## wrong: `_refresh_route_map_layer_texture()` already fetches
+	## `color_texture()` on every compute whether or not a route exists, so the
+	## texture *is* loaded and sitting in `map_texture`; and the whole world is a
+	## legal crop window, so `_bounds()` did not need a route point, only a
+	## fallback. Measured consequence, dark 1080x2400, world generated and no
+	## route: 253 contiguous rows of uniform `panel` in this box.
+	##
+	## Dimmed to the same 0.32 the routed path uses, for the same reason
+	## restated: the empty-state line above has to stay legible over real map
+	## detail. No LOD tiles here -- `_sync_lod()` needs a route bbox to pick a
+	## zoom level from, and the flat bilinear crop is what every non-"map" layer
+	## already shows.
+	func _draw_world_crop() -> void:
+		if map_texture == null or world_bounds.size.x <= 0.0 or world_bounds.size.y <= 0.0:
+			return
+		var b := _bounds()
+		var minv: Vector2 = b[0]
+		var maxv: Vector2 = b[1]
+		var src := Rect2(minv, maxv - minv).intersection(
+			Rect2(Vector2.ZERO, Vector2(map_texture.get_size())))
+		if src.size.x <= 0.0 or src.size.y <= 0.0:
+			return
+		var fit := _fit(Rect2(Vector2.ZERO, size), minv, maxv)
+		var dest := Rect2(fit.call(src.position), fit.call(src.position + src.size) - fit.call(src.position))
+		draw_texture_rect_region(map_texture, dest, src)
+		draw_rect(dest, Color(0, 0, 0, 0.32))
+
+	## The "no committed route" line, drawn over `_draw_world_crop()`'s backdrop
+	## when there is one and over the bare panel when there is not.
+	##
+	## The line this replaces drew at a bare `Vector2(14, 20)` and font size
+	## `11`: authored physical pixels on a Control with no compositor scaling of
+	## its own (`_build_center_panel()`'s own header explains why phone_scale has
+	## to be applied by hand here), so on the phone box this measured against --
+	## 536 physical px tall, measured, at 1080x2400 -- it drew as an ~11 px
+	## corner label, easy for a panel-coloured field to swallow entirely. (The
+	## register's own "316" is a different number: the *blank band* the box
+	## produced, not the box.) Centred and scaled by
+	## `scale_factor` instead: at the desktop default (1.0) this reproduces the
+	## exact pixel size the line always drew, so desktop is unchanged.
+	##
+	## **Ink and scrim, re-derived because the second term moved.** This line was
+	## `text_ghost` straight onto the panel; `_draw_world_crop()` above replaces
+	## that panel with a live relief render, so the contrast pair it was chosen
+	## against no longer exists (MISTAKES.md, "Change a widget's ink"). It gets
+	## `viewport_host.gd`'s own §5.2/5.3/5.5 HUD treatment instead -- `text_dim`
+	## on a `hud_scrim` pill -- which is this shell's shipped answer to exactly
+	## this problem and not a new one. Computed for both palettes over a map
+	## dimmed by the 0.32 above:
+	##
+	##   dark  #8d9296 on scrim  6.35:1 over black · 4.58:1 over mid grey · 3.06:1 over ice
+	##   light #6b6f6a on scrim  2.31:1 over black · 3.02:1 over mid grey · 3.69:1 over ice
+	##   (bare panel, no world:  6.06:1 dark · 4.66:1 light)
+	##
+	## The same partial-AA shortfall `viewport_host.gd`'s HUD block already
+	## records and reports rather than quietly darkening: the lever is the
+	## token's alpha, and `hud_scrim`'s own comment forbids deriving from it.
+	const _EMPTY_PAD_X := 9
+	const _EMPTY_PAD_Y := 4
+	const _EMPTY_RADIUS := 6
+
+	func _draw_empty_state() -> void:
+		var txt := "no committed route selected"
+		var fs: int = maxi(DccTheme.FS_SMALL, int(round(DccTheme.FS_SMALL * scale_factor)))
+		var font := ThemeDB.fallback_font
+		var txt_w: float = font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var baseline := Vector2((size.x - txt_w) * 0.5, size.y * 0.5 + font.get_ascent(fs) * 0.5)
+		var pad := Vector2(_EMPTY_PAD_X, _EMPTY_PAD_Y) * scale_factor
+		var box := Rect2(
+			Vector2(baseline.x, baseline.y - font.get_ascent(fs)) - pad,
+			Vector2(txt_w, font.get_ascent(fs) + font.get_descent(fs)) + pad * 2.0)
+		draw_style_box(DccTheme.flat(DccTheme.c("hud_scrim"),
+			int(round(_EMPTY_RADIUS * scale_factor))), box)
+		draw_string(font, baseline, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DccTheme.c("text_dim"))
 
 ## The line/markers/dim-wash layer -- a SIBLING of `_RouteMapView`, added
 ## after it (`_build_center_panel()`), so it always draws on top of both the

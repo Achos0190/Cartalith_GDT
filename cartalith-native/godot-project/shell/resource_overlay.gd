@@ -22,9 +22,17 @@ class_name ResourceOverlay
 ## - The reference's `PERF.gen`/`PERF.render` per-stage millisecond timings
 ##   have no Rust-side collector anywhere in `cartalith-godot` — adding one
 ##   is real engine work, out of this ticket's "presentation only" scope.
-## - "Seasons"/"Geoid"/"Tides" are reference `state.*` flags with no matching
-##   `WorldParams` field in `params.rs` at all (this port never exposed
-##   those knobs) — omitted rather than guessed at.
+## - "Seasons" and "Geoid" are reference `state.*` flags with no matching
+##   `WorldParams` field in `params.rs` at all (this port never exposed those
+##   knobs) — omitted rather than guessed at. Seasons are still *computed*:
+##   `cartalith_climate::koppen::compute_seasons` runs on demand behind the
+##   Köppen layer. There is simply no flag here to report.
+## - **"Tides" was listed beside them until 2026-09-03, and that was wrong.**
+##   `passes.tidal_flats` is a real `params.rs` row (`group: "erosion"`) and
+##   `JS_PATHS` maps it to the reference's own `planet.tides.enabled`;
+##   `world_workspace.gd`'s Planet stage note already words it correctly.
+##   It is omitted from the feature chips below by choice of which flags this
+##   overlay lists, not by absence — add it there if it earns a chip.
 ## ponytail: refreshes on a 0.5s Timer while visible (cheapest stand-in for
 ## the reference's "after every render" hook, which would need a render-
 ## pipeline callback this port doesn't have) plus on generate/load. Add a
@@ -91,8 +99,9 @@ func _refresh() -> void:
 	lines.append("GPU: %s" % gpu_str)
 	lines.append("Quality: %s" % _bridge.quality_tier())
 
-	## Only the flags that exist as real `params.rs` entries -- see this
-	## file's own header comment on Seasons/Geoid/Tides.
+	## A hand-picked subset of the flags that exist as real `params.rs` entries
+	## -- see this file's own header comment on Seasons/Geoid (absent) and Tides
+	## (present as `passes.tidal_flats`, and simply not chipped here).
 	if _bridge.world_gen.has_method("get_params"):
 		var params: Dictionary = _bridge.world_gen.get_params()
 		var feats: Array[String] = []

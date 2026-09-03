@@ -72,11 +72,24 @@ const GAP_LAYERS := {
 	"velo":
 		"Never available: a missing computation. No hydraulic velocity-" +
 		"erosion pass exists in this engine.",
-	## `sample_bridge.rs:688`, the `LAYER_GROUPS` `"popdensity"` hint -- "no
-	## regional population-density estimator exists in this engine".
+	## `sample_bridge.rs`'s `LAYER_GROUPS` `"popdensity"` hint -- "no regional
+	## population-density estimator exists in this engine".
+	##
+	## **That engine hint is false, and it is the FIRST line of this row's
+	## tooltip.** `cartalith_civ::estimate_regional_density_km2` exists, is
+	## golden-tested (`golden_parity_carrying_capacity.rs`), and is already
+	## reached from a shipped `#[func]`: `civ_regional_population()`
+	## (`ops_bridge.rs`) builds the full per-cell `dens` field with it and then
+	## integrates it away to one world total. The sentence below is corrected to
+	## the true narrow gap; **the Rust hint must be corrected in the same pass or
+	## the two lines of this tooltip disagree**, which is the exact failure this
+	## table's header says it exists to prevent. Reported 2026-09-03 -- the Rust
+	## side was not that pass's to edit.
 	"popdensity":
-		"Never available: a missing composite. No regional population-" +
-		"density estimator exists in this engine.",
+		"Never available: a missing composite. The per-cell estimator does " +
+		"exist and civ_regional_population() runs it, but that binding " +
+		"integrates the field away to a single total -- nothing keeps it as a " +
+		"drawable raster.",
 	## `sample_bridge.rs:698`, the `LAYER_GROUPS` `"siteprofile"` hint -- "the
 	## flood + slope buildability composite has no Rust equivalent beyond its
 	## two inputs individually". Those two inputs are rows of their own here:

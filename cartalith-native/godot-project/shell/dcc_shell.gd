@@ -594,6 +594,13 @@ func _ready() -> void:
 
 	get_tree().root.size_changed.connect(_on_window_resized)
 	_select_domain(_active_domain)
+	## Deferred, and it has to be: this function runs as `super._ready()` from
+	## `DccApp._ready()`, which only creates `EngineBridge` and `ViewportHost` on
+	## the lines *after* it returns. A deferred call lands after every `_ready()`
+	## in the tree, so both exist by then -- and `_refresh_viewport_context()`
+	## still no-ops rather than erroring on a bare `DccShell` (every phone-chrome
+	## probe in this project), which has neither.
+	_refresh_viewport_context.call_deferred()
 
 ## The pointer-first / tablet composition: one continuous vertical stack of
 ## fixed-height bars around a horizontal row of rail/docks/viewport. This is
@@ -2600,6 +2607,12 @@ func _select_domain(id: String) -> void:
 	if _phone:
 		_phone_tab = _phone_tab_for_domain(id)
 		_refresh_phone_tabs()
+	## §5.2's chip reads the domain and its mode, and `select_domain_mode()`
+	## writes the mode before calling here -- so this one call site covers both.
+	## No-op until the viewport exists (`DccShell._ready()` runs as
+	## `super._ready()`, before `app.gd` builds it); the deferred call at the foot
+	## of `_ready()` is what draws it the first time.
+	_refresh_viewport_context()
 	workspace_changed.emit(id)
 
 ## The active mode of one domain -- `worldMode` / `cc()` / `ct()` behind one
@@ -3029,6 +3042,124 @@ func _build_viewport() -> Control:
 	viewport_content.clip_contents = true
 	area.add_child(viewport_content)
 	return area
+
+# -- §9a The viewport context chip (`vpContext`) ------------------------------
+#
+# `05-right-dock-and-bars.md` §5.2 draws a chip beside the Layers button and
+# leaves `vpContext` `UNSPECIFIED:` -- "its string in every context", with the
+# one surviving hook `vpCtxExtra()` returning `''`. The 2026-08-31 re-export
+# supplies it (`Cartalith DCC Environment.dc.html`, `const vpCtx = ...` in
+# `valsCore()`), a four-arm fall-through:
+#
+#   1  a run is active            GENERATING — STAGE NN
+#   2  WORLD, sculpt mode         SCULPT · DRAFT
+#   3  WORLD, pipeline mode       STAGE NN · EDITED   /  STAGE NN · RESOLVED
+#   4  otherwise                  the domain's own name
+#
+# Arms 1, 2 and 4 port exactly. **Arm 3's number does not, and is dropped rather
+# than guessed.** The prototype's `NN` is `staleFrom || openStage`: `staleFrom`
+# is an index into its own ten-stage pipeline, and this port's staleness is
+# `stale_stages()`, keyed by the stage-graph's *names* (`height`, `hydrology`,
+# `climate`, `civ`) with no index anywhere; `openStage` is the left dock's open
+# accordion, which this class has no accessor for and should not grow one for a
+# chip. Both halves of `staleFrom || openStage` are therefore unavailable, while
+# the `EDITED` / `RESOLVED` verdict beside them is exactly answerable. So the
+# chip says the verdict over the domain name -- both words the design's own,
+# arm 4's noun under arm 3's adjective -- and the tooltip says what is missing.
+# `WORLD · EDITED` is a true sentence; `STAGE 07 · EDITED` would be a guess.
+#
+# Written from here rather than from `viewport_host.gd` because the string is
+# composed of domain, mode and generation state and that node knows none of the
+# three -- the same push-not-poll split `set_style_readout()` already uses.
+
+## The 1-based index of the stage a run is currently in, read off the engine's
+## own `generation_stage` tick. `0` between runs.
+##
+## **Not a second copy of `progress.rs::STAGE_NAMES`** -- the index only, off the
+## signal, which is the discipline `app.gd::_wire_status()`'s own comment sets
+## out for `statusMid` after a duplicated stage table drifted once already.
+var _vp_stage := 0
+var _vp_wired := false
+
+## Composes and pushes §5.2's chip. Cheap enough to call from every signal that
+## can change it; the one non-trivial read is `stale_stages()`, and
+## `EngineBridge.mark_dirty()` early-returns once already dirty, so
+## `params_changed` fires on the clean->dirty transition and not per drag frame.
+func _refresh_viewport_context() -> void:
+	var host := _find_viewport_host()
+	if host == null:
+		return
+	var bridge := _find_engine_bridge()
+	if not _vp_wired and bridge != null:
+		_vp_wired = true
+		bridge.generation_started.connect(func():
+			_vp_stage = 0
+			_refresh_viewport_context())
+		bridge.generation_stage.connect(func(index: int, _name: String, _total: int):
+			_vp_stage = index + 1
+			_refresh_viewport_context())
+		bridge.generation_finished.connect(func(_ok: bool):
+			_vp_stage = 0
+			_refresh_viewport_context())
+		bridge.world_loaded.connect(_refresh_viewport_context)
+		## The stale/settled pair: `params_changed` is "a dial moved; downstream
+		## is stale", `params_applied` is "a generate landed; nothing is stale".
+		bridge.params_changed.connect(_refresh_viewport_context)
+		bridge.params_applied.connect(_refresh_viewport_context)
+
+	var text := ""
+	var tip := ""
+	if bridge != null and bridge.generating:
+		## Arm 1. The index is absent for the stretch between `generation_started`
+		## and the first stage tick, so the chip says the state without inventing
+		## a stage number for it.
+		text = ("GENERATING — STAGE %02d" % _vp_stage) if _vp_stage > 0 else "GENERATING"
+		tip = "A generation run is in flight. Stage numbers come from the engine's own generation_stage tick."
+	elif _active_domain == "world" and active_mode("world") == "b":
+		## Arm 2, verbatim.
+		text = "SCULPT · DRAFT"
+		tip = "Sculpt is armed. Stamps are a draft until they are committed; the height field under them is unchanged."
+	else:
+		## Arms 3 and 4. `stale_stages()` refuses mid-generation and answers `{}`
+		## for a world-less session, which is also the honest "nothing is stale".
+		var rail := ""
+		for d in DOMAINS:
+			if String(d.id) == _active_domain:
+				rail = String(d.rail)
+				break
+		if rail == "":
+			return
+		if bridge == null or not bridge.has_world:
+			text = rail
+			tip = "No world yet. Generate one and this chip reports whether the map still rests on the last full pass."
+		elif _active_domain != "world":
+			## **The verdict is WORLD's alone.** `ENV:1889` applies
+			## `EDITED`/`RESOLVED` only under `s.domain === 'WORLD'`; every other
+			## domain gets the bare rail. This branch appended it for *every*
+			## domain until 2026-09-03, so a generated world read
+			## `CIVIL · RESOLVED` where the design says `CIVIL`.
+			##
+			## Found by a verifier, and invisible to the probe that covered this
+			## function: that probe is world-less by construction, and the
+			## world-less arm above already returns the bare rail — so the two
+			## agreed for the wrong reason.
+			text = rail
+			tip = ("Staleness is reported on WORLD, where the generation graph lives. "
+				+ "This domain shows its rail alone, as the design does.")
+		else:
+			var stale: Dictionary = bridge.stale_stages()
+			text = "%s · %s" % [rail, "EDITED" if not stale.is_empty() else "RESOLVED"]
+			if stale.is_empty():
+				tip = ("Every stage the graph tracks has re-run since the last edit, so the map "
+					+ "is what the current parameters produce.")
+			else:
+				var names: Array = stale.keys()
+				names.sort()
+				tip = ("Stale: %s. The design's own chip names the stage NUMBER here; this port's "
+					+ "stage graph is keyed by name and has no index, so the verdict is reported "
+					+ "and the number is not invented. Recompute from the status bar to settle it.") \
+					% ", ".join(names)
+	host.set_viewport_context(text, tip)
 
 # -- §10 Timeline bar ---------------------------------------------------------
 

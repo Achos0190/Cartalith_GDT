@@ -12,12 +12,47 @@
 //! reference renderer supports, all `0`/`false` at JS's own defaults so
 //! omitting them changes nothing about the *default* view.
 //!
-//! Excluded: geology microtexture and dune ripples,
-//! SVF/cast-shadow fields, and the coast/river SDF
-//! tinting plus vector river overlay (the last two depend on subsystems
-//! this port hasn't built yet; the existing simple river channel-mask tint
+//! Excluded, and now down to one thing rather than four: the **vector river
+//! overlay**. It is `drawRiverWays`, a Catmull-Rom spline over `_riverNet`
+//! drawn *on the canvas after* the raster — not a per-pixel stage, and it does
+//! not belong in this file at all; in this port that layer is
+//! `godot-project/map_overlay.gd`. The existing simple river channel-mask tint
 //! in `lib.rs` stays as this port's stand-in for "rivers visible",
-//! `MVP_SCOPE.md`'s point 2).
+//! `MVP_SCOPE.md`'s point 2.
+//!
+//! **Struck from this list on 2026-09-03, second pass**: geology microtexture
+//! and dune ripples (`geo_micro`, [`litho_microtexture`]), the SVF and
+//! cast-shadow fields ([`build_svf`], [`build_sun_shadow`], folded into the
+//! reference's own `aoC` product), and the coast leg of the SDF tinting
+//! ([`apply_coast_sdf`]). All four ship at `0.0`, so this changed no pixel of
+//! `default()` or `js_reference()` — same convention, and the same reason to
+//! strike rather than annotate, as the `rockSlope` paragraph below.
+//!
+//! **Struck on 2026-09-03, third pass — the other two SDF legs**
+//! ([`build_river_sdf`] + [`apply_river_sdf`], [`build_biome_boundary_dist`] +
+//! [`sdf_eco_k`]). `OUTSTANDING_WORK.md` §2.5 files them as *"depends on
+//! subsystems the renderer's own doc says are not built"*, and the paragraph
+//! it means is the one this text replaces. Both of that paragraph's blockers
+//! were real and both dissolved on inspection rather than on new work:
+//!
+//! - The **private distance transform.** `cartalith_civ`'s `jfa_dist` is
+//!   still private, and neither builder below needs it: `buildCoastSDF` and
+//!   `buildRiverSDF` are the *same function over a different mask* in the
+//!   reference itself, so [`build_river_sdf`] is exactly
+//!   `cartalith_civ::build_coast_sdf` over the discharge mask — not an
+//!   approximation of it, an algebraic identity, proved term by term in that
+//!   function's own doc and pinned by a test. The unsigned biome distance is
+//!   the same public call with the seed cells zeroed.
+//! - The **missing map width.** `riverFlowThresh` needs one and a `RenderCtx`
+//!   carried none; it now takes one through [`RenderCtx::with_map_scale`],
+//!   the same builder shape `with_lithology` and `with_ground_tiles` already
+//!   use. Not calling it leaves both fields empty, which is the off state.
+//!
+//! The water-body classification `buildBiomeRaster` needs is rebuilt inside
+//! that builder from the field and rainfall a `RenderCtx` already holds, with
+//! the identical `cartalith_civ::build_water_bodies` call the civilisation
+//! pass makes (`lib.rs`), so the two cannot classify the same world
+//! differently. It is paid only when the biome slider is up.
 //!
 //! Ported despite being extras: the `bioBlend` grey-desaturation blend
 //! (0.90 default) and the edge haze fade, both unconditional in the
@@ -1203,6 +1238,35 @@ pub struct TerrainAppearance {
     /// `smooth_sea_h`'s own `gw/200` radius).
     pub ao_radius_frac: f64,
 
+    // ---- The reference's own two R5 lighting fields (2026-09-03) ----
+    /// `state.viz.svf` (`svfR`) — sky-view factor: how much of the sky
+    /// hemisphere a cell can see, so enclosed valleys and gorge floors lose
+    /// diffuse skylight that open ridgetops keep ([`build_svf`]).
+    ///
+    /// **A different measurement from [`Self::ao_strength`], not a second
+    /// dial on the same one.** AO here is a *cavity map* — a comparison
+    /// against a blurred copy of the field, which asks "does this cell sit
+    /// below its neighbourhood". SVF ray-casts eight azimuths and asks "how
+    /// high does the terrain rise around this cell", which is a horizon
+    /// measurement: a broad shallow basin is a strong cavity and a weak
+    /// enclosure, and a narrow gorge between two walls is the reverse. The
+    /// reference multiplies its own three fields together for exactly that
+    /// reason and this port does the same (see [`RenderCtx::with_appearance`]).
+    ///
+    /// `0.0` skips the whole precompute, which is the reference's own default
+    /// and `js_reference()`'s.
+    pub svf_strength: f64,
+    /// `state.viz.shadows` (`shadowsR`) — horizon cast shadows: march each
+    /// cell toward the sun and darken it where terrain rises above the sun ray
+    /// ([`build_sun_shadow`]). Long soft shadows thrown off major ranges,
+    /// which is the one relief cue a per-cell hillshade cannot produce however
+    /// many light directions it is given — a hillshade only ever asks about
+    /// the *local* normal.
+    ///
+    /// `0.0` skips the whole precompute; the reference's default and
+    /// `js_reference()`'s.
+    pub shadow_strength: f64,
+
     // ---- Milestone 3 (`TERRAIN_APPEARANCE_SCOPE.md`): hydrology tint ----
     /// Ambient "near water" darkening/cooling strength
     /// (`TERRAIN_APPEARANCE_RESEARCH.md` §13). `0.0` disables it entirely
@@ -1314,6 +1378,27 @@ pub struct TerrainAppearance {
     /// it never touches `material_weights` — the golden-verified fraction
     /// blend §32 warns is easiest to break.
     pub litho_exposure: f64,
+    /// `state.viz.geology`'s **texture** half (reference 7801-7832): the
+    /// per-rock-type procedural microtexture — granite mineral speckle and
+    /// fracture creases, basalt lava-field patchiness, andesite ash and cinder
+    /// darkening, limestone karst pitting, sandstone and shale strata banded
+    /// by elevation, metamorphic folded gneiss — plus the wind-ripple banding
+    /// the same slider gives gentle sandy ground ([`litho_microtexture`], and
+    /// the dune branch in [`land_color`]).
+    ///
+    /// **Only the texture.** The reference's `geoK` block also blends toward a
+    /// flat per-lithology colour; in this port that colour arrives already,
+    /// from [`Self::litho_strength`] and [`Self::litho_exposure`] over
+    /// [`litho_palette`]'s seven editable three-stop ramps. Porting the
+    /// reference's recolour on top would be a *second* geology colour
+    /// vocabulary disagreeing with the first — so this stage contributes the
+    /// reference's `(1 + mt)` factor and nothing else, over whatever colour
+    /// the two stages above put there. Stated rather than silent, per
+    /// `CLAUDE.md`'s rule on deviating from a literal port.
+    ///
+    /// Inert with no lithology attached (a loaded save), which is the
+    /// reference's own `lith!==undefined` gate, and `0.0` skips it entirely.
+    pub geo_micro: f64,
 
     // ---- Milestone 5: local contrast (§18) ----
     /// Local-contrast gain (`TERRAIN_APPEARANCE_RESEARCH.md` §18): how much
@@ -1444,6 +1529,48 @@ pub struct TerrainAppearance {
     /// multiply rather than a lerp. They can both be on; they are different
     /// pictures of "wet".
     pub wetness: f64,
+    /// `state.viz.sdfCoast` (`sdfCoastR`) — the reference's B2 coast bands:
+    /// a bright wet-sand shore band and a lusher coastal plain behind it,
+    /// keyed on **signed distance to the coastline** rather than on elevation,
+    /// so both read at a constant width whatever the relief does
+    /// ([`apply_coast_sdf`]).
+    ///
+    /// `0.0` skips the whole thing, including the distance transform
+    /// ([`RenderCtx::with_appearance`] does not build the field at all) — the
+    /// reference's own default and `js_reference()`'s.
+    ///
+    /// Its two siblings are [`Self::sdf_rivers`] and [`Self::sdf_biomes`],
+    /// which landed 2026-09-03 (third pass). **This doc comment used to say
+    /// they were unportable** — "a missing builder rather than a decision",
+    /// naming `cartalith-civ`'s private `jfa_dist` — and that reason was
+    /// wrong, not merely stale: neither leg ever needed it. See the module
+    /// doc's third-pass paragraph.
+    pub sdf_coast: f64,
+    /// `state.viz.sdfRivers` (`sdfRiversR`) — the reference's B3 river bands:
+    /// damp bank, wetland green and floodplain, in three widening rings
+    /// measured from the **discharge channel mask** rather than from the
+    /// stamped river raster, so they read at a constant width at any
+    /// resolution ([`apply_river_sdf`]).
+    ///
+    /// `0.0` skips the whole thing, including the distance transform — and so
+    /// does a `RenderCtx` whose [`RenderCtx::with_map_scale`] was never
+    /// called, or one built from a **loaded save**, which carries no flow
+    /// field (`SAVEFILE_COMPAT.md`, the same absence `flow` already documents).
+    /// The consumer tests the field's length rather than this number, so the
+    /// three cannot disagree.
+    pub sdf_rivers: f64,
+    /// `state.viz.sdfBiomes` (`sdfBiomesR`) — the reference's B4 ecotone
+    /// widener. Not a tint: it scales the **noise jitter** [`land_color`]
+    /// already applies to its climate inputs, in proportion to how close the
+    /// cell is to a biome boundary ([`sdf_eco_k`]), so material edges ragged
+    /// where two biomes meet and stay crisp in a biome's interior.
+    ///
+    /// `1.0` is the multiplier at rest, not `0.0` — [`sdf_eco_k`] returns
+    /// `1 + k·1.5·smoothstep(…)`, the reference's own shape — which is why
+    /// this one is gated on the *field* being empty rather than on a
+    /// zero-valued product: at `0.0` the field is never built, so `land_color`
+    /// is called with the literal `1.0` the jitter has always used.
+    pub sdf_biomes: f64,
 
     // ---- 2026-09-03 (`OUTSTANDING_WORK.md` §2.5): the ocean lattice ----
     /// How far the sea-grain sample lattice is rotated and domain-warped away
@@ -1686,6 +1813,23 @@ impl Default for TerrainAppearance {
             // no-op — `render_default_pin.rs` holds the digest that proves it.
             rock_slope: 0.0,
             wetness: 0.0,
+            // The last three reference viz stages this file had no port for
+            // (2026-09-03, second pass) — the two R5 lighting fields and the
+            // B2 coast bands. Same rule, third time: `0.0` is the value at
+            // which each one's own branch is never entered, so `default()`,
+            // `js_reference()` and every tier below are the images they
+            // already were. `color_space.rs`'s `FINISHED_RENDER_FNV1A` is the
+            // hash that proves it for `default()`.
+            svf_strength: 0.0,
+            shadow_strength: 0.0,
+            geo_micro: 0.0,
+            sdf_coast: 0.0,
+            // The trio's other two legs (2026-09-03, third pass). Same rule
+            // again: at `0.0` neither field is built, so `land_color`'s
+            // `eco_k` is the literal `1.0` it has always been and the river
+            // band's own call site is a length test that never fires.
+            sdf_rivers: 0.0,
+            sdf_biomes: 0.0,
             sea_grain_warp: 0.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
@@ -2088,6 +2232,11 @@ tunables! {
     // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
     "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
     "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
+    // -- Reference Rendering-advanced ▸ the two R5 lighting fields (`svfR`,
+    //    `shadowsR`). They sit beside AO because the reference multiplies all
+    //    three into one `aoC`, and so does this port --
+    "svf_strength"          => svf_strength,          0.0,   1.0,  "Sky view factor";
+    "shadow_strength"       => shadow_strength,       0.0,   1.0,  "Cast shadows";
     // -- Milestone 3's flow-accumulation wetness. **This row used to be filed
     //    under the reference's `wetnessR` slider and that was wrong**: the
     //    reference's own wetness stage is TWI-keyed, unblurred and applied in
@@ -2107,6 +2256,12 @@ tunables! {
     // -- Reference Rendering-advanced ▸ Geology materials (`geologyR`) --
     "litho_strength"        => litho_strength,        0.0,   1.0,  "Geology tint";
     "litho_exposure"        => litho_exposure,        0.0,   1.0,  "Bedrock exposure";
+    // The same `geologyR` slider's texture half. One row, not two, because the
+    // reference drives both the rock microtexture and the dune ripples from
+    // this one number -- and because a separate dune row would be inert on
+    // every fixture without a hot arid coast to act on, which is a row that
+    // looks live and is not.
+    "geo_micro"             => geo_micro,             0.0,   1.0,  "Rock microtexture";
     "local_contrast"        => local_contrast,        0.0,   1.0,  "Local contrast";
     // -- `GUI_GAP_REGISTER.md` CA-02's colour relief (no reference counterpart:
     //    the reference has no elevation ramp either) --
@@ -2125,6 +2280,12 @@ tunables! {
     //    different stages and the labels say so rather than colliding --
     "rock_slope"            => rock_slope,            0.0,   1.0,  "Slope rock";
     "wetness"               => wetness,               0.0,   1.0,  "Wet ground (TWI)";
+    // -- Reference Rendering-advanced ▸ the SDF trio (`sdfCoastR`,
+    //    `sdfRiversR`, `sdfBiomesR`), in the reference's own panel order.
+    //    The last two had no row here until 2026-09-03 --
+    "sdf_coast"             => sdf_coast,             0.0,   1.0,  "Coast bands (SDF)";
+    "sdf_rivers"            => sdf_rivers,            0.0,   1.0,  "River bands (SDF)";
+    "sdf_biomes"            => sdf_biomes,            0.0,   1.0,  "Biome blend (SDF)";
     // -- Not a reference row: the flag over the reference's own ocean lattice.
     //    `0.0` is the reference exactly; see the field's doc comment --
     "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
@@ -2380,6 +2541,172 @@ pub(crate) fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, worl
     out
 }
 
+/// The reference's own `SVF_MAX`/`SVF_RELK_DIV` (line 8031) and `SHADOW_MAX`
+/// (8056). `relK = W / SVF_RELK_DIV` is what converts a height *difference* in
+/// the field's own `[0, 1]` units into a slope against a distance measured in
+/// cells — the two lighting fields below share it, which is why the divisor is
+/// named once here rather than twice inline.
+const SVF_MAX: f64 = 0.55;
+const SVF_RELK_DIV: f64 = 6.0;
+const SHADOW_MAX: f64 = 0.45;
+
+/// The sun elevation `buildSunShadowField` is called with, at **both** of the
+/// reference's own call sites (8436 on screen, 11921 in the bake): a literal
+/// `20`, deliberately not `state.sunAlt`.
+///
+/// Kept literal here rather than wired to [`TerrainAppearance::sun_alt_deg`],
+/// because it is doing a different job from the hillshade's sun: a horizon
+/// shadow only exists at all at a *low* sun, and at this port's default
+/// `sun_alt_deg` of 40° almost nothing on a real heightfield rises above the
+/// ray. Reading the map's own sun would therefore make the stage silently
+/// inert at the default rather than adjustable — the reference's constant is
+/// the behaviour, and this is a note that it is a constant on purpose.
+const SHADOW_SUN_ALT_DEG: f64 = 20.0;
+
+/// `buildSVFField` (reference HTML 8032-8051) — sky-view factor as a per-cell
+/// brightness **multiplier**, `1` on open ground and down to `1 - SVF_MAX·k`
+/// in fully enclosed terrain.
+///
+/// Eight azimuths, six log-spaced distances; each direction contributes
+/// `sin θ_horizon`, derived from the tangent by `s / hypot(1, s)` exactly as
+/// the reference derives it. `js_hypot` and `js_round` rather than the Rust
+/// library's, per `cartalith-rust-conventions`' "V8's libm is not Rust's" —
+/// the rounding matters here in particular, since it chooses which *cell* each
+/// sample lands on and a half-cell disagreement is a different height.
+///
+/// The `break` on leaving the grid is the reference's, and is not the same as
+/// `continue`: a direction that runs off the edge stops looking rather than
+/// skipping to a farther sample, so the horizon is never completed across a
+/// gap. Edge-clamping instead would invent a wall at the plate boundary.
+pub(crate) fn build_svf(field: &[f32], gw: usize, gh: usize, k: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let mut out = vec![1f32; n];
+    let rel_k = gw as f64 / SVF_RELK_DIV;
+    const DIRS: usize = 8;
+    let mut dcos = [0f64; DIRS];
+    let mut dsin = [0f64; DIRS];
+    for d in 0..DIRS {
+        let a = d as f64 * std::f64::consts::PI * 2.0 / DIRS as f64;
+        dcos[d] = a.cos();
+        dsin[d] = a.sin();
+    }
+    const DIST: [f64; 6] = [2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
+    // Row-parallel on `BakeFields::new`'s own determinism argument: every
+    // output cell is a pure function of the immutable field and each row
+    // writes its own disjoint slice.
+    out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for x in 0..gw {
+            let h = field[y * gw + x] as f64;
+            let mut sum = 0.0;
+            for d in 0..DIRS {
+                let mut max_s = 0.0f64;
+                for st in DIST {
+                    let nx = cartalith_jsmath::js_round(x as f64 + dcos[d] * st);
+                    let ny = cartalith_jsmath::js_round(y as f64 + dsin[d] * st);
+                    if nx < 0.0 || nx >= gw as f64 || ny < 0.0 || ny >= gh as f64 {
+                        break;
+                    }
+                    let dh = field[ny as usize * gw + nx as usize] as f64 - h;
+                    if dh <= 0.0 {
+                        continue;
+                    }
+                    let s = (dh * rel_k) / st;
+                    if s > max_s {
+                        max_s = s;
+                    }
+                }
+                sum += max_s / cartalith_jsmath::js_hypot(1.0, max_s);
+            }
+            let svf = 1.0 - sum / DIRS as f64;
+            row[x] = (1.0 - k.min(1.0) * SVF_MAX * (1.0 - svf)) as f32;
+        }
+    });
+    out
+}
+
+/// `buildSunShadowField` (reference HTML 8057-8074) — horizon cast shadows as
+/// a per-cell multiplier, `1` lit and down to `1 - SHADOW_MAX·k` in full
+/// shadow, with a `smoothstep(0, 0.25, block)` penumbra.
+///
+/// One march per cell toward the sun over ten log-spaced steps, keeping the
+/// largest amount by which a blocker rises *above the sun ray* rather than the
+/// first hit — which is what makes the shadow soften with the blocker's height
+/// instead of being a hard binary mask.
+///
+/// `dx = sin(az)`, `dy = -cos(az)` is the reference's own light-vector
+/// convention, shared with `shadeFactor`, so the shadows fall on the side of a
+/// range the hillshade already darkens rather than at right angles to it.
+pub(crate) fn build_sun_shadow(field: &[f32], gw: usize, gh: usize, az_deg: f64, alt_deg: f64, k: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let mut out = vec![1f32; n];
+    let rel_k = gw as f64 / SVF_RELK_DIV;
+    let az = az_deg.to_radians();
+    let (dx, dy) = (az.sin(), -az.cos());
+    let tan_alt = alt_deg.to_radians().tan();
+    const DIST: [f64; 10] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 27.0, 40.0, 60.0, 90.0];
+    out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for x in 0..gw {
+            let h = field[y * gw + x] as f64;
+            let mut block = 0.0f64;
+            for st in DIST {
+                let nx = cartalith_jsmath::js_round(x as f64 + dx * st);
+                let ny = cartalith_jsmath::js_round(y as f64 + dy * st);
+                if nx < 0.0 || nx >= gw as f64 || ny < 0.0 || ny >= gh as f64 {
+                    break;
+                }
+                let dh = field[ny as usize * gw + nx as usize] as f64 - h;
+                if dh <= 0.0 {
+                    continue;
+                }
+                let over = (dh * rel_k) / st - tan_alt;
+                if over > block {
+                    block = over;
+                }
+            }
+            row[x] = (1.0 - k.min(1.0) * SHADOW_MAX * smoothstep(0.0, 0.25, block)) as f32;
+        }
+    });
+    out
+}
+
+/// `aoC = (_aoField…) * (_svfField…) * (_shadowField…)` (reference 8167, and
+/// the bake's own copy at 11967) — fold the two horizon fields into the
+/// cavity-map AO multiplier the rest of this renderer already carries.
+///
+/// **Folded into `ao` rather than carried as two more `RenderCtx` fields, and
+/// that is the point.** `ao` has two consumers — [`cell_color`] reads
+/// `ctx.ao[i]`, [`BakeFields::pixel`] reads `sample_arr(&ctx.ao, …)` — and
+/// this project's recorded failure mode is a capability that reaches one
+/// consumer path and not the other (`with_ground_tiles` shipped that way and
+/// every exported PNG was a different picture from the screen). Multiplying
+/// here makes the on-screen texture and every export path pick both fields up
+/// by construction, with no second site to keep in sync.
+///
+/// Byte-identity at rest is **by control flow**: at `0.0` neither field is
+/// built and `ao` is not written at all, so there is no `× 1.0` to reason
+/// about.
+///
+/// `pub(crate)` rather than private so `geology_micro_and_sky_fields.rs` can
+/// assert what [`SHADOW_SUN_ALT_DEG`] claims: that this call passes the
+/// reference’s literal `20` and **not** [`TerrainAppearance::sun_alt_deg`].
+/// Through a rendered image that claim is untestable — moving the map’s sun
+/// moves the hillshade too, so every pixel differs either way and no
+/// assertion can tell which caused it.
+pub(crate) fn fold_lighting_fields(ao: &mut [f32], field: &[f32], gw: usize, gh: usize, a: &TerrainAppearance) {
+    if a.svf_strength > 0.0 {
+        let svf = build_svf(field, gw, gh, a.svf_strength);
+        for (o, s) in ao.iter_mut().zip(svf) {
+            *o *= s;
+        }
+    }
+    if a.shadow_strength > 0.0 {
+        let sh = build_sun_shadow(field, gw, gh, a.sun_az_deg, SHADOW_SUN_ALT_DEG, a.shadow_strength);
+        for (o, s) in ao.iter_mut().zip(sh) {
+            *o *= s;
+        }
+    }
+}
+
 /// Ambient "near water" tint field (`TERRAIN_APPEARANCE_RESEARCH.md` §13),
 /// returned as a per-cell `[0, 1]` strength (0 = no effect). `flow` is
 /// `None` for a loaded save (`SAVEFILE_COMPAT.md` carries no flow field,
@@ -2528,6 +2855,186 @@ fn build_crest(field: &[f32], gw: usize, gh: usize, sea: f64, a: &TerrainAppeara
         }
     }
     out
+}
+
+/// `applyCoastRiverSDFv`'s coast leg (reference HTML 8135-8138) — two
+/// constant-width bands measured from the coastline itself rather than from
+/// elevation: a bright wet shore-sand band inside 2.5 cells, and a lusher
+/// coastal plain from there out to 14.
+///
+/// `S = max(1, gw/256)` is the reference's resolution normaliser, and it is
+/// what "constant width" means here — the bands stay the same *world* width
+/// whether the grid is 512 or 8192 cells across, because the distance is
+/// divided by it before either `smoothstep` sees it.
+///
+/// `din = -sdf / S`, positive on land: the field's sign convention is negative
+/// inland (`cartalith_civ::build_coast_sdf`, matching `buildCoastSDF`), so the
+/// negation is the reference's own and not a correction of it. An offshore
+/// cell yields a negative `din` and takes neither band — which is why this
+/// needs no water test, and also why it is called on the land path only,
+/// exactly where `surfaceColor` calls it.
+///
+/// `plain` carries the reference's `(1 - beach)` factor so the two bands do
+/// not both paint the first 2.5 cells.
+///
+/// **Not the sub-pixel coastline AA.** The reference has a second, unrelated
+/// use of the same field (8544): blending the sea and land branches across a
+/// `smoothstep(-0.6, 0.6, sd)` band instead of the hard `isWater` step. That
+/// is a different feature in a different place (the branch dispatch, not the
+/// material path) and is not ported here.
+pub(crate) fn apply_coast_sdf(c: Rgb, sdf: f64, k: f64, gw: usize) -> Rgb {
+    let s = (gw as f64 / 256.0).max(1.0);
+    let din = -sdf / s;
+    if din < 0.0 {
+        return c;
+    }
+    let beach = smoothstep(2.5, 0.0, din);
+    let plain = smoothstep(14.0, 2.5, din) * (1.0 - beach);
+    let mut c = c;
+    if beach > 0.0 {
+        let bk = k * beach * 0.5;
+        c = (c.0 * (1.0 - bk) + 232.0 * bk, c.1 * (1.0 - bk) + 214.0 * bk, c.2 * (1.0 - bk) + 168.0 * bk);
+    }
+    if plain > 0.0 {
+        let pk = k * plain * 0.22;
+        c = (c.0 * (1.0 - pk) + 150.0 * pk, c.1 * (1.0 - pk) + 168.0 * pk, c.2 * (1.0 - pk) + 108.0 * pk);
+    }
+    c
+}
+
+/// `applyCoastRiverSDFv`'s river leg (reference HTML 8178-8182) — three
+/// widening rings out from a channel: a damp bank inside 2 cells, wetland
+/// green out to 7, floodplain out to 16, each carrying the `(1 - inner)`
+/// factors that stop the bands stacking on the same pixel.
+///
+/// `S = max(1, gw/256)` is the same resolution normaliser [`apply_coast_sdf`]
+/// documents, and `dr = sdf / S` is **not** negated here: `buildRiverSDF`'s
+/// sign convention is already negative *inside* a channel and positive away
+/// from it — the opposite way round from `buildCoastSDF` — so the reference
+/// negates one and not the other. The `dr > 0` test is what keeps the bands
+/// off the channel cells themselves, exactly as `din >= 0` keeps the coast
+/// bands out of the water.
+pub(crate) fn apply_river_sdf(c: Rgb, sdf: f64, k: f64, gw: usize) -> Rgb {
+    let s = (gw as f64 / 256.0).max(1.0);
+    let dr = sdf / s;
+    if dr <= 0.0 {
+        return c;
+    }
+    let bank = smoothstep(2.0, 0.0, dr);
+    let wet = smoothstep(7.0, 2.0, dr) * (1.0 - bank);
+    let flood = smoothstep(16.0, 7.0, dr) * (1.0 - bank) * (1.0 - wet);
+    let mut c = c;
+    if bank > 0.0 {
+        let bk = k * bank * 0.30;
+        c = (c.0 * (1.0 - bk) + 96.0 * bk, c.1 * (1.0 - bk) + 120.0 * bk, c.2 * (1.0 - bk) + 96.0 * bk);
+    }
+    if wet > 0.0 {
+        let wk = k * wet * 0.22;
+        c = (c.0 * (1.0 - wk) + 88.0 * wk, c.1 * (1.0 - wk) + 128.0 * wk, c.2 * (1.0 - wk) + 86.0 * wk);
+    }
+    if flood > 0.0 {
+        let fk = k * flood * 0.14;
+        c = (c.0 * (1.0 - fk) + 120.0 * fk, c.1 * (1.0 - fk) + 150.0 * fk, c.2 * (1.0 - fk) + 104.0 * fk);
+    }
+    c
+}
+
+/// `sdfEcoKv(biomeBDv)` (reference HTML 8172) — the ecotone widener
+/// [`land_color`] takes as `eco_k`: `1` in a biome's interior, rising to
+/// `1 + 1.5·k` on a boundary, over a `6·S`-cell falloff.
+///
+/// **`1.0` is off, not `0.0`.** The reference's own `ecoK != null ? ecoK : 1`
+/// says the same thing, and it is why the caller passes a literal `1.0`
+/// whenever the field is empty rather than calling this with a sentinel
+/// distance — a "no boundary here" distance does not exist, and inventing one
+/// (`1e9`, say) would put a real number through `smoothstep` and rely on it
+/// rounding back to `1`.
+pub(crate) fn sdf_eco_k(biome_bd: f64, k: f64, gw: usize) -> f64 {
+    let s = (gw as f64 / 256.0).max(1.0);
+    1.0 + k * 1.5 * smoothstep(6.0 * s, 0.0, biome_bd)
+}
+
+/// `buildRiverSDF(flow, W, H, {euclid: true})` (reference HTML 7509-7516):
+/// signed distance to the discharge channel mask, **negative inside a
+/// channel** and positive away from it, in cells.
+///
+/// # This is `build_coast_sdf` over a different mask, and that is exact
+///
+/// The reference writes `buildCoastSDF` and `buildRiverSDF` as the same six
+/// lines with two names substituted, so composing the public one is an
+/// identity rather than a reuse of convenience. Term by term, with
+/// `mask[i] = 1 if flow[i] > thresh else 0` and `sea = 0.5`:
+///
+/// | `buildCoastSDF(mask, 0.5)` | `buildRiverSDF(flow, thresh)` |
+/// |---|---|
+/// | `water = mask < 0.5` | `notRiv = flow <= thresh` — the same cells |
+/// | `land  = mask >= 0.5` | `riv    = flow >  thresh` — the same cells |
+/// | `dToLand  = distMask(land)` | `dToRiv = distMask(riv)` |
+/// | `dToWater = distMask(water)` | `dToNot = distMask(notRiv)` |
+/// | out: `mask<0.5 ? +dToLand : -dToWater` | out: `flow>thresh ? -dToNot : +dToRiv` |
+///
+/// The two output expressions are the same two branches with the same two
+/// fields, so every bit of the result is identical — including the `1e9`
+/// no-seed sentinel, which both inherit from the same `jfa_dist`. Building
+/// the mask at the `>` boundary rather than reusing `flow` directly as the
+/// field is the load-bearing step: `build_coast_sdf` splits at `<`, and the
+/// two would disagree on any cell whose discharge equalled the threshold
+/// exactly.
+///
+/// The alternative was a second `jfa_dist` in this crate, since
+/// `cartalith_civ`'s is private. One distance transform with one set of
+/// golden tests is worth more than a private duplicate that agrees today —
+/// and **the transform is the reference's jump flood, which is an
+/// approximation**, whatever its own comment (and `cartalith_civ::jfa_dist`'s,
+/// which copies it) calls it. Exact from a single seed; from many it can keep
+/// a farther seed than the true nearest, measured at one cell of an 11x9 grid
+/// in `sdf_river_and_biome.rs`. Reproducing those misses is the requirement,
+/// not a defect to fix: the reference's picture is the target.
+pub(crate) fn build_river_sdf(flow: &[f32], gw: usize, gh: usize, thresh: f64) -> Vec<f32> {
+    let mask: Vec<f32> = flow.iter().map(|&f| if f as f64 > thresh { 1.0 } else { 0.0 }).collect();
+    cartalith_civ::build_coast_sdf(&mask, gw, gh, 0.5)
+}
+
+/// `buildBiomeBoundaryDist(biome, W, H, {euclid: true})` (reference HTML
+/// 7519-7525): unsigned distance in cells to the nearest cell of a
+/// *different* biome index — `0` on a boundary, growing into each biome's
+/// interior.
+///
+/// The edge mask is the reference's own 4-neighbour test, with its
+/// grid-interior guards (a cell on the left column is never compared against
+/// the right column's last cell, which in `world` mode would otherwise wrap).
+///
+/// Same composition as [`build_river_sdf`], with one extra step:
+/// `build_coast_sdf` returns `-dToNonEdge` on the seed cells, where
+/// `distMask` returns `0`. Those are written back as `0.0` rather than
+/// `.max(0.0)`-clamped, because `jfa_dist` yields exactly `sqrt(0)` at a seed
+/// and an exact zero is what the reference's `smoothstep(6S, 0, d)` needs to
+/// reach its full value on a boundary. The wasted second transform inside
+/// `build_coast_sdf` is the price of not duplicating `jfa_dist`; it is paid
+/// only while the slider is up.
+pub(crate) fn build_biome_boundary_dist(biome: &[u8], gw: usize, gh: usize) -> Vec<f32> {
+    let n = gw * gh;
+    let mut edge = vec![0f32; n];
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let b = biome[i];
+            if (x > 0 && biome[i - 1] != b)
+                || (x + 1 < gw && biome[i + 1] != b)
+                || (y > 0 && biome[i - gw] != b)
+                || (y + 1 < gh && biome[i + gw] != b)
+            {
+                edge[i] = 1.0;
+            }
+        }
+    }
+    let mut d = cartalith_civ::build_coast_sdf(&edge, gw, gh, 0.5);
+    for i in 0..n {
+        if edge[i] != 0.0 {
+            d[i] = 0.0;
+        }
+    }
+    d
 }
 
 /// `applyCrest(c, s)` (reference HTML line 8023) — blend the finished colour
@@ -2717,9 +3224,40 @@ pub struct RenderCtx<'a> {
     /// shows. Computed once in `RenderCtx::new` rather than per cell.
     sea_h: Vec<f32>,
     sea_shade: Vec<f32>,
-    /// Per-cell ambient-occlusion multiplier (`build_ao`). All `1.0` when
-    /// `appearance.ao_strength == 0`, which is the reference's own state.
+    /// The reference's `aoC` (8167): the cavity-map AO multiplier
+    /// (`build_ao`) **times** the sky-view and cast-shadow multipliers
+    /// ([`fold_lighting_fields`]) when either of those is on. All `1.0` when
+    /// all three strengths are `0`, which is the reference's own state — and
+    /// exactly `build_ao`'s output alone whenever only AO is on, which is
+    /// `default()`'s state and every tier's.
     ao: Vec<f32>,
+    /// `_coastSDF` (12089) — signed distance to the coastline in cells,
+    /// negative inland and positive offshore
+    /// (`cartalith_civ::build_coast_sdf`, whose sign convention is the
+    /// reference's own). **Empty** unless `appearance.sdf_coast > 0`, on
+    /// [`Self::coast_d`]'s contract: the consumer tests the length rather
+    /// than re-reading the flag, so the field and the gate cannot disagree.
+    ///
+    /// Not the same field as [`Self::coast_d`], despite the names: that one
+    /// is an unsigned chamfer distance to land, built only for the wave
+    /// contours and only over water.
+    coast_sdf: Vec<f32>,
+    /// `_riverSDF` (8486) — signed distance to the discharge channel mask,
+    /// **negative inside a channel** ([`build_river_sdf`], whose sign is the
+    /// reference's and is the opposite way round from [`Self::coast_sdf`]).
+    ///
+    /// **Empty by construction**, and filled only by
+    /// [`Self::with_map_scale`] — the threshold it needs is
+    /// `riverFlowThresh`, which takes a map width in km that nothing else in
+    /// this struct carries. A caller that never attaches one gets the off
+    /// state rather than a guessed width, and every consumer tests this
+    /// field's length rather than `appearance.sdf_rivers`.
+    river_sdf: Vec<f32>,
+    /// `_biomeBD` (8487) — unsigned distance in cells to the nearest cell of
+    /// a different biome ([`build_biome_boundary_dist`]). Empty by
+    /// construction, on `river_sdf`'s contract; where it is empty the
+    /// ecotone widener is the literal `1.0`, not a computed one.
+    biome_bd: Vec<f32>,
     /// Per-cell "near water" tint strength (`build_hydro_wetness`). All
     /// `0.0` when `appearance.hydro_wet_strength == 0`, which is the
     /// reference's own state.
@@ -2812,12 +3350,61 @@ impl<'a> RenderCtx<'a> {
     ) -> Self {
         let sea_h = smooth_sea_h(field, gw, gh, world);
         let sea_shade = sea_shade_from(&sea_h, gw, gh, &appearance);
-        let ao = build_ao(field, gw, gh, sea_level, world, &appearance);
+        let mut ao = build_ao(field, gw, gh, sea_level, world, &appearance);
+        fold_lighting_fields(&mut ao, field, gw, gh, &appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
         let lights = build_lights(&appearance);
         let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
+        // The reference builds its SDFs in `renderNow` (8446) rather than in
+        // the material path, and only while the slider is up — `_coastSDF`'s
+        // own comment is "null ⇒ off ⇒ render unchanged". A JFA over the whole
+        // grid is far too expensive to pay for per render when nothing reads
+        // it, so the gate is the allocation, not a branch inside the loop.
+        let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(field, gw, gh, sea_level) } else { Vec::new() };
         let crest = build_crest(field, gw, gh, sea_level, &appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None, ground: GroundTiles::default() }
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, coast_sdf, river_sdf: Vec::new(), biome_bd: Vec::new(), hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None, ground: GroundTiles::default() }
+    }
+
+    /// Attach the world's real map width in km, which is the one input the
+    /// B3/B4 SDF legs need and nothing else in this struct carries — and
+    /// build both fields, when their sliders are up.
+    ///
+    /// A builder rather than a `with_appearance` parameter for the reason
+    /// [`Self::with_lithology`] already records: `golden_parity_render.rs`
+    /// and five other test files construct a `RenderCtx` positionally, and
+    /// leaving those untouched is a property worth keeping. **Not calling it
+    /// is the off state**, so every existing caller stays byte-identical
+    /// whatever the sliders say — which is also why the two consumer paths
+    /// test the fields' lengths and not the strengths.
+    ///
+    /// `riverFlowThresh(GW, GH)` is the reference's own threshold
+    /// (`gw·gh·0.0004 / (terrainDetailK(GW, mapWidthKm) · riverCoarseEase(
+    /// mapWidthKm))`), reached here through the port's single canonical copy
+    /// in `cartalith_hydrology` rather than re-derived — the same call the
+    /// civilisation pass, the landmark detector and the export atlas all
+    /// make, so a river the map paints a band around is a river those agree
+    /// exists.
+    ///
+    /// The water-body classification is rebuilt here with the identical
+    /// arguments `lib.rs`'s civilisation pass uses, rather than threaded in:
+    /// the renderer has to work for a world generated with the civilisation
+    /// layer switched off, which is `with_lithology`'s own argument in
+    /// `build_color_texture`.
+    #[allow(dead_code)]
+    pub fn with_map_scale(mut self, map_width_km: f64) -> Self {
+        let (gw, gh) = (self.gw, self.gh);
+        if self.appearance.sdf_rivers > 0.0
+            && let Some(flow) = self.flow
+        {
+            let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+            self.river_sdf = build_river_sdf(flow, gw, gh, thresh);
+        }
+        if self.appearance.sdf_biomes > 0.0 {
+            let wb = cartalith_civ::build_water_bodies(self.field, gw, gh, self.sea_level, self.world, Some(self.rainfall));
+            let biome = cartalith_civ::build_biome_raster(&wb.classification, self.temperature, self.rainfall);
+            self.biome_bd = build_biome_boundary_dist(&biome, gw, gh);
+        }
+        self
     }
 
     /// Attach the world's real rock types (milestone 5, §12). A builder for
@@ -3259,6 +3846,66 @@ fn rock_material_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64, lit
     mix(base, ramp3(litho_palette(a, li), tt), a.litho_strength)
 }
 
+/// The reference's per-lithology procedural microtexture `mt` (HTML 7812-7819)
+/// — a signed multiplicative deviation applied to the rock's own colour, one
+/// expression per rock type, transcribed constant for constant and seed for
+/// seed.
+///
+/// | `lith` | rock | what the expression draws |
+/// |---|---|---|
+/// | 0 | granite | mineral speckle (`vnoise` at 420) plus fracture creases (a 4-octave ridged fbm) |
+/// | 1 | basalt | broad lava-field patchiness |
+/// | 2 | andesite | volcanic ash speckle, darkened where cinder accumulates |
+/// | 3 | limestone | pale karst pitting — one-sided, it only ever darkens |
+/// | 4 | sandstone | warm strata bands, **layered by elevation** (`r`), fbm-warped |
+/// | 5 | shale | the same construction at 1.8× the band frequency and 0.6× the amplitude — thin dense strata |
+/// | _ | metamorphic | folded gneiss banding, layered along `fx` rather than up `r` |
+///
+/// `r` (relative elevation) is a real input for sandstone and shale and not
+/// merely a phase: strata are *horizontal*, so banding a cliff by height is
+/// what makes it read as bedding planes rather than as a stripe pattern.
+///
+/// `fx`/`fy` are world coordinates divided by `gw`, which is the reference's
+/// own `px/(GW||1)` — the same normalisation `land_color`'s surface-texture
+/// stage uses, and the reason a tiled bake stays seamless (§8).
+///
+/// The `_` arm is metamorphic *and* the fallback for an index outside
+/// `LITHO_PALETTE_ORDER`, matching [`litho_palette`]'s own defensive shape:
+/// `build_lithology` cannot emit one, but a save could, and a panic here
+/// crosses the gdext boundary (`cartalith-rust-conventions`).
+pub(crate) fn litho_microtexture(lith: u8, fx: f64, fy: f64, r: f64) -> f64 {
+    match lith {
+        0 => (vnoise(fx * 420.0, fy * 420.0, 211) - 0.5) * 0.22 + (cartalith_noise::ridged_oct(fx * 40.0, fy * 40.0, 4, 213) - 0.5) * 0.12,
+        1 => (fbm(fx * 26.0, fy * 26.0, 217) - 0.5) * 0.20,
+        2 => (vnoise(fx * 300.0, fy * 300.0, 219) - 0.5) * 0.16 - smoothstep(0.6, 0.95, fbm(fx * 18.0, fy * 18.0, 221)) * 0.18,
+        3 => -smoothstep(0.72, 0.95, vnoise(fx * 240.0, fy * 240.0, 223)) * 0.25,
+        4 => (r * 90.0 + fbm(fx * 30.0, fy * 30.0, 227) * 6.0).sin() * 0.13,
+        5 => (r * 160.0 + fbm(fx * 36.0, fy * 36.0, 229) * 4.0).sin() * 0.08,
+        _ => (fx * 70.0 + fbm(fx * 12.0, fy * 12.0, 233) * 9.0).sin() * 0.12,
+    }
+}
+
+/// The reference's rock-exposure gate for the geology block (HTML 7809-7810):
+/// `clamp01(G^1.5·0.85 + smoothstep(0.5, 0.8, r)·0.45) · (1 - snow)`.
+///
+/// Two terms and a veto — steep ground sheds its cover, high ground has less
+/// to shed, and an icecap hides whatever is underneath whatever the other two
+/// say. Deliberately **not** [`TerrainAppearance::litho_exposure`]'s own
+/// `steep · bare · thin · cover` formula: that one answers "how much soil is
+/// there", which is the right question for a *colour*, and this one answers
+/// "how much bare rock face is there", which is the right question for a
+/// *texture*. Keeping the reference's own gate for the reference's own stage
+/// is also what makes the two independently checkable.
+///
+/// `G^1.5` reuses the `slope/0.08` knee and the 1.5 exponent
+/// [`rock_slope_mix`] already pins against independently-derived literals; it
+/// is spelled out rather than calling that helper because the reference does
+/// not fold the slider into this one (`gr2` has no `geoK` in it).
+pub(crate) fn geo_exposure(slope: f64, r: f64, snow: f64) -> f64 {
+    let gr2 = (slope / 0.08).min(1.0).powf(1.5);
+    clamp01(gr2 * 0.85 + smoothstep(0.5, 0.8, r) * 0.45) * (1.0 - snow)
+}
+
 fn snow_col(a: &TerrainAppearance, t: f64, tt: f64) -> Rgb {
     if t < -12.0 {
         ramp3(&a.snow_glac, tt)
@@ -3343,14 +3990,6 @@ fn bio_jitter(x: f64, y: f64, gw: usize) -> f64 {
     0.6 * vnoise(xf / gw * 44.0, yf / gw * 44.0, 31) + 0.4 * vnoise(xf / gw * 150.0, yf / gw * 150.0, 33)
 }
 
-/// `landColorCore`'s unconditional core (7720-7960): eco-jitter, the
-/// six-material blend with canopy understory shadow, the beach rim, fine
-/// noise grain, multi-scale hillshade, the `bioBlend` grey blend, the edge
-/// haze fade, and the final `ao * vignette` multiply (7959-7960 — easy to
-/// miss since it sits after the whole gated "Painter" NPR block, but is
-/// itself unconditional; `ao` is fixed at `1.0` here, matching this port's
-/// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
-/// extra is omitted — see this module's doc comment.
 /// The R2 slope-material fraction (reference HTML 7789): how much of the rock
 /// colour steep ground takes on, `clamp01(min(1, slope/0.08)^1.5 · k)`.
 ///
@@ -3396,8 +4035,24 @@ pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
     (c.0 * dk * 0.95, c.1 * dk, c.2 * dk * 1.05)
 }
 
+/// `landColorCore`'s unconditional core (7720-7960): eco-jitter, the
+/// six-material blend with canopy understory shadow, the beach rim, fine
+/// noise grain, multi-scale hillshade, the `bioBlend` grey blend, the edge
+/// haze fade, and the final `ao * vignette` multiply (7959-7960 — easy to
+/// miss since it sits after the whole gated "Painter" NPR block, but is
+/// itself unconditional). Every other `state.viz.*`-gated extra is omitted
+/// — see this module's doc comment.
+///
+/// **This block sat above [`rock_slope_mix`] until 2026-09-03**, where it
+/// documented the wrong function, and its parenthetical said `ao` was *"fixed
+/// at `1.0` here, matching this port's AO/SVF/shadow fields all being off"*.
+/// Both halves had stopped being true: `ao` is the caller's `ctx.ao[i]`, which
+/// has carried [`build_ao`]'s cavity map since milestone 2 and now also carries
+/// [`build_svf`] and [`build_sun_shadow`] folded in by [`fold_lighting_fields`].
+/// `1.0` is what it is under `js_reference()` and at `default()`, which is a
+/// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -3408,9 +4063,27 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     let n_hi = vnoise(x * 96.0 / gw as f64, y * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
 
-    let te = t + (n_bio - 0.5) * 7.0 + (n_low - 0.5) * 2.5;
-    let me = clamp01(m + (n_bio - 0.5) * 0.15 + (n_hi - 0.5) * 0.05);
-    let twi_e = twi + (n_bio - 0.5) * 0.7;
+    // B4's ecotone widener (`eK`, reference 7763-7765). `1.0` is the
+    // reference's own "off" and the value every caller passed before the
+    // parameter existed, so it gets a **dedicated branch** rather than a
+    // `* 1.0`: the reference groups the jitter as `T + eK·(a + b)` while this
+    // port has always summed it as `(T + a) + b`, and those two are not the
+    // same float. Multiplying unconditionally would have re-associated the
+    // shipped and golden-pinned expression to buy nothing at the default —
+    // identity by control flow, the rule this file follows everywhere else.
+    let (te, me, twi_e) = if eco_k == 1.0 {
+        (
+            t + (n_bio - 0.5) * 7.0 + (n_low - 0.5) * 2.5,
+            clamp01(m + (n_bio - 0.5) * 0.15 + (n_hi - 0.5) * 0.05),
+            twi + (n_bio - 0.5) * 0.7,
+        )
+    } else {
+        (
+            t + eco_k * ((n_bio - 0.5) * 7.0 + (n_low - 0.5) * 2.5),
+            clamp01(m + eco_k * ((n_bio - 0.5) * 0.15 + (n_hi - 0.5) * 0.05)),
+            twi + eco_k * ((n_bio - 0.5) * 0.7),
+        )
+    };
     let asp_e = asp * (1.0 + (n_low - 0.5) * 0.3);
 
     let w = material_weights(te, me, slope, r, twi_e, asp_e, curv);
@@ -3594,6 +4267,61 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
             c.0 += (lc.0 - c.0) * e;
             c.1 += (lc.1 - c.1) * e;
             c.2 += (lc.2 - c.2) * e;
+        }
+    }
+
+    // R5 geology **microtexture** and dune ripples (reference HTML 7801-7832),
+    // the two members the module doc's Excluded list carried until 2026-09-03.
+    // Both are inside the reference's own single `geoK` gate, and both are
+    // therefore driven by one `geo_micro` here — the reference's `geologyR` is
+    // one slider.
+    //
+    // **The recolour that shares that gate in the reference is deliberately
+    // not repeated.** Its `_r = mc[0]*(1+mt)` blends toward a flat per-rock
+    // colour; this port already put a lithology colour on this pixel, twice
+    // over (`rock_material_col`'s blend and the bedrock-exposure block just
+    // above), from `litho_palette`'s seven editable three-stop ramps. A third
+    // geology colour vocabulary would be two engines painting the same rock —
+    // so what lands here is the reference's `(1 + mt)` *factor* over whatever
+    // colour those stages produced, which is the texture and only the texture.
+    // Stated, not silent: `CLAUDE.md`'s rule on deviating from a literal port.
+    //
+    // `r > 0.0` and the lithology test are the reference's own gates
+    // (`geoK > 0 && r > 0 && px !== undefined`, with `lith !== undefined`
+    // folded into `geoK` itself), so a loaded save — which carries no
+    // tectonic substrate and therefore no lithology — takes neither branch.
+    if appearance.geo_micro > 0.0
+        && r > 0.0
+        && let Some(li) = lith
+    {
+        let (fx, fy) = (x / gw as f64, y / gw as f64);
+        let expo = geo_exposure(slope, r, w.snow);
+        // `> 0.02`, the reference's own floor rather than `> 0.0`: below it
+        // the blend is a fraction of a level and all it can add is dither.
+        if expo > 0.02 {
+            let m = 1.0 + (appearance.geo_micro * expo).min(0.85) * litho_microtexture(li, fx, fy, r);
+            c.0 *= m;
+            c.1 *= m;
+            c.2 *= m;
+        }
+        // Dune ripples (7827-7832): wind banding on gentle sandy ground. The
+        // ripple phase is in **raw grid coordinates** (`px*0.55 + py*0.25`),
+        // not the `fx`/`fy` above — that is the reference's, and it is what
+        // fixes the ripple wavelength at a few cells rather than letting it
+        // scale with the map. Only the fbm warp is map-relative.
+        //
+        // `w.sand > 0.4 && slope < 0.03` is the reference's gate, so this
+        // needs a hot arid coast or desert to act on at all; `synth()` in
+        // `appearance_tiers.rs` is far too cold for `material_weights`' own
+        // `smoothstep(17, 26, t)` sand term, which is why the dune branch has
+        // its own fixture in `geology_micro_and_sky_fields.rs` rather than
+        // relying on `every_tunable_is_load_bearing` to reach it.
+        if w.sand > 0.4 && slope < 0.03 {
+            let rip = (x * 0.55 + y * 0.25 + fbm(fx * 22.0, fy * 22.0, 235) * 8.0).sin() * 0.5 + 0.5;
+            let dk = 1.0 - appearance.geo_micro * w.sand * 0.12 * rip;
+            c.0 *= dk;
+            c.1 *= dk;
+            c.2 *= dk;
         }
     }
 
@@ -3878,8 +4606,10 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
 
     // `ao * vignette` (7959-7960). `ao` was a hardcoded `1.0` before
     // milestone 2 (the reference's AO/SVF/shadow fields are all off at its
-    // defaults); it now carries `build_ao`'s cavity map, and is still
-    // exactly `1.0` under `js_reference()`.
+    // defaults); it now carries the reference's whole `aoC` product (8167) --
+    // `build_ao`'s cavity map times `build_svf` and `build_sun_shadow`, folded
+    // by `fold_lighting_fields` -- and is still exactly `1.0` under
+    // `js_reference()`, where all three strengths are `0.0`.
     let k = ao * vig;
     (l.0 * k, l.1 * k, l.2 * k)
 }
@@ -5114,11 +5844,24 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         // `surfaceColor`'s own hachure guard (8160): the gradient is derived
         // only when hachure is actually on, so the default path pays nothing.
         let grad = if ctx.appearance.npr.hachure > 0.0 { ctx.grad_at(x, y) } else { (0.0, 0.0) };
-        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground);
+        // B4 ecotone widening (8208's `sdfEcoKv(_biomeBD ? _biomeBD[i] : null)`)
+        // — the literal `1.0` where the field is empty is the reference's own
+        // `ecoK != null ? ecoK : 1`, not a stand-in for a missing distance.
+        let eco_k = if ctx.biome_bd.is_empty() { 1.0 } else { sdf_eco_k(ctx.biome_bd[i] as f64, ctx.appearance.sdf_biomes, ctx.gw) };
+        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, eco_k, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground);
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
-        if ctx.crest.is_empty() { c } else { apply_crest(c, ctx.crest[i] as f64 * ctx.appearance.crest_strength * 0.7) }
+        let c = if ctx.crest.is_empty() { c } else { apply_crest(c, ctx.crest[i] as f64 * ctx.appearance.crest_strength * 0.7) };
+        // B2 coast bands (8172) — the reference's own slot, immediately after
+        // the crest strokes. `coast_sdf` is empty unless the stage is on, so
+        // this is a length test on every other path.
+        let c = if ctx.coast_sdf.is_empty() { c } else { apply_coast_sdf(c, ctx.coast_sdf[i] as f64, ctx.appearance.sdf_coast, ctx.gw) };
+        // B3 river bands — the second half of the reference's single
+        // `applyCoastRiverSDFv` call on that same line, in its own order
+        // (coast first, then rivers, so a river mouth reads as river over
+        // beach and not the other way round).
+        if ctx.river_sdf.is_empty() { c } else { apply_river_sdf(c, ctx.river_sdf[i] as f64, ctx.appearance.sdf_rivers, ctx.gw) }
     };
 
     // B4 coastal wave lines (8555-8558): foam contours hugging the shore and
@@ -5365,6 +6108,11 @@ impl BakeFields {
                 sample_arr(&self.meso, gx, gy, gw, gh),
                 vig,
                 sample_arr(&ctx.ao, gx, gy, gw, gh),
+                // The bake's own `sdfEcoKv(sampleArr(_biomeBD, gx, gy))`
+                // (12008). `sample_arr` on an empty field is not defined, so
+                // the empty case is the same literal `1.0` the screen path
+                // uses — the two must agree or the PNG is a different picture.
+                if ctx.biome_bd.is_empty() { 1.0 } else { sdf_eco_k(sample_arr(&ctx.biome_bd, gx, gy, gw, gh), ctx.appearance.sdf_biomes, gw) },
                 sample_arr(&ctx.hydro_wet, gx, gy, gw, gh),
                 ctx.litho_at_f(gx, gy),
                 grad,
@@ -5378,7 +6126,17 @@ impl BakeFields {
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
-            if ctx.crest.is_empty() { c } else { apply_crest(c, sample_arr(&ctx.crest, gx, gy, gw, gh) * ctx.appearance.crest_strength * 0.7) }
+            let c = if ctx.crest.is_empty() { c } else { apply_crest(c, sample_arr(&ctx.crest, gx, gy, gw, gh) * ctx.appearance.crest_strength * 0.7) };
+            // B2 coast bands, the bake's own slot (11972) — the reference's
+            // own comment on that line is why this exists at all: *"bake SDF
+            // coast/river bands to match the screen"*. A capability wired to
+            // `cell_color` and not here is the failure this project has
+            // already shipped once (`with_ground_tiles`).
+            let c = if ctx.coast_sdf.is_empty() { c } else { apply_coast_sdf(c, sample_arr(&ctx.coast_sdf, gx, gy, gw, gh), ctx.appearance.sdf_coast, gw) };
+            // B3 river bands, the bake's own slot (12011) — the reference's
+            // comment there is *"bake SDF coast/river bands to match the
+            // screen"*, and the plural is the whole point.
+            if ctx.river_sdf.is_empty() { c } else { apply_river_sdf(c, sample_arr(&ctx.river_sdf, gx, gy, gw, gh), ctx.appearance.sdf_rivers, gw) }
         };
 
         let (r, g, b) = if h < ctx.sea_level && !ctx.coast_d.is_empty() {

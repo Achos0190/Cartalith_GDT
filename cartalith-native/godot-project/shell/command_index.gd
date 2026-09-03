@@ -61,6 +61,26 @@ class_name CommandIndex
 ## reproduced by the fix for it. They are kept, as `kind: "readout"`, because
 ## searching "memory" and being shown `Working set 1.6 GB of 12 GB` is the
 ## answer, not a dead end: the row IS the result.
+##
+## ## What this reads is the BUILT state, not the opened state
+##
+## [`_walk_popup`] reads each row exactly as `menus.gd` left it, plus whatever
+## that file refreshes at build time — `_refresh_reset_stage_menu()`,
+## `_refresh_atlas_cache_menu()` and `_refresh_gpu_devices_menu()` all run
+## inside their own `_build_*`, so their state does reach here. Rows whose
+## availability is decided **only** in an `about_to_popup` handler do not:
+## `Edit ▸ Undo`, `Redo` and `Reset generation parameters` are indexed as
+## available because that is how `_live()` leaves them, even when nothing is on
+## the undo stack yet.
+##
+## **Do not close that by emitting `about_to_popup` from `build()`.** Those
+## handlers are not observers. `_refresh_atlas_cache_menu()` calls
+## `_enforce_atlas_cap()`, which *evicts baked chunks*; the GPU devices handler
+## enumerates adapters, which `menus.gd::_build_gpu_devices_menu` documents as
+## the crash it was restructured to avoid. Firing them to tidy up an index
+## would make opening a search field destroy the user's bake. Recorded
+## 2026-09-03 during the unavailable-row audit so the next reader does not
+## re-derive it and then do it anyway.
 
 ## Actions that are neither a generation parameter nor a menu row. Deliberately
 ## short: anything that belongs in a menu should BE in a menu, where the walk

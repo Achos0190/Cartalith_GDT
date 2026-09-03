@@ -22,8 +22,10 @@ class_name InfrastructureWorkspace
 ##
 ## Roads and sea routes are read from the engine today (`get_roads`,
 ## `get_sea_routes`) -- those two calls are this whole file's read-only data
-## source, per the task that built it. Rivers have no binding at all (no
-## `get_rivers`, see `right_dock.gd`'s River context for the same finding).
+## source, per the task that built it. Rivers are not read *here*, but they do
+## have bindings: `get_rivers(min_order)` and `river_at()`, which
+## `right_dock.gd`'s River context uses. This line claimed "no binding at all"
+## until 2026-09-03; see `rivers_note()` below for what is and is not there.
 ## Ports here means coastal settlements, derived from `get_settlements()`'s
 ## real `coastal` field, not a separate concept the engine models. Logistics
 ## (the journey planner) is engine-complete per `JOURNEY_PLANNER_SCOPE.md`
@@ -788,25 +790,40 @@ func _match_trade_flows() -> void:
 ## the empty category. One owner of the text, two possible hosts, which is the
 ## same discipline `build_*_into()` above uses for the controls.
 ##
-## **Corrected 2026-09-01.** It used to say the only river-derived output
-## crossing the boundary was baked into `build_color_texture()`'s raster, and
-## that is not true: Strahler order crosses as data in three places -- the
-## `strahler` analysis raster (`sample_bridge`'s own layer table), the
-## `river_order` reading on `explain_settlement()`, and `measure_section()`'s
-## crossings, which label a river "River · order 3" precisely because there is
-## no name to give it. Discharge and drainage cross per cell too
-## (Sample ▸ Drainage). What does not cross is a river as an ENTITY: nothing
-## aggregates a channel run into one thing with its own readings, which is
-## `measure_bridge.rs`'s own wording for the same gap.
+## **Corrected twice, and the second correction is the one to read.**
+##
+## 2026-09-01: this note used to say the only river-derived output crossing the
+## boundary was baked into `build_color_texture()`'s raster. Not true then --
+## Strahler order crosses as data in three places (the `strahler` analysis
+## raster, the `river_order` reading on `explain_settlement()`, and
+## `measure_section()`'s crossings, which label a river "River · order 3"
+## precisely because there is no name to give it), and discharge and drainage
+## cross per cell too (Sample ▸ Drainage).
+##
+## 2026-09-03: the *replacement* was false as well, and had been for longer. It
+## said no river crosses as an ENTITY and that there is no `get_rivers()`.
+## There is: `WorldGen::get_rivers(min_order)` over
+## `cartalith_hydrology::river_entities` returns one record per traced run,
+## `WorldGen::river_at()` picks one from a click, and `right_dock.gd`'s River
+## context -- the file this note cited as *agreeing* with it -- had already
+## corrected itself in its own source, saying "every clause of it is now
+## false". Landed under `OUTSTANDING_WORK.md` §2.2; this note did not follow.
 static func rivers_note() -> String:
-	return ("No river ENTITY is exposed to Godot. cartalith-hydrology computes river "
-		+ "networks internally, and per-cell readings do cross -- Strahler order as an "
-		+ "analysis field and on a settlement's own explanation, discharge and drainage "
-		+ "in Sample, and a labelled crossing on every measured section. What does not "
-		+ "cross is a channel run aggregated into one river with a name, a length and a "
-		+ "mouth: there is no get_rivers() and no way to select one, so v3's per-reach "
-		+ "rows (navigability, discharge, catchment, tributaries) have no entity to hang "
-		+ "on. Same finding the right dock's River context reports, field by field.")
+	return ("Rivers cross as ENTITIES. WorldGen.get_rivers(min_order) returns one record "
+		+ "per traced channel run -- its polyline, Strahler order, routed length in km, "
+		+ "discharge at the head and at the mouth, catchment_km2, tributary count, source "
+		+ "and mouth elevation, drop, and drawn channel width -- and river_at() picks one "
+		+ "from a map click, which is what the right dock's River context is wired to "
+		+ "(arm Inspect, click a river). Per-cell readings cross as well: Strahler order "
+		+ "as an analysis field and on a settlement's own explanation, discharge and "
+		+ "drainage in Sample, and a labelled crossing on every measured section. Of v3's "
+		+ "four per-reach rows, discharge, catchment and tributaries are real readings and "
+		+ "navigability is not: the only navigability test in the engine is landmark.rs's "
+		+ "trade-depot flow threshold, which rates a bank rather than a run. A river also "
+		+ "has no NAME -- cartalith-civ's naming::FeatureKind offers Continent, Province, "
+		+ "Bay, MountainRange and Lake and no river form -- and a world opened from a "
+		+ "project archive has no rivers to select at all, because SAVEFILE_COMPAT.md "
+		+ "stores no channel topology, so its rivers exist only in the baked raster.")
 
 func _fill_roads(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Network")

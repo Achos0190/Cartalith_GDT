@@ -156,7 +156,7 @@ const STAGES: Array = [
 	{"name": "Climate", "needs": "01 Planet, 02 Extent & scale, 06 Erosion",
 	 "produces": "temperature, rainfall, wind, currents → 09 Ecology & biomes, 10 Resources & soils",
 	 "groups": ["climate", "weather"], "keys": [],
-	 "gap": "Seasons and Köppen-Geiger classification are not ported."},
+	 "gap": "Ported, and live -- this row said \"not ported\" until 2026-09-03 and was wrong. Köppen-Geiger is cartalith-climate/src/koppen.rs (compute_seasons, build_koppen, classify_koppen, koppen_color, compute_temp_into), golden-tested by tests/golden_parity_koppen.rs, and drawn today as Layers ▸ Climate ▸ Köppen climate. Two narrower things are true, and they are what this row means. Seasons are not computed in THIS stage: compute_seasons runs on demand when that layer is picked (sample_bridge.rs' koppen arm), which is the reference's own lazy build and costs two further temperature+weather solves, one per solstice. And no dial below exposes the classifier's own setting -- KoppenParams.max_rain_mm, the reference's state.climate.maxRainMm -- which that call site passes as a flat 3000."},
 	{"name": "Ecology & biomes", "needs": "07 Hydrology, 08 Climate",
 	 "produces": "biome classification, ecotones → 10 Resources & soils",
 	 "groups": [], "keys": [],
@@ -509,16 +509,22 @@ func _build_categories() -> void:
 			_: pass
 
 ## v3 puts the **river network** under HYDROLOGY, and asks for per-reach rows
-## (navigability, discharge, catchment, tributaries). CIVIL's old Rivers
-## category was the only place in the shell that disclosed why there are none;
-## it was retired in the same pass that moved the subject here, so the finding
-## has to be re-drawn here or it is simply gone. `rivers_note()` is its single
+## (navigability, discharge, catchment, tributaries). Three of those four are
+## real readings now -- `get_rivers(min_order)` carries `discharge`,
+## `catchment_km2` and `tributaries` per traced run -- and navigability is the
+## one v3 asks for that nothing computes per river. CIVIL's old Rivers category
+## was the only place in the shell that disclosed the state of this subject; it
+## was retired in the same pass that moved the subject here, so the finding has
+## to be re-drawn here or it is simply gone. `rivers_note()` is its single
 ## owner (`GUI_GAP_REGISTER.md` IN-01).
 func _build_hydrology_foot(parent: Control) -> void:
 	## Deliberately NOT "River network" -- `KEYS_SECTION_TITLES` already gives
 	## the stage's own carve/density dials that heading, and two sections with
 	## one name in one category is how a reader ends up reading the wrong one.
-	DccWidgets.note(DccWidgets.section(parent, "Not built"),
+	## Not "Not built" any more: `get_rivers()`/`river_at()` landed, so a heading
+	## that files the whole subject as absent now disagrees with the first
+	## sentence of the note under it.
+	DccWidgets.note(DccWidgets.section(parent, "River entities"),
 		InfrastructureWorkspace.rivers_note())
 
 ## v3 GENERATE's own top rows: the three global actions the reference calls

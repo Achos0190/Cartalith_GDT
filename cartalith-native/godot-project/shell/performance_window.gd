@@ -137,7 +137,13 @@ func _rebuild() -> void:
 		int(Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)),
 	])
 
-	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance -- no per-device enumeration exists in cartalith-gpu (GPU_LAYER_INTEGRATION_SCOPE.md).")
+	## Build-conditional, not a permanent absence: `menus.gd:_build_gpu_devices_menu`
+	## draws those three rows when `EngineBridge.gpu_api` is true and falls back to
+	## a `_todo` naming the missing binding when it is not. This note said "no
+	## per-device enumeration exists in cartalith-gpu" until 2026-09-03; it does --
+	## `cartalith_gpu::enumerate_devices` (`multi.rs`), bound as
+	## `WorldGen::gpu_enumerate_devices`.
+	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance. Per-device enumeration is cartalith-gpu's enumerate_devices, bound as WorldGen.gpu_enumerate_devices; those rows are live whenever the loaded GDExtension build exposes that binding, and say so on hover when it does not (GPU_LAYER_INTEGRATION_SCOPE.md).")
 
 	## PH-12: every row above is a fresh node, and a generate finishing while
 	## this window is open rebuilds them behind the one-shot fit `open()` did.

@@ -505,11 +505,16 @@ func _build_layer_gaps(parent: Control) -> void:
 		+ "switches rest on that second separation, not on the one that landed.")
 	DccWidgets.note(sec,
 		"Show rivers in biome view (#showRivers) and Rivers as ways: both are "
-		+ "reference RENDER filters over a river network that never crosses the "
-		+ "GDExtension boundary -- cartalith-hydrology computes it internally and "
-		+ "only the finished raster comes out (there is no get_rivers()). Same "
-		+ "entity gap the Rivers subject and the right dock's River context both "
-		+ "already report.")
+		+ "reference RENDER filters, and neither is wired here -- but not for the "
+		+ "reason this note gave until 2026-09-03. The network does cross the "
+		+ "boundary: WorldGen.get_rivers(min_order) returns every traced run as an "
+		+ "entity with its own polyline, and river_at() selects one (the right "
+		+ "dock's River context does exactly that). What is missing is on the "
+		+ "drawing side, and differs per filter: the biome raster's rivers are the "
+		+ "simple channel-mask tint baked into the terrain texture, with no "
+		+ "parameter to switch it off; and rivers-as-ways is drawRiverWays, the one "
+		+ "thing render.rs's module doc still lists as excluded -- a vector overlay "
+		+ "over get_rivers()' polylines that nothing draws yet.")
 	DccWidgets.note(sec,
 		"Sharper ecotones (biome-detail sharpening) is not parameterised: biome "
 		+ "classification runs off the finished temperature/rainfall fields with no "
@@ -641,9 +646,14 @@ func _build_visibility(parent: Control) -> void:
 		+ "categories (Layers - Terrain raster) and does not reach them.")
 	DccWidgets.note(gaps,
 		"Declutter budget  ·  still not built\n"
-		+ "Label and icon collision is not resolved anywhere -- overlapping "
-		+ "annotation simply overlaps. A budget needs a per-layer zoom range to "
-		+ "spend, and that needs the annotation overlays to be stack rows -- "
+		+ "Collision itself IS resolved -- this note claimed otherwise until "
+		+ "2026-09-03, on the day the culler landed. Labels are culled against each "
+		+ "other by cartalith-civ's labels.rs label_cull_rect, the labelling pass "
+		+ "reports its own drawn/culled counts above, and the icon placement pass's "
+		+ "'avoid label boxes' rule suppresses a glyph that lands on a label's box "
+		+ "using that same culler. What is not built is a BUDGET: a cap on how much "
+		+ "annotation a given zoom may spend. That needs a per-layer zoom range to "
+		+ "spend it over, and that needs the annotation overlays to be stack rows -- "
 		+ "which is the half of CA-04 the 2026-09-03 raster stack did not do.\n"
 		+ "Two ladders do exist, both ported: way types by CIV_LOD_ROAD, and the "
 		+ "24-10 km urban-layout crossfade.")

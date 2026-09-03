@@ -20,6 +20,7 @@ which is a map, not a state — and not the document that happens to be open.
 | What happened, in what order? | **`git log`** | `CHANGELOG.md` |
 | Why is this line of Rust written this way? | the retired `CHANGELOG.md`, for anything before 2026-08-26 | — |
 | **What am I about to get wrong?** (before scheduling a row, pinning a constant, quoting a timing, changing behaviour, declaring green) | **`MISTAKES.md`**'s preflight table | rediscovering it at cost, as this project did eleven times with one row class alone |
+| How do I hand this to a fresh session? | **`SESSION_HANDOFF.md`** | a summary written from memory, which is how a stale number enters a new context |
 
 Three rules follow from that, and they are the point of this section:
 
@@ -139,6 +140,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 | Path | What it is |
 |---|---|
 | `MISTAKES.md` | **read at session start** — every confirmed mistake, its root cause, the rule, and how to verify. Owner instruction, 2026-09-03 |
+| `SESSION_HANDOFF.md` | **paste this to start a new session** — the standing goal, the skills, the 2-lanes-plus-a-verifier method, and the commands that derive current state. Deliberately carries no counts, hash or test total |
 | `README.md` | **start here** — crates, reading order, discipline (status is `STATUS.md`'s) |
 | `DECISIONS.md` | every choice, what it beat, and why |
 | `ARCHITECTURE.md` | the Rust↔Godot split and crate layout |

@@ -98,10 +98,18 @@ const DARK := {
 	## prototype has no surface *above* `--pan`. Its three dark greys are
 	## `--sur` #0d0e0f (ground) < `--pan` #121314 (panel and float) < `--ins`
 	## #191c1e (inset), and #17191a falls between the last two. Kept for the
-	## four consumers that are not menus and that the prototype does not draw:
-	## an image-preview backdrop (`asset_library_window.gd:282`), a toast box
-	## (`dcc_shell.gd:3808`), a `Window` title outline (`:862`) and a swatch
-	## well (`place_editor_window.gd:435`).
+	## consumers that are not menus and that the prototype does not draw.
+	##
+	## **Three today**, by `grep -rn 'c("raised")'` rather than from memory: a
+	## hover stylebox and a `Window` title outline (`dcc_shell.gd`), and one
+	## stylebox override in `civilization_workspace.gd`.
+	##
+	## *This listed **four**, at four line numbers, until 2026-09-03 — and by
+	## then two of them (an image-preview backdrop in `asset_library_window.gd`,
+	## a swatch well in `place_editor_window.gd`) had been deleted by the very
+	## pass that left this comment standing, while the other two had drifted to
+	## different lines. Counted here, not cited: a consumer list with line
+	## numbers goes stale faster than the tokens it describes.*
 	##
 	## **Note the inversion this pass creates.** `raised` (#17191a) is now
 	## *darker* than `sunken` (#191c1e). Both are independently right against
