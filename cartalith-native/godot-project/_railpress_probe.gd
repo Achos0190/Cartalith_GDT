@@ -330,6 +330,9 @@ func _ready() -> void:
 		["settlement", func(): rd.on_settlement_selected(st[0], 0)],
 		["faction", func(): rd.show_faction(1)],
 		["route", func(): rd.show_route(_bridge.roads()[0], "road")],
+		# Labelled for the section it opens, not the armed tool: this calls
+		# show_sculpt_stack() without arming sculpt or making a draft, so the
+		# Stamp stack is legitimately absent and the pass is a cold one.
 		["sculpt", func(): rd.show_sculpt_stack()],
 		["history", func(): rd.show_history()],
 		["measure", func(): rd.show_measure({}, "distance")],

@@ -73,6 +73,9 @@ fn a_generated_world_survives_save_and_reload() {
         map_width_km: p.map_width_km,
         sea_level: ws.sea_level,
         world: p.world,
+        // Pre-provenance fixture: the archive shape a user's existing
+        // save has, so the assertions below cover the absent case.
+        origin: None,
     };
     let mut buf = Vec::new();
     cartalith_io::write_save(std::io::Cursor::new(&mut buf), &cartalith_io::SaveWrite {
@@ -155,6 +158,9 @@ fn a_world_with_no_channels_still_writes_a_full_strahler_raster() {
         map_width_km: p.map_width_km,
         sea_level: ws.sea_level,
         world: p.world,
+        // Pre-provenance fixture: the archive shape a user's existing
+        // save has, so the assertions below cover the absent case.
+        origin: None,
     };
     let mut buf = Vec::new();
     cartalith_io::write_save(std::io::Cursor::new(&mut buf), &cartalith_io::SaveWrite {

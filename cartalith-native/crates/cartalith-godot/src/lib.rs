@@ -3238,14 +3238,22 @@ struct WorldGen {
     /// separately by `load_save` — the one path that replaces a world without
     /// going through `absorb`.
     ///
-    /// **Not saved**, and that is the known limitation rather than a decision:
-    /// the save format has nowhere to put it (`cartalith_io::SaveParams` is six
-    /// numbers and two flags; `params::apply_saved_state` reads only rows of
-    /// the `PARAMS` table), so a project saved from an import or a resample
-    /// reopens claiming `ORIGIN_GENERATED`. See `load_save`'s own assignment.
+    /// **Saved and restored**, through `cartalith_io::SaveParams::origin` —
+    /// `project.json`'s `world.origin` in the tree layout, `params.json`'s
+    /// top-level `origin` in the flat one. Both writers below carry this
+    /// field into it and `load_save` reads it back, so a project saved from
+    /// an import or a resample reopens as what it is.
+    ///
+    /// `None` is the fourth state and it is not a fourth *origin*: it means
+    /// **the archive did not say**, which is every archive written before
+    /// that member existed. It is kept distinct from `Some(ORIGIN_GENERATED)`
+    /// so that re-saving such a project writes no origin rather than
+    /// asserting one the file never carried. The one place that has to pick
+    /// a value for it anyway is [`world_key`], which states its own cost.
     ///
     /// [`absorb`]: WorldGen::absorb
-    world_origin: &'static str,
+    /// [`world_key`]: WorldGen::world_key
+    world_origin: Option<String>,
 }
 
 #[godot_api]
@@ -3306,7 +3314,13 @@ impl IRefCounted for WorldGen {
             // signature. Seeded with the generated value rather than a fourth
             // "none" spelling so that no such spelling can ever reach an atlas
             // namespace; every path that produces a world states its own.
-            world_origin: bake_bridge::ORIGIN_GENERATED,
+            //
+            // `None` is a state of this field but never a fourth *origin*: it
+            // is what a loaded archive that recorded none leaves here, and
+            // `bake_bridge::origin_for_key` resolves it back to this same
+            // value for the key. It is not used as a "no world yet" marker,
+            // which is what the empty key above is for.
+            world_origin: Some(bake_bridge::ORIGIN_GENERATED.to_string()),
         }
     }
 }
@@ -3715,7 +3729,7 @@ impl WorldGen {
         // Which of the three ways into a world this was -- an element of the
         // atlas key, and the one thing about the incoming field that is not
         // derivable from anything else here. See the `world_origin` field.
-        self.world_origin = origin;
+        self.world_origin = Some(origin.to_string());
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
@@ -5556,27 +5570,28 @@ impl WorldGen {
         // The one world-replacement path that does **not** go through
         // `absorb()`, so it states its own origin (the `world_origin` field).
         //
-        // `ORIGIN_GENERATED` here is a fallback with a cost, not a fact: **the
-        // save format records no origin.** `cartalith_io::SaveParams` is
-        // `gw`/`gh`/`seed`/`map_width_km`/`sea_level`/`world`, `save_project`
-        // and `project_save_with_documents` write nothing else about
-        // provenance, and `params::apply_saved_state` reads only rows of the
-        // `PARAMS` table -- so there is nowhere in a `.zip` or a project
-        // archive for an import or a resample to say what it was.
+        // Taken from the archive, verbatim and including its absence.
+        // `cartalith_io::SaveParams::origin` is `world.origin` in a project
+        // archive and `params.json`'s top-level `origin` in a flat one, and
+        // both of this port's writers (`save_project` below and
+        // `project_save_with_documents`) put this same field there -- so an
+        // imported heightmap or a region resample now reopens as what it is
+        // rather than as a generated world, which is what let all three
+        // collide at one atlas namespace before the origin element existed.
         //
-        // Given that, this is the choice that costs least. Every *other*
-        // element of `world_key()` round-trips exactly, so claiming
-        // `ORIGIN_GENERATED` keeps a reopened project's atlas addressable for
-        // the generate -> bake -> save -> open path, which is the common one; a
-        // distinct fourth value would change the key on every reopen and orphan
-        // that atlas. What it does not fix, and what closing this properly
-        // needs, is the other direction: a project saved from an imported
-        // heightmap or a region resample comes back claiming it was generated,
-        // and can then collide with a generated world at the same tuple exactly
-        // as all three did before the origin element existed. The repair is a
-        // provenance field in the save format -- `cartalith-io` plus both
-        // writers -- which is a format change, not a line here.
-        self.world_origin = bake_bridge::ORIGIN_GENERATED;
+        // `None` is kept as `None` rather than resolved here. An archive
+        // written before that member existed genuinely does not say what it
+        // was, and the two facts must not be spelled the same: resolving to
+        // `ORIGIN_GENERATED` here would make the very next save assert a
+        // provenance the file never carried. `world_key()` is the one place
+        // that has to choose a string for the unknown case, and it pays and
+        // states that cost there.
+        //
+        // An unrecognised origin from a newer writer is also kept verbatim,
+        // which is why this field is a `String` and not one of the three
+        // `&'static str` constants: folding an unknown fourth value into
+        // `ORIGIN_GENERATED` would recreate the collision in a new place.
+        self.world_origin = save.params.origin.clone();
         // Same reasoning as `absorb()`'s own clear: an undo step holds the
         // *previous* world's height field, which is the wrong content and
         // possibly the wrong length over a loaded save.
@@ -5660,6 +5675,11 @@ impl WorldGen {
             // parameter block.
             sea_level: self.sea_level,
             world: self.world,
+            // Provenance (`world_origin`), carried into the archive so a
+            // world that was imported or resampled reopens as one -- and
+            // `None` written as an absent key, so re-saving an archive that
+            // never said does not make it start claiming.
+            origin: self.world_origin.clone(),
         };
         let state = params::save_state(&self.params);
 
@@ -10334,7 +10354,13 @@ impl WorldGen {
             // imported heightmap, a region resample and a generated world at
             // the same tuple hashed to one atlas namespace -- see the
             // `world_origin` field.
-            self.world_origin,
+            //
+            // An archive that did not record one substitutes
+            // `ORIGIN_GENERATED` here and **only** here -- see
+            // `bake_bridge::origin_for_key` for the cost that buys and why it
+            // is paid. `world_origin` itself keeps the `None`, so a re-save
+            // still writes no origin rather than starting to claim this one.
+            bake_bridge::origin_for_key(self.world_origin.as_deref()),
             // `world_key_state`, not `save_state`: the civ group is the first
             // thing in the table `generate_terrain` does not read, and hashing
             // it would invalidate a baked terrain atlas that would be

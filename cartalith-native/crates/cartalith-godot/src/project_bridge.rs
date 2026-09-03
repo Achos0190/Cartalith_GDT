@@ -1333,6 +1333,11 @@ impl WorldGen {
             // (`SAVEFILE_COMPAT.md` §7).
             sea_level: self.sea_level,
             world: self.world,
+            // Provenance (`world_origin`), carried into the archive so a
+            // world that was imported or resampled reopens as one -- and
+            // `None` written as an absent key, so re-saving an archive that
+            // never said does not make it start claiming.
+            origin: self.world_origin.clone(),
         };
 
         let mut write = ProjectWrite::new(&params, &fields);
@@ -2961,6 +2966,9 @@ mod tests {
             map_width_km: 800.0,
             sea_level: 0.42,
             world: false,
+            // Pre-provenance fixture: the archive shape a user's existing
+            // save has, so the assertions below cover the absent case.
+            origin: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; n],
@@ -3064,6 +3072,9 @@ mod tests {
             map_width_km: 800.0,
             sea_level: 0.42,
             world: false,
+            // Pre-provenance fixture: the archive shape a user's existing
+            // save has, so the assertions below cover the absent case.
+            origin: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; 12],
@@ -3122,6 +3133,9 @@ mod tests {
             map_width_km: 800.0,
             sea_level: 0.42,
             world: false,
+            // Pre-provenance fixture: the archive shape a user's existing
+            // save has, so the assertions below cover the absent case.
+            origin: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; 12],
@@ -3572,6 +3586,9 @@ mod tests {
             map_width_km: 800.0,
             sea_level: 0.42,
             world: false,
+            // Pre-provenance fixture: the archive shape a user's existing
+            // save has, so the assertions below cover the absent case.
+            origin: None,
         };
         let fields = cartalith_io::SaveFields {
             heightmap: vec![0.5; n],

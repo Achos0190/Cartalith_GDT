@@ -3,7 +3,10 @@ extends Node
 ## panel ever show a settlement a faith it does not hold?
 ##
 ## Compares the RENDERED text of every settlement row against the engine's own
-## `adherents` dictionary for that settlement, key by key. Counts:
+## report for that settlement, key by key -- the union of `adherents`' live
+## head-counts and the `religion` plurality, because those are two facts and a
+## population-0 settlement has only the second (see the widening comment at the
+## `want` array below). Counts:
 ##   A) rows whose printed faith set != the engine's faith set
 ##   B) rows with >=2 faiths rendered as a single faith
 ##   C) rows with no `religion` key that do NOT carry a dashed reason
@@ -91,6 +94,10 @@ func _ready() -> void:
 			if int(ad[k]) > 0:
 				live += 1
 				faith_names[String(k)] = ws._religion_label(String(k))
+		## Same widening as below: a key that only ever appears as a population-0
+		## settlement's plurality still has to be in the vocabulary, or the EXTRA
+		## test cannot see it being printed on the wrong row.
+		faith_names[String(d["religion"])] = ws._religion_label(String(d["religion"]))
 		if live >= 2:
 			mixed += 1
 	print("engine: mixed-adherence settlements = ", mixed, " ; settlements missing the key = ", no_key)
@@ -130,11 +137,27 @@ func _ready() -> void:
 				undashed += 1
 				examples.append("UNDASHED: " + nm + " -> " + faith_line)
 			continue
+		## `adherents` is not the whole of what a settlement holds, and treating
+		## it as the whole was this oracle's own gap. `get_settlements()` emits
+		## TWO religion facts: `religion`, the plurality of a real share vector,
+		## and `adherents`, head-counts that `lib.rs` omits when they are zero.
+		## A settlement created at population 0 has a real plurality and an
+		## empty `adherents` -- 158 of 173 on this fixture -- so an oracle built
+		## from `adherents` alone says such a settlement holds NOTHING, and
+		## every faith the panel names for it reads as fabricated.
+		##
+		## Widened 2026-09-03 to the union of the two, which is what the engine
+		## actually reports. It is not a relaxation: a faith in neither is still
+		## an EXTRA, and the plurality is checked against this settlement's own
+		## key, never against the world's vocabulary.
 		var ad: Dictionary = d.get("adherents", {})
 		var want: Array = []
 		for k in ad.keys():
 			if int(ad[k]) > 0:
 				want.append(ws._religion_label(String(k)))
+		var plur_lbl: String = ws._religion_label(String(d["religion"]))
+		if not want.has(plur_lbl):
+			want.append(plur_lbl)
 		var printed := 0
 		for lbl in want:
 			if faith_line.contains(String(lbl)):

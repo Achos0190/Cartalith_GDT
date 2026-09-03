@@ -813,19 +813,31 @@ pub fn manifest_json(project: &ProjectWrite<'_>) -> serde_json::Value {
     if let Some(created) = &project.created {
         root.insert("created".into(), serde_json::json!(created));
     }
-    root.insert(
-        "world".into(),
-        serde_json::json!({
-            "grid_width": p.gw,
-            "grid_height": p.gh,
-            // `wrap_x`, not `world`: a member called `world` inside an
-            // object called `world` is not a name (`SAVEFILE_COMPAT.md` §7).
-            "wrap_x": p.world,
-            "map_width_km": p.map_width_km,
-            "sea_level": p.sea_level,
-            "seed": p.seed,
-        }),
-    );
+    let mut world = serde_json::json!({
+        "grid_width": p.gw,
+        "grid_height": p.gh,
+        // `wrap_x`, not `world`: a member called `world` inside an
+        // object called `world` is not a name (`SAVEFILE_COMPAT.md` §7).
+        "wrap_x": p.world,
+        "map_width_km": p.map_width_km,
+        "sea_level": p.sea_level,
+        "seed": p.seed,
+    });
+    // `world.origin` (`SAVEFILE_COMPAT.md` §7) — **written only when the
+    // caller has one**. Every other member of this object is MUST and is
+    // always here; this one is the archive's answer to a question it may
+    // genuinely not know, and the absent key is that answer. Writing
+    // `"gen"` for a `None` would make an unknown provenance
+    // indistinguishable from a recorded one, which is the whole defect the
+    // member exists to close: it would let a re-saved import claim to be a
+    // generated world and share its atlas namespace again.
+    if let Some(origin) = &p.origin {
+        world
+            .as_object_mut()
+            .expect("just built as an object")
+            .insert("origin".into(), serde_json::json!(origin));
+    }
+    root.insert("world".into(), world);
     serde_json::Value::Object(root)
 }
 
@@ -986,6 +998,15 @@ fn read_tree(
         .and_then(|w| w.get("wrap_x"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    // MAY, and absent in every archive written before the member existed.
+    // Kept verbatim — an origin this build does not recognise is a value
+    // from a newer writer, and §4's unknown-member rule says carry it, not
+    // flatten it into one of the three this build knows.
+    let origin = manifest
+        .get("world")
+        .and_then(|w| w.get("origin"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     if gw == 0 || gh == 0 {
         return Err(LoadError::MissingField("world.grid_width"));
     }
@@ -1196,6 +1217,7 @@ fn read_tree(
                 map_width_km,
                 sea_level,
                 world,
+                origin,
             },
             fields: SaveFields {
                 heightmap,
@@ -1269,6 +1291,10 @@ mod tests {
             map_width_km: 1234.5,
             sea_level: 0.37,
             world: true,
+            // `None` deliberately: every test built on this helper then
+            // exercises the pre-provenance shape, which is the one an
+            // existing archive on a user's disk has.
+            origin: None,
         };
         let fields = SaveFields {
             heightmap: (0..n).map(|i| i as f32 * 0.25).collect(),
@@ -1960,6 +1986,49 @@ mod tests {
             serde_json::from_value(doc.clone()).expect("KV-04 must not be reproducible here");
         assert_eq!(store.version, 1);
         assert_eq!(store.links[0].entity_id, 42);
+    }
+
+    /// `world.origin` (`SAVEFILE_COMPAT.md` §7) is the tree's half of
+    /// `SaveParams::origin`, and this pins the case an existing `.zip` on a
+    /// user's disk is in: **no member at all**, distinguishable from a
+    /// recorded `"gen"`.
+    #[test]
+    fn an_unknown_origin_writes_no_member_to_project_json() {
+        let (params, fields) = sample(4, 4);
+        assert_eq!(params.origin, None, "the sample is the pre-provenance shape");
+        let m = manifest_json(&ProjectWrite::new(&params, &fields));
+        assert!(m["world"].get("origin").is_none(), "wrote an origin for a world that had none: {m}");
+        // The six MUST members are unaffected by the addition.
+        assert_eq!(m["world"]["grid_width"], 4);
+        assert_eq!(m["world"]["grid_height"], 4);
+        assert_eq!(m["world"]["wrap_x"], true);
+        assert_eq!(m["world"]["seed"], 4242);
+        assert_eq!(m["world"]["sea_level"], 0.37);
+        assert_eq!(m["world"]["map_width_km"], 1234.5);
+    }
+
+    #[test]
+    fn a_known_origin_is_a_member_of_the_world_object() {
+        let (mut params, fields) = sample(4, 4);
+        params.origin = Some("region".to_string());
+        let m = manifest_json(&ProjectWrite::new(&params, &fields));
+        assert_eq!(m["world"]["origin"], "region");
+    }
+
+    /// Round-trips through a real archive for each origin this port writes,
+    /// an unrecognised fourth (§4's unknown-member rule says carry it, not
+    /// flatten it), and absence.
+    #[test]
+    fn every_origin_survives_a_tree_round_trip_including_absence() {
+        for origin in [None, Some("gen"), Some("import"), Some("region"), Some("sculpt")] {
+            let (mut params, fields) = sample(4, 4);
+            params.origin = origin.map(str::to_string);
+            let mut buf = Vec::new();
+            write_project(Cursor::new(&mut buf), &ProjectWrite::new(&params, &fields))
+                .expect("write_project should succeed");
+            let back = read_project(Cursor::new(&buf)).expect("read back");
+            assert_eq!(back.save.params.origin.as_deref(), origin, "origin did not survive");
+        }
     }
 
     #[test]

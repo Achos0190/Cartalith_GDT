@@ -49,6 +49,28 @@ pub struct SaveParams {
     pub map_width_km: f64,
     pub sea_level: f64,
     pub world: bool,
+    /// **How the height field was produced**, verbatim from the archive —
+    /// `SAVEFILE_COMPAT.md` §7's `world.origin`, whose three defined values
+    /// are `"gen"`, `"import"` and `"region"` (`cartalith_godot::
+    /// bake_bridge`'s `ORIGIN_*` constants are the same strings). This crate
+    /// deliberately does not police it: an unrecognised value from a newer
+    /// writer is carried through unchanged rather than folded into a known
+    /// one, per §14.3's unknown-member rule.
+    ///
+    /// **`None` means the archive did not say, and nothing else.** Every
+    /// archive written before this member existed is that case, and it is
+    /// not the same fact as `Some("gen")` — which is exactly why this is an
+    /// `Option` and not a `String` defaulting to `"gen"`. A caller that
+    /// re-saves a `None` writes `None` again rather than inventing a
+    /// provenance the file never carried.
+    ///
+    /// What a *consumer* does with `None` is its own decision, and
+    /// `cartalith-godot`'s is documented at its `world_key()`: the atlas key
+    /// substitutes `"gen"` there, because giving unknown-provenance archives
+    /// their own namespace would orphan the baked atlas of every project
+    /// saved before this member existed. That substitution is one line in
+    /// one consumer; it is not this type's answer.
+    pub origin: Option<String>,
 }
 
 /// The terrain fields a save carries that this port reads
@@ -234,6 +256,12 @@ pub(crate) fn load_from_archive(
         json_num(&params_json, &["state", "mapWidthKm"]).ok_or(LoadError::MissingField("state.mapWidthKm"))?;
     let sea_level = json_num(&params_json, &["state", "seaLevel"]).ok_or(LoadError::MissingField("state.seaLevel"))?;
     let world = json_bool(&params_json, &["state", "world"]).unwrap_or(false);
+    // A member of `params.json` itself, not of `state`: `state` is the reference
+    // app's own vocabulary and `loadZip()` merges the whole object into its
+    // live state, so a member of this port's invention does not belong
+    // there. `None` when the key is absent, which is every archive the
+    // reference itself has ever written (SAVEFILE_COMPAT.md 15).
+    let origin = params_json.get("origin").and_then(|v| v.as_str()).map(str::to_string);
 
     let heightmap = read_f32_entries(&read_entry(archive, "heightmap.f32")?);
     let temperature = read_f32_entries(&read_entry(archive, "temperature.f32")?);
@@ -243,7 +271,7 @@ pub(crate) fn load_from_archive(
     let strahler_order = read_entry(archive, "strahler_order.bin")?;
 
     Ok(SaveData {
-        params: SaveParams { gw, gh, seed, map_width_km, sea_level, world },
+        params: SaveParams { gw, gh, seed, map_width_km, sea_level, world, origin },
         fields: SaveFields { heightmap, temperature, rainfall, volcanic_field, impact_field, strahler_order },
         state: params_json.get("state").cloned().unwrap_or(serde_json::Value::Null),
     })
@@ -312,6 +340,17 @@ mod tests {
             writer.finish().unwrap();
         }
         buf
+    }
+
+    /// `build_test_zip` is modelled on a genuine `Cartalith Gen1` export,
+    /// which has no `origin` member and never will — so this is the reading
+    /// of an archive from the HTML app itself, not of one this port wrote.
+    /// It must be `None`, not `Some("gen")`: the file did not say.
+    #[test]
+    fn a_reference_export_records_no_origin() {
+        let save = load_save(Cursor::new(build_test_zip(4, 4, 7, 800.0, 0.42, false)))
+            .expect("load_save should succeed");
+        assert_eq!(save.params.origin, None);
     }
 
     #[test]

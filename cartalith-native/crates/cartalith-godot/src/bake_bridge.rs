@@ -105,16 +105,17 @@ impl BakeState {
 /// tuple in this very signature — [`WorldGen::generate_sized`] and
 /// [`WorldGen::generate_world_structure_sized`].
 ///
-/// **Also what a loaded save reports**, and that is a deliberate call rather
-/// than an oversight: the `.zip`/project format records no origin
-/// (`cartalith_io::SaveParams` is `gw`/`gh`/`seed`/`map_width_km`/`sea_level`/
-/// `world` and nothing else, and `params::apply_saved_state` reads only rows of
-/// the `PARAMS` table), while `load_save` restores every other element of this
-/// signature exactly. Giving a load its own value would therefore change the
-/// key on **every** project reopen and orphan the atlas the user just paid for,
-/// including for the generate → bake → save → open path that is the common one.
-/// The cost of the choice is stated where it is paid — see `load_save`'s own
-/// assignment.
+/// **Also what a loaded save reports when its archive did not record an
+/// origin** — and only then. `cartalith_io::SaveParams::origin` carries
+/// provenance through the format (`project.json`'s `world.origin` in the tree
+/// layout, `params.json`'s top-level `origin` in the flat one) and both of
+/// this port's writers fill it in, so a saved import or resample now reopens
+/// as itself. What cannot be recovered is an archive written before that
+/// member existed, including every genuine `Cartalith Gen1` export; those
+/// restore every *other* element of this signature exactly, so
+/// [`origin_for_key`] substitutes this value rather than giving them a
+/// namespace of their own and orphaning an atlas already baked. That
+/// substitution, and its cost, live there.
 ///
 /// [`WorldGen::generate_sized`]: crate::WorldGen
 /// [`WorldGen::generate_world_structure_sized`]: crate::WorldGen
@@ -132,6 +133,27 @@ pub const ORIGIN_IMPORTED: &str = "import";
 /// *parent's*, and it inherits the parent's `seed`, so its parameter tuple is
 /// especially likely to land on one a generated world already owns.
 pub const ORIGIN_REGION: &str = "region";
+
+/// The origin an atlas key uses for a world whose archive **did not record
+/// one** — every project saved before `world.origin` existed
+/// (`SAVEFILE_COMPAT.md` §7).
+///
+/// [`ORIGIN_GENERATED`], and that substitution is a cost paid on purpose
+/// rather than a claim about the world. Such an archive restores every
+/// *other* element of [`world_key_signature`] exactly, so giving the unknown
+/// case a string of its own would change the key of every pre-provenance
+/// project the first time it is reopened and orphan the atlas its owner
+/// already paid to bake — including on the generate → bake → save → open
+/// path, which is the common one.
+///
+/// It is a function, and the only one, so that the substitution has exactly
+/// one home and a test can pin it: `WorldGen::world_key` calls it and nothing
+/// else resolves a `None` origin. In particular `WorldGen::world_origin`
+/// itself keeps the `None`, so re-saving a pre-provenance archive writes no
+/// origin rather than starting to claim one.
+pub fn origin_for_key(origin: Option<&str>) -> &str {
+    origin.unwrap_or(ORIGIN_GENERATED)
+}
 
 /// The world-key signature — see this module's own header for what is in it
 /// and why.
@@ -405,6 +427,101 @@ mod tests {
             1024, 512, 42, 800.0, 0.42, true, ORIGIN_IMPORTED, serde_json::json!({"a": 1}),
         );
         assert_eq!(s, r#"[1024,512,42,800.0,0.42,true,"import",{"a":1}]"#);
+    }
+
+    /// A `.zip` written before `world.origin` existed **must keep the atlas
+    /// namespace it already had**, and this pins that end to end: a
+    /// pre-provenance project archive is built, read back through
+    /// `cartalith_io`, and its key computed the way `WorldGen::world_key`
+    /// computes one.
+    ///
+    /// `117cb87a` is a literal measured on this signature at `686cd2a`,
+    /// before `SaveParams::origin` existed — the state of a user's disk. It
+    /// is not `world_key(...)` restated, so changing `ORIGIN_GENERATED`,
+    /// changing what `origin_for_key` substitutes, or writing an `origin`
+    /// member into an archive that had none all turn it red.
+    #[test]
+    fn a_save_written_before_origin_existed_reopens_into_the_same_atlas() {
+        let (gw, gh) = (64usize, 32usize);
+        let n = gw * gh;
+        let params = cartalith_io::SaveParams {
+            gw,
+            gh,
+            seed: 4242,
+            map_width_km: 1234.5,
+            sea_level: 0.37,
+            world: true,
+            // The whole point: what an archive on a user's disk says.
+            origin: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: vec![0.5; n],
+            temperature: vec![10.0; n],
+            rainfall: vec![0.25; n],
+            volcanic_field: vec![0.0; n],
+            impact_field: vec![0.0; n],
+            strahler_order: vec![0u8; n],
+        };
+        let mut buf = Vec::new();
+        cartalith_io::project::write_project(
+            std::io::Cursor::new(&mut buf),
+            &cartalith_io::ProjectWrite::new(&params, &fields),
+        )
+        .expect("write_project");
+
+        // No `origin` member reached the archive, which is what makes the
+        // bytes a genuine stand-in for a pre-provenance save rather than a
+        // new one that happens to read back the same.
+        let manifest: serde_json::Value = {
+            let mut a = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("open");
+            let mut e = a.by_name(cartalith_io::PROJECT_MANIFEST).expect("project.json");
+            serde_json::from_reader(&mut e).expect("json")
+        };
+        assert!(
+            manifest["world"].get("origin").is_none(),
+            "a None origin must be an absent key, not a written one: {manifest}"
+        );
+
+        let read = cartalith_io::load_save(std::io::Cursor::new(&buf)).expect("load_save");
+        assert_eq!(read.params.origin, None, "absent must read back as absent");
+
+        let key = cartalith_io::world_key(&world_key_signature(
+            read.params.gw as i32,
+            read.params.gh as i32,
+            read.params.seed,
+            read.params.map_width_km,
+            read.params.sea_level,
+            read.params.world,
+            origin_for_key(read.params.origin.as_deref()),
+            serde_json::json!({"legacy": true}),
+        ));
+        assert_eq!(key, "117cb87a", "a pre-provenance save changed atlas namespace");
+    }
+
+    /// The other direction, and the defect the format change exists to close:
+    /// a saved import must not come back as a generated world.
+    #[test]
+    fn a_saved_import_and_a_saved_generate_reopen_into_two_atlases() {
+        let key = |origin: Option<&str>| {
+            cartalith_io::world_key(&world_key_signature(
+                64,
+                32,
+                4242,
+                1234.5,
+                0.37,
+                true,
+                origin_for_key(origin),
+                serde_json::json!({"legacy": true}),
+            ))
+        };
+        assert_ne!(key(Some(ORIGIN_IMPORTED)), key(Some(ORIGIN_GENERATED)));
+        assert_ne!(key(Some(ORIGIN_REGION)), key(Some(ORIGIN_GENERATED)));
+        // ...while the unknown case is the one that deliberately shares.
+        assert_eq!(key(None), key(Some(ORIGIN_GENERATED)));
+        // An origin from a newer writer keeps its own namespace rather than
+        // being folded into one of the three this build knows.
+        assert_ne!(key(Some("sculpt")), key(Some(ORIGIN_GENERATED)));
+        assert_eq!(origin_for_key(Some("sculpt")), "sculpt");
     }
 
     #[test]

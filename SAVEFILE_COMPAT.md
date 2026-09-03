@@ -537,7 +537,8 @@ the grid every raster is measured against.
     "wrap_x": false,
     "map_width_km": 800.0,
     "sea_level": 0.42,
-    "seed": 24601
+    "seed": 24601,
+    "origin": "gen"
   }
 }
 ```
@@ -554,6 +555,7 @@ the grid every raster is measured against.
 | `world.map_width_km` | number > 0 | MUST | Real-world width of the map. **Height is derived, not stored**: cells are square in kilometres, so height is `map_width_km × grid_height / grid_width`. A stored height that disagreed would contradict every distance, gradient and route length in the archive. |
 | `world.sea_level` | number in `[0,1]` | MUST | The **effective** threshold against the heightmap's own `[0,1]` range. A cell is land where `heightmap[i] >= sea_level`. If the generator re-anchored sea level from a world-structure archetype, this is the re-anchored value, not the user's input — the user's input belongs in `params.json`. |
 | `world.seed` | integer | MUST | The generation seed. Range: §14.1. |
+| `world.origin` | string | MAY | **How the height field was produced**, and the one member here that is not a generation input. `"gen"` — produced by the generator from the tuple above; `"import"` — inverted from an imported image, so the tuple does *not* determine it; `"region"` — resampled out of another world's marquee, inheriting that world's `seed`. Other values are permitted and §14.3 governs them: an unrecognised origin is carried, not folded into a known one. **Absent is not `"gen"`** — see the reader table below. |
 
 **What a reader does when a MUST member is missing or mistyped.** Each MUST
 above binds the *writer* unconditionally; the reader's obligation differs per
@@ -570,6 +572,7 @@ fatal — a reader ignores a missing or malformed one.
 | `world.sea_level` | Refuse. It is the coastline. A default would silently redraw it. |
 | `world.seed` | Refuse. It is what makes the world regenerable, and a substituted seed produces a *different* world that claims to be this one. |
 | `world.wrap_x` | **Read as `false` and report it.** |
+| `world.origin` | **Read as unknown.** Never fatal, and never substituted: a reader MUST NOT report a missing `origin` as `"gen"`, because the two are different facts and an archive that re-saves the substituted value has invented a provenance the file never carried. Mistyped (a non-string) is the same case as missing. |
 
 `wrap_x` is the single exception, and the reason is worth stating rather than
 leaving as an oddity: it is the only member here whose absence has a defined
@@ -582,6 +585,32 @@ defect — which is the wrong trade, and the trade §6.4a exists to stop making.
 
 A writer MUST still write `wrap_x`. The leniency is the reader's, and a reader
 that exercises it MUST say so.
+
+**`world.origin` is lenient for the opposite reason**, and it is worth stating
+because the temptation is to give it a default. It is MAY rather than MUST
+because every archive written before it existed — including every genuine
+`Cartalith Gen1` export, which will never have one — is legitimately silent
+about it, and there is no way to recover the answer from the file. A writer
+that knows the provenance MUST write it; **a writer that does not MUST omit
+the member rather than write `"gen"`**, since a substituted value is
+indistinguishable from a recorded one and the next re-save then carries the
+invention forward as fact.
+
+What a *consumer* does with the unknown case is its own business, and this
+port's is recorded rather than implied: `cartalith-godot` treats an absent
+origin as `"gen"` **for the atlas cache key alone** (`bake_bridge::
+origin_for_key`), because an archive from before this member restores every
+other element of that key exactly and a distinct fourth value would change the
+key of every such project on reopen and orphan tiles its owner already baked.
+It does not write that substitution back: the loaded value stays absent, so a
+re-save omits the member as the rule above requires.
+
+**No `format_version` bump for this member.** It is additive and MAY: a
+version-1 reader meets it and ignores it under §14.3, and a reader that knows
+it meets an archive without it and reads the absence as the answer. Bumping
+would make every archive this port writes warn in a build that would have
+handled it correctly, which is a cost paid for no protection. A member that
+changed how an existing one is *read* would be the other case.
 
 ---
 
@@ -1553,7 +1582,7 @@ Eight entries at the archive root, no directories:
 
 | Entry | Contents |
 |---|---|
-| `params.json` | `{ "v": <number>, "GW": <int>, "GH": <int>, "state": { … } }` |
+| `params.json` | `{ "v": <number>, "GW": <int>, "GH": <int>, "state": { … } }`, plus an optional top-level `"origin"` — §7's `world.origin`, written by §1.1's interoperability export when it knows one. Top level, not inside `state`: `state` is merged wholesale into the reference app's own live state (§15.4), which is not a place to put a member of this format's invention. A reference export never carries it. |
 | `heightmap.f32` | `GW × GH` little-endian f32, row-major |
 | `heightmap_rg16.bin` | The **same** heightmap, 16-bit-packed. §15.2. |
 | `temperature.f32` | as above, degrees Celsius |
@@ -1581,6 +1610,7 @@ to the tree's model reads:
 | `world.map_width_km` | `params.json` → `state.mapWidthKm` |
 | `world.sea_level` | `params.json` → `state.seaLevel` |
 | `world.wrap_x` | `params.json` → `state.world`, defaulting to `false` |
+| `world.origin` | `params.json` → `origin` (top level), **absent when the file has none** — which is every export the HTML app itself has written |
 | `params.json` → `reference` | the whole `state` object |
 | `params.json` → `cartalith` | `state.cartalith` if present, else absent |
 | `rasters/*.f32` | the same-named root entries |

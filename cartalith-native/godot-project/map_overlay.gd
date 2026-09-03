@@ -2319,6 +2319,10 @@ func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 ## this settlement carries one. See the block at the end of this function: the
 ## third line is the ring's caption, not a fact about religion in general.
 ##
+## A settlement with no population has one line, and that line names the
+## absence rather than the share it cannot have -- see the head line's own
+## comment below.
+##
 ## Empty is the deliberate answer when `get_settlements()` omitted the
 ## `religion` key, i.e. when no diffusion has been run in this world. That
 ## absence is a property of the whole layer, not of this settlement, and it
@@ -2350,7 +2354,17 @@ func _faith_lines(s: Dictionary) -> Array:
 	var pop := int(s.get("population", 0))
 	var adherents: Dictionary = s.get("adherents", {})
 	var plurality := String(s["religion"])
-	var out: Array = ["Faith %s%s" % [_faith_label(plurality), _faith_share(adherents, plurality, pop)]]
+	## A settlement created at population 0 has a real share vector and an
+	## empty `adherents` dictionary, so `_faith_share` correctly returns `""`
+	## and the line read `Faith Sun Cult` -- indistinguishable from a plurality
+	## measured over people. Measured on seed 77021 at 256x192: **158 of 173
+	## settlements**, 43 of them led by a faith, every one of those cards
+	## saying it without a share and without a reason. The reason is printed
+	## instead, which is the same rule the panel's own row follows.
+	var head := "Faith %s%s" % [_faith_label(plurality), _faith_share(adherents, plurality, pop)]
+	if pop <= 0:
+		head += " -- no population, so no share"
+	var out: Array = [head]
 	## Every other entry actually present, largest first. `adherents` omits a
 	## religion with zero adherents (`lib.rs`'s own comment), so every key here
 	## has at least one follower and this loop cannot print a 0. Its size is the

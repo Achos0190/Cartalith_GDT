@@ -2402,9 +2402,56 @@ func _fill_religion(parent: Control) -> void:
 	_religion_divergence(sec, places)
 	_religion_by_faction(sec, places)
 
-	var list := DccWidgets.group(sec, "%d settlements" % places.size(), places.size() <= 12)
+	_religion_settlement_lists(sec, places)
+
+## The settlement list, split by whether the rows in it can carry a head-count.
+##
+## One group of 173 was measured (`_faithdenom_probe.gd`, seed 77021 at
+## 256x192) to be **15 rows that answer the section's question and 158 that
+## cannot**, in world order, with no way to reach the 15 but scrolling. The
+## partition is the same fact `_religion_totals`' headline now states, applied
+## to the list: a reader who wants adherence gets the settlements that have it,
+## and the rest stay one collapsed group away rather than deleted -- they are
+## where 43 of this world's leading faiths live.
+##
+## `DccWidgets.group`'s own `open` argument does the disclosure; no new widget
+## and no new state. The second group is opened only when it is small enough to
+## be the whole list anyway, matching the 12-row rule the single group used.
+##
+## Not a filter control: a dropdown would need somewhere to keep its selection
+## across the `_clear_body` / `_fill_religion` rebuild that every run and every
+## roster edit performs, and the split needs no selection to be right.
+func _religion_settlement_lists(parent: Control, places: Array) -> void:
+	var with_people: Array = []
+	var without: Array = []
 	for i in places.size():
-		_religion_row(list, places[i])
+		if int((places[i] as Dictionary).get("population", 0)) > 0:
+			with_people.append(places[i])
+		else:
+			without.append(places[i])
+	## Headed by what the group holds rather than by "settlements": the two
+	## counts sum to the world and neither is the world.
+	if without.is_empty():
+		var all := DccWidgets.group(parent, "%d settlements" % places.size(),
+			places.size() <= 12)
+		for d in with_people:
+			_religion_row(all, d)
+		return
+	if not with_people.is_empty():
+		var lead := DccWidgets.group(parent, "%d with a population" % with_people.size(),
+			with_people.size() <= 12)
+		for d in with_people:
+			_religion_row(lead, d)
+	else:
+		## Stated, not skipped. An Adherence section whose only list is the
+		## dashed one should say that nobody in this world is counted, rather
+		## than let a collapsed group imply the rows above it were the others.
+		DccWidgets.note(parent, "— no settlement in this world has a population the engine "
+			+ "counts, so every row below carries a leading faith and no head-count")
+	var rest := DccWidgets.group(parent, "%d with no population" % without.size(),
+		without.size() <= 12)
+	for d in without:
+		_religion_row(rest, d)
 
 ## The world roll-up: how many people follow each faith, and how many
 ## settlements each one leads.
@@ -2418,19 +2465,49 @@ func _fill_religion(parent: Control) -> void:
 ## number of faiths**, because the unaffiliated slot is one of those rows. The
 ## headline sentence below counts them apart; see its own comment for the
 ## measured sentence that made this worth spelling out.
+##
+## # `leads` and `people` do not count the same settlements, and until
+## # 2026-09-03 one sentence printed both as though they did
+##
+## Measured, `_faithdenom_probe.gd` over seed 77021 at 256x192: **158 of 173
+## settlements have `population` 0.** They are the hamlet-tier village add-ons,
+## and the zero is faithful rather than missing -- `cartalith-civ/src/lib.rs`
+## records the reference's own shape as `{...,kind:'hamlet',...,pop:0,...}`.
+## `belief_seed` still gives every one of them a share vector, so
+## `get_settlements()` reports a real `religion` for each, while
+## `SettlementReligionState::adherents(0)` is all zeroes and `lib.rs` omits
+## every zero -- so `adherents` arrives **empty**.
+##
+## The consequence is that a faith's head-count and its settlement count are
+## drawn from disjoint sets. On that world the shipped line read
+##
+##   `Sun Cult - 9 816 people (8.0%), leads 20 settlements`
+##
+## where the 9 816 people live in settlements Sun Cult does **not** lead (it is
+## a minority in all 15 populated ones) and all 20 it leads hold nobody. Both
+## halves were arithmetically right and the sentence was not. So the count is
+## now split, and the split is stated in the headline rather than left for the
+## reader to infer from a per-faith parenthesis.
 func _religion_totals(parent: Control, places: Array) -> void:
 	var people := {}
 	var leads := {}
+	var leads_pop := {}
+	## One definition of "has a population", shared with the divergence
+	## sentence below so the two denominators cannot drift apart.
+	var populated := _religion_populated(places)
 	var total := 0
 	for p in places:
 		var d: Dictionary = p
-		total += int(d.get("population", 0))
+		var pop := int(d.get("population", 0))
+		total += pop
 		var ad: Dictionary = d.get("adherents", {})
 		for k in ad.keys():
 			people[k] = int(people.get(k, 0)) + int(ad[k])
 		if d.has("religion"):
 			var r: String = String(d["religion"])
 			leads[r] = int(leads.get(r, 0)) + 1
+			if pop > 0:
+				leads_pop[r] = int(leads_pop.get(r, 0)) + 1
 	var rows := _religion_sorted(people)
 	## `rows` carries the unaffiliated slot, because it IS a row -- the list
 	## below prints it, with its own glyph and its own share. It is **not a
@@ -2447,19 +2524,42 @@ func _religion_totals(parent: Control, places: Array) -> void:
 	for r in rows:
 		if String(r[1]) != "none":
 			faiths += 1
-	DccWidgets.note(parent, "%s people across %d settlements, in %d faith%s%s." % [
-		FactionRosterWindow._thousands(total), places.size(), faiths,
+	## The denominator is the number of settlements the head-counts actually
+	## come from, not `places.size()`. "123 159 people across 173 settlements"
+	## was true of a world whose people are in 15 of them.
+	DccWidgets.note(parent, "%s people across %d of %d settlements, in %d faith%s%s." % [
+		FactionRosterWindow._thousands(total), populated, places.size(), faiths,
 		"" if faiths == 1 else "s",
 		" and the unaffiliated" if int(people.get("none", 0)) > 0 else ""])
+	## Said once, here, rather than repeated on every dashed row below: the
+	## rest of this panel counts settlements in two different ways and this is
+	## the sentence that reconciles them.
+	if populated < places.size():
+		DccWidgets.note(parent, "The other %d have no population for the engine to count. "
+			% (places.size() - populated)
+			+ "That 0 is a real value and not a missing one — the reference creates its "
+			+ "village add-ons at population 0 and this port matches it — so each of them "
+			+ "still carries a real share vector: a leading faith, and no head-count. Every "
+			+ "count below says which of the two it is made of.")
 	_religion_bar(parent, people, total)
 	for r in rows:
 		var key: String = r[1]
 		var n: int = r[0]
 		var lead := int(leads.get(key, 0))
-		DccWidgets.note(parent, "%s %s — %s people (%s), leads %d settlement%s" % [
+		var lead_pop := int(leads_pop.get(key, 0))
+		## `lead` and `n` are drawn from disjoint settlement sets whenever
+		## `lead_pop` is 0, which is the common case -- see this function's own
+		## header. The tail names the overlap instead of leaving "leads N"
+		## looking like the settlements the people are in.
+		var where := ""
+		if lead > 0 and lead_pop == 0:
+			where = ", none of them with a population"
+		elif lead > 0 and lead_pop < lead:
+			where = ", %d of them with a population" % lead_pop
+		DccWidgets.note(parent, "%s %s — %s people (%s), leads %d settlement%s%s" % [
 			_religion_swatch_glyph(key), _religion_label(key),
 			FactionRosterWindow._thousands(n), _religion_pct(n, total),
-			lead, "" if lead == 1 else "s"])
+			lead, "" if lead == 1 else "s", where])
 
 ## The only way to turn the faith-divergence ring **off** in a world that can
 ## no longer draw it, and it exists because the alternative was measured.
@@ -2511,6 +2611,16 @@ func _religion_stranded_layer(parent: Control) -> void:
 ## **which** ones (`_religion_diverged_rows`). The count alone was what shipped
 ## first, and it left the map as the only way to find out where -- one bit per
 ## pin, discoverable by hovering all of them.
+## Settlements the engine gives a population the head-counts can be summed
+## from. Shared by the two sentences whose denominators differ because of it,
+## so neither can drift from the other's idea of what "populated" means.
+static func _religion_populated(places: Array) -> int:
+	var n := 0
+	for p in places:
+		if int((p as Dictionary).get("population", 0)) > 0:
+			n += 1
+	return n
+
 func _religion_divergence(parent: Control, places: Array) -> void:
 	var faiths := _religion_faction_column("religion")
 	## `compared` is carried beside the divergence count for the same reason
@@ -2545,6 +2655,16 @@ func _religion_divergence(parent: Control, places: Array) -> void:
 	else:
 		DccWidgets.note(parent, "%d of %d settlements no longer share their ruler's state "
 			% [n, compared] + "religion.")
+	## Said whenever this denominator can differ from the head-count one above,
+	## which is whenever the world holds a settlement with no population. Both
+	## sentences count settlements and they count DIFFERENT settlements: the
+	## roll-up sums people, and this compares two religion keys, which a
+	## settlement of nobody has exactly as much as a city does.
+	if compared > 0 and _religion_populated(places) < places.size():
+		DccWidgets.note(parent, "That count is over religion keys, not over people — a "
+			+ "settlement with no population has a leading faith and can differ from its "
+			+ "ruler, so it is compared here even though it is in none of the head-counts "
+			+ "above.")
 	_religion_diverged_rows(parent, places, faiths, diverged)
 	DccWidgets.toggle(parent, "Show on map", app.viewport.overlay.faith_divergence_visible(),
 		func(on: bool): app.viewport.overlay.set_faith_divergence_visible(on),
@@ -2650,6 +2770,13 @@ func _religion_pin(index: int) -> void:
 ## by construction rather than by that equality holding, and it means a
 ## settlement the layer does not cover is absent from both sides of the
 ## fraction instead of only the top.
+##
+## The settlement that is absent in practice is not the uncovered one -- the
+## engine's guard is all-or-nothing, so there are none -- it is the one created
+## at population 0, whose `adherents` dictionary arrives empty. Measured on
+## seed 77021 at 256x192, that is 158 of 173 settlements, and Aurelia's
+## composition line is summed over 4 of its 22. The row states that count
+## rather than leaving the shares to read as the whole faction.
 func _religion_by_faction(parent: Control, places: Array) -> void:
 	var rows := bridge.get_factions()
 	if rows.is_empty():
@@ -2668,6 +2795,12 @@ func _religion_by_faction(parent: Control, places: Array) -> void:
 	var people := {}   ## faction id -> {religion key: adherents}
 	var covered := {}  ## faction id -> settlements that carried the keys
 	var held := {}     ## faction id -> settlements assigned to it at all
+	## faction id -> settlements the head-counts below actually come from.
+	## Distinct from `covered`: `adherents` is empty for a settlement created
+	## at population 0, so `covered` can be 22 while the composition line is
+	## summed over 4. Carried so that line can print its own denominator
+	## instead of reading as the whole faction.
+	var counted := {}
 	for p in places:
 		var d: Dictionary = p
 		var f := int(d.get("faction", 0))
@@ -2675,6 +2808,8 @@ func _religion_by_faction(parent: Control, places: Array) -> void:
 		if not d.has("religion"):
 			continue
 		covered[f] = int(covered.get(f, 0)) + 1
+		if int(d.get("population", 0)) > 0:
+			counted[f] = int(counted.get(f, 0)) + 1
 		if not people.has(f):
 			people[f] = {}
 		var ad: Dictionary = d.get("adherents", {})
@@ -2711,7 +2846,7 @@ func _religion_by_faction(parent: Control, places: Array) -> void:
 
 	var grp := DccWidgets.group(parent, "%d factions" % rows.size(), rows.size() <= 8)
 	for r in rows:
-		_religion_faction_row(grp, r, people, covered, held)
+		_religion_faction_row(grp, r, people, covered, held, counted)
 	## Settlements under no ruler are not in `get_factions()` at all -- it
 	## enumerates `1..=count` and skips Unclaimed -- so without this row they
 	## would vanish silently from a breakdown that reads as complete. Drawn
@@ -2722,7 +2857,7 @@ func _religion_by_faction(parent: Control, places: Array) -> void:
 	## settlements to `0`, which is how one appears.
 	if int(held.get(0, 0)) > 0:
 		_religion_faction_row(grp, {"id": 0, "name": "Unclaimed", "religion": ""},
-			people, covered, held)
+			people, covered, held, counted)
 
 ## The largest summed faith in one faction, or `""` when there is nothing to
 ## take a plurality of.
@@ -2752,7 +2887,7 @@ static func _religion_faction_plurality(counts: Dictionary) -> String:
 ## - **population 0** -- covered settlements whose head-counts all floor to
 ##   nobody. The shares exist; the people do not.
 func _religion_faction_row(parent: Control, row: Dictionary, people: Dictionary,
-		covered: Dictionary, held: Dictionary) -> void:
+		covered: Dictionary, held: Dictionary, counted: Dictionary) -> void:
 	var f := int(row.get("id", 0))
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 0)
@@ -2783,8 +2918,18 @@ func _religion_faction_row(parent: Control, row: Dictionary, people: Dictionary,
 		for r in _religion_sorted(counts):
 			parts.append("%s %s %s" % [_religion_swatch_glyph(r[1]), _religion_label(r[1]),
 				_religion_pct(r[0], total)])
+		## The denominator, for the same reason the world headline now carries
+		## one: on seed 77021 Aurelia's composition is summed over 4 of its 22
+		## settlements, the other 18 being population 0, and the line read as
+		## the whole faction.
+		var n_counted := int(counted.get(f, 0))
+		var n_held := int(held.get(f, 0))
 		DccWidgets.note(box, "%s people · %s" % [FactionRosterWindow._thousands(total),
 			" · ".join(parts)])
+		if n_counted < n_held:
+			DccWidgets.note(box, "— from %d of its %d settlements; the other %d have no "
+				% [n_counted, n_held, n_held - n_counted]
+				+ "population to count and are in neither side of these shares")
 		## The comparison, and the only place the two models are set beside each
 		## other. Never a verdict -- see this block's own header on §4.
 		var plurality := _religion_faction_plurality(counts)
@@ -2843,6 +2988,18 @@ func _religion_culture_warning(parent: Control) -> void:
 ## returned a slice shorter than the settlement list, which is a shape
 ## mismatch and not a secular town. It is dashed with that reason instead of
 ## printing a faith or a blank.
+##
+## # The population-0 row used to drop the one fact it had
+##
+## A settlement created at `pop:0` gets an empty `adherents` dictionary (see
+## `_religion_totals`' header for why), so `_religion_sorted` returns nothing
+## and this row printed only the dash. Its `religion` key is real and was
+## thrown away -- while the roll-up above counted it in "leads N settlements".
+## Measured on seed 77021 at 256x192: **43 settlements were led by a faith and
+## not one of their 43 rows named it**, so the only two numbers a reader could
+## reconcile were 20 and 23 against a list that showed neither. The plurality
+## is now printed with the reason there is no percentage beside it, which is
+## the same dash-with-its-reason the missing-key branch above uses.
 func _religion_row(parent: Control, data: Dictionary) -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 0)
@@ -2869,9 +3026,14 @@ func _religion_row(parent: Control, data: Dictionary) -> void:
 			_religion_pct(r[0], pop)])
 	if parts.is_empty():
 		## Reachable only for a settlement of population 0: every share is
-		## real but every head-count floors to nothing.
-		DccWidgets.note(box, "— no adherents to count (population 0); the shares exist, the "
-			+ "head-counts round to nobody")
+		## real but every head-count floors to nothing. The leading faith is
+		## still known -- `religion` is emitted from the share vector, not from
+		## the counts -- so it is named, and the share is dashed rather than
+		## printed as a number this settlement cannot support.
+		DccWidgets.note(box, "%s %s — no population to count, so no share: the belief layer "
+			% [_religion_swatch_glyph(String(data["religion"])),
+				_religion_label(String(data["religion"]))]
+			+ "gives this settlement a leading faith and no head-count")
 	else:
 		DccWidgets.note(box, " · ".join(parts))
 	parent.add_child(box)

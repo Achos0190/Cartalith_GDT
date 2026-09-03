@@ -330,6 +330,9 @@ func _sweep() -> void:
 	if rd != null:
 		await _screen("rdock_history", func(): rd.show_history(),
 			func(): return app.get("right_dock"))
+		# Labelled for the section it opens, not the armed tool: this calls
+		# show_sculpt_stack() without arming sculpt or making a draft, so the
+		# Stamp stack is legitimately absent and the pass is a cold one.
 		await _screen("rdock_sculpt", func(): rd.show_sculpt_stack(),
 			func(): return app.get("right_dock"))
 		await _screen("rdock_faction", func(): rd.show_faction(0),

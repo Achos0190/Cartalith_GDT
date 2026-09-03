@@ -31,7 +31,11 @@ const CTX_RIVER := "river"
 const CTX_FACTION := "faction"
 const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
-const CTX_SCULPT := "sculpt"
+## `CTX_SCULPT` was here. It is now `TOOL_STAMPS`, an appended section id --
+## see that constant for the measurement that caught this context replacing a
+## selected settlement. Do not re-add it as a context: a `CTX_` name, a
+## `CTX_TITLES` row and a `_dispatch()` arm are the three things that made the
+## dock replace the selection, and the ruling rejects all three.
 const CTX_JOURNEY := "journey"
 ## The Wildlife debug view's roster popup -- the reference's own
 ## `#wildInfo` panel (`showWildInfo`, HTML 8259), re-hosted here rather than
@@ -44,12 +48,14 @@ const CTX_WILDLIFE := "wildlife"
 ## context-driven surface.
 const CTX_HISTORY := "history"
 
-## `05-right-dock-and-bars.md` §1.8-§1.12, GUI replacement stage 5. Four
-## sections from `rdMode4()`'s own fall-through table (§1.2b): `tool ===
-## 'biome'` -> paint, `tool` is `label`/`icon` -> anno, `tool === 'territory'`
-## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops. All four read
+## `05-right-dock-and-bars.md` §1.8-§1.12, GUI replacement stage 5. **Five**
+## sections from `rdMode4()`'s own fall-through table (§1.2b): `tool` is
+## `sculpt`/`freehand` -> stamps (rule 1, `TOOL_STAMPS`, converted from a
+## context on 2026-09-03 -- see its own doc), `tool === 'biome'` -> paint,
+## `tool` is `label`/`icon` -> anno, `tool === 'territory'`
+## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops. All five read
 ## live engine state fresh on every rebuild, the same "no private draft"
-## shape `CTX_SCULPT` already uses -- there is nothing here for a second
+## shape the Stamp stack already used -- there is nothing here for a second
 ## editor to disagree with.
 ##
 ## **These are `TOOL_*`, not `CTX_*`, and that is the owner's 2026-09-03
@@ -98,6 +104,36 @@ const TOOL_ANNO := "anno"
 ## design doc's own short id and the grep this stage's own brief was
 ## written against.
 const TOOL_TERR := "territory"
+## `rdStamps` -- **`rdMode4()`'s rule 1, and the last place in this dock where
+## the owner's 2026-09-03 ruling was not yet applied.**
+##
+## The Stamp stack shipped as `CTX_SCULPT`: a context constant, a `CTX_TITLES`
+## row and a `_dispatch()` arm -- the exact three things the `TOOL_*` block
+## above warns never to give a tool again, because each of them is what makes
+## arming a tool *replace* whatever the dock was showing. It was measured doing
+## precisely that (`_rdappend_probe.gd`, 2026-09-03): with a settlement
+## selected, arming Sculpt gave `title=Stamp stack` and the settlement's own
+## name gone from the body. Territory's identical defect was found and fixed on
+## the same day; this one was rule 1 of the same table and was left standing.
+##
+## **Derived from two clauses, both gated on WORLD, and the second is
+## behaviour preservation rather than a new rule.** The design's own rule 1 is
+## `tool is sculpt or freehand -> stamps`, which is the first clause. The
+## second -- a draft that still holds stamps -- exists because the old context
+## flag survived a disarm and three call sites depended on that:
+##
+## * `world_workspace.gd::_sculpt_escape()` disarms to Inspect after cancelling
+##   a stroke. Under the tool clause alone, Escape would take the Commit and
+##   Discard controls away from a draft that is still uncommitted.
+## * `menus.gd`'s Edit > Select All in WORLD selects every stamp and
+##   re-announces this dock, with whatever tool the user had armed.
+## * `_deadwire_probe.gd::_audit_warm_sculpt()` draws two real strokes and then
+##   audits the stack's four gated buttons without arming anything.
+##
+## The WORLD gate is `leave_sculpt_context()`'s own condition read off
+## `app.gd::_on_workspace_changed` (`if id != "world"`), not a new opinion --
+## the same source `TOOL_PAINT`'s gate came from.
+const TOOL_STAMPS := "stamps"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -659,31 +695,44 @@ func show_wildlife(rec: Dictionary) -> void:
 	_context = CTX_WILDLIFE if not rec.is_empty() else CTX_SAMPLE
 	_rebuild()
 
-## Called by `world_workspace.gd` whenever the Sculpt panel is active or the
-## "sculpt" tool is armed (arming the tool via a feature/preset button, or a
-## stroke ending -- the dock's own Generation pipeline / Sculpt toggle was
-## removed by the v3 menu pass, which folded Sculpt into WORLD ▸ Terrain) -- never on a bare cursor move, so Sample stays the default
-## everywhere else. `_build_sculpt` below reads the stack fresh from
-## `bridge.sculpt_list_stamps()` on every `_rebuild()`, so this setter carries
-## no data of its own the way `show_measure`/`show_region` do.
+## Called by `world_workspace.gd`, `tool_bar.gd` and `menus.gd` whenever
+## something has changed the sculpt draft, and by this file's own stack rows --
+## a stroke ending, a commit, a discard, an undo, a Select All. Never on a bare
+## cursor move.
+##
+## **A plain rebuild, and no longer a context setter.** It used to assign
+## `_context = CTX_SCULPT`, which made arming Sculpt replace whatever the dock
+## was showing -- the shape the owner's 2026-09-03 ruling rejects, measured
+## doing it with a settlement selected. Whether the Stamp stack draws is now
+## `_tool_section()`'s answer, derived from the armed tool and the draft on
+## every rebuild; see `TOOL_STAMPS` for the derivation and the measurement.
+##
+## Kept as a method rather than deleted, exactly as `leave_paint_context()`
+## was: five files call it by name, and a redraw is what every one of them is
+## actually asking for. `_build_sculpt` already read the stack fresh from the
+## bridge on every `_rebuild()`, so this never carried data of its own the way
+## `show_measure`/`show_region` do and nothing is lost by the change.
 func show_sculpt_stack() -> void:
-	_context = CTX_SCULPT
 	_rebuild()
 
-## Visual sweep (2026-08-20): switching away from WORLD while the Sculpt
-## panel had claimed this dock left it stuck showing the Stamp stack in
-## CIVIL/CARTOGRAPHY, contradicting `show_sculpt_stack()`'s own doc comment
-## ("Sample stays the default everywhere else") -- Sculpt is a World-only
-## tool (`world_workspace.gd`) with nothing else that clears the context on
-## a domain switch. Called from `app.gd`'s `_on_workspace_changed`. Settlement/
-## route/faction/measure/region selections are left untouched -- those stay
-## meaningful across a domain switch (Inspect's own selection is wired
-## domain-independently in `app.gd`'s `_wire_selection`), so only Sculpt's
-## own context is domain-bound enough to reset here.
+## Called from `app.gd`'s `_on_workspace_changed` when the new domain is not
+## WORLD. Sculpt is a World-only tool (`world_workspace.gd`), and before the
+## 2026-09-03 ruling this was the only thing that ever cleared the Stamp
+## stack's context -- a visual sweep on 2026-08-20 found the dock stuck showing
+## it in CIVIL and CARTOGRAPHY without it.
+##
+## **A plain rebuild now, because there is no context left to clear.**
+## `_tool_section()` carries that same `id != "world"` condition as
+## `TOOL_STAMPS`' own domain gate, so the section stops drawing on a domain
+## switch by derivation rather than by a flag somebody has to remember to
+## reset. Kept as a method for the reason `leave_paint_context()` is: `app.gd`
+## calls it by name, and a redraw at a domain switch is what it is asking for.
+##
+## Settlement / route / faction / measure / region selections are still left
+## untouched -- those stay meaningful across a domain switch (Inspect's own
+## selection is wired domain-independently in `app.gd`'s `_wire_selection`).
 func leave_sculpt_context() -> void:
-	if _context == CTX_SCULPT:
-		_context = CTX_SAMPLE
-		_rebuild()
+	_rebuild()
 
 ## Called by `journey_planner_view.gd` when the JOURNEY tool arms -- claims
 ## `right_dock_body` for the results panel (`JOURNEY_PLANNER_SPEC.md` §8),
@@ -828,7 +877,7 @@ func leave_territory_context() -> void:
 const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
-	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
+	CTX_JOURNEY: "Journey",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
 }
 
@@ -886,7 +935,7 @@ func _current_title() -> String:
 ## for Layers" is a line about a context this dock deliberately does not have.
 ##
 ## **The armed tool obeys the same rule, and the design says nothing further.**
-## §6 lists one readout per context and the four tool sections are no longer
+## §6 lists one readout per context and the five tool sections are no longer
 ## contexts, so there is no delivered answer for "a settlement is selected AND
 ## Paint is armed" -- that pairing could not occur in the shape §6 was written
 ## for. Stated rather than guessed: **the selection's readout wins whenever
@@ -894,8 +943,14 @@ func _current_title() -> String:
 ## selection was never using -- the `_:` default, which is Sample, and the two
 ## arms that already fall back to it -- so a tool armed with nothing selected
 ## keeps reporting exactly what it reported before this change (painted cells,
-## stop count, label/icon counts, claimed cells) and a tool armed *over* a
-## selection cannot overwrite it. See `_fallback_readout()`.
+## stop count, label/icon counts, claimed cells, stamp count) and a tool armed
+## *over* a selection cannot overwrite it. See `_fallback_readout()`.
+##
+## §6's "stamp count for the stack" is therefore still delivered, and is the
+## one line of §6 that changed side: it used to be a context arm, and the Stamp
+## stack stopped being a context on 2026-09-03 (`TOOL_STAMPS`). The number is
+## the same one; what changed is that a selected settlement now keeps the
+## readout while the stack is on screen beneath it.
 func _push_dock_readout() -> void:
 	if app == null:
 		return
@@ -919,6 +974,13 @@ func _fallback_readout() -> String:
 		TOOL_TERR:
 			var stats := bridge.civ_faction_territory_stats(_terr_faction) if _terr_faction >= 0 else {}
 			return ("%s cells" % _thousands(float(stats.get("claimed_cells", 0)))) if not stats.is_empty() else "no claim"
+		TOOL_STAMPS:
+			## §6's own "stamp count for the stack", moved here verbatim from the
+			## `CTX_SCULPT` arm it used to sit in. `sculpt_stamp_count()` rather
+			## than `sculpt_list_stamps().size()`: the same number without
+			## marshalling every stamp dictionary to ask for it.
+			var n := bridge.sculpt_stamp_count()
+			return ("%d stamp%s" % [n, "" if n == 1 else "s"]) if bridge.has_world else "no world"
 	return _sample_elev.text if _sample_elev != null else "—"
 
 func _dock_readout_text() -> String:
@@ -951,8 +1013,6 @@ func _dock_readout_text() -> String:
 			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
 		CTX_WILDLIFE:
 			return ("%d species" % int(_wildlife_region.get("richness", 0))) if not _wildlife_region.is_empty() else "no ecoregion"
-		CTX_SCULPT:
-			return ("%d stamps" % bridge.sculpt_list_stamps().size()) if bridge.has_world else "no world"
 		CTX_HISTORY:
 			var st := bridge.undo_stats()
 			return "%d of %d reversible" % [int(st.get("depth", 0)), bridge.undo_ledger().size()]
@@ -983,8 +1043,6 @@ func _dispatch(body: Control) -> void:
 			_build_region(body)
 		CTX_WILDLIFE:
 			_build_wildlife(body)
-		CTX_SCULPT:
-			_build_sculpt(body)
 		CTX_JOURNEY:
 			_build_journey(body)
 		CTX_HISTORY:
@@ -1016,11 +1074,19 @@ func _dispatch(body: Control) -> void:
 ## Which section `_append_tool()` will draw, or `""`. **`rdMode4()`'s own
 ## fall-through table (§1.2b) read live, and nothing else** -- rules 3
 ## (`label`/`icon`) and 4 (`territory`) are unconditional on the armed tool,
-## rule 6 (`inspect`) also reads the domain. See the `TOOL_*` block at the top
-## of this file for why this is derived rather than remembered.
+## rules 1 (`sculpt`) and 6 (`inspect`) also read the domain. See the `TOOL_*`
+## block at the top of this file for why this is derived rather than
+## remembered.
+##
+## **One section at a time, which is the table's own shape**: `rdMode4()` is
+## first-match-wins and returns a single mode, so a tool that matches two rules
+## cannot draw two panels. The arms below are mutually exclusive on
+## `app.armed_tool` anyway; only `TOOL_STAMPS`' draft clause is not keyed on
+## the tool, and it is deliberately reached last so an explicitly armed tool
+## always beats a draft left lying in the WORLD domain.
 ##
 ## `_rebuild()` therefore has to run on every tool change, which is why
-## `setup()` connects `app.tool_armed` -- the four `show_*` calls cover the
+## `setup()` connects `app.tool_armed` -- the five `show_*` calls cover the
 ## arms, but nothing covered a *disarm* that stayed inside the same domain.
 ##
 ## **Paint carries a domain condition §1.2b's own table does not give it**, and
@@ -1046,10 +1112,20 @@ func _tool_section() -> String:
 		"inspect":
 			if app.active_domain() == "cartography":
 				return TOOL_STOPS
+	## Rule 1, and its draft clause -- see `TOOL_STAMPS`. Reached after the
+	## `match` on purpose: the clause is not keyed on the armed tool at all, so
+	## it cannot be an arm of a `match` over `app.armed_tool`. `sculpt` itself
+	## is answered here too rather than in the `match`, so the tool half and the
+	## draft half share one domain gate instead of stating it twice.
+	if app.active_domain() != "world" or bridge == null:
+		return ""
+	if app.armed_tool == "sculpt" or bridge.sculpt_stamp_count() > 0:
+		return TOOL_STAMPS
 	return ""
 
 func _append_tool(body: Control) -> void:
-	match _tool_section():
+	var section := _tool_section()
+	match section:
 		TOOL_PAINT:
 			_build_paint(body)
 		TOOL_STOPS:
@@ -1058,6 +1134,35 @@ func _append_tool(body: Control) -> void:
 			_build_anno(body)
 		TOOL_TERR:
 			_build_territory(body)
+		TOOL_STAMPS:
+			_build_sculpt(body)
+	## An uncommitted draft keeps its own controls whatever else is armed.
+	##
+	## `_tool_section()` answers with exactly ONE id, and its `match` reaches
+	## `paint`/`territory`/`label`/`icon` before the draft clause -- so arming
+	## any of those four took Commit, Discard, Undo and Redo away from a draft
+	## the user had not committed. Worse than merely hidden: Paint draws its own
+	## Commit/Discard in that slot, so the user was shown a Commit belonging to
+	## a different draft.
+	##
+	## That is the owner's 2026-09-03 ruling breaking in the one place it most
+	## matters ("nothing is yanked away, so no *is editing* signal is needed"),
+	## and it is what HEAD already did before rule 1 was converted -- the stack
+	## came from `_dispatch()` then, so it and the tool section were both on
+	## screen. The disarm path was guarded and the arm-another-tool path was not.
+	## Caught by a verifier, not by the conversion.
+	if section != TOOL_STAMPS and _draft_stack_live():
+		_build_sculpt(body)
+
+## True while a sculpt draft is uncommitted and reachable -- the condition the
+## draft clause in `_tool_section()` carries, named once so the two cannot
+## drift. Domain-gated exactly as that clause is: a draft is world-domain work.
+func _draft_stack_live() -> bool:
+	if app == null or bridge == null:
+		return false
+	if app.active_domain() != "world":
+		return false
+	return bridge.sculpt_stamp_count() > 0
 
 # -- Layers (`GUI_GAP_REGISTER.md` RD-10) -----------------------------------
 #
@@ -1389,6 +1494,7 @@ func _build_settlement(body: Control) -> void:
 	_field(sec, "Faction", str(int(s.get("faction", 0))))
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
+	_build_settlement_faith(sec, s)
 
 	var why: Dictionary = bridge.explain_settlement(_settlement_index)
 	var water := _term_value(why, "water_access")
@@ -1452,6 +1558,127 @@ func _build_settlement(body: Control) -> void:
 	rt.add_theme_color_override("default_color", DccTheme.c("text"))
 	rt.text = _build_causal_chain_text(s, _settlement_index)
 	why_sec.add_child(rt)
+
+## -- Faith -------------------------------------------------------------------
+##
+## `RELIGION_DIFFUSION_SCOPE.md` milestone 1's settlement-inspector half. The
+## CIVIL > Religion category is the world roll-up; this is the one settlement
+## the dock is already showing.
+##
+## **The two keys are absent until a diffusion has run**, and that absence is
+## read as absence. `lib.rs`'s `get_settlements` says why in its own doc:
+## *"omitted, not defaulted to `none` and an empty dictionary, because those
+## are exactly what a fully secular settlement in a world that has been
+## simulated looks like."* So a missing `religion` is dashed with its reason,
+## and a present `"none"` is printed as the real answer it is -- most of these
+## people follow no faith -- rather than as a second kind of dash.
+##
+## **Read fresh from the bridge, not from `_settlement_data`.** That dictionary
+## is the snapshot taken when the pin was clicked, and a diffusion run
+## afterwards adds the two keys to the engine's answer without being able to
+## add them to a copy taken before it. Every other row in this section is a
+## placement fact that does not move, which is why they still read the
+## snapshot and this one does not.
+##
+## **Matched by `tid`, not by position.** `_settlement_index` is an index into
+## `get_settlements()`; deleting a settlement makes index N a different town,
+## and printing its adherence under this town's name is precisely the "never
+## show a faith a settlement does not hold" rule failing. `tid` is the engine's
+## own stable id and is on every entry.
+##
+## Labels and shares come from `CivilizationWorkspace`'s own statics rather
+## than a second copy of them. CIVIL > Religion is the other surface that
+## prints these numbers, and two renderings of one faith -- "Sun Cult" against
+## "Sun cult", a real congregation of two people as `0.0%` against `<0.1%` --
+## costs more than the coupling does. A rename over there breaks this file at
+## parse time, which is loud rather than silent.
+func _build_settlement_faith(sec: Control, snapshot: Dictionary) -> void:
+	if not bridge.has_belief_api():
+		_field(sec, "Faith", "—",
+			"This build's engine has no civ_belief_run() binding -- the native library is "
+			+ "older than this shell, so nothing here can report a religion. That is a build "
+			+ "state, not a world with no faiths in it: rebuild and re-export.", false)
+		return
+	var live := _live_settlement(snapshot)
+	if live.is_empty():
+		_field(sec, "Faith", "—",
+			"The engine's settlement list no longer carries this town under the id it was "
+			+ "selected with, so there is no entry to ask about its adherence. Re-select it "
+			+ "on the map.", false)
+		return
+	if not live.has("religion"):
+		_field(sec, "Faith", "—",
+			"The belief layer does not cover this settlement. Either no diffusion has been "
+			+ "run in this world -- the layer is built on demand and is not saved with the "
+			+ "project -- or the last run was discarded because something it was seeded from "
+			+ "changed. CIVIL > Religion tells the two apart, and runs it.", false)
+		return
+
+	var key := String(live["religion"])
+	_field(sec, "Faith", CivilizationWorkspace._religion_label(key),
+		"The plurality faith: the one with the most adherents here, which is not necessarily "
+		+ "a majority -- the shares below are the whole answer. \"No religion\" is one of the "
+		+ "rows and one of the possible pluralities; it means most of these people follow no "
+		+ "faith, not that the model has nothing to say.")
+
+	var pop := int(live.get("population", 0))
+	if not live.has("adherents"):
+		DccWidgets.note(sec, "— no head-counts for this settlement: the engine gave a "
+			+ "plurality without the adherents dictionary it is derived from. Nothing here "
+			+ "can be turned into a share.")
+		return
+	var adherents: Dictionary = live["adherents"]
+	var rows := CivilizationWorkspace._religion_sorted(adherents)
+	if rows.is_empty():
+		if pop <= 0:
+			DccWidgets.note(sec, "— no adherents to count: this settlement's population "
+				+ "is 0, so every share is real and every head-count floors to nobody.")
+		else:
+			DccWidgets.note(sec, ("— no adherents listed for %s people. A faith with "
+				+ "nobody in it is omitted rather than written as 0, so an empty list under a "
+				+ "real population is the engine disagreeing with itself.")
+				% _thousands(float(pop)))
+		return
+
+	## Open at four rows or fewer for the same reason the settlement list in
+	## CIVIL is: a short list is the answer, and collapsing it hides the whole
+	## point of showing shares rather than one plurality label.
+	var grp := DccWidgets.group(sec, "Adherence", rows.size() <= 4)
+	DccWidgets.note(grp, ("Shares of this settlement's own population, %s people -- the "
+		+ "denominator is this town and not the world. The engine hands the rounding "
+		+ "remainder to the largest fractions rather than rounding each share alone, so "
+		+ "these read as head-counts. A faith with nobody in it is not listed at all, and "
+		+ "`<0.1%%` is a real congregation too small to round rather than an absent row.")
+		% _thousands(float(pop)))
+	for r in rows:
+		var rkey: String = r[1]
+		var n: int = r[0]
+		DccWidgets.note(grp, "%s %s — %s people (%s)" % [
+			CivilizationWorkspace._religion_swatch_glyph(rkey),
+			CivilizationWorkspace._religion_label(rkey),
+			_thousands(float(n)), CivilizationWorkspace._religion_pct(n, pop)])
+
+## This settlement as the engine describes it *now*, or `{}` when the entry at
+## `_settlement_index` is no longer the same town.
+##
+## `{}` is the honest answer for both failures and they are not distinguished
+## here on purpose: an index past the end of the list and an index that now
+## holds a different `tid` are the same fact for a caller -- there is no entry
+## for this settlement -- and the caller says so once.
+##
+## Falls back to comparing names only when `tid` is missing from either side,
+## which is what an older cdylib looks like; a name is a weaker id than a tid
+## and a stronger one than the bare index this replaces.
+func _live_settlement(snapshot: Dictionary) -> Dictionary:
+	if _settlement_index < 0 or bridge == null:
+		return {}
+	var places: Array = bridge.settlements()
+	if _settlement_index >= places.size():
+		return {}
+	var live: Dictionary = places[_settlement_index]
+	if snapshot.has("tid") and live.has("tid"):
+		return live if int(live["tid"]) == int(snapshot["tid"]) else {}
+	return live if String(live.get("name", "")) == String(snapshot.get("name", "")) else {}
 
 func _term_value(why: Dictionary, key: String) -> String:
 	if why.is_empty() or not why.has("terms"):
@@ -3027,11 +3254,11 @@ func _on_stamp_delete(index: int) -> void:
 # **Appended** while the "paint" tool is armed (this port's own id for the
 # design's `biome` tool -- see the `TOOL_PAINT` const's own doc). Reads
 # `world_workspace.gd`'s live paint-editor state fresh every rebuild, the
-# same "no private draft" shape `CTX_SCULPT` already uses -- Commit/Discard
+# same "no private draft" shape `TOOL_STAMPS` already uses -- Commit/Discard
 # here and Commit/Discard in the left-dock Biome paint panel are the same two
 # engine calls, so neither can disagree with the other about what is pending.
 # (They CAN both be on screen showing the same number, which is fine -- see
-# `CTX_SCULPT`'s own header comment on why that is not the two-drafts bug
+# `TOOL_STAMPS`'s own header comment on why that is not the two-drafts bug
 # class `WW-13` was.)
 #
 # **The legend does not match §1.8's own table**, and that is a divergence in

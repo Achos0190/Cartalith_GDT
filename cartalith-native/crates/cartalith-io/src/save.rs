@@ -174,12 +174,27 @@ pub fn params_json(params: &SaveParams, state: &serde_json::Value) -> serde_json
     }
     tect.as_object_mut().expect("just ensured an object").insert("seed".into(), serde_json::json!(params.seed));
 
-    serde_json::json!({
-        "v": SAVE_VERSION,
-        "GW": params.gw,
-        "GH": params.gh,
-        "state": state,
-    })
+    let mut root = serde_json::Map::new();
+    root.insert("v".into(), serde_json::json!(SAVE_VERSION));
+    root.insert("GW".into(), serde_json::json!(params.gw));
+    root.insert("GH".into(), serde_json::json!(params.gh));
+    // Provenance, and **only when the caller has some**: an absent key is
+    // how this format says "unknown", so writing `"gen"` for a
+    // `SaveParams::origin` of `None` would turn a world whose history the
+    // archive never recorded into one that claims to have been generated.
+    // That is the same defect the atlas key had before an origin element
+    // existed, moved one layer out.
+    //
+    // A member of `params.json` itself, not of `state`, for the reason
+    // `crate::load_from_archive` states at the reading end: `state` is the
+    // reference app's object and `loadZip()` merges all of it into its live
+    // state. An unknown *top-level* key is ignored by `loadZip()`, which is
+    // what makes this safe to add to an interoperability export.
+    if let Some(origin) = &params.origin {
+        root.insert("origin".into(), serde_json::json!(origin));
+    }
+    root.insert("state".into(), state);
+    serde_json::Value::Object(root)
 }
 
 /// Writes one save to any seekable sink — a `File`, or a
@@ -258,7 +273,9 @@ mod tests {
 
     fn sample(gw: usize, gh: usize) -> (SaveParams, SaveFields) {
         let n = gw * gh;
-        let params = SaveParams { gw, gh, seed: 4242, map_width_km: 1234.5, sea_level: 0.37, world: true };
+        // `origin: None` deliberately -- see `project.rs`'s own `sample`.
+        let params =
+            SaveParams { gw, gh, seed: 4242, map_width_km: 1234.5, sea_level: 0.37, world: true, origin: None };
         let fields = SaveFields {
             // Values chosen to survive an f64 -> f32 -> f64 trip exactly and
             // to differ per index, so a swapped or truncated entry cannot
@@ -286,6 +303,55 @@ mod tests {
         let back = load_save(Cursor::new(&buf)).expect("our own reader must read our own writer");
         assert_eq!(back.params, params);
         assert_eq!(back.fields, fields);
+    }
+
+    /// The flat writer's half of `SaveParams::origin` (`SAVEFILE_COMPAT.md`
+    /// §15's `params.json`), and the case that matters most: **absent means
+    /// absent.** A `None` written as `"gen"` would be a world claiming a
+    /// provenance its file never carried, which is the defect the member
+    /// exists to close rather than to relocate.
+    #[test]
+    fn an_unknown_origin_is_an_absent_key_not_a_written_gen() {
+        let (params, _) = sample(4, 4);
+        assert_eq!(params.origin, None, "the sample is the pre-provenance shape");
+        let json = params_json(&params, &serde_json::json!({}));
+        assert!(json.get("origin").is_none(), "wrote an origin for a caller that had none: {json}");
+        // ...and not smuggled into `state` either, where a reference build's
+        // `Object.assign` would merge it into its own live state.
+        assert!(json["state"].get("origin").is_none());
+    }
+
+    #[test]
+    fn a_known_origin_is_written_beside_the_grid_not_inside_state() {
+        let (mut params, _) = sample(4, 4);
+        params.origin = Some("import".to_string());
+        let json = params_json(&params, &serde_json::json!({}));
+        assert_eq!(json["origin"], "import");
+        assert!(json["state"].get("origin").is_none());
+        // The four members §15 fixes are untouched by the addition.
+        assert_eq!(json["v"], SAVE_VERSION);
+        assert_eq!(json["GW"], 4);
+        assert_eq!(json["GH"], 4);
+        assert_eq!(json["state"]["seaLevel"], 0.37);
+    }
+
+    /// Round-trips through a real archive, for each of the three origins this
+    /// port writes, an unrecognised fourth, and the absent case — the reader
+    /// is `crate::load_from_archive` by way of `load_save`.
+    #[test]
+    fn every_origin_survives_a_flat_round_trip_including_absence() {
+        for origin in [None, Some("gen"), Some("import"), Some("region"), Some("sculpt")] {
+            let (mut params, fields) = sample(4, 4);
+            params.origin = origin.map(str::to_string);
+            let mut buf = Vec::new();
+            write_save(
+                Cursor::new(&mut buf),
+                &SaveWrite { params: &params, state: serde_json::json!({}), fields: &fields },
+            )
+            .expect("write_save should succeed");
+            let back = crate::load_save(Cursor::new(&buf)).expect("read back");
+            assert_eq!(back.params.origin.as_deref(), origin, "origin did not survive");
+        }
     }
 
     #[test]

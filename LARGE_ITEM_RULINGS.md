@@ -147,3 +147,35 @@ not exist.**
   `02-rail-and-domains.md` §8, so there is no label to build the control with
   even once the call is made. Asking it would have produced an answer that
   still could not be executed.
+
+## Owner ruling — 2026-09-03, the pack-import warning
+
+**A golden re-baseline is authorised, and it is the first one this project has
+taken.** Every agent brief in this effort carries the line *"a golden re-baseline
+needs an owner ruling — you do not have one."* This is that ruling, and its scope
+is deliberately narrow.
+
+**Authorised:** edit the warning string in `cartalith-assets/src/manifest.rs`
+(`"N pack section(s) not yet used by the live map (…)"`), and re-capture the three
+fixtures that pin it — `golden_parity_pack_manifest.rs:131`, `:292`, and
+`tests/fixtures/reference_pack_captured.json:320`.
+
+**Not authorised by this ruling:** any other golden, any other function, or a
+re-capture of `parsePackManifest`'s other outputs. One string, three fixtures.
+
+**The cost, stated because it is permanent.** The port now diverges from
+`Cartalith Gen1 v2.11.html`'s own `parsePackManifest` output on this string. Every
+future parity comparison of that function carries the divergence, so it must be
+disclosed there rather than rediscovered as a failure. `DECISIONS.md` §7a is the
+protection this overrides; the owner overrode it knowingly, choosing one source of
+truth over a port-side filter.
+
+**Why the alternative was rejected:** annotating port-side would have kept parity
+intact but left a known-false string in the tree, corrected only at the point of
+display — two places to keep in step instead of one.
+
+## Owner ruling — 2026-09-03, trait sprites
+
+`trait` is the one clause of that warning that is **true**: `asset_bridge.rs`
+round-trips `manifest.structures.traits` and `pack.rs` composites no trait sprite.
+Scheduled as an ordinary backlog row rather than folded into the warning fix.

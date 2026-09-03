@@ -653,9 +653,21 @@ func _audit_right_dock() -> void:
 	await _frames(4)
 	_audit("RightDock[river]", body)
 
-	rd.show_sculpt_stack()
+	## The Stamp stack stopped being a right-dock CONTEXT on 2026-09-03 (the
+	## owner's "selection wins, the tool appends a section" ruling): it is now an
+	## appended section derived from the armed tool plus the sculpt draft, so
+	## `show_sculpt_stack()` is a rebuild and no longer selects what is drawn.
+	## Without arming the tool this audit silently re-measured whatever context
+	## the line above left behind -- it recorded `RightDock[sculpt] : 6 controls`
+	## while River was on screen -- so the label named a surface it had not
+	## visited. The draft is still empty here, which is the point: this is the
+	## COLD pass, and `_audit_warm_sculpt()` below is the warm one.
+	var sculpt_was := String(_app.armed_tool)
+	_app.arm_tool("sculpt")
 	await _frames(4)
 	_audit("RightDock[sculpt]", body)
+	_app.arm_tool(sculpt_was)
+	await _frames(2)
 
 	rd.show_history()
 	await _frames(4)
