@@ -12,8 +12,7 @@
 //! reference renderer supports, all `0`/`false` at JS's own defaults so
 //! omitting them changes nothing about the *default* view.
 //!
-//! Excluded: rockSlope refinement, wetness darkening,
-//! geology microtexture and dune ripples,
+//! Excluded: geology microtexture and dune ripples,
 //! SVF/cast-shadow fields, and the coast/river SDF
 //! tinting plus vector river overlay (the last two depend on subsystems
 //! this port hasn't built yet; the existing simple river channel-mask tint
@@ -23,6 +22,14 @@
 //! Ported despite being extras: the `bioBlend` grey-desaturation blend
 //! (0.90 default) and the edge haze fade, both unconditional in the
 //! reference at its own default settings.
+//!
+//! **`rockSlope` refinement and wetness darkening were on the excluded list
+//! above until they were ported on 2026-09-03**, behind defaults that leave
+//! the shipped image byte-identical — the same convention the NPR paragraph
+//! below records. They are struck from the list rather than left on it: this
+//! module doc is `OUTSTANDING_WORK.md`'s own cited location for that row, so
+//! an exclusion list naming a feature the file implements is a false reason of
+//! exactly the class this project's unwired audit exists to catch.
 //!
 //! ## The NPR block ([`Npr`], `GUI_GAP_REGISTER.md` RN-01)
 //!
@@ -67,6 +74,18 @@
 //! style elevation ramp would be a genuinely new visual layer/mode to
 //! design on top of (or blended with) this material model in a future
 //! milestone, not a re-encoding of something already here.
+//!
+//! ## The raster is separable (`GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10, 2026-09-03)
+//!
+//! The three categories §7 calls Terrain, Colour relief and Hillshade are no
+//! longer welded into [`land_color`] in a fixed order with fixed operators:
+//! they are [`LayerStack`], an orderable, blendable, per-layer-opacity stack
+//! that both consumer paths read from [`TerrainAppearance`]. The section above
+//! [`RasterLayer`] carries the whole argument — what was actually in the way,
+//! why this is one register-resident composite rather than three buffers (and
+//! what those buffers would have cost), and why the shipped image stays
+//! byte-identical **by branch** rather than by arithmetic. That is the
+//! precondition CA-04 named; the panel that drives it is not built.
 //!
 //! ## The atlas look (`TERRAIN_APPEARANCE_SCOPE.md` milestone 4, 2026-08-17)
 //!
@@ -285,6 +304,76 @@ fn splat_sample(tex: &SplatChannel, ramp: Rgb, wt: f64, x: f64, y: f64, acc: &mu
     acc.1 += ramp.1 * g * tex.inv[1] * wt;
     acc.2 += ramp.2 * b * tex.inv[2] * wt;
     *cov += wt;
+}
+
+/// One decoded ground tile for a painted Biome/Terrain index — a pack's
+/// `biomes`/`terrains` family (`ASSET_LIBRARY_SCOPE.md` §1, reference v1.28).
+///
+/// **Deliberately not a [`SplatChannel`]: there is no `inv`, and that
+/// asymmetry is the reference's.** Splat stores a per-channel inverse mean so
+/// it can modulate a *procedural* ramp by `texel/mean`; a painted tile is
+/// blended as **true colour** (`_paintedTex` reads `t.data[o]` raw), because
+/// "dividing out a tile's absolute hue is right for splat and wrong for
+/// paint" (`ASSET_LIBRARY_SCOPE.md`, reference comment at line 12246). Giving
+/// this type an unused `inv` field would invite exactly the port error that
+/// document warns about, so it does not have one.
+///
+/// Defined here rather than in `crate::pack` for the same reason
+/// [`SplatChannel`] is — `render.rs` is `#[path]`-included standalone by ten
+/// test targets, none of which has a sibling `pack` module to resolve a
+/// cross-module `use` against.
+#[derive(Clone)]
+pub struct GroundTile {
+    pub w: u32,
+    pub h: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// A loaded pack's two painted-ground families, borrowed for one render.
+///
+/// Each slice is indexed by `palette index - 1` — position `n` is
+/// `PACK_BIOME_SLOTS[n]` / `PACK_TERRAIN_SLOTS[n]`, which the format freezes
+/// 1:1 against `CART_BIOMES`/`CART_TERRAINS` (`slots.rs`' own "slot N here is
+/// index N+1 in those arrays"). `None` at a position means the pack carries no
+/// art for that index; the **empty slice** — [`GroundTiles::default`], and what
+/// every caller with no pack passes — means the same thing for every index at
+/// once, so the whole texture path collapses to the reference's own
+/// `_t || CART_BIOME_COLS[pBio-1]` flat-swatch branch and a pack-less render is
+/// byte-untouched.
+#[derive(Clone, Copy, Default)]
+pub struct GroundTiles<'a> {
+    pub biomes: &'a [Option<GroundTile>],
+    pub terrains: &'a [Option<GroundTile>],
+}
+
+/// `_paintedTex(fam, slots, idx, px, py)` (reference HTML 12187-12196) — the
+/// painted index's pack tile, sampled at **one texel per grid cell, nearest,
+/// wrapped**, returned as true colour on 0-255 channels.
+///
+/// The addressing is `splat_sample`'s, character for character, because the
+/// reference's own two samplers are (`sp()`'s comment: "one texel per cell,
+/// nearest, wrapped (px,py >= 0 in both render and bake)", which is why
+/// `floor` and JS's `|0` truncation agree here).
+///
+/// `None` — the caller falls back to the flat palette swatch — for an
+/// unpainted cell, an index past the family's vocabulary, a slot the pack has
+/// no art for, or a degenerate 0-by-N image. That last guard is not
+/// theoretical: `%` by zero panics in Rust where JS yields `NaN`, and a panic
+/// here crosses the gdext boundary.
+fn painted_tex(tiles: &[Option<GroundTile>], idx: u8, x: f64, y: f64) -> Option<Rgb> {
+    if idx == 0 {
+        return None;
+    }
+    let t = tiles.get(idx as usize - 1)?.as_ref()?;
+    let (tw, th) = (t.w as i64, t.h as i64);
+    if tw <= 0 || th <= 0 {
+        return None;
+    }
+    let sx = (((x.floor() as i64) % tw) + tw) % tw;
+    let sy = (((y.floor() as i64) % th) + th) % th;
+    let o = ((sy * tw + sx) * 4) as usize;
+    let px = t.rgba.get(o..o + 3)?;
+    Some((px[0] as f64, px[1] as f64, px[2] as f64))
 }
 
 /// The reference's `state.viz.*` non-photorealistic block: the ten "Painter"
@@ -637,6 +726,347 @@ impl ElevationRamp {
     }
 }
 
+// ===========================================================================
+// The separable layer stack (`GUI_GAP_REGISTER.md` CA-03 / CA-04, RD-10)
+// ===========================================================================
+//
+// # What was actually in the way
+//
+// CA-04's own reason — *"terrain, hillshade and colour relief are composited
+// into one raster by `render.rs` before it crosses the boundary, so there are
+// no separable outputs to order or blend"* — was true about the **order and
+// the blend**, and misleading about the *pixels*. The three categories were
+// never mixed together into an unrecoverable sum: [`land_color`] computes a
+// material colour, blends the ramp over it with a hardcoded `lerp`, and then
+// multiplies by a light factor. Both composites were already there; both had
+// their operator and their position written into the source rather than into
+// data. Separability here is therefore not "recover three images from one" —
+// it is "stop hardcoding the two composite steps that already exist".
+//
+// # Why not N buffers
+//
+// The obvious reading of "separable outputs" is one RGB8 buffer per category,
+// composited afterwards. Measured, that is the expensive answer for no gain:
+// at the app's own 2048x1311 an RGB8 buffer is 2 048 x 1 311 x 3 =
+// **8 054 784 B (7.68 MiB)**, so three categories cost **23.05 MiB** of new
+// resident memory on every redraw — and the export path is where it stops
+// being affordable, because `bake_dims(8192, ...)` on that grid is
+// 8 192 x 5 244 = 42 958 848 px, i.e. **122.9 MiB per buffer, 368.8 MiB for
+// three**, on top of the 15 B/px `export_raster.rs::PEAK_BYTES_PER_PIXEL`
+// already budgets. `MEMORY_OPTIMIZATION_SCOPE.md`'s whole premise is that this
+// renderer's peak is what limits the export ceiling.
+//
+// The cheap version is enough for blend + reorder + opacity + visibility, and
+// it is what this is: **one pass that composites per-category contributions in
+// registers**, in the order and with the operators this table declares. Zero
+// additional allocation, and it lands inside [`land_color`] — which is the
+// single function both consumer paths already share ([`cell_color`] for the
+// on-screen texture, [`BakeFields::pixel`] for every PNG export, region crop
+// and layer export), so there is no path that can get this and no path that
+// can miss it.
+//
+// # How the default stays byte-identical
+//
+// By **control flow**, on `apply_color_space`'s own precedent
+// ([`ColorSpace::Srgb`] returns before a byte is read): [`LayerStack::
+// is_default`] is tested once per pixel, and at the default the two composite
+// sites run the *original expressions, unchanged* — the ramp's `lerp` stays in
+// its mid-material slot and the light stays a bare `c * light`. Nothing about
+// the shipped image passes through a blend-mode `match`, so no operator here
+// can move it. That matters concretely: the composite works in 0-255 space, so
+// a "multiply" written generically is `d * (s / 255)` with `s = light * 255`,
+// and `light * 255.0 / 255.0` is not `light` to the last ulp. The identity is
+// the branch, not the arithmetic.
+//
+// `tests/layer_stack.rs` pins both halves — a digest literal transcribed from
+// the build *before* this existed, and a separate one for the bake path.
+//
+// # What this deliberately is not
+//
+// Land only. `sea_color_core` folds its own `0.82 + 0.18 * sh` shade into the
+// water colour and has no ramp at all; the ramp has been land-only since CA-02
+// for the same reason. §7's own layer list agrees — Water is its own row, a
+// sibling of Terrain, not one of Terrain's three children.
+//
+// And it is the **precondition, not the controls**: `WorldGen::{get_layer_stack,
+// set_layer_stack, list_blend_modes}` bind it, and no panel draws it yet.
+
+/// One of the terrain raster's three separable categories.
+///
+/// These are `DCC_SHELL_SPEC.md` §7's own children of the Terrain row, in the
+/// vocabulary CA-03 names them with. "Hand-drawn hillshade", §7's fourth
+/// child, is not one: it is the Painter block ([`Npr`]), which is already
+/// independently switchable through `WorldGen::set_npr` and composites after
+/// every stage below rather than among them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum RasterLayer {
+    /// The material colour — [`material_weights`]' six-fraction blend and
+    /// everything that tints it (splat, bedrock, beach, texture, stipple).
+    /// The bottom of the stack at the default, and the only category with an
+    /// opaque source.
+    Terrain,
+    /// [`ElevationRamp`] sampled at relative land elevation, at
+    /// [`TerrainAppearance::ramp_strength`] times the stop's own alpha.
+    ColourRelief,
+    /// The light curve `relief_ambient + relief_gain * sh^0.85`, as a neutral
+    /// grey. Its source colour is `light * 255` per channel, so at the default
+    /// `Multiply` it reproduces `c * light` exactly — which is what it is.
+    Hillshade,
+}
+
+impl RasterLayer {
+    /// The stable string a save file and a panel address this layer by.
+    /// Deliberately not the `Debug` name: `Debug` is free to change.
+    pub fn id(self) -> &'static str {
+        match self {
+            RasterLayer::Terrain => "terrain",
+            RasterLayer::ColourRelief => "colour_relief",
+            RasterLayer::Hillshade => "hillshade",
+        }
+    }
+
+    /// The human label §7's layer list draws.
+    pub fn label(self) -> &'static str {
+        match self {
+            RasterLayer::Terrain => "Terrain",
+            RasterLayer::ColourRelief => "Colour relief",
+            RasterLayer::Hillshade => "Hillshade",
+        }
+    }
+
+    /// One layer by its [`id`](Self::id), or `None`. An unknown id is the
+    /// caller's to report — the whole point of a keyed stack is that a panel
+    /// written against a newer engine loses a row instead of silently
+    /// addressing the wrong one.
+    pub fn from_id(s: &str) -> Option<Self> {
+        match s {
+            "terrain" => Some(RasterLayer::Terrain),
+            "colour_relief" => Some(RasterLayer::ColourRelief),
+            "hillshade" => Some(RasterLayer::Hillshade),
+            _ => None,
+        }
+    }
+}
+
+/// How one layer combines with everything under it.
+///
+/// The five a layer panel actually offers, in the order one lists them. All
+/// five are the standard separable Porter-Duff-adjacent formulas evaluated per
+/// channel in this file's own 0-255 space, then folded by the layer's alpha —
+/// see [`BlendMode::apply`].
+///
+/// Deliberately small. A blend mode nobody can reach from a panel is the
+/// enabled-and-inert shape this row exists to avoid, and the list can grow
+/// without any of the arithmetic below changing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+pub enum BlendMode {
+    /// `s` — the source replaces the backdrop, faded by alpha. The default for
+    /// Terrain and Colour relief, and exactly the `lerp` CA-02 already used.
+    Normal,
+    /// `d * s / 255`. The default for Hillshade, and exactly `c * light` when
+    /// the source is `light * 255`.
+    Multiply,
+    /// `255 - (255 - d)(255 - s) / 255`.
+    Screen,
+    /// Multiply under mid-grey, screen over it — contrast about the backdrop.
+    Overlay,
+    /// `d + s`, unclamped here (`cell_color` clamps once, at the end).
+    Add,
+}
+
+/// Every blend mode, in the order a picker should show them. `Normal` first
+/// because it is the identity a reader looks for at the top of the list.
+pub const BLEND_MODES: &[&str] = &["Normal", "Multiply", "Screen", "Overlay", "Add"];
+
+impl BlendMode {
+    /// The name in [`BLEND_MODES`].
+    pub fn name(self) -> &'static str {
+        BLEND_MODES[self as usize]
+    }
+
+    /// One mode by name, case-insensitively, or `None` for a name this build
+    /// does not have.
+    pub fn from_name(s: &str) -> Option<Self> {
+        BLEND_MODES.iter().position(|n| n.eq_ignore_ascii_case(s)).map(|i| match i {
+            0 => BlendMode::Normal,
+            1 => BlendMode::Multiply,
+            2 => BlendMode::Screen,
+            3 => BlendMode::Overlay,
+            _ => BlendMode::Add,
+        })
+    }
+
+    /// `dst` blended with `src` at `a`, per channel, in 0-255 space.
+    ///
+    /// The alpha fold is `d + (blended - d) * a`, the same form every other
+    /// composite in this file uses, so `a == 1` is the raw operator and
+    /// `a == 0` is the backdrop.
+    ///
+    /// **Nothing is clamped here.** `light` legitimately exceeds `1.0`
+    /// (`relief_ambient + relief_gain` is `1.47` at the default), so a
+    /// `Multiply` whose source is above 255 brightens — which is what the
+    /// shipped light curve does and what this must not "fix". `cell_color`
+    /// clamps once, at the end, exactly as it always has.
+    // `pub(crate)` only so `tests/layer_stack.rs` — which `#[path]`-includes
+    // this file as a child module of its own crate root — can assert the five
+    // formulas against literal expected values rather than against themselves.
+    pub(crate) fn apply(self, dst: Rgb, src: Rgb, a: f64) -> Rgb {
+        let ch = |d: f64, s: f64| -> f64 {
+            let b = match self {
+                BlendMode::Normal => s,
+                BlendMode::Multiply => d * s / 255.0,
+                BlendMode::Screen => 255.0 - (255.0 - d) * (255.0 - s) / 255.0,
+                BlendMode::Overlay => {
+                    if d < 127.5 {
+                        2.0 * d * s / 255.0
+                    } else {
+                        255.0 - 2.0 * (255.0 - d) * (255.0 - s) / 255.0
+                    }
+                }
+                BlendMode::Add => d + s,
+            };
+            d + (b - d) * a
+        };
+        (ch(dst.0, src.0), ch(dst.1, src.1), ch(dst.2, src.2))
+    }
+}
+
+/// One row of the stack: which category, whether it draws, how far, and how it
+/// combines with what is under it.
+#[derive(Clone, Copy, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LayerEntry {
+    pub layer: RasterLayer,
+    pub visible: bool,
+    /// `0..=1`. Multiplies whatever alpha the category itself carries — for
+    /// Colour relief that is `ramp_strength * stop alpha`, so the two compose
+    /// the same way CA-02's own strength and stop alpha already do.
+    pub opacity: f64,
+    pub blend: BlendMode,
+}
+
+/// The terrain raster's three categories, **bottom-first** — the order they
+/// composite in, which is the reverse of the order §7's layer list draws them.
+///
+/// The binding (`WorldGen::get_layer_stack`) hands a panel the top-first view;
+/// this type stores compositing order because that is what the renderer walks.
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct LayerStack {
+    entries: [LayerEntry; 3],
+}
+
+impl LayerStack {
+    /// The shipped stack — the one arrangement whose render is the image every
+    /// golden fixture and both digest literals in `tests/layer_stack.rs` pin.
+    ///
+    /// A `const` rather than a constructed `Default::default()`, because
+    /// [`is_default`](Self::is_default) is called once per pixel and must not
+    /// build a value to compare against.
+    pub const DEFAULT: LayerStack = LayerStack {
+        entries: [
+            LayerEntry { layer: RasterLayer::Terrain, visible: true, opacity: 1.0, blend: BlendMode::Normal },
+            LayerEntry { layer: RasterLayer::ColourRelief, visible: true, opacity: 1.0, blend: BlendMode::Normal },
+            LayerEntry { layer: RasterLayer::Hillshade, visible: true, opacity: 1.0, blend: BlendMode::Multiply },
+        ],
+    };
+
+    /// Bottom-first, the order [`composite`](Self::composite) walks.
+    pub fn entries(&self) -> &[LayerEntry; 3] {
+        &self.entries
+    }
+
+    /// Replace the whole stack. Refused (`false`, nothing changed) unless
+    /// `entries` names each of the three categories **exactly once** — a stack
+    /// missing a category is not a stack with that category hidden, and
+    /// silently inventing the missing row is the "encode no value as a
+    /// plausible value" mistake this project has now made five times. Opacity
+    /// is clamped; nothing else can be out of range by construction.
+    pub fn set(&mut self, mut entries: [LayerEntry; 3]) -> bool {
+        let mut seen = [false; 3];
+        for e in &entries {
+            // `get_mut`, not `seen[..]`: a fourth `RasterLayer` variant added
+            // without widening this array would otherwise panic here, and this
+            // is reached from a `#[func]` — a panic crossing the gdext boundary
+            // takes the Godot process with it (`cartalith-rust-conventions`).
+            let Some(slot) = seen.get_mut(e.layer as usize) else { return false };
+            *slot = true;
+        }
+        // **One test, not two.** With three slots and three categories,
+        // "every category present" and "no category named twice" are the same
+        // statement — a repeat necessarily leaves a gap. A separate duplicate
+        // check was here first and mutation testing showed it survived every
+        // mutant, because no input can reach it: it is a branch that cannot
+        // fire, which is the same defect as prose describing behaviour that
+        // does not happen. This is the requirement stated from the requirement's
+        // side, which is also the form that mutates red.
+        if !seen.iter().all(|s| *s) {
+            return false;
+        }
+        for e in &mut entries {
+            e.opacity = clamp01(e.opacity);
+        }
+        self.entries = entries;
+        true
+    }
+
+    /// Whether this is [`LayerStack::DEFAULT`] exactly.
+    ///
+    /// **The whole byte-identity guarantee rests on this one test**, so it is
+    /// a plain structural comparison of nine small values rather than anything
+    /// cleverer: no cached flag that could go stale against a mutated field,
+    /// and no tolerance.
+    #[inline]
+    pub fn is_default(&self) -> bool {
+        self.entries == Self::DEFAULT.entries
+    }
+
+    /// The non-default composite: walk the stack bottom-first over a white
+    /// ground, folding each visible category in with its own operator.
+    ///
+    /// Never called at the default — [`land_color`] takes the original
+    /// expressions there instead. See this section's header for why that is a
+    /// branch and not an optimisation.
+    ///
+    /// The ground is white rather than black or transparent because the only
+    /// two operators that can be reached with nothing under them are `Normal`
+    /// (which ignores the backdrop at full alpha) and `Multiply` (for which
+    /// white is the identity) — so a stack with Terrain hidden and Hillshade
+    /// multiplying renders the grey relief plate a reader means by "hillshade
+    /// alone", rather than black.
+    ///
+    /// `relief` is the ramp sample the caller already had to compute, passed
+    /// in rather than recomputed: `None` means this pixel's ramp contributes
+    /// nothing (no stops, or `ramp_strength == 0`), and the Colour relief row
+    /// is then skipped rather than folded at zero — the same "omit, do not
+    /// default" rule the setter above follows.
+    fn composite(&self, a: &TerrainAppearance, material: Rgb, light: f64, relief: Option<Rgba>) -> Rgb {
+        let mut acc: Rgb = (255.0, 255.0, 255.0);
+        for e in &self.entries {
+            if !e.visible || e.opacity <= 0.0 {
+                continue;
+            }
+            let (src, alpha) = match e.layer {
+                RasterLayer::Terrain => (material, 1.0),
+                RasterLayer::ColourRelief => match relief {
+                    Some(rc) => ((rc.0, rc.1, rc.2), a.ramp_strength * rc.3),
+                    None => continue,
+                },
+                RasterLayer::Hillshade => {
+                    let g = light * 255.0;
+                    ((g, g, g), 1.0)
+                }
+            };
+            acc = e.blend.apply(acc, src, alpha * e.opacity);
+        }
+        acc
+    }
+}
+
+impl Default for LayerStack {
+    fn default() -> Self {
+        LayerStack::DEFAULT
+    }
+}
+
 /// The renderer's editable colour data and shading constants — what used to
 /// be 26 free-floating module consts, now one real, owned, inspectable
 /// structure. `Default` reproduces today's exact values (pixel-identical
@@ -970,6 +1400,73 @@ pub struct TerrainAppearance {
     /// the Laplacian: convex ridges brighten, concave valleys darken. Land
     /// only, exactly as the reference gates it.
     pub curve_shade: f64,
+
+    // ---- 2026-09-03 (`OUTSTANDING_WORK.md` §2.5): the last two `state.viz.*`
+    //      colour stages of the reference's own `landColorCore`, which
+    //      `render.rs`'s exclusion list named and nothing else in this
+    //      repository registered at all ----
+    //
+    // Same rule as the four above, for the same reason: `0.0` in both
+    // `default()` and `js_reference()`, each one behind its own `if` rather
+    // than an arithmetic no-op, so the shipped image and the golden-verified
+    // reference image are byte-for-byte what they were. `render_default_pin.rs`
+    // is the guard that says so with a digest rather than with an inference.
+    /// `state.viz.rockSlope` (reference HTML 7788-7790, "R2 slope-material
+    /// refinement") — extra `G^1.5`-weighted rock exposure on steep ground,
+    /// blended **over** the finished material mix rather than into it, so the
+    /// golden-verified `Σ = 1` `material_weights` output is untouched.
+    ///
+    /// **Its steepness normalizer is the reference's own `slope / 0.08` and
+    /// therefore inherits `material_weights`' resolution dependence** — the
+    /// per-cell height difference `slope_at` returns is ~6x smaller at 2048²
+    /// than at 512² (measured: median land slope 0.00354 vs 0.00054, see
+    /// [`Self::litho_exposure`]'s note). A cliff still crosses the ramp at
+    /// either size; gentle ground gets nothing at either. What moves with
+    /// resolution is how much of the middle qualifies. Left exactly as the
+    /// reference writes it on purpose: this is a *ported* threshold, not a new
+    /// one, and re-normalizing it would be a silent divergence from the file
+    /// the row asks it to be ported from.
+    pub rock_slope: f64,
+    /// `state.viz.wetness` (reference HTML 7796-7798, "R5 wetness rendering")
+    /// — darkens and cools land where water persistently accumulates, keyed on
+    /// the **raw** TWI the caller already computes (`ln(area / max(slope,
+    /// 0.002))`), not on `land_color`'s jittered `twi_e`; the reference reads
+    /// its own `twi` parameter there and the distinction is a real one, since
+    /// `twi_e` exists to ragged the *wetland material* boundary.
+    ///
+    /// **Not the same stage as [`Self::hydro_wet_strength`]**, despite that
+    /// field's row in [`tunables!`] being filed under the reference's
+    /// `wetnessR` slider. That one is this port's own milestone-3 invention: a
+    /// blurred *flow-accumulation* halo, applied after the hillshade and haze,
+    /// pulling toward a fixed cool grey-green. This one is the reference's:
+    /// unblurred TWI, applied in **material space before the light curve**
+    /// ("so lighting stays honest", the reference's own comment), and a
+    /// multiply rather than a lerp. They can both be on; they are different
+    /// pictures of "wet".
+    pub wetness: f64,
+
+    // ---- 2026-09-03 (`OUTSTANDING_WORK.md` §2.5): the ocean lattice ----
+    /// How far the sea-grain sample lattice is rotated and domain-warped away
+    /// from the reference's axis-aligned one. `0.0` is the reference's
+    /// `vnoise(x·25.6/GW, y·25.6/GW, 5)` **exactly**, by a dedicated branch in
+    /// [`sea_grain`].
+    ///
+    /// This one is a **divergence, and is flagged rather than fixed**.
+    /// `TERRAIN_APPEARANCE_SCOPE.md` milestone 6 recorded rectangular
+    /// blockiness in the open ocean — squares ~80 grid cells across at 2048² —
+    /// and established that it is *inherited from the reference*, present in
+    /// the `js_reference` dump and more visible there. That makes today's
+    /// output faithful, so silently smoothing it would move a golden-verified
+    /// path to satisfy taste. `n_low` is not decoration either: it is the `t`
+    /// of every water `ramp3` in [`sea_color_core`] plus its `(n_low - 0.5)·5`
+    /// grain, so a different sample is a different colour at every sea pixel.
+    ///
+    /// The fix behind the flag is milestone 4's own, reused rather than
+    /// invented: the stipple read as a halftone screen for exactly this reason
+    /// (value noise on an axis-aligned lattice at a few cells per feature), and
+    /// was fixed by rotating the lattice and domain-warping it with a second
+    /// coherent field. Same treatment, same rotation, one frequency.
+    pub sea_grain_warp: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
     /// luminance, `-1.0` is greyscale. No reference counterpart — the
@@ -1085,6 +1582,16 @@ pub struct TerrainAppearance {
     /// The reference's non-photorealistic block ([`Npr`]) — all off by
     /// default, so this field changes nothing until a caller sets it.
     pub npr: Npr,
+
+    /// How the raster's three separable categories stack, blend and order
+    /// ([`LayerStack`], `GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10).
+    ///
+    /// [`LayerStack::DEFAULT`] renders the shipped image through the original
+    /// expressions, by branch — see the section above [`RasterLayer`]. Lives
+    /// on the appearance rather than on `WorldGen` so that it reaches the
+    /// on-screen texture and every export through the one `RenderCtx` both
+    /// already build, and so a saved look (CA-08) carries its own stack.
+    pub layers: LayerStack,
 }
 
 impl Default for TerrainAppearance {
@@ -1174,6 +1681,12 @@ impl Default for TerrainAppearance {
             tex_strength: 0.0,
             ridged_strength: 0.0,
             curve_shade: 0.0,
+            // The two remaining reference stages (2026-09-03) and the one
+            // deliberate divergence, all three at the value that makes them a
+            // no-op — `render_default_pin.rs` holds the digest that proves it.
+            rock_slope: 0.0,
+            wetness: 0.0,
+            sea_grain_warp: 0.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             haze_strength: 0.18,
@@ -1192,6 +1705,7 @@ impl Default for TerrainAppearance {
             grade_field_moisture: 0.0,
             grade_field_geology: 0.0,
             npr: Npr::default(),
+            layers: LayerStack::DEFAULT,
         }
     }
 }
@@ -1574,8 +2088,14 @@ tunables! {
     // -- Reference Rendering-advanced ▸ Ambient occlusion (`aoR`) --
     "ao_strength"           => ao_strength,           0.0,   1.0,  "Ambient occlusion";
     "ao_radius_frac"        => ao_radius_frac,        0.0,   0.05, "AO radius";
-    // -- Reference Rendering-advanced ▸ Wetness (`wetnessR`) --
-    "hydro_wet_strength"    => hydro_wet_strength,    0.0,   1.0,  "Wetness";
+    // -- Milestone 3's flow-accumulation wetness. **This row used to be filed
+    //    under the reference's `wetnessR` slider and that was wrong**: the
+    //    reference's own wetness stage is TWI-keyed, unblurred and applied in
+    //    material space, and it did not exist in this file until 2026-09-03,
+    //    when it landed below as `wetness`. This one is a `TERRAIN_APPEARANCE_
+    //    RESEARCH.md` §13 invention with no reference counterpart. The labels
+    //    say which is which rather than both reading "Wetness" --
+    "hydro_wet_strength"    => hydro_wet_strength,    0.0,   1.0,  "Wetness (near channels)";
     // -- Reference Rendering-advanced ▸ Parchment (`parch`), plus the three
     //    sheet parameters this port's own paper ground added on top of it --
     "paper_strength"        => paper_strength,        0.0,   1.0,  "Parchment";
@@ -1599,6 +2119,15 @@ tunables! {
     "tex_strength"          => tex_strength,          0.0,   1.0,  "Surface texture";
     "ridged_strength"       => ridged_strength,       0.0,   1.0,  "Ridged relief";
     "curve_shade"           => curve_shade,           0.0,   1.0,  "Curvature shading";
+    // -- Reference Rendering-advanced ▸ the last two rows with no stage here
+    //    until 2026-09-03 (`rockR`, `wetnessR`). `wetnessR` is the slider
+    //    `hydro_wet_strength` above is *also* filed under; the two are
+    //    different stages and the labels say so rather than colliding --
+    "rock_slope"            => rock_slope,            0.0,   1.0,  "Slope rock";
+    "wetness"               => wetness,               0.0,   1.0,  "Wet ground (TWI)";
+    // -- Not a reference row: the flag over the reference's own ocean lattice.
+    //    `0.0` is the reference exactly; see the field's doc comment --
+    "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
@@ -2237,6 +2766,12 @@ pub struct RenderCtx<'a> {
     paint_biome: Option<&'a [u8]>,
     paint_terrain: Option<&'a [u8]>,
     paint_splat: Option<&'a [u8]>,
+    /// A loaded pack's decoded `biomes`/`terrains` ground tiles, which the
+    /// paint blend prefers over the flat palette swatch (reference v1.28's
+    /// `_paintedTex`). Empty by construction — attach with
+    /// [`Self::with_ground_tiles`]. Empty is the pack-less state and is
+    /// byte-identical to what this renderer did before the field existed.
+    ground: GroundTiles<'a>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -2282,7 +2817,7 @@ impl<'a> RenderCtx<'a> {
         let lights = build_lights(&appearance);
         let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
         let crest = build_crest(field, gw, gh, sea_level, &appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None }
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, coast_d, crest, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None, ground: GroundTiles::default() }
     }
 
     /// Attach the world's real rock types (milestone 5, §12). A builder for
@@ -2311,6 +2846,22 @@ impl<'a> RenderCtx<'a> {
     #[allow(dead_code)]
     pub fn with_splat(mut self, splat: SplatTextures<'a>) -> Self {
         self.splat = Some(splat);
+        self
+    }
+
+    /// Attach a loaded pack's decoded painted-ground tiles
+    /// ([`GroundTiles`], built by `crate::pack::load_pack_from_bytes`).
+    ///
+    /// This is the *only* thing that makes the reference's v1.28 refinement
+    /// reachable: without it every painted cell takes the flat-swatch branch,
+    /// which is what a pack-less reference render takes too. Attaching tiles
+    /// changes nothing on a cell no brush has painted, so a loaded pack alone
+    /// still cannot move a pixel here.
+    ///
+    /// A builder method for the same reason [`Self::with_splat`] is one.
+    #[allow(dead_code)]
+    pub fn with_ground_tiles(mut self, ground: GroundTiles<'a>) -> Self {
+        self.ground = ground;
         self
     }
 
@@ -2800,8 +3351,59 @@ fn bio_jitter(x: f64, y: f64, gw: usize) -> f64 {
 /// itself unconditional; `ao` is fixed at `1.0` here, matching this port's
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
+/// The R2 slope-material fraction (reference HTML 7789): how much of the rock
+/// colour steep ground takes on, `clamp01(min(1, slope/0.08)^1.5 · k)`.
+///
+/// A named function rather than three lines inside [`land_color`] because
+/// mutation-testing the whole render only ever proves that a stage *moved*
+/// something: `powf(1.5) -> powf(1.0)` and the wetness tilt below both survived
+/// a full-image battery, which is this project's recorded "a test that compares
+/// a constant against itself pins nothing" failure in its other shape. Pulled
+/// out, the exponent and the `0.08` knee are assertable against numbers derived
+/// independently of them — `0.25^1.5` is exactly `0.125`, `0.5^1.5` is neither
+/// `0.5` nor `0.25`.
+///
+/// `clamp01` after the multiply is the reference's own order (`_t = clamp01(gr)`
+/// inside `if (gr > 0)`), and clamping cannot change the sign, so [`land_color`]
+/// tests this value for `> 0` where the reference tests the unclamped one.
+pub(crate) fn rock_slope_mix(slope: f64, k: f64) -> f64 {
+    clamp01((slope / 0.08).min(1.0).powf(1.5) * k)
+}
+
+/// The R5 wetness multiply (reference HTML 7797-7798), whole: a common `dk`
+/// darken from the topographic wetness index plus the fixed `0.95 / 1.00 /
+/// 1.05` channel tilt that is the difference between *wet* and merely *dark*.
+///
+/// **The `wv > 0` guard is load-bearing and is the reference's own**: at `wv =
+/// 0` the darken is `dk = 1`, but the tilt is not `1`, so dropping the guard
+/// would cool every dry cell on the map by 5% while claiming to change nothing.
+///
+/// Written as one function taking the colour so the per-channel expressions keep
+/// the reference's exact left-to-right association (`c · dk · 0.95`, not
+/// `c · (dk · 0.95)`) — see `cartalith-rust-conventions` on reordering.
+pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
+    let wv = clamp01((twi + 1.0) / 4.0);
+    // `k <= 0.0` is the reference's own outer `if (wtK > 0)`, folded in beside
+    // the `wv` guard rather than left only at the call site. Same reason: at
+    // `k = 0` the darken is `dk = 1` and the tilt is not, so a caller that
+    // reached here with the stage switched off would cool the whole map by 5%
+    // and no gate above would say so. [`land_color`] still tests it too, for
+    // the dedicated-branch rule every other stage in this file follows.
+    if wv <= 0.0 || k <= 0.0 {
+        return c;
+    }
+    let dk = 1.0 - 0.30 * k * wv;
+    (c.0 * dk * 0.95, c.1 * dk, c.2 * dk * 1.05)
+}
+
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles) -> Rgb {
+    // CA-03/CA-04's one per-pixel test. At the default it selects the original
+    // expressions at both composite sites below, so no blend-mode arithmetic
+    // exists on the shipped path — see the section above [`RasterLayer`] for
+    // why that identity has to be a branch and not a formula.
+    let stack_default = appearance.layers.is_default();
+
     let n_low = vnoise(x * 0.06, y * 0.06, 11);
     let n_hi = vnoise(x * 96.0 / gw as f64, y * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -2900,6 +3502,52 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         }
     }
 
+    // R2 slope-material refinement (reference HTML 7788-7790) — extra
+    // `G^1.5`-weighted rock exposure on steep ground, as a tint *over* the
+    // finished mix. The reference's own comment is the whole design: it
+    // "leaves the Σ=1 materialWeights untouched", so nothing here can move the
+    // golden-verified fraction blend above.
+    //
+    // Literal, constant for constant. Two substitutions, both this port's
+    // established ones: `rock_material_col` for `rockCol` (the same
+    // substitution the splat block's rock channel already makes — it *is*
+    // `rock_col` whenever there is no lithology or `litho_strength` is `0.0`,
+    // which is the reference path exactly, and using the bare heuristic here
+    // would make the tint pull a lithology-tinted cell away from its own rock
+    // colour), and `clamp01` for the reference's `clamp01`.
+    //
+    // The `r > 0.0` guard is the reference's, kept even though `land_color` is
+    // already the land branch — the same "the reference tests it and so does
+    // this" note `ridged_strength` below carries.
+    if appearance.rock_slope > 0.0 && r > 0.0 {
+        let k = rock_slope_mix(slope, appearance.rock_slope);
+        if k > 0.0 {
+            let mc = rock_material_col(appearance, te, me, r, tt, lith);
+            c.0 += (mc.0 - c.0) * k;
+            c.1 += (mc.1 - c.1) * k;
+            c.2 += (mc.2 - c.2) * k;
+        }
+    }
+
+    // R5 wetness (reference HTML 7796-7798) — darken and cool land where water
+    // persistently accumulates. **Material space, before the light curve**,
+    // which is the reference's own stated reason ("so lighting stays honest")
+    // and the thing that separates it from this port's `hydro_wet` tint, which
+    // is applied after the hillshade and the haze and is keyed on flow
+    // accumulation rather than TWI.
+    //
+    // `twi`, not `twi_e`: the reference reads its own raw `twi` parameter
+    // here, and `twiE` exists to jitter the *wetland material* edge in
+    // `materialWeights`, which has already run. The `(twi + 1) / 4` calibration
+    // is the reference's, with its comment: the wetland material itself ramps
+    // over `twi ≈ -1 .. 2`.
+    //
+    // The three channel factors are literal — `0.95 / 1.00 / 1.05` is what
+    // makes this cool rather than merely dark.
+    if appearance.wetness > 0.0 && r > 0.0 {
+        c = apply_wetness(c, twi, appearance.wetness);
+    }
+
     // Milestone 5 (`TERRAIN_APPEARANCE_RESEARCH.md` §12): bedrock showing
     // through thin soil. §12's complaint is that "a mountain should not
     // simply become brown because it is high" — its visible material should
@@ -2971,8 +3619,18 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // the alpha is "how far this band participates", which composes. A default
     // ramp is opaque throughout, so `k` is exactly `ramp_strength` and nothing
     // about the 2026-08-24 look moved.
-    if appearance.ramp_strength > 0.0
-        && let Some(rc) = appearance.ramp.sample(r)
+    //
+    // **CA-03/CA-04 moved the *gate*, not the slot.** The sample is taken here
+    // either way, because the composite below needs the identical value; what
+    // the stack decides is *where it is folded in*. At the default it is
+    // folded here, by the same three lines, which is what keeps the shipped
+    // image byte-identical. Under any other stack the ramp becomes a real row
+    // — orderable above or below the light, with its own operator — and it
+    // therefore has to leave this mid-material slot, which is a visible change
+    // and the point of the row rather than a side effect of it.
+    let relief = if appearance.ramp_strength > 0.0 { appearance.ramp.sample(r) } else { None };
+    if stack_default
+        && let Some(rc) = relief
     {
         let k = appearance.ramp_strength * rc.3;
         if k > 0.0 {
@@ -3077,7 +3735,16 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     let sh_micro = clamp01(sh + (n_hi - 0.5) * 0.20);
     let sh_combined = appearance.detail_macro_weight * sh + appearance.detail_meso_weight * sh_m + appearance.detail_micro_weight * sh_micro;
     let light = appearance.relief_ambient + appearance.relief_gain * clamp01(sh_combined).powf(0.85);
-    let mut l = (c.0 * light, c.1 * light, c.2 * light);
+    // The stack's second and last composite site. The default arm is the line
+    // this file has always had; the other arm is the only place a blend mode
+    // or a reordering can take effect. Everything below — bio_blend,
+    // relief_chroma, curvature, atmosphere, haze, paint, NPR, `ao * vig` —
+    // reads `l` and `light` exactly as before and is untouched by either arm.
+    let mut l = if stack_default {
+        (c.0 * light, c.1 * light, c.2 * light)
+    } else {
+        appearance.layers.composite(appearance, c, light, relief)
+    };
     if appearance.bio_blend < 1.0 {
         // The reference's own grey is a *fixed* 185·light, so a `bio_blend`
         // below 1 pulls every pixel toward the same neutral — it costs chroma
@@ -3164,16 +3831,17 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // don't read as flat pasted stickers". Both layers can coexist on one
     // cell and are applied sequentially, Biome then Terrain.
     //
-    // **`_paintedTex` is not reachable in this port and this is not a
-    // silent gap**: the reference's v1.28 refinement blends a *pack*
-    // texture's true colour instead of the flat swatch when the loaded pack
-    // supplies one for that index, at the same 0.60 weight and the same
-    // position. `pack.rs`'s own module doc records that `LoadedPack` parses
-    // but does not decode the `biomes`/`terrains` families, so there is no
-    // texture to reach for — which is exactly the reference's own
-    // `_t || CART_BIOME_COLS[pBio-1]` fallback, the branch a pack-less world
-    // takes there too. Nothing here diverges; the texture half becomes
-    // reachable the day those two families are decoded.
+    // **The v1.28 refinement is live** (this comment said `_paintedTex` was
+    // "not reachable in this port" until the `biomes`/`terrains` families
+    // were decoded): when the loaded pack supplies a ground tile for the
+    // painted index, that tile's **true colour** is blended instead of the
+    // flat swatch — same 0.60 weight, same position in the pipeline, so
+    // relief and hillshade keep showing through exactly as before. See
+    // [`painted_tex`] for the sampler and [`GroundTile`] for why it carries
+    // no inverse mean. Falling back to the swatch whenever no tile is loaded
+    // is the reference's own `_t || CART_BIOME_COLS[pBio-1]`, and it is the
+    // branch a pack-less world takes in both engines — which is what keeps
+    // this port's default output byte-untouched.
     //
     // Water is deliberately untouched: this blend lives in `landColorCore`,
     // so `cell_color`'s sea branch never sees it. In the reference that is
@@ -3182,11 +3850,19 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // placed on water with the gate off is stored, exported and previewed,
     // and simply has no place in the map's water colour.
     if !paint.is_empty() {
-        let swatch = |table: &[(u8, u8, u8)], v: u8| if v == 0 { None } else { table.get(v as usize - 1).copied() };
-        for p in [swatch(&CART_BIOME_COLS, paint.bio), swatch(&CART_TERRAIN_COLS, paint.ter)].into_iter().flatten() {
-            l.0 += (p.0 as f64 - l.0) * 0.60;
-            l.1 += (p.1 as f64 - l.1) * 0.60;
-            l.2 += (p.2 as f64 - l.2) * 0.60;
+        // `_t || CART_*_COLS[p-1]`: the pack tile first, the flat swatch
+        // second, nothing at all for an index outside the palette (where the
+        // reference would read `undefined` and throw).
+        let layer = |tiles: &[Option<GroundTile>], table: &[(u8, u8, u8)], v: u8| -> Option<Rgb> {
+            painted_tex(tiles, v, x, y).or_else(|| {
+                let c = if v == 0 { None } else { table.get(v as usize - 1).copied() }?;
+                Some((c.0 as f64, c.1 as f64, c.2 as f64))
+            })
+        };
+        for p in [layer(ground.biomes, &CART_BIOME_COLS, paint.bio), layer(ground.terrains, &CART_TERRAIN_COLS, paint.ter)].into_iter().flatten() {
+            l.0 += (p.0 - l.0) * 0.60;
+            l.1 += (p.1 - l.1) * 0.60;
+            l.2 += (p.2 - l.2) * 0.60;
         }
     }
 
@@ -3459,6 +4135,44 @@ fn npr_any(n: &Npr) -> bool {
         || n.sepia > 0.0
         || n.risograph > 0.0
         || n.pointillism > 0.0
+}
+
+/// The sea's own noise sample — the `nLow` argument `seaColor` (8280) and the
+/// bake's `surfaceColorSampled` (11939) both build as `vnoise(x·25.6/GW,
+/// y·25.6/GW, 5)`, factored out so the two paths cannot disagree.
+///
+/// **At `sea_grain_warp == 0.0` this is that expression and nothing else**,
+/// returned from a dedicated branch — the `ColorSpace::Srgb => return` rule,
+/// not an arithmetic identity that a float reassociation could break.
+///
+/// Above zero it is `TERRAIN_APPEARANCE_SCOPE.md` milestone 6's recorded
+/// ocean-lattice artifact, flagged: see [`TerrainAppearance::sea_grain_warp`]
+/// for why a fix is a divergence rather than a repair, and
+/// `OUTSTANDING_WORK.md` §2.5 for the row. The treatment is milestone 4's own
+/// stipple fix reused — rotate the sampling lattice off the axes so its
+/// iso-contours stop forming a rectangular quilt, and domain-warp it with a
+/// second coherent field so the remaining lattice period stops being one
+/// period. The `(0.8290, 0.5592)` rotation is the stipple's own `(cos, sin)`
+/// pair (~34°, far from every multiple of 45°, so no axis- *or*
+/// diagonal-aligned seam survives) — copied rather than shared, because
+/// hoisting it would edit a stage that is `0.20` in the shipped default and
+/// this row is not allowed to move that image.
+///
+/// The warp is scaled by `sea_grain_warp` so the slider sweeps continuously
+/// from the reference lattice to the fully broken-up one; the rotation is not,
+/// because a partly-rotated lattice is still a lattice.
+fn sea_grain(a: &TerrainAppearance, x: f64, y: f64, gw: usize) -> f64 {
+    let (u, v) = (x * 25.6 / gw as f64, y * 25.6 / gw as f64);
+    if a.sea_grain_warp <= 0.0 {
+        return vnoise(u, v, 5);
+    }
+    let (ru, rv) = (u * 0.8290 + v * 0.5592, -u * 0.5592 + v * 0.8290);
+    // Half a lattice cell of warp at full strength: enough that no straight
+    // seam survives, not so much that the grain stops reading as one field.
+    let k = a.sea_grain_warp * 0.5;
+    let wu = ru + (vnoise(ru * 2.0, rv * 2.0, 41) - 0.5) * k;
+    let wv = rv + (vnoise(rv * 2.0, ru * 2.0, 43) - 0.5) * k;
+    vnoise(wu, wv, 5)
 }
 
 /// `seaColorCore` (8122-8130).
@@ -4115,6 +4829,205 @@ pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32
     });
 }
 
+// ---- The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management) ----
+//
+// The ruling: *"a colour space on the render target, threaded through to the
+// texture"*, with one cost stated and accepted — *"every golden-parity fixture
+// is sRGB, so this touches the one surface the parity harnesses pin. Do it
+// behind a default that leaves sRGB byte-identical, or re-baseline deliberately
+// and say so."* The first option is taken here, by the *anchor-at-the-default*
+// discipline this port already uses for `terrain_detail_k` and `_V3D_RATIO0`:
+// `ColorSpace::Srgb` is an **early return**, not a round trip through a matrix
+// that happens to be near-identity, so the default path cannot drift by a
+// rounding decision. `tests/color_space.rs` pins a hash of the finished default
+// render taken before this block was written.
+
+/// The display device the finished raster is encoded for.
+///
+/// **A display device, not a working space, and the distinction is why this is
+/// a two-member enum rather than the three-row radio `menus.gd` still draws.**
+/// `GUI_GAP_REGISTER.md` §7.6 read Blender 4.x's Color Management panel and
+/// found the design row (`sRGB · Display P3 · linear`) offers one axis where
+/// there are two: sRGB and Display P3 are **display devices**; linear is a
+/// **working space**, and shipping the three together *"would be a category
+/// error that becomes very expensive to unpick later"*. So this axis carries
+/// the two display devices, and the working space stays what it measurably is —
+/// 8-bit sRGB, stated as a readout rather than offered as a choice.
+///
+/// The working-space half is not merely unbuilt, it is **unshippable at this
+/// precision**, and Godot's own API documentation says so — read on
+/// `Image::srgb_to_linear`, whose generated `godot` binding carries the
+/// upstream doc string verbatim: *"the 8-bit formats required by this method
+/// are not suitable for storing linearly encoded values; a significant amount
+/// of color information will be lost in darker values"*. That is the
+/// honest answer to whether a colour space means anything before
+/// `OUTSTANDING_WORK.md` §2.5's high-precision display pipeline lands: **a
+/// gamut change does, a linear working space does not** — see
+/// [`apply_color_space`] for the three properties that make the gamut half
+/// sound at 8 bits.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[allow(dead_code)]
+pub enum ColorSpace {
+    /// IEC 61966-2-1. The app's default, every golden-parity fixture's
+    /// encoding, and an exact no-op — [`apply_color_space`] returns before
+    /// touching a byte.
+    #[default]
+    Srgb,
+    /// Apple's Display P3: the DCI-P3 primaries on a D65 white point with
+    /// sRGB's own transfer function.
+    DisplayP3,
+}
+
+/// Every colour space this build has, in the order a picker should show them —
+/// the engine's list rather than a second copy of it in GDScript, the same rule
+/// [`RAMP_MODES`] and `LOOK_PRESETS` follow. The **first entry is the
+/// default**, unlike `LOOK_PRESETS`.
+// The golden-parity and tier targets `#[path]`-include this file standalone.
+#[allow(dead_code)]
+pub const COLOR_SPACES: &[&str] = &["sRGB", "Display P3"];
+
+#[allow(dead_code)]
+impl ColorSpace {
+    /// This space's name, as [`COLOR_SPACES`] spells it.
+    pub fn name(self) -> &'static str {
+        COLOR_SPACES[self as usize]
+    }
+
+    /// One of [`COLOR_SPACES`] by name, or `None` — a caller written against a
+    /// newer engine loses a row rather than silently getting the wrong
+    /// encoding, the same degrade [`RampMode::from_name`] gives.
+    pub fn from_name(n: &str) -> Option<Self> {
+        match n {
+            "sRGB" => Some(ColorSpace::Srgb),
+            "Display P3" => Some(ColorSpace::DisplayP3),
+            _ => None,
+        }
+    }
+}
+
+/// Linear sRGB → linear Display P3, derived from the two sets of chromaticities
+/// (sRGB `.64/.33 .30/.60 .15/.06`, P3 `.68/.32 .265/.69 .15/.06`, both on D65
+/// `.3127/.3290`) by the standard RGB→XYZ construction, then inverted and
+/// composed. It agrees to seven decimals with the matrix Chromium and
+/// `color.js` ship, which is the cross-check rather than the source.
+///
+/// **Two properties of this specific matrix are what make the transform sound
+/// on 8-bit data, and both are asserted in `tests/color_space.rs`:**
+///
+/// 1. Every entry is non-negative and **every row sums to exactly 1**, so each
+///    output channel is a convex combination of three values in `[0, 1]` and
+///    therefore lands in `[0, 1]` too. sRGB is a strict subset of P3, so this
+///    direction can never clip — there is no gamut mapping decision to get
+///    wrong, only a re-encoding.
+/// 2. A row summing to 1 also means a **neutral is exactly preserved**:
+///    `r == g == b` in gives the same value out on all three channels, and the
+///    decode/encode pair round-trips a byte exactly. The paper ground, the
+///    neatlines and the whole grey hillshade view therefore do not move at all;
+///    only chroma is re-encoded.
+// `pub` so `tests/color_space.rs` can assert properties 1 and 2 of the matrix
+// itself rather than only their consequences in the pixels -- a row that stops
+// summing to 1 is a defect whatever the picture happens to look like.
+#[allow(dead_code)]
+pub const SRGB_TO_P3: [[f64; 3]; 3] = [
+    [0.822_461_968_714_362_3, 0.177_538_031_285_637_7, 0.0],
+    [0.033_194_198_850_961_62, 0.966_805_801_149_038_4, 0.0],
+    [0.017_082_630_721_120_03, 0.072_397_440_663_963_47, 0.910_519_928_614_916_5],
+];
+
+/// The sRGB EOTF (IEC 61966-2-1) — encoded `[0, 1]` to linear light. Shared by
+/// both spaces: Display P3 uses sRGB's transfer function unchanged, and only
+/// its primaries differ.
+fn srgb_eotf(v: f64) -> f64 {
+    if v <= 0.040_45 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The sRGB OETF — linear light back to an encoded `[0, 1]`. The exact inverse
+/// of [`srgb_eotf`].
+fn srgb_oetf(v: f64) -> f64 {
+    if v <= 0.003_130_8 {
+        v * 12.92
+    } else {
+        1.055 * v.powf(1.0 / 2.4) - 0.055
+    }
+}
+
+/// Re-encode the finished RGB8 raster for one display device, in place.
+///
+/// **[`ColorSpace::Srgb`] returns immediately.** That is the whole of the
+/// byte-identity guarantee the ruling asked for, and it is a control-flow
+/// property rather than a numerical one: the default never enters the transform,
+/// so no rounding rule, matrix constant or transfer function below can move a
+/// byte of the shipped image.
+///
+/// # What this is, and what Godot is not doing
+///
+/// This is an **output transform performed in the engine**, and it has to be:
+/// an `Image`/`ImageTexture` carries a `Format` and no colour-space tag, and
+/// this project ships the `gl_compatibility` renderer (`project.godot`'s
+/// `renderer/rendering_method`; `forward_plus` loses the device on the owner's
+/// RX 7800 XT), whose 2D path does no colour management at all. So there is
+/// nothing to tag and nothing that would honour a tag — the numbers in the
+/// buffer are what reaches the panel. Converting them here is the only place
+/// the conversion can happen, and choosing Display P3 is a statement about the
+/// **monitor**, for a wide-gamut display that is *not* colour-managing sRGB
+/// input for itself. On such a panel untransformed sRGB numbers read
+/// oversaturated; these read correct.
+///
+/// **The boundary, stated rather than implied.** This reaches the terrain
+/// raster — the render target. It does **not** reach the overlays Godot draws
+/// over that texture (rivers, labels, settlement markers, territory, the scale
+/// bar, and the whole DCC chrome), because those are `Color` values going
+/// straight into Godot's canvas with no hook to convert them on the way. On a
+/// P3 display with this set to Display P3, the map is correct and the furniture
+/// over it is not. That is a real limitation of shipping an engine-side
+/// transform under a renderer with no colour management, and the panel says so.
+///
+/// # Precision
+///
+/// 8 bits in, 8 bits out, so this costs one quantisation. It is bounded and
+/// small — the transform cannot clip (see [`SRGB_TO_P3`]) and it preserves
+/// neutrals exactly, so the error is confined to chroma; `tests/color_space.rs`
+/// measures the worst round-trip channel error over the whole 24-bit cube. The
+/// *precision* half of `OUTSTANDING_WORK.md` §2.5 is a separate row and this
+/// does not pretend to be it: what ships here is the plumbing and a gamut
+/// transform that is correct at this depth, not a high-precision pipeline.
+///
+/// Rounds where the rest of this file truncates, and the difference is
+/// deliberate: truncation is the reference canvas's own behaviour on a value
+/// this renderer *computed*, but this stage re-encodes a byte that already
+/// exists, and truncating a decode/encode round trip would bias the whole image
+/// down by half a level and break the exact-neutral property above.
+///
+/// `rayon`-parallel per pixel, on [`apply_color_grade`]'s own determinism
+/// argument: each output byte is a pure function of its own three input bytes.
+// Used by `lib.rs::build_color_texture`; the `#[path]`-including test targets
+// see it as unreachable.
+#[allow(dead_code)]
+pub fn apply_color_space(space: ColorSpace, rgb: &mut [u8]) {
+    let m = match space {
+        ColorSpace::Srgb => return,
+        ColorSpace::DisplayP3 => &SRGB_TO_P3,
+    };
+    // The decode is a function of one byte, so all 256 answers are computed
+    // once instead of 3 per pixel. The encode cannot be: its input is a mixed
+    // continuous value, not a level.
+    let lut: [f64; 256] = std::array::from_fn(|i| srgb_eotf(i as f64 / 255.0));
+    rgb.par_chunks_mut(3).for_each(|px| {
+        if px.len() < 3 {
+            return;
+        }
+        let (r, g, b) = (lut[px[0] as usize], lut[px[1] as usize], lut[px[2] as usize]);
+        for (c, row) in m.iter().enumerate() {
+            let v = row[0] * r + row[1] * g + row[2] * b;
+            px[c] = (srgb_oetf(v) * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    });
+}
+
 /// `state.mode === 'shade'` (reference `renderNow` line 8535, repeated
 /// verbatim in `debugBaseColor` at 8202) — the grey hillshade view, as an RGB8
 /// raster the size of the grid.
@@ -4136,6 +5049,14 @@ pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32
 /// overlays happen to be enabled when the export runs. This does not, and that
 /// is the point of the layer: a hillshade with rivers painted into it is not a
 /// hillshade, and `layers/biome.png` beside it already carries them.
+///
+/// **[`LayerStack`] does not reach this either, deliberately.** The stack says
+/// how the light curve composites *into the map*; this is the data layer on its
+/// own, at grid resolution, beside the `.f32` blobs. Hiding the Hillshade row
+/// so the map reads as flat colour is not a request to stop exporting the
+/// hillshade, and dimming it to 40 % would write a PNG that is not a hillshade
+/// of anything. `layers/biome.png`, which *is* the composited map, goes through
+/// [`bake_rect`] and carries the stack in full.
 ///
 /// `rayon`-parallel by row on the same argument every other whole-grid pass in
 /// this file makes: `macro_shade` is a pure function of the immutable field and
@@ -4177,7 +5098,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let hs = ctx.sea_h[i] as f64;
         let shw = ctx.sea_shade[i] as f64;
         let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
-        let n_low = vnoise(x as f64 * 25.6 / ctx.gw as f64, y as f64 * 25.6 / ctx.gw as f64, 5);
+        let n_low = sea_grain(&ctx.appearance, x as f64, y as f64, ctx.gw);
         sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y))
     } else {
         // `surfaceColor` (8145-8196), unconditional parts only.
@@ -4193,7 +5114,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         // `surfaceColor`'s own hachure guard (8160): the gradient is derived
         // only when hachure is actually on, so the default path pays nothing.
         let grad = if ctx.appearance.npr.hachure > 0.0 { ctx.grad_at(x, y) } else { (0.0, 0.0) };
-        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i));
+        let c = land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x as f64, y as f64, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i), ctx.ground);
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -4418,7 +5339,7 @@ impl BakeFields {
             let hs = sample_arr(&ctx.sea_h, gx, gy, gw, gh);
             let shw = sample_arr(&ctx.sea_shade, gx, gy, gw, gh);
             let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
-            let n_low = vnoise(gx * 25.6 / gw as f64, gy * 25.6 / gw as f64, 5);
+            let n_low = sea_grain(&ctx.appearance, gx, gy, gw);
             sea_color_core(&ctx.appearance, depth, t, n_low, shw, vig)
         } else {
             let m = sample_arr(ctx.rainfall, gx, gy, gw, gh);
@@ -4453,6 +5374,7 @@ impl BakeFields {
                 gh,
                 ctx.splat.as_ref(),
                 ctx.paint_at_f(gx, gy),
+                ctx.ground,
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.

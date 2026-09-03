@@ -69,6 +69,24 @@ static func label(mode: String) -> String:
 static func format(km: float, decimals: int = 0) -> String:
 	return "%.*f %s" % [decimals, to_unit(km), suffix()]
 
+## An **area** in the current unit, squared suffix included — `"1,234 mi²"`.
+##
+## The factor is the linear one squared, which is the whole reason this cannot
+## reuse [`to_unit`]: 100 km² is 38.6 mi², not 62.1. Added 2026-09-03 because
+## the Measure panel's area readout was the last arm of `_measure_readout()`
+## still printing a raw `km²` beside two siblings that had just been converted —
+## the half-fixed inconsistency this project treats as a defect rather than a
+## nit, and the exact thing a verifier caught in the sibling arms.
+##
+## Thousands-separated, because an area in a map's units is routinely five or
+## six figures where a linear distance is three.
+static func format_area(km2: float) -> String:
+	var f := 1.0
+	match DccSettings.units_mode():
+		"mi": f = KM_PER_MI * KM_PER_MI
+		"nmi": f = KM_PER_NMI * KM_PER_NMI
+	return "%s %s²" % [_group_thousands(km2 / f), suffix()]
+
 ## The three-tier adaptive precision `viewport_host.gd`'s own scale-bar
 ## formatter used before this file existed, generalised: 2 decimals under 10,
 ## 1 under 100, 0 above -- so a converted value stays informative at deep zoom
@@ -92,7 +110,13 @@ static func format_adaptive(km: float) -> String:
 ## integer part: 4 812 km is 2 990 mi, and each earns its own thousands
 ## separator rather than inheriting the km one's.
 static func format_thousands(km: float) -> String:
-	var v := to_unit(km)
+	return "%s %s" % [_group_thousands(to_unit(km)), suffix()]
+
+## Space-group an **already-converted** number's integer part. No unit, no
+## conversion — the two callers convert differently ([`format_thousands`] by the
+## linear factor, [`format_area`] by its square), and sharing the grouping loop
+## is what stops them growing two separators that disagree.
+static func _group_thousands(v: float) -> String:
 	var s := "%.0f" % v
 	var neg := s.begins_with("-")
 	if neg:
@@ -104,4 +128,4 @@ static func format_thousands(km: float) -> String:
 		count += 1
 		if count % 3 == 0 and i > 0:
 			out = " " + out
-	return "%s%s %s" % ["-" if neg else "", out, suffix()]
+	return ("-" if neg else "") + out

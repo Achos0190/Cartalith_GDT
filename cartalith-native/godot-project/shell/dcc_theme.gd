@@ -55,17 +55,23 @@ class_name DccTheme
 ## | `--faint` | `text_faint`     | `--bor`    | `border`         |
 ## | `--dis`   | `text_ghost`     | `--block`  | `block`          |
 ## |           |                  | `--water`  | `water`          |
+## |           |                  | `--good`   | `good`           |
 ##
 ## Five tokens here have **no** counterpart in the prototype and keep the values
 ## they had -- `panel_alt`, `raised`, `accent_dim`, `stale`, `stale_wash` --
 ## each annotated in place with what the prototype does instead.
 ##
-## Two prototype properties are deliberately **not** imported. `--good` is
-## declared at both densities and `grep -c "var(--good)"` over `ENV` plus
-## `PARTS` returns **0**; `--g` (a 10 px / 12 px gap unit) likewise returns 0.
-## Importing either would reproduce the prototype's own dead-token defect in a
-## file whose consumers would then have to guess what it meant. `--shadow` is
-## skipped too, but for the opposite reason: `DccWidgets.style_popup():473`
+## One prototype property is deliberately **not** imported: `--g`, a 10 px /
+## 12 px gap unit that `grep -c "var(--g)"` over `ENV` plus `PARTS` returns
+## **0** for. Importing it would reproduce the prototype's own dead-token defect
+## in a file whose consumers would then have to guess what it meant.
+##
+## **`--good` was in that sentence until 2026-09-03 and is not any more.** It is
+## dead in the prototype on the same grep, but it is not dead *here*: the
+## faction roster's terrain-fit verdict needs the positive half of a pair whose
+## negative half is `block`, and was carrying a raw literal to get it. See
+## `good`'s own comment in `DARK` for the measurement that settled it. `--shadow`
+## is skipped too, but for a third reason: `DccWidgets.style_popup():473`
 ## already draws exactly `0 14px 34px rgba(0,0,0,.55)` / `rgba(35,36,31,.16)`
 ## as literals, so a token would be a second source of truth for a value that
 ## is already correct.
@@ -195,8 +201,27 @@ const DARK := {
 	## only one of the two that states a value for all three in **both** themes
 	## from one source. The divergence is recorded, not averaged -- if the phone
 	## composition ever needs its own semantic triple it needs a second palette,
-	## not a compromise in this one. `--good` is not imported at all; see the
-	## header table for why.
+	## not a compromise in this one.
+	##
+	## **`good` IS imported, since 2026-09-03**, reversing this block's own
+	## "not imported at all" and the header table's reasoning with it. That
+	## reasoning was *"`grep -c "var(--good)"` over `ENV` plus `PARTS` returns
+	## **0**; importing it would reproduce the prototype's own dead-token defect
+	## in a file whose consumers would then have to guess what it meant."* The
+	## grep is still 0 -- re-run 2026-09-03 -- but the premise behind it was that
+	## this shell had no consumer either, and it does:
+	## `faction_roster_window.gd::_build_terrain_fit()` paints its "strong match"
+	## verdict green and its "mismatch" verdict in `accent`, and until stage 7 the
+	## green half was the raw literal `Color(0.48, 0.78, 0.49)` (#7ac77d) -- a
+	## *fixed* colour in both themes, measured at **1.96:1** against the light
+	## `panel` #fbfaf7, which is unreadable. The value below measures **5.06:1**
+	## there and 7.20:1 on the dark panel.
+	##
+	## So the consumer does not have to guess what it means: it is the positive
+	## half of the same verdict pair whose negative half is already a token.
+	## Values are `ENV`'s own, on exactly the grounds the table above gives for
+	## taking `ENV` over `AND` for `block` and `water` -- one source, both themes.
+	"good": Color("#6fae7d"),
 	"block": Color("#c96a5a"),
 	"water": Color("#6a9bc4"),
 	## `--warn` exists in **neither** `ENV` block: `grep -c -- "--warn:"` over
@@ -300,6 +325,11 @@ const LIGHT := {
 	## They are real light values now, and they are markedly more saturated than
 	## the phone's (`#a03d2e` against `AND:1469`'s `#a04437`, `#2e6a9e` against
 	## `#3f6675`). See the dark half's table for the full contradiction.
+	##
+	## `good` joins them 2026-09-03 -- `ENV:1818`'s own `--good`, and the whole
+	## reason this token now exists: the dark half of the pair was legible as a
+	## raw literal and the light half was not. See the dark half's comment.
+	"good": Color("#2c7a44"),
 	"block": Color("#a03d2e"),
 	"water": Color("#2e6a9e"),
 	## The one token here sourced from the phone prototype rather than `ENV`,

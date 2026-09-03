@@ -47,6 +47,43 @@ pub const PACK_ICON_SLOTS: [&str; 10] = [
     "boulder",
 ];
 
+/// Sea marks — the coastal/offshore glyph family.
+///
+/// **This one is not ported.** Every other list in this file is transcribed
+/// from the reference (lines 12029-12052); the reference has no sea-marks
+/// family at all, and neither did this port until the owner ruled *"Build, and
+/// add a sea-marks asset family"* (2026-09-02). It exists because
+/// `cartography_workspace.gd`'s `ICON_PLACEMENT_FAMILIES` carries the design's
+/// four *placement* families — PLACES, TREES, SEA MARKS, POI — and that file's
+/// own comment states the problem plainly: *"SEA MARKS has no counterpart in
+/// the engine's three families at all. Mapping one onto the other would be
+/// inventing a correspondence the design does not state."* The ruling's answer
+/// is a real fourth family rather than a mapping, so this is it.
+///
+/// **Eight slots because the design says eight.** `cartalith-dcc-parts.js:364`
+/// is `'SEA MARKS':[6,8]` — six filled of eight. The *count* is the design's;
+/// the eight *names* are this port's, since the design canvas names none of
+/// them. They are chosen against the one rule the design does state for this
+/// family — *"snap sea marks to coast"* — so every entry is something that
+/// belongs on a shoreline, and half of them float: `manual.rs`'s own
+/// `place_manual_icon` doc already reached for the same vocabulary when it
+/// argued the click path has no sea-level gate (*"a hand-placed lighthouse or
+/// buoy is a legitimate thing to want"*), written months before this family
+/// existed.
+///
+/// Frozen from here on, on the same terms as the ported lists above: order is
+/// load-bearing and renaming an entry re-points every pack authored against it.
+pub const PACK_SEAMARK_SLOTS: [&str; 8] = [
+    "lighthouse",
+    "beacon",
+    "buoy",
+    "anchorage",
+    "shipwreck",
+    "reef",
+    "shoal",
+    "whirlpool",
+];
+
 /// Ground tiles for the painted Cartography biome layer (v1.28).
 pub const PACK_BIOME_SLOTS: [&str; 15] = [
     "coastal",
@@ -139,6 +176,10 @@ pub enum Family {
     Terrains,
     /// `icons` — scattered feature glyphs.
     Icons,
+    /// `seamarks` — coastal and offshore marks. **The one family with no
+    /// reference counterpart** (owner ruling 2026-09-02); see
+    /// [`PACK_SEAMARK_SLOTS`].
+    SeaMark,
     /// `structures.settlement` — settlement pins.
     Settlement,
     /// `structures.trait` — settlement role overlays.
@@ -164,12 +205,22 @@ pub enum Anchor {
 
 impl Family {
     /// Every family, in the order the Asset Library's own `FAMILIES` table
-    /// lists them.
-    pub const ALL: [Family; 8] = [
+    /// lists them — plus [`Family::SeaMark`], which that table does not have.
+    ///
+    /// It is inserted after [`Family::Icons`] rather than appended, because
+    /// this order is the exporter's file order ([`crate::archive`]'s
+    /// `export_order`) and the Library's display order, and a sea mark is a
+    /// top-level multi-variant sprite section exactly like `icons` — grouping
+    /// it there rather than after `custom` (which is last on purpose: the open
+    /// vocabulary sorts behind every frozen one) keeps both orders readable.
+    /// Nothing about an existing pack moves: a pack with no `seamarks` section
+    /// contributes nothing at the new position.
+    pub const ALL: [Family; 9] = [
         Family::Textures,
         Family::Biomes,
         Family::Terrains,
         Family::Icons,
+        Family::SeaMark,
         Family::Settlement,
         Family::Trait,
         Family::Poi,
@@ -186,6 +237,13 @@ impl Family {
             Family::Biomes => "biomes",
             Family::Terrains => "terrains",
             Family::Icons => "icons",
+            // Plural, like every other *top-level* section (`textures`,
+            // `biomes`, `terrains`, `icons`); the singular keys below are the
+            // three nested under `structures`. `ManualIconFamily::SeaMark`
+            // reuses this exact string rather than coining a second spelling —
+            // the `feature`/`icons` rename it has to live with elsewhere is the
+            // reference's, not a pattern worth repeating on a new family.
+            Family::SeaMark => "seamarks",
             Family::Settlement => "settlement",
             Family::Trait => "trait",
             Family::Poi => "poi",
@@ -207,6 +265,7 @@ impl Family {
             Family::Biomes => &PACK_BIOME_SLOTS,
             Family::Terrains => &PACK_TERRAIN_SLOTS,
             Family::Icons => &PACK_ICON_SLOTS,
+            Family::SeaMark => &PACK_SEAMARK_SLOTS,
             Family::Settlement => &PACK_SETTLEMENT_SLOTS,
             Family::Trait => &PACK_TRAIT_SLOTS,
             Family::Poi => &PACK_POI_SLOTS,
@@ -223,6 +282,7 @@ impl Family {
             Family::Biomes => "biomes",
             Family::Terrains => "terrains",
             Family::Icons => "icons",
+            Family::SeaMark => "seamarks",
             Family::Settlement => "structures/settlement",
             Family::Trait => "structures/trait",
             Family::Poi => "structures/poi",
@@ -258,6 +318,15 @@ impl Family {
         match self {
             Family::Textures | Family::Biomes | Family::Terrains => Anchor::None,
             Family::Icons => Anchor::Bottom,
+            // **Centred, not bottom-anchored, and this is a choice rather than
+            // a transcription** — no reference behaviour to copy. A feature
+            // glyph is bottom-anchored because a mountain or a tree *stands* on
+            // its cell; half of `PACK_SEAMARK_SLOTS` (buoy, reef, shoal,
+            // whirlpool) has no base to stand on, and after the coast snap the
+            // point IS the mark's position. One anchor for the family, and
+            // centre is the one that is right for the floating half and merely
+            // half a sprite high for the standing half.
+            Family::SeaMark => Anchor::Center,
             _ => Anchor::Center,
         }
     }
@@ -337,6 +406,36 @@ mod tests {
         assert_eq!(PACK_POI_SLOTS.len(), 8);
         assert!(!PACK_POI_SLOTS.contains(&"lake"));
         assert!(!PACK_POI_SLOTS.contains(&"bridge"));
+    }
+
+    #[test]
+    fn seamark_vocabulary_is_the_eight_the_design_asked_for() {
+        // `cartalith-dcc-parts.js:364`'s `'SEA MARKS':[6,8]`. The panel's own
+        // "N of M slots filled" line reads M off this list now, so the count is
+        // load-bearing in both directions.
+        assert_eq!(PACK_SEAMARK_SLOTS.len(), 8);
+        assert_eq!(Family::SeaMark.slots().len(), 8);
+        assert!(PACK_SEAMARK_SLOTS.contains(&"lighthouse"));
+        assert!(PACK_SEAMARK_SLOTS.contains(&"buoy"));
+        // A sea mark is a sprite, not a ground tile, and it is centred.
+        assert!(Family::SeaMark.is_multi());
+        assert!(!Family::SeaMark.opaque());
+        assert_eq!(Family::SeaMark.size(), 256);
+        assert_eq!(Family::SeaMark.anchor(), Anchor::Center);
+        // Its own top-level section, NOT one of the three under `structures`.
+        assert!(!Family::STRUCTURES.contains(&Family::SeaMark));
+        assert_eq!(Family::SeaMark.dir(), "seamarks");
+    }
+
+    #[test]
+    fn seamark_shares_no_slot_id_with_the_family_it_could_be_confused_for() {
+        // The whole point of the ruling: SEA MARKS is not POI wearing a hat.
+        // If these two ever share a slot id, `make_uid`'s `fam:slot` key still
+        // separates them, but the vocabularies would have started to merge.
+        for s in PACK_SEAMARK_SLOTS {
+            assert!(!PACK_POI_SLOTS.contains(&s), "{s} is in both seamarks and poi");
+            assert!(!PACK_ICON_SLOTS.contains(&s), "{s} is in both seamarks and icons");
+        }
     }
 
     #[test]

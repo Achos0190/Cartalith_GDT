@@ -41,15 +41,362 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**128 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-02 (third pass)**, after an earlier pass left four
+**103 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-03 (sixteenth pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
 arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
-outside it. A five-lane verification wave closed five rows on 2026-09-02 and
+outside it.
+
+**2026-09-03, twelfth batch — headline holds at 103.** The layer-stack UI closed
+(section 7's row list in CARTO, RD-10's right-dock Layers section **appended**
+rather than replacing the selection, per the owner's dock ruling, plus WCAG 2.2
+SC 2.5.7 Move up / Move down beside the drag). **PH-16 narrowed rather than
+closed**, and one row was added, so the count did not move.
+
+*PH-16's cause was real and is fixed: `journey_planner_view.gd` pre-scaled six
+heights by `phone_scale()` **and** let the shared `phone_fit()` walk multiply the
+same subtree again, so every pre-scaled row rendered at `phone_scale()`². But a
+verifier measured the panel still reporting `(1080, 2400)` — a full-screen
+takeover — with `_show()` still switching the viewport off. The register's
+complaint is a pixel one; the fix so far is geometric.*
+
+*Three defects the verifier found in the layer UI, two fixed here. **Reset to
+quality tier never re-synced the Layers panel**, so the engine returned to the
+default order while the panel kept drawing the user's arrangement — fixed. **The
+Colour relief row is live over a layer that draws nothing** at the shipped
+default, because `ramp_strength` is `0.0` and `composite` skips it: disclosed in
+the left dock, and left as its own row because the honest end state is a
+judgement about the default, not a patch. A comment's `phone_scale` arithmetic
+was two rebases stale (2.748 where the probe prints 2.621) and is corrected.*
+
+*The verifier also refuted **the verification brief itself**: "measure PH-16 at
+393×852" cannot discriminate, because `phone_scale()` is exactly 1.0 at that
+size. The lane's choice of 1080×2400 was correct and the brief had called it an
+evasion. `MISTAKES.md`'s orchestration entry is now ×4 and carries the rule: check
+your own verification instruction is discriminating before demanding a lane
+satisfy it — a test condition that cannot fail is worse than none, because it
+looks like rigour.*
+
+**2026-09-03, eleventh batch — the first under the owner's new GUI order, which
+puts the §3.2 rows blocked on *other work* first.** Both preconditions are built,
+so **two rows moved §3.2 → §2.2** and only their UI halves remain. The headline
+holds at 103; nothing closed, two things became startable.
+
+- **The layer stack.** CA-04's stated reason was **wrong about the pixels**: it
+  said `render.rs` bakes the categories into one pass needing an architecture
+  change, but both composites already existed inside `land_color` — colour relief
+  as a normal-over lerp, hillshade as a multiply — with the operator and slot in
+  *source* rather than in *data*. The fix was register-composited, costing no
+  allocation; N buffers were measured at **368.8 MiB** at the 8192 export ceiling
+  and rejected. Byte-identity at the default is by control flow, proved with **8
+  FNV digests taken before the change** and unchanged after.
+- **Belief.** The row claimed `cartalith-civ::belief` does not exist. It was
+  already 945 lines — compatibility tables with no diffusion, no callers, no
+  bridge. That is the **twelfth** row this week that did not survive being
+  re-opened at its symbol.
+
+*`export_raster.rs` needed no change, and that was structural rather than lucky —
+the stack lives on `TerrainAppearance`, which all three raster consumers already
+fetch. The lane proved it with a test named for last week's failure,
+`every_stack_control_moves_both_consumer_paths`, whose doc says it measures
+rather than assumes **because `with_ground_tiles` did not**, moved no pixel at the
+default, and left the suite green while every exported PNG diverged from the map.
+That is `MISTAKES.md` being applied before the mistake rather than after it.*
+
+*The verifier found the same class a third time anyway, in the other lane: the
+belief staleness key covered `belief_seed`'s second argument and not its first,
+so reassigning a settlement to a faction of another faith left it showing the old
+religion while the guard reported itself current — **and that was the fix for the
+identical miss on the religion column**. The key is now derived from the
+function's signature, `culture` is documented as deliberately uncovered with the
+reason, and `MISTAKES.md`'s entry is widened to "covering some inputs of a thing,
+not all of them ×3".*
+
+**2026-09-03, tenth batch, taking 111 → 103** — nine rows closed, the largest
+single drop yet, and most of it came from *measuring* rather than building.
+
+- **`gpu_compute_height` is an undocumented decision, and the right one.** The
+  blocker was never written down: `HEIGHT_LAYOUT` binds **9 storage buffers**
+  against `REUSED_STAGE_MAX_STORAGE_BUFFERS = 8`, so there was never a device it
+  could be built on. Worse, its recorded 5.17×/8.13×/4.84× speedups were against a
+  *single-threaded f32 twin*; against the production `compute_height`, which is
+  f64 and already `par_chunks_mut`, it wins **2.13× at 1024² and 1.15× at 2048²**
+  — about 5 ms, against a handshake two orders of magnitude larger. Not wired, and
+  now documented with what would overturn it.
+- **The `gpu_height` throughput drop is upload-bound**, hypothesis tested and
+  confirmed against a cross-kernel control: the two narrow kernels get *cheaper*
+  per cell from 1024² to 2048² while only the nine-buffer bind group turns around.
+- **`build_road_network` is parallelised — and has no production caller.** All six
+  call sites are tests; the shipped path is `civ_road_network`, already parallel.
+  Said out loud rather than filed as a speed win it is not.
+- The `_peakaudit_*` probes are deleted, and the ocean lattice and hand-lettered
+  glyph rows resolved.
+
+*The verifier's finding is the one worth remembering: **the lane that closed the
+benchmark-averaging row then committed that exact defect three times**, writing
+single-sample figures into two doc comments and a scope document as measured fact.
+None reproduced — 416 ms re-measured at 730, a "5× spread" at 1.4%, a "halving" at
+1.35×. All three are now ranges or directions, and the residue is its own row.*
+
+*Two claims were false rather than imprecise and are fixed: `render.rs`'s module
+doc still listed `rockSlope` refinement and wetness darkening as **excluded** in
+the same file that had just implemented them — and that doc is
+`OUTSTANDING_WORK.md`'s own cited location for the row — and `STATUS.md` named
+three deleted probes as "present and uncalled". A dangling
+`examples/_peakaudit_peak.rs` citation in `landmark.rs` went with them.*
+
+**2026-09-03 — four owner rulings on the GUI blockers, taking 112 → 111 and moving
+four rows without closing any work.** The owner reprioritised GUI and answered the
+four rows sitting in §3.1 *blocked on an owner decision and nothing else*. Full
+text in `LARGE_ITEM_RULINGS.md`'s second section.
+
+- **DS-03: keep everything, reflow only.** The tablet gets the full desktop
+  inventory; nothing is removed. That retires the *content* question outright —
+  there is no "which controls leave" list to build — and leaves the row as its
+  architectural half alone: `DccTheme.TABLET`'s exhausted key space. → §2.2.
+- **`rdExtraMode`: selection wins, the tool appends.** This answers
+  `UNWIRED_FUNCTIONS.md`'s open question 1, which is deleted from §4 — the only
+  reason the headline moved. → §2.2.
+- **The APK probe scenes: excluded, under a scoped authorisation** to edit
+  `export_presets.cfg`'s `exclude_filter` **and nothing else in that file**.
+  `Cargo.toml`, `.gitignore` and `project.godot` remain off limits. → §2.2.
+- **CV-24 / ED-02: both wait for a design pass.** `TIMELINE_SCOPE.md` §4's
+  instruction to design the panel before guessing its region is upheld rather than
+  overridden, so these move §3.1 → **§3.3**: still blocked, on a design rather than
+  on the owner. Not closed and not startable.
+
+*Owner question 3 — the WORLD left-dock A/B switch — was deliberately **not**
+asked. It is doubly blocked: its captions and gate live in the truncated tail of
+`02-rail-and-domains.md` §8, so there is no label to build the control with even
+once the call is made, and an answer would not have been executable.*
+
+**The owner's GUI order, standing:** the §3.2 rows blocked on other work first,
+then the unblocked rows, then the rows blocked on a design that does not exist.
+
+**2026-09-03, ninth batch, taking 115 → 112.** Four rows closed, and three of the
+four were **already built** — the manual-icon tool's arming, rendering and
+persistence all resolve at their symbols (`icon_arm` → `IconEditor::arm`;
+`viewport_host.gd` drawing `icon_list()`; `SLOT_ICONS` round-tripping 53 icons
+with per-instance scale intact), and so does **CA-05**, whose row said the icon
+tool has no on-canvas resize handles while `#[func] icon_handles`
+(`lib.rs:7759`) has a live caller at `cartography_workspace.gd:966`. The one
+genuinely open gap was the density brush, which is built. The layer live-sync
+signal and the `LIVE_LAYERS` assertion were likewise already done.
+
+*The pack-import warning was **reclassified rather than fixed**, and the lane was
+right to decline the brief's instruction: that string is pinned by golden fixtures
+captured from the reference under Node, so editing it is a re-baseline
+`DECISIONS.md` §7a protects. It also found the urgency lower than stated —
+`PackManifest::warnings` reaches no user, so the false claim is false in code and
+not on screen.*
+
+*The verifier refuted four claims. **Four brush constants and the brush seed were
+pinned by nothing** — the clamp test compared each constant against itself, the
+same shape that let `MIN_REGION_WORLD_AXIS` survive `4 → 3`. Now pinned to the
+reference's literal slider attributes (`#carIconBrushR` at 1656, `#carIconBrushD`
+at 1657 over the `/100` at 13515) and all four die under mutation. **My own first
+replacement for the seed test repeated the defect** — two fresh editors agree
+whatever the seed is — and needed the literal added before the mutant died. A
+`km²` readout in `world_workspace.gd` was still going through `_thousands` beside
+the converted siblings, which is the half-fix `format_area`'s own doc names; and a
+spliced sentence in new prose was corrected.*
+
+*One row added: the Coordinate-system units fix is real but nothing would catch
+its removal.*
+
+**2026-09-03, eighth batch, taking 116 → 115.** **Saved measurements + CSV** ships
+as the *fifth caller* of the slot path rather than a second mechanism, which the
+ruling required: one line in `DOCUMENT_SLOTS` was the whole Rust change, because
+the channel built last batch was shaped to take it. The document carries `gw`/`gh`
+and **refuses on a grid mismatch, then clears** — staleness-marking was rejected
+and the reason recorded, that a marked reading stays readable and plausible while
+the points under it name different ground. The CSV is canonical km, verified by
+re-exporting under mi and comparing bytes. **Pack biome/terrain decoding** landed
+with the default output unchanged.
+
+*Two verifier refutations, both real, both fixed here. The measurements **reader**
+had a data-loss defect the write side hid: `float(<null>)` is a GDScript runtime
+error rather than a conversion, so one null value aborted the whole reader, the
+caller took the `ok == false` branch and cleared the in-memory list, and the user
+lost every healthy reading beside it — silently, with no reason line. This build
+writes that null itself for a NaN. Guarded, and the probe now proves it: reverting
+the guard turns "3 of 3 survive" into "0 of 3". And pack decoding wired
+`with_ground_tiles` into the on-screen builder only, so with a pack applied and
+cells painted the map blended the pack tile while **every exported PNG blended the
+flat swatch** — a new divergence, and one the reference does not have
+(`landColorCore` reads the same `assetPack` global at 8168, 11730 and 11969).
+Attaching it moves no pixel at the default, which is exactly why no golden caught
+it.*
+
+*One row added: the pack-import warning still names biomes and terrains as unused
+sections, about two families the map now composites.*
+
+**2026-09-03, seventh batch, taking 120 → 116 — and the duplicate is finally gone.**
+Four rows closed. The **vault leak**: `import_heightmap` called `absorb` without
+`release_world`, so links and snapshots taken against the old world survived into
+the imported one. The clear moved **into `absorb`** rather than to the call site —
+`absorb` is the funnel all four generated-world paths share and the function that
+replaces `self.civ` wholesale, which is what makes every `entity_id` in the store
+meaningless; a call-site fix leaves the fifth path free to repeat it. Proven by
+revert: deleting the two lines fails 2 assertions, **on the import arm only**.
+And the **four caller-owned save slots** now round-trip, which closes the last
+duplicate-classification defect this section has carried: *Saved measurements +
+CSV* was filed both as ready (§2.2) and as blocked on this work (§3.2), and the
+blocker has landed, so the §3.2 half is deleted.
+
+*The atlas row was narrowed rather than closed, on the lane's own honest finding:
+the live collision is fixed and was measured real first — three different worlds
+at one parameter tuple all hashed to `beffe825` — but the save format records no
+provenance, so the discriminator cannot survive a reopen. Stated as a format gap
+rather than worked around.*
+
+*Two verifier refutations, both the "a fix nothing asserts is not a fix" class,
+both closed here. `WorldGen::carried_foreign` was pinned by nothing — replacing
+`std::mem::take` with `Default::default()` left the whole Rust suite green, and no
+unit test can reach it because `WorldGen` is a cdylib `GodotClass`; `_savetree_probe.gd`
+now drives a real open→re-save with a non-UTF-8 foreign payload and the mutant dies
+("foreign entry was DROPPED by the re-save"). And `is_own_entry` has **seven**
+branches where its fixture reached four — `params.json`, `README.md` and
+`preview.png` each survived the entire workspace suite. Now table-driven over all
+seven plus eleven near misses; all three mutants die.*
+
+**2026-09-03, sixth batch, taking 119 → 120 — the count went UP, and that is the
+batch's most useful output.** Two rows closed: **Units** (the Measure panel, the
+Region-select extent, and — after a verifier caught the same function half
+converted — the `radius`, `section` and `area` arms beside them, the last needing
+a new `DccUnits.format_area`, since 100 km² is 38.6 mi² and not 62.1) and
+**Region ▸ New world from selection** (`region_as_new_world` plus the `WorldGen`
+state work the ruling insisted must not be folded into GUI work).
+
+*Three rows were added because the region lane enumerated `WorldGen`'s fields
+against `absorb` and `close_world()` instead of trusting the five the ruling
+named, and found two pre-existing defects it correctly escalated rather than
+silently repairing: `import_heightmap` leaks vault links and snapshots across a
+world replacement, and the atlas `world_key` hashes parameters but never how the
+field was produced, so a resampled, an imported and a generated world can collide
+in one namespace. A verifier added the third. **A backlog that only ever shrinks
+is not being read carefully**, and this is what looking properly costs.*
+
+*The Layers row was narrowed rather than closed on the same evidence: the lane
+claimed a build-time read covers a later cross-panel click, but `_register_workspaces()`
+builds all five workspaces eagerly at launch, so CARTO's checkboxes exist before any
+click can happen. And `MIN_REGION_WORLD_AXIS = 4` survived mutation at `4 → 3`,
+because its test compared the constant against itself — now pinned to
+`generate_sized`'s own `grid_w.max(4)`, and the mutant dies.*
+
+**2026-09-03, fifth pass — two rows closed by re-reading, not by building, taking
+121 → 119.** Both said "Built" and stayed open on a residue that later waves had
+already fixed, so the *rows* were stale rather than the work. **Civilisation
+authoring**: the `CivRebuild::Routes` unconditional tail is gated —
+`civ_settle_staleness` clears `civ_dirty` only when `civ_merge` reports the layer
+really was re-derived, with a test per mode. **The river entity**: the third
+`f64::hypot` at `enforce_channel_descent` is `js_hypot`, the doc citation is
+corrected to reference 4532-4537 *with the correction shown*, and all four
+surviving mutants now have pinning tests — including
+`enforce_channel_descent_carves_the_v8_hypot_disc`, which asserts the call site
+the earlier divergence test only measured.
+
+*This is the fourth time this file has carried a row whose blocker had already
+lifted. Re-open a "Built … but" row at its cited symbol before scheduling work
+against it.*
+
+**2026-09-03, fourth batch, taking 123 → 121.** **Colour management** ships behind an
+sRGB default that is byte-identical *by control flow*, not by arithmetic —
+`ColorSpace::Srgb => return` fires before a single byte is read, so no matrix
+constant, transfer function or rounding rule can move the shipped image. Proven
+twice rather than asserted: an FNV hash of the finished render captured **before**
+the feature was written and re-run unchanged after, and a real 2048×1312 round
+trip measuring `0.000000 %` of bytes moved. The owner's stated cost was therefore
+never paid — no golden was re-baselined. **Rebindable shortcuts** ship per-context
+with same-context conflicts surfaced, cross-context collisions correctly *not*
+flagged, live reapplication and a reset path.
+
+*Two defects the verifier found, both fixed here. `File ▸ Close project` runs
+`close_world()`, which does `world_gen = WorldGen.new()` and re-inits
+`color_space` to sRGB — so the picker was left reading Display P3 over an sRGB
+engine. The comment above that control asserted the opposite ("opening a project
+therefore cannot leave this row stale, because nothing underneath it moved"):
+nothing in the **document** moves, which is true and is not the question, because
+the **engine** moved. And `menus.gd`'s Colour management `_todo` still read "the
+renderer is sRGB-only end to end", false in every clause within the same session
+— now a signpost to the real control rather than a `_todo`, which would have made
+`command_index.gd` count a shipped feature as missing.*
+
+*Both lanes also mis-attributed their test-count deltas, in opposite directions,
+while both absolute figures were right. Noted because the absolute number is the
+one this project checks; the deltas were never load-bearing.*
+
+**Earlier the same day, taking 124 → 123.** The two stranded funnel chips are
+wired (*Show rejected* draws the real capped list and says so in its label;
+*Raise crowding to × N* computes the figure, snaps it to the dial's step, and
+refuses off-dial answers by printing them rather than clamping), and **Report an
+issue** is now a local diagnostic dump with no endpoint, as ruled.
+
+*The chip lane found something larger than its own task: **the crowding
+direction was inverted in three places** in `civilization_workspace.gd`. The
+engine divides — `LandmarkSettings::radius_km` is `base / crowding_in_force()`,
+pinned by `landmark.rs::crowding_higher_packs_tighter` — while the panel
+multiplied. The two agreed at the default × 1.00 and nowhere else, so at × 2.00
+the panel read "keeps 68 km clear" where the pass kept 17, and the note printed
+directly above the chips told the user to move the dial the wrong way.*
+
+*The verifier then refuted two claims, both fixed here rather than deferred. A
+replacement comment asserted "neither chip is ever enabled onto a no-op";
+measured, the one kind that reached `ok` placed its promised candidate exactly
+as computed and that candidate's own new ring rejected another, for a net gain
+of zero — the control's "floor" wording was honest, the comment's was not. And
+the diagnostic report printed `VRAM budget: 0.0 GB` where `0` is the sentinel
+for **no cap** and is the shipping default, so every stock-install report would
+have told its reader the GPU path was budget-refused. **That is the fourth
+instance in two days of encoding "no value" as a plausible value**, after
+`needs_crowding`, `harbour_scale` and `wall_spec`.*
+
+**Earlier the same day, taking 126 → 124.** Three rows closed, each
+verified independently rather than on its lane's word: **CPU worker threads**
+(the setter that returned `true` while changing nothing now returns the truth —
+root cause was `ACTIVE_THREADS` never being written by Rayon's *implicit* global
+init, so the honesty check was reading a counter only the explicit path touched;
+the settings value is wired and restored first in `_ready()`, and `menus.gd`'s
+`_todo` is a real menu), **Settlement diagnostics** (0 bare zeros over a real
+world, 20 fields dashed with their reason, and an audit that found **five more**
+fields defaulting a value and printing it as though measured), and the
+**Landmark funnel** (both halves, with rejection *reasons* rather than bare
+coordinates). One row replaced them: the two funnel chips left stranded on
+reasons that the funnel work itself made false.
+
+*A boundary defect was fixed here too, and it is the same defect three times in
+one day: `rejects.rs` marshalled `Option<f64>::None` as `0.0`, and `0.0` is a
+plausible Crowding, so 44 of 614 spacing rows read as genuine measurements. The
+key is now absent and callers use `has()` — the idiom the diagnostics card
+settled on for `harbour_scale` and `wall_spec` the same day.*
+
+**Earlier the same day, taking 128 → 126.** Two rows deleted, both verified 10/10 by an
+independent adversarial pass rather than on their lane's word: **CARTO ▸ Icons**
+(§2.2 — a sea-marks asset family, a generated placement pass, and the coastline
+snap test the ruling names, reusing the label culler rather than growing a
+second one) and **Label collision culling** (§2.2 — now genuinely wired, see
+below). Three more rows were **narrowed, not closed, because their verifiers
+refuted them**: CPU worker threads (a setter that returns `true` while changing
+nothing), Settlement diagnostics (19 of 203 cards print an undashed `order 0`,
+breaking the owner's one binding condition), and Cut · Copy · Paste (step one
+only, as the ruling sequences it).
+
+*That wave also caught a regression this file's own headline had no way to see:
+commit `0f0fe55` used `_label_cull` twice in `cartography_workspace.gd` and
+declared it nowhere, so `class_name CartographyWorkspace` failed to register and
+`shell/app.gd` — the application root — would not compile. **The Godot shell was
+unbootable while `cargo test` reported 2 821 green.** Fixed, and both files now
+parse clean. A separate latent hazard was closed at the same time: the label
+comparator used `partial_cmp(..).unwrap_or(Equal)`, which is intransitive on a
+NaN weight and makes Rust's sort panic — a panic that crosses the gdext boundary
+takes the whole Godot process down. Now `total_cmp`, pinned by a test that
+panics if the line is reverted.*
+
+An earlier five-lane wave closed five rows on 2026-09-02 and
 they are deleted: CARTO ▸ Labels, all three steps (§2.2, built and verified
 against the code); the reference re-freeze to v2.11 (§2.8, done — `reference/`
 now holds v2.11 and a regenerated `FUNCTION_INDEX_v2.11.md`); and
@@ -69,15 +416,17 @@ urban **17a caveat** (§2.1, which is now empty), and
 | | Count | Meaning |
 |---|---:|---|
 | In flight | 3 | Code exists, committed but partial (§1) |
-| Ready to start | 72 | Nothing blocks them; someone has to pick them up (§2) |
-| Blocked | 34 | A named blocker, listed in §3 |
-| Open decisions | 19 | Not work yet — the owner owes an answer first (§4) |
+| Ready to start | 54 | Nothing blocks them; someone has to pick them up (§2) |
+| Blocked | 28 | A named blocker, listed in §3 |
+| Open decisions | 18 | Not work yet — the owner owes an answer first (§4) |
 | Declined / shelved | 25 entries | §5, kept so nobody re-proposes them |
 
-Of the 35 blocked, **14 are blocked on an owner decision and nothing else** —
-that is the largest single category of stalled work in the project, and §4 is
-the shortest path to unsticking it. That 14 is checkable and checks out: §3.1
-holds exactly 14 rows.
+Of the 30 blocked, **10 are blocked on an owner decision and nothing else** —
+still the largest single category of stalled work, and §4 remains the shortest
+path to unsticking it. That 10 is checkable and checks out: §3.1 holds exactly 10
+rows. *It was 14 until 2026-09-03, when four GUI blockers were put to the owner
+and answered — three became startable and one moved to §3.3, blocked on a design
+rather than on a decision.*
 
 **Every count above was re-derived by counting table rows mechanically,
 2026-09-02,** and the per-section figures are: §1 **3**; §2 0+16+5+6+11+22+9+3 =
@@ -87,25 +436,23 @@ document reproducing, in its own count section, the exact defect §6.8 exists to
 record. Both are now derived by the same script that produced the table, so they
 cannot disagree.*
 
-One thing does not reconcile, and it is a classification defect rather than an
-arithmetic one: **one item is still listed twice, once as ready and once as
-blocked.** *Saved measurements + CSV* appears in §2.2 **and** in §3.2, and a row
-cannot be both, so the count of unique items is **127**. Left as found: deciding
-which half to drop is a judgement about sequencing, not a text fix.
-
-*This paragraph named **two** such duplicates until 2026-09-02. The other,
-**Label collision culling**, is resolved rather than reclassified: its §3.2 entry
-said it was blocked on the labelling pass, that pass landed in this wave, and a
-blocked-row whose blocker has shipped is false rather than merely misfiled. It is
-deleted and counted in the headline above.*
+**Nothing is now listed twice.** This section carried a classification defect for
+days — a row cannot be both ready and blocked, and two were: *Saved measurements +
+CSV* and *Label collision culling* each appeared in §2.2 **and** §3.2. Both are
+resolved rather than reclassified, and in the same way: their blockers shipped, so
+the §3.2 halves became false rather than merely misfiled. Culling went on
+2026-09-03 when the labelling pass landed; measurements went the same day when the
+four caller-owned save slots it was waiting on began to round-trip. The unique
+count and the headline are therefore the same number, **103**, for the first time
+since this file was written.
 
 Four caveats on that number, stated rather than buried:
 
 1. **It counts rows, not effort.** Urban milestone 10 is one row and ~407
    reference lines; "delete three probe files" is also one row. Sizes are on
-   every row for this reason. The **109** rows that carry a size (everything
-   except §4's 19 decisions — and 128 − 19 = 109, so the split is checkable
-   against the headline) divide **36 large, 44 medium, 29 small**, re-derived
+   every row for this reason. The **85** rows that carry a size (everything
+   except §4's 18 decisions — and 103 − 18 = 85, so the split is checkable
+   against the headline) divide **20 large, 43 medium, 22 small**, re-derived
    2026-09-02 by the same script that counts the rows. *This caveat has now been
    overstated twice: it read "142 rows, 42/56/44" until 2026-09-01 and "134 rows,
    40/54/40" until today, both times because the sizes were counted by hand
@@ -118,7 +465,7 @@ Four caveats on that number, stated rather than buried:
    as of the 2026-09-01 third pass (22 after the second pass, 23 after the
    morning re-cut, 75 before it), **re-verified unchanged at 21 by a second
    full re-cut on 2026-09-02**. Counted individually the true total is
-   **148** — this one row swapped for its 21 (128 − 1 + 21). (The figures here
+   **123** — this one row swapped for its 21 (103 − 1 + 21). (The figures here
    were "177, not 155" until 2026-09-01, "173" until 2026-09-02, and "153"
    against the 133 headline earlier the same day; each was arithmetic against a
    headline that has since moved, which is why the working is shown.)
@@ -289,22 +636,14 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Size | Note |
 |---|---|---|
-| Civilisation authoring operations — five re-entrant civ stages plus a civ PARAMS group | large | **Built 2026-09-02** — `enum CivRebuild` (`Downstream`/`Routes`/`Replace`), `fn civ_rebuild` and a civ PARAMS group all landed; `recompute_civilisation` is now a one-line delegate to `civ_rebuild(CivRebuild::Downstream)`. **A live bug survives and is the real remaining work.** `CivRebuild::Routes` (reached from `civ_auto_routes`, the Generate Roads button) restores only `ways`/`road_edges`/`sea_routes`/`next_tid` from the fresh recompute and discards the rest of it (`fresh = old`), leaving `territory`, `provinces`, `province_list`, `trade_balances`, `explanations` and `dens` stale — then the function unconditionally sets `self.civ_dirty = false` and calls `self.stages.mark_recomputed(PipelineStage::Civ.id(), "civ_recomputed")` under a comment reading "everything derived from the settlement list has just been re-derived from the settlement list", which is false for this branch. Before this landed, that unconditional tail only ever ran for `Downstream`. Reachable from `civ_drop_settlement`, `civ_edit_settlement` and `civ_delete_settlement` (`crates/cartalith-godot/src/lib.rs`), all of which set `civ_dirty = true`; `self.civ_dirty` is read in exactly one place, `stale_stages()` (`:3932`), which drives SG-02's "Recompute now" indicator — so clicking Generate Roads after a hand-edit silently clears the stale indicator while territory/trade/provinces stay wrong until a full recompute. Fix: gate the unconditional tail on `mode`, or give `Routes` its own narrower staleness clear |
-| CARTO ▸ Icons — generated placement plus a fourth sea-marks asset family | large | New slots, new glyphs, a coastline snap test. Answers owner question 4 |
-| Label collision culling (measure-and-suppress) | large | Explicitly *not* standalone — build inside the labelling pass. Culling a set nothing generates is half a feature |
-| Cut · Copy · Paste · Select all | large | Selection sets → clipboard → commands, in that order. Step one — replacing the three unrelated single-`i64` selections — is independently valuable |
-| The river entity — a `get_rivers()` binding plus viewport river hit-testing | large | **Built 2026-09-02** — `get_rivers(min_order)` and `river_at(gx, gy, radius_cells, min_order)` (viewport hit-testing) both ship (`crates/cartalith-godot/src/lib.rs:5852`, `:5879`), and `right_dock.gd`'s River context is reachable (`_on_map_clicked_river` → `river_at()`). `river_entities()` reuses `split_river_polylines(&trace_river_polylines(..))`, byte-identical to `geojson_bridge.rs:96`. Two real parity bugs were found and fixed in the pass that built it: a `mag` lower clamp the reference does not have (now `js_min(1.0, (f/thresh).ln()/lmax)`, matching `Math.min(1,Math.log(f/thresh)/lmax)` with no `.max(0)`), and two `f64::hypot` → `js_hypot` corrections. **Three things survive, unfixed.** A third live `f64::hypot` at `crates/cartalith-hydrology/src/lib.rs:843`, inside `enforce_channel_descent` (`enforceChannelDescent()`, reference HTML 8725-8737, `Math.hypot` at line 8733) — measured 108 of 400 integer offset pairs differ, and it is worse than the two fixed instances because here `d` feeds `t = d/half_w` and `target = floor + (fld[i]-floor)*t*t`, written straight into the terrain field, not just a branch test. Four survived mutants in `channel_disc` (`:938`): reverting `js_hypot(gx, gy)` back to `gx.hypot(gy)` scores green because the test measuring the JS/Rust divergence never asserts the call site actually uses it, and the other three are `channel_lmax`'s `0.05` → `0.06`, `half_w`'s floor `0.5` → `0.4`, and `slope_fac`'s `5.0` → `6.0`. And a doc comment at `:903-904` cites "reference HTML lines 4534-4540" for `channel_disc`'s geometry, while the `mag` line the nearby "not floored at zero" fix note is about is reference line **4532** (`reference/Cartalith Gen1 v2.10.html:4532`), outside that cited range |
-| Settlement diagnostics overlay | large | **Corrected 2026-09-02 — this cell asserted the opposite of the ruling it cites.** It read *"carries a scoped authorisation to edit `crates/cartalith-godot/Cargo.toml`"*. `LARGE_ITEM_RULINGS.md` says in bold: **"The scoped `Cargo.toml` authorisation is therefore withdrawn as unnecessary — not exercised."** No Cargo edit is needed and none should be made: `urban_bridge.rs:44` already reaches the crate via `cartalith_civ::urban_adapter`, and `cartalith-civ/Cargo.toml:22` records that indirection as **deliberate layering**, kept so `cartalith-urban`'s only dependency stays `cartalith-rng`. A direct edge buys nothing and breaks a defended decision — this is §6.9's stale-quotation defect reaching a second file. What the owner *did* choose stands: surface urban data now, and **every field with no data is dashed with its reason, never left blank**. **A second correction, same day**: the disabled control's own tooltip (`civilization_workspace.gd:1586`) still says "Blocked on urban milestones 9, 10 and 13" — stale now, since all three shipped (§2.1: milestones 8-15 in `4ec07f5`, the `_um*` adapters and their wiring in `cff1edc`). `um_site_profile`, `um_harbour_scale` and `um_ore_bearing` are ported pure functions in `crates/cartalith-civ/src/urban_adapter.rs`. The real gap is narrower: no `#[func]` in `cartalith-godot` exposes any of the three cheaply — `urban_layouts()` is the only urban binding that crosses, and it runs the reference's whole `generate()` per settlement (site, streets, blocks, lots, buildings, walls, farmland) to build a City Viewer town, not this control's three-line fact card. Next step is a lightweight `#[func]` over the already-ported pure functions, not waiting on milestones that are already built |
-| Landmark funnel — a crowding parameter plus rejected-candidate coordinates and an overlay layer | large | `landmark_funnels()` returns eight scalars and no coordinates, so the dictionary grows |
-| Colour management — a colour space on the render target, threaded to the texture | large | **The owner overrode the recommendation to defer.** Stated and accepted cost: every golden-parity fixture is sRGB. Must ship behind a default that leaves sRGB byte-identical, or be re-baselined deliberately and said so |
-| Rebindable keyboard shortcuts — a per-context binding table in `DccSettings` with conflict detection | large | The read-only list already ships; what is missing is rebinding, applied over the menu accelerators at build time |
-| Units (km / mi / nautical miles) — one formatter ahead of five hard-coded call sites | large | **Built 2026-09-02.** `DccUnits` (`godot-project/shell/dcc_units.gd`) formats km/mi/nmi (`KM_PER_MI := 1.609344`, `KM_PER_NMI := 1.852`, the owner's added nautical miles); `DccSettings.units_mode()`/`set_units_mode()` persist the choice; `menus.gd`'s Preferences ▸ Units `_todo` is now a live three-way radio; the `phone_menu.gd:84-85` promise ("units km/mi wired") is real. **What remains is narrower than "five call sites".** `menus.gd`'s own note on the row (`:1911-1933`) re-grepped its old five-site claim rather than trusting it, and found it wrong: two sites are wired (`viewport_host.gd`'s scale bar and cursor-coordinate readout, both through `DccUnits.format_adaptive()`/`format_thousands()`), two are real and still hard-coded `"%.1f km"`/`"%.0f km"` literals in `right_dock.gd` (Measure's running total/per-segment lengths, e.g. `:1586`, `:1615`, `:1627`; and Region select's km column, e.g. `:2952`), and the fifth (Sculpt's `#sBrushKm` hint) was never built at all — `world_workspace.gd`'s `_build_brush_globals()` shows brush size in px only, so there is nothing there to convert. Two real sites left, not five |
-| Saved measurements + CSV, as a fifth caller-owned save slot | large | Deliberately *not* a second persistence mechanism — rides the `project_bridge.rs` slot work |
-| CPU worker threads — a configurable Rayon pool at engine init plus a `#[func]` to read and set it | large | `ThreadPoolBuilder` has no call site today |
-| Report an issue → a local save-diagnostic-report action | large | No endpoint required: dump generation info, missing bindings, project format version, GPU state and the last error to a file the user attaches themselves |
-| The manual-icon tool (arming, rendering, persistence) | large | Scheduled separately, as `UNIFIED_TOOL_PLAN.md` milestone E's own pass, not as GUI work. The persistence half rides the caller-owned save slots |
-| Region ▸ New world from selection — the orchestration around `extract_region_as_world` | large | A scoped parity pass. The resample is built and tested; allocate / clear warp fields / invalidate caches / refresh climate / empty the civ layer is new `WorldGen` state and must not be folded into GUI work |
-| Decoding pack biomes and terrains | medium | **Has no row in any size table anywhere.** It surfaces only inside a trivial doc-fix row that says "a separate Medium-sized job — the doc fix must not wait on it" |
+| Religion-diffusion **screens**, the engine half done | large | **Unblocked 2026-09-03, and the row was half false when written**: it claimed `cartalith-civ::belief` does not exist — it was already 945 lines of compatibility tables, with no diffusion, no callers and no bridge. Now built: a diffusion model over those tables, per-settlement adherence that clears on world replacement (measured across all three paths), its own RNG stream, `get_settlements()` emitting religion and adherent counts, and the bridge. The recorded lesson — *the surfaces cannot be designed before the engine half exists* — is now satisfied, so what remains is the screens |
+| **DS-03 — the tablet theme's key space is exhausted** | large | **Content question answered 2026-09-03: keep everything, reflow only.** The tablet gets the full desktop inventory in a denser or scrolling layout; no control is removed, so the ~30% of desktop content currently deleted comes back and the per-control "which controls leave" list does not need building. **What survives the ruling is the architectural half, and it is now the whole row**: `DccTheme.TABLET`'s key space is exhausted, one desktop integer maps to two tablet figures in at least five verified places, and `GUI_GAP_REGISTER.md` §57 refuted the obvious placement for a role-keyed resolver. ~55 paired elements measure ×1.00 to ×2.06 with no centre. Unblocked and startable |
+| **The right dock does not follow the armed tool** (`rdExtraMode` ladder, nine contexts) | medium | **Answered 2026-09-03 — owner question 1: selection wins, the tool appends a section.** The dock keeps showing the selected entity and an armed tool adds its own section *below* it. The naive merge this row was excluded from the 2026-08-31 build to avoid — flipping away from a selected settlement the moment a tool arms — is explicitly rejected, and because nothing is yanked away mid-edit no "is editing" signal is needed. Unblocked and startable |
+| Stop shipping the ~218 `_*_probe` / `_*_shot` development scenes inside the APK | small | **Authorised 2026-09-03: a scoped, narrow permission to edit `export_presets.cfg`'s `exclude_filter` and nothing else in that file.** Every other prohibition stands — `Cargo.toml`, `.gitignore` and `project.godot` remain off limits, and this does not generalise. **Verify the exclusion is actually needed before exercising it**: the Settlement diagnostics row carried a scoped `Cargo.toml` authorisation that was withdrawn as unnecessary once someone read the code |
+| Cut · Copy · Paste · Select all — **steps two and three only** | large | **Step one closed 2026-09-03**, verified 10/10 by an independent pass: a selection *set* per entity kind now replaces the three single-`i64` selections (`icon_get_selected`, `label_get_selected`, `sculpt_get_selected_stamp`), every former caller still behaves, and `LabelEditSession`'s revert snapshot and `sculpt_delete_stamp`'s index bookkeeping were both repaired under a set. The ruling's own words — *"pays for itself even if the clipboard never lands"* — are now cashed. What remains is the clipboard model and the four Edit commands, in that order. Sculpt-stamp multi-select is partial and is the one interaction gap |
+| World provenance is not recorded in the save format | medium | **Narrowed 2026-09-03 from "the atlas `world_key` hashes parameters but never the field".** The live collision is fixed and was measured real first: with no discriminator a generated, an imported and a resampled world at one identical parameter tuple all hashed to `beffe825` — one atlas namespace for three different worlds. `world_key_signature` now carries an `origin` element (`gen`/`import`/`region`), taken by `absorb` as a **required argument** so a new replacement path cannot reach the field by forgetting it. **What remains is a format gap, not a bug in that fix**: `cartalith_io::SaveParams` is `gw`/`gh`/`seed`/`map_width_km`/`sea_level`/`world` and nothing else, so there is nowhere in a `.zip` for an import or a resample to say what it was. `load_save` therefore reports `gen` as a named-cost fallback — chosen because every other key element round-trips exactly, so a distinct fourth value would orphan the atlas on **every** reopen including the common generate→bake→save→open path. Consequence: a saved imported or resampled world reopens claiming it was generated and can collide again. The repair is a provenance field in `cartalith-io` plus both writers |
+| The pack-import warning names biomes and terrains unused — **blocked on a re-baseline ruling** | small | **Reclassified 2026-09-03: this is not a one-line fix and must not be treated as one.** The string `"N pack section(s) not yet used by the live map (…)"` in `cartalith-assets/src/manifest.rs` is **pinned by golden-parity fixtures** — `golden_parity_pack_manifest.rs:131` and `:292`, captured from the reference's own `parsePackManifest` under Node and stored in `tests/fixtures/reference_pack_captured.json:320`. Editing it is a golden re-baseline that `DECISIONS.md` §7a protects, so it needs an owner ruling. **And the urgency is lower than it looked**: `PackManifest::warnings` reaches no user in this build — the shell's `File ▸ Import asset pack` path never surfaces them — so the false statement is false in code, not on screen. The third name the warning carries, `trait`, is *genuinely* still undrawn: `asset_bridge.rs` round-trips `manifest.structures.traits` but `pack.rs` composites no trait sprite. Recommended framing for the ruling: a port-vs-reference divergence, best answered by a port-side annotation wherever the warning is eventually displayed |
+| The Coordinate-system panel's units fix is pinned by nothing | small | **Found 2026-09-03 by a verifier.** `world_workspace.gd`'s panel now routes through `DccUnits` and the stale PR-15 sentence is gone, but `_crsunits_probe.gd` deliberately refuses to call `set_units_mode`, so it is green only on a km-mode machine. Measured: changing `DccUnits.format(cell_km, 3)` to `, 0)` **survived**, and reverting the fix outright to a hardcoded `str(int(...)) + " km"` **also survived**. The fix is real; nothing would catch its removal. Make the probe exercise mi and nautical miles |
 
 ### 2.3 Civilisation, economy and journeys
 
@@ -323,8 +662,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Vault **milestone 3** — project-scoped links (§26), inside the save rather than `user://` | `MARKDOWN_VAULT_SCOPE.md` | medium | **The doc's "blocked" status is stale.** The blocker lifted 2026-08-25 with the §7h project tree, and `cartalith-io/src/project.rs:292` already registers a `vault.json` slot. The move has not happened: `vault_store.gd:36` is still `user://markdown_vault.json` |
 | Vault **milestone 2** — the map snapshot (§21, §22) at immediate/local/regional radii | `MARKDOWN_VAULT_SCOPE.md` | medium | Its own record: "blocked on nothing — `export_raster.rs` already crops" |
 | Project archive remainder — project-layer panels, the `library/` and `drafts/` slots, a `preview.png` producer, foreign-entry preservation | `STATUS.md`, `SAVEFILE_COMPAT.md` §17 | medium | Nothing draws any of it; `preview.png` has a writer and no producer; foreign entries are reported rather than preserved |
-| `drafts/paint.json` and `drafts/sculpt.json` are declared slots nothing writes | `UNWIRED_FUNCTIONS.md` | medium | `project_bridge.rs:1784/2059` documents and asserts the encoding; `app.gd:1851` writes only `entities/journeys.json` |
-| `library/assets.json` and `library/travel.json` are declared slots nothing writes | `UNWIRED_FUNCTIONS.md` | medium | Both restore; `ops_bridge.rs:33` records the write blocker |
 | Story planning **SP-1** — the `Journey` entity proper | `STORY_PLANNING_SCOPE.md` | medium | Half met, and the half that landed was built outside this document's plan: journeys persist as GDScript-owned state (`journey_planner_view.gd:3125` → `entities/journeys.json`). Not met: no `Journey` type in `cartalith-civ`, and the doc's own acceptance test still fails — `travel_bridge.rs:252` returns a hardcoded `0` |
 
 ### 2.5 Rendering, terrain appearance and export-adjacent
@@ -338,10 +675,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | SDF coast/river/biome tinting and the vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | medium | `render.rs:17-21` — depends on subsystems the renderer's own doc says are not built |
 | GeoJSON **import** | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | Export shipped 2026-08-24; import was explicitly out of scope then |
 | Slippy-map tile addressing (XYZ/TMS/WMTS, a zoom ladder, retina variants) | `FUNCTIONAL_CONTRACT.md` cap. 6/9 | medium | Tile *export* exists; addressing is the remainder |
-| `rockSlope` refinement and wetness darkening | `render.rs:15` | small | **Registered nowhere else.** Two reference viz features on the renderer's own exclusion list that `FUNCTIONAL_CONTRACT.md`'s absent-entirely list does not name at all |
-| The ocean value-noise lattice blockiness (`seaColorCore`'s `n_low`) | `TERRAIN_APPEARANCE_SCOPE.md` | small | Found by looking during milestone 6 and deliberately not fixed; present in the `js_reference` dump too |
-| **CA-05** — the icon tool has no on-canvas resize handles (labels do) | `FUNCTIONAL_CONTRACT.md` | small | `icon_bridge.rs` has none, `label_bridge.rs` does |
-| Hand-lettered settlement glyphs, the fourth atlas element | `TERRAIN_APPEARANCE_SCOPE.md` | small | Ambiguous: `map_overlay.gd:48-53` draws a per-tier glyph set ported from the reference's own table, so markers exist but nothing calligraphic does. Whether the item is met depends which sense of "glyph" was meant |
 
 ### 2.6 GPU, threading and memory
 
@@ -362,13 +695,8 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | Per-segment culling for one long way whose bounding box crosses the window | `MEMORY_OPTIMIZATION_SCOPE.md`, `GUI_GAP_REGISTER.md` §54 | medium | The zoom-bound overlay lever shipped (-87.5% gfx dev); this residue did not |
 | Previews re-upload the whole texture — `touched_tiles`/`touched_bounds` unused | `UNWIRED_FUNCTIONS.md` | medium | Producer at `cartalith-spatial/src/pass.rs:193/199`; zero consumers |
 | Integrate `QuadTree` and `TiledField` into a real caller, or retire them | `LOD_TILING_BASE_SCOPE.md` | medium | **Two of the crate's three data structures are unconsumed** three weeks and six dependent crates later — every external reference is a doc comment, and `lod_bridge.rs:54-63` argues at length why using `QuadTree` there "would be strictly worse than not using it". `DirtyTracker` does have real callers. Also leaves the deferred `tile_size` benchmark with no workload |
-| Rayon across `road_dijkstra`'s independent sources — **residue only** | `GPU_LAYER_INTEGRATION_SCOPE.md` m9 | small | **Corrected 2026-09-02: the three call sites this row named are done.** It claimed *"all three call sites are still plain `.iter().map()`"*; at `cartalith-civ/src/lib.rs:5984`, `:6067` and `:7815` all three are now `rp.par_iter()`, each carrying a comment explaining that `par_iter().collect()` over the indexed source list preserves order so Prim's `best[i] < bd` tie-breaks — and therefore the goldens — stay identical. Landed with the R7/R8 memory work. **What is actually left is one site the row never named**: `build_road_network` (`:5515`) still runs `for place in places` sequentially. A second site, `:6358`, is deliberately sequential and must stay so — its own comment records that the running per-cell min is *meant* to compare across capitals in order |
-| Per-pipeline caching across repeated `generate_terrain` calls | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | Milestone 8 shares the device within one call only |
-| Average the GPU-vs-CPU benchmark over multiple runs | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | The 2048² ratio moved 1.19×→0.98× with no code change; single-run variance is currently indistinguishable from a result |
-| Investigate the `gpu_height` throughput drop from 1024² (8.13×) to 2048² (4.84×) | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | A plausible cause (memory-bandwidth-bound at 9 buffers) is stated and untested |
-| Decide `gpu_compute_height`'s status — built, verified, and **never called** | `GPU_LAYER_INTEGRATION_SCOPE.md` m3 | small | There is no `if p.use_gpu` branch around `compute_height`. Resistance's non-wiring is a documented decision (0.38×); height's is not explained anywhere. Either a real gap or an undocumented decision — the docs do not say which |
-| Hardware capability cache (§30) | `GPU_COMPUTE_PILOT_SCOPE.md` | small | Deferred as "nothing expensive enough to cache"; milestone 8 later measured the adapter/device handshake at ~1.3-1.4 s, so the premise weakened |
-| Delete the three `_peakaudit_*` probes | `MEMORY_OPTIMIZATION_SCOPE.md` | small | None called, none a test, all three named for deletion when the audit closes |
+| GPU device reuse across generations — **the real item, re-scoped by measurement** | medium | **Replaces "per-pipeline caching across repeated `generate_terrain` calls", whose premise was backwards.** Measured 2026-09-03: six pipeline builds total **2.60 ms** (0.24-0.71 ms each) against a device handshake of *several hundred milliseconds* — so caching pipelines targets the smaller half by roughly two orders of magnitude. The device is where the value is. **Needs an owner decision, not just work**: holding a `wgpu::Device` alive between generations changes lifetime and failure semantics around the `lost` flag, which this project has already measured losing on `forward_plus`/vulkan. *No point estimate is quoted here on purpose — see the row below* |
+| GPU timing measurements are single-sample and the device is noisy | small | **Found 2026-09-03 by a verifier, and the lane that found it committed it three times.** The benchmark-averaging row was closed by taking medians of 3 — then the same lane wrote three fresh single-sample figures into two doc comments and a scope document as measured fact, and none reproduced: a cold handshake of 416 ms re-measured at **730 ms**; a 512² spread quoted as **5×** re-measured at **1.4%** (the original was contaminated by parallel `cargo test` contention); an upload bandwidth said to **halve** at 9.24 → 5.65 GiB/s re-measured at 7.67 → 5.67. All three are now stated as ranges or directions rather than points, but **the other nine pre-existing `measured_*` timing tests in `cartalith-gpu` are still single-sample.** Give them medians, and make the harness refuse to run under a parallel suite |
 
 ### 2.7 Android and on-device verification
 
@@ -377,7 +705,8 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | Six features never driven on device since the 2026-08-24 USB disconnect — paint visibility, save/undo, the debug views, GeoJSON export, hand-drawn ways, civ-recompute | `ANDROID_BUILD_SCOPE.md` | medium | Recorded as *unverified on device*, not as verified. The 2026-08-25 pass drove a different list and did not pick these up |
-| **PH-16** — the Journey Planner centre panel is 1 434 px (61% of the phone screen) of nothing, with the map hidden behind it | `STATUS.md` | medium | "The worst thing on the phone." Registered, not fixed |
+| **PH-16** — the Journey Planner takes the whole phone screen, and the map is hidden | medium | **Half fixed 2026-09-03; the row stays open on its second half.** The geometry cause is found and closed: `journey_planner_view.gd` pre-scaled six `custom_minimum_size.y` values by `phone_scale()` itself *and* then let the shared `dcc_shell.gd::phone_fit()` walk multiply the same subtree again, so every pre-scaled row rendered at **`phone_scale()`²** — 236 dp arriving as ~1 623 px instead of ~619 on the §50 handset. **What a verifier measured as still true**: the centre panel still reports `(1080, 2400)`, a full-screen takeover, and `_show()` still sets `app.viewport.visible = false`, so the map is not merely covered — it is switched off. The register's complaint is a *pixel* one ("not one pixel exceeds RGB(23,23,23)") and the fix so far is geometric only. **Note for whoever takes it: 393×852 cannot measure this** — `phone_scale()` is exactly 1.0 at that size, so the defect is arithmetically invisible; use 1080×2400 |
+| The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
 | **PH-15** and the phone residue — scroll flick activates the row it starts on; label clipping without ellipsis; DS-12 prints the class twice; a stuck hover pill; a stock-Godot focused tab | `STATUS.md` | medium | The Memory row under-reporting, listed with these, has since been fixed |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |
 | Prove `push_warning` reaches Android's `logcat` (a positive control) | `ANDROID_BUILD_SCOPE.md` | small | Owed by two consecutive passes; the second explicitly declined it, noting the alternative "rests on an argument, not a measurement" |
@@ -410,17 +739,13 @@ owner answer, the question itself is in §4.
 |---|---|---|---|
 | **Landmark M7 — viewshed / line-of-sight** | `LANDMARK_GENERATION_SCOPE.md` | large | Open question 5: the accuracy/cost budget (observer count, radius cap, grid resolution). §5 states the complexity honestly and deliberately does not choose a number. **Gates six of the 49 landmark kinds**, and `needs_viewshed` already ships as a declared flag with no implementation behind it. 8192² is 67 M cells, so it is not a naive all-pairs proposition |
 | **IN-13 — trade flows**: who trades with whom (bipartite match, network flow), prices, tariffs, caravans as entities | `STATUS.md` | large | Needs a decision about what a currency is in this world. `TradeBalance` names *what*, never *who* |
-| **DS-03 — the tablet interior is not a scaled desktop** | `GUI_GAP_REGISTER.md` §57 | large | A content decision — *which controls leave the tablet* — before a styling one. ~55 paired elements measure ×1.00 to ×2.06 with no centre, and roughly 30% of the desktop's content is deleted. Also architecturally blocked: `DccTheme.TABLET`'s key space is exhausted, one desktop integer mapping to two tablet figures in at least five verified places, and §57 refuted the obvious placement for a role-keyed resolver |
-| **The right dock does not follow the armed tool** (`rdExtraMode` ladder, nine contexts) | `UNWIRED_FUNCTIONS.md` | medium | Owner question 1. Deliberately excluded from the 2026-08-31 build in flight. Merging naively makes the dock flip away from a selected settlement the moment a tool arms |
 | Resolution-range policy — 4096 needs 2.41 GiB and 8192 needs 9.65 GiB, so 2048×1311 is the last Android-viable preset | `MEMORY_OPTIMIZATION_SCOPE.md` §8 | small | A product decision. The doc twice refuses to change `RESOLUTION_PRESETS` unilaterally, and now has the numbers to support whichever way it goes |
 | Save compression — the byte-plane shuffle (27-36% smaller, writes faster) | `STATUS.md` | medium | Needs a `format_version` bump and a fail-loud marker; **it ends `SAVEFILE_COMPAT.md` §8's bare-dump promise** |
 | Save compression — quantising saved rasters to `u16` | `STATUS.md` | medium | Lossy. `PARITY_TESTING.md` and `DECISIONS.md` §7a bar it without a ruling |
 | **CA-19** — a writable biome colour table | `STATUS.md`, `PARITY_AUDIT.md` | medium | Buildable today, but **costs a golden re-baseline** that `DECISIONS.md` §7a protects |
-| **CV-24 / ED-02** — the year scrubber as program scope; the undo-history panel | `STATUS.md` | medium | Both want a decision, not wiring. `TIMELINE_SCOPE.md` §4's standing instruction is to design the panel first rather than guess the region |
 | Delete the seven uncalled `cartalith-gpu` public functions (~70 lines) | `GPU_LAYER_INTEGRATION_SCOPE.md` | small | The ponytail pass declined to delete public API on its own authority. Verified today: `heterogeneity_grid_gpu`, `gauss_blur_grid_gpu`, `assign_plates_grid_gpu`, `flow_accumulation_gpu_with`, `gpu_resistance_grid_cpu` and `init_gpu_f64` have zero callers; `warp_grid_gpu`'s only external hit is a doc comment. `init_gpu_f64` is separately owner question 8 |
 | The flaky GPU determinism test `generate_terrain_gpu_path_is_deterministic_and_valid` | `STATUS.md` F1 | small | Fails ~1 run in 3 under full-workspace parallel load, by ~1 ulp. The decision is whether an `assert_eq!` on a whole f32 field is the right bar for a path §7a holds only to principled equivalence |
 | Military manpower **finding 2** — standing armies land at Imperial Rome's ratio, not the era table's standing column | `MILITARY_MANPOWER_SCOPE.md` | medium | Correcting it means recalibrating outputs currently validated against the owner's worked example. Reported, not tuned |
-| Stop shipping the ~218 `_*_probe` / `_*_shot` development scenes inside the APK | `ANDROID_BUILD_SCOPE.md` | small | The owner's call — the pass ran under a standing instruction not to touch `export_presets.cfg` or `Cargo.toml`. `exclude_filter` does not mention them |
 | Shrink `STATUS.md` | `STATUS.md` own header | medium | An editorial decision for the owner, declined twice by audit passes as correctly out of their remit. Still not made — but **the size that motivated it is gone**: this cell said "8 122 lines with four lines over 15 000 characters" until 2026-09-01, contradicting this document's own header three paragraphs in. `wc -l` gives **1 445** today (1 157 at the 2026-08-31 rewrite, so it is growing again). The decision is open; the emergency is not |
 
 ### 3.2 Blocked on other work in this list
@@ -432,15 +757,13 @@ owner answer, the question itself is in §4.
 | Urban **milestone 17**'s remaining five `_um*` — `_umWallSpec`, `_umInferWalls`, `_umHarbourScale`, `_umSiteProfile`, `_umOreBearing` | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Each one's only consumer is milestone 9, 10, 13 or 15. Two data gaps compound it: settlements carry no `specialisation` and no `traits`, so the honest fallbacks are `economy: null` / `fortified: false` |
 | Story planning **SP-2** — journey progression over the cursor | `STORY_PLANNING_SCOPE.md` | large | §6's regenerate-semantics question explicitly gates it: whether a journey's route polyline is invalidated, re-snapped, or kept with a staleness mark "needs a ruling before SP-2 ships". The grain question (real date vs fraction of a year) is also unresolved |
 | Story planning **SP-5** — the planning aid, joined up | `STORY_PLANNING_SCOPE.md` | medium | Deliberately last: worth nothing until at least two of SP-1…SP-4 exist. Only SP-1 is partly real |
-| Saved measurements + CSV | `LARGE_ITEM_RULINGS.md` | large | Rides the `project_bridge.rs` caller-owned slot read/write work being built for the other four slots |
-| **CA-03 / CA-04 / RD-10** — per-layer blend mode and layer reorder | `FUNCTIONAL_CONTRACT.md`, `GUI_FEATURE_PARITY_SCOPE.md` 7b | large | `render.rs` bakes the three overlay categories into one per-pixel pass. Needs the single colour pass to become separable outputs — an architecture change, not a control. Opacity shipped; this did not, and the precondition has not moved |
-| Religion-diffusion screens | `GUI_GAP_REGISTER.md` §57 | large | `cartalith-civ::belief` and its Godot bridge do not exist. `get_settlements()` emits no religion field and no adherent counts. Recorded lesson: the surfaces cannot be designed before the engine half exists |
 | The **GUI_GAP_REGISTER §3** A/B/C/D open/closed split, never re-derived | `GUI_GAP_REGISTER.md` | medium | Recovering each dropped class letter is "a judgment per row, not arithmetic" — declined by three consecutive audit passes. The register cannot currently say how many of its 300 IDs are open. `UNWIRED_FUNCTIONS.md` is the live successor; read the register as history |
 
 ### 3.3 Blocked on hardware, or on a design that does not exist
 
 | Item | Owns it | Size | Blocker |
 |---|---|---|---|
+| **CV-24 / ED-02** — the year scrubber as program scope; the undo-history panel | `STATUS.md`, `TIMELINE_SCOPE.md` §4 | medium | **Reclassified 2026-09-03 from "blocked on an owner decision" to this section.** Put to the owner and ruled **both wait for a design pass** — §4's standing instruction to design the panel first rather than guess its region is upheld rather than overridden. Not closed, not startable; the ruling is that guessing the region is worse than waiting for the design |
 | The phone overflow menu — re-present the seven desktop menus as a touch-sized drill-down | `ANDROID_BUILD_SCOPE.md` §5 | large | A mobile menu design is being produced separately; the pass was instructed to diagnose only. Four compounding causes including 15 hover-opened submenus and ~12 physical-px rows |
 | **BUILD_ANSWERS §3** — the Data-manager window and 13 of 24 asset families are absent from the new Environment prototype | `design/…/BUILD_ANSWERS.md` | medium | Awaiting a decision: build them against the older `Cartalith DCC Shell.dc.html` canvas, or have the design project add the window to the Environment file. **A standing offer to supply it exists.** Easy to lose, because it sits in an answers file rather than in the plan |
 | **BUILD_ANSWERS §4** — phone generation-failure and storage-full states are undesigned; content descriptions and dynamic type are absent; the 48 dp target sweep is partly done | `design/…/BUILD_ANSWERS.md` | small | The design does not exist; the design project has offered to produce it on request. Feeds stage 6 |
@@ -468,7 +791,6 @@ task. Ordered by how much they unblock.
 | 4 | **Does the landmark set live in the save tree (`entities/landmarks.json`) or regenerate on load?** | `LANDMARK_GENERATION_SCOPE.md` OQ 1 | The record's shape — research §25's state transitions cannot be recomputed. Storage is in memory today and the save format is untouched |
 | 5 | **Does a landmark become a `cartalith_vault::EntityKind`?** | `LANDMARK_GENERATION_SCOPE.md` OQ 2 | A `Landmark` template exists in `design/vault-templates/` and is recognised by `template.rs:155`, but `links.rs:81-84` has no variant. `MARKDOWN_VAULT_SCOPE.md` §4's identity-strength table needs a new row first |
 | 6 | **Does `DECISIONS.md` §7a/§7d's parity contract apply to landmarks at all?** | `LANDMARK_GENERATION_SCOPE.md` OQ 3 | `FUNCTION_INDEX.md` returns nothing for "landmark", so there is nothing to match. `landmark.rs` was built assuming divergence-by-addition; no ruling is recorded |
-| 7 | **Does `rdExtraMode()` replace the right dock's ten selection contexts, or sit beside them?** | `UNWIRED_FUNCTIONS.md` Q1 | The `rdExtraMode` medium row (§3.1) |
 | 8 | **What should `statusMid`'s `repaint NN ms` measure** — frame time, texture-upload time, or `_refresh_map()` wall time? | `UNWIRED_FUNCTIONS.md` Q2 | One field of a composite that otherwise shipped |
 | 9 | **Should a committed sculpt stamp re-evaluate when sea level moves?** | `UNWIRED_FUNCTIONS.md` Q6 | Also a parity question: the reference re-reads `state.seaLevel` live, this port snapshots. `sculpt.rs:1076 with_sea_level` exists and nothing calls it |
 | 10 | **Should generated worlds be denser relative to carrying capacity?** (`civ_settlement_population`'s surplus fractions) | `ECONOMY_SCOPE.md`; also `MILITARY_MANPOWER_SCOPE.md` finding 3 | Raised independently by two documents. `ecological_factor` saturates at its 2.0 ceiling on 5 of 6 real factions, which is the symptom |

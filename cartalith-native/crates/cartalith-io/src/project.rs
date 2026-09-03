@@ -284,6 +284,20 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// parsed back on open), and lists the slot in its own `ENGINE_OWNED_SLOTS`
 /// so the shell cannot overwrite a document it has no view of.
 ///
+/// # `annotations/measurements.json` is the opposite case — caller-owned
+///
+/// Registered 2026-09-03 (`SAVEFILE_COMPAT.md` §11.4). A saved measurement is
+/// a mode name, the grid points that were clicked and the reading they
+/// produced; the engine models none of those as retained state — its measure
+/// functions are stateless queries over points *the caller owns*
+/// (`measure_bridge.rs`) — so this slot is written and read by the shell
+/// exactly the way `entities/journeys.json` is, and it is deliberately absent
+/// from `project_bridge.rs`'s `ENGINE_OWNED_SLOTS`.
+///
+/// It is under `annotations/` rather than `entities/` by §5.1's own test: a
+/// measurement is a mark the author made on the sheet, not a thing in the
+/// world with an id that other documents reference.
+///
 /// **The split is deliberate and the two halves are not symmetric.** The
 /// authored settings — per-kind caps, armed flags, crowding, the four class
 /// radii — are hand-entered configuration that no recomputation brings back,
@@ -306,6 +320,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "annotations/labels.json",
     "annotations/icons.json",
     "annotations/regions.json",
+    "annotations/measurements.json",
     "library/assets.json",
     "library/travel.json",
     "drafts/paint.json",
@@ -321,6 +336,26 @@ pub const HISTORY_TERRITORY_PREFIX: &str = "history/territory/";
 
 fn raster_slot(path: &str) -> Option<RasterSlot> {
     RASTER_SLOTS.iter().copied().find(|s| s.path == path)
+}
+
+/// Whether `name` is an entry **this build produces and consumes itself** —
+/// the manifest, `params.json`, the two human-facing extras, any registered
+/// document slot, any registered raster, or a `history/territory/<year>.i32`.
+///
+/// One function because both directions must agree exactly: [`read_project`]
+/// files everything else under [`ProjectData::foreign`], and [`write_project`]
+/// re-emits that map while refusing to let a carried copy shadow an entry it
+/// writes from the live model. Two hand-kept lists would drift, and the drift
+/// would show up as a **failed save** -- `ZipWriter` refuses a duplicate entry
+/// name rather than writing one.
+fn is_own_entry(name: &str) -> bool {
+    name == PROJECT_MANIFEST
+        || name == "params.json"
+        || name == "README.md"
+        || name == "preview.png"
+        || DOCUMENT_SLOTS.contains(&name)
+        || raster_slot(name).is_some()
+        || (name.starts_with(HISTORY_TERRITORY_PREFIX) && name.ends_with(".i32"))
 }
 
 /// One project, ready to be written.
@@ -350,6 +385,25 @@ pub struct ProjectWrite<'a> {
     /// Recorded year -> that year's territory raster.
     pub history_territory: BTreeMap<i64, Vec<i32>>,
     pub preview_png: Option<Vec<u8>>,
+    /// Entries this build does not model, carried through from
+    /// [`ProjectData::foreign`] and re-emitted **verbatim** — the first of
+    /// `SAVEFILE_COMPAT.md` §6.2's two options for a reader that writes an
+    /// archive back ("retain the raw bytes of every entry it did not consume
+    /// and re-emit them unchanged").
+    ///
+    /// Empty for a project this build authored, which is the only reason a
+    /// `Default`-shaped writer stays correct: a caller that never opened an
+    /// archive has nothing foreign to carry, and one that did opts in by
+    /// assigning the map it was handed.
+    ///
+    /// **A name this writer produces itself always wins.** If a later build
+    /// registers a slot that an earlier open filed as foreign, the entry is
+    /// written from the live model and the carried copy is skipped. That is
+    /// not a stylistic preference: `ZipWriter` refuses a duplicate name
+    /// outright (`InvalidArchive("Duplicate filename: ...")`, measured), so
+    /// without the skip the whole save fails rather than the stale copy
+    /// losing quietly.
+    pub foreign: BTreeMap<String, Vec<u8>>,
     /// `README.md`. `None` writes none; [`DEFAULT_README`] is what the
     /// Godot boundary passes.
     pub readme: Option<String>,
@@ -374,6 +428,7 @@ impl<'a> ProjectWrite<'a> {
             documents: BTreeMap::new(),
             history_territory: BTreeMap::new(),
             preview_png: None,
+            foreign: BTreeMap::new(),
             readme: None,
             generator: format!("cartalith-native {}", env!("CARGO_PKG_VERSION")),
             created: None,
@@ -497,18 +552,27 @@ pub struct ProjectData {
     pub document_text: BTreeMap<String, String>,
     pub history_territory: BTreeMap<i64, Vec<i32>>,
     pub preview_png: Option<Vec<u8>>,
-    /// The **names** of entries this build does not know
-    /// (`SAVEFILE_COMPAT.md` §6.3). Not an error and not a warning — an
-    /// unknown entry is normal — but recorded, because §6.2's
-    /// "without data loss" obligation says a reader that overwrites an
-    /// archive it did not fully understand must at least say so. This list
-    /// is what lets a caller tell the user "saving will drop N entries this
-    /// build does not understand" instead of dropping them in silence.
+    /// Entries this build does not know (`SAVEFILE_COMPAT.md` §6.3), keyed
+    /// by archive entry name, **with their raw bytes**. Not an error and not
+    /// a warning — an unknown entry is normal.
     ///
-    /// Names only, deliberately: retaining the bytes would mean carrying
-    /// them through every layer between here and the save button, and no
-    /// implementation writes a foreign entry yet.
-    pub foreign_entries: Vec<String>,
+    /// **This was `foreign_entries: Vec<String>`, a names-only census, and
+    /// the names alone were not enough.** §6.2's "without data loss" gives a
+    /// writing reader exactly two options: re-emit every entry it did not
+    /// consume, or refuse to overwrite the archive. A list of names supports
+    /// neither — it only lets a caller warn before dropping — and
+    /// `SAVEFILE_COMPAT.md` §17 named that as the format's one open
+    /// conformance gap. Hand this map to [`ProjectWrite::foreign`] and the
+    /// gap closes: a project written by a newer build and re-saved by an
+    /// older one keeps the payloads the older one could not read.
+    ///
+    /// The keys are still the census — iterate them for the "N entries this
+    /// build does not understand" sentence — so nothing that only wanted the
+    /// names lost anything.
+    ///
+    /// The cost is honest and bounded: these bytes stay in memory for the
+    /// lifetime of the `ProjectData`, next to the rasters, which are larger.
+    pub foreign: BTreeMap<String, Vec<u8>>,
     /// Everything that was skipped and why (`SAVEFILE_COMPAT.md` §6.4).
     ///
     /// A damaged optional entry must not cost the user their world, so it
@@ -703,6 +767,18 @@ pub fn write_project<W: Write + Seek>(
     if let Some(readme) = &project.readme {
         writer.start_file("README.md", opts)?;
         writer.write_all(readme.as_bytes())?;
+    }
+
+    // Last, and deliberately: everything above is written from the live
+    // model, so a carried entry that has since become one of ours loses to
+    // the model rather than being emitted twice (see
+    // [`ProjectWrite::foreign`]). §6.2's first option, in one loop.
+    for (name, bytes) in &project.foreign {
+        if is_own_entry(name) {
+            continue;
+        }
+        writer.start_file(name.as_str(), opts)?;
+        writer.write_all(bytes)?;
     }
 
     writer.finish()?;
@@ -1057,22 +1133,25 @@ fn read_tree(
         .filter(|name| name.starts_with(HISTORY_TERRITORY_PREFIX) && name.ends_with(".i32"))
         .cloned()
         .collect();
-    let foreign_entries: Vec<String> = all_names
+    // A directory entry is not a payload (§3), and neither is anything
+    // `is_own_entry` names. The **bytes** are kept, not just the names: see
+    // [`ProjectData::foreign`] for why the census alone could not satisfy
+    // §6.2. A foreign entry whose bytes cannot be decompressed is dropped
+    // with a warning rather than failing the archive (§6.4) -- it is one
+    // payload lost, and losing the world with it would be worse.
+    let mut foreign: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    for name in all_names
         .iter()
-        .filter(|name| {
-            // A directory entry is not a payload (§3), and neither is
-            // anything this build read above.
-            !name.ends_with('/')
-                && *name != PROJECT_MANIFEST
-                && *name != "params.json"
-                && *name != "README.md"
-                && *name != "preview.png"
-                && !DOCUMENT_SLOTS.contains(&name.as_str())
-                && raster_slot(name).is_none()
-                && !history_names.contains(name)
-        })
-        .cloned()
-        .collect();
+        .filter(|name| !name.ends_with('/') && !is_own_entry(name))
+    {
+        match read_entry_bytes(archive, name) {
+            Some(Ok(bytes)) => {
+                foreign.insert(name.clone(), bytes);
+            }
+            Some(Err(e)) => warnings.push(format!("{name}: unreadable, not carried ({e})")),
+            None => {}
+        }
+    }
     let mut history_territory: BTreeMap<i64, Vec<i32>> = BTreeMap::new();
     for name in history_names {
         let stem = &name[HISTORY_TERRITORY_PREFIX.len()..name.len() - 4];
@@ -1135,7 +1214,7 @@ fn read_tree(
         document_text,
         history_territory,
         preview_png,
-        foreign_entries,
+        foreign,
         warnings,
     })
 }
@@ -1151,11 +1230,17 @@ fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectD
         document_text: BTreeMap::new(),
         history_territory: BTreeMap::new(),
         preview_png: None,
-        // The flat layout has always carried entries no reader wanted
-        // (a baked atlas, `map.png`, a README) and §6.3 has always said to
-        // ignore them. Not censused here: nothing writes that layout, so
-        // nothing can drop them.
-        foreign_entries: Vec::new(),
+        // The flat layout has always carried entries no reader wanted (a
+        // baked atlas, `map.png`, a README) and §6.3 has always said to
+        // ignore them. **Deliberately still empty**, and this is the one
+        // place §6.2 is knowingly not met: a flat archive re-saved comes out
+        // as a *tree*, so carrying its entries would mean mixing one
+        // layout's payloads into the other's namespace, where a reader of
+        // either would not know what to do with them. The shell's own answer
+        // is the honest one -- `app.gd` tells the person the file was read as
+        // the older format and that saving converts it -- and the
+        // conversion, not the census, is what a user has to decide about.
+        foreign: BTreeMap::new(),
         // Not a warning: a flat archive carrying no project layer is the
         // format working as specified (`SAVEFILE_COMPAT.md` §15), not
         // something the reader failed at.
@@ -1328,7 +1413,7 @@ mod tests {
         assert_eq!(doc["settings"]["crowding"], 1.25);
         assert_eq!(doc["sites"][0]["kind"], "shrine");
         assert!(
-            !back.foreign_entries.contains(&"entities/landmarks.json".to_string()),
+            !back.foreign.contains_key("entities/landmarks.json"),
             "a registered slot must never be reported as a foreign entry"
         );
     }
@@ -1406,25 +1491,175 @@ mod tests {
             "an unknown entry is normal, not a warning: {:?}",
             back.warnings
         );
-        // ...but it is *censused*, so a caller can warn before a re-save
-        // drops it (§6.2).
+        // ...but it is *censused*, so a caller can name what it holds (§6.2).
         assert_eq!(
-            back.foreign_entries,
+            back.foreign.keys().cloned().collect::<Vec<String>>(),
             vec![
                 "cartography/tiles/0/0/0.png".to_string(),
                 "entities/dragons.json".to_string(),
                 "map.png".to_string(),
             ]
         );
+        // ...and *retained*, which is the half a name list could not do.
+        assert_eq!(
+            back.foreign["entities/dragons.json"],
+            br#"{"dragons":[{"id":1}]}"#.to_vec()
+        );
 
         // A project this build wrote itself has nothing foreign in it --
         // otherwise the census would cry wolf on every save.
         let clean = read_project(Cursor::new(&buf)).unwrap();
         assert!(
-            clean.foreign_entries.is_empty(),
+            clean.foreign.is_empty(),
             "{:?}",
-            clean.foreign_entries
+            clean.foreign.keys().collect::<Vec<_>>()
         );
+    }
+
+    /// Every branch of [`is_own_entry`], and a near miss for each.
+    ///
+    /// The round-trip test below exercises this function through a fixture,
+    /// and a fixture reaches whichever branches its entries happen to name.
+    /// A verifier measured that: the fixture covered **four** of the seven,
+    /// and mutating any of the other three -- `"params.json"`, `"README.md"`,
+    /// `"preview.png"` -- left the entire workspace suite green. An entry this
+    /// build owns but does not recognise would be carried as foreign and then
+    /// written back *beside* the real one, so a silent branch here duplicates
+    /// data rather than losing it, which is the harder failure to notice.
+    ///
+    /// Table-driven and asserting literals, not the constants: comparing
+    /// `PROJECT_MANIFEST` against `PROJECT_MANIFEST` is the self-referential
+    /// shape that let `MIN_REGION_WORLD_AXIS` survive its own mutation.
+    #[test]
+    fn is_own_entry_covers_all_seven_branches_and_no_more() {
+        for owned in [
+            "project.json",              // PROJECT_MANIFEST
+            "params.json",
+            "README.md",
+            "preview.png",
+            "entities/settlements.json", // DOCUMENT_SLOTS
+            "drafts/paint.json",         // DOCUMENT_SLOTS, the slot this pass made restore
+            "rasters/heightmap.f32",     // raster_slot
+            "history/territory/1200.i32", // the prefix + extension pair
+        ] {
+            assert!(is_own_entry(owned), "{owned} is this build's own entry");
+        }
+
+        for foreign in [
+            "project.jsonx",             // near miss on the manifest
+            "params.json.bak",
+            "README.mdx",
+            "preview.pngx",
+            "entities/settlements.jsonx",
+            "drafts/paint.jsonx",
+            "rasters/heightmap.f64",     // registered name, wrong extension
+            "rasters/unknown.f32",       // right shape, unregistered slot
+            "history/territory/1200.json", // right prefix, wrong extension
+            "history/territory.i32",     // right extension, not under the prefix
+            "vendor/notes.txt",          // plainly someone else's
+        ] {
+            assert!(!is_own_entry(foreign), "{foreign} must be carried as foreign");
+        }
+    }
+
+    /// §6.2's first option, end to end: an archive from a build that knows
+    /// more than this one, opened here and written back, keeps the payloads
+    /// this build could not read -- byte for byte, under their own names.
+    ///
+    /// The whole point of the row: an older build must not be the reason a
+    /// newer build's data disappears.
+    #[test]
+    fn a_foreign_entry_survives_an_open_and_a_re_save() {
+        let (params, fields) = sample(4, 4);
+        let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
+
+        // Deliberately *not* valid JSON and not valid UTF-8: a carried entry
+        // is bytes, and a reader that tried to parse or transcode one would
+        // pass a text-only fixture and corrupt a real tile.
+        let tile: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00, 0xC3];
+        let mut newer = Vec::new();
+        {
+            let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+            let mut w = zip::ZipWriter::new(Cursor::new(&mut newer));
+            for i in 0..r.len() {
+                w.raw_copy_file(r.by_index_raw(i).unwrap()).unwrap();
+            }
+            w.start_file("cartography/tiles/0/0/0.png", zip_opts()).unwrap();
+            w.write_all(&tile).unwrap();
+            w.finish().unwrap();
+        }
+
+        let opened = read_project(Cursor::new(&newer)).expect("a newer archive still opens");
+        assert_eq!(opened.foreign["cartography/tiles/0/0/0.png"], tile);
+
+        // The re-save an older build would do: everything from the live
+        // model, plus what it was handed and did not understand.
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.foreign = opened.foreign.clone();
+        let again = write_to_vec(&write);
+
+        let back = read_project(Cursor::new(&again)).expect("the re-save opens");
+        assert_eq!(
+            back.foreign["cartography/tiles/0/0/0.png"], tile,
+            "an entry this build cannot read must survive being re-saved by it"
+        );
+        assert_eq!(back.save.fields, fields, "and the world must be unharmed");
+    }
+
+    /// The collision rule in [`ProjectWrite::foreign`]: a name the writer
+    /// produces from the live model is written once, from the model.
+    ///
+    /// The scenario is real rather than hypothetical -- a build opens an
+    /// archive, a *later* build registers one of its foreign names as a slot,
+    /// and the carried copy is then a stale duplicate. Without the skip the
+    /// save does not merely prefer the wrong copy, it **fails**: dropping the
+    /// guard turns this test into
+    /// `Zip(InvalidArchive("Duplicate filename: entities/settlements.json"))`.
+    #[test]
+    fn a_carried_entry_never_shadows_one_this_build_writes() {
+        let (params, fields) = sample(4, 4);
+        let mut write = ProjectWrite::new(&params, &fields);
+        write.document("entities/settlements.json", r#"{"settlements":[]}"#);
+        // Every category `is_own_entry` covers, not just the document slot:
+        // a single-case fixture would pass with three of the four branches
+        // deleted.
+        for name in [
+            "entities/settlements.json",
+            "rasters/heightmap.f32",
+            "project.json",
+            "history/territory/1200.i32",
+        ] {
+            write.foreign.insert(name.to_string(), b"stale".to_vec());
+        }
+        let buf = write_to_vec(&write);
+
+        let mut r = zip::ZipArchive::new(Cursor::new(&buf)).unwrap();
+        let names: Vec<String> = (0..r.len())
+            .map(|i| r.by_index_raw(i).unwrap().name().to_string())
+            .collect();
+        for name in [
+            "entities/settlements.json",
+            "rasters/heightmap.f32",
+            "project.json",
+        ] {
+            assert_eq!(
+                names.iter().filter(|n| n.as_str() == name).count(),
+                1,
+                "{name} must appear exactly once, from the live model"
+            );
+        }
+        assert!(
+            !names.iter().any(|n| n == "history/territory/1200.i32"),
+            "a carried history raster this project has no year for must not be resurrected"
+        );
+
+        let back = read_project(Cursor::new(&buf)).expect("the archive reads");
+        assert_eq!(
+            back.text_of("entities/settlements.json"),
+            Some(r#"{"settlements":[]}"#),
+            "the model's document won, not the carried `stale`"
+        );
+        assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
     }
 
     #[test]

@@ -80,6 +80,8 @@ use cartalith_civ::labels::{
     LABEL_TYPOGRAPHY_DEFAULTS,
 };
 
+use crate::selection::{SelectMode, SelectionSet};
+
 /// The generated labelling pass's own `#[godot_api(secondary)]` surface.
 ///
 /// **A submodule rather than a block in this file, and rather than a new
@@ -131,6 +133,36 @@ pub enum Outcome {
 pub struct LabelBridge {
     pub labels: Vec<MapLabel>,
     pub session: LabelEditSession,
+    /// Which hand-placed labels are selected — [`crate::selection::
+    /// SelectionSet`], step one of the owner's selection-sets ruling.
+    ///
+    /// ## This is the source of truth; `session` is its primary, kept in step
+    ///
+    /// [`LabelEditSession`] is sealed in `cartalith-civ` and holds two things
+    /// that only make sense for *one* label: the index being edited and the
+    /// style snapshot `label_cancel_edit` reverts to. So it stays exactly as
+    /// it is and keeps owning the edit session — but it no longer decides
+    /// *what is selected*. Every mutation here goes through this set and then
+    /// calls [`LabelBridge::sync_session`], which re-points the session at
+    /// `selection.primary()`. `LabelEditSession::select` is a no-op when the
+    /// index is unchanged, which is what keeps a snapshot alive across a
+    /// re-click on the label already being edited — the reference's own
+    /// *"re-clicking an ALREADY-selected label does not retake the
+    /// snapshot"*, preserved by routing through `sync_session` rather than
+    /// clearing and re-selecting.
+    ///
+    /// **Moving the primary ends the session, including by Ctrl-click.** A
+    /// toggle-add makes the new member primary (the shell's own grid does the
+    /// same — `asset_library_window.gd` moves `_focused_uid` on a Ctrl-click),
+    /// so the session follows it and the previous label's revert snapshot is
+    /// gone. That is not new: a plain click on a second label has always done
+    /// exactly this. There is no multi-label edit session, and step one does
+    /// not invent one.
+    ///
+    /// The invariant — `session.selected() == selection.primary()` after
+    /// every public call — is asserted directly by this module's own
+    /// `the_session_tracks_the_sets_primary_through_every_mutation` test.
+    pub selection: SelectionSet,
     /// The last generated run, or `None` if the pass has never been run over
     /// this world. `None` and "ran and placed nothing" are different claims —
     /// [`cartalith_civ::landmark::LandmarkStore::last`]'s own distinction, for
@@ -167,6 +199,7 @@ impl LabelBridge {
         LabelBridge {
             labels: Vec::new(),
             session: LabelEditSession::new(),
+            selection: SelectionSet::new(),
             generated: None,
             typography: LABEL_TYPOGRAPHY_DEFAULTS,
             // **Culling on, where `LabelGenSettings::default()` has it off.**
@@ -243,8 +276,73 @@ impl LabelBridge {
     pub fn create(&mut self, x: f64, y: f64, name: impl Into<String>) -> usize {
         self.labels.push(MapLabel::new(x, y, name));
         let index = self.labels.len() - 1;
-        self.session.select(&self.labels, Some(index));
+        self.selection.replace(index);
+        self.sync_session();
         index
+    }
+
+    /// The label a single-selection operation acts on — the set's primary.
+    /// What `label_get_selected` reports, and what `session.selected()` held
+    /// alone before the set existed (the two are equal after every call here;
+    /// see [`LabelBridge::selection`]'s own doc comment).
+    pub fn selected(&self) -> Option<usize> {
+        self.selection.primary()
+    }
+
+    /// Re-points the edit session at the set's primary. The one place
+    /// `session.select` is called from, which is what makes the invariant in
+    /// [`LabelBridge::selection`]'s doc comment hold by construction rather
+    /// than by every caller remembering.
+    fn sync_session(&mut self) {
+        let primary = self.selection.primary();
+        self.session.select(&self.labels, primary);
+    }
+
+    /// Applies one click at `index` in `mode`, then re-points the session.
+    /// `false` for an out-of-range `index` (the selection is left untouched —
+    /// same policy as every other rejected index in this bridge).
+    pub fn select(&mut self, index: usize, mode: SelectMode) -> bool {
+        if index >= self.labels.len() {
+            return false;
+        }
+        self.selection.apply(mode, index);
+        self.sync_session();
+        true
+    }
+
+    /// Drops the selection and ends the edit session — `label_select(-1)`'s
+    /// own long-standing "select nothing".
+    pub fn deselect(&mut self) {
+        self.selection.clear();
+        self.sync_session();
+    }
+
+    /// Replaces the whole selection from a caller-supplied list, dropping any
+    /// index past the end of `labels` (`SelectionSet::set_from`'s contract).
+    /// Returns whether every requested index was in range.
+    pub fn select_set(&mut self, indices: impl IntoIterator<Item = usize>) -> bool {
+        let all_valid = self.selection.set_from(indices, self.labels.len());
+        self.sync_session();
+        all_valid
+    }
+
+    /// `_civConfirmLabel()` — ends the edit session **and** the selection.
+    /// Both halves were already true before the set existed: `session.confirm`
+    /// clears `selected`, which was the whole selection. Clearing the set here
+    /// is what keeps that unchanged rather than leaving a set behind whose
+    /// primary the session no longer names.
+    pub fn confirm_edit(&mut self) {
+        self.session.confirm();
+        self.selection.clear();
+    }
+
+    /// `_civCancelLabel()` — reverts the primary's seven style fields and ends
+    /// the session and the selection, for the same reason `confirm_edit` does.
+    /// Returns whether anything was actually reverted.
+    pub fn cancel_edit(&mut self) -> bool {
+        let reverted = self.session.cancel(&mut self.labels);
+        self.selection.clear();
+        reverted
     }
 
     /// Removes a label. `false` for an out-of-range `index`.
@@ -263,23 +361,33 @@ impl LabelBridge {
     /// default a caller can always recover from with one more
     /// `label_select` — silently mis-tracking which label a live snapshot
     /// belongs to is not recoverable at all.
+    ///
+    /// **With a set, that rule now governs the primary and takes the rest with
+    /// it.** Only the primary carries a snapshot, so only the primary can hit
+    /// the bug above — but a delete that disturbs it clears the *whole*
+    /// selection rather than leaving a headless set behind. At zero or one
+    /// member that is byte-identical to the rule this comment already
+    /// described; with more it is the same conservative default, and one
+    /// `label_select_set` recovers it.
     pub fn delete(&mut self, index: usize) -> bool {
         if index >= self.labels.len() {
             return false;
         }
+        let primary_disturbed = self.selection.primary().is_some_and(|sel| sel >= index);
         self.labels.remove(index);
-        if let Some(sel) = self.session.selected()
-            && sel >= index
-        {
-            self.session.select(&self.labels, None);
+        self.selection.retain_after_remove(index);
+        if primary_disturbed {
+            self.selection.clear();
         }
+        self.sync_session();
         true
     }
 
     /// Drops every label and ends any edit session.
     pub fn clear_all(&mut self) {
         self.labels.clear();
-        self.session.select(&self.labels, None);
+        self.selection.clear();
+        self.sync_session();
     }
 
     /// `_civLabelDrag`'s per-move assignment (reference line 9718):
@@ -310,11 +418,17 @@ impl LabelBridge {
     /// See the module doc's "text measurement" section: every label's box
     /// is measured at `meas_w = 0.0` here — a disclosed placeholder, not a
     /// claim about the label's real rendered width.
-    pub fn hit_test(&mut self, gx: f64, gy: f64, env: &LabelViewEnv) -> Option<usize> {
+    ///
+    /// `mode` is what the hit does to the selection set — [`SelectMode::
+    /// Replace`] is the plain click this always did; a miss leaves the
+    /// selection alone in every mode (`IconEditor::hit_test`'s own note on
+    /// why a modified click on empty ground is not a deselect gesture).
+    pub fn hit_test(&mut self, gx: f64, gy: f64, env: &LabelViewEnv, mode: SelectMode) -> Option<usize> {
         let boxes: Vec<LabelBox> = self.labels.iter().map(|lb| label_box(lb, env, 0.0)).collect();
         let hit = cartalith_civ::labels::label_hit_test(&boxes, &LabelHandles::default(), gx, gy)?;
         let index = hit.index?;
-        self.session.select(&self.labels, Some(index));
+        self.selection.apply(mode, index);
+        self.sync_session();
         Some(index)
     }
 
@@ -555,7 +669,7 @@ mod tests {
         // Re-select A: `delete` at/before the selection always clears it
         // (see `LabelBridge::delete`'s own doc comment), so this test needs
         // A selected, not whichever label was created last.
-        b.session.select(&b.labels, Some(0));
+        b.select(0, SelectMode::Replace);
         assert_eq!(b.session.selected(), Some(0));
         assert!(b.delete(1));
         assert_eq!(b.session.selected(), Some(0));
@@ -577,7 +691,7 @@ mod tests {
     fn move_to_sets_position_without_touching_selection() {
         let mut b = LabelBridge::new();
         b.create(0.0, 0.0, "A");
-        b.session.select(&b.labels, None); // deselect, as a mid-drag really would be until release
+        b.deselect(); // as a mid-drag really would be until release
         assert!(b.move_to(0, 5.0, 6.0));
         assert_eq!((b.labels[0].x, b.labels[0].y), (5.0, 6.0));
         assert_eq!(b.session.selected(), None);
@@ -598,17 +712,177 @@ mod tests {
     fn hit_test_selects_the_hit_label() {
         let mut b = LabelBridge::new();
         b.create(10.0, 10.0, "A");
-        b.session.select(&b.labels, None);
-        let hit = b.hit_test(10.5, 10.5, &env());
+        b.deselect();
+        let hit = b.hit_test(10.5, 10.5, &env(), SelectMode::Replace);
         assert_eq!(hit, Some(0));
         assert_eq!(b.session.selected(), Some(0));
+        assert_eq!(b.selected(), Some(0));
     }
 
     #[test]
     fn hit_test_a_miss_returns_none_and_selects_nothing() {
         let mut b = LabelBridge::new();
         b.create(10.0, 10.0, "A");
-        assert_eq!(b.hit_test(-500.0, -500.0, &env()), None);
+        assert_eq!(b.hit_test(-500.0, -500.0, &env(), SelectMode::Replace), None);
+    }
+
+    // ---- the selection set (step one of the selection-sets ruling) ----
+
+    fn three_labels() -> LabelBridge {
+        let mut b = LabelBridge::new();
+        for k in 0..3 {
+            b.create(10.0 * (k + 1) as f64, 10.0, format!("L{k}"));
+        }
+        b
+    }
+
+    /// The invariant [`LabelBridge::selection`]'s own doc comment states, over
+    /// every public call that can move either half. Revert any `sync_session`
+    /// call and this fails.
+    #[test]
+    fn the_session_tracks_the_sets_primary_through_every_mutation() {
+        let mut b = LabelBridge::new();
+        macro_rules! agree {
+            ($what:expr) => {
+                assert_eq!(b.session.selected(), b.selection.primary(), "after {}", $what);
+            };
+        }
+        b.create(10.0, 10.0, "A");
+        agree!("create");
+        b.create(20.0, 10.0, "B");
+        agree!("create again");
+        b.select(0, SelectMode::Replace);
+        agree!("select replace");
+        b.select(1, SelectMode::Toggle);
+        agree!("select toggle on");
+        b.select(1, SelectMode::Toggle);
+        agree!("select toggle off");
+        b.select(1, SelectMode::Extend);
+        agree!("select extend");
+        b.select_set([0, 1]);
+        agree!("select_set");
+        b.hit_test(10.5, 10.5, &env(), SelectMode::Toggle);
+        agree!("hit_test");
+        b.confirm_edit();
+        agree!("confirm_edit");
+        b.select_set([0, 1]);
+        b.cancel_edit();
+        agree!("cancel_edit");
+        b.select_set([0, 1]);
+        b.delete(0);
+        agree!("delete");
+        b.deselect();
+        agree!("deselect");
+        b.select_set([0]);
+        b.clear_all();
+        agree!("clear_all");
+    }
+
+    /// The reference's own *"re-clicking an ALREADY-selected label does not
+    /// retake the snapshot"*, still true now that every selection change goes
+    /// through the set. Write `sync_session` as clear-then-select and this
+    /// fails: `cancel_edit` would revert to the half-edited text.
+    #[test]
+    fn re_selecting_the_primary_does_not_retake_the_edit_snapshot() {
+        let mut b = LabelBridge::new();
+        b.create(10.0, 10.0, "L0");
+        b.labels[0].name = "edited".into();
+        b.select(0, SelectMode::Replace);
+        b.hit_test(10.5, 10.5, &env(), SelectMode::Replace);
+        b.select(0, SelectMode::Extend);
+        assert_eq!(b.selected(), Some(0), "three re-selections, still the same session");
+        assert!(b.cancel_edit(), "the snapshot survived");
+        assert_eq!(b.labels[0].name, "L0", "reverted to the session's start, not the edit");
+    }
+
+    /// A toggle-add makes the new member primary, so the edit session moves
+    /// with it — exactly what a plain click on a second label always did. The
+    /// previous label's snapshot is gone, and this asserts that rather than
+    /// pretending a multi-label edit session exists.
+    #[test]
+    fn a_toggle_add_moves_the_primary_and_with_it_the_edit_session() {
+        let mut b = three_labels();
+        b.select(0, SelectMode::Replace);
+        b.labels[0].name = "edited".into();
+        b.select(2, SelectMode::Toggle);
+        assert_eq!(b.selection.sorted(), vec![0, 2]);
+        assert_eq!(b.selected(), Some(2), "the new member is primary");
+        assert_eq!(b.session.selected(), Some(2), "and the session followed it");
+        b.select(2, SelectMode::Toggle); // back off; 0 is primary again
+        assert_eq!(b.selected(), Some(0));
+        b.cancel_edit();
+        assert_eq!(b.labels[0].name, "edited", "the round trip restarted 0's session");
+    }
+
+    #[test]
+    fn select_rejects_an_out_of_range_index_and_leaves_the_set_alone() {
+        let mut b = three_labels();
+        b.select_set([0, 1]);
+        assert!(!b.select(9, SelectMode::Replace));
+        assert_eq!(b.selection.sorted(), vec![0, 1]);
+    }
+
+    #[test]
+    fn select_set_drops_an_out_of_range_index_and_reports_it() {
+        let mut b = three_labels();
+        assert!(!b.select_set([1, 42]));
+        assert_eq!(b.selection.sorted(), vec![1]);
+        assert!(b.select_set([0, 2]));
+        assert_eq!(b.selection.sorted(), vec![0, 2]);
+        assert_eq!(b.selected(), Some(2));
+    }
+
+    #[test]
+    fn an_extend_hit_covers_the_range_from_the_anchor() {
+        let mut b = three_labels();
+        b.select(0, SelectMode::Replace);
+        assert!(b.select(2, SelectMode::Extend));
+        assert_eq!(b.selection.sorted(), vec![0, 1, 2]);
+        assert_eq!(b.selected(), Some(2));
+    }
+
+    #[test]
+    fn a_hit_test_miss_leaves_a_multi_selection_alone_in_every_mode() {
+        for mode in [SelectMode::Replace, SelectMode::Toggle, SelectMode::Extend] {
+            let mut b = three_labels();
+            b.select_set([0, 1]);
+            assert_eq!(b.hit_test(-500.0, -500.0, &env(), mode), None);
+            assert_eq!(b.selection.sorted(), vec![0, 1], "mode {mode:?} lost the selection on a miss");
+        }
+    }
+
+    #[test]
+    fn deleting_below_the_primary_clears_the_whole_set_as_the_scalar_rule_did() {
+        // `LabelBridge::delete`'s conservative rule, now over a set: the
+        // primary carries the revert snapshot, so a delete that disturbs its
+        // index ends the session rather than silently re-point it.
+        let mut b = three_labels();
+        b.select_set([1, 2]); // primary 2
+        assert!(b.delete(0));
+        assert!(b.selection.sorted().is_empty());
+        assert_eq!(b.session.selected(), None);
+    }
+
+    #[test]
+    fn deleting_above_the_primary_keeps_the_rest_of_the_set() {
+        let mut b = three_labels();
+        b.select_set([0, 1]); // primary 1
+        assert!(b.delete(2));
+        assert_eq!(b.selection.sorted(), vec![0, 1]);
+        assert_eq!(b.selected(), Some(1));
+    }
+
+    #[test]
+    fn confirm_and_cancel_end_the_whole_selection_not_just_the_session() {
+        let mut b = three_labels();
+        b.select_set([0, 1, 2]);
+        b.confirm_edit();
+        assert!(b.selection.sorted().is_empty());
+        assert_eq!(b.selected(), None);
+
+        b.select_set([0, 1]);
+        b.cancel_edit();
+        assert!(b.selection.sorted().is_empty());
     }
 
     // ---- glyph_layout ----

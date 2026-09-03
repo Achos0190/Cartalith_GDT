@@ -206,6 +206,21 @@ var _faction_id := -1
 var _faction_pair := -1
 var _measure_result: Dictionary = {}
 var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
+## The saved-measurements store -- the canvas's own "Saved measurements" list,
+## and `annotations/measurements.json` on disk. Entries are
+## `{mode: String, points: PackedVector2Array, value: float, unit: String}`,
+## with `value`/`unit` **omitted together** when the reading had no single
+## number to keep (`_measure_primary()`); the list dashes such a row rather
+## than printing a zero that would read as a measurement.
+##
+## `value` is canonical km / km² / metres / degrees, never the display unit --
+## `DccUnits`' own rule ("Canonical storage stays km; this only converts what a
+## readout shows"), which is what makes the CSV an export rather than a
+## screenshot of whatever Preferences ▸ Units happened to be set to.
+##
+## Anchored to one world, and cleared rather than carried when that world is
+## replaced -- see `clear_measurements()`.
+var _saved_measurements: Array = []
 ## The picked river -- one `river_at()` entity, whole. Empty means CTX_RIVER
 ## has nothing to draw, which after this file's own click wiring can only
 ## happen if the world is regenerated under a selection.
@@ -304,15 +319,32 @@ func _set_row_tip(v: Label, tip: String) -> void:
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
-	bridge.generation_finished.connect(func(_ok: bool):
+	bridge.generation_finished.connect(func(ok: bool):
 		## A regenerate replaces the receiver tree, so the picked river's own
 		## index and geometry are from a world that no longer exists.
 		_river = {}
+		## And so are every saved measurement's points, for the same reason and
+		## one worse: a measure point is a grid cell, so the old chain would not
+		## merely point at the wrong river, it would draw a plausible line over
+		## ground it was never measured on. A heightmap import arrives here too
+		## (`EngineBridge.import_heightmap()` emits this signal), which is
+		## right -- an imported heightmap is a new world.
+		if ok:
+			clear_measurements()
 		if _context == CTX_RIVER:
 			_context = CTX_SAMPLE
 		_rebuild())
 	bridge.world_loaded.connect(func():
 		_river = {}
+		## **Only when no world remains.** This signal fires for seven different
+		## reasons and only `close_world()` leaves `has_world` false; the
+		## in-place ops (centre landmasses, carve fjords, apply an asset pack)
+		## keep the same grid and must not throw a reading away, and a project
+		## *open* is `restore_measurements_document()`'s job, called from
+		## `app.gd::_restore_project_documents()`. Same split
+		## `journey_planner_view.gd` already draws for its own list.
+		if not bridge.has_world:
+			clear_measurements()
 		if _context == CTX_RIVER:
 			_context = CTX_SAMPLE
 		_rebuild())
@@ -332,6 +364,14 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## missed everything. Only the second case is a river click, which is what
 	## makes "settlement wins over river" fall out rather than need arbitrating.
 	app.viewport.map_clicked.connect(_on_map_clicked_river)
+	## RD-10. Two sources, and neither alone covers the section: the domain
+	## decides whether it is drawn at all, and the stack decides what it says.
+	## `workspace_changed` is `DccShell`'s own signal -- `app.gd`'s
+	## `_on_workspace_changed` already reaches this dock for Sculpt, Paint and
+	## Stops, but only through calls that are conditional on a context, so a
+	## CARTO switch with (say) Measure armed rebuilds nothing.
+	app.workspace_changed.connect(func(_id: String): _rebuild())
+	bridge.layer_stack_changed.connect(_rebuild)
 	_rebuild()
 
 ## §2.2's viewport river hit-testing. Gated four ways, each for its own reason:
@@ -709,6 +749,8 @@ func _rebuild() -> void:
 	_sample_nearest = null
 	_sample_rows.clear()
 	_dispatch(body)
+	## **After** the dispatch, deliberately -- see `_append_layers()`.
+	_append_layers(body)
 	app.set_right_dock_title(_current_title())
 	_push_dock_readout()
 
@@ -733,10 +775,16 @@ func _current_title() -> String:
 ## exists for it, kept current whether or not the dock is actually
 ## collapsed (`dcc_shell.gd`'s own doc comment). `world_workspace
 ## ._push_dock_readout()` calls the left dock's equivalent on every
-## rebuild; this dock never called the right-dock one at all. No "Layers"
-## context exists here yet (RD-10 is still an omission), so this reads one
-## honest number per context that DOES exist rather than inventing the
-## missing one.
+## rebuild; this dock never called the right-dock one at all. So this reads
+## one honest number per context.
+##
+## **There is still no `Layers` arm, and after RD-10 that is a decision rather
+## than an omission.** The owner's 2026-09-03 ruling made Layers an *appended
+## section* (`_append_layers()`), not a context: a selected settlement keeps the
+## dock and the layer rows arrive under it. Reporting layer dots collapsed would
+## therefore mean overwriting the readout of whatever the selection is -- which
+## is the replacement the ruling rejects, one line lower down. §6's "layer dots
+## for Layers" is a line about a context this dock deliberately does not have.
 func _push_dock_readout() -> void:
 	if app == null:
 		return
@@ -830,6 +878,175 @@ func _dispatch(body: Control) -> void:
 			_build_territory(body)
 		_:
 			_build_sample(body)
+
+# -- Layers (`GUI_GAP_REGISTER.md` RD-10) -----------------------------------
+#
+# §6's `Layers` context -- "ordered list with visibility dot, name, opacity bar,
+# blend mode; nested children under Terrain" -- built as an **appended section**
+# and deliberately not as a `CTX_LAYERS`.
+#
+# That is the owner's 2026-09-03 ruling on this dock, verbatim
+# (`LARGE_ITEM_RULINGS.md`): *"Selection wins; the tool appends a section."* The
+# dock keeps showing the selected entity and the layer rows arrive **below** it.
+# So there is no context constant, no `CTX_TITLES` row and no `_dispatch()` arm:
+# every one of those would be the replacement the ruling explicitly rejects, and
+# nothing is yanked away from a user mid-edit.
+#
+# Drawn while the CARTO domain is active, which is `show_stops()`'s own trigger
+# (`rdMode4()` rule 6 reads the domain, not a selection). A settlement inspector
+# open in WORLD has no use for the terrain raster's compositing order.
+#
+# **The editor is the left dock, not this.** `render_workspace.gd`'s
+# `_build_layer_stack()` owns the opacity slider and the blend picker; this is
+# §6's ordered list, so the two continuous values are readouts here and the two
+# discrete ones -- visibility and order -- are live. Two sliders over one
+# `set_layer_stack` is the "two pickers over one concept" shape this shell has
+# had to undo three times. Both halves read the engine fresh and both write
+# through `EngineBridge.set_layer_stack`, whose `layer_stack_changed` signal
+# rebuilds the other, so they cannot drift apart in either direction.
+
+func _append_layers(body: Control) -> void:
+	if app == null or bridge == null or not bridge.layer_stack_api:
+		return
+	if app.active_domain() != "cartography":
+		return
+	var rows: Array = bridge.layer_stack()
+	if rows.is_empty():
+		return
+	var sec := DccWidgets.section(body, "Layers")
+	for i in rows.size():
+		_layer_row(sec, rows[i] as Dictionary, i, rows.size())
+	DccWidgets.note(sec,
+		"The terrain raster's three categories, top drawn last. Opacity and "
+		+ "blend are set in Cartography - Layers; the dot and the order are live "
+		+ "here.")
+	DccWidgets.action(sec, "Layer properties...",
+		func(): app.select_domain_category("cartography", "Layers"))
+
+## One row: dot, name, opacity bar, blend name, and the two reorder buttons
+## WCAG 2.2 SC 2.5.7 requires beside the left dock's drag.
+func _layer_row(parent: Control, d: Dictionary, index: int, count: int) -> void:
+	## Read through `has()`, never `get(k, default)`: a row that arrived without
+	## `visible` must not draw as a hidden layer, and one without `opacity` must
+	## not draw an empty bar. Both are indistinguishable from the real thing.
+	var missing: Array = []
+	for k in ["id", "label", "visible", "opacity", "blend"]:
+		if not d.has(k):
+			missing.append(k)
+	if not missing.is_empty():
+		DccWidgets.note(parent, "Layer %d is unreadable - no %s." % [index, ", ".join(missing)])
+		return
+
+	var id := String(d["id"])
+	var shown := bool(d["visible"])
+	var tablet := DccTheme.is_tablet()
+	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 20
+
+	var dot := Button.new()
+	dot.flat = true
+	dot.focus_mode = Control.FOCUS_NONE
+	dot.text = DccIcons.SYMBOLS["on"] if shown else DccIcons.SYMBOLS["off"]
+	dot.add_theme_font_override("font", DccTheme.mono(0))
+	dot.add_theme_font_size_override("font_size", fs)
+	dot.add_theme_color_override("font_color",
+		DccTheme.c("text") if shown else DccTheme.c("text_ghost"))
+	dot.tooltip_text = "%s %s." % ["Hide" if shown else "Show", String(d["label"])]
+	if tablet:
+		dot.custom_minimum_size = Vector2(DccTheme.role_px("row_min_h"), DccTheme.role_px("row_min_h"))
+	dot.pressed.connect(func(): _set_layer_key(id, "visible", not shown))
+	row.add_child(dot)
+
+	var name_label := DccTheme.mono_label(String(d["label"]),
+		"text" if shown else "text_ghost", fs)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	row.add_child(name_label)
+
+	## §6's "opacity bar" -- a readout, since the slider lives in the left dock.
+	var opacity := clampf(float(d["opacity"]), 0.0, 1.0)
+	var bar := ProgressBar.new()
+	bar.show_percentage = false
+	bar.min_value = 0.0
+	bar.max_value = 1.0
+	bar.value = opacity
+	bar.custom_minimum_size = Vector2(44, 4)
+	bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_theme_stylebox_override("background", DccTheme.outline("border"))
+	bar.add_theme_stylebox_override("fill",
+		DccTheme.outline("accent" if shown else "text_ghost",
+			"accent" if shown else "text_ghost", 0))
+	bar.tooltip_text = "Opacity %.2f. Set it in Cartography - Layers." % opacity
+	row.add_child(bar)
+
+	var blend := DccTheme.mono_label(String(d["blend"]), "text_dim", fs)
+	blend.tooltip_text = "Blend mode. Set it in Cartography - Layers."
+	row.add_child(blend)
+
+	_reorder(row, "Up", fs, tablet, index > 0, index, index - 1)
+	_reorder(row, "Down", fs, tablet, index < count - 1, index, index + 1)
+	parent.add_child(row)
+
+func _reorder(parent: Control, text: String, fs: int, tablet: bool,
+		enabled: bool, from: int, to: int) -> void:
+	var b := Button.new()
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.text = text
+	b.disabled = not enabled
+	b.tooltip_text = "Move this layer one place %s the stack." % text.to_lower()
+	b.add_theme_font_size_override("font_size", fs)
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	if tablet:
+		b.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
+	b.pressed.connect(func(): _move_layer(from, to))
+	parent.add_child(b)
+
+## One gesture, one key. An absent key means *unchanged* at the boundary, so the
+## row carries its id and nothing else -- restating the values this dock only
+## reads would let it overwrite an opacity the left dock had just set.
+func _set_layer_key(id: String, key: String, value: Variant) -> void:
+	var out: Array = []
+	for r in bridge.layer_stack():
+		var d: Dictionary = r
+		var row := {"id": String(d.get("id", ""))}
+		if String(d.get("id", "")) == id:
+			row[key] = value
+		out.append(row)
+	_write_layers(out)
+
+## The new order, sent as data -- the engine decides what the stack is and both
+## docks are rebuilt from its answer. Nothing here reorders its own children.
+func _move_layer(from: int, to: int) -> void:
+	var ids: Array = []
+	for r in bridge.layer_stack():
+		ids.append(String((r as Dictionary).get("id", "")))
+	if from < 0 or from >= ids.size() or to < 0 or to >= ids.size() or from == to:
+		return
+	var moved: String = ids[from]
+	ids.remove_at(from)
+	ids.insert(to, moved)
+	var out: Array = []
+	for id in ids:
+		out.append({"id": id})
+	_write_layers(out)
+
+## 3 or 0 -- all three rows or none, nothing changed on a refusal. The repaint
+## and the rebuild both hang off `layer_stack_changed`, which
+## `EngineBridge.set_layer_stack` emits only on success, so a refusal costs
+## exactly one warning and no redraw.
+##
+## Returns whether it was accepted. Nothing in this file reads that today; it is
+## returned because otherwise the refusal branch's only effect is a log line and
+## no probe can tell the two apart -- mutation testing scored `!= 3` SURVIVED
+## while it returned `void`.
+func _write_layers(rows: Array) -> bool:
+	if bridge.set_layer_stack(rows) != 3:
+		push_warning("Layers: the engine refused the stack; nothing changed.")
+		return false
+	return true
 
 # -- Sample -------------------------------------------------------------
 
@@ -1543,24 +1760,69 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 # here, which is why there is no arithmetic in this section at all beyond the
 # one along-path-minus-straight-line difference §4.5.1 asks for by name.
 
-## The collapsed dock's one number, per mode.
+## The one number this mode's reading comes down to, in **canonical** units:
+## `{value: float, unit: String}`, or an empty dictionary when there is no
+## reading yet. `unit` is one of `km`, `km2`, `m`, `deg`.
+##
+## The single place the six modes' primary keys are named. Both the collapsed
+## dock's readout and the saved-measurements store read it, so a mode whose key
+## changes cannot come back right in one and wrong in the other -- which is the
+## drift a second copy of this `match` would have invited.
+##
+## **The key is omitted, not defaulted.** A mode that has not been given enough
+## points returns `{}` and every caller branches on that, rather than being
+## handed a `0.0` that reads exactly like a real measurement of nothing.
+func _measure_primary() -> Dictionary:
+	if _measure_result.is_empty():
+		return {}
+	var segs: Array = _measure_result.get("segments", [])
+	match _measure_mode:
+		"area":
+			if _measure_result.has("projected_km2"):
+				return {"value": float(_measure_result["projected_km2"]), "unit": "km2"}
+		"radius":
+			if _measure_result.has("radius_km"):
+				return {"value": float(_measure_result["radius_km"]), "unit": "km"}
+		"vertical":
+			if _measure_result.has("delta_m"):
+				return {"value": float(_measure_result["delta_m"]), "unit": "m"}
+		"section":
+			if _measure_result.has("length_km"):
+				return {"value": float(_measure_result["length_km"]), "unit": "km"}
+		"bearing":
+			if not segs.is_empty():
+				return {"value": float((segs[0] as Dictionary).get("bearing_deg", 0.0)), "unit": "deg"}
+		_:
+			## Distance. `segments` empty means a one-point chain, which
+			## `_build_measure_distance` already treats as no reading.
+			if not segs.is_empty() and _measure_result.has("total_km"):
+				return {"value": float(_measure_result["total_km"]), "unit": "km"}
+	return {}
+
+## The collapsed dock's one number, per mode. Values from `_measure_primary()`;
+## the affixes ("r ", " section") and the per-mode precision are presentation
+## and stay here.
 func _measure_readout() -> String:
 	if _measure_result.is_empty():
 		return "no reading"
+	var p := _measure_primary()
 	match _measure_mode:
 		"area":
-			return "%s km²" % _thousands(float(_measure_result.get("projected_km2", 0.0)))
+			return DccUnits.format_area(float(p.get("value", 0.0)))
 		"radius":
-			return "r %.0f km" % float(_measure_result.get("radius_km", 0.0))
+			return "r %s" % DccUnits.format(float(p.get("value", 0.0)))
 		"vertical":
-			return "%+.0f m" % float(_measure_result.get("delta_m", 0.0))
+			## Metres, deliberately: `DccUnits` converts a *linear map distance*
+			## between km/mi/nmi, and an elevation delta is neither -- nautical
+			## miles of altitude is not a reading anyone wants. Left as metres
+			## until a vertical-unit setting exists, which is its own question.
+			return "%+.0f m" % float(p.get("value", 0.0))
 		"section":
-			return "%.0f km section" % float(_measure_result.get("length_km", 0.0))
+			return "%s section" % DccUnits.format(float(p.get("value", 0.0)))
 		"bearing":
-			var segs: Array = _measure_result.get("segments", [])
-			return ("%03d°" % int(round(float((segs[0] as Dictionary).get("bearing_deg", 0.0))))) if not segs.is_empty() else "no bearing"
+			return ("%03d°" % int(round(float(p["value"])))) if not p.is_empty() else "no bearing"
 		_:
-			return "%.1f km" % float(_measure_result.get("total_km", 0.0))
+			return DccUnits.format(float(p.get("value", 0.0)), 1)
 
 func _build_measure(body: Control) -> void:
 	match _measure_mode:
@@ -1583,7 +1845,7 @@ func _build_measure_distance(body: Control) -> void:
 			"Click the map to drop points. ⌫ drops the last one, Esc clears the chain. Nothing here writes to the world -- a reading persists until you clear it.")
 		return
 	var sec := DccWidgets.section(body, "Measure · distance")
-	_accent_readout(sec, "Total length", "%.0f km" % float(_measure_result.get("total_km", 0.0)),
+	_accent_readout(sec, "Total length", DccUnits.format(float(_measure_result.get("total_km", 0.0))),
 		"Summed leg by leg, each leg through cartalith_spatial::measure -- the same km scale every route length in this port uses.")
 	DccWidgets.note(sec, "%d segment%s · %d points" % [
 		segments.size(), "" if segments.size() == 1 else "s",
@@ -1593,8 +1855,8 @@ func _build_measure_distance(body: Control) -> void:
 	for i in segments.size():
 		var seg: Dictionary = segments[i]
 		var b := float(seg.get("bearing_deg", 0.0))
-		_field(segs, "%d" % (i + 1), "%.0f km · %03d° · ↺ %03d°" % [
-			float(seg.get("km", 0.0)), int(round(b)), int(round(fmod(b + 180.0, 360.0)))],
+		_field(segs, "%d" % (i + 1), "%s · %03d° · ↺ %03d°" % [
+			DccUnits.format(float(seg.get("km", 0.0))), int(round(b)), int(round(fmod(b + 180.0, 360.0)))],
 			"Bearing is this port's own convention: 0° = north, clockwise. ↺ is its reciprocal.")
 
 	_build_measure_derived(body)
@@ -1612,7 +1874,7 @@ func _build_measure_bearing(body: Control) -> void:
 	_accent_readout(sec, "Bearing", "%03d°" % int(round(b)),
 		"Grid y increases southward in every raster in this port, so 0° is north (-y), 90° east (+x), compass-clockwise.")
 	_field(sec, "Reciprocal", "%03d°" % int(round(fmod(b + 180.0, 360.0))))
-	_field(sec, "Distance", "%.1f km" % float(seg.get("km", 0.0)))
+	_field(sec, "Distance", DccUnits.format(float(seg.get("km", 0.0)), 1))
 	_build_measure_derived(body)
 	_build_measure_actions(body)
 
@@ -1624,8 +1886,8 @@ func _build_measure_derived(body: Control) -> void:
 	var straight: float = float(_measure_result.get("straight_line_km", 0.0))
 	var total: float = float(_measure_result.get("total_km", 0.0))
 	var diff := total - straight
-	_field(sec, "Straight line", "%.1f km" % straight,
-		("Along-path exceeds straight-line by %.1f km." % diff) if diff > 0.01 else "")
+	_field(sec, "Straight line", DccUnits.format(straight, 1),
+		("Along-path exceeds straight-line by %s." % DccUnits.format(diff, 1)) if diff > 0.01 else "")
 	var ob := float(_measure_result.get("overall_bearing_deg", 0.0))
 	_field(sec, "Overall bearing", "%03d° · ↺ %03d°" % [int(round(ob)), int(round(fmod(ob + 180.0, 360.0)))])
 	var relief := bool(_measure_result.get("has_relief", false))
@@ -1633,26 +1895,152 @@ func _build_measure_derived(body: Control) -> void:
 		"Along-path over straight-line. 1.00 is a straight run.", relief)
 	_field(sec, "Δ elevation", ("%+.0f m" % float(_measure_result.get("elevation_delta_m", 0.0))) if relief else "—",
 		"First point to last, from the height field.", relief)
-	_field(sec, "3D length", ("%.1f km" % float(_measure_result.get("total_km_3d", 0.0))) if relief else "—",
+	_field(sec, "3D length", (DccUnits.format(float(_measure_result.get("total_km_3d", 0.0)), 1)) if relief else "—",
 		"The chain followed over the ground rather than across the map.", relief)
 	if not relief:
 		DccWidgets.note(sec, "The three relief rows need a generated world: a loaded save carries no height substrate to read.")
 
-## The canvas's foot: save · copy · CSV · plan journey.
+## The canvas's foot: save · copy · CSV · plan journey, with the canvas's
+## Saved measurements list above them.
 ##
-## **Copy is real; save and CSV are one button, and it is Copy.** There is no
-## saved-measurements store in this port and inventing one would be a
-## persistence feature, not a measuring one -- what the canvas's three export
-## buttons are actually for is getting the numbers out, and the clipboard does
-## that with no file dialog, no format decision and no new state. Said out
-## loud below rather than drawn as two disabled buttons.
+## **All four are real now.** This block carried Copy alone until 2026-09-03,
+## with a note arguing that "there is no saved-measurements store in this port
+## and inventing one would be a persistence feature, not a measuring one". The
+## owner ruled the other way and named the shape that makes the objection moot:
+## the store is a caller-owned save **slot** (`annotations/measurements.json`)
+## riding the `project_save_with_documents` channel the other five documents
+## already use -- *"deliberately not a second persistence mechanism"*. So no
+## new persistence was invented; this is the fifth caller of one that existed.
 func _build_measure_actions(body: Control) -> void:
+	_build_saved_measurements(body)
 	var actions := DccWidgets.group(body, "Actions")
+	var save_btn := DccWidgets.action(actions, "Save measurement", _on_measure_save)
+	save_btn.disabled = _measure_primary().is_empty()
 	DccWidgets.action(actions, "Copy reading", _on_measure_copy)
+	var csv_btn := DccWidgets.action(actions, "Copy saved as CSV", _on_measure_csv)
+	csv_btn.disabled = _saved_measurements.is_empty()
 	DccWidgets.action(actions, "Plan a journey", func(): app.open_journey_planner())
 	DccWidgets.note(actions,
-		"The canvas's Saved measurements list, Save and CSV are not built: no measurement store exists, " +
-		"and Copy already puts every number above on the clipboard as tab-separated text a spreadsheet reads directly.")
+		"Saved measurements travel in the project file and are dropped when the world is replaced: a measure " +
+		"point is a grid cell, so a reading recalled over another world would draw a plausible line across " +
+		"ground it was never taken on.")
+	## Named rather than left to be discovered from a spreadsheet: the CSV is a
+	## different promise from the readouts above it, which do follow the Units
+	## preference (`DccUnits`, and every `_field` in this panel).
+	DccWidgets.note(actions,
+		"Copy reading puts THIS reading on the clipboard as tab-separated text. Copy saved as CSV puts the " +
+		"list there in canonical km, km², metres and degrees -- never the Units preference, so the same " +
+		"measurements export the same numbers on every machine.")
+
+## The canvas's "Saved measurements" list. Newest first, the same order (and
+## for the same reason) as the Sculpt stamp stack: the entry just added is the
+## one most likely to be acted on.
+##
+## Absent rather than empty when nothing is saved. An always-drawn "nothing
+## here yet" section would sit above every reading in the dock for the price of
+## a sentence that the Save button below it already implies.
+func _build_saved_measurements(body: Control) -> void:
+	if _saved_measurements.is_empty():
+		return
+	var sec := DccWidgets.section(body, "Saved measurements")
+	for i in range(_saved_measurements.size() - 1, -1, -1):
+		_saved_measurement_row(sec, i)
+	DccWidgets.action(sec, "Clear all", _on_measure_clear_all)
+
+func _saved_measurement_row(parent: Control, i: int) -> void:
+	var e: Dictionary = _saved_measurements[i]
+	var pts: PackedVector2Array = e.get("points", PackedVector2Array())
+	var mode := String(e.get("mode", ""))
+	var tablet := DccTheme.is_tablet()
+	var readout_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 20
+	row.tooltip_text = "%d point%s, the first at cell %.1f · %.1f. Recall re-arms Measure in %s mode with these exact points, so the reading is taken again rather than replayed from a number." % [
+		pts.size(), "" if pts.size() == 1 else "s",
+		pts[0].x if not pts.is_empty() else 0.0, pts[0].y if not pts.is_empty() else 0.0,
+		_measure_mode_label(mode)]
+	var l := DccTheme.mono_label("#%d %s · %s" % [i + 1, _measure_mode_label(mode), _saved_value_text(e)],
+		"text", DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.clip_text = true
+	row.add_child(l)
+	## §57 tier B, the same call the stamp-stack row makes: one row of many, so
+	## `chip_min_h` rather than the discrete-action `btn_min_h`.
+	for spec in [["recall", _on_measure_recall], ["drop", _on_measure_drop]]:
+		var b := Button.new()
+		b.flat = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.text = String(spec[0])
+		b.add_theme_font_size_override("font_size", readout_fs)
+		if tablet:
+			b.custom_minimum_size.y = DccTheme.role_px("chip_min_h")
+		b.pressed.connect((spec[1] as Callable).bind(i))
+		row.add_child(b)
+	parent.add_child(row)
+
+## A saved entry's reading, converted for **display only** -- the store itself
+## is canonical (see `_saved_measurements`), and `measurements_csv()`
+## deliberately does not call this.
+##
+## A unit this build does not know is printed with the producer's own unit
+## string rather than being assumed to be kilometres: §14.3's unknown-member
+## rule, applied to a value instead of a member.
+func _saved_value_text(e: Dictionary) -> String:
+	if not e.has("value"):
+		return "—"
+	var v := float(e["value"])
+	var unit := String(e.get("unit", ""))
+	match unit:
+		"km": return DccUnits.format(v, 1)
+		"km2": return DccUnits.format_area(v)
+		"m": return "%+.0f m" % v
+		"deg": return "%03d°" % int(round(v))
+		_: return "%.2f %s" % [v, unit]
+
+func _measure_mode_label(id: String) -> String:
+	for m in GlobalTools.MEASURE_MODES:
+		if String((m as Dictionary)["id"]) == id:
+			return String((m as Dictionary)["label"])
+	return id
+
+func _on_measure_save() -> void:
+	var p := _measure_primary()
+	var pts := GlobalTools.measure_points()
+	if p.is_empty() or pts.is_empty():
+		app.set_status("hint", "nothing to save yet -- place the points this mode needs first", "warn")
+		return
+	var e: Dictionary = {"mode": _measure_mode, "points": pts,
+		"value": float(p["value"]), "unit": String(p["unit"])}
+	_saved_measurements.append(e)
+	app.set_status("hint",
+		"saved #%d (%s) -- it goes into the project file on the next save" % [
+			_saved_measurements.size(), _saved_value_text(e)], "accent")
+	_rebuild()
+
+func _on_measure_recall(i: int) -> void:
+	if i < 0 or i >= _saved_measurements.size():
+		return
+	var e: Dictionary = _saved_measurements[i]
+	GlobalTools.recall_measurement(app, String(e.get("mode", "distance")),
+		e.get("points", PackedVector2Array()))
+
+func _on_measure_drop(i: int) -> void:
+	if i < 0 or i >= _saved_measurements.size():
+		return
+	_saved_measurements.remove_at(i)
+	_rebuild()
+
+func _on_measure_clear_all() -> void:
+	clear_measurements()
+	_rebuild()
+
+func _on_measure_csv() -> void:
+	if _saved_measurements.is_empty():
+		return
+	DisplayServer.clipboard_set(measurements_csv(_saved_measurements))
+	app.set_status("hint", "%d saved measurement%s copied as CSV, in canonical units" % [
+		_saved_measurements.size(), "" if _saved_measurements.size() == 1 else "s"], "text_ghost")
 
 func _on_measure_copy() -> void:
 	var lines: Array[String] = []
@@ -1776,6 +2164,216 @@ func _build_measure_section(body: Control) -> void:
 			"So there is still no toponym to print here.")
 	_build_measure_actions(body)
 
+# ======================================= Saved measurements, on disk (F10) ====
+#
+# `annotations/measurements.json` -- registered in `cartalith-io`'s
+# `DOCUMENT_SLOTS` on 2026-09-03 and **caller-owned**, so the shell writes it
+# and the engine carries it without modelling it, exactly the way
+# `entities/journeys.json` already works (`SAVEFILE_COMPAT.md` §6.5, §11.4).
+#
+# The owner's ruling was that a measurement store is a save SLOT and
+# "deliberately not a second persistence mechanism", and that is what this is:
+# `app.gd::_project_documents()` merges the text below into the same dictionary
+# `project_save_with_documents` already takes for the other five documents, and
+# `project_open` hands it back byte for byte. Nothing new was opened, written
+# or scheduled -- this file is the sixth caller of one channel.
+#
+# The three functions that do the work are `static` so a probe can exercise the
+# document and the CSV with no world, no bridge and no dock: everything below
+# that is not static is one line of plumbing over them.
+
+## This dock's half of the project file, as JSON **text**, or `""` when there
+## is nothing to write.
+##
+## Empty string rather than an empty document, the same contract
+## `project_bridge.rs::paint_document_json()` states for its own slot: an
+## absent slot and an empty one read the same to a parser and differ to anyone
+## diffing two saves.
+func measurements_document() -> String:
+	if _saved_measurements.is_empty():
+		return ""
+	var g: Vector2i = bridge.grid_size() if bridge != null else Vector2i.ZERO
+	return measurements_document_text(_saved_measurements, g.x, g.y)
+
+## `entries` in the `_saved_measurements` shape -> the slot's text.
+##
+## `gw`/`gh` are **this world's** grid, and they are the whole of the
+## world-anchoring answer: a measure point is a fractional grid cell, so the
+## grid the points were clicked on is what a reader needs to know whether they
+## still mean anything. Same two members, same names and same reason as
+## `drafts/paint.json`'s (`PaintDoc`), so a second implementation meets one
+## rule rather than two.
+##
+## `Vector2` becomes a two-element array because JSON has no vector -- the same
+## conversion `journey_planner_view.gd::journeys_document()` makes for `trim`.
+static func measurements_document_text(entries: Array, gw: int, gh: int) -> String:
+	var out: Array = []
+	for raw in entries:
+		var e: Dictionary = raw
+		var d: Dictionary = {"mode": String(e.get("mode", "distance"))}
+		var arr: Array = []
+		for p in (e.get("points", PackedVector2Array()) as PackedVector2Array):
+			arr.append([p.x, p.y])
+		d["points"] = arr
+		## Omitted **together**, never written as a zero: a mode that produced
+		## no single number has no value, and `0.0 km` is a measurement.
+		if e.has("value") and _is_num(e["value"]):
+			d["value"] = float(e["value"])
+			d["unit"] = String(e.get("unit", ""))
+		out.append(d)
+	return JSON.stringify({"gw": gw, "gh": gh, "measurements": out})
+
+## The inverse: `{ok: bool, reason: String, entries: Array}`.
+##
+## **A grid mismatch refuses the whole document.** Three answers were open --
+## refuse, carry the entries with a staleness mark, or clear -- and this is
+## refuse-then-clear, which is the answer this port has already given twice for
+## the same question. `WorldGen::absorb` clears the vault's links and snapshots
+## on every path that replaces a world; `project_open` refuses a
+## `drafts/paint.json` whose `gw`/`gh` are not this world's, because a layer
+## decoded against another grid is a scrambled picture rather than a smaller
+## one. A staleness mark is the worst of the three here specifically: the number
+## on a measurement stays readable and plausible while the points under it have
+## come to name different ground.
+##
+## The document is left in the archive either way. Refusing to *show* a reading
+## is not a reason to delete it from the file, and `app.gd` says so on screen.
+static func measurements_from_document(text: String, gw: int, gh: int) -> Dictionary:
+	var parsed = JSON.parse_string(text)
+	if not (parsed is Dictionary):
+		return {"ok": false, "entries": [],
+			"reason": "annotations/measurements.json is not an object"}
+	var doc: Dictionary = parsed
+	var dgw := int(doc.get("gw", 0))
+	var dgh := int(doc.get("gh", 0))
+	if dgw != gw or dgh != gh:
+		return {"ok": false, "entries": [],
+			"reason": "these measurements were taken on a %dx%d grid and this world is %dx%d; a measure point is a grid cell and does not carry over" % [dgw, dgh, gw, gh]}
+	var arr = doc.get("measurements", [])
+	if not (arr is Array):
+		return {"ok": false, "entries": [],
+			"reason": "annotations/measurements.json carries no measurements array"}
+	var entries: Array = []
+	for raw in (arr as Array):
+		if not (raw is Dictionary):
+			continue
+		var e: Dictionary = raw
+		var praw = e.get("points", [])
+		if not (praw is Array):
+			continue
+		var pts := PackedVector2Array()
+		for p in (praw as Array):
+			## Type-guarded, not just size-guarded. `float(<null>)` is not a
+			## conversion in GDScript, it is a runtime error ("Invalid call.
+			## Nonexistent float constructor") that aborts this whole function
+			## -- so one malformed coordinate silently discarded every healthy
+			## measurement beside it, and the caller's `ok == false` branch then
+			## cleared the in-memory list too. Measured before the fix: a
+			## document with one bad entry and one good one recovered zero.
+			if p is Array and (p as Array).size() == 2 \
+					and _is_num((p as Array)[0]) and _is_num((p as Array)[1]):
+				pts.append(Vector2(float(p[0]), float(p[1])))
+		## A measurement with no points is not a measurement -- it is the one
+		## thing the reading cannot be recomputed or recalled from.
+		if pts.is_empty():
+			continue
+		var out_e: Dictionary = {"mode": String(e.get("mode", "distance")), "points": pts}
+		## `has()` is not enough: **this build writes `"value":null` itself**
+		## when a mode produced a NaN (Godot warns about it at the writer), and
+		## `float(null)` is the same aborting runtime error as above. A null
+		## value means the same thing an absent key means -- no reading -- so
+		## it takes the same path: omit the pair and let the list dash the row,
+		## rather than lose the measurement's points along with it.
+		if e.has("value"):
+			out_e["value"] = float(e["value"])
+			out_e["unit"] = String(e.get("unit", ""))
+		entries.append(out_e)
+	return {"ok": true, "entries": entries, "reason": ""}
+
+## Is `v` a number this build can convert without raising?
+##
+## `float(<null>)` and `float(<Dictionary>)` are runtime errors in GDScript,
+## not conversions, and a raise inside a restore loop takes the whole document
+## with it. Kept as one predicate so the point reader and the value reader
+## cannot drift into two different ideas of "numeric".
+static func _is_num(v: Variant) -> bool:
+	return typeof(v) == TYPE_FLOAT or typeof(v) == TYPE_INT
+
+## The saved list as CSV text.
+##
+## **Canonical units, always.** `unit` names them per row and is
+## `km`/`km2`/`m`/`deg` whatever `DccSettings.units_mode()` is set to. A CSV
+## whose numbers moved with a display preference would not be an export -- it
+## would be a screenshot of one session's settings, with nothing in the file
+## saying which. `DccUnits`' own header draws the same line for the same
+## reason, quoting the reference: *"units: display-only. Canonical storage
+## stays km"*.
+##
+## One row per measurement over a fixed six-column header, rather than a column
+## per mode's own fields. The six modes measure different things -- a bearing
+## has no length, an area has no elevation drop -- so a wide table would carry
+## an empty cell for every mode a row is not; `value`+`unit` is the shape a
+## heterogeneous readings table actually has.
+##
+## An absent reading writes an **empty cell**, which is CSV's own way of saying
+## "no value" and is not `0`.
+##
+## `points_cells` is the coordinate list in grid cells, semicolon-separated and
+## quoted: it is the one part of a measurement a spreadsheet cannot recompute
+## from the other columns.
+static func measurements_csv(entries: Array) -> String:
+	var lines: Array[String] = ["index,mode,point_count,value,unit,points_cells"]
+	for i in entries.size():
+		var e: Dictionary = entries[i]
+		var pts: PackedVector2Array = e.get("points", PackedVector2Array())
+		var coords: Array[String] = []
+		for p in pts:
+			coords.append("%.4f %.4f" % [p.x, p.y])
+		lines.append("%d,%s,%d,%s,%s,\"%s\"" % [
+			i + 1, String(e.get("mode", "")), pts.size(),
+			("%.4f" % float(e["value"])) if e.has("value") else "",
+			String(e.get("unit", "")), ";".join(coords)])
+	return "\n".join(lines)
+
+## `app.gd::_restore_project_documents()` calls this once per project open with
+## whatever the archive's slot held -- `""` when it carried none, which is a
+## genuine "this project has no measurements" and clears the list, for the same
+## reason `restore_journeys_document()` clears its own: keeping them is how
+## project A's readings follow the reader into project B and get written into
+## B's archive on the next save.
+##
+## Returns the sentence the person is owed, or `""` when there is nothing to
+## say. No identity guard of the kind the journey planner needs: `app.gd` calls
+## this only from `_load_project()`, the one place a new set of documents
+## actually arrives.
+func restore_measurements_document(text: String) -> String:
+	var note := ""
+	if text.strip_edges() == "":
+		clear_measurements()
+	else:
+		var g: Vector2i = bridge.grid_size() if bridge != null else Vector2i.ZERO
+		var r := measurements_from_document(text, g.x, g.y)
+		if bool(r.get("ok", false)):
+			_saved_measurements = r.get("entries", [])
+		else:
+			## The outgoing project's readings go either way: they were grid
+			## cells of a world that is no longer on screen.
+			clear_measurements()
+			note = String(r.get("reason", ""))
+	if _context == CTX_MEASURE:
+		_rebuild()
+	return note
+
+## Empties the store because the world its points were grid cells of is gone.
+##
+## Public: `setup()` connects it to `generation_finished` and to the world-less
+## half of `world_loaded`, `restore_measurements_document()` calls it when a
+## newly opened project carries no measurements of its own, and the list's own
+## Clear all button calls it. Deliberately does not rebuild -- every caller
+## either rebuilds already or is about to.
+func clear_measurements() -> void:
+	_saved_measurements = []
+
 # -- Region select --------------------------------------------------------
 
 ## §4.5.1's own right-dock spec: "Extent in both units, cell count, tile
@@ -1790,8 +2388,9 @@ func _build_region(body: Control) -> void:
 		return
 	_field(sec, "Extent",
 		"%d × %d cells" % [int(_region_result.get("w", 0)), int(_region_result.get("h", 0))])
-	_field(sec, "Extent (km)",
-		"%.0f × %.0f km" % [float(_region_result.get("w_km", 0.0)), float(_region_result.get("h_km", 0.0))])
+	_field(sec, "Extent (%s)" % DccUnits.suffix(),
+		"%s × %s" % [DccUnits.format(float(_region_result.get("w_km", 0.0))),
+			DccUnits.format(float(_region_result.get("h_km", 0.0)))])
 	_field(sec, "Cells", str(int(_region_result.get("cell_count", 0))))
 	sec.add_child(DccTheme.rule())
 	var estimates: Array = _region_result.get("tile_estimates", [])

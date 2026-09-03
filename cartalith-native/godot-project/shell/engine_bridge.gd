@@ -43,6 +43,42 @@ signal project_saved(path: String) ## A `.zip` was written.
 ## Deliberately not `generation_finished` -- see `landmark_run()` far below
 ## for why a pass that changes no world state must not fire that one.
 signal landmark_finished(result: Dictionary)
+## The raster layer stack was **accepted** -- visibility, opacity, blend mode or
+## order (`GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10). Two surfaces edit one stack
+## (CARTO ▸ Layers ▸ Terrain raster, and the right dock's appended Layers
+## section) and each is built once, so without this the one that did not make
+## the change would keep drawing the arrangement from before it. The same defect
+## `sculpt_draft_changed` above exists for, in the same two docks.
+##
+## Emitted only when `set_layer_stack()` returns 3. A refusal changes nothing,
+## so there is nothing to re-read and no repaint to spend.
+signal layer_stack_changed()
+
+## What a click does to a selection set -- the wire codes
+## `icon_hit_test_mode()`/`label_hit_test_mode()` take, matching
+## `cartalith-godot/src/selection.rs`'s own `SelectMode::from_i64`.
+##
+## The shell already had exactly this convention and this is not a fourth one:
+## `asset_library_window.gd:2174-2188`'s tile grid is plain-click-replaces,
+## Ctrl/Cmd-click-toggles, Shift-click-extends-a-range. It is also the
+## platform-conventional set on all three desktops.
+const SEL_REPLACE := 0
+const SEL_TOGGLE := 1
+const SEL_EXTEND := 2
+
+## The mode a real `InputEventMouseButton`-era click carried, read off the
+## `Input` singleton at handler time. The tool click primitive
+## (`map_overlay.gd`'s `map_clicked(gx, gy)` -> `app.gd::_on_map_clicked`)
+## carries no modifier and is consumed by six workspaces, so widening its
+## signature for two of them would be the larger change by far; `Input` is
+## queried synchronously inside the same dispatch, so it reports the state the
+## click was made with.
+static func selection_mode_from_input() -> int:
+	if Input.is_key_pressed(KEY_SHIFT):
+		return SEL_EXTEND
+	if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
+		return SEL_TOGGLE
+	return SEL_REPLACE
 
 var world_gen: WorldGen = WorldGen.new()
 
@@ -87,6 +123,17 @@ var last_documents: Dictionary = {}
 ## `load_save()` for why discarding these mattered.
 var last_open_layout := ""
 var last_open_warnings := PackedStringArray()
+## Which engine-owned payloads the last `project_open()` actually applied --
+## `project_open`'s own `restored` key (`"civ"`, `"labels"`, `"icons"`,
+## `"ways"`, `"region"`, `"appearance"`, `"vault"`, `"landmark settings"`,
+## `"paint layers"`, `"sculpt draft"`). Empty before the first open, and after
+## a flat-reader fallback, which restores nothing.
+##
+## Read alongside `last_documents`, not instead of it: the pair answers "the
+## archive carried this, and it did / did not come back", which is the only
+## way `_restore_project_documents()` can tell a draft that was refused for a
+## grid mismatch from one the archive never held.
+var last_open_restored := PackedStringArray()
 
 ## The staged generation readout (`ANDROID_BUILD_SCOPE.md`). `GenerationProgress`
 ## is a second, stateless `RefCounted` class next to `WorldGen` -- deliberately
@@ -142,6 +189,11 @@ var _thread: Thread
 # -- Lifecycle ----------------------------------------------------------------
 
 func _ready() -> void:
+	## **First, before anything else in this function.** Rayon's global pool
+	## builds exactly once per process and does it implicitly, so the persisted
+	## worker count only means anything while nothing has run a `par_iter()`
+	## yet. See `_restore_cpu_pref` for the full reasoning.
+	_restore_cpu_pref()
 	sized_api = _has("generate_sized") \
 		and _has("reference_grid_height") \
 		and _has("get_map_height_km")
@@ -162,6 +214,12 @@ func _ready() -> void:
 	ramp_mode_api = _has("list_ramp_modes") \
 		and _has("get_ramp_mode") \
 		and _has("set_ramp_mode")
+	color_space_api = _has("list_color_spaces") \
+		and _has("get_color_space") \
+		and _has("set_color_space")
+	layer_stack_api = _has("get_layer_stack") \
+		and _has("set_layer_stack") \
+		and _has("list_blend_modes")
 	look_api = _has("list_looks") \
 		and _has("get_look") \
 		and _has("set_look")
@@ -186,7 +244,15 @@ func _ready() -> void:
 	## that catches a hand edit rather than a whole-world replacement -- is
 	## `mark_world_dirty()`, called from inside each mutating wrapper below.
 	world_loaded.connect(func(): _set_dirty(true))
-	generation_finished.connect(func(ok: bool): if ok: _set_dirty(true))
+	generation_finished.connect(func(ok: bool):
+		if ok:
+			_set_dirty(true)
+		else:
+			## The three `generation_finished.emit(false)` sites below (VRAM
+			## refusal, generate failure, heightmap-import failure) all set
+			## `last_summary` to the reason immediately before emitting --
+			## signals are synchronous, so it is still that reason here.
+			note_error(last_summary))
 	_restore_gpu_prefs()
 	_read_param_table()
 	_read_landmark_kinds()
@@ -279,6 +345,33 @@ func _has(method: String) -> bool:
 ## a matched shell/engine pair; anything in it is the staleness fingerprint.
 func missing_bindings() -> PackedStringArray:
 	return PackedStringArray(_missing_bindings.keys())
+
+# -- The last-error record ----------------------------------------------------
+#
+# `LARGE_ITEM_RULINGS.md`'s "Build" ruling on `Report an issue` names five
+# readouts a diagnostic dump should write, and this is the one nothing in the
+# codebase retained before it: `_report_failure()` (`app.gd`) -- the one place
+# every user-facing failure already funnels through -- only ever wrote a
+# status-bar label the next unrelated "hint" message overwrites, and
+# `save_project()`/`load_save()` below already had the real failure reason in
+# hand and only ever `push_warning()`ed it (console/logcat only, gone the
+# moment the session ends or the log scrolls).
+#
+# Scoped deliberately to what THIS file can see and already has a real reason
+# string for -- a failed generate/import/VRAM-refusal (`generation_finished`
+# below), and a failed project save/load -- not every `_report_failure()` call
+# in `app.gd`, several of which are purely local UI refusals ("this world has
+# never been saved") with no engine-side reason to retain.
+var _last_error: Dictionary = {}
+
+func note_error(text: String) -> void:
+	_last_error = {"text": text, "at": Time.get_datetime_string_from_system()}
+
+## `{}` when nothing has failed yet this session -- the honest answer, not a
+## blank string standing in for one. `diagnostic_report.gd` dashes it with the
+## reason above rather than printing an empty field.
+func last_error() -> Dictionary:
+	return _last_error
 
 # -- Parameters ---------------------------------------------------------------
 
@@ -736,6 +829,17 @@ func urban_layouts(indices: PackedInt32Array) -> Array:
 		return []
 	return world_gen.urban_layouts(indices)
 
+## The Settlement diagnostics overlay's card data (`urban_bridge.rs`) --
+## `um_site_profile`'s river classification plus `um_wall_spec`'s rung and
+## `um_harbour_scale`, for every requested settlement in one call. Unlike
+## `urban_layouts()` above this runs no town generation, so it is cheap
+## enough to ask for every settlement on the map at once rather than one at
+## a time. Empty against a binary built before this landed.
+func settlement_diagnostics(indices: PackedInt32Array) -> Array:
+	if not _has("settlement_diagnostics"):
+		return []
+	return world_gen.settlement_diagnostics(indices)
+
 func explain_settlement(index: int) -> Dictionary:
 	return world_gen.explain_settlement(index)
 
@@ -918,6 +1022,97 @@ func set_ramp_mode(name: String) -> bool:
 		return false
 	mark_world_dirty()
 	return world_gen.set_ramp_mode(name)
+
+
+# -- The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management) ------
+#
+# A fourth flag beside `ramp_api`/`ramp_mode_api`, for the same reason those are
+# second and third: this landed later than the appearance surface, so an
+# in-between binary has every slider and no colour space, and the panel should
+# lose the picker rather than fail to draw the sliders.
+#
+# **Deliberately not `mark_world_dirty()`, unlike every wrapper above.** The
+# other appearance calls change what is saved -- the look, the ramp and the
+# overrides all round-trip through `AppearanceDoc`. The display device does not:
+# `WorldGen::color_space` is session state by design (it describes the monitor,
+# not the map), so setting it changes no file and there is nothing to be dirty
+# about. Marking it would put a false unsaved-changes star on the title bar.
+var color_space_api := false
+
+## `["sRGB", "Display P3"]` -- the display devices this binary can encode for.
+func color_spaces() -> Array:
+	if not color_space_api:
+		return []
+	return Array(world_gen.list_color_spaces())
+
+func color_space() -> String:
+	if not color_space_api:
+		return ""
+	return String(world_gen.get_color_space())
+
+## `false` for a name this build does not have. Presentation only, and
+## session-only: re-render to see it, and nothing is written to disk.
+func set_color_space(name: String) -> bool:
+	if not color_space_api:
+		return false
+	return world_gen.set_color_space(name)
+
+
+# -- The raster layer stack (`GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10) ---------
+#
+# A **fifth** flag beside `ramp_api`/`ramp_mode_api`/`color_space_api`, for the
+# same reason those are second, third and fourth: `render::LayerStack` and its
+# three bindings landed after every earlier cdylib shipped, so an in-between
+# binary has the whole appearance surface and no separable categories, and the
+# Layers panel should lose its rows rather than fail to draw the ramp.
+#
+# **Deliberately not `mark_world_dirty()`, and for a different reason than the
+# colour space above.** That one is session state by design. This one is real
+# `TerrainAppearance` state that a *saved look* carries (`save_appearance_preset`
+# writes the merged `appearance()`, layers included) -- but the project `.zip`
+# does not: `project_bridge.rs`'s `AppearanceDoc` round-trips quality, look,
+# territory opacity, the override map, the ramp and the NPR block, and has **no
+# layers field**. So a reordered stack survives a Save look and does not survive
+# File ▸ Save + File ▸ Open. Marking the project dirty would put an unsaved-
+# changes star on a title bar over a save that demonstrably does not carry the
+# change -- a promise the format cannot keep. The panel says so in a note
+# instead; the missing `AppearanceDoc` field is engine work, reported rather
+# than papered over here.
+var layer_stack_api := false
+
+## The three separable raster categories, **top-first** -- the order a layer
+## list draws them, which is the reverse of the order the renderer composites
+## them in. Each row is a Dictionary carrying `id`, `label`, `visible`,
+## `opacity` and `blend`.
+func layer_stack() -> Array:
+	if not layer_stack_api:
+		return []
+	return world_gen.get_layer_stack()
+
+## Replace the whole stack, top-first. Visibility, opacity, blend mode **and
+## order** are all this one call, on `set_color_ramp`'s own precedent: the panel
+## sends the arrangement it wants and the engine takes it, so moving a row past
+## its neighbour *is* the reorder.
+##
+## Returns 3 on success and 0 on any refusal, with nothing changed. All three
+## ids exactly once or the whole call is refused; `visible`/`opacity`/`blend`
+## are each optional **within** a row and an absent key means *unchanged*, never
+## defaulted -- so a caller may send a visibility toggle without restating the
+## opacities, and must not send a key it is not deliberately setting.
+func set_layer_stack(rows: Array) -> int:
+	if not layer_stack_api:
+		return 0
+	var n: int = world_gen.set_layer_stack(rows)
+	if n == 3:
+		layer_stack_changed.emit()
+	return n
+
+## `["Normal", "Multiply", "Screen", "Overlay", "Add"]` -- the engine's own
+## order. The picker is this list, not a second copy of it in GDScript.
+func blend_modes() -> Array:
+	if not layer_stack_api:
+		return []
+	return Array(world_gen.list_blend_modes())
 
 
 # -- Appearance presets (`GUI_GAP_REGISTER.md` CA-08) --------------------------
@@ -1183,6 +1378,71 @@ func _restore_gpu_prefs() -> void:
 	if fb != "":
 		world_gen.gpu_set_vram_fallback(fb)
 
+# -- CPU worker threads (SS2.5 Performance) -----------------------------------
+#
+# `WorldGen.cpu_*` are `&self` methods over a process-global in
+# `cartalith-engine`, so they carry the same two hazards as the multi-GPU
+# block above and are guarded the same way: `_has()`, because an older cdylib
+# does not export them, and `generating`, because the worker thread holds
+# `world_gen` mutably borrowed and a `bind()` through it while it does is the
+# `Gd<T>::bind() failed, already bound` crash that block documents.
+#
+# **`cpu_thread_count_active()` is not cached** the way `_gpu_read` caches:
+# the one number a reader wants from it is whether a preference has landed,
+# and answering that from a snapshot taken before the pool existed is the
+# same class of lie this pair was rewritten to stop telling. It answers `0`
+# while a generation runs, which `menus.gd` renders as "not readable right
+# now" rather than as "no pool".
+
+## Logical cores this machine reports -- the ceiling a chooser clamps to.
+## `0` when the binding is missing, which callers must read as "unknown".
+func cpu_logical_core_count() -> int:
+	if not _has("cpu_logical_core_count"):
+		return 0
+	return int(world_gen.cpu_logical_core_count())
+
+## The preference the engine holds, `0` for "follow Rayon's own default".
+## Not `DccSettings.cpu_thread_count()`: that is what is persisted on disk,
+## this is what the running engine was actually told, and `_restore_cpu_pref`
+## is the only thing that makes them agree.
+func cpu_thread_count() -> int:
+	if not _has("cpu_thread_count") or generating:
+		return 0
+	return int(world_gen.cpu_thread_count())
+
+## What Rayon's global pool is **really** running, `0` before it exists (or
+## while a generation makes it unreadable). Measured, not requested.
+func cpu_thread_count_active() -> int:
+	if not _has("cpu_thread_count_active") or generating:
+		return 0
+	return int(world_gen.cpu_thread_count_active())
+
+## Store the preference and try to apply it. **Returns whether it actually
+## took effect this process** -- `false` means "recorded, takes effect at next
+## start", which is the honest answer any time the pool is already up, and it
+## is up as soon as anything has drawn. Persisted either way: the whole value
+## of the `false` answer is that the next launch honours it.
+func cpu_set_thread_count(threads: int) -> bool:
+	DccSettings.set_cpu_thread_count(threads)
+	if not _has("set_cpu_thread_count") or generating:
+		return false
+	return bool(world_gen.set_cpu_thread_count(threads))
+
+## Push the persisted worker count into the engine, **first thing at
+## startup**, which is the only moment it can still change anything: Rayon
+## builds its global pool once per process, implicitly, the first time any
+## `par_iter()` runs anywhere -- and `render.rs`/`sample_bridge.rs`/`bake.rs`
+## all reach one long before a settings row is opened. `_ready()` calls this
+## before `_restore_gpu_prefs()` for that reason and no other.
+##
+## Unset (`0`) is left alone rather than pushed: `0` is the engine's own
+## "follow Rayon's default" and setting it would build the pool early for no
+## gain, taking the choice away from a later caller who might set a real one.
+func _restore_cpu_pref() -> void:
+	var n := DccSettings.cpu_thread_count()
+	if n > 0 and _has("set_cpu_thread_count"):
+		world_gen.set_cpu_thread_count(n)
+
 # -- Files --------------------------------------------------------------------
 
 ## Bytes free on the volume `path` lives on, or `-1` when it cannot be
@@ -1225,8 +1485,10 @@ func load_save(path: String) -> bool:
 	## only as the fallback for a binary too old to have `project_open`.
 	var documents: Dictionary = {}
 	var ok := false
+	var open_err := ""
 	last_open_layout = ""
 	last_open_warnings = PackedStringArray()
+	last_open_restored = PackedStringArray()
 	if _has("project_open"):
 		var r: Dictionary = world_gen.project_open(path)
 		ok = bool(r.get("ok", false))
@@ -1246,12 +1508,22 @@ func load_save(path: String) -> bool:
 			elif w is Array:
 				for item in w:
 					last_open_warnings.append(String(item))
+			var rs = r.get("restored", PackedStringArray())
+			if rs is PackedStringArray:
+				last_open_restored = rs
+			elif rs is Array:
+				for item in rs:
+					last_open_restored.append(String(item))
 		else:
+			open_err = String(r.get("error", "unknown"))
 			push_warning("Cartalith: project_open could not read %s (%s) -- falling back to the flat reader"
-				% [path, String(r.get("error", "unknown"))])
+				% [path, open_err])
 	if not ok:
 		ok = world_gen.load_save(path)
 	last_documents = documents
+	if not ok:
+		note_error("open %s failed: %s" % [path,
+			open_err if open_err != "" else "the engine's flat reader refused it too"])
 	if ok:
 		has_world = true
 		params_dirty = false
@@ -1267,6 +1539,14 @@ func load_save(path: String) -> bool:
 		## The dials moved to whatever the save carried, so anything reading
 		## `param_get` has to re-read them.
 		_read_param_table()
+		## `project_open` restored the archive's own Sculpt draft *inside* the
+		## engine, so nothing on this side went through
+		## `sculpt_restore_document()` and nothing emitted the signal
+		## `world_workspace.gd::_refresh_sculpt_draft` listens on. Without this
+		## the stamps are in the editor and the stack panel is empty until the
+		## next edit -- which reads exactly like the loss this restore fixed.
+		if last_open_restored.has("sculpt draft"):
+			sculpt_draft_changed.emit()
 	return ok
 
 ## `File ▸ Save project` / `Save as…` (`GUI_GAP_REGISTER.md` FI-01) — writes
@@ -1300,7 +1580,9 @@ func save_project(path: String, extra_documents: Dictionary = {}) -> bool:
 		_set_dirty(false)
 		project_saved.emit(path)
 	else:
-		push_warning("Cartalith: could not write %s (%s)" % [path, String(r.get("error", "unknown"))])
+		var reason := String(r.get("error", "unknown"))
+		push_warning("Cartalith: could not write %s (%s)" % [path, reason])
+		note_error("save %s failed: %s" % [path, reason])
 	return ok
 
 ## `File ▸ Close project` — drops the world and returns this node to the
@@ -1329,6 +1611,7 @@ func close_world() -> void:
 	last_documents = {}
 	last_open_layout = ""
 	last_open_warnings = PackedStringArray()
+	last_open_restored = PackedStringArray()
 	params_dirty = false
 	_restore_gpu_prefs()
 	_read_param_table()
@@ -1549,6 +1832,30 @@ func sculpt_select_stamp(index: int) -> bool:
 	if not _has("sculpt_select_stamp"):
 		return false
 	return world_gen.sculpt_select_stamp(index)
+
+## Every selected stamp's draft index, ascending. Falls back to whatever
+## `sculpt_get_selected_stamp()` reports against a cdylib without the set.
+##
+## **No shell gesture builds a multi-selection of stamps yet.** A stamp is
+## picked from the right dock's stack list rather than off the canvas, and that
+## list is `right_dock.gd`'s. The engine-side set and `sculpt_select_set()`
+## below are what a modifier click on those rows would drive.
+func sculpt_get_selection() -> PackedInt64Array:
+	if not _has("sculpt_get_selection"):
+		var one := sculpt_get_selected_stamp()
+		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
+	return world_gen.sculpt_get_selection()
+
+func sculpt_select_set(indices: PackedInt64Array) -> bool:
+	if not _has("sculpt_select_set"):
+		return false
+	return world_gen.sculpt_select_set(indices)
+
+## Selects every stamp on the draft; returns how many.
+func sculpt_select_all_stamps() -> int:
+	if not _has("sculpt_select_all_stamps"):
+		return 0
+	return world_gen.sculpt_select_all_stamps()
 
 func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
 	if not _has("sculpt_set_stamp_hidden"):
@@ -1914,6 +2221,36 @@ func icon_place(gx: float, gy: float) -> int:
 	mark_world_dirty()
 	return world_gen.icon_place(gx, gy)
 
+## The density brush's three controls -- `icon_bridge/brush.rs`.
+## `UNIFIED_TOOL_PLAN.md` milestone E's last open half: `_carIconBrushStamp`
+## paints a blue-noise stand of the armed icon under the pointer, and is the
+## larger of the reference's two *manual* placement paths (the other is
+## `icon_place`). `false` against a cdylib without the binding, so the tool
+## options row can hide the controls rather than draw three dead sliders.
+func icon_brush_set(on: bool, radius: float, density: float) -> bool:
+	if not _has("icon_brush_set"):
+		return false
+	return world_gen.icon_brush_set(on, radius, density)
+
+## What the brush is set to -- `on` / `radius` / `density`. Empty before any
+## world, and empty against a cdylib without the binding: `icon_armed()`'s own
+## "there is nothing to report" convention, which callers already read with
+## `is_empty()` rather than by comparing against invented defaults.
+func icon_brush() -> Dictionary:
+	if not _has("icon_brush"):
+		return {}
+	return world_gen.icon_brush()
+
+## One brush stamp -- how many icons it added. `0` is a real answer (a stamp
+## entirely in water, or entirely inside the spacing of icons already there),
+## and the reference uses it the same way: `if(_carIconBrushStamp(gx,gy))
+## drawCivLayerAuto()` at line 9719, i.e. only to decide whether to redraw.
+func icon_brush_stamp(gx: float, gy: float) -> int:
+	if not _has("icon_brush_stamp"):
+		return 0
+	mark_world_dirty()
+	return world_gen.icon_brush_stamp(gx, gy)
+
 ## Clear the placed-icon selection -- `Edit > Deselect`. The icon half of
 ## `label_select(-1)`, which icons had no counterpart for; that asymmetry is
 ## the whole reason the Deselect row was disabled. Silent no-op against an
@@ -1934,6 +2271,41 @@ func icon_hit_test(gx: float, gy: float) -> int:
 	if not _has("icon_hit_test"):
 		return -1
 	return world_gen.icon_hit_test(gx, gy)
+
+## `icon_hit_test` with the modifier the click carried -- `SEL_REPLACE` /
+## `SEL_TOGGLE` / `SEL_EXTEND` below. Step one of the owner's selection-sets
+## ruling; the engine keeps a set per entity kind and `icon_get_selected()` is
+## that set's primary.
+##
+## Falls back to the plain hit test against a cdylib that predates the mode
+## binding, which is the right degradation: an older engine has no set to
+## extend, so a modified click there behaves as a plain one rather than doing
+## nothing.
+func icon_hit_test_mode(gx: float, gy: float, mode: int) -> int:
+	if not _has("icon_hit_test_mode"):
+		return icon_hit_test(gx, gy)
+	return world_gen.icon_hit_test_mode(gx, gy, mode)
+
+## Every selected icon's index, ascending. Empty against an older cdylib is a
+## lie only in the "one icon is selected" case, so it falls back to whatever
+## `icon_get_selected()` reports rather than to nothing.
+func icon_get_selection() -> PackedInt64Array:
+	if not _has("icon_get_selection"):
+		var one := icon_get_selected()
+		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
+	return world_gen.icon_get_selection()
+
+func icon_select_set(indices: PackedInt64Array) -> bool:
+	if not _has("icon_select_set"):
+		return false
+	return world_gen.icon_select_set(indices)
+
+## Selects every placed icon; returns how many. `Edit > Select all`'s engine
+## half -- the menu row itself is step three of the ruling and is still `_todo`.
+func icon_select_all() -> int:
+	if not _has("icon_select_all"):
+		return 0
+	return world_gen.icon_select_all()
 
 ## `GUI_GAP_REGISTER.md` CA-05: the selected icon's on-canvas resize-handle
 ## circle -- `label_handles()`'s own one-handle mirror.
@@ -1969,6 +2341,32 @@ func icon_clear_all() -> void:
 		return
 	mark_world_dirty()
 	world_gen.icon_clear_all()
+
+
+# icon_bridge/generate.rs -- the generated placement pass (owner ruling
+# 2026-09-02: "Build, and add a sea-marks asset family").
+
+## The four placement families the ICONS panel draws chips for, each with its
+## own vocabulary size and how much of it the loaded pack fills. A design table
+## rather than world data, so it answers before any `generate()`.
+##
+## Empty against an older cdylib, which the panel reads as "this build has no
+## placement pass" and says so -- rather than falling back to the transcribed
+## design figures it used to carry, which would be a second source of truth for
+## a number the engine now owns.
+func icon_placement_families() -> Array:
+	if not _has("icon_placement_families"):
+		return []
+	return world_gen.icon_placement_families()
+
+## Run the generated placement pass for one family and append what survives to
+## the icon list. See `icon_bridge/generate.rs::icon_generate` for the option
+## keys and the returned counters; `ok: false` carries a `reason`.
+func icon_generate(options: Dictionary) -> Dictionary:
+	if not _has("icon_generate"):
+		return {"ok": false, "reason": "This build has no generated placement pass."}
+	mark_world_dirty()
+	return world_gen.icon_generate(options)
 
 
 # civ_bridge.rs
@@ -2275,6 +2673,40 @@ func civ_religion_vocabulary() -> Array:
 		return []
 	return world_gen.civ_religion_vocabulary()
 
+## `RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1 (`lib.rs`'s `civ_belief_run`):
+## seed the per-settlement adherence layer from the faction roster if it is
+## missing or stale, then run `years` diffusion steps over the generated road
+## network. One step is one Timeline year.
+##
+## **Not a read.** It mutates `CivData::belief`, and every other reader sees
+## the result on its next call -- `settlements()` above starts emitting a
+## `religion` key and an `adherents` dictionary per entry once this has run.
+## Nothing is persisted: `CivData::belief`'s own doc states the cost plainly,
+## a run does not survive a save/load, and re-running the same world
+## reproduces it exactly because the model draws no random numbers.
+##
+## Returns `{settlements, seeded, years, any_faith}`, plus `reason` (String)
+## **only** when `any_faith` is false. `{}` is not one of those states: it is
+## "this build's native library has no such binding", the same answer
+## `civ_military_summary()` gives, and it is why a caller must test
+## `is_empty()` before reading `any_faith` -- an older cdylib would otherwise
+## read as a world in which nothing has a religion, which is a real and
+## different state with a fix the user can act on.
+func civ_belief_run(years: int) -> Dictionary:
+	if not _has("civ_belief_run"):
+		return {}
+	return world_gen.civ_belief_run(years)
+
+## Whether the loaded native library can run the diffusion at all, asked
+## **without** running it.
+##
+## `civ_belief_run(0)` would answer the same question and is not free: a zero-
+## year call still re-seeds a stale layer, which discards a previous run's
+## diffused adherence. A panel that rebuilds on every roster edit must not do
+## that as a side effect of drawing itself.
+func has_belief_api() -> bool:
+	return _has("civ_belief_run")
+
 func civ_government_vocabulary() -> Array:
 	if not _has("civ_government_vocabulary"):
 		return []
@@ -2524,6 +2956,93 @@ func region_export_tiles(opts: Dictionary) -> PackedByteArray:
 		return PackedByteArray()
 	return world_gen.region_export_tiles(opts)
 
+## `Region ▸ New world from selection` (`ops_bridge.rs::region_new_world`, the
+## reference's `#regionNewWorldBtn`) -- **replaces the current world** with a
+## higher-resolution resample of the Region-select marquee.
+##
+## Threaded and signalled exactly like `import_heightmap()` above, and for the
+## identical reason: it *is* a generate-scale call -- an amplify followed by the
+## full substrate inversion, climate, flow and civilisation pipeline. Reusing
+## `generation_started`/`generation_finished` means the status bar, the busy
+## state and the `generating` guard all work with no extra wiring, and the shell
+## can never start one while a generation is in flight.
+##
+## **This destroys the civilisation layer, labels, icons, hand-drawn ways and
+## routes, paint and sculpt drafts, and every knowledge link**, because the
+## resampled world is a different grid at a different scale and none of those
+## coordinates mean anything over it -- the reference's own confirm() says the
+## same in fewer words. A caller must ask first; this does not, for the same
+## reason `generate()` does not.
+##
+## Returns nothing: the result arrives as `generation_finished(ok)`, and
+## `last_summary` carries the engine's refusal reason when `ok` is false.
+##
+## **Primitives across the boundary, deliberately.** The engine-side call runs
+## on the worker thread below, and without gdext's `experimental-threads` every
+## `Dictionary`/`GString` operation there panics -- the same rule
+## `landmark_run()` was rewritten to obey after it shipped a `dict!` reply from
+## a thread. So the options go over as four scalars and the refusal reason
+## comes back through `region_new_world_error()`, read on the main thread in
+## `_finish_region_new_world`. `0`/`0.0` mean "use the engine's default"
+## (`tile_size` 1024, the reference's `refSize`; `detail_freq` 1.0;
+## `detail_amp` 0.14), which is what an unset caller passes.
+func region_new_world(tile_size: int = 0, ridged: bool = false,
+		detail_freq: float = 0.0, detail_amp: float = 0.0) -> void:
+	if generating or not _has("region_new_world"):
+		return
+	## Snapshot the parameter table before the worker takes the engine, the
+	## same contract `generate()`/`import_heightmap()` hold: from here until
+	## `_finish_region_new_world`, `param_get` answers from this cache and
+	## nothing reaches a `#[func]` on the borrowed object.
+	if _params_available:
+		_params_cache = world_gen.get_params()
+	generating = true
+	_gen_start_msec = Time.get_ticks_msec()
+	generation_started.emit()
+	_thread = Thread.new()
+	_thread.start(_region_new_world_worker.bind(tile_size, ridged, detail_freq, detail_amp))
+
+## Runs off the main thread. Touches only `world_gen`, never a node, and
+## constructs no Godot value -- the same contract `_worker`/`_import_worker`
+## above hold to, and the reason the engine side returns a bare `bool`.
+func _region_new_world_worker(tile_size: int, ridged: bool,
+		detail_freq: float, detail_amp: float) -> void:
+	var ok: bool = world_gen.region_new_world(tile_size, ridged, detail_freq, detail_amp)
+	_finish_region_new_world.call_deferred(ok)
+
+func _finish_region_new_world(ok: bool) -> void:
+	_thread.wait_to_finish()
+	_thread = null
+	generating = false
+	last_generate_ms = Time.get_ticks_msec() - _gen_start_msec
+
+	if not ok:
+		## The engine's own words -- every refusal it can give names what to
+		## change (no marquee, no world, a sub-4-cell aspect, or the finalize
+		## lock). Read here rather than returned from the worker, because a
+		## `GString` may not be constructed off the main thread. The previous
+		## world is untouched and its marquee is still set.
+		last_summary = world_gen.region_new_world_error() if _has("region_new_world_error") else ""
+		if last_summary.is_empty():
+			last_summary = "New world from selection failed -- see console"
+		note_error(last_summary)
+		generation_finished.emit(false)
+		return
+
+	last_width_km = world_gen.get_map_width_km() if sized_api else 0.0
+	last_height_km = world_gen.get_map_height_km() if sized_api else 0.0
+	has_world = true
+	params_dirty = false
+	## Names the provenance, because "where did this world come from?" is the
+	## first question a resample raises and nothing else on screen answers it
+	## -- `_finish_import`'s own reasoning, which names the source file.
+	last_summary = "resampled region -- %d x %d cells, %.0f x %.0f km, inferred tectonics" % [
+		world_gen.get_width(), world_gen.get_height(),
+		last_width_km, last_height_km]
+	generation_finished.emit(true)
+	params_applied.emit()
+	world_loaded.emit()
+
 
 # geojson_bridge.rs -- GUI_GAP_REGISTER.md DM-03. Empty before the first
 # generate()/load, and on a build whose GDExtension predates the binding.
@@ -2657,6 +3176,32 @@ func label_hit_test(gx: float, gy: float) -> int:
 	if not _has("label_hit_test"):
 		return -1
 	return world_gen.label_hit_test(gx, gy)
+
+## `label_hit_test` with the modifier the click carried -- see
+## `icon_hit_test_mode` for the mode codes and the older-cdylib fallback.
+func label_hit_test_mode(gx: float, gy: float, mode: int) -> int:
+	if not _has("label_hit_test_mode"):
+		return label_hit_test(gx, gy)
+	return world_gen.label_hit_test_mode(gx, gy, mode)
+
+## Every selected label's index, ascending. Falls back to whatever
+## `label_get_selected()` reports against a cdylib without the set.
+func label_get_selection() -> PackedInt64Array:
+	if not _has("label_get_selection"):
+		var one := label_get_selected()
+		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
+	return world_gen.label_get_selection()
+
+func label_select_set(indices: PackedInt64Array) -> bool:
+	if not _has("label_select_set"):
+		return false
+	return world_gen.label_select_set(indices)
+
+## Selects every label; returns how many. `Edit > Select all`'s engine half.
+func label_select_all() -> int:
+	if not _has("label_select_all"):
+		return 0
+	return world_gen.label_select_all()
 
 func label_handles(index: int, zoom: float) -> Dictionary:
 	if not _has("label_handles"):
@@ -3652,17 +4197,31 @@ func project_engine_built_documents() -> Dictionary:
 ## Puts a `drafts/sculpt.json` back into the live Sculpt editor. Returns
 ## `{ok, error, stamps}`.
 ##
-## **Expect `ok == false` after opening a project**, and report the `error`
-## rather than swallowing it: the engine drops the Sculpt editor on every
-## load (`lib.rs`, the `self.sculpt = None` beside `self.icons = None`)
-## because a save carries no `river_mask`/`river_floor` for the draft's water
-## hooks to adopt. The document is still carried in the archive; it is not
-## re-applied, and the person who painted it is owed that sentence.
+## **Not the call the load path makes.** This used to carry a note saying to
+## expect `ok == false` after opening a project, because the engine dropped
+## the Sculpt editor on every load and the draft was never re-applied. That
+## was the defect, and `project_open` now restores the archive's own draft
+## itself, building the editor to hold it. What is left for this function is
+## the *import* case: a draft read out of a different file with
+## `project_read_document` and applied to the world already on screen, which
+## is why the grid mismatch is still a refusal rather than a resize.
 func sculpt_restore_document(text: String) -> Dictionary:
 	if not _has("sculpt_restore_document"):
 		return {"ok": false, "error": "sculpt_restore_document not available on this binary"}
 	sculpt_draft_changed.emit()
 	return world_gen.sculpt_restore_document(text)
+
+## Puts a `drafts/paint.json` back into the live Paint editor. Returns
+## `{ok, error, biome, terrain, splat}` -- the painted-cell count each layer
+## came back with.
+##
+## The exact mirror of `sculpt_restore_document()` above, down to which caller
+## it is for: the load path does not call it, because `project_open` applies
+## the archive's own copy. This is the import route.
+func paint_restore_document(text: String) -> Dictionary:
+	if not _has("paint_restore_document"):
+		return {"ok": false, "error": "paint_restore_document not available on this binary"}
+	return world_gen.paint_restore_document(text)
 
 ## Puts a `library/assets.json` back. Returns `{ok, error, slots, items}`.
 ## `items` is `0` on this build by design -- the record comes back, the
@@ -3962,6 +4521,39 @@ func landmark_funnels() -> Array:
 	if generating or not _has("landmark_funnels"):
 		return []
 	return world_gen.landmark_funnels()
+
+## The last `landmark_run()`'s **rejected** candidates -- every cell the pass
+## offered and did not place: `[{kind,x,y,score,reason,needs_crowding}, …]`.
+##
+## `reason` is `"score"` / `"spacing"` / `"cap"`. `needs_crowding` is the
+## smallest Crowding at which that candidate would have cleared the ring that
+## blocked it (see `landmark_bridge/rejects.rs`), and is **absent from the
+## dictionary entirely** when there is no such figure -- use `has()`, not a
+## default. *This line said `0.0` meant "does not apply" until 2026-09-03; it
+## was true of the encoding and the encoding was the bug, since `0.0` is a
+## plausible Crowding rather than an obvious sentinel and 44 of 614 spacing rows
+## on a real world carried it.*
+## Capped at the best-scoring 256 per kind -- `landmark_funnels()` still carries
+## the true totals, so "showing 256 of 39 999" needs no second call.
+##
+## **Prefer `landmark_reject_points()` for drawing.** Measured at the shipping
+## 2048x1311 default: this returns 3 216 rows in 6.0 ms, the packed form returns
+## the same positions in 0.41 ms.
+func landmark_rejects() -> Array:
+	if generating or not _has("landmark_rejects"):
+		return []
+	return world_gen.landmark_rejects()
+
+## The same rejections' positions alone, as one packed buffer -- the renderer's
+## half. `reason` is `""` for all, or one of `"score"` / `"spacing"` / `"cap"`;
+## an unrecognised string returns an empty buffer rather than everything.
+##
+## Cells, as `Vector2(x, y)` -- the space `landmarks()` reports and
+## `map_overlay.gd::_cell_to_screen` consumes.
+func landmark_reject_points(reason: String) -> PackedVector2Array:
+	if generating or not _has("landmark_reject_points"):
+		return PackedVector2Array()
+	return world_gen.landmark_reject_points(reason)
 
 ## The headroom line (`LANDMARK_UI_DESIGN.md` §4.4): `{caps_total:int,
 ## room_estimate:int, last_placed:int}`.

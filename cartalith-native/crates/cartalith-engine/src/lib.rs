@@ -815,6 +815,167 @@ pub struct WorldState {
     pub gpu_stages_used: Vec<String>,
 }
 
+// -- CPU worker threads (owner ruling, `LARGE_ITEM_RULINGS.md` "CPU worker
+// threads": "Call `ThreadPoolBuilder` at engine init with a count from
+// settings; expose a `#[func]` to read and set it") --------------------------
+//
+// Rayon builds its global pool implicitly, at whatever
+// `available_parallelism()` reports, the moment anything first calls
+// `par_iter()`/`join()`/etc. `menus.gd`'s own "CPU worker threads" TODO named
+// exactly that gap: "this port never calls ThreadPoolBuilder, so there is no
+// `#[func]` to set it and no pool init to set it at." `ensure_thread_pool`
+// below is that init; `generate_terrain_inner` calls it first, before any
+// other work.
+//
+// **The global pool can be built exactly once per process**
+// (`ThreadPoolBuilder::build_global`'s own doc: "this function may only be
+// called once"). A rebuildable *scoped* pool installed only around
+// `generate_terrain` was the alternative and was rejected: `render.rs`,
+// `sample_bridge.rs` and `bake.rs` also run `par_iter()` outside
+// `generate_terrain`'s own call graph, in files this lane does not own, and
+// would keep reading the *un*configured global pool underneath a scoped one
+// -- silently covering only part of the engine's parallel work is the exact
+// "setter that silently does nothing" failure this exists to avoid, merely
+// spread thinner and harder to notice. The global pool has no such gap:
+// every `par_iter()` anywhere in the process reads it, by construction,
+// forever after it is built.
+//
+// So `set_configured_thread_count` **records a preference, and applies it
+// immediately only if it is the call that actually builds the pool** --
+// otherwise it is inert until the next process launch, and says so. There is
+// no live "rebuild" once anything has already used the pool.
+// `thread_pool_active_count` is how a caller tells which state it is in,
+// rather than being told a change landed when it did not.
+//
+// **The first version of that return value was wrong, measured false
+// 2026-09-03**, and the shape of the mistake is worth keeping: it inferred
+// "the pool is still unbuilt" from `ACTIVE_THREADS == 0`, but only
+// `ensure_thread_pool` ever writes that counter, while *any* `par_iter()`
+// anywhere in the process builds Rayon's global pool implicitly without
+// passing through it -- `render.rs`, `sample_bridge.rs` and `bake.rs` all do,
+// outside `generate_terrain`'s call graph. In a shell that had drawn
+// anything, `set_configured_thread_count(2)` therefore found `ACTIVE_THREADS`
+// still `0`, ran `build_global()` (which returned `Err`, discarded),
+// changed nothing, and returned `true`. [`POOL_BUILT_FROM`] replaces that
+// inference with what the build actually did.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Once;
+
+/// `0` = "let Rayon pick its own default" -- the same number an untouched
+/// process always ran at before this existed, and never a value SS2.5's own
+/// "1 to the logical core count" range can produce, so it doubles safely as
+/// the "nothing configured yet" sentinel the way `DccSettings.
+/// gpu_vram_budget_gb`'s `0` = "no cap" does.
+static CONFIGURED_THREADS: AtomicUsize = AtomicUsize::new(0);
+/// The pool's real, already-built size -- `0` until [`ensure_thread_pool`]
+/// has actually run once this process, never `0` after (Rayon guarantees a
+/// built pool has at least one worker). Ground truth: what
+/// [`configured_thread_count`] asks for and what is actually running can
+/// disagree (see this section's own doc comment above), and this is the
+/// other half of that pair, not a copy of it.
+static ACTIVE_THREADS: AtomicUsize = AtomicUsize::new(0);
+/// What [`ensure_thread_pool`]'s one build actually asked Rayon for -- the
+/// [`CONFIGURED_THREADS`] value at that instant -- or `usize::MAX` for **"the
+/// running pool is not ours"**, which is what `build_global()` returning
+/// `Err` means: something else (any implicit `par_iter()`) had already built
+/// the global pool, so nothing this crate asked for is in effect.
+///
+/// `usize::MAX` is safe as that marker because it is not a value any request
+/// can carry: [`set_configured_thread_count`] clamps every request to
+/// `0..=logical_core_count()` before storing it.
+///
+/// This is the third distinct number in this section and not a duplicate of
+/// either: [`CONFIGURED_THREADS`] is what is wanted *next*,
+/// [`ACTIVE_THREADS`] is how many workers are running, and this is what the
+/// build was told to do -- the only one of the three that can answer "did my
+/// request take effect" without inferring it.
+static POOL_BUILT_FROM: AtomicUsize = AtomicUsize::new(usize::MAX);
+static POOL_INIT: Once = Once::new();
+
+/// Logical cores this machine reports -- the same `available_parallelism()`
+/// call `cartalith_godot::render::recommended_quality_tier` already makes,
+/// exposed here too because [`set_configured_thread_count`] needs it to
+/// clamp into SS2.5's "1 to the logical core count" range, and a settings UI
+/// needs it to lay out a ladder (its own quarter/half/all rungs) without a
+/// second source for the same number.
+#[must_use]
+pub fn logical_core_count() -> usize {
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+}
+
+/// **Engine init.** Builds Rayon's global pool sized from
+/// [`CONFIGURED_THREADS`] -- called at the top of `generate_terrain_inner`,
+/// the one function every generation reaches, and of `cartalith_godot::
+/// WorldGen::load_save` (a real top-level entry point that never calls
+/// `generate_terrain` -- loading replaces the world by decoding a save
+/// instead of generating one, but can still reach `par_iter()` downstream,
+/// e.g. via a texture rebuild, so it needs this too). `pub` so any other
+/// entry point this crate does not know about can call it defensively;
+/// idempotent by construction (`Once`), so doing so always costs at most one
+/// atomic check. A second call, from any thread, does nothing, and a
+/// concurrent first call from another thread blocks on this one rather than
+/// racing it.
+pub fn ensure_thread_pool() {
+    POOL_INIT.call_once(|| {
+        let want = CONFIGURED_THREADS.load(Ordering::Relaxed);
+        let mut b = rayon::ThreadPoolBuilder::new();
+        if want > 0 {
+            b = b.num_threads(want);
+        }
+        // `Err` whenever the global pool already exists -- which is the
+        // ordinary case in the Godot shell, not an exotic one: an implicit
+        // `par_iter()` in `render.rs`/`sample_bridge.rs`/`bake.rs` builds it
+        // at Rayon's own default long before any settings row is opened. The
+        // `Result` **is** needed, and discarding it is what let
+        // `set_configured_thread_count` claim a count it never applied.
+        POOL_BUILT_FROM
+            .store(if b.build_global().is_ok() { want } else { usize::MAX }, Ordering::Relaxed);
+        ACTIVE_THREADS.store(rayon::current_num_threads(), Ordering::Relaxed);
+    });
+}
+
+/// The preference [`ensure_thread_pool`] will build with, or already built
+/// with -- `0` for "follow Rayon's own default". Exactly what was last
+/// stored by [`set_configured_thread_count`], which does the clamping; this
+/// does not re-clamp, so it always answers what that call actually set.
+#[must_use]
+pub fn configured_thread_count() -> usize {
+    CONFIGURED_THREADS.load(Ordering::Relaxed)
+}
+
+/// Record the preferred worker count, clamped to `0..=logical_core_count()`
+/// (`0` = auto). The preference is **always** stored, whatever the return
+/// value: a caller persisting it for the next launch reads
+/// [`configured_thread_count`] back and gets exactly what it asked for.
+///
+/// Returns whether **the pool this process is actually running is the one
+/// this request asked for** -- `true` only when this call built it (or an
+/// earlier call built it from the identical request), `false` when anything
+/// else got there first, including the implicit build any `par_iter()`
+/// performs. `false` therefore means "recorded; takes effect at next start",
+/// and it is the honest answer in every already-warm process. See this
+/// section's own doc comment above for why a live rebuild is not offered, and
+/// for the measured false-`true` this replaces.
+pub fn set_configured_thread_count(threads: usize) -> bool {
+    let clamped = if threads == 0 { 0 } else { threads.min(logical_core_count()) };
+    CONFIGURED_THREADS.store(clamped, Ordering::Relaxed);
+    ensure_thread_pool();
+    // Not `ACTIVE_THREADS == clamped`, which would answer `true` for a
+    // request that merely *coincides* with a pool somebody else built, and
+    // could not describe `0` (auto) at all.
+    POOL_BUILT_FROM.load(Ordering::Relaxed) == clamped
+}
+
+/// What Rayon's global pool is **actually** running with this process --
+/// `0` before [`ensure_thread_pool`] has run for the first time (no
+/// generation and no [`set_configured_thread_count`] call yet this process),
+/// never `0` after.
+#[must_use]
+pub fn thread_pool_active_count() -> usize {
+    ACTIVE_THREADS.load(Ordering::Relaxed)
+}
+
 /// Runs the full ported pipeline once, from a seed to (when
 /// `p.carve_rivers`, the JS default) carved river valleys. See the module
 /// doc comment for the exact JS functions this mirrors and what's
@@ -831,6 +992,11 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 /// exists so that "the skip changes nothing" is a proof this crate can run
 /// rather than an argument in a comment.
 fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
+    // **Engine init** -- see this module's "CPU worker threads" section
+    // above. Must run before any `par_iter()` this function (or anything it
+    // calls) reaches; a no-op after the first call this process.
+    ensure_thread_pool();
+
     // `progress.rs`'s own doc comment carries the full banner->stage mapping
     // every `progress::advance` call below encodes. `begin_run` resets the
     // counter to stage 0 (Planet); Planet and Extent & scale both tick
@@ -2275,6 +2441,65 @@ mod tests {
         assert!(ws.stream_order.is_some());
     }
 
+    /// A thread count must never move a golden -- the CPU worker-thread
+    /// lane's own hard constraint. Independent, disposable *scoped* pools
+    /// (not the global one `ensure_thread_pool` builds) so two genuinely
+    /// different worker counts can be compared within one test process
+    /// without fighting Rayon's "global pool builds exactly once" rule.
+    /// Every `par_iter()` this pipeline reaches must already be
+    /// order-independent of its worker count (`cartalith-civ`'s
+    /// indexed-collection comment at its own `par_iter().collect()` sites is
+    /// why) -- this checks that claim directly against a live generation
+    /// rather than trusting the comment.
+    #[test]
+    fn thread_count_does_not_change_generated_output() {
+        let p = WorldParams::defaults(24, 18, 909);
+        // Warm the global pool outside any scoped `install()` first.
+        // `ensure_thread_pool` reads `rayon::current_num_threads()`, which
+        // reports whichever pool is "current" -- triggering its one-shot
+        // `Once` from inside a scoped `install()` below would wrongly record
+        // that pool's size as the *global* one for the rest of this test
+        // binary. This guarantees the `Once` has already fired against the
+        // real global pool before the comparison runs.
+        let _ = generate_terrain(&p);
+
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("1-thread pool");
+        let many = rayon::ThreadPoolBuilder::new().num_threads(4).build().expect("4-thread pool");
+        let a = one.install(|| generate_terrain(&p));
+        let b = many.install(|| generate_terrain(&p));
+        assert_eq!(a.field, b.field, "generation must be identical regardless of the Rayon pool's worker count");
+    }
+
+    /// `ensure_thread_pool` is called from `generate_terrain_inner` before
+    /// any other work (see this module's "CPU worker threads" section) --
+    /// reverting that call leaves `ACTIVE_THREADS` at its `0` initial value
+    /// forever, since nothing else in this crate writes it. Order-independent
+    /// against the rest of this test binary: once built, the pool stays
+    /// built for the process, so an earlier test having already triggered
+    /// this only makes the assertion trivially still true.
+    #[test]
+    fn generate_terrain_builds_the_thread_pool() {
+        let p = WorldParams::defaults(8, 8, 1);
+        let _ = generate_terrain(&p);
+        assert!(thread_pool_active_count() > 0, "the global pool must be built by the time a generation returns");
+    }
+
+    /// SS2.5's own range, "an integer from 1 to the logical core count", plus
+    /// the `0` = auto sentinel this port adds. Reads back exactly what was
+    /// clamped, independent of pool-build state or of what any other test in
+    /// this binary has done to it.
+    #[test]
+    fn set_configured_thread_count_clamps_into_the_logical_range() {
+        set_configured_thread_count(0);
+        assert_eq!(configured_thread_count(), 0, "0 must read back as 0 (auto), not resolve to a core count");
+        let cores = logical_core_count();
+        assert!(cores >= 1);
+        set_configured_thread_count(usize::MAX);
+        assert_eq!(configured_thread_count(), cores, "an over-range request must clamp to the logical core count");
+        set_configured_thread_count(1);
+        assert_eq!(configured_thread_count(), 1);
+    }
+
     /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: the GPU path (when
     /// available on this machine) is internally deterministic and produces
     /// statistically sane terrain -- NOT checked against the CPU/JS
@@ -2380,27 +2605,57 @@ mod tests {
     /// since it's a timing report, not a correctness check, and full
     /// 2048x2048 CPU pipeline runs are slow enough to not want in the
     /// default `cargo test` loop.
+    ///
+    /// **Now a median of [`TIMING_ROUNDS`] per size, with the spread printed.**
+    /// `OUTSTANDING_WORK.md` §2.6: *"the 2048² ratio moved 1.19x -> 0.98x with
+    /// no code change, so single-run variance is currently indistinguishable
+    /// from a result."* It was -- and worse than that row knew. While §2.6's
+    /// GPU rows were being answered, one `gpu_height` dispatch at 2048²
+    /// measured anywhere from 38 ms to 78 ms across runs of the same binary,
+    /// and taking medians *reversed the sign* of one conclusion drawn from
+    /// single samples. A lone `Instant::now()` pair here reports noise with
+    /// the confidence of a result. The min/max are printed beside the median
+    /// so a reader can see how much to trust it, rather than being handed one
+    /// number with no spread.
     #[test]
     #[ignore]
     fn measured_generate_terrain_gpu_vs_cpu_timing() {
+        /// Odd, so the median is a real sample and not an average of two.
+        const TIMING_ROUNDS: usize = 3;
+
+        /// Median, min and max of `TIMING_ROUNDS` runs of `f`, plus its last
+        /// value (the `WorldState`, for `gpu_stages_used`).
+        fn timed<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, std::time::Duration, std::time::Duration, T) {
+            let mut times = Vec::with_capacity(TIMING_ROUNDS);
+            let mut last = None;
+            for _ in 0..TIMING_ROUNDS {
+                let t0 = std::time::Instant::now();
+                let v = f();
+                times.push(t0.elapsed());
+                last = Some(v);
+            }
+            times.sort_unstable();
+            (times[TIMING_ROUNDS / 2], times[0], times[TIMING_ROUNDS - 1], last.expect("TIMING_ROUNDS is non-zero"))
+        }
+
         for &sz in &[128usize, 512, 1024, 2048] {
             let mut p_gpu = WorldParams::defaults(sz, sz, 24601);
             p_gpu.use_gpu = true;
             let p_cpu = WorldParams::defaults(sz, sz, 24601);
 
-            let t0 = std::time::Instant::now();
-            let ws_gpu = generate_terrain(&p_gpu);
-            let gpu_time = t0.elapsed();
-
-            let t1 = std::time::Instant::now();
-            let _ws_cpu = generate_terrain(&p_cpu);
-            let cpu_time = t1.elapsed();
+            let (gpu_time, gpu_min, gpu_max, ws_gpu) = timed(|| generate_terrain(&p_gpu));
+            let (cpu_time, cpu_min, cpu_max, _ws_cpu) = timed(|| generate_terrain(&p_cpu));
 
             eprintln!(
-                "generate_terrain {sz}x{sz}: use_gpu=true = {:?} (stages actually on GPU: {:?}), use_gpu=false = {:?}, ratio (CPU/GPU) = {:.2}x",
+                "generate_terrain {sz}x{sz} (median of {TIMING_ROUNDS}): use_gpu=true = {:?} [{:?}..{:?}] \
+                 (stages actually on GPU: {:?}), use_gpu=false = {:?} [{:?}..{:?}], ratio (CPU/GPU) = {:.2}x",
                 gpu_time,
+                gpu_min,
+                gpu_max,
                 ws_gpu.gpu_stages_used,
                 cpu_time,
+                cpu_min,
+                cpu_max,
                 cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
             );
         }

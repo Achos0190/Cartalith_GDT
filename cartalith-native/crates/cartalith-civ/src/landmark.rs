@@ -532,6 +532,119 @@ impl LandmarkFunnel {
 }
 
 // ===========================================================================
+// Rejected candidates — the funnel's coordinates
+// ===========================================================================
+
+/// Why a candidate that reached the ranked walk did not become a placement.
+///
+/// **Three, not four.** [`LandmarkFunnel::rejected_constraint`] has no member
+/// here and deliberately never will: that bucket is counted per *scanned cell*
+/// inside each detector, so its "reason" is "this cell is not a waterfall" and
+/// its population is the land raster. Measured at the shell's default
+/// 2048×1311 it runs to millions — see [`LandmarkReject`]'s own note. The
+/// three below are the ones the ranked walk sees, and they are exactly the
+/// ones where the answer is actionable: raise the cap, change the spacing, or
+/// lower the floor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LandmarkRejectReason {
+    /// Scored below [`SCORE_FLOOR`]. With the shipped floor of `0.0` this is
+    /// unreachable by construction — kept because the floor is the one knob a
+    /// calibration pass would turn, and a reason that appears the day it moves
+    /// is better than one added then.
+    Score,
+    /// Fell inside a placed landmark's exclusion radius (§16). The one reason
+    /// that carries [`LandmarkReject::needs_crowding`].
+    Spacing,
+    /// Passed every constraint and every spacing test, and the cap ran out
+    /// first — [`LandmarkFunnel::rejected_cap`]'s own meaning. **These are the
+    /// rows that say "you got what you asked for"**, not that anything was
+    /// found wanting.
+    Cap,
+}
+
+impl LandmarkRejectReason {
+    /// The machine key, on the same wire-format-not-wording rule
+    /// [`LandmarkLimit::as_str`] states at length: the shell owns the words.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LandmarkRejectReason::Score => "score",
+            LandmarkRejectReason::Spacing => "spacing",
+            LandmarkRejectReason::Cap => "cap",
+        }
+    }
+}
+
+/// One candidate the pass offered and did not place: **where it is, and why it
+/// lost**.
+///
+/// `LARGE_ITEM_RULINGS.md`'s Landmark-funnel row asks for "a rejected-candidate
+/// coordinate list". A coordinate alone would be a worse diagnostic than the
+/// scalar it supplements — a dot that cannot say why it is a dot — so every row
+/// carries its [`reason`](Self::reason), and a spacing rejection additionally
+/// carries the number that would undo it.
+///
+/// ## Why the list is capped, and why that is not a compromise
+///
+/// [`REJECT_LIST_MAX_PER_KIND`] bounds the rows retained per kind. Two reasons,
+/// and the first is a measured hazard rather than a tidiness argument:
+///
+/// 1. **This list crosses the gdext boundary.** Without `experimental-threads`
+///    every `Dictionary`/`Array`/`GString` operation routes through
+///    `ensure_main_thread()`, and a per-candidate payload marshalled from a
+///    worker is precisely the shape that froze this app once already (the POI
+///    pass, 4.14 s → 0.39 s once the payload was made primitive). `rejected_cap`
+///    is unbounded by construction — set a cap of 1 on a kind with 40 000
+///    candidates and 39 999 of them are "rejected by the cap" — so an unbounded
+///    list is a freeze waiting for one slider drag.
+/// 2. **The walk is score-sorted**, so retaining the *first* N per kind retains
+///    the N best-scoring near-misses. Those are the ones the question is about;
+///    the ten-thousandth-ranked cliff is not a fact anybody wants drawn.
+///
+/// Nothing is hidden by the cap: [`LandmarkFunnel`]'s counters are unchanged and
+/// still carry the true totals, so a caller can always say "showing 256 of
+/// 39 999" from data it already has. That is why no `truncated` field was added
+/// here — it would be a third copy of a number the funnel already owns.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LandmarkReject {
+    /// [`LandmarkKindSpec::key`]. A `&'static str` rather than the `String`
+    /// [`Landmark::kind`] and [`LandmarkFunnel::kind`] use, on purpose: those
+    /// are one row per *placement* and one per *kind*, this is one row per
+    /// *rejected candidate*, and a heap allocation per row is a cost the other
+    /// two do not pay. The keys are `'static` in [`kinds`] already.
+    pub kind: &'static str,
+    /// Grid cell, the same space [`Landmark::x`]/[`Landmark::y`] use — the
+    /// overlay must draw these with `_cell_to_screen`, not `_point_to_screen`.
+    pub x: usize,
+    pub y: usize,
+    /// The §17 suitability this candidate scored, `0..1`. Comparable with
+    /// [`Landmark::score`] within a kind, which is what makes "it was nearly
+    /// good enough" a statement rather than a feeling.
+    pub score: f64,
+    pub reason: LandmarkRejectReason,
+    /// **The smallest [`LandmarkSettings::crowding`] at which this candidate
+    /// would have cleared the ring that blocked it.** `None` for every reason
+    /// but [`LandmarkRejectReason::Spacing`], and `None` when the blocking
+    /// landmark sits on this very cell, where no finite crowding helps.
+    ///
+    /// Higher crowding packs *tighter* (the radius is divided by it), so this
+    /// is always greater than the crowding in force. It may exceed
+    /// `crowding`'s own `3.0` ceiling, and is deliberately **not** clamped to
+    /// it: a value of `7.4` is the honest answer "not at any setting", and
+    /// clamping would turn that into the false answer "set it to 3".
+    pub needs_crowding: Option<f64>,
+}
+
+/// How many rejected candidates are retained per kind, best-scoring first.
+///
+/// **Category C** — an engineering bound, not a modelling one. Sized so that
+/// all 20 buildable kinds together stay in the low thousands of rows: enough
+/// that a map at fit zoom shows the shape of the competition, few enough that
+/// the boundary crossing stays in the sub-millisecond band the measurement in
+/// [`LandmarkReject`]'s note is about. See that note for why a bound exists at
+/// all.
+pub const REJECT_LIST_MAX_PER_KIND: usize = 256;
+
+// ===========================================================================
 // Settings — the cap table
 // ===========================================================================
 
@@ -641,18 +754,28 @@ impl LandmarkSettings {
         self.armed.insert(key.to_string(), armed);
     }
 
-    /// The exclusion radius in km for one class, after Crowding.
+    /// [`crowding`](Self::crowding) exactly as [`radius_km`](Self::radius_km)
+    /// applies it: clamped to `[0.05, 3.0]`, and `1.0` for a non-finite value.
     ///
-    /// `crowding` is clamped to `[0.05, 3.0]` before dividing: a literal zero
-    /// would send the radius to infinity and take the whole map with it, and
-    /// `NaN` from a mis-parsed settings blob would collapse the spacing bucket
-    /// grid — the exact hazard reference v1.27 hardened `ScatterRule::spacing`
-    /// against.
+    /// A literal zero would send the radius to infinity and take the whole map
+    /// with it, and `NaN` from a mis-parsed settings blob would collapse the
+    /// spacing bucket grid — the exact hazard reference v1.27 hardened
+    /// `ScatterRule::spacing` against.
+    ///
+    /// Public, and one copy, because [`LandmarkReject::needs_crowding`] has to
+    /// answer "what would this have to be" against the value that was actually
+    /// in force. A second clamp there could disagree with this one, and a
+    /// diagnostic that disagrees with the pass it is diagnosing is worse than
+    /// none.
+    pub fn crowding_in_force(&self) -> f64 {
+        if self.crowding.is_finite() { self.crowding.clamp(0.05, 3.0) } else { 1.0 }
+    }
+
+    /// The exclusion radius in km for one class, after Crowding.
     pub fn radius_km(&self, class: LandmarkClass) -> f64 {
         let base = self.class_radius_km[class.index()];
         let base = if base.is_finite() && base > 0.0 { base } else { 0.0 };
-        let c = if self.crowding.is_finite() { self.crowding.clamp(0.05, 3.0) } else { 1.0 };
-        base / c
+        base / self.crowding_in_force()
     }
 }
 
@@ -668,6 +791,11 @@ pub struct LandmarkResult {
     /// walk its rows and this list together. Kinds that were never run carry
     /// zeros and the reason.
     pub funnels: Vec<LandmarkFunnel>,
+    /// The candidates this run offered and did not place, in the order the
+    /// ranked walk met them — so within a kind, best-scoring first. Capped per
+    /// kind at [`REJECT_LIST_MAX_PER_KIND`]; [`funnels`](Self::funnels) keeps
+    /// the true totals. See [`LandmarkReject`] for why both exist.
+    pub rejects: Vec<LandmarkReject>,
     /// Wall-clock seconds, for the `LAST RUN` note.
     pub seconds: f64,
 }
@@ -1455,6 +1583,52 @@ impl Buckets {
             }
         }
         true
+    }
+
+    /// The squared distance, in cells, to the **nearest** placed point inside
+    /// `r` — `None` when nothing is, which is the same answer [`fits`](Self::
+    /// fits) gives as `true`.
+    ///
+    /// Called only for a candidate [`fits`](Self::fits) has already turned
+    /// away, so it is off the hot path by construction: it exists to answer
+    /// *how close* the blocker was, which is the whole of
+    /// [`LandmarkReject::needs_crowding`]. `fits` keeps its early return
+    /// precisely because this one cannot have it — "is there a conflict" can
+    /// stop at the first, "which conflict is nearest" cannot.
+    fn nearest_conflict_sq(&self, x: f64, y: f64, r: f64) -> Option<f64> {
+        let r = if r.is_finite() && r > 0.0 { r } else { 0.0 };
+        if r == 0.0 {
+            return None;
+        }
+        let bx = (x / self.cell) as i64;
+        let by = (y / self.cell) as i64;
+        let mut best: Option<f64> = None;
+        for dy in -1..=1i64 {
+            for dx in -1..=1i64 {
+                let ny = by + dy;
+                if ny < 0 || ny as usize >= self.bh {
+                    continue;
+                }
+                let mut nx = bx + dx;
+                if self.world {
+                    nx = nx.rem_euclid(self.bw as i64);
+                } else if nx < 0 || nx as usize >= self.bw {
+                    continue;
+                }
+                for &(qx, qy) in &self.b[ny as usize * self.bw + nx as usize] {
+                    let ddx = self.dx(qx, x);
+                    let ddy = qy - y;
+                    let d2 = ddx * ddx + ddy * ddy;
+                    // `!(d2 >= r * r)` rather than `d2 < r * r`: a NaN
+                    // coordinate must be rejected here the way it is in
+                    // `fits`, not silently accepted as "far away".
+                    if !(d2 >= r * r) && !best.is_some_and(|b| b <= d2) {
+                        best = Some(d2);
+                    }
+                }
+            }
+        }
+        best
     }
 
     fn take(&mut self, x: f64, y: f64) {
@@ -3136,6 +3310,11 @@ fn skipped_limit(spec: &LandmarkKindSpec, settings: &LandmarkSettings) -> Landma
 fn all_skipped(settings: &LandmarkSettings, t0: std::time::Instant) -> LandmarkResult {
     LandmarkResult {
         landmarks: Vec::new(),
+        // Nothing was walked, so nothing was rejected on the walk. A kind
+        // skipped here is `NoTerrain`/`Disarmed`/`NotBuildable`, which the
+        // funnel already says; inventing reject rows for it would be this list
+        // claiming candidates that were never offered.
+        rejects: Vec::new(),
         funnels: kinds()
             .iter()
             .map(|k| {
@@ -3222,6 +3401,11 @@ pub fn generate(
     let mut shared = Buckets::new(inputs.gw, inputs.gh, inputs.world, max_radius);
     let mut funnels: BTreeMap<&'static str, LandmarkFunnel> = BTreeMap::new();
     let mut out: Vec<Landmark> = Vec::new();
+    let mut rejects: Vec<LandmarkReject> = Vec::new();
+    // The crowding actually in force, read once. `needs_crowding` is a ratio
+    // against this, and reading it from the same accessor `radius_km` uses is
+    // what stops the two disagreeing.
+    let crowding = settings.crowding_in_force();
 
     for spec in order {
         let cap = settings.cap(spec.key) as usize;
@@ -3261,6 +3445,9 @@ pub fn generate(
         let mut rejected_spacing = 0usize;
         let mut placed = 0usize;
         let mut walked = 0usize;
+        // Retained rows for THIS kind, so one prolific kind cannot spend the
+        // whole budget. See `REJECT_LIST_MAX_PER_KIND`.
+        let mut listed = 0usize;
         while walked < ord.len() {
             if placed >= cap {
                 break;
@@ -3269,6 +3456,18 @@ pub fn generate(
             walked += 1;
             if scores[ci] < SCORE_FLOOR {
                 rejected_score += 1;
+                if listed < REJECT_LIST_MAX_PER_KIND {
+                    listed += 1;
+                    let c = &pool.cands[ci];
+                    rejects.push(LandmarkReject {
+                        kind: spec.key,
+                        x: c.x,
+                        y: c.y,
+                        score: scores[ci],
+                        reason: LandmarkRejectReason::Score,
+                        needs_crowding: None,
+                    });
+                }
                 continue;
             }
             let cand = &pool.cands[ci];
@@ -3279,6 +3478,28 @@ pub fn generate(
             };
             if !fits {
                 rejected_spacing += 1;
+                if listed < REJECT_LIST_MAX_PER_KIND {
+                    listed += 1;
+                    // `d < r` by construction — `fits` said so — and the ring
+                    // scales as `base / crowding`, so it clears at
+                    // `crowding * r / d`. Guarded on `d > 0`: a blocker on this
+                    // very cell is not reachable by any finite setting, and
+                    // saying `None` there is the honest answer.
+                    let d = match &own {
+                        Some(b) => b.nearest_conflict_sq(fx, fy, r),
+                        None => shared.nearest_conflict_sq(fx, fy, r),
+                    }
+                    .map(f64::sqrt);
+                    let needs = d.filter(|d| *d > 0.0).map(|d| crowding * r / d).filter(|v| v.is_finite());
+                    rejects.push(LandmarkReject {
+                        kind: spec.key,
+                        x: cand.x,
+                        y: cand.y,
+                        score: scores[ci],
+                        reason: LandmarkRejectReason::Spacing,
+                        needs_crowding: needs,
+                    });
+                }
                 continue;
             }
             match &mut own {
@@ -3311,6 +3532,29 @@ pub fn generate(
         // candidates passed every test the generator applies; the only thing
         // that stopped them is the number the user set.
         let rejected_cap = ord.len() - walked;
+        // The best-scoring of them, and only the best-scoring: `ord` is
+        // score-sorted, so this is the head of the queue the cap cut off. The
+        // tail is unbounded (a cap of 1 on a 40 000-candidate kind rejects
+        // 39 999 here) and is exactly the payload `LandmarkReject`'s note is
+        // about, so it is never materialised at all — not built and then
+        // truncated.
+        //
+        // These rows are NOT a claim that the candidate would have been placed.
+        // The walk stopped, so nothing tested them against the spacing field a
+        // higher cap would have grown; several of them would collide with each
+        // other. They are "the next in line", which is what the cap bucket
+        // means and all it means.
+        for &ci in ord[walked..].iter().take(REJECT_LIST_MAX_PER_KIND.saturating_sub(listed)) {
+            let c = &pool.cands[ci];
+            rejects.push(LandmarkReject {
+                kind: spec.key,
+                x: c.x,
+                y: c.y,
+                score: scores[ci],
+                reason: LandmarkRejectReason::Cap,
+                needs_crowding: None,
+            });
+        }
 
         let limit = if candidates == 0 {
             LandmarkLimit::NoTerrain
@@ -3367,6 +3611,7 @@ pub fn generate(
             })
             .collect(),
         landmarks: out,
+        rejects,
         seconds: t0.elapsed().as_secs_f64(),
     }
 }
@@ -3709,8 +3954,13 @@ mod tests {
     /// module's hand-shaped fixture.
     ///
     /// `compute_civilisation` (`cartalith-godot/src/lib.rs`) is a private
-    /// function in a cdylib, so its call sequence is reproduced here, the same
-    /// way `examples/_peakaudit_peak.rs` already reproduces it.
+    /// function in a cdylib, so its call sequence is reproduced here.
+    ///
+    /// *This cited `examples/_peakaudit_peak.rs` as a second place doing the
+    /// same thing until 2026-09-03, when that probe and its two siblings were
+    /// deleted with the memory audit they were built for. This is now the only
+    /// reproduction of that sequence, which is worth knowing before editing
+    /// it: nothing else will disagree with you if it drifts.*
     struct RealWorld {
         gw: usize,
         gh: usize,
@@ -4715,6 +4965,7 @@ mod tests {
         let b = generate(&inp, &s, 999);
         assert_eq!(a.landmarks, b.landmarks, "landmark list is not reproducible");
         assert_eq!(a.funnels, b.funnels, "funnels are not reproducible");
+        assert_eq!(a.rejects, b.rejects, "the rejected-candidate list is not reproducible");
         assert!(!a.landmarks.is_empty());
     }
 
@@ -4933,6 +5184,223 @@ mod tests {
         assert_eq!(b.rejected_spacing, 0);
         assert_eq!(b.limit, LandmarkLimit::Candidates);
         assert!(b.closes());
+    }
+
+    // -- the rejected-candidate list (`LARGE_ITEM_RULINGS.md`, second half) --
+
+    /// The list is a partition of the funnel, not a second opinion on it: as
+    /// long as no kind hits [`REJECT_LIST_MAX_PER_KIND`], the rows per kind per
+    /// reason must equal that kind's own three walk counters exactly.
+    ///
+    /// This is the assertion that makes the overlay trustworthy. A dot the
+    /// funnel does not count, or a count with no dot, is the drift the whole
+    /// `LandmarkStore`-lives-in-the-crate argument exists to prevent.
+    #[test]
+    fn every_reject_is_counted_by_the_funnel_and_every_count_has_its_rejects() {
+        let w = world(192, 144, 1000.0);
+        let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
+        let inp = inputs(&w, &res);
+        let r = generate(&inp, &LandmarkSettings::default(), 7);
+        assert!(!r.rejects.is_empty(), "a world this size rejected nothing at all");
+        for f in &r.funnels {
+            let mut n = [0usize; 3];
+            for e in r.rejects.iter().filter(|e| e.kind == f.kind) {
+                n[match e.reason {
+                    LandmarkRejectReason::Score => 0,
+                    LandmarkRejectReason::Spacing => 1,
+                    LandmarkRejectReason::Cap => 2,
+                }] += 1;
+            }
+            let listed: usize = n.iter().sum();
+            let total = f.rejected_score + f.rejected_spacing + f.rejected_cap;
+            if total > REJECT_LIST_MAX_PER_KIND {
+                assert_eq!(listed, REJECT_LIST_MAX_PER_KIND, "{} over-listed", f.kind);
+                continue;
+            }
+            assert_eq!(
+                (n[0], n[1], n[2]),
+                (f.rejected_score, f.rejected_spacing, f.rejected_cap),
+                "{}'s rejects disagree with its funnel",
+                f.kind
+            );
+        }
+        // Every row is a real cell of this grid, and carries a real key.
+        for e in &r.rejects {
+            assert!(e.x < inp.gw && e.y < inp.gh, "{:?} is off the grid", e);
+            assert!(kind_spec(e.kind).is_some(), "{} is not a landmark kind", e.kind);
+            assert!(e.score.is_finite(), "{:?} scored a non-finite value", e);
+            assert!(
+                e.needs_crowding.is_none() || e.reason == LandmarkRejectReason::Spacing,
+                "{:?} carries a crowding figure it cannot have earned",
+                e
+            );
+        }
+        // A placed landmark is never also a reject — the walk `continue`s past
+        // every rejection, so a cell cannot be in both lists for one kind.
+        for lm in &r.landmarks {
+            assert!(
+                !r.rejects.iter().any(|e| e.kind == lm.kind && e.x == lm.x && e.y == lm.y),
+                "{} at ({}, {}) is both placed and rejected",
+                lm.kind,
+                lm.x,
+                lm.y
+            );
+        }
+    }
+
+    /// **The number the `Lower crowding to fit` chip is owed.**
+    ///
+    /// `two_cones` puts two Regional peaks 16 cells apart at 2 km per cell — 32
+    /// km, inside the 34 km a Regional landmark keeps clear at `crowding 1.0`.
+    /// The radius is 17 cells and the gap is 16, so the exact multiplier that
+    /// clears it is `1.0 × 17 / 16 = 1.0625`, and the test brackets it: at that
+    /// figure both cones are placed, and one per cent below it they are not.
+    ///
+    /// The bracket is the point. An arithmetic slip — the un-clamped crowding,
+    /// the wrong radius, a `d` from the first conflict found rather than the
+    /// nearest — still produces a plausible-looking float, and only a test that
+    /// *uses* the number catches that.
+    ///
+    /// It is asserted **from two different starting crowdings**, and that is
+    /// not belt-and-braces. The answer is an absolute setting, not a delta, so
+    /// `1.0625` must come back from a run at `1.0` and from a run at `0.8`
+    /// alike — and at `1.0` the `crowding *` factor is invisible, since
+    /// multiplying by one changes nothing. A version that forgot the factor
+    /// entirely would pass a single-crowding test and fail this one.
+    #[test]
+    fn a_spacing_reject_says_the_exact_crowding_that_would_have_fitted_it() {
+        let (f, gw, gh, width) = two_cones();
+        let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
+        inp.peak_m = PEAK_M;
+        for from in [1.0f64, 0.8, 0.5] {
+            let base = LandmarkSettings { crowding: from, ..only_peaks(5) };
+            let r = generate(&inp, &base, 1);
+            let e = r
+                .rejects
+                .iter()
+                .find(|e| e.kind == "peak" && e.reason == LandmarkRejectReason::Spacing)
+                .unwrap_or_else(|| panic!("no spacing reject from crowding {}", from));
+            assert_eq!((e.x, e.y), (32, 24), "the wrong cone was listed");
+            let needs = e.needs_crowding.expect("a spacing reject owes a crowding figure");
+            assert!(
+                (needs - 17.0 / 16.0).abs() < 1e-9,
+                "17 cells of radius over a 16-cell gap is 1.0625, not {} (from {})",
+                needs,
+                from
+            );
+            let at = generate(&inp, &LandmarkSettings { crowding: needs, ..only_peaks(5) }, 1);
+            assert_eq!(at.placed("peak"), 2, "the stated crowding did not fit it after all");
+            let below =
+                generate(&inp, &LandmarkSettings { crowding: needs * 0.99, ..only_peaks(5) }, 1);
+            assert_eq!(below.placed("peak"), 1, "one per cent below fitted it anyway");
+        }
+    }
+
+    /// A blocker on the candidate's own cell has no finite answer, and saying
+    /// so beats reporting an infinity. Cross-type competition puts a Regional
+    /// peak and a Local rock formation in one field, so a Local candidate can
+    /// land on a cell a Regional landmark already holds.
+    #[test]
+    fn needs_crowding_is_finite_or_absent_never_an_infinity() {
+        let w = world(192, 144, 1000.0);
+        let inp = inputs(&w, &[]);
+        for crowding in [0.05, 1.0, 3.0, 0.0, f64::NAN] {
+            let r = generate(&inp, &LandmarkSettings { crowding, ..Default::default() }, 3);
+            for e in &r.rejects {
+                if let Some(v) = e.needs_crowding {
+                    assert!(v.is_finite() && v > 0.0, "{:?} at crowding {}", e, crowding);
+                }
+            }
+        }
+    }
+
+    /// The bound exists so one slider drag cannot marshal 40 000 rows across
+    /// the gdext boundary. A cap of 1 on a kind with hundreds of candidates is
+    /// exactly that drag, and the funnel must still report the true total.
+    #[test]
+    fn the_reject_list_is_capped_per_kind_while_the_funnel_keeps_the_truth() {
+        let w = world(512, 384, 1000.0);
+        let inp = inputs(&w, &[]);
+        // The most prolific kind on this fixture, found rather than guessed —
+        // which kind that is depends on the terrain `test_field` happens to
+        // make, and pinning one by name is how this test would rot.
+        let survey = generate(&inp, &LandmarkSettings::default(), 5);
+        let key = survey
+            .funnels
+            .iter()
+            .max_by_key(|f| f.candidates - f.rejected_constraint)
+            .map(|f| f.kind.clone())
+            .expect("kinds() is not empty");
+        let mut s = LandmarkSettings::default();
+        for k in kinds() {
+            s.set_armed(k.key, k.key == key);
+        }
+        s.set_cap(&key, 1);
+        let r = generate(&inp, &s, 5);
+        let f = r.funnel(&key).unwrap();
+        assert!(
+            f.rejected_cap > REJECT_LIST_MAX_PER_KIND,
+            "fixture too small to reach the bound: {:?}",
+            f
+        );
+        assert_eq!(
+            r.rejects.len(),
+            REJECT_LIST_MAX_PER_KIND,
+            "the list must stop at the bound, not at the funnel's own total"
+        );
+        assert!(f.closes(), "capping the list must not touch the counters");
+        // Score-sorted, so what survives the bound is the head of the queue —
+        // the near-misses, not an arbitrary slice.
+        let placed = r.landmarks.iter().find(|l| l.kind == key).unwrap().score;
+        for e in &r.rejects {
+            assert!(!(e.score > placed), "a reject out-scored the placement: {:?}", e);
+        }
+        for pair in r.rejects.windows(2) {
+            assert!(!(pair[1].score > pair[0].score), "the retained head is not ranked");
+        }
+    }
+
+    /// `nearest_conflict_sq` must agree with `fits` on the question `fits`
+    /// answers, or `needs_crowding` is measured against a ring the pass never
+    /// applied. Asserted directly on `Buckets`, since the disagreement would be
+    /// invisible in a placement count.
+    #[test]
+    fn nearest_conflict_agrees_with_fits_and_finds_the_nearest() {
+        for world_wrap in [false, true] {
+            let mut b = Buckets::new(64, 48, world_wrap, 10.0);
+            b.take(20.0, 20.0);
+            b.take(26.0, 20.0);
+            // Outside both: fits, and no conflict.
+            assert!(b.fits(50.0, 40.0, 5.0));
+            assert_eq!(b.nearest_conflict_sq(50.0, 40.0, 5.0), None);
+            // (32, 20) is 6 cells from one blocker and 12 from the other.
+            //
+            // **The radius has to admit BOTH**, or this asserts nothing: at
+            // `r = 8` the far blocker is already outside the disc and gets
+            // filtered before the comparison, so a version that keeps the
+            // *farthest* conflict passes. Measured — that mutant survived this
+            // test until `r` was raised to 13, which puts 12 and 6 both inside
+            // and makes "nearest" a real choice.
+            assert!(!b.fits(32.0, 20.0, 13.0));
+            let d2 =
+                b.nearest_conflict_sq(32.0, 20.0, 13.0).expect("a conflict was found by fits");
+            assert!((d2 - 36.0).abs() < 1e-9, "took the far blocker: {}", d2);
+            // And at a radius only the near one reaches, the far one must not
+            // appear at all — the filter and the minimum are two rules.
+            assert!(!b.fits(32.0, 20.0, 8.0));
+            let near =
+                b.nearest_conflict_sq(32.0, 20.0, 8.0).expect("the near blocker is inside 8");
+            assert!((near - 36.0).abs() < 1e-9, "{}", near);
+            // A zero radius excludes nothing, in both.
+            assert!(b.fits(20.0, 20.0, 0.0));
+            assert_eq!(b.nearest_conflict_sq(20.0, 20.0, 0.0), None);
+        }
+        // The wrap seam: a point at x=1 and a blocker at x=63 on a 64-wide
+        // wrapped grid are 2 cells apart, not 62.
+        let mut w = Buckets::new(64, 48, true, 10.0);
+        w.take(63.0, 10.0);
+        let d2 = w.nearest_conflict_sq(1.0, 10.0, 5.0).expect("the seam must conflict");
+        assert!((d2 - 4.0).abs() < 1e-9, "the seam was measured the long way round: {}", d2);
     }
 
     #[test]

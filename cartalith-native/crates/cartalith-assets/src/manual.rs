@@ -65,6 +65,16 @@ pub enum ManualIconFamily {
     Feature,
     /// `CIV_POI_TYPES`.
     Poi,
+    /// The port's own fourth family — [`crate::slots::PACK_SEAMARK_SLOTS`],
+    /// added by owner ruling 2026-09-02 so the design's *placement* vocabulary
+    /// (PLACES · TREES · SEA MARKS · POI) has four real families under it
+    /// instead of three plus a name with nothing behind it.
+    ///
+    /// The reference has no `icon.fam === 'seamarks'`, so **nothing loaded from
+    /// a reference save can ever be one** — [`from_key`](Self::from_key) still
+    /// answers `None` for every string the reference writes, and this variant
+    /// is only ever reached by something this port placed.
+    SeaMark,
     /// A user-defined custom-set asset; carries a set name as well as a slot.
     Custom,
 }
@@ -76,6 +86,9 @@ impl ManualIconFamily {
             ManualIconFamily::Settlement => "settlement",
             ManualIconFamily::Feature => "feature",
             ManualIconFamily::Poi => "poi",
+            // The same string `slots::Family::SeaMark` uses. Every other pair
+            // here is a rename this port inherited; a new family gets one name.
+            ManualIconFamily::SeaMark => "seamarks",
             ManualIconFamily::Custom => "custom",
         }
     }
@@ -85,6 +98,7 @@ impl ManualIconFamily {
             "settlement" => Some(ManualIconFamily::Settlement),
             "feature" => Some(ManualIconFamily::Feature),
             "poi" => Some(ManualIconFamily::Poi),
+            "seamarks" => Some(ManualIconFamily::SeaMark),
             "custom" => Some(ManualIconFamily::Custom),
             _ => None,
         }
@@ -97,6 +111,7 @@ impl ManualIconFamily {
             ManualIconFamily::Settlement => crate::slots::Family::Settlement,
             ManualIconFamily::Feature => crate::slots::Family::Icons,
             ManualIconFamily::Poi => crate::slots::Family::Poi,
+            ManualIconFamily::SeaMark => crate::slots::Family::SeaMark,
             ManualIconFamily::Custom => crate::slots::Family::Custom,
         }
     }

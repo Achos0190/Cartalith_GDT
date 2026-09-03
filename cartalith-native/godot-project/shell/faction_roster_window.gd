@@ -576,8 +576,22 @@ func _build_terrain_fit() -> void:
 			int(round(float(fit.get("world_mean", 0.0)) * 100.0)),
 			word, String(fit.get("culture", "?")).capitalize()], "text", DccTheme.FS_SMALL)
 		line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		## `c("good")` since 2026-09-03, and this row is the reason that token
+		## now exists. It was the literal `Color(0.48, 0.78, 0.49)` -- #7ac77d,
+		## the same colour in both themes, which measures **1.96:1** against the
+		## light `panel` #fbfaf7 and is unreadable there. It was also the one raw
+		## chrome colour left in any of the nine windows, and therefore the one
+		## thing in this file a theme flip could not repaint: `DccTheme.remap()`
+		## matches a baked colour back to the token that produced it, and a
+		## literal matches no token.
+		##
+		## The `mismatch` half stays `accent` deliberately. A mismatch is a
+		## remark, not a failure -- for common/imperial the engine returns no
+		## verdict at all rather than fabricating one, which is the `else` branch
+		## below -- so `block`, which this shell spends on conflicts and
+		## destructive actions, would overstate it.
 		if verdict == "match":
-			line.add_theme_color_override("font_color", Color(0.48, 0.78, 0.49))
+			line.add_theme_color_override("font_color", DccTheme.c("good"))
 		elif verdict == "mismatch":
 			line.add_theme_color_override("font_color", DccTheme.c("accent"))
 		sec.add_child(line)

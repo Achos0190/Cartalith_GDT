@@ -60,6 +60,8 @@ use cartalith_engine::sculpt_commit::{commit_sculpt_pass, SculptCommitSummary, W
 use cartalith_spatial::{DirtyTracker, PassBuffer};
 use cartalith_terrain::sculpt::{Control, Feature, FeatureParams, Point, SculptGlobals, SculptStamp};
 
+use crate::selection::SelectionSet;
+
 /// Tile granularity for the sculpt draft's `PassBuffer`/`DirtyTracker`
 /// pair. The reference has no tiling concept at all for Sculpt (one
 /// monolithic canvas), so there is no reference value to port — this
@@ -379,7 +381,11 @@ pub struct SculptEditor {
     /// Cleared by `sculpt_begin_stroke`/`sculpt_end_stroke`/
     /// `sculpt_cancel_stroke`.
     pub points: Vec<Point>,
-    pub selected: Option<usize>,
+    /// Which draft stamps are selected — [`crate::selection::SelectionSet`],
+    /// whose `primary()` is what the old `selected: Option<usize>` field was
+    /// and what `sculpt_get_selected_stamp` still reports. Step one of the
+    /// owner's selection-sets ruling; see that module's own doc comment.
+    pub selection: SelectionSet,
 }
 
 impl SculptEditor {
@@ -415,8 +421,33 @@ impl SculptEditor {
             globals: SculptGlobals::default(),
             seed,
             points: Vec::new(),
-            selected: None,
+            selection: SelectionSet::new(),
         }
+    }
+
+    /// The stamp a single-selection operation acts on — the set's primary.
+    /// What `sculpt_get_selected_stamp` reports, and what the old `selected`
+    /// field held before it became a set.
+    pub fn selected(&self) -> Option<usize> {
+        self.selection.primary()
+    }
+
+    /// Removes a stamp from the draft and re-points the selection at what
+    /// survives — `WorldGen::sculpt_delete_stamp`'s whole body, moved here so
+    /// the index bookkeeping is reachable from an ordinary unit test (a
+    /// `#[func]` on `WorldGen` is not: it needs a Godot runtime). `false` for
+    /// an out-of-range `index`.
+    ///
+    /// `PassBuffer::remove` renumbers every stamp after `index`, so the
+    /// selection has to shift with them. See that binding's own doc comment
+    /// for what the previous equal-case-only guard silently got wrong.
+    pub fn delete_stamp(&mut self, index: usize) -> bool {
+        if index >= self.draft.len() {
+            return false;
+        }
+        self.draft.remove(index);
+        self.selection.retain_after_remove(index);
+        true
     }
 
     /// Bakes the whole draft into `field` — `commit_sculpt_pass` unchanged,
@@ -430,7 +461,7 @@ impl SculptEditor {
     /// treat a commit as also deselecting.
     pub fn commit(&mut self, field: &mut [f32], sea_level: f64, reason: &str) -> SculptCommitSummary {
         let summary = commit_sculpt_pass(&mut self.draft, field, &mut self.water, &mut self.tracker, reason, sea_level);
-        self.selected = None;
+        self.selection.clear();
         summary
     }
 }
@@ -529,7 +560,7 @@ mod tests {
     fn new_editor_starts_with_an_empty_draft_and_no_selection() {
         let e = SculptEditor::new(16, 12, None, None, 42);
         assert!(e.draft.is_empty());
-        assert_eq!(e.selected, None);
+        assert_eq!(e.selected(), None);
         assert!(e.points.is_empty());
         assert_eq!(e.seed, 42);
         assert!(!e.water.river_any, "no generated river state -> nothing locked yet");
@@ -557,10 +588,78 @@ mod tests {
     fn commit_clears_the_draft_and_the_selection() {
         let mut e = SculptEditor::new(8, 8, None, None, 7);
         let stamp = SculptStamp::new(Feature::Mountains, 7, vec![cartalith_terrain::sculpt::Point::new(2.0, 2.0)], 0.5);
-        e.selected = Some(e.draft.push(stamp));
+        e.selection.replace(e.draft.push(stamp));
         let mut field = vec![0.2f32; 64];
         e.commit(&mut field, 0.5, "test");
         assert!(e.draft.is_empty());
-        assert_eq!(e.selected, None);
+        assert_eq!(e.selected(), None);
+    }
+
+    // ---- the selection set (step one of the selection-sets ruling) ----
+
+    fn editor_with_stamps(n: usize) -> SculptEditor {
+        let mut e = SculptEditor::new(8, 8, None, None, 7);
+        for k in 0..n {
+            let stamp = SculptStamp::new(Feature::Mountains, 7, vec![Point::new(k as f64, 2.0)], 0.5);
+            e.draft.push(stamp);
+        }
+        e
+    }
+
+    #[test]
+    fn delete_stamp_clears_a_selection_on_the_removed_stamp() {
+        // The rule `sculpt_delete_stamp` always had, unchanged.
+        let mut e = editor_with_stamps(3);
+        e.selection.replace(1);
+        assert!(e.delete_stamp(1));
+        assert_eq!(e.selected(), None);
+        assert_eq!(e.draft.len(), 2);
+    }
+
+    #[test]
+    fn delete_stamp_shifts_a_later_selection_down_instead_of_renaming_it() {
+        // The hole the equal-case-only guard left: `PassBuffer::remove`
+        // renumbers, so a selection at 2 with stamp 0 deleted used to keep
+        // reporting 2 -- which by then was the stamp that had been at 3.
+        let mut e = editor_with_stamps(4);
+        e.selection.replace(2);
+        assert!(e.delete_stamp(0));
+        assert_eq!(e.selected(), Some(1), "the same logical stamp, one index down");
+        assert_eq!(e.draft.len(), 3);
+    }
+
+    #[test]
+    fn delete_stamp_leaves_an_earlier_selection_alone() {
+        let mut e = editor_with_stamps(4);
+        e.selection.replace(1);
+        assert!(e.delete_stamp(3));
+        assert_eq!(e.selected(), Some(1));
+    }
+
+    #[test]
+    fn delete_stamp_rejects_an_out_of_range_index_without_touching_anything() {
+        let mut e = editor_with_stamps(2);
+        e.selection.replace(1);
+        assert!(!e.delete_stamp(9));
+        assert_eq!(e.draft.len(), 2);
+        assert_eq!(e.selected(), Some(1));
+    }
+
+    #[test]
+    fn a_multi_selection_of_stamps_survives_a_delete_below_it() {
+        let mut e = editor_with_stamps(5);
+        e.selection.set_from([1, 3, 4], 5);
+        assert!(e.delete_stamp(0));
+        assert_eq!(e.selection.sorted(), vec![0, 2, 3]);
+        assert_eq!(e.selected(), Some(3), "the primary is still the last-added member");
+    }
+
+    #[test]
+    fn select_all_then_delete_leaves_every_survivor_selected() {
+        let mut e = editor_with_stamps(3);
+        e.selection.select_all(3);
+        assert_eq!(e.selection.sorted(), vec![0, 1, 2]);
+        assert!(e.delete_stamp(1));
+        assert_eq!(e.selection.sorted(), vec![0, 1], "2 became 1; the deleted one is gone");
     }
 }

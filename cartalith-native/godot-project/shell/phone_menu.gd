@@ -912,6 +912,7 @@ func _activate(p: PopupMenu, index: int, stay: bool) -> void:
 # fit it -- a `Button` sizes from its own text and would clip.
 
 const _META_PRESSED := "pressed"
+const _META_PRESS_POS := "press_pos"
 
 func _row(title: String, subtitle: String, trail: Control, mark: Control,
 		on_press: Callable, dim: bool) -> Control:
@@ -971,19 +972,52 @@ func _row(title: String, subtitle: String, trail: Control, mark: Control,
 ## gives every other pressed surface in the shell, applied to the row's own
 ## `panel` stylebox (one of the names `_recolor_subtree()` walks, so it stays
 ## correct across a theme switch).
+##
+## **PH-15, registered 2026-08-25, fixed 2026-09-03.** A real `BaseButton`
+## cancels its own pending press when a `ScrollContainer` recognises a drag
+## past its `scroll_deadzone` -- `dcc_shell.gd::phone_fit()`'s own PH-05
+## comment names the notification that does it. This row is not a
+## `BaseButton` (this function's own header explains why), so it never got
+## that for free: a flick that started on a row fired `on_press` regardless of
+## how far the finger had travelled by the time it lifted, three device
+## flicks in a row opening *Working set…* (`GUI_GAP_REGISTER.md` §50/§52).
+## The sheet **does** scroll with the row still at `MOUSE_FILTER_STOP`
+## (measured on the handset both times), and `dcc_shell.gd::phone_fit()`'s
+## own comment says a row of this class must keep `STOP` regardless -- so the
+## fix stays inside this handler rather than touching `row.mouse_filter`.
+## `InputEventScreenDrag`/a left-button `InputEventMouseMotion` were simply
+## never read before; now, while a press is pending, one that has moved past
+## `DccShell.PHONE_SCROLL_DEADZONE` (the same threshold the sheet's own
+## `ScrollContainer` scales) cancels the press and clears the tint without
+## calling `on_press` -- the eventual `up` then finds `_META_PRESSED` already
+## false and falls through the same early-out a genuine tap never reaches.
 func _row_input(ev: InputEvent, row: PanelContainer, on_press: Callable) -> void:
 	var down := false
 	var up := false
+	var pos := Vector2.ZERO
 	if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		down = (ev as InputEventMouseButton).pressed
 		up = not down
+		pos = (ev as InputEventMouseButton).position
 	elif ev is InputEventScreenTouch:
 		down = (ev as InputEventScreenTouch).pressed
 		up = not down
+		pos = (ev as InputEventScreenTouch).position
+	elif row.get_meta(_META_PRESSED, false) and (ev is InputEventScreenDrag
+			or (ev is InputEventMouseMotion
+				and ((ev as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT) != 0)):
+		pos = (ev as InputEventScreenDrag).position if ev is InputEventScreenDrag \
+			else (ev as InputEventMouseMotion).position
+		var origin: Vector2 = row.get_meta(_META_PRESS_POS, pos)
+		if pos.distance_to(origin) > _ps(DccShell.PHONE_SCROLL_DEADZONE):
+			row.set_meta(_META_PRESSED, false)
+			row.add_theme_stylebox_override("panel", DccTheme.empty())
+		return
 	else:
 		return
 	if down:
 		row.set_meta(_META_PRESSED, true)
+		row.set_meta(_META_PRESS_POS, pos)
 		row.add_theme_stylebox_override("panel", DccTheme.active_row(false))
 		return
 	if not up or not row.get_meta(_META_PRESSED, false):

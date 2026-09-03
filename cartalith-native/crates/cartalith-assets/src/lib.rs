@@ -119,6 +119,7 @@
 
 #[cfg(feature = "zip")]
 pub mod archive;
+pub mod coast;
 pub mod library;
 pub mod manifest;
 pub mod manual;
@@ -134,6 +135,7 @@ pub use archive::{
     ArchiveError, PackEntries, read_pack, read_pack_entries, write_pack, write_pack_entries,
     zip_store, zip_store_bytes,
 };
+pub use coast::{is_coast, is_water, snap_to_coast};
 pub use library::{
     AssetCollections, AssetDB, DuplicateEntry, ItemRecord, ItemTransform, LIBRARY_POI_SLOTS,
     LibraryError, LibraryFile, LibraryItem, LibrarySlot, PackInfo, SlotMeta, SlotRecord,
@@ -164,6 +166,7 @@ pub use scatter::{
     scatter_rule_key,
 };
 pub use slots::{
-    Anchor, Family, PACK_BIOME_SLOTS, PACK_ICON_SLOTS, PACK_POI_SLOTS, PACK_SETTLEMENT_SLOTS,
-    PACK_TERRAIN_SLOTS, PACK_TEX_SLOTS, PACK_TRAIT_SLOTS, SPLAT_PAINT_SLOTS, slug_id,
+    Anchor, Family, PACK_BIOME_SLOTS, PACK_ICON_SLOTS, PACK_POI_SLOTS, PACK_SEAMARK_SLOTS,
+    PACK_SETTLEMENT_SLOTS, PACK_TERRAIN_SLOTS, PACK_TEX_SLOTS, PACK_TRAIT_SLOTS, SPLAT_PAINT_SLOTS,
+    slug_id,
 };

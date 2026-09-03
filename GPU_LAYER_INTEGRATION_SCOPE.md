@@ -324,6 +324,63 @@ confirms every existing golden-parity test (including `cartalith-terrain`'s
 own `compute_height` tests) passes unmodified. See `CHANGELOG.md`'s "GPU
 layer integration milestone 3" entry for the full record.
 
+**Milestone 3 revisited 2026-09-03 — the hypothesis tested, the baseline
+corrected, and the non-wiring decided.** Two `OUTSTANDING_WORK.md` §2.6 rows
+pointed here; both are answered by measurement, in
+`cartalith-gpu/src/lib.rs`'s `measured_gpu_height_is_bandwidth_bound_at_
+nine_buffers` and `measured_gpu_height_vs_the_real_compute_height` (AMD
+Radeon RX 7800 XT, Vulkan, discrete; every figure a **median of 5**, because
+one 2048² dispatch measured anywhere from 38 to 78 ms across runs of the same
+binary).
+
+- **The bandwidth hypothesis holds.** The cross-kernel control, same device,
+  same run, GPU **ns per cell**: `gpu_warp` (2 storage buffers, 8 B/cell)
+  1.83 → 1.59 from 1024² to 2048²; `gpu_heterogeneity` (4 buffers, 16 B/cell)
+  2.33 → 2.09; `gpu_height` (9 buffers, 36 B/cell) 4.03 → **8.51**. The two
+  narrow kernels get *cheaper* per cell as the grid grows and only the widest
+  bind group turns around, so grid size does not explain the drop. Directly:
+  the eight input uploads are **80% of the dispatch at 1024² and 62% at
+  2048²**, and effective upload bandwidth **drops materially** across that step —
+  one run measured 9.24 → 5.65 GiB/s and an independent re-run 7.67 → 5.67, so the
+  low end reproduces and the high end does not; "halves" was a single-sample
+  overstatement and the honest claim is the direction, not the factor. Was 9.24 →
+  5.65 GiB/s. It is upload-bound, and the bound tightens with size.
+- **The 5.17×/8.13×/4.84× figures are against the wrong baseline.** They
+  compare the kernel to `gpu_height_grid_cpu`, a *single-threaded `f32` twin
+  written to match the shader*. `generate_terrain` calls
+  `cartalith_terrain::compute_height`, which is `f64` and already
+  `par_chunks_mut` across every core. Against the function that actually
+  ships, the GPU wins **2.13× at 1024² and 1.15× at 2048²** — about **5 ms**
+  either way.
+- **`gpu_compute_height` stays uncalled, and that is now a recorded decision
+  rather than an unexplained gap.** The blocker was never written down:
+  `HEIGHT_LAYOUT` binds **9 storage buffers** and
+  `REUSED_STAGE_MAX_STORAGE_BUFFERS` — the limit milestone 8's shared device
+  opens at, sized for JFA — is **8**. That is why height is the one
+  milestone-1-to-5 kernel with no `init_gpu_height_with` sibling: there was
+  never a device it could be built on. Wiring it costs either a device-limits
+  change for *every* stage (whose failure mode is a `wgpu` validation panic
+  that takes Godot down) or a second adapter/device handshake, re-measured
+  below at several hundred milliseconds (measured 198-730 ms across runs on one
+  machine, which is why no point estimate is quoted) — two orders of magnitude
+  above the ~5 ms it would save. Same standing as
+  `compute_resistance`'s 0.38×. The full reasoning lives on
+  `dispatch_gpu_height`'s own doc comment, where the next reader will be.
+
+**Milestone 6's ~1.3-1.4 s handshake no longer reproduces**, which matters to
+two more §2.6 rows. Re-measured 2026-09-03 by
+`measured_device_handshake_and_per_stage_pipeline_build`: **416 ms cold, then
+~198 ms**, roughly seven times cheaper. Sharing the device is still clearly
+right, but the numbers behind the two caching rows change. `generate_terrain`
+holds its device in a local and drops it, so a second call rebuilds one
+handshake plus every pipeline — and those halves are nothing like equal: six
+pipeline builds total **2.60 ms** (0.24-0.71 ms each) against **198 ms** for
+the handshake. *Per-pipeline* caching, the thing §2.6 asks for, is the smaller
+half by ~76×; the device is where that row's value is. And the hardware
+capability cache (§30 of `GPU_COMPUTE_PILOT_SCOPE.md`) was re-opened on the
+strength of the 1.3-1.4 s figure — at ~198 ms the original "nothing expensive
+enough to cache" deferral is much closer to right than the row supposes.
+
 **Milestone 4 as built, genuine three-way JS/CPU/GPU parity** — the headline
 result, verified rather than assumed: `gauss_blur`/`compute_resistance`
 touch no noise, so unlike milestones 1-3 they could be (and were) checked

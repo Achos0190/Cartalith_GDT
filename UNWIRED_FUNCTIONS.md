@@ -255,7 +255,7 @@ The other 16, re-verified rather than assumed unchanged:
 | The 3D viewport | `menus.gd:1756-1757` (drifted from `:1754-1756`) | Ruled: **deferred**, research first. `3D_TERRAIN_RENDER_RESEARCH.md` (1 530 lines) exists, complete, per `LARGE_ITEM_RULINGS.md`; three commissioned questions parked. No 3D work scheduled — correctly still absent (`grep` for `Camera3D`/`MeshInstance3D` in `shell/` and `.tscn` files, re-run 2026-09-02: nothing). | large |
 | Colour management | `menus.gd:1754-1755` (unmoved) | Ruled: **build it**, behind an sRGB-identical default or a deliberate re-baseline. Still `_todo`, same reasoning as before the ruling ("The renderer is sRGB-only end to end... A three-row radio that always resolves to sRGB is exactly the enabled-and-inert row this menu forbids"). No colour-space symbol anywhere in `lib.rs`. | large |
 | `Region ▸ New world from selection` | `ops_bridge.rs:1-28` (unmoved) | Ruled: a scoped parity pass, kept separate from GUI work. `extract_region_as_world` still has no `#[func]` and no menu row; `ops_bridge.rs`'s own doc still lists it first among ported-and-unexposed capability. Correctly untouched (re-checked 2026-09-02). | large |
-| Saved measurements + CSV | `right_dock.gd:1435-1448` (drifted from `:1285-1299`) | Ruled: fold into the caller-owned save slots as a fifth. The other four slots were built in the 2026-09-01 pass (see Medium, closed); **this fifth was still not added, re-checked 2026-09-02** — `project_bridge.rs`'s `SLOT_*` constants now number sixteen (not four; twelve pre-existing entity/annotation slots plus the four this document tracked), and none of the sixteen is a measurement store. Copy-as-TSV remains the only export. | large |
+| Saved measurements + CSV | `right_dock.gd`, `_build_measure_actions` and the "Saved measurements, on disk" section | **Closed 2026-09-03.** The fifth slot the ruling called for exists: `annotations/measurements.json`, registered in `cartalith_io::DOCUMENT_SLOTS` and caller-owned (`project_bridge.rs`'s partition test names it among six callers, not five). Written by `RightDock.measurements_document()` through `app.gd::_project_documents()` — the same dictionary the engine's four ride — and restored by `restore_measurements_document()` from `_restore_project_documents()`. `Save measurement`, the list, per-entry recall/drop, `Clear all` and `Copy saved as CSV` are all live; the CSV is canonical km/km²/m/deg. Verified end to end on a live world by `_measurestore_probe.tscn` (24 checks, 0 fails), which saves a project, reopens it and asserts both readings and every clicked point come back. | large |
 | The manual-icon tool | `manual.rs` (`icon_brush_rule:189`, `icon_brush_stamp:211`); `ops_bridge.rs:1-8` | Ruled: schedule separately as `UNIFIED_TOOL_PLAN.md` Milestone E. Still correctly untouched — no icon-brush arming anywhere in `shell/` (repo-wide check, re-run 2026-09-02). | large |
 | Rebindable keyboard shortcuts | `menus.gd:1902-1907` | Ruled: a per-context table in `DccSettings` with conflict detection. `_todo` unchanged; `Help ▸ Keyboard shortcuts…` is still read-only; no per-context store exists. | large |
 | `Units` (km / mi) | `menus.gd:1899-1900` (unmoved) | Ruled: build, plus nautical miles as a third unit. `_todo` unchanged; still km-only at all five call sites the reason names. | large |
@@ -423,12 +423,12 @@ spot-checking a sample (`Undo depth 1-50`'s substitution note,
    no caller anywhere in the workspace — re-confirmed this cut by a
    repo-wide search, not just the definition site.
 7. **Are the four unwritten save slots deliberate or an oversight?**
-   **Answered by implication, and partly executed.** All four original slots
+   **Answered and fully executed.** All four original slots
    (`drafts/paint.json`, `drafts/sculpt.json`, `library/assets.json`,
-   `library/travel.json`) are now built and wired into both save and
-   autosave (Medium, closed, above) — proving the mechanism. The *fifth*
-   slot the ruling called for (saved measurements) has not been added; that
-   piece of the answer remains unbuilt.
+   `library/travel.json`) are built and wired into both save and autosave
+   (Medium, closed, above), and the *fifth* the ruling called for landed
+   2026-09-03: `annotations/measurements.json`, caller-owned, riding the same
+   channel rather than a second mechanism (Large, closed, above).
 8. **Is `init_gpu_f64` kept or deleted?** **Still open.** Unchanged;
    `GPU_COMPUTE_PILOT_SCOPE.md` still records no disposition.
 9. **Is the phone app bar's `☰`/`▤` pair now stale?** **Not simply resolved

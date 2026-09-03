@@ -97,7 +97,7 @@ fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
     assert_eq!(back.layout, cartalith_io::Layout::Tree);
     assert_eq!(back.format_version, cartalith_io::PROJECT_FORMAT_VERSION);
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-    assert!(back.foreign_entries.is_empty(), "{:?}", back.foreign_entries);
+    assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
 
     // -- the world the renderer reads -------------------------------------
     assert_eq!(back.save.params, sp);

@@ -122,6 +122,16 @@ const ID_HELP_CREDITS := 70
 const ID_HELP_ABOUT := 71
 const ID_HELP_SHORTCUTS := 72
 const ID_HELP_GEN_INFO := 73
+## `LARGE_ITEM_RULINGS.md`'s ruling on `Report an issue` -- see `_help()`
+## below. Not slotted into 70-83 with its Help siblings: that neighbourhood is
+## already fully booked (`74-76` are the LOD-debug trio, `77`/`80-83` belong to
+## other menus entirely -- see the block comment a few lines down on why `78`
+## and this file's own `_FIRST` blocks all get grepped for collisions before a
+## number is picked). A fresh 700, the same way 500 and 600 were: nothing
+## else in this file is within reach of it, including `ID_WIN_LAYOUT_FIRST`
+## (640 + however many saved layouts a user has, the one open-ended range a
+## nearby fixed number could actually collide with).
+const ID_HELP_REPORT := 700
 ## `Preferences ▸ Tiles & LOD ▸ Chunk debug overlay` -- the reference's
 ## `lodDbgSeg` trio (line 1266). Named `ID_HELP_*` while the submenu lived
 ## under Help; renamed with it when §2.5's own placement was restored.
@@ -164,6 +174,9 @@ const ID_WIN_FORGET_LAYOUT := 603
 ## file for every `ID_`/`_FIRST` value before picking it, the same check this
 ## file's own note on `78` being issued twice says to make.
 const ID_PREF_UNITS_NMI := 604
+## `Preferences ▸ Keyboard shortcuts…` (PR-16/HE-02). 605 is free by the same
+## whole-file grep the neighbours above record making.
+const ID_PREF_SHORTCUTS := 605
 const ID_RESET_STAGE_FIRST := 610   ## stage i is +i; `STAGES` is ten long (610-619)
 const ID_GFX_EXAG_FIRST := 620      ## rung i is +i (620-622)
 const ID_GFX_EXAG_ENGINE := 623
@@ -248,6 +261,11 @@ const GPU_DEV_FIRST := 100      ## device i is GPU_DEV_FIRST + i
 ## only ever gates whole grid sizes, so a free-form GB field would offer a
 ## precision the decision does not have.
 const GPU_VRAM_CHOICES: Array[float] = [0.0, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0]
+## §2.5's "CPU worker threads" ladder. See `_build_cpu_threads_menu()`.
+var _cpu_threads_popup: PopupMenu
+## Rung id -> worker count, rebuilt from the live core count each time the
+## submenu is constructed. `0` (auto) is always the first entry.
+var _cpu_thread_choices: Array[int] = []
 ## The GPU-acceleration row's own tooltip, named because `about_to_popup` has
 ## to put it back after a generation released the row.
 const GPU_TOGGLE_TIP := "Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate."
@@ -396,7 +414,47 @@ func _engine_has(method: String) -> bool:
 func _live(p: PopupMenu, text: String, id: int, accel: Key = KEY_NONE) -> void:
 	p.add_item(text, id)
 	if accel != KEY_NONE:
-		p.set_item_accelerator(p.item_count - 1, accel)
+		_bind_accelerator(p, p.item_count - 1, id, int(accel))
+
+## Every rebindable action's SHIPPED accelerator, `id -> default`. Populated
+## only by `_bind_accelerator` below, so it can never name an id this file
+## did not itself just give a real accelerator to.
+##
+## **This is the whole reach of PR-16/HE-02's "menu" context.** `DccSettings`'
+## own header names the other real keyboard contexts (armed-tool Escape/
+## Backspace/Delete in `app.gd`, the per-domain tool buttons in
+## `dcc_widgets.gd`, the Layers popover's `1`-`8`); none of them populate this
+## dict, because none of them route an accelerator through this file.
+var _shortcut_defaults: Dictionary = {}
+
+## The one place every accelerator in this file is actually set. Called from
+## `_live()` and from the two call sites that set one without it (Asset pack
+## ▸ Export, Window ▸ Diagnostics overlay) -- **never `PopupMenu.
+## set_item_accelerator` directly**, or the item drawn would be the shipped
+## key regardless of what `DccSettings` holds, and a rebind saved in an
+## earlier session would silently not restore on the next boot.
+##
+## This IS "applied over the menu accelerators at build time" (the owner's
+## own words): `default_accel` is what `_live()`/the two direct callers used
+## to pass straight to `set_item_accelerator`; now it is only ever the
+## fallback `DccSettings.shortcut_binding()` returns when nobody has rebound
+## `id` yet.
+func _bind_accelerator(p: PopupMenu, idx: int, id: int, default_accel: int) -> void:
+	_shortcut_defaults[id] = default_accel
+	p.set_item_accelerator(idx,
+		DccSettings.shortcut_binding(DccSettings.SHORTCUT_CONTEXT_MENU, id, default_accel))
+
+## Whether `id` is one this file will actually rebind -- the guard
+## `shortcuts_dialog.gd`'s editable rows use to decide whether to draw a
+## rebind control at all, rather than offer one that would silently do
+## nothing for a row this store does not own.
+func is_rebindable_shortcut(id: int) -> bool:
+	return _shortcut_defaults.has(id)
+
+## The key this action shipped with, before any override -- what "Reset"
+## reverts a row to, and what an unrebound row's accelerator already is.
+func shortcut_default(id: int) -> int:
+	return int(_shortcut_defaults.get(id, KEY_NONE))
 
 # -- §2.1 File ----------------------------------------------------------------
 
@@ -695,11 +753,27 @@ func _edit(p: PopupMenu) -> void:
 	## one that is true: what is missing is not selectability, it is a
 	## clipboard model and a multi-selection -- `PARITY_AUDIT.md` §20 classes
 	## ED-03/ED-04 as large for exactly that reason.
+	## **Half of the old reason here stopped being true on 2026-09-03**, and it
+	## is corrected rather than left standing. It read: *"No clipboard model
+	## exists. Icons, labels and settlements are three unrelated single-item
+	## selections with no common representation to cut into one buffer."* The
+	## second sentence is now wrong for the engine's three: `icon_get_selection`
+	## / `label_get_selection` / `sculpt_get_selection` are one `SelectionSet`
+	## type over each (`cartalith-godot/src/selection.rs`), which is step one of
+	## the owner's ruling in `LARGE_ITEM_RULINGS.md` -- *"Selection sets ->
+	## clipboard -> commands, in that order."*
+	##
+	## The first sentence is still true, and it is the whole reason these three
+	## rows stay disabled: a set of indices is not a clipboard. Nothing in this
+	## shell can serialise an icon or a label into a buffer, hold it across a
+	## world change, or paste it back at a new position. That is step two, and
+	## the ruling puts it before the commands deliberately.
 	_todo(p, "Cut",
-		"No clipboard model exists. Icons, labels and settlements are three unrelated " +
-		"single-item selections with no common representation to cut into one buffer " +
-		"(PARITY_AUDIT.md §20, ED-03/ED-04).")
-	_todo(p, "Copy", "Same -- no clipboard model.")
+		"No clipboard model exists. The engine now holds a real selection SET per entity " +
+		"kind (icons, labels, sculpt stamps -- Ctrl-click adds, Shift-click takes a range), " +
+		"but nothing can serialise one into a buffer and paste it back. Selection sets, " +
+		"then a clipboard, then these commands -- in that order (LARGE_ITEM_RULINGS.md).")
+	_todo(p, "Copy", "Same -- the selection is a real set now, but there is still no clipboard to copy it into.")
 	_todo(p, "Paste", "Same -- nothing can be on a clipboard to paste.")
 	## §2.2 prints this row's shortcut as `⌫`. That glyph is the Mac name for
 	## the key `app.gd` already binds -- `KEY_DELETE`, routed to
@@ -716,10 +790,29 @@ func _edit(p: PopupMenu) -> void:
 		"Delete the current selection. The Delete key does the same thing; this row " +
 		"exists because a keyboard-only capability is not a discoverable one.")
 	p.add_separator()
+	## **This row's old reason is now false and is replaced.** It read: *"Every
+	## selection in the shell holds exactly one item -- icon_get_selected and
+	## label_get_selected each return a single index -- so there is no
+	## multi-selection for this to select into."* Both getters still return a
+	## single index, but each is now that entity kind's selection *set* primary
+	## (`selection.rs`), the sets hold any number, and `icon_select_all()` /
+	## `label_select_all()` / `sculpt_select_all_stamps()` are bound and
+	## wrapped. The thing this row said did not exist now does.
+	##
+	## It stays disabled anyway, and the reason below says which half is
+	## missing rather than repeating a claim the engine has outgrown: the
+	## owner's ruling orders selection sets, then a clipboard, then the four
+	## commands, and this is one of the four. What the row itself would need on
+	## top of the engine call is the "scoped to the active layer" dispatch
+	## (§2.2) that `DccApp.clear_selection()` already has a shape for.
 	_todo(p, "Select all",
-		"Every selection in the shell holds exactly one item -- icon_get_selected and " +
-		"label_get_selected each return a single index -- so there is no multi-selection " +
-		"for this to select into.")
+		"Step three of a three-step ruling, and steps one and two are not both done. " +
+		"The engine half exists as of 2026-09-03 -- every entity kind holds a real " +
+		"selection set and can select all of its own (icon_select_all, label_select_all, " +
+		"sculpt_select_all_stamps) -- but Cut/Copy/Paste beside this row still have no " +
+		"clipboard, and LARGE_ITEM_RULINGS.md puts the clipboard before the commands. " +
+		"On the canvas today: Ctrl-click adds an icon or label to the selection, " +
+		"Shift-click takes the range.")
 	## §2.2's other half, live since 2026-08-30. Its reason used to be "no
 	## shared way to clear them", which was true of all three selections at
 	## once: settlements had no `on_deselect`, and icons had no engine call to
@@ -728,9 +821,12 @@ func _edit(p: PopupMenu) -> void:
 	## binding it needed.
 	##
 	## **Select all above stays disabled, and the two are not the same job.**
-	## Every selection here holds exactly one item, so there is nothing for
-	## Select all to select INTO -- that needs a multi-selection model first.
-	## Clearing one item needs no such model.
+	## The old sentence here -- *"Every selection here holds exactly one item,
+	## so there is nothing for Select all to select INTO"* -- was retired on
+	## 2026-09-03 with the multi-selection model it was waiting for; see that
+	## row's own comment for what is actually left. Deselect never depended on
+	## it either way: clearing a set of any size is `clear_selection()`'s same
+	## one call per owner.
 	_live(p, "Deselect", ID_DESELECT, KEY_MASK_CTRL | KEY_D)
 	p.set_item_tooltip(p.item_count - 1,
 		"Clears the settlement, label or icon selection in the active domain. Not the same as Escape, which puts the tool down and deliberately leaves the selection alone.")
@@ -1439,7 +1535,7 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	## ships on. `set_item_accelerator` alone renders exactly the canvas's
 	## layout, in the notation the machine actually has.
 	ap.add_item("Export pack .zip…", ID_AP_EXPORT)
-	ap.set_item_accelerator(ap.item_count - 1, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
+	_bind_accelerator(ap, ap.item_count - 1, ID_AP_EXPORT, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
 
 	ap.add_separator()
 	ap.add_item("Clear library…   destructive", ID_CLEAR_LIBRARY)
@@ -1729,8 +1825,11 @@ func _preferences(p: PopupMenu) -> void:
 	else:
 		_todo(p, "Devices", "This GDExtension build predates the multi-GPU API (WorldGen.gpu_enumerate_devices is missing).")
 		_todo(p, "Multi-GPU mode", "Same.")
-	_todo(p, "CPU worker threads",
-		"SS2.5: an integer from 1 to the logical core count, default cores - 4 (its own example is 12 of 16). Rayon builds its global pool implicitly on first use and this port never calls ThreadPoolBuilder, so there is no #[func] to set it and no pool init to set it at. A submenu ladder (1 / quarter / half / cores-4 / all) over one binding closes it, and cores-4 is the spec's own default to honour rather than a number to pick.")
+	if _engine_has("set_cpu_thread_count") and _engine_has("cpu_logical_core_count"):
+		_build_cpu_threads_menu(p)
+	else:
+		_todo(p, "CPU worker threads",
+			"This GDExtension build predates the CPU worker-thread API (WorldGen.set_cpu_thread_count is missing).")
 	if _bridge.gpu_api:
 		_build_gpu_vram_menu(p)
 		_build_gpu_fallback_menu(p)
@@ -1763,8 +1862,28 @@ func _preferences(p: PopupMenu) -> void:
 
 	_todo(p, "Anti-aliasing · anisotropy",
 		"SS2.5 asks for off / MSAA 2x / 4x / 8x and anisotropy 1-16. Both are 3D-viewport settings and there is no 3D viewport (DECISIONS.md section 4 defers it to Phase 3). The 2D map path composites whole rasters, where a sample count means nothing -- bolting MSAA onto it would be a control with no effect.")
-	_todo(p, "Colour management",
-		"SS2.5 asks for sRGB / Display P3 / linear. The renderer is sRGB-only end to end: render.rs writes 8-bit sRGB bytes and nothing carries a colour space through to the texture. A three-row radio that always resolves to sRGB is exactly the enabled-and-inert row this menu forbids.")
+	## Live since 2026-09-03, and this row's `_todo` was false the moment it
+	## shipped: it read *"the renderer is sRGB-only end to end: render.rs writes
+	## 8-bit sRGB bytes and nothing carries a colour space through to the
+	## texture"*, and every clause of that became untrue in the same session.
+	## `render::apply_color_space` runs as the last stage of
+	## `build_color_texture`, and `WorldGen::color_space` carries it.
+	##
+	## Two of SS2.5's three rows, not three: sRGB and Display P3 are display
+	## devices and **linear is a working space**, which `GUI_GAP_REGISTER.md`
+	## §7.6 records as a distinction that "would be a category error that becomes
+	## very expensive to unpick later" if one dropdown served both. Linear is
+	## additionally unshippable at this depth -- Godot's own `srgb_to_linear`
+	## doc says 8-bit formats "are not suitable for storing linearly encoded
+	## values", and `render.rs` composites into a `u8` RGB buffer.
+	##
+	## The control itself lives in CARTO ▸ COLOURS beside the grade, because it
+	## is a per-session display setting rather than a saved preference; this
+	## entry points at it rather than duplicating it.
+	## `_signpost`, not `_todo`: this is not an unavailable command, and
+	## `_todo` here would make `command_index.gd` count a shipped feature as
+	## missing -- the exact confusion `_readout`'s own doc records.
+	_signpost(p, "Colour management — Render ▸ Colours ▸ Colour management")
 	_todo(p, "3D viewport defaults",
 		"SS2.5's four parameters verbatim -- relief exaggeration, detail, light, flatten oceans -- replacing the reference's #genV3dSec, and exempt from the finalize lock. There is no 3D viewport to give defaults to.")
 	## Live since 2026-08-30. The reason that stood here identified its own fix
@@ -1941,13 +2060,19 @@ func _preferences(p: PopupMenu) -> void:
 	_shell.style_popup(_units_popup)
 	p.add_child(_units_popup)
 	p.add_submenu_item("Units", "UnitsChoice")
-	## **This row's reason was stale.** It said "No shortcut table yet" after
-	## `Help ▸ Keyboard shortcuts…` shipped a live one (`shortcuts_dialog.gd`,
-	## which walks these menus). The gap §2.5 names is a different one and is
-	## real: Help's list is read-only, and this row asks for an **editable,
-	## per-context** table -- one that writes.
-	_todo(p, "Keyboard shortcuts…",
-		"SS2.5 asks for an editable, per-context table. Help > Keyboard shortcuts... already lists every binding, read-only, by walking these menus -- so the list exists and what is missing is rebinding: a per-context store in DccSettings that both the menu accelerators here and app.gd's own key handlers read back instead of hard-coding.")
+	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
+	## per-context table... what is missing is rebinding: a per-context store
+	## in DccSettings that both the menu accelerators here and app.gd's own
+	## key handlers read back instead of hard-coding." The first half of that
+	## is now true -- `_bind_accelerator()` above is that read-back, for every
+	## accelerator this file owns. The second half (`app.gd`'s own Escape/
+	## Backspace/Delete dispatch, the per-domain tool buttons, the Layers
+	## popover) is real and still owed; it needs a pass that owns those files,
+	## which this one does not (see `DccSettings.SHORTCUT_CONTEXT_MENU`'s own
+	## header). Opens `ShortcutsDialog` in its editable mode -- the same
+	## live-menu walk Help's read-only row uses, so the two can never disagree
+	## about what the list *is*, only about whether it can be clicked.
+	_live(p, "Keyboard shortcuts…", ID_PREF_SHORTCUTS)
 	p.id_pressed.connect(_on_preferences.bind(p))
 
 const GPU_RETRY_NONE_TIP := "Nothing to clear: no GPU readback has failed this session, so nothing is banned. When one does fail, that grid size and every larger one are refused on that adapter until the app restarts -- and this row is what lifts it, after a driver update or on a smaller world."
@@ -2236,6 +2361,90 @@ func _on_gpu_mode_choice(id: int) -> void:
 		return
 	if _bridge.gpu_set_multi_mode(names[id]):
 		_refresh_gpu_mode_menu()
+
+## §2.5: "CPU worker threads — an integer from 1 to the logical core count,
+## default cores − 4 (its own example is 12 of 16)."
+##
+## The ladder is the spec's own: automatic / 1 / quarter / half / cores − 4 /
+## all, deduplicated, since on a 4-core machine several rungs collide.
+##
+## **The row says when a choice is not live, because usually it is not.**
+## Rayon's global pool builds exactly once per process, implicitly, the first
+## time anything calls `par_iter()` -- which in this shell has already
+## happened by the time a menu can be opened. `cpu_set_thread_count()`
+## returns whether the request actually took effect, and the readout under
+## the ladder prints the measured running count next to the stored
+## preference, so "12 chosen, 16 running, next start" is visible rather than
+## implied. This row shipped 2026-09-02 as a `_todo` claiming there was no
+## `#[func]` to call; there is, and its own first version returned `true`
+## from a call that changed nothing -- see `cartalith_engine`'s "CPU worker
+## threads" section.
+func _build_cpu_threads_menu(p: PopupMenu) -> void:
+	_cpu_threads_popup = PopupMenu.new()
+	_cpu_threads_popup.name = "CpuWorkerThreads"
+	_shell.style_popup(_cpu_threads_popup)
+	var cores := _bridge.cpu_logical_core_count()
+	## `0` = auto, always offered first: it is what an untouched install runs
+	## and the only rung that needs no core count to be meaningful.
+	_cpu_thread_choices = [0]
+	var labels := ["Automatic"]
+	for rung in [[1, "1 thread"], [cores / 4, "quarter"], [cores / 2, "half"],
+			[cores - 4, "cores - 4 (the spec's default)"], [cores, "all cores"]]:
+		var n: int = int(rung[0])
+		if n >= 1 and n <= cores and not _cpu_thread_choices.has(n):
+			_cpu_thread_choices.append(n)
+			labels.append("%d — %s" % [n, rung[1]])
+	for i in _cpu_thread_choices.size():
+		_cpu_threads_popup.add_radio_check_item(String(labels[i]), i)
+	_cpu_threads_popup.set_item_tooltip(0,
+		"Let Rayon size its own pool, which is one worker per logical core (%d here). What this install has always run; choosing it back is not the same as never having chosen -- it is still stored." % cores)
+	_cpu_threads_popup.id_pressed.connect(_on_cpu_threads_choice)
+	_cpu_threads_popup.about_to_popup.connect(_refresh_cpu_threads_menu)
+	p.add_child(_cpu_threads_popup)
+	p.add_submenu_item("CPU worker threads", "CpuWorkerThreads")
+	## Not `_track_gpu_pref_row()`, which the four rows around it use: that
+	## helper darkens a row on `gpu_settings_locked()`, i.e. only on a build
+	## that has the multi-GPU API at all, and this row has nothing to do with
+	## it. It also does not need darkening -- a click during a generation
+	## still stores the preference, and the readout below says the running
+	## count is unreadable rather than pretending there is no pool.
+	p.set_item_tooltip(p.item_count - 1,
+		"How many Rayon workers the parallel stages spread across. Applied at startup from the stored preference; a change made here reaches the pool only if nothing has used it yet this session, and the submenu says which happened.")
+	_refresh_cpu_threads_menu()
+
+func _refresh_cpu_threads_menu() -> void:
+	var stored := DccSettings.cpu_thread_count()
+	for i in _cpu_thread_choices.size():
+		_cpu_threads_popup.set_item_checked(i, _cpu_thread_choices[i] == stored)
+	## The readout, rebuilt each time: measured running count vs. stored
+	## preference. Carries an id past the ladder's own so the removal finds it.
+	var id := _cpu_thread_choices.size()
+	var idx := _cpu_threads_popup.get_item_index(id)
+	if idx >= 0:
+		_cpu_threads_popup.remove_item(idx)
+	var active := _bridge.cpu_thread_count_active()
+	var label: String
+	if _bridge.generating:
+		## `cpu_thread_count_active()` answers 0 while the worker thread owns
+		## the engine, and 0 also means "no pool yet". Saying "not started"
+		## here would be flatly false -- a generation is the one moment the
+		## pool is certainly running.
+		label = "Running count unreadable while a generation holds the engine"
+	elif active <= 0:
+		label = "Pool not started yet — the next choice applies immediately"
+	elif stored == 0 or stored == active:
+		label = "Running %d workers now" % active
+	else:
+		label = "Running %d workers — %d takes effect at next start" % [active, stored]
+	var i2 := _readout(_cpu_threads_popup, label,
+		"Measured through WorldGen.cpu_thread_count_active, not inferred from the choice above. Rayon's global pool can be built exactly once per process: after that a new count is stored and honoured at the next launch, and nothing can rebuild it live. Reads 0, and says so, while a generation owns the engine.")
+	_cpu_threads_popup.set_item_id(i2, id)
+
+func _on_cpu_threads_choice(id: int) -> void:
+	if id < 0 or id >= _cpu_thread_choices.size():
+		return
+	_bridge.cpu_set_thread_count(_cpu_thread_choices[id])
+	_refresh_cpu_threads_menu()
 
 ## §2.5: "VRAM budget — GB, default 75 % of the smallest active device."
 ##
@@ -3085,6 +3294,16 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_WORKING_SET:
 		_host.open_performance()
 		return
+	if id == ID_PREF_SHORTCUTS:
+		## `_host` is `app.gd`'s `DccApp`, which already owns one
+		## `ShortcutsDialog` instance (`Help ▸ Keyboard shortcuts…` reaches
+		## the same node through the `open_shortcuts()` wrapper, matched
+		## below in `_on_help`) -- reached directly through the field rather
+		## than a new `_host` wrapper method, the same way this file already
+		## reaches `_host.viewport`, `_host.right_dock_ctrl` and
+		## `_host.asset_library_window` with no wrapper of their own.
+		_host.shortcuts_dialog.open_editable()
+		return
 	if id == ID_PREF_GPU_RETRY:
 		## The status line reports what the call answered, not what the row
 		## intended: `EngineBridge.gpu_clear_readback_failures()` refuses while
@@ -3278,7 +3497,7 @@ func _window(p: PopupMenu) -> void:
 	## layout region a "Reset layout" click should ever have to re-show.
 	p.add_check_item("Diagnostics overlay", ID_WIN_DIAG_OVERLAY)
 	var diag_idx := p.item_count - 1
-	p.set_item_accelerator(diag_idx, KEY_MASK_SHIFT | KEY_D)
+	_bind_accelerator(p, diag_idx, ID_WIN_DIAG_OVERLAY, KEY_MASK_SHIFT | KEY_D)
 	p.id_pressed.connect(func(id: int):
 		if id == ID_WIN_DIAG_OVERLAY:
 			_host.toggle_resource_overlay()
@@ -3618,15 +3837,23 @@ func _help(p: PopupMenu) -> void:
 	_live(p, "Credits & academic principles", ID_HELP_CREDITS)
 	## `PARITY_AUDIT.md` §5 item 6: the reference's ℹ️ `#genInfoBtn` --
 	## dumps every generation parameter as plain text, a bug-report
-	## affordance distinct from "Report an issue" below (which still has no
-	## actual issue-filing route).
+	## affordance `diagnostic_report.gd` below reuses wholesale rather than
+	## duplicating (see its own header comment).
 	_live(p, "Generation info…", ID_HELP_GEN_INFO)
 	## `LOD debug ▸` used to be built here. §2.5 puts the chunk-debug overlay
 	## under `Preferences ▸ Tiles & LOD`, and that is where it is now -- see the
 	## note at that call site for why the reason it was put in Help stopped
 	## being true.
-	_todo(p, "Report an issue",
-		"SS2.7 lists it and names no destination, which is the whole blocker: there is no issue tracker, support address or crash endpoint in this port to send to, and picking one would be inventing a route. The content is already solved -- Generation info... above dumps every generation parameter as plain text, and pairing that with the version and build string from About is exactly the body a report wants.")
+	## **Was a `_todo` reading "SS2.7 lists it and names no destination... no
+	## issue tracker, support address or crash endpoint in this port to send
+	## to."** True, and beside the point: `LARGE_ITEM_RULINGS.md`'s "Build"
+	## ruling on this exact row replaces the reference's issue-tracker affordance
+	## with a **local** diagnostic dump -- "No endpoint required" is the ruling's
+	## own words. `diagnostic_report.gd` is that dump; see its header for what
+	## it writes and why each of the five named readouts is or is not new.
+	_live(p, "Save diagnostic report", ID_HELP_REPORT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Writes generation info, missing bindings, the project format version, GPU state and the last error this session saw to a text file, and opens it in the file manager. Nothing is sent anywhere -- attach the file yourself to a bug report.")
 	_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
 
@@ -3798,4 +4025,5 @@ func _on_help(id: int) -> void:
 		ID_HELP_CREDITS: _host.open_credits()
 		ID_HELP_SHORTCUTS: _host.open_shortcuts()
 		ID_HELP_GEN_INFO: _host.open_gen_info()
+		ID_HELP_REPORT: DiagnosticReport.write(_host, _bridge)
 		ID_HELP_ABOUT: _host.open_about()

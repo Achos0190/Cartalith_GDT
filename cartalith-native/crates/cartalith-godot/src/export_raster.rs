@@ -54,6 +54,22 @@ impl WorldGen {
     /// Everything `render::bake_rect` needs, assembled the same way
     /// `build_color_texture` assembles it.
     ///
+    /// **`GUI_GAP_REGISTER.md` CA-03/CA-04's layer stack arrives here for free,
+    /// and that is a property worth stating rather than rediscovering.** The
+    /// stack lives on `render::TerrainAppearance` (not on `WorldGen`), so it
+    /// travels in the `appearance` this function already fetches, and every
+    /// pixel of every export below runs through `render::land_color` — the same
+    /// function `build_color_texture` calls. Nothing in this file needed a line
+    /// for it. `tests/layer_stack.rs`'s
+    /// `every_stack_control_moves_both_consumer_paths` measures that rather
+    /// than assuming it, because the last capability this file was supposed to
+    /// inherit (`with_ground_tiles`) did **not**, and moved no pixel at the
+    /// default, so the whole suite stayed green while every exported PNG
+    /// diverged from the map.
+    ///
+    /// The one export that deliberately does *not* take the stack is
+    /// `layers/hillshade.png` — see `render::hillshade_raster`'s own doc.
+    ///
     /// **The duplication is deliberate and bounded.** `build_color_texture`
     /// returns a Godot `ImageTexture` and holds its `RenderCtx` only inside
     /// its own body; a `RenderCtx` borrows five slices plus a lithology
@@ -93,6 +109,25 @@ impl WorldGen {
                 snow: loaded.splat.get("snow"),
                 wetland: loaded.splat.get("wetland"),
                 canopy: loaded.splat.get("canopy"),
+            });
+            // **The same ground tiles the on-screen path attaches**
+            // (`lib.rs::build_color_texture`). Added 2026-09-03: pack biome and
+            // terrain decoding landed with `with_ground_tiles` wired into the
+            // screen builder only, so with a pack applied and cells painted the
+            // map blended the pack tile while every exported PNG blended the
+            // flat swatch -- a divergence that did not exist before, because
+            // both paths previously used the swatch and agreed.
+            //
+            // The reference has no such split: `landColorCore` is called with
+            // real `px,py` at 8168 (render), 11730 (tile) and 11969 (bake), and
+            // `_paintedTex` reads the same `assetPack` global in all three.
+            //
+            // Attaching them moves no pixel on its own -- a tile is reachable
+            // only through a cell the paint brush has painted -- which is why
+            // no golden moves and why the omission was invisible to the suite.
+            ctx = ctx.with_ground_tiles(render::GroundTiles {
+                biomes: &loaded.biomes,
+                terrains: &loaded.terrains,
             });
         }
         if let Some(p) = self.paint.as_ref() {

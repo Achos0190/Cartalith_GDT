@@ -260,7 +260,8 @@ entities/                             discrete, id-bearing things — see §9
   ways.json                   MAY
   provinces.json              MAY
   continents.json             MAY
-  journeys.json               reserved
+  journeys.json               MAY
+  landmarks.json              MAY
 
 history/                              recorded past states — see §10
   timeline.json               MAY
@@ -270,15 +271,25 @@ annotations/                          marks on the sheet — see §11
   labels.json                 MAY
   icons.json                  MAY
   regions.json                MAY
+  measurements.json           MAY
 
 library/                              setting-level definitions — see §12
-  assets.json                 reserved
-  travel.json                 reserved
+  assets.json                 MAY
+  travel.json                 MAY
 
-drafts/                               uncommitted edits — see §16.3
-  paint.json                  reserved
-  sculpt.json                 reserved
+drafts/                               uncommitted edits — see §12
+  paint.json                  MAY
+  sculpt.json                 MAY
 ```
+
+**Five of these rows read `reserved` until 2026-09-03 and were wrong.**
+`entities/journeys.json`, `library/assets.json`, `library/travel.json`,
+`drafts/paint.json` and `drafts/sculpt.json` have all been written since
+2026-08-31 and all restore. `entities/landmarks.json` was missing from this
+table entirely while being a registered slot with a live writer. A table that
+calls a written slot reserved is not a harmless lag: `reserved` invites the
+second implementation to claim the name for something else, which is the exact
+collision §5 exists to prevent.
 
 ### 5.1 Why each boundary falls where it does
 
@@ -454,9 +465,9 @@ each member individually rather than by a blanket rule.
 ### 6.5 Documents an implementation does not model
 
 §5's slot list is longer than any one implementation's set of internal types,
-and permanently so: `library/` and `drafts/` are reserved for payloads whose
-owner is the *application* rather than the map engine, and `entities/journeys.
-json` was specified (§9.6) before anything could write it. An implementation
+and permanently so: `library/` and `drafts/` hold payloads whose owner is the
+*application* rather than the map engine (§12), and `entities/journeys.json`
+was specified (§9.6) before anything could write it. An implementation
 therefore partitions §9-§13's documents in two, and the partition is a property
 of that implementation rather than of the format:
 
@@ -886,10 +897,13 @@ largest first. `min_*`/`max_*` are **inclusive** cell bounds. `cx`/`cy` is the
 cell-space centroid. `faction` is whichever faction holds the most cells here,
 or `0`.
 
-### 9.6 `entities/journeys.json` — reserved
+### 9.6 `entities/journeys.json`
 
-Not written by any implementation today. The slot and its shape are specified
-here so that the two implementations do not diverge when it lands:
+**Written since 2026-08-31**; this heading said "reserved" and the paragraph
+under it said "not written by any implementation today". In this port the
+writer is the *shell*, not the engine — a saved journey is a route index plus
+a party form, neither of which the engine models — which is exactly the
+caller-owned split §6.5 describes. The shape:
 
 ```json
 {
@@ -1055,12 +1069,70 @@ selection the author never made would hand a subsequent crop or export a
 region of its own choosing. Writers SHOULD write `region: null` rather than a
 zero-sized rectangle.
 
+### 11.4 `annotations/measurements.json`
+
+```json
+{
+  "gw": 2048, "gh": 1024,
+  "measurements": [
+    { "mode": "distance", "value": 120.25, "unit": "km",
+      "points": [[10.5, 4.0], [88.0, 12.25]] }
+  ]
+}
+```
+
+Readings the author chose to keep. Registered 2026-09-03; like
+`entities/journeys.json` (§9.6) this is a slot an implementation whose ruler
+lives in its user interface **carries** rather than models, and §6.5's text
+rule is then the whole of what it has to get right.
+
+`mode` names what was measured — `distance`, `bearing`, `area`, `radius`,
+`section` or `vertical` in this port. `points` are the fractional grid cells
+that were clicked, in click order, and are the substance of the entry: the
+reading can be taken again from them, and nothing else in the document can.
+
+`value` and `unit` are the single number the reading came down to, and they
+are **optional together**. `unit` is one of `km`, `km²` as `km2`, `m` or
+`deg`. A writer that has no single number MUST omit both rather than write a
+zero, because `0.0 km` is a measurement and "no reading" is not. A reader MUST
+tolerate a `unit` it does not recognise by showing the value with the
+producer's own unit string rather than assuming kilometres.
+
+**Lengths and areas are canonical km and km², never a display unit.** This is
+the same rule §13.1 states for `mapWidthKm` and the reference app states for
+itself (*"units: display-only. Canonical storage stays km"*): an
+implementation that offers miles converts at the readout, and a file whose
+numbers moved with a preference would be unreadable by anything but the
+session that wrote it.
+
+**`gw`/`gh` are the grid the points were clicked on**, with the same names,
+the same meaning and the same obligation as `drafts/paint.json`'s (§12): a
+point is a grid-cell coordinate, so a reader MUST refuse a document whose
+`gw`/`gh` are not the world's rather than showing a reading over ground it was
+never taken on. Refusing means declining to *display* it; a reader MUST NOT
+drop the document from an archive it rewrites (§6.2).
+
 ---
 
-## 12. `library/` — reserved
+## 12. `library/` and `drafts/` — the four caller-owned slots
 
-`library/assets.json` and `library/travel.json` are reserved for the asset
-library and travel library. They are not written today; see §16.5.
+**This section said "reserved… not written today", and stopped being true on
+2026-08-31.** All four are written, and since 2026-09-03 all four restore.
+They share one property that sets them apart from every other slot, and it is
+the reason they are described together: each is a document a *caller* decides
+about — save a copy without my drafts, import a library from another project —
+rather than one the engine emits on every save. A conforming reader MAY ignore
+any of them; none is required to display a world.
+
+| Slot | Carries | Notes |
+|---|---|---|
+| `library/assets.json` | asset-pack info, collections, custom slots, per-slot metadata and scatter rules | **The item images are not in it.** The record carries each item's image *index*; the bytes those indices point at have no channel in this format. A restore therefore rebuilds every slot and zero items, and a reader MUST report that rather than presenting an empty library as a complete one. |
+| `library/travel.json` | every **custom** animal, vehicle, vessel and party preset | Stock entries are deliberately absent: they are read-only by construction and rebuilt identically on every launch, so storing them would store one build's constants. A restore replaces the custom half and leaves stock alone. |
+| `drafts/paint.json` | the three committed paint layers, each a sparse `[index, value, …]` pair list, plus `gw`/`gh` | An index means nothing without the grid: a reader MUST refuse a document whose `gw`/`gh` are not the world's, because a layer decoded against a different grid is a scrambled picture, not a smaller one. |
+| `drafts/sculpt.json` | the uncommitted stamp stack as *recipes* (feature key, seed, stroke points, globals, that feature's controls, `hidden`), plus the armed feature and next stroke's seed | Recipes, not height deltas — that is what makes a draft non-destructive. Same grid rule as `paint.json`, for the same reason: a stroke point is a grid-cell coordinate. |
+
+See §16.3 for what a restored sculpt draft still cannot do, and §16.5 for why
+the binary half of the asset library stayed out.
 
 ---
 
@@ -1652,14 +1724,32 @@ The per-settlement "why here?" explanation is likewise not stored: it is a
 diagnostic over rasters that no longer exist, and reconstructing one from
 stored data would be inventing it rather than recalling it.
 
-### 16.3 `drafts/` — reserved, empty today
+### 16.3 `drafts/` — **written and restored since 2026-09-03**
 
-Uncommitted paint and sculpt edits. Reserved rather than written, because in
-the current implementation those editors can only be constructed over a live
+**This subsection said "reserved, empty today" and no longer applies.** Its
+reasoning was that "those editors can only be constructed over a live
 generated world — they hold buffers keyed to substrate the archive does not
-carry. Persisting a draft that cannot be reconstituted would produce a file
-that opens with a draft nothing can commit. The slot is named so that neither
-implementation invents a different location when this becomes possible.
+carry", so persisting a draft "would produce a file that opens with a draft
+nothing can commit". Both halves turned out to be narrower than stated:
+
+- The Paint editor's only world-keyed input is the land-only gate's water-body
+  classification, and the archive carries what computes it —
+  `rasters/heightmap.f32` and `rasters/rainfall.f32`, both required by §5.1.
+- The Sculpt editor's are the river lock masks, and *having none* is a legal
+  state already reached by any world generated with river carving off, not a
+  missing value being stood in for.
+
+`drafts/paint.json` and `drafts/sculpt.json` were written from 2026-08-31 and
+restored from 2026-09-03; between those dates every painted cell and every
+sculpt stamp was in the archive and applied to nothing on open. §12 is the
+normative shape of both.
+
+The one part of the old reasoning that survives is the last clause, and it is
+narrower than "nothing can commit": a *sculpt* draft restored into a project
+opened from disk is visible and editable but **cannot be committed**, because
+baking it needs the generated world's substrate. Recalling a draft and baking
+it are different questions — the same distinction §16.2 draws for settlement
+placement.
 
 ### 16.4 The reserved rasters
 
@@ -1668,14 +1758,20 @@ discarded after use in the current implementation; there is no live value to
 write. They are named in §8.1 so the second implementation does not choose
 `rasters/biomes.u8` or `climate/koppen.u8` instead.
 
-### 16.5 `library/` — reserved, empty today
+### 16.5 `library/` — the **binary** half, still not stored
 
-The asset library and travel library are real, live data in this port, and they
-survive a regeneration — which is exactly why they are *setting*-level and not
-world-level. They are reserved rather than written in version 1 because both
-carry binary payloads (art) whose embedding is its own design question, and
-answering it badly would put images in a place the tree would later have to
-move them out of.
+**This subsection said "reserved, empty today" and that is no longer the
+whole truth.** Both library documents are written and restored (§12). What is
+still deliberately absent is the part the old reasoning was actually about:
+the asset library's **art**. `library/assets.json` carries each item's image
+*index*, name and transform; the pixels those indices address are not in the
+archive, because embedding them is its own design question and answering it
+badly would put images somewhere the tree would later have to move them out
+of. A restored library therefore comes back as slot definitions with zero
+items, and a reader that does not say so is presenting an empty library as a
+complete one.
+
+The travel library has no binary payload and is stored in full.
 
 ### 16.6 Ephemeral tool state
 
@@ -1708,8 +1804,9 @@ be discarded by clicking elsewhere is stored.
   than through a schema in Rust, so a payload the shell owns needs no engine
   change to be persisted.
 - §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the eleven
-  documents this port models — against the five it carries
-  (`entities/journeys.json`, `library/assets.json`, `library/travel.json`,
+  documents this port models — against the six it carries
+  (`entities/journeys.json`, `annotations/measurements.json`,
+  `library/assets.json`, `library/travel.json`,
   `drafts/paint.json`, `drafts/sculpt.json`). `caller_slot_refusal` is the one
   place that decides, and both directions of the channel go through it:
   `project_save_with_documents` refuses a modelled slot on the way in and
@@ -1786,24 +1883,43 @@ format rather than the code.
   they are only correct where the default is the stated substitution, and for
   these two it is not.
 
-**One conformance gap, narrower than it was.** §6.2 asks a reader that writes
-an archive back to either re-emit what it did not understand or refuse to
-overwrite. Two halves, and they now stand differently:
+**The §6.2 gap is closed for the tree layout, 2026-09-03.** §6.2 asks a reader
+that writes an archive back to either re-emit what it did not understand or
+refuse to overwrite. Both halves now take the first option:
 
-- **Registered documents this build does not model** are covered. §6.5's
-  verbatim text goes out through `project_open` and comes back in through
+- **Registered documents this build does not model.** §6.5's verbatim text
+  goes out through `project_open` and comes back in through
   `project_save_with_documents` unchanged, so a shell that hands back what it
   was given round-trips `library/travel.json` losslessly through a build that
   has never heard of a travel preset. That is the mechanism §6.2 asks for; it
-  still requires the shell to *use* it, which nothing does yet.
-- **Unrecognised entries** are not. `read_project` returns `foreign_entries`,
-  the names of every entry it did not consume, and `project_open` hands that
-  list to the shell so a Save command can warn before it drops them. That is
-  weaker than §6.2 requires and is the honest state today; retaining those
-  bytes is real work through every layer between the reader and the save
-  button, and no implementation writes a foreign entry yet. When the HTML app
-  starts writing payloads this port does not model, closing this is the first
-  thing that has to happen.
+  still requires the shell to *use* it.
+- **Unrecognised entries.** This bullet used to say "are not", and that was
+  the honest state until the census grew bytes. `read_project` now returns
+  `ProjectData::foreign` — every entry it did not consume, keyed by name,
+  **with its raw bytes** — `project_open` holds it on `WorldGen::
+  carried_foreign` for the life of the open project, and
+  `project_save_with_documents` hands it back to `ProjectWrite::foreign`,
+  which `write_project` re-emits verbatim. A payload written by a newer build
+  survives being opened and re-saved by an older one. The keys are still the
+  census, so anything that only wanted the names kept working.
+
+  Three details are load-bearing rather than incidental:
+
+  - **A name the writer produces itself wins**, and the carried copy is
+    skipped — not a preference: `ZipWriter` refuses a duplicate entry name,
+    so without the skip the *save* fails rather than the stale copy losing.
+  - **The bytes are project-scoped.** They are cleared wherever a world ends
+    (`release_world`, `load_save`), because grafting one project's foreign
+    entries onto the next is the same defect the landmark settings and the
+    vault links were each fixed for.
+  - **The flat layout is deliberately excluded**, and this is the one place
+    §6.2 is knowingly not met. A flat archive re-saved comes out as a *tree*,
+    so carrying its entries would mix one layout's payloads into the other's
+    namespace. The shell says so instead: opening a flat archive reports that
+    it was read as the older format and that saving converts it.
+
+  **No `format_version` bump.** Nothing about the format changed — this is a
+  reader/writer obligation §6.2 already stated, met at last.
 
 ---
 

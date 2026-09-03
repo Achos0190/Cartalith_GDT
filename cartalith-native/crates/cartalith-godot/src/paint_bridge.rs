@@ -397,6 +397,44 @@ impl PaintEditor {
         self.water_mask = water_mask;
     }
 
+    /// Replaces all three **committed** layers from `drafts/paint.json`'s
+    /// sparse `[index, value, ...]` pair lists, and returns how many painted
+    /// cells each one came back with.
+    ///
+    /// The reader half of `project_bridge.rs::paint_document_json`, and the
+    /// reason a painted world reopens painted. Until this existed the
+    /// document was written and never applied, so every biome, terrain and
+    /// splat override a person had painted was in the archive and invisible.
+    ///
+    /// `n` is `gw * gh` for the world being restored **into**, and the caller
+    /// is the one that must have checked it against the document's own grid:
+    /// an index is a cell number, so a layer decoded against a different grid
+    /// is not a smaller picture but a scrambled one
+    /// ([`PaintLayer::decode_sparse`] silently drops an out-of-range index,
+    /// which would turn that scrambling into a plausible-looking result).
+    ///
+    /// **Replaces, and clears the drafts with it.** A restore is the moment
+    /// the layers become the file's; a pending dab from before it would bake
+    /// into content it was never painted over. That is the same choice
+    /// `sculpt_restore_document` makes for its own draft, for the same
+    /// reason.
+    pub fn restore_layers(
+        &mut self,
+        n: usize,
+        biome: &[u32],
+        terrain: &[u32],
+        splat: &[u32],
+    ) -> (usize, usize, usize) {
+        self.biome = PaintLayer::decode_sparse(biome, n);
+        self.terrain = PaintLayer::decode_sparse(terrain, n);
+        self.splat = PaintLayer::decode_sparse(splat, n);
+        self.draft_biome.discard();
+        self.draft_terrain.discard();
+        self.draft_splat.discard();
+        let painted = |l: &PaintLayer| l.cells().map_or(0, |c| c.iter().filter(|&&v| v != 0).count());
+        (painted(&self.biome), painted(&self.terrain), painted(&self.splat))
+    }
+
     /// Switches which layer the next [`PaintEditor::stroke_at`] writes to.
     /// Each layer keeps its own draft (this module's own doc), so switching
     /// never discards or commits anything pending in the layer being left.

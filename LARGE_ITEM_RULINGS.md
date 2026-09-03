@@ -116,3 +116,34 @@ reversed both halves of that framing:
 - Questions **1, 2, 3, 6, 8, 9, 10** remain open. Question 1 still blocks the
   right dock's `rdExtraMode()` Medium row, which is why that row was excluded
   from the build in flight.
+
+---
+
+# Owner rulings on the four GUI blockers — 2026-09-03
+
+A second round, asked and answered on 2026-09-03 when the owner reprioritised
+GUI work. Four rows sat in `OUTSTANDING_WORK.md` §3.1 *blocked on an owner
+decision and nothing else*; three are now unblocked and one is reclassified.
+
+The owner also set the GUI order these serve: **the §3.2 rows blocked on other
+work first, then the unblocked rows, then the rows blocked on a design that does
+not exist.**
+
+| Item | Ruling | What it means for the build |
+|---|---|---|
+| **DS-03 — the tablet interior is not a scaled desktop** | **Keep everything; reflow only** | The tablet gets the **full desktop inventory**, in a denser or scrolling layout. No control is removed, so the ~30% of desktop content currently deleted comes back. This is a *content* answer and it retires the per-control question entirely: there is no "which controls leave" list to build, because none leave. The styling problem is not solved by it — `DccTheme.TABLET`'s key space is still exhausted, with one desktop integer mapping to two tablet figures in at least five verified places, and §57 refuted the obvious placement for a role-keyed resolver. **That architectural half remains, and is now the whole of DS-03.** |
+| **The right dock does not follow the armed tool** (`rdExtraMode`, nine contexts) | **Selection wins; the tool appends a section** | The dock keeps showing the selected entity; an armed tool adds its own section *below* rather than replacing the view. This is the answer to **owner question 1**, which `LARGE_ITEM_RULINGS.md` above records as still blocking this row. The naive merge — flipping the dock away from a selected settlement the moment a tool arms — is explicitly rejected. Nothing is yanked away mid-edit, so no "is editing" signal is needed. |
+| **CV-24 / ED-02** — the year scrubber as program scope; the undo-history panel | **Both wait for a design pass** | `TIMELINE_SCOPE.md` §4's standing instruction — design the panel first rather than guess its region — is upheld rather than overridden. **These move from §3.1 (blocked on an owner decision) to §3.3 (blocked on a design that does not exist).** They are not closed and not startable; the ruling is that guessing is worse than waiting. |
+| Stop shipping the ~218 `_*_probe` / `_*_shot` scenes inside the APK | **Exclude them — a scoped authorisation to edit `export_presets.cfg`** | **This overrides a standing prohibition and the override is deliberately narrow.** Agents are otherwise forbidden to touch `export_presets.cfg`; this authorises adding the probe/shot patterns to `exclude_filter` and nothing else. It does not authorise any other change to that file, and it does not extend to `Cargo.toml`, `.gitignore` or `project.godot`, which remain off limits. Note the precedent worth honouring: the Settlement diagnostics row carried a scoped `Cargo.toml` authorisation that was later **withdrawn as unnecessary** once the code was read — so verify the exclusion is actually needed before exercising it. |
+
+## Consequences for the open owner questions
+
+- **Question 1** (*does `rdExtraMode()` replace the right dock's ten selection
+  contexts, or sit beside them?*) is **answered**: it sits beside them. The
+  selection keeps the dock; the tool appends.
+- Questions **2, 3, 6, 8, 9, 10** remain open. Question 3 (the WORLD left-dock
+  A/B switch) was **not** put to the owner in this round on purpose: it is
+  doubly blocked, and the captions and gate live in the truncated tail of
+  `02-rail-and-domains.md` §8, so there is no label to build the control with
+  even once the call is made. Asking it would have produced an answer that
+  still could not be executed.

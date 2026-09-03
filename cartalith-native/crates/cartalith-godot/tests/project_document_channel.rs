@@ -41,6 +41,9 @@ use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_io::project::ProjectWrite;
 
 const JOURNEYS: &str = "entities/journeys.json";
+/// The sixth caller-owned slot (`SAVEFILE_COMPAT.md` §11.4, registered
+/// 2026-09-03) and the second one GDScript writes for itself.
+const MEASUREMENTS: &str = "annotations/measurements.json";
 
 /// One id above 2^31 and one at §14.1's ceiling exactly. The first is what a
 /// 32-bit reader loses; the second is what a double-typed one loses on the
@@ -74,6 +77,13 @@ fn a_small_world() -> (WorldParams, WorldState) {
 }
 
 fn write_with_journeys(text: &str) -> Vec<u8> {
+    write_with_documents(&[(JOURNEYS, text)], Default::default())
+}
+
+fn write_with_documents(
+    docs: &[(&str, &str)],
+    foreign: std::collections::BTreeMap<String, Vec<u8>>,
+) -> Vec<u8> {
     let (p, ws) = a_small_world();
     let n = p.gw * p.gh;
     let fields = cartalith_io::SaveFields {
@@ -94,7 +104,10 @@ fn write_with_journeys(text: &str) -> Vec<u8> {
     };
     let mut write = ProjectWrite::new(&sp, &fields);
     write.readme = Some(cartalith_io::DEFAULT_README.to_string());
-    write.document(JOURNEYS, text);
+    for (slot, text) in docs {
+        write.document(*slot, *text);
+    }
+    write.foreign = foreign;
     let mut buf = Vec::new();
     cartalith_io::write_project(std::io::Cursor::new(&mut buf), &write)
         .expect("a registered slot holding valid JSON must save");
@@ -109,7 +122,7 @@ fn a_caller_owned_document_survives_the_archive_byte_for_byte() {
     let back = cartalith_io::read_project(std::io::Cursor::new(&buf))
         .expect("a saved project must reopen");
     assert!(back.warnings.is_empty(), "{:?}", back.warnings);
-    assert!(back.foreign_entries.is_empty(), "{:?}", back.foreign_entries);
+    assert!(back.foreign.is_empty(), "{:?}", back.foreign.keys().collect::<Vec<_>>());
 
     // The claim, stated once and unhedged.
     let got = back.text_of(JOURNEYS).expect("the slot must come back");
@@ -145,6 +158,68 @@ fn a_caller_owned_document_survives_the_archive_byte_for_byte() {
         "re-serialization sorts object members; the archive's own text does not: {reserialized}"
     );
     assert!(!reserialized.contains('\n'));
+}
+
+/// The measurement store rides the channel above rather than being a second
+/// persistence mechanism (owner ruling, 2026-09-03), and this is what "rides"
+/// has to mean in practice:
+///
+/// * the slot is registered, so `write_project` accepts it instead of
+///   answering `UnknownSlot` -- the failure a store bolted on beside the
+///   channel would never see, because it would never have called this writer;
+/// * it comes back **verbatim** through the same reader the shell's journeys
+///   use, alongside them, so neither owner's document displaces the other's;
+/// * and an entry this build does not model survives the whole cycle. That is
+///   the one property adding a slot can quietly break: `is_own_entry` gates
+///   both the read's `foreign` map and the write's re-emission of it, and a
+///   name that appears in one list and not the other becomes either a lost
+///   entry or a duplicate-name save failure.
+#[test]
+fn the_measurements_slot_rides_the_channel_and_leaves_a_foreign_entry_alone() {
+    // Two decimals of a km figure and a fractional grid point, because the
+    // store is canonical km over fractional cells and rounding either at the
+    // boundary would be silent.
+    let measurements = concat!(
+        "{\"gw\":2048,\"gh\":1024,\"measurements\":[",
+        "{\"mode\":\"distance\",\"unit\":\"km\",\"value\":120.25,",
+        "\"points\":[[10.5,4.0],[88.0,12.25]]}]}"
+    );
+    let journeys = r#"{"next_id":1,"journeys":[]}"#;
+    let alien: Vec<u8> = b"a payload from an implementation this one predates".to_vec();
+
+    let buf = write_with_documents(
+        &[(JOURNEYS, journeys), (MEASUREMENTS, measurements)],
+        std::collections::BTreeMap::from([("extensions/somebody-elses.bin".to_string(), alien.clone())]),
+    );
+
+    let back = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("must reopen");
+    assert!(back.warnings.is_empty(), "{:?}", back.warnings);
+    assert_eq!(back.text_of(MEASUREMENTS), Some(measurements));
+    assert_eq!(back.text_of(JOURNEYS), Some(journeys), "the two callers do not displace each other");
+    assert_eq!(
+        back.foreign.get("extensions/somebody-elses.bin"),
+        Some(&alien),
+        "an unmodelled entry must survive the read"
+    );
+    // It is a document slot, so it is emphatically NOT foreign -- the half of
+    // `is_own_entry` that would otherwise re-emit it twice and fail the save.
+    assert!(!back.foreign.contains_key(MEASUREMENTS));
+
+    // Now the leg that only exists once both halves agree: read, carry, write.
+    let again = write_with_documents(
+        &[(JOURNEYS, journeys), (MEASUREMENTS, measurements)],
+        back.foreign.clone(),
+    );
+    let twice = cartalith_io::read_project(std::io::Cursor::new(&again)).expect("must reopen twice");
+    assert_eq!(twice.text_of(MEASUREMENTS), Some(measurements));
+    assert_eq!(twice.foreign.get("extensions/somebody-elses.bin"), Some(&alien));
+
+    // The values, so "verbatim" is not being bought with text nobody parses.
+    let parsed = twice.document(MEASUREMENTS).expect("must parse");
+    assert_eq!(parsed["gw"].as_i64(), Some(2048));
+    assert_eq!(parsed["measurements"][0]["value"].as_f64(), Some(120.25));
+    assert_eq!(parsed["measurements"][0]["points"][0][0].as_f64(), Some(10.5));
+    assert_eq!(parsed["measurements"][0]["unit"].as_str(), Some("km"));
 }
 
 #[test]

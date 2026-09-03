@@ -26,6 +26,12 @@ const _SEC_RECENT := "recent"
 ## not world state: it belongs here rather than in a `.zip`, because a device
 ## key names hardware this machine has and the next one may not.
 const _SEC_GPU := "gpu"
+## `DCC_SHELL_SPEC.md` §2.5's Performance group -- the Rayon worker-thread
+## count (owner ruling, `LARGE_ITEM_RULINGS.md` "CPU worker threads"). Machine
+## state for the same reason `_SEC_GPU` above is: how many workers *this
+## machine's* pool should span says nothing about the world, and a `.zip`
+## carrying it would impose one user's core count on everyone who opens it.
+const _SEC_CPU := "cpu"
 ## `DCC_SHELL_SPEC.md` §2.1's Autosave toggle (`GUI_GAP_REGISTER.md` FI-01).
 const _SEC_AUTOSAVE := "autosave"
 const _SEC_LOD := "tiles_lod"
@@ -185,6 +191,27 @@ static func gpu_fallback() -> String:
 static func set_gpu_fallback(name: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GPU, "fallback", name)
+	_save()
+
+# -- CPU worker threads (§2.5 Performance) -------------------------------------
+
+## Rayon global-pool worker count, or `0` for "follow the engine's own
+## default" (`WorldGen.cpu_thread_count`'s exact sentinel -- see its own doc
+## comment). SS2.5 asks for "an integer from 1 to the logical core count", so
+## `0` is never a value a chooser can land on, the same sentinel
+## `gpu_vram_budget_gb`'s "no cap" above uses.
+##
+## **`0` is what an untouched install returns**, and the engine's own default
+## at `0` is whatever Rayon would have picked with nobody calling
+## `ThreadPoolBuilder` at all -- unset therefore changes nothing for a session
+## that has never opened this preference, `appearance_defaults()`'s same rule.
+static func cpu_thread_count() -> int:
+	_ensure_loaded()
+	return maxi(0, int(_cfg.get_value(_SEC_CPU, "threads", 0)))
+
+static func set_cpu_thread_count(threads: int) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_CPU, "threads", maxi(0, threads))
 	_save()
 
 # -- Autosave (§2.1 File) ------------------------------------------------------
@@ -500,3 +527,76 @@ static func forget_layout(name: String) -> void:
 	all.erase(name)
 	_cfg.set_value(_SEC_LAYOUT, "named", all)
 	_save()
+
+# -- §2.5 Application > Keyboard shortcuts -------------------------------------
+
+## Rebindable menu accelerators. `DCC_SHELL_SPEC.md` §2.5: "Keyboard
+## shortcuts… | Editable table, per-context." `GUI_GAP_REGISTER.md` PR-16/
+## HE-02, owner-ruled build: *"A binding table in DccSettings, applied over
+## the menu accelerators at build time. Per-context, not flat -- the same key
+## means different things with a tool armed."*
+##
+## **Per-context means one `ConfigFile` section per context**, not one flat
+## section keyed only by action -- so two contexts can use the same
+## accelerator for different actions without this store ever having to tell
+## them apart, which is the entire reason a flat table was ruled out.
+## `SHORTCUT_CONTEXT_MENU` is the only context this pass populates:
+## `menus.gd`'s seven Program menus, read and reapplied through the one
+## function (`_bind_accelerator`) every accelerator in that file already
+## passes through, so no second mechanism grows beside it.
+##
+## The shell has other real keyboard contexts -- `app.gd`'s armed-tool
+## Escape/Backspace/Delete dispatch, the per-domain tool buttons' own
+## `Shortcut`s (`dcc_widgets.gd`'s `_tools_row`, e.g. Freehand's bare `F`),
+## the Layers popover's `1`-`8` -- named because `menus.gd`'s own header
+## points at them, not guessed. **None of them read this store.** Rebinding
+## them needs a pass that owns those files; this section is keyed by context
+## rather than assumed to be the only one that will ever exist, so that pass
+## adds its own section instead of reshaping this one.
+const _SEC_SHORTCUTS_PREFIX := "shortcuts_"
+const SHORTCUT_CONTEXT_MENU := "menu"
+
+static func _shortcuts_section(context: String) -> String:
+	return _SEC_SHORTCUTS_PREFIX + context
+
+## `default_accel` back if the user never rebound `action_id` in `context`;
+## the stored override otherwise. `action_id` is the menu system's own item
+## id (`menus.gd`'s `ID_*` constants) -- already a stable, collision-checked
+## namespace (see that file's own header on picking a free one), so this does
+## not mint a second one just to have a config key.
+static func shortcut_binding(context: String, action_id: int, default_accel: int) -> int:
+	_ensure_loaded()
+	return int(_cfg.get_value(_shortcuts_section(context), str(action_id), default_accel))
+
+## Whether the user has stored a rebind for this action, so a caller can show
+## "not the shipped key" and a way back -- the same distinction
+## `has_lighting_default()` makes and `shortcut_binding()`'s return value
+## alone cannot show.
+static func has_shortcut_override(context: String, action_id: int) -> bool:
+	_ensure_loaded()
+	return _cfg.has_section_key(_shortcuts_section(context), str(action_id))
+
+static func set_shortcut_binding(context: String, action_id: int, accel: int) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_shortcuts_section(context), str(action_id), accel)
+	_save()
+
+## Back to the shipped default for one action -- erases the key rather than
+## writing the default value over it, `clear_relief_exaggeration_default()`'s
+## reason: a stored copy of a default cannot follow the default if it moves.
+static func clear_shortcut_binding(context: String, action_id: int) -> void:
+	_ensure_loaded()
+	var section := _shortcuts_section(context)
+	if _cfg.has_section_key(section, str(action_id)):
+		_cfg.erase_section_key(section, str(action_id))
+		_save()
+
+## `Preferences ▸ Keyboard shortcuts… ▸ Restore all to defaults`, one context
+## at a time -- never every context in the file, so resetting the menu table
+## can never reach into a different context's store once one exists.
+static func reset_shortcuts(context: String) -> void:
+	_ensure_loaded()
+	var section := _shortcuts_section(context)
+	if _cfg.has_section(section):
+		_cfg.erase_section(section)
+		_save()

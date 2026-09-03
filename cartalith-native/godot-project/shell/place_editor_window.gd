@@ -525,8 +525,22 @@ func _build_traits(details: Dictionary) -> void:
 			DccTheme.c("accent_ink") if is_on else DccTheme.c("text_dim"))
 		b.add_theme_stylebox_override("normal",
 			DccTheme.flat(DccTheme.c("accent") if is_on else DccTheme.c("sunken")))
+		## **The off-chip's hover was inverted by the 2026-08-31 token re-base.**
+		## It was `raised`, which is a lift over the old `sunken` and is not one
+		## over the new: `--ins` moved #101112 -> #191c1e, so on dark the hover
+		## went from *lighter by (7,8,8)* to *darker by (2,3,4)* -- a hover that
+		## reads as a press, at a delta too small to read as anything.
+		##
+		## `outline("border", "sunken")` keeps the well and adds the hairline edge
+		## the shell already uses for a chip hover (`dcc_widgets.gd`'s `outline(...)`
+		## pair), so the affordance is an edge rather than a fill and works the
+		## same in both palettes -- `border` is rgba(255,255,255,.16) on dark and
+		## rgba(0,0,0,.20) on light. Both are real tokens, so `DccTheme.remap()`
+		## repaints them on a theme flip; a `lightened()`/blended literal would not
+		## be matched by either of its passes.
 		b.add_theme_stylebox_override("hover",
-			DccTheme.flat(DccTheme.c("accent").lightened(0.1) if is_on else DccTheme.c("raised")))
+			DccTheme.flat(DccTheme.c("accent").lightened(0.1)) if is_on
+			else DccTheme.outline("border", "sunken"))
 		b.pressed.connect(func():
 			bridge.civ_settlement_toggle_trait(_index, key)
 			_rebuild())

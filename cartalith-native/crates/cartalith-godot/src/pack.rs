@@ -7,7 +7,8 @@
 //!
 //! ## What this module composites, and what it deliberately does not
 //!
-//! Two of the milestone's three named surfaces are real here:
+//! **All three of the milestone's named surfaces are real here** — the third
+//! landed last, long after the first two:
 //!
 //! - **Sprite compositing** (`drawMapIcons`' painter's pass, `composite_map_icons`
 //!   below) — the `icons` family (`PACK_ICON_SLOTS`, 10 scattered-feature
@@ -20,11 +21,16 @@
 //!   `materialWeights`' own six fractions and each material's own procedural
 //!   ramp colour already live there and the splat blend is a read-only
 //!   consumer of both.
+//! - **The two "painted layers"** (`_paintedTex`'s `biomes`/`terrains`
+//!   families, the Cartography paint-brush biome/terrain override) — decoded
+//!   here ([`crate::render::GroundTile`], `LoadedPack::biomes`/`::terrains`)
+//!   and consumed by `render.rs`'s own paint blend, which had been taking the
+//!   flat-swatch branch unconditionally because nothing ever handed it a
+//!   tile. **This was the milestone's last unbuilt surface**; the two
+//!   paragraphs below are the record of why, kept because they name the
+//!   blocker that lifted and the one that never existed.
 //!
-//! **The third named surface — the two "painted layers" (`_paintedTex`'s
-//! `biomes`/`terrains` families, the Cartography paint-brush biome/terrain
-//! override) — is half-implemented, and the missing half is the decoding,
-//! not the painting.** Read literally (reference lines 7898-7900,
+//! Read literally (reference lines 7898-7900,
 //! 12187-12196): `pBio`/`pTer` are per-cell indices into
 //! `state.cartoPaint.biome`/`.terrain`, and `_paintedTex(fam, slots, idx,
 //! px, py)` samples the loaded pack's image for that index — one texel per
@@ -57,35 +63,43 @@
 //! because concurrent edits move these files faster than the comment is
 //! re-read.
 //!
-//! What is missing is exactly one thing: **decoding a pack's `biomes`/
-//! `terrains` images, so that blend has a texture to prefer over the flat
-//! swatch.** `PackManifest`'s own `.biomes`/`.terrains`
-//! (`cartalith-assets/src/manifest.rs:145`/`:148`, keyed by
-//! `PACK_BIOME_SLOTS`/`PACK_TERRAIN_SLOTS`) are parsed — for a correct
-//! `packSummary`-equivalent and warning count — but [`LoadedPack`] never
-//! turns them into pixels, and so [`load_pack_from_bytes`] below decodes
-//! `icons` and `splat` and nothing else. Until it does, every painted cell
-//! takes the reference's own no-texture branch, which is why this is a
-//! missing refinement rather than a divergence. Picking it up means
-//! decoding both families here and carrying them to `render.rs` the way
-//! [`SplatChannel`] already is — a real, separate job, deliberately not
-//! started in the pass that corrected this comment.
+//! What was missing was exactly one thing, and it is now built:
+//! **decoding a pack's `biomes`/`terrains` images, so that blend has a
+//! texture to prefer over the flat swatch.** `PackManifest`'s own
+//! `.biomes`/`.terrains` (`cartalith-assets/src/manifest.rs`, `pub biomes`/
+//! `pub terrains`, keyed by `PACK_BIOME_SLOTS`/`PACK_TERRAIN_SLOTS`) were
+//! parsed — for a correct `packSummary`-equivalent and warning count — but
+//! [`LoadedPack`] never turned them into pixels, so [`load_pack_from_bytes`]
+//! decoded `icons` and `splat` and nothing else and every painted cell took
+//! the reference's own no-texture branch.
+//!
+//! [`decode_ground_family`] below closes it, carrying both families to
+//! `render.rs` the way [`SplatChannel`] already was — as
+//! [`crate::render::GroundTiles`], borrowed by `RenderCtx::with_ground_tiles`
+//! at `lib.rs`'s existing `if let Some(loaded) = self.asset_pack` site.
+//!
+//! **Nothing about the default render moved**, and that is a property, not
+//! an accident: a tile is reachable only through a *painted* cell, painted
+//! cells start empty, and this port bundles no pack at all — so the flat
+//! swatch is still what every default pixel takes, and
+//! `golden_parity_render.rs` never enters the branch.
 
 use std::collections::HashMap;
 use std::io::Cursor;
 
 use cartalith_assets::{
-    DecodedImage, PACK_TEX_SLOTS, PackManifest, PlaceIconsRuledOpts, PlacedIcon,
+    DecodedImage, PACK_BIOME_SLOTS, PACK_TERRAIN_SLOTS, PACK_TEX_SLOTS, PackEntries, PackManifest,
+    PlaceIconsRuledOpts, PlacedIcon,
     ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,
     decode_png, finalize_pack_texture_inv_mean, icon_slot_for_item, pick_weighted_variant,
     place_map_icons_ruled, read_pack, sprite_draw_rect,
 };
 
-use crate::render::SplatChannel;
+use crate::render::{GroundTile, SplatChannel};
 
-/// A real, loaded asset pack — only the two families this milestone
-/// composites decoded to pixels; see this module's own doc comment for why
-/// `biomes`/`terrains`/`structures`/`custom` are parsed (`manifest`) but not
+/// A real, loaded asset pack — the four families this module composites
+/// decoded to pixels; see this module's own doc comment for why
+/// `structures`/`custom`/`seamarks` are parsed (`manifest`) but not
 /// rasterised.
 pub struct LoadedPack {
     pub manifest: PackManifest,
@@ -97,6 +111,44 @@ pub struct LoadedPack {
     /// own splat block never samples (`SPLAT_PAINT_SLOTS` excludes it), so
     /// it is parsed but not decoded here either.
     pub splat: HashMap<&'static str, SplatChannel>,
+    /// Painted-biome ground tiles, **positional**: index `n` is
+    /// `PACK_BIOME_SLOTS[n]`, so a painted index `p` reads `biomes[p - 1]`
+    /// (`slots.rs`' frozen "slot N here is index N+1 in `CART_BIOMES`").
+    /// Always `PACK_BIOME_SLOTS.len()` long, `None` where the pack has no
+    /// art — a `HashMap` would push that `- 1` arithmetic into the render
+    /// loop, which is where it is easiest to get wrong.
+    pub biomes: Vec<Option<GroundTile>>,
+    /// Painted-terrain ground tiles, on the same terms —
+    /// `PACK_TERRAIN_SLOTS.len()` long, indexed by `p - 1`.
+    pub terrains: Vec<Option<GroundTile>>,
+}
+
+/// Decode one painted-ground family into the positional table
+/// [`LoadedPack::biomes`]/[`LoadedPack::terrains`] describes.
+///
+/// **No `finalize_pack_texture_inv_mean` here, unlike the splat loop below**,
+/// and that is the reference's asymmetry rather than an omission: a splat
+/// channel modulates a procedural ramp by `texel/mean`, while a painted tile
+/// is blended as true colour (`ASSET_LIBRARY_SCOPE.md` §1 — "dividing out a
+/// tile's absolute hue is right for splat and wrong for paint"; the reference
+/// says so at its own line 12246). [`GroundTile`] has no `inv` field to fill,
+/// so the mistake cannot be made silently.
+///
+/// A missing slot, a manifest path with no ZIP entry, and a PNG that fails to
+/// decode all land on the same `None` — per-slot tolerance, matching the rest
+/// of this module and the format's own per-slot fallback rule.
+fn decode_ground_family(
+    slots: &[&'static str],
+    table: &cartalith_assets::OrderedMap<String>,
+    entries: &PackEntries,
+) -> Vec<Option<GroundTile>> {
+    slots
+        .iter()
+        .map(|&slot| {
+            let img = decode_png(entries.get(table.get(slot)?)?).ok()?;
+            Some(GroundTile { w: img.w, h: img.h, rgba: img.rgba })
+        })
+        .collect()
 }
 
 /// Read a pack `.zip`'s bytes and decode the two families this milestone
@@ -132,7 +184,10 @@ pub fn load_pack_from_bytes(bytes: Vec<u8>) -> Result<LoadedPack, String> {
         splat.insert(slot, SplatChannel { w: img.w, h: img.h, rgba: img.rgba, inv });
     }
 
-    Ok(LoadedPack { manifest, icons, splat })
+    let biomes = decode_ground_family(&PACK_BIOME_SLOTS, &manifest.biomes, &entries);
+    let terrains = decode_ground_family(&PACK_TERRAIN_SLOTS, &manifest.terrains, &entries);
+
+    Ok(LoadedPack { manifest, icons, splat, biomes, terrains })
 }
 
 // ---------------------------------------------------------------------------

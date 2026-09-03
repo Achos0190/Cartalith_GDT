@@ -753,10 +753,23 @@ func _usage_journeys() -> int:
 	return maxi(n, _host.journey_planner_view.journey_usage(
 		_current_kind, _current_id, String(_entry.get("name", ""))))
 
-## One banner: a coloured left rule plus washed background, matching `2b`'s
-## own amber/blue inline styling -- `DccTheme`'s `warn` (`#e0a840`) and
-## `water` (`#7d9dae`) tokens are the exact same hex the mockup's own
-## incomplete/info banners use, and `block` (`#b55950`) for a conflict.
+## One banner: a coloured left rule plus washed background, matching `2b`'s own
+## amber/blue inline styling -- `warn` for incomplete, `water` for info, `block`
+## for a conflict.
+##
+## **The hexes this comment used to quote are gone, not updated.** It read
+## *"`warn` (`#e0a840`) and `water` (`#7d9dae`) ... and `block` (`#b55950`) ...
+## are the exact same hex the mockup's own banners use"*, and the 2026-08-31
+## token re-base falsified all three: `water` is now #6a9bc4, `block` #c96a5a,
+## and `warn` -- unchanged on dark -- moved to #9a6a12 on light, where it had
+## been drawing the dark amber against a #f4f2ee ground. Restating the new
+## triple here would only re-arm the same trap, since this file reads the tokens
+## and has no opinion of its own about their values. `dcc_theme.gd` holds them,
+## with the prototype line each is sourced from.
+##
+## The .09 wash alpha below is this file's own and is not a token: it happens to
+## equal `--wash`, which is a coincidence worth one sentence rather than a
+## dependency.
 func _banner(parent: Control, token: String, text: String) -> void:
 	var box := PanelContainer.new()
 	var sb := StyleBoxFlat.new()

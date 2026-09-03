@@ -876,6 +876,35 @@ never decodes or rasterises them. Named here as the natural remaining item
 for whoever next ports the Cartography paint-brush tool, per the terrain-
 appearance research vocabulary this document's own §1 table already used.
 
+> **Closed 2026-09-03; the paragraph above is kept as the record of why it
+> stayed open.** Both halves of the blocker it names are gone. The paint tool
+> shipped 2026-08-24 (`paint_bridge.rs`'s `PaintEditor` over three
+> `PaintLayer`s, `WorldGen::get_paint_layers`, and a brush UI in the WORLD
+> dock and the canvas tool-options row), which `render.rs`'s doc took the same
+> day and `pack.rs`'s did not until 2026-08-31. The decode was the only piece
+> left: `pack::decode_ground_family` now fills `LoadedPack::biomes`/
+> `::terrains` as positional `Vec<Option<GroundTile>>` tables, carried to the
+> renderer as `render::GroundTiles` by `RenderCtx::with_ground_tiles`, and
+> `land_color`'s paint blend prefers the tile over the flat swatch through
+> `render::painted_tex` — the reference's own `_paintedTex`, at its own
+> `0.60` weight and its own position. **True colour, no inverse mean**, the
+> asymmetry §1 above warns about; `GroundTile` has no `inv` field so the
+> mistake cannot be made silently. The default render is unmoved: a tile is
+> reachable only through a painted cell, and this port bundles no pack.
+> Ten tests in `cartalith-godot/tests/paint_blend.rs`, seven mutants killed,
+> and the real fixture pack's own `biomes/jungle.png` / `terrains/paved.png`
+> — present in `reference_pack.zip` since milestone 2 and dropped on the
+> floor until now — carried end to end.
+>
+> **One thing was found and deliberately not changed**: `parse_pack_manifest`
+> still warns *"N pack section(s) not yet used by the live map (biomes,
+> terrains)"*. That staleness is the **reference's own** — its comment at line
+> 12164 calls biome/terrain texturing "still follow-up work" while
+> `_paintedTex` sits at 12187 doing it — and the emitted string is pinned
+> verbatim by `golden_parity_pack_manifest.rs`. Dropping the two names is a
+> golden re-baseline, which `DECISIONS.md` §7a protects; it needs an owner
+> ruling, not a lane's judgement.
+
 **Two real defaults confirmed by reading the reference, not assumed**:
 `state.viz.icons` defaults `false` (icons are an opt-in `state.viz.*`
 stretch feature like every other one `render.rs`'s own doc comment already

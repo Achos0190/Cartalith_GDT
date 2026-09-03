@@ -46,11 +46,59 @@
 
 use godot::prelude::*;
 
+use cartalith_civ::ResourcePotentials;
+use cartalith_civ::military::{WallPlace, civ_relative_elevation, um_infer_walls, um_wall_spec};
 use cartalith_civ::urban_adapter::{
-    self, DetailGeom, LayoutEdge, UrbanLayout, UrbanWorld, Vec2 as UVec2,
+    self, DetailGeom, LayoutEdge, SiteProfileWorld, UrbanLayout, UrbanWorld, Vec2 as UVec2,
+    um_harbour_scale, um_site_profile,
 };
 
 use crate::{WorldGen, WorldSource};
+
+/// `traceRiverPolylines`, hoisted out of the per-settlement path and shared
+/// by every call in this file that needs it: [`WorldGen::urban_layouts`] and
+/// [`WorldGen::settlement_diagnostics`] both want the same one full-grid
+/// trace once per batch, not once per settlement — the cost `_umWaterCtx`
+/// pays on every reference call and this module's header explains paying
+/// only once for. `None` on either input is `_umWaterCtx`'s own "no river
+/// network yet" case, which becomes an empty trace rather than a failure.
+fn traced_river_polys(
+    ws: &cartalith_engine::WorldState,
+    gw: usize,
+    gh: usize,
+) -> Vec<Vec<(f64, f64)>> {
+    match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+        (Some(order), Some(ch)) => {
+            cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1)
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// [`ResourcePotentials`] has no `Default` (every field is a bare `Vec`,
+/// and adding a derive would mean editing `cartalith-civ`). A caller with
+/// no resource rasters to offer — [`WorldGen::settlement_diagnostics`],
+/// which reads none of the fields this feeds — passes this instead of
+/// fabricating one.
+fn empty_resource_potentials() -> ResourcePotentials {
+    ResourcePotentials {
+        copper: Vec::new(),
+        tin: Vec::new(),
+        iron: Vec::new(),
+        gold: Vec::new(),
+        salt: Vec::new(),
+        timber: Vec::new(),
+        lead: Vec::new(),
+        silver: Vec::new(),
+        clay: Vec::new(),
+        buildstone: Vec::new(),
+        flint: Vec::new(),
+        obsidian: Vec::new(),
+        gems: Vec::new(),
+        sulfur: Vec::new(),
+        alum: Vec::new(),
+    }
+}
 
 /// One `UrbanLayout` as the Dictionary GDScript draws from.
 ///
@@ -331,16 +379,9 @@ impl WorldGen {
         }
 
         // The one full-grid pass, hoisted out of the per-settlement loop --
-        // see this module's header. `None` for either input is the
-        // reference's own "no river network yet" case, which `_umWaterCtx`
-        // handles by producing a mask with no stem in it.
-        let river_polys: Vec<Vec<(f64, f64)>> =
-            match (ws.stream_order.as_ref(), ws.channels.as_ref()) {
-                (Some(order), Some(ch)) => {
-                    cartalith_hydrology::trace_river_polylines(order, &ch.recv, gw, gh, 1)
-                }
-                _ => Vec::new(),
-            };
+        // see this module's header and `traced_river_polys`, now shared with
+        // `settlement_diagnostics` below.
+        let river_polys = traced_river_polys(ws, gw, gh);
 
         let world = UrbanWorld {
             field: &ws.field,
@@ -366,6 +407,165 @@ impl WorldGen {
             if let Some(layout) = urban_adapter::settlement_layout(&world, s, &civ.ways) {
                 out.push(&layout_dict(idx as i64, &layout));
             }
+        }
+        out
+    }
+
+    /// The Settlement diagnostics overlay's own fact card — the reference's
+    /// `#civDiagnosticsChk` (`drawCivLayer` §2.6): at most three lines,
+    /// specialisation + [`um_wall_spec`]'s wall rung on the first,
+    /// [`um_site_profile`]'s river classification on the second, and
+    /// (see below) harbour eligibility standing in for the third.
+    ///
+    /// **Why this is not [`Self::urban_layouts`].** That call runs the
+    /// reference's whole `generate()` for one settlement — streets, blocks,
+    /// walls, buildings, markets, farmland. A three-line card asked for at
+    /// every settlement on the map cannot afford that, so this calls only
+    /// the two pure functions the card actually reads —
+    /// `cartalith_civ::urban_adapter::um_site_profile` and `um_harbour_scale`,
+    /// both marked **"ported"** in that module's own doc table and, until
+    /// this function, exposed to nothing at all (`UNWIRED_FUNCTIONS.md`'s
+    /// 2026-09-02 dangerous-class entry: the control's old tooltip blamed
+    /// unbuilt urban milestones 9/10/13 for a gap that was really "zero
+    /// `#[func]` reaches either function").
+    ///
+    /// `um_site_profile` normally reads eight full-grid rasters
+    /// ([`SiteProfileWorld`]); this card needs none of them. Every field it
+    /// returns comes from `field` (real), `ways` (real, `civ.ways`) and
+    /// `river_polys` (real — [`traced_river_polys`], the same batch-hoisted
+    /// trace [`Self::urban_layouts`] already pays for once per call, not
+    /// once per settlement). The other six inputs — coast distance, flood,
+    /// biome, temperature, rain, carrying capacity — go in empty, which is
+    /// [`SiteProfileWorld`]'s own documented contract for "no source
+    /// supplied" (never a fabricated zero): nothing this function returns
+    /// reads the [`cartalith_civ::urban_adapter::SiteProfile`] fields those
+    /// six feed.
+    ///
+    /// **`"specialisation"` is real, and usually `""`.** It is read off
+    /// [`crate::civ_roster_bridge::PlaceExtrasTable`] — the place editor's
+    /// own override — exactly as `civ_military_bridge.rs`'s `defences()`
+    /// already reads it into the same [`WallPlace`]. That is a *different*
+    /// source from the one `urban_adapter.rs`'s own module doc calls
+    /// absent: that note is about `cartalith_civ::NamedSettlement`, the pure
+    /// engine type, which indeed carries no such field
+    /// (`OUTSTANDING_WORK.md` §2.1) — `place_extras` is `cartalith-godot`'s
+    /// own sidecar for exactly the data that type has no room for, and it is
+    /// real the moment a player sets one. Until then it is genuinely `""`,
+    /// the reference's own `'none'` default, which the shell should dash
+    /// with that reason rather than present as a port gap.
+    ///
+    /// **Bridge/ford validity is not in this dictionary at all**, and that
+    /// is the honest remainder the old tooltip's "blocked on milestones
+    /// 9/10/13" papered over. The reference's third line reads it from a
+    /// cached model (`_umModelCache`, out of scope for every milestone —
+    /// this module's own header). This port's nearest equivalent,
+    /// [`Self::urban_layouts`], surfaces `bridge_pt`/`harbour_pt` as
+    /// *candidate points*, not `detectRiverCrossings`' validated crossings —
+    /// that call's own doc comment lists the crossings among what is still
+    /// "one field away" and unsurfaced. So there is nothing true this
+    /// function could put in a bridge/ford field, and it does not try;
+    /// `"has_harbour"`/`"harbour_scale"` (real whenever `site_kind` is not
+    /// `"landlocked"`) occupy the space the third line would otherwise take.
+    ///
+    /// Skips an out-of-range index or one with no world, same as
+    /// [`Self::urban_layouts`]. Never panics across the boundary: no
+    /// `unwrap`/`expect` anywhere in this function.
+    #[func]
+    fn settlement_diagnostics(&self, indices: PackedInt32Array) -> Array<VarDictionary> {
+        let out = Array::new();
+        let (Some(WorldSource::Generated(ws)), Some(civ)) =
+            (self.source.as_ref(), self.civ.as_ref())
+        else {
+            return out;
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || civ.settlements.is_empty() {
+            return out;
+        }
+
+        let river_polys = traced_river_polys(ws, gw, gh);
+        let empty_resources = empty_resource_potentials();
+        let world = UrbanWorld {
+            field: &ws.field,
+            flow: &ws.flow_discharge,
+            water_bodies: &civ.water_bodies,
+            order: ws.stream_order.as_deref(),
+            river_polys: &river_polys,
+            gw,
+            gh,
+            sea_level: self.sea_level,
+            map_width_km: self.map_width_km,
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
+            world_seed: self.seed,
+        };
+
+        let mut out = out;
+        for i in indices.as_slice() {
+            let Ok(idx) = usize::try_from(*i) else { continue };
+            let Some(s) = civ.settlements.get(idx) else { continue };
+            // Same `WallPlace` construction as `civ_military_bridge.rs`'s
+            // `defences()` -- kept local rather than shared because that
+            // method is private and lives in a file this lane does not own.
+            let e = civ.place_extras.get(s.tid);
+            let (px, py) = (s.placement.x as f64, s.placement.y as f64);
+            let r = civ_relative_elevation(&ws.field, gw, gh, self.sea_level, px, py);
+            let wp = WallPlace {
+                walls_override: e.walls,
+                kind: s.placement.kind,
+                pop: s.pop as f64,
+                fortified_trait: e.traits.iter().any(|t| t == "fortified"),
+                age_override: e.age.map(f64::from),
+                specialisation: if e.specialisation.is_empty() {
+                    None
+                } else {
+                    Some(e.specialisation.as_str())
+                },
+                relative_elevation: r,
+            };
+            let wall_spec = um_wall_spec(&wp);
+            let walled = um_infer_walls(&wp);
+
+            let site_world = SiteProfileWorld {
+                coast_dt: &[],
+                flood: &[],
+                biome: &[],
+                temp: &[],
+                rain: &[],
+                carry_k: &[],
+                res: &empty_resources,
+                ways: &civ.ways,
+                world_wrap: self.world,
+                walled,
+            };
+            let Some(profile) = um_site_profile(&world, &site_world, px, py) else { continue };
+            let has_river = profile.river_dist_km.is_finite();
+            let has_harbour = profile.site_kind != "landlocked";
+            let river_order = if has_river { profile.river_order } else { 0.0 };
+            let river_width_m = if has_river { profile.river_width_m } else { 0.0 };
+            // `-1.0` is a presentation sentinel for "no river", not a real
+            // distance -- `has_river` is the field a caller must actually
+            // gate on, the same convention `has_harbour` sets beside it.
+            let river_dist_km = if has_river { profile.river_dist_km } else { -1.0 };
+            let confluence = has_river && profile.confluence;
+            let harbour_scale =
+                if has_harbour { um_harbour_scale(s.pop as f64, profile.site_kind) } else { -1.0 };
+
+            out.push(&vdict! {
+                "index" => idx as i64,
+                "tid" => s.tid as i64,
+                "name" => s.name.as_str(),
+                "site_kind" => profile.site_kind,
+                "specialisation" => e.specialisation.as_str(),
+                "wall_spec" => wall_spec,
+                "walled" => walled,
+                "has_river" => has_river,
+                "river_order" => river_order,
+                "river_width_m" => river_width_m,
+                "river_dist_km" => river_dist_km,
+                "confluence" => confluence,
+                "has_harbour" => has_harbour,
+                "harbour_scale" => harbour_scale,
+            });
         }
         out
     }

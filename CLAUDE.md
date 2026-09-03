@@ -19,6 +19,7 @@ which is a map, not a state — and not the document that happens to be open.
 | What is this milestone, and why is it shaped that way? | the owning `*_SCOPE.md` | `STATUS.md`, which carries no design |
 | What happened, in what order? | **`git log`** | `CHANGELOG.md` |
 | Why is this line of Rust written this way? | the retired `CHANGELOG.md`, for anything before 2026-08-26 | — |
+| **What am I about to get wrong?** (before scheduling a row, pinning a constant, quoting a timing, changing behaviour, declaring green) | **`MISTAKES.md`**'s preflight table | rediscovering it at cost, as this project did eleven times with one row class alone |
 
 Three rules follow from that, and they are the point of this section:
 
@@ -39,6 +40,36 @@ shipped, and `ROADMAP.md` filing the same subsystem as "not scheduled, no code
 written". **Verify status against the code and say what you opened.** Prefer
 naming a symbol to citing a line number — line numbers in this repository have
 drifted inside a single day.
+
+## Read `MISTAKES.md` at the start of every session
+
+**Owner instruction, 2026-09-03.** `MISTAKES.md` at the repository root is a
+**preemptive** file, not a log — its point is that the mistake is not made a
+second time. It opens with a **preflight table keyed to what you are about to
+do**: scan the left column, and if a row matches your next action, apply its
+rule before you start. The entries beneath it exist only to explain why each
+rule is there, and each is a mistake that actually shipped into this tree.
+Several carry a `×N`, which is the best available guide to what will go wrong
+next.
+
+Three obligations, and they are cheap:
+
+1. **Read the preflight table when the session starts, and again whenever you
+   are about to schedule a row, pin a constant, quote a timing, change
+   behaviour, or declare the work green.** The table is one screen.
+2. **Put its rules in every agent brief.** The recurring ones — never encode "no
+   value" as a plausible value; never assert a constant against itself; re-open
+   a backlog row at its symbol before believing it; `cargo test` cannot see a
+   broken shell — are the ones that keep recurring precisely because a fresh
+   agent does not know them.
+3. **Add an entry after a confirmed mistake or a user correction**, merging into
+   an existing entry rather than duplicating it. Do not record transient tool
+   failures or unverified guesses.
+
+`STATUS.md` answers *what state is this in*; `OUTSTANDING_WORK.md` answers *what
+is left*; **`MISTAKES.md` answers *what goes wrong here, and how to not do it
+again*.** It is the cheapest of the three to read and the most expensive to
+have skipped.
 
 ## Read `README.md` next
 
@@ -107,6 +138,7 @@ replace reading `README.md`, `DECISIONS.md` and `ARCHITECTURE.md` properly.
 
 | Path | What it is |
 |---|---|
+| `MISTAKES.md` | **read at session start** — every confirmed mistake, its root cause, the rule, and how to verify. Owner instruction, 2026-09-03 |
 | `README.md` | **start here** — crates, reading order, discipline (status is `STATUS.md`'s) |
 | `DECISIONS.md` | every choice, what it beat, and why |
 | `ARCHITECTURE.md` | the Rust↔Godot split and crate layout |

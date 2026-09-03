@@ -284,19 +284,67 @@ class SlotCell extends Control:
 		var preview := Label.new()
 		preview.text = ("%s (%d)" % [uids[0], uids.size()]) if uids.size() > 1 else uids[0]
 		preview.add_theme_color_override("font_color", DccTheme.c("text_bright"))
-		preview.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("raised")))
+		## `panel` + a `border` hairline, not a bare `raised` fill. A drag preview
+		## is a *floating* surface, and the prototype has none above `--pan`: it
+		## raises the menu popup and the layers popover on `var(--pan)` with
+		## `var(--bor)`, which is what this now is.
+		##
+		## The bare fill also had a light-theme hole. LIGHT `raised` is #fbfaf7,
+		## byte-identical to LIGHT `panel`, so the preview was an invisible
+		## rectangle over the library it was being dragged across -- and
+		## `DccTheme.remap()`, which matches on exact RGBA walking the palette in
+		## declaration order, resolves such a control through `panel` on a theme
+		## flip and never hands `raised` back.
+		##
+		## The margins come with the border: `outline()` sets none, and the fill
+		## this replaces needed none because there was no line for the text to sit
+		## against. 8/3 is the popup item's own `padding:3px 14px`
+		## (`03-menu-bar.md` §5) halved on the long axis, which is what a one-line
+		## floating chip wants.
+		var preview_box := DccTheme.outline("border", "panel")
+		preview_box.content_margin_left = 8
+		preview_box.content_margin_right = 8
+		preview_box.content_margin_top = 3
+		preview_box.content_margin_bottom = 3
+		preview.add_theme_stylebox_override("normal", preview_box)
 		set_drag_preview(preview)
 		return {"type": "asset_uids", "uids": uids}
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
+		## The "checker chosen, drawn flat" case -- `sunken`, so it is the same
+		## grey as the checkerboard's own primary square below rather than a third
+		## one. It was `raised`, which stopped being either checker grey in the
+		## 2026-08-31 re-base; see that block's comment.
 		if thumb != null and not (checker_under_art and bg_mode == "checker"):
-			draw_rect(r, DccTheme.c("raised") if bg_mode == "checker" else bg_color, true)
+			draw_rect(r, DccTheme.c("sunken") if bg_mode == "checker" else bg_color, true)
 		elif bg_mode == "checker":
-			## `sunken`/`raised`, not `sunken`/`panel_alt`: those two tokens are
-			## one level apart and the checkerboard came out invisible.
+			## `sunken`/`panel` since 2026-09-03. This read `sunken`/`raised`,
+			## under a comment saying *"not `sunken`/`panel_alt`: those two tokens
+			## are one level apart and the checkerboard came out invisible"* --
+			## true when written, and the 2026-08-31 token re-base then did the
+			## same thing to the pair that comment recommended. `--ins` moved
+			## #101112 -> #191c1e, from below `bg` to above `panel`, so on dark:
+			##
+			## |  | `sunken` | `raised` | delta |
+			## |---|---|---|---|
+			## | before | (16,17,18) | (23,25,26) | **(7,8,8)** |
+			## | after  | (25,28,30) | (23,25,26) | **(2,3,4)** |
+			##
+			## `panel` #121314 (18,19,20) restores it at (7,9,10) -- the magnitude
+			## the pair used to have -- and it is the prototype's own relationship
+			## rather than a grey picked for being different: `--ins` is authored
+			## as the inset that sits *on* `--pan`. Light was never affected
+			## (#eceae4 against #fbfaf7 is (15,16,19)), which is why a light
+			## capture would not have shown this.
+			##
+			## Do not reach for `raised` again to widen it. `DccTheme`'s own
+			## `raised` comment records that the pair is no longer a ramp, and in
+			## LIGHT `raised` is #fbfaf7 -- byte-identical to `panel` -- so
+			## `remap()` resolves a `raised` control through `panel` on a theme
+			## flip and never hands it back.
 			var a := DccTheme.c("sunken")
-			var b := DccTheme.c("raised")
+			var b := DccTheme.c("panel")
 			var yy := 0.0
 			while yy < r.size.y:
 				var xx := 0.0

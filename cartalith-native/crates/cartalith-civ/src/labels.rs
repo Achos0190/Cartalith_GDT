@@ -1076,9 +1076,24 @@ pub fn generate_labels(
             continue;
         }
         mine.sort_by(|a, b| {
+            // `total_cmp`, not `partial_cmp(..).unwrap_or(Equal)`. The latter is
+            // not a total order: a NaN weight compares Equal to everything, so it
+            // ties by *name* against every element while the rest tie by weight,
+            // and that closes an intransitive cycle. Rust's sort detects the
+            // broken invariant and **panics** -- measured at n=40 with one NaN --
+            // and a panic crossing the gdext boundary takes the whole Godot
+            // process down, not just the call (`cartalith-rust-conventions`).
+            //
+            // Reachability is narrow today and was not demonstrated live: four of
+            // the five weight sources are integer-derived (`cells as f64`,
+            // `pop as f64`), and the fifth, `lm.importance`, is `.clamp(0.0, 1.0)`
+            // at its only writer. So this is a latent hazard, closed at the sort
+            // rather than defended by an upstream invariant nobody restates here.
+            // `total_cmp` is identical on every non-NaN input, so no ordering,
+            // no golden and no suppressed set moves -- `x` and `y` below already
+            // use it.
             b.weight
-                .partial_cmp(&a.weight)
-                .unwrap_or(std::cmp::Ordering::Equal)
+                .total_cmp(&a.weight)
                 .then_with(|| a.name.cmp(&b.name))
                 .then_with(|| a.x.total_cmp(&b.x))
                 .then_with(|| a.y.total_cmp(&b.y))
@@ -1790,6 +1805,41 @@ mod tests {
 
     fn cand(class: LabelClass, name: &str, x: f64, y: f64, w: f64) -> LabelCandidate {
         LabelCandidate { class, name: name.to_string(), x, y, weight: w }
+    }
+
+    /// A NaN weight must not panic the sort.
+    ///
+    /// Pins the `total_cmp` at the comparator: with the old
+    /// `partial_cmp(..).unwrap_or(Equal)` the relation is intransitive, Rust's
+    /// sort detects the broken invariant, and the panic crosses the gdext
+    /// boundary and takes the Godot process down. Reverting that one call makes
+    /// this test panic rather than fail, which is still a red test.
+    ///
+    /// `n` is 40 because the panic is size-gated: the sort only runs its
+    /// order-check on the larger merges, so a three-element case passes even
+    /// with a broken comparator and would pin nothing.
+    #[test]
+    fn a_nan_weight_does_not_panic_the_sort() {
+        let mut cands: Vec<LabelCandidate> = (0..40)
+            .map(|i| cand(LabelClass::Settlement, &format!("T{i:03}"), i as f64, 0.0, i as f64))
+            .collect();
+        cands[7].weight = f64::NAN;
+
+        let g = generate_labels(&cands, &LabelGenSettings::default(), &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
+
+        // Every candidate still comes out -- culling is off in the default
+        // settings, so nothing may be dropped on the way through.
+        assert_eq!(
+            g.labels.len(),
+            40,
+            "a NaN weight must not swallow candidates, only order oddly"
+        );
+        // And the answer is stable: the NaN sorts to one definite place rather
+        // than wherever the merge happened to leave it.
+        let once: Vec<String> = g.labels.iter().map(|l| l.name.clone()).collect();
+        let twice = generate_labels(&cands, &LabelGenSettings::default(), &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
+        let twice: Vec<String> = twice.labels.iter().map(|l| l.name.clone()).collect();
+        assert_eq!(once, twice, "NaN must not make the order run-dependent");
     }
 
     #[test]

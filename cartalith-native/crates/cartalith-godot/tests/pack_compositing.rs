@@ -30,8 +30,11 @@ fn fixture_bytes() -> Vec<u8> {
     fs::read("../cartalith-assets/tests/fixtures/reference_pack.zip").expect("reference_pack.zip fixture (milestone 2) must exist")
 }
 
+/// The two families this file composites. The same fixture's `biomes`/
+/// `terrains` tiles are decoded too and are asserted in `paint_blend.rs`,
+/// beside the blend that consumes them.
 #[test]
-fn loads_the_real_fixture_pack_and_decodes_its_two_composited_families() {
+fn loads_the_real_fixture_pack_and_decodes_its_icon_and_splat_families() {
     let loaded = pack::load_pack_from_bytes(fixture_bytes()).expect("real reference-exported pack must load");
 
     // `icons`: mountain (3 variants) and tree_conifer (2 variants), per the

@@ -1452,6 +1452,21 @@ func _style_window_chrome() -> void:
 	## which is `active_row()`, the same shape the menu bar and every active
 	## dock row already use. Set on both type names because a bare `TabBar`
 	## does not inherit `TabContainer`'s.
+	##
+	## **This does not reach the Data manager's *phone* pane switcher.**
+	## `data_manager_window.gd::_build_phone_switcher()` is a bespoke `Button`
+	## row, by design (its own comment: "See [asset_library_window.gd] for why
+	## this is a segmented row and not a `TabContainer`") -- so it is a
+	## `Button`, not a `TabContainer`/`TabBar`, and this override cannot touch
+	## it. Its buttons never got an explicit "hover" override either, so an
+	## Android touch tap -- which leaves the emulated pointer parked where the
+	## finger last was, the same mechanism `viewport_host.gd`'s navpad pill
+	## measured stuck -- can leave one showing Godot's own default `Button`
+	## hover chrome permanently (`GUI_GAP_REGISTER.md`'s phone residue: "the
+	## pane switcher's focused state is stock Godot... permanent on touch").
+	## `data_manager_window.gd` is not a file this pass owns; recorded here
+	## rather than fixed, since the claim two lines up that this override
+	## already covered "the Data manager" is what sent this lane looking.
 	for type_name in ["TabContainer", "TabBar"]:
 		var on := DccTheme.active_row(true)
 		on.content_margin_left = 14
@@ -1861,6 +1876,26 @@ func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 			if not wide and ctl is Button and (ctl.size_flags_horizontal & Control.SIZE_EXPAND) != 0:
 				(ctl as Button).clip_text = true
 				(ctl as Button).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			## The `Label` half of the hole just closed for `Button`.
+			## `GUI_GAP_REGISTER.md`'s phone residue: World data ▸ Economy rows
+			## ending `…silver, clay, buildst` -- a hard cut with no ellipsis,
+			## because this walk had only ever reached `Button.clip_text`.
+			## `dcc_widgets.gd`'s own `_project_picker` header hit the identical
+			## shape once already (a path label running off the screen) and the
+			## fix there is the same pair of properties, `Label.clip_text` +
+			## `text_overrun_behavior` -- just never generalised to this walk.
+			##
+			## Same guard as the `Button` branch above, for the same reason: a
+			## `Label` sized by its own text and not expanding has no other
+			## width to trim *from*. Skipped when it already wraps
+			## (`autowrap_mode != AUTOWRAP_OFF`) -- a wrapping label (this
+			## file's own disabled-reason second line, `phone_menu.gd`'s row
+			## subtitles) is deliberately multi-line, and trimming it to one
+			## line would be a regression, not the fix this is.
+			if not wide and ctl is Label and (ctl.size_flags_horizontal & Control.SIZE_EXPAND) != 0 \
+					and (ctl as Label).autowrap_mode == TextServer.AUTOWRAP_OFF:
+				(ctl as Label).clip_text = true
+				(ctl as Label).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			if ctl is OptionButton:
 				## `clip_text` alone does not shrink an `OptionButton`:
 				## `fit_to_longest_item` is on by default, so it reports the

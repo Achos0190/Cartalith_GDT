@@ -137,8 +137,15 @@ const APPEARANCE_GROUPS := [
 		"crest_strength", "curve_shade", "ridged_strength"]],
 	["The sheet", ["paper_strength", "paper_grain", "paper_mottle", "paper_wash",
 		"stipple_strength", "border_width_frac"]],
-	["Materials", ["biome_sat", "tex_strength", "litho_strength", "litho_exposure",
-		"hydro_wet_strength", "local_contrast", "splat_strength"]],
+	## `rock_slope`, `wetness` and `sea_grain_warp` joined this group 2026-09-03
+	## (`OUTSTANDING_WORK.md` §2.5). The first two are the reference's own last
+	## two unported `landColorCore` colour stages; the third is not a reference
+	## row at all but the flag over the reference's ocean noise lattice -- see
+	## its help line. All three are `0.0` in the shipped default, so the panel
+	## opens on the same picture it always did.
+	["Materials", ["biome_sat", "tex_strength", "rock_slope",
+		"litho_strength", "litho_exposure", "hydro_wet_strength", "wetness",
+		"local_contrast", "splat_strength", "sea_grain_warp"]],
 	## §19 (`TERRAIN_APPEARANCE_RESEARCH.md`, `OUTSTANDING_WORK.md` §2.5): the
 	## other two atmospheric-perspective axes research named, over the same
 	## plate-edge distance `haze_strength` already reads -- there is no
@@ -209,7 +216,7 @@ const APPEARANCE_HELP := {
 	"border_width_frac": "Width of the plate frame (bare-paper margin plus neatlines), as a share of map width. 0 removes the frame.",
 	"litho_strength": "Geology tint: how far exposed rock moves from the climate heuristic toward the palette of the rock actually underneath. The reference's Geology materials slider. Inert on a loaded save, which stores no lithology.",
 	"litho_exposure": "How strongly bedrock shows through the soil cover, from slope, vegetation and moisture.",
-	"hydro_wet_strength": "Wetness: darkens and cools persistently saturated ground near channels. The reference's own Wetness slider. Gated on real upstream drainage area, so it marks the same rivers whatever the map's resolution (GUI_GAP_REGISTER.md CA-11 -- it used to fade out as the grid got finer, and at 2048 wide it moved nothing at all).",
+	"hydro_wet_strength": "Darkens and cools ground near real channels -- a soft halo around the drainage network, applied to the finished pixel. Not the reference's Wetness slider, which this row was mislabelled as until 2026-09-03 and which is the separate Wet ground (TWI) row below. Gated on real upstream drainage area, so it marks the same rivers whatever the map's resolution (GUI_GAP_REGISTER.md CA-11 -- it used to fade out as the grid got finer, and at 2048 wide it moved nothing at all).",
 	"ramp_strength": "How far the colour relief ramp takes over from the material colour. 0 is the material model alone (climate, slope, relief); 1 is a full hypsometric tint. The ramp is applied before the light, so the hillshade, occlusion and paper still read through it at any strength.",
 	"local_contrast": "Adds band-limited detail back after the paper wash. The gain falls to zero on strong edges, so coastlines and snowlines cannot halo.",
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
@@ -219,6 +226,9 @@ const APPEARANCE_HELP := {
 	"ridged_strength": "Folded creases from a ridged multifractal, weighted by elevation squared so they concentrate in the highlands and leave the lowlands alone. The reference's Ridged relief.",
 	"biome_sat": "How colourful the material mix is, about its own luminance -- so it can never make one material lighter or darker relative to its neighbour, only more or less saturated. Negative is toward grey. No reference counterpart: the reference's only chroma control is Relief <-> biome, which pulls toward a fixed grey and therefore flattens as it desaturates.",
 	"tex_strength": "A three-frequency fine surface modulation over the material colour -- the reference's Surface texture. Evaluated in map coordinates, so a tiled export stays seamless.",
+	"rock_slope": "Extra rock exposure on steep ground -- the reference's Slope rock. A tint over the finished material mix rather than a change to it, so the climate/slope blend underneath is untouched. Its steepness threshold is the reference's own, which is measured per cell: a cliff crosses it at any map size, but how much of the middle ground qualifies falls as the grid gets finer.",
+	"wetness": "Darkens and cools ground with a high topographic wetness index -- valley bottoms, seeps and saturated soils. This is the reference's Wetness slider, and a different stage from the near-channel wetness directly above: unblurred, keyed on terrain shape rather than on river flow, and applied to the material before the light rather than to the finished pixel. Both can be on.",
+	"sea_grain_warp": "Breaks up the rectangular quilt visible in open ocean at low zoom -- squares about eighty cells across, caused by the sea's colour noise being sampled on a grid-aligned lattice. 0 is the reference's exact lattice, artifact included, and is what the shipped default uses: the blockiness is inherited from the reference HTML rather than introduced here, so removing it is a deliberate divergence and this slider is where you opt into it.",
 	"haze_strength": "Atmospheric perspective: how far the plate fades toward sky at its edges. The reference's own fixed 0.18, made adjustable; the shipped look uses 0.09, which reads as air rather than as a vignette.",
 	"atmo_desaturation": "How far the outer plate loses colour toward the haze above, same distance as the sky tint. 0 keeps material colour equally saturated everywhere.",
 	"atmo_contrast": "How far the outer plate's material contrast flattens toward the haze above. 0 keeps full material contrast everywhere; the centre is always unaffected.",
@@ -247,6 +257,13 @@ var _custom_note: Label
 ## The base-look picker, kept so a Map-style chip can move it rather than
 ## leaving it naming a look that is not the one drawing the map.
 var _look_pick: OptionButton
+
+## The Colour management picker and the names behind it, retained for
+## `_sync_color_space()` -- see `_build_color_management()` for why a control
+## that is deliberately *not* part of the look still has to be re-read when the
+## world changes.
+var _color_space_pick: OptionButton
+var _color_space_names: Array = []
 var _look_names: Array = []
 ## True only while `_apply_preset` runs, so the preset's own writes do not
 ## trip the "Custom" mark the reference flips on any manual edit.
@@ -265,7 +282,11 @@ func _build() -> void:
 	_build_map_view()
 	_build_map_style()
 	_build_ramp()
+	## Beside the ramp rather than anywhere else: the ramp *is* the Colour
+	## relief row's content, and this is the stack that orders it.
+	_build_layer_stack()
 	_build_appearance(APPEARANCE_GROUPS)
+	_build_color_management()
 	_build_look_presets()
 	_build_npr()
 	_build_owed_inventory()
@@ -298,11 +319,34 @@ func build_terrain_appearance_into(parent: Control) -> void:
 	_build_appearance(APPEARANCE_GROUPS.slice(0, 5))
 	_host = null
 
+## v3 CARTO ▸ LAYERS: the terrain raster's three separable categories
+## (`GUI_GAP_REGISTER.md` CA-03/CA-04). Drawn into CARTO's own Layers category
+## rather than into Terrain appearance, because §7 draws one layer list and this
+## is the part of it that is a stack rather than a set of switches -- the eight
+## rows `cartography_workspace.gd` already builds there are whole overlays with
+## nothing to order.
+##
+## It lives in *this* file all the same, with the ramp and the tunables: the
+## stack is `TerrainAppearance` state, it is what `_mark_custom()` and
+## `_refresh_map()` are for, and `on_world_changed()` has to re-read it beside
+## everything else that a project open can move.
+func build_layer_stack_into(parent: Control) -> void:
+	_host = parent
+	_build_layer_stack()
+	_host = null
+
 ## v3 CARTO ▸ COLOURS: vibrancy/saturation/contrast/brightness/gamma/temp/tint
-## (the colour grade) and `+ Field influence weights`.
+## (the colour grade), `+ Field influence weights`, then colour management.
+##
+## Colour management sits **after** the grade rather than before it, and the
+## order is the pipeline's: the grade decides what the picture is, the output
+## space decides how the finished picture is encoded for the panel it is going
+## to. Reading the section top to bottom is reading `build_color_texture` in
+## order.
 func build_colours_into(parent: Control) -> void:
 	_host = parent
 	_build_appearance(APPEARANCE_GROUPS.slice(5), "Colour grade")
+	_build_color_management()
 	_host = null
 
 ## v3 CARTO ▸ MAP PRESETS: the saved-look library, plus the inventory of what
@@ -468,6 +512,14 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 		DccWidgets.action(body, "Reset to quality tier", func():
 			if bridge.reset_appearance() > 0:
 				_sync_appearance()
+				## `reset_appearance()` hands back **every** tunable, and the
+				## layer stack is one of them (`appearance_layers` is dropped
+				## by it). Without this the engine returns to the default
+				## order while the panel keeps drawing the user's arrangement,
+				## and the next unrelated rebuild silently adopts whichever
+				## the panel happened to hold. Found by a verifier 2026-09-03,
+				## measured as a real divergence rather than reasoned about.
+				_sync_layer_stack()
 				_refresh_map()
 				_mark_custom())
 		DccWidgets.note(body,
@@ -481,12 +533,13 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			+ "keeps having to fix. All presentation -- nothing here marks a "
 			+ "generation stage stale.")
 		DccWidgets.note(body,
-			"Not bound, because the engine has no such stage: slope rock, minor "
+			"Not bound, because the engine has no such stage: minor "
 			+ "channels, sky view factor, cast shadows, season blend and the three "
 			+ "SDF layers (coastlines, river bands, biome blend). Those are "
 			+ "reference render stages this port has not ported, not bindings it is "
 			+ "missing. Ridge crests, surface texture, ridged relief and curvature "
-			+ "shading left this list on 2026-08-24 and are live above.")
+			+ "shading left this list on 2026-08-24, and slope rock and the "
+			+ "reference's own TWI wetness on 2026-09-03; all six are live above.")
 	else:
 		DccWidgets.note(body,
 			"A post-process over the finished terrain raster, before rivers, labels "
@@ -852,6 +905,278 @@ func _push_ramp(rebuild: bool) -> void:
 	if rebuild:
 		_sync_ramp()
 
+
+# -- The raster layer stack (`GUI_GAP_REGISTER.md` CA-03/CA-04) ----------------
+#
+# `DCC_SHELL_SPEC.md` §7's layer list, for the one part of it that is a *stack*:
+# Terrain, Colour relief and Hillshade, the three categories `render::LayerStack`
+# separates inside `land_color`. §6's Layers context names the row grammar --
+# "visibility dot, name, opacity bar, blend mode" -- and this is that row, plus
+# the reorder §6 calls "nested children under Terrain" and §7 draws as a
+# draggable stack.
+#
+# **Three rules this panel is built around, each of which is a way to get it
+# wrong:**
+#
+# 1. **Never write a stack the user has not asked for.** Nothing here calls
+#    `set_layer_stack` on build, on sync, or on a world change -- only a real
+#    gesture writes. `LayerStack::is_default()` is a structural comparison, so an
+#    explicitly-default write would still render byte-identically; what it would
+#    do is leave `WorldGen::appearance_layers` holding `Some(...)`, which
+#    `reset_appearance()` counts as an override the user never made.
+# 2. **An absent key means unchanged, never default.** `set_layer_stack` merges
+#    each row over the entry that layer has now, so `_push_layer` sends the id
+#    plus *only* the key the gesture moved. Restating every value would make this
+#    panel overwrite whatever a second writer had just changed.
+# 3. **Reorder is data, not redraw order.** `_move_layer` sends a new id order
+#    and then re-reads the engine; the rows are rebuilt from what came back. The
+#    list never reorders its own children and hopes the composite agrees.
+
+## The engine's own rows, top-first, as `get_layer_stack()` handed them over.
+## A cache for `_push_layer`/`_move_layer` to build their id lists from, never a
+## draft: every write is followed by a re-read.
+var _layers: Array = []
+var _layer_host: VBoxContainer
+var _blend_names: Array = []
+
+func _build_layer_stack() -> void:
+	if not bridge.layer_stack_api:
+		return
+	var body := DccWidgets.section(_h(), "Terrain raster")
+	_blend_names = bridge.blend_modes()
+	_layer_host = VBoxContainer.new()
+	_layer_host.add_theme_constant_override("separation", 4)
+	body.add_child(_layer_host)
+	DccWidgets.note(body,
+		"The three categories the terrain raster separates into, top of the list "
+		+ "drawn last. They composite inside one pass over the same colour every "
+		+ "consumer reads, so the map, every PNG export and every region crop all "
+		+ "get the arrangement below -- there is no path that can miss it.")
+	DccWidgets.note(body,
+		"The composite starts from a white ground, not black. Hide Terrain and "
+		+ "Hillshade's Multiply leaves the grey relief plate a reader means by "
+		+ "\"hillshade alone\", which is the intended reading rather than a bug: "
+		+ "white is Multiply's identity, and Normal ignores the backdrop at full "
+		+ "alpha, so those are the only two operators reachable with nothing "
+		+ "underneath.")
+	DccWidgets.note(body,
+		"Presentation only, and session-scoped with one exception: Save look "
+		+ "(Map presets) writes the arrangement into the look file, and Reset to "
+		+ "quality tier drops it. A project .zip does NOT carry it -- the saved "
+		+ "appearance document round-trips the tier, the look, the overrides, the "
+		+ "ramp and the Painter block, and has no layers field -- so this is one "
+		+ "control in the dock that File - Save does not preserve.")
+	## The one funnel. Every accepted write -- this panel's or the right dock's
+	## appended Layers section -- lands here, so the rows, the Custom mark and
+	## the repaint happen once each and in one place. `_apply_layer_stack` below
+	## therefore does none of the three itself.
+	bridge.layer_stack_changed.connect(func():
+		_sync_layer_stack()
+		_mark_custom()
+		_refresh_map())
+	_sync_layer_stack()
+
+## Re-read the engine and rebuild every row from it.
+##
+## A full teardown rather than an in-place update, for `_rebuild_ramp_rows()`'s
+## own reason: a reorder changes which row is which, and there is no per-row
+## identity to update against once the order has moved.
+func _sync_layer_stack() -> void:
+	if _layer_host == null:
+		return
+	_layers = bridge.layer_stack()
+	for child in _layer_host.get_children():
+		_layer_host.remove_child(child)
+		child.queue_free()
+	if _layers.is_empty():
+		DccWidgets.note(_layer_host, "The engine returned no layers.")
+		return
+	for i in _layers.size():
+		_layer_row(_layer_host, _layers[i] as Dictionary, i)
+
+## One layer: the header row (dot, name, reorder), then its opacity and blend.
+##
+## Two lines and not one because the dock is 304-372 px wide and §7's own row
+## carries four controls; a slider and a dropdown crammed beside a 132 px label
+## column would clip both. The header is the row that drags and the row §6's
+## collapsed readout counts.
+func _layer_row(parent: Control, d: Dictionary, index: int) -> void:
+	## Every key is read through `has()`. `get_layer_stack()` sets all five
+	## today, but a row that arrived short must say which field is missing
+	## rather than render a plausible `false`/`0.0`/`"Normal"` -- a hidden layer
+	## and an unreported one look identical once a default has been invented.
+	var missing: Array = []
+	for k in ["id", "label", "visible", "opacity", "blend"]:
+		if not d.has(k):
+			missing.append(k)
+	if not missing.is_empty():
+		DccWidgets.note(parent,
+			"Layer row %d is unreadable - the engine sent no %s."
+			% [index, ", ".join(missing)])
+		return
+
+	var id := String(d["id"])
+	var visible := bool(d["visible"])
+
+	## **A row can be wired and still move no pixels, and saying so is the whole
+	## point of this block.** `TerrainAppearance::ramp_strength` ships at `0.0`,
+	## and `LayerStack::composite` skips Colour relief entirely when the ramp
+	## contributes nothing (`None => continue`). So at the shipped default this
+	## row's dot, opacity, blend and reorder are all live controls over a layer
+	## that draws nothing — measured by a verifier as a byte-identical
+	## hillshade/colour-relief swap.
+	##
+	## Disclosed rather than disabled: the controls still *work*, and they take
+	## effect the moment the ramp has a strength, so greying them out would be
+	## the opposite lie. This is the "dash it with its reason" idiom applied to
+	## a whole row instead of a field.
+	if id == "colour_relief" and float(bridge.appearance().get("ramp_strength", 0.0)) <= 0.0:
+		DccWidgets.note(parent,
+			"Colour relief draws nothing right now - Ramp strength is 0, so the "
+			+ "ramp contributes no colour and this row's settings have no visible "
+			+ "effect. Raise Ramp strength (Rendering - advanced) to see them.")
+
+	var tablet := DccTheme.is_tablet()
+	var readout_fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", DccTheme.role_px("dock_row_gap"))
+	head.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	## The row is the drag source, so it must actually receive the press --
+	## its children (three buttons) still get input first, which is why the
+	## dot and the two reorder buttons keep working.
+	head.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	## §7's visibility dot. A button rather than the `_sculpt_stamp_row` mark it
+	## borrows its glyphs from, since here it is the control and not a readout.
+	var dot := Button.new()
+	dot.flat = true
+	dot.focus_mode = Control.FOCUS_NONE
+	dot.text = DccIcons.SYMBOLS["on"] if visible else DccIcons.SYMBOLS["off"]
+	dot.add_theme_font_override("font", DccTheme.mono(0))
+	dot.add_theme_font_size_override("font_size", readout_fs)
+	dot.add_theme_color_override("font_color",
+		DccTheme.c("text") if visible else DccTheme.c("text_ghost"))
+	dot.tooltip_text = "%s this layer. Hiding Terrain leaves the white ground the other two composite over, not black." \
+		% ("Hide" if visible else "Show")
+	if tablet:
+		dot.custom_minimum_size = Vector2(DccTheme.role_px("row_min_h"), DccTheme.role_px("row_min_h"))
+	dot.pressed.connect(func(): _push_layer(id, "visible", not visible))
+	head.add_child(dot)
+
+	var name_label := DccTheme.mono_label(String(d["label"]),
+		"text" if visible else "text_ghost", readout_fs)
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.clip_text = true
+	head.add_child(name_label)
+
+	## WCAG 2.2 SC 2.5.7: a pointer alternative to the drag below, and the
+	## alternative the guideline names by example. Same vocabulary as the sculpt
+	## stamp stack's own Move up / Move down, spelt out rather than arrowed --
+	## `DccIcons.SYMBOLS` has no vertical arrow, and an unlabelled glyph button
+	## is the anti-pattern this shell keeps out of its docks.
+	var up := _reorder_button(head, "Up", index > 0, readout_fs, tablet,
+		"Move this layer one place up the stack - it then composites later, over its old neighbour.")
+	up.pressed.connect(func(): _move_layer(index, index - 1))
+	var down := _reorder_button(head, "Down", index < _layers.size() - 1, readout_fs, tablet,
+		"Move this layer one place down the stack - it then composites earlier, under its old neighbour.")
+	down.pressed.connect(func(): _move_layer(index, index + 1))
+	parent.add_child(head)
+
+	## §7's drag reorder, over the same `_move_layer` the buttons call, so the
+	## two cannot disagree about what a move means.
+	head.set_drag_forwarding(
+		func(_at: Vector2) -> Variant:
+			var ghost := DccTheme.mono_label(String(d["label"]), "accent", readout_fs)
+			head.set_drag_preview(ghost)
+			return {"cartalith_layer_row": index},
+		func(_at: Vector2, data: Variant) -> bool:
+			return data is Dictionary and (data as Dictionary).has("cartalith_layer_row"),
+		func(_at: Vector2, data: Variant) -> void:
+			_move_layer(int((data as Dictionary)["cartalith_layer_row"]), index))
+
+	var pad := DccWidgets.pad(parent, 14, 0, 0, 0)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	pad.add_child(col)
+	## Engine write on release only, on `_build_npr`'s own reasoning: a full-map
+	## re-render is not a per-drag-pixel operation. The readout follows the
+	## handle live because `DccWidgets.slider` updates it itself.
+	var pending := [float(d["opacity"])]
+	DccWidgets.slider(col, "Opacity", 0.0, 1.0, 0.01, pending[0], "",
+		func(v: float): pending[0] = v,
+		"How much of this layer takes part. It multiplies whatever alpha the category already carries, so Colour relief at 0.5 here is half of ramp strength times the stop's own alpha.",
+		func(): _push_layer(id, "opacity", pending[0]))
+	var bi: int = _blend_names.find(String(d["blend"]))
+	DccWidgets.choice(col, "Blend", _blend_names, bi,
+		func(i: int): _push_layer(id, "blend", String(_blend_names[i])),
+		"How this layer combines with everything under it. Hillshade opens on Multiply, which is exactly the c * light the renderer has always drawn; the other two open on Normal.")
+	if bi < 0:
+		## The engine named a mode this build's own list does not carry. Said
+		## rather than silently shown as the first entry, which would claim the
+		## picture is Normal when it is not.
+		DccWidgets.note(col, "Blend mode \"%s\" is not in this build's picker." % String(d["blend"]))
+
+func _reorder_button(parent: Control, text: String, enabled: bool, fs: int,
+		tablet: bool, tip: String) -> Button:
+	var b := Button.new()
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.text = text
+	b.disabled = not enabled
+	b.tooltip_text = tip
+	b.add_theme_font_size_override("font_size", fs)
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	if tablet:
+		b.custom_minimum_size.y = DccTheme.role_px("btn_min_h")
+	parent.add_child(b)
+	return b
+
+## One gesture, one key. See this section's header, rule 2: the row carries its
+## id and nothing but the field that moved, so every value this panel did not
+## touch is left to the engine's own current entry.
+func _push_layer(id: String, key: String, value: Variant) -> void:
+	var rows: Array = []
+	for r in _layers:
+		var d: Dictionary = r
+		var row := {"id": String(d.get("id", ""))}
+		if String(d.get("id", "")) == id:
+			row[key] = value
+		rows.append(row)
+	_apply_layer_stack(rows)
+
+## Rule 3: the new order, sent as data. The engine is the only thing that
+## decides what the stack is; the rows are rebuilt from its answer.
+func _move_layer(from: int, to: int) -> void:
+	if from == to or from < 0 or from >= _layers.size() or to < 0 or to >= _layers.size():
+		return
+	var ids: Array = []
+	for r in _layers:
+		ids.append(String((r as Dictionary).get("id", "")))
+	var moved: String = ids[from]
+	ids.remove_at(from)
+	ids.insert(to, moved)
+	var rows: Array = []
+	for id in ids:
+		rows.append({"id": id})
+	_apply_layer_stack(rows)
+
+## 3 or 0 -- all three rows or none. A refusal changed nothing, so the rows on
+## screen are still right and re-reading would be waste; it is still reported,
+## because a silent no-op is how a panel starts lying about the map. On success
+## the rebuild, the Custom mark and the repaint all arrive through
+## `layer_stack_changed` (see `_build_layer_stack`), which is also the path the
+## right dock's writes take.
+##
+## Returns whether it was accepted, for `RightDock._write_layers()`'s reason:
+## with no return value the refusal branch's only effect is a log line, and
+## mutation testing scored it SURVIVED.
+func _apply_layer_stack(rows: Array) -> bool:
+	if bridge.set_layer_stack(rows) != 3:
+		push_warning("Layers: the engine refused the stack; nothing changed.")
+		return false
+	return true
+
 # -- Saving a look (`GUI_GAP_REGISTER.md` CA-08) -------------------------------
 
 var _preset_name: LineEdit
@@ -889,6 +1214,21 @@ func _build_look_presets() -> void:
 		"Loading replaces the quality tier as the starting point, so a look saved "
 		+ "at Ultra renders at Ultra wherever it is opened. Reset to quality tier "
 		+ "above hands it all back.")
+	if bridge.layer_stack_api:
+		## Verified against `WorldGen::load_appearance_preset`, which clears the
+		## override map and the ramp override and does NOT clear
+		## `appearance_layers`; `appearance()` then lets that session stack win
+		## over the loaded preset's own. Saving is whole either way --
+		## `save_appearance_preset` writes the merged appearance, layers
+		## included. Stated rather than worked around: the shell cannot read a
+		## preset's stack without loading it, so there is nothing here to
+		## restore it from.
+		DccWidgets.note(body,
+			"The layer arrangement (Layers - Terrain raster) is saved into a look "
+			+ "and comes back with it -- unless you have moved a layer since this "
+			+ "session started, in which case your arrangement stays and the "
+			+ "look's is ignored. Reset to quality tier first to load a look's "
+			+ "layers exactly.")
 	_refresh_preset_list()
 
 func _refresh_preset_list() -> void:
@@ -922,6 +1262,12 @@ func _on_load_look() -> void:
 		return
 	_sync_appearance()
 	_sync_ramp()
+	## Re-read the layer rows for the same reason every other block above is
+	## re-read: the loaded look carries a stack. **Whether the rows then change
+	## depends on the engine, not on this call** -- see the note in
+	## `_build_look_presets()` for the one case where they do not.
+	if _layer_host != null:
+		_sync_layer_stack()
 	_mark_custom()
 	_refresh_map()
 
@@ -1034,6 +1380,80 @@ func _on_animate_water(on: bool) -> void:
 		bridge.set_npr({"animate_water": false})
 		push_warning("Animate water: this world has no river discharge field to animate.")
 
+# -- Colour management (`LARGE_ITEM_RULINGS.md`, owner-ruled build) ------------
+
+## The output colour space, as **one axis and one stated fact** rather than the
+## three-row radio `OUTSTANDING_WORK.md` §2.5 draws.
+##
+## `GUI_GAP_REGISTER.md` §7.6 read Blender 4.x's own Color Management panel and
+## found §2.5's row (`sRGB · Display P3 · linear`) offers one control where
+## there are two axes: sRGB and Display P3 are **display devices**; linear is a
+## **working space**. Its words: shipping the three as one dropdown *"would be a
+## category error that becomes very expensive to unpick later."* So the picker
+## carries the two display devices, and the working space is a stated fact with
+## its reason -- which is also what this shell does everywhere else rather than
+## draw an enabled control that resolves to one value.
+##
+## No `_mark_custom()` and no sync in `on_world_changed()`, and both omissions
+## are deliberate: this is the one control in this file that is **not part of
+## the look**. It describes the monitor, not the map, so it is not saved into a
+## look preset and not written to the project. See `WorldGen::color_space`'s own
+## doc for why carrying a display device in a document is the wrong shape.
+##
+## **It still needs syncing, and the reason this comment used to give for not
+## syncing it was wrong.** It read *"opening a project therefore cannot leave
+## this row stale, because nothing underneath it moved"*. Nothing in the
+## *document* moves, which is true and is not the question: `File ▸ Close
+## project` runs `EngineBridge.close_world()`, which does `world_gen =
+## WorldGen.new()`, and the fresh handle re-initialises `color_space` to `Srgb`.
+## The engine moved even though the document did not, so the picker was left
+## reading Display P3 over an sRGB engine -- measured in the real shell before
+## this was fixed. `_sync_color_space()` below closes it.
+func _build_color_management() -> void:
+	if not bridge.color_space_api:
+		return
+	var spaces: Array = bridge.color_spaces()
+	if spaces.is_empty():
+		return
+	var body := DccWidgets.section(_h(), "Colour management")
+	_color_space_names = spaces
+	_color_space_pick = DccWidgets.choice(body, "Display", spaces, maxi(spaces.find(bridge.color_space()), 0),
+		func(i: int): _on_color_space(String(spaces[i])),
+		"Which display the finished map is encoded for. sRGB is the default and "
+		+ "is what almost every monitor expects. Choose Display P3 only for a "
+		+ "wide-gamut screen that is NOT colour-managing sRGB input for itself: "
+		+ "on one of those, sRGB numbers read oversaturated and these read "
+		+ "correct. On an ordinary sRGB screen it is the other way round.")
+	DccWidgets.note(body,
+		"Working space: sRGB, 8 bits per channel. A fact, not a choice -- the "
+		+ "renderer composites into an 8-bit buffer, and 8-bit linear is not a "
+		+ "usable working space at that depth: it loses a significant amount of "
+		+ "its information in the darks, which is what Godot's own documentation "
+		+ "warns about too. A linear option would have to wait for the "
+		+ "high-precision pipeline, and it would arrive as a View Transform "
+		+ "beside the grade above, not as a third entry in this picker.")
+	DccWidgets.note(body,
+		"Display P3 re-encodes the map raster only. The overlays drawn over it "
+		+ "-- rivers, labels, settlement markers, territory, the scale bar -- and "
+		+ "the interface around it stay sRGB, because Godot's compatibility "
+		+ "renderer does no colour management and there is no hook to convert a "
+		+ "colour on its way to the screen. Exports are unaffected and stay sRGB, "
+		+ "which is right: an image file with no profile is read as sRGB.")
+	DccWidgets.note(body,
+		"Display P3 is a real change to the numbers, not a tag: measured on a "
+		+ "2048-wide map it moves 87% of the bytes, by up to 31 levels. Greys, "
+		+ "the paper ground and the neatlines are the exception and do not move "
+		+ "at all. It also costs gradient resolution -- re-encoding 8-bit sRGB "
+		+ "into the wider P3 container collapses about 48% of the 16.7 million "
+		+ "codes, so the smoothest washes (deep sea, edge haze) can lose a "
+		+ "level. That is the 8-bit buffer's cost, and the high-precision "
+		+ "pipeline is what buys it back.")
+
+func _on_color_space(name: String) -> void:
+	if not bridge.set_color_space(name):
+		return
+	_refresh_map()
+
 # -- What is still owed -------------------------------------------------------
 
 ## What the design still asks for beyond what is now live above. Enumerated
@@ -1114,8 +1534,27 @@ func on_world_changed() -> void:
 	## refills.
 	if _ramp_host != null:
 		_sync_ramp()
+	## `_layer_host` for `_ramp_host`'s reason: non-null exactly when
+	## `_build_layer_stack()` actually drew the rows. **A read, never a write** --
+	## `_sync_layer_stack` only calls `get_layer_stack`, so a world arriving
+	## under this panel cannot push a stack the user never set.
+	if _layer_host != null:
+		_sync_layer_stack()
 	if not _npr_rows.is_empty():
 		_sync_npr()
+	_sync_color_space()
+
+## Re-read the engine's colour space into the picker.
+##
+## `select()`, not the handler: writing the value back into the engine it was
+## just read from is the asymmetry `_sync_appearance`'s own note describes, and
+## here it would also be a no-op write on every world change.
+func _sync_color_space() -> void:
+	if _color_space_pick == null or not bridge.color_space_api:
+		return
+	var i: int = _color_space_names.find(bridge.color_space())
+	if i >= 0 and _color_space_pick.selected != i:
+		_color_space_pick.select(i)
 
 ## The Painter block's own half of `on_world_changed()`.
 ##

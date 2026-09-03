@@ -23,6 +23,19 @@ signal map_released(gx: float, gy: float, valid: bool)   ## §4.5 tool drag-end 
 ## `_civCtxShow`'s right-click (`map_overlay.gd`'s own signal, re-emitted).
 signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 
+## Every successful `set_layer_visible()` call, below -- the single write path
+## all eight layer ids share, whichever of the two arms (a node's own
+## `.visible`, or one of `overlay`'s `set_show_*`/`set_landmark*_visible`
+## setters) actually handled it. Added so a write from OUTSIDE the CARTO ▸
+## Layers checkboxes -- `civilization_workspace.gd`'s landmark-funnel "Show
+## rejected" chip is the one real caller today -- reaches them live instead of
+## only on the next world change: before this signal, `_sync_layers()` ran on
+## `_on_world_changed()` alone, so clicking that chip left CARTO's own
+## checkbox reading "off" until a regenerate. Mirrors `map_overlay.gd`'s own
+## `trade_load_changed` -- a value with more than one writer, echoed back so
+## every reader of it can stay honest without polling.
+signal layer_visibility_changed(layer: String, shown: bool)
+
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
 ## header. A tile texture is a relief-detail shade ratio, not a picture; this
@@ -1217,6 +1230,20 @@ func refresh_annotations() -> void:
 	## in `engine_bridge.gd`.
 	if _bridge.has_method("landmarks") and overlay.has_method("set_landmarks"):
 		overlay.set_landmarks(_bridge.landmarks())
+	## The rejected candidates beside them (`LARGE_ITEM_RULINGS.md`'s
+	## Landmark-funnel ruling, second half). Same method guard, same reason.
+	##
+	## Pulled as three packed position buffers rather than one record list: this
+	## runs on the Icon/Label drag path, once per mouse-motion event, and
+	## `map_overlay.gd::_landmark_rejects`'s own doc carries the measurement
+	## (3 216 rows, 6.0 ms as dictionaries against 0.41 ms packed, at the
+	## shipping 2048x1311 default). The layer draws dots; nothing here reads a
+	## field.
+	if _bridge.has_method("landmark_reject_points") and overlay.has_method("set_landmark_rejects"):
+		var rejects := {}
+		for reason in ["spacing", "cap", "score"]:
+			rejects[reason] = _bridge.landmark_reject_points(reason)
+		overlay.set_landmark_rejects(rejects)
 	## Generated labels ride the same list as hand-placed ones
 	## (`labels_render_list()`, which concatenates them and stamps each row with
 	## its class's type spec). Refreshed on the drag path along with everything
@@ -1309,12 +1336,32 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"landmarks":
 			if overlay.has_method("set_landmarks_visible"):
 				overlay.set_landmarks_visible(shown)
+		## The funnel's rejected candidates. Guarded on the method for the same
+		## reason its neighbour above is, and newer still.
+		"landmark_rejects":
+			if overlay.has_method("set_landmark_rejects_visible"):
+				overlay.set_landmark_rejects_visible(shown)
 		## `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01). Reveals only
 		## once a town's 1.7 km site box is worth pixels -- `map_overlay.gd`'s
 		## own "Urban layouts" block owns that gate and states why it is not
 		## the reference's `_umLayoutAlpha` km band.
 		"urban_layouts": overlay.set_show_urban_layouts(shown)
-		_: push_error("ViewportHost: unknown layer '%s'" % layer)
+		_:
+			push_error("ViewportHost: unknown layer '%s'" % layer)
+			return
+	layer_visibility_changed.emit(layer, shown)
+
+## Read-back for `set_layer_visible()` above -- `cartography_workspace.gd`'s
+## CARTO ▸ Layers checkboxes call this on world change so a layer flipped by
+## another panel (the landmark funnel's "Show rejected" chip) is not still
+## showing its own const-default on/off forever. Two arms answer from a
+## node's own `.visible`, matching `set_layer_visible`'s split above; the rest
+## come from `overlay.layer_visible()`.
+func layer_visible(layer: String) -> bool:
+	match layer:
+		"territory": return territory_view.visible
+		"provinces": return province_view.visible
+		_: return overlay.layer_visible(layer)
 
 ## Answers `map_overlay.gd`'s one-batch-at-a-time request for town layouts.
 ## Synchronous, on the main thread: generating a town is a few milliseconds,

@@ -140,6 +140,17 @@ pub struct RawManifest {
     /// `icons` — 1..N variants per feature slot.
     #[serde(default)]
     pub icons: OrderedMap<Option<Paths>>,
+    /// `seamarks` — 1..N variants per sea-mark slot.
+    ///
+    /// **A section the reference's format does not define** (owner ruling
+    /// 2026-09-02; see [`crate::PACK_SEAMARK_SLOTS`]). It is additive in both
+    /// directions and neither direction changes an existing pack: `default`
+    /// means every reference-authored `pack.json` parses exactly as before, and
+    /// `skip_serializing_if` means a pack with no sea marks re-serializes
+    /// byte-identically to what the reference would have written. A v2.10
+    /// consumer reading a pack this port exported ignores the key.
+    #[serde(default, skip_serializing_if = "OrderedMap::is_empty")]
+    pub seamarks: OrderedMap<Option<Paths>>,
     /// `biomes` — one ground tile per painted biome index.
     #[serde(default, skip_serializing_if = "OrderedMap::is_empty")]
     pub biomes: OrderedMap<Option<String>>,
@@ -227,6 +238,9 @@ pub struct PackManifest {
     pub textures: OrderedMap<String>,
     /// Feature-icon variants, keyed by slot, in [`PACK_ICON_SLOTS`] order.
     pub icons: OrderedMap<Vec<String>>,
+    /// Sea-mark variants, keyed by slot, in [`crate::PACK_SEAMARK_SLOTS`]
+    /// order. Empty for every pack the reference ever wrote.
+    pub seamarks: OrderedMap<Vec<String>>,
     /// Painted-biome ground tiles, in [`PACK_BIOME_SLOTS`] order.
     pub biomes: OrderedMap<String>,
     /// Painted-terrain ground tiles, in [`PACK_TERRAIN_SLOTS`] order.
@@ -246,6 +260,7 @@ impl PackManifest {
     pub fn is_empty(&self) -> bool {
         self.textures.is_empty()
             && self.icons.is_empty()
+            && self.seamarks.is_empty()
             && self.biomes.is_empty()
             && self.terrains.is_empty()
             && self.structures.is_empty()
@@ -264,6 +279,7 @@ impl PackManifest {
             Family::Biomes => self.biomes.get(slot_id).map(std::slice::from_ref),
             Family::Terrains => self.terrains.get(slot_id).map(std::slice::from_ref),
             Family::Icons => self.icons.get(slot_id).map(Vec::as_slice),
+            Family::SeaMark => self.seamarks.get(slot_id).map(Vec::as_slice),
             Family::Settlement | Family::Trait | Family::Poi => {
                 self.structures.family(fam).get(slot_id).map(Vec::as_slice)
             }
@@ -283,7 +299,7 @@ impl PackManifest {
         out.extend(self.textures.values().map(String::as_str));
         out.extend(self.biomes.values().map(String::as_str));
         out.extend(self.terrains.values().map(String::as_str));
-        for v in self.icons.values() {
+        for v in self.icons.values().chain(self.seamarks.values()) {
             out.extend(v.iter().map(String::as_str));
         }
         for fam in Family::STRUCTURES {
@@ -324,6 +340,7 @@ impl PackManifest {
             license: Some(self.license.clone()),
             textures: single(&self.textures),
             icons: many(&self.icons),
+            seamarks: many(&self.seamarks),
             biomes: single(&self.biomes),
             terrains: single(&self.terrains),
             structures: RawStructures {
@@ -543,6 +560,27 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
         }
     }
 
+    // ---- sea marks: the same 1..N-variant shape as feature icons, in its own
+    // top-level section (owner ruling 2026-09-02). Its own block rather than a
+    // generalisation of the one above, because the reference wrote that one and
+    // a reader comparing this function against `parsePackManifest` line by line
+    // should find it unchanged. A reference-authored pack has no `seamarks`
+    // key, so this loop runs zero times and emits no warnings for one.
+    for slot in crate::PACK_SEAMARK_SLOTS {
+        let Some(Some(v)) = m.seamarks.get(slot) else {
+            continue;
+        };
+        let kept = keep_existing(v, &has, &format!("seamark {slot}"), &mut out.warnings);
+        if !kept.is_empty() {
+            out.seamarks.insert(slot, kept);
+        }
+    }
+    for k in m.seamarks.keys() {
+        if !Family::SeaMark.has_slot(k) {
+            out.warnings.push(format!("unknown seamark slot: {k}"));
+        }
+    }
+
     // ---- structure sprites. Note the iteration order here is the reference's
     // own settlement/poi/trait, which is *not* the settlement/trait/poi order
     // the exporter writes them in; warning order follows this one.
@@ -588,6 +626,19 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
     // ---- families the live renderer does not consume yet. Reported rather
     // than silently dropped, so "Import asset pack" cannot claim an
     // unconditional success it did not deliver.
+    //
+    // **`biomes`/`terrains` are now consumed and this warning still names
+    // them, deliberately: the staleness is the reference's, and the string is
+    // golden-pinned.** Reference line 12164's own comment calls biome/terrain
+    // texturing "still follow-up work" while `_paintedTex` sits 23 lines
+    // below it at 12187 doing exactly that work — v1.28 landed the sampler
+    // and never revisited this list. `golden_parity_pack_manifest.rs` pins
+    // the emitted string verbatim in two cases, so dropping the two names
+    // here is a golden re-baseline, which `DECISIONS.md` §7a protects and
+    // which needs an owner ruling. Until that ruling, the warning is
+    // reference-accurate and port-inaccurate; `crate::pack` (in
+    // `cartalith-godot`) decodes both families regardless, and `trait` is
+    // still genuinely undrawn.
     let mut unused: Vec<&str> = Vec::new();
     if !m.structures.traits.is_empty() {
         unused.push("trait");

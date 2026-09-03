@@ -321,9 +321,13 @@ fn export_order(manifest: &PackManifest) -> Vec<&str> {
                 };
                 all.extend(fam.slots().iter().filter_map(|s| m.get(s).map(String::as_str)));
             }
-            Family::Icons => {
+            // Two top-level multi-variant sections, same shape. `seamarks` is
+            // this port's addition and is empty for every reference-authored
+            // pack, so the order of everything else is untouched.
+            Family::Icons | Family::SeaMark => {
+                let m = if fam == Family::Icons { &manifest.icons } else { &manifest.seamarks };
                 for slot in fam.slots() {
-                    if let Some(v) = manifest.icons.get(slot) {
+                    if let Some(v) = m.get(slot) {
                         all.extend(v.iter().map(String::as_str));
                     }
                 }

@@ -20,7 +20,9 @@
 //! rebuilt rather than transcribed:
 //!
 //! **In**: the grid dimensions, the seed, the map width in km, sea level, the
-//! east-west wrap flag, and every row of `params::world_key_state` — the same
+//! east-west wrap flag, **how the height field was produced**
+//! ([`ORIGIN_GENERATED`] and friends — see those constants), and every row of
+//! `params::world_key_state` — the same
 //! table `SAVEFILE_COMPAT.md`'s writer persists, minus the one group that is
 //! not a terrain input. That sentence read "**every** row of
 //! `params::save_state` … which is by construction every value
@@ -99,6 +101,38 @@ impl BakeState {
     }
 }
 
+/// A world whose height field `generate_terrain` produced from the parameter
+/// tuple in this very signature — [`WorldGen::generate_sized`] and
+/// [`WorldGen::generate_world_structure_sized`].
+///
+/// **Also what a loaded save reports**, and that is a deliberate call rather
+/// than an oversight: the `.zip`/project format records no origin
+/// (`cartalith_io::SaveParams` is `gw`/`gh`/`seed`/`map_width_km`/`sea_level`/
+/// `world` and nothing else, and `params::apply_saved_state` reads only rows of
+/// the `PARAMS` table), while `load_save` restores every other element of this
+/// signature exactly. Giving a load its own value would therefore change the
+/// key on **every** project reopen and orphan the atlas the user just paid for,
+/// including for the generate → bake → save → open path that is the common one.
+/// The cost of the choice is stated where it is paid — see `load_save`'s own
+/// assignment.
+///
+/// [`WorldGen::generate_sized`]: crate::WorldGen
+/// [`WorldGen::generate_world_structure_sized`]: crate::WorldGen
+pub const ORIGIN_GENERATED: &str = "gen";
+
+/// A world whose height field came off disk as an image —
+/// `WorldGen::import_heightmap`. Its substrate is *inverted* from that image
+/// rather than generated, so the parameter tuple does not determine the field
+/// and cannot be allowed to name the same atlas namespace a generated world
+/// would.
+pub const ORIGIN_IMPORTED: &str = "import";
+
+/// A world resampled out of another world's Region-select marquee —
+/// `WorldGen::region_new_world`. Its field is an amplified crop of the
+/// *parent's*, and it inherits the parent's `seed`, so its parameter tuple is
+/// especially likely to land on one a generated world already owns.
+pub const ORIGIN_REGION: &str = "region";
+
 /// The world-key signature — see this module's own header for what is in it
 /// and why.
 ///
@@ -107,6 +141,22 @@ impl BakeState {
 /// parameters. The trailing element is `params::save_state`'s whole object,
 /// whose own key order is `PARAMS`' static table order — deterministic across
 /// runs and platforms, which is the property the hash needs.
+///
+/// `origin` is one of [`ORIGIN_GENERATED`]/[`ORIGIN_IMPORTED`]/
+/// [`ORIGIN_REGION`], and it is in the signature because **nothing else in it
+/// says how the field was produced**. Every other element is a generation
+/// *input*, and an imported heightmap and a region resample both arrive at a
+/// field the inputs did not determine: without this element a 1024×512 import
+/// at seed 42 and a 1024×512 generate at seed 42 share one atlas namespace and
+/// serve each other's baked tiles.
+///
+/// Adding it changed every key this port had ever computed, which is safe and
+/// was checked rather than assumed: a key with no chunks under it makes
+/// `AtlasStore::keys_for_world` return an empty set, so `atlas_status` reads
+/// *"Atlas: empty (this world)"*, `bake_estimate` reports `already_baked: 0`
+/// and `run_bake` bakes the pyramid again. The chunks under the old key are
+/// orphaned on disk, not corrupted — the same outcome as moving any other
+/// generation dial, which is the mechanism this hash exists to drive.
 pub fn world_key_signature(
     gw: i32,
     gh: i32,
@@ -114,9 +164,11 @@ pub fn world_key_signature(
     map_width_km: f64,
     sea_level: f64,
     world: bool,
+    origin: &str,
     params_state: serde_json::Value,
 ) -> String {
-    serde_json::json!([gw, gh, seed, map_width_km, sea_level, world, params_state]).to_string()
+    serde_json::json!([gw, gh, seed, map_width_km, sea_level, world, origin, params_state])
+        .to_string()
 }
 
 /// What the status readout shows (`GUI_GAP_REGISTER.md` SH-07's `atlas` slot,
@@ -274,14 +326,20 @@ mod tests {
     #[test]
     fn the_signature_changes_with_every_generation_input() {
         let base = |sea: f64| {
-            world_key_signature(512, 512, 7, 800.0, sea, false, serde_json::json!({"a": 1}))
+            world_key_signature(
+                512, 512, 7, 800.0, sea, false, ORIGIN_GENERATED, serde_json::json!({"a": 1}),
+            )
         };
         assert_eq!(base(0.42), base(0.42));
         assert_ne!(base(0.42), base(0.43));
-        let a = world_key_signature(512, 512, 7, 800.0, 0.42, false, serde_json::json!({"a": 1}));
-        let b = world_key_signature(512, 512, 8, 800.0, 0.42, false, serde_json::json!({"a": 1}));
-        let c = world_key_signature(512, 512, 7, 800.0, 0.42, true, serde_json::json!({"a": 1}));
-        let d = world_key_signature(512, 512, 7, 800.0, 0.42, false, serde_json::json!({"a": 2}));
+        let g = ORIGIN_GENERATED;
+        let a =
+            world_key_signature(512, 512, 7, 800.0, 0.42, false, g, serde_json::json!({"a": 1}));
+        let b =
+            world_key_signature(512, 512, 8, 800.0, 0.42, false, g, serde_json::json!({"a": 1}));
+        let c = world_key_signature(512, 512, 7, 800.0, 0.42, true, g, serde_json::json!({"a": 1}));
+        let d =
+            world_key_signature(512, 512, 7, 800.0, 0.42, false, g, serde_json::json!({"a": 2}));
         assert_ne!(a, b, "seed");
         assert_ne!(a, c, "wrap flag");
         assert_ne!(a, d, "a parameter row");
@@ -291,9 +349,62 @@ mod tests {
     fn the_signature_order_is_part_of_the_hash() {
         // Two worlds whose gw and gh are swapped must not collide -- an
         // object-keyed signature with a non-deterministic order could.
-        let a = world_key_signature(512, 256, 7, 800.0, 0.42, false, serde_json::Value::Null);
-        let b = world_key_signature(256, 512, 7, 800.0, 0.42, false, serde_json::Value::Null);
+        let a = world_key_signature(
+            512, 256, 7, 800.0, 0.42, false, ORIGIN_GENERATED, serde_json::Value::Null,
+        );
+        let b = world_key_signature(
+            256, 512, 7, 800.0, 0.42, false, ORIGIN_GENERATED, serde_json::Value::Null,
+        );
         assert_ne!(cartalith_io::world_key(&a), cartalith_io::world_key(&b));
+    }
+
+    /// The defect this element exists for: three ways of arriving at a world
+    /// could share one atlas namespace at the same parameter tuple, and one
+    /// would then read another's baked tiles.
+    ///
+    /// Asserted on the **hashed** key rather than the signature string, since
+    /// that is what `AtlasStore` files chunks under -- a signature that differs
+    /// only in a field the hash never sees would pass the cheaper assertion.
+    #[test]
+    fn the_same_parameters_from_three_different_origins_are_three_atlases() {
+        let key = |origin: &str| {
+            cartalith_io::world_key(&world_key_signature(
+                1024,
+                512,
+                42,
+                800.0,
+                0.42,
+                false,
+                origin,
+                serde_json::json!({"cartalith": {"tect.plates": 9}}),
+            ))
+        };
+        let generated = key(ORIGIN_GENERATED);
+        let import = key(ORIGIN_IMPORTED);
+        let region = key(ORIGIN_REGION);
+        assert_ne!(
+            generated, import,
+            "an imported heightmap must not read a generated world's tiles"
+        );
+        assert_ne!(generated, region, "a region resample must not read a generated world's tiles");
+        assert_ne!(import, region, "an import and a resample are two different worlds");
+        // The three constants must also stay distinct *strings*: two of them
+        // spelled the same would make the three assertions above pass on a
+        // one-line typo, since the hash of equal inputs is equal.
+        assert_ne!(ORIGIN_GENERATED, ORIGIN_IMPORTED);
+        assert_ne!(ORIGIN_GENERATED, ORIGIN_REGION);
+        assert_ne!(ORIGIN_IMPORTED, ORIGIN_REGION);
+    }
+
+    /// The other half of the same rule: the origin must be the **only** thing
+    /// that changed, so this pins that adding it did not disturb the six
+    /// elements already in the array or the object at the tail.
+    #[test]
+    fn origin_sits_between_the_wrap_flag_and_the_parameter_object() {
+        let s = world_key_signature(
+            1024, 512, 42, 800.0, 0.42, true, ORIGIN_IMPORTED, serde_json::json!({"a": 1}),
+        );
+        assert_eq!(s, r#"[1024,512,42,800.0,0.42,true,"import",{"a":1}]"#);
     }
 
     #[test]

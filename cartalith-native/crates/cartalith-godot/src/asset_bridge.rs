@@ -629,6 +629,14 @@ impl AssetLibrarySession {
                 Family::Icons => {
                     manifest.icons.insert(slot.id.clone(), paths);
                 }
+                // The sea-marks family (owner ruling 2026-09-02,
+                // `slots::PACK_SEAMARK_SLOTS`). One arm, in a file this lane
+                // does not otherwise own: without it a Library holding sea-mark
+                // art would export its PNGs into the zip and then declare none
+                // of them, which is silent data loss rather than a gap.
+                Family::SeaMark => {
+                    manifest.seamarks.insert(slot.id.clone(), paths);
+                }
                 Family::Settlement => {
                     manifest.structures.settlement.insert(slot.id.clone(), paths);
                 }

@@ -1746,12 +1746,19 @@ func open_heightmap_import() -> void:
 ## Called from `_load_project()` and from nowhere else, deliberately -- see the
 ## note in the `bridge.world_loaded` handler for the bug that put it there.
 ##
-## Three of the five slots restore, and the shape of each answer is the
+## **All six slots now restore**, and the shape of each answer is the
 ## engine's, not this function's:
 ##
 ##   * `entities/journeys.json` -- the shell's own; a wholesale replacement of
 ##     the planner's list, which is right here and only here, because this is
 ##     the moment the list is supposed to become the file's.
+##   * `annotations/measurements.json` -- the shell's other own, added
+##     2026-09-03. Wholesale for the same reason, and **refused outright when
+##     the document's grid is not this world's**: a measure point is a grid
+##     cell, so a reading recalled over a different world would draw a
+##     plausible line across ground it was never taken on. The document stays
+##     in the archive; only the display of it is refused, which is what the
+##     note this function returns says.
 ##   * `library/assets.json` -- comes back as pack info, collections, custom
 ##     slots, slot metadata and scatter rules. The item **images do not**, and
 ##     cannot: `project_bridge.rs::asset_library_document_json` states that the
@@ -1761,18 +1768,19 @@ func open_heightmap_import() -> void:
 ##   * `library/travel.json` -- replaces the custom half of every set and
 ##     leaves the stock entries alone, so one project's pack mule cannot
 ##     survive into the next.
+##   * `drafts/paint.json` and `drafts/sculpt.json` -- **restored by
+##     `project_open` itself**, not from here. Until 2026-09-03 both were
+##     written on every save and applied to nothing, and this function said so
+##     in two sentences that are now gone: the engine dropped both editors on
+##     load, so a painted world reopened unpainted and a stamp stack reopened
+##     empty. `project_open` now builds the editor that holds each draft
+##     (`project_bridge.rs`'s module doc, "The return leg was missing for both
+##     drafts") and names what it applied in its own `restored` list, which
+##     `EngineBridge.last_open_restored` carries here.
 ##
-## Two do not, and say so instead of pretending:
-##
-##   * `drafts/sculpt.json` -- carried in the archive and **not re-applied**.
-##     The engine drops the Sculpt editor on every load (a save carries no
-##     `river_mask`/`river_floor` for the draft's water hooks to adopt), so
-##     `sculpt_restore_document` answers `ok == false` with that reason. The
-##     stamps are still in the file; the person who drew them is owed the
-##     sentence rather than an empty stamp list.
-##   * `drafts/paint.json` -- carried, with no restore binding at all, for the
-##     same reason: a project opened from disk has no `PaintEditor` to restore
-##     into.
+## One thing a loaded project still cannot do is **commit** a sculpt draft --
+## `sculpt_commit` needs the generated world's own substrate. The draft is
+## back, visible and editable; baking it needs the world it was drawn over.
 ##
 ## Returns the notes rather than drawing them so `_load_project()` can compose
 ## one line with the format warning it already had.
@@ -1782,6 +1790,17 @@ func _restore_project_documents() -> PackedStringArray:
 	if journey_planner_view != null:
 		journey_planner_view.restore_journeys_document(
 			String(docs.get("entities/journeys.json", "")))
+
+	## The sixth slot, and the second the shell writes for itself. Called
+	## unconditionally, not only when the key is present: an *absent*
+	## measurements slot is a genuine "this project has none" and must clear the
+	## outgoing project's, which is the same data-loss shape
+	## `restore_journeys_document()`'s own second guard exists for.
+	if right_dock_ctrl != null and right_dock_ctrl.has_method("restore_measurements_document"):
+		var mnote := String(right_dock_ctrl.restore_measurements_document(
+			String(docs.get("annotations/measurements.json", ""))))
+		if mnote != "":
+			notes.append("%s, so they were left as they are in the file" % mnote)
 
 	var travel := String(docs.get("library/travel.json", ""))
 	if travel != "":
@@ -1804,17 +1823,22 @@ func _restore_project_documents() -> PackedStringArray:
 			notes.append("the asset library came back as %d slot definition(s) without their images — a project archive carries the records, not the pixels, so re-import the source files to place them"
 				% int(ar.get("slots", 0)))
 
-	var sculpt := String(docs.get("drafts/sculpt.json", ""))
-	if sculpt != "":
-		var sr: Dictionary = bridge.sculpt_restore_document(sculpt)
-		if not bool(sr.get("ok", false)):
-			notes.append("the sculpt draft is still in this archive but was not re-applied (%s)"
-				% String(sr.get("error", "unknown")))
-		elif int(sr.get("stamps", 0)) > 0:
-			notes.append("%d sculpt stamp(s) restored" % int(sr.get("stamps", 0)))
-
-	if String(docs.get("drafts/paint.json", "")) != "":
-		notes.append("the painted layers are carried in this archive but this build has no route to re-apply them to a loaded world")
+	## The two drafts, reported rather than restored: `project_open` applied
+	## them before this function ran. A slot the archive carried that is NOT in
+	## `restored` is the case worth a sentence -- a draft captured on another
+	## world's grid is refused rather than scrambled, and silently having no
+	## paint back is exactly the failure this whole row is about.
+	var restored: PackedStringArray = bridge.last_open_restored
+	for pair in [
+		["drafts/paint.json", "paint layers", "the painted layers"],
+		["drafts/sculpt.json", "sculpt draft", "the sculpt stamps"],
+	]:
+		if String(docs.get(pair[0], "")) != "" and not restored.has(pair[1]):
+			## Two ways to land here and the sentence has to cover both without
+			## claiming either: the document's grid is not this world's (the
+			## common one, and a refusal rather than a scramble), or its shape
+			## is one this build could not read. It is still in the file.
+			notes.append("%s in this archive came from a different grid, or in a shape this build could not read, and were left as they are in the file" % pair[2])
 	return notes
 
 ## Shared by the file-picker path above and `Data ▸ Recent worlds` / the
@@ -2127,9 +2151,14 @@ func save_project_as(then: Callable = Callable()) -> void:
 ##     `project_engine_built_documents()`, whose own doc calls itself "the
 ##     call a Save command should make"; a slot with nothing to write is
 ##     absent rather than empty, so this cannot pad the archive;
-##   * the SHELL's one, `entities/journeys.json` -- a saved journey is a route
+##   * the SHELL's two, `entities/journeys.json` -- a saved journey is a route
 ##     index plus a party form, both of which the engine deliberately does not
-##     model.
+##     model -- and, since 2026-09-03, `annotations/measurements.json`, whose
+##     payload is a mode, the grid points that were clicked and the reading they
+##     produced. The engine models none of those as retained state either: its
+##     measure functions are stateless queries over points the *caller* owns
+##     (`measure_bridge.rs`), so `right_dock.gd` is the only thing that has
+##     them.
 ##
 ## The two sets never collide (`project_engine_built_documents()`'s own
 ## guarantee: none of its four is a slot GDScript writes), so this is a merge
@@ -2140,6 +2169,10 @@ func _project_documents() -> Dictionary:
 		var doc := journey_planner_view.journeys_document()
 		if doc != "":
 			documents["entities/journeys.json"] = doc
+	if right_dock_ctrl != null and right_dock_ctrl.has_method("measurements_document"):
+		var meas := String(right_dock_ctrl.measurements_document())
+		if meas != "":
+			documents["annotations/measurements.json"] = meas
 	return documents
 
 ## The one place a project is actually written. Everything above routes here

@@ -20,14 +20,27 @@
 //! things this stage can get wrong — the weight, the two tables, the
 //! ordering of the two layers, and whether the stage runs at all.
 //!
+//! The second half of the file (from `attaching_tiles_changes_nothing`
+//! onward) covers the same stage's **v1.28 pack-tile branch**
+//! (`_paintedTex`, reference 12187-12196): a loaded pack's `biomes`/
+//! `terrains` ground tile is blended as true colour *instead of* the flat
+//! swatch, at the same weight and position. Same method — the expected value
+//! is derived from this port's own unpainted render — so what those tests
+//! pin is the sampler (wrap, texel offset, positional index) and the
+//! true-colour/inverse-mean asymmetry, not any constant already pinned
+//! above.
+//!
 //! `#[path]`-includes `render.rs` for the same reason every other renderer
-//! test does: `cartalith-godot` is `cdylib`-only (`ARCHITECTURE.md`).
+//! test does: `cartalith-godot` is `cdylib`-only (`ARCHITECTURE.md`), and
+//! `pack.rs` alongside it so the last test can load the real fixture pack.
 #![allow(dead_code)]
 
 #[path = "../src/render.rs"]
 mod render;
+#[path = "../src/pack.rs"]
+mod pack;
 
-use render::{PaintOverride, RenderCtx, TerrainAppearance, CART_BIOME_COLS, CART_TERRAIN_COLS};
+use render::{GroundTile, GroundTiles, PaintOverride, RenderCtx, TerrainAppearance, CART_BIOME_COLS, CART_TERRAIN_COLS};
 
 const GW: usize = 24;
 const GH: usize = 24;
@@ -233,4 +246,249 @@ fn an_out_of_range_index_paints_nothing_rather_than_wrapping_or_panicking() {
 #[test]
 fn paint_override_default_is_the_unpainted_state() {
     assert_eq!(PaintOverride::default(), PaintOverride { bio: 0, ter: 0, splat: 0 });
+}
+
+// ---------------------------------------------------------------------------
+// The pack-tile half of the same blend (`_paintedTex`, reference v1.28)
+//
+// Everything above pins `_p = CART_*_COLS[p-1]`. Everything below pins the
+// `_t ||` in front of it: when a loaded pack supplies a ground tile for the
+// painted index, that tile's **true colour** is what gets blended, at the
+// same 0.60 weight and the same position. The flat-swatch tests above are
+// therefore also the fallback tests for this half.
+// ---------------------------------------------------------------------------
+
+/// A tile of one colour, `w` by `h`. Solid on purpose: see
+/// `two_solid_tiles_of_different_colours_blend_differently` for the mistake
+/// that makes discriminable.
+fn solid(w: u32, h: u32, c: (u8, u8, u8)) -> GroundTile {
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for _ in 0..w * h {
+        rgba.extend_from_slice(&[c.0, c.1, c.2, 255]);
+    }
+    GroundTile { w, h, rgba }
+}
+
+/// A positional family table `n` long with one tile at `at` (0-based, i.e.
+/// painted index `at + 1`) — the shape `LoadedPack::biomes`/`::terrains` has.
+fn table(n: usize, at: usize, t: GroundTile) -> Vec<Option<GroundTile>> {
+    let mut v: Vec<Option<GroundTile>> = (0..n).map(|_| None).collect();
+    v[at] = Some(t);
+    v
+}
+
+fn biome_tiles(t: &[Option<GroundTile>]) -> GroundTiles<'_> {
+    GroundTiles { biomes: t, terrains: &[] }
+}
+
+fn terrain_tiles(t: &[Option<GroundTile>]) -> GroundTiles<'_> {
+    GroundTiles { biomes: &[], terrains: t }
+}
+
+#[test]
+fn attaching_tiles_changes_nothing_until_a_cell_is_actually_painted() {
+    // The property the default render depends on: this port ships no pack,
+    // but loading one must not move a pixel by itself either. Every cell
+    // here is unpainted and every cell must be byte-identical.
+    let w = world();
+    let t = table(15, 5, solid(4, 4, (255, 0, 255)));
+    let plain = ctx(&w);
+    let with = ctx(&w).with_ground_tiles(biome_tiles(&t));
+    for y in 0..GH {
+        for x in 0..GW {
+            assert_eq!(render::cell_color(&plain, x, y), render::cell_color(&with, x, y), "({x},{y})");
+        }
+    }
+}
+
+#[test]
+fn an_empty_ground_table_is_the_flat_swatch_branch_exactly() {
+    // `GroundTiles::default()` (no pack) and an all-`None` table of the real
+    // length (a pack with no art for any painted index) are the same picture
+    // as never calling the builder — the reference's `_t || CART_*_COLS`
+    // fallback, and what keeps `golden_parity_render.rs` out of this branch.
+    let w = world();
+    let i = 10 * GW + 10;
+    let g = grid(&[(i, 6)]);
+    let none: Vec<Option<GroundTile>> = (0..15).map(|_| None).collect();
+    let plain = ctx(&w).with_paint(Some(&g), None, None);
+    for ground in [GroundTiles::default(), biome_tiles(&none)] {
+        let with = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(ground);
+        assert_eq!(render::cell_color(&plain, 10, 10), render::cell_color(&with, 10, 10));
+    }
+}
+
+#[test]
+fn a_pack_tile_replaces_the_flat_swatch_at_the_same_060_weight() {
+    let w = world();
+    let plain = ctx(&w);
+    let i = 10 * GW + 10;
+    let g = grid(&[(i, 6)]);
+    let tile = (40, 100, 45);
+    let t = table(15, 5, solid(8, 8, tile));
+    let painted = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&t));
+
+    let base = as255(render::cell_color(&plain, 10, 10));
+    assert_close(as255(render::cell_color(&painted, 10, 10)), blend(base, tile), "biome 6 with a tile");
+    // And demonstrably *not* the swatch it replaced, or the assertion above
+    // would pass on a renderer that ignored the tile entirely.
+    let swatch = blend(base, CART_BIOME_COLS[5]);
+    assert!(
+        (blend(base, tile).0 - swatch.0).abs() > 1e-3 || (blend(base, tile).2 - swatch.2).abs() > 1e-3,
+        "fixture colours must differ from the swatch, or this test proves nothing"
+    );
+}
+
+#[test]
+fn two_solid_tiles_of_different_colours_blend_differently() {
+    // **The `SplatChannel` mistake, pinned.** A splat channel is sampled as
+    // `texel * inv_mean` — for a *solid* tile that ratio is 1.0 whatever the
+    // colour, so a paint path that borrowed splat's normalisation would give
+    // these two tiles the identical result. True colour gives two.
+    let w = world();
+    let i = 10 * GW + 10;
+    let g = grid(&[(i, 6)]);
+    let dark = table(15, 5, solid(4, 4, (20, 30, 40)));
+    let light = table(15, 5, solid(4, 4, (220, 210, 200)));
+    let a = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&dark));
+    let b = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&light));
+    assert_ne!(render::cell_color(&a, 10, 10), render::cell_color(&b, 10, 10));
+
+    let base = as255(render::cell_color(&ctx(&w), 10, 10));
+    assert_close(as255(render::cell_color(&a, 10, 10)), blend(base, (20, 30, 40)), "dark tile");
+    assert_close(as255(render::cell_color(&b, 10, 10)), blend(base, (220, 210, 200)), "light tile");
+}
+
+#[test]
+fn a_tile_is_one_texel_per_cell_wrapped_the_way_the_splat_path_samples() {
+    // A 2x2 tile with four distinct texels: pins the `%` wrap, the
+    // `(sy * tw + sx) * 4` offset, and that x and y are not transposed.
+    let w = world();
+    let plain = ctx(&w);
+    let px = [(200u8, 10, 10), (10, 200, 10), (10, 10, 200), (200, 200, 10)];
+    let mut rgba = Vec::new();
+    for c in px {
+        rgba.extend_from_slice(&[c.0, c.1, c.2, 255]);
+    }
+    let t = table(15, 5, GroundTile { w: 2, h: 2, rgba });
+
+    // (10,10) -> texel (0,0); (11,10) -> (1,0); (10,11) -> (0,1);
+    // (11,11) -> (1,1); (12,10) wraps back to (0,0).
+    for (x, y, want) in [(10, 10, px[0]), (11, 10, px[1]), (10, 11, px[2]), (11, 11, px[3]), (12, 10, px[0])] {
+        let g = grid(&[(y * GW + x, 6)]);
+        let painted = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&t));
+        let base = as255(render::cell_color(&plain, x, y));
+        assert_close(as255(render::cell_color(&painted, x, y)), blend(base, want), &format!("cell ({x},{y})"));
+    }
+}
+
+#[test]
+fn a_ground_table_is_positional_and_only_its_own_painted_index_reads_it() {
+    // `PACK_BIOME_SLOTS[n]` is painted index `n + 1`. An off-by-one here
+    // silently re-points every tile in every pack ever authored, and would
+    // still render *something* — which is why the neighbours are asserted
+    // rather than only the hit.
+    let w = world();
+    let plain = ctx(&w);
+    let tile = (255, 0, 255);
+    let t = table(15, 5, solid(4, 4, tile));
+    for v in 5..=7u8 {
+        let i = 10 * GW + 10;
+        let g = grid(&[(i, v)]);
+        let painted = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&t));
+        let base = as255(render::cell_color(&plain, 10, 10));
+        let want = if v == 6 { blend(base, tile) } else { blend(base, CART_BIOME_COLS[v as usize - 1]) };
+        assert_close(as255(render::cell_color(&painted, 10, 10)), want, &format!("biome index {v}"));
+    }
+}
+
+#[test]
+fn the_two_families_read_their_own_table_and_never_each_others() {
+    // One tile, installed in the biome table only. A terrain cell painted at
+    // the same index must still take its own flat swatch.
+    let w = world();
+    let plain = ctx(&w);
+    let tile = (255, 0, 255);
+    let t = table(15, 5, solid(4, 4, tile));
+    let i = 10 * GW + 10;
+    let g = grid(&[(i, 6)]);
+    let base = as255(render::cell_color(&plain, 10, 10));
+
+    let bio = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&t));
+    assert_close(as255(render::cell_color(&bio, 10, 10)), blend(base, tile), "biome reads the biome table");
+
+    let ter = ctx(&w).with_paint(None, Some(&g), None).with_ground_tiles(biome_tiles(&t));
+    assert_close(as255(render::cell_color(&ter, 10, 10)), blend(base, CART_TERRAIN_COLS[5]), "terrain must not read it");
+
+    // And the mirror: a terrain-table tile is invisible to a biome cell.
+    let tt = table(13, 5, solid(4, 4, tile));
+    let bio2 = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(terrain_tiles(&tt));
+    assert_close(as255(render::cell_color(&bio2, 10, 10)), blend(base, CART_BIOME_COLS[5]), "biome must not read the terrain table");
+}
+
+#[test]
+fn a_malformed_tile_falls_back_to_the_swatch_rather_than_panicking() {
+    // `cartalith-rust-conventions`: `%` by zero panics in Rust where JS
+    // yields NaN, and a truncated buffer would index off the end — either
+    // one crosses the gdext boundary from inside a rayon `par_chunks_mut`.
+    let w = world();
+    let plain = ctx(&w);
+    let i = 10 * GW + 10;
+    let g = grid(&[(i, 6)]);
+    let base = as255(render::cell_color(&plain, 10, 10));
+    let broken = [
+        GroundTile { w: 0, h: 0, rgba: Vec::new() },
+        GroundTile { w: 4, h: 0, rgba: Vec::new() },
+        // Declares 4x4 RGBA (64 bytes) and carries one pixel.
+        GroundTile { w: 4, h: 4, rgba: vec![9, 9, 9, 255] },
+    ];
+    for (n, t) in broken.into_iter().enumerate() {
+        let tb = table(15, 5, t);
+        let painted = ctx(&w).with_paint(Some(&g), None, None).with_ground_tiles(biome_tiles(&tb));
+        assert_close(as255(render::cell_color(&painted, 10, 10)), blend(base, CART_BIOME_COLS[5]), &format!("broken tile {n}"));
+    }
+}
+
+#[test]
+fn the_real_fixture_packs_ground_tiles_are_decoded_and_reach_the_map() {
+    // End to end on the real reference-exported pack
+    // (`cartalith-assets/tests/fixtures/reference_pack.zip`), whose
+    // `pack.json` has carried `biomes/jungle.png` and `terrains/paved.png`
+    // since milestone 2 — two files `load_pack_from_bytes` dropped on the
+    // floor until this decode landed.
+    let bytes = std::fs::read("../cartalith-assets/tests/fixtures/reference_pack.zip").expect("reference_pack.zip fixture must exist");
+    let loaded = pack::load_pack_from_bytes(bytes).expect("real reference-exported pack must load");
+
+    // Positional, full length, exactly one filled slot each: `jungle` is
+    // `PACK_BIOME_SLOTS[5]` (painted index 6), `paved` is
+    // `PACK_TERRAIN_SLOTS[0]` (painted index 1).
+    assert_eq!(loaded.biomes.len(), 15);
+    assert_eq!(loaded.terrains.len(), 13);
+    assert_eq!(loaded.biomes.iter().filter(|t| t.is_some()).count(), 1);
+    assert_eq!(loaded.terrains.iter().filter(|t| t.is_some()).count(), 1);
+    let jungle = loaded.biomes[5].as_ref().expect("biomes/jungle.png must decode");
+    let paved = loaded.terrains[0].as_ref().expect("terrains/paved.png must decode");
+    assert_eq!((jungle.w, jungle.h), (512, 512));
+    assert_eq!(jungle.rgba.len(), 512 * 512 * 4);
+    // The fixture's own two solid colours, read straight out of the PNGs.
+    assert_eq!(&jungle.rgba[..4], &[40, 100, 45, 255]);
+    assert_eq!(&paved.rgba[..4], &[130, 130, 135, 255]);
+
+    // ...and they change the map, at the reference's weight, on a cell the
+    // brush painted with that index.
+    let w = world();
+    let plain = ctx(&w);
+    let i = 10 * GW + 10;
+    let gb = grid(&[(i, 6)]);
+    let gt = grid(&[(i, 1)]);
+    let ground = GroundTiles { biomes: &loaded.biomes, terrains: &loaded.terrains };
+    let painted = ctx(&w).with_paint(Some(&gb), Some(&gt), None).with_ground_tiles(ground);
+    let base = as255(render::cell_color(&plain, 10, 10));
+    let want = blend(blend(base, (40, 100, 45)), (130, 130, 135));
+    assert_close(as255(render::cell_color(&painted, 10, 10)), want, "fixture jungle then paved");
+
+    // The same two cells with no pack attached take the flat swatches, which
+    // are different colours — so this test fails if the decode regresses.
+    let swatched = ctx(&w).with_paint(Some(&gb), Some(&gt), None);
+    assert_ne!(render::cell_color(&painted, 10, 10), render::cell_color(&swatched, 10, 10));
 }

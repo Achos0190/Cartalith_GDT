@@ -4530,7 +4530,8 @@ pub fn assign_landmass_factions(
 /// **That constraint is gone, and this doc claimed otherwise until
 /// 2026-09-01.** The bridge switched: `cartalith-godot/src/lib.rs`'s
 /// auto-populate path calls *this* function, and so do both golden-parity
-/// settlement tests and both `_peakaudit_*` examples. **This function is the
+/// settlement tests. (The two `_peakaudit_*` examples that also called it
+/// were deleted 2026-09-03, the memory audit having closed.) **This is the
 /// production entry point; nothing calls [`place_settlements`] any more.**
 /// It is kept as the pre-snap reference (see its own doc), not as a
 /// compilation crutch, and no call-site change remains outstanding.
@@ -4677,8 +4678,8 @@ pub fn place_settlements_with_water_edge_snap(
 /// The justification here until 2026-09-01 -- that it kept "every existing
 /// caller (in particular `cartalith-godot`'s bridge, which could not be
 /// touched this pass)" compiling -- outlived the mid-edit it described. The
-/// bridge, both golden-parity settlement tests and both `_peakaudit_*`
-/// examples all call [`place_settlements_with_water_edge_snap`], which is
+/// bridge and both golden-parity settlement tests all call
+/// [`place_settlements_with_water_edge_snap`], which is
 /// the production entry point and additionally closes the real
 /// placement-fidelity gap that function documents.
 #[allow(clippy::too_many_arguments)]
@@ -5391,8 +5392,10 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
 ///
 /// **The traversal itself stays sequential and must.** Its heap pops in a
 /// float-comparison order the goldens depend on; only *independent sources*
-/// (whole separate calls) may be parallelised, which is what the three
-/// `par_iter()` call sites below do.
+/// (whole separate calls) may be parallelised, which is what the four
+/// `par_iter()` call sites below do. The fifth caller, `territory_sweep`,
+/// stays sequential on purpose: its running per-cell min is *meant* to
+/// compare across capitals in order (see the comment at its own call).
 #[allow(clippy::too_many_arguments)]
 fn road_dijkstra(
     cost: &[f32],
@@ -5507,15 +5510,23 @@ pub fn build_road_network(
         let cy = p.y.min(gh - 1);
         cy * gw + cx
     };
-    let mut dists: Vec<Vec<f32>> = Vec::with_capacity(p_count);
-    let mut prevs: Vec<Vec<i32>> = Vec::with_capacity(p_count);
-    for place in places {
-        let sx = place.x.min(gw - 1);
-        let sy = place.y.min(gh - 1);
-        let (dist, prev) = road_dijkstra(cost, gw, gh, sx, sy, world, None, true);
-        dists.push(dist);
-        prevs.push(prev);
-    }
+    // The `p_count` sources are independent whole Dijkstras, so they fan out;
+    // `road_dijkstra`'s own traversal stays sequential (a documented hard
+    // hazard). `par_iter().collect()` over the indexed `places` writes each
+    // result into its own source's slot, so the pairs arrive in exactly the
+    // order the sequential `for place in places` produced -- which is what
+    // keeps Prim's `best[k] < bu` tie-breaks, and so the goldens, identical.
+    // Same shape as `civ_road_network`'s and `civ_sea_routes`' own fan-outs.
+    let (dists, prevs): (Vec<Vec<f32>>, Vec<Vec<i32>>) = places
+        .par_iter()
+        .map(|place| {
+            let sx = place.x.min(gw - 1);
+            let sy = place.y.min(gh - 1);
+            road_dijkstra(cost, gw, gh, sx, sy, world, None, true)
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .unzip();
     let mut in_tree = vec![false; p_count];
     let mut best = vec![f64::INFINITY; p_count];
     let mut from = vec![-1i32; p_count];

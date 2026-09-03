@@ -189,6 +189,22 @@ const LOD_DOT_OUTLINE_SC := 0.6
 const PIN_SCALE_REF_PX := 1400.0
 const CAPITAL_RING_WIDTH := 2.5
 
+## The faith-divergence ring (see the `_faith_diverged` block further down for
+## why this layer is a shape rather than a religion palette). Three 54° arcs
+## with 66° gaps, outside the capital ring's own radius so a diverged capital
+## draws both and neither is mistaken for the other -- a capital ring is
+## solid, in the faction's own colour; this one is broken, and one fixed ink.
+##
+## Deliberately NOT any faction colour and not any theme token: it is a map
+## *annotation*, and this control's palette independence (top of file) is
+## exactly so a mark like this does not change meaning with the UI theme.
+const FAITH_RING_ARCS := 3
+const FAITH_RING_SPAN := 0.94          ## radians, ~54°
+const FAITH_RING_PAD_SC := 2.2
+const FAITH_RING_WIDTH := 1.6
+const FAITH_RING_COLOR := Color(0.929, 0.921, 0.847, 0.92)
+const FAITH_RING_SHADOW := Color(0.047, 0.039, 0.027, 0.75)
+
 ## Soft drop-shadow under each full-tier pin (2026-08-19, "settlement
 ## rendering could be made graphically more interesting" pass, explicit
 ## owner latitude to improve past the reference's own plain filled-circle
@@ -435,6 +451,54 @@ const LANDMARK_CLASS_RADIUS := {
 const LANDMARK_COL_PHYSICAL := Color(0.612, 0.769, 0.816, 0.95)
 const LANDMARK_COL_CULTURAL := Color(0.878, 0.639, 0.290, 0.95)
 const LANDMARK_OUTLINE := Color(0.051, 0.043, 0.031, 0.85)
+
+## **Rejected candidates** -- `LARGE_ITEM_RULINGS.md`'s Landmark-funnel ruling,
+## second half: "a rejected-candidate coordinate list plus a new overlay layer
+## to draw it".
+##
+## The mark is the design's, not this file's invention.
+## `design/landmark-generation/Main.dc.html` draws the viewport with two marks
+## and a legend for each: a filled diamond for a placement, and for a rejection
+## the **same diamond, smaller, stroked, dim, `stroke-dasharray="2 2"`** --
+## legend "rejected candidate — inside a placed one's ring". `canvas.json`'s
+## own `capquota` note says why it earns the space: "the viewport carries the
+## fourth reading, for free … Seeing the rings overlap is the moment the concept
+## lands, and it needs no vocabulary at all."
+##
+## A diamond, where a placement here is a **ring**: this file already diverged
+## from the canvas's filled diamond for placements (see `LANDMARK_CLASS_RADIUS`
+## above -- an open ring annotates the terrain instead of competing with the
+## settlement pins), so diamond-versus-ring is what separates the two layers,
+## and the dash then separates a rejection from anything else that might be
+## drawn as one.
+const LM_REJECT_RADIUS := 3.4
+## Fraction of each diamond edge that is ink. The canvas's `2 2` dash on a
+## ~7 px mark works out near half, and a dash needs a gap at each corner or the
+## outline closes and stops reading as broken.
+const LM_REJECT_DASH := 0.56
+const LM_REJECT_WIDTH := 1.1
+
+## One colour per rejection reason. The design shows one reason (spacing) and
+## gives it `#5f6468`, a dim neutral; the other two are derived from this
+## shell's own vocabulary rather than invented, per the standing rule for where
+## no canvas exists.
+##
+## `cap` is the exception that matters. Those candidates passed every test and
+## were turned away by the number alone -- `LandmarkFunnel::rejected_cap`'s own
+## "the user got what they asked for" -- so they carry the accent the placed
+## landmarks and the panel's own `at cap` rows already use, at low alpha. They
+## are would-be placements, and colouring them the same dim grey as a spacing
+## loss would say the opposite.
+##
+## `score` is unreachable at the shipped `SCORE_FLOOR` of `0.0` and is here so
+## that the day a calibration pass raises the floor, the marks appear instead of
+## vanishing into an unmatched key.
+const LM_REJECT_COLORS := {
+	"spacing": Color(0.373, 0.392, 0.408, 0.85),
+	"cap": Color(0.878, 0.639, 0.290, 0.45),
+	"score": Color(0.373, 0.392, 0.408, 0.55),
+}
+const LM_REJECT_FALLBACK := Color(0.373, 0.392, 0.408, 0.55)
 
 ## §4.5.5's Label tool. `color`/`font` are always the label's *effective*
 ## value (`label_dict` calls `color_or_default`/`font_or_default`), so no
@@ -887,6 +951,36 @@ func set_landmarks_visible(on: bool) -> void:
 	_landmarks_visible = on
 	queue_redraw()
 
+## The rejected candidates of the last landmark pass, keyed by reason
+## (`"spacing"` / `"cap"` / `"score"`), each a `PackedVector2Array` of grid
+## cells -- `engine_bridge.gd::landmark_reject_points`'s own shape.
+##
+## Kept **packed and pre-grouped** rather than as the `landmark_rejects()`
+## record list, which carries the same positions plus four more fields. That is
+## the one decision in this layer worth stating: measured at the shipping
+## 2048x1311 default, the record list is 3 216 dictionaries in 6.0 ms and this
+## is the same 3 216 positions in 0.41 ms, because every `Dictionary` key write
+## routes through gdext's `ensure_main_thread()` and a packed buffer is one
+## allocation. This layer draws dots and needs nothing else; a surface that
+## genuinely reads `score` or `needs_crowding` calls the record list instead.
+var _landmark_rejects: Dictionary = {}
+## **Off by default**, unlike `_landmarks_visible`. A placement is the result of
+## a pass the user ran; a rejection is a diagnostic they have to ask for, and
+## thousands of dim marks over every fresh world would be noise on a question
+## nobody asked. `cartography_workspace.gd::LIVE_LAYERS` carries the same
+## default so the popover and this file cannot disagree.
+var _landmark_rejects_visible := false
+
+func set_landmark_rejects(by_reason: Dictionary) -> void:
+	_landmark_rejects = by_reason
+	queue_redraw()
+
+func set_landmark_rejects_visible(on: bool) -> void:
+	if on == _landmark_rejects_visible:
+		return
+	_landmark_rejects_visible = on
+	queue_redraw()
+
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
 	queue_redraw()
@@ -991,6 +1085,84 @@ func _faction_color(faction: int) -> Color:
 		return _faction_colors[faction - 1]
 	return FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()]
 
+# -- Faith divergence (`RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1) -----------
+#
+# **The one thing the map can say about religion that a panel cannot, and the
+# reason this is not a religion wash.**
+#
+# `cartalith_civ::belief`'s own header records that the model has no stable
+# mixture -- §14's `p^k` with `k > 1` is a fixation dynamic, so every
+# settlement converges on one faith holding essentially all of it. And
+# `belief_seed` starts every settlement wholly in its founding faction's
+# state religion. Put together: at year 0 a per-settlement religion tint is a
+# recolour of the faction wash `territory_view` already draws, and after
+# diffusion it is *still* that wash everywhere the network has not moved
+# anything. Painting it twice in two palettes is the "two pickers over one
+# concept" shape `right_dock.gd`'s own layer-stack comment already names.
+#
+# What is genuinely new is the difference: a settlement whose plurality faith
+# is no longer its ruler's. That is the paper's §27 emergent geography, it is
+# invisible in the faction wash, and it is one bit per pin -- so it is drawn
+# as a **broken ring**, a shape, not a hue. Nothing here relies on colour to
+# carry meaning, and the pin's own faction colour keeps its one job.
+#
+# This control still computes nothing about the world (this file's own top
+# comment): it compares two strings it was handed, the same kind of display
+# test `_settlement_hidden` already makes.
+
+## Per-faction state religion, index `faction - 1`, exactly like
+## `_faction_colors` above -- `get_factions()`' own `religion` column, pushed
+## by `civilization_workspace.gd`. Empty until pushed, which is why
+## `_faith_diverged` below answers `false` rather than "diverged" for an
+## unknown faction: an unpushed roster is a question never asked.
+var _faction_religions := PackedStringArray()
+
+## Off by default and **not** in `layer_visible()`'s match.
+##
+## Every arm of that match is a layer `viewport_host.gd::set_layer_visible()`
+## can also write, and this one is not: its only writer is the CIVIL dock's
+## own Religion category, calling this setter directly, because
+## `viewport_host.gd` is not this pass's file. Registering a read-back for a
+## layer the shared dispatcher cannot set would claim a wiring that does not
+## exist -- see `faith_divergence_visible()`.
+var _show_faith_divergence := false
+
+func set_faction_religions(keys: PackedStringArray) -> void:
+	_faction_religions = keys
+	queue_redraw()
+
+func set_faith_divergence_visible(on: bool) -> void:
+	_show_faith_divergence = on
+	queue_redraw()
+
+func faith_divergence_visible() -> bool:
+	return _show_faith_divergence
+
+## Whether this settlement's plurality faith differs from its faction's state
+## religion. **False in every state that is not a measured difference**, and
+## each of those is a real state rather than a default:
+##
+## - no `religion` key -- `get_settlements()` omits it entirely until a
+##   diffusion has been run (its own doc comment: omitted, not defaulted),
+##   so there is nothing to differ from;
+## - faction `0` (Unclaimed) or a faction past the pushed roster -- no state
+##   religion exists to compare against;
+## - an empty pushed key -- the roster row was not read, not "secular".
+##
+## `"none"` on **both** sides is agreement, not absence: `RELIGION_NONE` is
+## the unaffiliated share of the population, and a secular town under a
+## secular ruler has diverged from nothing.
+func _faith_diverged(s: Dictionary) -> bool:
+	if not _show_faith_divergence or not s.has("religion"):
+		return false
+	var faction := int(s.get("faction", 0))
+	if faction <= 0 or faction > _faction_religions.size():
+		return false
+	var ruler := _faction_religions[faction - 1]
+	if ruler.is_empty():
+		return false
+	return String(s["religion"]) != ruler
+
 func set_show_settlements(shown: bool) -> void:
 	_show_settlements = shown
 	queue_redraw()
@@ -1004,6 +1176,24 @@ func set_show_roads(shown: bool) -> void:
 func set_show_sea_routes(shown: bool) -> void:
 	_show_sea_routes = shown
 	queue_redraw()
+
+## The read-back half of the six `set_show_*`/`set_landmark*_visible` setters
+## above -- `viewport_host.gd::layer_visible()`'s own doc comment says why this
+## exists: a checkbox built once from a const default can only drift from
+## whatever a second writer (`civilization_workspace.gd`'s landmark-funnel
+## "Show rejected" chip, calling `set_layer_visible()` directly) last actually
+## set here.
+func layer_visible(layer: String) -> bool:
+	match layer:
+		"settlements": return _show_settlements
+		"roads": return _show_roads
+		"sea_routes": return _show_sea_routes
+		"landmarks": return _landmarks_visible
+		"landmark_rejects": return _landmark_rejects_visible
+		"urban_layouts": return _show_urban_layouts
+		_:
+			push_error("MapOverlay: unknown layer '%s'" % layer)
+			return true
 
 
 ## One settlement tier (`capital`/`city`/`town`/`village`/`hamlet` -- the
@@ -1286,7 +1476,13 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
 			and _manual_icons.is_empty() and _labels.is_empty()
-			and _manual_routes.is_empty() and _landmarks.is_empty()):
+			and _manual_routes.is_empty() and _landmarks.is_empty()
+			## The rejects layer can be the ONLY thing on this control: a pass
+			## that placed nothing still rejects, and that is exactly the world
+			## where the diagnostic matters most. Leaving it out of this guard
+			## would make the layer silently undrawable on the one map worth
+			## drawing it on.
+			and _landmark_rejects.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -1502,6 +1698,18 @@ func _draw() -> void:
 			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
 			if s["capital"]:
 				draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
+			## Outside the capital ring, so a diverged capital shows both.
+			## Under the coastal badge and the glyph for the same reason the
+			## landmark rejects draw under the placements: this is context
+			## about the pin, and must not win a pixel from the pin itself.
+			if _faith_diverged(s):
+				var ring_r: float = radius + CAPITAL_RING_WIDTH + FAITH_RING_PAD_SC * sc
+				for a in FAITH_RING_ARCS:
+					var from: float = TAU * float(a) / float(FAITH_RING_ARCS)
+					draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
+						FAITH_RING_SHADOW, FAITH_RING_WIDTH + 1.2, true)
+					draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
+						FAITH_RING_COLOR, FAITH_RING_WIDTH, true)
 			if s.get("coastal", false):
 				var badge_r: float = COASTAL_BADGE_R_SC * sc
 				var badge_pos := pos + Vector2(radius, radius) * 0.62
@@ -1574,6 +1782,11 @@ func _draw() -> void:
 	## Under the labels and over everything else. Labels are text and lose
 	## legibility the moment anything crosses them; a landmark ring is a mark
 	## and does not.
+	##
+	## Rejections draw UNDER the placements, deliberately: the layer's whole
+	## claim is that a rejected candidate lost to a placed one, so the placed
+	## mark must win the pixel wherever they coincide.
+	_draw_landmark_rejects(rect, interior)
 	_draw_landmarks(rect, interior)
 	_draw_labels(rect, interior)
 
@@ -1650,6 +1863,67 @@ func _draw_landmarks(rect: Rect2, interior: Rect2) -> void:
 		## reading as open.
 		if cls == "continental" or cls == "regional":
 			draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+
+
+## The candidates the landmark pass offered and did not place -- the second
+## half of `LARGE_ITEM_RULINGS.md`'s Landmark-funnel ruling, drawn.
+##
+## One `draw_multiline` per reason, and that is the whole performance story of
+## this layer. A dashed diamond is four segments; at the shipping default there
+## are 3 216 marks, so the obvious loop is 12 864 draw calls per redraw, on a
+## `_draw` that already carries settlements, roads, labels and icons.
+## `draw_multiline` takes every segment of one colour as a single flat point
+## array and issues **one** call, so the layer costs three regardless of how
+## many marks it holds. The per-mark work left is arithmetic.
+##
+## Positions are grid CELLS, so `_cell_to_screen`, for the reason
+## `_draw_landmarks` states directly above: `Landmark.x`/`.y` and a reject's
+## `x`/`y` are the same `usize` cell space, unlike the Icon tool's continuous
+## click coordinates.
+##
+## **What this layer does not draw, and why it is a narrowing rather than an
+## omission.** The design's picture puts each placement's exclusion ring on the
+## map too -- "rejected candidate — inside a placed one's ring" is the legend,
+## and `canvas.json` calls the overlapping rings "the moment the concept
+## lands". That picture draws **one highlighted type** (its own readout says
+## "Waterfall highlighted · 11"). This shell has no per-type highlight, and a
+## default run places 321 landmarks across all twenty kinds: 321 exclusion
+## discs, several of them continental at 200 km, is not the design's picture but
+## an opaque wash over the terrain the marks are annotating. The rings belong
+## with the type highlight, as one piece of work, and are recorded as owed
+## rather than approximated here.
+func _draw_landmark_rejects(rect: Rect2, interior: Rect2) -> void:
+	if not _landmark_rejects_visible or _landmark_rejects.is_empty():
+		return
+	var r := LM_REJECT_RADIUS
+	## Where each edge's dash starts and ends, as a fraction of the edge. A
+	## centred dash of `LM_REJECT_DASH` leaves an equal gap at both corners.
+	var t0 := (1.0 - LM_REJECT_DASH) * 0.5
+	var t1 := 1.0 - t0
+	for reason: String in _landmark_rejects:
+		var cells: PackedVector2Array = _landmark_rejects[reason]
+		if cells.is_empty():
+			continue
+		var segs := PackedVector2Array()
+		for cell in cells:
+			var pos := _cell_to_screen(cell, rect)
+			if not interior.has_point(pos):
+				continue
+			## The four corners of the diamond, top-first and clockwise -- the
+			## same `M8 2.4 13.6 8 8 13.6 2.4 8z` the design draws.
+			var up := pos + Vector2(0, -r)
+			var rt := pos + Vector2(r, 0)
+			var dn := pos + Vector2(0, r)
+			var lf := pos + Vector2(-r, 0)
+			for e in [[up, rt], [rt, dn], [dn, lf], [lf, up]]:
+				var a: Vector2 = e[0]
+				var b: Vector2 = e[1]
+				segs.push_back(a.lerp(b, t0))
+				segs.push_back(a.lerp(b, t1))
+		if segs.is_empty():
+			continue
+		var col: Color = LM_REJECT_COLORS.get(reason, LM_REJECT_FALLBACK)
+		draw_multiline(segs, col, LM_REJECT_WIDTH, true)
 
 
 ## §4.5.5's Label tool: user-authored region-name text, angled/arched in the
@@ -2006,6 +2280,7 @@ func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 	var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 	var kind_label: String = String(s["kind"]).capitalize()
 	var lines := ["%s (%s)" % [s["name"], kind_label], "Population %s" % _format_pop(s["population"])]
+	lines.append_array(_faith_lines(s))
 	var font := get_theme_default_font()
 	var font_size := 13
 	var line_h := font.get_height(font_size)
@@ -2036,6 +2311,89 @@ func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 		var text_pos := card_pos + Vector2(pad, pad + line_h * (j + 1) - font.get_descent(font_size))
 		draw_string(font, text_pos, lines[j], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.910, 0.922, 0.925))
 
+
+## The hover card's religion lines, or **nothing at all**.
+##
+## Empty is the deliberate answer when `get_settlements()` omitted the
+## `religion` key, i.e. when no diffusion has been run in this world. That
+## absence is a property of the whole layer, not of this settlement, and it
+## has a fix the user has to be told about at length -- which is the CIVIL
+## dock's Religion category's job, not a two-line map tooltip's. Printing
+## "Faith — not run" over every pin in every world where the feature has
+## never been touched would be noise, and would say it once per settlement.
+##
+## What this must never do is show one faith name as though it were the
+## settlement's population. `belief.rs`'s own module doc warns that adherence
+## is a distribution, and the model's fixation dynamic makes a plurality
+## typically dominant but not exclusive, so the share is always printed
+## beside the name and every other faith present is listed after it.
+##
+## **`"none"` reads "no religion", never blank and never a faith.**
+## `SettlementReligionState::plurality` deliberately does not skip
+## `RELIGION_NONE` -- a town that is 61 % unaffiliated has a plurality of
+## `none`, and labelling it with the largest *faith* would be the same lie in
+## reverse.
+##
+## Labels are derived from the key rather than pushed from
+## `civ_religion_vocabulary()`: Godot's `String.capitalize()` reproduces
+## seven of the eight `CIV_RELIGIONS` labels exactly (`sun_cult` -> "Sun
+## Cult"), and the eighth is handled above by name, so a second push would
+## buy one string.
+func _faith_lines(s: Dictionary) -> Array:
+	if not s.has("religion"):
+		return []
+	var pop := int(s.get("population", 0))
+	var adherents: Dictionary = s.get("adherents", {})
+	var plurality := String(s["religion"])
+	var out: Array = ["Faith %s%s" % [_faith_label(plurality), _faith_share(adherents, plurality, pop)]]
+	## Every other faith actually present, largest first. `adherents` omits a
+	## religion with zero adherents (`lib.rs`'s own comment), so its size is
+	## the number of faiths really there and this loop cannot print a 0.
+	var rest: Array = []
+	for k in adherents.keys():
+		if String(k) != plurality:
+			rest.append([int(adherents[k]), String(k)])
+	if not rest.is_empty():
+		rest.sort_custom(func(a, b): return a[0] > b[0] if a[0] != b[0] else a[1] < b[1])
+		var parts := PackedStringArray()
+		for r in rest:
+			parts.append("%s%s" % [_faith_label(r[1]), _faith_share(adherents, r[1], pop)])
+		out.append("also " + ", ".join(parts))
+	return out
+
+func _faith_label(key: String) -> String:
+	## `CIV_RELIGIONS[0]`'s own label is "None / secular", which reads as a
+	## missing value in a tooltip; this says the thing it means instead.
+	return "no religion" if key == "none" else key.capitalize()
+
+## ` 94%`, ` <1%`, or `""` when the count cannot be turned into a share at all.
+##
+## Two absences, kept apart:
+##
+## - **`""`** — population 0, or a key `adherents` does not carry. Neither is
+##   a share of zero; there is no denominator and no count. Printing ` 0%`
+##   for either would be a fabricated measurement.
+## - **` <1%`** — a real, nonzero count that rounds below one percent. Found
+##   by running this over a live world, where three of the first four hover
+##   cards read `Old Gods 0%` for congregations that genuinely exist:
+##   `lib.rs` omits a zero adherent count from the dictionary entirely, so
+##   every key here has at least one follower and a printed `0%` could only
+##   ever mean "too small to round", which is exactly the reading a bare zero
+##   does not give.
+func _faith_share(adherents: Dictionary, key: String, pop: int) -> String:
+	if pop <= 0 or not adherents.has(key):
+		return ""
+	var n := int(adherents[key])
+	var pct := 100.0 * float(n) / float(pop)
+	if n > 0 and pct < 0.5:
+		return " <1%"
+	## The same guard at the other end, and the live run needed it too:
+	## 898 of 900 rounded to `100%` on a card whose very next line read
+	## `also Old Gods <1%`. A card that contradicts itself is worse than one
+	## that loses a digit.
+	if n < pop and pct > 99.5:
+		return " >99%"
+	return " %d%%" % int(round(pct))
 
 func _format_pop(pop: int) -> String:
 	if pop >= 1000:

@@ -291,6 +291,94 @@ pub fn extract_region_as_world(
     RegionAsWorld { gw: td.w, gh: td.h, map_width_km: new_km, field: amplified }
 }
 
+/// The smallest grid this pipeline will build, per axis.
+///
+/// [`tile_dims`] floors at 2 and the reference floors at nothing, but a
+/// 2-row grid runs `pick_plate_seeds` and the whole climate stack over a
+/// degenerate neighbourhood, and the one caller is a `#[func]` where a panic
+/// takes the Godot process with it (`cartalith-rust-conventions`). 4 is
+/// `WorldGen::generate_sized`'s own clamp, so it is a grid the identical
+/// `infer_tectonics` → civ tail is already exercised at.
+pub const MIN_REGION_WORLD_AXIS: usize = 4;
+
+/// **`regionNewWorldBtn`'s whole non-UI pipeline** (reference line 13219):
+/// resample the selected region, then build a complete [`WorldState`] over it.
+///
+/// [`extract_region_as_world`] above is only the first half — the reference's
+/// `tileDims`/`newMapWidthKm`/`amplifyRegion` block. This is that plus the
+/// tail the handler runs after it, which is where every remaining parity
+/// question lives:
+///
+/// | reference (line 13228-13234) | here |
+/// |---|---|
+/// | `GW=td.w; GH=td.h; state.resW=td.w` | `params.gw`/`params.gh` |
+/// | `warpX=null; warpY=null` | **nothing to clear** — `warp_x`/`warp_y` are locals of [`crate::generate_terrain`], consumed by `compute_height` and never stored on a [`WorldState`]. [`crate::import::infer_tectonics`] already passes `None`/`None` and says so. |
+/// | `allocate()` + `field.set(amplified)` | the returned `WorldState`, whose `field` **is** the amplified buffer, moved |
+/// | `invalidateFieldCaches()` | nothing is retained to invalidate; every derived layer is recomputed by the caller's own `absorb` |
+/// | `refreshClimate()` | `infer_tectonics`' climate block |
+/// | `state.mapWidthKm=newMapWidthKm` | `params.map_width_km` |
+///
+/// **The calibrate gate is collapsed**, exactly as [`crate::import::
+/// import_heightmap`] already collapses it: the reference leaves the tectonic
+/// substrate all-zero here, sets `_canInvert`/`_imported` and opens
+/// `_setupOpen('calibrate')`, whose commit (`_suCalCommit`, line 13830) runs
+/// `inferTectonics()`. Reaching the same terminal state in one call is this
+/// port's established answer for the import path, and skipping the inference
+/// instead is not an option: lithology, soil and resources all read
+/// `crust_field`/`age_field`/`boundary_type`, and over a zeroed substrate they
+/// are the dead-layer bug `inferTectonics` exists to fix.
+///
+/// **Nothing renormalises.** `import_heightmap`'s own `decode_heightmap`
+/// does — raw pixel luminance has no absolute meaning — and this must not:
+/// the amplified data is already real elevation in the parent's `[0, 1]`
+/// space. `infer_tectonics` takes `field` by value and returns it untouched,
+/// so the guarantee is structural rather than a promise.
+///
+/// # Why the params come back
+///
+/// [`crate::import::ImportedWorld`]'s reason, unchanged: the grid dimensions
+/// and the map width are **derived here**, not supplied, so a caller that kept
+/// its own `base` would index every field of the returned state with the wrong
+/// stride. `base` supplies everything the resample cannot — the climate,
+/// planet and civ blocks, and `world`, which the reference's handler
+/// deliberately leaves alone (a resample inherits the parent's wrap geometry).
+/// `sea_level` is taken from `opts.sea` rather than `base`, because the
+/// amplified field's `[0, 1]` is anchored to the level the detail was faded
+/// against and the two must not be allowed to disagree.
+///
+/// # Errors
+///
+/// `Err((gw, gh))` — the resampled dimensions — when either axis would fall
+/// below [`MIN_REGION_WORLD_AXIS`]. Reachable only from an extreme aspect (a
+/// 4096x8 marquee at `tile_size` 1024). It refuses rather than clamping
+/// because clamping would silently change the shape the user selected and
+/// break the `map_width_km` the aspect was derived with.
+///
+/// # Panics
+///
+/// [`extract_region_as_world`]'s: `field` shorter than `gw * gh`.
+pub fn region_as_new_world(
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sel: &Region,
+    tile_size: usize,
+    base: &crate::WorldParams,
+    opts: &AmplifyOpts,
+) -> Result<(crate::WorldParams, crate::WorldState), (usize, usize)> {
+    let r = extract_region_as_world(field, gw, gh, sel, tile_size, base.map_width_km, opts);
+    if r.gw < MIN_REGION_WORLD_AXIS || r.gh < MIN_REGION_WORLD_AXIS {
+        return Err((r.gw, r.gh));
+    }
+    let mut p = base.clone();
+    p.gw = r.gw;
+    p.gh = r.gh;
+    p.map_width_km = r.map_width_km;
+    p.sea_level = opts.sea;
+    let state = crate::import::infer_tectonics(r.field, &p);
+    Ok((p, state))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -561,5 +649,218 @@ mod tests {
         let hi = w.field.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         assert!(lo > 0.0 && hi < 1.0, "range [{lo}, {hi}] looks renormalised");
         assert!(hi > lo, "and it is not constant");
+    }
+
+    // ---- `region_as_new_world`: the whole handler ----
+
+    /// The parent world these all resample out of. A real generated world
+    /// rather than `synthetic_field`, because the properties under test are
+    /// about *elevation meaning* -- land fraction, sea level, a substrate
+    /// that has something to reconstruct from -- and a hand-drawn blob has
+    /// none of that honestly.
+    fn parent(gw: usize, gh: usize) -> (crate::WorldParams, crate::WorldState) {
+        let mut p = crate::WorldParams::defaults(gw, gh, 20260903);
+        // CPU only: this is about geometry and field meaning, not shading,
+        // and the GPU path is principled-equivalent rather than bit-equal
+        // (`DECISIONS.md` §7c) -- `nonsquare.rs`' own reasoning.
+        p.use_gpu = false;
+        let ws = crate::generate_terrain(&p);
+        (p, ws)
+    }
+
+    fn amp(sea: f64) -> AmplifyOpts {
+        AmplifyOpts { seed: 4242, sea, ridged: false, ..Default::default() }
+    }
+
+    /// The fraction of cells at or above `sea`. The one number that carries
+    /// the whole "do not renormalise" contract: a resample preserves what is
+    /// land and what is ocean, a renormalised one does not.
+    fn land_fraction(field: &[f32], sea: f64) -> f64 {
+        field.iter().filter(|&&v| v as f64 >= sea).count() as f64 / field.len() as f64
+    }
+
+    #[test]
+    fn region_as_new_world_returns_a_state_at_the_dimensions_it_reports() {
+        // The `ImportedWorld` hazard, restated: a caller that indexed this
+        // state with the parent's stride would read every row misaligned.
+        let (p, ws) = parent(64, 48);
+        let sel = Region { x: 8, y: 6, w: 32, h: 24 };
+        let (np, nws) =
+            region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("a 96px tile is well above the floor");
+        assert_ne!((np.gw, np.gh), (p.gw, p.gh), "the params must describe the NEW grid");
+        let n = np.gw * np.gh;
+        for (name, len) in [
+            ("field", nws.field.len()),
+            ("plate_id", nws.plate_id.len()),
+            ("boundary_mask", nws.boundary_mask.len()),
+            ("stress_field", nws.stress_field.len()),
+            ("age_field", nws.age_field.len()),
+            ("resistance_field", nws.resistance_field.len()),
+            ("crust_field", nws.crust_field.len()),
+            ("boundary_type", nws.boundary_type.len()),
+            ("shear_field", nws.shear_field.len()),
+            ("volcanic_field", nws.volcanic_field.len()),
+            ("impact_field", nws.impact_field.len()),
+            ("temperature", nws.temperature.len()),
+            ("rainfall", nws.rainfall.len()),
+            ("flow_discharge", nws.flow_discharge.len()),
+        ] {
+            assert_eq!(len, n, "{name} is not {} x {}", np.gw, np.gh);
+        }
+    }
+
+    #[test]
+    fn region_as_new_world_leaves_no_tectonic_field_dead() {
+        // The reference reaches `inferTectonics` from this button via the
+        // calibrate gate it opens; collapsing that gate is only correct if
+        // the substrate really is reconstructed. An all-zero `crust_field`
+        // is what lithology, soil and every resource read.
+        let (p, ws) = parent(64, 48);
+        let sel = Region { x: 4, y: 4, w: 40, h: 30 };
+        let (_, nws) = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");
+        assert!(nws.boundary_mask.iter().any(|&v| v != 0), "no plate boundaries");
+        assert!(nws.stress_field.iter().any(|&v| v != 0.0), "stress is dead");
+        assert!(nws.shear_field.iter().any(|&v| v != 0.0), "shear is dead");
+        assert!(nws.age_field.iter().any(|&v| v != 0.0), "age is dead");
+        assert!(nws.crust_field.iter().any(|&v| v != 0.0), "crust is dead");
+        assert!(nws.temperature.iter().any(|&v| v != 0.0), "climate never ran");
+        assert!(nws.rainfall.iter().any(|&v| v != 0.0), "weather never ran");
+        assert!(nws.flow_discharge.iter().any(|&v| v != 0.0), "flow never ran");
+    }
+
+    #[test]
+    fn region_as_new_world_preserves_the_land_fraction_of_the_region_it_cut() {
+        // **The renormalisation guard, in the terms that actually matter.**
+        // `normalize_field` in this sequence would stretch the region's own
+        // range to [0,1] and turn a mostly-ocean bay into a half-continent.
+        // Asserted against the SAME cells in the parent, not against a
+        // constant, so it fails for any rescaling rather than for one.
+        let (p, ws) = parent(96, 72);
+        let sea = ws.sea_level;
+        let sel = Region { x: 12, y: 9, w: 48, h: 36 };
+        let mut cut = Vec::with_capacity(sel.w * sel.h);
+        for y in sel.y..(sel.y + sel.h) {
+            for x in sel.x..(sel.x + sel.w) {
+                cut.push(ws.field[y * 96 + x]);
+            }
+        }
+        let before = land_fraction(&cut, sea);
+        // A selection worth measuring: all-land or all-ocean would pass a
+        // renormalising implementation too.
+        assert!(before > 0.05 && before < 0.95, "the fixture region is {before:.3} land -- pick another");
+
+        let (_, nws) = region_as_new_world(&ws.field, 96, 72, &sel, 128, &p, &amp(sea)).expect("above the floor");
+        let after = land_fraction(&nws.field, sea);
+        // `amplify_region` adds up to `detail_amp` of sub-cell relief, so
+        // cells within a hair of sea level legitimately cross it. A
+        // renormalisation moves this number by tenths, not hundredths.
+        assert!(
+            (after - before).abs() < 0.05,
+            "land fraction moved {before:.3} -> {after:.3}: the field was rescaled"
+        );
+    }
+
+    #[test]
+    fn region_as_new_world_takes_its_sea_level_from_the_amplify_opts() {
+        // The two must not be allowed to disagree: the amplified field's
+        // [0,1] is anchored to the level its detail was faded against, and
+        // `classify_plate_crust` splits oceanic from continental crust on
+        // exactly that number. `base.sea_level` is deliberately the wrong
+        // one here -- a World-Structure archetype re-anchors it, so the
+        // dial and the effective value really do differ in the shell.
+        let (mut p, ws) = parent(64, 48);
+        p.sea_level = 0.11;
+        let effective = 0.55;
+        let sel = Region { x: 8, y: 6, w: 32, h: 24 };
+        let (np, nws) = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(effective)).expect("above the floor");
+        assert_eq!(np.sea_level, effective, "params must carry the amplify level, not the dial");
+        assert_eq!(nws.sea_level, effective, "and so must the state");
+    }
+
+    #[test]
+    fn region_as_new_world_carries_the_parents_wrap_geometry_and_climate_dials() {
+        // The reference's handler never touches `state.world`, and every
+        // block the resample cannot supply comes from the parent.
+        let (mut p, ws) = parent(64, 48);
+        p.world = true;
+        p.climate.lat_n = 71.0;
+        p.climate.lat_s = 3.0;
+        let sel = Region { x: 8, y: 6, w: 32, h: 24 };
+        let (np, _) = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");
+        assert!(np.world, "a resample inherits the parent's wrap geometry");
+        assert_eq!(np.climate.lat_n, 71.0);
+        assert_eq!(np.climate.lat_s, 3.0);
+        assert_eq!(np.tect.seed, p.tect.seed, "and the parent's seed");
+    }
+
+    #[test]
+    fn region_as_new_world_scales_the_map_width_with_the_selections_share() {
+        let (mut p, ws) = parent(64, 48);
+        p.map_width_km = 800.0;
+        let sel = Region { x: 0, y: 0, w: 32, h: 24 };
+        let (np, _) = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");
+        assert_eq!(np.map_width_km, 400.0, "half the grid wide -> half the km");
+        // And the cell size really did get finer, which is the entire point
+        // of the feature: more cells over less ground.
+        let parent_cell = p.map_width_km / p.gw as f64;
+        let child_cell = np.map_width_km / np.gw as f64;
+        assert!(child_cell < parent_cell, "{child_cell} km/cell is not finer than {parent_cell}");
+    }
+
+    #[test]
+    fn region_as_new_world_refuses_below_the_axis_floor_instead_of_clamping() {
+        // An extreme aspect: `tile_dims` would answer 128 x 2, and 2 rows
+        // through `pick_plate_seeds` and the climate stack is a panic in a
+        // `#[func]`. Clamping instead would silently change the shape the
+        // user selected and contradict the map width derived from it.
+        let (p, ws) = parent(2048, 16);
+        let sel = Region { x: 0, y: 0, w: 2048, h: 16 };
+        // `expect_err` is out: `WorldState` has no `Debug`, deliberately --
+        // printing thirteen full grids on a failure is not a message.
+        let Err(err) = region_as_new_world(&ws.field, 2048, 16, &sel, 128, &p, &amp(ws.sea_level)) else {
+            panic!("128 / (2048/16) = 2 rows -- must refuse, not build");
+        };
+        // A literal `4`, not `MIN_REGION_WORLD_AXIS`. Comparing the constant
+        // against itself is a tautology: this assertion held for every value
+        // of the constant, and a mutation run proved it -- `4 -> 3` SURVIVED
+        // the whole suite, because 2 is below 3 as well.
+        assert!(err.0 < 4 || err.1 < 4, "refused at {err:?}");
+        // And it reports the real dimensions, so the caller's message can
+        // tell the user what to change.
+        assert_eq!(err, (128, 2));
+    }
+
+    /// Pins the floor's **value**, which the refusal test above cannot.
+    ///
+    /// The two assertions are the two halves of the reason: the number is 4,
+    /// and 4 is not arbitrary — it is `WorldGen::generate_sized`'s own
+    /// `grid_w.max(4)` (`cartalith-godot/src/lib.rs`, the `generate()`
+    /// `resolution.max(4)` it inherits). A region world below that floor would
+    /// be a grid the generate path itself refuses to produce, so the two must
+    /// move together; that file's clamp is a bare literal with no constant to
+    /// import, which is exactly why this is asserted here rather than derived.
+    ///
+    /// Written 2026-09-03 after `4 -> 3` survived a mutation run.
+    #[test]
+    fn the_axis_floor_is_generate_sizeds_own_clamp() {
+        assert_eq!(MIN_REGION_WORLD_AXIS, 4, "the floor is generate_sized's grid_w.max(4)");
+        // And it really is a floor, not a ceiling or an off-by-one: a 4-axis
+        // world is acceptable and a 3-axis world is not.
+        assert!(4 >= MIN_REGION_WORLD_AXIS, "4 must be allowed");
+        assert!(3 < MIN_REGION_WORLD_AXIS, "3 must be refused");
+    }
+
+    #[test]
+    fn region_as_new_world_is_deterministic() {
+        // `LANDMARK_GENERATION_RESEARCH.md` §27's property, and the reason
+        // nothing here needs persisting: the same selection at the same
+        // settings rebuilds the same world.
+        let (p, ws) = parent(64, 48);
+        let sel = Region { x: 8, y: 6, w: 32, h: 24 };
+        let a = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");
+        let b = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");
+        assert_eq!(a.1.field, b.1.field);
+        assert_eq!(a.1.rainfall, b.1.rainfall);
+        assert_eq!(a.1.plate_id, b.1.plate_id);
     }
 }

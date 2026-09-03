@@ -703,9 +703,15 @@ func _fill_ecology(parent: Control) -> void:
 			% [int(eco.get("region_count", 0)), int(eco.get("species_total", 0))])
 		for r: Dictionary in regions:
 			DccWidgets.note(fauna,
-				"%s — %s km², %d species, NPP %d" % [
+				## `DccUnits.format_area`, not a raw `km²` through `_thousands`:
+				## an ecoregion's area is a map distance squared and converts
+				## with the rest. Corrected 2026-09-03 -- `format_area`'s own
+				## doc names this exact shape as the half-fix this project
+				## treats as a defect, and a verifier found this readout still
+				## printing `km²` in a file the same pass had just edited.
+				"%s — %s, %d species, NPP %d" % [
 					String(r.get("biome_name", "?")),
-					_thousands(int(round(float(r.get("area_km2", 0.0))))),
+					DccUnits.format_area(float(r.get("area_km2", 0.0))),
 					int(r.get("richness", 0)),
 					int(round(float(r.get("npp", 0.0))))])
 		DccWidgets.note(fauna,
@@ -782,12 +788,13 @@ func _build_crs(parent: Control) -> void:
 			+ "the GeoJSON export flips Y so north is up there.")
 			% String(crs.get("frame", "?")).capitalize())
 		DccWidgets.note(sec,
-			("%d × %d cells over %.0f × %.0f km, so one cell is %.3f km on a side. "
+			("%d × %d cells over %s × %s, so one cell is %s on a side. "
 			+ "Rows run %.1f° to %.1f° — %.4f° of latitude per row, which is what "
 			+ "the climate model integrates over.")
 			% [int(crs.get("grid_w", 0)), int(crs.get("grid_h", 0)),
-				float(crs.get("map_width_km", 0.0)), float(crs.get("map_height_km", 0.0)),
-				float(crs.get("cell_km", 0.0)),
+				DccUnits.format(float(crs.get("map_width_km", 0.0))),
+				DccUnits.format(float(crs.get("map_height_km", 0.0))),
+				DccUnits.format(float(crs.get("cell_km", 0.0)), 3),
 				float(crs.get("lat_n", 0.0)), float(crs.get("lat_s", 0.0)),
 				float(crs.get("deg_per_row", 0.0))])
 		if bool(crs.get("world", false)):
@@ -801,14 +808,28 @@ func _build_crs(parent: Control) -> void:
 				+ "longitude is not modelled at all, and X does not wrap.")
 		DccWidgets.note(sec, "Export declares: \"%s\"" % String(crs.get("export_note", "")))
 	## `GUI_GAP_REGISTER.md` §42's Not-built anatomy.
+	##
+	## **The trailing units sentence is gone, not merely reworded (2026-09-03).**
+	## The row this note used to close on -- "Units are km-only; the reference's
+	## km/mi toggle is not ported (PR-15)" -- named a real PR-15 (`DccUnits`,
+	## `GUI_GAP_REGISTER.md` §7.8, "Build, and add nautical miles"), but that
+	## ticket is about the km/mi/nm *display formatter*, not about reprojection,
+	## and confusingly sat inside this paragraph's own different subject. It is
+	## also simply false now: `DccUnits` shipped (real as of 2026-09-02,
+	## `menus.gd`'s Preferences ▸ Units), is already the formatter behind
+	## `right_dock.gd`'s measure readouts and `viewport_host.gd`'s scale bar,
+	## and the figures directly above now go through it too -- so this panel is
+	## no longer km-only either. Reprojection is the one part of the old
+	## sentence that was never PR-15's: nothing here claims a map projection,
+	## and that is still true and still unresolved, which is the whole of what
+	## this note is about below.
 	DccWidgets.note(sec,
 		"Reprojection  ·  needs a decision\n"
 		+ "Every field is grid space and nothing reprojects, so the planar "
 		+ "kilometres are not a projection of the latitudes beside them, and a GIS "
 		+ "reading them as WGS84 degrees is misreading the file. Which projection "
 		+ "a fictional world should claim is an authoring decision, not a defect "
-		+ "(GUI_GAP_REGISTER.md WW-15). Units are km-only; the reference's km/mi "
-		+ "toggle is not ported (PR-15).\n"
+		+ "(GUI_GAP_REGISTER.md WW-15).\n"
 		+ "The frame itself is declared and honest -- the export's own note says "
 		+ "exactly this, and Coordinate system above reads it back in-app.")
 

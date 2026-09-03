@@ -122,6 +122,40 @@ static func install(app) -> void:
 ## is the single source of truth for every mode.
 static var _measure_points: PackedVector2Array = PackedVector2Array()
 
+## The chain as it stands. For `right_dock.gd`'s saved-measurements store,
+## which is the one caller that has to keep a reading past the next click:
+## `measure_result()`'s segments carry no positions, so the points a
+## measurement was taken from exist only here.
+##
+## Safe to hand out without copying — `PackedVector2Array` is a value type in
+## GDScript, so the caller's is already its own and a later click cannot reach
+## back into a measurement someone has saved.
+static func measure_points() -> PackedVector2Array:
+	return _measure_points
+
+## Puts a saved measurement back on the map: its mode, and the points it was
+## taken from, through the same two entry points a live click uses
+## (`measure_begin` / `measure_add_point`) rather than assigning the array and
+## leaving the engine's own chain describing the previous reading.
+##
+## `arm_tool` first, because `_on_armed` resets `_measure_points` and calls
+## `measure_begin()` itself — doing it in the other order would clear the
+## points this just placed.
+static func recall_measurement(app, mode: String, points: PackedVector2Array) -> void:
+	_measure_mode = mode
+	_section_result = {}
+	app.arm_tool("measure")
+	app.bridge.measure_begin()
+	_measure_points = PackedVector2Array()
+	for p in points:
+		app.bridge.measure_add_point(p.x, p.y)
+		_measure_points.append(p)
+	if app.section_strip != null and mode != "section":
+		app.section_strip.clear()
+	_apply_style(app)
+	_push(app)
+	_refresh_bar()
+
 static func _mode_meta() -> Dictionary:
 	for m in MEASURE_MODES:
 		if String((m as Dictionary)["id"]) == _measure_mode:

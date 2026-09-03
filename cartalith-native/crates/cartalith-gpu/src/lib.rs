@@ -1006,6 +1006,50 @@ fn init_gpu_with(
 /// keeps the expensive part paid once per `generate_terrain` call instead
 /// of once per stage, without needing `unsafe` or a custom ref-counting
 /// scheme.
+///
+/// **The ~1.3-1.4 s above is milestone 6's number and no longer reproduces.**
+/// Re-measured 2026-09-03 by
+/// `measured_device_handshake_and_per_stage_pipeline_build` (AMD Radeon RX
+/// 7800 XT, Vulkan, discrete): **the first handshake of a process costs
+/// several hundred milliseconds and each one after costs appreciably less.**
+///
+/// **Deliberately stated without a headline figure.** The first version of
+/// this comment said "416 ms cold, then ~198 ms". An independent re-run on the
+/// same hardware measured **730 ms cold** -- 1.75x the number, and outside the
+/// range this comment had already been cited for in two other places. Both are
+/// single samples, and this device is demonstrably noisy: a `512x512` GPU
+/// timing quoted from a parallel `cargo test` run spanned 596 ms to 2.98 s,
+/// while the same measurement run alone spanned 499-506 ms. Committing a
+/// point estimate here is the exact defect §2.6's *"average the GPU-vs-CPU
+/// benchmark over multiple runs"* row exists to fix, so this comment states
+/// the order of magnitude and points at the test for a number.
+///
+/// Run `measured_device_handshake_and_per_stage_pipeline_build` **alone**, not
+/// under a parallel suite, if you need a figure. What survives re-measurement
+/// is the *ratio*, which is what the conclusions below rest on: pipeline
+/// builds are a small fraction of the handshake, and the handshake is far
+/// cheaper than milestone 6's 1.3-1.4 s. Sharing the device is still worth
+/// it -- a few hundred ms x five stages is a large fraction of a second per
+/// generation -- but two
+/// `OUTSTANDING_WORK.md` §2.6 rows lean on the old number and should be read
+/// against the new one:
+///
+/// - *"Per-pipeline caching across repeated `generate_terrain` calls."*
+///   `generate_terrain` holds this device in a local and drops it at the end,
+///   so **call two rebuilds one handshake plus every pipeline** -- each
+///   `*_grid_gpu_with` entry point calls its own `init_gpu_*_with` inside the
+///   dispatch rather than accepting a built context (`gpu_flow` is the lone
+///   exception, hoisted by milestone 9 because one call uses it four times).
+///   Measured, the two halves are nothing like equal: the six pipeline builds
+///   total **2.60 ms** (0.24-0.71 ms each), against **198 ms** for the
+///   handshake. Caching *pipelines* across calls -- the thing the row asks
+///   for -- is the smaller half by ~76x. Caching the *device* is where that
+///   row's value actually is.
+/// - *"Hardware capability cache (§30)"*, re-opened because the handshake was
+///   thought to be 1.3-1.4 s. At ~198 ms the original deferral ("nothing
+///   expensive enough to cache") is much closer to right than the row
+///   supposes. **Re-measure before building anything**, which is what that
+///   row asked for and what this note records.
 pub struct GpuDevice {
     pub adapter_name: String,
     pub adapter_vendor: u32,
@@ -1029,6 +1073,15 @@ pub struct GpuDevice {
 /// raised after device creation, so this has to be decided up front rather
 /// than derived per-pipeline the way [`init_gpu_with`] derives it for a
 /// single-use device.
+///
+/// **This 8 is also what keeps `gpu_height` off the shared device**:
+/// [`HEIGHT_LAYOUT`] needs 9, which is why it is the one milestone-1-to-5
+/// kernel with no `init_gpu_height_with` sibling. Raising this to 9 is not a
+/// free widening -- it raises the request for *every* stage's device, and an
+/// adapter that cannot meet it fails at `create_bind_group` with a `wgpu`
+/// validation error, which panics, which takes Godot down. See
+/// [`dispatch_gpu_height`]'s own section for the decision that leaves it
+/// unwired and the measurements behind it.
 const REUSED_STAGE_MAX_STORAGE_BUFFERS: u32 = 8;
 
 /// Create the shared device milestone 8's `_with` pipeline builders below
@@ -1576,6 +1629,54 @@ fn dispatch_gpu_heterogeneity(
 /// so `has_oro` is a real parameter, and the `oro` buffer content is
 /// ignored by the shader when `has_oro` is `false` (any same-length slice
 /// works, including a zero-filled dummy).
+///
+/// # Why nothing calls this, and why that is correct
+///
+/// `OUTSTANDING_WORK.md` §2.6 carried this as *"built, verified, and **never
+/// called** ... either a real gap or an undocumented decision -- the docs do
+/// not say which"*. **Settled 2026-09-03: an undocumented decision, and the
+/// right one.** There is no `if p.use_gpu` branch around
+/// `cartalith_terrain::compute_height` and there should not be one. Three
+/// findings, in the order that decides it:
+///
+/// 1. **The shared device structurally cannot host this pipeline.**
+///    [`HEIGHT_LAYOUT`] binds **9 storage buffers**;
+///    [`REUSED_STAGE_MAX_STORAGE_BUFFERS`] -- the limit
+///    [`init_gpu_shared_device`] opens every reused stage's device at -- is
+///    **8**, sized for JFA, the widest kernel `generate_terrain` actually
+///    shares. That is why this is the one milestone-1-to-5 kernel with no
+///    `init_gpu_height_with` sibling: it never had a device it could be built
+///    on. Wiring it means either raising that limit for *every* stage (a
+///    device-request change on a path whose failure mode is a `wgpu`
+///    validation error, i.e. a panic, i.e. the Godot process --
+///    `cartalith-rust-conventions`, and the measured incident recorded at
+///    `generate_terrain`'s own `gpu_allowed_for_grid` check), or giving
+///    height its own device and paying a second **several-hundred-millisecond** handshake
+///    ([`GpuDevice`]'s re-measurement).
+/// 2. **The speedup on record is against the wrong baseline.** 5.17× / 8.13× /
+///    4.84× (milestone 3) compare this kernel to [`gpu_height_grid_cpu`], a
+///    **single-threaded `f32` twin written to match the shader**.
+///    `generate_terrain` calls `cartalith_terrain::compute_height`, which is
+///    `f64` and already `par_chunks_mut` across every core. Against *that*
+///    baseline -- `measured_gpu_height_vs_the_real_compute_height`, medians of
+///    five -- the GPU wins **2.13× at 1024² and 1.15× at 2048²**, worth about
+///    **5 ms** either way. Five milliseconds does not buy a handshake two orders
+///    of magnitude larger,
+///    and it is well inside the run-to-run spread of a single generation.
+/// 3. **It is the widest bind group in the crate, and that is what limits
+///    it.** See `measured_gpu_height_is_bandwidth_bound_at_nine_buffers`: the
+///    eight input uploads are 62-80% of the dispatch, and this kernel's
+///    per-cell cost *rises* 2.1× from 1024² to 2048² while every narrower
+///    kernel's falls. Its advantage shrinks exactly where a bigger grid would
+///    make it matter.
+///
+/// So this stays a verified, tested, uncalled kernel -- the same standing as
+/// `dispatch_gpu_resistance` (0.38×), which `GPU_LAYER_INTEGRATION_SCOPE.md`
+/// already documents as deliberately unwired. **What would overturn it**: a
+/// generation that runs the height stage many times (live sculpt, a
+/// parameter sweep) so one handshake amortises, or a kernel reshaped to bind
+/// fewer than nine storage buffers. Re-run the two `measured_*` tests named
+/// above before acting on either.
 #[allow(clippy::too_many_arguments)]
 fn dispatch_gpu_height(
     ctx: &GpuContext,
@@ -3853,18 +3954,49 @@ mod tests {
         eprintln!("wrote GPU height debug image to {} (range [{mn},{mx}]) -- open it to visually confirm no banding/lattice artifacts", path.display());
     }
 
+    /// How many samples the median-taking timers below draw. Odd, so the
+    /// median is a real sample rather than an average of two.
+    const TIMING_ROUNDS: usize = 5;
+
+    /// Run `f` [`TIMING_ROUNDS`] times; return the **median** elapsed time and
+    /// the last value produced. A single GPU dispatch on this hardware varied
+    /// by more than 2x run to run while §2.6's GPU rows were being answered,
+    /// so a lone `Instant::now()` pair around one call reports noise with the
+    /// confidence of a result -- which is the defect `OUTSTANDING_WORK.md`
+    /// §2.6's "average the GPU-vs-CPU benchmark over multiple runs" names.
+    /// Median rather than mean: one scheduler hiccup should not move it.
+    fn timed_median<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, T) {
+        let mut times = Vec::with_capacity(TIMING_ROUNDS);
+        let mut last = None;
+        for _ in 0..TIMING_ROUNDS {
+            let t0 = Instant::now();
+            let v = f();
+            times.push(t0.elapsed());
+            last = Some(v);
+        }
+        times.sort_unstable();
+        (times[TIMING_ROUNDS / 2], last.expect("TIMING_ROUNDS is a non-zero constant"))
+    }
+
+    /// One tiny dispatch, so the first *measured* one is not also paying the
+    /// driver's first-use costs. Shared by the three `gpu_height` timing
+    /// tests below so all of their numbers are comparable to each other.
+    fn warm_up_height(ctx: &GpuContext) {
+        let (base, stress, flex, hetero, age) = synthetic_height_inputs(64);
+        let zero = vec![0.0f32; 64];
+        let _ = dispatch_gpu_height(
+            ctx, 8, 8, 1, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age, &zero,
+            &zero, &zero,
+        );
+    }
+
     #[test]
     fn measured_gpu_height_vs_cpu_timing() {
         let Some(ctx) = try_gpu_height() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
         };
-        let (warm_base, warm_stress, warm_flex, warm_hetero, warm_age) = synthetic_height_inputs(64);
-        let warm_zero = vec![0.0f32; 64];
-        let _ = dispatch_gpu_height(
-            &ctx, 8, 8, 1, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &warm_base, &warm_stress, &warm_flex,
-            &warm_hetero, &warm_age, &warm_zero, &warm_zero, &warm_zero,
-        ); // warm up
+        warm_up_height(&ctx);
 
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let n = (w * h) as usize;
@@ -3895,6 +4027,258 @@ mod tests {
                 cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
             );
         }
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.6, *"investigate the `gpu_height` throughput
+    /// drop from 1024² (8.13×) to 2048² (4.84×)"*. The cause on record --
+    /// **memory-bandwidth-bound at 9 buffers** -- was stated and untested.
+    /// **Tested 2026-09-03, and it holds.** This test is the whole
+    /// experiment, self-contained so its three kernels are timed in one run
+    /// on one device rather than assembled out of numbers from three others.
+    ///
+    /// It measures two things at 1024² and 2048²:
+    ///
+    /// 1. *The cross-kernel control.* `gpu_warp` (2 storage buffers, 8 B/cell
+    ///    moved), `gpu_heterogeneity` (4 buffers, 16 B/cell) and `gpu_height`
+    ///    (9 buffers, 36 B/cell) all dispatch and read back through the same
+    ///    code path. If the drop were about grid size, it would show in all
+    ///    three; if it is about bytes moved, only the widest bind group turns
+    ///    around. Measured: the two narrow kernels get **cheaper** per cell as
+    ///    the grid grows (fixed dispatch overhead amortising over 4× the
+    ///    cells) while the nine-buffer one gets **~1.5× dearer**.
+    ///
+    /// 2. *The direct half.* The eight host→device input uploads timed on
+    ///    their own against the full dispatch. At 2048² they are the clear
+    ///    majority of it. `create_buffer_init` maps at creation and unmaps, so
+    ///    a buffer's cost can partly defer to the next submit -- the flush
+    ///    below makes this a **floor** on the upload cost, not an estimate of
+    ///    all of it, which only strengthens the conclusion.
+    ///
+    /// Every figure is a **median of [`TIMING_ROUNDS`]**, because a single
+    /// GPU dispatch on this hardware varied 38-78 ms at 2048² across runs
+    /// while this row was being answered -- `OUTSTANDING_WORK.md` §2.6's own
+    /// *"single-run variance is indistinguishable from a result"*, in
+    /// miniature. Run it alone (`--test-threads=1`); three timing tests
+    /// sharing one GPU is itself a source of spread.
+    ///
+    /// The consequence worth carrying forward: this kernel's cost is set by
+    /// its **bind group**, not its formula. That is why `gpu_height` cannot be
+    /// pointed at a bigger grid and expected to keep an 8× win, and it is one
+    /// of the two reasons the height stage stays unwired -- see
+    /// [`dispatch_gpu_height`] for the decision and the other reason.
+    #[test]
+    fn measured_gpu_height_is_bandwidth_bound_at_nine_buffers() {
+        let (Some(hctx), Some(wctx), Some(xctx)) = (try_gpu_height(), try_gpu_warp(), try_gpu_heterogeneity()) else {
+            eprintln!("no GPU available -- skipping bandwidth measurement");
+            return;
+        };
+        warm_up_height(&hctx);
+        for &(w, h) in &[(1024u32, 1024u32), (2048, 2048)] {
+            let n = (w * h) as usize;
+            let per_cell = |d: std::time::Duration| d.as_secs_f64() * 1e9 / n as f64;
+            let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+            let zero = vec![0.0f32; n];
+
+            let (warp_t, _) = timed_median(|| dispatch_gpu_warp(&wctx, w, h, 24601, 2.5 / w as f32, 40.0));
+            let (hetero_t, _) =
+                timed_median(|| dispatch_gpu_heterogeneity(&xctx, w, h, 24601 ^ 0x44bb, 18.0 / w as f32, &age, &zero, &zero));
+            let (height_t, out) = timed_median(|| {
+                dispatch_gpu_height(
+                    &hctx, w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero,
+                    &age, &zero, &zero, &zero,
+                )
+            });
+
+            // The eight input uploads that dispatch performed, created exactly
+            // as `dispatch_gpu_height` creates them (same usage, same path).
+            let inputs: [&[f32]; 8] = [&base, &stress, &flex, &hetero, &age, &zero, &zero, &zero];
+            let (upload_t, uploaded_bytes) = timed_median(|| {
+                let bufs: Vec<wgpu::Buffer> = inputs
+                    .iter()
+                    .map(|data| {
+                        hctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("height upload probe (storage)"),
+                            contents: bytemuck::cast_slice(data),
+                            usage: wgpu::BufferUsages::STORAGE,
+                        })
+                    })
+                    .collect();
+                hctx.queue.submit(std::iter::empty());
+                let _ = hctx.device.poll(wgpu::PollType::wait_indefinitely());
+                bufs.iter().map(|b| b.size()).sum::<u64>()
+            });
+
+            eprintln!(
+                "{w}x{h} ns/cell (median of {TIMING_ROUNDS}): gpu_warp[2 buf, 8 B/cell] = {:.2}, \
+                 gpu_heterogeneity[4 buf, 16 B/cell] = {:.2}, gpu_height[9 buf, 36 B/cell] = {:.2} \
+                 -- of which {:.1} MiB of input upload = {:?} ({:.0}% of the dispatch, {:.2} GiB/s)",
+                per_cell(warp_t),
+                per_cell(hetero_t),
+                per_cell(height_t),
+                uploaded_bytes as f64 / (1024.0 * 1024.0),
+                upload_t,
+                100.0 * upload_t.as_secs_f64() / height_t.as_secs_f64().max(1e-9),
+                uploaded_bytes as f64 / (1024.0 * 1024.0 * 1024.0) / upload_t.as_secs_f64().max(1e-9),
+            );
+
+            // Non-vacuity, per root `CLAUDE.md`'s "watch for silently-empty
+            // golden output": the probe must have moved the bytes it claims
+            // (8 buffers x 4 B x n) and the dispatch must have produced a
+            // full, finite field rather than nothing at all.
+            assert_eq!(uploaded_bytes, 8 * 4 * n as u64, "upload probe did not bind this kernel's real input footprint");
+            assert_eq!(out.len(), n);
+            assert!(out.iter().all(|v| v.is_finite()), "no NaN/Inf in the GPU height field");
+        }
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.6, *"decide `gpu_compute_height`'s status --
+    /// built, verified, and never called"*. **Decided 2026-09-03: an
+    /// undocumented consequence of milestone 8's shared device, plus a speed
+    /// case that does not survive contact with the real CPU function. It is
+    /// not a forgotten gap, and it should stay unwired.** The full reasoning
+    /// is on [`dispatch_gpu_height`]; this test is the second half's
+    /// evidence, and re-running it is how a later pass would overturn the
+    /// decision.
+    ///
+    /// Every published `gpu_height` speedup -- 5.17× at 512², 8.13× at 1024²,
+    /// 4.84× at 2048² (`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3) -- is
+    /// measured against [`gpu_height_grid_cpu`], which is a **single-threaded
+    /// `f32` twin written to match the shader**. The function
+    /// `generate_terrain` actually calls is `cartalith_terrain::compute_height`,
+    /// which is `f64` throughout and already `par_chunks_mut` across every
+    /// core (`CPU_MULTITHREADING_SCOPE.md`). Those are not the same baseline,
+    /// and the ratio against the one that ships is the only one that decides
+    /// whether wiring the stage would make a generation faster.
+    #[test]
+    fn measured_gpu_height_vs_the_real_compute_height() {
+        let Some(ctx) = try_gpu_height() else {
+            eprintln!("no GPU available -- skipping production-baseline measurement");
+            return;
+        };
+        warm_up_height(&ctx);
+        for &(w, h) in &[(1024u32, 1024u32), (2048, 2048)] {
+            let n = (w * h) as usize;
+            let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+            let zero = vec![0.0f32; n];
+            let (nf, a, b, age_inf, fwt, hwt) = (5.0f32, 0.5f32, 0.3f32, 0.5f32, 0.15f32, 0.1f32);
+
+            let (gpu_time, gpu) = timed_median(|| {
+                dispatch_gpu_height(
+                    &ctx, w, h, 24601, nf, a, b, age_inf, fwt, hwt, false, false, &base, &stress, &flex, &hetero, &age,
+                    &zero, &zero, &zero,
+                )
+            });
+
+            let (real_time, real) = timed_median(|| {
+                cartalith_terrain::compute_height(
+                    w as usize,
+                    h as usize,
+                    &base,
+                    &stress,
+                    &flex,
+                    &hetero,
+                    &age,
+                    None,
+                    None,
+                    None,
+                    &cartalith_terrain::HeightParams {
+                        nf: nf as f64,
+                        seed: 24601,
+                        a: a as f64,
+                        b: b as f64,
+                        age_inf: age_inf as f64,
+                        fwt: fwt as f64,
+                        hwt: hwt as f64,
+                        world: false,
+                        ridged: false,
+                    },
+                )
+            });
+
+            // Not a tolerance check: `compute_height` evaluates `fbm` in f64
+            // and the shader evaluates `gpu_fbm` in f32, which is a different
+            // noise regime by design (`DECISIONS.md` §7c) -- the divergence is
+            // reported so the size of what `use_gpu` would change is on the
+            // record next to the speed it would buy, not asserted on.
+            let max_abs_diff = gpu
+                .iter()
+                .zip(real.iter())
+                .map(|(g, r)| ((*g as f64) - (*r as f64)).abs())
+                .fold(0.0f64, f64::max);
+
+            eprintln!(
+                "gpu_height {w}x{h} (medians of {TIMING_ROUNDS}): GPU = {:?}, \
+                 REAL cartalith_terrain::compute_height (f64, rayon) = {:?}, ratio (CPU/GPU) = {:.2}x, \
+                 max_abs_diff vs the shipped field = {max_abs_diff:.4}",
+                gpu_time,
+                real_time,
+                real_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9),
+            );
+
+            assert_eq!(gpu.len(), n);
+            assert_eq!(real.len(), n);
+            assert!(max_abs_diff > 0.0, "GPU and f64 CPU height came back identical -- one of the two never ran");
+        }
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.6, the two rows that both turn on one number:
+    /// *"per-pipeline caching across repeated `generate_terrain` calls"* and
+    /// *"hardware capability cache (§30) -- re-measure the handshake before
+    /// building anything"*. This is that measurement, and it is what a second
+    /// `generate_terrain` call pays before it computes anything.
+    ///
+    /// `generate_terrain` opens its device set once per call
+    /// (`cartalith-engine/src/lib.rs`, `init_gpu_device_set`) and drops it at
+    /// the end, so **call two rebuilds all of it**: one adapter/device
+    /// handshake, plus one pipeline per stage, since every `*_grid_gpu_with`
+    /// entry point calls its own `init_gpu_*_with` inside the dispatch rather
+    /// than taking a built context. (`gpu_flow` is the one exception already
+    /// fixed -- milestone 9 hoisted it because it is called four times within
+    /// a single call.)
+    ///
+    /// `#[ignore]`d: it opens fresh adapters in a loop, which is slow and is
+    /// exactly the cost being measured. Run it with
+    /// `cargo test --release -p cartalith-gpu measured_device_handshake -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn measured_device_handshake_and_per_stage_pipeline_build() {
+        const ROUNDS: usize = 3;
+        let mut handshakes = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let t0 = Instant::now();
+            let dev = init_gpu_shared_device();
+            handshakes.push(t0.elapsed());
+            if dev.is_err() {
+                eprintln!("no GPU available -- skipping handshake measurement");
+                return;
+            }
+        }
+        let total: std::time::Duration = handshakes.iter().sum();
+        eprintln!("init_gpu_shared_device x{ROUNDS}: {handshakes:?}, mean = {:?}", total / ROUNDS as u32);
+
+        let Ok(gpu) = init_gpu_shared_device() else { return };
+        let mut pipeline_total = std::time::Duration::ZERO;
+        for (label, build) in [
+            ("warp", &(|g: &GpuDevice| { init_gpu_warp_with(g); }) as &dyn Fn(&GpuDevice)),
+            ("heterogeneity", &|g: &GpuDevice| { init_gpu_heterogeneity_with(g); }),
+            ("jfa_plates", &|g: &GpuDevice| { init_gpu_jfa_plates_with(g); }),
+            ("gauss_blur", &|g: &GpuDevice| { init_gpu_gauss_blur_with(g); }),
+            ("flow", &|g: &GpuDevice| { init_gpu_flow_with(g); }),
+            ("weather", &|g: &GpuDevice| { init_gpu_weather_with(g); }),
+        ] {
+            let t0 = Instant::now();
+            build(&gpu);
+            let dt = t0.elapsed();
+            pipeline_total += dt;
+            eprintln!("  init_gpu_{label}_with (shader compile + pipeline) = {dt:?}");
+        }
+        eprintln!(
+            "a second generate_terrain call rebuilds: 1 handshake ({:?} mean) + every pipeline ({pipeline_total:?} for all six)",
+            total / ROUNDS as u32
+        );
+
+        assert_eq!(handshakes.len(), ROUNDS, "handshake loop did not run");
+        assert!(pipeline_total > std::time::Duration::ZERO, "pipeline builds took no measurable time -- nothing ran");
     }
 
     // ===================== GPU_LAYER_INTEGRATION_SCOPE.md milestone 4 =====================

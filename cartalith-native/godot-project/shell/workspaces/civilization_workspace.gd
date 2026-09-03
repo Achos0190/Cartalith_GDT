@@ -146,8 +146,44 @@ var _settlements_body: Control
 var _population_body: Control
 var _economy_body: Control
 var _culture_body: Control
+var _religion_body: Control
 var _factions_body: Control
 var _territories_body: Control
+## `RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1's Religion category state.
+##
+## `_religion_status` is the **last `civ_belief_run` return, verbatim**, and
+## it is held rather than recomputed because it is the only place three
+## otherwise identical-looking states are distinguishable: "no binding"
+## (`{}`), "nothing to spread" (`any_faith` false, with the engine's own
+## `reason`), and a real run. `{}` and `{"any_faith": false}` are NOT the same
+## answer and must never collapse into one blank panel -- `civ_belief_run`'s
+## own doc comment in `lib.rs` is written around that distinction.
+##
+## Empty until this session runs one. That is honest: nothing about the
+## belief layer is persisted (`CivData::belief`), so a fresh boot over a
+## loaded save genuinely has no run to report.
+var _religion_status: Dictionary = {}
+## The roster's **culture** column as it stood when `_religion_status` was
+## taken, and the reason this field exists at all.
+##
+## `CivData::belief_current`'s staleness guard is deliberately partial: it
+## covers every argument of `belief_seed(faction_of, faction_religion)` and
+## **not** culture, which feeds `compat` on every diffusion *step* rather than
+## on the seed. Its own doc comment says so and records why widening the key
+## would be wrong (it would re-seed, discarding diffused adherence, on an edit
+## that arguably should only change the next run).
+##
+## So the engine cannot report this staleness and the shell must, or the
+## panel implies a currency the guard does not provide. Snapshotting the
+## column here is derived from `belief_step(states, net, culture_of, rate)`'s
+## own signature -- the one argument the engine's key does not cover -- not
+## from the input that happened to come to mind.
+var _religion_culture_key := PackedStringArray()
+## Reference default (`#civTlYear` value="100") halved. `BELIEF_STEP_RATE`'s
+## own doc records the measured takeover time as **17-25 years where
+## conversion happens at all**, so fifty years is comfortably past the far end
+## of that range and still one human lifetime rather than an epoch.
+var _religion_years := 50
 ## CV-25's and CV-26's category bodies. Both refill on `_rebuild_readouts()`
 ## like the four above: their inputs are the settlement roster, the place
 ## editor's overrides and the territory raster, and all three move under a
@@ -207,6 +243,7 @@ var _lm_filter := ""
 var _lm_head_note: Label       ## §4.4's headroom line.
 var _lm_crowd_note: Label      ## §4.1's "a regional landmark keeps 34 km clear".
 var _lm_crowd_readout: Label   ## The `× 1.00` the slider factory cannot format.
+var _lm_crowd_slider: HSlider  ## §5's fit chip writes the dial through this.
 var _lm_run_btn: Button
 var _lm_run_note: Label
 var _lm_stale_note: Label
@@ -244,7 +281,22 @@ func _build() -> void:
 	add_child(_infra)
 	_infra.setup(app, bridge)
 
-	## v3's fourteen CIVIL categories, in v3's own order.
+	## v3's fourteen CIVIL categories, in v3's own order, plus one fifteenth
+	## that v3 does not draw because the subsystem behind it did not exist
+	## when the canvas was made.
+	##
+	## **Religion is #11 and is its own category rather than a section inside
+	## Culture.** The two are coupled in the model -- `belief.rs`'s `compat`
+	## takes a religion *and* a culture -- and folding it in would have cost
+	## nothing structurally. It is separate because Culture is a pure readout
+	## of seven compile-time rows and Religion **runs a simulation that
+	## mutates engine state**, and a category header that says CULTURE over a
+	## button that rewrites every settlement's adherence is the naming lie
+	## `GUI_GAP_REGISTER.md` §8.3 spends a section on. No design canvas covers
+	## it either way (§57: the religion screens have no artboard), so the
+	## owner's 2026-08-25 ruling applies -- derive from the DCC canvases' own
+	## vocabulary -- and `DccWidgets.category()` beside its nearest sibling is
+	## that vocabulary.
 	_build_civilizations()                                                ## 1
 	_build_factions()                                                     ## 2
 	_build_territories()                                                  ## 3
@@ -258,12 +310,13 @@ func _build() -> void:
 		DccWidgets.category(self, "Trade", categories))                   ## 8
 	_build_economy()                                                      ## 9
 	_build_culture()                                                      ## 10
-	_build_timeline()                                                     ## 11 Politics
-	_build_military()                                                     ## 12
-	_build_relationships()                                                ## 13
-	_build_simulation()                                                   ## 14
+	_build_religion()                                                     ## 11
+	_build_timeline()                                                     ## 12 Politics
+	_build_military()                                                     ## 13
+	_build_relationships()                                                ## 14
+	_build_simulation()                                                   ## 15
 
-	## `04-left-dock.md` §6: "Landmarks is the floor." All fourteen categories
+	## `04-left-dock.md` §6: "Landmarks is the floor." All fifteen categories
 	## above (`_infra`'s three included -- they share this same `categories`
 	## array, per its own header comment) now exist, so this is the one place
 	## to attach the floor to every one of their headers at once. See
@@ -299,6 +352,14 @@ func _build() -> void:
 ## selection, which is an index into a settlement list that no longer exists.
 func _on_world_changed() -> void:
 	_selected_index = -1
+	## The belief layer does not survive a world replacement: `absorb` builds a
+	## fresh `CivData` whose `belief` is empty (that field's own doc comment --
+	## "World replacement needs no code"). The shell's memory of the last run
+	## has to go with it, or the panel reports a run over settlements that no
+	## longer exist, and the culture-staleness warning compares against a
+	## roster from a different world.
+	_religion_status = {}
+	_religion_culture_key = PackedStringArray()
 	_rebuild_readouts()
 	_tl_on_world_changed()
 	## Landmarks rebuild here and NOT in `_rebuild_readouts()`: a new world
@@ -366,6 +427,14 @@ func _rebuild_readouts() -> void:
 	if _culture_body != null and is_instance_valid(_culture_body):
 		_clear_body(_culture_body)
 		_fill_culture(_culture_body)
+	## Religion refills here for the same reason Culture does, and for one
+	## more: `_on_roster_changed` routes through this function, and a religion
+	## or culture edit in the roster window is exactly what makes the standing
+	## layer stale. The refill is a pure read -- it never calls
+	## `civ_belief_run`, so drawing the panel cannot re-seed and discard a run.
+	if _religion_body != null and is_instance_valid(_religion_body):
+		_clear_body(_religion_body)
+		_fill_religion(_religion_body)
 	if _factions_body != null and is_instance_valid(_factions_body):
 		_clear_body(_factions_body)
 		_fill_factions(_factions_body)
@@ -762,6 +831,18 @@ func _refresh_civ_data() -> void:
 	var g := bridge.grid_size()
 	app.viewport.overlay.set_civ_data(_tl_apply_filters(bridge.settlements()), bridge.roads(),
 		bridge.sea_routes(), g.x, g.y, bridge.border_inset_frac())
+	## The faith-divergence layer's second input, pushed here rather than at
+	## the one place that runs the diffusion.
+	##
+	## `map_overlay.gd` compares a settlement's plurality against its faction's
+	## state religion, and the settlement half arrives in the call above. If
+	## the roster half were only pushed on a run, a religion edit made *after*
+	## a run would leave the map ringing against the old roster while CIVIL >
+	## Religion counted against the new one -- two surfaces disagreeing over
+	## one fact. Every path that refreshes the pins now refreshes both halves,
+	## which is the same "cover every input, not the one you edited" rule the
+	## engine's own `belief_key` was rewritten for.
+	app.viewport.overlay.set_faction_religions(_religion_faction_column("religion"))
 
 ## Timeline "Exist only" filter (`_build_timeline_filters` below): keeps only
 ## settlements whose `tid` (`lib.rs`'s `get_settlements()`, now real -- see
@@ -1572,25 +1653,162 @@ func _build_settlement_gaps(parent: Control) -> void:
 		+ "The recorded timeline is dropped: every snapshot refers to settlements that no longer "
 		+ "exist. Not undoable — Auto-populate derives a new set rather than restoring these.")
 
-	var sec := DccWidgets.section(parent, "Not built")
-	var diag := DccWidgets.action(sec, "Settlement diagnostics overlay", func(): pass)
-	diag.disabled = true
-	## Rewritten 2026-08-31. The previous wording ended "the crate has no
-	## consumer at all", which was false and had been for a week:
-	## `cartalith-civ` depends on `cartalith-urban` (its Cargo.toml) and
-	## `urban_adapter.rs` uses it, `cartalith-godot/src/urban_bridge.rs`
-	## consumes that adapter, and milestones 1-7, 8a, 12 and 17a are done.
-	## The real blocker is narrower and per-line, so the reason now names the
-	## card's four lines and which milestone owes each -- checked against
-	## `URBAN_MORPHOLOGY_SCOPE.md`'s milestone headings, not remembered.
-	diag.tooltip_text = "The reference's #civDiagnosticsChk (drawCivLayer §2.6). Per settlement it draws a SITE_WM×SITE_HM footprint box and a fact card of at most three lines: specialisation + _umWallSpec's wall rung on the first, _umSiteProfile's river classification on the second, and -- only when a layout is already in _umModelCache -- bridge/ford/harbour validity on the third. Two of those five values this port can produce: SITE_WM/SITE_HM and um_wall_spec are both ported (cartalith-civ's urban_adapter and military), and cartalith-urban IS consumed, by that adapter and through it by cartalith-godot's urban_bridge. The other three have nothing behind them: settlements carry no specialisation, _umSiteProfile is unported because its own consumers are unbuilt, harbours/bridges/fords are URBAN_MORPHOLOGY_SCOPE.md milestone 9, the wall builder is milestone 10 and districts are 13 -- and _umModelCache is out of scope for every milestone (this port keys layouts GDScript-side instead). So the overlay would draw a box, a rung and three blanks, which is worse than not drawing it. Blocked on urban milestones 9, 10 and 13. PARITY_AUDIT.md §5 item 13."
+	_build_settlement_diagnostics(parent)
+
+## The reference's `#civDiagnosticsChk` (`drawCivLayer` §2.6) fact card, per
+## settlement -- rewritten 2026-09-02 from a permanently-disabled
+## placeholder. The old tooltip blamed "urban milestones 9, 10 and 13" and
+## an unported `_umSiteProfile`; `UNWIRED_FUNCTIONS.md`'s own 2026-09-02
+## dangerous-class entry found both false the same day all three milestones
+## shipped and `urban_adapter.rs`'s own doc table started calling
+## `um_site_profile`/`um_harbour_scale` **"ported."** The real, narrower gap
+## was that nothing exposed either function to Godot at all --
+## `urban_bridge.rs::settlement_diagnostics` is that exposure, and this is
+## its presentation.
+##
+## **Shown in the dock, not drawn on the map.** The reference draws the
+## SITE_WM×SITE_HM footprint box and this card directly on the canvas
+## (`map_overlay.gd`'s own `_draw()`); wiring a second on-map layer is out of
+## this pass's file ownership (`urban_bridge.rs`/this file only), so the same
+## per-settlement facts are listed here instead. Disclosed in the section's
+## own note below rather than left for a reader to notice.
+func _build_settlement_diagnostics(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Diagnostics")
+	var places := bridge.settlements()
+	if places.is_empty():
+		DccWidgets.note(sec, "No settlements -- generate a world first.")
+		return
+
+	var indices := PackedInt32Array()
+	for i in range(places.size()):
+		indices.append(i)
+	var cards := bridge.settlement_diagnostics(indices)
+	if cards.is_empty():
+		DccWidgets.note(sec,
+			"This build's engine has no settlement_diagnostics binding -- the native "
+			+ "library is older than this shell.")
+		return
+
 	DccWidgets.note(sec,
-		"Urban morphology layouts remain a separate unported subsystem "
-		+ "(URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress) -- that is what this one row is "
-		+ "waiting on. Every other civilisation dial IS exposed: the biome carrying-capacity "
-		+ "residual, village seeding, the imperial-seat (metropolis) tier, the post-collapse "
-		+ "recovery phase, the faction count and the two settlement-placement dials, all in "
-		+ "File ▸ New world ▸ Generation, and all re-runnable from Auto-populate above.")
+		"Per settlement: specialisation + the fortification rung on the first line, river "
+		+ "classification on the second. The reference's own third line (bridge/ford/harbour "
+		+ "validity) is not here -- see each card's own tooltip for why -- and harbour "
+		+ "eligibility stands in its place. A dash always carries its reason, in the card "
+		+ "itself, never left blank.")
+	var list := DccWidgets.group(sec, "%d of %d settlements" % [cards.size(), places.size()],
+		cards.size() <= 12)
+	for c in cards:
+		var d: Dictionary = c
+		var index := int(d.get("index", -1))
+		var settlement: Dictionary = places[index] if index >= 0 and index < places.size() else {}
+		_diag_card(list, settlement, d, index)
+
+## One `_build_settlement_diagnostics` card. `has_river`/`has_harbour` are
+## the dictionary's own presence guards -- read those, never infer "missing"
+## from a zero, which is a real value on both axes (a settlement can
+## honestly sit at `harbour_scale` 0.6, the floor, or `river_order` 1).
+##
+## **The owner's one binding condition on this card is that a field with no
+## data is dashed *with its reason*, never left blank and never printed as a
+## bare zero.** A verifier pass on 2026-09-03 measured 19 of 203 settlements
+## (9.4 %) rendering `River, Strahler order 0, 3.3 km off` -- an unresolved
+## field shown as a measured zero. Five fields were audited the same way and
+## four of them could do it; all five are handled below and each one names
+## the state that produces it:
+##
+## 1. `river_order == 0` **with** `has_river` true. `um_site_profile` fills
+##    order and width in only when the nearest traced stem is inside
+##    `um_water_reach_km` = `max(2.125 km, 1.5 cells)` (`um_water_near_km()`
+##    is `um_site_box_km() * 1.25`, and `SITE_WM` is 1700 m). Between that
+##    reach and `UM_RIVER_CONTEXT_KM` (25 km) the distance is real and the
+##    order is deliberately left at `0` -- v1.32's own fix, "so the profile
+##    cannot claim a river the settlement does not have". A bare `order 0`
+##    reports that refusal as a measurement.
+## 2. `confluence` in the same state. It is only ever evaluated inside the
+##    same reach test, so `false` there means "never asked", not "no second
+##    stem". The order-0 branch prints no confluence marker at all rather
+##    than a silent negative, and says so in the tooltip.
+## 3. `specialisation == ""`. Real, and usually empty -- it is the place
+##    editor's override, `'none'` until a player sets one. It already
+##    carried its reason and now carries the dash too, so it reads as the
+##    same kind of absence as the third line's bridge/ford.
+## 4. `name == ""`. `d.get("name", "?")` only defends against a *missing*
+##    key; an empty string passes straight through and draws a button with
+##    no label, which is the "left blank" case verbatim.
+## 5. `harbour_scale` / `wall_spec` **key absent** (an older cdylib whose
+##    dictionary is a different shape). The old defaults were `1.0` and
+##    `"none"` -- both indistinguishable from real readings, so a shape
+##    mismatch would have printed "Harbour scale 1.0x if built" and
+##    "unwalled" as though measured. Sentinel defaults plus a dash instead.
+##
+## Not changed, and considered: `has_river == false` says "No river within
+## context range (25 km)", which stays true even for a world generated with
+## no river extraction at all -- the profile then finds no stem and the
+## sentence is still correct, just less specific. Nothing in this dictionary
+## distinguishes the two, and inventing the distinction here would be a
+## guess. `wall_spec == "none"` likewise stays "unwalled": that is
+## `um_wall_spec`'s real answer, not an unresolved field.
+func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: int) -> void:
+	var spec := String(d.get("specialisation", ""))
+	var spec_text := spec.capitalize() if not spec.is_empty() else "— no specialisation set"
+	## `""`, not `"none"`: `"none"` is a real `um_wall_spec` answer and must
+	## not double as "the key was missing".
+	var wall := String(d.get("wall_spec", ""))
+	var wall_text := "— wall rung not in this build's diagnostics" if wall.is_empty() \
+		else ("unwalled" if wall == "none" else "%s walls" % wall.capitalize())
+
+	var river_text: String
+	if bool(d.get("has_river", false)):
+		var order := int(d.get("river_order", 0))
+		var dist := float(d.get("river_dist_km", -1.0))
+		if order <= 0:
+			river_text = ("River %.1f km off · order — beyond this site's water reach "
+				+ "(2.1 km or 1.5 cells), so no stem was resolved") % dist
+		else:
+			river_text = "River, Strahler order %d, %.1f km off%s" % [order, dist,
+				" (confluence)" if bool(d.get("confluence", false)) else ""]
+	else:
+		river_text = "No river within context range (25 km)"
+
+	var harbour_text: String
+	if not d.has("harbour_scale"):
+		harbour_text = "Harbour — scale not in this build's diagnostics"
+	elif bool(d.get("has_harbour", false)):
+		harbour_text = "Harbour scale %.1f× if built" % float(d.get("harbour_scale", -1.0))
+	else:
+		harbour_text = "Landlocked -- no harbour"
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	var place_name := String(d.get("name", ""))
+	if place_name.is_empty():
+		place_name = "— unnamed (no name set on this settlement)"
+	var b := DccWidgets.action(box, place_name, func():
+		if index >= 0:
+			app.arm_tool("inspect")
+			app.right_dock_ctrl.on_settlement_selected(settlement, index))
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = "Pin this settlement in the right dock (same as clicking it on the map)."
+	DccWidgets.note(box, "%s · %s" % [spec_text, wall_text])
+	var second := DccWidgets.note(box, river_text)
+	second.tooltip_text = ("Distance is always honest, however far, out to the 25 km context "
+		+ "range. Strahler order and channel width are a separate question and are filled in "
+		+ "only when the nearest traced stem is inside this site's water reach -- 2.1 km, or "
+		+ "1.5 grid cells where those are coarser. Past that reach the site cannot draw on the "
+		+ "river, so the order is dashed rather than printed as 0, which is the value the "
+		+ "engine deliberately leaves it at (um_site_profile's v1.32 fix: the profile must not "
+		+ "claim a river the settlement does not have). The confluence marker is dropped in "
+		+ "that state too -- it is evaluated inside the same reach test, so its absence there "
+		+ "would be a question never asked, not an answer of no.")
+	var third := DccWidgets.note(box, "%s · bridge/ford: — not surfaced by any binding yet" % harbour_text)
+	third.tooltip_text = ("The reference's own third line reads a cached model this port keeps "
+		+ "no equivalent of (`_umModelCache`, out of scope for every urban milestone). This "
+		+ "port's nearest equivalent, City Viewer's per-settlement layout, surfaces "
+		+ "bridge_pt/harbour_pt as candidate points, not detectRiverCrossings' validated "
+		+ "crossings -- that call's own doc comment still lists the crossings as unsurfaced. "
+		+ "Harbour scale is real (um_harbour_scale); bridge and ford are dashed because there "
+		+ "is nothing true to put there yet, not because of milestones 9/10/13, which shipped.")
+	parent.add_child(box)
 
 ## `04-left-dock.md` §6b's `hCivPlaceSel`: "selects the place, arms inspect,
 ## and opens the right dock." `arm_tool()` no-ops when Inspect is already
@@ -1996,6 +2214,473 @@ func _fill_culture(parent: Control) -> void:
 	roster.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	roster.tooltip_text = "The roster window's inspector carries the per-faction Culture picker this category counts over."
 
+# -- Religion (`RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1) -------------------
+#
+# `GUI_GAP_REGISTER.md` §57 designed these screens on 2026-08-29 and its own
+# audit refuted the design: *"No data path exists, and the design never said
+# one was needed. get_settlements() emits x, y, name, population, kind,
+# faction, capital, coastal, tid -- no religion field, no adherent counts."*
+# That is fixed. This category is written against the bindings, and every
+# value below names the symbol it comes from.
+#
+# ## The three things §57's lesson makes non-negotiable
+#
+# 1. **Adherence is a distribution.** `belief.rs`'s module doc: the model
+#    wants *"one global calibration constant belonging beside the diffusion
+#    step, not eight per-religion values"*, and `SettlementReligionState`
+#    stores a `share` array precisely so a minority is not rounded out of
+#    existence. So a settlement is never labelled with one faith alone: the
+#    plurality is always printed with its percentage and every other faith
+#    present is listed beside it.
+# 2. **A settlement with no resolved religion is dashed with its reason.**
+#    There are three distinct reasons and they are not interchangeable --
+#    see `_religion_state()`.
+# 3. **The staleness guard is partial, and the panel says so.**
+#    `CivData::belief_current` covers `belief_seed`'s arguments and not
+#    culture. `_religion_culture_key` is the shell's half of that.
+#
+# ## Why the map half is a mark, not a wash
+#
+# Answered with evidence rather than assumed, because the question was open.
+# The layer stack that landed today is **terrain-only** -- `tests/layer_stack
+# .rs`'s own first line calls it *"the raster's three terrain sub-layers"*,
+# and `EngineBridge.set_layer_stack` feeds `render.rs`, which has no civ
+# input at all -- so religion does not belong in it. And a per-settlement
+# religion wash would duplicate the faction wash `territory_view` already
+# draws: `belief_seed` starts every settlement wholly in its faction's own
+# state religion, and `BELIEF_CONFORMITY_K > 1` makes the model fixate rather
+# than mix, so the two rasters agree everywhere the network has moved
+# nothing. `map_overlay.gd`'s faith-divergence ring draws the difference
+# instead, which is the only part a panel cannot show at a glance.
+
+func _build_religion() -> void:
+	_religion_body = DccWidgets.category(self, "Religion", categories)
+	_fill_religion(_religion_body)
+
+## Which of the four states this world is in, as a `{state, reason}` pair.
+##
+## The four are genuinely different and each has a different fix, which is why
+## this is a function and not an `is_empty()` test at the call site:
+##
+## - `"no_binding"` -- `civ_belief_run` is not in the loaded cdylib. Nothing
+##   about the world; the native library is older than this shell.
+## - `"no_world"` -- no settlements to hold a religion.
+## - `"not_run"` -- a world with settlements, and `get_settlements()` carries
+##   no `religion` key on any of them. `lib.rs` omits both keys entirely
+##   until a diffusion has run, *"omitted, not defaulted to `none` and an
+##   empty dictionary, because those are exactly what a fully secular
+##   settlement in a world that has been simulated looks like."*
+## - `"invalidated"` -- the same missing keys, but this session HAS run one.
+##   `CivData::belief_current` refuses a layer whose settlement list, roster
+##   religion column or settlement-to-faction assignment has moved under it,
+##   *"deliberately: a stale layer is not partial information, it is wrong
+##   information"* -- and refusing it makes `get_settlements()` omit the keys
+##   again, which is indistinguishable from never having run unless the shell
+##   remembers. It does, in `_religion_status`. Saying "no diffusion has been
+##   run" here would be false prose about the user's own last action.
+## - `"secular"` -- it HAS run and `belief_any_faith` is false. Every
+##   faction's religion is None, so there is nothing to spread. A
+##   configuration state with a fix the user can act on, and the engine
+##   hands back the sentence to show.
+## - `"live"` -- a real layer with at least one faith in it.
+func _religion_state(places: Array) -> Dictionary:
+	if not bridge.has_belief_api():
+		return {"state": "no_binding", "reason":
+			"This build's engine has no civ_belief_run() binding -- the native library is "
+			+ "older than this shell. Rebuild and re-export before treating the missing "
+			+ "readout as a missing feature."}
+	if places.is_empty():
+		return {"state": "no_world", "reason": "No settlements -- generate a world first."}
+	var any_key := false
+	for p in places:
+		if (p as Dictionary).has("religion"):
+			any_key = true
+			break
+	if not any_key:
+		if not _religion_status.is_empty():
+			return {"state": "invalidated", "reason":
+				"The last run has been discarded. Something it was seeded from changed -- a "
+				+ "settlement was added, deleted or moved to another faction, or a faction's "
+				+ "religion was set -- and the engine drops a layer that no longer describes "
+				+ "the world rather than showing adherence from the one before it. Run again; "
+				+ "the model is deterministic, so nothing is lost but the time."}
+		return {"state": "not_run", "reason":
+			"No diffusion has been run in this world. The belief layer is built on demand and "
+			+ "is not saved with the project -- press Run below. It is deterministic, so the "
+			+ "same world and roster always reproduce the same adherence."}
+	for p in places:
+		var d: Dictionary = p
+		if d.has("religion") and String(d["religion"]) != "none":
+			return {"state": "live", "reason": ""}
+		var ad: Dictionary = d.get("adherents", {})
+		for k in ad.keys():
+			if String(k) != "none":
+				return {"state": "live", "reason": ""}
+	return {"state": "secular", "reason":
+		"The diffusion has run and there is nothing to spread: every faction's religion is set "
+		+ "to None. That is a setting, not an empty result -- give a faction a religion in the "
+		+ "Faction Roster and run again."}
+
+func _fill_religion(parent: Control) -> void:
+	var places := bridge.settlements()
+	var st := _religion_state(places)
+	var state := String(st["state"])
+
+	var run := DccWidgets.section(parent, "Diffusion")
+	DccWidgets.note(run,
+		"Religion spreads along the generated road network, one step per simulated year "
+		+ "(RELIGION_DIFFUSION_SCOPE.md milestone 1). Each settlement starts wholly in its "
+		+ "faction's state religion; exposure is weighted by neighbour population and by the "
+		+ "road network's own carriage decay, so ports and crossroads become hubs without any "
+		+ "spread radius being drawn. Sea lanes carry nothing yet -- SeaRoute has no endpoint "
+		+ "indices, so this port's religion travels overland only.")
+
+	if state == "no_binding" or state == "no_world":
+		DccWidgets.note(run, String(st["reason"]))
+		return
+
+	## Step 1, not 10. `Range.set_value` snaps to `min + k*step`, so a step of
+	## 10 with a minimum of 1 would have silently turned the shipped default
+	## of 50 into 51 -- a control that disagrees with the field behind it.
+	DccWidgets.number(run, "Years", 1, 2000, 1, float(_religion_years),
+		func(v: float): _religion_years = int(v),
+		"Diffusion steps to run, one per simulated year. A religion needs roughly 17-25 years "
+		+ "to carry a settlement it has reached at all (BELIEF_STEP_RATE's own measured range), "
+		+ "so fifty is past the far end of it. This is not the CIVIL timeline's year cursor: "
+		+ "the belief layer has no recorded snapshots and does not move with Politics.")
+	## Labelled without the year count on purpose: the number lives in the
+	## field above and this label is built once per fill, so baking it in
+	## would leave the button naming a span the spinbox no longer holds.
+	var go := DccWidgets.action(run, "Run diffusion", func(): _religion_run())
+	go.tooltip_text = ("Seeds the layer from the faction roster if it is missing or stale, then "
+		+ "runs the steps. A second press continues from where the first left off rather than "
+		+ "restarting. Nothing is written to the save file.")
+
+	if not _religion_status.is_empty():
+		var years := int(_religion_status.get("years", 0))
+		var seeded := bool(_religion_status.get("seeded", false))
+		DccWidgets.note(run, "Last run: %d year%s over %d settlements%s." % [
+			years, "" if years == 1 else "s",
+			int(_religion_status.get("settlements", 0)),
+			" (the layer was re-seeded first)" if seeded else ""])
+	_religion_culture_warning(run)
+
+	var sec := DccWidgets.section(parent, "Adherence")
+	if state != "live":
+		DccWidgets.note(sec, String(st["reason"]))
+		if state == "secular":
+			var jump := DccWidgets.action(sec, "Set a faction's religion → Faction roster…",
+				func(): app.open_faction_roster())
+			jump.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			jump.tooltip_text = ("The roster inspector's Religion picker is the only thing in "
+				+ "this application that ever writes a religion. Setting one re-seeds the "
+				+ "belief layer on the next run.")
+		return
+
+	DccWidgets.note(sec,
+		"Adherent counts sum to exactly each settlement's population -- the engine hands the "
+		+ "rounding remainder to the largest fractions rather than rounding every share on its "
+		+ "own, so these percentages can be read as head-counts. A faith with nobody in it is "
+		+ "not listed at all; `<1%` is a real congregation too small to round, and it is not "
+		+ "the same reading as an absent row.")
+	_religion_totals(sec, places)
+	_religion_divergence(sec, places)
+
+	var list := DccWidgets.group(sec, "%d settlements" % places.size(), places.size() <= 12)
+	for i in places.size():
+		_religion_row(list, places[i])
+
+## The world roll-up: how many people follow each faith, and how many
+## settlements each one leads.
+##
+## Plain sums over the dictionaries `get_settlements()` already returned --
+## the same presentation arithmetic CIVIL > Population does over `population`,
+## not a second model. A faith with no adherents anywhere never appears,
+## because `lib.rs` omits a zero count from `adherents` rather than writing
+## it, so this list's length is the number of faiths really present.
+func _religion_totals(parent: Control, places: Array) -> void:
+	var people := {}
+	var leads := {}
+	var total := 0
+	for p in places:
+		var d: Dictionary = p
+		total += int(d.get("population", 0))
+		var ad: Dictionary = d.get("adherents", {})
+		for k in ad.keys():
+			people[k] = int(people.get(k, 0)) + int(ad[k])
+		if d.has("religion"):
+			var r: String = String(d["religion"])
+			leads[r] = int(leads.get(r, 0)) + 1
+	var rows := _religion_sorted(people)
+	DccWidgets.note(parent, "%s people across %d settlements, in %d faith%s." % [
+		FactionRosterWindow._thousands(total), places.size(), rows.size(),
+		"" if rows.size() == 1 else "s"])
+	_religion_bar(parent, people, total)
+	for r in rows:
+		var key: String = r[1]
+		var n: int = r[0]
+		var lead := int(leads.get(key, 0))
+		DccWidgets.note(parent, "%s %s — %s people (%s), leads %d settlement%s" % [
+			_religion_swatch_glyph(key), _religion_label(key),
+			FactionRosterWindow._thousands(n), _religion_pct(n, total),
+			lead, "" if lead == 1 else "s"])
+
+## The map half's toggle, and the one sentence that says what the ring means.
+##
+## Written from `map_overlay.gd`'s `_faith_diverged`, which is the definition:
+## a settlement whose plurality faith differs from its faction's own state
+## religion. Unclaimed settlements cannot diverge (there is no ruler to differ
+## from) and are excluded from the count as well as from the drawing, so the
+## number here and the rings on the map are the same set.
+func _religion_divergence(parent: Control, places: Array) -> void:
+	var faiths := _religion_faction_column("religion")
+	var n := 0
+	for p in places:
+		var d: Dictionary = p
+		if not d.has("religion"):
+			continue
+		var f := int(d.get("faction", 0))
+		if f <= 0 or f > faiths.size() or faiths[f - 1].is_empty():
+			continue
+		if String(d["religion"]) != faiths[f - 1]:
+			n += 1
+	DccWidgets.note(parent, "1 settlement no longer follows its ruler's faith." if n == 1
+		else "%d settlements no longer follow their ruler's faith." % n)
+	DccWidgets.toggle(parent, "Show on map", app.viewport.overlay.faith_divergence_visible(),
+		func(on: bool): app.viewport.overlay.set_faith_divergence_visible(on),
+		"Draws a broken ring outside the pin of every settlement whose plurality faith is not "
+		+ "its faction's state religion. A broken ring rather than a religion colour on purpose: "
+		+ "the plurality map would be a recolour of the faction wash the map already draws, "
+		+ "because every settlement is seeded from its faction's own religion and the model "
+		+ "fixates rather than mixes. The difference is the only part that is new information.")
+
+## The culture half of the staleness question, which the engine deliberately
+## cannot answer.
+##
+## `CivData::belief_current`'s own doc: *"Known and deliberately not covered:
+## culture. It feeds compat on every diffusion step, not the seed, so a
+## culture edit leaves a layer that was correctly seeded and diffused under
+## the old culture."* The engine will keep reporting that layer current,
+## correctly by its own definition, so this warning is the only place a user
+## can learn it. Derived from `belief_step`'s signature -- `culture_of` is the
+## argument the engine's key omits -- rather than from whichever input came to
+## mind.
+func _religion_culture_warning(parent: Control) -> void:
+	if _religion_status.is_empty():
+		return
+	var now := _religion_faction_column("culture")
+	if now == _religion_culture_key:
+		return
+	## Written as visible prose rather than through `DccWidgets.stale_mark()`.
+	## That helper is a four-character "stale" `Label` whose own doc records
+	## it has had **no caller repo-wide since 2026-09-01** and is scheduled for
+	## deletion beside the dead row type it belongs to; claiming it here would
+	## make that comment false in a file this pass does not own, and would
+	## trade a paragraph the reader needs for one word they cannot act on.
+	DccWidgets.note(parent,
+		"STALE — a faction's culture has changed since that run. Culture feeds the "
+		+ "religion/culture "
+		+ "compatibility term on every diffusion step, but the engine's staleness guard covers "
+		+ "only what the layer was SEEDED from -- the settlement list, the roster's religion "
+		+ "column and each settlement's faction -- so it still reports this layer current. "
+		+ "The adherence above was diffused under the old culture. Run again to pick the new "
+		+ "one up; it re-seeds, so the previous run's spread is discarded.")
+
+## One settlement: its plurality with a share, then every faith present.
+##
+## `d.has("religion")` rather than `d.get("religion", "none")`: a settlement
+## missing the key while its neighbours carry it means `belief_current()`
+## returned a slice shorter than the settlement list, which is a shape
+## mismatch and not a secular town. It is dashed with that reason instead of
+## printing a faith or a blank.
+func _religion_row(parent: Control, data: Dictionary) -> void:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 0)
+	var place_name := String(data.get("name", ""))
+	if place_name.is_empty():
+		place_name = "— unnamed (no name set on this settlement)"
+	## No tooltip on this row, and not an oversight: `DccWidgets.note()`
+	## returns a `Label`, whose Godot default `mouse_filter` is
+	## `MOUSE_FILTER_IGNORE`, so a `tooltip_text` set on one can never be
+	## picked and never shows. Anything a reader must know is printed.
+	DccWidgets.note(box, "%s · %s people" % [place_name,
+		FactionRosterWindow._thousands(int(data.get("population", 0)))])
+	if not data.has("religion"):
+		DccWidgets.note(box, "— no adherence for this settlement: the belief layer covers a "
+			+ "different settlement list than the one drawn here. Run the diffusion again.")
+		parent.add_child(box)
+		return
+	var pop := int(data.get("population", 0))
+	var adherents: Dictionary = data.get("adherents", {})
+	_religion_bar(box, adherents, pop)
+	var parts := PackedStringArray()
+	for r in _religion_sorted(adherents):
+		parts.append("%s %s %s" % [_religion_swatch_glyph(r[1]), _religion_label(r[1]),
+			_religion_pct(r[0], pop)])
+	if parts.is_empty():
+		## Reachable only for a settlement of population 0: every share is
+		## real but every head-count floors to nothing.
+		DccWidgets.note(box, "— no adherents to count (population 0); the shares exist, the "
+			+ "head-counts round to nobody")
+	else:
+		DccWidgets.note(box, " · ".join(parts))
+	parent.add_child(box)
+
+## A 100 % stacked bar, and deliberately not a slider.
+##
+## `GUI_GAP_REGISTER.md` §57's audit killed the obvious version: *"a read-only
+## proportion bar would grow a grabber on the phone"*, because `phone_fit()`
+## walks every Control under the dock and unconditionally re-styles an
+## `HSlider` with a 22 dp accent thumb. This is an `HBoxContainer` of
+## `ColorRect`s sized by stretch ratio -- no `Range`, nothing for that pass to
+## find, and the container is one `phone_fit` already sets to
+## `MOUSE_FILTER_PASS` so a flick on it still scrolls the sheet.
+##
+## Each rect is `MOUSE_FILTER_IGNORE`: a `ColorRect` defaults to `STOP` and is
+## matched by none of `phone_fit`'s three unblocking rules (it is not a
+## `BoxContainer`, not a bare `Control`, not a `Button`), so left alone every
+## bar in a 200-settlement list would be a strip that swallows the gesture.
+##
+## **Colour never carries the meaning here.** Every segment is named in the
+## line under the bar with its own percentage, in the same order; the bar is a
+## second encoding of a list that is already complete without it -- which is
+## the documented mitigation for a categorical palette that cannot be made
+## colourblind-safe at eight entries.
+func _religion_bar(parent: Control, counts: Dictionary, total: int) -> void:
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 1)
+	bar.custom_minimum_size.y = 6
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var rows := _religion_sorted(counts)
+	if total <= 0 or rows.is_empty():
+		## An empty bar would read as a measured zero. Draw nothing at all --
+		## the line under it says why in words.
+		return
+	for r in rows:
+		var seg := ColorRect.new()
+		seg.color = _religion_color(String(r[1]))
+		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		seg.size_flags_stretch_ratio = maxf(0.001, float(r[0]))
+		bar.add_child(seg)
+	parent.add_child(bar)
+
+## `{key: count}` as `[count, key]` rows, largest first, ties broken by key so
+## two runs of the same world list them in the same order.
+static func _religion_sorted(counts: Dictionary) -> Array:
+	var rows: Array = []
+	for k in counts.keys():
+		var n := int(counts[k])
+		if n > 0:
+			rows.append([n, String(k)])
+	rows.sort_custom(func(a, b): return a[0] > b[0] if a[0] != b[0] else a[1] < b[1])
+	return rows
+
+## `CIV_RELIGIONS[0]`'s own label is "None / secular", which reads as a
+## missing value in a list of faiths. This says what it means: `RELIGION_NONE`
+## is *"the unaffiliated share of the population, not an absent value"* --
+## that constant's own doc comment.
+static func _religion_label(key: String) -> String:
+	return "No religion" if key == "none" else key.capitalize()
+
+## A share, and the two ways it can fail to be one.
+##
+## `—` when there is no denominator (a settlement of population 0): that is
+## not a share of zero, it is no share, and the row beside it says why.
+##
+## `<0.1%` when a real, nonzero count rounds below the last printed digit.
+## `lib.rs` omits a zero adherent count from `adherents` entirely, so every
+## count reaching here has at least one follower -- and a live 96x64 world
+## put three congregations of one or two people in front of this formatter,
+## every one of which `%.1f%%` rendered as `0.0%`. A reader cannot tell that
+## from a defaulted zero, which is the failure `MISTAKES.md` counts five of.
+static func _religion_pct(n: int, total: int) -> String:
+	if total <= 0:
+		return "—"
+	var pct := 100.0 * float(n) / float(total)
+	if n > 0 and pct < 0.05:
+		return "<0.1%"
+	## And the same at the top end: a row must not read `100.0%` while the
+	## rows under it list other faiths. `map_overlay.gd`'s hover card carries
+	## the same pair of guards for the same reason.
+	if n < total and pct > 99.95:
+		return ">99.9%"
+	return "%.1f%%" % pct
+
+## Marks the unaffiliated slot apart from the seven faiths **by shape**, not by
+## its grey swatch alone.
+##
+## What identifies a row is its name, which is always printed -- the bar is a
+## second encoding of a list that is already complete. This glyph carries the
+## one distinction the names alone blur: "No religion" is a row in the same
+## list as seven faiths and is not one of them.
+static func _religion_swatch_glyph(key: String) -> String:
+	return "◇" if key == "none" else "◆"
+
+## Derived, not hand-authored, for the reason `belief.rs`'s own module doc
+## gives for refusing a 56-cell compatibility matrix: *"a matrix of 8
+## religions x 7 cultures would be 56 magic numbers with no basis ... and no
+## answer when somebody adds a ninth religion."* A hue rotation keyed by
+## position in `CIV_RELIGIONS` extends by construction and is reproducible.
+##
+## The golden angle is the engine's own rule for the same problem --
+## `civ_faction_color` rotates by it for any faction past the hand-picked six,
+## explicitly so appended entries stay distinct. `none` is outside the
+## rotation entirely: it is not a faith and must not read as one.
+static func _religion_color(key: String) -> Color:
+	if key == "none":
+		return Color(0.42, 0.45, 0.47)
+	var idx := 0
+	for i in RELIGION_KEYS.size():
+		if RELIGION_KEYS[i] == key:
+			idx = i
+			break
+	return Color.from_hsv(fposmod(0.08 + 0.381966 * float(idx), 1.0), 0.55, 0.86)
+
+## `cartalith_civ::roster::CIV_RELIGIONS`' key order, for the hue rotation
+## above only. Not a second vocabulary: `civ_religion_vocabulary()` is the
+## authority and a key this list does not carry still renders -- it just takes
+## slot 0's hue. Kept local so a colour lookup does not have to call the
+## engine once per settlement row.
+const RELIGION_KEYS := ["none", "sun_cult", "earth_mother", "sea_lords", "sky_pantheon",
+	"ancestor_rites", "flame_creed", "old_gods"]
+
+## One column of the faction roster as a `faction - 1` indexed array, matching
+## `map_overlay.gd`'s `_faction_colors` convention.
+##
+## `get_factions()` enumerates ids `1..n` (it skips Unclaimed, `lib.rs`'s own
+## range), so a row's `id` is written straight into `id - 1` rather than
+## trusted to arrive in order -- a gap would otherwise shift every faction
+## after it onto its neighbour's religion.
+func _religion_faction_column(field: String) -> PackedStringArray:
+	var rows := bridge.get_factions()
+	var out := PackedStringArray()
+	for r in rows:
+		var d: Dictionary = r
+		var id := int(d.get("id", 0))
+		if id <= 0:
+			continue
+		while out.size() < id:
+			out.append("")
+		out[id - 1] = String(d.get(field, ""))
+	return out
+
+## Run the diffusion, then bring every surface that reads it back in step.
+##
+## The culture snapshot is taken **after** the run and from the same roster the
+## run read, so the warning it drives cannot fire against the run that just
+## happened.
+func _religion_run() -> void:
+	_religion_status = bridge.civ_belief_run(_religion_years)
+	_religion_culture_key = _religion_faction_column("culture")
+	## Re-reads `get_settlements()`, which only now carries the `religion` and
+	## `adherents` keys, and pushes both halves of the divergence test into the
+	## overlay.
+	_refresh_civ_data()
+	if _religion_body != null and is_instance_valid(_religion_body):
+		_clear_body(_religion_body)
+		_fill_religion(_religion_body)
+
 # -- Timeline (`TIMELINE_SCOPE.md` milestone 6) --------------------------------
 #
 # Built as a sixth L2 category in THIS workspace's left dock, alongside
@@ -2183,6 +2868,20 @@ const LM_CLASS_LABEL := {
 ## middle-of-the-road class most of §29's types fall in.
 const LM_QUOTED_CLASS := 1
 
+## The Crowding dial's own range and step, as one definition instead of three
+## literals. §5's "Raise crowding to × N" chip has to know the ceiling it can
+## honestly promise and the step it must land on, so a dial widened here cannot
+## leave the chip offering a value the slider would then misreport.
+##
+## **The engine's ceiling is 3.0** (`landmark_bridge::CROWDING_MAX`), higher
+## than this dial's, and `LandmarkReject::needs_crowding` is not clamped at all
+## -- a figure of × 7.40 arrives meaning *"not at any setting"*. `_lm_fit_plan()`
+## refuses rather than writing a number this dial could not show, which is the
+## same choice `rejects.rs` made one layer down and for the same reason.
+const LM_CROWDING_MIN := 0.25
+const LM_CROWDING_MAX := 2.00
+const LM_CROWDING_STEP := 0.05
+
 ## §2.2's limiting-reason vocabulary: the engine's token -> the word the row
 ## prints. `at_cap` is the only one drawn in accent, which is what makes §2.2's
 ## "a panel where nothing is at cap has no accent on any second line" true by
@@ -2203,7 +2902,13 @@ const LM_LIMIT_WORD := {
 ## each one names what to touch instead.
 const LM_LIMIT_WHY := {
 	"at_cap": "The cap was the binding constraint. Dragging this slider right WILL place more.",
-	"spacing": "The exclusion radius rejected the rest. Raising the cap changes nothing -- lower Crowding, or this class's radius.",
+	## **Said "lower Crowding" until 2026-09-03, and that was backwards.**
+	## `LandmarkSettings::radius_km` is `base / crowding_in_force()`, pinned by
+	## `landmark.rs`'s `crowding_higher_packs_tighter` (crowding 2.5 places more
+	## than 0.5), so raising the dial is what recovers a spacing-limited type.
+	## This string is the note printed directly above §5's chips, so it and the
+	## chip would have instructed opposite directions.
+	"spacing": "The exclusion radius rejected the rest. Raising the cap changes nothing -- raise Crowding, or lower this class's radius.",
 	"no_terrain": "Every remaining candidate failed this type's own constraints. The cap is not what is limiting you.",
 	"candidates": "The candidate pool ran out before the cap or the spacing did. The world is too small or too coarse for more of these.",
 	"disarmed": "Disarmed. The cap is retained and the row says what it was.",
@@ -2408,14 +3113,18 @@ func _lm_placement(parent: Control, st: Dictionary) -> void:
 	## reference's `tparam()` split before it: every tick updates the readout and
 	## the km sentence (cheap, local), and the write to the engine happens once,
 	## on release.
-	var crowd := DccWidgets.slider(sec, "Crowding", 0.25, 2.00, 0.05, _lm_crowding,
+	var crowd := DccWidgets.slider(sec, "Crowding",
+		LM_CROWDING_MIN, LM_CROWDING_MAX, LM_CROWDING_STEP, _lm_crowding,
 		"", func(v: float): _lm_on_crowding(v),
-		"Scales every class's exclusion radius at once, 0.25x (sparse) to 2.00x "
+		"Divides every class's exclusion radius at once, 0.25x (sparse) to 2.00x "
 		+ "(dense). This is the control the reason token `spacing` is pointing "
 		+ "at: when a type places fewer than its cap because the radius rejected "
 		+ "the rest, this moves the number and the cap does not.",
 		func(): _lm_write("landmark_set_crowding", [_lm_crowding]))
 	_lm_crowd_readout = crowd["readout"]
+	## Retained so §5's "Raise crowding to × N" chip can drive the dial the user
+	## is looking at rather than a second copy of the number.
+	_lm_crowd_slider = crowd["slider"]
 	_lm_crowd_note = DccWidgets.note(sec, "")
 	_lm_refresh_crowding()
 
@@ -2874,12 +3583,16 @@ func _lm_open_funnel(key: String) -> void:
 	for c in _lm_funnel.get_children():
 		_lm_funnel.remove_child(c)
 		c.queue_free()
-	_lm_funnel.add_child(_lm_funnel_body(r, f))
+	_lm_funnel.add_child(_lm_funnel_body(key, r, f))
 	var tok: Control = r["token"]
 	var at := Vector2i(tok.get_screen_position()) + Vector2i(0, int(tok.size.y) + 4)
 	_lm_funnel.popup(Rect2i(at, Vector2i(342, 0)))
 
-func _lm_funnel_body(r: Dictionary, f: Dictionary) -> Control:
+## `key` is the engine's kind key, carried in so §5's two chips can filter
+## `landmark_rejects()` down to this type. `r` does not hold it -- `_lm_rows` is
+## keyed BY it -- and deriving it back out of the label would be a second copy
+## of the vocabulary this panel is careful never to write down.
+func _lm_funnel_body(key: String, r: Dictionary, f: Dictionary) -> Control:
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 12)
 	pad.add_theme_constant_override("margin_right", 12)
@@ -2943,28 +3656,187 @@ func _lm_funnel_body(r: Dictionary, f: Dictionary) -> Control:
 
 	DccWidgets.note(box, _lm_limit_why(raw_limit))
 
-	## §5's two actions, drawn and disabled with the reason attached -- the same
-	## treatment `menus.gd:233`'s `_todo` gives an unbacked menu row, and the one
-	## `TypeRow.dc.html` argues for in as many words ("a dimmed row with a dash
-	## is not a bug"). Neither is computable from the bridge contract: the
-	## crowding figure at which the rejected candidates would have fit is not
-	## returned by anything, and the rejected candidates themselves have no
-	## coordinates in `landmark_funnels()` and no renderer path of their own.
+	## §5's two actions, **wired 2026-09-03**. They were drawn disabled with a
+	## reason attached, and both reasons had gone false hours after they were
+	## written: the funnel's second half landed `landmark_rejects()`
+	## (`engine_bridge.gd`), which carries every rejected candidate's position
+	## *and* the exact multiplier that would have cleared it, and `map_overlay
+	## .gd`'s reject layer already draws them a colour per reason. The capability
+	## was built by a lane that could not touch this file, so the chips were
+	## stranded on reasons rather than wired to what existed.
+	##
+	## **The design canvas draws the first one as "Lower crowding to × 0.70" and
+	## that direction is wrong** -- against this engine, not against the canvas's
+	## own model. `LandmarkSettings::radius_km` is `base / crowding_in_force()`,
+	## and `landmark.rs`'s `crowding_higher_packs_tighter` pins it: crowding 2.5
+	## places more than 0.5. So the verb is `Raise`, the number is still computed
+	## and still in the label -- which is the half of the canvas that was the
+	## point ("computed, not offered as a gesture") -- and this file's three
+	## other inherited copies of the inversion are corrected beside it (the
+	## `spacing` tooltip, and `_lm_refresh_crowding()`'s km arithmetic).
+	##
+	## One `landmark_rejects()` pull serves both chips, on the popover's own
+	## click: 3 216 rows in 6.0 ms at the shipping 2048x1311 default, which is a
+	## click and not a frame. The renderer's path stays packed (`viewport_host
+	## .gd`'s `refresh_annotations`); this one reads `needs_crowding`, which the
+	## packed form does not carry, and is exactly the surface `rejects.rs` says
+	## the record shape exists for.
+	##
+	## Neither chip is ever enabled on an *unbuilt capability*. A world where the
+	## cap was the binding constraint, or where every spacing rejection was
+	## blocked on its own cell, gets a *disabled* chip again -- but disabled on a
+	## fact about this world, which is a different claim from the
+	## unbuilt-capability reasons these replace.
+	##
+	## **What this cannot promise, corrected 2026-09-03 after it was measured:**
+	## an enabled fit chip is not a guarantee of more landmarks. The figure is a
+	## *first-order* floor -- it clears the ring that blocked one candidate, and
+	## each newly placed landmark then carries a ring of its own. Measured on
+	## seed 483920 / 2400 km / 512x384: the one kind that reached `ok` (`lake`,
+	## × 1.05) placed its promised candidate at (54,96) exactly as computed, and
+	## that candidate's new ring then rejected (239,208), which had been placed
+	## at × 1.00. Net 15 -> 15, total 304 -> 304. The arithmetic was right and
+	## the gain was zero.
+	##
+	## The chip's own tooltip says "floor", not "gain", so the control is honest;
+	## an earlier version of *this comment* claimed "neither chip is ever enabled
+	## onto a no-op", which is a stronger claim than the mechanism supports and
+	## was the same class of false statement as the three crowding inversions
+	## this pass removed. Stated here rather than fixed, because suppressing the
+	## chip until a *net* gain is proven would need a full trial pass per kind
+	## per popover open -- and the honest floor is still the number §5 asks for.
+	var rejects := _lm_rejects()
 	var acts := HBoxContainer.new()
 	acts.add_theme_constant_override("separation", 5)
 	box.add_child(acts)
-	var lower := DccWidgets.chip(acts, "Lower crowding to fit", Callable())
-	lower.disabled = true
-	lower.tooltip_text = ("Owed. §5 wants the exact multiplier at which the "
-		+ "rejected candidates would have fit under the remaining cap, and "
-		+ "landmark_funnels() returns counts only -- a generic 'adjust spacing' "
-		+ "would send you back to guessing, which is what the design rejects.")
-	var show := DccWidgets.chip(acts, "Show rejected", Callable())
-	show.disabled = true
-	show.tooltip_text = ("Owed. Drawing the rejected candidates inside the placed "
-		+ "ones' exclusion rings needs their positions and a map layer for them; "
-		+ "landmark_funnels() carries neither.")
+	_lm_fit_chip(acts, _lm_fit_plan(rejects, key, unused))
+	_lm_show_chip(acts, _lm_reject_count(rejects, key))
 	return pad
+
+## §5's first action, in whichever of `_lm_fit_plan()`'s five states this world
+## puts it. Only `ok` is pressable, and it is the only one that carries a
+## `Callable` at all -- an enabled chip whose press changes nothing would be a
+## new false reason, which is the defect this whole pass exists to remove.
+func _lm_fit_chip(row: Control, plan: Dictionary) -> void:
+	var state := String(plan.get("state", "none"))
+	if state == "ok":
+		var target := float(plan["target"])
+		var gain := int(plan["gain"])
+		var c := DccWidgets.chip(row, "Raise crowding to × %.2f" % target,
+			func(): _lm_apply_crowding(target), true)
+		c.tooltip_text = (("Sets the Crowding dial above to × %.2f and writes it "
+			+ "to the engine. It does NOT re-generate: every count in this "
+			+ "popover stays the last pass's until you run the pass again.\n\n"
+			+ "× %.2f is the smallest setting this dial offers at which %d of "
+			+ "this type's spacing-rejected candidates clear the landmark that "
+			+ "blocked them -- measured per candidate by the pass itself, not "
+			+ "estimated here. It is a floor rather than a promise: each one "
+			+ "that does get placed carries an exclusion ring of its own, so the "
+			+ "next pass can still place fewer than %d.")
+			% [target, target, gain, gain])
+		return
+	var label := "Crowding cannot place more"
+	if state == "over":
+		label = "Needs crowding × %.2f — off this dial" % float(plan.get("target", 0.0))
+	var c := DccWidgets.chip(row, label, Callable())
+	c.disabled = true
+	match state:
+		"capped":
+			c.tooltip_text = ("The cap was the binding constraint for this type, "
+				+ "not the spacing: every candidate it accepted, it placed. Raise "
+				+ "the cap on the row above and run the pass again. Moving "
+				+ "Crowding would change nothing while the cap is full.")
+		"none":
+			c.tooltip_text = ("Nothing of this type was rejected by spacing in the "
+				+ "last pass, so there is no candidate a denser setting could "
+				+ "recover. The highlighted row above says what did stop it.")
+		"no_figure":
+			c.tooltip_text = (("All %d of this type's listed spacing rejections "
+				+ "were blocked by a landmark standing on the candidate's own "
+				+ "cell, where no finite Crowding helps. The engine reports that "
+				+ "by omitting the figure rather than sending a zero, so this "
+				+ "chip has no number to offer instead of a rounded one.")
+				% int(plan.get("listed", 0)))
+		"over":
+			c.tooltip_text = (("The best-placed rejected candidate needs Crowding "
+				+ "× %.2f. This dial stops at × %.2f, and the engine does not "
+				+ "clamp the figure precisely so that this reads as *not at any "
+				+ "setting this app offers* rather than as \"set it to the "
+				+ "maximum\". Lower this class's exclusion radius under Placement "
+				+ "▸ advanced, or accept the count.")
+				% [float(plan.get("target", 0.0)), LM_CROWDING_MAX])
+		_:
+			c.tooltip_text = ("This build reported no reject rows for this type, "
+				+ "so no crowding figure can be derived.")
+
+## §5's second action. The layer, the legend and the colour-per-reason are all
+## `map_overlay.gd`'s already; this only turns it on and gets out of the way.
+func _lm_show_chip(row: Control, n: int) -> void:
+	if n <= 0:
+		var off := DccWidgets.chip(row, "No rejects to show", Callable())
+		off.disabled = true
+		off.tooltip_text = ("This type produced no rejected candidate with a "
+			+ "position in the last pass. landmark_rejects() lists the score, "
+			+ "spacing and cap rejections; it deliberately does not list the "
+			+ "constraint bucket -- \"this cell is not a waterfall\", counted per "
+			+ "scanned cell, millions of them at this grid size -- and the funnel "
+			+ "above still carries that number.")
+		return
+	var c := DccWidgets.chip(row, "Show %d rejected" % n, _lm_show_rejects)
+	c.tooltip_text = ("Turns on the map's rejected-candidate layer and closes "
+		+ "this popover. Each mark is one candidate the pass offered and did not "
+		+ "place, coloured by why; seeing them sitting inside the placed ones' "
+		+ "exclusion rings is the whole of the spacing argument, and it needs no "
+		+ "vocabulary at all.\n\nThe layer is shared: it draws every type's "
+		+ "rejections, not only this one's, and stays on until you clear "
+		+ "Cartography ▸ Layers ▸ \"Landmark rejects (diagnostic)\".")
+
+## Writes the chip's figure to the dial and to the engine, then says what it did
+## and -- the half that matters -- what it did not do.
+##
+## `HSlider.value` fires `value_changed`, which is `_lm_on_crowding` and so the
+## readout and the km line; it does **not** fire `drag_ended`, which is where
+## `DccWidgets.slider()` hangs the engine write. That write is therefore made
+## here explicitly rather than assumed, the same way `_lm_commit_cap()` makes
+## its own.
+func _lm_apply_crowding(target: float) -> void:
+	var was := _lm_crowding
+	_lm_crowding = clampf(target, LM_CROWDING_MIN, LM_CROWDING_MAX)
+	if _lm_crowd_slider != null and is_instance_valid(_lm_crowd_slider):
+		## Written to the dial and then read back: `Range` snaps to its own step
+		## and range, and the number the user acts on next is the dial's, not
+		## the one this function was handed.
+		_lm_crowd_slider.value = _lm_crowding
+		_lm_crowding = _lm_crowd_slider.value
+	_lm_refresh_crowding()
+	_lm_write("landmark_set_crowding", [_lm_crowding])
+	_lm_refresh_headroom()
+	if _lm_funnel != null and is_instance_valid(_lm_funnel):
+		_lm_funnel.hide()
+	if _lm_run_note != null and is_instance_valid(_lm_run_note):
+		_lm_run_note.text = (("Crowding is now × %.2f (was × %.2f). Nothing has "
+			+ "been regenerated -- every count below is still the previous "
+			+ "pass's. Run the landmark pass again to place against the new "
+			+ "spacing.") % [_lm_crowding, was])
+
+## Turns the diagnostic layer on and closes the popover so the map is the thing
+## being looked at.
+##
+## `refresh_annotations()` first, and not defensively: it is the one call that
+## pushes `landmark_reject_points()` into the overlay, and showing a layer whose
+## buffer was never filled would be a chip that does nothing -- the exact shape
+## this pass is removing. `ViewportHost` runs it on `landmark_finished` already,
+## so this is a guarantee rather than a repair, and it costs the same few
+## milliseconds the Icon tool's drag path spends on it every mouse-motion event.
+func _lm_show_rejects() -> void:
+	if _lm_funnel != null and is_instance_valid(_lm_funnel):
+		_lm_funnel.hide()
+	if app == null or app.viewport == null:
+		return
+	if app.viewport.has_method("refresh_annotations"):
+		app.viewport.refresh_annotations()
+	if app.viewport.has_method("set_layer_visible"):
+		app.viewport.set_layer_visible("landmark_rejects", true)
 
 func _lm_funnel_row(box: Control, label_text: String, minus: String, right: String,
 		binding: bool) -> void:
@@ -3021,7 +3893,17 @@ func _lm_refresh_crowding() -> void:
 	## (`menus.gd`'s `ID_PREF_UNITS_KM` / `ID_PREF_UNITS_MI`) and nothing in the
 	## shell reads them, so there is no setting to honour yet and inventing one
 	## here would be a second copy of a preference.
-	var km := _lm_class_radius(LM_QUOTED_CLASS) * _lm_crowding
+	##
+	## **This multiplied until 2026-09-03 and the engine divides.** The two
+	## agreed at the default × 1.00 and nowhere else: at × 2.00 the panel read
+	## *"a regional landmark keeps 68 km clear"* while the pass was keeping 17.
+	## `LandmarkSettings::radius_km` is `base / crowding_in_force()`, pinned by
+	## `crowding_higher_packs_tighter`, and `landmark_settings()` returns
+	## `class_radius_km` raw (`lib.rs`'s `landmark_settings_dict`), so this is
+	## the only place the division could have been applied and it was not. The
+	## slider's own `sparse -> dense` direction was right all along; this line,
+	## the `spacing` tooltip and §5's chip label were the three that were not.
+	var km := _lm_radius_in_force(_lm_class_radius(LM_QUOTED_CLASS), _lm_crowding)
 	var cname := String(LM_CLASS_LABEL.get(LM_CLASSES[LM_QUOTED_CLASS], "")).to_lower()
 	_lm_crowd_note.text = "a %s landmark keeps %.0f km clear · sparse → dense" % [cname, km]
 
@@ -3302,6 +4184,18 @@ func _lm_funnel_map() -> Dictionary:
 		out[String((f as Dictionary).get("kind", ""))] = f
 	return out
 
+## The last pass's rejected candidates, whole rows -- `{kind,x,y,score,reason,
+## needs_crowding}`, capped at the best-scoring 256 per kind. Pulled only when
+## §5's popover opens: it is 3 216 dictionaries and 6.0 ms at the shipping
+## 2048x1311 default, which is fine for a click and would not be for a frame.
+## The map's own path uses the packed `landmark_reject_points()` instead
+## (`viewport_host.gd`'s `refresh_annotations`); this one is here because
+## `needs_crowding` exists in no other shape.
+func _lm_rejects() -> Array:
+	if bridge == null or not bridge.has_method("landmark_rejects"):
+		return []
+	return bridge.landmark_rejects()
+
 func _lm_write(method: String, args: Array) -> void:
 	if bridge != null and bridge.has_method(method):
 		bridge.callv(method, args)
@@ -3320,6 +4214,122 @@ static func _lm_rung(cap: int) -> int:
 		if absi(LM_LADDER[i] - cap) < absi(LM_LADDER[best] - cap):
 			best = i
 	return best
+
+## `LandmarkSettings::crowding_in_force()`, mirrored exactly: clamped to
+## `[0.05, 3.0]`, and `1.0` for a non-finite value.
+##
+## Copied rather than approximated for that function's own stated reason -- *"a
+## diagnostic that disagrees with the pass it is diagnosing is worse than
+## none"*. The floor is not cosmetic either: a literal zero sends the radius to
+## infinity and takes the map with it.
+static func _lm_crowding_in_force(c: float) -> float:
+	return clampf(c, 0.05, 3.0) if is_finite(c) else 1.0
+
+## The ground one class actually keeps clear, km, after Crowding.
+##
+## **Crowding divides the base radius; it does not multiply it.** Higher packs
+## *tighter* -- `radius_km` is `base / crowding_in_force()` and `landmark.rs`'s
+## `crowding_higher_packs_tighter` asserts that crowding 2.5 places more than
+## 0.5. Three separate statements in this file said the opposite until
+## 2026-09-03, all inherited from `WhyFewer.dc.html`'s "Lower crowding to
+## × 0.70", a canvas that predates the engine and is the stale party here.
+static func _lm_radius_in_force(base_km: float, crowding: float) -> float:
+	var base := base_km if is_finite(base_km) and base_km > 0.0 else 0.0
+	return base / _lm_crowding_in_force(crowding)
+
+## §5's "Raise crowding to × N": what the dial would have to read for this
+## kind's spacing-rejected candidates to clear the ring that blocked them, and
+## whether that is a number this app can honestly offer.
+##
+## `rejects` is `landmark_rejects()`'s row list; `room` is the funnel's
+## `cap - placed`. Pure and `static` so `_lmfitchip_probe.gd` can assert every
+## branch without standing a dock up.
+##
+## **`needs_crowding` is absent, never zero, when there is no figure** -- the
+## blocker sat on the candidate's own cell, where no finite setting helps. Read
+## with `has()`. `get("needs_crowding", 0.0)` is the defect that shipped one
+## layer down and was fixed the same day this was written: `0.0` is a plausible
+## Crowding rather than an obvious sentinel, and 44 of 614 spacing rows on a
+## real world carried it and read as measurements.
+##
+## Always returns a `state`, never an empty dictionary, so every outcome has a
+## sentence of its own instead of one vague disabled tooltip:
+##
+##   `capped`    -- the cap stopped this type; no crowding places more
+##   `none`      -- nothing of this kind was rejected by spacing at all
+##   `no_figure` -- every listed spacing reject was blocked on its own cell
+##   `over`      -- the smallest workable figure is above this dial's ceiling
+##   `ok`        -- `target` is settable and admits `gain` candidates
+static func _lm_fit_plan(rejects: Array, kind: String, room: int) -> Dictionary:
+	var figures: Array[float] = []
+	var listed := 0
+	for e in rejects:
+		var d: Dictionary = e
+		if String(d.get("kind", "")) != kind or String(d.get("reason", "")) != "spacing":
+			continue
+		listed += 1
+		var v: float = float(d["needs_crowding"]) if d.has("needs_crowding") else 0.0
+		## `> 0.05` and not `> 0.0`, and it is the same guard twice over.
+		##
+		## A real figure is `crowding * r / d` with `d < r` and `crowding_in_
+		## force()` floored at `0.05`, so it is *strictly greater than the
+		## crowding that produced it* and can never be at or under the floor --
+		## `rejects.rs`'s own test says so in as many words ("zero must not be
+		## reachable as a real figure").
+		##
+		## Which makes this the shell's guard against **an older cdylib**, and
+		## not a theoretical one: measured 2026-09-03 against the extension
+		## binary then in `target/debug` (02:43, eleven minutes older than the
+		## `rejects.rs` fix at 02:54), all 512 spacing rows on a 512x384 world
+		## arrived carrying the key, some of them `0.0`, because that build still
+		## marshalled `needs_crowding.unwrap_or(0.0)`. Read on `has()` alone,
+		## every one of those became a figure, snapped to × 0.05, and lit a
+		## pressable chip offering a setting that places nothing -- the exact
+		## false-reason shape this pass exists to remove, re-created by the fix
+		## for it. `has()` is still the contract; this is the floor under it.
+		if v > 0.05 and is_finite(v):
+			figures.append(v)
+	## Checked first, and before the reject list is even consulted: a full cap
+	## is the dominant fact about this type, and a chip offering a spacing fix
+	## under one would be pressable and inert.
+	if room <= 0:
+		return {"state": "capped", "listed": listed}
+	if listed == 0:
+		return {"state": "none"}
+	if figures.is_empty():
+		return {"state": "no_figure", "listed": listed}
+	figures.sort()
+	var k: int = mini(room, figures.size())
+	## Snapped **up** to the dial's step. The nearest step below a candidate's
+	## figure is the one setting that provably still rejects it, so rounding to
+	## nearest would hand back a chip that moves the number and places nothing.
+	## The `1e-9` keeps a figure that is already exactly on a step from being
+	## pushed to the next one by the division's own rounding.
+	var target: float = ceilf(figures[k - 1] / LM_CROWDING_STEP - 1e-9) * LM_CROWDING_STEP
+	if target > LM_CROWDING_MAX:
+		return {"state": "over", "target": target, "listed": listed}
+	## Recounted against the snapped figure rather than reported as `k`: the
+	## snap can only admit more, and claiming the smaller number would understate
+	## what the press actually does. Still floored by `room`, because the cap
+	## takes them in score order and stops.
+	var gain := 0
+	for v in figures:
+		if v <= target:
+			gain += 1
+	return {
+		"state": "ok", "target": target, "gain": mini(gain, room), "listed": listed,
+	}
+
+## How many of `landmark_rejects()`'s rows belong to one kind, any reason --
+## §5's "Show N rejected". Counted here rather than read off the funnel because
+## the funnel's totals are the TRUE ones and this list is capped at 256 per
+## kind: the chip must promise what the map will actually draw.
+static func _lm_reject_count(rejects: Array, kind: String) -> int:
+	var n := 0
+	for e in rejects:
+		if String((e as Dictionary).get("kind", "")) == kind:
+			n += 1
+	return n
 
 ## `CON` / `REG` / `LOC` / `CUL` -- §3.1's three-letter mono badge. Derived from
 ## the engine's own class key rather than tabulated, so a fifth class would get

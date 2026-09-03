@@ -70,5 +70,77 @@ func _init() -> void:
 		if fails == 0:
 			print("  settlement 0 identical: ", a.get("name"), " @ (", a.get("x"), ",", a.get("y"), ")")
 
+	fails += _foreign_round_trip(path)
+
 	print("save-tree probe: ", "PASS" if fails == 0 else "%d FAILURE(S)" % fails)
 	quit(1 if fails > 0 else 0)
+
+## An entry this build does not recognise must survive open → re-save.
+##
+## `cartalith-io` proves its own half in Rust (`a_foreign_entry_survives_an_open
+## _and_a_re_save`), but the **bridge** half is `WorldGen::carried_foreign` —
+## filled by `project_open`, cloned into the write by
+## `project_save_with_documents`, cleared by `release_world`/`load_save` — and
+## a verifier measured that half pinned by nothing: replacing
+## `std::mem::take(&mut data.foreign)` with `Default::default()` left the whole
+## Rust suite green. `WorldGen` is a cdylib `GodotClass` with a
+## `Base<RefCounted>`, so no unit test can construct one; this is the only level
+## the contract is reachable from.
+##
+## The payload is deliberately neither valid JSON nor valid UTF-8: a carrier
+## that parsed or transcoded an entry would pass a text fixture and corrupt a
+## real tile.
+func _foreign_round_trip(src: String) -> int:
+	var bad := PackedByteArray([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00, 0xC3])
+	var name := "vendor/newer_build.bin"
+
+	var zr := ZIPReader.new()
+	if zr.open(src) != OK:
+		print("  FAIL: foreign: source archive did not reopen")
+		return 1
+	var entries := {}
+	for n in zr.get_files():
+		entries[n] = zr.read_file(n)
+	zr.close()
+
+	var mixed := OS.get_user_data_dir().path_join("_savetree_probe_foreign.zip")
+	var zp := ZIPPacker.new()
+	if zp.open(mixed) != OK:
+		print("  FAIL: foreign: could not write the mixed archive")
+		return 1
+	for n in entries:
+		zp.start_file(n)
+		zp.write_file(entries[n])
+		zp.close_file()
+	zp.start_file(name)
+	zp.write_file(bad)
+	zp.close_file()
+	zp.close()
+
+	var wg3: WorldGen = WorldGen.new()
+	var o: Dictionary = wg3.project_open(mixed)
+	if not bool(o.get("ok", false)):
+		print("  FAIL: foreign: open -> ", o.get("error", "?"))
+		return 1
+
+	var out := OS.get_user_data_dir().path_join("_savetree_probe_foreign_out.zip")
+	var w: Dictionary = wg3.project_save(out)
+	if not bool(w.get("ok", false)):
+		print("  FAIL: foreign: re-save -> ", w.get("error", "?"))
+		return 1
+
+	var zr2 := ZIPReader.new()
+	if zr2.open(out) != OK:
+		print("  FAIL: foreign: re-saved archive did not open")
+		return 1
+	var back := zr2.read_file(name) if (name in zr2.get_files()) else PackedByteArray()
+	zr2.close()
+
+	if back.size() == 0:
+		print("  FAIL: foreign entry '%s' was DROPPED by the re-save" % name)
+		return 1
+	if back != bad:
+		print("  FAIL: foreign entry survived but changed: %d bytes -> %d" % [bad.size(), back.size()])
+		return 1
+	print("  foreign entry survived open+re-save byte-for-byte (", back.size(), " bytes)")
+	return 0

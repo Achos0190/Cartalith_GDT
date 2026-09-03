@@ -47,6 +47,15 @@
 //! `WorldGen` field, the `Variant`/Dictionary conversion, the `LandmarkInputs`
 //! assembly, and the `#[func]` surface itself.
 
+/// The rejected-candidate list's own `#[godot_api(secondary)]` surface —
+/// `LARGE_ITEM_RULINGS.md`'s Landmark-funnel ruling, second half.
+///
+/// A submodule rather than more of this file precisely because of the "Style"
+/// note above: that isolation is worth keeping, and a `#[func]` cannot be
+/// written without `godot`. Same split as `label_bridge.rs` /
+/// `label_bridge/generate.rs`.
+mod rejects;
+
 use cartalith_civ::landmark::{kind_spec, LandmarkClass, LandmarkSettings};
 
 /// [`LandmarkSettings::crowding`]'s own documented range.

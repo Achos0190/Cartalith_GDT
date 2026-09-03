@@ -44,7 +44,8 @@
 //!
 //! `cartalith-io` has registered `drafts/paint.json`, `drafts/sculpt.json`,
 //! `library/assets.json` and `library/travel.json` since the format was
-//! written, and until 2026-08-31 **nothing anywhere could build one**. The
+//! written, and until 2026-08-31 **nothing anywhere could build one** (the
+//! *reading* half took until 2026-09-03; see below). The
 //! channel was never the missing piece: the shell may write all four, and
 //! could always have done so. What was missing is that the payloads are
 //! *engine* state -- a sparse paint layer, a `PassBuffer` of sculpt recipes,
@@ -68,25 +69,37 @@
 //! partition assertion in this file's own tests names all five callers, and
 //! this pass did not change it.
 //!
-//! The return leg is not symmetric, and the asymmetry is structural rather
-//! than unfinished:
+//! **The return leg was missing for both drafts until 2026-09-03, and this
+//! paragraph used to explain why that was structural.** It was not. The two
+//! libraries always restored -- `travel_library`/`asset_library` are plain
+//! non-`Option` fields on `WorldGen` that survive `absorb()`, so there was
+//! always something to restore into -- while `drafts/paint.json` and
+//! `drafts/sculpt.json` were written on every save and applied to nothing,
+//! because `load_save` drops `WorldGen::paint` and `WorldGen::sculpt`. A
+//! painted world reopened unpainted and a stamp stack reopened empty, with
+//! the documents sitting in the archive the whole time.
 //!
-//! * `library/travel.json` and `library/assets.json` **restore**. Both live
-//!   on `WorldGen` as plain non-`Option` fields that survive `absorb()`, so
-//!   there is always something to restore into.
-//! * `drafts/sculpt.json` restores **only into a live Sculpt editor**, i.e. a
-//!   generated world of the same grid size. `WorldGen::sculpt` is `None`
-//!   after `load_save()`/`project_open` (a loaded save carries no
-//!   `river_mask`/`river_floor` for the water hooks -- that field's own doc),
-//!   so a project opened from disk has no editor to hold a draft.
-//! * `drafts/paint.json` **does not restore at all**, and there is no
-//!   `paint_restore_document` for the same reason there is no way to write
-//!   one honestly: `WorldGen::paint` is likewise `None` on a loaded project,
-//!   and `PaintEditor`'s three committed layers are private to
-//!   `paint_bridge.rs` with no setter. Writing the document ends the data
-//!   loss the row was about; reading it back into a session needs a
-//!   `PaintEditor::restore_layers` in that file plus a decision about where a
-//!   loaded project's paint editor comes from at all.
+//! Both now restore, in [`WorldGen::project_open`], which builds the editor
+//! that holds them:
+//!
+//! * The Paint editor's one missing input was the land-only gate's
+//!   classification, and the archive carries what computes it --
+//!   `build_water_bodies` over `rasters/heightmap.f32` and
+//!   `rasters/rainfall.f32`, both of which §5.1 requires. Nothing is
+//!   invented; see `loaded_water_mask`.
+//! * The Sculpt editor's were `river_mask`/`river_floor`, and `None`/`None`
+//!   is the *legal* empty lock state (`SculptEditor::new` falls back to
+//!   `WaterState::new`, exactly what a world generated with `carve_rivers`
+//!   off gets) rather than a stand-in for a missing value. What a loaded
+//!   project still cannot do is **commit** the draft: `sculpt_commit`
+//!   pattern-matches `WorldSource::Generated`, which this pass did not
+//!   change. Recalling a draft and baking it are different questions, the
+//!   same distinction the last section of this doc draws for the civ layer.
+//!
+//! [`WorldGen::paint_restore_document`] and
+//! [`WorldGen::sculpt_restore_document`] stay on the surface as the *import*
+//! route -- a draft read out of a different file with
+//! `project_read_document` and applied to the world already on screen.
 //!
 //! It has two return legs, and they answer different questions.
 //! [`WorldGen::project_open`]'s `documents` hands back every caller-owned
@@ -451,6 +464,39 @@ struct LabelDto {
     class: String,
 }
 
+/// `annotations/icons.json` — every icon in `IconEditor::icons`.
+///
+/// # Owner question 15 meets this file, and nowhere else
+///
+/// *"How does a generated landmark relate to the manual icon tool
+/// (`annotations/icons.json`)?"* is open, and this DTO is the exact seam it
+/// would be answered at, so the seam is stated here rather than left to be
+/// rediscovered.
+///
+/// **Three producers now write into one list**, and none of them marks its
+/// output: click-placement ([`icon_bridge::IconEditor::place`]), the density
+/// brush ([`icon_bridge::IconEditor::brush_stamp`], 2026-09-03) and the
+/// generated placement pass ([`icon_bridge::IconEditor::generate`]) — whose
+/// `POI` family reads `landmark_store.last.landmarks` directly and turns each
+/// landmark into an ordinary `cartalith_assets::manual::ManualIcon`. That pass
+/// ships with *"no new
+/// list, no `generated` flag"* by its own design, so as of today **a landmark's
+/// icon is indistinguishable from a hand-placed one the moment it is written
+/// here**, and reopening a project cannot tell them apart either.
+///
+/// That is one of the two answers question 15 could take, arrived at by
+/// default rather than by decision: *generation seeds, the author owns the
+/// result.* The other answer — *the landmark owns its icon, and moving or
+/// deleting the landmark moves or deletes it* — needs exactly one thing that
+/// is not here: a provenance field on this struct (a landmark id, plus
+/// whatever "the author has since edited it" flag the owner wants). Every
+/// field below is `#[serde(default)]`, so adding one is a forward-compatible
+/// change an older archive opens through unchanged.
+///
+/// **Nothing in this file forecloses either.** The brush was deliberately not
+/// given a list or a flag of its own for that reason: a second list would have
+/// had to be re-merged the moment provenance became a *field*, which is where
+/// it belongs whichever way the question lands.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct IconsDoc {
     #[serde(default)]
@@ -1167,6 +1213,11 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize) -> Option<CivDat
         faction_roster,
         place_extras: civ_roster_bridge::PlaceExtrasTable(place_extras),
         village_tids,
+        // Not persisted: `CivData::belief`'s own doc states the decision and
+        // its one cost. A restored project starts with no belief layer, the
+        // same as a freshly generated world.
+        belief: Vec::new(),
+        belief_seed_key: Vec::new(),
     })
 }
 
@@ -1480,13 +1531,25 @@ impl WorldGen {
         }
 
         write.documents = documents;
+        // `SAVEFILE_COMPAT.md` §6.2, the half that used to be missing: every
+        // entry the open project carried that this build does not model goes
+        // back out unchanged. Cloned rather than moved because a save is not
+        // a close -- the same session may save again, and the second save
+        // owes the file the same entries as the first.
+        //
+        // Empty for a generated world, and for one opened in the flat layout
+        // (`read_flat`'s own comment says why it censuses nothing).
+        write.foreign = self.carried_foreign.clone();
 
         let mut buf: Vec<u8> = Vec::new();
         if let Err(e) = project::write_project(std::io::Cursor::new(&mut buf), &write) {
             return err(e);
         }
-        let entries =
-            write.documents.len() + write.rasters.len() + write.history_territory.len() + 8;
+        let entries = write.documents.len()
+            + write.rasters.len()
+            + write.history_territory.len()
+            + write.foreign.len()
+            + 8;
         match std::fs::write(path.to_string(), &buf) {
             Ok(()) => {
                 let mut d = vdict! { "ok" => true, "error" => "" };
@@ -1529,8 +1592,12 @@ impl WorldGen {
     ///   `project_read_document` is the same question asked of a file the
     ///   caller does not want to open.
     /// - `foreign_entries` names entries this build did not understand.
-    ///   Saving over this file would drop them (§6.2), so a caller that
-    ///   offers Save should say so first.
+    ///   **They are carried, not dropped**: their bytes are held on
+    ///   `WorldGen::carried_foreign` and re-emitted unchanged by the next
+    ///   `project_save_with_documents`, which is §6.2's first option. The
+    ///   list is therefore informational -- "this archive holds N payloads a
+    ///   newer build wrote" -- and no longer a warning a Save command has to
+    ///   put in front of the user.
     /// - `restored` names the engine-owned payloads that were applied —
     ///   `civ`, `labels`, `icons`, `ways`, `region`, `appearance`, `vault`.
     ///
@@ -1543,7 +1610,7 @@ impl WorldGen {
             Ok(f) => f,
             Err(e) => return err(format!("could not open {path}: {e}")),
         };
-        let data = match project::read_project(std::io::BufReader::new(file)) {
+        let mut data = match project::read_project(std::io::BufReader::new(file)) {
             Ok(d) => d,
             Err(e) => return err(e),
         };
@@ -1567,6 +1634,13 @@ impl WorldGen {
 
         let n = (self.gw.max(0) as usize) * (self.gh.max(0) as usize);
         let mut restored: Vec<&str> = Vec::new();
+
+        // Immediately after `load_save`, which cleared the previous project's
+        // copy: these bytes are what the *next* save owes this file (§6.2),
+        // and `carried_foreign`'s own doc explains why they may not outlive
+        // the project they came from. Moved, not cloned -- `data` is dropped
+        // at the end of this function and nothing else reads them.
+        self.carried_foreign = std::mem::take(&mut data.foreign);
 
         if let Some(civ) = civ_from_project(&data, n) {
             self.civ = Some(civ);
@@ -1775,6 +1849,67 @@ impl WorldGen {
             }
         }
 
+        // --- the two drafts -------------------------------------------
+        //
+        // Restored here, not by the shell, for the reason this module's own
+        // doc gives: a draft is *engine* state. Both were written from
+        // 2026-08-31 and neither came back -- `load_save` a few dozen lines
+        // above drops `paint`/`sculpt` outright, so the documents were
+        // carried in the archive and applied to nothing. Every painted biome,
+        // terrain and splat cell, and every stamp in the Sculpt stack, was
+        // invisible from the moment a project was reopened.
+        //
+        // The grid check is not defensive padding: a paint index and a sculpt
+        // stroke point are both grid-cell coordinates, so a draft captured on
+        // another world's grid is not a smaller picture, it is a scrambled
+        // one. `decode_sparse` would silently drop the out-of-range half and
+        // leave a plausible-looking wrong result.
+        let grid = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if let Some(Ok(doc)) = data.parse::<PaintDoc>(SLOT_PAINT)
+            && (doc.gw, doc.gh) == grid
+            && n > 0
+        {
+            // The land-only gate's classification, recomputed from the
+            // archive's own heightmap and rainfall. This is the answer to
+            // "where does a loaded project's paint editor come from at all?"
+            // that `paint_bridge.rs` had no setter for: the inputs
+            // `build_water_bodies` needs are exactly the two rasters
+            // `SAVEFILE_COMPAT.md` §5.1 requires every archive to carry, so
+            // there is nothing to invent. It costs one flood fill on open
+            // (measured 417 ms at 2048x2048, `absorb`'s own note), paid only
+            // when the archive actually carries a paint draft.
+            let mask = self.loaded_water_mask(n);
+            let mut editor = crate::paint_bridge::PaintEditor::new(doc.gw, doc.gh, mask);
+            editor.restore_layers(n, &doc.biome, &doc.terrain, &doc.splat);
+            self.paint = Some(editor);
+            restored.push("paint layers");
+        }
+
+        if let Some(Ok(doc)) = data.parse::<SculptDoc>(SLOT_SCULPT)
+            && (doc.gw, doc.gh) == grid
+            && n > 0
+        {
+            // `None`/`None` for the water hooks, and that is the *legal*
+            // empty lock state rather than a stand-in: `SculptEditor::new`
+            // falls back to `WaterState::new(n)`, which is exactly what a
+            // world generated with `carve_rivers` off gets
+            // (`WaterState::from_generated`'s own doc). What a loaded project
+            // cannot do is **commit** -- `sculpt_commit` pattern-matches
+            // `WorldSource::Generated` and refuses, unchanged by this -- so
+            // the draft comes back visible and editable, and baking it still
+            // needs the world it was drawn over.
+            self.sculpt = Some(crate::sculpt_bridge::SculptEditor::new(
+                doc.gw,
+                doc.gh,
+                None,
+                None,
+                doc.seed,
+            ));
+            if self.sculpt_apply_doc(&doc).is_ok() {
+                restored.push("sculpt draft");
+            }
+        }
+
         // The shell's own slots are handed back rather than applied: this
         // crate has no idea what they mean, which is the whole point of the
         // channel (`SAVEFILE_COMPAT.md` §6.5).
@@ -1807,7 +1942,7 @@ impl WorldGen {
         );
         out.set("format_version", data.format_version);
         let warnings: PackedStringArray = data.warnings.iter().map(GString::from).collect();
-        let foreign: PackedStringArray = data.foreign_entries.iter().map(GString::from).collect();
+        let foreign: PackedStringArray = self.carried_foreign.keys().map(GString::from).collect();
         let restored: PackedStringArray = restored.iter().map(|s| GString::from(*s)).collect();
         out.set("warnings", &warnings);
         out.set("foreign_entries", &foreign);
@@ -2174,9 +2309,10 @@ impl WorldGen {
     /// `cartalith-io` registered, removes that step rather than documenting
     /// around it.
     ///
-    /// Merge it into whatever the shell owns (`entities/journeys.json`) and
-    /// pass the union; the two never collide, since none of these four is a
-    /// slot GDScript writes.
+    /// Merge it into whatever the shell owns (`entities/journeys.json` and,
+    /// since 2026-09-03, `annotations/measurements.json`) and pass the union;
+    /// the sets never collide, since none of these four is a slot GDScript
+    /// writes.
     #[func]
     fn project_engine_built_documents(&mut self) -> VarDictionary {
         let mut out = VarDictionary::new();
@@ -2204,11 +2340,9 @@ impl WorldGen {
     /// saves.
     ///
     /// Hand the result to `project_save_with_documents` under
-    /// `"drafts/paint.json"`. There is no matching restore, and this
-    /// module's own doc says why: a project opened from disk has no
-    /// `PaintEditor` to restore into. `project_open`'s `documents` still
-    /// hands the text back, so nothing is *lost* -- it is carried, not yet
-    /// re-applied.
+    /// `"drafts/paint.json"`. [`Self::paint_restore_document`] is the other
+    /// half; `project_open` applies the archive's own copy without being
+    /// asked.
     #[func]
     fn paint_document_json(&self) -> GString {
         let Some(paint) = self.paint.as_ref() else {
@@ -2243,6 +2377,44 @@ impl WorldGen {
             return GString::new();
         }
         serde_json::to_string(&doc).map_or_else(|_| GString::new(), |t| GString::from(&t))
+    }
+
+    /// Restores a `drafts/paint.json` into the **live** Paint editor.
+    /// Returns `{ok, error, biome, terrain, splat}` -- the painted-cell count
+    /// each layer came back with.
+    ///
+    /// The exact mirror of [`Self::sculpt_restore_document`], including which
+    /// caller it is for: `project_open` applies the archive's own copy
+    /// itself, and this is the *import* route for a document read out of
+    /// another file. Refused on a grid mismatch for the reason
+    /// `PaintEditor::restore_layers` gives -- a paint index is a cell number.
+    #[func]
+    fn paint_restore_document(&mut self, text: GString) -> VarDictionary {
+        let doc: PaintDoc = match serde_json::from_str(&text.to_string()) {
+            Ok(d) => d,
+            Err(e) => return err(format!("drafts/paint.json is not valid: {e}")),
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if doc.gw != gw || doc.gh != gh {
+            return err(format!(
+                "these layers were painted on a {}x{} grid and this world is {gw}x{gh}; \
+                 a paint index is a cell number and does not carry over",
+                doc.gw, doc.gh
+            ));
+        }
+        let Some(p) = self.paint.as_mut() else {
+            return err(
+                "there is no Paint editor to restore into: opening a project builds one only \
+                 when the archive carries a drafts/paint.json for this world's own grid, and \
+                 generating a world builds one always",
+            );
+        };
+        let (biome, terrain, splat) = p.restore_layers(gw * gh, &doc.biome, &doc.terrain, &doc.splat);
+        let mut out = vdict! { "ok" => true, "error" => "" };
+        out.set("biome", biome as i64);
+        out.set("terrain", terrain as i64);
+        out.set("splat", splat as i64);
+        out
     }
 
     /// `drafts/sculpt.json`'s text for the current session, or `""` when
@@ -2288,10 +2460,15 @@ impl WorldGen {
     /// Restores a `drafts/sculpt.json` into the **live** Sculpt editor.
     ///
     /// Returns `{ok, error, stamps}`. Refused, rather than silently partly
-    /// applied, when there is no Sculpt editor (no generated world) or when
-    /// the document's grid is not this world's: a stroke point is a grid-cell
-    /// coordinate, so a draft from a 512x384 world laid over a 256x192 one is
-    /// not a smaller draft, it is the wrong one.
+    /// applied, when there is no Sculpt editor or when the document's grid is
+    /// not this world's: a stroke point is a grid-cell coordinate, so a draft
+    /// from a 512x384 world laid over a 256x192 one is not a smaller draft,
+    /// it is the wrong one.
+    ///
+    /// **Not the call the load path makes.** `project_open` restores the
+    /// archive's own draft itself, building the editor to hold it; this is
+    /// the *import* route -- a draft read out of some other file with
+    /// `project_read_document` and applied to the world already on screen.
     ///
     /// **Replaces the draft**, it does not merge into it, and it clears the
     /// undo/redo history with it -- `PassBuffer::discard` is what a restore
@@ -2303,19 +2480,65 @@ impl WorldGen {
             Ok(d) => d,
             Err(e) => return err(format!("drafts/sculpt.json is not valid: {e}")),
         };
+        match self.sculpt_apply_doc(&doc) {
+            Ok(restored) => {
+                let mut out = vdict! { "ok" => true, "error" => "" };
+                out.set("stamps", restored as i64);
+                out
+            }
+            Err(e) => err(e),
+        }
+    }
+
+    /// The land-only gate's classification for the world currently in
+    /// `self.source` -- `PaintEditor::new`'s third argument, computed from
+    /// whichever pair of rasters this world has.
+    ///
+    /// `0` is land, and every non-`0` is water, so a length that is not `n`
+    /// would degrade the gate to "never excludes anything"
+    /// (`PaintEditor::new`'s own contract). That is why the fallback is an
+    /// all-land mask of the right length rather than an empty one: a caller
+    /// with no world has nothing to gate against, and the honest gate is the
+    /// one that lets every dab through rather than one that silently
+    /// mis-sizes.
+    fn loaded_water_mask(&self, n: usize) -> std::sync::Arc<[u8]> {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let wb = match self.source.as_ref() {
+            Some(WorldSource::Loaded(save)) => cartalith_civ::build_water_bodies(
+                &save.fields.heightmap,
+                gw,
+                gh,
+                self.sea_level,
+                self.world,
+                Some(&save.fields.rainfall),
+            ),
+            // `absorb()` takes this from `CivData::water_bodies`, which a
+            // generated world always has; reaching here means neither, so
+            // there is nothing to classify.
+            _ => return std::sync::Arc::from(vec![0u8; n].as_slice()),
+        };
+        std::sync::Arc::from(wb.classification.as_slice())
+    }
+
+    /// [`Self::sculpt_restore_document`]'s body, shared with
+    /// [`Self::project_open`], which parses the same document out of the
+    /// archive and must not re-serialize it to text to get at this.
+    /// `Ok(n)` is the number of stamps that rebuilt.
+    fn sculpt_apply_doc(&mut self, doc: &SculptDoc) -> Result<usize, String> {
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         if doc.gw != gw || doc.gh != gh {
-            return err(format!(
+            return Err(format!(
                 "this draft was captured on a {}x{} grid and this world is {gw}x{gh}; \
                  a stroke point is a grid-cell coordinate and does not carry over",
                 doc.gw, doc.gh
             ));
         }
         let Some(s) = self.sculpt.as_mut() else {
-            return err(
-                "there is no Sculpt editor to restore into: one exists only over a freshly \
-                 generated world, never over a loaded save (a save carries no river_mask/\
-                 river_floor for the water hooks to adopt)",
+            return Err(
+                "there is no Sculpt editor to restore into: opening a project builds one \
+                 only when the archive carries a drafts/sculpt.json for this world's own \
+                 grid, and generating a world builds one always"
+                    .to_string(),
             );
         };
         if let Some(f) = cartalith_terrain::sculpt::Feature::from_key(&doc.feature) {
@@ -2325,7 +2548,7 @@ impl WorldGen {
         s.globals = sculpt_globals_from_map(&doc.globals);
         s.seed = doc.seed;
         s.points.clear();
-        s.selected = None;
+        s.selection.clear();
         s.draft.discard();
         let mut restored = 0usize;
         for d in &doc.stamps {
@@ -2352,9 +2575,7 @@ impl WorldGen {
             }
             restored += 1;
         }
-        let mut out = vdict! { "ok" => true, "error" => "" };
-        out.set("stamps", restored as i64);
-        out
+        Ok(restored)
     }
 
     /// `library/assets.json`'s text -- `cartalith_assets::AssetDB::to_library_json`,
@@ -2635,6 +2856,8 @@ mod tests {
 
         CivData {
             road_edges: Vec::new(),
+            belief: Vec::new(),
+            belief_seed_key: Vec::new(),
             settlements: vec![
                 cartalith_civ::NamedSettlement {
                     tid: 7,
@@ -2953,6 +3176,94 @@ mod tests {
         assert_eq!(layer.cells().expect("allocated")[1], 0);
     }
 
+    /// The round trip that was missing: **painted cells out of a live editor,
+    /// through the archive, and back into a live editor.**
+    ///
+    /// The archive-level test above proves the document's bytes survive; this
+    /// one proves the two halves are inverses, which is the part that was
+    /// never true. `paint_document_json` shipped on 2026-08-31 with nothing
+    /// to read it, so every painted cell was written and dropped on the next
+    /// open. Reverting `PaintEditor::restore_layers` fails this test at the
+    /// `layer_cells` comparison, not at the JSON.
+    ///
+    /// The encode side is `paint_document_json`'s own loop rather than a
+    /// literal, for the reason the asset-library test gives: a literal would
+    /// pin this file's idea of the shape instead of the writer's.
+    #[test]
+    fn painted_layers_come_back_out_of_a_real_archive() {
+        use crate::paint_bridge::{PaintEditor, PaintTarget};
+        const GW: usize = 8;
+        const GH: usize = 6;
+        let n = GW * GH;
+
+        // One cell of the 48 is water, and the brush is land-only, so the
+        // fixture also carries a *hole* -- a layer that is uniformly painted
+        // would round-trip even if `decode_sparse` mis-indexed.
+        let mut mask = vec![0u8; n];
+        mask[2 * GW + 2] = 2;
+        let mut src = PaintEditor::new(GW, GH, mask.clone().into());
+        src.set_brush(3, 2.0, 1.0, 0.0, false, true);
+        src.stroke_at(2.0, 2.0);
+        src.set_layer(PaintTarget::Splat);
+        src.set_brush(2, 1.0, 1.0, 0.0, false, true);
+        src.stroke_at(6.0, 4.0);
+        src.commit_all(n);
+
+        let encode = |e: &PaintEditor, t: PaintTarget| -> Vec<u32> {
+            e.layer_cells(t)
+                .map(|cells| {
+                    let mut out = Vec::new();
+                    for (i, &v) in cells.iter().enumerate() {
+                        if v != 0 {
+                            out.push(i as u32);
+                            out.push(u32::from(v));
+                        }
+                    }
+                    out
+                })
+                .unwrap_or_default()
+        };
+        let doc = PaintDoc {
+            gw: GW,
+            gh: GH,
+            biome: encode(&src, PaintTarget::Biome),
+            terrain: encode(&src, PaintTarget::Terrain),
+            splat: encode(&src, PaintTarget::Splat),
+        };
+        assert!(
+            !doc.biome.is_empty() && !doc.splat.is_empty(),
+            "the fixture must actually paint something on two layers"
+        );
+        assert!(
+            doc.terrain.is_empty(),
+            "and leave the third unallocated, so the empty case travels too"
+        );
+
+        let text = serde_json::to_string(&doc).expect("PaintDoc serializes");
+        let back_text = document_round_trip(SLOT_PAINT, &text);
+        let back: PaintDoc = serde_json::from_str(&back_text).expect("PaintDoc parses back");
+
+        let mut dst = PaintEditor::new(GW, GH, mask.into());
+        let counts = dst.restore_layers(n, &back.biome, &back.terrain, &back.splat);
+
+        for t in [PaintTarget::Biome, PaintTarget::Terrain, PaintTarget::Splat] {
+            assert_eq!(
+                dst.layer_cells(t),
+                src.layer_cells(t),
+                "{t:?} must come back cell for cell"
+            );
+        }
+        // ...and the gated cell really is a hole in what came back, so the
+        // comparison above is not two identical blanks.
+        assert_eq!(
+            dst.layer_cells(PaintTarget::Biome).expect("biome allocated")[2 * GW + 2],
+            0,
+            "the water cell the brush was gated out of must still be unpainted"
+        );
+        assert_eq!(counts.1, 0, "an unallocated layer restores as zero painted cells");
+        assert!(counts.0 > 0 && counts.2 > 0);
+    }
+
     #[test]
     fn a_sculpt_draft_survives_a_real_archive_round_trip() {
         use cartalith_terrain::sculpt::{Feature, FreehandMode};
@@ -3162,7 +3473,7 @@ mod tests {
 
     #[test]
     fn the_four_new_slots_are_the_caller_s_and_not_the_engine_s() {
-        // The partition assertion above names all five callers; this one
+        // The partition assertion above names all six callers; this one
         // names the four constants this file added, so that moving one into
         // `ENGINE_OWNED_SLOTS` has to be deliberate rather than a
         // side effect of adding a builder for it.
@@ -3413,8 +3724,14 @@ mod tests {
                 "{slot}"
             );
         }
-        // The five the shell may have today, named so that a change to the
-        // split has to be deliberate.
+        // The six the shell may have today, named so that a change to the
+        // split has to be deliberate. `annotations/measurements.json` joined
+        // on 2026-09-03 and is the *second* one GDScript writes itself: a
+        // saved measurement is a mode, the clicked points and the reading,
+        // and `measure_bridge.rs`'s own rule is that the caller owns the
+        // points. It is deliberately not in `ENGINE_OWNED_SLOTS`, and this
+        // list is what makes moving it there a failing test rather than a
+        // silently unwritable store.
         let callers: Vec<&str> = cartalith_io::DOCUMENT_SLOTS
             .iter()
             .copied()
@@ -3424,6 +3741,7 @@ mod tests {
             callers,
             vec![
                 "entities/journeys.json",
+                "annotations/measurements.json",
                 "library/assets.json",
                 "library/travel.json",
                 "drafts/paint.json",

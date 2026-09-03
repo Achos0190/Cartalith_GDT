@@ -157,6 +157,18 @@ pub fn slot_title(family: Family, id: &str) -> &'static str {
         (Family::Icons, "cactus") => "Cactus",
         (Family::Icons, "boulder") => "Boulder",
 
+        // Sea marks (owner ruling 2026-09-02). These eight titles are this
+        // port's, like the slot ids themselves -- the reference's `FAMILIES`
+        // table has no row to transcribe here.
+        (Family::SeaMark, "lighthouse") => "Lighthouse",
+        (Family::SeaMark, "beacon") => "Signal Beacon",
+        (Family::SeaMark, "buoy") => "Channel Buoy",
+        (Family::SeaMark, "anchorage") => "Anchorage",
+        (Family::SeaMark, "shipwreck") => "Shipwreck",
+        (Family::SeaMark, "reef") => "Reef",
+        (Family::SeaMark, "shoal") => "Shoal / Sandbar",
+        (Family::SeaMark, "whirlpool") => "Whirlpool",
+
         (Family::Settlement, "hamlet") => "Hamlet",
         (Family::Settlement, "village") => "Village",
         (Family::Settlement, "town") => "Town",

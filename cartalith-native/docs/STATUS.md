@@ -4,6 +4,15 @@
 2026-08-31 against the working tree, replacing an 8 122-line narrative that had
 become a second changelog and mis-stamped itself 2026-08-25.
 
+> **Before editing code, run `MISTAKES.md`'s preflight table** at the repository
+> root — it is keyed to what you are about to do, and is preemptive by design (owner
+> instruction, 2026-09-03). This file says what state the project is in;
+> `MISTAKES.md` says what has gone wrong reaching that state and what rule
+> prevents each recurrence. Two of its entries exist because *this* file
+> carried a false claim — it named three deleted probes as "present and
+> uncalled", and it asserted landmark generation was unbuilt on the day a
+> 3 730-line implementation of it shipped.
+
 ---
 
 ## Orientation — read this screen, then stop if that is all you need
@@ -1142,7 +1151,7 @@ produced. **R1-R3 landed; R4-R8 did not**, and each was re-verified absent.
 | MEM-1 | Instrument, confirm the dominant cost, fix (2026-08-16): six unused resource fields | done | `compute_civilisation` sets `resources.clay/buildstone/flint/obsidian/sulfur/alum = Vec::new()` immediately after `build_resource_potentials` returns, with a comment citing the scope document. `ResourcePotentials` still computes all 15, as the fix intended |
 | MEM-2 | Tracked budget line item: the global undo stack (2026-08-23) | done | `cartalith-godot/src/undo.rs` — `MAX_STEPS = 5`, `DEFAULT_BUDGET_BYTES = 256 * 1024 * 1024`, constructor takes the budget, module doc states the whichever-binds-first rule. UI: `menus.gd`'s `Undo history` submenu with `Clear undo history now` and a live-cost tooltip |
 | MEM-3 | Android budget measured by category + kept instrumentation (2026-08-25) | done\* | Instrumentation is real: `shell/performance_window.gd` reads `RENDER_VIDEO_MEM_USED` / `RENDER_TEXTURE_MEM_USED` / `RENDER_BUFFER_MEM_USED` and the draw-call/object counters beside `OS.get_static_memory_usage()`, labelled as outside it. The PSS/category tables are handset measurements — **not checkable from code** |
-| MEM-4 | Generation peak measured field by field, ranked list R1-R8 (2026-08-25) | done | The probes the audit was built on are present and uncalled, exactly as recorded: `cartalith-civ/examples/_peakaudit_peak.rs`, `_peakaudit_block.rs`, `_peakaudit_hash.rs`. This milestone produced an audit, not production code; its conclusions are the R-rows below |
+| MEM-4 | Generation peak measured field by field, ranked list R1-R8 (2026-08-25) | done | This milestone produced an audit, not production code; its conclusions are the R-rows below. **The three probes it was built on are deleted as of 2026-09-03** — `cartalith-civ/examples/_peakaudit_peak.rs`, `_peakaudit_block.rs`, `_peakaudit_hash.rs` — which `MEMORY_OPTIMIZATION_SCOPE.md` scheduled for exactly this point ("named for deletion when the audit closes"). *This cell read "the probes … are present and uncalled, exactly as recorded" until they were removed, and a verifier caught it the same day; a deleted file named as present is the defect this file exists to prevent.* |
 | MEM-5 | Overlay lever 1 — collapse the dash loop into one `draw_multiline` | declined | Measured a no-op and reverted: `godot-project/map_overlay.gd` still emits per-dash lines, and the evidence probe was kept — `_dashbatch_probe.gd` / `.tscn` exist. The document says the probe is retained "as the reason not to try it again"; that is what the tree shows |
 | MEM-6 | Overlay lever 2 — bound the overlay by zoom (`_run_offscreen`) | done | `map_overlay.gd` — `_visible_local_rect()` inverts the canvas transform, `_run_offscreen(pts, k, pad)` rejects a run whose bounds miss it, cached once per `_draw()` and applied at the way draw site. Pixel-identity probe kept: `_cull_probe.gd` / `.tscn` |
 | MEM-7 | R1 — free the previous world before generating the next | done | `cartalith-godot/src/lib.rs::release_world(&mut self)`, called from `generate_sized` and — the audit's own correction — from `generate_world_structure_sized`. Both call sites sit below their function's refusal checks, as the safety argument requires |

@@ -11,10 +11,13 @@ class_name CartographyWorkspace
 ## prohibition allows (`DCC_SHELL_SPEC.md` §4.5.5): "cartographic annotation
 ## ... adds nothing to and takes nothing from the world model."
 ##
-## §7 specifies three panes and a ten-row layer stack. The renderer can honour
-## five of those rows today; the rest (hand-drawn hillshade, colour relief as
-## separate layers, opacity, blend mode, the ramp editor) need `render.rs`'s
-## `TerrainAppearance` bound to Godot first.
+## §7 specifies three panes and a ten-row layer stack with three children under
+## Terrain. Those three children -- Terrain, Colour relief, Hillshade -- are a
+## real stack as of 2026-09-03 (`render::LayerStack`, CA-03/CA-04): visibility,
+## opacity, blend mode and order, drawn by `render_workspace.gd`'s
+## `_build_layer_stack()` into this file's own Layers category. §7's remaining
+## rows are still whole overlays with a visibility switch each and no slot in
+## the raster to order against; `_build_layer_gaps()` states that split.
 ##
 ## §4.5.5's Icon and Label tools (`UNIFIED_TOOL_PLAN.md` milestone F) are wired
 ## here in full: `icon_bridge.rs`/`label_bridge.rs` are bound and tested, and
@@ -52,14 +55,28 @@ class_name CartographyWorkspace
 ## | Visibility / zoom | the analysis-field overlays (the Layers popover) |
 ## | Map presets | RENDER's Saved looks + Still owed |
 ##
-## "Layer properties" is gone as a category: it was one honest note about a
-## capability that does not exist (CA-04), and v3 folds per-layer opacity/
-## blend/zoom into LAYERS' own rows. The note moved there rather than being
-## dropped. Nothing was rewritten -- every builder below is the one that was
-## already here, called with a different parent.
+## "Layer properties" is gone as a category: v3 folds per-layer opacity/blend/
+## zoom into LAYERS' own rows, which is where they now are. When v3 landed it
+## was one honest note about a capability that did not exist; the capability
+## exists for the raster's three categories as of 2026-09-03, so LAYERS carries
+## the rows themselves and the note beneath them is now about what is left.
+## Nothing was rewritten -- every builder below is the one that was already
+## here, called with a different parent.
 
 ## The layers the shell can actually toggle, in §7's own draw order:
 ## topmost first, matching how the layer list reads.
+##
+## Each entry's `on` is design documentation, not live state -- the checkboxes
+## built below are seeded from the engine (`app.viewport.layer_visible()`),
+## never from this field directly (`_layer_checks`'s own doc comment). It
+## earns its keep by being asserted rather than left to drift silently:
+## `_verify_layers_probe.gd` builds the same eight checkboxes this file does
+## and fails if any of them disagrees with the engine's own default at launch
+## (`godot --headless --script _verify_layers_probe.gd`; ALL PASS as of
+## 2026-09-03). Re-run it after moving a default here, in `map_overlay.gd`'s
+## `_show_*`/`_landmark*_visible` field initializers, or in
+## `viewport_host.gd`'s `territory_view`/`province_view` initial `.visible` --
+## whichever side moves, the probe is what says whether the other still agrees.
 const LIVE_LAYERS: Array = [
 	{"id": "settlements", "label": "Settlements", "on": true},
 	{"id": "roads", "label": "Ways & routes", "on": true},
@@ -81,6 +98,14 @@ const LIVE_LAYERS: Array = [
 	## result without a second step — and drawing nothing until one has run,
 	## which is exactly how Sea routes behaves before any exist.
 	{"id": "landmarks", "label": "Landmarks", "on": true},
+	## The landmark funnel's rejected candidates (`LARGE_ITEM_RULINGS.md`'s
+	## Landmark-funnel ruling, second half). **Off by default**, unlike the row
+	## above it and for the opposite reason: a placement is the output of a pass
+	## the user ran, while a rejection answers "why fewer than I asked for" --
+	## a question they have to ask. A default run at 2048x1311 rejects 547 281
+	## candidates and lists the best-scoring 3 216 of them, which is a real
+	## diagnostic and would be pure noise arriving unasked on every world.
+	{"id": "landmark_rejects", "label": "Landmark rejects (diagnostic)", "on": false},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]
@@ -147,6 +172,17 @@ const ICON_SCALE_MAX := 4.0   ## `cartalith_assets::manual::ICON_SCALE_MAX`.
 const LABEL_SIZE_MIN := 8.0   ## `cartalith_civ::labels::LABEL_SIZE_MIN`.
 const LABEL_SIZE_MAX := 48.0  ## `cartalith_civ::labels::LABEL_SIZE_MAX`.
 
+## The density brush's two ranges -- `icon_bridge.rs`'s `ICON_BRUSH_R_MIN`/
+## `_MAX` and `ICON_BRUSH_DENSITY_MIN`/`_MAX`, which are the reference's own
+## `#carIconBrushR` (`min="2" max="60"`) and `#carIconBrushD` (`min="5"
+## max="200"`, divided by 100 by its own listener) slider attributes. The
+## engine clamps to exactly these, so a slider that could ask for more would
+## only ever show a number the map did not use.
+const ICON_BRUSH_R_MIN := 2.0
+const ICON_BRUSH_R_MAX := 60.0
+const ICON_BRUSH_DENSITY_MIN := 0.05
+const ICON_BRUSH_DENSITY_MAX := 2.0
+
 ## What an in-progress canvas drag on the Label tool is doing -- set on
 ## `map_clicked` (a handle grab or a hit on an existing label's box), read on
 ## every subsequent `map_dragged` sample, cleared on `map_released`. `RESIZE`/
@@ -173,6 +209,22 @@ var _icon_variant_idx := 0
 var _icon_scale := 1.0
 var _icon_rotation := 0.0
 var _icon_jitter := 0.0
+
+# -- Density brush (`icon_bridge/brush.rs`, `UNIFIED_TOOL_PLAN.md` milestone
+# E's last open half). The reference's own `_carIconBrush={on,r,density,
+# painting}` split across the two sides it belongs on: the three settings live
+# in the engine (`icon_brush_set`/`icon_brush`), and `painting` -- pointer
+# state -- lives here, where the pointer is.
+#
+# Defaults mirror `IconBrush::default()` / the reference's own slider `value`
+# attributes (line 1656-1657: r=12, density 60/100), so an untouched row and an
+# untouched engine agree before the first `icon_brush_set` -- the same
+# discipline `_paint_brush` and the settlement-class filter already follow. --
+var _icon_brush_on := false
+var _icon_brush_r := 12.0
+var _icon_brush_density := 0.6
+## Live only between `map_clicked` and `map_released` on a brush stroke.
+var _icon_brush_painting := false
 var _icon_list_body: VBoxContainer
 ## `DCC_SHELL_SPEC.md` §4.5.5 asks for both list panels "with counts and
 ## Clear-all". The count was never drawn and the button was live at zero, so
@@ -207,6 +259,20 @@ var _label_edit_body: VBoxContainer
 var _label_clear_btn: Button
 ## `GUI_GAP_REGISTER.md` **RF-05** -- see `_refresh_trade_load_row()`.
 var _trade_load_toggle: CheckBox
+
+## `LIVE_LAYERS` id -> the CheckBox both the "Visible layers" and "Political
+## layers" loops build for it. Each is seeded from the engine's own
+## `app.viewport.layer_visible(id)` at build time -- not from `LIVE_LAYERS`'s
+## own `on` field, which the two loops never read; `on` is design
+## documentation the engine agrees with today, checked by
+## `_verify_layers_probe.gd` (see that field's own doc comment), not the
+## value actually wired into the toggle. `_sync_layers()` is the read-back
+## half, added for the identical defect
+## `render_workspace.gd::_sync_color_space()` fixed: built once at launch, a
+## checkbox never re-read the visibility a second writer --
+## `civilization_workspace.gd`'s landmark-funnel "Show rejected" chip, calling
+## `set_layer_visible()` directly -- could change out from under it.
+var _layer_checks: Dictionary = {}
 
 ## The former RENDER domain, nested into this dock -- see this file's own
 ## class doc and `RenderWorkspace`'s own class doc for the mechanism.
@@ -248,11 +314,17 @@ func _build() -> void:
 	for layer in LIVE_LAYERS:
 		if POLITICAL_LAYERS.has(String(layer.id)):
 			continue   ## v3 gives these their own category -- see Political display.
-		DccWidgets.toggle(body, layer.label, layer.on,
+		_layer_checks[layer.id] = DccWidgets.toggle(body, layer.label,
+			app.viewport.layer_visible(layer.id),
 			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
 	DccWidgets.note(body,
-		"Terrain, hillshade and colour relief are one baked raster today, so "
-		+ "they toggle together with the map itself rather than as separate rows.")
+		"Each row above is a whole overlay with nothing inside it to order. "
+		+ "The terrain raster's own three categories are the stack below.")
+	## §7's layer list, for the part of it that is a *stack* -- Terrain, Colour
+	## relief and Hillshade, with visibility, opacity, blend mode and order.
+	## `render_workspace.gd` owns it beside the ramp and the tunables (it is
+	## `TerrainAppearance` state); this is where §7 draws it.
+	_render.build_layer_stack_into(cat)
 	_build_settlement_class_filter(cat)
 	_build_layer_gaps(cat)
 
@@ -290,6 +362,17 @@ func _build() -> void:
 	_register_tools()
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
 	bridge.world_loaded.connect(_on_world_changed)
+	## A layer flipped from OUTSIDE this dock -- the landmark funnel's "Show
+	## rejected" chip (`civilization_workspace.gd::_lm_show_rejects()`) is the
+	## one real caller today -- now reaches these checkboxes live rather than
+	## only on the next world change. `_sync_layers()` already does the actual
+	## read-back correctly (verified by `_verify_layers_probe.gd`); it used to
+	## run only from `_on_world_changed()`. That was the gap: because
+	## `app.gd::_register_workspaces()` builds every workspace eagerly at
+	## launch, these checkboxes already exist before any click can happen, so a
+	## build-time read cannot cover one and a click before the next regenerate
+	## had nothing to trigger the sync.
+	app.viewport.layer_visibility_changed.connect(func(_layer: String, _shown: bool): _sync_layers())
 
 	## A world may already exist when this dock is first built -- CARTO is not
 	## the workspace the app opens on, so `generation_finished` has usually
@@ -399,13 +482,27 @@ func _build_way_style(parent: Control) -> void:
 ## their absence, per `menus.gd`'s own honesty rule.
 func _build_layer_gaps(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Not built")
+	## **This note said the opposite until 2026-09-03**, and the reason it gave
+	## was wrong about the renderer as well as stale: it claimed terrain,
+	## hillshade and colour relief were "composited into one raster by render.rs
+	## before it crosses the boundary, so there are no separable outputs to order
+	## or blend". Both composites already existed inside `land_color`, hardcoded
+	## -- a normal-over lerp and a multiply -- and `render::LayerStack` moved the
+	## operator and the slot out of source and into data. Opacity, blend mode and
+	## order are live for those three above. What is still missing is the *other*
+	## thirteen rows of v3's stack, and they are missing for a different reason.
 	DccWidgets.note(sec,
-		"Per-layer opacity, draw order and blend mode (GUI_GAP_REGISTER.md CA-04): "
-		+ "terrain, hillshade and colour relief are composited into one raster by "
-		+ "render.rs before it crosses the boundary, so there are no separable "
-		+ "outputs to order or blend. Opacity alone is cheap once they separate. "
-		+ "v3's sixteen-row draggable stack, its per-layer zoom range and its "
-		+ "picking/clip switches all rest on that same separation.")
+		"Per-layer opacity, blend mode and order (GUI_GAP_REGISTER.md CA-04) are "
+		+ "live for the terrain raster's three categories -- the stack above. "
+		+ "They are not live for the rest of the design's layer list, and that is "
+		+ "a different problem, not the same one half-finished: Water is a sibling "
+		+ "of Terrain rather than one of its children (sea colour folds its own "
+		+ "shade in and has no ramp at all), the design's fourth child "
+		+ "\"Hand-drawn hillshade\" is the Painter block and is already switchable "
+		+ "under Map style, and the annotation and civilisation rows are separate "
+		+ "overlay passes drawn after the raster, with a visibility switch each "
+		+ "and no slot in it to order. Per-layer zoom range and the picking/clip "
+		+ "switches rest on that second separation, not on the one that landed.")
 	DccWidgets.note(sec,
 		"Show rivers in biome view (#showRivers) and Rivers as ways: both are "
 		+ "reference RENDER filters over a river network that never crosses the "
@@ -432,7 +529,8 @@ func _build_political_display(parent: Control) -> void:
 	for layer in LIVE_LAYERS:
 		if not POLITICAL_LAYERS.has(String(layer.id)):
 			continue
-		DccWidgets.toggle(sec, layer.label, layer.on,
+		_layer_checks[layer.id] = DccWidgets.toggle(sec, layer.label,
+			app.viewport.layer_visible(layer.id),
 			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
 	DccWidgets.note(sec,
 		"Territory is the per-cell claim map; provinces are its partition into "
@@ -538,12 +636,15 @@ func _build_visibility(parent: Control) -> void:
 		+ "▸ Way style), and a town's drawn layout crossfades in over a 24-10 km "
 		+ "span. Neither is a *user* range, and the other fourteen layers v3 "
 		+ "lists have none at all (GUI_GAP_REGISTER.md CA-18) -- a per-layer "
-		+ "zoom range needs the separable layer stack CA-04 is blocked on.")
+		+ "zoom range needs each of those layers to be a stack row, which the "
+		+ "overlay passes are not. CA-04 landed for the terrain raster's three "
+		+ "categories (Layers - Terrain raster) and does not reach them.")
 	DccWidgets.note(gaps,
-		"Declutter budget  ·  blocked on CA-04\n"
+		"Declutter budget  ·  still not built\n"
 		+ "Label and icon collision is not resolved anywhere -- overlapping "
 		+ "annotation simply overlaps. A budget needs a per-layer zoom range to "
-		+ "spend, and that needs the separable layer stack CA-04 waits on.\n"
+		+ "spend, and that needs the annotation overlays to be stack rows -- "
+		+ "which is the half of CA-04 the 2026-09-03 raster stack did not do.\n"
 		+ "Two ladders do exist, both ported: way types by CIV_LOD_ROAD, and the "
 		+ "24-10 km urban-layout crossfade.")
 	DccWidgets.note(gaps,
@@ -611,6 +712,13 @@ func _on_any_tool_armed(id: String) -> void:
 			_label_drag_index = -1
 			_icon_drag_mode = IconDragMode.NONE
 			_icon_drag_index = -1
+			## The reference's own `pointercancel` (line 9753) drops
+			## `_carIconBrush.painting` alongside every other in-flight drag,
+			## and disarming the tool is this shell's equivalent event: a
+			## stroke interrupted by Escape must not leave the flag set, or
+			## the next `map_dragged` on a re-armed Icon tool would resume
+			## painting without a press.
+			_icon_brush_painting = false
 			app.viewport.tool_overlay.set_handles([])
 			if app.active_domain() == "cartography":
 				_show_style_tool_options()
@@ -670,6 +778,7 @@ func _on_world_changed() -> void:
 	## ramp back over the restored one. See `RenderWorkspace.on_world_changed`.
 	if _render != null:
 		_render.on_world_changed()
+	_sync_layers()
 	app.viewport.tool_overlay.set_handles([])
 	_label_drag_mode = DragMode.NONE
 	_label_drag_index = -1
@@ -678,6 +787,11 @@ func _on_world_changed() -> void:
 	if app.armed_tool == "icon":
 		_arm_icon_from_ui()
 	_rebuild_icon_panel()
+	## `filled` is a count over the *loaded pack*, and File ▸ Open restores one
+	## with the project. Re-reading here is the same reason the labelling pass
+	## re-runs below: the previous answer describes a world that no longer
+	## exists. The chips and sliders themselves are built once and stay.
+	_refresh_icon_placement_rows()
 	_rebuild_label_panel()
 	## Every feature the generated pass names -- continents, provinces,
 	## settlements, lakes, landmarks -- has just been replaced, so the previous
@@ -685,6 +799,17 @@ func _on_world_changed() -> void:
 	## restores the class typography table, which `WorldGen::absorb` resets with
 	## the rest of the label bridge (see `LabelBridge::typography`).
 	_regenerate_labels()
+
+## Re-read every layer checkbox from `app.viewport.layer_visible()` -- the
+## read-back half of the pair `render_workspace.gd::_sync_color_space()`'s own
+## comment describes. `set_pressed_no_signal`, not the plain `button_pressed`
+## property: writing the value back into the engine it was just read from is
+## the asymmetry `_sync_appearance`'s own note describes, and here it would
+## also fire `set_layer_visible()` right back with the value this loop just
+## read out of it.
+func _sync_layers() -> void:
+	for id in _layer_checks:
+		(_layer_checks[id] as CheckBox).set_pressed_no_signal(app.viewport.layer_visible(String(id)))
 
 
 ## Duplicates `app.gd`'s own `_tool_options_simple("CARTOGRAPHY · STYLE", ...)`
@@ -709,6 +834,12 @@ func _arm_icon_from_ui() -> void:
 		return
 	var fam: Dictionary = ICON_FAMILIES[_icon_family_idx]
 	bridge.icon_arm(fam.key, _icon_variant_idx, _icon_scale, _icon_rotation, _icon_jitter)
+	## The brush's three settings ride along on every re-arm rather than only on
+	## their own sliders' `value_changed`, for the reason the armed selection
+	## does: the engine's editor is rebuilt by `absorb()` on every generate, so
+	## a brush set before a regenerate would otherwise silently revert to
+	## `IconBrush::default()` while this row still showed the user's numbers.
+	bridge.icon_brush_set(_icon_brush_on, _icon_brush_r, _icon_brush_density)
 
 
 ## Display names for one manual-icon family's slots, from the engine's own
@@ -785,6 +916,8 @@ func _build_icon_tool_options_row(row: HBoxContainer) -> void:
 		_icon_jitter = v
 		_arm_icon_from_ui())
 
+	_build_icon_brush_controls(row)
+
 	var armed := bridge.icon_armed()
 	if not armed.is_empty():
 		row.add_child(DccTheme.mono_label(
@@ -793,15 +926,70 @@ func _build_icon_tool_options_row(row: HBoxContainer) -> void:
 	row.add_child(DccTheme.spacer())
 
 
+## The density brush's own three controls -- `carIconBrushChk` and, revealed
+## by it, `carIconBrushR`/`carIconBrushD` (reference lines 1654-1657).
+##
+## **Progressive disclosure is the reference's own**, not an invention here:
+## `#carIconBrushOpts` ships `style="display:none"` and its checkbox listener
+## (line 13511) is the only thing that shows it. Rebuilding the row is how
+## every other structural change in this bar is made -- the Family choice one
+## screen up does the same when the Variant list has to follow it.
+##
+## Drawn only against a cdylib that carries the binding. `icon_brush()` is
+## empty both before any world and on an older library, and three sliders that
+## silently reach nothing would be exactly the dead control this shell's own
+## unwired audit exists to catch. A world is guaranteed by then: the sliders
+## write through `icon_brush_set`, which needs the editor `absorb()` creates.
+func _build_icon_brush_controls(row: HBoxContainer) -> void:
+	if bridge.icon_brush().is_empty():
+		return
+	DccWidgets.toggle(row, "Brush", _icon_brush_on, func(on: bool):
+		_icon_brush_on = on
+		_arm_icon_from_ui()
+		app.set_tool_options(_build_icon_tool_options_row),
+		"Density brush (_carIconBrushStamp): drag to paint a blue-noise stand of the armed icon instead of stamping one per click. Unlike click-placement it never paints into water, and each icon takes its own size from the slot's scatter rule rather than the Scale dial.")
+	if not _icon_brush_on:
+		return
+	DccWidgets.slider(row, "Radius", ICON_BRUSH_R_MIN, ICON_BRUSH_R_MAX, 1.0,
+		_icon_brush_r, " cells", func(v: float):
+			_icon_brush_r = v
+			_arm_icon_from_ui())
+	DccWidgets.slider(row, "Density", ICON_BRUSH_DENSITY_MIN, ICON_BRUSH_DENSITY_MAX, 0.05,
+		_icon_brush_density, "", func(v: float):
+			_icon_brush_density = v
+			_arm_icon_from_ui(),
+		"How tightly one stamp packs: spacing is max(1.2, 3/sqrt(density)) cells, so this is a floor on separation rather than a count. One stamp is capped at 1500 darts whatever the radius.")
+
+
 ## Pointerdown-on-the-handle-starts-a-resize, a-miss-falls-through-to-place
 ## precedence (reference lines 9664-9671: `_carIconHitTest` checked before
 ## the click handler's own place/select branch) -- `IconEditor::handles`
 ## doesn't require `sel` to already be selected, but the reference's own
 ## `_iconHandle` is only ever set for `_iconSelected`, so checking it here
 ## against whatever `icon_get_selected()` currently names reproduces that.
+##
+## **The handle branch is skipped while a modifier is down.** Shift or Ctrl
+## means "change what is selected", and a modified press that landed on the
+## handle circle would otherwise start a resize instead -- the one gesture in
+## this handler that cannot be undone by clicking again.
+##
+## **The brush branch is checked before all of that**, which is the
+## reference's own precedence and not a choice made here: its pointerdown
+## listener tests `_carIconBrush.on` at line 9657 and only reaches the resize/
+## select block at 9664 if the brush is off. A consequence worth stating,
+## because it looks like a bug from inside the shell: **with the brush on, the
+## resize handle is unreachable.** Turning the brush off gets it back.
 func _on_icon_click(gx: float, gy: float) -> void:
+	var mode := EngineBridge.selection_mode_from_input()
+	if _icon_brush_on and mode == EngineBridge.SEL_REPLACE and not bridge.icon_armed().is_empty():
+		_icon_brush_painting = true
+		if bridge.icon_brush_stamp(gx, gy) > 0:
+			app.viewport.refresh_annotations()
+			_rebuild_icon_panel()
+		return
+
 	var sel := bridge.icon_get_selected()
-	if sel >= 0:
+	if sel >= 0 and mode == EngineBridge.SEL_REPLACE and bridge.icon_get_selection().size() == 1:
 		var h: Dictionary = bridge.icon_handles(sel, app.viewport.zoom()).get("resize", {})
 		if not h.is_empty() and Vector2(gx, gy).distance_to(Vector2(h["x"], h["y"])) <= float(h["r"]):
 			_begin_icon_handle_drag(sel, gx, gy)
@@ -819,10 +1007,19 @@ func _on_icon_click(gx: float, gy: float) -> void:
 	## Before the asset-pack guard on purpose: selecting an icon that is
 	## already on the map does not need a pack loaded, and refusing it
 	## there would make an unloaded pack look like a dead map.
-	## `IconEditor::hit_test` performs the selection itself.
-	if bridge.icon_hit_test(gx, gy) >= 0:
+	## `IconEditor::hit_test` performs the selection itself, in whichever mode
+	## the modifier named (`EngineBridge.SEL_*`): plain click replaces,
+	## Ctrl/Cmd adds or removes, Shift takes the range from the last one.
+	if bridge.icon_hit_test_mode(gx, gy, mode) >= 0:
 		_update_icon_handles_overlay()
 		_rebuild_icon_panel()
+		return
+
+	## A modified click that hit nothing is a missed selection gesture, not a
+	## request to stamp another icon on top of empty ground. Falling through
+	## would make Ctrl-click-on-empty place an icon, which is neither what the
+	## modifier means anywhere else in this shell nor recoverable in one step.
+	if mode != EngineBridge.SEL_REPLACE:
 		return
 
 	if not bridge.has_asset_pack():
@@ -853,6 +1050,16 @@ func _begin_icon_handle_drag(index: int, gx: float, gy: float) -> void:
 
 
 func _on_icon_drag(gx: float, gy: float) -> void:
+	## The brush's own `pointermove` (reference line 9719), which redraws only
+	## when a stamp actually placed something -- `if(_carIconBrushStamp(gx,gy))
+	## drawCivLayerAuto()`. The list panel is deliberately NOT rebuilt per
+	## sample: a stroke can add dozens of icons across a few dozen moves, and
+	## rebuilding a row per icon per sample is the one thing here that would
+	## drop frames. `_on_icon_release` rebuilds it once at the end.
+	if _icon_brush_painting:
+		if bridge.icon_brush_stamp(gx, gy) > 0:
+			app.viewport.refresh_annotations()
+		return
 	if _icon_drag_mode != IconDragMode.RESIZE or _icon_drag_index < 0:
 		return
 	bridge.icon_resize(_icon_drag_index, _icon_drag_cx, _icon_drag_cy, gx, gy, _icon_drag_start_dist)
@@ -861,6 +1068,13 @@ func _on_icon_drag(gx: float, gy: float) -> void:
 
 
 func _on_icon_release(_gx: float, _gy: float, _valid: bool) -> void:
+	## Reference line 9739: the stroke ends and the map gets one full render,
+	## "so the finished stand composites like any other icon edit".
+	if _icon_brush_painting:
+		_icon_brush_painting = false
+		app.viewport.refresh_annotations()
+		_rebuild_icon_panel()
+		return
 	if _icon_drag_mode != IconDragMode.NONE:
 		_icon_drag_mode = IconDragMode.NONE
 		_icon_drag_index = -1
@@ -883,7 +1097,12 @@ func _build_icon_panel(parent: Control) -> void:
 		+ "variant, scale, rotation and jitter live in the tool options bar "
 		+ "while Icon is armed. Placing an icon selects it and shows its own "
 		+ "on-canvas resize handle -- drag it to rescale in place; delete and "
-		+ "re-place to change family/slot.")
+		+ "re-place to change family/slot.\n"
+		+ "Brush, in the same bar, switches click-to-stamp for drag-to-paint: "
+		+ "a stand of the armed icon scattered under the pointer, thinned to a "
+		+ "minimum separation and never painted into water. Painting does not "
+		+ "select, and while the brush is on the resize handle is out of reach "
+		+ "-- switch it off to get the handle back.")
 
 
 ## `GUI_GAP_REGISTER.md` **CA-20**: `DCC_SHELL_SPEC.md` §4.5.5 asks for "counts
@@ -917,6 +1136,9 @@ func _rebuild_icon_panel() -> void:
 		+ "There is nothing to clear.")
 	if list.is_empty():
 		_icon_list_body.add_child(DccTheme.label("none placed", "text_ghost", DccTheme.FS_MICRO))
+	## Read once, not per row: the fallback for an older cdylib whose
+	## `icon_list()` carries neither `selected` nor `primary`.
+	var primary_idx := bridge.icon_get_selected()
 	for entry in list:
 		var d: Dictionary = entry
 		var row := HBoxContainer.new()
@@ -925,8 +1147,16 @@ func _rebuild_icon_panel() -> void:
 		var l := DccTheme.mono_label(text, "text_dim", DccTheme.FS_SMALL)
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		l.clip_text = true
-		if int(d.get("index", -1)) == bridge.icon_get_selected():
-			l.add_theme_color_override("font_color", DccTheme.c("accent"))
+		## `icon_list()` now carries `selected` (in the selection set) and
+		## `primary` (the one the resize handle belongs to). The accent is
+		## membership, so a Ctrl-click that added a second icon is visible;
+		## the primary keeps the brighter `text` weight on top of it. Falls
+		## back to the old index comparison against a cdylib whose `icon_list`
+		## carries neither key -- which is exactly `primary`.
+		var is_primary := bool(d.get("primary", int(d.get("index", -1)) == primary_idx))
+		var is_sel := bool(d.get("selected", is_primary))
+		if is_sel:
+			l.add_theme_color_override("font_color", DccTheme.c("accent" if is_primary else "text"))
 		row.add_child(l)
 		var idx: int = int(d.get("index", -1))
 		var del := Button.new()
@@ -948,9 +1178,18 @@ func _rebuild_icon_panel() -> void:
 ## `GUI_GAP_REGISTER.md` CA-05) through the same `tool_overlay.gd` primitive
 ## the Label tool's own handles already use -- `_update_label_handles_
 ## overlay`'s one-handle mirror.
+##
+## **Drawn only for a selection of exactly one.** The handle rescales one
+## icon's own `scale` from a baseline snapshotted when it became the primary
+## (`IconEditor::resize` refuses any index that is not the primary), so on a
+## multi-selection there is no honest single circle to draw: one that acted on
+## the primary alone would be a handle pointing at part of what is highlighted.
+## Handles on a multi-selection are a design question this step deliberately
+## does not answer -- and clearing them costs the single-select behaviour
+## nothing, since a set of one is exactly what it always had.
 func _update_icon_handles_overlay() -> void:
 	var idx := bridge.icon_get_selected()
-	if idx < 0:
+	if idx < 0 or bridge.icon_get_selection().size() != 1:
 		app.viewport.tool_overlay.set_handles([])
 		return
 	var h: Dictionary = bridge.icon_handles(idx, app.viewport.zoom()).get("resize", {})
@@ -961,24 +1200,36 @@ func _update_icon_handles_overlay() -> void:
 # Label tool (§4.5.5)
 # ===========================================================================
 
+## The handle branch is skipped while a modifier is down, and while more than
+## one label is selected -- `_on_icon_click`'s own note on why, plus: the three
+## handles resize/rotate/arc **one** label's geometry, and applying them to a
+## set is a design question, not a free consequence of holding one.
 func _on_label_click(gx: float, gy: float) -> void:
+	var sel_mode := EngineBridge.selection_mode_from_input()
 	var sel := bridge.label_get_selected()
-	if sel >= 0:
+	if sel >= 0 and sel_mode == EngineBridge.SEL_REPLACE and bridge.label_get_selection().size() == 1:
 		var mode := _handle_hit(sel, gx, gy)
 		if mode != DragMode.NONE:
 			_begin_label_handle_drag(sel, mode, gx, gy)
 			return
 
-	var hit := bridge.label_hit_test(gx, gy)
+	var hit := bridge.label_hit_test_mode(gx, gy, sel_mode)
 	if hit >= 0:
-		_label_drag_mode = DragMode.MOVE
-		_label_drag_index = hit
+		## A modified click selects; it does not also arm a position drag. A
+		## Ctrl-drag that moved the label it had just added to the set would
+		## make the two gestures fight over one press.
+		_label_drag_mode = DragMode.MOVE if sel_mode == EngineBridge.SEL_REPLACE else DragMode.NONE
+		_label_drag_index = hit if sel_mode == EngineBridge.SEL_REPLACE else -1
 		app.set_tool_options(_build_label_tool_options_row)
 		_rebuild_label_panel()
 	else:
 		_label_drag_mode = DragMode.NONE
 		_label_drag_index = -1
-		_prompt_label_name(gx, gy)
+		## A modified click on empty ground missed a selection; it is not a
+		## request for the New label dialog (`_on_icon_click`'s own reasoning
+		## against falling through to place).
+		if sel_mode == EngineBridge.SEL_REPLACE:
+			_prompt_label_name(gx, gy)
 
 
 ## Grid-space hit test against the currently-selected label's own three
@@ -1167,10 +1418,18 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 # (`lib.rs:7782`'s `label_dict`) -- and `label_create` is the only way one comes
 # into existence (`lib.rs:7826`).
 #
-# Icons are still that story: `icon_bridge.rs` arms a family/slot for the Icon
-# tool to *stamp*, and every icon on the map got there by a click. There is no
-# generated-icon pass for a minimum spacing or a placement rule to constrain, so
-# `_build_icon_placement()` below is unchanged and still drawn disabled.
+# **The Icons half stopped being true too, and is replaced here rather than
+# softened (2026-09-03).** It read: "Icons are still that story: `icon_bridge.rs`
+# arms a family/slot for the Icon tool to *stamp*, and every icon on the map got
+# there by a click. There is no generated-icon pass for a minimum spacing or a
+# placement rule to constrain, so `_build_icon_placement()` below is unchanged
+# and still drawn disabled." Both clauses are now false. The owner's 2026-09-02
+# ruling built the pass -- `icon_bridge/generate.rs`, `IconEditor::generate`,
+# `PlacementFamily`'s four families and a sea-marks asset family -- and
+# `_build_icon_placement()` is bound to it through `_run_icon_placement()`, with
+# the spacing slider and both cull toggles live. And a click is no longer the
+# only manual route either: the density brush (`icon_bridge/brush.rs`) paints a
+# stand of the armed icon under a drag.
 #
 # **The Labels half of this paragraph is no longer true, and was replaced
 # rather than softened (2026-09-02).** It read: "There is no label *class*, no
@@ -1259,6 +1518,21 @@ var _label_class_specs: Array = []
 var _label_class_counts: Dictionary = {}
 var _label_gen_ran := false
 var _label_class_summary: Label
+
+## The `collision culling` toggle's state.
+##
+## **This declaration was missing**, and its absence took the whole file down:
+## `_label_cull` is read and written by the toggle built in
+## `_build_label_class_panel` and was declared nowhere, so
+## `cartography_workspace.gd` failed to load with *"Parse Error: Identifier
+## `_label_cull` not declared in the current scope"* -- the entire CARTO
+## workspace, not just the label block. Found 2026-09-02 by
+## `godot --headless --check-only`, at `0f0fe55` and not before it.
+##
+## `true` because that is where the engine starts (`LabelBridge::new` turns
+## culling on at the shell's boundary where `LabelGenSettings::default()` has it
+## off) and where the design draws it (`parts.js:387`).
+var _label_cull := true
 
 ## `label_class_table()`'s rows, or this file's own transcription of the same
 ## design values when the binding is absent.
@@ -1545,7 +1819,18 @@ func _regenerate_labels() -> void:
 			"halo": float(d.get("halo", 0.0)),
 			"tracking": float(d.get("tracking", 0.0)),
 		}
-	var res: Dictionary = bridge.labels_generate({"typography": typography})
+	## **`cull` was not being sent**, so the `collision culling` toggle moved a
+	## variable and nothing else: `labels_generate`'s own three-state fold reads
+	## an absent `cull` key as "keep whatever the last run used", and the last
+	## run was always `LabelBridge::new`'s on-by-default. The toggle read as
+	## live, was not, and neither was the font measurement --
+	## `_label_advance_ratio()` was written, documented three lines above as
+	## "sent with every run", and called from nowhere. Both fixed here, in the
+	## one call that was always meant to carry them.
+	var res: Dictionary = bridge.labels_generate({
+		"typography": typography,
+		"cull": {"on": _label_cull, "advance_ratio": _label_advance_ratio()},
+	})
 	_label_class_counts.clear()
 	_label_gen_ran = bool(res.get("ok", false))
 	for entry in res.get("classes", []):
@@ -1569,21 +1854,29 @@ func _regenerate_labels() -> void:
 	app.viewport.refresh_annotations()
 
 
-## The prototype's four icon families and their slot counts (`parts.js:364`'s
-## `FAM`). **Deliberately not reconciled with this file's own `ICON_FAMILIES`.**
-## Those two lists answer different questions: `ICON_FAMILIES` is
-## `cartalith-assets`' frozen `PACK_*_SLOTS` vocabulary, positionally indexed by
-## `icon_bridge::resolve_variant`, and it is what the Icon tool arms. `FAM` is
-## the design's *placement* vocabulary for a generated pass -- PLACES, TREES,
-## SEA MARKS, POI -- and "SEA MARKS" has no counterpart in the engine's three
-## families at all. Mapping one onto the other would be inventing a
-## correspondence the design does not state.
-const ICON_PLACEMENT_FAMILIES: Array = [
-	{"id": "PLACES", "filled": 10, "slots": 12},
-	{"id": "TREES", "filled": 22, "slots": 22},
-	{"id": "SEA MARKS", "filled": 6, "slots": 8},
-	{"id": "POI", "filled": 10, "slots": 12},
-]
+## The four placement families -- **read from the engine now, not transcribed.**
+##
+## This used to be `parts.js:364`'s `FAM` table copied in by hand, above a
+## comment stating why it could not be wired: *"SEA MARKS has no counterpart in
+## the engine's three families at all. Mapping one onto the other would be
+## inventing a correspondence the design does not state."* Owner ruling
+## 2026-09-02 answered that by building the missing family rather than the
+## mapping (`cartalith_assets::slots::Family::SeaMark`,
+## `PACK_SEAMARK_SLOTS`), so the design's four placement families are now four
+## real engine families and `bridge.icon_placement_families()` is the table.
+##
+## The two lists still answer different questions and are still not reconciled:
+## `ICON_FAMILIES` above is the *arming* vocabulary the Icon tool stamps from,
+## indexed positionally by `icon_bridge::resolve_variant`; this one is the
+## *placement* vocabulary a generated pass runs over. TREES is the clearest
+## case -- it is the five `tree_*` slots, not the whole `icons` art family that
+## also holds mountains and boulders.
+##
+## The design's own `[filled, total]` pairs are gone with the transcription,
+## and deliberately: they described the design's art, `filled` was never a
+## measurement of anything in this project, and the engine now answers both
+## halves for the pack actually loaded.
+var _icon_placement_rows: Array = []
 
 ## `parts.js:398`'s `ICOD()` defaults and `:391`-`:392`'s inverse maps:
 ## `scale` is `0.5+p*1.5` so 0.50-2.00, `spacing` is `p*40` so 0-40 px.
@@ -1593,83 +1886,165 @@ const ICON_SPACING_RANGE := Vector2(0.0, 40.0)
 var _icon_placement_family := "PLACES"
 var _icon_family_chips: Dictionary = {}   ## id -> Button
 var _icon_slot_line: Label
+var _icon_gen_summary: Label
+var _icon_gen_scale := 1.0
+var _icon_gen_spacing := 14.0
+var _icon_gen_avoid_labels := true
+var _icon_gen_enforce_spacing := true
+var _icon_gen_snap_coast := false
 
 func _build_icon_placement(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Automatic placement")
-	DccWidgets.note(sec,
-		"Not bound. This block describes a GENERATED icon pass -- the engine "
-		+ "choosing where a family's glyphs go and thinning them against a "
-		+ "minimum spacing and the label boxes. This port stamps icons by hand "
-		+ "only: icon_bridge.rs arms a family and slot, and every icon on the map "
-		+ "got there from a click, so there is no generated set for a spacing or "
-		+ "a placement rule to constrain. Scale, rotation and jitter for the icon "
-		+ "you are about to stamp are live, in the tool options bar while Icon is "
-		+ "armed. The list below this note is live too.")
+	_icon_placement_rows = bridge.icon_placement_families()
+	if _icon_placement_rows.is_empty():
+		## An older cdylib. Say which half is missing rather than falling back
+		## to the design figures this block used to print: a number nobody can
+		## check is worse than no number.
+		DccWidgets.note(sec,
+			"This build's engine has no generated placement pass "
+			+ "(icon_placement_families is absent), so the controls below are "
+			+ "drawn inert. Rebuild the extension to use it.")
+	else:
+		DccWidgets.note(sec,
+			"Places a whole family at once: the engine picks the cells, then "
+			+ "thins what it picked against the rules below. Each family draws "
+			+ "from its own source -- PLACES from the settlements, TREES from "
+			+ "the biome scatter rules, SEA MARKS from a sweep of the water, "
+			+ "POI from the landmarks -- so a family with no source in this "
+			+ "world places nothing and says so. Generated icons join the same "
+			+ "list hand-placed ones are in: select, resize and delete them the "
+			+ "same way, and Clear all removes both. Running it twice over one "
+			+ "world places nothing the second time.")
 
 	var fam := DccWidgets.group(sec, "Family", true)
 	var chips := HBoxContainer.new()
 	chips.add_theme_constant_override("separation", 4)
 	fam.add_child(chips)
-	_mark_inert(chips)
-	for entry in ICON_PLACEMENT_FAMILIES:
+	for entry in _icon_placement_rows:
 		var f: Dictionary = entry
-		var b := DccWidgets.segment(chips, String(f["id"]), Callable())
-		b.disabled = true
-		b.tooltip_text = "No automatic placement pass exists, so there is no family for it to place."
-		_icon_family_chips[String(f["id"])] = b
+		var id := String(f.get("key", ""))
+		var b := DccWidgets.segment(chips, id, func(): _set_icon_placement_family(id))
+		b.tooltip_text = "Place the %s family. Draws from the %s asset family." % [id, String(f.get("family", ""))]
+		_icon_family_chips[id] = b
+	if _icon_placement_rows.is_empty():
+		_mark_inert(chips)
 
-	## `icoSlotLine` (`parts.js:390`). The slot numbers ARE transcribed where the
-	## label counts above were not, and the difference is real: `FAM`'s
-	## `[filled, total]` pairs describe the design's own asset families -- how
-	## many glyphs it drew for each -- not a measurement of the user's world. The
-	## sentence is the prototype's, apart from the `(design figures)` tag.
-	##
-	## That tag, and not the `--` the drawn-count column uses, because the two
-	## cases are opposite: `parts.js:363`'s label counts are mock *measurements*
-	## of a mock world, so there is no honest number to print, while these are
-	## real design values -- kept for the same reason the disabled sliders keep
-	## theirs (see this block's header). What the line lacked was a word saying
-	## which of the two it is. It also never changes: `_icon_placement_family` is
-	## read here and by the chip sync below but never written -- the family chips
-	## are inert, since no placement pass exists to switch -- so the line reports
-	## PLACES for the life of the session.
+	## `icoSlotLine` (`parts.js:390`), rewritten against the engine's own answer.
+	## `slots` is the family's frozen vocabulary size and `filled` is how many of
+	## those the loaded pack has art for -- both measured, where the design's
+	## `[filled, total]` pair described the design's own art and had to be
+	## labelled "(design figures)" because nothing here could check it.
 	_icon_slot_line = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO)
 	_icon_slot_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	fam.add_child(_icon_slot_line)
 
-	_dead_slider(fam, "icon scale", ICON_SCALE_RANGE, 0.01, 1.0, "×")
-	_dead_slider(fam, "min spacing", ICON_SPACING_RANGE, 1.0, 14.0, " px")
+	if _icon_placement_rows.is_empty():
+		_dead_slider(fam, "icon scale", ICON_SCALE_RANGE, 0.01, _icon_gen_scale, "×")
+		_dead_slider(fam, "min spacing", ICON_SPACING_RANGE, 1.0, _icon_gen_spacing, " cells")
+	else:
+		DccWidgets.slider(fam, "icon scale", ICON_SCALE_RANGE.x, ICON_SCALE_RANGE.y, 0.01,
+			_icon_gen_scale, "×", func(v: float): _icon_gen_scale = v,
+			"Per-instance size of every icon this pass places, clamped to the same bounds a hand-placed icon uses.")
+		## **Cells, not pixels.** `parts.js:392`'s inverse map is `p*40` with no
+		## unit stated; the engine measures spacing in grid cells, because that
+		## is the frame an icon's own x/y and its box are in and it is the only
+		## one that does not change under zoom.
+		DccWidgets.slider(fam, "min spacing", ICON_SPACING_RANGE.x, ICON_SPACING_RANGE.y, 1.0,
+			_icon_gen_spacing, " cells", func(v: float): _icon_gen_spacing = v,
+			"Minimum centre-to-centre separation, in grid cells. Only applied while `enforce min spacing` is on; icons never overlap each other's glyph regardless.")
 
 	## `icoRules` (`parts.js:393`), all three, in the design's order and with its
 	## own wording. `snapCoast` starts off; the other two start on
-	## (`parts.js:398`).
+	## (`parts.js:398`). All three are live now.
 	var rules := DccWidgets.group(sec, "Placement rules", true)
-	for r in [
-		["avoid label boxes", true,
-			"Would keep a placed icon clear of a label's box. Needs both the generated placement pass and the label collision test -- neither exists."],
-		["enforce min spacing", true,
-			"Would thin a generated set to the minimum spacing above. There is no generated set."],
-		["snap sea marks to coast", false,
-			"Would pull a SEA MARKS glyph onto the nearest coastline. SEA MARKS is a design family with no counterpart in the engine's three (see ICON_PLACEMENT_FAMILIES)."],
-	]:
-		var cb := DccWidgets.toggle(rules, String(r[0]), bool(r[1]), func(_on: bool): pass, String(r[2]))
-		cb.disabled = true
-		## See `collision culling` above: the reason goes on the box too, not only
-		## on the row it sits in.
+	var rule_specs: Array = [
+		["avoid label boxes", _icon_gen_avoid_labels,
+			"On, an icon whose glyph lands on a label's box is suppressed and counted. Measured with the same culler the labelling pass uses, against every label on the map, generated or hand-placed.",
+			func(on: bool): _icon_gen_avoid_labels = on],
+		["enforce min spacing", _icon_gen_enforce_spacing,
+			"On, the run is thinned to the minimum spacing above. Off, icons are still kept from overlapping each other's own glyph -- what this adds is the slider.",
+			func(on: bool): _icon_gen_enforce_spacing = on],
+		["snap sea marks to coast", _icon_gen_snap_coast,
+			"On, every SEA MARKS glyph is pulled to the nearest coast cell -- water with land against it -- and one with no coast in reach is dropped rather than left in open sea. Applies to SEA MARKS only; the other three families are never moved.",
+			func(on: bool): _icon_gen_snap_coast = on],
+	]
+	for r in rule_specs:
+		var cb := DccWidgets.toggle(rules, String(r[0]), bool(r[1]), r[3] as Callable, String(r[2]))
 		cb.tooltip_text = String(r[2])
-		_mark_inert(cb.get_parent() as Control)
+		if _icon_placement_rows.is_empty():
+			cb.disabled = true
+			_mark_inert(cb.get_parent() as Control)
+
+	var run := DccWidgets.action(sec, "Place this family", _run_icon_placement)
+	run.disabled = _icon_placement_rows.is_empty()
+
+	## Where every counter the pass returns goes. Four rejection reasons, and
+	## they are disjoint -- a candidate is charged to exactly one -- so a run
+	## that placed nothing still says which wall it hit.
+	_icon_gen_summary = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO)
+	_icon_gen_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	sec.add_child(_icon_gen_summary)
 
 	_sync_icon_placement()
+
+## Re-read the engine's family table and repaint the slot line from it.
+##
+## Only the *numbers* move: which four families exist is a design table that
+## does not change during a session, so the chips are not rebuilt (rebuilding
+## them would drop the user's selection on every generate()).
+func _refresh_icon_placement_rows() -> void:
+	var rows: Array = bridge.icon_placement_families()
+	if rows.is_empty():
+		return
+	_icon_placement_rows = rows
+	_sync_icon_placement()
+
+func _set_icon_placement_family(id: String) -> void:
+	_icon_placement_family = id
+	_sync_icon_placement()
+
+## Run the pass and report every counter it returned.
+func _run_icon_placement() -> void:
+	var res: Dictionary = bridge.icon_generate({
+		"family": _icon_placement_family,
+		"scale": _icon_gen_scale,
+		"min_spacing": _icon_gen_spacing,
+		"avoid_labels": _icon_gen_avoid_labels,
+		"enforce_spacing": _icon_gen_enforce_spacing,
+		"snap_coast": _icon_gen_snap_coast,
+	})
+	if _icon_gen_summary != null and is_instance_valid(_icon_gen_summary):
+		if not bool(res.get("ok", false)):
+			## The engine's own sentence, not a rewrite of it -- same rule
+			## `_regenerate_labels` follows for the same reason.
+			_icon_gen_summary.text = String(res.get("reason", ""))
+		else:
+			var parts: Array[String] = ["%d placed" % int(res.get("placed", 0))]
+			for pair in [["culled_spacing", "spaced out"], ["culled_label", "on a label"],
+					["off_coast", "no coast"], ["unknown_slot", "wrong family"]]:
+				var n := int(res.get(String(pair[0]), 0))
+				if n > 0:
+					parts.append("%d %s" % [n, String(pair[1])])
+			if int(res.get("snapped", 0)) > 0:
+				parts.append("%d snapped" % int(res.get("snapped", 0)))
+			parts.append("%d ms" % int(res.get("elapsed_ms", 0)))
+			_icon_gen_summary.text = " · ".join(parts)
+	_rebuild_icon_panel()
+	app.viewport.refresh_annotations()
 
 func _sync_icon_placement() -> void:
 	for id in _icon_family_chips:
 		DccWidgets.set_segment_on(_icon_family_chips[id], id == _icon_placement_family)
-		(_icon_family_chips[id] as Button).disabled = true
-	for entry in ICON_PLACEMENT_FAMILIES:
+	for entry in _icon_placement_rows:
 		var f: Dictionary = entry
-		if String(f["id"]) == _icon_placement_family and _icon_slot_line != null:
-			_icon_slot_line.text = "%d of %d slots filled (design figures) · unfilled slots fall back to the family default glyph" \
-				% [int(f["filled"]), int(f["slots"])]
+		if String(f.get("key", "")) == _icon_placement_family and _icon_slot_line != null:
+			var filled := int(f.get("filled", 0))
+			var slots := int(f.get("slots", 0))
+			if filled == 0:
+				_icon_slot_line.text = "%d slots · no pack art loaded, every slot draws its procedural glyph" % slots
+			else:
+				_icon_slot_line.text = "%d of %d slots carry pack art · unfilled slots fall back to the procedural glyph" \
+					% [filled, slots]
 
 
 ## **Make an inert control LOOK inert.**
@@ -1773,8 +2148,12 @@ func _rebuild_label_panel() -> void:
 		var l := DccTheme.mono_label(name_text if not name_text.is_empty() else "(untitled)", "text_dim", DccTheme.FS_SMALL)
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		l.clip_text = true
+		## `selected` is membership of the selection set and `primary` is the
+		## one carrying the edit session -- at one selected label they are the
+		## same bool and this reads exactly as it always did.
 		if bool(d.get("selected", false)):
-			l.add_theme_color_override("font_color", DccTheme.c("accent"))
+			l.add_theme_color_override("font_color",
+				DccTheme.c("accent" if bool(d.get("primary", true)) else "text"))
 		row.add_child(l)
 		var sel := Button.new()
 		sel.text = "edit"
@@ -1916,9 +2295,14 @@ func _rebuild_label_edit_form() -> void:
 ## Draws the selected label's resize/rotate/arc handles (`tool_overlay.gd`'s
 ## `set_handles`, already built) -- filters out any `{}` slot (a fixed-size
 ## label has no resize handle) per that method's own doc comment.
+##
+## Drawn only for a selection of exactly one, for the reason
+## `_update_icon_handles_overlay` gives one section up -- more so here, since
+## these three handles write `size`/`angle`/`arc` into one label and there is
+## no defined meaning for rotating a set about nothing in particular.
 func _update_label_handles_overlay() -> void:
 	var idx := bridge.label_get_selected()
-	if idx < 0:
+	if idx < 0 or bridge.label_get_selection().size() != 1:
 		app.viewport.tool_overlay.set_handles([])
 		return
 	var h := bridge.label_handles(idx, app.viewport.zoom())
