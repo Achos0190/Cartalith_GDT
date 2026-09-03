@@ -314,7 +314,21 @@ impl<S: Stamp + Clone> PassBuffer<S> {
     /// [`PassBuffer::touched_tiles`] rather than the whole map. (Copying the
     /// whole base each call is the simple, obviously-correct primitive; a
     /// touched-region-only refresh is a caller-side optimisation this crate
-    /// deliberately does not guess at, with no renderer wired yet.)
+    /// deliberately does not guess at.)
+    ///
+    /// **That expectation is not what the two wired callers do.** This
+    /// paragraph said "with no renderer wired yet" from 2026-08-18 01:53
+    /// until 2026-09-04; `cartalith-godot`'s `build_sculpt_preview_texture`
+    /// wired the first renderer at 20:28 the same day and
+    /// `build_paint_preview_texture` the second at 22:43, and **both upload
+    /// the whole grid on every call** — neither reads `touched_tiles` or
+    /// [`PassBuffer::touched_bounds`] at all. Each declines deliberately and
+    /// says why in its own doc comment; the paint one carries the measured
+    /// cost of the decline. Nothing about this method needs changing for
+    /// either to stop doing it — the window is entirely the caller's to
+    /// choose — but the sentence claiming no caller existed had gone stale
+    /// by 17 days, and "callers are expected to" above describes an
+    /// expectation, not the tree.
     pub fn preview_into(&self, base: &[S::Cell], scratch: &mut [S::Cell])
     where
         S::Cell: Clone,

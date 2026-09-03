@@ -179,3 +179,33 @@ display — two places to keep in step instead of one.
 `trait` is the one clause of that warning that is **true**: `asset_bridge.rs`
 round-trips `manifest.structures.traits` and `pack.rs` composites no trait sprite.
 Scheduled as an ordinary backlog row rather than folded into the warning fix.
+
+## Owner rulings — 2026-09-04
+
+**1. The pack warning: re-derive the whole list before ruling again.** The
+2026-09-03 trait ruling rested on the premise that `trait` was the warning's one
+true clause. That premise did not survive being re-opened — `composite_map_icons`
+(`pack.rs:470`) draws settlement and poi sprites too. Rather than widen the
+re-baseline on a second premise that might also be wrong, the owner asked for the
+measurement first: **for every section name the warning can emit, establish
+whether `pack.rs` actually composites it, and report the true unused set.** No
+further edit to the string until that lands. Audit-only; it closes nothing by
+itself.
+
+*Why this matters beyond the row:* two premises in a row failed on contact here.
+The measurement is the cheap way to stop ruling on the third.
+
+**2. "Selection wins, the tool appends" DOES extend to the Journey planner.**
+`rdMode4()` (rule 8) is the last built context that replaces the selection; it
+becomes an appended section like every other. **Carry the conversion hazard
+across with it:** rule 1's conversion silently took Commit/Discard away from a
+live uncommitted draft, because `_tool_section()` answers with one id whose
+`match` reached the ordinary tools before the draft clause. Every transition
+INTO the converted state has to be enumerated and proved, not just the disarm
+path. Batch 22's Lane A was told rule 8 was out of scope (this ruling did not
+exist when it was dispatched) — it is batch 23's.
+
+**3. The flat export keeps `world_origin`.** It is this port's own
+interoperability surface, not Gen1's, and a reader that does not know the key
+ignores it. Provenance stays in both the project save and the flat export.
+Closes the question Lane C raised rather than decided.

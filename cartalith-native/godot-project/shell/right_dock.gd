@@ -48,15 +48,32 @@ const CTX_WILDLIFE := "wildlife"
 ## context-driven surface.
 const CTX_HISTORY := "history"
 
-## `05-right-dock-and-bars.md` §1.8-§1.12, GUI replacement stage 5. **Five**
+## `05-right-dock-and-bars.md` §1.8-§1.14, GUI replacement stage 5. **Six**
 ## sections from `rdMode4()`'s own fall-through table (§1.2b): `tool` is
 ## `sculpt`/`freehand` -> stamps (rule 1, `TOOL_STAMPS`, converted from a
 ## context on 2026-09-03 -- see its own doc), `tool === 'biome'` -> paint,
 ## `tool` is `label`/`icon` -> anno, `tool === 'territory'`
-## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops. All five read
-## live engine state fresh on every rebuild, the same "no private draft"
+## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops, `tool` is
+## `way`/`route` with a non-empty draft -> way (rule 7, `TOOL_WAY`). All six
+## read live engine state fresh on every rebuild, the same "no private draft"
 ## shape the Stamp stack already used -- there is nothing here for a second
 ## editor to disagree with.
+##
+## **Rule 5 (`place`) is deliberately absent, and that is the ruling rather
+## than an omission.** Its panel (§1.11 `rdPlace`) *is* the settlement
+## inspector, and this dock already draws it -- as `CTX_SETTLEMENT`, driven by
+## the selection, which is the half of rule 5 that reads `cv.sel >= 0`
+## (`civilization_workspace.gd::_settlement_click` pins it for a fresh drop
+## too). Its other half, `tool === 'settlement'`, would draw that same
+## inspector for whatever is selected, so under *"selection wins"* it asks for
+## nothing this dock is not already doing; and the Settlement tool's own four
+## inputs (class, faction, name, snap-to-water) are in the options bar, where
+## §2 puts them. Duplicating them here would be the "two pickers over one
+## concept" shape `_append_layers()` records this shell having had to undo
+## three times.
+##
+## **Rule 8 (`plan`) is the one arm that still replaces**, and is left that way
+## pending an owner answer -- see `show_journey()`.
 ##
 ## **These are `TOOL_*`, not `CTX_*`, and that is the owner's 2026-09-03
 ## ruling rather than a naming preference** (`LARGE_ITEM_RULINGS.md`,
@@ -134,6 +151,38 @@ const TOOL_TERR := "territory"
 ## `app.gd::_on_workspace_changed` (`if id != "world"`), not a new opinion --
 ## the same source `TOOL_PAINT`'s gate came from.
 const TOOL_STAMPS := "stamps"
+## `rdWay` (§1.14) -- `rdMode4()`'s **rule 7**: `tool` is `way` or `route`
+## **and the draft is non-empty**. The last rung of the ladder that had no
+## surface anywhere in this shell; §1.14's four rows were never drawn, and the
+## draft's own controls (type, Commit, Discard) are in the tool options bar
+## (§2), which is where the design puts them and where they stay.
+##
+## **One section id for two tools, and two titles -- a recorded deviation.**
+## `rdMode4()` collapses Way and Route into one mode, which is why §1.3's
+## `ROUTE` title is a dead entry the spec itself flags (*"`rdMode4()` returns
+## `'way'` for both the Way and Route tools, so `ROUTE` is unreachable"*). This
+## port revives it, because the two are genuinely different things here rather
+## than the reference's alias: a way is a permanent edge in the network
+## (`way_bridge.rs`, committed into `get_roads()`/`get_sea_routes()`), a route
+## is a planned traversal over it (`route_bridge.rs`, committed into
+## `route_get()`), they carry different options and land in different lists. So
+## the section header names whichever tool drew the draft.
+##
+## **And it says "draft", which §1.3's `WAY` does not.** `_build_route()`
+## already titles the *selected* committed route's section `Route`, so under
+## the ruling both can now be on screen at once -- a collision that cannot
+## happen in the reference, where `rdWay` **replaces** the dock and the two
+## are mutually exclusive by construction. Appending is this port's change, so
+## the disambiguation is this port's to make; the word is `rdMode4()` rule 7's
+## own (`wy().draft.length > 0`), not a new one.
+##
+## **No domain gate, unlike `TOOL_PAINT` and `TOOL_STAMPS`, and for the same
+## kind of reason those two have one**: nothing in the shell clears a Way or
+## Route draft on a domain switch (`app.gd`'s `_on_workspace_changed` calls no
+## `leave_*` for either, and the draft itself lives in Rust), so gating on CIVIL
+## would *remove* a live draft's readout that the old code left alone. Rules 3
+## and 4 got no gate for exactly this reason and rule 7 gets none either.
+const TOOL_WAY := "way"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -315,6 +364,28 @@ var _stops_selected := -1
 ## is: `civilization_workspace.gd` owns `_territory_faction`, not this file.
 var _terr_faction := -1
 
+## -- TOOL_WAY. The Way/Route draft, handed over by
+## `infrastructure_workspace.gd` on every change (`show_way()`): which tool owns
+## it, its points in grid coordinates, and the way type's display label ("" for
+## Route, which has no type -- `route_begin("mixed")` is hardcoded, matching the
+## reference; see that file's `_on_infra_tool_armed`).
+##
+## **Remembered, and structurally unable to leave a stale section on screen.**
+## `_way_owner` is compared against `app.armed_tool` *live* in
+## `_tool_section()`, so a draft left over from a tool that is no longer armed
+## can only ever **suppress** this section -- never draw one. That inverts the
+## failure the `TOOL_*` block above records (a stored section id kept Paint on
+## screen after its tool disarmed): here the remembered half is the data and the
+## deciding half is live.
+##
+## Remembered at all because the draft lives in Rust behind
+## `way_append_point`/`route_append_stop`, neither of which reads it back, and
+## there is no `way_draft()` getter to derive it from -- the same reason
+## `infrastructure_workspace.gd` keeps `_way_points` for the canvas preview.
+var _way_owner := ""
+var _way_draft: PackedVector2Array = PackedVector2Array()
+var _way_kind := ""
+
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
 ## event over the viewport, and tearing the dock down and rebuilding it at
@@ -430,6 +501,10 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			clear_measurements()
 		if _context == CTX_RIVER:
 			_context = CTX_SAMPLE
+		## And the Way/Route draft, for the measurements' own reason one line
+		## up: its points are grid cells, so a draft kept across a regenerate
+		## would report a length and a grade over ground it was never drawn on.
+		_forget_way_draft()
 		_rebuild())
 	bridge.world_loaded.connect(func():
 		_river = {}
@@ -444,6 +519,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			clear_measurements()
 		if _context == CTX_RIVER:
 			_context = CTX_SAMPLE
+		_forget_way_draft()
 		_rebuild())
 	## River selection (`OUTSTANDING_WORK.md` §2.2). Connected here rather than
 	## in `app.gd`'s `_wire_selection()` for the same reason
@@ -470,7 +546,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	app.workspace_changed.connect(func(_id: String): _rebuild())
 	## The appended tool section is derived from `app.armed_tool` on every
 	## rebuild (`_tool_section()`), so every tool change has to cause one. The
-	## four `show_*` calls cover arming; **nothing covered disarming inside the
+	## `show_*` calls cover arming; **nothing covered disarming inside the
 	## same domain** -- `app.gd` calls `leave_paint_context()` only on a domain
 	## switch, so arming any other WORLD tool used to leave Paint on screen.
 	## Measured: `_rdappend_probe.gd`'s "paint: disarm drops the tool's section"
@@ -858,6 +934,33 @@ func show_territory(faction_id: int) -> void:
 func leave_territory_context() -> void:
 	_rebuild()
 
+## `rdMode4()` rule 7. Called by `infrastructure_workspace.gd::_push_way_draft()`
+## whenever the Way or Route draft changes -- arm, every click, a way-type
+## change, commit, discard, and the disarm that hands the tool back. `owner_tool`
+## is `"way"`, `"route"` or `""`; the last is how neither-armed arrives and
+## clears what this dock remembers.
+##
+## **Arms the appended Way section; it does not claim `_context`.**
+## `show_paint()`'s shape exactly -- whatever the dock was showing is still
+## showing, with the draft's readings below it.
+##
+## `points` is duplicated rather than aliased: `_way_points` is appended to in
+## place on the next click, and a dock reading a live buffer would be a second
+## owner of the caller's state.
+func show_way(owner_tool: String, points: PackedVector2Array, kind_label: String) -> void:
+	_way_owner = owner_tool
+	_way_draft = points.duplicate()
+	_way_kind = kind_label
+	_rebuild()
+
+## Drops the remembered draft without a rebuild -- the two world-replacement
+## handlers in `setup()` rebuild once at the end of their own work, and this is
+## called from inside both.
+func _forget_way_draft() -> void:
+	_way_owner = ""
+	_way_draft = PackedVector2Array()
+	_way_kind = ""
+
 # -- Dispatch ---------------------------------------------------------------
 
 ## §6's own per-context header title, mirroring `DccWidgets.section()`'s title
@@ -865,9 +968,9 @@ func leave_territory_context() -> void:
 ## `_rebuild()` so a new `CTX_*` can't add a body section without this table
 ## reminding whoever adds it that the dock chrome needs the same name.
 ##
-## **No row here for the four `TOOL_*` sections, by ruling.** §1.3 gives each
-## of them a right-dock title (`PAINT · BIOME`, `RAMP · STOPS`, `ANNOTATION`,
-## `TERRITORY`), and those titles are real -- they are drawn by each section's
+## **No row here for the six `TOOL_*` sections, by ruling.** §1.3 gives each
+## of them a right-dock title (`STAMP STACK`, `PAINT · BIOME`, `RAMP · STOPS`,
+## `ANNOTATION`, `TERRITORY`, `WAY`), and those titles are real -- they are drawn by each section's
 ## own `DccWidgets.section()` header inside the body, where an appended section
 ## puts its name. Putting one in this table instead is how the dock came to
 ## rename itself the moment a tool armed, which is the replacement the owner's
@@ -943,7 +1046,8 @@ func _current_title() -> String:
 ## selection was never using -- the `_:` default, which is Sample, and the two
 ## arms that already fall back to it -- so a tool armed with nothing selected
 ## keeps reporting exactly what it reported before this change (painted cells,
-## stop count, label/icon counts, claimed cells, stamp count) and a tool armed
+## ramp-stop count, label/icon counts, claimed cells, stamp count, draft
+## waypoints) and a tool armed
 ## *over* a selection cannot overwrite it. See `_fallback_readout()`.
 ##
 ## §6's "stamp count for the stack" is therefore still delivered, and is the
@@ -974,6 +1078,14 @@ func _fallback_readout() -> String:
 		TOOL_TERR:
 			var stats := bridge.civ_faction_territory_stats(_terr_faction) if _terr_faction >= 0 else {}
 			return ("%s cells" % _thousands(float(stats.get("claimed_cells", 0)))) if not stats.is_empty() else "no claim"
+		TOOL_WAY:
+			## The same figure the tool options bar reports, in each tool's own
+			## noun -- `_tool_options_way()` says "waypoints", `_tool_options_
+			## route()` says "stops", and a collapsed dock should not rename
+			## what the bar beside it is already calling the thing.
+			var pts := _way_draft.size()
+			var noun := "waypoint" if _way_owner == "way" else "stop"
+			return "%d %s%s" % [pts, noun, "" if pts == 1 else "s"]
 		TOOL_STAMPS:
 			## §6's own "stamp count for the stack", moved here verbatim from the
 			## `CTX_SCULPT` arm it used to sit in. `sculpt_stamp_count()` rather
@@ -1074,9 +1186,9 @@ func _dispatch(body: Control) -> void:
 ## Which section `_append_tool()` will draw, or `""`. **`rdMode4()`'s own
 ## fall-through table (§1.2b) read live, and nothing else** -- rules 3
 ## (`label`/`icon`) and 4 (`territory`) are unconditional on the armed tool,
-## rules 1 (`sculpt`) and 6 (`inspect`) also read the domain. See the `TOOL_*`
-## block at the top of this file for why this is derived rather than
-## remembered.
+## rules 1 (`sculpt`) and 6 (`inspect`) also read the domain, and rule 7
+## (`way`/`route`) also reads the draft. See the `TOOL_*` block at the top of
+## this file for why this is derived rather than remembered.
 ##
 ## **One section at a time, which is the table's own shape**: `rdMode4()` is
 ## first-match-wins and returns a single mode, so a tool that matches two rules
@@ -1112,6 +1224,17 @@ func _tool_section() -> String:
 		"inspect":
 			if app.active_domain() == "cartography":
 				return TOOL_STOPS
+		"way", "route":
+			## Rule 7's own `wy().draft.length > 0`. **`_way_owner` must be the
+			## tool that is armed right now**, not merely non-empty: arming Route
+			## while a Way draft is live commits the way
+			## (`infrastructure_workspace.gd::_on_infra_tool_armed`), and that
+			## handler and this dock's own `tool_armed` rebuild are two
+			## connections to one signal -- whichever runs first, this comparison
+			## is what stops the committed way's points being drawn under the
+			## Route tool for a rebuild.
+			if _way_owner == app.armed_tool and _way_draft.size() > 0:
+				return TOOL_WAY
 	## Rule 1, and its draft clause -- see `TOOL_STAMPS`. Reached after the
 	## `match` on purpose: the clause is not keyed on the armed tool at all, so
 	## it cannot be an arm of a `match` over `app.armed_tool`. `sculpt` itself
@@ -1136,11 +1259,14 @@ func _append_tool(body: Control) -> void:
 			_build_territory(body)
 		TOOL_STAMPS:
 			_build_sculpt(body)
+		TOOL_WAY:
+			_build_way(body)
 	## An uncommitted draft keeps its own controls whatever else is armed.
 	##
 	## `_tool_section()` answers with exactly ONE id, and its `match` reaches
-	## `paint`/`territory`/`label`/`icon` before the draft clause -- so arming
-	## any of those four took Commit, Discard, Undo and Redo away from a draft
+	## `paint`/`territory`/`label`/`icon` (and now `way`/`route`) before the
+	## draft clause -- so arming any of those took Commit, Discard, Undo and
+	## Redo away from a draft
 	## the user had not committed. Worse than merely hidden: Paint draws its own
 	## Commit/Discard in that slot, so the user was shown a Commit belonging to
 	## a different draft.
@@ -3877,6 +4003,101 @@ func _build_territory(body: Control) -> void:
 	DccWidgets.note(sec,
 		"A claim dab is an ungated circle -- civ_tools_bridge::CivTools::paint_at pushes no coastline mask, so " +
 		"painting into open water claims it too (civilization_workspace.gd's own disclosed gap, not new here).")
+
+# -- Way / Route draft (`rdMode4()` rule 7, §1.14) --------------------------
+#
+# **Appended** while Way or Route is armed over a non-empty draft. Every
+# reading is computed here from the draft this dock was handed plus the live
+# world -- nothing in this section is a number somebody else measured earlier.
+#
+# **Two of §1.14's four rows are deliberately not the reference's.**
+#
+# * `LENGTH` is `fmtKm(Σ|Δ| × 2.5)` there -- 2.5 km per cell, hardcoded in a
+#   prototype with one map size. This port has a real one, so it goes through
+#   `_route_length_text()`, the same call the Route context and the collapsed
+#   readout already use.
+# * `GRADE · MAX` is the literal **`4.2%`** in the reference's own markup, which
+#   §1.14 flags as hardcoded. A placeholder is not a reading, so it is computed
+#   from `sample_cell()`'s `elevation_m` at each waypoint and **dashed with its
+#   reason** when the elevation is not there to read -- never defaulted to a
+#   plausible-looking zero (`MISTAKES.md`, "no value as a plausible value").
+#
+# **These are the draft's lengths, not the committed way's, and the note says
+# so.** `way_commit()`/`route_commit()` Dijkstra-join the waypoints, so the
+# path that actually lands is longer than the straight chain measured here and
+# does not exist until the commit runs. The reference's own footnote -- *"Esc
+# commits the way · hovering shows the live snap preview"* -- is half false in
+# this port (`tool_overlay.set_path_preview()` draws the placed points, not a
+# hover preview), so the true half is kept and the false half replaced by the
+# disclosure above rather than copied.
+
+func _build_way(body: Control) -> void:
+	var is_way := _way_owner == "way"
+	var sec := DccWidgets.section(body, "Way draft" if is_way else "Route draft")
+	var pts := _way_draft.size()
+	_accent_readout(sec, "Waypoints" if is_way else "Stops", str(pts),
+		"Points placed in this draft. The draft itself lives in Rust " +
+		"(way_append_point / route_append_stop, which snap each point before " +
+		"returning); this is the copy infrastructure_workspace.gd keeps for the " +
+		"canvas preview, handed over on every change.")
+	_field(sec, "Length", _route_length_text(_way_draft),
+		"Straight-line total over the placed points, converted with this world's own " +
+		"map width -- not the reference's hardcoded 2.5 km cell. Not the committed " +
+		"distance either: the commit Dijkstra-joins the waypoints, so what lands is " +
+		"a cell-by-cell path and not this straight chain.", true, true)
+	var grade := _way_max_grade()
+	if grade.is_empty():
+		_field(sec, "Grade · max", "—",
+			"Needs two points on distinct cells over a generated world -- sample_cell() " +
+			"omits elevation_m when there is no height field to read, and this row " +
+			"dashes rather than printing a 0 that would read as flat ground.", false, true)
+	else:
+		_field(sec, "Grade · max", "%.1f%%" % float(grade[0]),
+			"Steepest segment of the draft: |Δ elevation_m| over the ground distance " +
+			"between two consecutive points. The reference hardcodes 4.2% here; this row " +
+			"is computed from the live height field instead. The committed way is routed " +
+			"cell by cell, so its own maximum will differ from this one.", true, true)
+	if is_way and _way_kind != "":
+		_field(sec, "Surface", _way_kind,
+			"The way type this draft was begun with. Changing it restarts the draft: " +
+			"WayDraft::way_type is fixed for a draft's whole lifetime, unlike the " +
+			"reference, which re-read civWayType at commit time.", true, true)
+	DccWidgets.note(sec,
+		("Esc commits the way" if is_way else "Esc commits the route") +
+		" and leaves the tool armed; arming any other tool commits it too. Commit, " +
+		"Discard and the way type are in the tool options bar, where the design puts them.")
+
+## `GRADE · MAX`'s reading, or `[]` when there is nothing honest to report --
+## the caller dashes the row with the reason rather than printing a number.
+##
+## The steepest straight-line segment of the draft: |Δ elevation| over the
+## ground distance between two consecutive points, both in metres. The same
+## segments `Length` totals, for the same reason -- the routed path the commit
+## produces does not exist yet.
+##
+## Bails on the **first** point whose `elevation_m` is absent rather than
+## skipping it: a maximum computed over some of the segments is not the
+## maximum, and reporting it as one would be worse than the dash.
+func _way_max_grade() -> Array:
+	if bridge == null or not bridge.has_world or _way_draft.size() < 2:
+		return []
+	var gw := bridge.grid_size().x
+	if gw <= 0 or bridge.last_width_km <= 0.0:
+		return []
+	var m_per_cell := bridge.last_width_km * 1000.0 / float(gw)
+	var elev := PackedFloat64Array()
+	for p in _way_draft:
+		var cell := bridge.sample_cell(roundi(p.x), roundi(p.y))
+		if not cell.has("elevation_m"):
+			return []
+		elev.append(float(cell["elevation_m"]))
+	var worst := -1.0
+	for i in range(1, _way_draft.size()):
+		var run := _way_draft[i - 1].distance_to(_way_draft[i]) * m_per_cell
+		if run <= 0.0:
+			continue
+		worst = maxf(worst, absf(elev[i] - elev[i - 1]) / run * 100.0)
+	return [] if worst < 0.0 else [worst]
 
 # -- Shared row/field vocabulary ------------------------------------------
 #

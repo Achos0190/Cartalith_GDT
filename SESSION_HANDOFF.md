@@ -15,6 +15,14 @@ of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
 whole list has been finished.**
 
+**Two build lanes, plus the verifier** (owner, 2026-09-04). Scaled down from
+three. The adversarial verifier is a separate role and is not one of the two — it
+has found a real defect in every batch it has run, including in the brief itself
+in ten consecutive batches, so it is the last thing to cut. Keep lanes
+**file-disjoint**: assign by crate or by directory, and where two rows want the
+same file, serialize them across batches rather than forbidding the edit (that
+stranded corrections twice).
+
 **Commit per verified batch** (owner, 2026-09-03). One commit per batch, after its
 verifier reports — not before. Two constraints follow and neither is optional:
 

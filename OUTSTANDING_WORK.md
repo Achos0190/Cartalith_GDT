@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**96 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-04 (twenty-sixth pass)**, after an earlier pass left four
+**97 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-04 (twenty-seventh pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,32 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-04, twenty-second batch — holds at 97.** Vault milestone 3 closes as
+already done (shipped 2026-09-02 in `4ec07f5`; `STATUS.md:846` already said so);
+right-dock rule 7 is built; the preview row is re-scoped by measurement rather
+than reworded. `cargo test --workspace` **3 037 → 3 068**, 0 failed.
+
+*Two counts in the record were wrong in the same direction — too high.* The
+right-dock ladder has **8 reachable rules, not nine**: the ninth (`ROUTE`) is a
+dead entry the spec itself flags, since `rdMode4()` returns `way` for both tools.
+Of the eight, only **rule 7** was genuinely unbuilt; rule 5's remaining half asks
+for a settlement inspector this dock already draws.
+
+*A real data-loss bug, found by a verifier and fixed here.* `vault.json` was
+written only when `links` was non-empty — one member of a three-member store — so
+a project with a connected vault and a map snapshot but no knowledge links wrote
+**no document at all** and lost the snapshot on save. The predicate that answers
+for all three (`LinkStore::is_empty()`) was built and mutation-tested in the same
+batch and simply was not wired. Now wired; the call-site guard is filed above,
+because `project_save_with_documents` takes gdext types and no Rust test reaches it.
+
+*The paint preview's decline was measured false.* Its prose called the saving
+"negligible"; a full-grid rebuild costs **0.73 / 1.48 / 4.55 / 16.80 ms** per dab
+at 512/1024/2048/4096 squared and re-uploads **1 MB to 64 MB** each time, while
+`touched_bounds` covers **1.80%** of the grid at 2048. A second comment asserting
+the preview *is* cheap per dab was corrected with those figures. The sculpt half's
+decline, by contrast, still holds and is owned elsewhere.
 
 **2026-09-04, twenty-first batch — 99 → 96.** DS-03 closes, the pack-manifest
 re-baseline closes, the religion share export closes. `cargo test --workspace`
@@ -905,7 +931,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Size | Note |
 |---|---|---|
-| **The right dock does not follow the armed tool** (`rdExtraMode` ladder, nine contexts) | medium | **Answered 2026-09-03 — owner question 1: selection wins, the tool appends a section.** The dock keeps showing the selected entity and an armed tool adds its own section *below* it. The naive merge this row was excluded from the 2026-08-31 build to avoid — flipping away from a selected settlement the moment a tool arms — is explicitly rejected, and because nothing is yanked away mid-edit no "is editing" signal is needed. Unblocked and startable |
+| **The right dock ladder — rule 8, the Journey planner** | medium | **Ruling extended 2026-09-04: yes, the planner appends like every other context.** Rules 1-7 are converted; `rdMode4()` is the last built arm that still *replaces* the selection. **Carry the hazard across:** rule 1's conversion silently took Commit/Discard away from a live uncommitted draft, because `_tool_section()` answers with one id whose `match` reached the ordinary tools before the draft clause — every transition INTO the converted state must be enumerated and proved, not just the disarm path. Batch 22 was dispatched before this ruling existed and was told rule 8 was out of scope |
 
 ### 2.3 Civilisation, economy and journeys
 
@@ -921,7 +947,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| Vault **milestone 3** — project-scoped links (§26), inside the save rather than `user://` | `MARKDOWN_VAULT_SCOPE.md` | medium | **The doc's "blocked" status is stale.** The blocker lifted 2026-08-25 with the §7h project tree, and `cartalith-io/src/project.rs:292` already registers a `vault.json` slot. The move has not happened: `vault_store.gd:36` is still `user://markdown_vault.json` |
 | Vault **milestone 2** — the map snapshot (§21, §22) at immediate/local/regional radii | `MARKDOWN_VAULT_SCOPE.md` | medium | Its own record: "blocked on nothing — `export_raster.rs` already crops" |
 | Project archive remainder — project-layer panels, the `library/` and `drafts/` slots, a `preview.png` producer, foreign-entry preservation | `STATUS.md`, `SAVEFILE_COMPAT.md` §17 | medium | Nothing draws any of it; `preview.png` has a writer and no producer; foreign entries are reported rather than preserved |
 | Story planning **SP-1** — the `Journey` entity proper | `STORY_PLANNING_SCOPE.md` | medium | Half met, and the half that landed was built outside this document's plan: journeys persist as GDScript-owned state (`journey_planner_view.gd:3125` → `entities/journeys.json`). Not met: no `Journey` type in `cartalith-civ`, and the doc's own acceptance test still fails — `travel_bridge.rs:252` returns a hardcoded `0` |
@@ -933,6 +958,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | The stage-by-stage `WorldParams`-field audit against every stage-01…11 slider | `GUI_FEATURE_PARITY_SCOPE.md` | large | The document's own closing "honest size statement": the Generate pipeline's ~60-80 individual stage sliders, "none of which are individually scoped anywhere yet". No such audit document exists |
 | §20 — the high-precision display pipeline | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render.rs` still composites into a `u8` RGB buffer (`apply_local_contrast(… rgb: &mut [u8] …)`, `:3646`) |
 | The vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | The one leg of the old SDF row still genuinely unbuilt: `map_overlay.gd` has no `drawRiverWays` equivalent (`grep -n river map_overlay.gd` returns only settlement-badge prose and the new faith lines) |
+| Re-derive which pack sections the live map actually composites | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Owner ruling 2026-09-04: measure before ruling again.** For every section name the pack-import warning can emit, establish whether `pack.rs` composites it, and report the true unused set. Two premises about this warning have already failed on contact — first that biomes/terrains were unused (false), then that `trait` was the only remaining true clause (also false: `composite_map_icons`, `pack.rs:470`, draws settlement and poi). **Audit-only, closes nothing by itself**; the owner rules once it lands |
 | Trait sprites — the badge geometry is ported, the pack-art half is not | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Partly built 2026-09-03 (batch 21).** The reference DOES draw trait badges — `_traitSprite` (v2.11:15571), `_civDrawTraitBadges` (:15584), `_civTraitDrop` (:15642) — which refutes the old `slots.rs` doc claiming otherwise. The badge geometry is now ported term-for-term and mutation-guarded. What remains is compositing an imported pack's own trait **art**: `asset_bridge.rs` round-trips `manifest.structures.traits` and `pack.rs` still draws no sprite for it |
 | GeoJSON **import** | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | Export shipped 2026-08-24; import was explicitly out of scope then |
 | Slippy-map tile addressing (XYZ/TMS/WMTS, a zoom ladder, retina variants) | `FUNCTIONAL_CONTRACT.md` cap. 6/9 | medium | Tile *export* exists; addressing is the remainder |
@@ -964,7 +990,7 @@ it described the file that had already implemented them.
 | Hardware diagnostics panel (§23) | `GPU_COMPUTE_PILOT_SCOPE.md` | medium | Partly delivered by the multi-GPU work (`performance_window.gd:78`, `menus.gd:1663`); no §23 panel as specified |
 | Tiled / chunked GPU compute (§18) | `GPU_COMPUTE_PILOT_SCOPE.md` | large | Partly unblocked by the LOD pyramid. `multi.rs` ships a band split covering exactly one kernel (`gpu_warp`), 1.22-1.54× at 4096² and a loss at 2048² and below |
 | Per-segment culling for one long way whose bounding box crosses the window | `MEMORY_OPTIMIZATION_SCOPE.md`, `GUI_GAP_REGISTER.md` §54 | medium | The zoom-bound overlay lever shipped (-87.5% gfx dev); this residue did not |
-| Previews re-upload the whole texture — `touched_tiles`/`touched_bounds` unused | `UNWIRED_FUNCTIONS.md` | medium | Producer at `cartalith-spatial/src/pass.rs:193/199`; zero consumers |
+| The paint preview re-uploads the whole texture every dab | `UNWIRED_FUNCTIONS.md` | medium | **Re-scoped 2026-09-04 by measurement; the row's own "negligible" clause is false.** A full-grid CPU rebuild costs **0.73 / 1.48 / 4.55 / 16.80 ms** per dab at 512/1024/2048/4096 squared, re-uploading **1 MB to 64 MB** across the FFI each time, while `touched_bounds` covers only **1.80%** of the grid at 2048 and **1.32%** at 4096. Two correctness properties any bounded upload must hold are already written and passing. **The sculpt half is NOT part of this row** — it is owned by `SCULPT_LIVE_SCOPE.md` L1 (tracked as SL-1), and its decline still holds: `render.rs::with_appearance` runs six whole-grid passes on construction with no window parameter |
 | Integrate `QuadTree` and `TiledField` into a real caller, or retire them | `LOD_TILING_BASE_SCOPE.md` | medium | **Two of the crate's three data structures are unconsumed** three weeks and six dependent crates later — every external reference is a doc comment, and `lod_bridge.rs:54-63` argues at length why using `QuadTree` there "would be strictly worse than not using it". `DirtyTracker` does have real callers. Also leaves the deferred `tile_size` benchmark with no workload |
 | GPU device reuse across generations — **the real item, re-scoped by measurement** | medium | **Replaces "per-pipeline caching across repeated `generate_terrain` calls", whose premise was backwards.** Measured 2026-09-03: six pipeline builds total **2.60 ms** (0.24-0.71 ms each) against a device handshake of *several hundred milliseconds* — so caching pipelines targets the smaller half by roughly two orders of magnitude. The device is where the value is. **Needs an owner decision, not just work**: holding a `wgpu::Device` alive between generations changes lifetime and failure semantics around the `lost` flag, which this project has already measured losing on `forward_plus`/vulkan. *No point estimate is quoted here on purpose — see the row below* |
 | GPU timing measurements are single-sample and the device is noisy | small | **Found 2026-09-03 by a verifier, and the lane that found it committed it three times.** The benchmark-averaging row was closed by taking medians of 3 — then the same lane wrote three fresh single-sample figures into two doc comments and a scope document as measured fact, and none reproduced: a cold handshake of 416 ms re-measured at **730 ms**; a 512² spread quoted as **5×** re-measured at **1.4%** (the original was contaminated by parallel `cargo test` contention); an upload bandwidth said to **halve** at 9.24 → 5.65 GiB/s re-measured at 7.67 → 5.67. All three are now stated as ranges or directions rather than points, but **the other nine pre-existing `measured_*` timing tests in `cartalith-gpu` are still single-sample.** Give them medians, and make the harness refuse to run under a parallel suite |
@@ -980,6 +1006,7 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | Six features never driven on device since the 2026-08-24 USB disconnect — paint visibility, save/undo, the debug views, GeoJSON export, hand-drawn ways, civ-recompute | `ANDROID_BUILD_SCOPE.md` | medium | Recorded as *unverified on device*, not as verified. The 2026-08-25 pass drove a different list and did not pick these up |
 | The phone shell with **no world open** scans 1 494 of 2 400 rows blank | medium | **Re-filed 2026-09-03 from PH-16, which attributed it to the wrong surface.** The register measured one state — planner open, no world — and read the result as the Journey Planner's. With a control state added, opening the planner **removes 447 blank rows**: closed 1 494, open 1 047. So the band belongs to the app with no world loaded, not to this panel, and there is nothing honest to draw into a world that does not exist. Whatever the empty shell should show is a design question `06-phone.md` does not answer |
 | The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
+| The `vault.json` write gate has no test at its call site | `MARKDOWN_VAULT_SCOPE.md` | small | **The bug is fixed, the guard is not built.** The gate read `!store.links.is_empty()` — one member of a three-member store — so a project with a connected vault and a map snapshot but **no knowledge links** wrote no `vault.json` at all and lost the snapshot on save. Now `!store.is_empty()`. `LinkStore::is_empty()` itself is mutation-tested (2 of 3 conjuncts killed), but **the call site is not**: `project_save_with_documents` takes gdext types on a `GodotClass`, so no Rust unit test can reach it — this needs a probe scene that saves a snapshot-only project and reopens it |
 | A sculpt draft that appears without a tool-arm does not rebuild the right dock | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-03 by a verifier probe, measured pre-existing at HEAD before crediting it.** `app.arm_tool()` early-returns when the tool is already armed, so no `tool_armed` fires; nothing else signals a stamp-count change to the dock. A draft created while Inspect is already armed leaves the dock showing a body built when the count was 0 — `_tool_section()` answers `stamps` while the body reads `["SAMPLE"]`. Distinct from the append bug fixed the same day, which was about arming a *different* tool |
 | The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |

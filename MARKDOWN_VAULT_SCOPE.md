@@ -114,7 +114,7 @@ resolved rather than left open.
 | Design | This port | Resolution |
 |---|---|---|
 | §3 entity scope includes **POIs** and **region labels** | Neither is a ported concept | Not built. `EntityKind` covers settlement/province/continent, and **faction** (CV-22) and **culture** (CV-02) were both added on 2026-08-25 — §3's own "add a kind later without redesigning the storage model" requirement is therefore not a claim but a measured one: each was a variant, an `as_str` arm, a `parse` arm and an `entity_values` arm. |
-| §26 puts `knowledgeLinks` **inside the Cartalith project save** | *When this audit was taken*, the only save path was the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in `user://markdown_vault.json` (`vault_store.gd`). A link written into a save that carries no civ layer comes back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible — and its precondition is a save format that carries the layer, which is a property of whichever format is current, not of the one recorded here. |
+| §26 puts `knowledgeLinks` **inside the Cartalith project save** | *When this audit was taken*, the only save path was the reference HTML app's own `.zip` (`SAVEFILE_COMPAT.md`), which carries **no civ layer at all** — `WorldGen::load_save`'s own doc says `get_settlements()` comes back empty | Links live in the project archive's `vault.json` slot, written by `project_bridge.rs`'s `SLOT_VAULT` from `LinkStore::to_json()` and read back by `project_open` through `LinkStore::from_json`. `user://markdown_vault.json` (`vault_store.gd`) keeps the device binding, and the links only for a session with no project open. **That sentence used to end at `vault_store.gd` and it was the whole story;** it stopped being so when milestone 3 landed. A link written into a save that carries no civ layer comes back pointing at a `tid` that no longer exists. **Milestone 3** below is the change that makes §26 possible — and its precondition is a save format that carries the layer, which is a property of whichever format is current, not of the one recorded here. |
 | §23 rule 2: *"user content outside the block is immutable"* | The owner's 2026-08-18 amendment adds field population into the author's own template | Both mechanisms exist and are separated by policy, not by hope: the delimited block is machine-owned and regenerated unattended; author-field population is `FieldFill::OnlyIfEmpty` by default, previewed, confirmed, and **reports "skipped, you had already filled it"** rather than overwriting. `markdown::fill_field` is the one place that can write outside the block, and it refuses an occupied field. This is the reconciliation the design's header asked whoever wrote this document to make. |
 | §11 offers `TextRange` and `MarkdownBlock` selections | — | Not built, and this is a correctness decision rather than a scope cut. A byte offset stops pointing at the right paragraph the moment the author edits the text above it, and a block reference (`^abc123`) is an Obsidian construct the owner's clarification put out of core. V1 ships the two selections §11 itself prioritises: whole document and heading section. |
 | §19's Geography group wants a **continent** field on a settlement | Answering "which landmass is this cell on" needs the per-cell component raster | Not offered. `civ_continents` deliberately keeps no raster — 268 MB at this port's 8192² ceiling for a lookup nothing else performs (`MEMORY_OPTIMIZATION_SCOPE.md`'s standing objection to exactly that shape). Filling it from bounding-box containment would be a guess, and a wrong one wherever two boxes overlap. |
@@ -267,8 +267,20 @@ loaded world will not have. When this document was written the only save path
 was the reference HTML app's `.zip`, which carries no civ layer at all — that
 is the reason recorded in §2's table, and it is the condition to re-check
 against the current save format rather than to assume still holds.
-`vault_store.gd` is the one file that has to move when this lands: it is what
-owns `user://markdown_vault.json` as the live store.
+`vault_store.gd` is the file this lands in, and it did not move: it still
+owns `user://markdown_vault.json`, now for the **device binding** — an
+absolute folder path, which §5 says is not project data — and for the links
+of a session with no project open, which has no archive to write them to.
+While a project *is* open the archive owns them and the sidecar's `store`
+half is dropped, once the pre-project copy is safely aside.
+
+The one thing this milestone is **not** finished on is stated where it can
+be acted on rather than here: `project_bridge.rs` gates the whole
+`vault.json` write on `!store.links.is_empty()`, and §21's snapshots are
+keyed by entity rather than by link, so a project whose only vault state is
+a generated map writes no document and loses it. `LinkStore::is_empty()`
+(`links.rs`) is the predicate that question actually wants, and its own doc
+comment carries the reasoning.
 
 ### Milestone 4 — the Android provider (§6)
 

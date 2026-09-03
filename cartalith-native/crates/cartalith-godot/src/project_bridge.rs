@@ -1515,7 +1515,19 @@ impl WorldGen {
         // and this file never has to know what a knowledge link is. Skipped
         // when there is nothing filed, so an untouched project carries no
         // empty `vault.json`.
-        if !self.vault.store.links.is_empty() {
+        //
+        // **Gated on the whole store, not on `links` alone (2026-09-04).** It
+        // read `!self.vault.store.links.is_empty()`, which asks one member of a
+        // three-member store: a project carrying a connected vault and a map
+        // snapshot but no knowledge links wrote **no document at all**, and the
+        // snapshot was lost on save. `vault_snapshot` requires no link anywhere
+        // in its path, so that state is reachable. `LinkStore::is_empty()` is
+        // the predicate this gate always wanted -- it answers for `vaults`,
+        // `links` and `snapshots` together, and its own doc records what it
+        // costs to be right (a store holding only a `VaultRef` is not empty, by
+        // §26's save-file model). Found by a verifier; the predicate existed
+        // and was mutation-tested in the same batch, and simply was not wired.
+        if !self.vault.store.is_empty() {
             documents.insert(SLOT_VAULT.to_string(), self.vault.store.to_json());
         }
 

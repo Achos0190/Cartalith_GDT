@@ -2446,8 +2446,16 @@ func rebuild_paint_panel() -> void:
 ## already one complete, independently undo-able draft entry), so click and
 # drag both just apply one dab; release only refreshes the panel (painted
 # counts, Commit's disabled state) once per gesture rather than once per
-# motion sample, since the panel rebuild itself is not cheap enough to do on
-# every dab the way the live preview texture already is.
+# motion sample, since the panel rebuild is not cheap enough to do on every dab.
+#
+# **Corrected 2026-09-04.** This used to end "...the way the live preview
+# texture already is", asserting the preview IS cheap per dab. Measured, it is
+# not: a full-grid CPU rebuild costs **0.73 / 1.48 / 4.55 / 16.80 ms** per dab
+# at 512/1024/2048/4096 squared, re-uploading 1 MB to 64 MB across the FFI each
+# time, while `touched_bounds` covers only **1.80%** of the grid at 2048 and
+# **1.32%** at 4096. So the deferral above is right and its stated reason was
+# comparing against something that is not cheap either. The bounded-upload path
+# is a filed row, not a claim this comment gets to make.
 
 func _paint_apply_dab(gx: float, gy: float) -> void:
 	## §4.5.2: "Drag paints cells, ⇧ erases" -- Shift is a momentary modifier

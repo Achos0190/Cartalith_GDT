@@ -463,6 +463,37 @@ struct Envelope {
 }
 
 impl LinkStore {
+    /// Whether this store has nothing worth filing — the question a caller
+    /// deciding *"do I write a `vault.json` into this archive at all?"* is
+    /// actually asking.
+    ///
+    /// It exists because that caller was asking a narrower one.
+    /// `cartalith-godot`'s `project_bridge.rs` gates the whole `vault.json`
+    /// write on `!self.vault.store.links.is_empty()`, and
+    /// [`LinkStore::snapshots`] is keyed by **entity, not by link**: its own
+    /// doc says a snapshot "exists whether or not anyone has attached a note
+    /// to it", and `vault_bridge.rs`'s `vault_snapshot` requires no link to
+    /// file one. A project whose only vault state is a generated map
+    /// therefore has `links.is_empty() == true`, writes no document, and
+    /// loses the snapshot map on save — with no second copy anywhere, since
+    /// `shell/vault_store.gd` stops writing the `store` half of the sidecar
+    /// for exactly the sessions that have a project open.
+    ///
+    /// Three members, three ways to have something to say, so the predicate
+    /// belongs to the store rather than to whichever caller last guessed at
+    /// it. [`ImportedData::is_empty`] is the same shape one layer down.
+    ///
+    /// Note what it costs to be right here: a store holding only a
+    /// [`VaultRef`] is **not** empty, so connecting a vault and linking
+    /// nothing does write a small document. That is §26's own save-file
+    /// model — `markdownVault: {vaultId, displayName}` is listed there
+    /// beside `knowledgeLinks` — and it is the portable half of the split in
+    /// `vault_store.gd`'s header table, not the device binding, which is
+    /// never in here (§5).
+    pub fn is_empty(&self) -> bool {
+        self.vaults.is_empty() && self.links.is_empty() && self.snapshots.is_empty()
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(&Envelope { version: STORE_VERSION, store: self.clone() })
             .expect("a LinkStore always serializes")
@@ -632,6 +663,42 @@ mod tests {
         // The shape every store written before 2026-09-02 has.
         let older = r#"{"version":1,"vaults":[],"links":[]}"#;
         assert_eq!(LinkStore::from_json(older).unwrap().snapshots.len(), 0);
+    }
+
+    /// The predicate `project_bridge.rs` needs and does not yet use.
+    ///
+    /// Each of the three members is asserted **alone**, so dropping any one
+    /// conjunct from [`LinkStore::is_empty`] turns exactly one case red. The
+    /// snapshot-only case is the live one: it is the state a person reaches
+    /// by generating a map for a settlement they have not linked a note to,
+    /// and the gate in use today (`!store.links.is_empty()`) calls it
+    /// nothing to write.
+    #[test]
+    fn a_store_holding_only_a_snapshot_is_not_an_empty_store() {
+        assert!(LinkStore::default().is_empty(), "nothing filed is empty");
+
+        let mut snap_only = LinkStore::default();
+        snap_only.set_snapshot("settlement:42", "local", ".cartalith/maps/settlement_42_local.png");
+        assert!(snap_only.links.is_empty(), "the gate in use reads this store as empty");
+        assert!(!snap_only.is_empty(), "and a generated map is not nothing");
+
+        let mut vault_only = LinkStore::default();
+        vault_only.add_vault("Elaris");
+        assert!(!vault_only.is_empty(), "a connected vault is §26's markdownVault member");
+
+        let mut link_only = LinkStore::default();
+        link_only.attach(link());
+        assert!(!link_only.is_empty());
+
+        // And the snapshot-only store survives the document it would be
+        // written as, which is the whole point of writing it: a project saved
+        // in this state and reopened still knows where its map is.
+        let back = LinkStore::from_json(&snap_only.to_json()).expect("re-reads");
+        assert_eq!(
+            back.snapshot("settlement:42", "local"),
+            Some(".cartalith/maps/settlement_42_local.png")
+        );
+        assert!(!back.is_empty());
     }
 
     #[test]

@@ -53,6 +53,7 @@ its rule before you start.
 | **Write prose about another lane's subsystem in the same batch** | Two lanes ran concurrently: one removed a hardcode, the other shipped a note explaining that the hardcode was why a control was inert. The note was true at dispatch and **false on arrival** — and it reads as freshly checked | State the other lane's file as *of this batch*, or re-verify at the symbol after the batch lands. A cross-lane claim has a shelf life of one wave |
 | **Convert a replacing UI context into an appended one** | The disarm path is the obvious one and the **arm-another-tool path is the one that gets missed**. A single-answer `match` over the armed tool reaches its ordinary arms before any draft clause, so a live uncommitted draft loses its Commit/Discard — and the newly armed tool draws *its* Commit in the same slot | Enumerate every transition INTO the new state, not just out of it. Probe each armed tool against a live draft and assert the draft survives all of them |
 | **Write a parent-type guard** | The question is *"does a sibling compete for my width"*, not *"which class is my parent"*. A guard listing `BoxContainer`/`HFlowContainer` missed `GridContainer`, which shares width across columns exactly as an HBox shares it across children | Enumerate every container that distributes the axis you care about, and assert one child of each. Caught by a verifier, not by the guard's own author |
+| **Gate a write on "is there anything to save"** | Ask the **whole** aggregate, not one member of it. A `vault.json` write gated on `links.is_empty()` silently dropped a map snapshot, because the store also holds `vaults` and `snapshots`. The correct predicate existed and was mutation-tested in the same batch, and was simply not wired | Enumerate every member the container can hold and assert a save containing **only** each one in turn survives a round trip |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -100,7 +101,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×20
+### [2026-09-03] Leaving prose that describes the old behaviour ×22
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

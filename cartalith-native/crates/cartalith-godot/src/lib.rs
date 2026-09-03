@@ -8270,8 +8270,21 @@ impl WorldGen {
     /// bounded preview needs those three passes reworked to run over a
     /// caller-supplied window instead of the full field -- real surgery on
     /// `render.rs`, a file `golden_parity_render.rs` already pins bit-for-
-    /// bit, not a small addition alongside this binding. Left for the
-    /// separate live-preview scope document rather than half-done here.
+    /// bit, not a small addition alongside this binding.
+    ///
+    /// That paragraph was written from reading the code; it has since been
+    /// measured, and the citation is worth carrying because the measurement
+    /// is narrower than the prose. `SCULPT_LIVE_SCOPE.md`'s L0 table
+    /// (produced by `tests/sculpt_live_l0_bench.rs`) puts the three
+    /// precomputes at 55.8% / 67.3% / 64.3% of whole-grid preview cost at
+    /// 512² / 1024² / 2048², so "dominant" means about two thirds, not
+    /// nearly all, and the per-pixel loop L1 bounds alongside them is the
+    /// other third. Milestone **L1** of that document owns the rework;
+    /// this method is deliberately left whole-grid until it lands, rather
+    /// than half-done here. Unlike `build_paint_preview_texture` below,
+    /// this one is called once per finished stroke (`world_workspace.gd`'s
+    /// `_sculpt_release`), not once per pointer-move sample, which is why
+    /// the expensive method is the less urgent of the two.
     ///
     /// `None` before any `generate()` call, for a loaded save (no draft
     /// exists there at all -- see the `sculpt` field's own doc comment),
@@ -9171,11 +9184,64 @@ impl WorldGen {
     /// Full grid rather than a bounded region, unlike the note in
     /// `build_sculpt_preview_texture` inviting one: this pass is a flat
     /// per-cell colour lookup with no derived whole-grid rasters
-    /// underneath it (no `RenderCtx`, no AO/wetness/hillshade), so the
-    /// cost a bounded variant would save is negligible here, while a
+    /// underneath it (no `RenderCtx`, no AO/wetness/hillshade), while a
     /// bounded texture would need this method to also report an offset
     /// for the caller to composite it at — a second return value this
-    /// signature doesn't have.
+    /// signature doesn't have. **That second clause is the whole of the
+    /// remaining reason.** From 2026-08-18 until 2026-09-04 this paragraph
+    /// also claimed "the cost a bounded variant would save is negligible
+    /// here", which was an argument about the *shape* of the work standing
+    /// in for a measurement of its *size*, and it does not survive one.
+    ///
+    /// Measured 2026-09-04 by `tests/paint_preview_cost.rs`, release,
+    /// `--test-threads=1`, median of 7 with min..max, FFI upload excluded
+    /// (it cannot be timed outside a live Godot process — same limit
+    /// `tests/sculpt_live_l0_bench.rs` records). One 20-dab drag at the
+    /// 40-cell brush ceiling, so the largest footprint a caller can make:
+    ///
+    /// | grid | this method's CPU work, per dab | a `touched_bounds()`-sized path's equivalent | RGBA bytes crossing the FFI, per dab |
+    /// |---|---:|---:|---:|
+    /// | 512² | 0.732 ms (0.720..0.762) | ~0.43 ms | 1.0 MB → 0.07 MB |
+    /// | 1024² | 1.454 ms (1.447..1.465) | ~0.44 ms | 4.2 MB → 0.13 MB |
+    /// | **2048², the shipped default** | **4.374 ms (4.355..4.396)** | **~0.52 ms** | **16.8 MB → 0.30 MB** |
+    /// | 4096² | 16.274 ms (16.146..16.419) | ~0.91 ms | 67.1 MB → 0.88 MB |
+    ///
+    /// The bounded column is a **sum of measured parts, not a measured
+    /// whole**: the window's own swatch loop (0.013/0.021/0.044/0.222 ms)
+    /// plus the stamp applies (0.416/0.421/0.479/0.691 ms), which
+    /// `PaintStamp::apply` already bounds to `-r..=r` and which therefore
+    /// cost the same either way. No bounded path exists to time end to end.
+    ///
+    /// Three things make that not negligible at the sizes this app ships.
+    /// `new_world_dialog.gd`'s `RESOLUTION_PRESETS` are 512/1K/2K/4K/8K
+    /// with **2K the default**, so the 4.374 ms row is what a caller who
+    /// changed nothing gets. `world_workspace.gd`'s `_paint_apply_dab`
+    /// calls this from `_paint_click` **and** `_paint_drag` — once per
+    /// pointer-move sample, not once per gesture, which is the opposite of
+    /// `build_sculpt_preview_texture`'s once-per-release call site and the
+    /// reason the cheaper method is the one that matters. And
+    /// `touched_bounds()` for that drag is 1.80% of the grid at 2048² and
+    /// 1.32% at 4096²: the work is being done over a region 55x the edit's
+    /// own at the default size, 76x at the one above it.
+    ///
+    /// What a window would **not** fix, also measured: `preview_into`
+    /// replays the entire draft stack on every call, so cost grows with
+    /// gesture length — 3.941 ms at one dab, 9.991 ms at 300, at 2048².
+    /// That term is already footprint-bounded per stamp and survives any
+    /// windowing unchanged. Those two points put it at 0.0202 ms per extra
+    /// dab, so it overtakes the flat 3.9 ms grid term at about **195 dabs**
+    /// — arithmetic between two measured points, not a third measurement.
+    /// Below that, bounding the grid work is the larger win; a gesture long
+    /// enough to pass it wants the stack replay bounded too, and neither
+    /// fix subsumes the other.
+    ///
+    /// Two properties any bounded variant must hold are pinned by that
+    /// same test file rather than left to whoever writes it:
+    /// `touched_bounds()` contains every pixel the edit changed (asserted
+    /// against a full re-render of the same edit, inside *and* outside the
+    /// window), and its `None` means "the draft touched nothing", which is
+    /// neither "nothing to draw" — a committed layer with an empty draft
+    /// still needs the whole grid — nor "everything is dirty".
     ///
     /// `None` before any `generate()` call, or when the active layer has
     /// nothing painted and nothing pending (matching nothing would differ

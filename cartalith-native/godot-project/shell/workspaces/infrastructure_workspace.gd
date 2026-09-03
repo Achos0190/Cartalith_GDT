@@ -331,6 +331,7 @@ func _on_infra_tool_armed(id: String) -> void:
 				app.set_status("hint", "Generate a world first -- Way needs a generated map to route over.", "text_ghost")
 			app.viewport.tool_overlay.set_path_preview(_way_points)
 			_tool_options_way()
+			_push_way_draft()
 		"route":
 			_active_infra_tool = "route"
 			_route_points = PackedVector2Array()
@@ -345,10 +346,12 @@ func _on_infra_tool_armed(id: String) -> void:
 				app.set_status("hint", "Generate a world first -- Route needs a generated map to route over.", "text_ghost")
 			app.viewport.tool_overlay.set_path_preview(_route_points)
 			_tool_options_route()
+			_push_way_draft()
 		_:
 			if _active_infra_tool != "":
 				_active_infra_tool = ""
 				app.viewport.tool_overlay.set_path_preview(PackedVector2Array())
+				_push_way_draft()
 				## Only reclaim the options bar for the plain "back to
 				## Inspect" case. Measure/Region (`global_tools.gd`) set no
 				## options-bar content of their own today, so guessing at
@@ -357,12 +360,41 @@ func _on_infra_tool_armed(id: String) -> void:
 				if id == "inspect":
 					_tool_options_infra_idle()
 
+## Hands the live draft to the right dock's `rdMode4()` rule 7 section
+## (`right_dock.gd::show_way()`, §1.14: waypoints, length, max grade, surface).
+##
+## Called from every point this file changes the draft, which is every place
+## that already rebuilds the tool options row -- the same figure is in both, and
+## the two would disagree the moment one of them was left out. Derives
+## everything from `_active_infra_tool`, so the neither-armed case falls out of
+## the default arm rather than needing its own call site.
+##
+## The right dock decides for itself whether to draw: it compares the owner id
+## sent here against `app.armed_tool` live, so a draft pushed for a tool that is
+## no longer armed can only suppress that section, never leave a stale one up.
+func _push_way_draft() -> void:
+	if app == null or app.right_dock_ctrl == null:
+		return
+	match _active_infra_tool:
+		"way":
+			app.right_dock_ctrl.show_way("way", _way_points,
+				WAY_DRAW_TYPE_LABELS[maxi(0, WAY_DRAW_TYPES.find(_way_type))])
+		"route":
+			## No type label: the Route tool has no type control at all, here or
+			## in the reference (`route_begin("mixed")` is hardcoded -- see
+			## `_on_infra_tool_armed`), so the dock omits the row rather than
+			## inventing a value for it.
+			app.right_dock_ctrl.show_way("route", _route_points, "")
+		_:
+			app.right_dock_ctrl.show_way("", PackedVector2Array(), "")
+
 func _way_click(gx: float, gy: float) -> void:
 	if not bridge.way_append_point(gx, gy):
 		return
 	_way_points.append(Vector2(gx, gy))
 	app.viewport.tool_overlay.set_path_preview(_way_points)
 	_tool_options_way()
+	_push_way_draft()
 
 func _route_click(gx: float, gy: float) -> void:
 	if not bridge.route_append_stop(gx, gy):
@@ -370,6 +402,7 @@ func _route_click(gx: float, gy: float) -> void:
 	_route_points.append(Vector2(gx, gy))
 	app.viewport.tool_overlay.set_path_preview(_route_points)
 	_tool_options_route()
+	_push_way_draft()
 
 ## Changing the way type mid-draft is an honest restart, not a silent
 ## reinterpretation of already-placed points: `way_begin` (Rust) always
@@ -384,6 +417,7 @@ func _set_way_type(new_type: String) -> void:
 		_way_points = PackedVector2Array()
 		app.viewport.tool_overlay.set_path_preview(_way_points)
 	_tool_options_way()
+	_push_way_draft()
 
 ## Shared by the Commit button, Escape, and switching away to another tool.
 ## `way_commit()` itself already matches `_civCommitWay`'s own "no-op under
@@ -404,6 +438,7 @@ func _commit_way() -> void:
 			"text_ghost")
 	if _active_infra_tool == "way":
 		_tool_options_way()
+	_push_way_draft()
 
 
 ## Repaints the map's civ layer so a way committed a moment ago appears
@@ -428,6 +463,7 @@ func _discard_way() -> void:
 	app.viewport.tool_overlay.set_path_preview(_way_points)
 	if _active_infra_tool == "way":
 		_tool_options_way()
+	_push_way_draft()
 
 func _commit_route() -> void:
 	var idx := bridge.route_commit()
@@ -447,6 +483,7 @@ func _commit_route() -> void:
 			"text_ghost")
 	if _active_infra_tool == "route":
 		_tool_options_route()
+	_push_way_draft()
 
 
 ## The route layer's own repaint. Unlike `_refresh_map_ways` this does NOT go
@@ -464,6 +501,7 @@ func _discard_route() -> void:
 	app.viewport.tool_overlay.set_path_preview(_route_points)
 	if _active_infra_tool == "route":
 		_tool_options_route()
+	_push_way_draft()
 
 func _tool_options_label(row: HBoxContainer, text: String) -> void:
 	row.add_child(DccTheme.mono_label(text, "accent", DccTheme.FS_SMALL, 2, true))
