@@ -149,9 +149,17 @@ pub const PACK_POI_SLOTS: [&str; 8] = [
     "other",
 ];
 
-/// Settlement role overlays — mirrors `CIV_TRAITS`. Imported since v1.28;
-/// still not drawn on the map by the reference renderer (see
-/// [`crate::PackManifest::warnings`]'s "not yet used by the live map" entry).
+/// Settlement role overlays — mirrors `CIV_TRAITS`. Imported since v1.28.
+///
+/// **This doc used to say the reference does not draw these. It does** —
+/// `_traitSprite` (v2.11 line 15571) and `_civDrawTraitBadges` (15584), added
+/// by the same v1.28 that added the import, drawing up to four badges in a row
+/// beneath a settlement's pin. What the reference never revisited was its own
+/// "not yet used by the live map" list, which still names `trait`.
+///
+/// The family *is* undrawn in **this port**, which is the real reason it is the
+/// one clause left in [`crate::PackManifest::warnings`]' entry: nothing
+/// composites a trait sprite here. `OUTSTANDING_WORK.md` §2.5 is that gap.
 pub const PACK_TRAIT_SLOTS: [&str; 7] = [
     "fortified",
     "mining",

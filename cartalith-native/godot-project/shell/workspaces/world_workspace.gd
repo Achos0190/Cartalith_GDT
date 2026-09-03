@@ -582,6 +582,18 @@ func _build_generate_head(parent: Control) -> void:
 		row.add_child(name_label)
 		var state_label := DccTheme.mono_label("pending", "text_ghost", DccTheme.FS_MICRO, 1)
 		state_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## DS-03. Most of this column is two words -- "pending", "no world",
+		## "running...". Two rows are not: stages 9 and 10 append
+		## `_paint_stage_rows()`'s gap note, and the finished string is
+		## "done  3.83s  (no engine work this run -- see gap note above)". A
+		## `Label`'s minimum width is its whole text unless it wraps, measured
+		## 545 px here, and this one is `SIZE_EXPAND_FILL` in a row that
+		## already spends 18 + 9 + `ROW_LABEL_W - 33` px on its three fixed
+		## siblings -- so with a world generated the left dock was forced from
+		## 400 px to **783** on tablet, taking that width off the map. It only
+		## appears after a generate, which is why the boot-state sweep in
+		## `_ds03fit_probe.gd` misses it and the world sweep does not.
+		state_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		row.add_child(state_label)
 		_stage_number_labels.append(number_label)
 		_stage_dot_labels.append(dot_label)

@@ -502,6 +502,12 @@ pub fn parse_pack_csv(text: &str) -> RawManifest {
 /// declared file is absent is dropped with a warning; a slot outside the frozen
 /// vocabulary is dropped with a warning; a slot the manifest simply omits is
 /// silently absent, which is the format's per-slot procedural fallback.
+///
+/// **One output of this function deliberately does not match the reference:**
+/// the trailing `"N pack section(s) not yet used by the live map (…)"`
+/// warning. Owner ruling 2026-09-03 — see the comment at its emit site near
+/// the end of this function for what moved, why, and what was deliberately
+/// left alone. Everything else here is reference-exact.
 pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackManifest {
     let mut out = PackManifest {
         name: non_empty(m.name.as_deref(), "Asset pack"),
@@ -627,27 +633,46 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
     // than silently dropped, so "Import asset pack" cannot claim an
     // unconditional success it did not deliver.
     //
-    // **`biomes`/`terrains` are now consumed and this warning still names
-    // them, deliberately: the staleness is the reference's, and the string is
-    // golden-pinned.** Reference line 12164's own comment calls biome/terrain
-    // texturing "still follow-up work" while `_paintedTex` sits 23 lines
-    // below it at 12187 doing exactly that work — v1.28 landed the sampler
-    // and never revisited this list. `golden_parity_pack_manifest.rs` pins
-    // the emitted string verbatim in two cases, so dropping the two names
-    // here is a golden re-baseline, which `DECISIONS.md` §7a protects and
-    // which needs an owner ruling. Until that ruling, the warning is
-    // reference-accurate and port-inaccurate; `crate::pack` (in
-    // `cartalith-godot`) decodes both families regardless, and `trait` is
-    // still genuinely undrawn.
+    // **THIS STRING DIVERGES FROM THE REFERENCE. Owner ruling 2026-09-03
+    // (`LARGE_ITEM_RULINGS.md`, "the pack-import warning") — the first
+    // authorised golden re-baseline this project has taken.** The reference
+    // names three families here; this port names one. A parity run against
+    // `parsePackManifest` will meet the difference on this string and nothing
+    // else, and that is expected rather than a regression.
+    //
+    // **Why `biomes`/`terrains` were dropped:** they are consumed. A pack's
+    // images for both are decoded by `decode_ground_family` (`crate::pack`,
+    // in `cartalith-godot`) into `LoadedPack::biomes`/`::terrains` and
+    // preferred over the flat palette swatch by `render.rs`'s `land_color`
+    // paint branch. Naming them told the user something false about their own
+    // pack. The reference's own list is stale rather than right-for-it: line
+    // 12164's comment calls biome/terrain texturing "still follow-up work"
+    // while `_paintedTex` sits 23 lines below at 12187 doing that work —
+    // v1.28 landed the sampler and never revisited the list.
+    //
+    // **Why `trait` stays — and it is not because the reference says so.**
+    // The reference *does* draw trait badges: `_traitSprite` and
+    // `_civDrawTraitBadges` (v2.11 lines 15571 and 15584, also v1.28, also
+    // never removed from this list). It stays because it is true of *this
+    // port*, where nothing composites a trait sprite — `crate::pack`'s
+    // `composite_map_icons` handles the `icons` family only, and
+    // `map_overlay.gd` draws settlement pins procedurally.
+    // `OUTSTANDING_WORK.md` §2.5 is that gap.
+    //
+    // **`settlement` and `poi` are undrawn in this port too, and are
+    // deliberately NOT named here.** `composite_map_icons` skips them for the
+    // same reason it skips `trait`, and `map_overlay.gd`'s `_draw_manual_icons`
+    // draws a settlement icon as a filled rectangle and a POI as a diamond,
+    // never a pack sprite. The ruling's scope is one string and three fixtures
+    // and it was taken on the premise that `trait` is the only true clause;
+    // widening the list is a behaviour decision the owner has not made.
+    // Reported, not taken — do not add them without a ruling that says to.
+    //
+    // The `Vec` is kept for a single family so the emitted text stays the
+    // reference's own `count + join` rather than a hand-written "1".
     let mut unused: Vec<&str> = Vec::new();
     if !m.structures.traits.is_empty() {
         unused.push("trait");
-    }
-    if !m.biomes.is_empty() {
-        unused.push("biomes");
-    }
-    if !m.terrains.is_empty() {
-        unused.push("terrains");
     }
     if !unused.is_empty() {
         out.warnings.push(format!(
@@ -745,6 +770,61 @@ mod tests {
         let m = parse_pack_manifest(&raw, &files(&[]));
         assert!(m.warnings.is_empty());
         assert!(m.is_empty());
+    }
+
+    /// The owner-authorised re-baseline (2026-09-03), pinned to **literals**
+    /// on both sides so a revert of the emit site cannot pass: a pack of
+    /// painted-ground art alone now warns about nothing, and the `trait`
+    /// clause is still emitted, word for word, when there is trait art.
+    ///
+    /// Deliberately not a `assert_eq!(w, SOME_CONST)` shape — that holds for
+    /// whatever the constant says. The strings are spelled out.
+    #[test]
+    fn painted_ground_families_no_longer_warn_but_traits_still_do() {
+        let ground: RawManifest = serde_json::from_str(
+            r#"{"biomes":{"jungle":"b/j.png"},"terrains":{"paved":"r/p.png"}}"#,
+        )
+        .unwrap();
+        let m = parse_pack_manifest(&ground, &files(&["b/j.png", "r/p.png"]));
+        // Both families are consumed by `cartalith-godot`'s `pack`/`render`
+        // pair, so there is nothing left to report at all -- not a reworded
+        // warning, none.
+        assert!(
+            m.warnings.is_empty(),
+            "biomes/terrains must not be reported as unused: {:?}",
+            m.warnings
+        );
+        assert_eq!(m.biomes.len(), 1);
+        assert_eq!(m.terrains.len(), 1);
+
+        let with_trait: RawManifest = serde_json::from_str(
+            r#"{"biomes":{"jungle":"b/j.png"},"structures":{"trait":{"port":["s/p.png"]}}}"#,
+        )
+        .unwrap();
+        let m = parse_pack_manifest(&with_trait, &files(&["b/j.png", "s/p.png"]));
+        assert_eq!(
+            m.warnings,
+            ["1 pack section(s) not yet used by the live map (trait)"]
+        );
+    }
+
+    /// `settlement` and `poi` art is undrawn in this port too (`crate::pack`
+    /// in `cartalith-godot` composites the `icons` family and nothing else),
+    /// and the ruling did **not** authorise naming them. This pins the
+    /// decision rather than leaving it to be re-litigated by whoever next
+    /// reads the warning: a settlement/POI-only pack is silent here.
+    ///
+    /// If an owner ruling later widens the list, this test is the one to
+    /// change, and changing it is the disclosure.
+    #[test]
+    fn settlement_and_poi_are_not_named_by_the_unused_warning() {
+        let raw: RawManifest = serde_json::from_str(
+            r#"{"structures":{"settlement":{"town":["s/t.png"]},"poi":{"cave":["s/c.png"]}}}"#,
+        )
+        .unwrap();
+        let m = parse_pack_manifest(&raw, &files(&["s/t.png", "s/c.png"]));
+        assert!(m.warnings.is_empty(), "{:?}", m.warnings);
+        assert_eq!(m.structures.len(), 2);
     }
 
     #[test]

@@ -1635,6 +1635,17 @@ func _build_label_classes(parent: Control) -> void:
 	## draws a single summary (`parts.js:372`, "122 drawn · 9 culled") and the
 	## rows themselves stay one number wide.
 	_label_class_summary = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 2)
+	## DS-03. This slot carries two very different strings: the one-line
+	## "122 drawn - 9 culled - N ms" the design draws, and -- when there is no
+	## world yet -- the engine's own `reason`, which is a 155-character
+	## sentence (`label_bridge/generate.rs`). Without autowrap a `Label`'s
+	## minimum width is that whole sentence: measured 1 546 px inside a 400 px
+	## dock, and because the dock's `ScrollContainer` disables its horizontal
+	## axis that minimum propagated outward and grew the left dock to 1 589 px,
+	## eating 1 189 px of the map. Its twin two hundred lines below,
+	## `_icon_gen_summary`, is filled from the same `res["reason"]` shape and
+	## has always wrapped; this one was simply missed.
+	_label_class_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	rows.add_child(_label_class_summary)
 
 	## `labSelTitle` (`parts.js:378`): the selected class's own name plus

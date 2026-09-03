@@ -1131,6 +1131,52 @@ impl CivData {
     }
 }
 
+/// The religions a settlement actually holds, as `(roster key, share)` in
+/// `CIV_RELIGIONS` order -- the half of [`WorldGen::get_settlements`]'
+/// `religion_shares` key that can be tested at all. A `#[func]` cannot run
+/// under `cargo test` and `VarDictionary::new()` panics without a live
+/// engine (`civ_merge_tests` states that at length), so the marshalling is
+/// split from the decision about *what* to marshal, and the decision is what
+/// this function is.
+///
+/// # Two levels of absence, and they mean different things
+///
+/// - **The `religion_shares` key itself** is present exactly when `religion`
+///   and `adherents` are -- that is, when a belief layer covers this
+///   settlement. Absent means *nobody ran the model*, and a caller asks
+///   `has("religion_shares")` rather than reading a default.
+/// - **Inside it**, a religion this settlement holds none of is omitted
+///   rather than written as `0.0`, so the dictionary's size is the number of
+///   faiths actually present and a reader iterating it cannot print a `0 %`
+///   row. The roster is fixed and enumerable from the shell
+///   (`civ_religion_vocabulary()`), so "absent from this dictionary" reads
+///   back as "exactly zero" with no second meaning available to it.
+///
+/// The filter is `> 0.0`, which is
+/// [`cartalith_civ::belief::SettlementReligionState::adherents`]' own
+/// `.max(0.0)` seen from the other side: the two dictionaries then agree
+/// about *which* religions a settlement has. What they cannot agree about is
+/// *how much*, and that disagreement is the entire reason this key exists --
+/// `adherents(0)` is all zeroes for a population-0 settlement, so its
+/// `adherents` dictionary arrives empty while its shares are untouched. Those
+/// settlements are not a corner case here (see the probe measurement quoted
+/// on `get_settlements` itself).
+///
+/// Returned as a `Vec` rather than an iterator borrowing `state`: eight
+/// entries at most, and the caller immediately drains it into a
+/// `VarDictionary`.
+fn religion_shares(
+    state: &cartalith_civ::belief::SettlementReligionState,
+) -> Vec<(&'static str, f64)> {
+    state
+        .share
+        .iter()
+        .enumerate()
+        .filter(|&(_, &v)| v > 0.0)
+        .filter_map(|(r, &v)| cartalith_civ::belief::religion_key(r).map(|k| (k, v)))
+        .collect()
+}
+
 /// `TIMELINE_SCOPE.md` §7 success criterion 2: `civ_add_year`/`civ_goto_year`/
 /// `civ_remove_year` must reproduce the reference's own snapshot semantics.
 /// Runs under plain `cargo test -p cartalith-godot` with no Godot runtime
@@ -1505,6 +1551,139 @@ mod civ_timeline_tests {
             "12 years then 8 must equal 20 -- otherwise `advance the world` silently \
              restarts the simulation"
         );
+    }
+
+    // ---- `religion_shares`: the share vector's own export ----
+    //
+    // OUTSTANDING_WORK.md §2.2. `get_settlements` itself cannot run here (it
+    // builds `VarDictionary`s), so what is tested is the decision it
+    // marshals: which religions are emitted, and which are left out.
+
+    fn state_of(pairs: &[(&str, f64)]) -> cartalith_civ::belief::SettlementReligionState {
+        let mut share = [0.0f64; cartalith_civ::belief::CIV_RELIGION_COUNT];
+        for (k, v) in pairs {
+            share[cartalith_civ::belief::religion_index(k).expect("roster key")] = *v;
+        }
+        cartalith_civ::belief::SettlementReligionState { share }
+    }
+
+    #[test]
+    fn religion_shares_omits_a_zero_and_keeps_every_real_one() {
+        let s = state_of(&[("sun_cult", 0.7), ("old_gods", 0.3)]);
+        assert_eq!(
+            super::religion_shares(&s),
+            vec![("sun_cult", 0.7), ("old_gods", 0.3)],
+            "roster order, and the five religions with no share are not emitted as 0.0"
+        );
+        // The literal that matters: `none` is a roster key like any other and
+        // is emitted when it is held, so its absence here is data.
+        assert!(
+            !super::religion_shares(&s).iter().any(|(k, _)| *k == "none"),
+            "a share of exactly zero must not arrive looking like a held share"
+        );
+        assert_eq!(
+            super::religion_shares(&state_of(&[("none", 0.6), ("sea_lords", 0.4)])),
+            vec![("none", 0.6), ("sea_lords", 0.4)],
+            "`none` is the unaffiliated remainder, not a missing value"
+        );
+    }
+
+    #[test]
+    fn a_settlement_wholly_of_one_faith_emits_exactly_that_one() {
+        let s = cartalith_civ::belief::SettlementReligionState::wholly(
+            cartalith_civ::belief::religion_index("flame_creed").unwrap(),
+        );
+        assert_eq!(super::religion_shares(&s), vec![("flame_creed", 1.0)]);
+    }
+
+    /// The row's own case, and the reason the key exists: at population 0
+    /// `adherents` is empty for a settlement whose shares are real.
+    #[test]
+    fn population_zero_empties_adherents_and_leaves_the_shares_alone() {
+        let s = state_of(&[("sun_cult", 0.75), ("old_gods", 0.25)]);
+        assert!(
+            s.adherents(0).iter().all(|&n| n == 0),
+            "head-counts of nobody are nothing -- this is what makes the dictionary empty"
+        );
+        assert_eq!(
+            super::religion_shares(&s),
+            vec![("sun_cult", 0.75), ("old_gods", 0.25)],
+            "the shares are population-independent and must survive the same settlement"
+        );
+    }
+
+    /// `adherents` rounds; `religion_shares` does not. A minority too small to
+    /// be one person is present in exactly one of the two.
+    #[test]
+    fn a_minority_below_one_person_survives_in_shares_and_not_in_adherents() {
+        let s = state_of(&[("none", 0.99), ("sun_cult", 0.01)]);
+        let counts = s.adherents(10);
+        assert_eq!(counts[cartalith_civ::belief::religion_index("sun_cult").unwrap()], 0);
+        assert_eq!(counts[cartalith_civ::belief::RELIGION_NONE], 10, "largest remainder gives it all");
+        assert_eq!(super::religion_shares(&s), vec![("none", 0.99), ("sun_cult", 0.01)]);
+        // Stated as an invariant rather than as this one case: every religion
+        // `adherents` counts is one `religion_shares` also carries, for a
+        // share vector that sums to 1 -- which is what `belief_step`
+        // maintains. The converse is exactly what this test disproves.
+        for (r, &n) in counts.iter().enumerate() {
+            let key = cartalith_civ::belief::religion_key(r).unwrap();
+            assert!(
+                n == 0 || super::religion_shares(&s).iter().any(|(k, _)| *k == key),
+                "{key} was counted but not shared"
+            );
+        }
+    }
+
+    /// The row's premise, built rather than assumed: a population-0
+    /// settlement linked to a populated one **does** take up its neighbour's
+    /// faith, and that minority is representable in `religion_shares` and in
+    /// nothing else this boundary emits. (`_shares_probe.gd` measures the
+    /// other half — on a real world the village add-ons have no populated
+    /// neighbour, so they stay wholly one faith.)
+    #[test]
+    fn a_population_zero_neighbour_holds_a_minority_only_the_shares_can_show() {
+        let mut civ = linked_pair();
+        civ.settlements[1].pop = 0; // the village add-on's own shape
+        civ.settlements[1].placement.faction = 2;
+        civ.faction_roster.set_field(1, "religion", "sun_cult");
+        civ.faction_roster.set_field(2, "religion", "old_gods");
+        civ.civ_belief_run(40);
+        let shares = super::religion_shares(&civ.belief[1]);
+        assert!(
+            shares.iter().any(|&(k, v)| k == "sun_cult" && v > 0.0),
+            "the populated neighbour's faith must reach it: {shares:?}"
+        );
+        assert!(
+            shares.len() >= 2,
+            "a settlement of nobody still holds a mixture: {shares:?}"
+        );
+        assert!(
+            civ.belief[1].adherents(0).iter().all(|&n| n == 0),
+            "and `adherents` can show none of it -- every head-count is zero"
+        );
+    }
+
+    /// Not a restatement of `belief_step`'s renormalisation: what is asserted
+    /// is that the *export* loses nothing, so a shell reading only the
+    /// emitted keys still sees a whole settlement.
+    #[test]
+    fn the_emitted_shares_still_sum_to_one_after_a_real_run() {
+        let mut civ = linked_pair();
+        civ.settlements[1].placement.faction = 2;
+        civ.faction_roster.set_field(1, "religion", "sun_cult");
+        civ.faction_roster.set_field(2, "religion", "old_gods");
+        civ.civ_belief_run(40);
+        for (i, state) in civ.belief.iter().enumerate() {
+            let emitted: f64 = super::religion_shares(state).iter().map(|(_, v)| v).sum();
+            assert!(
+                (emitted - 1.0).abs() < 1e-12,
+                "settlement {i}: emitted shares sum to {emitted}, not 1.0"
+            );
+            assert!(
+                !super::religion_shares(state).is_empty(),
+                "settlement {i}: a covered settlement always holds something, even if it is `none`"
+            );
+        }
     }
 }
 
@@ -6818,9 +6997,9 @@ impl WorldGen {
     /// `load_save()` (no civ data for a loaded save, see `load_save`'s own
     /// doc comment), or if generation produced zero settlement candidates.
     ///
-    /// # `religion` and `adherents` are present only when a diffusion has run
+    /// # The three religion keys are present only when a diffusion has run
     ///
-    /// `RELIGION_DIFFUSION_SCOPE.md` milestone 1. Two further keys appear on
+    /// `RELIGION_DIFFUSION_SCOPE.md` milestone 1. Three further keys appear on
     /// every entry **once [`Self::civ_belief_run`] has been called** and the
     /// layer still matches this settlement list:
     ///
@@ -6832,14 +7011,53 @@ impl WorldGen {
     ///   to exactly `population`, by largest remainder. Religions with zero
     ///   adherents are **omitted from the inner dictionary**, so its size is
     ///   the number of faiths actually present.
+    /// - `religion_shares` (Dictionary, religion key → float) —
+    ///   `SettlementReligionState::share` itself, the model's own state:
+    ///   fractions of the settlement summing to `1.0`, `"none"` among them
+    ///   carrying the unaffiliated remainder. Zero shares are omitted on the
+    ///   same rule `adherents` follows, and [`religion_shares`] carries the
+    ///   reasoning.
     ///
-    /// Both keys are **absent entirely** when no diffusion has been run —
-    /// omitted, not defaulted to `"none"` and an empty dictionary, because
+    /// All three are **absent entirely** when no diffusion has been run —
+    /// omitted, not defaulted to `"none"` and empty dictionaries, because
     /// those are exactly what a fully secular settlement in a world that
     /// *has* been simulated looks like. A caller uses `has("religion")` to
     /// tell "nobody ran the model" from "the model says secular", and
     /// `civ_belief_run`'s own return value carries the third case ("the model
     /// ran and no faction has been given a religion") separately again.
+    ///
+    /// ## Why `religion_shares` is not `adherents` divided by `population`
+    ///
+    /// Because for most settlements it cannot be. `adherents` is head-counts,
+    /// and head-counts of nobody are nothing: a population-0 settlement gets
+    /// an **empty** `adherents` dictionary while its share vector is
+    /// untouched and real. Measured by `_shares_probe.gd`, seed 77021 at
+    /// 256×192 with `civ.villages` on: **182 of 197 settlements have
+    /// population 0** — the hamlet-tier village add-ons, whose zero is the
+    /// reference's own shape and not a missing value — and all 182 arrive
+    /// with an empty `adherents` and a `religion_shares` of at least one
+    /// entry.
+    ///
+    /// What those 182 carry *on that world* is one faith at exactly `1.0`,
+    /// not a hidden minority: the same probe finds **0 of them mixed at 0, 60
+    /// or 600 years**, because `belief_exposure` weights every neighbour by
+    /// population and a village whose neighbours are all population 0 keeps
+    /// its own distribution — that function's own comment says so. A
+    /// population-0 settlement *beside a populated one* does mix, and then
+    /// the minority lives in `religion_shares` and nowhere else;
+    /// `a_population_zero_neighbour_holds_a_minority_only_the_shares_can_show`
+    /// builds that case. Both are why the key is worth its bytes: the 182
+    /// gain "wholly this, and the `1.0` is real" in place of a bare label —
+    /// **103 of them wholly a faith and 79 wholly unaffiliated**, a split no
+    /// surface could make before — and the mixed case gains the only
+    /// representation it has.
+    ///
+    /// Where a settlement does have people, the two are consistent but not
+    /// identical: `adherents` is the largest-remainder rounding of
+    /// `religion_shares × population`, so a share below half a person rounds
+    /// out of `adherents` and stays in `religion_shares`. 14 of the 15
+    /// populated settlements on that world hold more than one faith after 60
+    /// years.
     #[func]
     fn get_settlements(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
@@ -6872,8 +7090,18 @@ impl WorldGen {
                             adherents.set(k, n as i64);
                         }
                     }
+                    // The model's own state, beside the head-counts derived
+                    // from it. Emitted together and absent together, so a
+                    // reader never has to reconcile one being present with
+                    // the other missing -- `religion_shares` says why the
+                    // pair is not redundant.
+                    let mut shares = VarDictionary::new();
+                    for (k, v) in religion_shares(state) {
+                        shares.set(k, v);
+                    }
                     d.set("religion", key);
                     d.set("adherents", &adherents);
+                    d.set("religion_shares", &shares);
                 }
                 d
             })

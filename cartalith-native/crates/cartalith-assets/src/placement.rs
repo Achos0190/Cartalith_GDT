@@ -534,6 +534,94 @@ pub fn sprite_draw_rect(x: f64, y: f64, s: f64, base: f64, sw: f64, sh: f64) -> 
     }
 }
 
+// ---------------------------------------------------------------------------
+// Trait badges under a settlement pin (`_civDrawTraitBadges` / `_civTraitDrop`)
+// ---------------------------------------------------------------------------
+
+/// How many of a settlement's traits are drawn. `traits.slice(0,4)` — the
+/// reference's own cap, with its own reason: *"4 badges is already as wide as
+/// most labels"*, so a settlement carrying every trait cannot grow a strip
+/// wider than its own name.
+pub const TRAIT_BADGES_SHOWN_MAX: usize = 4;
+
+/// One badge's place: which trait it is for, where its centre goes, and how
+/// big it is. **No art and no fallback glyph is decided here** — whether the
+/// loaded pack actually has a sprite for [`TraitBadge::key`] is the caller's
+/// lookup, and a key with no art must draw the labelled fallback the reference
+/// draws (a dark disc with that trait's own glyph), never a blank disc or a
+/// neighbouring trait's sprite.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitBadge {
+    /// A [`crate::PACK_TRAIT_SLOTS`] key — the same string that indexes a
+    /// pack's `structures.trait` art.
+    pub key: String,
+    pub cx: f64,
+    pub cy: f64,
+    pub r: f64,
+}
+
+/// A trait badge's radius: `Math.max(2.2, sz*0.42)` (reference v2.11 line
+/// 15587, and again inside `_civTraitDrop` at 15643).
+///
+/// Its own function because the reference has this expression **twice** and
+/// says so: `_civTraitDrop` was factored out in v1.73 with the comment *"two
+/// functions answering one question WILL drift"* after a measured label/badge
+/// overlap at deep zoom. Here there is one expression and both callers use it.
+///
+/// `js_max`, not `f64::max`: `Math.max` propagates NaN where Rust's absorbs it.
+pub fn trait_badge_radius(sz: f64) -> f64 {
+    cartalith_jsmath::js_max(2.2, sz * 0.42)
+}
+
+/// `_civDrawTraitBadges` (reference v2.11 line 15584) reduced to its geometry:
+/// the centre and radius of every badge in the row beneath a settlement pin,
+/// left to right, in the settlement's own trait order.
+///
+/// `px`/`py` are the pin's centre, `sz` its radius before the `+sc` ring and
+/// `sc` the layer's shared resolution/zoom/user scale — the same three the
+/// reference's `_civDrawSettlementPin` hands it (line 15672).
+///
+/// Empty when the settlement carries no traits, which is the reference's own
+/// early `return`: **no badge row, not a row of zero-radius badges.**
+///
+/// The drawing itself is not here and cannot be: this port draws settlement
+/// pins in a Godot overlay (`godot-project/map_overlay.gd`), not in the Rust
+/// raster — `crate::pack`'s compositing pass, in `cartalith-godot`, works on
+/// the terrain buffer at grid resolution and never sees a pin. See
+/// `OUTSTANDING_WORK.md` §2.5.
+pub fn trait_badge_layout(px: f64, py: f64, traits: &[String], sz: f64, sc: f64) -> Vec<TraitBadge> {
+    let shown = &traits[..traits.len().min(TRAIT_BADGES_SHOWN_MAX)];
+    if shown.is_empty() {
+        return Vec::new();
+    }
+    let r = trait_badge_radius(sz);
+    let gap = r * 2.35;
+    let total = (shown.len() - 1) as f64 * gap;
+    // "sits just below the pin, above where a 'below' label would go".
+    let cy = py + sz + r + 1.2 * sc;
+    let mut cx = px - total / 2.0;
+    let mut out = Vec::with_capacity(shown.len());
+    for key in shown {
+        out.push(TraitBadge { key: key.clone(), cx, cy, r });
+        cx += gap;
+    }
+    out
+}
+
+/// `_civTraitDrop` (reference v2.11 line 15642): the vertical space the badge
+/// row consumes below the pin, so a label placed *below* a settlement is
+/// pushed clear of the badges instead of overprinting them.
+///
+/// Zero for a settlement with no traits. Independent of how many traits it has
+/// — the row grows sideways, not down — which is why this takes a `bool` and
+/// not the list: a count would imply a dependency the reference does not have.
+pub fn trait_badge_drop(has_traits: bool, sz: f64, sc: f64) -> f64 {
+    if !has_traits {
+        return 0.0;
+    }
+    trait_badge_radius(sz) * 2.0 + 1.2 * sc
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -696,6 +784,96 @@ mod tests {
         assert!((r.dw - 8.58).abs() < 1e-9);
         assert!((r.dx - 45.71).abs() < 1e-9);
         assert!((r.dy - 67.13).abs() < 1e-9);
+    }
+
+    fn keys(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Literals, not `assert_eq!(x, THE_CONSTANT)`. Hand-evaluated from the
+    /// reference at `px=100, py=200, sz=10, sc=2`:
+    /// `r = max(2.2, 10*0.42) = 4.2`, `gap = 4.2*2.35 = 9.87`,
+    /// `total = 2*9.87 = 19.74`, first `cx = 100 - 9.87 = 90.13`,
+    /// `cy = 200 + 10 + 4.2 + 2.4 = 216.6`.
+    #[test]
+    fn trait_badge_row_matches_the_references_own_arithmetic() {
+        let b = trait_badge_layout(100.0, 200.0, &keys(&["port", "mining", "military"]), 10.0, 2.0);
+        assert_eq!(b.len(), 3);
+        assert_eq!(b[0].r, 4.2);
+        assert!((b[0].cx - 90.13).abs() < 1e-9, "{}", b[0].cx);
+        assert!((b[1].cx - 100.0).abs() < 1e-9, "{}", b[1].cx);
+        assert!((b[2].cx - 109.87).abs() < 1e-9, "{}", b[2].cx);
+        // Every badge shares one baseline; the row grows sideways only.
+        assert!(b.iter().all(|x| (x.cy - 216.6).abs() < 1e-9), "{:?}", b);
+        // Order is the settlement's own trait order, and the key is carried so
+        // the caller can look the art up -- it is not positional.
+        assert_eq!(
+            b.iter().map(|x| x.key.as_str()).collect::<Vec<_>>(),
+            ["port", "mining", "military"]
+        );
+    }
+
+    #[test]
+    fn a_single_trait_sits_centred_under_the_pin_and_none_draws_nothing() {
+        let one = trait_badge_layout(50.0, 60.0, &keys(&["port"]), 10.0, 2.0);
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].cx, 50.0); // total == 0, so no offset at all
+        // No traits is an empty row, NOT one zero-radius badge: an absent
+        // thing must not render as a small present one.
+        assert!(trait_badge_layout(50.0, 60.0, &[], 10.0, 2.0).is_empty());
+    }
+
+    /// `traits.slice(0,4)`: a settlement carrying all seven draws four.
+    #[test]
+    fn the_badge_row_is_capped_at_four_and_keeps_the_first_four() {
+        let all = keys(&[
+            "fortified",
+            "mining",
+            "port",
+            "administrative",
+            "trade_hub",
+            "military",
+            "religious",
+        ]);
+        assert_eq!(all.len(), crate::PACK_TRAIT_SLOTS.len());
+        let b = trait_badge_layout(0.0, 0.0, &all, 10.0, 1.0);
+        assert_eq!(b.len(), 4);
+        assert_eq!(
+            b.iter().map(|x| x.key.as_str()).collect::<Vec<_>>(),
+            ["fortified", "mining", "port", "administrative"]
+        );
+    }
+
+    /// The relationship v1.73 factored `_civTraitDrop` out to protect, asserted
+    /// against the layout rather than against a copy of its own formula: the
+    /// drop must reach exactly the bottom of the badge row. This is what goes
+    /// red if either expression is edited alone.
+    #[test]
+    fn the_drop_reaches_exactly_the_bottom_of_the_badge_row() {
+        for (sz, sc) in [(10.0, 2.0), (1.0, 1.0), (0.0, 0.5), (37.5, 3.25)] {
+            let b = trait_badge_layout(0.0, 0.0, &keys(&["port"]), sz, sc);
+            let bottom = b[0].cy + b[0].r - sz; // measured from the pin's rim
+            assert!(
+                (bottom - trait_badge_drop(true, sz, sc)).abs() < 1e-12,
+                "sz={sz} sc={sc}: row bottom {bottom} vs drop {}",
+                trait_badge_drop(true, sz, sc)
+            );
+        }
+        // 4.2*2 + 1.2*2 = 10.8 -- the literal, so the relationship above cannot
+        // be satisfied by two matching wrong formulas.
+        assert!((trait_badge_drop(true, 10.0, 2.0) - 10.8).abs() < 1e-12);
+        assert_eq!(trait_badge_drop(false, 10.0, 2.0), 0.0);
+    }
+
+    /// `Math.max(2.2, sz*0.42)`: the floor bites for a small pin, the scaled
+    /// term for a large one, and the crossover is where the two agree.
+    #[test]
+    fn the_badge_radius_floor_is_the_references_own_2_2() {
+        assert_eq!(trait_badge_radius(0.0), 2.2);
+        assert_eq!(trait_badge_radius(1.0), 2.2);
+        assert!((trait_badge_radius(100.0) - 42.0).abs() < 1e-12);
+        // js_max, not f64::max: Math.max propagates NaN.
+        assert!(trait_badge_radius(f64::NAN).is_nan());
     }
 
     #[test]

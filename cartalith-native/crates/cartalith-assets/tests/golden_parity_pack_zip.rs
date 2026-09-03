@@ -38,6 +38,16 @@
 //! of every entry. Comparing this port against that capture — rather than
 //! against a re-read of the `.zip` by this port's own reader — is what makes
 //! the test a parity check instead of a self-consistency check.
+//!
+//! **One field of that capture is deliberately no longer the reference's
+//! output: `warnings`.** Owner ruling 2026-09-03
+//! (`LARGE_ITEM_RULINGS.md`, "the pack-import warning"), the first authorised
+//! golden re-baseline in this project — the reference names
+//! `trait, biomes, terrains`; this port names `trait` alone, because it draws
+//! the other two. The reference's own value is preserved in the fixture as
+//! `warningsAsCapturedFromReference` and asserted below, so the divergence is
+//! measured rather than assumed. Every other field here is the capture,
+//! untouched.
 
 use cartalith_assets::{read_pack, read_pack_entries, write_pack};
 use serde_json::Value;
@@ -134,10 +144,21 @@ fn parsing_a_real_reference_pack_matches_the_reference_parser() {
         cartalith_assets::pack_summary(&manifest),
         cap["summary"].as_str().expect("summary")
     );
-    // One warning, and it is the "not yet used by the live map" notice for the
-    // trait/biomes/terrains sections -- a real pack the reference exported
-    // carries art in three families its own renderer does not consume yet.
+    // One warning, the "not yet used by the live map" notice -- and this is
+    // the authorised divergence this file's module doc names. A real pack the
+    // reference exported carries art in three families ITS renderer does not
+    // consume; this port consumes two of them, so it names one.
+    //
+    // Both literals are spelled out rather than only compared against the
+    // fixture: a fixture compared only against itself cannot fail, and a
+    // revert of `manifest.rs`'s emit site has to turn one of these red.
     assert_eq!(manifest.warnings, strs(&cap["warnings"]));
+    assert_eq!(manifest.warnings, ["1 pack section(s) not yet used by the live map (trait)"]);
+    assert_eq!(
+        strs(&cap["warningsAsCapturedFromReference"]),
+        ["3 pack section(s) not yet used by the live map (trait, biomes, terrains)"],
+        "the reference's own capture must stay in the fixture verbatim"
+    );
 }
 
 /// The manifest this port re-emits must be the *same text* the reference's own

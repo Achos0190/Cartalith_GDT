@@ -22,6 +22,28 @@
 //!
 //! All output here is text and structure, so an exact match is required —
 //! there is no float tolerance to argue about.
+//!
+//! # One deliberate divergence from the reference, and it is permanent
+//!
+//! **The "N pack section(s) not yet used by the live map (…)" warning does
+//! not match `parsePackManifest`'s output and is not meant to.** Owner ruling
+//! 2026-09-03 (`LARGE_ITEM_RULINGS.md`, "the pack-import warning"), the first
+//! authorised golden re-baseline in this project: the reference emits
+//! `trait, biomes, terrains`; this port emits `trait` alone, because
+//! `biomes`/`terrains` really are consumed here (`cartalith-godot`'s
+//! `pack::decode_ground_family` → `render.rs`'s `land_color` paint branch)
+//! and the reference's list is stale about them.
+//!
+//! **Scope of the re-baseline, exactly:** that one string, in the two cases
+//! below and in `tests/fixtures/reference_pack_captured.json`. Nothing else in
+//! this file was re-captured, and no other golden in the workspace moved. If a
+//! future re-capture run reports a mismatch here, this is why — keep the
+//! port-side value and do not "fix" it back.
+//!
+//! `cartalith-assets/src/manifest.rs`'s own comment at the emit site carries
+//! the reasoning, including why `trait` survives (the reference draws trait
+//! badges; this port does not) and why `settlement`/`poi` were **not** added
+//! even though they are undrawn here too.
 
 use cartalith_assets::{
     Family, PACK_BIOME_SLOTS, PACK_ICON_SLOTS, PACK_POI_SLOTS, PACK_SETTLEMENT_SLOTS,
@@ -114,11 +136,18 @@ fn case_a() -> PackManifest {
 
 #[test]
 fn case_a_warnings_match_the_reference_exactly_including_order() {
-    // Reference output, verbatim. The ordering encodes the reference's own
+    // Reference output, verbatim -- with the one authorised exception this
+    // file's module doc names. The ordering encodes the reference's own
     // traversal: textures (missing, then unknown) -> biomes -> terrains ->
     // icons (missing per variant, then unknown) -> structures in
     // settlement/poi/trait order -> custom sets in document order -> the
     // trailing "not yet used by the live map" summary.
+    //
+    // **The last line is the divergence.** The reference emitted
+    // `"3 pack section(s) not yet used by the live map (trait, biomes,
+    // terrains)"` for this manifest; the port emits one family, because it
+    // draws the other two. Owner ruling 2026-09-03. Everything above it is
+    // still the capture, untouched.
     let expected = [
         "texture snow: file missing (textures/missing_snow.png)",
         "unknown texture slot: gravel",
@@ -128,7 +157,7 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
         "unknown icon slot: obelisk",
         "unknown settlement slot: metropolis",
         "custom Naval/anchor: file missing (custom/naval/anchor_missing.png)",
-        "3 pack section(s) not yet used by the live map (trait, biomes, terrains)",
+        "1 pack section(s) not yet used by the live map (trait)",
     ];
     assert_eq!(case_a().warnings, expected);
 }
@@ -285,13 +314,13 @@ fn case_b_validated_manifest_and_summary_match_the_reference() {
     assert_eq!(paths(&m, Family::Icons, "shrub"), ["icons/shrub_01.png"]);
     assert_eq!(m.textures.len(), 1);
 
-    assert_eq!(
-        m.warnings,
-        [
-            "icon mountain: file missing (icons/m_z.png)",
-            "2 pack section(s) not yet used by the live map (biomes, terrains)",
-        ]
-    );
+    // **One line short of the capture, and that is the authorised divergence.**
+    // The reference emitted a second warning here,
+    // `"2 pack section(s) not yet used by the live map (biomes, terrains)"`;
+    // this pack declares no `trait` art, so with `biomes`/`terrains` no longer
+    // named there is nothing left to warn about and the summary is not emitted
+    // at all. Owner ruling 2026-09-03 -- see this file's module doc.
+    assert_eq!(m.warnings, ["icon mountain: file missing (icons/m_z.png)"]);
     assert_eq!(
         pack_summary(&m),
         "Asset pack · license? — 1 textures · 2 biome/terrain ground · mountain×3 shrub×1"

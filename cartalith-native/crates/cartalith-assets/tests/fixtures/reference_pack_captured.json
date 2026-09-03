@@ -1,5 +1,5 @@
 {
-  "note": "produced by the reference PackManifestBuilder.build() + zipStore(), read back by its own unzipAny()",
+  "note": "produced by the reference PackManifestBuilder.build() + zipStore(), read back by its own unzipAny(). ONE FIELD IS NO LONGER THE REFERENCE'S OUTPUT: `warnings`, re-baselined by owner ruling 2026-09-03 (LARGE_ITEM_RULINGS.md, 'the pack-import warning') -- the port drops the `biomes`/`terrains` clauses because it really does draw both. The reference's own value is preserved verbatim below as `warningsAsCapturedFromReference`; re-capturing this file must NOT overwrite `warnings` back to it.",
   "zipBytes": 21320,
   "zipSha256": "376f6225b1bf63a3760d10ebeb1fd9be8a641ad83d0c4ee74ef2344c6748f18c",
   "exporterEntryOrder": [
@@ -317,6 +317,9 @@
   "packJson": "{\n  \"schema\": 2,\n  \"name\": \"Reference Round-Trip Pack\",\n  \"author\": \"Cartalith Gen1\",\n  \"license\": \"CC0-1.0\",\n  \"textures\": {\n    \"grass\": \"textures/grass.png\",\n    \"rock\": \"textures/rock.png\",\n    \"sand\": \"textures/sand.png\"\n  },\n  \"icons\": {\n    \"mountain\": [\n      \"icons/mountain_01.png\",\n      \"icons/mountain_02.png\",\n      \"icons/mountain_03.png\"\n    ],\n    \"tree_conifer\": [\n      \"icons/tree_conifer_01.png\",\n      \"icons/tree_conifer_02.png\"\n    ]\n  },\n  \"biomes\": {\n    \"jungle\": \"biomes/jungle.png\"\n  },\n  \"terrains\": {\n    \"paved\": \"terrains/paved.png\"\n  },\n  \"structures\": {\n    \"settlement\": {\n      \"village\": [\n        \"structures/settlement/village_01.png\"\n      ],\n      \"city\": [\n        \"structures/settlement/city_01.png\",\n        \"structures/settlement/city_02.png\"\n      ]\n    },\n    \"trait\": {\n      \"port\": [\n        \"structures/trait/port_01.png\"\n      ]\n    },\n    \"poi\": {\n      \"ruin\": [\n        \"structures/poi/ruin_01.png\"\n      ]\n    }\n  },\n  \"custom\": {\n    \"Naval\": {\n      \"lighthouse\": [\n        \"custom/naval/lighthouse_01.png\",\n        \"custom/naval/lighthouse_02.png\"\n      ]\n    }\n  }\n}",
   "summary": "Reference Round-Trip Pack · CC0-1.0 — 3 textures · 2 biome/terrain ground · mountain×3 conifer×2 · 4 structure sprites · 1 custom icon",
   "warnings": [
+    "1 pack section(s) not yet used by the live map (trait)"
+  ],
+  "warningsAsCapturedFromReference": [
     "3 pack section(s) not yet used by the live map (trait, biomes, terrains)"
   ],
   "manifestName": "Reference Round-Trip Pack",

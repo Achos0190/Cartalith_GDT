@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**99 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-03 (twenty-fifth pass)**, after an earlier pass left four
+**96 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-04 (twenty-sixth pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,37 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-04, twenty-first batch — 99 → 96.** DS-03 closes, the pack-manifest
+re-baseline closes, the religion share export closes. `cargo test --workspace`
+**3 024 → 3 037**, 0 failed.
+
+*DS-03's premise was false and the lane found something worse.* The row (and my
+brief) said the tablet deletes ~30% of desktop content. **The deletion set is
+zero** — 52 `is_tablet()`/`_touch` branches in `shell/`, every one reflows, none
+deletes, confirmed by an identical per-class control census at both densities
+across all 10 (domain, mode) pairs. The "~30%" is a property of the *artboard*
+(`GUI_GAP_REGISTER.md:9529`, tablet 2560 vs desktop 1920), never of this shell.
+**What was really losing content was horizontal overflow through a
+`SCROLL_MODE_DISABLED` axis** — the MISTAKES trap, third occurrence. Measured at
+tablet: CARTO ▸ Labels forced the 400 px left dock to **1 589 px**, eating 1 189 px
+of map; CIVIL ▸ Factions to 555; Landmarks to 417; with a world, WORLD ▸ Generate
+to 783; and a fifth panel the lane's own report missed, CIVIL ▸ Infra at 597.
+**Desktop was broken the same way** (472 and 1 212 px inside a 372 px slot), so
+two desktop panels deliberately move — both from rendering outside their slot to
+fitting it.
+
+*The project's first authorised golden re-baseline landed, and held its scope.*
+Exactly one string and three fixtures moved; a workspace-wide diff of every
+golden and fixture confirms nothing else did. The permanent divergence is
+disclosed at five sites a future parity run will actually meet, and all three
+fixture sites are load-bearing — re-adding `unused.push("biomes")` is killed.
+
+*The ruling's own premise did not survive being re-opened, and the lane did not
+widen anyway.* `trait` is **not** the only true clause: `composite_map_icons`
+draws settlement and poi sprites too. Lane B pinned the decision with a test
+whose doc says changing it **is** the disclosure, and raised the question rather
+than acting on it. That is the right call and it is an open owner question.
 
 **2026-09-03, twentieth batch — holds at 99.** The save-format provenance gap
 closes; the religion screens close and are replaced by the narrower engine gap
@@ -874,10 +905,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Size | Note |
 |---|---|---|
-| Religion: `SettlementReligionState::share` is unexported | `RELIGION_DIFFUSION_SCOPE.md` | small | **The screens closed 2026-09-03 (batch 20); this is what they exposed.** `pub share: [f64; CIV_RELIGION_COUNT]` exists at `belief.rs:655` but `get_settlements()` emits only `religion` and `adherents`, and omits zero counts — so for the **158 of 173** settlements with population 0 the share vector is real in the engine and unreachable from any shell surface. A minority faith inside a population-0 settlement cannot be displayed at all. Rust work, outside the shell lanes |
-| **DS-03 — the tablet reflow**, the architectural half done | large | **Re-scoped 2026-09-03 (batch 19): the resolver was already built and had been since 2026-08-31** — `DccTheme.ROLE` (49 rows), `role_px()`, `is_tablet()`, **87 live call sites across eight shell files**, and `is_tablet()` already avoids the predicate `GUI_GAP_REGISTER.md` §57 refuted. The row described it as unstarted for three days. Batch 19 guarded it (`_roleresolve_probe`, 7/7 mutants killed, desktop byte-identity proven by grep: the one changed role has no consumer) and fixed `ROLE["h_rail_head"]` `[29, 34]` → `[30, 44]`, which contradicted both the canvas and the shipped shell. **What actually remains is the reflow half** the owner ruled on — the full desktop inventory returning to tablet in a denser or scrolling layout. Blocked on nothing; not started |
 | **The right dock does not follow the armed tool** (`rdExtraMode` ladder, nine contexts) | medium | **Answered 2026-09-03 — owner question 1: selection wins, the tool appends a section.** The dock keeps showing the selected entity and an armed tool adds its own section *below* it. The naive merge this row was excluded from the 2026-08-31 build to avoid — flipping away from a selected settlement the moment a tool arms — is explicitly rejected, and because nothing is yanked away mid-edit no "is editing" signal is needed. Unblocked and startable |
-| The pack-import warning names biomes and terrains that ARE used | small | **Unblocked 2026-09-03 — the owner ruled: re-baseline the golden and fix the string at source.** This is the project's first authorised golden re-baseline; scope is in `LARGE_ITEM_RULINGS.md` and is deliberately narrow — the warning string in `cartalith-assets/src/manifest.rs` plus exactly three fixtures (`golden_parity_pack_manifest.rs:131`, `:292`, `reference_pack_captured.json:320`), and nothing else. **The divergence from the reference is permanent and must be disclosed at the parity site**, not rediscovered later as a failure. Keep the `trait` clause — it is the one part of the warning that is true |
 
 ### 2.3 Civilisation, economy and journeys
 
@@ -905,7 +933,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | The stage-by-stage `WorldParams`-field audit against every stage-01…11 slider | `GUI_FEATURE_PARITY_SCOPE.md` | large | The document's own closing "honest size statement": the Generate pipeline's ~60-80 individual stage sliders, "none of which are individually scoped anywhere yet". No such audit document exists |
 | §20 — the high-precision display pipeline | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render.rs` still composites into a `u8` RGB buffer (`apply_local_contrast(… rgb: &mut [u8] …)`, `:3646`) |
 | The vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | The one leg of the old SDF row still genuinely unbuilt: `map_overlay.gd` has no `drawRiverWays` equivalent (`grep -n river map_overlay.gd` returns only settlement-badge prose and the new faith lines) |
-| Trait sprites are round-tripped but never composited | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Scheduled 2026-09-03 by owner ruling.** `asset_bridge.rs` round-trips `manifest.structures.traits`; `pack.rs` composites no trait sprite, so trait art in an imported pack is stored and never drawn. This is the true clause of the pack-import warning above |
+| Trait sprites — the badge geometry is ported, the pack-art half is not | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Partly built 2026-09-03 (batch 21).** The reference DOES draw trait badges — `_traitSprite` (v2.11:15571), `_civDrawTraitBadges` (:15584), `_civTraitDrop` (:15642) — which refutes the old `slots.rs` doc claiming otherwise. The badge geometry is now ported term-for-term and mutation-guarded. What remains is compositing an imported pack's own trait **art**: `asset_bridge.rs` round-trips `manifest.structures.traits` and `pack.rs` still draws no sprite for it |
 | GeoJSON **import** | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | Export shipped 2026-08-24; import was explicitly out of scope then |
 | Slippy-map tile addressing (XYZ/TMS/WMTS, a zoom ladder, retina variants) | `FUNCTIONAL_CONTRACT.md` cap. 6/9 | medium | Tile *export* exists; addressing is the remainder |
 

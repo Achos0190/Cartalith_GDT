@@ -660,6 +660,44 @@ static func action(parent: Control, text: String, on_press: Callable,
 		primary: bool = false) -> Button:
 	var b := Button.new()
 	b.text = text
+	## DS-03's reflow. A `Button`'s minimum width is the width of its whole
+	## label, and eight `action()` call sites carry a *sentence* -- the
+	## cross-reference signposts, "Claim hatching and the influence ramp ->
+	## Layers > Claim hatch" and its seven siblings. Measured, that one is
+	## 753 px of minimum inside a 400 px dock; the dock's `ScrollContainer`
+	## has `horizontal_scroll_mode = SCROLL_MODE_DISABLED`, which folds the
+	## child's minimum into the container's own, so the number propagated all
+	## the way out and the left dock *grew* to swallow the map (measured
+	## 400 -> 555 px on CIVIL > Factions, 400 -> 1589 px on CARTO > Labels).
+	## That is the fourth instance of `MISTAKES.md`'s disabled-axis trap.
+	##
+	## Wrapping rather than clipping, because the owner's DS-03 ruling is
+	## "keep everything, reflow only": an ellipsis would delete the half of
+	## the sentence that names the destination. In a column a wrapped button
+	## still draws at the full dock width -- it is `SIZE_FILL` there and
+	## autowrap only lowers its *minimum* -- so the eight that did not fit move
+	## and nothing else does.
+	##
+	## **Only in a column, and this guard was added after measuring the damage
+	## without it.** `set_tool_options()` hands this factory the tool-options
+	## bar's own `HBoxContainer` (`app.gd::_tool_options_generate()` builds
+	## five buttons straight into `row`), and there a collapsed minimum is
+	## exactly the wrong answer: the row shares its width between children, so
+	## every label wrapped and the 40 px band grew to **265 px**, taking 225 px
+	## off the map on both WORLD modes. Measured, not reasoned -- the first
+	## version of this line had no guard and `_ds03shot_probe.gd` caught it.
+	## This is `MISTAKES.md`'s `clip_text` entry in its other form: a text
+	## control's minimum width is load-bearing wherever a sibling competes for
+	## the same axis.
+	## `GridContainer` was missing from the first version of this guard and a
+	## verifier caught it: a grid shares its width between COLUMNS exactly as an
+	## `HBoxContainer` shares it between children, but it is neither a
+	## `BoxContainer` nor an `HFlowContainer`, so its buttons wrapped. The test
+	## is "does a sibling compete for my width", not "which class is my parent",
+	## and `GridContainer` answers yes.
+	var horizontal_parent := (parent is BoxContainer and not (parent as BoxContainer).vertical) 		or parent is HFlowContainer 		or parent is GridContainer
+	if not horizontal_parent:
+		b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.focus_mode = Control.FOCUS_NONE
 	b.set_meta(ACTION_META, primary)
 	var act_tablet := DccTheme.is_tablet()

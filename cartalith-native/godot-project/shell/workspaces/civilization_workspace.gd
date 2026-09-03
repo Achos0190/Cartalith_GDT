@@ -1838,6 +1838,19 @@ func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 		app.right_dock_ctrl.on_settlement_selected(data, index))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## DS-03, and the one call site that has to overrule `action()`'s own rule.
+	## The factory refuses to wrap inside a horizontal parent because a button
+	## sharing a bar with siblings must keep its width (see its comment); this
+	## button is the exception the rule needs, because it is the row's
+	## `SIZE_EXPAND_FILL` member -- it takes whatever the fixed-width edit
+	## button beside it leaves, which is bounded, so wrapping cannot collapse
+	## anything. And it must wrap: the label is a *generated* place name and
+	## has no length bound. Measured at 423 px inside a 400 px dock on one
+	## seed ("Thorndunthornbaldstone -- Capital, pop 22647"), which forced the
+	## whole dock open; a longer name forces it further. Wrapping rather than
+	## `clip_text`, both because the ruling is "keep everything" and because
+	## `clip_text` collapses a minimum width to 1 (`MISTAKES.md`).
+	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	b.tooltip_text = "Pin this settlement in the right dock (same as clicking it on the map)."
 	var edit := DccWidgets.action(row, "✎", func():
 		_selected_index = index
@@ -3763,8 +3776,26 @@ func _lm_types(parent: Control, kinds: Array, st: Dictionary, funnels: Dictionar
 	## "one of a lit set" control (`dcc_widgets.gd:959`) and `set_segment_on`
 	## carries the accent wash, so the lit chip reads as lit rather than as a
 	## hairline colour change.
-	var chips := HBoxContainer.new()
-	chips.add_theme_constant_override("separation", 3)
+	## DS-03's reflow, and the one place in this shell where the tablet's own
+	## density is what breaks the row rather than a long string. The five chips
+	## are `all - CON n - REG n - LOC n - CUL n`. **Corrected after a verifier
+	## refuted the first version of this comment, twice over:** the desktop row
+	## measures **248 px**, not the 330 written here, and desktop segments do
+	## not read `chip_pad_x` at all -- `dcc_widgets.gd`'s segment factory takes
+	## that role only on the tablet branch, so naming a "desktop `chip_pad_x`
+	## of 9" described a value the desktop path never reads. What is true and
+	## is what this fix rests on: at the tablet density the same five chips
+	## exceed the dock, and with `section()`'s 26 px of padding they forced the
+	## 400 px dock open to **417**. `HFlowContainer` wraps the overflow onto a second line
+	## instead, which keeps every chip -- the ruling is "keep everything,
+	## reflow only" -- and lowers the row's minimum width to that of its widest
+	## single chip (79 px). It lays out identically to the `HBoxContainer` it
+	## replaces whenever the chips fit on one line, which is every desktop
+	## case, so the pointer composition does not move. `HFlowContainer` splits
+	## `separation` into two axes, hence the pair below where there was one.
+	var chips := HFlowContainer.new()
+	chips.add_theme_constant_override("h_separation", 3)
+	chips.add_theme_constant_override("v_separation", 3)
 	sec.add_child(chips)
 	_lm_chips[""] = DccWidgets.segment(chips, "all", func(): _lm_set_filter(""))
 	_lm_chips[""].tooltip_text = "Show every class."
