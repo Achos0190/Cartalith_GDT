@@ -309,26 +309,28 @@ impl<S: Stamp + Clone> PassBuffer<S> {
     /// leaving `base` untouched — `base` is `&[_]`, so that guarantee is the
     /// borrow checker's, not a convention.
     ///
-    /// `scratch` must be field-sized; callers are expected to keep one
-    /// allocation alive across frames and re-upload only
-    /// [`PassBuffer::touched_tiles`] rather than the whole map. (Copying the
-    /// whole base each call is the simple, obviously-correct primitive; a
-    /// touched-region-only refresh is a caller-side optimisation this crate
-    /// deliberately does not guess at.)
+    /// `scratch` must be field-sized. Copying the whole base each call is the
+    /// simple, obviously-correct primitive; when a caller wants the bounded
+    /// one, [`PassBuffer::preview_touched_into`] is the same composite
+    /// restricted to [`PassBuffer::touched_bounds`] and is the method to
+    /// reach for. This one stays whole-grid on purpose — it is what
+    /// [`PassBuffer::commit`] is checked against, and what the bounded
+    /// variant's own tests use as their oracle.
     ///
-    /// **That expectation is not what the two wired callers do.** This
-    /// paragraph said "with no renderer wired yet" from 2026-08-18 01:53
-    /// until 2026-09-04; `cartalith-godot`'s `build_sculpt_preview_texture`
-    /// wired the first renderer at 20:28 the same day and
-    /// `build_paint_preview_texture` the second at 22:43, and **both upload
-    /// the whole grid on every call** — neither reads `touched_tiles` or
-    /// [`PassBuffer::touched_bounds`] at all. Each declines deliberately and
-    /// says why in its own doc comment; the paint one carries the measured
-    /// cost of the decline. Nothing about this method needs changing for
-    /// either to stop doing it — the window is entirely the caller's to
-    /// choose — but the sentence claiming no caller existed had gone stale
-    /// by 17 days, and "callers are expected to" above describes an
-    /// expectation, not the tree.
+    /// **Wired-caller history, since two earlier revisions of this paragraph
+    /// were both stale when read.** It said "with no renderer wired yet"
+    /// from 2026-08-18 01:53 until 2026-09-04, by which time
+    /// `cartalith-godot`'s `build_sculpt_preview_texture` (20:28 the same
+    /// day) and `build_paint_preview_texture` (22:43) had both wired one.
+    /// It then said both *"upload the whole grid on every call — neither
+    /// reads `touched_tiles` or [`PassBuffer::touched_bounds`] at all"*,
+    /// which stood for one batch: `cartalith-godot`'s
+    /// `build_paint_preview_patch` now composites through
+    /// [`PassBuffer::preview_touched_into`] and uploads the window only.
+    /// **The sculpt one still uploads the whole grid, and still declines
+    /// deliberately** — `RenderCtx::with_appearance` runs six whole-grid
+    /// passes on construction with no window parameter, which is
+    /// `SCULPT_LIVE_SCOPE.md` L1's work, not this crate's.
     pub fn preview_into(&self, base: &[S::Cell], scratch: &mut [S::Cell])
     where
         S::Cell: Clone,
@@ -349,6 +351,67 @@ impl<S: Stamp + Clone> PassBuffer<S> {
                 e.stamp.apply(scratch, self.width, self.height);
             }
         }
+    }
+
+    /// The bounded half of [`PassBuffer::preview_into`]: composites the draft
+    /// over `base` into `scratch` for the cells inside
+    /// [`PassBuffer::touched_bounds`] **only**, and returns that window.
+    /// Every cell of `scratch` outside it is left exactly as the caller
+    /// passed it in — this method neither reads nor writes there, so a
+    /// caller may keep one scratch allocation alive across frames and pay
+    /// only the window.
+    ///
+    /// Inside the window the result is byte-identical to
+    /// [`PassBuffer::preview_into`]'s, and that is a property of the code
+    /// rather than a hope: it copies the same rows of `base`, then makes the
+    /// same [`Stamp::apply`] calls in the same stack order, skipping the same
+    /// hidden entries, against a `scratch` of the same dimensions — the
+    /// indices a stamp computes are identical because `width`/`height` are.
+    /// `pass::tests::preview_touched_into_matches_preview_into_in_the_window`
+    /// asserts it against `preview_into` as an oracle rather than against a
+    /// second transcription of this loop.
+    ///
+    /// Bounding it is sound because the window is, by construction, the union
+    /// of every entry's [`Stamp::bounds`] — hidden ones included, since
+    /// [`PassBuffer::touched_bounds`] does not filter them — and
+    /// [`Stamp::apply`]'s contract is that a stamp writes only inside its own
+    /// bounds. A stamp that also confines its *reads* there (`PaintStamp`,
+    /// the only caller today, performs no reads of `dst` at all) therefore
+    /// cannot observe or disturb a single cell outside the window.
+    ///
+    /// **`None` means the draft touched nothing. It does not mean "nothing
+    /// needs drawing", and it is the exact opposite of "everything is
+    /// dirty".** A committed layer with an empty draft returns `None` here
+    /// and still owes its consumer the whole grid; so does a draft whose
+    /// every stamp is off-grid or zero-radius. Nothing is written to
+    /// `scratch` in that case — deliberately, so that a caller which
+    /// mistook `None` for "an empty window, draw nothing" renders a blank
+    /// rather than silently-stale pixels. Loud beats quiet for this one.
+    pub fn preview_touched_into(&self, base: &[S::Cell], scratch: &mut [S::Cell]) -> Option<Region>
+    where
+        S::Cell: Clone,
+    {
+        assert_eq!(
+            base.len(),
+            self.width * self.height,
+            "base length must equal width * height"
+        );
+        assert_eq!(
+            scratch.len(),
+            base.len(),
+            "scratch must be the same size as base"
+        );
+        let win = self.touched_bounds()?;
+        for y in win.y..win.y + win.h {
+            let row = y * self.width + win.x;
+            scratch[row..row + win.w].clone_from_slice(&base[row..row + win.w]);
+        }
+        for e in &self.entries {
+            if !e.hidden {
+                e.stamp.apply(scratch, self.width, self.height);
+            }
+        }
+        Some(win)
     }
 
     /// Bakes the whole stack into `field` in stack order, marks every
@@ -782,6 +845,110 @@ mod tests {
         buf.push(stamp(1, 1, 2, 2, 1.0));
         buf.push(stamp(5, 6, 2, 2, 1.0));
         assert_eq!(buf.touched_bounds(), Some(Region::new(1, 1, 6, 7)));
+    }
+
+    // ---- the bounded composite ----
+
+    /// A non-uniform base, so a wrong row offset inside
+    /// `preview_touched_into` shows up as a value mismatch rather than
+    /// hiding in a field of identical numbers.
+    fn ramp_base() -> Vec<f32> {
+        (0..64).map(|i| i as f32 * 0.25).collect()
+    }
+
+    /// The property the whole bounded upload rests on, asserted against
+    /// `preview_into` as an oracle rather than a second transcription:
+    /// **inside the window the two composites are identical**, and outside
+    /// it `preview_touched_into` has not touched a single cell.
+    #[test]
+    fn preview_touched_into_matches_preview_into_in_the_window() {
+        let mut buf = buffer();
+        buf.push(stamp(1, 1, 2, 2, 1.0));
+        buf.push(stamp(2, 2, 3, 3, 0.5));
+        let hidden = buf.push(stamp(5, 5, 2, 2, 4.0));
+        buf.set_hidden(hidden, true);
+
+        let base = ramp_base();
+        let mut full = vec![f32::NAN; 64];
+        buf.preview_into(&base, &mut full);
+
+        // A sentinel no stamp and no base cell can produce, so "untouched"
+        // is provable rather than merely plausible.
+        const SENTINEL: f32 = -999.0;
+        let mut bounded = vec![SENTINEL; 64];
+        let win = buf
+            .preview_touched_into(&base, &mut bounded)
+            .expect("three stamps must touch something");
+
+        // The window is genuinely a window. Without this the test would
+        // pass for a `touched_bounds` that gave up and returned the field.
+        assert_eq!(win, Region::new(1, 1, 6, 6));
+        assert!(win.w < 8 && win.h < 8);
+
+        for y in 0..8 {
+            for x in 0..8 {
+                let i = y * 8 + x;
+                let inside =
+                    x >= win.x && x < win.x + win.w && y >= win.y && y < win.y + win.h;
+                if inside {
+                    assert_eq!(bounded[i], full[i], "cell ({x}, {y}) differs from preview_into");
+                } else {
+                    assert_eq!(bounded[i], SENTINEL, "cell ({x}, {y}) was written outside the window");
+                }
+            }
+        }
+
+        // And the composite is real, not a copy of the base: two literals
+        // an oracle-only test could not distinguish from a no-op.
+        assert_eq!(full[9], 3.25); // base 9*0.25, + 1.0 from the first stamp only
+        assert_eq!(full[18], 6.0); // base 18*0.25, + 1.0 + 0.5 from both visible stamps
+        assert_ne!(bounded[9], base[9]);
+    }
+
+    /// The window covers a **hidden** stamp's footprint even though the
+    /// stamp is not applied — hiding one is itself a reason to repaint
+    /// where it was, and a caller that only re-uploaded the visible union
+    /// would leave the hidden stamp on screen forever.
+    #[test]
+    fn the_window_covers_a_hidden_stamp_that_is_not_applied() {
+        let mut buf = buffer();
+        buf.push(stamp(0, 0, 2, 2, 1.0));
+        let hidden = buf.push(stamp(6, 6, 2, 2, 3.0));
+        buf.set_hidden(hidden, true);
+
+        let base = ramp_base();
+        let mut bounded = vec![f32::NAN; 64];
+        let win = buf.preview_touched_into(&base, &mut bounded).unwrap();
+
+        assert_eq!(win, Region::new(0, 0, 8, 8), "the union must include the hidden footprint");
+        // ... and inside it the hidden stamp contributes nothing.
+        let i = 6 * 8 + 6;
+        assert_eq!(bounded[i], base[i]);
+    }
+
+    /// `None` here means *"the draft touched nothing"*, which is neither
+    /// "nothing needs drawing" nor "everything is dirty". The method writes
+    /// **no** cell in that case, so a caller that misread it as an empty
+    /// window renders a blank instead of stale pixels.
+    #[test]
+    fn none_from_preview_touched_into_writes_nothing_at_all() {
+        let base = ramp_base();
+        const SENTINEL: f32 = -999.0;
+
+        // (a) An empty draft over a base that emphatically does need drawing.
+        let buf = buffer();
+        let mut scratch = vec![SENTINEL; 64];
+        assert_eq!(buf.preview_touched_into(&base, &mut scratch), None);
+        assert!(scratch.iter().all(|&v| v == SENTINEL));
+        assert!(base.iter().any(|&v| v != 0.0), "the base is not empty; None did not mean 'nothing to draw'");
+
+        // (b) A non-empty draft whose only stamp has a zero-area footprint.
+        let mut buf = buffer();
+        buf.push(stamp(0, 0, 0, 0, 1.0));
+        assert!(!buf.is_empty());
+        let mut scratch = vec![SENTINEL; 64];
+        assert_eq!(buf.preview_touched_into(&base, &mut scratch), None);
+        assert!(scratch.iter().all(|&v| v == SENTINEL));
     }
 
     // ---- stack order and structural edits ----

@@ -56,6 +56,7 @@ its rule before you start.
 | **Gate a write on "is there anything to save"** | Ask the **whole** aggregate, not one member of it. A `vault.json` write gated on `links.is_empty()` silently dropped a map snapshot, because the store also holds `vaults` and `snapshots`. The correct predicate existed and was mutation-tested in the same batch, and was simply not wired | Enumerate every member the container can hold and assert a save containing **only** each one in turn survives a round trip |
 | **Report a layout measurement** | One world is one sample, and panel widths are **content-dependent**. A lane measured an empty plan at 190 px and reported "no overflow"; three worlds measure 351 / 385 / 441 against a 280 px dock | Measure at least three seeds, and say which you used. A single-sample layout number is the same error class as a single-sample timing |
 | **Convert a replacing context to an appended one** | A conversion is not only the artefacts the record names. Sculpt and Journey were both described as three (a `CTX_` constant, a titles row, a dispatch arm); Journey had a **fourth in another file** — a `build_results()` that cleared the shared body itself, harmless while it replaced and destructive once it appends | Grep every file that writes into the container, not just the one that owns the context. `queue_free()` on a shared parent is the tell |
+| **Write a diagnosis into a backlog row** | The row is a **router, not a finding**. A row that names a cause propagates it into every brief written from it: "the panel is dropdowns whose minimum is their widest item" was wrong (there are no dropdowns), and it reached a verifier as an instruction to count dropdown items — a check that could not be performed | State the **symptom and its measurement**; leave the cause to whoever opens the code. If you must record a suspicion, mark it as one |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -103,7 +104,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×22
+### [2026-09-03] Leaving prose that describes the old behaviour ×24
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

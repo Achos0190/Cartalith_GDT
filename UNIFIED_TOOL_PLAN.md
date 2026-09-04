@@ -803,8 +803,19 @@ the test that would catch them drifting.
 the borrow checker's rather than a convention — no stamp implementation can
 violate it. `touched_tiles()`/`touched_bounds()` give the renderer its upload
 scope. The whole-base copy is deliberately the simple, obviously-correct
-primitive; a touched-region-only refresh is left to the caller, since no
-renderer is wired yet to say what shape it wants.
+primitive.
+
+*Corrected 2026-09-04.* This paragraph used to end "a touched-region-only
+refresh is left to the caller, since no renderer is wired yet to say what
+shape it wants." Two renderers have been wired since 2026-08-18
+(`build_sculpt_preview_texture`, `build_paint_preview_texture`), and the
+bounded refresh is no longer left to the caller: `preview_touched_into(base,
+scratch) -> Option<Region>` composites the same stack inside
+`touched_bounds()` only, returns the window, and touches nothing outside it.
+`build_paint_preview_patch` is its first consumer. Its `None` means *"the
+draft touched nothing"* — which is neither "nothing to draw" nor "everything
+is dirty", and is the one thing about this API a caller must not get
+wrong.
 
 **Corrections this pass made to the plan above.**
 

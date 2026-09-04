@@ -2897,9 +2897,27 @@ func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, c
 ## genuinely blocked WATER leg (`jp_calc_water` never reads `plan.transport`,
 ## only `plan.vessel`) -- offered anyway, since recomputing is how the party
 ## finds that out, not a claim this always resolves it.
+##
+## **An `HFlowContainer`, not an `HBox`, and that is the whole width fix for the
+## verdict card.** These are up to three buttons each carrying a sentence, and a
+## `Button`'s minimum width is its entire label, so in a box they demanded the
+## sum of every button present. Measured 2026-09-04 (`_jpwidth_probe.gd`, seeds
+## 483920 / 77021 / 4242): the two that this route offered -- `force Walking
+## (land-only)` at 209 px and `depart in Spring instead` at 202 px -- came to
+## 419 px, and inside the card's 11 px padding that was **441 px**, the single
+## widest thing in the results panel on every one of the three seeds. A flow
+## container takes its widest child instead of their sum, so afterwards the
+## card is no longer the panel's widest child at all and the widest-children
+## list reports **231 px** where it used to report 441 -- the 209 px button plus
+## that same 22 px of padding: the buttons sit in a row where there is room and
+## wrap onto a second line where there is not. Every button is kept whole --
+## `DccWidgets.action()` counts an `HFlowContainer` as a horizontal parent and
+## so does not autowrap the label,
+## which is right here: the flow is what reflows, not the text.
 func _blocked_resolution_row(r: Dictionary) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 4)
 	if bool(r.get("blocked_seasonal", false)):
 		DccWidgets.action(row, "turn off seasonal closures", func():
 			_plan_values["seasonal_closures"] = false
@@ -2919,13 +2937,65 @@ func _blocked_resolution_row(r: Dictionary) -> Control:
 			_plan_value_changed(true))
 	return row
 
+## The results panel's own key/value row -- `DccWidgets._row()`'s sibling, not
+## its caller: that one is a *parameter* row (a fixed `ROW_LABEL_W` label beside
+## an editable control) and this one is a *readout* (two pieces of text, one
+## flush left and one flush right).
+##
+## **The expanding slot goes to whichever side is longer, and that side wraps.**
+## Both sides used to sit at their natural width with a `DccTheme.spacer()`
+## between them, so the row demanded the full width of both. Measured 2026-09-04
+## over three worlds (`_jpwidth_probe.gd`, seeds 483920 / 77021 / 4242) that put
+## `rest days · auto — 1 rest day per 5 travel days` at **310 px** of label on
+## every seed, and the Calculation trace's `key · detail` rows at 218 / 277 /
+## 238; the dock's `ScrollContainer` has `horizontal_scroll_mode =
+## SCROLL_MODE_DISABLED`, which folds a child's minimum into its own, so those
+## numbers propagated out and the dock grew over the map -- `MISTAKES.md`'s
+## disabled-axis trap again, in the same shape `DccWidgets.action()` records for
+## the left dock.
+##
+## Only ONE side is bound, and it is chosen by measurement rather than by
+## position, because either side can be the sentence: the label is long in
+## `rest days · <basis>` and the VALUE is long in the vessel rows, where
+## `⛔ cannot enter <water>` measured 161-200 px against a 47-93 px hull name.
+## Binding both would split the row in half and leave a short value stranded in
+## the middle of it; binding the wrong one would leave the row as wide as it
+## was. The unbound side keeps its whole text on one line, which is what a
+## readout is for.
+##
+## **Nothing that already fitted moves, and that is measured rather than
+## argued.** Autowrap lowers a Label's *minimum*; the expanding side is still
+## handed every pixel the other side does not use, so wherever the pair fitted
+## before, the long one still draws on one line in the same place.
+## `_jpwshot_probe.gd` renders the dock at 597 px -- past the 456 px this panel
+## used to demand -- and the cropped framebuffer is byte-identical across this
+## change on all three seeds, with the same probe showing the rendered dock at
+## the shipped width going 456 x 867 -> 280 x 867 so the comparison is known to
+## be able to see a difference at all.
 func _kv_row(parent: Control, label_text: String, value_text: String, token: String = "text") -> void:
 	var row := HBoxContainer.new()
 	row.custom_minimum_size.y = 18
-	row.add_child(DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL))
-	row.add_child(DccTheme.spacer())
-	row.add_child(DccTheme.mono_label(value_text, token, DccTheme.FS_SMALL))
+	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL)
+	var v := DccTheme.mono_label(value_text, token, DccTheme.FS_SMALL)
+	row.add_child(l)
+	row.add_child(v)
 	parent.add_child(row)
+	## Both minimums are read after parenting and before autowrap is set on
+	## either, so these are the two NATURAL widths -- which is what the choice
+	## is about. Measuring off the face instead (`Font.get_string_size()`), in
+	## case a freshly-parented Control reported a stale minimum here, was tried
+	## and changed nothing -- the same side chosen on every row the probe printed
+	## for all three seeds, the same 59 / 61 / 57 row counts, the same 258 px
+	## panel. The simpler read stands.
+	if l.get_combined_minimum_size().x >= v.get_combined_minimum_size().x:
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		v.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## Right-aligned inside the slot it now fills, so the value stays flush
+		## with the dock edge exactly where the spacer used to leave it.
+		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 func _build_time_group(body: Control, plan: Dictionary, confidence: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Time")

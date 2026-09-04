@@ -9181,17 +9181,20 @@ impl WorldGen {
     /// own output, the same "translucent wash over the finished raster"
     /// shape `build_territory_texture` already uses for its own overlay.
     ///
-    /// Full grid rather than a bounded region, unlike the note in
-    /// `build_sculpt_preview_texture` inviting one: this pass is a flat
-    /// per-cell colour lookup with no derived whole-grid rasters
-    /// underneath it (no `RenderCtx`, no AO/wetness/hillshade), while a
-    /// bounded texture would need this method to also report an offset
-    /// for the caller to composite it at — a second return value this
-    /// signature doesn't have. **That second clause is the whole of the
-    /// remaining reason.** From 2026-08-18 until 2026-09-04 this paragraph
-    /// also claimed "the cost a bounded variant would save is negligible
-    /// here", which was an argument about the *shape* of the work standing
-    /// in for a measurement of its *size*, and it does not survive one.
+    /// **Full grid, and now the deliberately-expensive half of a pair.**
+    /// [`WorldGen::build_paint_preview_patch`] below is the bounded one; it
+    /// composites through `PassBuffer::preview_touched_into` and returns the
+    /// window alongside the texture, which is the "second return value this
+    /// signature doesn't have" that this paragraph named, until 2026-09-04,
+    /// as the whole of the remaining reason not to bound it. This method
+    /// keeps its signature and its whole-grid behaviour because a caller
+    /// that has no previous texture on screen — a first dab, a layer switch,
+    /// a reload — needs the whole raster, and because it is the oracle the
+    /// patch is asserted byte-identical against. From 2026-08-18 until
+    /// 2026-09-04 the same paragraph also claimed "the cost a bounded
+    /// variant would save is negligible here", which was an argument about
+    /// the *shape* of the work standing in for a measurement of its *size*,
+    /// and it does not survive one.
     ///
     /// Measured 2026-09-04 by `tests/paint_preview_cost.rs`, release,
     /// `--test-threads=1`, median of 7 with min..max, FFI upload excluded
@@ -9199,44 +9202,67 @@ impl WorldGen {
     /// `tests/sculpt_live_l0_bench.rs` records). One 20-dab drag at the
     /// 40-cell brush ceiling, so the largest footprint a caller can make:
     ///
-    /// | grid | this method's CPU work, per dab | a `touched_bounds()`-sized path's equivalent | RGBA bytes crossing the FFI, per dab |
+    /// | grid | this method (`preview_full`) | [`WorldGen::build_paint_preview_patch`] (`preview_patch`) | RGBA bytes crossing the FFI, per dab |
     /// |---|---:|---:|---:|
-    /// | 512² | 0.732 ms (0.720..0.762) | ~0.43 ms | 1.0 MB → 0.07 MB |
-    /// | 1024² | 1.454 ms (1.447..1.465) | ~0.44 ms | 4.2 MB → 0.13 MB |
-    /// | **2048², the shipped default** | **4.374 ms (4.355..4.396)** | **~0.52 ms** | **16.8 MB → 0.30 MB** |
-    /// | 4096² | 16.274 ms (16.146..16.419) | ~0.91 ms | 67.1 MB → 0.88 MB |
+    /// | 512² | 0.667 ms (0.660..0.674) | 0.518 ms (0.504..0.535) | 1.05 MB → 0.068 MB |
+    /// | 1024² | 1.540 ms (1.513..1.584) | 0.513 ms (0.495..0.552) | 4.19 MB → 0.127 MB |
+    /// | **2048², the shipped default** | **4.551 ms (4.503..4.606)** | **0.585 ms (0.569..0.597)** | **16.8 MB → 0.303 MB** |
+    /// | 4096² | 16.982 ms (16.875..18.500) | 0.892 ms (0.887..0.910) | 67.1 MB → 0.884 MB |
     ///
-    /// The bounded column is a **sum of measured parts, not a measured
-    /// whole**: the window's own swatch loop (0.013/0.021/0.044/0.222 ms)
-    /// plus the stamp applies (0.416/0.421/0.479/0.691 ms), which
-    /// `PaintStamp::apply` already bounds to `-r..=r` and which therefore
-    /// cost the same either way. No bounded path exists to time end to end.
+    /// **Both columns are measured end to end**, from one run of the same
+    /// editor (`the_measured_win`) — neither is a sum of parts. Until
+    /// 2026-09-04 the second column read `~0.43`/`~0.44`/`~0.52`/`~0.91 ms`
+    /// and *was* a sum of parts, because no bounded path existed to time;
+    /// the built one is slower than that projection at every size except
+    /// 4096², so the projection was optimistic and is not kept.
     ///
-    /// Three things make that not negligible at the sizes this app ships.
-    /// `new_world_dialog.gd`'s `RESOLUTION_PRESETS` are 512/1K/2K/4K/8K
-    /// with **2K the default**, so the 4.374 ms row is what a caller who
-    /// changed nothing gets. `world_workspace.gd`'s `_paint_apply_dab`
-    /// calls this from `_paint_click` **and** `_paint_drag` — once per
-    /// pointer-move sample, not once per gesture, which is the opposite of
-    /// `build_sculpt_preview_texture`'s once-per-release call site and the
-    /// reason the cheaper method is the one that matters. And
-    /// `touched_bounds()` for that drag is 1.80% of the grid at 2048² and
-    /// 1.32% at 4096²: the work is being done over a region 55x the edit's
-    /// own at the default size, 76x at the one above it.
+    /// The CPU ratio is **1.3x / 3.0x / 7.8x / 19.0x** and the byte ratio
+    /// **15.5x / 33.1x / 55.5x / 75.9x**. Those two diverge for a reason
+    /// worth stating rather than averaging away: at 512² the bounded path
+    /// is dominated by the stamp applies (~0.43 ms of its 0.518 ms), which
+    /// `PaintStamp::apply` already bounds to `-r..=r` and which both paths
+    /// therefore pay identically. **The CPU win is small at 512² and large
+    /// at 4096²; the upload win is large everywhere.**
     ///
-    /// What a window would **not** fix, also measured: `preview_into`
-    /// replays the entire draft stack on every call, so cost grows with
-    /// gesture length — 3.941 ms at one dab, 9.991 ms at 300, at 2048².
-    /// That term is already footprint-bounded per stamp and survives any
-    /// windowing unchanged. Those two points put it at 0.0202 ms per extra
-    /// dab, so it overtakes the flat 3.9 ms grid term at about **195 dabs**
-    /// — arithmetic between two measured points, not a third measurement.
-    /// Below that, bounding the grid work is the larger win; a gesture long
-    /// enough to pass it wants the stack replay bounded too, and neither
-    /// fix subsumes the other.
+    /// **Corrected 2026-09-04:** this used to end "Absolute figures move a few
+    /// percent between runs, the ratios do not." A verifier re-ran the bench
+    /// and the CPU ratio moved. Only the **byte** ratio is stable, because it
+    /// is arithmetic over the region rather than a timing: it is
+    /// `grid / window` and nothing else. The CPU ratio is a measurement on a
+    /// noisy device and must be quoted with its spread, per MISTAKES.md's
+    /// single-sample rule -- which the sentence it replaces was quietly
+    /// violating while sounding like a stability guarantee.
     ///
-    /// Two properties any bounded variant must hold are pinned by that
-    /// same test file rather than left to whoever writes it:
+    /// Three things make the full-grid cost not negligible at the sizes
+    /// this app ships. `new_world_dialog.gd`'s `RESOLUTION_PRESETS` are
+    /// 512/1K/2K/4K/8K with **2K the default**, so the 4.551 ms row is what
+    /// a caller who changed nothing gets. `world_workspace.gd`'s
+    /// `_paint_apply_dab` calls this from `_paint_click` **and**
+    /// `_paint_drag` — once per pointer-move sample, not once per gesture,
+    /// which is the opposite of `build_sculpt_preview_texture`'s
+    /// once-per-release call site and the reason the cheaper method is the
+    /// one that matters. And `touched_bounds()` for that drag is 1.80% of
+    /// the grid at 2048² and 1.32% at 4096²: the work is being done over a
+    /// region 55x the edit's own at the default size, 76x at the one above
+    /// it.
+    ///
+    /// What the window does **not** fix, also measured, and it is why the
+    /// 512² row wins so little: `preview_into` and `preview_touched_into`
+    /// alike replay the entire draft stack on every call, so cost grows
+    /// with gesture length — 4.157 ms at one dab, 10.187 ms at 300, at
+    /// 2048². That term is already footprint-bounded per stamp and
+    /// survives the windowing unchanged. Those two points put it at 0.0202
+    /// ms per extra dab, so it overtakes the flat ~4.1 ms grid term at
+    /// about **205 dabs** — arithmetic between two measured points, not a
+    /// third measurement. Below that, bounding the grid work is the larger
+    /// win; a gesture long enough to pass it wants the stack replay bounded
+    /// too, and neither fix subsumes the other. **Bounding the replay is
+    /// not done here and is not this row**: it needs a foldable stamp
+    /// stack, which is a change to `PassBuffer`'s semantics rather than to
+    /// a caller's choice of window.
+    ///
+    /// Two properties the bounded variant had to hold were pinned by that
+    /// same test file before it existed, and it is built to them:
     /// `touched_bounds()` contains every pixel the edit changed (asserted
     /// against a full re-render of the same edit, inside *and* outside the
     /// window), and its `None` means "the draft touched nothing", which is
@@ -9254,24 +9280,70 @@ impl WorldGen {
         }
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let n = gw * gh;
-        let base: Vec<u8> = p.active_layer().cells().map(<[u8]>::to_vec).unwrap_or_else(|| vec![0u8; n]);
-        let mut scratch = vec![0u8; n];
-        p.active_draft().preview_into(&base, &mut scratch);
-        let palette_len = p.layer.palette().len();
-
-        let mut bytes = Vec::with_capacity(n * 4);
-        for &v in &scratch {
-            if v == 0 {
-                bytes.extend_from_slice(&[0, 0, 0, 0]);
-            } else {
-                let (r, g, b) = paint_bridge::swatch_color(p.layer, v, palette_len);
-                bytes.extend_from_slice(&[r, g, b, 255]);
-            }
-        }
-        let packed = PackedByteArray::from(bytes);
+        let packed = PackedByteArray::from(p.preview_full(gw, gh)?);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
+    }
+
+    /// The same preview as [`WorldGen::build_paint_preview_texture`],
+    /// restricted to the rectangle the uncommitted draft touches —
+    /// `OUTSTANDING_WORK.md` §2.6's bounded upload, and the call to prefer
+    /// inside a drag.
+    ///
+    /// `{"texture": ImageTexture, "x": int, "y": int, "w": int, "h": int}` —
+    /// blit `texture` at grid cell `(x, y)`; it is `w` x `h` texels and
+    /// covers exactly the cells that can have changed. **An empty
+    /// `Dictionary` means there is nothing to draw at all** (nothing
+    /// committed and nothing pending, the same state
+    /// `build_paint_preview_texture` returns `null` for) — test it with
+    /// `has("texture")`, never by inspecting `w`/`h`, which are never `0`
+    /// when a texture is present.
+    ///
+    /// **`w == gw` and `h == gh` is a full-grid answer, and it is a normal
+    /// result rather than a failure.** It happens whenever the draft touches
+    /// nothing — straight after `paint_commit`/`paint_discard`, or on a
+    /// layer whose dabs were all off-grid — and it means the whole raster,
+    /// because a committed layer with an empty draft still owes its viewer
+    /// every pixel. That is the one confusion this shape exists to prevent:
+    /// `PassBuffer::touched_bounds()`'s `None` means *"the draft touched
+    /// nothing"*, which is the **opposite** of "nothing is dirty", and it is
+    /// never forwarded to a caller as an absent rectangle.
+    ///
+    /// The caller keeps owning composition: this returns a patch, so a shell
+    /// drawing it must already be showing the rest of the map from an
+    /// earlier full-grid raster. A caller with no previous texture must take
+    /// `build_paint_preview_texture` first — nothing in the returned
+    /// Dictionary could tell it otherwise, by design, because this call
+    /// cannot know what is on screen.
+    ///
+    /// **No shell caller yet, stated rather than implied.** Read at commit
+    /// `70f126a` (`git show HEAD:...`, because the shell was being edited by
+    /// another lane in the same batch and a working-tree read would not have
+    /// been evidence of anything): `world_workspace.gd`'s `_paint_apply_dab`
+    /// calls `build_paint_preview_texture` and hands the result to
+    /// `viewport_host.gd::set_preview_texture(tex: Texture2D)`, whose whole
+    /// body is `_preview_layer.texture = tex` — a texture and no offset.
+    /// Wiring this one needs an offset-aware preview slot on the viewport,
+    /// which is shell work and is not in this crate.
+    #[func]
+    fn build_paint_preview_patch(&self) -> VarDictionary {
+        let Some(p) = self.paint.as_ref() else { return VarDictionary::new() };
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let Some(patch) = p.preview_patch(gw, gh) else { return VarDictionary::new() };
+        // `PreviewPatch`'s own invariant, restated at the boundary because
+        // `Image::create_from_data` is the one thing here that can fail and
+        // a length mismatch is the only way it can — and a failure past this
+        // point is indistinguishable, to a GDScript caller, from "nothing to
+        // draw".
+        debug_assert_eq!(patch.rgba.len(), patch.region.w * patch.region.h * 4);
+        let (x, y, w, h) = (patch.region.x, patch.region.y, patch.region.w, patch.region.h);
+        let packed = PackedByteArray::from(patch.rgba);
+        let Some(image) = Image::create_from_data(w as i32, h as i32, false, Format::RGBA8, &packed) else {
+            return VarDictionary::new();
+        };
+        let Some(tex) = ImageTexture::create_from_image(&image) else { return VarDictionary::new() };
+        vdict! { "texture" => &tex, "x" => x as i64, "y" => y as i64, "w" => w as i64, "h" => h as i64 }
     }
 
     /// Per-class painted-cell counts for the active layer, live — the same

@@ -1,14 +1,24 @@
 //! `OUTSTANDING_WORK.md` §2.6 — *"Previews re-upload the whole texture,
-//! `touched_tiles`/`touched_bounds` unused"*, the **paint** half.
+//! `touched_tiles`/`touched_bounds` unused"*, the **paint** half: the
+//! measurement that killed the decline, and the correctness proof for the
+//! bounded path that replaced it.
 //!
-//! `build_sculpt_preview_texture`'s decline is already measured: the
-//! `SCULPT_LIVE_SCOPE.md` L0 table (`tests/sculpt_live_l0_bench.rs`) breaks
-//! its cost down, and L1 owns the bounded-window rework. The **paint**
-//! preview's decline was never measured at all. Its doc comment argued the
-//! saving "is negligible here" because the pass is a flat per-cell lookup
-//! with no `RenderCtx` under it — true about the *shape* of the work, and
-//! silent about its *size*. This file supplies the size, and the two
-//! correctness properties any bounded variant would have to hold.
+//! `build_sculpt_preview_texture`'s decline is already measured and **still
+//! stands**: the `SCULPT_LIVE_SCOPE.md` L0 table
+//! (`tests/sculpt_live_l0_bench.rs`) breaks its cost down, L1 owns the
+//! bounded-window rework, and `render.rs::with_appearance` still runs its
+//! whole-grid passes on construction with no window parameter. Nothing in
+//! this file touches it. The **paint** preview's decline was never measured
+//! at all. Its doc comment argued the saving "is negligible here" because
+//! the pass is a flat per-cell lookup with no `RenderCtx` under it — true
+//! about the *shape* of the work, and silent about its *size*.
+//!
+//! What this file now holds, in order: the size (`paint_preview_cost`), the
+//! two correctness properties a bounded variant had to hold, the proof that
+//! the shipped `PaintEditor::preview_patch` holds them
+//! (`the_patch_is_byte_identical_to_a_full_reupload` and
+//! `nothing_outside_the_patch_window_moved`), and the win it actually buys
+//! (`the_measured_win`).
 //!
 //! Two things make the paint preview a different question from the sculpt
 //! one, and both are why "negligible" needed a number rather than an
@@ -29,7 +39,9 @@
 //! Exactly four stages scale with the grid: the committed layer's `to_vec`,
 //! the scratch `vec![0u8; n]`, `preview_into`'s `clone_from_slice`, and the
 //! per-cell swatch loop that packs `4n` RGBA bytes. Those four are what the
-//! bench below times against their window-sized equivalents.
+//! bench below times against their window-sized equivalents. The bounded
+//! path removes the first, third and fourth outright and keeps the second
+//! (a calloc whose pages outside the window are never faulted in).
 //!
 //! **Not measured here:** `PackedByteArray::from` /
 //! `Image::create_from_data` / `ImageTexture::create_from_image`. Those
@@ -47,12 +59,13 @@
 //! `paint_bridge.rs` carries its own `#[cfg(test)]` suite, and `#[path]`
 //! compiles it into this binary too, so this file adds **28 re-run
 //! `paint_bridge::tests::*` cases** to `cargo test --workspace` on top of
-//! its own three. `render.rs` has no `#[cfg(test)]` module, which is why
+//! its own eight. `render.rs` has no `#[cfg(test)]` module, which is why
 //! the five test files that already `#[path]`-include it duplicate
 //! nothing.
 //!
-//! The bench is `#[ignore]`d (2048² allocations, seconds); the two
-//! correctness tests are not, and are cheap. Run the bench with:
+//! Both benches — `paint_preview_cost` and `the_measured_win` — are
+//! `#[ignore]`d (2048² and 4096² allocations, seconds each); the six
+//! correctness tests are not, and are cheap. Run the benches with:
 //! ```text
 //! cargo test --release -p cartalith-godot --test paint_preview_cost -- --ignored --nocapture --test-threads=1
 //! ```
@@ -67,7 +80,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use cartalith_spatial::Region;
-use paint_bridge::{swatch_color, PaintEditor};
+use paint_bridge::{swatch_color, PaintEditor, PaintTarget};
 
 // ---- fixtures ----
 
@@ -104,10 +117,13 @@ fn dragged_editor(gw: usize, gh: usize, dabs: usize) -> PaintEditor {
 
 // ---- the shipped body, stage by stage ----
 //
-// Mirrors `WorldGen::build_paint_preview_texture` in `lib.rs`, split so each
-// stage can be timed on its own. Any divergence here would make the numbers
-// describe something the shell never runs, so these four helpers are
-// deliberately literal transcriptions rather than a tidier rewrite.
+// Mirrors `PaintEditor::preview_full` — which is what
+// `WorldGen::build_paint_preview_texture` now calls — split so each stage
+// can be timed on its own. Any divergence here would make the stage numbers
+// describe something the shell never runs, so these helpers are
+// deliberately literal transcriptions rather than a tidier rewrite, and
+// `the_stage_transcription_still_matches_the_shipped_body` asserts they add
+// up to it.
 
 fn stage_base(p: &PaintEditor, n: usize) -> Vec<u8> {
     p.active_layer().cells().map(<[u8]>::to_vec).unwrap_or_else(|| vec![0u8; n])
@@ -131,9 +147,24 @@ fn stage_pack(p: &PaintEditor, scratch: &[u8]) -> Vec<u8> {
     bytes
 }
 
-/// The whole full-grid CPU body, FFI excluded — what `_paint_apply_dab`
-/// pays on every pointer-move sample today.
+/// The whole full-grid CPU body, FFI excluded — the shipped
+/// `PaintEditor::preview_full`, which is what `_paint_apply_dab` pays on
+/// every pointer-move sample today.
+///
+/// `preview_full`'s `None` — *"nothing committed and nothing pending"* — is
+/// spelled out here as the fully transparent grid it is equivalent to on
+/// screen, because these tests need a same-length "before" raster to diff
+/// against. **Only a test may make that collapse.** The binding deliberately
+/// does not: `build_paint_preview_patch` returns an empty `Dictionary`, so a
+/// caller can still tell "draw nothing" from "draw this transparent
+/// rectangle" and does not upload `4n` zero bytes in order to say nothing.
 fn full_preview_bytes(p: &PaintEditor, gw: usize, gh: usize) -> Vec<u8> {
+    p.preview_full(gw, gh).unwrap_or_else(|| vec![0u8; gw * gh * 4])
+}
+
+/// The stage transcriptions above, summed — what the bench times, and what
+/// the test of the same name asserts against the shipped body.
+fn transcribed_full_bytes(p: &PaintEditor, gw: usize, gh: usize) -> Vec<u8> {
     let n = gw * gh;
     let base = stage_base(p, n);
     let mut scratch = vec![0u8; n];
@@ -259,6 +290,197 @@ fn none_from_touched_bounds_never_means_the_whole_grid() {
     assert!(fresh.active_layer().is_empty() && fresh.active_draft().is_empty());
 }
 
+/// The stage-by-stage helpers above exist only so the bench can attribute
+/// cost; if they drift from `PaintEditor::preview_full` the attribution
+/// describes code nothing runs. Asserted rather than assumed, because this
+/// file transcribed a body that has since moved into `paint_bridge.rs`.
+#[test]
+fn the_stage_transcription_still_matches_the_shipped_body() {
+    const G: usize = 96;
+    for dabs in [0usize, 1, 7] {
+        let p = dragged_editor(G, G, dabs);
+        match p.preview_full(G, G) {
+            // Nothing committed and nothing pending: the shipped body says
+            // "nothing to draw" rather than handing back 4n zero bytes.
+            None => assert_eq!(dabs, 0, "only the empty editor may decline"),
+            Some(shipped) => assert_eq!(shipped, transcribed_full_bytes(&p, G, G), "dabs = {dabs}"),
+        }
+    }
+}
+
+/// Every editor state the two properties below are checked over, so each is
+/// checked against a spread of shapes rather than one lucky drag. Named
+/// states rather than seeds because a paint draft has no seed: what varies
+/// is the layer (three palettes, and `swatch_color` genuinely differs per
+/// layer), whether anything is committed under the draft, whether the brush
+/// erases, and whether the water gate is on.
+fn editor_states(g: usize) -> Vec<(&'static str, PaintEditor)> {
+    let mut out: Vec<(&'static str, PaintEditor)> = Vec::new();
+
+    out.push(("biome, 5-dab drag, land-only", dragged_editor(g, g, 5)));
+
+    let mut e = PaintEditor::new(g, g, water_mask(g, g));
+    e.set_layer(PaintTarget::Terrain);
+    e.set_brush(2, 11.0, 1.0, 0.0, false, false);
+    for k in 0..4 {
+        e.stroke_at(g as f64 * 0.2 + k as f64 * 3.0, g as f64 * 0.7);
+    }
+    out.push(("terrain, ungated, small brush", e));
+
+    let mut e = PaintEditor::new(g, g, water_mask(g, g));
+    e.set_layer(PaintTarget::Splat);
+    e.set_brush(1, 25.0, 0.4, 0.6, false, true);
+    e.stroke_at(g as f64 * 0.5, g as f64 * 0.5);
+    e.stroke_at(g as f64 * 0.55, g as f64 * 0.52);
+    out.push(("splat, feathered edge", e));
+
+    // Committed underneath, then a fresh dab on top: the case where the base
+    // is genuinely non-zero, which a fresh editor never exercises.
+    let mut e = dragged_editor(g, g, 6);
+    e.commit_all(g * g);
+    e.set_brush(7, 18.0, 1.0, 0.0, false, true);
+    e.stroke_at(g as f64 * 0.3, g as f64 * 0.6);
+    out.push(("committed layer + a new dab", e));
+
+    // Erase over committed paint: the dab turns opaque pixels transparent,
+    // which is a change the "nothing outside moved" check must still see.
+    let mut e = dragged_editor(g, g, 6);
+    e.commit_all(g * g);
+    e.set_brush(0, 14.0, 1.0, 0.0, true, true);
+    e.stroke_at(g as f64 * 0.48, g as f64 * 0.48);
+    out.push(("erase over committed paint", e));
+
+    out
+}
+
+/// **The property the whole row rests on**, asserted against a full
+/// re-upload of the same edit rather than against an eyeball: for every
+/// state and every grid size, `preview_patch`'s bytes are identical to
+/// `preview_full`'s at the same grid offsets, byte for byte.
+#[test]
+fn the_patch_is_byte_identical_to_a_full_reupload() {
+    for g in [64usize, 128, 300] {
+        for (name, p) in editor_states(g) {
+            let full = p.preview_full(g, g).unwrap_or_else(|| panic!("{name}: something must be drawable"));
+            let patch = p.preview_patch(g, g).unwrap_or_else(|| panic!("{name}: something must be drawable"));
+            let r = patch.region;
+
+            // The invariant a consumer may rely on, so no caller ever has to
+            // guess a stride or reconstruct a missing rectangle.
+            assert_eq!(patch.rgba.len(), r.w * r.h * 4, "{name} @{g}");
+            assert!(r.w > 0 && r.h > 0, "{name} @{g}: a present patch is never zero-sized");
+            assert!(r.x + r.w <= g && r.y + r.h <= g, "{name} @{g}: the window escapes the grid");
+
+            for y in 0..r.h {
+                for x in 0..r.w {
+                    let b = (y * r.w + x) * 4;
+                    let f = ((r.y + y) * g + r.x + x) * 4;
+                    assert_eq!(
+                        patch.rgba[b..b + 4],
+                        full[f..f + 4],
+                        "{name} @{g}: pixel ({}, {}) differs from a full re-upload",
+                        r.x + x,
+                        r.y + y
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// The other half of the same guarantee, and the half that fails
+/// *silently*: nothing outside the window changed, so a caller that
+/// repaints only the window leaves no stale pixels behind. Diffed against
+/// the same editor with its draft discarded — the raster the caller had on
+/// screen before this drag.
+#[test]
+fn nothing_outside_the_patch_window_moved() {
+    const G: usize = 128;
+    // `editor_states` is deterministic, so a second call is the same editors;
+    // discarding their drafts gives the "before" without needing a clone.
+    let after = editor_states(G);
+    let mut before = editor_states(G);
+    let mut windows_checked = 0usize;
+
+    for (i, (name, p)) in after.iter().enumerate() {
+        let r = p.preview_patch(G, G).expect("something must be drawable").region;
+        if r.w == G && r.h == G {
+            continue; // a full-grid answer has no outside to check
+        }
+        windows_checked += 1;
+
+        let b = &mut before[i].1;
+        b.discard_all();
+        let before_bytes = b.preview_full(G, G).unwrap_or_else(|| vec![0u8; G * G * 4]);
+        let after_bytes = p.preview_full(G, G).expect("something must be drawable");
+
+        let (mut changed_outside, mut changed_inside) = (0usize, 0usize);
+        for y in 0..G {
+            for x in 0..G {
+                let inside = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+                let idx = (y * G + x) * 4;
+                if before_bytes[idx..idx + 4] != after_bytes[idx..idx + 4] {
+                    if inside {
+                        changed_inside += 1;
+                    } else {
+                        changed_outside += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(changed_outside, 0, "{name}: the window missed pixels the draft changed");
+        assert!(changed_inside > 0, "{name}: the draft changed nothing, so this state proves nothing");
+    }
+    assert!(windows_checked >= 4, "only {windows_checked} states produced a sub-window; the check would be near-vacuous");
+}
+
+/// The `MISTAKES.md` absent-value rule at this API's boundary, in the shape
+/// that matters here: three states, three distinguishable answers, and the
+/// dangerous middle one is why `touched_bounds()`'s `Option` is not
+/// forwarded to a caller.
+#[test]
+fn a_full_grid_patch_and_no_patch_are_never_the_same_answer() {
+    const G: usize = 64;
+    let n = G * G;
+
+    // (1) Nothing committed, nothing pending -> "draw nothing".
+    let fresh = PaintEditor::new(G, G, water_mask(G, G));
+    assert_eq!(fresh.preview_patch(G, G), None);
+    assert_eq!(fresh.preview_full(G, G), None);
+
+    // (2) Committed layer, empty draft -> `touched_bounds()` is `None`, and
+    //     the answer is the WHOLE GRID, not nothing. This is the inversion
+    //     the row's second correctness property names.
+    let mut p = dragged_editor(G, G, 3);
+    p.commit_all(n);
+    assert_eq!(p.active_draft().touched_bounds(), None);
+    let patch = p.preview_patch(G, G).expect("a committed layer still owes its viewer every pixel");
+    assert_eq!(patch.region, Region::new(0, 0, G, G));
+    assert_eq!(patch.rgba, p.preview_full(G, G).unwrap());
+    assert!(patch.rgba.chunks_exact(4).any(|px| px[3] != 0), "and it is not blank");
+
+    // (3) A live draft -> a strict sub-rectangle. Without this the win is
+    //     vacuous: a `preview_patch` that always returned the whole grid
+    //     would satisfy (1) and (2) perfectly.
+    let mut p = PaintEditor::new(G, G, water_mask(G, G));
+    p.set_brush(3, 6.0, 1.0, 0.0, false, true);
+    p.stroke_at(30.0, 30.0);
+    let r = p.preview_patch(G, G).unwrap().region;
+    assert_eq!(r, Region::new(24, 24, 13, 13), "a radius-6 dab at (30, 30) is a 13x13 box");
+    assert!(r.w < G && r.h < G);
+
+    // (4) A non-empty draft that touches nothing at all is state (2), not
+    //     state (1): every stamp off-grid still leaves the committed layer
+    //     to draw.
+    let mut p = dragged_editor(G, G, 3);
+    p.commit_all(n);
+    p.set_brush(4, 5.0, 1.0, 0.0, false, false);
+    p.stroke_at(-500.0, -500.0);
+    assert!(!p.active_draft().is_empty());
+    assert_eq!(p.active_draft().touched_bounds(), None);
+    assert_eq!(p.preview_patch(G, G).unwrap().region, Region::new(0, 0, G, G));
+}
+
 // ---- the measurement ----
 
 const RUNS: usize = 7;
@@ -342,7 +564,7 @@ fn paint_preview_cost() {
         println!("  swatch loop + RGBA pack:     {s}");
 
         let s = time_runs(|| (), |()| {
-            std::hint::black_box(full_preview_bytes(&p, g, g));
+            std::hint::black_box(transcribed_full_bytes(&p, g, g));
         });
         println!("  FULL-GRID CPU TOTAL:         {s}  (FFI upload of {} bytes excluded)", n * 4);
 
@@ -375,8 +597,42 @@ fn paint_preview_cost() {
     for &dabs in &[1usize, 20, 100, 300] {
         let p = dragged_editor(2048, 2048, dabs);
         let s = time_runs(|| (), |()| {
-            std::hint::black_box(full_preview_bytes(&p, 2048, 2048));
+            std::hint::black_box(transcribed_full_bytes(&p, 2048, 2048));
         });
         println!("  {dabs:>3} dabs in the draft:  full-grid CPU total {s}");
+    }
+}
+
+/// The win this row actually buys, measured on the shipped pair rather than
+/// projected from a sum of parts: `PaintEditor::preview_full` (what
+/// `build_paint_preview_texture` runs) against `PaintEditor::preview_patch`
+/// (what `build_paint_preview_patch` runs), one 20-dab drag at the 40-cell
+/// brush ceiling, same editor, same grid, median of 7 with min..max.
+///
+/// CPU only, FFI excluded for the reason this file's module doc gives; the
+/// byte counts beside them are exact, being the lengths handed to
+/// `PackedByteArray::from` on each path.
+#[test]
+#[ignore = "allocates at 4096^2 repeatedly; run explicitly with --ignored --nocapture --test-threads=1"]
+fn the_measured_win() {
+    println!();
+    for &g in &[512usize, 1024, 2048, 4096] {
+        let p = dragged_editor(g, g, 20);
+        let win = p.preview_patch(g, g).expect("the drag must draw something").region;
+
+        let full = time_runs(|| (), |()| {
+            std::hint::black_box(p.preview_full(g, g));
+        });
+        let patch = time_runs(|| (), |()| {
+            std::hint::black_box(p.preview_patch(g, g));
+        });
+        println!("==== {g}x{g} ====");
+        println!("  preview_full  (whole grid):  {full}  {:>9} bytes to the FFI", g * g * 4);
+        println!("  preview_patch ({}x{} window): {patch}  {:>9} bytes to the FFI", win.w, win.h, win.w * win.h * 4);
+        println!(
+            "  -> {:.1}x less CPU, {:.1}x fewer bytes",
+            full.med_ms / patch.med_ms,
+            (g * g) as f64 / (win.w * win.h) as f64
+        );
     }
 }

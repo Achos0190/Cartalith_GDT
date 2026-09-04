@@ -126,7 +126,7 @@ use std::sync::Arc;
 
 use cartalith_civ::{CART_BIOMES, CART_TERRAINS};
 use cartalith_assets::SPLAT_PAINT_SLOTS;
-use cartalith_spatial::{js_round, CommitSummary, DirtyTracker, PaintLayer, PaintStamp, PassBuffer};
+use cartalith_spatial::{js_round, CommitSummary, DirtyTracker, PaintLayer, PaintStamp, PassBuffer, Region};
 
 /// Tile granularity for every paint draft's `PassBuffer`/`DirtyTracker`
 /// pair — the same value `sculpt_bridge::SCULPT_TILE_SIZE` uses and for the
@@ -583,6 +583,135 @@ impl PaintEditor {
     pub fn discard_all(&mut self) -> usize {
         self.draft_biome.discard() + self.draft_terrain.discard() + self.draft_splat.discard()
     }
+
+    // ---- preview rasters ----
+
+    /// The whole-grid RGBA preview: the active layer's committed cells with
+    /// its uncommitted draft composited over them, one texel per grid cell,
+    /// `0` (unpainted) rendering fully transparent.
+    ///
+    /// `None` — and this is the same condition `WorldGen::
+    /// build_paint_preview_texture` returns `None` for — means there is
+    /// **nothing to draw at all**: nothing committed and nothing pending.
+    /// It is not "nothing changed".
+    ///
+    /// The `c.len() == n` guard on the committed cells is deliberate and is
+    /// this module's existing posture, not a new one: a caller whose `n`
+    /// disagrees with the layer it allocated gets an unpainted base rather
+    /// than the panic `PassBuffer::preview_into`'s own length assert would
+    /// raise **across the gdext boundary**, the same trade
+    /// [`PaintEditor::new`] documents for a mismatched `water_mask`. It
+    /// cannot fire through the shipped path — `PaintLayer::cells_mut(n)`
+    /// takes its length from the same `gw * gh` every caller here passes,
+    /// and the editor is rebuilt per `generate()`.
+    pub fn preview_full(&self, gw: usize, gh: usize) -> Option<Vec<u8>> {
+        let n = gw * gh;
+        if self.active_layer().is_empty() && self.active_draft().is_empty() {
+            return None;
+        }
+        let zeros;
+        let base: &[u8] = match self.active_layer().cells() {
+            Some(c) if c.len() == n => c,
+            _ => {
+                zeros = vec![0u8; n];
+                &zeros
+            }
+        };
+        let mut scratch = vec![0u8; n];
+        self.active_draft().preview_into(base, &mut scratch);
+        Some(pack_window(self.layer, &scratch, gw, Region::new(0, 0, gw, gh), self.layer.palette().len()))
+    }
+
+    /// The same raster, restricted to the rectangle the uncommitted draft
+    /// touches — `OUTSTANDING_WORK.md` §2.6's bounded paint-preview upload.
+    ///
+    /// **The returned [`Region`] is always explicit and always non-empty.**
+    /// That is the whole point of returning a [`PreviewPatch`] rather than
+    /// the bare `Option<Region>` [`PassBuffer::touched_bounds`] hands back:
+    /// a consumer of this function never has to decide what an absent
+    /// rectangle meant, because there is no absent rectangle. The three
+    /// states a caller can be in are distinguished by *shape*, not by a
+    /// sentinel:
+    ///
+    /// | returned | means | what the caller must draw |
+    /// |---|---|---|
+    /// | `None` | nothing committed, nothing pending | nothing — clear the preview |
+    /// | `Some`, `region == (0, 0, gw, gh)` | the draft touched nothing, so the committed layer is the whole answer | the whole grid |
+    /// | `Some`, `region` a sub-rectangle | only these cells can have changed | this rectangle, at its own offset |
+    ///
+    /// Row two is the dangerous one and it is why `touched_bounds()`'s
+    /// `None` is *not* forwarded: an empty draft over a painted layer needs
+    /// the **whole grid**, which is the exact opposite of "nothing is
+    /// dirty". Reading that `None` as an empty window would blank a painted
+    /// map. Here it becomes a full-grid region, so the worst a caller can
+    /// do by ignoring the distinction is upload more than it needed.
+    ///
+    /// Inside `region` the bytes are identical to [`PaintEditor::
+    /// preview_full`]'s at the same offsets — same composite (`PassBuffer::
+    /// preview_touched_into`, whose own doc carries the argument), same
+    /// packer, asserted byte-for-byte by
+    /// `tests/paint_preview_cost.rs::the_patch_is_byte_identical_to_a_full_reupload`.
+    pub fn preview_patch(&self, gw: usize, gh: usize) -> Option<PreviewPatch> {
+        let n = gw * gh;
+        if self.active_layer().is_empty() && self.active_draft().is_empty() {
+            return None;
+        }
+        let zeros;
+        let base: &[u8] = match self.active_layer().cells() {
+            Some(c) if c.len() == n => c,
+            _ => {
+                zeros = vec![0u8; n];
+                &zeros
+            }
+        };
+        // Allocated unconditionally rather than only on the bounded branch:
+        // `vec![0u8; n]` is a calloc whose pages are never faulted in
+        // outside the window (0.012-0.013 ms at every size the bench
+        // covers, 512² through 4096²), so branching around it would buy
+        // nothing and cost a second code path.
+        let mut scratch = vec![0u8; n];
+        let (region, src) = match self.active_draft().preview_touched_into(base, &mut scratch) {
+            Some(win) => (win, &scratch[..]),
+            None => (Region::new(0, 0, gw, gh), base),
+        };
+        let rgba = pack_window(self.layer, src, gw, region, self.layer.palette().len());
+        Some(PreviewPatch { region, rgba })
+    }
+}
+
+/// One paint-preview raster and the rectangle of the grid it covers.
+///
+/// `rgba.len()` is always exactly `region.w * region.h * 4` — there is no
+/// state of this struct in which the caller has to guess a stride, and no
+/// state in which `region` is absent. See [`PaintEditor::preview_patch`]
+/// for what a full-grid `region` means as against a sub-rectangle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewPatch {
+    pub region: Region,
+    pub rgba: Vec<u8>,
+}
+
+/// Packs `win` of a `stride`-wide composited override grid into RGBA8,
+/// row-major from `win`'s own top-left. Unpainted (`0`) cells render
+/// `(0, 0, 0, 0)`; every other index takes [`swatch_color`].
+///
+/// The single packer both preview paths run, so "the patch matches a full
+/// re-upload" is a property of one loop over two windows rather than of two
+/// loops that have to be kept in step.
+fn pack_window(target: PaintTarget, cells: &[u8], stride: usize, win: Region, palette_len: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(win.w * win.h * 4);
+    for y in win.y..win.y + win.h {
+        let row = y * stride + win.x;
+        for &v in &cells[row..row + win.w] {
+            if v == 0 {
+                bytes.extend_from_slice(&[0, 0, 0, 0]);
+            } else {
+                let (r, g, b) = swatch_color(target, v, palette_len);
+                bytes.extend_from_slice(&[r, g, b, 255]);
+            }
+        }
+    }
+    bytes
 }
 
 /// The swatch colour for 1-based palette `index` of `target` (`0` or an
