@@ -42,11 +42,19 @@ class_name JourneyPlannerView
 ##   `right_dock_body` end to end and rebuilds it on every selection change
 ##   (`RightDock`'s own doc: "contents follow the selection, not the
 ##   workspace"); fighting that ownership would mean two files clearing the
-##   same container. Instead this adds one more context to `RightDock`'s
-##   existing `CTX_*` dispatch (`CTX_JOURNEY`, mirroring the `CTX_SCULPT`
-##   precedent already there) that delegates the actual content-building back
-##   to `build_results()` below. `right_dock.gd` carries ~20 new lines for
-##   this; nothing here reaches into its container directly.
+##   same container. This registers an **appended section** with `RightDock`
+##   instead -- `TOOL_JOURNEY`, one of its seven `TOOL_*` ids -- which
+##   delegates the content-building back to `build_results()` below.
+##   `right_dock.gd` carries ~20 lines for this; nothing here reaches into its
+##   container directly.
+##
+##   **It was a replacing `CTX_JOURNEY` context until 2026-09-04**, alongside a
+##   `CTX_SCULPT` this text used to name as its precedent (that one was
+##   converted a day earlier). The owner's dock ruling -- *"selection wins; the
+##   tool appends a section"* -- now covers rule 8 too, so arming Journey no
+##   longer takes a selected settlement off the dock. The half of that defect
+##   which lived in **this** file was `build_results()` clearing
+##   `right_dock_body` itself; see its own comment.
 ## - The tool options bar follows the exact pattern every other tool already
 ##   uses (`app.set_tool_options`, `_tool_options_way`/`_tool_options_route`
 ##   in `infrastructure_workspace.gd`) -- `_tool_options_journey()` below is a
@@ -2740,14 +2748,17 @@ func _export_stage_table() -> void:
 
 # =========================================================== Results (§8) ====
 #
-# Delegated from `right_dock.gd`'s `CTX_JOURNEY` -- see this file's own class
-# doc for why the right dock is not taken over directly.
+# Delegated from `right_dock.gd`'s appended `TOOL_JOURNEY` section -- see this
+# file's own class doc for why the right dock is not taken over directly.
 
+## **Appends into `body`; it must not clear it.** This tore the container down
+## itself until 2026-09-04 -- three lines that were merely redundant while
+## Journey was a replacing context (`RightDock._rebuild()` had already emptied
+## `right_dock_body` one call earlier, and nothing else drew into it), and that
+## became destructive the moment the section started appending: the selection
+## `_dispatch()` had just drawn sat in this same container, and this swept it
+## away. `_rebuild()` remains the one and only place that clears the dock.
 func build_results(body: Control) -> void:
-	for c in body.get_children():
-		body.remove_child(c)
-		c.queue_free()
-
 	if _route_index < 0:
 		DccWidgets.note(body, "Pick a committed route in the left dock to begin.")
 		return
@@ -2793,9 +2804,15 @@ func _build_risk_note(body: Control, plan: Dictionary) -> void:
 	var l := DccWidgets.note(body, "%s %s" % [DccIcons.SYMBOLS["warn_tri"], risk])
 	l.add_theme_color_override("font_color", DccTheme.c("warn"))
 
-## `right_dock.gd`'s RD-11 collapsed-readout call (`_dock_readout_text()`) --
-## the one number worth keeping visible when Journey is the active right-dock
-## context and the dock is collapsed. Reads `_last_result` rather than
+## `right_dock.gd`'s RD-11 collapsed-readout call, reached through
+## `_fallback_readout()`'s `TOOL_JOURNEY` arm -- the one number worth keeping
+## visible when the Journey section is on screen and the dock is collapsed.
+##
+## **It fills the slot a selection is not using, and cannot overwrite one.**
+## That is `_push_dock_readout()`'s own stated rule for every appended tool
+## section (*"the selection's readout wins whenever there is a selection"*);
+## before 2026-09-04 Journey was a context and this number displaced whatever
+## the dock had been reporting. Reads `_last_result` rather than
 ## exposing it, matching this file's own convention that every other reader
 ## of the plan (`build_results` and its `_build_*_group` helpers) goes
 ## through a method here instead of the underscore-prefixed field directly.
@@ -4028,13 +4045,36 @@ func restore_journeys_document(text: String) -> void:
 ## `_refresh_route_choice()` is what redraws the left dock's list, and it is
 ## only safe once `_build_left_panel()` has run — which `_bound` implies, since
 ## that is the only branch which creates `_left_route_section`.
+## **The gate asks the whole aggregate, not one member of it.** It read
+## `_journeys.is_empty() and _active_journey < 0` until 2026-09-04, and that
+## early-return swallowed the reset of the *live* plan: `_route_index` is the
+## third thing a new world invalidates, and with no saved journeys the guard
+## was always true, so `_refresh_route_choice()` never ran and `_route_index`
+## stayed pointing at a route the regenerate had destroyed.
+##
+## Measured (`_jp8append_probe.gd` T8, 2026-09-04): after a regenerate,
+## `route_count 1 -> 0` while the right dock still drew the full plan --
+## `["TIME", "LOAD", "SUPPLY REACH", "COST", "VESSELS · WATER LEGS",
+## "CALCULATION TRACE"]` -- for a route that no longer existed. Pre-existing,
+## not caused by the append conversion (the replacing `CTX_JOURNEY` read the
+## same two fields); the conversion is what put it under a live selection,
+## where it is harder to miss.
+##
+## `_refresh_route_choice()` is the reset: it sets `_route_index = -1` itself
+## when `route_count()` is 0, and `build_results()` / `readout_text()` both
+## check that first, so nothing downstream needs its own copy of the rule.
+## The right dock is poked afterwards because its own `generation_finished`
+## rebuild may already have run -- two connections to one signal, and only
+## this one knows the plan is now stale.
 func clear_journeys() -> void:
-	if _journeys.is_empty() and _active_journey < 0:
+	if _journeys.is_empty() and _active_journey < 0 and _route_index < 0:
 		return
 	_journeys = []
 	_active_journey = -1
 	if _bound:
 		_refresh_route_choice()
+		if app != null and app.right_dock_ctrl != null:
+			app.right_dock_ctrl.refresh_journey()
 
 ## How many saved journeys reference one Travel Library entry —
 ## `TRAVEL_LIBRARY_SPEC.md` §4's "how many saved journeys reference it", which

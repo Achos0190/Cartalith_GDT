@@ -51,6 +51,33 @@ arithmetic here is not safe to delegate.
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
 
+**2026-09-04, twenty-third batch — holds at 97.** First batch at two build
+lanes. Rule 8 closes: the Journey planner appends instead of replacing, per the
+owner's 2026-09-04 ruling. The pack-section re-derivation lands as the audit it
+was asked to be. `cargo test --workspace` unchanged at **3 068**, 0 failed —
+correct for a GDScript lane plus an audit.
+
+*The hazard was carried across, and it was not where the ruling described it.*
+The ruling, the row and `right_dock.gd`'s own doc all describe a conversion as
+three artefacts — a `CTX_` constant, a `CTX_TITLES` row, a `_dispatch()` arm.
+There was a **fourth**, in a different file: `journey_planner_view.gd::
+build_results()` opened by clearing `right_dock_body` **itself** — harmless while
+the planner replaced the dock, destructive the instant it appends, because the
+selection lives in that same container. Mutation-verified: re-inserting only that
+teardown turns the probe red at exactly the right check.
+
+*A third premise about the pack warning failed, which is why the owner asked for
+the measurement.* The backlog row said `composite_map_icons` draws settlement and
+poi. It does not — it composites the `icons` family and nothing else, so those
+two are undrawn as well. **True unused set: `seamarks`, `settlement`, `trait`,
+`poi`, `custom`**; composited: `textures`, `biomes`, `terrains`, `icons`. Only
+one section is emittable by the warning today.
+
+*A verifier caught a single-sample measurement.* Lane A reported "no dock
+overflow" from one world whose plan was empty; three worlds measure the results
+panel at 351 / 385 / 441 px against a 280 px dock. Filed above, with what is
+measured kept apart from what is inferred.
+
 **2026-09-04, twenty-second batch — holds at 97.** Vault milestone 3 closes as
 already done (shipped 2026-09-02 in `4ec07f5`; `STATUS.md:846` already said so);
 right-dock rule 7 is built; the preview row is re-scoped by measurement rather
@@ -931,7 +958,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Size | Note |
 |---|---|---|
-| **The right dock ladder — rule 8, the Journey planner** | medium | **Ruling extended 2026-09-04: yes, the planner appends like every other context.** Rules 1-7 are converted; `rdMode4()` is the last built arm that still *replaces* the selection. **Carry the hazard across:** rule 1's conversion silently took Commit/Discard away from a live uncommitted draft, because `_tool_section()` answers with one id whose `match` reached the ordinary tools before the draft clause — every transition INTO the converted state must be enumerated and proved, not just the disarm path. Batch 22 was dispatched before this ruling existed and was told rule 8 was out of scope |
 
 ### 2.3 Civilisation, economy and journeys
 
@@ -1007,6 +1033,7 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | The phone shell with **no world open** scans 1 494 of 2 400 rows blank | medium | **Re-filed 2026-09-03 from PH-16, which attributed it to the wrong surface.** The register measured one state — planner open, no world — and read the result as the Journey Planner's. With a control state added, opening the planner **removes 447 blank rows**: closed 1 494, open 1 047. So the band belongs to the app with no world loaded, not to this panel, and there is nothing honest to draw into a world that does not exist. Whatever the empty shell should show is a design question `06-phone.md` does not answer |
 | The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
 | The `vault.json` write gate has no test at its call site | `MARKDOWN_VAULT_SCOPE.md` | small | **The bug is fixed, the guard is not built.** The gate read `!store.links.is_empty()` — one member of a three-member store — so a project with a connected vault and a map snapshot but **no knowledge links** wrote no `vault.json` at all and lost the snapshot on save. Now `!store.is_empty()`. `LinkStore::is_empty()` itself is mutation-tested (2 of 3 conjuncts killed), but **the call site is not**: `project_save_with_documents` takes gdext types on a `GodotClass`, so no Rust unit test can reach it — this needs a probe scene that saves a snapshot-only project and reopens it |
+| The Journey results panel is wider than the right dock | `UNWIRED_FUNCTIONS.md` | medium | **Found 2026-09-04 by a verifier that measured three worlds where the lane measured one.** The results panel's own minimum is **351 / 385 / 441 px** across three seeds against a dock of 280 (laptop) / 304 / 260 min, so `right_dock.size.x` grows to 366 / 400 / 456 and eats the map. Lane A reported "no finding" from a single world whose plan was empty (190 px) — **one sample, and the width is content-dependent**. **Not caused by the rule-8 append, though the append is how it became visible:** the dock previously showed this same results panel *alone*, so its minimum was already the panel's own; appending takes `max(selection 246, results 351+)`, which is unchanged. What IS new is that the wide dock now displaces a selection the user was reading. The panel is dropdowns whose minimum is their widest item — real layout work, not a wrap fix. **The pre-existing claim is reasoned from the layout model, not measured; measure it at HEAD~1 before acting** |
 | A sculpt draft that appears without a tool-arm does not rebuild the right dock | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-03 by a verifier probe, measured pre-existing at HEAD before crediting it.** `app.arm_tool()` early-returns when the tool is already armed, so no `tool_armed` fires; nothing else signals a stamp-count change to the dock. A draft created while Inspect is already armed leaves the dock showing a body built when the count was 0 — `_tool_section()` answers `stamps` while the body reads `["SAMPLE"]`. Distinct from the append bug fixed the same day, which was about arming a *different* tool |
 | The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |

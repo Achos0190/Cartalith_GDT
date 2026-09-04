@@ -31,12 +31,12 @@ const CTX_RIVER := "river"
 const CTX_FACTION := "faction"
 const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
-## `CTX_SCULPT` was here. It is now `TOOL_STAMPS`, an appended section id --
-## see that constant for the measurement that caught this context replacing a
-## selected settlement. Do not re-add it as a context: a `CTX_` name, a
-## `CTX_TITLES` row and a `_dispatch()` arm are the three things that made the
-## dock replace the selection, and the ruling rejects all three.
-const CTX_JOURNEY := "journey"
+## `CTX_SCULPT` and `CTX_JOURNEY` were here. They are now `TOOL_STAMPS` and
+## `TOOL_JOURNEY`, appended section ids -- see those constants for the
+## measurements that caught each of them replacing a selected settlement. Do
+## not re-add either as a context: a `CTX_` name, a `CTX_TITLES` row and a
+## `_dispatch()` arm are the three things that made the dock replace the
+## selection, and the ruling rejects all three.
 ## The Wildlife debug view's roster popup -- the reference's own
 ## `#wildInfo` panel (`showWildInfo`, HTML 8259), re-hosted here rather than
 ## rebuilt as a floating panel: §6 already says this dock's contents follow
@@ -48,13 +48,15 @@ const CTX_WILDLIFE := "wildlife"
 ## context-driven surface.
 const CTX_HISTORY := "history"
 
-## `05-right-dock-and-bars.md` §1.8-§1.14, GUI replacement stage 5. **Six**
+## `05-right-dock-and-bars.md` §1.8-§1.14, GUI replacement stage 5. **Seven**
 ## sections from `rdMode4()`'s own fall-through table (§1.2b): `tool` is
 ## `sculpt`/`freehand` -> stamps (rule 1, `TOOL_STAMPS`, converted from a
 ## context on 2026-09-03 -- see its own doc), `tool === 'biome'` -> paint,
 ## `tool` is `label`/`icon` -> anno, `tool === 'territory'`
 ## -> terr, `domain==='CARTO' && tool==='inspect'` -> stops, `tool` is
-## `way`/`route` with a non-empty draft -> way (rule 7, `TOOL_WAY`). All six
+## `way`/`route` with a non-empty draft -> way (rule 7, `TOOL_WAY`), and the
+## planner results -> plan (rule 8, `TOOL_JOURNEY`, converted from a context
+## on 2026-09-04 -- see its own doc). All seven
 ## read live engine state fresh on every rebuild, the same "no private draft"
 ## shape the Stamp stack already used -- there is nothing here for a second
 ## editor to disagree with.
@@ -72,8 +74,10 @@ const CTX_HISTORY := "history"
 ## concept" shape `_append_layers()` records this shell having had to undo
 ## three times.
 ##
-## **Rule 8 (`plan`) is the one arm that still replaces**, and is left that way
-## pending an owner answer -- see `show_journey()`.
+## **Rule 8 (`plan`) was the last arm that still replaced**, and the owner
+## extended the ruling to it on 2026-09-04 (`LARGE_ITEM_RULINGS.md`: *"it
+## becomes an appended section like every other"*). It is now `TOOL_JOURNEY`;
+## see that constant, and `show_journey()`.
 ##
 ## **These are `TOOL_*`, not `CTX_*`, and that is the owner's 2026-09-03
 ## ruling rather than a naming preference** (`LARGE_ITEM_RULINGS.md`,
@@ -183,6 +187,45 @@ const TOOL_STAMPS := "stamps"
 ## would *remove* a live draft's readout that the old code left alone. Rules 3
 ## and 4 got no gate for exactly this reason and rule 7 gets none either.
 const TOOL_WAY := "way"
+## `rdPlan` (§1.13) -- `rdMode4()`'s **rule 8**, and the last arm in this dock
+## that still replaced the selection. Converted 2026-09-04 on the owner's own
+## extension of the 2026-09-03 ruling (`LARGE_ITEM_RULINGS.md`: *"`rdMode4()`
+## (rule 8) is the last built context that replaces the selection; it becomes
+## an appended section like every other"*).
+##
+## It shipped as `CTX_JOURNEY`: a context constant, a `CTX_TITLES` row and a
+## `_dispatch()` arm -- the exact three things the `TOOL_*` block above warns
+## never to give a tool, because each of them is what makes arming a tool
+## *replace* whatever the dock was showing. Those three are readable in the
+## conversion's own diff and are not restated here as a measurement.
+##
+## **It had a fourth, and that one was measured.**
+## `journey_planner_view.gd::build_results()` **cleared `right_dock_body`
+## itself** before drawing -- redundant while Journey replaced the dock, fatal
+## the moment it appended, since the selection `_dispatch()` had just drawn sat
+## in that same container. Re-introducing only that teardown under
+## `_jp8append_probe.gd` (2026-09-04, mutation run, restored after) turned T1
+## red exactly there: `the selected settlement's name SURVIVES arming Journey`
+## FAIL, and `settlement@-1 journey@2` -- the settlement section swept out from
+## under the appended plan. The teardown is gone; `_rebuild()` was already the
+## only clear.
+##
+## **The condition is this port's own, and deliberately not §1.2b's literal
+## text.** Rule 8 reads `domain==='CIVIL' && civCat==='planner' && tool in
+## {inspect, pan}` -- a *category* selection in a dock this port does not
+## have. This shell arms a real tool for it instead (`journey_planner_view
+## .open()` calls `app.arm_tool("journey")`), so the equivalent condition is
+## `armed_tool == "journey" && active_domain() == "civilization"`. That is
+## `_recompute_visibility()`'s own condition, copied rather than invented: the
+## section must draw exactly when the planner's own panels are showing, or the
+## dock would carry results for a surface that is not on screen.
+##
+## **Plus `_journey_view != null`, which is a data clause, not a third rule** --
+## the same shape `TOOL_WAY`'s `_way_draft.size() > 0` carries. The delegate is
+## what `build_results()` is called on, and `show_journey()` is what supplies
+## it; with no delegate there is nothing to draw and the section is absent
+## rather than drawing an empty one.
+const TOOL_JOURNEY := "journey"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -341,7 +384,7 @@ var _saved_measurements: Array = []
 var _river: Dictionary = {}
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
-var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
+var _journey_view: JourneyPlannerView = null   ## TOOL_JOURNEY delegate -- see `show_journey()`.
 
 ## -- TOOL_PAINT. `_paint_ctx_layer` mirrors `world_workspace.gd`'s own private
 ## `_paint_layer` -- the caller passes it on every `show_paint()`, the same
@@ -810,14 +853,24 @@ func show_sculpt_stack() -> void:
 func leave_sculpt_context() -> void:
 	_rebuild()
 
-## Called by `journey_planner_view.gd` when the JOURNEY tool arms -- claims
-## `right_dock_body` for the results panel (`JOURNEY_PLANNER_SPEC.md` §8),
-## delegating the actual content back to `view.build_results()` rather than
-## duplicating its rendering here. Mirrors `show_sculpt_stack()`'s own
-## delegation shape (that one re-reads `bridge.sculpt_*` fresh each rebuild;
-## this one re-reads `view`'s own cached compute result, since a fresh
-## `jp_compute()` per rebuild would be a wasted boundary crossing on every
-## unrelated `right_dock.gd` refresh).
+## Called by `journey_planner_view.gd` when the JOURNEY tool arms -- hands
+## this dock the delegate it draws the results panel through
+## (`JOURNEY_PLANNER_SPEC.md` §8), rather than duplicating that rendering here.
+## Mirrors `show_sculpt_stack()`'s own delegation shape (that one re-reads
+## `bridge.sculpt_*` fresh each rebuild; this one re-reads `view`'s own cached
+## compute result, since a fresh `jp_compute()` per rebuild would be a wasted
+## boundary crossing on every unrelated `right_dock.gd` refresh).
+##
+## **Arms the appended Journey section; it does not claim `_context`.** Whatever
+## the dock was showing -- a selected settlement, a route, a river -- is still
+## showing after this call, with the plan below it. That is the owner's
+## 2026-09-04 extension of the dock ruling; see `TOOL_JOURNEY`'s own doc for
+## the measurement that caught this replacing the selection instead, and for
+## the second half of that defect, which was in `build_results()`.
+##
+## The delegate is the only thing stored, exactly as `show_paint()` stores
+## `_paint_ctx_layer`: *whether* the section draws is `_tool_section()`'s
+## answer, derived from the armed tool and the domain on every rebuild.
 ## `Edit ▸ Undo history…` (`GUI_GAP_REGISTER.md` **ED-02**) -- claims this
 ## dock for the ledger. No data of its own: `_build_history` reads
 ## `bridge.undo_ledger()` fresh on every rebuild, the same shape
@@ -834,26 +887,41 @@ func refresh_history() -> void:
 		_rebuild()
 
 func show_journey(view: JourneyPlannerView) -> void:
-	_context = CTX_JOURNEY
 	_journey_view = view
 	_rebuild()
 
-## Called by `journey_planner_view.gd` after every recompute, while Journey
-## is still the active context -- cheaper than `show_journey()` re-running
-## the whole dispatch when only the numbers changed, and a no-op otherwise
-## (Journey no longer armed, or something else grabbed the dock meanwhile).
+## Called by `journey_planner_view.gd` after every recompute, while the
+## appended Journey section is actually on screen -- a no-op otherwise
+## (Journey disarmed, or the domain switched away under it), so a recompute
+## that lands after a disarm cannot force a redraw of a section that is gone.
+##
+## **Gated on `_tool_section()`, not on `_context`.** Since 2026-09-04 the
+## planner does not own `_context` at all, and a selection can be live
+## underneath it; asking the derivation is asking the one thing that decides
+## whether `_append_tool()` will draw this section, so the two cannot drift.
 func refresh_journey() -> void:
-	if _context == CTX_JOURNEY:
+	if _tool_section() == TOOL_JOURNEY:
 		_rebuild()
 
 ## Called by `journey_planner_view.gd` when the JOURNEY tool disarms --
-## returns the dock to Sample rather than leaving a stale results panel
-## behind once there is nothing live driving it.
+## drops the delegate so the appended results section stops drawing, and
+## leaves whatever the dock was *selecting* exactly where it was.
+##
+## **It no longer resets `_context` to `CTX_SAMPLE`, and that is the point of
+## the conversion rather than an omission.** While Journey was a context,
+## disarming it had to name a context to go back to, and Sample was the only
+## honest answer -- which threw away a settlement/route/river selection the
+## user had made before arming the planner. Now the selection was never
+## touched on the way in, so there is nothing to restore on the way out.
+##
+## Unconditional, because `_tool_section()` has already stopped answering
+## `TOOL_JOURNEY` by the time the disarm path reaches here in the domain-switch
+## case (`_hide()` runs off `workspace_changed`), so a guard reading the
+## derivation would skip the one clear that matters. Clearing a null field and
+## rebuilding is idempotent.
 func clear_journey() -> void:
-	if _context == CTX_JOURNEY:
-		_journey_view = null
-		_context = CTX_SAMPLE
-		_rebuild()
+	_journey_view = null
+	_rebuild()
 
 ## Called by `world_workspace.gd`'s own `_on_tool_armed` when `"paint"` arms,
 ## and again after every layer switch / commit / discard / stroke release --
@@ -968,9 +1036,9 @@ func _forget_way_draft() -> void:
 ## `_rebuild()` so a new `CTX_*` can't add a body section without this table
 ## reminding whoever adds it that the dock chrome needs the same name.
 ##
-## **No row here for the six `TOOL_*` sections, by ruling.** §1.3 gives each
+## **No row here for the seven `TOOL_*` sections, by ruling.** §1.3 gives each
 ## of them a right-dock title (`STAMP STACK`, `PAINT · BIOME`, `RAMP · STOPS`,
-## `ANNOTATION`, `TERRITORY`, `WAY`), and those titles are real -- they are drawn by each section's
+## `ANNOTATION`, `TERRITORY`, `WAY`, `JOURNEY — RESULTS`), and those titles are real -- they are drawn by each section's
 ## own `DccWidgets.section()` header inside the body, where an appended section
 ## puts its name. Putting one in this table instead is how the dock came to
 ## rename itself the moment a tool armed, which is the replacement the owner's
@@ -980,7 +1048,6 @@ func _forget_way_draft() -> void:
 const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
-	CTX_JOURNEY: "Journey",
 	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History",
 }
 
@@ -1006,17 +1073,19 @@ func _rebuild() -> void:
 	app.set_right_dock_title(_current_title())
 	_push_dock_readout()
 
-## `_build_settlement`/`_build_journey` both fall back to `_build_sample()`
-## when their own data is missing (a settlement deselected out from under the
-## dock, or Journey armed with no `_journey_view` yet) -- mirrored here so the
-## header never claims a context the body didn't actually draw.
+## `_build_settlement` falls back to `_build_sample()` when its own data is
+## missing (a settlement deselected out from under the dock) -- mirrored here
+## so the header never claims a context the body didn't actually draw.
+##
+## **`CTX_JOURNEY` had the second clause here and no longer needs one.** The
+## planner is an appended section since 2026-09-04 (`TOOL_JOURNEY`), so it
+## cannot name this header at all; a missing `_journey_view` now means the
+## section is simply absent, and the header goes on naming the selection.
 ##
 ## Reads `_context` only. `_tool_section()` deliberately cannot reach this -- see
 ## `CTX_TITLES`' own note directly above.
 func _current_title() -> String:
 	if _context == CTX_SETTLEMENT and _settlement_data == null:
-		return "Sample"
-	if _context == CTX_JOURNEY and _journey_view == null:
 		return "Sample"
 	return String(CTX_TITLES.get(_context, "Sample"))
 
@@ -1061,11 +1130,15 @@ func _push_dock_readout() -> void:
 	app.set_dock_readout("right", _dock_readout_text())
 
 ## The readout when `_context` is carrying no selection of its own: the armed
-## tool's own figure, else Sample's elevation. Three call sites, which is the
-## point -- CTX_SETTLEMENT and CTX_JOURNEY both degrade to Sample when their
-## data is missing (`_current_title()` mirrors that), so all three have to give
-## an armed tool the same slot or the readout would change on a deselect for no
-## reason the reader could see.
+## tool's own figure, else Sample's elevation. Two call sites, which is the
+## point -- CTX_SETTLEMENT degrades to Sample when its data is missing
+## (`_current_title()` mirrors that), so both have to give an armed tool the
+## same slot or the readout would change on a deselect for no reason the reader
+## could see. **It was three until 2026-09-04**: `CTX_JOURNEY` had the same
+## degrade-to-Sample arm, and the planner is an appended section now, so its
+## figure arrives through `TOOL_JOURNEY` below instead -- which is the same
+## slot, reached by the same rule (*the selection's readout wins whenever there
+## is a selection*), for one fewer context.
 func _fallback_readout() -> String:
 	match _tool_section():
 		TOOL_PAINT:
@@ -1086,6 +1159,14 @@ func _fallback_readout() -> String:
 			var pts := _way_draft.size()
 			var noun := "waypoint" if _way_owner == "way" else "stop"
 			return "%d %s%s" % [pts, noun, "" if pts == 1 else "s"]
+		TOOL_JOURNEY:
+			## `_tool_section()` answers `TOOL_JOURNEY` only with a non-null
+			## delegate (its own third clause), so this cannot be reached
+			## without one -- the same guarantee `TOOL_WAY` above relies on for
+			## `_way_draft`. The plan's own one-line figure, not a second
+			## opinion about it: `journey_planner_view.gd::readout_text()` is
+			## the single reader of `_last_result` for this purpose.
+			return _journey_view.readout_text()
 		TOOL_STAMPS:
 			## §6's own "stamp count for the stack", moved here verbatim from the
 			## `CTX_SCULPT` arm it used to sit in. `sculpt_stamp_count()` rather
@@ -1128,10 +1209,6 @@ func _dock_readout_text() -> String:
 		CTX_HISTORY:
 			var st := bridge.undo_stats()
 			return "%d of %d reversible" % [int(st.get("depth", 0)), bridge.undo_ledger().size()]
-		CTX_JOURNEY:
-			if _journey_view == null:
-				return _fallback_readout()
-			return _journey_view.readout_text()
 		_:
 			return _fallback_readout()
 
@@ -1155,8 +1232,6 @@ func _dispatch(body: Control) -> void:
 			_build_region(body)
 		CTX_WILDLIFE:
 			_build_wildlife(body)
-		CTX_JOURNEY:
-			_build_journey(body)
 		CTX_HISTORY:
 			_build_history(body)
 		_:
@@ -1186,8 +1261,9 @@ func _dispatch(body: Control) -> void:
 ## Which section `_append_tool()` will draw, or `""`. **`rdMode4()`'s own
 ## fall-through table (§1.2b) read live, and nothing else** -- rules 3
 ## (`label`/`icon`) and 4 (`territory`) are unconditional on the armed tool,
-## rules 1 (`sculpt`) and 6 (`inspect`) also read the domain, and rule 7
-## (`way`/`route`) also reads the draft. See the `TOOL_*` block at the top of
+## rules 1 (`sculpt`) and 6 (`inspect`) also read the domain, rule 7
+## (`way`/`route`) also reads the draft, and rule 8 (`journey`) reads the
+## domain and the delegate. See the `TOOL_*` block at the top of
 ## this file for why this is derived rather than remembered.
 ##
 ## **One section at a time, which is the table's own shape**: `rdMode4()` is
@@ -1235,6 +1311,20 @@ func _tool_section() -> String:
 			## Route tool for a rebuild.
 			if _way_owner == app.armed_tool and _way_draft.size() > 0:
 				return TOOL_WAY
+		"journey":
+			## Rule 8, in this port's own vocabulary -- see `TOOL_JOURNEY` for
+			## why the condition is `armed_tool`/`active_domain()` rather than
+			## §1.2b's `civCat === 'planner'`. Both halves are
+			## `journey_planner_view.gd::_recompute_visibility()`'s own, so the
+			## section is on screen exactly while the planner's panels are.
+			##
+			## **No `else` and no `return ""`, deliberately**: `"inspect"` above
+			## does the same, and for the same reason. Journey armed while the
+			## domain has moved to WORLD means the planner is hidden and a live
+			## sculpt draft below is the honest answer, so this arm falls
+			## through to the draft clause exactly as `"inspect"` does.
+			if app.active_domain() == "civilization" and _journey_view != null:
+				return TOOL_JOURNEY
 	## Rule 1, and its draft clause -- see `TOOL_STAMPS`. Reached after the
 	## `match` on purpose: the clause is not keyed on the armed tool at all, so
 	## it cannot be an arm of a `match` over `app.armed_tool`. `sculpt` itself
@@ -1261,6 +1351,8 @@ func _append_tool(body: Control) -> void:
 			_build_sculpt(body)
 		TOOL_WAY:
 			_build_way(body)
+		TOOL_JOURNEY:
+			_build_journey(body)
 	## An uncommitted draft keeps its own controls whatever else is armed.
 	##
 	## `_tool_section()` answers with exactly ONE id, and its `match` reaches
@@ -3195,9 +3287,16 @@ func _thousands(v: float) -> String:
 
 # -- Journey (delegate to journey_planner_view.gd) --------------------------
 
+## **Appended** below the selection while the Journey tool is armed in CIVIL
+## (`rdMode4()` rule 8 -- see `TOOL_JOURNEY`), never instead of it.
+##
+## The null guard is a bare `return`, not the `_build_sample()` fallback it
+## carried as a context: `_dispatch()` has already drawn Sample by the time
+## this runs when nothing is selected, so falling back here would draw the
+## cursor readout **twice**. `_tool_section()` will not answer `TOOL_JOURNEY`
+## without a delegate anyway; this is the belt to that brace.
 func _build_journey(body: Control) -> void:
 	if _journey_view == null:
-		_build_sample(body)
 		return
 	_journey_view.build_results(body)
 

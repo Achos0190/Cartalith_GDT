@@ -3210,12 +3210,19 @@ func _religion_run() -> void:
 #
 # Built as a sixth L2 category in THIS workspace's left dock, alongside
 # Settlements/Population/Economy/Politics/Culture above, rather than a new
-# `right_dock.gd` CTX_* context. `right_dock.gd`'s own CTX_SCULPT/CTX_JOURNEY
-# (the precedent this milestone's own brief pointed at) are both driven by an
-# actual map TOOL arming (`app.tool_armed`) tied to viewport interaction --
-# Sculpt shows the live stamp stack while the Sculpt tool is armed or a
-# stroke just ended; Journey swaps the whole INFRA region while the JOURNEY
-# tool is armed. Timeline has no map click of its own: add year / goto year /
+# `right_dock.gd` CTX_* context. The precedent this milestone's own brief
+# pointed at was `right_dock.gd`'s CTX_SCULPT/CTX_JOURNEY, and **neither is a
+# context any more** -- both were converted to appended `TOOL_*` sections under
+# the owner's "selection wins; the tool appends a section" ruling (Sculpt
+# 2026-09-03, Journey 2026-09-04), which only sharpens the argument below:
+# both are driven by an actual map TOOL arming (`app.tool_armed`) tied to
+# viewport interaction -- Sculpt shows the live stamp stack while the Sculpt
+# tool is armed or a stroke just ended; Journey appends its results panel below
+# whatever is selected while the JOURNEY tool is armed. (That last clause read
+# "swaps the whole INFRA region" until 2026-09-04 -- written in the same pass
+# that stopped it being true, which is the failure mode this file's own
+# preflight table calls "a reworded reason that is still false". It swaps
+# nothing now.) Timeline has no map click of its own: add year / goto year /
 # run simulation are all pure state edits with no tool to arm, exactly like
 # THIS FILE's own Settlements/Population/Politics categories already are
 # (click a row, pin something, done). Given that, `DccWidgets.category()` --
