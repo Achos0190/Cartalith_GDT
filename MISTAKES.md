@@ -59,6 +59,9 @@ its rule before you start.
 | **Write a diagnosis into a backlog row** | The row is a **router, not a finding**. A row that names a cause propagates it into every brief written from it: "the panel is dropdowns whose minimum is their widest item" was wrong (there are no dropdowns), and it reached a verifier as an instruction to count dropdown items — a check that could not be performed | State the **symptom and its measurement**; leave the cause to whoever opens the code. If you must record a suspicion, mark it as one |
 | **Attribute a number to a cause** | Measuring the number is not measuring the *cause*. A doc said a fallback dab "shows up in the after column's own maximum"; the fallback measures **15.3 ms** against a quoted maximum of **2.55 ms**. An explanation makes a single-sample claim look like an analysis | Measure the cause separately and quote it. If you cannot, say the number and stop |
 | **Run a pixel probe** | `ImageTexture.update()` is a **no-op under `--headless`** — the texture never reaches `get_image()`, so every comparison passes vacuously | Run pixel probes **windowed**, and give the probe a positive control that must move. Reproduced independently 2026-09-04 |
+| **Write a multi-line edit through a shell heredoc** | Escape sequences are mangled twice — once by the shell, once by the language. A `\
+` continuation reached a `.gd` file as a literal backslash-n and broke it; the same edit had already produced five stray tabs mid-expression, which **parsed clean because tabs are whitespace** | Prefer the Edit tool for multi-line source changes. If you must script it, read the bytes back with `repr()` afterwards — and run the parse check, which is what caught this |
+| **Name the language of a remaining caller** | "The caller is GDScript" was written into four Rust doc comments about a function GDScript **cannot call** — a plain `pub fn` taking `&mut [u8]` and a Rust struct, neither marshallable across gdext | Check the signature, not the intent. A `#[func]` is the only thing GDScript can reach, and its arguments have to be Godot types |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -106,7 +109,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×27
+### [2026-09-03] Leaving prose that describes the old behaviour ×31
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

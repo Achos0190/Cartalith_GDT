@@ -8,6 +8,7 @@
 //! match.
 
 pub mod atlas;
+pub mod geojson_import;
 pub mod gzip;
 pub mod project;
 pub mod save;
@@ -17,6 +18,10 @@ pub use atlas::{
     atlas_chunk_file, atlas_key_str, atlas_meta_key, build_atlas_manifest, decode_chunk,
     encode_chunk, fnv1a32_hex, world_key, AtlasChunk, AtlasChunkDesc, AtlasChunkRecord, AtlasKey,
     AtlasManifest, AtlasMeta, AtlasStore, ATLAS_KIND, ATLAS_MANIFEST,
+};
+pub use geojson_import::{
+    grid_xy, parse_geojson, CrsClaim, GeoFeature, GeoJsonDoc, GeoJsonError, Geometry, Position,
+    Ring, CRS_NOTE,
 };
 pub use gzip::{gunzip_bytes, gzip_bytes};
 // `project::manifest_json` is deliberately NOT re-exported here: `tiles`

@@ -1347,6 +1347,7 @@ func refresh() -> void:
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
 	refresh_faction_colors()
+	refresh_settlement_traits()
 	## A regenerate empties `InfraTools::routes`, so this also *clears* the
 	## route layer rather than leaving the previous world's routes drawn over
 	## the new one.
@@ -1460,6 +1461,56 @@ func refresh_annotations() -> void:
 ## -- `app.viewport.refresh_faction_colors()`, beside the territory-texture
 ## write that handler already does for exactly this reason -- closes it, and
 ## this method is public so that line is the whole change.
+## The trait keys `map_overlay.gd` draws its badge row from
+## (`_civDrawTraitBadges`), keyed by `tid`, plus the `key -> glyph`
+## vocabulary it labels them with.
+##
+## Assembled here rather than in the overlay because that control holds no
+## `EngineBridge` and never fetches -- `map_overlay.gd::set_civ_data`'s own
+## doc comment. It has to be assembled at all because `get_settlements()`
+## carries no `traits` field: a settlement's traits live in
+## `civ_roster_bridge::PlaceExtrasTable`, a side table keyed by `tid`, and
+## `civ_settlement_details(index)` is the only accessor. So this walks the
+## roster once and asks per settlement.
+##
+## Called on `refresh()` and after a place-editor trait toggle -- never per
+## frame. N bridge calls at N settlements, against a roster of at most a few
+## hundred entries.
+##
+## A settlement with no traits is left OUT of the dictionary rather than
+## stored with an empty list: `map_overlay.gd` tests it with `has()`, and an
+## absent key is the same answer with none of the storage.
+##
+## **Corrected 2026-09-04.** This used to claim that "an engine build older
+## than either `#[func]` yields an empty map and an empty vocabulary". It does
+## not: the guard below covers only `overlay.has_method(...)`, so
+## `civ_settlement_details()` and `civ_trait_vocabulary()` are called
+## unguarded and an older library would fail at the call, not return empty.
+## The sentence described a degradation that was never implemented -- refuted
+## by a verifier, and the sixth consecutive batch in which a lane shipped a
+## false clause inside prose it wrote in the same pass.
+##
+## What IS true, and is the reference's own behaviour: a trait with no
+## `CIV_TRAITS` entry draws nothing rather than a blank disc, because
+## `_civDrawTraitBadges` guards on `const t = CIV_TRAITS.find(...); if (t)`.
+func refresh_settlement_traits() -> void:
+	if overlay == null or not overlay.has_method("set_settlement_traits"):
+		return
+	var by_tid: Dictionary = {}
+	var glyphs: Dictionary = {}
+	if _engine_readable():
+		for i in _bridge.settlements().size():
+			var d: Dictionary = _bridge.civ_settlement_details(i)
+			var keys: PackedStringArray = d.get("traits", PackedStringArray())
+			if not keys.is_empty() and d.has("tid"):
+				by_tid[int(d["tid"])] = keys
+		for e in _bridge.civ_trait_vocabulary():
+			var v: Dictionary = e
+			if v.has("key") and v.has("glyph"):
+				glyphs[String(v["key"])] = String(v["glyph"])
+	overlay.set_settlement_traits(by_tid, glyphs)
+
+
 func refresh_faction_colors() -> void:
 	if _bridge == null or not overlay.has_method("set_faction_colors"):
 		return

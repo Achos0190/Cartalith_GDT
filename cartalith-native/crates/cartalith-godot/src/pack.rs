@@ -155,7 +155,7 @@ pub struct LoadedPack {
     /// pack author *"you never added port art"* from *"your port art is a
     /// broken PNG"*. Collapsing them here would make that impossible to
     /// recover later.
-    #[allow(dead_code, reason = "read only by `composite_trait_badges`, whose caller is GDScript")]
+    #[allow(dead_code, reason = "read only by `composite_trait_badges`, which has no caller yet — see its doc")]
     pub traits: HashMap<String, Vec<DecodedImage>>,
 }
 
@@ -583,7 +583,7 @@ pub fn composite_map_icons(bytes: &mut [u8], field: &[f32], temperature: &[f32],
 /// things to *tell a pack author*, and once collapsed the difference cannot
 /// be recovered — see [`LoadedPack::traits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "returned only by `composite_trait_badges`, whose caller is GDScript")]
+#[allow(dead_code, reason = "returned only by `composite_trait_badges`, which has no caller yet — see its doc")]
 pub enum TraitArtMiss {
     /// The loaded pack's `structures.trait` never mentions this slot.
     NoArtInPack,
@@ -601,7 +601,7 @@ pub enum TraitArtMiss {
 /// cannot draw. So nothing is painted for a miss rather than the disc alone:
 /// a bare disc is a plausible-looking badge that says nothing about which
 /// trait it is, and would be indistinguishable between all seven.
-#[allow(dead_code, reason = "returned only by `composite_trait_badges`, whose caller is GDScript")]
+#[allow(dead_code, reason = "returned only by `composite_trait_badges`, which has no caller yet — see its doc")]
 pub struct TraitBadgeFallback {
     /// The trait key, as it appeared in the settlement's own `traits` list.
     pub key: String,
@@ -655,10 +655,18 @@ pub struct TraitBadgeFallback {
 /// [`composite_map_icons`] cannot be that caller — it works on the terrain
 /// buffer at grid resolution and never sees a pin, so a badge composited
 /// there would be baked at map scale rather than the pin's constant on-screen
-/// size. That wiring is GDScript, and is the remaining half of
-/// `OUTSTANDING_WORK.md` §2.5. The allow states the gap once here instead of
-/// restating it as four build warnings; it goes with the first caller.
-#[allow(dead_code, reason = "the caller is GDScript — see the section above")]
+/// size.
+///
+/// **Corrected 2026-09-04: that wiring is NOT GDScript, and cannot be.** This
+/// is a plain `pub fn`, not a `#[func]`, and it takes `bytes: &mut [u8]` plus
+/// `&LoadedPack` — a raster canvas and a Rust struct, neither of which
+/// marshals across the gdext boundary. A lane sent to wire it from
+/// `map_overlay.gd` found that out at the symbol. The remaining half of
+/// `OUTSTANDING_WORK.md` §2.5 is therefore **Rust**: either a `#[func]` that
+/// hands GDScript pixels (an `Image` per badge, or one composited badge row),
+/// or a different consumer entirely. The allow states the gap once here
+/// instead of restating it as four build warnings.
+#[allow(dead_code, reason = "no caller yet, and it cannot be GDScript — see the section above")]
 #[allow(clippy::too_many_arguments)]
 #[must_use = "the returned badges are the ones with no art; drop the list and those traits vanish from the map with no fallback drawn"]
 pub fn composite_trait_badges(

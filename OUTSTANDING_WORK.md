@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**98 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-04 (twenty-eighth pass)**, after an earlier pass left four
+**96 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-04 (twenty-ninth pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,33 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-04, twenty-sixth batch — 98 → 96.** Trait badges reach the map and
+labels now clear them; the GeoJSON parser is built and stops at the ruling it
+needs. `cargo test --workspace` **3 087 → 3 129**, 0 failed. Every verifier
+verdict confirmed.
+
+*The label-clearance fix was falsified before it was believed.* Per-pixel
+intersection of a settlement name's own ink with the badge row, three fixtures,
+before → after: **70 → 0**, **236 → 0**, **75 → 0** px. The verifier re-measured
+against the actual committed file rather than the lane's `_PreChange` subclass,
+and confirmed the no-trait path byte-identical across the full 2 400×1 200 frame.
+
+*And the port had not "fallen behind the reference" — it had dropped a parameter
+present in the very lines it cites.* `lblCandidates` carries `drop` at both
+v2.10:15716 and v2.11:16199; HEAD's port took five parameters where the
+reference takes seven.
+
+*A premise in the batch brief was wrong, and the lane caught it at the symbol.*
+`composite_trait_badges` is a plain `pub fn` taking a raster buffer and a Rust
+struct — **GDScript structurally cannot call it**, so the pack-art half was
+never closable from `map_overlay.gd`. Four Rust doc comments asserting "the
+caller is GDScript" were false and are corrected. What shipped instead is the
+reference's own no-art branch, which is this port's only state for every pack.
+
+*Sixth consecutive batch with a false clause in a lane's own new prose*, plus a
+botched line-wrap that left five stray tabs mid-expression — it parsed, because
+tabs are whitespace, and only a verifier reading the bytes found it.
 
 **2026-09-04, twenty-fifth batch — 97 → 98.** The bounded paint upload closes
 end to end; the trait-sprite Rust half closes and the row re-scopes to the one
@@ -1042,8 +1069,8 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | §20 — the high-precision display pipeline | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render.rs` still composites into a `u8` RGB buffer (`apply_local_contrast(… rgb: &mut [u8] …)`, `:3646`) |
 | The vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | The one leg of the old SDF row still genuinely unbuilt: `map_overlay.gd` has no `drawRiverWays` equivalent (`grep -n river map_overlay.gd` returns only settlement-badge prose and the new faith lines) |
 | Re-derive which pack sections the live map actually composites | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Owner ruling 2026-09-04: measure before ruling again.** For every section name the pack-import warning can emit, establish whether `pack.rs` composites it, and report the true unused set. Two premises about this warning have already failed on contact — first that biomes/terrains were unused (false), then that `trait` was the only remaining true clause (also false: `composite_map_icons`, `pack.rs:470`, draws settlement and poi). **Audit-only, closes nothing by itself**; the owner rules once it lands |
-| A loaded pack's trait badge never appears under a settlement pin | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **The Rust half closed 2026-09-04**: pack `structures.trait` art is decoded, composited at the ported `_traitSprite` geometry (centre-anchored, aspect-preserving) and pixel-tested, including a non-square sprite that exercises the aspect term. **The badge still does not reach the map** — the only possible caller is `map_overlay.gd`'s settlement-pin pass, which is GDScript |
-| GeoJSON **import** | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | Export shipped 2026-08-24; import was explicitly out of scope then |
+| Pack trait ART has no possible caller — `composite_trait_badges` is not a `#[func]` | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Re-scoped 2026-09-04 after a lane opened it at the symbol.** Badges now DRAW on the map at the reference's own geometry, via the no-art fallback (`_civDrawTraitBadges`' dark disc + `CIV_TRAITS` glyph) — measured windowed on three fixtures. But the pack-art half **cannot** be wired from GDScript as previously filed: `pack.rs:664` is a plain `pub fn` taking `bytes: &mut [u8]` and `&LoadedPack`, neither of which marshals across gdext. **The remaining work is Rust** — a `#[func]` handing GDScript pixels (an `Image` per badge, or one composited row), or a different consumer. Separately, generation writes no traits at all, so the place editor is the only writer |
+| GeoJSON import — the parser is built, applying it needs a ruling | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | **Partial 2026-09-04.** `cartalith_io::parse_geojson` refuses malformed input with an actionable reason and never panics — verified independently against a 25-case table plus a 20 000-level nest — and `WorldGen::geojson_inspect` survives hostile input across the gdext boundary (24/24 from GDScript). **What remains needs an owner decision**, and the parser stopped there rather than choosing: what *applying* a document means when an imported feature names a faction this world does not have (create it, remap by name, or import unclaimed). Also owed: the Data-manager Import route in GDScript |
 | Slippy-map tile addressing (XYZ/TMS/WMTS, a zoom ladder, retina variants) | `FUNCTIONAL_CONTRACT.md` cap. 6/9 | medium | Tile *export* exists; addressing is the remainder |
 
 **Closed from this table 2026-09-03** (batch 17, verified): *Geology microtexture /
@@ -1090,8 +1117,6 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
 | The `vault.json` write gate has no test at its call site | `MARKDOWN_VAULT_SCOPE.md` | small | **The bug is fixed, the guard is not built.** The gate read `!store.links.is_empty()` — one member of a three-member store — so a project with a connected vault and a map snapshot but **no knowledge links** wrote no `vault.json` at all and lost the snapshot on save. Now `!store.is_empty()`. `LinkStore::is_empty()` itself is mutation-tested (2 of 3 conjuncts killed), but **the call site is not**: `project_save_with_documents` takes gdext types on a `GodotClass`, so no Rust unit test can reach it — this needs a probe scene that saves a snapshot-only project and reopens it |
 | `DccWidgets.group()` headers have no autowrap and no parent guard | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-04 while fixing the Journey panel, and deliberately not taken there.** `› VESSEL REFERENCE · SPEED BY WATER` is a group header `Button` measuring **258 px**, now the widest node in that panel and what holds its minimum. It fits the 280 laptop, 304 desktop and 400 tablet docks, but not a dock dragged to `W_RIGHT_DOCK_MIN` (260) — the drag stops around 273. `group()` builds its header with **no autowrap and no parent-type guard**, unlike `action()`, so **every group header in the shell has this property**. Fixing it is an app-wide `dcc_widgets.gd` change whose blast radius was not measured |
-| Label placement does not reserve the trait badges' clearance | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Found 2026-09-04, cross-lane, and called the batch's most consequential finding by the verifier.** The reference offsets a settlement's `below` label candidate by `_civTraitDrop` so the label clears the trait badges (`lblCandidates` at v2.11:16199, called with `isPoi ? 0 : _civTraitDrop(p, ...)`). This port draws badges but passes no drop, so a below-placed label can overlap them. Symptom measured; cause is at the cited symbol |
-| `map_overlay.gd:378-380` credits `icon_bridge.rs` with rasterisation it does not do | `UNWIRED_FUNCTIONS.md` | small | **False, confirmed 2026-09-04.** The only `Canvas`/`blit`/`composite`/`fill_triangle` matches in `icon_bridge.rs` and its submodules are two prose references to `composite_map_icons`; there is no rasterisation in that file at all |
 | A sculpt draft that appears without a tool-arm does not rebuild the right dock | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-03 by a verifier probe, measured pre-existing at HEAD before crediting it.** `app.arm_tool()` early-returns when the tool is already armed, so no `tool_armed` fires; nothing else signals a stamp-count change to the dock. A draft created while Inspect is already armed leaves the dock showing a body built when the count was 0 — `_tool_section()` answers `stamps` while the body reads `["SAMPLE"]`. Distinct from the append bug fixed the same day, which was about arming a *different* tool |
 | The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |

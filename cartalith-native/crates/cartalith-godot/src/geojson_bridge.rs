@@ -1,5 +1,5 @@
-//! `exportGeoJSON`'s Godot boundary — `GUI_GAP_REGISTER.md` DM-03,
-//! `PARITY_AUDIT.md` §3.1.
+//! `exportGeoJSON`'s Godot boundary, and the import direction alongside it
+//! — `GUI_GAP_REGISTER.md` DM-03, `PARITY_AUDIT.md` §3.1.
 //!
 //! `cartalith_engine::geojson` has been fully ported and golden-verified
 //! (nine reference functions, `golden_parity_geojson.rs`) since milestone E2
@@ -39,6 +39,23 @@
 //! a **freshly generated** world. A loaded save carries no civ data at all
 //! (`SAVEFILE_COMPAT.md`, and `CivData`'s own doc comment), so exporting one
 //! produces a valid document whose feature list is rivers and nothing else.
+//!
+//! ## The other direction
+//!
+//! `geojson_inspect` reads a document back and reports what is in it. The
+//! parser it calls is `cartalith_io::geojson_import`, not `cartalith_engine`:
+//! parsing text needs no world state, and reading an outside file is what
+//! `cartalith-io` is for. It **could** have gone next to the writer, and the
+//! price of not doing so is real and recorded at
+//! `cartalith-io/tests/reference_geojson_round_trip.rs` -- a test in that
+//! crate cannot call `export_geojson`, because `cartalith-engine` depends on
+//! `cartalith-io` and not the reverse, so its round-trip fixture is a copy of
+//! the exporter golden rather than a live call.
+//!
+//! It **validates and summarises; it does not apply**. What an imported
+//! feature should do to a world is a product decision this port has not taken
+//! — see that function's own doc comment for the three questions — and no
+//! `godot-project/` file named it when it was written.
 
 use godot::prelude::*;
 
@@ -234,6 +251,118 @@ impl WorldGen {
         };
         GString::from(export_geojson(&world).as_str())
     }
+
+    /// Reads a GeoJSON `FeatureCollection` and reports what is in it, without
+    /// changing this world in any way.
+    ///
+    /// # Why this validates and summarises rather than importing
+    ///
+    /// Parsing a document is settled and lives in `cartalith_io::parse_geojson`,
+    /// which this calls. *Applying* one is not settled, and the questions are
+    /// product decisions rather than engineering ones: an imported settlement
+    /// names a `faction` and a `factionName` this world may not have; an
+    /// imported `territory` is a polygon outline where `CivData::territory` is a
+    /// per-cell raster; an imported `way` carries a type string with no
+    /// `WayType` behind it. Rather than choose quietly, this entry point stops
+    /// where the answer is known and hands the caller everything it needs to
+    /// show a preview and ask.
+    ///
+    /// **No `godot-project/` file named this function when it was written**,
+    /// and that is stated rather than left for a wiring audit to flag as an
+    /// oversight: the Data manager's Import ▸ GIS / GeoJSON row is GDScript
+    /// work, and this is the surface it will call.
+    ///
+    /// # What comes back
+    ///
+    /// Always `ok`. On a refusal, `error` carries a message naming the fault and
+    /// where it is, plus `feature` when the fault is inside one particular
+    /// feature. On success:
+    ///
+    /// * `features` — how many were read;
+    /// * `crs` — `"planar_km"` when the document carries the export's own CRS
+    ///   note, `"unstated"` when it says nothing. **There is no third value and
+    ///   no default**: a document that names a reference system is refused, and
+    ///   "unstated" is not a claim that the coordinates are kilometres. A
+    ///   caller that treats `unstated` as `planar_km` is making that decision
+    ///   itself;
+    /// * `layers` and `geometry_types` — counts keyed by `properties.layer` and
+    ///   by GeoJSON geometry type. A feature with no `layer` is left out of
+    ///   `layers` rather than filed under an invented name, and counted by the
+    ///   separate `unlabelled` key, which is **omitted when there are none**;
+    /// * `elevation_ignored` — a third coordinate was present and dropped;
+    /// * `bounds_km` — `[min_east, min_north, max_east, max_north]`, **omitted
+    ///   entirely** when the document holds no positions, because an empty
+    ///   collection has no extent and `[0,0,0,0]` is a real one;
+    /// * `seed`, `map_width_km`, `generator`, `version` — each **omitted** when
+    ///   the document does not carry it. A foreign file has none of them, and
+    ///   that is information, not a zero.
+    #[func]
+    fn geojson_inspect(&self, text: GString) -> VarDictionary {
+        let doc = match cartalith_io::parse_geojson(&text.to_string()) {
+            Ok(doc) => doc,
+            Err(e) => {
+                let mut out = vdict! { "ok" => false, "error" => e.to_string() };
+                if let cartalith_io::GeoJsonError::Feature { index, .. } = &e {
+                    out.set("feature", *index as i64);
+                }
+                return out;
+            }
+        };
+
+        let mut layers = VarDictionary::new();
+        let mut geometry_types = VarDictionary::new();
+        let mut unlabelled = 0i64;
+        for f in &doc.features {
+            // A feature with no `properties.layer` is counted outside `layers`,
+            // not under a stand-in key: a foreign document has no `layer`
+            // convention at all, and any name invented for it -- "unlabelled"
+            // included -- is a string some other writer could legitimately use
+            // as a real layer, which would silently merge the two counts.
+            match f.layer() {
+                Some(layer) => bump(&mut layers, &layer.to_string()),
+                None => unlabelled += 1,
+            }
+            bump(&mut geometry_types, f.geometry.type_name());
+        }
+
+        let mut out = vdict! {
+            "ok" => true,
+            "features" => doc.features.len() as i64,
+            "crs" => match doc.crs {
+                cartalith_io::CrsClaim::PlanarKm => "planar_km",
+                cartalith_io::CrsClaim::Unstated => "unstated",
+            },
+            "elevation_ignored" => doc.elevation_ignored,
+            "layers" => &layers,
+            "geometry_types" => &geometry_types,
+        };
+
+        // Omitted, not zeroed: `has("unlabelled")` distinguishes "every feature
+        // carried a layer" from "this reader did not look".
+        if unlabelled > 0 {
+            out.set("unlabelled", unlabelled);
+        }
+
+        if let Some((min_e, min_n, max_e, max_n)) = doc.bounds() {
+            let extent: PackedFloat64Array = [min_e, min_n, max_e, max_n].into_iter().collect();
+            out.set("bounds_km", &extent);
+        }
+
+        if let Some(props) = doc.properties.as_ref() {
+            if let Some(v) = props.get("seed").and_then(serde_json::Value::as_i64) {
+                out.set("seed", v);
+            }
+            if let Some(v) = props.get("mapWidthKm").and_then(serde_json::Value::as_f64) {
+                out.set("map_width_km", v);
+            }
+            for (json_key, out_key) in [("generator", "generator"), ("version", "version")] {
+                if let Some(v) = props.get(json_key).and_then(serde_json::Value::as_str) {
+                    out.set(out_key, v);
+                }
+            }
+        }
+        out
+    }
 }
 
 /// `civFactionNames[f] || CIV_FACTIONS[f][0] || 'Unclaimed'`, resolved
@@ -245,4 +374,10 @@ fn faction_name(roster: &crate::civ_roster_bridge::FactionRoster, fid: i32) -> &
         Some(e) if !e.name.is_empty() => e.name.as_str(),
         _ => "Unclaimed",
     }
+}
+
+/// One more of `key` in a count dictionary, starting at one when it is new.
+fn bump(counts: &mut VarDictionary, key: &str) {
+    let now = counts.get(key).and_then(|v| v.try_to::<i64>().ok()).unwrap_or(0);
+    counts.set(key, now + 1);
 }

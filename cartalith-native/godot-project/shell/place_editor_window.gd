@@ -543,13 +543,20 @@ func _build_traits(details: Dictionary) -> void:
 			else DccTheme.outline("border", "sunken"))
 		b.pressed.connect(func():
 			bridge.civ_settlement_toggle_trait(_index, key)
+			## The map's badge row is joined by `tid` from
+			## `civ_settlement_details()`, so it only changes when something
+			## re-reads that -- a toggle here is the one edit that moves it.
+			if app != null and app.viewport != null and app.viewport.has_method("refresh_settlement_traits"):
+				app.viewport.refresh_settlement_traits()
 			_rebuild())
 		flow.add_child(b)
 	sec.add_child(flow)
 	DccWidgets.note(sec,
 		"Map-glyph badges, deliberately overlapping Economy on mining/trade hub -- the "
-		+ "reference keeps both vocabularies on purpose. Nothing in this port draws them on "
-		+ "the map yet (map_overlay.gd has no per-trait glyph pass).")
+		+ "reference keeps both vocabularies on purpose. Toggling one draws it under the "
+		+ "settlement's pin immediately (map_overlay.gd's `_draw_trait_badges`, the "
+		+ "reference's own no-art disc-and-glyph branch; no asset-pack sprite reaches a "
+		+ "Godot draw call yet).")
 
 
 # -- Age + walls ------------------------------------------------------------

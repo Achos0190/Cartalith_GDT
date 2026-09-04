@@ -228,6 +228,52 @@ const PIN_SHADOW_OFFSET_SC := 0.6
 const COASTAL_BADGE_COLOR := Color(0.337, 0.706, 0.914, 0.95) ## FACTION_COLORS[1]'s sky blue -- reads as "water" at a glance
 const COASTAL_BADGE_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
 const COASTAL_BADGE_R_SC := 0.55
+
+## Trait badges under a settlement pin -- `_civDrawTraitBadges` (reference
+## v2.11 line 15584), term for term:
+##
+##     shown = traits.slice(0,4)
+##     r     = Math.max(2.2, sz*0.42)      gap = r*2.35
+##     bx    = px - ((shown.length-1)*gap)/2
+##     by    = py + sz + r + 1.2*sc
+##
+## `sz` there is this file's `radius` and `sc` is this file's `sc`. The cap is
+## the reference's own, with its own reason: *"4 badges is already as wide as
+## most labels"*, so a settlement carrying every trait cannot grow a strip
+## wider than its own name.
+##
+## **The sprite half of this is unreachable, and the disc below is not a
+## stand-in invented for the port.** The reference draws pack art whenever
+## `assetPack.structures.trait[key]` has a bitmap (`_traitSprite`, 15571) and
+## this dark disc carrying the trait's `CIV_TRAITS` glyph when it does not
+## (15592-15598). Here the disc is the *only* path, because no pack sprite
+## reaches a Godot `_draw()` -- see `ICON_FAMILY_COLORS`' own note above.
+## `cartalith_assets::trait_sprite_rect` and `cartalith-godot`'s
+## `pack::composite_trait_badges` do port the sprite geometry and the blit,
+## but the latter paints into a `&mut [u8]` canvas and carries no `#[func]`,
+## so GDScript cannot call it: closing that needs Rust, not this file.
+const TRAIT_BADGES_SHOWN_MAX := 4
+const TRAIT_BADGE_R_MIN := 2.2
+const TRAIT_BADGE_R_SZ := 0.42
+const TRAIT_BADGE_GAP_R := 2.35
+const TRAIT_BADGE_ROW_SC := 1.2
+## `rgba(12,10,7,.72)` and `#f0e2c0`, reference v2.11 lines 15595-15596.
+##
+## **The ink reaches only glyphs a monochrome face supplies**, and that is a
+## Godot font property rather than a choice here: measured windowed on this
+## machine (`_traitbadge_probe.tscn`, 2026-09-04), the fallback chain resolves
+## `port`/`mining`/`military`'s three dingbats to a COLOUR face and draws them
+## in that face's own colours, so `TRAIT_BADGE_INK` modulates nothing for
+## them. They stay legible and distinct on the dark disc, which is the badge's
+## whole job; it is the same font-coverage limitation the pin glyph's own note
+## below already accepts, one step further along -- there the risk is a
+## missing glyph, here it is a present one that carries its own colour.
+const TRAIT_BADGE_DISC := Color(0.047, 0.039, 0.027, 0.72)
+const TRAIT_BADGE_INK := Color(0.941, 0.886, 0.753)
+## `Math.max(6, r*1.5)|0` (reference v2.11 line 15596). Screen px, like every other font
+## size in this file -- see the pin glyph's own note in `_draw()`.
+const TRAIT_BADGE_FONT_MIN := 6
+const TRAIT_BADGE_FONT_R := 1.5
 ## Reference's settlement-label fill (`#f6ecd4`, line 15206) -- close enough
 ## to `LABEL_STROKE_COLOR` below's own outline colour (`rgba(8,6,4,.85)`,
 ## line 15198) that this control's existing region-label palette already
@@ -375,12 +421,23 @@ const MANUAL_ROUTE_SEL_COLOR := Color(1.0, 0.824, 0.314, 0.98)
 const MANUAL_ROUTE_SEL_WIDTH := 2.5
 
 ## §4.5.5's Icon tool markers, by `icon_dict`'s `family` key
-## (`cartalith_assets::manual::ManualIconFamily::key()`). No texture atlas
-## from the asset pack is wired into Godot yet (`icon_bridge.rs`'s art is
-## rasterised only into the baked terrain texture, never exposed as
-## individually-addressable sprites here) -- these are honest placeholder
-## glyphs distinguishing family and marking real placed positions, not a
-## stand-in for the pack's actual per-slot art.
+## (`cartalith_assets::manual::ManualIconFamily::key()`).
+##
+## **No asset-pack sprite is reachable from this `_draw()` at all**, and the
+## reason is not `icon_bridge.rs`: that file rasterises nothing -- it is the
+## Icon tool's numeric state (arm/place/hit-test/resize/list) and its own
+## module doc calls it "deliberately free of any `godot` dependency". Grep it
+## for `blit`, `Canvas` or `DecodedImage` and there are no matches; its only
+## mentions of drawing are two prose references to `composite_map_icons`.
+##
+## The function that does rasterise a pack's art is `cartalith-godot`'s
+## `pack::composite_map_icons`, and it paints into the TERRAIN byte buffer at
+## grid resolution -- its only non-test caller is `WorldGen::build_color_
+## texture`, so its output reaches the screen already baked into `%MapView`'s
+## texture rather
+## than as sprites this control could blit at a pin's constant on-screen size.
+## So these are honest placeholder glyphs distinguishing family and marking
+## real placed positions, not a stand-in for the pack's actual per-slot art.
 const ICON_FAMILY_COLORS := {
 	"settlement": Color(0.835, 0.369, 0.0),
 	"feature": Color(0.0, 0.620, 0.451),
@@ -1131,6 +1188,138 @@ func set_faction_religions(keys: PackedStringArray) -> void:
 	_faction_religions = keys
 	queue_redraw()
 
+
+## A settlement's trait keys, keyed by `tid` -- **not** by index into
+## `_settlements`.
+##
+## `tid` because the roster this control is handed is sometimes a filtered one
+## (`civilization_workspace.gd` pushes `_tl_apply_filters(bridge.settlements())`
+## through `set_civ_data` whenever the Timeline's "Exist only" box is on), and
+## a parallel array indexed alongside a filtered roster puts one settlement's
+## badges under another settlement's pin. Every dictionary `get_settlements()`
+## emits carries `tid`, and `civ_settlement_details()` returns the same `tid`
+## beside the traits, so the join is total.
+##
+## **A `tid` absent from here has no traits**, and that is the only state --
+## nothing defaults. `set_settlement_traits()` stores no empty entries, so
+## `has()` is the whole test: no badges drawn, and no clearance reserved,
+## exactly as for a settlement whose trait list is genuinely empty.
+var _settlement_traits: Dictionary = {}
+
+## `civ_trait_vocabulary()`'s `key -> glyph`, pushed rather than hardcoded so
+## this file cannot drift from `cartalith_civ::roster::CIV_TRAITS` -- a list
+## the reference marks *"never reorder, these keys are written into save
+## files"* and has already appended to once (`administrative`, v1.28).
+##
+## A key with no entry draws **nothing**: no disc, no glyph. That is the
+## reference's own guard (`const t=CIV_TRAITS.find(...); if(t){...}`, v2.11
+## lines 15592-15593), not a shortcut -- a bare disc would be indistinguishable from a
+## real badge and would say nothing about which trait it stands for.
+var _trait_glyphs: Dictionary = {}
+
+
+## Pushed by `ViewportHost.refresh_settlement_traits()`, like every other
+## array this control draws: it holds no `EngineBridge` and never fetches
+## (see `set_civ_data`'s own doc comment). `by_tid` maps `tid` ->
+## trait keys; `glyphs` maps a trait key -> its glyph.
+##
+## Deliberately **not** cleared by `set_civ_data()`, for the reason
+## `_faction_colors` is not: a filtered roster is pushed through that call
+## several times a session with no trait edit behind it, and wiping the map
+## there would drop every badge until the next full refresh.
+##
+## Empty trait lists are dropped rather than stored, so `_settlement_traits`
+## contains only settlements that actually carry a trait.
+func set_settlement_traits(by_tid: Dictionary, glyphs: Dictionary) -> void:
+	var out: Dictionary = {}
+	for tid in by_tid:
+		var keys := PackedStringArray(by_tid[tid])
+		if not keys.is_empty():
+			out[int(tid)] = keys
+	_settlement_traits = out
+	_trait_glyphs = glyphs.duplicate()
+	queue_redraw()
+
+
+## This settlement's trait keys, or an empty array -- see `_settlement_traits`
+## for why the join is by `tid`.
+func _settlement_trait_keys(s: Dictionary) -> PackedStringArray:
+	if not s.has("tid"):
+		return PackedStringArray()
+	var tid := int(s["tid"])
+	if not _settlement_traits.has(tid):
+		return PackedStringArray()
+	return _settlement_traits[tid]
+
+
+## `Math.max(2.2, sz*0.42)` -- the badge radius, reference line 15587 and
+## again inside `_civTraitDrop` at 15643. One function here because the
+## reference has that expression twice and v1.73 factored it out after the
+## two drifted: *"two functions answering one question WILL drift"*.
+func _trait_badge_radius(radius: float) -> float:
+	return maxf(TRAIT_BADGE_R_MIN, radius * TRAIT_BADGE_R_SZ)
+
+
+## `_civTraitDrop` (reference v2.11 line 15642):
+## `(place.traits && place.traits.length) ? Math.max(2.2,sz*0.42)*2 + 1.2*sc : 0`
+##
+## The vertical space the badge row occupies below the pin, so a label placed
+## *below* a settlement clears the badges instead of overprinting them.
+## Independent of how many traits there are -- the row grows sideways, not
+## down -- which is why the count never enters the expression.
+##
+## **`isPoi?0` (reference 16253) has no analogue here and none is invented.**
+## The reference gates the drop on POI-ness because a POI pin draws no trait
+## badges. This port has no POI pins at all: `SETTLEMENT_CLASS` is the six
+## `SettlementKind` tiers and nothing else, and `lib.rs` records the
+## settlement/POI category selector as having no port. Every pin this file
+## draws is a settlement, so every pin takes the settlement branch.
+func _trait_drop(s: Dictionary, radius: float, sc: float) -> float:
+	if _settlement_trait_keys(s).is_empty():
+		return 0.0
+	return _trait_badge_radius(radius) * 2.0 + TRAIT_BADGE_ROW_SC * sc
+
+
+## `_civDrawTraitBadges` (reference v2.11 line 15584): the row of trait badges
+## beneath a settlement pin, centred on it and capped at
+## `TRAIT_BADGES_SHOWN_MAX`. See that constant's own comment for the geometry
+## and for why only the reference's no-art branch exists here.
+##
+## `radius` is the pin radius this frame (the reference's `sz`) and `sc` the
+## layer scale; `k` and `font` are `_draw()`'s own hoisted screen-pixel
+## factor and theme font, passed in rather than re-fetched per settlement.
+##
+## Discs first, then every glyph inside ONE `_crisp_begin()` block: the two
+## never overlap (`gap` is `2.35*r` against a diameter of `2*r`), so the split
+## changes no pixel and costs TWO `draw_set_transform` calls per pin
+## (`_crisp_begin` + `_crisp_end`) instead of up to eight.
+func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k: float, font: Font) -> void:
+	var keys := _settlement_trait_keys(s)
+	if keys.is_empty():
+		return
+	var shown := mini(keys.size(), TRAIT_BADGES_SHOWN_MAX)
+	var r := _trait_badge_radius(radius)
+	var gap := r * TRAIT_BADGE_GAP_R
+	var bx0 := pos.x - float(shown - 1) * gap / 2.0
+	var by := pos.y + radius + r + TRAIT_BADGE_ROW_SC * sc
+	for i in shown:
+		if _trait_glyphs.has(keys[i]):
+			draw_circle(Vector2(bx0 + float(i) * gap, by), r, TRAIT_BADGE_DISC, true, -1.0, true)
+	## The reference's `Math.max(6, r*1.5)|0` is a canvas-pixel size, i.e. a
+	## screen-pixel one; `r` here is local, so the inner term converts with
+	## `* k` and the floor stays in screen px -- the pin glyph's own rule.
+	var badge_px: int = maxi(TRAIT_BADGE_FONT_MIN, int(r * TRAIT_BADGE_FONT_R * k))
+	var v_center: float = (font.get_ascent(badge_px) - font.get_descent(badge_px)) / 2.0
+	_crisp_begin()
+	for i in shown:
+		if not _trait_glyphs.has(keys[i]):
+			continue
+		var glyph := String(_trait_glyphs[keys[i]])
+		var gwid := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_px).x
+		draw_string(font, Vector2(bx0 + float(i) * gap, by) * k + Vector2(-gwid / 2.0, v_center),
+			glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_px, TRAIT_BADGE_INK)
+	_crisp_end()
+
 func set_faith_divergence_visible(on: bool) -> void:
 	_show_faith_divergence = on
 	queue_redraw()
@@ -1419,17 +1608,45 @@ func _settlement_pin_radius(kind: String, rect: Rect2) -> float:
 	return (4.0 + float(klass["rank"])) * sc
 
 
-## Reference lines 15716-15721 (`lblCandidates`): the four label positions a
-## settlement name is tried at, above -> below -> right -> left, as screen-
-## space boxes centred on the pin. `gap` matches the reference's own `2*sc`
-## clearance between the pin edge and the label box.
-func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: float, h: float) -> Array[Rect2]:
+## Reference lines 15716-15721 (`lblCandidates`; v2.11 line 16199): the four
+## label positions a settlement name is tried at, above -> below -> right ->
+## left, as screen-space boxes centred on the pin. `gap` matches the
+## reference's own `2*sc` clearance between the pin edge and the label box.
+##
+## `drop` is `_civTraitDrop`'s clearance and **only the `below` box moves by
+## it** -- the reference's own `py+rad+gap+(drop||0)`, and its own comment
+## says why: below is the one candidate drawn past the trait badges, so every
+## other candidate, and every trait-less settlement, reserves exactly the box
+## it did before. This port had no `drop` parameter at all until 2026-09-04,
+## and the reference at the cited line has carried one since v1.73 -- so what
+## was ported was the pre-v1.73 shape of a function that had already moved on,
+## and the overlap v1.73 exists to prevent was live here.
+##
+## **Measured windowed, three fixtures, before and after**
+## (`_traitbadge_probe.tscn`, 2026-09-04) -- pixels of the name's own ink
+## landing on the badge row, at a three-badge pin forced onto `below`:
+##
+##     "Ka" (city)              70 px  ->  0 px    label moved 13 px
+##     "Vandermeer" (metropolis) 236 px ->  0 px    label moved 15 px
+##     "Ost" (town)             75 px  ->  0 px    label moved 11 px
+##
+## Three because the overlap is content-dependent: the box is `name.length`
+## wide and starts `(4+rank)*sc` from the pin, so one sample would say nothing
+## about the other two.
+##
+## The reference needs `_civTraitDrop` in two places -- here to RESERVE the
+## box and in `_civDrawSettlementPin` to DRAW the text that far down -- and
+## v1.73 factored the expression out after they drifted. **This port cannot
+## drift the same way**: `_draw()` draws the name from the box this function
+## returned (`box.position.y + box.size.y / 2.0`), so there is one expression
+## and the drawn position is the reserved one by construction.
+func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: float, h: float, drop: float = 0.0) -> Array[Rect2]:
 	var gap := 2.0 * sc
 	return [
-		Rect2(pos - Vector2(w / 2.0, radius + gap + h), Vector2(w, h)),  # above
-		Rect2(pos + Vector2(-w / 2.0, radius + gap), Vector2(w, h)),     # below
-		Rect2(pos + Vector2(radius + gap, -h / 2.0), Vector2(w, h)),     # right
-		Rect2(pos - Vector2(radius + gap + w, h / 2.0), Vector2(w, h)),  # left
+		Rect2(pos - Vector2(w / 2.0, radius + gap + h), Vector2(w, h)),         # above
+		Rect2(pos + Vector2(-w / 2.0, radius + gap + drop), Vector2(w, h)),     # below
+		Rect2(pos + Vector2(radius + gap, -h / 2.0), Vector2(w, h)),            # right
+		Rect2(pos - Vector2(radius + gap + w, h / 2.0), Vector2(w, h)),         # left
 	]
 
 
@@ -1593,13 +1810,23 @@ func _draw() -> void:
 		var k := maxf(_camera_zoom, 0.001)
 		var font := get_theme_default_font()
 		# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
-		# reference line 15101) are a disclosed gap, not an oversight: `get_
-		# settlements()` (`lib.rs`) emits {x, y, name, population, kind,
-		# faction, capital, coastal} only -- no `traits` field -- and nothing
-		# in `cartalith-civ`'s own `NamedSettlement` models a trait list at
-		# all (grepped: the string "traits" appears exactly once in that
-		# crate, in a doc comment quoting the REFERENCE's own JS object
-		# shape). There is no data to draw a badge from, so none are drawn.
+		# reference line 15101) draw here as of 2026-09-04 -- see
+		# `TRAIT_BADGES_SHOWN_MAX`' own comment for the geometry, and
+		# `_settlement_traits` for where the keys come from. They do NOT come
+		# from `get_settlements()`, which emits {x, y, name, population, kind,
+		# faction, capital, coastal, tid} -- plus the three belief columns when
+		# a belief layer exists -- and no `traits` field: a settlement's
+		# traits live in `civ_roster_bridge::PlaceExtrasTable`, a side table
+		# keyed by `tid`, and reach the shell through `civ_settlement_details()`.
+		# `ViewportHost` joins the two and pushes the result here.
+		#
+		# **So a generated world shows no badges until someone adds a trait.**
+		# Nothing in generation writes one: `lib.rs`' metropolis promotion says
+		# so in as many words ("the reference's caller also pushes
+		# `trade_hub`/`administrative` onto the promoted place's `traits`; this
+		# port has no per-settlement trait vector"), so today the place editor
+		# is the only writer. An empty badge row is the correct drawing of an
+		# empty trait list, not a failure to fetch.
 		#
 		# Auto-label placement below is a deliberately simplified stand-in
 		# for the reference's real system (`_civLblOcc`, an occupancy GRID
@@ -1742,6 +1969,17 @@ func _draw() -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
 			_crisp_end()
 
+			# Trait badges, after the glyph and before the label -- the
+			# reference's own order inside `_civDrawSettlementPin` (it calls
+			# `_civDrawTraitBadges` at line 15189, then draws the name at
+			# 15196). `radius` is the reference's `sz`; note that this port
+			# adds a `+1.5` hover bump to it and the reference has no such
+			# bump, so a hovered pin's badges sit 1.5 px lower here. That is
+			# deliberate: the row must clear the pin as DRAWN, and the same
+			# `radius` feeds `_trait_drop()` below, so the badges and the
+			# clearance reserved for them can never disagree.
+			_draw_trait_badges(s, pos, radius, sc, k, font)
+
 			# Auto-placed name label -- see this block's own top comment for
 			# the simplified-occupancy-set reasoning.
 			var name: String = s.get("name", "")
@@ -1753,7 +1991,10 @@ func _draw() -> void:
 				var label_px: int = maxi(9, int((radius + sc) * k))
 				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x / k
 				var lh := float(label_px) * 1.3 / k
-				for box in _settlement_label_candidates(pos, radius, sc, lw, lh):
+				## The `drop` argument is `isPoi?0:_civTraitDrop(p,sz,lsc)` in
+				## the reference (line 15770) -- see `_trait_drop()` for why
+				## the POI half of that ternary has no analogue here.
+				for box in _settlement_label_candidates(pos, radius, sc, lw, lh, _trait_drop(s, radius, sc)):
 					var fits := true
 					for occ in occupied:
 						if occ.intersects(box):
