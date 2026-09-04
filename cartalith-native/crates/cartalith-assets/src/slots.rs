@@ -157,9 +157,15 @@ pub const PACK_POI_SLOTS: [&str; 8] = [
 /// beneath a settlement's pin. What the reference never revisited was its own
 /// "not yet used by the live map" list, which still names `trait`.
 ///
-/// The family *is* undrawn in **this port**, which is the real reason it is the
-/// one clause left in [`crate::PackManifest::warnings`]' entry: nothing
-/// composites a trait sprite here. `OUTSTANDING_WORK.md` §2.5 is that gap.
+/// The family is the one clause left in [`crate::PackManifest::warnings`]'
+/// entry, and that clause is still accurate — but its *reason* has narrowed.
+/// It used to be that nothing composited a trait sprite anywhere in this port;
+/// `cartalith-godot`'s `pack::composite_trait_badges` now does, over
+/// [`crate::trait_badge_layout`]'s geometry and [`crate::trait_sprite_rect`]'s
+/// per-sprite box. What is still missing is its caller: settlement pins are
+/// drawn by `godot-project/map_overlay.gd`, which does not call it, so trait
+/// art is genuinely still not used by the live map. `OUTSTANDING_WORK.md`
+/// §2.5 is that remaining gap.
 pub const PACK_TRAIT_SLOTS: [&str; 7] = [
     "fortified",
     "mining",

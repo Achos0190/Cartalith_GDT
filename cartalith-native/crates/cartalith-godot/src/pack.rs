@@ -30,6 +30,17 @@
 //!   paragraphs below are the record of why, kept because they name the
 //!   blocker that lifted and the one that never existed.
 //!
+//! **A fourth surface landed later still, and it is not one of that
+//! milestone's three:** trait-badge art (`structures.trait`, `LoadedPack::
+//! traits`, [`composite_trait_badges`]) — `OUTSTANDING_WORK.md` §2.5, the
+//! first of the `structures` families to be rasterised at all. It differs from
+//! the three above in one way that matters when reading the rest of this file:
+//! **it has no in-tree caller.** The other three are reached from
+//! `build_color_texture`; this one's consumer is the settlement-pin pass in
+//! `godot-project/map_overlay.gd`, because a trait badge hangs off a pin and
+//! [`composite_map_icons`] never sees one. See that function's own doc for
+//! the whole of it.
+//!
 //! Read literally (reference lines 7898-7900,
 //! 12187-12196): `pBio`/`pTer` are per-cell indices into
 //! `state.cartoPaint.biome`/`.terrain`, and `_paintedTex(fam, slots, idx,
@@ -91,16 +102,23 @@ use cartalith_assets::{
     DecodedImage, PACK_BIOME_SLOTS, PACK_TERRAIN_SLOTS, PACK_TEX_SLOTS, PackEntries, PackManifest,
     PlaceIconsRuledOpts, PlacedIcon,
     ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,
-    decode_png, finalize_pack_texture_inv_mean, icon_slot_for_item, pick_weighted_variant,
-    place_map_icons_ruled, read_pack, sprite_draw_rect,
+    decode_png, finalize_pack_texture_inv_mean, icon_slot_for_item, pick_icon_variant,
+    pick_weighted_variant, place_map_icons_ruled, read_pack, sprite_draw_rect,
+    trait_badge_layout, trait_sprite_rect,
 };
 
 use crate::render::{GroundTile, SplatChannel};
 
-/// A real, loaded asset pack — the four families this module composites
-/// decoded to pixels; see this module's own doc comment for why
-/// `structures`/`custom`/`seamarks` are parsed (`manifest`) but not
-/// rasterised.
+/// A real, loaded asset pack — the five families this module composites,
+/// decoded to pixels: `icons`, the six splat channels, `biomes`, `terrains`
+/// and (since `OUTSTANDING_WORK.md` §2.5) `structures.trait`.
+///
+/// `structures.settlement`, `structures.poi`, `custom` and `seamarks` are
+/// parsed into [`Self::manifest`] and **not** decoded here, because nothing
+/// draws them: `map_overlay.gd`'s `_draw_manual_icons` draws a settlement as
+/// a filled rectangle and a POI as a diamond, never a pack sprite. This
+/// sentence used to point at the module doc above for that reason; the module
+/// doc has never carried it, so it is stated here instead.
 pub struct LoadedPack {
     pub manifest: PackManifest,
     /// Slot name (`PACK_ICON_SLOTS` member, e.g. `"mountain"`) → decoded
@@ -121,6 +139,24 @@ pub struct LoadedPack {
     /// Painted-terrain ground tiles, on the same terms —
     /// `PACK_TERRAIN_SLOTS.len()` long, indexed by `p - 1`.
     pub terrains: Vec<Option<GroundTile>>,
+    /// Trait-badge art (`structures.trait`) — slot key (a
+    /// [`cartalith_assets::PACK_TRAIT_SLOTS`] member) → decoded variants in
+    /// manifest order, consumed by [`composite_trait_badges`].
+    ///
+    /// **An absent key and a key holding an empty `Vec` are different
+    /// states, and that is the reason this map is not filtered the way
+    /// `icons` above is.** Absent: the pack never declared trait art for
+    /// that slot. Empty: it declared some and not one variant decoded — a
+    /// missing ZIP entry or a broken PNG. Both draw the same thing (nothing;
+    /// the reference's own `if(!arr||!arr.length) return false` at
+    /// `_traitSprite`, v2.11 line 15573, does not distinguish them either),
+    /// and [`composite_trait_badges`] returns them as two different
+    /// [`TraitArtMiss`] reasons so the surface reporting the miss can tell a
+    /// pack author *"you never added port art"* from *"your port art is a
+    /// broken PNG"*. Collapsing them here would make that impossible to
+    /// recover later.
+    #[allow(dead_code, reason = "read only by `composite_trait_badges`, whose caller is GDScript")]
+    pub traits: HashMap<String, Vec<DecodedImage>>,
 }
 
 /// Decode one painted-ground family into the positional table
@@ -187,7 +223,23 @@ pub fn load_pack_from_bytes(bytes: Vec<u8>) -> Result<LoadedPack, String> {
     let biomes = decode_ground_family(&PACK_BIOME_SLOTS, &manifest.biomes, &entries);
     let terrains = decode_ground_family(&PACK_TERRAIN_SLOTS, &manifest.terrains, &entries);
 
-    Ok(LoadedPack { manifest, icons, splat, biomes, terrains })
+    // `structures.trait`. Same per-variant tolerance as `icons` above, with
+    // one deliberate difference: the slot is inserted **even when no variant
+    // decoded**, because [`LoadedPack::traits`] uses absent-vs-empty to carry
+    // exactly that distinction. Do not add an `is_empty()` filter here.
+    let mut traits: HashMap<String, Vec<DecodedImage>> = HashMap::new();
+    for (slot, paths) in manifest.structures.traits.iter() {
+        let mut variants = Vec::new();
+        for path in paths {
+            let Some(data) = entries.get(path) else { continue };
+            if let Ok(img) = decode_png(data) {
+                variants.push(img);
+            }
+        }
+        traits.insert(slot.to_string(), variants);
+    }
+
+    Ok(LoadedPack { manifest, icons, splat, biomes, terrains, traits })
 }
 
 // ---------------------------------------------------------------------------
@@ -295,8 +347,18 @@ impl Canvas<'_> {
         self.bytes[di + 2] = (rgb.2 * a + self.bytes[di + 2] as f64 * (1.0 - a)).round().clamp(0.0, 255.0) as u8;
     }
 
-    /// One real placed sprite, bottom-anchored via `sprite_draw_rect`'s
-    /// destination rectangle (`spriteDrawRect`, milestone 4).
+    /// One real placed sprite, at whatever destination rectangle the caller
+    /// supplies.
+    ///
+    /// **Corrected 2026-09-04:** this said "bottom-anchored via
+    /// `sprite_draw_rect`'s destination rectangle (`spriteDrawRect`,
+    /// milestone 4)", which stopped being true three lines above it when a
+    /// second caller landed. Trait badges are **centre-anchored** --
+    /// `trait_sprite_rect` ports `_traitSprite`'s `drawImage(v.bmp,
+    /// px - dw/2, py - dh/2, dw, dh)` (v2.11:15576) -- so this function is
+    /// anchor-agnostic and the anchoring belongs to whichever `*_rect` helper
+    /// the caller chose. Missed by the lane that added the second caller, in
+    /// the file it was editing.
     fn blit_sprite(&mut self, img: &DecodedImage, rect: cartalith_assets::SpriteRect) {
         if rect.dw <= 0.0 || rect.dh <= 0.0 {
             return;
@@ -507,4 +569,134 @@ pub fn composite_map_icons(bytes: &mut [u8], field: &[f32], temperature: &[f32],
         }
         draw_icon_glyph(&mut canvas, &slot, item, base);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Trait badges (`_civDrawTraitBadges` -> `_traitSprite`)
+// ---------------------------------------------------------------------------
+
+/// Why a laid-out trait badge got no sprite painted for it.
+///
+/// The reference collapses both into one `return false` (`_traitSprite`,
+/// v2.11 line 15573: `if(!arr||!arr.length) return false`) because both take
+/// the same drawing path. They are kept apart here because they are different
+/// things to *tell a pack author*, and once collapsed the difference cannot
+/// be recovered — see [`LoadedPack::traits`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code, reason = "returned only by `composite_trait_badges`, whose caller is GDScript")]
+pub enum TraitArtMiss {
+    /// The loaded pack's `structures.trait` never mentions this slot.
+    NoArtInPack,
+    /// The pack declares art for this slot and not one variant decoded — a
+    /// manifest path with no ZIP entry, or a PNG `decode_png` rejected.
+    ArtFailedToDecode,
+}
+
+/// One badge [`composite_trait_badges`] laid out and **did not paint**,
+/// with everything a caller needs to finish it where a font exists.
+///
+/// The reference's fallback for a missing sprite is a dark disc with the
+/// trait's own `CIV_TRAITS` glyph drawn on it (`_civDrawTraitBadges`, v2.11
+/// lines 15592-15598) — *text*, which this module's software rasterizer
+/// cannot draw. So nothing is painted for a miss rather than the disc alone:
+/// a bare disc is a plausible-looking badge that says nothing about which
+/// trait it is, and would be indistinguishable between all seven.
+#[allow(dead_code, reason = "returned only by `composite_trait_badges`, whose caller is GDScript")]
+pub struct TraitBadgeFallback {
+    /// The trait key, as it appeared in the settlement's own `traits` list.
+    pub key: String,
+    /// Badge centre and radius, straight from
+    /// [`cartalith_assets::trait_badge_layout`] — the ported geometry, so a
+    /// caller's fallback lands exactly where the sprite would have.
+    pub cx: f64,
+    pub cy: f64,
+    pub r: f64,
+    /// The glyph the reference draws on the disc, from
+    /// `cartalith_civ::roster::CIV_TRAITS`.
+    ///
+    /// **`None` means `key` is not a real trait**, and the reference draws
+    /// *nothing at all* for it — its fallback is guarded by `const
+    /// t=CIV_TRAITS.find(...); if(t){...}`, so an unknown key produces no
+    /// disc and no glyph. A caller must skip such a badge, not draw a blank
+    /// disc in its place.
+    pub glyph: Option<&'static str>,
+    pub miss: TraitArtMiss,
+}
+
+/// `_civDrawTraitBadges` (reference v2.11 line 15584), sprite half: paint one
+/// settlement's row of trait badges from a loaded pack's `structures.trait`
+/// art, and return every badge the pack had no sprite for.
+///
+/// The geometry is not computed here — it is
+/// [`cartalith_assets::trait_badge_layout`]'s, already ported term-for-term
+/// and mutation-guarded (the `slice(0,4)` cap, the `r*2.35` spacing, the
+/// `py+sz+r+1.2*sc` row position), with
+/// [`cartalith_assets::trait_sprite_rect`] for each sprite's own
+/// centre-anchored `radius*2` box. This function is the lookup, the variant
+/// pick and the blit, and nothing else.
+///
+/// **Variants are picked with [`pick_icon_variant`], not
+/// [`pick_weighted_variant`]** — the reference's own asymmetry, not an
+/// oversight here: `_traitSprite` (15574) calls `pickIconVariant` with no
+/// weights, while its two centre-anchored siblings `_customSprite` (15614)
+/// and `_featureSprite` (15628) both consult `assetRules[...].variantWeights`.
+/// A trait badge therefore ignores a variant weighting set in the Library,
+/// and matching the reference is the contract even where the asymmetry looks
+/// accidental.
+///
+/// `px`/`py` are the pin's centre **in the coordinate space of `bytes`**, and
+/// `sz`/`sc` the pin radius and layer scale in that same space.
+///
+/// # No in-tree caller yet, and why the `dead_code` allow is here
+///
+/// The consumer is the settlement-pin pass in
+/// `godot-project/map_overlay.gd`: it draws the pins and their labels, and it
+/// is the only surface that knows where a pin sits on screen.
+/// [`composite_map_icons`] cannot be that caller — it works on the terrain
+/// buffer at grid resolution and never sees a pin, so a badge composited
+/// there would be baked at map scale rather than the pin's constant on-screen
+/// size. That wiring is GDScript, and is the remaining half of
+/// `OUTSTANDING_WORK.md` §2.5. The allow states the gap once here instead of
+/// restating it as four build warnings; it goes with the first caller.
+#[allow(dead_code, reason = "the caller is GDScript — see the section above")]
+#[allow(clippy::too_many_arguments)]
+#[must_use = "the returned badges are the ones with no art; drop the list and those traits vanish from the map with no fallback drawn"]
+pub fn composite_trait_badges(
+    bytes: &mut [u8],
+    gw: usize,
+    gh: usize,
+    px: f64,
+    py: f64,
+    traits: &[String],
+    sz: f64,
+    sc: f64,
+    seed: i32,
+    pack: &LoadedPack,
+) -> Vec<TraitBadgeFallback> {
+    let mut misses = Vec::new();
+    if gw == 0 || gh == 0 {
+        return misses;
+    }
+    let mut canvas = Canvas { bytes, gw, gh };
+    for badge in trait_badge_layout(px, py, traits, sz, sc) {
+        let miss = match pack.traits.get(&badge.key) {
+            None => TraitArtMiss::NoArtInPack,
+            Some(variants) if variants.is_empty() => TraitArtMiss::ArtFailedToDecode,
+            Some(variants) => {
+                // `pickIconVariant(px|0, py|0, seed, arr.length)` — the badge's
+                // own centre, truncated, exactly as the reference hashes it.
+                let idx = pick_icon_variant(badge.cx as i32, badge.cy as i32, seed, variants.len());
+                let img = &variants[idx];
+                let rect = trait_sprite_rect(badge.cx, badge.cy, badge.r, img.w as f64, img.h as f64);
+                canvas.blit_sprite(img, rect);
+                continue;
+            }
+        };
+        let glyph = cartalith_civ::roster::CIV_TRAITS
+            .iter()
+            .find(|&&(k, _, _)| k == badge.key)
+            .map(|&(_, _, g)| g);
+        misses.push(TraitBadgeFallback { key: badge.key, cx: badge.cx, cy: badge.cy, r: badge.r, glyph, miss });
+    }
+    misses
 }

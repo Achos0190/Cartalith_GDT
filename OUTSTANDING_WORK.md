@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**97 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-04 (twenty-seventh pass)**, after an earlier pass left four
+**98 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-04 (twenty-eighth pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,35 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-04, twenty-fifth batch — 97 → 98.** The bounded paint upload closes
+end to end; the trait-sprite Rust half closes and the row re-scopes to the one
+GDScript caller it still needs; two cross-lane findings filed. `cargo test
+--workspace` **3 075 → 3 087**, 0 failed.
+
+*The win survived contact, and is quoted with its spread rather than as a ratio.*
+Per dab in the shell, before → after: 512² **1.44 → 0.85 ms**, 1024²
+**4.44 → 1.12 ms**, 2048² (the shipped default) **16.51 → 1.85 ms**. Sixteen
+milliseconds per pointer-move sample is a dropped frame at 2K, and it is gone.
+Proven byte-identical to the full re-upload after every one of 20 dabs, 8 of 8
+mutants killed, and the verifier re-derived it on its own world with its own
+brush path. The four boundary states are kept distinct — including a world
+regenerated mid-stroke, where the new window would have *fitted* the stale
+mirror and was refused anyway.
+
+*Fifth consecutive batch with a false clause in a lane's own new prose, and this
+time two.* One attributed the fallback dab to the "after" column's maximum
+(2.55 ms) when the fallback measures **15.3 ms** — a cause asserted without
+measuring the cause. The other said the sculpt and paint preview rasters share a
+format; they do not (`RGB8` at `lib.rs:8334`, `RGBA8` at `:9284`), which makes
+the opt-in flag load-bearing for a *stronger* reason than the sentence gave.
+Both corrected, along with a `blit_sprite` doc that called the function
+bottom-anchored three lines above the centre-anchored caller that had just
+landed.
+
+*Worth knowing for every future probe:* `ImageTexture.update()` is a **no-op
+under `--headless`** — reproduced independently. A pixel probe against a texture
+updated that way must run windowed or it proves nothing.
 
 **2026-09-04, twenty-fourth batch — holds at 97.** The Journey panel width
 closes; the bounded paint upload's Rust half closes and the row re-scopes to the
@@ -1013,7 +1042,7 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 | §20 — the high-precision display pipeline | `TERRAIN_APPEARANCE_SCOPE.md` | medium | `render.rs` still composites into a `u8` RGB buffer (`apply_local_contrast(… rgb: &mut [u8] …)`, `:3646`) |
 | The vector river overlay | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | The one leg of the old SDF row still genuinely unbuilt: `map_overlay.gd` has no `drawRiverWays` equivalent (`grep -n river map_overlay.gd` returns only settlement-badge prose and the new faith lines) |
 | Re-derive which pack sections the live map actually composites | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Owner ruling 2026-09-04: measure before ruling again.** For every section name the pack-import warning can emit, establish whether `pack.rs` composites it, and report the true unused set. Two premises about this warning have already failed on contact — first that biomes/terrains were unused (false), then that `trait` was the only remaining true clause (also false: `composite_map_icons`, `pack.rs:470`, draws settlement and poi). **Audit-only, closes nothing by itself**; the owner rules once it lands |
-| Trait sprites — the badge geometry is ported, the pack-art half is not | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Partly built 2026-09-03 (batch 21).** The reference DOES draw trait badges — `_traitSprite` (v2.11:15571), `_civDrawTraitBadges` (:15584), `_civTraitDrop` (:15642) — which refutes the old `slots.rs` doc claiming otherwise. The badge geometry is now ported term-for-term and mutation-guarded. What remains is compositing an imported pack's own trait **art**: `asset_bridge.rs` round-trips `manifest.structures.traits` and `pack.rs` still draws no sprite for it |
+| A loaded pack's trait badge never appears under a settlement pin | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **The Rust half closed 2026-09-04**: pack `structures.trait` art is decoded, composited at the ported `_traitSprite` geometry (centre-anchored, aspect-preserving) and pixel-tested, including a non-square sprite that exercises the aspect term. **The badge still does not reach the map** — the only possible caller is `map_overlay.gd`'s settlement-pin pass, which is GDScript |
 | GeoJSON **import** | `FUNCTIONAL_CONTRACT.md` DM-03 | medium | Export shipped 2026-08-24; import was explicitly out of scope then |
 | Slippy-map tile addressing (XYZ/TMS/WMTS, a zoom ladder, retina variants) | `FUNCTIONAL_CONTRACT.md` cap. 6/9 | medium | Tile *export* exists; addressing is the remainder |
 
@@ -1044,7 +1073,6 @@ it described the file that had already implemented them.
 | Hardware diagnostics panel (§23) | `GPU_COMPUTE_PILOT_SCOPE.md` | medium | Partly delivered by the multi-GPU work (`performance_window.gd:78`, `menus.gd:1663`); no §23 panel as specified |
 | Tiled / chunked GPU compute (§18) | `GPU_COMPUTE_PILOT_SCOPE.md` | large | Partly unblocked by the LOD pyramid. `multi.rs` ships a band split covering exactly one kernel (`gpu_warp`), 1.22-1.54× at 4096² and a loss at 2048² and below |
 | Per-segment culling for one long way whose bounding box crosses the window | `MEMORY_OPTIMIZATION_SCOPE.md`, `GUI_GAP_REGISTER.md` §54 | medium | The zoom-bound overlay lever shipped (-87.5% gfx dev); this residue did not |
-| The bounded paint upload exists and is proven; nothing calls it | `UNWIRED_FUNCTIONS.md` | small | **The Rust half closed 2026-09-04.** `WorldGen::build_paint_preview_patch()` returns `{texture, x, y, w, h}` over `PassBuffer::preview_touched_into`, **byte-identical to a full re-upload inside the window** — verified independently on a non-power-of-two grid and five editor states, and 5 of 5 mutants killed. Measured win: byte ratio **15.5x / 33.1x / 55.5x / 75.9x** at 512/1024/2048/4096 squared. **What remains is the shell wiring** — no caller exists. Note the byte ratio is stable (arithmetic: grid/window); the CPU ratio is a device measurement and moved between runs |
 | Integrate `QuadTree` and `TiledField` into a real caller, or retire them | `LOD_TILING_BASE_SCOPE.md` | medium | **Two of the crate's three data structures are unconsumed** three weeks and six dependent crates later — every external reference is a doc comment, and `lod_bridge.rs:54-63` argues at length why using `QuadTree` there "would be strictly worse than not using it". `DirtyTracker` does have real callers. Also leaves the deferred `tile_size` benchmark with no workload |
 | GPU device reuse across generations — **the real item, re-scoped by measurement** | medium | **Replaces "per-pipeline caching across repeated `generate_terrain` calls", whose premise was backwards.** Measured 2026-09-03: six pipeline builds total **2.60 ms** (0.24-0.71 ms each) against a device handshake of *several hundred milliseconds* — so caching pipelines targets the smaller half by roughly two orders of magnitude. The device is where the value is. **Needs an owner decision, not just work**: holding a `wgpu::Device` alive between generations changes lifetime and failure semantics around the `lost` flag, which this project has already measured losing on `forward_plus`/vulkan. *No point estimate is quoted here on purpose — see the row below* |
 | GPU timing measurements are single-sample and the device is noisy | small | **Found 2026-09-03 by a verifier, and the lane that found it committed it three times.** The benchmark-averaging row was closed by taking medians of 3 — then the same lane wrote three fresh single-sample figures into two doc comments and a scope document as measured fact, and none reproduced: a cold handshake of 416 ms re-measured at **730 ms**; a 512² spread quoted as **5×** re-measured at **1.4%** (the original was contaminated by parallel `cargo test` contention); an upload bandwidth said to **halve** at 9.24 → 5.65 GiB/s re-measured at 7.67 → 5.67. All three are now stated as ranges or directions rather than points, but **the other nine pre-existing `measured_*` timing tests in `cartalith-gpu` are still single-sample.** Give them medians, and make the harness refuse to run under a parallel suite |
@@ -1062,6 +1090,8 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
 | The `vault.json` write gate has no test at its call site | `MARKDOWN_VAULT_SCOPE.md` | small | **The bug is fixed, the guard is not built.** The gate read `!store.links.is_empty()` — one member of a three-member store — so a project with a connected vault and a map snapshot but **no knowledge links** wrote no `vault.json` at all and lost the snapshot on save. Now `!store.is_empty()`. `LinkStore::is_empty()` itself is mutation-tested (2 of 3 conjuncts killed), but **the call site is not**: `project_save_with_documents` takes gdext types on a `GodotClass`, so no Rust unit test can reach it — this needs a probe scene that saves a snapshot-only project and reopens it |
 | `DccWidgets.group()` headers have no autowrap and no parent guard | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-04 while fixing the Journey panel, and deliberately not taken there.** `› VESSEL REFERENCE · SPEED BY WATER` is a group header `Button` measuring **258 px**, now the widest node in that panel and what holds its minimum. It fits the 280 laptop, 304 desktop and 400 tablet docks, but not a dock dragged to `W_RIGHT_DOCK_MIN` (260) — the drag stops around 273. `group()` builds its header with **no autowrap and no parent-type guard**, unlike `action()`, so **every group header in the shell has this property**. Fixing it is an app-wide `dcc_widgets.gd` change whose blast radius was not measured |
+| Label placement does not reserve the trait badges' clearance | `FUNCTIONAL_CONTRACT.md` cap. 6 | small | **Found 2026-09-04, cross-lane, and called the batch's most consequential finding by the verifier.** The reference offsets a settlement's `below` label candidate by `_civTraitDrop` so the label clears the trait badges (`lblCandidates` at v2.11:16199, called with `isPoi ? 0 : _civTraitDrop(p, ...)`). This port draws badges but passes no drop, so a below-placed label can overlap them. Symptom measured; cause is at the cited symbol |
+| `map_overlay.gd:378-380` credits `icon_bridge.rs` with rasterisation it does not do | `UNWIRED_FUNCTIONS.md` | small | **False, confirmed 2026-09-04.** The only `Canvas`/`blit`/`composite`/`fill_triangle` matches in `icon_bridge.rs` and its submodules are two prose references to `composite_map_icons`; there is no rasterisation in that file at all |
 | A sculpt draft that appears without a tool-arm does not rebuild the right dock | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-03 by a verifier probe, measured pre-existing at HEAD before crediting it.** `app.arm_tool()` early-returns when the tool is already armed, so no `tool_armed` fires; nothing else signals a stamp-count change to the dock. A draft created while Inspect is already armed leaves the dock showing a body built when the count was 0 — `_tool_section()` answers `stamps` while the body reads `["SAMPLE"]`. Distinct from the append bug fixed the same day, which was about arming a *different* tool |
 | The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |

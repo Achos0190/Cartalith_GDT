@@ -9316,15 +9316,21 @@ impl WorldGen {
     /// Dictionary could tell it otherwise, by design, because this call
     /// cannot know what is on screen.
     ///
-    /// **No shell caller yet, stated rather than implied.** Read at commit
-    /// `70f126a` (`git show HEAD:...`, because the shell was being edited by
-    /// another lane in the same batch and a working-tree read would not have
-    /// been evidence of anything): `world_workspace.gd`'s `_paint_apply_dab`
-    /// calls `build_paint_preview_texture` and hands the result to
-    /// `viewport_host.gd::set_preview_texture(tex: Texture2D)`, whose whole
-    /// body is `_preview_layer.texture = tex` — a texture and no offset.
-    /// Wiring this one needs an offset-aware preview slot on the viewport,
-    /// which is shell work and is not in this crate.
+    /// **Wired 2026-09-04.** The paragraph here used to say "No shell caller
+    /// yet", correctly at the time and read from a committed tree rather than
+    /// a working one. The offset-aware preview slot it said was needed now
+    /// exists: `viewport_host.gd::set_preview_patch()` composites the window
+    /// into a CPU mirror via `Image.blit_rect` + `ImageTexture.update`, and
+    /// `world_workspace.gd::_paint_show_preview()` is the single call site
+    /// both the click and drag paths reach.
+    ///
+    /// Two things about that wiring are worth knowing from this side. It
+    /// **replaces** rather than overlays, because paint erases and an erased
+    /// cell returns alpha 0 — a window drawn *over* the previous raster would
+    /// let the pixel it must remove show through. And the shell declares a
+    /// full raster as a patch base explicitly rather than inferring it,
+    /// because the sculpt preview shares that slot at the same size in a
+    /// different format (`RGB8` here, `RGBA8` there).
     #[func]
     fn build_paint_preview_patch(&self) -> VarDictionary {
         let Some(p) = self.paint.as_ref() else { return VarDictionary::new() };

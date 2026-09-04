@@ -153,7 +153,7 @@ pub use ordered_map::OrderedMap;
 pub use placement::{
     IconCategory, IconKind, PlaceIconsRuledOpts, PlacedIcon, SpriteRect, TRAIT_BADGES_SHOWN_MAX,
     TraitBadge, icon_slot_for_item, place_map_icons_ruled, sprite_draw_rect, trait_badge_drop,
-    trait_badge_layout, trait_badge_radius,
+    trait_badge_layout, trait_badge_radius, trait_sprite_rect,
 };
 pub use slicer::{
     BLANK_ALPHA_THRESHOLD, CellGrid, CellRect, ChromaKey, GridRect, MAX_GRID_COUNT, SliceCounts,

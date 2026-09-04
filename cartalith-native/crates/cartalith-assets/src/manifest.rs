@@ -654,14 +654,21 @@ pub fn parse_pack_manifest(m: &RawManifest, files: &BTreeSet<String>) -> PackMan
     // The reference *does* draw trait badges: `_traitSprite` and
     // `_civDrawTraitBadges` (v2.11 lines 15571 and 15584, also v1.28, also
     // never removed from this list). It stays because it is true of *this
-    // port*, where nothing composites a trait sprite — `crate::pack`'s
-    // `composite_map_icons` handles the `icons` family only, and
-    // `map_overlay.gd` draws settlement pins procedurally.
-    // `OUTSTANDING_WORK.md` §2.5 is that gap.
+    // port* — but read the reason carefully, because it narrowed on
+    // 2026-09-04 and the clause survived the narrowing rather than being
+    // re-justified by it. It used to be that nothing composited a trait
+    // sprite anywhere here. `crate::pack`'s `composite_trait_badges`
+    // (`cartalith-godot`) now does. **Nothing calls it**: settlement pins are
+    // drawn by `map_overlay.gd`, procedurally, and it does not reach into
+    // Rust for badge art — so trait art still never reaches the live map and
+    // the warning is still accurate. `OUTSTANDING_WORK.md` §2.5 is the
+    // remaining gap. If a caller lands, this clause becomes false and
+    // dropping it is a behaviour change on a golden-pinned string: an owner
+    // ruling, the same as widening the list would be.
     //
     // **`settlement` and `poi` are undrawn in this port too, and are
-    // deliberately NOT named here.** `composite_map_icons` skips them for the
-    // same reason it skips `trait`, and `map_overlay.gd`'s `_draw_manual_icons`
+    // deliberately NOT named here.** Neither has a compositor at all — not
+    // even the unwired kind `trait` now has — and `map_overlay.gd`'s `_draw_manual_icons`
     // draws a settlement icon as a filled rectangle and a POI as a diamond,
     // never a pack sprite. The ruling's scope is one string and three fixtures
     // and it was taken on the premise that `trait` is the only true clause;

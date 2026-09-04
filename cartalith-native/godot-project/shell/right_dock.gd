@@ -3631,7 +3631,10 @@ func _on_paint_commit_from_dock() -> void:
 func _on_paint_discard_from_dock() -> void:
 	bridge.paint_discard()
 	if app != null and app.viewport != null:
-		app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+		## `true` for the same reason `world_workspace.gd`'s own
+		## `_on_paint_discard` passes it: the committed layer that survives a
+		## discard is the base the next dab's bounded window blits onto.
+		app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 	show_paint(_paint_ctx_layer, _paint_on_pick)
 
 # -- Ramp · stops (`rdStops`, §1.9) ------------------------------------------

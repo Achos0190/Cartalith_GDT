@@ -2422,7 +2422,10 @@ func _on_paint_commit() -> void:
 
 func _on_paint_discard() -> void:
 	bridge.paint_discard()
-	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	## `true`: the committed layer that survives a discard is exactly the base
+	## the next dab's window composites onto, so marking it here is what keeps
+	## the first dab after a discard on the bounded path.
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 	_build_paint(_paint_body)
 	_rebuild_tool_bar()
 	_refresh_right_dock_paint()
@@ -2454,8 +2457,16 @@ func rebuild_paint_panel() -> void:
 # at 512/1024/2048/4096 squared, re-uploading 1 MB to 64 MB across the FFI each
 # time, while `touched_bounds` covers only **1.80%** of the grid at 2048 and
 # **1.32%** at 4096. So the deferral above is right and its stated reason was
-# comparing against something that is not cheap either. The bounded-upload path
-# is a filed row, not a claim this comment gets to make.
+# comparing against something that is not cheap either.
+#
+# **Wired 2026-09-04, later the same day**, so the paragraph above is now the
+# history of this call site rather than its description: `_paint_apply_dab`
+# below takes the bounded `build_paint_preview_patch()` and composites it onto
+# the raster already on screen (`ViewportHost.set_preview_patch()`, whose own
+# doc carries the shell-side measurement). The panel rebuild is still deferred
+# to release, and still for its own reason -- it is a Control tree, not a
+# raster, and nothing about the preview getting cheaper makes rebuilding it
+# per motion sample right.
 
 func _paint_apply_dab(gx: float, gy: float) -> void:
 	## §4.5.2: "Drag paints cells, ⇧ erases" -- Shift is a momentary modifier
@@ -2467,7 +2478,28 @@ func _paint_apply_dab(gx: float, gy: float) -> void:
 		float(_paint_brush["hardness"]), float(_paint_brush["softness"]),
 		bool(_paint_brush["erase"]) or shift, bool(_paint_brush["land_only"]))
 	bridge.paint_stroke_at(gx, gy)
-	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	_paint_show_preview()
+
+## The bounded upload, with the full raster as its fallback rather than as its
+## default. `set_preview_patch()` returns `false` for exactly one reason that
+## can happen in ordinary use -- there is no raster on screen yet to composite
+## onto, which is the first dab after a Commit -- and `true` for the empty
+## Dictionary, which is the engine saying there is nothing to draw at all and
+## is a state this must not turn into a full re-upload of nothing.
+##
+## The `true` on the fallback is what lets the *next* dab be a patch: it marks
+## the texture just set as the base a window may be composited onto. Sculpt
+## shares `_preview_layer`, and its rasters are the same size but a DIFFERENT
+## format -- `build_sculpt_preview_texture` builds `Format::RGB8` (`lib.rs:8334`)
+## where paint builds `Format::RGBA8` (`:9284`). The first version of this
+## comment said "same size and format" and a verifier refuted it. The flag is
+## therefore load-bearing for a STRONGER reason than that sentence gave: an
+## inferred base could hand `blit_rect` a format it silently drops, so
+## that flag is opt-in rather than inferred.
+func _paint_show_preview() -> void:
+	if app.viewport.set_preview_patch(bridge.build_paint_preview_patch()):
+		return
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 
 func _paint_click(gx: float, gy: float) -> void:
 	_paint_apply_dab(gx, gy)

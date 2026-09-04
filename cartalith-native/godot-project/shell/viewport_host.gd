@@ -57,6 +57,8 @@ var province_view: TextureRect
 var overlay: Control
 var tool_overlay: ToolOverlay
 var _preview_layer: TextureRect   ## Sculpt/Paint's live draft raster. See `set_preview_texture()`.
+var _preview_image: Image = null  ## CPU mirror of `_preview_layer`. See `set_preview_patch()`.
+var _preview_patchable := false   ## Whether `_preview_layer.texture` may seed that mirror.
 var _debug_layer: TextureRect     ## The Layers popover's field raster. See `set_debug_layer()`.
 var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
 
@@ -1562,8 +1564,132 @@ func set_way_type_visible(way_type: String, shown: bool) -> void:
 ## `_ready()`). Pass `null` to clear it -- an armed tool's own disarm handler
 ## is expected to do this, the same way `GlobalTools` clears `tool_overlay`'s
 ## geometry on disarm, so a stale draft never lingers after switching tools.
-func set_preview_texture(tex: Texture2D) -> void:
+##
+## `patchable` opts this texture in as the base a later `set_preview_patch()`
+## window may be composited onto. It is **not** a property of the texture but
+## of the caller's intent: `_preview_layer` is shared with Sculpt, and a sculpt
+## raster is the same grid at the same size, so it would read back as a
+## perfectly plausible -- and completely wrong -- base for a paint window.
+## Only paint's own full-raster call sites pass `true`.
+##
+## Today `build_sculpt_preview_texture` happens to be **RGB8** where paint's is
+## RGBA8, so `set_preview_patch`'s format test would refuse a sculpt base even
+## without this flag. That is a coincidence of two formats, not a decision, and
+## it is not what this rests on: a sculpt preview that ever gains an alpha
+## channel would silently become an acceptable base. The flag makes the
+## refusal something a caller states rather than something the pixel layout
+## happens to enforce.
+func set_preview_texture(tex: Texture2D, patchable := false) -> void:
 	_preview_layer.texture = tex
+	_preview_image = null
+	_preview_patchable = patchable and tex != null
+
+## The bounded half of the pair: `WorldGen.build_paint_preview_patch()`'s
+## `{texture, x, y, w, h}`, composited onto the raster already on screen
+## instead of replacing it. Returns **false** when it could not, and a `false`
+## is an instruction rather than an error -- the caller must take a full
+## `build_paint_preview_texture()` and set it with `patchable = true`.
+##
+## **Why a CPU mirror and not a second, offset TextureRect.** Paint erases
+## (`Brush.erase`, and Shift while dragging), and an erased cell comes back
+## from the engine as alpha `0`. A window drawn *over* the previous raster
+## would let the pixel it is supposed to have removed show through from
+## underneath, so the window has to **replace** those texels, not blend with
+## them. `Image.blit_rect` replaces; canvas blending does not.
+##
+## **The three answers the engine can give are kept distinct here**, because
+## collapsing them is the one way this call can silently show the wrong map:
+##
+##   - **empty Dictionary** -- nothing committed and nothing pending, so
+##     there is nothing to draw at all. Clears the preview and reports
+##     success; this is not "upload everything" and not a failure.
+##   - **a full-grid window** -- the draft touched nothing but the committed
+##     layer is still the whole answer. Handled by the ordinary blit path, so
+##     it needs no special case: a window covering the mirror overwrites it.
+##   - **a sub-rectangle** -- only these cells can have changed.
+##
+## Measured 2026-09-04 by `_paintwire_bench.tscn`, this machine (RX 7800 XT,
+## OpenGL Compatibility), **windowed** -- the bench refuses to run headless,
+## because `ImageTexture.update()` is a **no-op** under the dummy driver
+## `--headless` selects (measured: a 2x2 texture updated from a mutated source
+## image reads back its original pixel headless and the new one windowed), so
+## neither the upload this function does nor the readback that seeds it exists
+## there at all. One dab of a 20-dab drag at the 40-cell brush ceiling, through this
+## function and its caller rather than as engine calls in isolation; median of
+## 20 dabs, with the range across three runs:
+##
+## | grid | full raster (before) | bounded patch (after) |
+## |---|---:|---:|
+## | 512² | 1.44 ms (1.42..1.48) | 0.85 ms (0.75..0.93) |
+## | 1024² | 4.44 ms (4.41..4.47) | 1.12 ms (0.94..1.14) |
+## | **2048², the shipped default** | **16.51 ms (16.31..27.89)** | **1.85 ms (1.83..2.55)** |
+##
+## The 2048² row is the one that matters: 16 ms is a dropped frame on every
+## pointer-move sample, and this is what removes it. Those are timings on a
+## noisy device, quoted with their spread rather than as a ratio -- the 2048²
+## "before" was 27.9 ms on one of the three runs. The only stable number in
+## the pair is the byte ratio the engine side already carries, which is
+## arithmetic (`grid / window`) and not a measurement at all.
+##
+## **One dab in twenty still pays the full raster**, and the bench counts it:
+## the first dab after a Commit has no base to composite onto, so it falls
+## back and re-declares one.
+##
+## **Corrected 2026-09-04:** this used to add "That is the fallback showing up
+## in the 'after' column's own maximum, not noise." A verifier re-ran the bench
+## and the fallback dab measures **15.28 / 15.89 / 15.x ms** -- a full raster,
+## which is what it is -- while the quoted "after" maximum is 2.55 ms. The
+## fallback is nowhere near that maximum; it is an outlier the median deliberately
+## excludes. Attributing a number to a cause without measuring the cause is the
+## same error as quoting a single-sample timing, wearing an explanation.
+func set_preview_patch(patch: Dictionary) -> bool:
+	if not patch.has("texture"):
+		set_preview_texture(null)
+		return true
+	var src: Texture2D = patch["texture"]
+	if src == null:
+		return false
+	var win: Image = src.get_image()
+	if win == null:
+		return false
+
+	## A world regenerated at a different resolution under a live stroke
+	## leaves a mirror whose indices are still in range but no longer mean
+	## the same cells. Size it against the grid the patch is addressed
+	## against rather than trusting the bounds test below to catch it.
+	var grid := _bridge.grid_size() if _bridge != null else Vector2i.ZERO
+	if grid != Vector2i.ZERO:
+		if _preview_image != null and _preview_image.get_size() != grid:
+			_preview_image = null
+		var t := _preview_layer.texture
+		if t != null and (t.get_width() != grid.x or t.get_height() != grid.y):
+			_preview_patchable = false
+
+	if _preview_image == null:
+		if not _preview_patchable or _preview_layer.texture == null:
+			return false
+		var base: Image = _preview_layer.texture.get_image()
+		if base == null:
+			return false
+		## Ours from here: `update()` needs a texture whose size and format
+		## are the mirror's, which the engine's own ImageTexture is, but only
+		## by construction rather than by anything checked at this boundary.
+		_preview_image = base
+		_preview_layer.texture = ImageTexture.create_from_image(base)
+
+	var x := int(patch.get("x", -1))
+	var y := int(patch.get("y", -1))
+	if x < 0 or y < 0 \
+			or win.get_format() != _preview_image.get_format() \
+			or x + win.get_width() > _preview_image.get_width() \
+			or y + win.get_height() > _preview_image.get_height():
+		_preview_image = null
+		_preview_patchable = false
+		return false
+
+	_preview_image.blit_rect(win, Rect2i(Vector2i.ZERO, win.get_size()), Vector2i(x, y))
+	(_preview_layer.texture as ImageTexture).update(_preview_image)
+	return true
 
 ## The Layers popover's field raster. `"off"` (or a view this world has no
 ## input for) clears it -- the popover reads `debug_view()` back to keep its

@@ -573,6 +573,32 @@ pub fn trait_badge_radius(sz: f64) -> f64 {
     cartalith_jsmath::js_max(2.2, sz * 0.42)
 }
 
+/// `_traitSprite`'s destination rectangle (reference v2.11 line 15576,
+/// `const dh=radius*2, dw=dh*(v.w/Math.max(1,v.h))` then
+/// `drawImage(v.bmp,px-dw/2,py-dh/2,dw,dh)`) — **centre**-anchored on the
+/// badge's own point, which is what [`crate::Family::Trait`]'s
+/// [`crate::Anchor::Center`] means in arithmetic.
+///
+/// Two things separate it from [`sprite_draw_rect`] and both are the
+/// reference's, not a simplification:
+///
+/// - **`dh = radius*2`, not `radius*2.3`.** Its two centre-anchored siblings
+///   `_customSprite` (line 15607) and `_featureSprite` (15624) both use
+///   `2.3`; `_traitSprite` alone uses `2`, so a badge sprite fills exactly
+///   the diameter [`trait_badge_layout`] spaced it at and [`trait_badge_drop`]
+///   reserved beneath the pin. A `2.3` here would paint into the clearance a
+///   below-placed label is standing in.
+/// - **Centred vertically** (`py - dh/2`), where a feature glyph stands on
+///   its cell (`y - dh`).
+///
+/// `js_max`, not `f64::max`, for the same reason [`trait_badge_radius`] uses
+/// it: `Math.max(1, NaN)` is `NaN` and Rust's `max` would quietly return `1`.
+pub fn trait_sprite_rect(px: f64, py: f64, r: f64, sw: f64, sh: f64) -> SpriteRect {
+    let dh = r * 2.0;
+    let dw = dh * (sw / cartalith_jsmath::js_max(1.0, sh));
+    SpriteRect { dx: px - dw / 2.0, dy: py - dh / 2.0, dw, dh }
+}
+
 /// `_civDrawTraitBadges` (reference v2.11 line 15584) reduced to its geometry:
 /// the centre and radius of every badge in the row beneath a settlement pin,
 /// left to right, in the settlement's own trait order.
@@ -584,11 +610,13 @@ pub fn trait_badge_radius(sz: f64) -> f64 {
 /// Empty when the settlement carries no traits, which is the reference's own
 /// early `return`: **no badge row, not a row of zero-radius badges.**
 ///
-/// The drawing itself is not here and cannot be: this port draws settlement
-/// pins in a Godot overlay (`godot-project/map_overlay.gd`), not in the Rust
-/// raster — `crate::pack`'s compositing pass, in `cartalith-godot`, works on
-/// the terrain buffer at grid resolution and never sees a pin. See
-/// `OUTSTANDING_WORK.md` §2.5.
+/// The drawing itself is not here — this crate holds no canvas. It is
+/// `cartalith-godot`'s `pack::composite_trait_badges`, which consumes this
+/// layout, resolves each key against a loaded pack's `structures.trait` art
+/// and blits it at [`trait_sprite_rect`]'s box. That function has no caller
+/// either: settlement pins are drawn by `godot-project/map_overlay.gd`, and
+/// `pack::composite_map_icons` works on the terrain buffer at grid resolution
+/// and never sees a pin. `OUTSTANDING_WORK.md` §2.5 is the remaining half.
 pub fn trait_badge_layout(px: f64, py: f64, traits: &[String], sz: f64, sc: f64) -> Vec<TraitBadge> {
     let shown = &traits[..traits.len().min(TRAIT_BADGES_SHOWN_MAX)];
     if shown.is_empty() {
@@ -880,5 +908,49 @@ mod tests {
     fn sprite_draw_rect_guards_a_zero_height_source() {
         let r = sprite_draw_rect(100.0, 200.0, 1.0, 5.0, 64.0, 0.0);
         assert_eq!((r.dw, r.dh), (704.0, 11.0));
+    }
+
+    /// `_traitSprite`: `dh=radius*2`, `dw=dh*(w/max(1,h))`, drawn at
+    /// `(px-dw/2, py-dh/2)`. Every number here is a literal worked from the
+    /// reference expression by hand, not from the implementation:
+    /// `dh = 5*2 = 10`, `dw = 10*(64/32) = 20`, `dx = 100-10 = 90`,
+    /// `dy = 200-5 = 195`.
+    #[test]
+    fn trait_sprite_rect_is_centre_anchored_at_exactly_twice_the_radius() {
+        let r = trait_sprite_rect(100.0, 200.0, 5.0, 64.0, 32.0);
+        assert_eq!((r.dx, r.dy, r.dw, r.dh), (90.0, 195.0, 20.0, 10.0));
+        // Centred, not standing on the point: the badge's centre is the point
+        // it was laid out at, on BOTH axes.
+        assert_eq!((r.dx + r.dw / 2.0, r.dy + r.dh / 2.0), (100.0, 200.0));
+    }
+
+    /// The `2`, pinned against the `2.3` its two centre-anchored siblings use.
+    /// A square sprite at radius 10 must come out exactly 20 wide and 20 high;
+    /// `_customSprite`/`_featureSprite`'s factor would make it 23.
+    #[test]
+    fn a_trait_badge_sprite_fills_the_diameter_the_layout_reserved_for_it() {
+        let b = trait_badge_layout(0.0, 0.0, &keys(&["port", "mining"]), 10.0, 2.0);
+        let r = trait_sprite_rect(b[0].cx, b[0].cy, b[0].r, 128.0, 128.0);
+        assert_eq!((r.dw, r.dh), (b[0].r * 2.0, b[0].r * 2.0));
+        // r = max(2.2, 10*0.42) = 4.2, so the sprite is 8.4 across -- and the
+        // literal is what stops this agreeing with a wrong radius formula.
+        assert!((r.dw - 8.4).abs() < 1e-12, "{}", r.dw);
+        // ... which is exactly the vertical space `trait_badge_drop` reserves
+        // minus its `1.2*sc` gap, so the sprite cannot reach into the label
+        // clearance: 10.8 - 1.2*2 = 8.4.
+        assert!((r.dh - (trait_badge_drop(true, 10.0, 2.0) - 1.2 * 2.0)).abs() < 1e-12);
+        // Two badges apart: the sprite is narrower than the 2.35r gap, so
+        // adjacent badges never overlap. 4.2*2.35 = 9.87 > 8.4.
+        assert!(r.dw < b[1].cx - b[0].cx);
+    }
+
+    /// `Math.max(1, v.h)` — a zero-height source must not divide by zero, and
+    /// a NaN one must stay NaN the way `Math.max` does (`f64::max` would
+    /// silently return `1` and paint a plausible sprite).
+    #[test]
+    fn trait_sprite_rect_guards_a_zero_height_source_and_keeps_nan() {
+        let r = trait_sprite_rect(0.0, 0.0, 5.0, 64.0, 0.0);
+        assert_eq!((r.dw, r.dh), (640.0, 10.0));
+        assert!(trait_sprite_rect(0.0, 0.0, 5.0, 64.0, f64::NAN).dw.is_nan());
     }
 }

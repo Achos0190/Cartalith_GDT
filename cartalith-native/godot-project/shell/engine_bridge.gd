@@ -2784,6 +2784,26 @@ func build_paint_preview_texture() -> Texture2D:
 		return null
 	return world_gen.build_paint_preview_texture()
 
+## The same preview restricted to the rectangle the uncommitted draft touches
+## -- `{texture, x, y, w, h}`, blitted at grid cell `(x, y)` by
+## `ViewportHost.set_preview_patch()`. This is the call to prefer inside a
+## drag; `build_paint_preview_texture()` above stays the one to take when
+## there is no previous raster on screen to composite onto.
+##
+## **An empty Dictionary here always means the engine's own "nothing to draw
+## at all"**, never "this build cannot answer". A library too old to have the
+## method degrades to the full raster wearing the patch's shape instead --
+## a full-grid window is a legal answer (`PaintEditor::preview_patch`'s own
+## doc, row two of its table), so the caller keeps one code path and the one
+## Dictionary that clears the preview keeps one meaning.
+func build_paint_preview_patch() -> Dictionary:
+	if _has("build_paint_preview_patch"):
+		return world_gen.build_paint_preview_patch()
+	var tex: Texture2D = build_paint_preview_texture()
+	if tex == null:
+		return {}
+	return {"texture": tex, "x": 0, "y": 0, "w": tex.get_width(), "h": tex.get_height()}
+
 func paint_painted_counts() -> Dictionary:
 	if not _has("paint_painted_counts"):
 		return {}
