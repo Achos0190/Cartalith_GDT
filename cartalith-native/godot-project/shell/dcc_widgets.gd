@@ -229,9 +229,76 @@ static func group(parent: Control, title: String, open: bool = true,
 	btn.flat = true
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	## DS-03's reflow, extended to the L4 header. A `Button`'s minimum width is
+	## the width of its whole label, and this header had neither autowrap nor a
+	## parent guard while `action()` -- the sibling factory ten screens down --
+	## carried both. That asymmetry was not a decision; nothing above this line
+	## ever said anything about width.
+	##
+	## **Measured before it was changed** (`_grphdr_probe.gd`, `_grpfloor_probe.gd`;
+	## seeds 483920 / 77021 / 4242, which agreed on every figure below; laptop
+	## density, left dock 330 / right dock 280). 79 `group()` call sites plus the
+	## four `advanced()` ones. **141 surface states per seed** -- ten rail nodes,
+	## every L2 category inside each, and every arm of
+	## `RightDock._tool_section()` in the domain that arm requires. In 69 of
+	## those 141 a dock could not be dragged down to its documented floor, and a
+	## group header was the node holding it open in **6 of the 69** -- two
+	## distinct headers, each appearing in several rail-node contexts:
+	##
+	##   CIVIL ▸ Military   `› WHO THE BANDS ARE MEASURED AGAINST` (265 px)
+	##                      floor 300, drag stopped at 306
+	##   RIGHT ▸ Journey    `› VESSEL REFERENCE · SPEED BY WATER` (258 px)
+	##                      floor 260, drag stopped at 273
+	##
+	## Two headers is a thin case for re-basing a widget with 83 call sites, so
+	## the cost was measured rather than argued (`_grpwrap_shot.gd`, **windowed**
+	## 1600x1000, light palette, four surfaces): at the shipped dock widths the
+	## change moves **0 pixels of 1 600 000**, against a positive control -- one
+	## group toggled -- of 37 428. Re-run at the desktop pair (372/304) and at
+	## tablet (`--force-touch`, 400/400, where the header takes the 11 px
+	## `fs_dock_header` instead of `FS_HEADER`): 0 there too.
+	##
+	## It is free because a wrapped `Button` in a column still DRAWS at the full
+	## dock width -- autowrap only lowers its minimum, and it lowers it to **0**,
+	## not to the widest word. `_grpguard_probe.gd` asserts both halves of that
+	## on the live header, because a ~0 minimum is one step from `MISTAKES.md`'s
+	## `clip_text` trap: measured `min.x = 0.0` while `size.x = 265` in its own
+	## column, text intact and `clip_text` false.
+	##
+	## Afterwards the full 141-state sweep re-runs with **0 regressions**: 135
+	## states unchanged, 6 improved, and no group header binds any dock above
+	## its floor. The remaining 65 states that still cannot reach their floor
+	## are held open by `Label`s (41), `OptionButton`s (10), `RichTextLabel`s
+	## (8), `HSlider` rows (5) and one `TextureRect` -- none of which this
+	## change touches. CIVIL ▸ Landmarks still stops at 328, CARTO ▸ Layers &
+	## style at 333. **The dock floors are aspirational for reasons this change
+	## does not address**; it removes group headers as one of the causes.
+	##
+	## The guard is `action()`'s, and its question is **"does a sibling compete
+	## for my width"**, not "which class is my parent" -- a `GridContainer`
+	## shares width across columns exactly as an `HBoxContainer` shares it
+	## across children, and it was the arm a verifier had to add to `action()`.
+	## No group header live in the shell sits in a width-distributing parent
+	## today: 0 of 75 / 92 / 90 headers (one figure per seed) across 16 surface
+	## states each, asserted over the whole `app` subtree by
+	## `_grpguard_probe.gd` rather than inferred from the call sites. The guard
+	## is here anyway because `action()`'s own note records `set_tool_options()`
+	## handing that factory an `HBoxContainer` and costing 225 px of map.
+	var grp_shares_width := (parent is BoxContainer and not (parent as BoxContainer).vertical) \
+		or parent is HFlowContainer \
+		or parent is GridContainer
+	if not grp_shares_width:
+		btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	## An L4 group header is a dock row too (§57's "row_min_h" -- "Dock list
 	## rows and menu items"); its own type is `FS_HEADER` (9), which is exactly
 	## `ROLE`'s `fs_dock_header` desktop figure (`[9, 11]`), not `fs_readout`.
+	##
+	## `custom_minimum_size.y` stays a FLOOR, not a fixed height: with autowrap
+	## above it, a header that wraps to two lines in a narrowed dock reports a
+	## content minimum taller than this and grows. That is the intent -- the
+	## owner's DS-03 ruling is "keep everything, reflow only", so a header that
+	## no longer fits gets a second line rather than an ellipsis that would
+	## delete half of what it names.
 	var grp_tablet := DccTheme.is_tablet()
 	btn.custom_minimum_size.y = DccTheme.role_px("row_min_h") if grp_tablet else 22
 	btn.text = "%s %s" % [mark, title.to_upper()]

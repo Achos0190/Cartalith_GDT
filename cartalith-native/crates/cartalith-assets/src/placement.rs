@@ -611,12 +611,15 @@ pub fn trait_sprite_rect(px: f64, py: f64, r: f64, sw: f64, sh: f64) -> SpriteRe
 /// early `return`: **no badge row, not a row of zero-radius badges.**
 ///
 /// The drawing itself is not here — this crate holds no canvas. It is
-/// `cartalith-godot`'s `pack::composite_trait_badges`, which consumes this
+/// `cartalith-godot`'s `pack::resolve_trait_badges`, which consumes this
 /// layout, resolves each key against a loaded pack's `structures.trait` art
-/// and blits it at [`trait_sprite_rect`]'s box. That function has no caller
-/// either: settlement pins are drawn by `godot-project/map_overlay.gd`, and
-/// `pack::composite_map_icons` works on the terrain buffer at grid resolution
-/// and never sees a pin. `OUTSTANDING_WORK.md` §2.5 is the remaining half.
+/// and reports [`trait_sprite_rect`]'s box for it. Two things draw from that
+/// one answer: `pack::composite_trait_badges`, which blits into the RGB8 map
+/// buffer and still has no caller, and `WorldGen::civ_trait_badge_row`, which
+/// hands GDScript an `ImageTexture` per badge so `godot-project/
+/// map_overlay.gd` can blit one at a settlement pin's constant on-screen size
+/// (`OUTSTANDING_WORK.md` §2.5, closed on the engine side 2026-09-04 —
+/// nothing installs the resolver on the shell side yet).
 pub fn trait_badge_layout(px: f64, py: f64, traits: &[String], sz: f64, sc: f64) -> Vec<TraitBadge> {
     let shown = &traits[..traits.len().min(TRAIT_BADGES_SHOWN_MAX)];
     if shown.is_empty() {

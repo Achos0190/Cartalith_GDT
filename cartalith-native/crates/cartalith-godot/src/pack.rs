@@ -32,14 +32,22 @@
 //!
 //! **A fourth surface landed later still, and it is not one of that
 //! milestone's three:** trait-badge art (`structures.trait`, `LoadedPack::
-//! traits`, [`composite_trait_badges`]) — `OUTSTANDING_WORK.md` §2.5, the
-//! first of the `structures` families to be rasterised at all. It differs from
-//! the three above in one way that matters when reading the rest of this file:
-//! **it has no in-tree caller.** The other three are reached from
-//! `build_color_texture`; this one's consumer is the settlement-pin pass in
-//! `godot-project/map_overlay.gd`, because a trait badge hangs off a pin and
-//! [`composite_map_icons`] never sees one. See that function's own doc for
-//! the whole of it.
+//! traits`) — `OUTSTANDING_WORK.md` §2.5, the first of the `structures`
+//! families to be rasterised at all. It differs from the three above in the
+//! way that matters when reading the rest of this file: **it does not go
+//! through `build_color_texture` and it is not painted by this module's
+//! rasterizer.** A trait badge hangs off a settlement pin at a constant
+//! on-screen size, and pins are drawn by `godot-project/map_overlay.gd`, so
+//! [`composite_map_icons`] never sees one and a badge baked into the terrain
+//! buffer would be at map scale.
+//!
+//! What this module supplies for it is the *decisions* —
+//! [`resolve_trait_badges`]: the row layout, the pack lookup, the variant
+//! pick and each sprite's destination box. `WorldGen::civ_trait_badge_row`
+//! (`lib.rs`) hands that answer to `map_overlay.gd` with an `ImageTexture`
+//! per badge, and Godot's own renderer does the blit.
+//! [`composite_trait_badges`] is the same decisions painted into an RGB8
+//! raster instead, and it still has no caller — see its own doc.
 //!
 //! Read literally (reference lines 7898-7900,
 //! 12187-12196): `pBio`/`pTer` are per-cell indices into
@@ -141,7 +149,9 @@ pub struct LoadedPack {
     pub terrains: Vec<Option<GroundTile>>,
     /// Trait-badge art (`structures.trait`) — slot key (a
     /// [`cartalith_assets::PACK_TRAIT_SLOTS`] member) → decoded variants in
-    /// manifest order, consumed by [`composite_trait_badges`].
+    /// manifest order, consumed by [`resolve_trait_badges`] (and through it
+    /// by both [`composite_trait_badges`] and `WorldGen::civ_trait_badge_row`,
+    /// which hands each variant to GDScript as an `ImageTexture`).
     ///
     /// **An absent key and a key holding an empty `Vec` are different
     /// states, and that is the reason this map is not filtered the way
@@ -150,12 +160,20 @@ pub struct LoadedPack {
     /// missing ZIP entry or a broken PNG. Both draw the same thing (nothing;
     /// the reference's own `if(!arr||!arr.length) return false` at
     /// `_traitSprite`, v2.11 line 15573, does not distinguish them either),
-    /// and [`composite_trait_badges`] returns them as two different
+    /// and [`resolve_trait_badges`] returns them as two different
     /// [`TraitArtMiss`] reasons so the surface reporting the miss can tell a
     /// pack author *"you never added port art"* from *"your port art is a
     /// broken PNG"*. Collapsing them here would make that impossible to
     /// recover later.
-    #[allow(dead_code, reason = "read only by `composite_trait_badges`, which has no caller yet — see its doc")]
+    ///
+    /// **Which surface reports which, as of 2026-09-04.** The *map* reports
+    /// neither and must not: `_civDrawTraitBadges` draws the same dark disc
+    /// and glyph for both (v2.11 lines 15592-15598), so the two are
+    /// deliberately indistinguishable on the pin. The surface that tells them
+    /// apart is `WorldGen::pack_trait_art_status`, a per-slot answer for an
+    /// asset-library / pack-import readout. `WorldGen::civ_trait_badge_row`
+    /// carries the same reason per badge so a caller that wants to highlight
+    /// one settlement's missing art does not have to re-derive it.
     pub traits: HashMap<String, Vec<DecodedImage>>,
 }
 
@@ -583,13 +601,138 @@ pub fn composite_map_icons(bytes: &mut [u8], field: &[f32], temperature: &[f32],
 /// things to *tell a pack author*, and once collapsed the difference cannot
 /// be recovered — see [`LoadedPack::traits`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "returned only by `composite_trait_badges`, which has no caller yet — see its doc")]
 pub enum TraitArtMiss {
     /// The loaded pack's `structures.trait` never mentions this slot.
     NoArtInPack,
     /// The pack declares art for this slot and not one variant decoded — a
     /// manifest path with no ZIP entry, or a PNG `decode_png` rejected.
     ArtFailedToDecode,
+}
+
+impl TraitArtMiss {
+    /// The stable snake_case name this reason crosses the gdext boundary
+    /// under (`WorldGen::civ_trait_badge_row`'s `miss` value, and
+    /// `WorldGen::pack_trait_art_status`'s per-slot value).
+    ///
+    /// A name rather than an integer because the two are meant to be told
+    /// apart by whoever reads them — a `0`/`1` at a GDScript call site is
+    /// exactly the "plausible value" shape `MISTAKES.md` warns about, and
+    /// neither of these is a default.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::NoArtInPack => "no_art_in_pack",
+            Self::ArtFailedToDecode => "art_failed_to_decode",
+        }
+    }
+}
+
+/// What one laid-out badge should draw: the pack's sprite, or nothing (with
+/// the reason).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TraitBadgeArt {
+    /// `variant` indexes `LoadedPack::traits[key]` — [`pick_icon_variant`]'s
+    /// choice for this badge's own centre — and `rect` is
+    /// [`trait_sprite_rect`]'s centre-anchored destination box for that
+    /// variant's own aspect.
+    Sprite {
+        variant: usize,
+        rect: cartalith_assets::SpriteRect,
+    },
+    /// No sprite, and which of [`TraitArtMiss`]' two reasons.
+    Miss(TraitArtMiss),
+}
+
+/// One trait badge, laid out **and** resolved against a loaded pack: where it
+/// goes, which glyph labels it, and whether the pack supplied art for it.
+///
+/// This is all of `_civDrawTraitBadges`' decision-making with none of its
+/// drawing, so that both consumers make the same decisions from one
+/// definition: [`composite_trait_badges`], which paints into the RGB8 map
+/// buffer, and `WorldGen::civ_trait_badge_row`, which hands the same answer
+/// across the gdext boundary for Godot's own renderer to blit at a pin's
+/// constant on-screen size. *"Two functions answering one question WILL
+/// drift"* is the reference's own comment about `_civTraitDrop` (v1.73);
+/// this is that lesson applied one call deeper.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedTraitBadge {
+    /// The trait key, as it appeared in the settlement's own `traits` list.
+    pub key: String,
+    /// Badge centre and radius, straight from
+    /// [`cartalith_assets::trait_badge_layout`] — the ported geometry, so a
+    /// consumer's own fallback lands exactly where the sprite would have.
+    pub cx: f64,
+    pub cy: f64,
+    pub r: f64,
+    /// The glyph the reference draws on the fallback disc, from
+    /// `cartalith_civ::roster::CIV_TRAITS`.
+    ///
+    /// **`None` means `key` is not a real trait**, and the reference draws
+    /// *nothing at all* for it — its fallback is guarded by `const
+    /// t=CIV_TRAITS.find(...); if(t){...}`, so an unknown key produces no
+    /// disc and no glyph. A consumer must skip such a badge, not draw a
+    /// blank disc in its place.
+    pub glyph: Option<&'static str>,
+    pub art: TraitBadgeArt,
+}
+
+/// `_civDrawTraitBadges` (reference v2.11 line 15584) reduced to its
+/// decisions: lay the row out, resolve each key against a loaded pack's
+/// `structures.trait` art, pick the variant and compute its destination box.
+/// Draws nothing — see [`ResolvedTraitBadge`] for why that split exists.
+///
+/// The geometry is not computed here either. It is
+/// [`cartalith_assets::trait_badge_layout`]'s, already ported term-for-term
+/// and mutation-guarded (the `slice(0,4)` cap, the `r*2.35` spacing, the
+/// `py+sz+r+1.2*sc` row position), with
+/// [`cartalith_assets::trait_sprite_rect`] for each sprite's own
+/// centre-anchored `radius*2` box.
+///
+/// **Variants are picked with [`pick_icon_variant`], not
+/// [`pick_weighted_variant`]** — the reference's own asymmetry, not an
+/// oversight here: `_traitSprite` (15574) calls `pickIconVariant` with no
+/// weights, while its two centre-anchored siblings `_customSprite` (15614)
+/// and `_featureSprite` (15628) both consult `assetRules[...].variantWeights`.
+/// A trait badge therefore ignores a variant weighting set in the Library,
+/// and matching the reference is the contract even where the asymmetry looks
+/// accidental.
+///
+/// `px`/`py` are the pin's centre and `sz`/`sc` the pin radius and layer
+/// scale, all four in whatever space the consumer draws in — grid texels for
+/// [`composite_trait_badges`], the overlay control's own local pixels for
+/// `WorldGen::civ_trait_badge_row`. The returned `cx`/`cy`/`r` and the
+/// sprite rect come back in that same space.
+pub fn resolve_trait_badges(
+    px: f64,
+    py: f64,
+    traits: &[String],
+    sz: f64,
+    sc: f64,
+    seed: i32,
+    pack: &LoadedPack,
+) -> Vec<ResolvedTraitBadge> {
+    trait_badge_layout(px, py, traits, sz, sc)
+        .into_iter()
+        .map(|badge| {
+            let art = match pack.traits.get(&badge.key) {
+                None => TraitBadgeArt::Miss(TraitArtMiss::NoArtInPack),
+                Some(variants) if variants.is_empty() => TraitBadgeArt::Miss(TraitArtMiss::ArtFailedToDecode),
+                Some(variants) => {
+                    // `pickIconVariant(px|0, py|0, seed, arr.length)` — the
+                    // badge's own centre, truncated, exactly as the reference
+                    // hashes it.
+                    let variant = pick_icon_variant(badge.cx as i32, badge.cy as i32, seed, variants.len());
+                    let img = &variants[variant];
+                    let rect = trait_sprite_rect(badge.cx, badge.cy, badge.r, img.w as f64, img.h as f64);
+                    TraitBadgeArt::Sprite { variant, rect }
+                }
+            };
+            let glyph = cartalith_civ::roster::CIV_TRAITS
+                .iter()
+                .find(|&&(k, _, _)| k == badge.key)
+                .map(|&(_, _, g)| g);
+            ResolvedTraitBadge { key: badge.key, cx: badge.cx, cy: badge.cy, r: badge.r, glyph, art }
+        })
+        .collect()
 }
 
 /// One badge [`composite_trait_badges`] laid out and **did not paint**,
@@ -625,48 +768,33 @@ pub struct TraitBadgeFallback {
 
 /// `_civDrawTraitBadges` (reference v2.11 line 15584), sprite half: paint one
 /// settlement's row of trait badges from a loaded pack's `structures.trait`
-/// art, and return every badge the pack had no sprite for.
+/// art into an RGB8 raster, and return every badge the pack had no sprite for.
 ///
-/// The geometry is not computed here — it is
-/// [`cartalith_assets::trait_badge_layout`]'s, already ported term-for-term
-/// and mutation-guarded (the `slice(0,4)` cap, the `r*2.35` spacing, the
-/// `py+sz+r+1.2*sc` row position), with
-/// [`cartalith_assets::trait_sprite_rect`] for each sprite's own
-/// centre-anchored `radius*2` box. This function is the lookup, the variant
-/// pick and the blit, and nothing else.
-///
-/// **Variants are picked with [`pick_icon_variant`], not
-/// [`pick_weighted_variant`]** — the reference's own asymmetry, not an
-/// oversight here: `_traitSprite` (15574) calls `pickIconVariant` with no
-/// weights, while its two centre-anchored siblings `_customSprite` (15614)
-/// and `_featureSprite` (15628) both consult `assetRules[...].variantWeights`.
-/// A trait badge therefore ignores a variant weighting set in the Library,
-/// and matching the reference is the contract even where the asymmetry looks
-/// accidental.
+/// [`resolve_trait_badges`] makes every decision — layout, lookup, variant
+/// pick, destination box. This function is the blit and nothing else, so a
+/// badge painted here and a badge drawn by `map_overlay.gd` from
+/// `WorldGen::civ_trait_badge_row` cannot disagree about which sprite goes
+/// where.
 ///
 /// `px`/`py` are the pin's centre **in the coordinate space of `bytes`**, and
 /// `sz`/`sc` the pin radius and layer scale in that same space.
 ///
-/// # No in-tree caller yet, and why the `dead_code` allow is here
+/// # No in-tree caller, and why the `dead_code` allow is here
 ///
-/// The consumer is the settlement-pin pass in
-/// `godot-project/map_overlay.gd`: it draws the pins and their labels, and it
-/// is the only surface that knows where a pin sits on screen.
-/// [`composite_map_icons`] cannot be that caller — it works on the terrain
-/// buffer at grid resolution and never sees a pin, so a badge composited
-/// there would be baked at map scale rather than the pin's constant on-screen
-/// size.
+/// **Still true on 2026-09-04, and the reason narrowed rather than lifted.**
+/// The route to a settlement pin now exists and is not this function: pins
+/// are drawn by `godot-project/map_overlay.gd` at a constant on-screen size,
+/// and [`resolve_trait_badges`] reaches it through
+/// `WorldGen::civ_trait_badge_row`, which hands GDScript an `ImageTexture`
+/// per badge for Godot's own renderer to blit. This function paints into the
+/// terrain buffer at grid resolution, where a badge would be baked at map
+/// scale instead — the same mismatch that rules out [`composite_map_icons`]
+/// as the caller.
 ///
-/// **Corrected 2026-09-04: that wiring is NOT GDScript, and cannot be.** This
-/// is a plain `pub fn`, not a `#[func]`, and it takes `bytes: &mut [u8]` plus
-/// `&LoadedPack` — a raster canvas and a Rust struct, neither of which
-/// marshals across the gdext boundary. A lane sent to wire it from
-/// `map_overlay.gd` found that out at the symbol. The remaining half of
-/// `OUTSTANDING_WORK.md` §2.5 is therefore **Rust**: either a `#[func]` that
-/// hands GDScript pixels (an `Image` per badge, or one composited badge row),
-/// or a different consumer entirely. The allow states the gap once here
-/// instead of restating it as four build warnings.
-#[allow(dead_code, reason = "no caller yet, and it cannot be GDScript — see the section above")]
+/// What it is still for: an offline raster of the map (`export_raster.rs`'s
+/// domain) has no Godot renderer to blit with and would need exactly this.
+/// Nothing there draws settlement pins today, so the allow stays.
+#[allow(dead_code, reason = "no caller: the live map now blits via `civ_trait_badge_row`, and no offline raster draws pins — see the section above")]
 #[allow(clippy::too_many_arguments)]
 #[must_use = "the returned badges are the ones with no art; drop the list and those traits vanish from the map with no fallback drawn"]
 pub fn composite_trait_badges(
@@ -686,25 +814,22 @@ pub fn composite_trait_badges(
         return misses;
     }
     let mut canvas = Canvas { bytes, gw, gh };
-    for badge in trait_badge_layout(px, py, traits, sz, sc) {
-        let miss = match pack.traits.get(&badge.key) {
-            None => TraitArtMiss::NoArtInPack,
-            Some(variants) if variants.is_empty() => TraitArtMiss::ArtFailedToDecode,
-            Some(variants) => {
-                // `pickIconVariant(px|0, py|0, seed, arr.length)` — the badge's
-                // own centre, truncated, exactly as the reference hashes it.
-                let idx = pick_icon_variant(badge.cx as i32, badge.cy as i32, seed, variants.len());
-                let img = &variants[idx];
-                let rect = trait_sprite_rect(badge.cx, badge.cy, badge.r, img.w as f64, img.h as f64);
-                canvas.blit_sprite(img, rect);
-                continue;
+    for badge in resolve_trait_badges(px, py, traits, sz, sc, seed, pack) {
+        match badge.art {
+            TraitBadgeArt::Sprite { variant, rect } => {
+                canvas.blit_sprite(&pack.traits[&badge.key][variant], rect);
             }
-        };
-        let glyph = cartalith_civ::roster::CIV_TRAITS
-            .iter()
-            .find(|&&(k, _, _)| k == badge.key)
-            .map(|&(_, _, g)| g);
-        misses.push(TraitBadgeFallback { key: badge.key, cx: badge.cx, cy: badge.cy, r: badge.r, glyph, miss });
+            TraitBadgeArt::Miss(miss) => {
+                misses.push(TraitBadgeFallback {
+                    key: badge.key,
+                    cx: badge.cx,
+                    cy: badge.cy,
+                    r: badge.r,
+                    glyph: badge.glyph,
+                    miss,
+                });
+            }
+        }
     }
     misses
 }

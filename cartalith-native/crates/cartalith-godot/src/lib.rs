@@ -2974,6 +2974,25 @@ struct WorldGen {
     /// `load_asset_pack`; consumed by `build_color_texture` for both real
     /// sprite compositing and ground-texture splat.
     asset_pack: Option<pack::LoadedPack>,
+    /// The loaded pack's `structures.trait` art as Godot textures — slot key
+    /// → one `ImageTexture` per decoded variant, in the same order as
+    /// `LoadedPack::traits`, so `pack::TraitBadgeArt::Sprite`'s `variant`
+    /// indexes both.
+    ///
+    /// **Built once in `load_asset_pack`, not per call**, and that is the
+    /// point of the field rather than an optimisation after the fact:
+    /// `civ_trait_badge_row` is called from `map_overlay.gd::_draw()`, once
+    /// per settlement that carries a trait, on every redraw — a pan or a
+    /// zoom. `Image::create_from_data` + `ImageTexture::create_from_image`
+    /// per badge per redraw is a GPU upload per badge per redraw.
+    ///
+    /// Empty whenever `asset_pack` is `None`, and also whenever a loaded
+    /// pack declares no `structures.trait` at all. A slot that declared art
+    /// none of which decoded holds an **empty `Vec`**, exactly as
+    /// `LoadedPack::traits` does — that absent-vs-empty difference is what
+    /// `pack::TraitArtMiss`' two reasons are recovered from, so do not
+    /// filter it out here either.
+    trait_textures: std::collections::HashMap<String, Vec<Gd<ImageTexture>>>,
     /// `TERRAIN_APPEARANCE_RESEARCH.md` §29's quality tier for the *appearance*
     /// pass only (`TERRAIN_APPEARANCE_SCOPE.md` milestone 6). Purely
     /// presentation: it feeds `TerrainAppearance::for_tier` inside
@@ -3453,6 +3472,7 @@ impl IRefCounted for WorldGen {
             civ: None,
             seed: 0,
             asset_pack: None,
+            trait_textures: std::collections::HashMap::new(),
             quality: QualityTier::Quality,
             look: render::LOOK_VIBRANT.to_string(),
             // Multi-sun on, as the shipped default (2026-08-24). It lives on
@@ -5910,6 +5930,7 @@ impl WorldGen {
         };
         match pack::load_pack_from_bytes(bytes) {
             Ok(loaded) => {
+                self.trait_textures = Self::build_trait_textures(&loaded);
                 self.asset_pack = Some(loaded);
                 true
             }
@@ -5927,6 +5948,173 @@ impl WorldGen {
     #[func]
     fn has_asset_pack(&self) -> bool {
         self.asset_pack.is_some()
+    }
+
+    /// Decode-once helper for [`WorldGen::trait_textures`] — see that field
+    /// for why the textures are built here and not per call.
+    ///
+    /// A slot whose variants all failed to decode keeps an **empty `Vec`**
+    /// rather than being dropped: `pack::LoadedPack::traits` uses
+    /// absent-vs-empty to carry `pack::TraitArtMiss`' two reasons, and this
+    /// map has to mirror that shape or the distinction is lost on the way to
+    /// GDScript.
+    ///
+    /// An `Image::create_from_data` that returns `None` (only reachable on a
+    /// length/format mismatch, which `DecodedImage`'s own invariant rules
+    /// out) drops that one variant and keeps the rest, matching
+    /// `load_pack_from_bytes`' per-variant tolerance.
+    fn build_trait_textures(loaded: &pack::LoadedPack) -> std::collections::HashMap<String, Vec<Gd<ImageTexture>>> {
+        loaded
+            .traits
+            .iter()
+            .map(|(slot, variants)| {
+                let textures = variants
+                    .iter()
+                    .filter_map(|img| {
+                        let packed = PackedByteArray::from(img.rgba.as_slice());
+                        let image = Image::create_from_data(img.w as i32, img.h as i32, false, Format::RGBA8, &packed)?;
+                        ImageTexture::create_from_image(&image)
+                    })
+                    .collect();
+                (slot.clone(), textures)
+            })
+            .collect()
+    }
+
+    /// `_civDrawTraitBadges` (reference v2.11 line 15584), art half: one
+    /// settlement's row of trait badges, laid out and resolved against the
+    /// loaded pack's `structures.trait` art — **the route from an imported
+    /// pack to a settlement pin** (`OUTSTANDING_WORK.md` §2.5).
+    ///
+    /// `px`/`py` are the pin's centre and `sz`/`sc` its radius and the layer
+    /// scale, all in the caller's own drawing space; every coordinate comes
+    /// back in that same space. One entry per laid-out badge, in the
+    /// settlement's own trait order, capped at `traits.slice(0,4)`:
+    ///
+    /// - `key`, `cx`, `cy`, `r` — always. The geometry is
+    ///   `cartalith_assets::trait_badge_layout`'s, not re-derived by the
+    ///   caller: the row is centred on the pin, spaced `r*2.35`, and sits at
+    ///   `py + sz + r + 1.2*sc`.
+    /// - `texture` (`ImageTexture`) with `dx`/`dy`/`dw`/`dh` — **only** when
+    ///   the pack supplied art. The rect is
+    ///   `cartalith_assets::trait_sprite_rect`'s centre-anchored `r*2` box
+    ///   for that variant's own aspect; draw the texture into it and nothing
+    ///   else. Test with `has("texture")`.
+    /// - `miss` (`String`) — **only** when it did not:
+    ///   `"no_art_in_pack"` or `"art_failed_to_decode"`. The caller must draw
+    ///   the reference's own fallback (a dark disc with `glyph` on it) for
+    ///   both, identically; the two are told apart by
+    ///   [`WorldGen::pack_trait_art_status`], not on the map.
+    /// - `glyph` (`String`) — omitted when `key` is not a real `CIV_TRAITS`
+    ///   entry, which the reference draws **nothing at all** for (`const
+    ///   t=CIV_TRAITS.find(...); if(t){...}`). An absent `glyph` on a `miss`
+    ///   badge means skip it, not "draw a blank disc".
+    ///
+    /// **An empty `Array` means "nothing from me", and covers three states
+    /// on purpose:** no pack loaded, the settlement carries no traits, or
+    /// every trait fell outside the cap. All three leave the caller drawing
+    /// exactly the row it would have drawn without this call, which is what
+    /// keeps the no-art path — the state every world is in until a pack is
+    /// imported — byte-identical. It is deliberately **not** a row of
+    /// `no_art_in_pack` misses when no pack is loaded: that reason asserts a
+    /// pack exists and was checked, and it has not been. `has_asset_pack()`
+    /// is the question to ask instead.
+    ///
+    /// Cost, since this is called once per settlement that carries a trait,
+    /// on every redraw. The textures are built once by `load_asset_pack` (see
+    /// [`WorldGen::trait_textures`]), so a call allocates no image and uploads
+    /// nothing — it is a hash-map lookup and a `pick_icon_variant` hash per
+    /// badge, at most four badges, plus the `Dictionary` it marshals back.
+    /// **200 pins × 3 badges: median 1.234 ms, 1.229..1.341 over five runs**
+    /// (`_traitart_probe.tscn`, this machine, 2026-09-04) — about 6 µs a pin,
+    /// most of it the boundary crossing rather than the lookup. A settlement
+    /// with no traits costs nothing (`trait_badge_layout` returns empty), and
+    /// a shell that has installed no resolver never makes the call at all.
+    #[func]
+    fn civ_trait_badge_row(&self, px: f64, py: f64, traits: PackedStringArray, sz: f64, sc: f64) -> Array<VarDictionary> {
+        let mut out = Array::new();
+        let Some(loaded) = self.asset_pack.as_ref() else { return out };
+        let keys: Vec<String> = traits.as_slice().iter().map(|s| s.to_string()).collect();
+        for badge in pack::resolve_trait_badges(px, py, &keys, sz, sc, self.seed, loaded) {
+            let mut d = vdict! {
+                "key" => badge.key.as_str(),
+                "cx" => badge.cx,
+                "cy" => badge.cy,
+                "r" => badge.r,
+            };
+            if let Some(g) = badge.glyph {
+                d.set("glyph", g);
+            }
+            match badge.art {
+                pack::TraitBadgeArt::Sprite { variant, rect } => {
+                    // A resolved variant with no texture behind it means
+                    // `build_trait_textures` dropped that one image. Report it
+                    // as the decode failure it is rather than silently drawing
+                    // the fallback as though the pack never declared the slot.
+                    match self.trait_textures.get(&badge.key).and_then(|v| v.get(variant)) {
+                        Some(tex) => {
+                            d.set("texture", tex);
+                            d.set("dx", rect.dx);
+                            d.set("dy", rect.dy);
+                            d.set("dw", rect.dw);
+                            d.set("dh", rect.dh);
+                        }
+                        None => {
+                            d.set("miss", pack::TraitArtMiss::ArtFailedToDecode.key());
+                        }
+                    }
+                }
+                pack::TraitBadgeArt::Miss(miss) => {
+                    d.set("miss", miss.key());
+                }
+            }
+            out.push(&d);
+        }
+        out
+    }
+
+    /// Per-slot trait-art status for the loaded pack — the surface that tells
+    /// *"you never added port art"* from *"your port art is a broken PNG"*,
+    /// which the map deliberately cannot (`_civDrawTraitBadges` draws the
+    /// same disc and glyph for both, v2.11 lines 15592-15598).
+    ///
+    /// One entry for every `cartalith_assets::PACK_TRAIT_SLOTS` member, so a
+    /// readout can render all seven rows every time rather than only the ones
+    /// the pack happens to mention — the same rule `paint_painted_counts`
+    /// follows for its palette. Each value is a `Dictionary` carrying exactly
+    /// one of:
+    ///
+    /// - `variants` (`int`, ≥ 1) — that many images decoded and are on the
+    ///   map.
+    /// - `miss` (`String`) — `"no_art_in_pack"` (the manifest never mentions
+    ///   the slot) or `"art_failed_to_decode"` (it does, and not one variant
+    ///   survived `decode_png`: a manifest path with no ZIP entry, or a
+    ///   broken PNG).
+    ///
+    /// Never both, and never a `variants` of `0` standing in for a miss.
+    ///
+    /// **Empty `Dictionary` when no pack is loaded** — not seven
+    /// `no_art_in_pack` rows, which would assert a pack was read and found
+    /// wanting. `has_asset_pack()` is that question.
+    #[func]
+    fn pack_trait_art_status(&self) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        let Some(loaded) = self.asset_pack.as_ref() else { return out };
+        for &slot in cartalith_assets::PACK_TRAIT_SLOTS.iter() {
+            // Count the *textures*, not the decoded images: a variant that
+            // decoded but produced no `ImageTexture` cannot be drawn, so
+            // reporting it as present would describe art nothing can show.
+            let n = self.trait_textures.get(slot).map_or(0, Vec::len);
+            let row = if n > 0 {
+                vdict! { "variants" => n as i64 }
+            } else if loaded.traits.contains_key(slot) {
+                vdict! { "miss" => pack::TraitArtMiss::ArtFailedToDecode.key() }
+            } else {
+                vdict! { "miss" => pack::TraitArtMiss::NoArtInPack.key() }
+            };
+            out.set(slot, &row);
+        }
+        out
     }
 
     /// The active §29 appearance quality tier (`TERRAIN_APPEARANCE_SCOPE.md`

@@ -15,13 +15,30 @@ of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
 whole list has been finished.**
 
-**Two build lanes, plus the verifier** (owner, 2026-09-04). Scaled down from
-three. The adversarial verifier is a separate role and is not one of the two — it
-has found a real defect in every batch it has run, including in the brief itself
-in ten consecutive batches, so it is the last thing to cut. Keep lanes
-**file-disjoint**: assign by crate or by directory, and where two rows want the
-same file, serialize them across batches rather than forbidding the edit (that
-stranded corrections twice).
+**Four build lanes at Ultracode on Opus 5, plus the verifier** (owner,
+2026-09-04, superseding the two-lane instruction from earlier the same day). The
+adversarial verifier is a separate role and is not one of the four — it has found
+a real defect in every batch it has run, including in the brief itself in sixteen
+consecutive batches, so it is the last thing to cut.
+
+Keep lanes **file-disjoint**: assign by crate or by directory, and where two rows
+want the same file, serialize them across batches rather than forbidding the edit
+(forbidding it stranded corrections twice, and a concurrent read produced a false
+claim once). **At four lanes the disjointness is the hard part, not the work** —
+`godot-project/shell/`, `godot-project/` root (`map_overlay.gd`), and each crate
+are separate territories; pair GDScript lanes with Rust lanes so the two
+verification domains stay independent (`cargo test` cannot see a broken shell).
+Batch 27 hit the cost of getting this wrong the cheap way: a lane finished its
+work and could not write the **one line** that switched it on, because that line
+lived in the other lane's file.
+
+**Two deferred tasks are gated on "GUI work is done", and both are filed as
+rows rather than kept in a head:** rebuild the APK and drop it on the D: drive
+(recipe in memory `cartalith-apk-build-and-drop` — expect `--export-release` to
+fail at signing, that is normal, and verify the `.so` inside the APK is the one
+just built), and a menu-by-menu design-conformance audit using **Fable 5.1 at
+Ultracode, minimum 2 agents** (owner, 2026-09-04). Neither starts early; say so
+rather than quietly deciding GUI work is finished.
 
 **Commit per verified batch** (owner, 2026-09-03). One commit per batch, after its
 verifier reports — not before. Two constraints follow and neither is optional:

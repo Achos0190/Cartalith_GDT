@@ -23,7 +23,7 @@ mod render;
 mod pack;
 
 use cartalith_assets::{DecodedImage, encode_png, trait_badge_layout, trait_badge_radius, zip_store_bytes};
-use pack::{TraitArtMiss, composite_trait_badges, load_pack_from_bytes};
+use pack::{TraitArtMiss, composite_trait_badges, load_pack_from_bytes, resolve_trait_badges};
 use std::fs;
 
 fn fixture_bytes() -> Vec<u8> {
@@ -257,4 +257,82 @@ fn an_empty_grid_paints_nothing_and_reports_nothing() {
     let loaded = load_pack_from_bytes(fixture_bytes()).expect("fixture must load");
     let mut bytes: Vec<u8> = Vec::new();
     assert!(composite_trait_badges(&mut bytes, 0, 0, 0.0, 0.0, &keys(&["port"]), PIN.2, PIN.3, 7, &loaded).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// `resolve_trait_badges` — the decisions, without the raster
+// ---------------------------------------------------------------------------
+
+/// The two miss reasons cross the gdext boundary as strings, so the strings
+/// are the contract. Asserted as **literals**, not against the constants that
+/// produce them: `assert_eq!(x, THE_CONSTANT)` holds for every value of the
+/// constant (`MISTAKES.md`), and a rename here silently breaks
+/// `map_overlay.gd` and every readout keyed on these names.
+#[test]
+fn the_two_miss_reasons_have_stable_names() {
+    assert_eq!(TraitArtMiss::NoArtInPack.key(), "no_art_in_pack");
+    assert_eq!(TraitArtMiss::ArtFailedToDecode.key(), "art_failed_to_decode");
+    assert_ne!(TraitArtMiss::NoArtInPack.key(), TraitArtMiss::ArtFailedToDecode.key());
+}
+
+/// The resolver answers with the pack's own variant and the reference's own
+/// destination box, and `composite_trait_badges` paints exactly that — which
+/// is the whole reason the two share one function. Pins the box against
+/// arithmetic written out here rather than against `trait_sprite_rect`
+/// itself: `port_01.png` is 256x256, so `dw = dh = r*2` and the box is
+/// centred on the badge.
+#[test]
+fn resolve_reports_the_packs_variant_at_the_references_centre_anchored_box() {
+    let loaded = load_pack_from_bytes(fixture_bytes()).expect("fixture must load");
+    let badges = resolve_trait_badges(PIN.0, PIN.1, &keys(&["port", "mining"]), PIN.2, PIN.3, 7, &loaded);
+    assert_eq!(badges.len(), 2);
+
+    let r = trait_badge_radius(PIN.2);
+    assert_eq!(r, 4.2, "sz=10 -> max(2.2, 4.2)");
+    match badges[0].art {
+        pack::TraitBadgeArt::Sprite { variant, rect } => {
+            assert_eq!(variant, 0, "the fixture declares exactly one `port` variant");
+            assert_eq!((rect.dw, rect.dh), (r * 2.0, r * 2.0));
+            assert_eq!(rect.dx + rect.dw / 2.0, badges[0].cx);
+            assert_eq!(rect.dy + rect.dh / 2.0, badges[0].cy);
+        }
+        pack::TraitBadgeArt::Miss(m) => panic!("the fixture HAS port art; got {m:?}"),
+    }
+    assert_eq!(badges[1].art, pack::TraitBadgeArt::Miss(TraitArtMiss::NoArtInPack));
+    assert_eq!(badges[1].glyph, Some("⚒"), "a miss still carries the glyph its fallback draws");
+}
+
+/// The resolver's own layout is `trait_badge_layout`'s and is not re-derived,
+/// checked against the reference's three expressions written out
+/// independently (`_civDrawTraitBadges`, v2.11 lines 15586-15588).
+#[test]
+fn resolve_lays_the_row_out_at_the_references_own_geometry() {
+    let loaded = load_pack_from_bytes(fixture_bytes()).expect("fixture must load");
+    let badges = resolve_trait_badges(PIN.0, PIN.1, &keys(&["port", "mining", "military"]), PIN.2, PIN.3, 7, &loaded);
+    assert_eq!(badges.len(), 3);
+    let r = 4.2_f64; // max(2.2, sz*0.42) at sz = 10
+    assert_eq!(badges[0].r, r);
+    assert_eq!(badges[1].cx - badges[0].cx, r * 2.35);
+    assert_eq!((badges[0].cx + badges[2].cx) / 2.0, PIN.0, "centred on the pin");
+    assert_eq!(badges[0].cy, PIN.1 + PIN.2 + r + 1.2 * PIN.3);
+    // No traits is an empty row, not a row of zero-radius badges.
+    assert!(resolve_trait_badges(PIN.0, PIN.1, &[], PIN.2, PIN.3, 7, &loaded).is_empty());
+}
+
+/// Declared-but-undecodable reaches the resolver as its own reason, so the
+/// `#[func]` that hands GDScript a badge row can report it per badge without
+/// re-deriving anything.
+#[test]
+fn resolve_keeps_the_undecodable_reason_apart_from_the_never_declared_one() {
+    let broken = load_pack_from_bytes(pack_with_undecodable_trait_art()).expect("broken pack must load");
+    let fixture = load_pack_from_bytes(fixture_bytes()).expect("fixture must load");
+    let traits = keys(&["mining"]);
+    assert_eq!(
+        resolve_trait_badges(PIN.0, PIN.1, &traits, PIN.2, PIN.3, 7, &broken)[0].art,
+        pack::TraitBadgeArt::Miss(TraitArtMiss::ArtFailedToDecode)
+    );
+    assert_eq!(
+        resolve_trait_badges(PIN.0, PIN.1, &traits, PIN.2, PIN.3, 7, &fixture)[0].art,
+        pack::TraitBadgeArt::Miss(TraitArtMiss::NoArtInPack)
+    );
 }

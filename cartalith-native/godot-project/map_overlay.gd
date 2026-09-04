@@ -242,16 +242,16 @@ const COASTAL_BADGE_R_SC := 0.55
 ## most labels"*, so a settlement carrying every trait cannot grow a strip
 ## wider than its own name.
 ##
-## **The sprite half of this is unreachable, and the disc below is not a
-## stand-in invented for the port.** The reference draws pack art whenever
-## `assetPack.structures.trait[key]` has a bitmap (`_traitSprite`, 15571) and
-## this dark disc carrying the trait's `CIV_TRAITS` glyph when it does not
-## (15592-15598). Here the disc is the *only* path, because no pack sprite
-## reaches a Godot `_draw()` -- see `ICON_FAMILY_COLORS`' own note above.
-## `cartalith_assets::trait_sprite_rect` and `cartalith-godot`'s
-## `pack::composite_trait_badges` do port the sprite geometry and the blit,
-## but the latter paints into a `&mut [u8]` canvas and carries no `#[func]`,
-## so GDScript cannot call it: closing that needs Rust, not this file.
+## **Both of the reference's halves exist here now.** It draws pack art
+## whenever `assetPack.structures.trait[key]` has a bitmap (`_traitSprite`,
+## 15571) and this dark disc carrying the trait's `CIV_TRAITS` glyph when it
+## does not (15592-15598). The art half arrived on 2026-09-04 through
+## `set_trait_art_resolver()` -- see that method for the whole route and for
+## why the disc, not the sprite, is what every world draws until the resolver
+## is installed -- which is a missing Callable, not a missing pack. Until then this comment said the sprite half was unreachable,
+## which was true of `pack::composite_trait_badges` (a `&mut [u8]` canvas and
+## no `#[func]`) and stopped being true when `WorldGen::civ_trait_badge_row`
+## landed beside it.
 const TRAIT_BADGES_SHOWN_MAX := 4
 const TRAIT_BADGE_R_MIN := 2.2
 const TRAIT_BADGE_R_SZ := 0.42
@@ -423,12 +423,21 @@ const MANUAL_ROUTE_SEL_WIDTH := 2.5
 ## §4.5.5's Icon tool markers, by `icon_dict`'s `family` key
 ## (`cartalith_assets::manual::ManualIconFamily::key()`).
 ##
-## **No asset-pack sprite is reachable from this `_draw()` at all**, and the
-## reason is not `icon_bridge.rs`: that file rasterises nothing -- it is the
-## Icon tool's numeric state (arm/place/hit-test/resize/list) and its own
-## module doc calls it "deliberately free of any `godot` dependency". Grep it
-## for `blit`, `Canvas` or `DecodedImage` and there are no matches; its only
-## mentions of drawing are two prose references to `composite_map_icons`.
+## **No asset-pack sprite is reachable from this `_draw()` for the four
+## families below**, and the reason is not `icon_bridge.rs`: that file
+## rasterises nothing -- it is the Icon tool's numeric state
+## (arm/place/hit-test/resize/list) and its own module doc calls it
+## "deliberately free of any `godot` dependency". Grep it for `blit`, `Canvas`
+## or `DecodedImage` and there are no matches; its only mentions of drawing
+## are two prose references to `composite_map_icons`.
+##
+## **Narrowed 2026-09-04, and only for `structures.trait`.** This used to say
+## no pack sprite was reachable from this `_draw()` *at all*. Trait badges now
+## are, via `set_trait_art_resolver()` -- `WorldGen::civ_trait_badge_row`
+## hands over an `ImageTexture` per badge and this control blits it with
+## `draw_texture_rect`. Nothing about that reaches the four families here:
+## `settlement`, `poi` and `custom` have no compositor in the port at all, and
+## the `icons` family has one that paints into the terrain buffer.
 ##
 ## The function that does rasterise a pack's art is `cartalith-godot`'s
 ## `pack::composite_map_icons`, and it paints into the TERRAIN byte buffer at
@@ -1280,19 +1289,82 @@ func _trait_drop(s: Dictionary, radius: float, sc: float) -> float:
 	return _trait_badge_radius(radius) * 2.0 + TRAIT_BADGE_ROW_SC * sc
 
 
+## An imported asset pack's own `structures.trait` art, resolved per badge.
+##
+## `cb` is `WorldGen::civ_trait_badge_row` -- called as
+## `cb.call(px, py, keys, sz, sc)` and returning one `Dictionary` per laid-out
+## badge, in trait order, already capped at `traits.slice(0,4)`. A badge with
+## art carries `texture` plus a `dx`/`dy`/`dw`/`dh` destination rect
+## (`cartalith_assets::trait_sprite_rect`'s centre-anchored `r*2` box); one
+## without carries `miss` instead and is drawn by the disc-and-glyph branch
+## below, which is the reference's own fallback.
+##
+## **A `Callable` and not an `EngineBridge`**, because this control holds no
+## bridge and fetches nothing -- `set_civ_data`'s own doc comment. Everything
+## else it draws is pushed to it; this is pushed to it too, as a handle it
+## calls rather than a service it looks up.
+##
+## **Nothing installs one yet.** The push belongs beside
+## `viewport_host.gd::refresh_settlement_traits()`, which is where the trait
+## keys and the glyph vocabulary already come from, and that file was another
+## lane's this batch. Until that line exists the resolver stays unset and
+## every badge takes the disc-and-glyph path -- which is also the state of
+## every world today, pack or no pack -- the precondition is that no resolver
+## is installed, NOT that no pack is imported. A world can hold a pack full of
+## trait art and still take this path, because nothing pushes the Callable
+## yet. Corrected 2026-09-04 after a verifier refuted the first wording.
+func set_trait_art_resolver(cb: Callable) -> void:
+	_trait_art_resolver = cb
+	queue_redraw()
+
+var _trait_art_resolver: Callable = Callable()
+
+
+## `index -> badge dictionary` for the badges the loaded pack actually has art
+## for, and **only** those: a badge whose entry carries no `texture` is left
+## out entirely, so the caller's `has(i)` answers "draw the art" and nothing
+## else. Empty whenever no resolver is installed, no pack is loaded, or the
+## pack has no art for any of this settlement's traits.
+##
+## The four numbers handed over are exactly the four `_draw_trait_badges`
+## lays the row out from, so the engine's `cx`/`cy`/`r` and this file's
+## `bx0`/`by`/`r` are two evaluations of one expression rather than two
+## expressions -- measured equal, not assumed: `_traitart_probe.tscn` asserts
+## the pack sprite lands inside the left third of the row the disc path draws.
+func _trait_badge_art(keys: PackedStringArray, pos: Vector2, radius: float, sc: float) -> Dictionary:
+	if not _trait_art_resolver.is_valid():
+		return {}
+	var row: Array = _trait_art_resolver.call(pos.x, pos.y, keys, radius, sc)
+	var out: Dictionary = {}
+	for i in row.size():
+		var b: Dictionary = row[i]
+		if b.has("texture"):
+			out[i] = b
+	return out
+
+
 ## `_civDrawTraitBadges` (reference v2.11 line 15584): the row of trait badges
 ## beneath a settlement pin, centred on it and capped at
-## `TRAIT_BADGES_SHOWN_MAX`. See that constant's own comment for the geometry
-## and for why only the reference's no-art branch exists here.
+## `TRAIT_BADGES_SHOWN_MAX`. See that constant's own comment for the geometry.
 ##
 ## `radius` is the pin radius this frame (the reference's `sz`) and `sc` the
 ## layer scale; `k` and `font` are `_draw()`'s own hoisted screen-pixel
 ## factor and theme font, passed in rather than re-fetched per settlement.
 ##
+## Both of the reference's branches: a badge the pack has art for is the
+## sprite and nothing else (`_traitSprite` returning true short-circuits the
+## fallback at 15591), and every other badge is the dark disc with the trait's
+## glyph. `art` is empty whenever no resolver is installed -- which is every
+## world at this commit, imported pack or not -- so that second branch is what
+## this draws today. It is emptied by the missing Callable, not by a missing
+## pack.
+##
 ## Discs first, then every glyph inside ONE `_crisp_begin()` block: the two
 ## never overlap (`gap` is `2.35*r` against a diameter of `2*r`), so the split
 ## changes no pixel and costs TWO `draw_set_transform` calls per pin
-## (`_crisp_begin` + `_crisp_end`) instead of up to eight.
+## (`_crisp_begin` + `_crisp_end`) instead of up to eight. The sprites join
+## the first loop because they are in the same local space as the discs they
+## replace -- `_crisp_begin` is for text, and a texture rect needs no snapping.
 func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k: float, font: Font) -> void:
 	var keys := _settlement_trait_keys(s)
 	if keys.is_empty():
@@ -1302,8 +1374,13 @@ func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k
 	var gap := r * TRAIT_BADGE_GAP_R
 	var bx0 := pos.x - float(shown - 1) * gap / 2.0
 	var by := pos.y + radius + r + TRAIT_BADGE_ROW_SC * sc
+	var art := _trait_badge_art(keys, pos, radius, sc)
 	for i in shown:
-		if _trait_glyphs.has(keys[i]):
+		if art.has(i):
+			var a: Dictionary = art[i]
+			draw_texture_rect(a["texture"],
+				Rect2(float(a["dx"]), float(a["dy"]), float(a["dw"]), float(a["dh"])), false)
+		elif _trait_glyphs.has(keys[i]):
 			draw_circle(Vector2(bx0 + float(i) * gap, by), r, TRAIT_BADGE_DISC, true, -1.0, true)
 	## The reference's `Math.max(6, r*1.5)|0` is a canvas-pixel size, i.e. a
 	## screen-pixel one; `r` here is local, so the inner term converts with
@@ -1312,7 +1389,7 @@ func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k
 	var v_center: float = (font.get_ascent(badge_px) - font.get_descent(badge_px)) / 2.0
 	_crisp_begin()
 	for i in shown:
-		if not _trait_glyphs.has(keys[i]):
+		if art.has(i) or not _trait_glyphs.has(keys[i]):
 			continue
 		var glyph := String(_trait_glyphs[keys[i]])
 		var gwid := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_px).x

@@ -158,14 +158,27 @@ pub const PACK_POI_SLOTS: [&str; 8] = [
 /// "not yet used by the live map" list, which still names `trait`.
 ///
 /// The family is the one clause left in [`crate::PackManifest::warnings`]'
-/// entry, and that clause is still accurate — but its *reason* has narrowed.
+/// entry, and that clause is still accurate — but its *reason* has now
+/// narrowed twice, and the second narrowing is the last one available.
+///
 /// It used to be that nothing composited a trait sprite anywhere in this port;
-/// `cartalith-godot`'s `pack::composite_trait_badges` now does, over
+/// `cartalith-godot`'s `pack::composite_trait_badges` did that first, over
 /// [`crate::trait_badge_layout`]'s geometry and [`crate::trait_sprite_rect`]'s
-/// per-sprite box. What is still missing is its caller: settlement pins are
-/// drawn by `godot-project/map_overlay.gd`, which does not call it, so trait
-/// art is genuinely still not used by the live map. `OUTSTANDING_WORK.md`
-/// §2.5 is that remaining gap.
+/// per-sprite box, and had no caller because it paints into the terrain buffer
+/// at grid resolution. **On 2026-09-04 the route to a settlement pin was
+/// built** (`OUTSTANDING_WORK.md` §2.5): `pack::resolve_trait_badges` →
+/// `WorldGen::civ_trait_badge_row` → `map_overlay.gd::set_trait_art_resolver`,
+/// handing an `ImageTexture` per badge to the control that draws the pins.
+/// Measured windowed on three fixtures: an imported pack's `port` art reaches
+/// the pin and no other badge changes (`_traitart_probe.tscn`).
+///
+/// What keeps the clause true is now exactly one missing line: **nothing calls
+/// `set_trait_art_resolver`**, so the handle is never installed and every
+/// world still draws the glyph fallback. The natural place is beside
+/// `viewport_host.gd::refresh_settlement_traits()`. When that line lands the
+/// clause becomes false, and dropping it moves a golden-pinned string —
+/// an owner ruling, exactly as widening the list would be. Do not pre-empt it
+/// here.
 pub const PACK_TRAIT_SLOTS: [&str; 7] = [
     "fortified",
     "mining",
