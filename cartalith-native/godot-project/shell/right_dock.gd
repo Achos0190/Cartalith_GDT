@@ -13,10 +13,18 @@ class_name RightDock
 ##
 ## Ported from `main.gd`'s old Sample panel (`_refresh_sample_panel`, lines
 ## ~1567-1600 as last read) and its `_build_causal_chain_text` (the
-## "WHY HERE?" explanation, ~1508-1551): the settlement causal-chain logic
-## is real and unchanged here, only re-hosted under the new dock. Everything
-## else in this file is new: the old Sample panel only ever had cursor
-## position and settlement hover to show.
+## "WHY HERE?" explanation, ~1508-1551). Everything else in this file is new:
+## the old Sample panel only ever had cursor position and settlement hover to
+## show.
+##
+## **That causal chain is no longer a block of prose here.** It was re-hosted
+## unchanged under this dock, then on 2026-09-05 the approved
+## `design/proposed-2026-09-05/SettlementExtras.dc.html` turned it into WHY
+## HERE's ranked bars -- `_build_settlement_why()`, over the same
+## `explain_settlement()` terms and the same 0.005 threshold. The `main.gd`
+## function it was ported from is gone with the prose; what the bars cannot
+## draw (the score, the four terrain readings, and the sentence an *opened*
+## project gets instead of a decomposition) is stated under them.
 ##
 ## **The per-cell field sampler this file used to say did not exist now
 ## does** (`sample_bridge.rs`, `bridge.sample_cell()`), so §6's Sample
@@ -1801,7 +1809,6 @@ func _build_settlement(body: Control) -> void:
 	_settlement_faction_row(sec, int(s.get("faction", 0)))
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
-	_build_settlement_faith(sec, s)
 
 	var why: Dictionary = bridge.explain_settlement(_settlement_index)
 	var water := _term_value(why, "water_access")
@@ -1843,33 +1850,31 @@ func _build_settlement(body: Control) -> void:
 	DccWidgets.action(actions, "Economy", func(): app.open_world_data("Economy"))
 	DccWidgets.action(actions, "Politics", func(): show_faction(int(s.get("faction", 0))))
 	DccWidgets.action(actions, "Logistics", func(): app.open_journey_planner())
-	## `GUI_GAP_REGISTER.md` UM-02's launcher. The reference puts it in the
-	## place-edit popup (`peCityOpen`). **This shell now has that popup** --
-	## `PlaceEditorWindow`, built for ED-03 and instantiated in `app.gd`'s
-	## `_ready`, whose own Actions section opens `CityViewerWindow` too. (This
-	## comment said "which this shell does not have yet (ED-03)" until
-	## 2026-09-05; a verifier flagged it in batch 33 and it survived that batch.
-	## The launcher is deliberately in **both** places: this dock's Settlement
-	## context is the same information and already carries `_settlement_index`,
-	## so it does not have to wait on the popup being open.)
-	## It stays live regardless of whether the town
-	## can be laid out: the window itself explains a refusal (a settlement in
-	## open water gets no town) rather than a disabled button implying the
-	## feature is missing.
-	DccWidgets.action(actions, "City layout", func(): app.open_city_viewer(_settlement_index))
+	## **`GUI_GAP_REGISTER.md` UM-02's launcher used to be a fourth action here
+	## and is now the CITY LAYOUT section's own `open viewer ›` link**, which is
+	## where `SettlementExtras.dc.html` draws it: that artboard's chip row is
+	## exactly these three, and the viewer opens from beside the plan it opens.
+	## One launcher in this panel, not two. It is still in **both** surfaces the
+	## earlier note meant -- this dock and `PlaceEditorWindow`'s own Actions
+	## section (the reference's `peCityOpen`) -- and still live regardless of
+	## whether the town can be laid out, because the window itself explains a
+	## refusal where a disabled control would imply a missing feature.
 
-	var why_sec := DccWidgets.section(body, "Why here?")
-	var rt := RichTextLabel.new()
-	rt.bbcode_enabled = true
-	rt.fit_content = true
-	rt.scroll_active = false
-	rt.custom_minimum_size.x = 220
-	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rt.add_theme_font_size_override("normal_font_size",
-		DccTheme.role_px("fs_prose") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
-	rt.add_theme_color_override("default_color", DccTheme.c("text"))
-	rt.text = _build_causal_chain_text(s, _settlement_index)
-	why_sec.add_child(rt)
+	## `SettlementExtras.dc.html`'s three appended sections, in the artboard's
+	## order, each opened by its own `--div` rule. Its footnote is binding and
+	## is the reason they are built on `body` rather than inside `sec`: *"the
+	## four sections above are appended, not a replacement — the eight rows are
+	## §1.11 unchanged. A section with no data is omitted, not drawn empty."*
+	##
+	## The one place this shell keeps something the artboard would omit is a
+	## field whose absence has a **reason a reader can act on** — no belief
+	## binding in this build, no diffusion run yet, an opened project that
+	## never stored its suitability diagnostics. Those are dashed with that
+	## reason rather than omitted, per `MISTAKES.md`'s standing rule; a section
+	## with nothing to say and nothing to explain is genuinely not drawn.
+	_build_settlement_faith(body, s)
+	_build_settlement_layout(body)
+	_build_settlement_why(body, why)
 
 ## `05-right-dock-and-bars.md` §1.11's `placeRows` gives this row as *"the
 ## owning faction name"*. It printed `str(int(s["faction"]))` -- a bare index --
@@ -1942,42 +1947,53 @@ func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 ## show a faith a settlement does not hold" rule failing. `tid` is the engine's
 ## own stable id and is on every entry.
 ##
-## Labels and shares come from `CivilizationWorkspace`'s own statics rather
-## than a second copy of them. CIVIL > Religion is the other surface that
-## prints these numbers, and two renderings of one faith -- "Sun Cult" against
-## "Sun cult", a real congregation of two people as `0.0%` against `<0.1%` --
-## costs more than the coupling does. A rename over there breaks this file at
-## parse time, which is loud rather than silent.
-func _build_settlement_faith(sec: Control, snapshot: Dictionary) -> void:
+## Labels, shares **and hues** come from `CivilizationWorkspace`'s own statics
+## rather than a second copy of them. CIVIL > Religion is the other surface
+## that prints these numbers, and two renderings of one faith -- "Sun Cult"
+## against "Sun cult", a real congregation of two people as `0.0%` against
+## `<0.1%`, a bar segment in one amber here and another there -- costs more
+## than the coupling does. A rename over there breaks this file at parse time,
+## which is loud rather than silent.
+##
+## **`SettlementExtras.dc.html`'s FAITH section since 2026-09-05**, replacing
+## the `Faith` row plus an `Adherence` group of prose notes this drew before.
+## Three things move with the shape: the plurality is the section head's own
+## trailing note rather than a row of the eight above it (the artboard has no
+## FAITH row among them); the shares are a stacked bar over a top-three list
+## rather than one note per faith; and the tail beyond three becomes the
+## artboard's own remainder line. Nothing is dropped -- the head-counts the
+## notes carried are each row's tooltip, and the denominator sentence is the
+## bar's.
+func _build_settlement_faith(body: Control, snapshot: Dictionary) -> void:
 	if not bridge.has_belief_api():
-		_field(sec, "Faith", "—",
+		_faith_absent(body,
 			"This build's engine has no civ_belief_run() binding -- the native library is "
 			+ "older than this shell, so nothing here can report a religion. That is a build "
-			+ "state, not a world with no faiths in it: rebuild and re-export.", false)
+			+ "state, not a world with no faiths in it: rebuild and re-export.")
 		return
 	var live := _live_settlement(snapshot)
 	if live.is_empty():
-		_field(sec, "Faith", "—",
+		_faith_absent(body,
 			"The engine's settlement list no longer carries this town under the id it was "
 			+ "selected with, so there is no entry to ask about its adherence. Re-select it "
-			+ "on the map.", false)
+			+ "on the map.")
 		return
 	if not live.has("religion"):
-		_field(sec, "Faith", "—",
+		_faith_absent(body,
 			"The belief layer does not cover this settlement. Either no diffusion has been "
 			+ "run in this world -- the layer is built on demand and is not saved with the "
 			+ "project -- or the last run was discarded because something it was seeded from "
-			+ "changed. CIVIL > Religion tells the two apart, and runs it.", false)
+			+ "changed. CIVIL > Religion tells the two apart, and runs it.")
 		return
 
 	var key := String(live["religion"])
-	_field(sec, "Faith", CivilizationWorkspace._religion_label(key),
+	var pop := int(live.get("population", 0))
+	var sec := _ext_section(body, "Faith", CivilizationWorkspace._religion_label(key),
 		"The plurality faith: the one with the most adherents here, which is not necessarily "
 		+ "a majority -- the shares below are the whole answer. \"No religion\" is one of the "
 		+ "rows and one of the possible pluralities; it means most of these people follow no "
-		+ "faith, not that the model has nothing to say.")
+		+ "faith, not that the model has nothing to say.", true)
 
-	var pop := int(live.get("population", 0))
 	if not live.has("adherents"):
 		DccWidgets.note(sec, "— no head-counts for this settlement: the engine gave a "
 			+ "plurality without the adherents dictionary it is derived from. Nothing here "
@@ -1996,23 +2012,305 @@ func _build_settlement_faith(sec: Control, snapshot: Dictionary) -> void:
 				% _thousands(float(pop)))
 		return
 
-	## Open at four rows or fewer for the same reason the settlement list in
-	## CIVIL is: a short list is the answer, and collapsing it hides the whole
-	## point of showing shares rather than one plurality label.
-	var grp := DccWidgets.group(sec, "Adherence", rows.size() <= 4)
-	DccWidgets.note(grp, ("Shares of this settlement's own population, %s people -- the "
+	## The whole list feeds the bar, in `_religion_sorted()`'s descending order,
+	## so the segments run left to right in the order of the rows under them --
+	## and so the tail beyond the third row is drawn even though it is not
+	## listed. The denominator is stated here because a bar without one is a
+	## shape rather than a reading.
+	var parts: Array = []
+	var counted := 0
+	for r in rows:
+		parts.append([float(r[0]), CivilizationWorkspace._religion_color(String(r[1]))])
+		counted += int(r[0])
+	_stacked_bar(sec, parts, ("Shares of this settlement's own population, %s people -- the "
 		+ "denominator is this town and not the world. The engine hands the rounding "
 		+ "remainder to the largest fractions rather than rounding each share alone, so "
-		+ "these read as head-counts. A faith with nobody in it is not listed at all, and "
-		+ "`<0.1%%` is a real congregation too small to round rather than an absent row.")
-		% _thousands(float(pop)))
-	for r in rows:
-		var rkey: String = r[1]
-		var n: int = r[0]
-		DccWidgets.note(grp, "%s %s — %s people (%s)" % [
-			CivilizationWorkspace._religion_swatch_glyph(rkey),
-			CivilizationWorkspace._religion_label(rkey),
-			_thousands(float(n)), CivilizationWorkspace._religion_pct(n, pop)])
+		+ "these read as head-counts. A faith with nobody in it is not listed at all, so "
+		+ "every segment above has at least one follower.") % _thousands(float(pop)))
+
+	var shown: int = mini(3, rows.size())
+	var shown_keys: Array = []
+	for i in shown:
+		var rkey := String(rows[i][1])
+		shown_keys.append(rkey)
+		_faith_row(sec, rkey, int(rows[i][0]), pop)
+
+	## The artboard's `2 more · unaffiliated 9 %`. Both halves are omitted when
+	## they are not true of this town -- there is no "0 more", and the
+	## unaffiliated share is not repeated when it is already one of the rows
+	## above. `counted` is the bar's own total, which is the population only
+	## when the engine accounted for everybody; when it is not, the gap is
+	## stated rather than rounded away.
+	var tail_parts: Array = []
+	if rows.size() > shown:
+		tail_parts.append("%d more" % (rows.size() - shown))
+	if adherents.has("none") and not shown_keys.has("none"):
+		tail_parts.append("unaffiliated %s"
+			% CivilizationWorkspace._religion_pct(int(adherents["none"]), pop))
+	if pop > 0 and counted < pop:
+		tail_parts.append("%s unaccounted" % _thousands(float(pop - counted)))
+	if not tail_parts.is_empty():
+		var tail := DccTheme.mono_label(" · ".join(tail_parts), "text_ghost",
+			DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO)
+		tail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		tail.tooltip_text = ("The rest of the list: every faith below the third, and the "
+			+ "unaffiliated share when it is not already one of the three. Open CIVIL > "
+			+ "Religion for the full table.")
+		sec.add_child(tail)
+
+## The FAITH section with nothing in it but the reason. The artboard omits a
+## section with no data; this shell keeps one whose absence has an **actionable
+## reason** -- rebuild the library, re-select the town, run a diffusion -- since
+## a silently missing section reads as a dock that is broken on this world.
+func _faith_absent(body: Control, reason: String) -> void:
+	DccWidgets.note(_ext_section(body, "Faith", "—", reason), reason)
+
+## One row of the top-three list: the swatch, the faith's name, its share.
+##
+## The swatch is `_religion_swatch_glyph()`'s own mark painted in
+## `_religion_color()`'s own hue, which is both encodings in one control:
+## shape carries the distinction colour cannot ("No religion" is a row in this
+## list and is not one of the faiths, so it draws hollow), colour keys the row
+## to its segment in the bar above. The head-count the prose notes used to
+## carry is this row's tooltip.
+func _faith_row(parent: Control, key: String, n: int, pop: int) -> void:
+	var tablet := DccTheme.is_tablet()
+	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 7)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 20
+	row.tooltip_text = "%s people" % _thousands(float(n))
+	var chip := DccTheme.mono_label(
+		CivilizationWorkspace._religion_swatch_glyph(key), "text", fs)
+	chip.add_theme_color_override("font_color", CivilizationWorkspace._religion_color(key))
+	row.add_child(chip)
+	var name_l := DccTheme.mono_label(
+		CivilizationWorkspace._religion_label(key), "text_secondary", fs)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(name_l)
+	row.add_child(DccTheme.mono_label(
+		CivilizationWorkspace._religion_pct(n, pop), "text_secondary", fs))
+	parent.add_child(row)
+
+## -- City layout --------------------------------------------------------------
+##
+## `SettlementExtras.dc.html`'s CITY LAYOUT section, and **`GUI_GAP_REGISTER.md`
+## UM-03's open half**: an 84 px plan beside three readings and the viewer's
+## launcher. That row has stood open since 2026-08-23 on *"it needs a rendered
+## layout at icon size, not a modal"* -- see `_plan_thumb()` for why the answer
+## turned out to be yes, and for the two parameters that make it legible.
+##
+## **Three rows in the artboard, two of them wired and the third dashed.** The
+## dash is the point of this comment:
+##
+## * **WARDS** is the count of distinct district tags `assignDistricts` put on
+##   this town's lots (`parcel_district`), which is the engine's own word for
+##   the same civic subdivision the artboard labels WARDS. A real world's town
+##   returns seven of them (`artisan`, `market`, `church`, `harbour`,
+##   `burgher`, `agrarian`, `craftriver`) -- measured, not assumed.
+## * **WALLS** is `um_wall_spec`'s own rung, straight through: the ladder's
+##   verdict for this place, present on every layout whether or not a ring was
+##   built.
+## * **BRIDGES cannot be counted and is dashed with the reason.** The engine
+##   models `bridge_pt` as an `Option<Vec2>` -- *one* designated crossing, so a
+##   count could only ever be 0 or 1 -- and `urban_bridge.rs`'s own doc calls
+##   even that a **candidate point** rather than a validated crossing. The
+##   artboard's `2` is illustrative, and printing `1` here would be minting a
+##   tally out of a flag.
+##
+##   **This comment claimed `detectRiverCrossings` was unported. It is ported**
+##   -- `cartalith-urban/src/water.rs::detect_river_crossings`, called at
+##   `generate.rs:683` on the final graph, writing `site.bridges`/`site.ford`,
+##   with dedicated ordering tests. The gap is one layer nearer: `cartalith-civ`'s
+##   `UrbanLayout` adapter drops those fields, which is what `urban_bridge.rs`'s
+##   own doc means by *"still 'one field away' and unsurfaced"*. Corrected
+##   2026-09-05 after a verifier opened the crate; the false version had also
+##   reached a **user-visible tooltip**, and it would have scheduled a port of a
+##   subsystem that already exists.
+func _build_settlement_layout(body: Control) -> void:
+	if not bridge.has_world or _settlement_index < 0:
+		return
+	var got: Array = bridge.urban_layouts(PackedInt32Array([_settlement_index]))
+	if got.is_empty():
+		DccWidgets.note(_ext_section(body, "City layout", "—",
+			"No plan for this settlement."),
+			"The engine refuses a layout when the settlement's own 1.7 x 1.25 km box is "
+			+ "open water -- a mid-lake or mid-sea pin has no shore to build on. That is "
+			+ "the reference's own _umModelFor refusal, which leaves the bare pin standing; "
+			+ "it is not an unbuilt milestone. (An engine older than this shell exports no "
+			+ "urban_layouts() at all, and reads the same way here.)")
+		return
+	var l: Dictionary = got[0]
+	var sec := _ext_section(body, "City layout", String(l.get("site_kind", "—")),
+		("The plan this town's site generates: %s lots in %s blocks, %s buildings. "
+			+ "Water is %s and terrain is %s -- when either reads \"synthetic\" the plan "
+			+ "is drawn on a stand-in rather than on this world's own ground.") % [
+			_thousands(float((l.get("parcels", []) as Array).size())),
+			_thousands(float((l.get("blocks", []) as Array).size())),
+			_thousands(float((l.get("buildings", []) as Array).size())),
+			"real" if bool(l.get("uses_real_water", false)) else "synthetic",
+			"real" if bool(l.get("uses_real_terrain", false)) else "synthetic"])
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(_plan_thumb(l))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(col)
+	sec.add_child(row)
+
+	## The label column is narrowed from `_FIELD_LABEL_W` because 84 px of
+	## thumbnail plus a 116 px label leaves the value nothing at dock width.
+	var lw := 66
+	var wards: Dictionary = {}
+	for d in (l.get("parcel_district", PackedStringArray()) as PackedStringArray):
+		if String(d) != "":
+			wards[String(d)] = true
+	var names: Array = wards.keys()
+	names.sort()
+	_field(col, "Wards", str(names.size()) if not names.is_empty() else "—",
+		("assignDistricts' own zoning over this town's lots: %s." % ", ".join(names))
+			if not names.is_empty() else
+		("This town's lots carry no district tag at all. assignDistricts runs over the "
+			+ "platted lots, so a settlement too small to plat any has nothing to zone."),
+		not names.is_empty(), true, lw)
+	_field(col, "Walls", String(l.get("wall_spec", "—")),
+		"um_wall_spec's rung for this place -- the wall ladder's verdict, which is a "
+		+ "verdict whether or not a ring was built. The circuit itself is %s."
+			% ("drawn in the plan beside this" if bool(l.get("walls", false))
+				else "absent: this rung does not build one"),
+		l.has("wall_spec"), true, lw)
+	_field(col, "Bridges", "—",
+		"Not a count this dock can reach yet. The engine does compute real "
+		+ "crossings -- cartalith-urban's detect_river_crossings runs at the end "
+		+ "of the layout pipeline and writes site.bridges -- but cartalith-civ's "
+		+ "UrbanLayout adapter does not carry that field through, so what arrives "
+		+ "here is only bridge_pt, an Option that is 0 or 1 by construction and "
+		+ "never a tally.", false, true, lw)
+
+	var link := Button.new()
+	link.flat = true
+	link.focus_mode = Control.FOCUS_NONE
+	link.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	link.text = "open viewer %s" % DccIcons.SYMBOLS["expand"]
+	link.tooltip_text = ("Opens the City Viewer on this town -- the same plan at full size, "
+		+ "with zoom, pan and a legend.")
+	link.add_theme_font_override("font", DccTheme.mono(0))
+	link.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_TINY)
+	link.add_theme_color_override("font_color", DccTheme.c("accent"))
+	link.add_theme_color_override("font_hover_color", DccTheme.c("accent_hover"))
+	link.add_theme_stylebox_override("normal", DccTheme.empty())
+	link.add_theme_stylebox_override("hover", DccTheme.empty())
+	link.add_theme_stylebox_override("pressed", DccTheme.empty())
+	link.pressed.connect(func(): app.open_city_viewer(_settlement_index))
+	col.add_child(link)
+
+## -- Why here -----------------------------------------------------------------
+##
+## `SettlementExtras.dc.html`'s WHY HERE section: the same
+## `explain_settlement()` decomposition that fed a `RichTextLabel` of prose
+## here until 2026-09-05, ranked and drawn as bars.
+##
+## **The bar's denominator is `SuitTerm::value`, and it is 1.0 by the engine's
+## own definition** -- *"the term's own value before weighting. `0..1` for
+## every term, the two penalties included (stored positive, weighted
+## negative)"* (`cartalith-civ/src/lib.rs`). So a full bar means "this axis is
+## as good as it gets here", which is a reading rather than a shape. The
+## **order** is `contribution` (`weight * value`, signed), because that is what
+## actually decided the placement: a 1.0 on a 0.06-weighted axis is not why a
+## town is here.
+##
+## Penalties and non-contributors draw in the artboard's dim treatment. They
+## are different things and the tooltip says which: `flood_risk` and
+## `islet_penalty` carry negative weights, while a term at `value 0` simply did
+## not apply. Both are ghost because neither is a reason the town is *here*.
+##
+## The rows below the bars are what the prose carried and the artboard does not
+## draw -- the score, and the four terrain readings. They are one note each
+## rather than four `_field` rows, so no row shape is invented that the
+## artboard has no place for.
+func _build_settlement_why(body: Control, why: Dictionary) -> void:
+	if why.is_empty():
+		## **Said, not silently dropped** (2026-09-01, and unchanged by the
+		## 2026-09-05 restyle). `explain_settlement()` returns an empty
+		## dictionary for every settlement of a world that was *opened* rather
+		## than generated: `project_bridge.rs` rebuilds `CivData` with
+		## `explanations: Vec::new()` and says why in as many words -- an
+		## explanation is a diagnostic over suitability rasters the archive does
+		## not store (`SAVEFILE_COMPAT.md` §16.2), and synthesising one from what
+		## is stored would be inventing a reason rather than recalling it.
+		DccWidgets.note(_ext_section(body, "Why here", "—",
+			"Not available for an opened project."),
+			"The suitability diagnostics behind this list -- and the river, "
+			+ "water-distance, elevation and travel-cost readings that went with it -- are "
+			+ "computed at generate time, and the project format does not store them "
+			+ "(SAVEFILE_COMPAT.md section 16.2). They are omitted rather than "
+			+ "reconstructed from what was saved. Regenerating this world from its "
+			+ "parameters brings them back.")
+		return
+	if why.has("excluded"):
+		DccWidgets.note(_ext_section(body, "Why here", "excluded",
+			"This cell was excluded from suitability before any term was scored."),
+			("Cell excluded from suitability (%s). No term was weighed, so there is "
+				+ "no ranking to draw.") % why["excluded"])
+		return
+
+	var terms: Array = why.get("terms", [])
+	## Ranked by signed contribution, which puts the penalties last by
+	## construction. The 0.005 threshold is the reference's own, carried here
+	## from `main.gd`'s `_build_causal_chain_text` when that prose became these
+	## bars: it separates "a reason" from "a term that scored nothing", and the
+	## count of the rest is stated rather than hidden.
+	var ranked: Array = terms.duplicate()
+	ranked.sort_custom(func(a, b): return _contribution_of(a) > _contribution_of(b))
+	var drawn := 0
+	for t in ranked:
+		if absf(float((t as Dictionary).get("contribution", 0.0))) > 0.005:
+			drawn += 1
+	var sec := _ext_section(body, "Why here", "%d factor%s" % [drawn, "" if drawn == 1 else "s"],
+		("%d of this cell's %d suitability terms moved its score; the rest scored 0 on "
+			+ "their own axis and are listed under the bars.") % [drawn, terms.size()])
+
+	var silent: Array = []
+	for t in ranked:
+		var d: Dictionary = t
+		var key := String(d.get("key", ""))
+		var value := float(d.get("value", 0.0))
+		var weight := float(d.get("weight", 0.0))
+		var contribution := float(d.get("contribution", 0.0))
+		var label_text: String = SUIT_TERM_LABELS.get(key, key.replace("_", " "))
+		if absf(contribution) <= 0.005:
+			silent.append(label_text)
+			continue
+		var penalty := weight < 0.0
+		_factor_row(sec, label_text, "%.2f" % value, value, penalty,
+			("%s %s: this axis scores %.2f of a possible 1.00, and at weight %+.2f that "
+				+ "%s the cell's suitability by %+.4f. The bar is the axis, the ranking is "
+				+ "the contribution.") % [
+				_term_strength(value), label_text, value, weight,
+				"lowers" if penalty else "raises", contribution])
+	if not silent.is_empty():
+		DccWidgets.note(sec, "Scored nothing here: %s." % ", ".join(silent))
+
+	DccWidgets.note(sec, "Suitability %.2f overall." % float(why.get("score", 0.0)))
+	var ord_i := int(why.get("river_order", 0))
+	var river_txt := ("Strahler %d" % ord_i) if ord_i > 0 else "none"
+	DccWidgets.note(sec, ("River %s · flow %.0f · %.1f cells to water · "
+		+ "elevation %.3f (normalised) · travel cost %.2f") % [
+		river_txt, float(why.get("flow", 0.0)), float(why.get("coast_dist_cells", 0.0)),
+		float(why.get("elevation", 0.0)), float(why.get("travel_cost", 0.0))])
+
+## `contribution` off one `terms` entry, for the ranking sort. A named function
+## because a multi-line lambda body is not GDScript, and the expression is too
+## long for one line inside `sort_custom`.
+func _contribution_of(t: Variant) -> float:
+	return float((t as Dictionary).get("contribution", 0.0))
 
 ## This settlement as the engine describes it *now*, or `{}` when the entry at
 ## `_settlement_index` is no longer the same town.
@@ -2054,83 +2352,6 @@ func _term_strength(value: float) -> String:
 		return "weak"
 	return "negligible"
 
-func _describe_term(t: Dictionary) -> String:
-	var key := String(t["key"])
-	var label_text: String = SUIT_TERM_LABELS.get(key, key.replace("_", " "))
-	return "%s %s (%.2f)" % [_term_strength(float(t["value"])), label_text, float(t["value"])]
-
-## Ported verbatim from `main.gd`'s `_build_causal_chain_text` -- same
-## thresholds (0.005), same "top 3 positives / top 2 negatives" cap, same
-## wording. Only the surrounding dock changed.
-func _build_causal_chain_text(s: Dictionary, index: int) -> String:
-	var kind_label: String = String(s["kind"]).capitalize()
-	var lines := [
-		"[b]%s[/b] (%s)" % [s["name"], kind_label],
-		"Population: %s" % s["population"],
-		"Faction: %d" % s["faction"],
-		"Coastal: %s" % ("yes" if s["coastal"] else "no"),
-		"Capital: %s" % ("yes" if s["capital"] else "no"),
-	]
-
-	var why: Dictionary = bridge.explain_settlement(index)
-	if not why.is_empty():
-		lines.append("")
-		lines.append("[b]WHY HERE?[/b]")
-		if why.has("excluded"):
-			lines.append("Cell excluded from suitability (%s)." % why["excluded"])
-		else:
-			var terms: Array = why["terms"]
-			var positives: Array[String] = []
-			var negatives: Array[String] = []
-			for t: Dictionary in terms:
-				var c := float(t["contribution"])
-				if c > 0.005 and positives.size() < 3:
-					positives.append(_describe_term(t))
-				elif c < -0.005 and negatives.size() < 2:
-					negatives.append(_describe_term(t))
-			if positives.is_empty():
-				lines.append("No single factor stands out -- placed on broadly average ground.")
-			else:
-				lines.append(" → ".join(positives))
-			if not negatives.is_empty():
-				lines.append("Despite: %s" % ", ".join(negatives))
-			lines.append("Suitability %.2f" % float(why["score"]))
-
-		lines.append("")
-		var ord_i := int(why["river_order"])
-		var river_txt := ("Strahler %d" % ord_i) if ord_i > 0 else "none"
-		var coast_cells := float(why["coast_dist_cells"])
-		lines.append("River: %s · flow %.0f" % [river_txt, float(why["flow"])])
-		lines.append("Distance to water: %.1f cells" % coast_cells)
-		lines.append("Elevation: %.3f (normalised)" % float(why["elevation"]))
-		lines.append("Travel cost: %.2f" % float(why["travel_cost"]))
-	else:
-		## **Said, not silently dropped** (2026-09-01).
-		##
-		## `explain_settlement()` returns an empty dictionary for every
-		## settlement of a world that was *opened* rather than generated:
-		## `project_bridge.rs` rebuilds `CivData` with `explanations:
-		## Vec::new()` and says why in as many words -- an explanation is a
-		## diagnostic over suitability rasters the archive does not store
-		## (`SAVEFILE_COMPAT.md` §16.2), and synthesising one from what is
-		## stored would be inventing a reason rather than recalling it.
-		##
-		## Until now the whole block -- the causal chain AND the six terrain
-		## readouts under it -- simply was not appended, so the panel came
-		## back one section shorter with nothing said about it, which reads
-		## as a dock that is broken on this save rather than a diagnostic
-		## the format never carried.
-		lines.append("")
-		lines.append("[b]WHY HERE?[/b]")
-		lines.append("Not available for an opened project. The suitability "
-			+ "diagnostics behind this chain -- and the river, water-distance, "
-			+ "elevation and travel-cost readings under it -- are computed at "
-			+ "generate time, and the project format does not store them "
-			+ "(SAVEFILE_COMPAT.md §16.2). They are omitted rather than "
-			+ "reconstructed from what was saved. Regenerating this world from "
-			+ "its parameters brings them back.")
-
-	return "\n".join(lines)
 
 # -- Route ------------------------------------------------------------------
 
@@ -2982,17 +3203,112 @@ func _build_measure_radius(body: Control) -> void:
 		"πr² on the map plane. It is not clipped to the coastline -- use Area for a ring that follows real ground.")
 	_build_measure_actions(body)
 
+## `DeltaVertical.dc.html`, and the owner's 2026-09-05 ruling that this stays
+## live in 2D and is **rotated to a horizontal profile, X = distance,
+## Y = height**.
+##
+## **The two endpoints were never the whole reading.** `measure_vertical()` is a
+## stateless query over exactly two cells -- it has no ground between them --
+## so this asks `measure_section()` for the same A→B line at
+## `PROFILE_SAMPLES` and draws that. Both come from the same
+## `GlobalTools.measure_points()` chain, so the trace and the hero number
+## cannot describe different lines. Measured at **0.60 ms** for the section
+## call on a 2048x1311 world, which is why it is asked for on every rebuild
+## rather than cached into a staleness problem.
+##
+## Six rows, all from the profile the artboard draws: HIGH/LOW POINT are
+## `stats.max_m`/`min_m` with the km of the sample that holds each, TOTAL
+## CLIMB/DESCENT are `ascent_m`/`descent_m` (the engine already signs the
+## descent negative), MEAN GRADE is `measure_vertical()`'s own end-to-end
+## `grade_pct`, and SAMPLES is `samples.size()` beside `spacing_m`.
+##
+## Without a profile -- no chain to read the points from, or an engine with no
+## `measure_section` binding -- the six rows are dashed with that reason and
+## the chart is not drawn. The hero, the endpoints and the grade are
+## `measure_vertical()`'s own and still stand.
 func _build_measure_vertical(body: Control) -> void:
 	if _measure_result.is_empty():
 		_measure_empty(body, "Measure · Δ vertical", "Click two points to read the drop between them.")
 		return
 	var r := _measure_result
 	var sec := DccWidgets.section(body, "Measure · Δ vertical")
-	_accent_readout(sec, "Vertical difference", "%+.0f m" % float(r.get("delta_m", 0.0)), "")
-	_field(sec, "P1 · P2 elevation", "%.0f m · %.0f m" % [float(r.get("p1_elev_m", 0.0)), float(r.get("p2_elev_m", 0.0))])
-	_field(sec, "Horizontal distance", "%.1f km" % float(r.get("horizontal_km", 0.0)))
-	_field(sec, "3D distance", "%.1f km" % float(r.get("distance_3d_km", 0.0)))
-	_field(sec, "Grade · angle", "%.2f %% · %.2f°" % [float(r.get("grade_pct", 0.0)), float(r.get("angle_deg", 0.0))])
+	_accent_readout(sec, "Δ vertical", "%+.0f m" % float(r.get("delta_m", 0.0)),
+		"The height difference between the two clicked cells, B minus A. Metres in both "
+		+ "unit modes: DccUnits converts a linear map distance, and an elevation delta is "
+		+ "not one.")
+	DccWidgets.note(sec, "A %s m → B %s m · %s apart" % [
+		_thousands(float(r.get("p1_elev_m", 0.0))), _thousands(float(r.get("p2_elev_m", 0.0))),
+		DccUnits.format(float(r.get("horizontal_km", 0.0)), 1)])
+
+	var pts := GlobalTools.measure_points()
+	var prof: Dictionary = {}
+	if pts.size() >= 2:
+		prof = bridge.measure_section(pts[0].x, pts[0].y, pts[1].x, pts[1].y, PROFILE_SAMPLES)
+	var samples: Array = prof.get("samples", [])
+	var stats: Dictionary = prof.get("stats", {})
+	## **These two branches shipped inverted on 2026-09-05 and were caught by a
+	## verifier the same day**: each state was dashed with the other state's
+	## cause. `pts.size() >= 2` is the case where the chain IS live and
+	## `measure_section()` above was actually called, so an empty result means
+	## the engine could not answer -- not that the chain went stale. The probe
+	## could not see it because it only exercises the path where samples exist.
+	var no_profile := ("The two points are live and the engine was asked, but it "
+		+ "returned no samples for the ground between them." if pts.size() >= 2 else
+		"Measure needs two points. Drop A and B on the map with the Measure tool "
+		+ "and the profile fills in.") if samples.is_empty() else ""
+
+	if not samples.is_empty():
+		_profile_chart(sec, samples, stats, float(prof.get("length_km", 0.0)),
+			"The ground between A and B: X is distance along the line, Y is height. The "
+			+ "trace fills min…max and no vertical exaggeration is applied.")
+
+	var hi_km := 0.0
+	var lo_km := 0.0
+	if not samples.is_empty():
+		var hi_m := float(stats.get("max_m", 0.0))
+		var lo_m := float(stats.get("min_m", 0.0))
+		var best_hi := -INF
+		var best_lo := INF
+		for s in samples:
+			var d: Dictionary = s
+			var e := float(d.get("elev_m", 0.0))
+			if e > best_hi:
+				best_hi = e
+				hi_km = float(d.get("km", 0.0))
+			if e < best_lo:
+				best_lo = e
+				lo_km = float(d.get("km", 0.0))
+		_field(sec, "High point", "%s m · %s" % [_thousands(hi_m), DccUnits.format(hi_km)],
+			"The highest sample on the line, and how far along it stands.")
+		_field(sec, "Low point", "%s m · %s" % [_thousands(lo_m), DccUnits.format(lo_km)],
+			"The lowest sample on the line, and how far along it stands.")
+		_field(sec, "Total climb", "+%s m" % _thousands(float(stats.get("ascent_m", 0.0))),
+			"Every rise between consecutive samples, summed -- so a line that goes up, "
+			+ "down and up again climbs more than its endpoints differ by.")
+		_field(sec, "Total descent", "%s m" % _thousands(float(stats.get("descent_m", 0.0))),
+			"Every fall between consecutive samples, summed. Already negative from the "
+			+ "engine.")
+	else:
+		_field(sec, "High point", "—", no_profile, false)
+		_field(sec, "Low point", "—", no_profile, false)
+		_field(sec, "Total climb", "—", no_profile, false)
+		_field(sec, "Total descent", "—", no_profile, false)
+
+	_field(sec, "Mean grade", "%.2f %%" % float(r.get("grade_pct", 0.0)),
+		"Rise over run end to end -- %.2f° of angle, over a 3D distance of %s. It says "
+		% [float(r.get("angle_deg", 0.0)),
+			DccUnits.format(float(r.get("distance_3d_km", 0.0)), 1)]
+		+ "nothing about the ground in between, which is what the profile above is for.")
+	if samples.is_empty():
+		_field(sec, "Samples", "—", no_profile, false)
+	else:
+		_field(sec, "Samples", "%d · 1 per %s" % [samples.size(),
+			DccUnits.format(float(prof.get("spacing_m", 0.0)) / 1000.0, 1)],
+			"What the profile above was sampled at. 121, not 120: the prototype's own "
+			+ "header says 120 while its loop runs i = 0 to n inclusive with n = 120 "
+			+ "(05-right-dock-and-bars.md section 5.7, defect 2). The spacing figure is "
+			+ "consistent with 120 intervals.")
+
 	DccWidgets.note(sec,
 		"The canvas gates this pair on 3D relief and disables it in 2D. This port reads the same height field either way, " +
 		"so it stays live in both -- there is nothing the 3D view knows about elevation that the 2D one does not.")
@@ -3401,7 +3717,19 @@ func _build_history(body: Control) -> void:
 			"A draft's steps are its own, reversible in place from the Sculpt panel, and "
 			+ "not entered below -- nothing has happened to the world yet.")
 
-	var sec := DccWidgets.section(body, "Steps")
+	## **No section header here, and that is the artboard.** `Main.dc.html`'s
+	## HISTORY panel has exactly one heading -- the dock title -- and opens
+	## straight into `_stack_head()`'s own `12 STEPS` row. This drew
+	## `DccWidgets.section(body, "Steps")` until 2026-09-05, which put a
+	## `§ STEPS` header immediately above a row that says `STEPS` again.
+	##
+	## Built without the factory rather than by adding a headerless variant to
+	## it: `dcc_widgets.gd` has 100-odd `section()` call sites and a second
+	## optional parameter on the shell's most-used factory is a wider change
+	## than one caller needs. The body below is `section()`'s own, margins and
+	## separation included, with the header's `margin_top:10` kept so the block
+	## sits where it did rather than riding up against the dock title.
+	var sec := _headless_section(body)
 	if rows.is_empty():
 		DccWidgets.note(sec,
 			"Nothing committed this session. A generate, a load, a Sculpt or Paint "
@@ -4839,6 +5167,40 @@ const _FIELD_LABEL_W := 116
 # lane's file, so the canvas's own pair is carried here.
 const _CTL_PX := [24, 36]
 
+## The plan thumbnail's renderer, and its box. `84 × 84` is
+## `SettlementExtras.dc.html`'s own literal (`width:84px;height:84px`) and no
+## `DccTheme` role carries it — `ROLE` holds type sizes, region boxes, bar and
+## dock interiors, control padding and five density-varying widths, and has no
+## row for a thumbnail. Stated here rather than routed through a role that
+## would be the wrong one, the same way `_CTL_PX` above is.
+const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
+const PLAN_THUMB_PX := 84
+
+## `05-right-dock-and-bars.md` §5.7's own geometry, in its own units. The strip
+## authors its chart as `viewBox="0 0 1000 130" preserveAspectRatio="none"`, so
+## the four figures below are y positions inside that 130-unit box and are
+## scaled to whatever height the dock gives them. `PROFILE_H` is the drawn box
+## and `PROFILE_AXIS_H` the x-label strip under it (`height:14px`), which is
+## why the artboard's chart column is 132 px tall; `PROFILE_Y_COL` is the
+## metre-label column, 40 px at dock width against §5.7's 52 at viewport width.
+const PROFILE_VIEWBOX_H := 130.0
+const PROFILE_GRID_Y := [43.0, 86.0]
+const PROFILE_TRACE_BASE := 126.0
+const PROFILE_TRACE_SPAN := 118.0
+const PROFILE_H := 118
+const PROFILE_AXIS_H := 14
+const PROFILE_Y_COL := 40
+## The narrowest plot the trace is drawn into at all. Not a design figure: it
+## is the width below which 121 samples collapse into a polygon Godot's
+## triangulator rejects. See `_profile_chart()`'s own guard.
+const PROFILE_MIN_PLOT_W := 8.0
+## What the dock asks `measure_section()` for when it draws the Δ vertical
+## profile. **121, not 120**: §5.7 records the prototype's own header as saying
+## "120 samples" where its loop `for (i = 0; i <= n; i++)` with `n = 120`
+## produces 121, and the SAMPLES row prints `samples.size()` rather than this
+## constant so the two cannot disagree.
+const PROFILE_SAMPLES := 121
+
 ## `cartalith_civ::relations::RELATION_STANCES`, the engine's five words, to
 ## the ink each chip draws in.
 ##
@@ -4856,6 +5218,23 @@ const STANCE_INK := {
 
 func _ctl_px() -> int:
 	return int(_CTL_PX[1] if DccTheme.is_tablet() else _CTL_PX[0])
+
+## `DccWidgets.section()`'s body with no `§ TITLE` above it, for a block whose
+## artboard draws no heading. Same margins, same separation, and the header's
+## own `margin_top:10` folded in so the block keeps its place in the column.
+func _headless_section(parent: Control) -> VBoxContainer:
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 2)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 10)
+	pad.add_theme_constant_override("margin_bottom", 6)
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(body)
+	parent.add_child(pad)
+	return body
 
 ## The artboard's `.rule` is `1px var(--div)`; `DccTheme.rule()` draws `--hair`
 ## (`line`), which is the heavier *region* separator. Both exist in the
@@ -4959,7 +5338,13 @@ func _pip(filled: bool, token: String) -> Control:
 ## `.bar` — a 4 px `var(--ins)` track with an accent fill. `frac` is clamped,
 ## and `tip` must say what the fraction is *of*: a bar with no stated
 ## denominator is a shape, not a reading.
-func _micro_bar(parent: Control, frac: float, tip: String) -> void:
+##
+## `token` is the fill's ink. `SettlementExtras.dc.html`'s WHY HERE list draws
+## its last row's bar in `var(--dis)` rather than `var(--acc)` — the artboard's
+## own way of saying "this factor is not why the town is here" — so the fill is
+## a parameter rather than a constant. Every earlier caller keeps `accent`.
+func _micro_bar(parent: Control, frac: float, tip: String,
+		token: String = "accent") -> void:
 	var track := Panel.new()
 	track.custom_minimum_size.y = 4
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4967,11 +5352,317 @@ func _micro_bar(parent: Control, frac: float, tip: String) -> void:
 	track.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 2))
 	var fill := Panel.new()
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	fill.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("accent"), 2))
+	fill.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c(token), 2))
 	fill.anchor_right = clampf(frac, 0.0, 1.0)
 	fill.anchor_bottom = 1.0
 	track.add_child(fill)
 	parent.add_child(track)
+
+## `SettlementExtras.dc.html`'s own section head, for the three sections that
+## artboard **appends** to §1.11's rows: a `▾` caret, the title in the same
+## faint tracked micro `_cap()` draws, and a trailing note pushed right.
+##
+## Neither existing factory fits, and the reason is the trailing slot rather
+## than the ink. `DccWidgets.section()` draws `§ TITLE` — the artboard's only
+## `§` is the dock title — and `DccWidgets.group()` already has this caret,
+## this ink (`text_faint`), this size (`FS_HEADER` 9 = `--m2`) and this
+## tracking (2 ≈ `.2em`); what neither has is somewhere to put `Kel Vharan`,
+## `draft` or `5 factors`. The body below is `group()`'s, `margin_left:10`,
+## and the caret is drawn because these collapse.
+##
+## `emphasis` picks the trailing ink the artboard actually draws, which is not
+## one value: FAITH's plurality is `var(--sec)` at `--m1`, while CITY LAYOUT's
+## `draft` and WHY HERE's `5 factors` are `var(--dis)` at `--m2`.
+func _ext_section(parent: Control, title: String, trailing: String,
+		tooltip: String = "", emphasis: bool = false) -> VBoxContainer:
+	var tablet := DccTheme.is_tablet()
+	parent.add_child(_soft_rule())
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.tooltip_text = tooltip
+	parent.add_child(head)
+
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.text = "%s %s" % [DccIcons.SYMBOLS["caret"], title.to_upper()]
+	btn.tooltip_text = tooltip
+	btn.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	btn.add_theme_font_override("font", DccTheme.mono(2, true))
+	btn.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_HEADER)
+	btn.add_theme_color_override("font_color", DccTheme.c("text_faint"))
+	btn.add_theme_stylebox_override("normal", DccTheme.empty())
+	btn.add_theme_stylebox_override("hover", DccTheme.empty())
+	btn.add_theme_stylebox_override("pressed", DccTheme.empty())
+	head.add_child(btn)
+
+	## The expanding half of the row, and the same arrangement `_field()` uses
+	## for the same reason: an ellipsis rather than `clip_text`, so a long
+	## faith name says it was trimmed instead of collapsing this row's
+	## reported minimum width and taking the dock's width with it.
+	var tail := DccTheme.mono_label(trailing,
+		"text_secondary" if emphasis else "text_ghost",
+		DccTheme.role_px("fs_readout" if emphasis else "fs_dock_header") if tablet
+		else (DccTheme.FS_TINY if emphasis else DccTheme.FS_MICRO))
+	tail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tail.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	tail.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	head.add_child(tail)
+
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 2)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 10)
+	pad.add_theme_constant_override("margin_bottom", 6)
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(body)
+	parent.add_child(pad)
+	btn.pressed.connect(func(): body.visible = not body.visible)
+	return body
+
+## The adherence bar: one `var(--ins)` track, `parts` laid across it in
+## proportion. `parts` is `[[weight, Color], ...]` in the order they are drawn,
+## which must be the order of the list under it — the bar is a second encoding
+## of a list that is complete without it (`civilization_workspace.gd`'s own
+## rule for the same bar in CIVIL ▸ Religion), never the only one.
+##
+## Nothing is drawn at all when there is no weight to lay out: an empty track
+## would read as a measured zero.
+func _stacked_bar(parent: Control, parts: Array, tip: String) -> void:
+	var total := 0.0
+	for p in parts:
+		total += maxf(0.0, float(p[0]))
+	if total <= 0.0:
+		return
+	var track := Panel.new()
+	track.custom_minimum_size.y = 6
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track.tooltip_text = tip
+	track.clip_contents = true
+	track.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 3))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.add_child(row)
+	for p in parts:
+		var w := maxf(0.0, float(p[0]))
+		if w <= 0.0:
+			continue
+		var seg := ColorRect.new()
+		seg.color = p[1]
+		seg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		seg.size_flags_stretch_ratio = w
+		row.add_child(seg)
+	parent.add_child(track)
+
+## One WHY HERE row: the factor's name, its number, and a bar under both.
+## `dim` draws the artboard's disfavoured row — ghost ink and a ghost bar —
+## which is how a penalty and a factor that contributed nothing read.
+func _factor_row(parent: Control, label_text: String, value_text: String,
+		frac: float, dim: bool, tip: String) -> void:
+	var tablet := DccTheme.is_tablet()
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 3)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.tooltip_text = tip
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var l := DccTheme.mono_label(label_text, "text_ghost" if dim else "text_secondary",
+		DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(l)
+	row.add_child(DccTheme.mono_label(value_text, "text_ghost" if dim else "text_dim",
+		DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_MICRO))
+	wrap.add_child(row)
+	_micro_bar(wrap, frac, tip, "text_ghost" if dim else "accent")
+	parent.add_child(wrap)
+
+## The artboard's `84 × 84` plan, drawn from `urban_layouts()`' own dictionary
+## through `urban_layout_draw.gd`'s static renderer — the same data and the
+## same code the City Viewer and the map's deep-zoom layer draw.
+##
+## **`GUI_GAP_REGISTER.md` UM-03's open half, and the answer to "can a layout be
+## produced at icon size" is yes.** That row said `peCityPreview` "needs a
+## rendered layout at icon size, not a modal"; nothing about `draw_layout()` is
+## modal-shaped — it takes a `CanvasItem`, a projection and a scale, and
+## `map_overlay.gd` already calls it at a town box of a few dozen pixels.
+##
+## Two of its parameters are what make 84 px legible rather than mush, and both
+## are borrowed from `map_overlay.gd`'s own call rather than invented here:
+##
+## * `detail = 0.0` — below 1.0 `draw_layout()` skips the per-lot district
+##   fills, the farm furrows and the three per-roof passes (ink, ridge, drop
+##   shadow). `map_overlay.gd` passes exactly this under `URBAN_FINE_BOX_PX`
+##   (620 px); 84 is well under it, and a 3 800-lot town would otherwise spend
+##   four passes each on sub-pixel detail.
+## * `show_route_ends = false` — the approach-road terminals sit outside the
+##   built mass and the fit below deliberately crops to it.
+##
+## No margin is added around `_plan_fit_box()`: that box already carries the
+## reference's own 8 % padding, and the City Viewer's further 16 px would be a
+## fifth of this frame.
+##
+## **One pre-existing engine warning is visible through this, and it is not
+## caused by drawing small.** Seed 77021 at 256x192 emits one `Invalid polygon
+## data, triangulation failed` per draw of settlement 0's layout. Measured in
+## `_triage_probe.gd` at three scales on the same layout: the **City Viewer's
+## own** parameters (400 px, `px_floor` 1.0, `detail` 1.0) emit exactly the same
+## one, as do 84 px with and without a 4x supersample. So it is a degenerate
+## polygon in that town's own `blocks`/`markets`/`farmland` -- every ring in
+## `urban_layout_draw.gd` is already guarded on `size() >= 3`, which a
+## zero-area ring passes -- and it reaches the City Viewer and the map's
+## deep-zoom layer identically. Seeds 483920 and 4242 emit none. Reported
+## rather than worked around: `urban_layout_draw.gd` is not this lane's file,
+## and a supersample was tried here and reverted because it removed neither the
+## warning nor any measurable aliasing (374 distinct colours against 480 for
+## the plain projection, same warm-pixel count).
+func _plan_thumb(layout: Dictionary) -> Control:
+	var frame := Panel.new()
+	frame.custom_minimum_size = Vector2(PLAN_THUMB_PX, PLAN_THUMB_PX)
+	frame.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	frame.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	frame.clip_contents = true
+	var sb := DccTheme.flat(DccTheme.c("sunken"), 6)
+	sb.border_color = DccTheme.c("line_soft")
+	sb.set_border_width_all(1)
+	frame.add_theme_stylebox_override("panel", sb)
+	var canvas := Control.new()
+	canvas.set_anchors_preset(Control.PRESET_FULL_RECT)
+	canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(canvas)
+	var box := _plan_fit_box(layout)
+	canvas.draw.connect(func() -> void:
+		var size := canvas.size
+		if size.x <= 0.0 or size.y <= 0.0:
+			return
+		canvas.draw_rect(Rect2(Vector2.ZERO, size), URBAN_DRAW.GROUND)
+		var fit: float = minf(size.x / maxf(1.0, box.size.x), size.y / maxf(1.0, box.size.y))
+		var origin := (size - box.size * fit) * 0.5 - box.position * fit
+		var to_screen := func(p: Vector2) -> Vector2: return origin + p * fit
+		URBAN_DRAW.draw_layout(canvas, layout, to_screen, fit, 1.0, 1.0, false, 0.0))
+	return frame
+
+## The model-metre box the thumbnail fits, in `city_viewer_window.gd::
+## _fit_box()`'s order and for its reasons: the wall ring, else the building
+## footprints, else the street graph, else the site box. That order is the
+## reference's own (`_umDrawLayoutPreview`, lines 22909-22911) and exists so
+## the long approach roads running to the box edge do not shrink the town to a
+## speck — which at 84 px is the difference between a plan and a dot.
+##
+## Duplicated rather than shared: `_fit_box()` is an instance method reading
+## that window's own `_layout`, and `urban_layout_draw.gd` is not this lane's
+## file. If one moves the other must move with it.
+func _plan_fit_box(layout: Dictionary) -> Rect2:
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in (layout.get("wall_ring", PackedVector2Array()) as PackedVector2Array):
+		lo = lo.min(p)
+		hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		for b: PackedVector2Array in layout.get("buildings", []) as Array:
+			for p in b:
+				lo = lo.min(p)
+				hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		var streets: Dictionary = layout.get("streets", {})
+		for cls in streets.keys():
+			for p in (streets[cls] as PackedVector2Array):
+				lo = lo.min(p)
+				hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		return Rect2(Vector2.ZERO,
+			Vector2(float(layout.get("wm", 1700.0)), float(layout.get("hm", 1250.0))))
+	var pad := (hi - lo) * 0.08
+	return Rect2(lo - pad, (hi - lo) + pad * 2.0)
+
+## `05-right-dock-and-bars.md` §5.7's cross-section strip, at dock width.
+##
+## **This is a re-siting of a drawn design, not a new one**, so every figure is
+## §5.7's: the `viewBox="0 0 1000 130"` box, the two gridlines at `y=43` and
+## `y=86`, the trace's own `y = 126 − ((v − min)/range × 118)` with a
+## `max(max − min, 1)` range floor, and the three x labels `A · 0` /
+## `fmtKm(len/2)` / `B · {len}`. The y column is §5.7's `secTop` = max,
+## `secMid` = `round((min+max)/2)`, `secBot` = min.
+##
+## **§5.7 records two defects in the delivered prototype and neither is
+## reproduced here.** Its header claims `×4 exaggeration` where `secSample()`
+## applies none — this draws the profile normalised to min…max, which is what
+## that function actually does — and it says *120 samples* where its own loop
+## (`for i = 0; i <= n; i++`, `n = 120`) yields **121**. The caller asks the
+## engine for 121 and prints what came back.
+##
+## Ink through tokens, not §5.7's hexes, and the two halves settle each other:
+## `secLineCol` is `#e0a34a` dark / `#a4650f` light, which is `accent` in both
+## palettes exactly; `secGridCol` is `line_soft`, which is what
+## `section_strip.gd` already draws its own gridlines with. `secFillCol`
+## shares `accent_wash`'s RGB in both themes and differs only in alpha
+## (.13/.12 against the token's .09) — the token is taken rather than a fourth
+## literal amber introduced to gain four hundredths.
+func _profile_chart(parent: Control, samples: Array, stats: Dictionary,
+		length_km: float, tip: String) -> void:
+	var lo := float(stats.get("min_m", 0.0))
+	var hi := float(stats.get("max_m", 0.0))
+	var span := maxf(1.0, hi - lo)
+	var chart := Control.new()
+	chart.custom_minimum_size.y = PROFILE_H + PROFILE_AXIS_H
+	chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chart.tooltip_text = tip
+	chart.draw.connect(func() -> void:
+		var font := DccTheme.mono(0)
+		var fs := DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() \
+			else DccTheme.FS_MICRO
+		var ghost := DccTheme.c("text_ghost")
+		var rule := DccTheme.c("line_soft")
+		var k := float(PROFILE_H) / PROFILE_VIEWBOX_H
+		var x0 := float(PROFILE_Y_COL + 9)
+		## **Nothing is drawn before the container has given this a width.** A
+		## `Control` draws once at its own construction size, which is zero, and
+		## `maxf(1.0, ...)` below would then put all 121 trace points inside one
+		## pixel -- a sliver `draw_colored_polygon` cannot triangulate, which
+		## Godot reports as `Invalid polygon data, triangulation failed` twice
+		## per profile and which is how this guard was found. The layout pass
+		## queues a second draw at the real width.
+		if chart.size.x <= x0 + PROFILE_MIN_PLOT_W:
+			return
+		var w := maxf(1.0, chart.size.x - x0)
+		chart.draw_string(font, Vector2(0, fs), _thousands(hi),
+			HORIZONTAL_ALIGNMENT_RIGHT, PROFILE_Y_COL, fs, ghost)
+		chart.draw_string(font, Vector2(0, PROFILE_H * 0.5 + fs * 0.5),
+			_thousands((lo + hi) * 0.5), HORIZONTAL_ALIGNMENT_RIGHT, PROFILE_Y_COL, fs, ghost)
+		chart.draw_string(font, Vector2(0, PROFILE_H), _thousands(lo),
+			HORIZONTAL_ALIGNMENT_RIGHT, PROFILE_Y_COL, fs, ghost)
+		chart.draw_line(Vector2(x0 - 1, 0), Vector2(x0 - 1, PROFILE_H), rule, 1.0)
+		for gy in PROFILE_GRID_Y:
+			chart.draw_line(Vector2(x0, float(gy) * k), Vector2(x0 + w, float(gy) * k), rule, 1.0)
+		var n := samples.size()
+		var pts := PackedVector2Array()
+		for i in n:
+			var d: Dictionary = samples[i]
+			var vy: float = PROFILE_TRACE_BASE \
+				- ((float(d.get("elev_m", 0.0)) - lo) / span) * PROFILE_TRACE_SPAN
+			pts.append(Vector2(x0 + w * float(i) / float(maxi(1, n - 1)), vy * k))
+		if pts.size() >= 2:
+			var fill := pts.duplicate()
+			fill.append(Vector2(x0 + w, PROFILE_H))
+			fill.append(Vector2(x0, PROFILE_H))
+			chart.draw_colored_polygon(fill, DccTheme.c("accent_wash"))
+			chart.draw_polyline(pts, DccTheme.c("accent"), 1.6, true)
+		var by := float(PROFILE_H + PROFILE_AXIS_H - 3)
+		chart.draw_string(font, Vector2(x0, by), "A · 0",
+			HORIZONTAL_ALIGNMENT_LEFT, w, fs, ghost)
+		chart.draw_string(font, Vector2(x0, by), DccUnits.format(length_km * 0.5),
+			HORIZONTAL_ALIGNMENT_CENTER, w, fs, ghost)
+		chart.draw_string(font, Vector2(x0, by), "B · %s" % DccUnits.format(length_km),
+			HORIZONTAL_ALIGNMENT_RIGHT, w, fs, ghost))
+	parent.add_child(chart)
 
 ## The stance pill. Word from the engine, ink from `STANCE_INK`, background a
 ## .16 wash of that same ink -- except `text_dim`, whose wash would be

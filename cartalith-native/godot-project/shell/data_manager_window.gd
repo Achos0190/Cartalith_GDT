@@ -33,6 +33,19 @@ class_name DataManagerWindow
 ## from where the Asset library rebuild left it (that file's own note: *"if a
 ## second window needs them, they move"*).
 ##
+## ## 2026-09-05: the twelve undrawn routes get a pattern
+##
+## That canvas designs **one** route pane -- Export ▸ Maps -- and says nothing
+## about the other thirteen, which is why every one of them was a column header
+## over a paragraph of prose. `design/proposed-2026-09-05/DataPane.dc.html`
+## (owner-approved: *"I like the layouts as proposed, implement those"*) draws a
+## second pane, and its value is that it is a **pattern** rather than a
+## fourteenth bespoke design: title, one-line purpose, a form region, a
+## destination row, a receipt, an action row. `_build_pattern_pane()` and its
+## parts are that pattern, and every route except the two with fully-designed
+## bodies now renders through it -- see that function's own header for what the
+## pattern keeps of this window's frame and what it does not.
+##
 ## ## One deliberate divergence from the canvas
 ##
 ## **The canvas still has a CONVERSION group** (Coordinate Systems / Format
@@ -83,11 +96,20 @@ class_name DataManagerWindow
 ##   `geojson_bridge.rs` is the binding and this window is the caller. It
 ##   writes the **whole world**, not the marquee: settlements, ways, sea lanes,
 ##   rivers, territory and provinces, in local planar kilometres.
-## - **Import ▸ Maps**, **Import ▸ GIS / GeoJSON**, **Export ▸ World Data**,
-##   **Sources** and **Validation** are disclosed gaps: no tile-map or GeoJSON
-##   *import*, no save writer (`cartalith-io` reads `.zip` saves; its only
-##   `zip::ZipWriter` lives in its own `#[cfg(test)]` fixture builder), no
-##   source registry and no validation pass exist anywhere in the workspace.
+## - **Export ▸ World Data** is real, and this bullet used to say it was not.
+##   *"No save writer -- `cartalith-io` reads `.zip` saves; its only
+##   `zip::ZipWriter` lives in its own `#[cfg(test)]` fixture builder"* was
+##   already false when `WD_ZIP_NOTE` below was written: `cartalith_io::write_
+##   save` (`save.rs`) and `project.rs`'s own `ZipWriter` are both shipping
+##   code, and this route's pane has drawn a live raster/heightmap/atlas export
+##   since 2026-08-24. Corrected 2026-09-05, having survived two passes that
+##   edited the constants three hundred lines below it.
+## - **Import ▸ Maps**, **Import ▸ GIS / GeoJSON**, **Sources** and
+##   **Validation** are disclosed gaps: no tile-map import, no source registry
+##   and no validation pass exist anywhere in the workspace. GeoJSON is the
+##   half-shaped one and its row says so -- `cartalith_io::parse_geojson` and
+##   the bound `WorldGen::geojson_inspect` both exist; nothing turns a parsed
+##   feature into world state, and no GDScript calls the inspector.
 ## - **Conversion is gone, not disclosed.** See above.
 
 # ---------------------------------------------------------------------------
@@ -103,6 +125,144 @@ const PANE_PAD_X := 18      ## `padding:6px 18px 18px` on the pane body
 const COL_GAP := 34         ## `gap:0 34px` between the two pane columns
 const RAIL_PAD_X := 14
 const RAIL_INDENT := 24     ## `padding:5px 14px 5px 24px` on a route row
+
+# ---------------------------------------------------------------------------
+# The route-pane PATTERN, read off `design/proposed-2026-09-05/DataPane.dc.html`
+# (owner-approved 2026-09-05, *"I like the layouts as proposed, implement
+# those"*).
+#
+# `Data manager window 1920` designed exactly one route pane -- Export ▸ Maps --
+# and the other thirteen were never drawn. `DataPane.dc.html` draws a **second**
+# one (its exemplar is an Export ▸ World data that writes entities), and its
+# value is that it is a *pattern*: title, a one-line purpose, a form region
+# (FORMAT · INCLUDE · EXTENT), a destination row with `Browse…`, a receipt, an
+# action row. Every route that was a wall of prose now renders through it, so
+# the eleven undrawn routes inherit a design instead of each needing one.
+#
+# Two of its details are rules rather than decoration, and both are load-bearing
+# here:
+#
+#   * **The receipt states what was NOT included.** The artboard's reads
+#     `landmarks and religions were not included — 2 groups off`. A receipt that
+#     only reports success hides the thing the user needs to notice --
+#     `_pattern_receipt()` computes that line from the groups this format does
+#     not carry, plus the carried groups the written document turned out to hold
+#     none of.
+#   * **A chip with no data is dashed and dimmed, not hidden** (`religions —`
+#     beside live counts). `_include_chips()` has three states for that reason,
+#     not two.
+#
+# **The artboard's contents are illustrative and its numbers are not this
+# engine's.** Every count below is asked of a real source or drawn as a dash
+# carrying its reason; see `GIS_GROUPS` and `_gis_count()`.
+#
+# ## Where this pane and the window frame disagree, and why the frame wins
+#
+# The artboard draws no header band -- its pane opens straight onto the title.
+# This window has one (`H_BAND`, `_pane_title`/`_pane_sub`), it belongs to the
+# *window* rather than to any pane, and Export ▸ Maps and Export ▸ World data
+# are laid out under it. Removing it is a window-level change this artboard does
+# not scope and would leave those two panes headerless, so the band stays and
+# the pattern draws the artboard's title inside the body. The two carry
+# different strings: the band is the breadcrumb (`EXPORT ▸ GIS / GEOJSON`) plus
+# `ROUTES.sub`, the body title is the route's own name plus its purpose line.
+# ---------------------------------------------------------------------------
+
+## `width:74px` on the artboard's FORMAT / INCLUDE / EXTENT / TO label column --
+## a different, narrower column from the Export ▸ Maps pane's `W_ROW_LABEL`.
+const PATTERN_LABEL_W := 74
+## `.chip` -- `padding:3px 11px;border-radius:999px`. Byte-identical in
+## `Modal.dc.html`, which is why the two artboards' shared `_shared.css`
+## vocabulary is treated as one system here.
+const PATTERN_CHIP_R := 999
+const PATTERN_CHIP_PAD_X := 11
+const PATTERN_CHIP_PAD_Y := 3
+## The FORMAT control is a **track**: `background:var(--ins);border-radius:14px;
+## padding:2px`, with the lit segment `border-radius:12px;padding:3px 12px;
+## background:var(--wash2);color:var(--acc)` inside it. That is a different
+## shape from the outline segments `_segments()` draws for Export ▸ Maps'
+## Scheme / CRS / Packaging rows, and the difference is the artboard's, not a
+## reinterpretation -- see `_pattern_segments()`.
+const PATTERN_TRACK_R := 14
+const PATTERN_TRACK_PAD := 2
+const PATTERN_SEG_R := 12
+const PATTERN_SEG_PAD_X := 12
+const PATTERN_SEG_PAD_Y := 3
+## The receipt block: `background:var(--ins);border-radius:8px;padding:9px 11px`.
+## The radius is `DccWidgets.MODAL_INSET_RADIUS`, whose own comment names the
+## same `border-radius:8px` from the same `.tok` block; only the paddings are
+## local.
+const PATTERN_RECEIPT_PAD_X := 11
+const PATTERN_RECEIPT_PAD_Y := 9
+## `color:var(--ink);font-weight:500;font-size:14px` on the pane title. **No
+## `DccTheme` role carries 14 px as a font size** -- `role_px("fs_prose")`
+## reaches 14 only as its *tablet* rung, which is a density answer and not this
+## one -- so it is a local constant read off the artboard, exactly as `W_RAIL`
+## and `H_BAND` above are. The 500 weight is not reachable: the sans face this
+## shell loads has one weight, and only `DccTheme.mono()` has a medium cut.
+const PATTERN_TITLE_FS := 14
+## `margin:12px 0 12px` on the first `.rule`, `margin:13px 0 12px` on the
+## second.
+const PATTERN_RULE_TOP := 12
+const PATTERN_RULE_TOP_2 := 13
+const PATTERN_RULE_BOTTOM := 12
+
+## The one-line purpose under each route's title -- the artboard's
+## `every generated entity as one file — settlements, factions, ways,
+## landmarks`, written per route.
+##
+## Keyed by `ROUTES.id`, and kept beside `ROUTES` rather than inside it because
+## the route list itself is settled (`GROUP_ORDER` is four; see the header's
+## divergence note) and this pass draws the pane rather than re-deciding the
+## routes. `_datapane_probe.gd` asserts every `ROUTES` id has an entry, so a
+## route added later cannot ship without one.
+##
+## Prose, not data: each line describes what the route actually does today, and
+## every one was checked against the code it names in this pass.
+const PANE_PURPOSE := {
+	"import_maps": "read a tile set back into the world — no importer exists",
+	"import_heightmap": "a PNG becomes the elevation field, with a tectonic substrate inferred under it",
+	"import_gis": "read a FeatureCollection back into places, ways and territory — the parser exists, the ingest does not",
+	"import_world": "a .zip project archive replaces the whole world — the same loader as File ▸ Open project…",
+	"import_assets": "routes to Assets ▸ Import asset pack .zip…",
+	"export_maps": "the Region-select marquee as a zipped grid of height and colour tiles",
+	"export_gis": "every generated entity as one document — settlements, ways, rivers, territory, provinces",
+	"export_world": "the whole world as a colour raster, a heightmap and a channel atlas",
+	"export_assets": "routes to the Asset library's own Export pack .zip…",
+	"sources_external": "point the project at data held outside it — no source registry exists",
+	"sources_connected": "what this project is currently reading from — no source registry exists",
+	"sources_registry": "the list of every known source — no source registry exists",
+	"val_check": "look for contradictions in the world's own data — nothing collects warnings",
+	"val_repair": "fix what a check found — there is no check to repair against",
+}
+
+## Export ▸ GIS / GeoJSON's INCLUDE row: the entity groups this window can name,
+## and whether `export_geojson` actually carries each.
+##
+## `carried` is read off `geojson_bridge.rs::export_geojson` and
+## `cartalith_engine::geojson::export_geojson`, which between them emit exactly
+## **five** `properties.layer` values: `settlement`, `way`, `river`,
+## `territory`, `province`. (This said *six*, counting `poi`, until a verifier
+## re-parsed a written document on 2026-09-05 and measured five. `poi` is a
+## layer the exporter *can* express and this port never emits -- see the note
+## below -- so it is not one of the values a document actually carries.)
+## There is no landmark layer and no religion layer, so
+## those two are drawn dim -- present in the world, absent from the file. That
+## is the artboard's own `landmarks 214` state, and it is true here rather than
+## illustrative.
+##
+## `poi` is emitted by the engine and never produced by this port (`is_poi:
+## false` for every place, `GEOJSON_CIV_NOTE`), so it is not a group a user
+## could include or exclude and is not listed.
+const GIS_GROUPS: Array[Dictionary] = [
+	{"key": "settlements", "carried": true},
+	{"key": "factions", "carried": true},
+	{"key": "ways", "carried": true},
+	{"key": "rivers", "carried": true},
+	{"key": "provinces", "carried": true},
+	{"key": "landmarks", "carried": false},
+	{"key": "religions", "carried": false},
+]
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -126,7 +286,7 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "elevation + inferred tectonics"},
 	{"group": "Import", "id": "import_gis", "label": "GIS / GeoJSON", "badge": "", "kind": "gap",
 		"sub": "no importer",
-		"reason": "No GeoJSON import path exists. cartalith-engine::geojson is write-only (export_geojson, golden-verified); nothing in the workspace parses a FeatureCollection back into places, ways or territory."},
+		"reason": "The parser exists and the ingest does not, and those are different things. cartalith_io::parse_geojson reads a FeatureCollection back into geometry and properties, and WorldGen::geojson_inspect is a real #[func] over it that reports a document's feature count, layers, geometry types, CRS claim and bounds -- but its own doc says it \"validates and summarises rather than importing\", and it has no GDScript caller: EngineBridge carries export_geojson and nothing else. Nothing anywhere turns a parsed feature into a settlement, a way or a territory cell, which is the half that would make this route real. (Re-checked 2026-09-05; this row previously read \"No GeoJSON import path exists\", which stopped being true when the parser landed.)"},
 	{"group": "Import", "id": "import_world", "label": "World Data", "badge": ".zip", "kind": "live",
 		"sub": "same loader as File ▸ Open project…"},
 	{"group": "Import", "id": "import_assets", "label": "Assets", "badge": "→ Assets", "kind": "route",
@@ -147,7 +307,7 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "no registry", "reason": "Same -- no source registry exists."},
 	{"group": "Validation", "id": "val_check", "label": "Check Data", "badge": "", "kind": "gap",
 		"sub": "no warning store",
-		"reason": "load_save() returns pass/fail only (cartalith-godot's load_save binding) -- no warning collection exists anywhere to surface a count from. The canvas's `8` badge on this row is mockup data, so no badge is drawn. What would be validated, and against which invariant, is itself undefined (DM-10, classed (C))."},
+		"reason": "There is a warning collection and it is about opening a FILE, not about checking a world: project_open() returns a warnings array, EngineBridge.last_open_warnings holds it, and app.gd surfaces its first entry after an open. Nothing anywhere walks a loaded world looking for contradictions in its own data, which is what this route means -- and what would be checked, against which invariant, is itself undefined (DM-10, classed (C)). The canvas's `8` badge on this row is mockup data, so no badge is drawn. (Re-checked 2026-09-05; this row previously said no warning collection existed anywhere, which project_open's own return had already falsified.)"},
 	{"group": "Validation", "id": "val_repair", "label": "Repair / Normalize", "badge": "", "kind": "gap",
 		"sub": "nothing to repair against", "reason": "No validation pass exists to repair against."},
 ]
@@ -227,6 +387,20 @@ const GEOJSON_CRS_NOTE := "Coordinates are local planar kilometres (east, north)
 
 const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer, which only exists for a freshly generated world -- a loaded .zip save carries none of the substrate that pipeline needs (SAVEFILE_COMPAT.md). Exporting a loaded save produces a valid document whose features are rivers and nothing else. This port also has no point-of-interest kind, so there is no poi layer: every place is a settlement."
 
+## The pattern pane's FORMAT row on this route, and the reason its other two
+## segments are dead.
+##
+## **Measured this pass**, not assumed: `grep -rni csv --include=*.rs crates/`
+## outside `cartalith-assets` and `cartalith-godot/src/lib.rs` returns **0**;
+## inside them it is `parse_pack_csv`/`MANIFEST_CSV` (an asset-pack manifest
+## *reader*) and `as_batch_tag`'s comma-separated tag argument. Neither is an
+## entity writer.
+const GIS_FORMAT_NOTE := "GeoJSON is the only entity document this engine writes: cartalith_engine::geojson is the whole of it, and it emits a FeatureCollection or nothing. Nothing in the workspace writes settlements, ways or factions as a plain JSON document or as CSV -- the only CSV anywhere is cartalith-assets' pack.csv manifest reader (parse_pack_csv), which is an asset-pack input rather than an export. Either format would be a new writer, not a switch on this row."
+
+## Import ▸ Heightmaps' FORMAT row. The reasoning is `import_maps`' own, which
+## has carried it since this window was rebuilt: parity, not a shortfall.
+const HEIGHTMAP_FORMAT_NOTE := "TIFF is absent, and deliberately: the reference's own file input is accept=\"image/*\" and decodes through the browser, which does not decode TIFF either -- so PNG is parity, not a shortfall."
+
 ## Tile-grid choices the engine accepts (`cols`/`rows`, any `n > 0`). The
 ## canvas's own row is a four-way `0–4 / 0–6 / 0–8 / custom` zoom segment; this
 ## is the same control over the dimension this export actually has.
@@ -293,6 +467,28 @@ var _wd_tiled := false
 ## opt-in on the grounds that nothing reads them back on load.
 var _wd_layers := false
 
+## Export ▸ GIS / GeoJSON's destination, held the way `_tx_dest` is held for
+## Export ▸ Maps.
+##
+## **New with the pattern pane.** Until 2026-09-05 this route had no persistent
+## destination at all: its footer chip raised a save picker and wrote inside the
+## callback, so there was nothing to draw in a TO row and nothing for a second
+## export to reuse. `DataPane.dc.html` draws that row, so the destination is now
+## chosen first (`Browse…`) and written second (`Export`), which is the shape
+## Export ▸ Maps already had.
+var _gis_dest := ""
+
+## The last GeoJSON document's own per-layer feature counts, measured by parsing
+## the text this window just wrote -- `{layer: count}` plus `"features"`.
+##
+## Measured, not modelled, and that is the point: the shell can count
+## settlements, ways and provinces before a run, but it cannot count **rivers**
+## (they are traced inside `geojson_bridge.rs::export_geojson` from
+## `stream_order`/`channels`, which no binding exposes). So the INCLUDE chips
+## dash that group before a run and the receipt reports its real number after
+## one. Empty until an export has run in this session; `has()`, never a zero.
+var _gis_doc_layers: Dictionary = {}
+
 ## Export ▸ World Data -- the two disclosures this route owes, and the one it
 ## no longer does. Until 2026-08-24 this row was a **gap** whose reason read
 ## "cartalith-io reads .zip saves but does not write them"; that stopped being
@@ -342,6 +538,11 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	## above.
 	_phone = DccWidgets.phone_window(self, host)
 	_tx_dest = DccSettings.storage_root("exports").path_join("region-tiles.zip")
+	## Pre-filled exactly as `_tx_dest` is, so the pattern pane's TO row has a
+	## real path to draw rather than a dash on first open. Neither default is
+	## overwrite-guarded on the *write* -- both guard at pick time -- which is
+	## unchanged by this pass and stated here rather than left to be discovered.
+	_gis_dest = DccSettings.storage_root("exports").path_join("world.geojson")
 	_build()
 	## `1.0`: `phone_present()` applies the scale once as `content_scale_factor`.
 	if _phone:
@@ -933,7 +1134,7 @@ func _select_route(id: String) -> void:
 	elif id == "export_world":
 		_build_world_data_pane()
 	else:
-		_build_simple_pane(route)
+		_build_pattern_pane(route)
 	_refresh_status()
 	## PH-12: picking a route in the ROUTES pane is a navigation whose whole
 	## result is the pane next door, so the switcher follows it; and the pane it
@@ -941,16 +1142,27 @@ func _select_route(id: String) -> void:
 	_phone_refit()
 	_show_phone_pane("route")
 
-## Every route §9 does not design a pane for: the canvas's own column-header
-## grammar around whatever the route really is -- the live action, the routing
-## shortcut, or the disclosed reason. One column, because there is one thing to
-## say; the two-column grid belongs to the route the canvas actually designs.
-func _build_simple_pane(route: Dictionary) -> void:
+## The twelve routes `Data manager window 1920` never drew a pane for, rendered
+## through `DataPane.dc.html`'s pattern.
+##
+## The anatomy is the artboard's, in its order: title, a one-line purpose, a
+## rule, the form region (FORMAT · INCLUDE · EXTENT), the route's own prose, a
+## rule, the destination row, the receipt, and the action row. Every part is
+## **omitted** where the route has no real source for it rather than drawn with
+## a stand-in, which is why `_pattern_form()` and `_pattern_destination()` both
+## start with a `match` that falls through to nothing for most routes.
+##
+## **The action row is the pinned `_pane_footer`, not an in-body row.** The
+## artboard draws it inside the pane because its pane is the whole window; this
+## window already has a footer band above its status line, and every route's
+## actions have lived there since the 2026-08-20 rebuild. Moving them into the
+## scrolled body would make them scroll away.
+func _build_pattern_pane(route: Dictionary) -> void:
 	var id := String(route["id"])
-	var kind := String(route.get("kind", "gap"))
 	## One column at roughly the width of the canvas's own `1fr` half, plus a
-	## spacer -- prose set across the full 1 400 px pane is unreadable, and the
-	## canvas never sets a line that long.
+	## spacer -- prose set across the full 1 400 px pane is unreadable, and
+	## neither canvas sets a line that long (`DataPane.dc.html`'s own pane is
+	## 760 - 196 = 564 px, the same order).
 	var lane := HBoxContainer.new()
 	lane.add_theme_constant_override("separation", COL_GAP)
 	lane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -969,63 +1181,523 @@ func _build_simple_pane(route: Dictionary) -> void:
 	if not _phone:
 		lane.add_child(DccTheme.spacer())
 
+	_pattern_heading(col, String(route["label"]), String(PANE_PURPOSE.get(id, "")))
+	_pattern_rule(col, PATTERN_RULE_TOP, PATTERN_RULE_BOTTOM)
+	_pattern_form(col, id)
+	_pattern_prose(col, route)
+	_pattern_rule(col, PATTERN_RULE_TOP_2, PATTERN_RULE_BOTTOM)
+	_pattern_destination(col, id)
+	## The artboard's `flex:1;min-height:12px` between the destination row and
+	## the receipt. Fixed rather than expanding: this body scrolls, so "push the
+	## receipt to the bottom" has no bottom to push to, and giving the column an
+	## expand flag would change how the shared `_pane_body` sizes for the two
+	## bespoke panes as well.
+	var gap := Control.new()
+	gap.custom_minimum_size.y = 12
+	col.add_child(gap)
+	_pattern_receipt(col, route)
+	_pattern_actions(route)
+
+# -- The pattern's parts ------------------------------------------------------
+
+## `color:var(--ink);font-weight:500;font-size:14px` over
+## `class="mono";padding-top:3px;font-size:var(--m2);color:var(--faint)`.
+func _pattern_heading(parent: Control, title: String, purpose: String) -> void:
+	parent.add_child(DccTheme.label(title, "text_bright", PATTERN_TITLE_FS))
+	if purpose == "":
+		return
+	var p := DccWidgets.pad(parent, 0, 3, 0, 0)
+	var l := DccTheme.mono_label(purpose, "text_faint", DccTheme.FS_MICRO)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.add_child(l)
+
+## `.rule{height:1px;background:var(--div)}`.
+##
+## **Not `DccTheme.rule()`**, which paints `line` (`--hair`). The artboard's
+## `.rule` is `--div`, and `line_soft`'s own token comment draws the same
+## distinction from the other side: it is *"the lighter rule, used inside a
+## surface rather than between two"*. These two sit inside the pane.
+func _pattern_rule(parent: Control, top: int, bottom: int) -> void:
+	var p := DccWidgets.pad(parent, 0, top, 0, bottom)
+	var r := ColorRect.new()
+	r.color = DccTheme.c("line_soft")
+	r.custom_minimum_size = Vector2(0, 1)
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.add_child(r)
+
+## The artboard's form row: a `width:74px` mono label at `--m2` / `.1em` /
+## `--faint`, then the control. A *different, narrower* label column from the
+## Export ▸ Maps pane's `W_ROW_LABEL` 120 -- both are drawn, from two artboards.
+func _pattern_row(parent: Control, label_text: String, top: int = 0,
+		top_align: bool = false) -> HBoxContainer:
+	var p := DccWidgets.pad(parent, 0, top, 0, 0)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	p.add_child(row)
+	var l := DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_MICRO, 1)
+	l.custom_minimum_size.x = PATTERN_LABEL_W
+	l.vertical_alignment = VERTICAL_ALIGNMENT_TOP if top_align else VERTICAL_ALIGNMENT_CENTER
+	if top_align:
+		l.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	row.add_child(l)
+	return row
+
+## One segment of the FORMAT track: `border-radius:12px;padding:3px 12px`, lit
+## at `background:var(--wash2);color:var(--acc)` and quiet at `color:var(--dim)`
+## with no fill.
+func _seg_box(fill: Color) -> StyleBoxFlat:
+	var sb := DccTheme.flat(fill, PATTERN_SEG_R)
+	sb.content_margin_left = PATTERN_SEG_PAD_X
+	sb.content_margin_right = PATTERN_SEG_PAD_X
+	sb.content_margin_top = PATTERN_SEG_PAD_Y
+	sb.content_margin_bottom = PATTERN_SEG_PAD_Y
+	return sb
+
+func _style_pattern_segment(b: Button, on: bool) -> void:
+	var rest := _seg_box(DccTheme.c("accent_wash_2") if on else Color(0, 0, 0, 0))
+	for n in ["normal", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(n, rest)
+	b.add_theme_stylebox_override("hover",
+		rest if on else _seg_box(DccTheme.c("line_soft")))
+	var ink := DccTheme.c("accent") if on else DccTheme.c("text_dim")
+	b.add_theme_color_override("font_color", ink)
+	b.add_theme_color_override("font_hover_color",
+		ink if on else DccTheme.c("text_bright"))
+	## A lit-but-DISABLED segment has to survive Godot resolving `disabled`
+	## ahead of `normal` -- the trap `DccWidgets.set_segment_on()` documents,
+	## and this pane has the same shape: one real format beside impossible ones.
+	b.add_theme_color_override("font_disabled_color",
+		ink if on else DccTheme.c("text_ghost"))
+
+## The artboard's FORMAT control, which is a **track**: `background:var(--ins);
+## border-radius:14px;padding:2px` holding the segments.
+##
+## That is a different shape from `_segments()` above, which draws the outline
+## chips `Data manager window 1920` specifies for the Export ▸ Maps pane's
+## Scheme / CRS / Packaging rows. The difference is the two artboards', not a
+## reinterpretation of either: this window now draws both, and reconciling them
+## is a decision about the older pane rather than about this one.
+func _pattern_segments(row: Control, items: Array, selected: int,
+		on_pick: Callable) -> Array:
+	var track := PanelContainer.new()
+	var tb := DccTheme.flat(DccTheme.c("sunken"), PATTERN_TRACK_R)
+	tb.content_margin_left = PATTERN_TRACK_PAD
+	tb.content_margin_right = PATTERN_TRACK_PAD
+	tb.content_margin_top = PATTERN_TRACK_PAD
+	tb.content_margin_bottom = PATTERN_TRACK_PAD
+	track.add_theme_stylebox_override("panel", tb)
+	track.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var group := HBoxContainer.new()
+	group.add_theme_constant_override("separation", 4)
+	track.add_child(group)
+	row.add_child(track)
+	var out: Array = []
+	for i in items.size():
+		var item: Dictionary = items[i]
+		var idx := i
+		var b := Button.new()
+		b.text = String(item["text"])
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_override("font", DccTheme.mono(0))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+		b.disabled = not bool(item.get("enabled", true))
+		if String(item.get("tip", "")) != "":
+			b.tooltip_text = String(item["tip"])
+		_style_pattern_segment(b, i == selected)
+		if on_pick.is_valid():
+			b.pressed.connect(func(): on_pick.call(idx))
+		group.add_child(b)
+		out.append(b)
+	return out
+
+## `.chip` -- `padding:3px 11px;border-radius:999px`, a **read-only** status
+## pill and not a button. `DccWidgets.chip()` is the canvas's outline *action*
+## chip and would read as pressable here.
+func _pill(parent: Control, text: String, bg_token: String, ink_token: String,
+		tip: String) -> Label:
+	var wrap := PanelContainer.new()
+	var sb := DccTheme.flat(DccTheme.c(bg_token), PATTERN_CHIP_R)
+	sb.content_margin_left = PATTERN_CHIP_PAD_X
+	sb.content_margin_right = PATTERN_CHIP_PAD_X
+	sb.content_margin_top = PATTERN_CHIP_PAD_Y
+	sb.content_margin_bottom = PATTERN_CHIP_PAD_Y
+	wrap.add_theme_stylebox_override("panel", sb)
+	wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if tip != "":
+		wrap.tooltip_text = tip
+		wrap.mouse_filter = Control.MOUSE_FILTER_STOP
+	var l := DccTheme.mono_label(text, ink_token, DccTheme.FS_TINY)
+	wrap.add_child(l)
+	parent.add_child(wrap)
+	return l
+
+## The INCLUDE row's chips, in the artboard's three states and no fourth:
+##
+##   * **lit** (`--wash2` / `--acc`) -- this format carries the group, and a
+##     real source answered how many there are;
+##   * **dim** (`--ins` / `--dim`) -- the group exists in this world and the
+##     format does not carry it. The artboard's `landmarks 214`, and true here:
+##     `export_geojson` emits no landmark layer;
+##   * **dashed** (`--ins` / `--dis`) -- no count could be asked for. The
+##     artboard's `religions —`, and the artboard's own rule that such a chip is
+##     *dashed and dimmed, not hidden*.
+##
+## Every count comes from `_gis_count()`, which omits the key rather than
+## returning a zero. The tooltip always carries the reason, in both directions:
+## a dashed chip says why there is no number, a dim chip says why the number is
+## not going into the file.
+func _include_chips(row: Control) -> void:
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", 4)
+	flow.add_theme_constant_override("v_separation", 4)
+	flow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(flow)
+	for g in GIS_GROUPS:
+		var key := String(g["key"])
+		var carried := bool(g["carried"])
+		var got := _gis_count(key)
+		var has_count: bool = got.has("count")
+		var text := ("%s %d" % [key, int(got["count"])]) if has_count \
+			else ("%s —" % key)
+		var ink := "text_ghost"
+		if has_count:
+			ink = "accent" if carried else "text_dim"
+		var bg := "accent_wash_2" if (has_count and carried) else "sunken"
+		var tip := ""
+		if not has_count:
+			tip = String(got.get("why", ""))
+		if not carried:
+			tip = ("%s\n\n" % tip if tip != "" else "") \
+				+ "Not written by this format: export_geojson emits settlement, poi, way, river, territory and province layers, and there is no %s layer among them." % key
+		elif has_count:
+			tip = String(got.get("how", ""))
+		_pill(flow, text, bg, ink, tip)
+
+## The count for one INCLUDE group, or the reason there is none.
+##
+## Returns `{"count": int, "how": String}` when a real source answers and
+## `{"why": String}` when none can -- **never a zero standing in for an
+## absence**, which is why every caller tests `has("count")`. A world whose
+## civilisation layer is missing entirely (every loaded `.zip` save:
+## `SAVEFILE_COMPAT.md`) reports the reason, not `0`.
+func _gis_count(key: String) -> Dictionary:
+	if _bridge == null or not _bridge.has_world:
+		return {"why": "No world is loaded."}
+	var civ_absent := "None, and that is one of two states this window cannot tell apart: a generated world always has some, and a loaded .zip save carries no civilisation layer at all (SAVEFILE_COMPAT.md, and GEOJSON_CIV_NOTE above). Either way there is nothing of this group to write."
+	match key:
+		"settlements":
+			var n: int = _bridge.settlements().size()
+			return {"count": n, "how": "EngineBridge.settlements() -> get_settlements(), the same list export_geojson turns into settlement features."} if n > 0 else {"why": civ_absent}
+		"factions":
+			var n: int = _bridge.civ_faction_count()
+			return {"count": n, "how": "EngineBridge.civ_faction_count(), the roster excluding Unclaimed. The document carries one territory polygon per faction that actually holds cells, so a faction with no claimed ground contributes a property and no feature."} if n > 0 else {"why": civ_absent}
+		"ways":
+			## Generated ways and sea lanes only. `get_roads()`/`get_sea_routes()`
+			## also return hand-drawn `infra.ways` (flagged `manual`), and
+			## `export_geojson` reads `civ.ways` and `civ.sea_routes` and never
+			## `infra.ways` -- so counting the getters whole would report a
+			## number the file will not contain.
+			var n := 0
+			for w in _bridge.roads():
+				if not bool((w as Dictionary).get("manual", false)):
+					n += 1
+			for w in _bridge.sea_routes():
+				if not bool((w as Dictionary).get("manual", false)):
+					n += 1
+			return {"count": n, "how": "Generated roads plus sea lanes (civ.ways where not hidden, plus civ.sea_routes). Hand-drawn ways are excluded because export_geojson does not read infra.ways -- if any exist, the receipt says how many were left out."} if n > 0 else {"why": civ_absent}
+		"rivers":
+			## The one carried group with no pre-run count anywhere in the
+			## shell. Deliberately dashed rather than guessed; the receipt
+			## reports the real number, measured off the written document.
+			return {"why": "The count exists in the engine -- WorldGen::get_rivers(2) runs the same trace/split pair the exporter does and returns the same set -- but engine_bridge.gd has no forwarder for it, so this dock cannot ask. One line away, not a missing capability. Rivers ARE written; the count appears in the receipt after a run until the forwarder lands."}
+		"provinces":
+			var n: int = _bridge.provinces().size()
+			return {"count": n, "how": "EngineBridge.provinces() -> get_provinces(). A province with no cells in the province raster contributes no feature."} if n > 0 else {"why": civ_absent}
+		"landmarks":
+			var n: int = _bridge.landmarks().size()
+			return {"count": n, "how": "EngineBridge.landmarks(), the last landmark pass's placements."} if n > 0 else {"why": "No landmark pass has run in this world, or one ran and placed nothing -- landmarks() reports the last run's placements and answers an empty list to both. Either way there is nothing of this group in the world."}
+		"religions":
+			## The idiom is `civilization_workspace.gd::_religion_head_refresh()`:
+			## distinct `adherents` keys, `none` excluded, count above zero. Its
+			## own comment is why this dashes instead of printing `0`: *"no run
+			## and no faiths are different answers"*.
+			var places: Array = _bridge.settlements()
+			var seen := {}
+			var carried_any := false
+			for p in places:
+				var ad: Dictionary = (p as Dictionary).get("adherents", {})
+				if not ad.is_empty():
+					carried_any = true
+				for k in ad.keys():
+					if String(k) != "none" and int(ad[k]) > 0:
+						seen[String(k)] = true
+			if not carried_any:
+				return {"why": "The belief layer has not run. settlements() carries no adherents dictionary until civ_belief_run does (Civilisation ▸ Religion), and 0 faiths is a different answer from 'not run' -- the same distinction civilization_workspace.gd's own faith count makes."}
+			return {"count": seen.size(), "how": "Distinct adherents keys with a non-zero count, the unaffiliated slot excluded -- civilization_workspace.gd::_religion_head_refresh()'s own measure."}
+	return {"why": "No source in this shell reports this group."}
+
+## The form region. A `match` that falls through to nothing for every route
+## whose form would have to be invented -- which is most of them, and is the
+## honest half of inheriting a pattern.
+func _pattern_form(col: Control, id: String) -> void:
 	match id:
 		"import_heightmap":
-			_col_header(col, "HEIGHTMAP")
+			var fmt := _pattern_row(col, "FORMAT")
+			_pattern_segments(fmt, [
+				{"text": "PNG", "enabled": true},
+				{"text": "TIFF", "enabled": false, "tip": HEIGHTMAP_FORMAT_NOTE},
+			], 0, func(_i: int): pass)
+		"export_gis":
+			var fmt := _pattern_row(col, "FORMAT")
+			_pattern_segments(fmt, [
+				{"text": "GeoJSON", "enabled": true},
+				{"text": "JSON", "enabled": false, "tip": GIS_FORMAT_NOTE},
+				{"text": "CSV", "enabled": false, "tip": GIS_FORMAT_NOTE},
+			], 0, func(_i: int): pass)
+			var inc := _pattern_row(col, "INCLUDE", 9, true)
+			_include_chips(inc)
+			var ext := _pattern_row(col, "EXTENT", 9)
+			var v := DccTheme.mono_label("whole world", "text_secondary", DccTheme.FS_TINY)
+			v.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			ext.add_child(v)
+			## The artboard's own hint here reads `· a Region marquee narrows
+			## this`. **It does not, on this route**, and the artboard is
+			## illustrative: `export_geojson` describes the whole world and the
+			## marquee is Export ▸ Maps' input. The row keeps its shape and says
+			## the true thing.
+			var hint := DccTheme.mono_label(
+				"· the Region marquee narrows Export ▸ Maps, not this route",
+				"text_ghost", DccTheme.FS_MICRO)
+			hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			ext.add_child(hint)
+
+## The route's own paragraph(s): what it really is -- the live description, the
+## routing shortcut, or the disclosed reason, which for a gap route is the whole
+## content of the pane.
+func _pattern_prose(col: Control, route: Dictionary) -> void:
+	match String(route["id"]):
+		"import_heightmap":
 			if _bridge != null and _bridge.import_api:
 				DccWidgets.note(col,
 					"Reads a PNG heightmap (white = high), resamples it to the working grid at the image's own aspect ratio, and infers a tectonic substrate from its morphology so lithology, resources and settlement have something to read -- the reference's Import ▸ Load heightmap… followed by Infer tectonics from heightmap. Scale (width, peak) comes from New world…, exactly as the reference's own calibrate step reuses its generate form.")
+			else:
+				DccWidgets.note(col,
+					"This build's GDExtension predates the heightmap-import binding (WorldGen::import_heightmap). Rebuild cartalith-godot to enable it.")
+		"import_world":
+			DccWidgets.note(col,
+				"Opens the same .zip project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")
+		"import_assets":
+			DccWidgets.note(col,
+				"Routes to Assets ▸ Import asset pack .zip… -- §2.4's own table calls this item a shortcut, not a second implementation.")
+		"export_gis":
+			## DM-03: `export_geojson` (geojson_bridge.rs) over
+			## `cartalith_engine::geojson`, which is golden-verified
+			## character-for-character against the reference's own document.
+			DccWidgets.note(col,
+				"Writes the whole world as one GeoJSON FeatureCollection: settlements, roads, sea lanes, rivers (Strahler order 2 and up), faction territory and provinces, each tagged with its own layer property.")
+			DccWidgets.note(col, GEOJSON_CRS_NOTE)
+			DccWidgets.note(col, GEOJSON_CIV_NOTE)
+		"export_assets":
+			## DM-05: routes to the Asset library window's own real Export pack
+			## .zip… (AS-04, `as_export_pack_bytes` → `archive::write_pack`) --
+			## §2.4's table calls this a shortcut, same as `import_assets`.
+			DccWidgets.note(col,
+				"Routes to the Asset library window's own Export pack .zip… (Assets ▸ ⧉ Asset library, §8's window bar) -- real (as_export_pack_bytes -> archive::write_pack).")
+		_:
+			DccWidgets.note(col, String(route.get("reason", "Not implemented.")))
+
+## The artboard's `TO` row: a filled `--ins` well at `border-radius:8px;
+## min-height:var(--ctl);padding:4px 11px` beside a `.btn2` `Browse…` shrunk to
+## `--ctl` by the artboard's own inline override.
+##
+## Drawn for the one pattern route that keeps a destination. The import routes
+## and the two `→` shortcuts hand the whole file dialog to another window, so
+## there is no path for this row to hold and it is omitted rather than drawn
+## with a placeholder.
+func _pattern_destination(col: Control, id: String) -> void:
+	if id != "export_gis":
+		return
+	var row := _pattern_row(col, "TO")
+	var well := PanelContainer.new()
+	var sb := DccTheme.flat(DccTheme.c("sunken"), DccWidgets.MODAL_INSET_RADIUS)
+	sb.content_margin_left = PATTERN_CHIP_PAD_X
+	sb.content_margin_right = PATTERN_CHIP_PAD_X
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	well.add_theme_stylebox_override("panel", sb)
+	well.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	well.custom_minimum_size.y = DccWidgets.MODAL_CTL
+	var l := DccTheme.mono_label(_gis_dest if _gis_dest != "" else "—",
+		"text_secondary" if _gis_dest != "" else "text_ghost", DccTheme.FS_TINY)
+	l.clip_text = true
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	well.add_child(l)
+	if _gis_dest != "":
+		well.tooltip_text = _gis_dest
+		well.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.add_child(well)
+	## `.btn2` -- `DccWidgets.modal_quiet()`. `Modal.dc.html` and
+	## `DataPane.dc.html` declare `.btn` and `.btn2` byte-identically (checked
+	## with `diff` this pass), so the factory pair that landed for the modal
+	## artboard is the design system's, not the modal's; only its name records
+	## where it first shipped.
+	var browse := DccWidgets.modal_quiet(row, "Browse…", func():
+		_pick_geojson_destination())
+	## The artboard overrides `.btn2`'s own `--btnH` down to `--ctl` in this row.
+	## Not on a touch density, where the factory's floor is a tap target rather
+	## than a drawing decision.
+	if not (DccTheme.is_tablet() or DccTheme.is_phone()):
+		browse.custom_minimum_size.y = DccWidgets.MODAL_CTL
+
+## The result block: `background:var(--ins);border-radius:8px;padding:9px 11px`,
+## a tick, what was written, how long ago -- and then the line that is the point
+## of the whole block, **what was not included**.
+##
+## Its absent state is a dash carrying its reason, per route, rather than a
+## success line with zeroes in it.
+func _pattern_receipt(col: Control, route: Dictionary) -> void:
+	var wrap := PanelContainer.new()
+	var sb := DccTheme.flat(DccTheme.c("sunken"), DccWidgets.MODAL_INSET_RADIUS)
+	sb.content_margin_left = PATTERN_RECEIPT_PAD_X
+	sb.content_margin_right = PATTERN_RECEIPT_PAD_X
+	sb.content_margin_top = PATTERN_RECEIPT_PAD_Y
+	sb.content_margin_bottom = PATTERN_RECEIPT_PAD_Y
+	wrap.add_theme_stylebox_override("panel", sb)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 4)
+	wrap.add_child(body)
+	col.add_child(wrap)
+
+	var run := _last_route_run(String(route["id"]))
+	if run.is_empty():
+		var l := DccTheme.mono_label(_receipt_absent_reason(route),
+			"text_ghost", DccTheme.FS_MICRO)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		body.add_child(l)
+		return
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	body.add_child(head)
+	var ok := bool(run.get("ok", false))
+	head.add_child(DccTheme.mono_label(
+		DccIcons.SYMBOLS["tick"] if ok else DccIcons.SYMBOLS["cross"],
+		"good" if ok else "block", DccTheme.FS_TINY))
+	var line := DccTheme.mono_label(String(run.get("receipt", "")),
+		"text_secondary", DccTheme.FS_TINY)
+	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(line)
+	## A snapshot taken when the pane was built, not a ticking clock -- which is
+	## what the artboard draws too. Every action in this pane rebuilds the pane,
+	## so it is re-read on each one.
+	var ago := _ago(int(run.get("msec", 0)))
+	if ago != "":
+		head.add_child(DccTheme.mono_label(ago, "text_ghost", DccTheme.FS_MICRO))
+	var omitted := String(run.get("omitted", ""))
+	if omitted != "":
+		var n := DccTheme.mono_label(omitted, "text_ghost", DccTheme.FS_MICRO)
+		n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		body.add_child(n)
+
+func _receipt_absent_reason(route: Dictionary) -> String:
+	var kind := String(route.get("kind", "gap"))
+	if kind == "gap":
+		return "— nothing has run here, and nothing can: this route is disclosed above as having no engine behind it."
+	if kind == "route":
+		return "— this route hands off to another window, which reports its own result on the app status line. Nothing runs here to receipt."
+	if String(route["id"]).begins_with("import_"):
+		return "— this route hands the file to the shell's own importer; the result lands on the app status line and in the world itself, not in a receipt here."
+	return "— no export has run on this route in this session. Nothing persists a run history (DM-12), so this starts empty at every launch rather than showing a remembered figure."
+
+## The newest run recorded for one route, or `{}`. `_runs` is session-scoped and
+## shared across routes, so entries carry the route they belong to.
+func _last_route_run(id: String) -> Dictionary:
+	for r in _runs:
+		if String((r as Dictionary).get("route", "")) == id:
+			return r
+	return {}
+
+## The artboard's `1.1 s ago`. Empty string when the record carries no monotonic
+## stamp at all -- an omitted key, so no caller can read a zero as "just now".
+func _ago(msec: int) -> String:
+	if msec <= 0:
+		return ""
+	var s := float(Time.get_ticks_msec() - msec) / 1000.0
+	if s < 90.0:
+		return "%.1f s ago" % s
+	if s < 5400.0:
+		return "%d min ago" % int(round(s / 60.0))
+	return "%d h ago" % int(round(s / 3600.0))
+
+## `a, b and c`, for the receipt's not-included line.
+func _and_list(items: PackedStringArray) -> String:
+	var n := items.size()
+	if n == 0:
+		return ""
+	if n == 1:
+		return items[0]
+	var head := PackedStringArray()
+	for i in n - 1:
+		head.append(items[i])
+	return "%s and %s" % [", ".join(head), items[n - 1]]
+
+## The artboard's `Reveal file` + `Export` action row, in `_pane_footer`.
+##
+## `.btn2` then `.btn` -- the quiet action first, the primary last, which is the
+## order both approved artboards draw and the order `DccWidgets.modal_choices()`
+## enforces for the modal one.
+func _pattern_actions(route: Dictionary) -> void:
+	var id := String(route["id"])
+	var kind := String(route.get("kind", "gap"))
+	match id:
+		"import_heightmap":
+			if _bridge != null and _bridge.import_api:
 				_footer_note("replaces the current elevation field")
 				DccWidgets.chip(_pane_footer, "Import heightmap…", func():
 					hide()
 					_host.open_heightmap_import(), true, 16, 6)
 			else:
-				DccWidgets.note(col,
-					"This build's GDExtension predates the heightmap-import binding (WorldGen::import_heightmap). Rebuild cartalith-godot to enable it.")
 				_footer_note("binding missing in this build")
 		"import_world":
-			_col_header(col, "PROJECT ARCHIVE")
-			DccWidgets.note(col,
-				"Opens the same .zip project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")
 			_footer_note("replaces the whole world")
 			DccWidgets.chip(_pane_footer, "Open project…", func():
 				hide()
 				_host.open_project_picker(), true, 16, 6)
 		"import_assets":
-			_col_header(col, "ASSET PACK")
-			DccWidgets.note(col,
-				"Routes to Assets ▸ Import asset pack .zip… -- §2.4's own table calls this item a shortcut, not a second implementation.")
 			_footer_note("routes to the Assets menu")
 			DccWidgets.chip(_pane_footer, "Import asset pack .zip…", func():
 				hide()
 				_host.open_asset_pack_picker(), true, 16, 6)
 		"export_gis":
-			## DM-03: `export_geojson` (geojson_bridge.rs) over
-			## `cartalith_engine::geojson`, which is golden-verified
-			## character-for-character against the reference's own document.
-			_col_header(col, "FEATURE COLLECTION")
-			DccWidgets.note(col,
-				"Writes the whole world as one GeoJSON FeatureCollection: settlements, roads, sea lanes, rivers (Strahler order 2 and up), faction territory and provinces, each tagged with its own layer property. Not a region export -- the Region-select marquee is Export ▸ Maps' input, not this one's.")
-			DccWidgets.note(col, GEOJSON_CRS_NOTE)
-			DccWidgets.note(col, GEOJSON_CIV_NOTE)
-			_footer_note("writes one .geojson file")
-			DccWidgets.chip(_pane_footer, "Export .geojson…", func():
-				_pick_geojson_destination(), true, 16, 6)
+			_footer_note("writes to %s" % (_gis_dest if _gis_dest != "" else "—"))
+			## Real only once a run has actually written a file: `reveal_on_disk`
+			## opens a folder, and offering it before there is anything in it is
+			## the same fiction as a zero standing in for an absence.
+			var last := _last_route_run("export_gis")
+			var wrote: String = String(last.get("path", "")) if bool(last.get("ok", false)) else ""
+			var reveal := DccWidgets.modal_quiet(_pane_footer, "Reveal file", func():
+				_host.reveal_on_disk(wrote))
+			reveal.disabled = wrote == "" or DccTheme.is_touch()
+			reveal.tooltip_text = ("Opens %s in the file manager." % wrote.get_file()
+				if wrote != "" else
+				("A touch build has no desktop file manager to open." if DccTheme.is_touch()
+					else "Nothing has been written on this route yet."))
+			var go := DccWidgets.modal_safe(_pane_footer, "Export", func():
+				_run_geojson_export_here())
+			go.disabled = _bridge == null or not _bridge.has_world
+			go.tooltip_text = ("export_geojson -> cartalith_engine::geojson, written with FileAccess. Choose the destination with Browse… if none is set."
+				if not go.disabled else "No world is loaded, so there are no entities to describe.")
 		"export_assets":
-			## DM-05: routes to the Asset library window's own real Export pack
-			## .zip… (AS-04, `as_export_pack_bytes` → `archive::write_pack`) --
-			## §2.4's table calls this a shortcut, same as `import_assets`.
-			_col_header(col, "ASSET PACK")
-			DccWidgets.note(col,
-				"Routes to the Asset library window's own Export pack .zip… (Assets ▸ ⧉ Asset library, §8's window bar) -- real (as_export_pack_bytes -> archive::write_pack).")
 			_footer_note("routes to the Asset library")
 			DccWidgets.chip(_pane_footer, "Export pack .zip…", func():
 				hide()
 				_host.open_asset_library()
 				_host.asset_library_window.export_pack_now(), true, 16, 6)
 		_:
-			_col_header(col, "NOT BUILT")
-			DccWidgets.note(col, String(route.get("reason", "Not implemented.")))
 			_footer_note("nothing to run on this route")
 	if kind == "gap":
 		var disabled := DccWidgets.chip(_pane_footer, "Run", func(): pass, false, 16, 6)
@@ -1390,10 +2062,15 @@ func _run_atlas_export(dir: String) -> void:
 	_refresh_foot()
 	_refresh_status()
 
+## `route` and `msec` are carried on every run record so `_last_route_run()` and
+## `_ago()` can answer for any route, not only the one the pattern pane happens
+## to draw today. `msec` is monotonic (`Time.get_ticks_msec()`); `stamp` is the
+## wall clock the RECENT RUNS block prints, and the two are not interchangeable.
 func _record_wd_run(label: String, r: Dictionary) -> void:
 	var t := Time.get_time_dict_from_system()
 	_runs.push_front({
 		"stamp": "%02d:%02d" % [int(t["hour"]), int(t["minute"])],
+		"msec": Time.get_ticks_msec(), "route": "export_world",
 		"label": label, "bytes": int(r.get("bytes", 0)),
 		"secs": float(r.get("ms", 0.0)) / 1000.0, "ok": bool(r.get("ok", false)),
 	})
@@ -1757,12 +2434,15 @@ func _rebuild_tile_export() -> void:
 # Export ▸ Maps -- the run
 # ---------------------------------------------------------------------------
 
-## The one picker here that writes nothing: it only remembers `_tx_dest` for
-## the footer's Export button. The overwrite guard still runs at pick time,
-## which is exactly where the stock dialog put it -- and `_run_export()` has
-## never had one of its own, so re-exporting to a destination already chosen
-## still clobbers without asking. That is unchanged by this swap, and it is
-## the reason the guard cannot simply move to the write.
+## One of the **two** pickers here that write nothing: it only remembers
+## `_tx_dest` for the footer's Export button. (It was the only one until
+## 2026-09-05, when `_pick_geojson_destination()` became the second -- the
+## pattern pane draws Export ▸ GIS's destination in a TO row, so that route now
+## chooses first and writes second as well.) The overwrite guard still runs at
+## pick time, which is exactly where the stock dialog put it -- and
+## `_run_export()` has never had one of its own, so re-exporting to a
+## destination already chosen still clobbers without asking. That is unchanged
+## by this swap, and it is the reason the guard cannot simply move to the write.
 func _pick_destination() -> void:
 	DccBrowseDialog.choose_save_path(self, "Export tiles .zip", "zip",
 		_tx_dest.get_base_dir() if _tx_dest != "" else DccSettings.storage_root("exports"),
@@ -1781,14 +2461,33 @@ func _pick_destination() -> void:
 # emit it always emits.
 # ---------------------------------------------------------------------------
 
+## **Chooses, it no longer writes.** `DataPane.dc.html` puts a destination row
+## with a `Browse…` button ahead of the action row, so this picker records
+## `_gis_dest` and the footer's Export writes there -- the shape
+## `_pick_destination()` has always had for Export ▸ Maps. The overwrite guard
+## stays here, at pick time, for the same reason it does there: `_run_geojson_
+## export()` is reachable a second time from the footer with the destination
+## already set, and a guard on the write would prompt every time.
 func _pick_geojson_destination() -> void:
 	## The reference names its own download `world_{seed}.geojson`; the shell
 	## has no seed of its own to interpolate, and the document carries it as a
 	## property anyway.
 	DccBrowseDialog.choose_save_path(self, "Export GeoJSON", "geojson",
-		DccSettings.storage_root("exports"),
-		"one FeatureCollection describing the whole world", "world.geojson",
-		func(path: String): _overwrite_guard(path, func(): _run_geojson_export(path)))
+		_gis_dest.get_base_dir() if _gis_dest != "" else DccSettings.storage_root("exports"),
+		"one FeatureCollection describing the whole world; nothing is written until you press Export",
+		_gis_dest.get_file() if _gis_dest != "" else "world.geojson",
+		func(path: String): _overwrite_guard(path, func():
+			_gis_dest = path
+			_rebuild_gis()
+			_refresh_foot()))
+
+## The footer's Export. Picks a destination first if none is set, exactly as
+## `_run_export(false)` does for Export ▸ Maps.
+func _run_geojson_export_here() -> void:
+	if _gis_dest == "":
+		_pick_geojson_destination()
+		return
+	_run_geojson_export(_gis_dest)
 
 func _run_geojson_export(path: String) -> void:
 	if _bridge == null:
@@ -1801,30 +2500,139 @@ func _run_geojson_export(path: String) -> void:
 	var secs := float(Time.get_ticks_msec() - t0) / 1000.0
 
 	if text.is_empty():
-		_record_geojson_run(0, secs, false)
+		_gis_doc_layers = {}
+		_record_geojson_run(0, secs, false, path, {})
 		_host.set_status("hint",
 			"export failed — no world is loaded, or this build's GDExtension predates export_geojson", "warn")
 	else:
 		var f := FileAccess.open(path, FileAccess.WRITE)
 		if f == null:
-			_record_geojson_run(text.length(), secs, false)
+			_gis_doc_layers = {}
+			_record_geojson_run(text.length(), secs, false, path, {})
 			_host.set_status("hint",
 				"export failed — could not open %s for writing" % path.get_file(), "warn")
 		else:
 			f.store_string(text)
 			f.close()
-			_record_geojson_run(text.to_utf8_buffer().size(), secs, true)
+			_gis_doc_layers = _measure_geojson(text)
+			_record_geojson_run(text.to_utf8_buffer().size(), secs, true, path,
+				_gis_doc_layers)
 			_host.set_status("hint", "exported %s (%s)"
 				% [path.get_file(), _fmt_bytes(text.to_utf8_buffer().size())], "accent")
+	_rebuild_gis()
 	_refresh_foot()
 	_refresh_status()
 
-func _record_geojson_run(bytes: int, secs: float, ok: bool) -> void:
+func _rebuild_gis() -> void:
+	if _selected_id == "export_gis":
+		_select_route("export_gis")
+
+## The written document's own feature counts, keyed by `properties.layer`, plus
+## `"features"` for the whole collection.
+##
+## Parsed back out of the text this window just wrote, because the shell has no
+## other way to know how many rivers went in -- they are traced inside
+## `geojson_bridge.rs` at export time. A run is already synchronous seconds of
+## work, so one more pass over the string it produced is not what makes this
+## route slow.
+##
+## `{}` when the text does not parse as a `FeatureCollection`, which is an
+## absence and not a document of zero features: `has()`, never a zero.
+func _measure_geojson(text: String) -> Dictionary:
+	var doc = JSON.parse_string(text)
+	if typeof(doc) != TYPE_DICTIONARY or not (doc as Dictionary).has("features"):
+		return {}
+	var feats: Array = (doc as Dictionary)["features"]
+	var out: Dictionary = {"features": feats.size()}
+	for fe in feats:
+		if typeof(fe) != TYPE_DICTIONARY:
+			continue
+		var props: Dictionary = (fe as Dictionary).get("properties", {})
+		if not props.has("layer"):
+			continue
+		var k := String(props["layer"])
+		out[k] = int(out.get(k, 0)) + 1
+	return out
+
+## The receipt's second line: **what did not go into the file.**
+##
+## Three separate reasons, and each is measured rather than modelled:
+##
+##   1. the groups no GeoJSON layer carries (`GIS_GROUPS`' own `carried` flag);
+##   2. the carried groups the written document turned out to hold none of --
+##      read off `layers`, which came from the document itself;
+##   3. hand-drawn ways, which `export_geojson` does not read (it takes
+##      `civ.ways` and `civ.sea_routes`, never `infra.ways`) while
+##      `get_roads()`/`get_sea_routes()` do. A user who drew a road and then
+##      exported would otherwise never learn it was dropped.
+func _gis_omitted_line(layers: Dictionary) -> String:
+	var parts := PackedStringArray()
+
+	var not_carried := PackedStringArray()
+	for g in GIS_GROUPS:
+		if not bool(g["carried"]):
+			not_carried.append(String(g["key"]))
+	if not_carried.size() > 0:
+		parts.append("%s not included — no GeoJSON layer carries them"
+			% _and_list(not_carried))
+
+	## The document's own layer names, per group. Only the carried groups have
+	## one, which is what makes this list and `not_carried` disjoint.
+	const GROUP_LAYER := {"settlements": "settlement", "factions": "territory",
+		"ways": "way", "rivers": "river", "provinces": "province"}
+	var empty := PackedStringArray()
+	if not layers.is_empty():
+		for key in GROUP_LAYER:
+			if not layers.has(String(GROUP_LAYER[key])):
+				empty.append(String(key))
+	if empty.size() > 0:
+		parts.append("no %s in this world" % _and_list(empty))
+
+	var manual := _gis_manual_way_count()
+	if manual > 0:
+		parts.append("%d hand-drawn way%s dropped — export_geojson reads civ.ways and civ.sea_routes, not infra.ways"
+			% [manual, "" if manual == 1 else "s"])
+
+	return " · ".join(parts)
+
+## Hand-drawn ways and sea lanes (`infra.ways`, flagged `manual` by
+## `get_roads()`/`get_sea_routes()`). Zero is a real answer here -- "no way was
+## hand-drawn" -- and is not standing in for an absence, so it is an `int`.
+func _gis_manual_way_count() -> int:
+	if _bridge == null or not _bridge.has_world:
+		return 0
+	var n := 0
+	for w in _bridge.roads():
+		if bool((w as Dictionary).get("manual", false)):
+			n += 1
+	for w in _bridge.sea_routes():
+		if bool((w as Dictionary).get("manual", false)):
+			n += 1
+	return n
+
+## `layers` is `_measure_geojson()`'s return: `{}` for a failed run, so the
+## `features` count is **omitted** rather than written as 0 and the receipt
+## reports the failure instead of "wrote 0 features".
+func _record_geojson_run(bytes: int, secs: float, ok: bool, path: String,
+		layers: Dictionary) -> void:
 	var t := Time.get_time_dict_from_system()
-	_runs.push_front({
+	var run := {
 		"stamp": "%02d:%02d" % [int(t["hour"]), int(t["minute"])],
+		"msec": Time.get_ticks_msec(),
+		"route": "export_gis", "path": path,
 		"label": "geojson", "bytes": bytes, "secs": secs, "ok": ok,
-	})
+	}
+	if ok and layers.has("features"):
+		run["receipt"] = "wrote %d features · %s" % [int(layers["features"]),
+			_fmt_bytes(bytes)]
+		run["omitted"] = _gis_omitted_line(layers)
+	elif ok:
+		## Written, but the text did not parse back -- so the file exists and
+		## its feature count is unknown. Said, not guessed.
+		run["receipt"] = "wrote %s · feature count unreadable" % _fmt_bytes(bytes)
+	else:
+		run["receipt"] = "export failed after %.1f s" % secs
+	_runs.push_front(run)
 	while _runs.size() > 3:
 		_runs.pop_back()
 
@@ -1885,6 +2693,7 @@ func _record_run(dry: bool, bytes: int, secs: float, ok: bool) -> void:
 	var t := Time.get_time_dict_from_system()
 	_runs.push_front({
 		"stamp": "%02d:%02d" % [int(t["hour"]), int(t["minute"])],
+		"msec": Time.get_ticks_msec(), "route": "export_maps",
 		"label": "%s %d×%d z%d%s" % ["dry run" if dry else "tile grid",
 			_tx_cols, _tx_rows, _tx_tile, "" if _tx_visual else " (height only)"],
 		"bytes": bytes, "secs": secs, "ok": ok,

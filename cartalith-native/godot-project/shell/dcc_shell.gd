@@ -210,6 +210,14 @@ var timeline_row: HBoxContainer
 var status_row: HBoxContainer
 
 var rail_foot: Label
+## The foot's second form -- `StatusBar.dc.html` panel 5's upright `00` / rule /
+## `10`. `rail_foot` above still holds the whole string; this draws it.
+var _rail_foot_stack: MarginContainer
+var _rail_foot_run: Label
+var _rail_foot_total: Label
+const RAIL_FOOT_GAP := 6      ## `gap:6px` between the two halves and the rule.
+const RAIL_FOOT_PAD_B := 8    ## `padding-bottom:8px` under the lower half.
+const RAIL_FOOT_RULE_W := 14  ## `width:14px` on the `--div` hairline.
 var _domain_buttons: Dictionary = {}   ## id -> Button
 var _domain_marks: Dictionary = {}     ## id -> {icon, label}
 var _active_domain := "world"
@@ -2436,6 +2444,40 @@ func _build_rail() -> Control:
 	var foot_holder := Control.new()
 	foot_holder.custom_minimum_size.y = 84
 	foot_holder.add_child(rail_foot)
+	## The counter form, upright and stacked -- `StatusBar.dc.html` panel 5,
+	## which is the only drawing of this foot in the approved set. `00` over a
+	## `14x1` `--div` rule over `10`, all `--m2` in `--dis`, bottom-aligned with
+	## `padding-bottom:8px` and `gap:6px` in a 40 px column (`W_RAIL_COLLAPSED`).
+	##
+	## Built alongside the rotated label rather than replacing it: the foot also
+	## carries the mode WORDS (`SCULPT`, `LANDMARKS`, `STYLE`, and
+	## `journey_planner_view.gd`'s `JOURNEY`), which the artboard does not draw
+	## and which the older canvas sets `writing-mode:vertical-rl`. Both forms
+	## exist for the same reason -- `00 / 10` and `SCULPT` are each wider than
+	## 40 px laid out flat -- and `set_rail_foot()` picks between them on the
+	## shape of the string.
+	_rail_foot_stack = MarginContainer.new()
+	_rail_foot_stack.name = "RailFootCounter"
+	_rail_foot_stack.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_rail_foot_stack.add_theme_constant_override("margin_bottom", RAIL_FOOT_PAD_B)
+	_rail_foot_stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rail_foot_stack.visible = false
+	var foot_col := VBoxContainer.new()
+	foot_col.alignment = BoxContainer.ALIGNMENT_END
+	foot_col.add_theme_constant_override("separation", RAIL_FOOT_GAP)
+	_rail_foot_stack.add_child(foot_col)
+	_rail_foot_run = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 0)
+	_rail_foot_run.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	foot_col.add_child(_rail_foot_run)
+	var foot_rule := ColorRect.new()
+	foot_rule.color = DccTheme.c("line_soft")
+	foot_rule.custom_minimum_size = Vector2(RAIL_FOOT_RULE_W, DccTheme.role_px("hairline"))
+	foot_rule.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	foot_col.add_child(foot_rule)
+	_rail_foot_total = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 0)
+	_rail_foot_total.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	foot_col.add_child(_rail_foot_total)
+	foot_holder.add_child(_rail_foot_stack)
 	body.add_child(foot_holder)
 
 	pair.add_child(rail)
@@ -2672,11 +2714,37 @@ func _relayout_rail_labels() -> void:
 			_layout_rail_label(b, lbl, w)
 
 ## The rail foot carries the active context and, in World, the stage counter.
-## Re-centred on every set because its width changes with the text.
+##
+## **Two forms, chosen on the shape of the string.** `NN / NN` -- the stage
+## counter, and the only form `StatusBar.dc.html` panel 5 draws -- goes to the
+## upright stack built in `_build_rail()`, its `/` becoming the artboard's 14 px
+## hairline. Everything else (`SCULPT`, `LANDMARKS`, `STYLE`, `JOURNEY`) stays
+## the rotated label the older canvas specifies, re-centred on every set because
+## its width changes with the text.
+##
+## `rail_foot.text` is written in **both** cases even when that label is the
+## hidden one, so anything reading the foot back reads the whole string rather
+## than having to reassemble it from two halves.
+##
+## The counter is never blanked and never dashed. With no world it reads
+## `00 / 10` and both halves are facts -- nothing has run, ten stages exist --
+## which is the artboard's own binding note on panel 5. Verified at boot in
+## `_statusbar4_probe.tscn`; `app.gd::_refresh_rail_foot()` is what composes it.
 func set_rail_foot(text: String) -> void:
 	if rail_foot == null:
 		return
 	rail_foot.text = text
+	var halves := text.split(" / ")
+	var stacked: bool = halves.size() == 2 \
+		and halves[0].is_valid_int() and halves[1].is_valid_int()
+	if _rail_foot_stack != null:
+		_rail_foot_stack.visible = stacked
+		if stacked:
+			_rail_foot_run.text = halves[0]
+			_rail_foot_total.text = halves[1]
+	rail_foot.visible = not stacked
+	if stacked:
+		return
 	var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
 	var m := rail_foot.get_minimum_size()
 	rail_foot.position = Vector2(round(w * 0.5 - m.y * 0.5), 12.0 + m.x)
@@ -3869,50 +3937,209 @@ func _tl_save_layers() -> void:
 	cfg.save(DccSettings.CONFIG_PATH)
 
 # -- §11 Status bar -----------------------------------------------------------
+#
+# **Four states, one bar.** `design/proposed-2026-09-05/StatusBar.dc.html`,
+# approved by the owner 2026-09-05 (*"I like the layouts as proposed, implement
+# those"*). The spec this bar was built to gives it ONE priority message; that
+# artboard draws the four states one message cannot express, and everything it
+# asks for structurally is in this function:
+#
+#   1. one priority message                       the `pass` slot, unchanged
+#   2. multi-slot, 1 px rules between neighbours  every slot below at once
+#   3. autosave as a STATE, with a dot            `autosave`, which this file
+#                                                 registered and never drew
+#   4. `loaded -- no generation this session`     composed in `app.gd`
+#
+# and one rule across all four: **a slot with nothing to say is omitted -- never
+# drawn empty, never placeholdered.** That was measured broken before this
+# change. Booted with no world (`_statusbar4_probe.tscn`, first run):
+#
+#     [1] Label vis=true text=[] minx=1.0      <- stale
+#     [4] Label vis=true text=[] minx=1.0      <- atlas
+#     [6] Label vis=true text=[] minx=1.0      <- mid
+#
+# three empty labels drawn at a 1 px minimum, each still collecting the row's
+# 18 px separation on both sides.
+#
+# **Where the artboard's content has no source it is named here, not minted.**
+# Checked against the engine rather than assumed:
+#
+# - `atlas 62 % · 148 MB` -- the MB half is real (`atlas_status().bytes_text`,
+#   formatted by `bake_bridge.rs::human_bytes`). **The percentage is not.**
+#   `AtlasStatus` carries `chunks / bytes / deepest_level / text / finalized /
+#   tile_size / world_key / root` and no cap, budget or quota anywhere, so
+#   there is nothing for a percent to be a percent OF. It would need a
+#   per-world atlas budget on `BakeState` first.
+# - `saved 47 s ago` -- the shell holds the *clock*, not the elapsed:
+#   `app.gd` writes `autosaved HH:MM` from `Time.get_time_string_from_system()`.
+#   A relative form needs the `Time.get_ticks_msec()` of the write kept and a
+#   repaint tick to age it; neither exists.
+# - `timings read from the save` -- **no source at all.**
+#   `EngineBridge.last_generate_ms` is assigned in exactly three places and all
+#   three are `Time.get_ticks_msec() - _gen_start_msec` from a live run; nothing
+#   reads a timing back out of a project archive. So state 4 draws its first
+#   half -- `app.gd::_refresh_status_mid()` composes `loaded -- no generation
+#   this session` verbatim -- and not its second.
+# - `autosave every 4 min` -- real, and **not 4**. The interval is
+#   `DccSettings.autosave_minutes()`, floored at 1, default **5**; the artboard
+#   figure is illustrative and is copied nowhere.
+# - `3 stages stale` -- real (`EngineBridge.stale_stages()`), though `app.gd`
+#   spends the slot on the stage NAMES plus the upstream reason rather than on
+#   a count.
+# - `pass 4 / 6` -- real, and the one slot this change adds: `index + 1` and
+#   `total` straight off `EngineBridge.generation_stage`, whose total is
+#   `cartalith-engine/src/progress.rs::STAGE_COUNT` (`STAGE_NAMES: [&str; 10]`,
+#   so 10 on this build). Read off the signal, never a second copy of the table.
+#
+# **Tokens, through `dcc_theme.gd`'s own prototype→here table** (the one above
+# `DARK`), never as hex: `--acc`→`accent`, `--block`→`block`, `--dim`→
+# `text_dim`, `--faint`→`text_faint`, `--dis`→`text_ghost`, `--good`→`good`,
+# `--div`→`line_soft`, `--hair`→`line` (`DccTheme.panel()`'s border colour).
+# Metrics: `--sbH:26px`→`H_STATUS`, `--pad:14px`→`role_px("bar_pad_x")` (14/22,
+# and hardcoded 14 here until now, so the bar did not widen on a tablet), the
+# rules' `1px`→`role_px("hairline")`.
+#
+# **The bar's own font now goes through `role_px("fs_status")`** -- 10 pointer,
+# 12 tablet -- a role written for exactly this bar and, until now, with no
+# *shipping* consumer: it drew at the bare `FS_SMALL` (11) in both densities
+# (`git show HEAD:...dcc_shell.gd`). This comment said "zero consumers", which a
+# verifier refuted on 2026-09-05: `git grep fs_status HEAD -- '*.gd'` also
+# returns `_roleresolve_probe.gd`, which asserts on the role. `MISTAKES.md`'s
+# "call a constant dead" row exists because probes are committed files that read
+# theme tables -- grep them too. The
+# artboard sets the row `font-size:var(--m2)`, i.e. **9**, which is one value in
+# `dcc_theme.gd`'s `ROLE` table away and is not this file's to change.
+#
+# **The background is still `panel_alt`, deliberately.** The artboard draws the
+# bar on `--pan`, and `dcc_theme.gd`'s own header already records that the
+# prototype gives all three bars no background at all and that re-assigning
+# region→token belongs to a later structural stage. Moving one of the three
+# would split the set.
+
+## The left group's fixed order, read off the four states together. Each entry
+## is a slot key `set_status()` addresses by name; its cell is *omitted* -- not
+## blanked -- the instant its text goes empty.
+##
+## `autosave` moved behind `atlas` here: the artboard's state 3 draws it
+## immediately after the priority message precisely *because* stale, atlas and
+## progress are all empty in that state, which is the omission rule doing the
+## positioning rather than a slot reserving a place near the front.
+const STATUS_SLOTS := ["pass", "stale", "atlas", "progress", "autosave"]
+
+## Drawn past the spacer, where the artboard shows no separators: these get the
+## omission rule and no rule of their own.
+const STATUS_TAIL_SLOTS := ["mid", "hint"]
+
+## `padding:0 12px` either side of each `1px` rule, so 24 px between two texts
+## and 12 px of clear on each side of the hairline between them.
+const STATUS_SLOT_GAP := 12
+
+## `height:12px` on the rules, against the bar's 26. Centred, not stretched --
+## `DccTheme.rule(true)` is the wrong tool twice over here: it paints `line`
+## (`--hair`) where the artboard paints `--div`, and it expands to fill.
+const STATUS_RULE_H := 12
+
+var _status_cells: Dictionary = {}  ## slot -> the HBox holding its rule + label
+var _status_rules: Dictionary = {}  ## slot -> that cell's leading 1 px rule
+var _status_dot: Label              ## the autosave state marker
+var _status_wired := false
 
 func _build_status_bar() -> Control:
 	var bar := PanelContainer.new()
 	bar.custom_minimum_size.y = _scaled(DccTheme.H_STATUS)
 	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"top": 1}))
 	status_row = HBoxContainer.new()
-	status_row.add_theme_constant_override("separation", 18)
+	status_row.add_theme_constant_override("separation", STATUS_SLOT_GAP)
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 14)
-	pad.add_theme_constant_override("margin_right", 14)
+	var bar_pad := DccTheme.role_px("bar_pad_x")
+	pad.add_theme_constant_override("margin_left", bar_pad)
+	pad.add_theme_constant_override("margin_right", bar_pad)
 	pad.add_child(status_row)
 	bar.add_child(pad)
 
-	## `font:10.5px 'IBM Plex Mono'; color:#6f7478` on the canvas's status bar,
-	## in both themes and on both the desktop and tablet artboards -- the whole
-	## bar is Plex, including the modifier hints on the right, which were the
-	## one thing here already drawn a shade quieter than everything else. Set
-	## in the prose face at 11 until 2026-08-25.
-	for slot in ["pass", "stale", "autosave", "atlas"]:
-		var l := DccTheme.mono_label("", "text_faint", DccTheme.FS_SMALL, 0)
+	## One cell per slot at the top level of `status_row`, so the row still has
+	## exactly one child per slot: `app.gd::_setup_staleness()` appends its
+	## Recompute button and then `move_child(_stale_recompute, 2)` to sit it
+	## immediately after the `stale` readout, and that arithmetic has to keep
+	## meaning what it says. It does -- 0 `pass`, 1 `stale`, so 2 is still the
+	## first position after it -- but the *order past that point* has changed
+	## and `app.gd`'s comment there still spells the old one out.
+	for slot in STATUS_SLOTS:
+		var cell := HBoxContainer.new()
+		cell.name = "Slot_" + slot
+		cell.add_theme_constant_override("separation", STATUS_SLOT_GAP)
+		var r := ColorRect.new()
+		r.color = DccTheme.c("line_soft")
+		r.custom_minimum_size = Vector2(DccTheme.role_px("hairline"), STATUS_RULE_H)
+		r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		cell.add_child(r)
+		_status_rules[slot] = r
+		## The autosave dot rides 6 px ahead of its own text and nothing else's,
+		## so it needs an inner box with its own separation rather than the
+		## cell's 12.
+		var host: Control = cell
+		if slot == "autosave":
+			var inner := HBoxContainer.new()
+			inner.add_theme_constant_override("separation", 6)
+			cell.add_child(inner)
+			_status_dot = DccTheme.mono_label("●", "good", DccTheme.role_px("fs_status"), 0)
+			_status_dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			inner.add_child(_status_dot)
+			host = inner
+		var l := DccTheme.mono_label("", "text_faint", DccTheme.role_px("fs_status"), 0)
 		_status_labels[slot] = l
-		status_row.add_child(l)
-		## **`autosave` is registered and not drawn.** `BUILD_ANSWERS.md` §2.2
-		## folds the autosave field into `statusMid`, and a bar carrying the same
-		## clock twice is exactly the "four independent slots" this pass was told
-		## to compose. The slot itself stays: four writers in `app.gd` address it
-		## by name, and `phone_menu.gd` re-presents it as a row on a handset,
-		## where there is no status bar to fold anything into.
-		l.visible = slot != "autosave"
+		host.add_child(l)
+		status_row.add_child(cell)
+		_status_cells[slot] = cell
+		cell.visible = false
 	status_row.add_child(DccTheme.spacer())
 	## `statusMid` (`05-right-dock-and-bars.md` §3.3, `BUILD_ANSWERS.md` §2.2):
 	## `var(--dis)`, between the spacer and the key hints. Composed in
 	## `app.gd::_refresh_status_mid()` -- this file only reserves the slot, the
 	## same as every other one here.
-	var mid := DccTheme.mono_label("", "text_ghost", DccTheme.FS_SMALL, 0)
+	var mid := DccTheme.mono_label("", "text_ghost", DccTheme.role_px("fs_status"), 0)
 	_status_labels["mid"] = mid
+	mid.visible = false
 	status_row.add_child(mid)
-	var hint := DccTheme.mono_label("", "text_faint", DccTheme.FS_SMALL, 0)
+	var hint := DccTheme.mono_label("", "text_faint", DccTheme.role_px("fs_status"), 0)
 	_status_labels["hint"] = hint
+	hint.visible = false
 	status_row.add_child(hint)
+	## The bridge is added by `app.gd::_ready()` and does not exist while the
+	## frame is being built, so the `progress` slot's wiring waits a frame --
+	## the same deferral, and for the same reason, as `_relayout_rail_labels()`.
+	call_deferred("_wire_status_progress")
 	return bar
 
-## Set one status slot. Slots: pass, stale, autosave, atlas, mid, hint, and the
-## menu bar's top_world / top_pass / top_cpu / top_gpu / top_mem.
+## `pass N / M` while a run is in flight (state 2's fourth slot). Its own three
+## connections rather than a read off `_vp_stage`: that field is maintained
+## inside `_refresh_viewport_context()`, which returns early when there is no
+## `ViewportHost` -- a condition that has nothing to do with whether the status
+## bar should be counting.
+##
+## Cleared on `generation_started` rather than set to `pass 0 / N`: there is no
+## index between the start and the first tick, and the artboard's rule is to
+## omit a slot with nothing to say, not to placeholder it.
+func _wire_status_progress() -> void:
+	if _status_wired:
+		return
+	var bridge := _find_engine_bridge()
+	if bridge == null:
+		return
+	_status_wired = true
+	bridge.generation_started.connect(func():
+		set_status("progress", "", "text_dim"))
+	bridge.generation_stage.connect(func(index: int, _name: String, total: int):
+		set_status("progress", "pass %d / %d" % [index + 1, total], "text_dim"))
+	bridge.generation_finished.connect(func(_ok: bool):
+		set_status("progress", "", "text_dim"))
+
+## Set one status slot. Slots: pass, stale, atlas, progress, autosave, mid,
+## hint, and the menu bar's top_world / top_pass / top_cpu / top_gpu / top_mem.
+##
+## The `top_*` slots are menu-bar labels registered into the same dictionary and
+## are deliberately left out of the omission pass: they are a different strip
+## with a different layout, and hiding one would reflow the menu bar.
 func set_status(slot: String, text: String, token: String = "text_faint") -> void:
 	if not _status_labels.has(slot):
 		push_error("DccShell: no status slot '%s'" % slot)
@@ -3920,6 +4147,49 @@ func set_status(slot: String, text: String, token: String = "text_faint") -> voi
 	var l: Label = _status_labels[slot]
 	l.text = text
 	l.add_theme_color_override("font_color", DccTheme.c(token))
+	if slot == "autosave":
+		_paint_status_dot(token)
+	if _status_cells.has(slot) or STATUS_TAIL_SLOTS.has(slot):
+		_apply_status_omission()
+
+## The artboard's one structural rule, applied to the whole left group at once:
+## a slot with no text is not drawn, and a rule is drawn only *between* two
+## visible slots -- so the leading one never carries one and a gap in the middle
+## never leaves a hanging hairline.
+##
+## Walked in `STATUS_SLOTS` order every time rather than patched per slot: the
+## first-visible slot changes as neighbours fill and empty, and the state that
+## proves it is state 3, where `pass` and `autosave` are the only two live and
+## the rule has to land between them across three empty cells.
+func _apply_status_omission() -> void:
+	var seen := false
+	for slot in STATUS_SLOTS:
+		var cell: Control = _status_cells.get(slot)
+		if cell == null:
+			continue
+		var on: bool = (_status_labels[slot] as Label).text != ""
+		cell.visible = on
+		var r: Control = _status_rules.get(slot)
+		if r != null:
+			r.visible = on and seen
+		if on:
+			seen = true
+	for slot in STATUS_TAIL_SLOTS:
+		if _status_labels.has(slot):
+			var tl: Label = _status_labels[slot]
+			tl.visible = tl.text != ""
+
+## The autosave marker's ink follows its own sentence's severity rather than
+## sitting on `--good` forever. `app.gd`'s four autosave writers use a quiet
+## token while the autosave is healthy and `accent` when it is not (`autosave
+## failed`, `unsaved changes`), and a green dot in front of "autosave failed"
+## would be the readout contradicting itself.
+func _paint_status_dot(token: String) -> void:
+	if _status_dot == null:
+		return
+	var quiet := ["text_faint", "text_dim", "text_ghost", "text_secondary"]
+	_status_dot.add_theme_color_override("font_color",
+		DccTheme.c("good" if quiet.has(token) else token))
 
 ## Read one status slot back. `phone_menu.gd` re-presents the readout cluster
 ## as list rows on its root screen, because on the phone the desktop status bar

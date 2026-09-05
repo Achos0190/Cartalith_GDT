@@ -3404,6 +3404,45 @@ func civ_food_shed() -> Dictionary:
 		return {}
 	return world_gen.civ_food_shed()
 
+## Every settlement's smelting budget -- `_civPlaceSmelting` run once per
+## settlement: the iron a catchment's ore and fuel can jointly sustain, and
+## which of the two binds (`ECONOMY_SCOPE.md` EC-2).
+##
+## **Computed on demand and held nowhere**, the same contract
+## `civ_food_shed()` above ships on -- `CivData` gains no field and nothing
+## is saved. `TradeStore` is what keeps the result on the shell side,
+## alongside the trade-flow match and the food shed.
+##
+## `{}` before any generate, on a loaded save (no civilisation layer), and
+## on a world with no settlements.
+##
+## **This wrapper was missing until 2026-09-05**, and its absence was not a
+## degrade: `#[func] civ_place_smelting` has been on `WorldGen` since
+## 2026-09-02 (`civ_trade_bridge.rs`) and `TradeStore.refresh()` has called
+## it through this node since the same day, so every `Match trade flows`
+## press aborted with `Nonexistent function 'civ_place_smelting' in base
+## 'Node (EngineBridge)'` before it could return. The engine half was never
+## the problem -- see `menus.gd::_engine_has()` for why "the bridge has a
+## wrapper" and "the cdylib exports the method" are two separate questions,
+## and this file only ever answered the second.
+func civ_place_smelting() -> Dictionary:
+	if not _has("civ_place_smelting"):
+		return {}
+	return world_gen.civ_place_smelting()
+
+## Every settlement's salt access -- `_civSaltAccess` run once per
+## settlement: whether sea salt, a salt deposit or a salt lake is actually in
+## reach, and which (`ECONOMY_SCOPE.md` EC-7).
+##
+## Same held-nowhere contract, same `{}` cases and the same missing-wrapper
+## history as `civ_place_smelting()` immediately above -- `TradeStore.refresh()`
+## calls the two on consecutive lines, so the abort at the first one is the
+## only reason this one was never reached to abort as well.
+func civ_salt_access() -> Dictionary:
+	if not _has("civ_salt_access"):
+		return {}
+	return world_gen.civ_salt_access()
+
 ## The coordinate frame this world's fields and its GeoJSON export are in
 ## (`GUI_GAP_REGISTER.md` WW-15). `{}` before any generate.
 func world_crs() -> Dictionary:

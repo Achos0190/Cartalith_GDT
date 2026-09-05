@@ -121,11 +121,31 @@ static func salt_access_for(index: int) -> Dictionary:
 ## held-nowhere reads of the same settlement/way state, and the shell offers
 ## exactly one trigger for any of them (`infrastructure_workspace.gd`'s
 ## "Match trade flows"). Returns the same dictionary [`last`] will.
+##
+## Every read is `has_method`-guarded, on `place_search.gd::build()`'s own
+## precedent -- the same shape, an untyped `bridge` feeding a run of
+## consecutive optional reads, and it guards all five of its own. The guard
+## asks a different question from the `_has()` inside each wrapper: that one
+## answers *does the loaded cdylib export this `#[func]`*, this one answers
+## *does this `EngineBridge` have a wrapper at all*, and only the second was
+## ever false here. `civ_place_smelting`/`civ_salt_access` had no wrapper from
+## 2026-09-02 to 2026-09-05 while the `#[func]`s existed and the cdylib
+## exported them, so this function aborted at line 3 of 4 with `Nonexistent
+## function 'civ_place_smelting' in base 'Node (EngineBridge)'` and never
+## returned -- taking `Match trade flows` down with it. `menus.gd::_engine_has()`
+## states the two-question split; this is the case that proves it needs both
+## halves. All four are guarded rather than the two that broke: the run is one
+## defect class, and a guard on half of it is the shape that produced this.
+##
+## `{}` from a refused read is the same absent value the four `static var`s
+## already document and every reader already distinguishes -- `is_empty()` in
+## `infrastructure_workspace.gd`, a dashed row with its reason in
+## `place_editor_window.gd::_smelting_salt_note()`. Nothing here mints a zero.
 static func refresh(bridge) -> Dictionary:
-	_last = bridge.civ_trade_flows()
-	_food_shed = bridge.civ_food_shed()
-	_smelting = bridge.civ_place_smelting()
-	_salt = bridge.civ_salt_access()
+	_last = bridge.civ_trade_flows() if bridge.has_method("civ_trade_flows") else {}
+	_food_shed = bridge.civ_food_shed() if bridge.has_method("civ_food_shed") else {}
+	_smelting = bridge.civ_place_smelting() if bridge.has_method("civ_place_smelting") else {}
+	_salt = bridge.civ_salt_access() if bridge.has_method("civ_salt_access") else {}
 	return _last
 
 ## Drop all four. Called from `app.gd` on every world change.
