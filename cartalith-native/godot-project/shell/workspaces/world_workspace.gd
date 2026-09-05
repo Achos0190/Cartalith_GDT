@@ -1703,7 +1703,7 @@ func _paint_stage_rows() -> void:
 			## through a per-stage-signalled generate at all.
 			lbl.text = "%s resolved" % DccIcons.SYMBOLS["tick"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("text_dim"))
-	_push_dock_readout()
+	push_dock_readout()
 
 ## Wired to `bridge.generation_stage` -- fires once per stage the engine
 ## actually reaches (`engine_bridge.gd`'s own doc comment on why it is
@@ -1775,8 +1775,17 @@ func _assert_stage_names(index: int, stage_name: String, total: int) -> void:
 ## §3's rail-foot stage counter ("04 / 10"), repurposed as the collapsed left
 ## dock's own primary readout (§6: a collapsed dock keeps its one essential
 ## number, never blanks).
-func _push_dock_readout() -> void:
-	if app == null:
+##
+## **The domain gate is the point, not a precaution.** This runs from
+## `_paint_stage_rows()`, which is driven by `bridge.generation_stage` -- a
+## signal this workspace stays subscribed to whether or not WORLD is the domain
+## on screen. Without the gate a generate finishing while the reader is in
+## CIVIL writes `resolved` into a dock that has no pipeline in it, which is the
+## same defect `Workspace.push_dock_readout()` exists to fix, arriving by a
+## different route. `Workspace` names this an override; the base takes over the
+## moment the reader leaves.
+func push_dock_readout() -> void:
+	if app == null or app.active_domain() != "world":
 		return
 	if not bridge.has_world:
 		app.set_dock_readout("left", "no world")
@@ -2435,10 +2444,11 @@ func _rebuild_tool_bar() -> void:
 	if app.tool_bar != null and app.tool_bar.has_method("rebuild"):
 		app.tool_bar.rebuild()
 
-## `tool_bar.gd` draws a **second** Commit chip for the same draft, and both
-## are on screen together whenever Biome paint is armed. Committing from
-## either one has to refresh the other, or the loser keeps a live button over
-## an empty draft -- which is WW-13's own defect wearing a different hat.
+## `tool_bar.gd` draws a **second Commit / Discard pair** for the same draft --
+## its Discard landed 2026-09-05, from §2.2.6 -- and both pairs are on screen
+## together whenever Biome paint is armed. Committing or discarding from either
+## one has to refresh the other, or the loser keeps a live button over an empty
+## draft, which is WW-13's own defect wearing a different hat.
 func rebuild_paint_panel() -> void:
 	if _paint_body != null:
 		_build_paint(_paint_body)

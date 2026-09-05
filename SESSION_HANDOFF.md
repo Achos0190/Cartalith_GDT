@@ -15,11 +15,14 @@ of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
 whole list has been finished.**
 
-**Four build lanes at Ultracode on Opus 5, plus the verifier** (owner,
-2026-09-04, superseding the two-lane instruction from earlier the same day). The
-adversarial verifier is a separate role and is not one of the four — it has found
-a real defect in every batch it has run, including in the brief itself in sixteen
-consecutive batches, so it is the last thing to cut.
+**Two agents at a time** (owner, 2026-09-05 — the current instruction; it has
+moved 3 -> 2 -> 4 -> 2 over two days, so **read this line rather than a batch's
+precedent**). Two concurrent agents total, verifier included: run two build
+lanes and then the verifier, or one lane beside the verifier — not two lanes
+*plus* a verifier. The
+adversarial verifier has found a real defect in every batch it has run,
+including in the brief itself in sixteen consecutive batches, so when the budget
+is two it is the **second** agent, not the one dropped.
 
 Keep lanes **file-disjoint**: assign by crate or by directory, and where two rows
 want the same file, serialize them across batches rather than forbidding the edit
@@ -37,8 +40,15 @@ rows rather than kept in a head:** rebuild the APK and drop it on the D: drive
 (recipe in memory `cartalith-apk-build-and-drop` — expect `--export-release` to
 fail at signing, that is normal, and verify the `.so` inside the APK is the one
 just built), and a menu-by-menu design-conformance audit using **Fable 5.1 at
-Ultracode, minimum 2 agents** (owner, 2026-09-04). Neither starts early; say so
-rather than quietly deciding GUI work is finished.
+Ultracode, minimum 2 agents** (owner, 2026-09-04).
+
+**The design audit was re-ordered by the owner the same day: it runs BEFORE the
+rest of the outstanding list, not after GUI work completes.** Its fixes are
+**Opus 5 at Ultracode, with Fable 5.1 where the call is a design judgment**
+rather than mechanical conformance — the model holding the design context
+decides what conformance means, the other applies it. **The APK build keeps its
+original trigger** and does not start early; say so rather than quietly deciding
+GUI work is finished.
 
 **Commit per verified batch** (owner, 2026-09-03). One commit per batch, after its
 verifier reports — not before. Two constraints follow and neither is optional:

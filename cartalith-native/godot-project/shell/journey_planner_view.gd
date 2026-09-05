@@ -1281,6 +1281,14 @@ func _rebuild_profile(plan: Dictionary) -> void:
 func _rebuild_timeline_band(plan: Dictionary) -> void:
 	if not _bound or app == null or app.timeline_row == null:
 		return
+	## The band is the fourth filler of `app.timeline_row`, and since 2026-09-05
+	## the strip's height and vertical padding are set by whichever filler ran
+	## last (`DccShell.set_timeline_metrics()`, for §3.7's two different
+	## boxes). The collapsed desktop strip pins `--sbH - 2` and zero vertical
+	## padding; this band is neither of §3.7's forms, so it takes the box
+	## `_build_timeline()` builds -- `8px var(--pad)`, auto height -- the same
+	## one it had before that pair existed.
+	app.set_timeline_metrics(8, 0)
 	for c in app.timeline_row.get_children():
 		app.timeline_row.remove_child(c)
 		c.queue_free()

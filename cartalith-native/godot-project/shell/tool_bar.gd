@@ -451,9 +451,24 @@ func _build_paint_options(row: HBoxContainer) -> void:
 	var pending := bridge.paint_draft_count()
 	var commit := DccWidgets.chip(row, "Commit", _on_paint_commit, true)
 	commit.disabled = pending == 0
+	## `05-right-dock-and-bars.md` §2.2.6 (`tbBiome`, ENV:200-211) gives this row
+	## **two** buttons -- `✓ Commit` primary and `Discard` secondary -- and this
+	## bar drew only the first until 2026-09-05, so the toolbar the design draws
+	## the pair on had half of it. Both the WORLD dock's Biome paint panel and
+	## the right dock's own paint context already draw a Commit/Discard pair over
+	## this same draft, and the engine call is `EngineBridge.paint_discard()`,
+	## which both of them already use -- nothing new is bound here.
+	##
+	## `accent` false, matching Sculpt's own bar row above: the primary of the
+	## pair is lit and the secondary is not, which is the design's
+	## primary/secondary split in the vocabulary this bar already speaks.
+	var discard := DccWidgets.chip(row, "Discard", _on_paint_discard)
+	discard.disabled = pending == 0
 	if pending == 0:
-		commit.tooltip_text = "Nothing pending. Paint on the map to enable this." if total == 0 \
+		var why := "Nothing pending. Paint on the map to enable this." if total == 0 \
 			else "Nothing pending -- the %d painted cells are already committed." % total
+		commit.tooltip_text = why
+		discard.tooltip_text = why
 
 func _on_paint_commit() -> void:
 	var summary: Dictionary = bridge.paint_commit()
@@ -474,6 +489,33 @@ func _on_paint_commit() -> void:
 	var ws: WorldWorkspace = app._world_workspace()
 	if ws != null:
 		ws.rebuild_paint_panel()
+
+## §2.2.6's second button. The sequence is `world_workspace.gd`'s own
+## `_on_paint_discard()` -- the one that already owns this draft -- rather than
+## a second reading of what a discard needs:
+##
+## - `paint_discard()` drops every pending dab across every layer, which is what
+##   `paint_draft_count()` above counts.
+## - The preview texture is re-set with `true`, not cleared. `_on_paint_commit`
+##   clears it because a commit folds the paint into `color_texture()`; a
+##   discard leaves the previously *committed* layer standing, and that layer is
+##   the base the next dab's bounded window blits onto. Passing `null` here
+##   would put the first dab after a discard back on the unbounded path.
+## - All three surfaces over the one draft are refreshed: this bar, the WORLD
+##   dock's Biome paint panel (WW-13) and the right dock's paint context.
+##
+## **`_on_paint_commit` above refreshes the first two and not the third.** Left
+## as it is rather than changed in passing -- it is a separate finding and is
+## reported as one; what is not left is this button introducing a fourth way
+## for the same draft to be described differently in two places.
+func _on_paint_discard() -> void:
+	bridge.paint_discard()
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
+	rebuild()
+	var ws: WorldWorkspace = app._world_workspace()
+	if ws != null:
+		ws.rebuild_paint_panel()
+		ws._refresh_right_dock_paint()
 
 # -- MEASURE -------------------------------------------------------------------
 

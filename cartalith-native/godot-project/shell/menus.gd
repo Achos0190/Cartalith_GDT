@@ -509,10 +509,14 @@ func _file(p: PopupMenu) -> void:
 	## entry points onto one setting, the shape `Storage locations…` already has
 	## in File and Preferences, rather than two settings that can disagree.
 	##
-	## §2.1's "Default 5 min" is the spec's; this install's store defaults to 10
-	## (`dcc_settings.gd`), which is not on the ladder -- a stored value that is
-	## not one of the four leaves every row unchecked and is reported on the
-	## parent row instead of being silently rounded into one of them.
+	## §2.1's "Default 5 min" is now the store's too: `DccSettings
+	## .autosave_minutes()` defaulted to 10 -- a figure not on this ladder, so a
+	## fresh install opened this submenu with every row unchecked -- and was
+	## corrected to 5 on 2026-09-05, with `autosave_enabled()` flipped to the
+	## design's `true` in the same pass. The unchecked-row path below is kept
+	## rather than removed: a hand-edited `minutes` still has no row of its own,
+	## and is reported on the parent row instead of being silently rounded into
+	## one of the four.
 	_autosave_popup = PopupMenu.new()
 	_autosave_popup.name = "AutosaveInterval"
 	_shell.style_popup(_autosave_popup)

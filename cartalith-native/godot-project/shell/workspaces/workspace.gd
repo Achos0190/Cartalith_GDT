@@ -48,6 +48,36 @@ func open_category(title: String) -> bool:
 			return true
 	return false
 
+## Write the collapsed left dock's one line (`DCC_SHELL_SPEC.md` §1: *"A
+## collapsed dock keeps its primary readout visible"*).
+##
+## **Called on every domain switch, by `DccApp._on_workspace_changed()`, for
+## whichever workspace is now active.** Until 2026-09-05 the only writer of
+## `set_dock_readout("left", …)` anywhere in the shell was
+## `WorldWorkspace.push_dock_readout()`, so collapsing the dock in CIVIL or
+## CARTO showed whatever WORLD had last written -- `resolved`, over a dock with
+## no pipeline in it. `world_workspace.gd` overrides this with its stage state;
+## the two domains that have no number of their own take the default below.
+##
+## The default is the domain's own rail word -- `WORLD` / `CIVIL` / `CARTO`,
+## `DccShell.DOMAINS`' `rail` column -- which is the vocabulary
+## `_refresh_viewport_context()` already names a domain with, and it is read
+## from that table rather than restated so a rename cannot leave two spellings.
+##
+## **Stated rather than implied: the design does not settle this string.**
+## `04-left-dock.md` §9.1 lists `ldCollapsedLabel` among the bindings lost to
+## the prototype's truncation -- *"Unknown; may or may not vary by domain"* --
+## so the rail word is a decision taken here, not a quotation. What the design
+## does settle is that the strip is not blank and belongs to the dock beside it.
+func push_dock_readout() -> void:
+	if app == null:
+		return
+	var id := app.active_domain()
+	for d in DccShell.DOMAINS:
+		if String(d["id"]) == id:
+			app.set_dock_readout("left", String(d["rail"]))
+			return
+
 ## Draw the honest placeholder a workspace shows while its engine binding does
 ## not exist. `STRANDED_TOOLS.md` is the standing record of which those are;
 ## this is that record made visible in the product rather than only in a

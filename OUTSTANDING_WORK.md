@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**96 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-04 (thirty-first pass)**, after an earlier pass left four
+**97 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-05 (thirty-second pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,43 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-05, the menu design-conformance audit and its first fixes — 96 → 97.**
+Owner instruction: the GUI verification runs **before** the rest of the list.
+Four Fable 5.1 auditors at Ultracode plus an adversarial cross-check, then six
+fixes on Opus 5. `cargo test --workspace` holds at **3 133**, 0 failed — correct
+for GDScript-only work.
+
+**283 menu items, enumerated from the code rather than from the designs** —
+125 conforms, 99 deviates, 37 no-design, 17 design-stale, 5 unreachable. The
+enumeration direction was the point: walking the designs and ticking items off
+can only find what the designs already list, and 37 surfaces have no design at
+all.
+
+*The cross-check earned its place, and its verdict was `partly-unsound`.* Seven
+of 42 verdicts refuted, two materially: tool shortcuts V/M/R/B/F/L/I were
+reported **unreachable** when `dcc_widgets.gd:948` binds them — a fix lane would
+have worked against a defect that does not exist — and a phone-tab count of five
+was wrong where two other auditors had four.
+
+*Six fixes shipped, all confirmed.* Autosave defaulted **off** and to **10 min**,
+a value **not on its own ladder**, so a fresh install opened the interval submenu
+with every radio row unchecked; the settlement panel printed a faction **number**
+where the design says the owning **name**; the paint row had Commit and no
+Discard; the collapsed left dock showed WORLD's word in every domain; the
+collapsed timeline strip measured **17 px** against a 24/34 spec. Migration was
+decided deliberately — only the **absent** key moves, an explicit choice is never
+rewritten.
+
+*A refutation that prevented damage.* The lane proposed removing
+`ROLE["h_timeline"]` and `H_TIMELINE` as dead; `_roleresolve_probe.gd`, a
+committed file, reads both. It raised this rather than acting, and the verifier
+confirmed the constants are live.
+
+*Eighth consecutive batch with a false clause in prose written the same pass* —
+a doc naming `_refresh_stage_rows()`, which exists nowhere (the caller is
+`_paint_stage_rows()`), and a dash reason saying "generate a world first"
+rendered on a fully generated world holding six factions. Both corrected.
 
 **2026-09-04, twenty-seventh batch — 96 → 95.** Pack trait art is built end to
 end and parked behind one line; the group-header row closes on a measurement.
@@ -1138,7 +1175,8 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | The Android adaptive icon had **no background layer** | `ANDROID_BUILD_SCOPE.md` | small | **Owner-reported 2026-09-03 ("on the 6t the icon is a dull weird grey scale"); root-caused and fixed the same day, unverified on device.** `icons/android_adaptive_background_432.png` was an 804-byte blank — **one distinct colour, `(0,0,0,0)`, fully transparent**. An adaptive icon's background layer must be opaque; when it is empty the launcher substitutes its own neutral plate, which is the reported grey and happens under any theme. Now opaque `rgb(0,24,48)`, the dominant band of the owner's own `Cartalith icon.png` rather than an invented colour. **Second change, owner ruling same day: thicken `cartalith icon2.png` into the monochrome layer.** Measured first and the measurement changed the plan — icon2 converted straight across gives **2.4-6.4%** ink against the shipped **5.1%**, i.e. a *fainter* themed icon, because icon2 is fine line art on black. Dilated at source resolution (MaxFilter 19) then fitted: **17.05% ink**, inside the band Android's own themed icons occupy, with **100% of ink inside both the 66dp safe circle and the 72dp visible circle** so no launcher mask clips it. **Verify on the handset with the next APK** — launcher behaviour for a transparent background is launcher-dependent and cannot be checked headlessly |
-| **Menu-by-menu design-conformance audit — owner request, 2026-09-04** | `DESIGN_HANDOFF.md` | medium | **Trigger: when GUI work is done, alongside the APK build, not before.** Owner instruction: verify that **every single menu** conforms to the latest designs. **Fable 5.1 at Ultracode, minimum 2 agents.** Read the 2026-08-25 ruling first — *when two design canvases disagree the newer one wins; where none exists, derive from the DCC canvases' own vocabulary* — and note an owner decision is newer than any canvas (`Data ▸ Conversion` is still drawn and was removed by decision 2026-08-20, so the canvas is the stale party there). Enumerate menus from the code, not from the design set, or the audit can only find what the designs already list. `GUI_GAP_REGISTER.md`'s menu-naming audit is prior art |
+| Menu design conformance — the held groups needing an owner ruling | `DESIGN_HANDOFF.md` | large | **The audit ran 2026-09-04/05 and is verified** (283 items enumerated from code, four Fable auditors + an adversarial cross-check: 125 conforms, 99 deviates, 37 no-design, 17 design-stale, 5 unreachable; cross-check `partly-unsound`, 7 of 42 verdicts refuted). **Six unambiguous fixes shipped.** What remains is **not conformance work but decisions**, grouped: (a) the **phone MORE shell** — 7 findings where the shell re-presents desktop popups and `06-phone.md` specifies bespoke screens; `phone_menu.gd` cites `docs/ANDROID_UI_SPEC.md`, **which is not in this repository**; (b) the **left-dock body structure** — 12 mode-gated blocks in the spec vs 9 categories per domain shipped; (c) three **structural moves** (Journey planner as a Data row vs a CIVIL rail node; Atlas Refine under Preferences vs the WORLD rail; the Asset-pack submenu's 4 bands vs the newest 9-row shape); (d) **Δ vertical measure** live in 2D where the canvas says 3D-only — the shell may be better, so deleting working code needs a ruling; (e) the **37 no-design surfaces**, concentrated in windows/dialogs, incl. 8 stock Godot file pickers where the canvas has a bespoke browser |
+| **Menu-by-menu design-conformance audit — owner request, 2026-09-04** | `DESIGN_HANDOFF.md` | medium | **Trigger: when GUI work is done, alongside the APK build, not before.** Owner instruction: verify that **every single menu** conforms to the latest designs. **Fable 5.1 at Ultracode, minimum 2 agents.** Read the 2026-08-25 ruling first — *when two design canvases disagree the newer one wins; where none exists, derive from the DCC canvases' own vocabulary* — and note an owner decision is newer than any canvas (`Data ▸ Conversion` is still drawn and was removed by decision 2026-08-20, so the canvas is the stale party there). Enumerate menus from the code, not from the design set, or the audit can only find what the designs already list. `GUI_GAP_REGISTER.md`'s menu-naming audit is prior art. **Owner ruling 2026-09-04 on ordering and models:** the audit runs **before** the rest of the outstanding list, not after GUI work completes; the audit itself is **Fable 5.1 at Ultracode** (4 auditors + an adversarial cross-check, dispatched `w9cjb2jog`); **the fixes that follow are Opus 5 at Ultracode, with Fable 5.1 where design judgment is needed** rather than mechanical conformance |
 | **Rebuild the APK and drop it on D: — owner request, 2026-09-03** | `ANDROID_BUILD_SCOPE.md` | small | **Trigger: when GUI work is done, not before.** Recipe in memory `cartalith-apk-build-and-drop`, verified: `cargo ndk -t arm64-v8a build --release -p cartalith-godot`, then `--export-release "Android"` (**expect it to fail at signing — there is no release keystore and never has been; the unsigned APK it leaves behind is good**), then sign with Godot own debug keystore via `apksigner`. **Two things must be verified, not assumed:** that the `.so` inside the APK is the one just built — a shipped APK once carried a library 25 commits stale, so features were live in the tree and dead on the handset, and Godot accepts a wrong `.gdextension` key with no error — and the md5 at the destination after copying. Destination `D:\Users\Vincent\Documents\Vincent\Persoonlijk\Writing\Tools & writing hacks\`, which already holds `Cartalith.apk` (57 021 549 bytes, 2026-09-01 14:10, sha256 `6c70b414...`). **Preserve that build rather than overwriting it blind** — date-stamp the old one aside first |
 | Six features never driven on device since the 2026-08-24 USB disconnect — paint visibility, save/undo, the debug views, GeoJSON export, hand-drawn ways, civ-recompute | `ANDROID_BUILD_SCOPE.md` | medium | Recorded as *unverified on device*, not as verified. The 2026-08-25 pass drove a different list and did not pick these up |
 | The phone shell with **no world open** scans 1 494 of 2 400 rows blank | medium | **Re-filed 2026-09-03 from PH-16, which attributed it to the wrong surface.** The register measured one state — planner open, no world — and read the result as the Journey Planner's. With a control state added, opening the planner **removes 447 blank rows**: closed 1 494, open 1 047. So the band belongs to the app with no world loaded, not to this panel, and there is nothing honest to draw into a world that does not exist. Whatever the empty shell should show is a design question `06-phone.md` does not answer |

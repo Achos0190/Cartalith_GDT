@@ -63,6 +63,8 @@ its rule before you start.
 ` continuation reached a `.gd` file as a literal backslash-n and broke it; the same edit had already produced five stray tabs mid-expression, which **parsed clean because tabs are whitespace** | Prefer the Edit tool for multi-line source changes. If you must script it, read the bytes back with `repr()` afterwards — and run the parse check, which is what caught this |
 | **Name the language of a remaining caller** | "The caller is GDScript" was written into four Rust doc comments about a function GDScript **cannot call** — a plain `pub fn` taking `&mut [u8]` and a Rust struct, neither marshallable across gdext | Check the signature, not the intent. A `#[func]` is the only thing GDScript can reach, and its arguments have to be Godot types |
 | **Name the precondition for what the code does today** | The gate is usually **nearer** than the story suggests. Three clauses said badges draw as discs "until a pack is imported"; the real gate is that no resolver Callable is installed, so a world holding a pack full of art still draws discs | Write the condition the code actually branches on, then read the branch back and check it says the same thing |
+| **Enumerate a surface for an audit** | Walk the **code**, then ask the designs about each entry. Walking the designs and ticking items off can only ever find what the designs already list — a surface nobody drew is invisible to it. Measured: 37 of 283 menu items had **no design at all** | State the inventory method and how you know it is complete; have the checker re-run it looking for what was missed |
+| **Call a constant dead** | Probes are committed files and they read theme tables. `ROLE["h_timeline"]` was proposed for removal while `_roleresolve_probe.gd` asserts on it | `grep -rn` the key across the whole project **including probes and tests**, not just the shipping call sites |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -110,7 +112,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×34
+### [2026-09-03] Leaving prose that describes the old behaviour ×36
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

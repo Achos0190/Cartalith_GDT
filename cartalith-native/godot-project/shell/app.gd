@@ -1095,6 +1095,15 @@ func _on_workspace_changed(id: String) -> void:
 		"civilization": _tool_options_simple("CIVIL · INSPECT",
 			"Settlement, Territory, Way and Route tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
 	_refresh_rail_foot()
+	## The collapsed left dock's line, from whichever dock is now in the frame.
+	## `WorldWorkspace` was the shell's only writer of it until 2026-09-05, so
+	## collapsing in CIVIL or CARTO showed WORLD's last word -- see
+	## `Workspace.push_dock_readout()`, which every domain now answers.
+	## Dispatched off `_workspace_panels`, `_select_domain()`'s own map, rather
+	## than a `match` here that would have to be extended with each domain.
+	var panel: Control = _workspace_panels.get(id)
+	if panel != null and panel.has_method("push_dock_readout"):
+		panel.call("push_dock_readout")
 
 func _tool_options_label(row: Control, text: String, token: String) -> void:
 	row.add_child(DccTheme.mono_label(text, token, DccTheme.FS_SMALL, 2, true))
@@ -1192,6 +1201,23 @@ func _fill_timeline_strip() -> void:
 ## (`--m1`, `var(--sec)`) · spacer · `▴ expand` (`--m2`, `var(--faint)`), and
 ## "the whole strip is clickable → `hTlExpand`".
 func _build_timeline_collapsed() -> void:
+	## §3.7's collapsed box, in the two numbers `_build_timeline()` leaves to
+	## its fillers: `height:calc(var(--sbH) - 2px)` and `padding:0 var(--pad)`.
+	##
+	## **Measured before this line existed** (2026-09-05, `_tlheight_probe.gd`,
+	## windowed, four densities): the strip came out **17 px** in all three
+	## pointer/touch legs -- 1 px of top rule plus this container's 8+8 -- while
+	## `hit` reported a (0,0) minimum, so the row measured **0 px tall** and the
+	## three labels inside it drew 14 px (19 px on touch) of type out of it and
+	## over the bar's own bottom edge. Against
+	## `role_px("h_status")` the spec is **24 px pointer / 34 px touch**. The
+	## fix is both numbers together: the height alone would have left 8+8 of
+	## padding and 7 px for 14 px of type.
+	##
+	## The phone strip is a different composition (`_fill_phone_timeline_row()`,
+	## measured 65 px) and §3.7 does not describe it -- it restores the expanded
+	## box for itself rather than being folded in here.
+	set_timeline_metrics(0, DccTheme.role_px("h_status") - 2)
 	var hit := Button.new()
 	hit.flat = false
 	hit.focus_mode = Control.FOCUS_NONE
@@ -1222,10 +1248,23 @@ func _build_timeline_collapsed() -> void:
 		DccTheme.role_px("fs_timeline"), 0))
 	hit.add_child(row)
 	row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	## `row` is anchored, not laid out, so its Labels stretch to the strip's
+	## full height and a `Label` defaults to top-aligned text -- which put 14 px
+	## of type at the top of a 23 px box the moment the box became tall enough
+	## to notice. Centred here rather than at each `mono_label` call, so the
+	## spacer between them is skipped without a special case.
+	for c in row.get_children():
+		if c is Label:
+			(c as Label).vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
 ## §4.2's three rows, plus a fourth this build owes the reader -- see
 ## `_build_timeline_layers()`.
 func _build_timeline_expanded() -> void:
+	## §3.7's expanded box: `padding:8px var(--pad)` and **auto height**. Both
+	## are restores -- the collapsed form above pins a height and drops the
+	## vertical padding on the same shared container, and this is the other side
+	## of that pair, not a new decision.
+	set_timeline_metrics(8, 0)
 	var col := VBoxContainer.new()
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 6)
@@ -1406,6 +1445,14 @@ func _build_timeline_scrub() -> Control:
 ## category, which is the collapse/recovery model and a different destination;
 ## it is left where it is.
 func _fill_phone_timeline_row() -> void:
+	## Its own composition, and `01-frame-and-tokens.md` §3.7 does not describe
+	## it -- so it keeps the box `_build_timeline()` builds rather than the
+	## desktop collapsed strip's. Restored explicitly because the height and the
+	## vertical padding live on the shared bar: a desktop leg that ran first
+	## would otherwise leave this row pinned to `--sbH - 2`. Measured at 65 px
+	## (2026-09-05, `_tlheight_probe.gd`, 450x1000 `--force-touch`), which is
+	## what it was before this line and what it is after.
+	set_timeline_metrics(8, 0)
 	var open := is_phone_sim_strip_open()
 	var b := DccWidgets.text_button(timeline_row,
 		"TIMELINE · %s" % (_tl_year_label() if tl_available() else "no world"),

@@ -1093,10 +1093,10 @@ func _current_title() -> String:
 ## Layers, stamp count for the stack" -- is the right dock's collapsed
 ## primary readout, and `DccShell.set_dock_readout("right", …)` already
 ## exists for it, kept current whether or not the dock is actually
-## collapsed (`dcc_shell.gd`'s own doc comment). `world_workspace
-## ._push_dock_readout()` calls the left dock's equivalent on every
-## rebuild; this dock never called the right-dock one at all. So this reads
-## one honest number per context.
+## collapsed (`dcc_shell.gd`'s own doc comment). `Workspace
+## .push_dock_readout()` (overridden in `world_workspace.gd`) calls the left
+## dock's equivalent; this dock never called the right-dock one at all. So this
+## reads one honest number per context.
 ##
 ## **There is still no `Layers` arm, and after RD-10 that is a decision rather
 ## than an omission.** The owner's 2026-09-03 ruling made Layers an *appended
@@ -1709,7 +1709,7 @@ func _build_settlement(body: Control) -> void:
 	_field(sec, "Name", String(s.get("name", "—")))
 	_field(sec, "Class", String(s.get("kind", "—")).capitalize())
 	_field(sec, "Population", str(int(s.get("population", 0))))
-	_field(sec, "Faction", str(int(s.get("faction", 0))))
+	_settlement_faction_row(sec, int(s.get("faction", 0)))
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
 	_build_settlement_faith(sec, s)
@@ -1776,6 +1776,50 @@ func _build_settlement(body: Control) -> void:
 	rt.add_theme_color_override("default_color", DccTheme.c("text"))
 	rt.text = _build_causal_chain_text(s, _settlement_index)
 	why_sec.add_child(rt)
+
+## `05-right-dock-and-bars.md` §1.11's `placeRows` gives this row as *"the
+## owning faction name"*. It printed `str(int(s["faction"]))` -- a bare index --
+## until 2026-09-05, so the dock answered `3` to a question about a name while
+## `_build_faction()`, further down this same file, already had the roster entry
+## that carries one.
+##
+## Read through `_faction_roster()`, the lookup `_build_faction` and
+## `_build_territory` already share, rather than a third copy of the same loop.
+## `get_factions()` enumerates `1..roster.len` (`cartalith-godot/src/lib.rs`,
+## `fn get_factions`), so `0` is never an entry there and never a name.
+##
+## Two absences, dashed apart rather than folded together, because they have
+## different answers:
+##
+## - **`faction <= 0` is unclaimed.** `Continent::faction`'s own doc in
+##   `cartalith-civ/src/lib.rs` states the sentinel -- *"or `0` for
+##   unclaimed"* -- and `_sample_field_text()`'s own `"control"` arm in this
+##   file already renders `owner <= 0` as `unclaimed`. The word is borrowed
+##   from there so a settlement and a sampled cell do not describe the same
+##   state two ways.
+## - **A positive id with no roster row** is a stale selection or a world that
+##   has not generated a civilisation yet, which is the same sentence the four
+##   `_build_faction` rows already carry for the same miss.
+func _settlement_faction_row(sec: Control, faction_id: int) -> void:
+	if faction_id <= 0:
+		_field(sec, "Faction", "—",
+			"This settlement is not claimed by any faction: get_settlements() reports "
+			+ "faction 0, the engine's own 'unclaimed' sentinel, and there is no roster "
+			+ "entry to name. Generate or extend territory to give it an owner.", false)
+		return
+	var roster := _faction_roster(faction_id)
+	var fname := String(roster.get("name", ""))
+	if fname == "":
+		_field(sec, "Faction", "—",
+			("This settlement reports faction %d, and get_factions() has no row "
+				+ "with that id -- the settlement's owner is outside the roster, "
+				+ "not absent. Corrected 2026-09-05: this said \"generate a world "
+				+ "first\", copied from _build_faction where that CAN be true; a "
+				+ "verifier rendered it on a fully generated world holding six "
+				+ "factions.") % faction_id,
+			false)
+		return
+	_field(sec, "Faction", fname)
 
 ## -- Faith -------------------------------------------------------------------
 ##
@@ -3480,8 +3524,9 @@ func _on_stamp_delete(index: int) -> void:
 # design's `biome` tool -- see the `TOOL_PAINT` const's own doc). Reads
 # `world_workspace.gd`'s live paint-editor state fresh every rebuild, the
 # same "no private draft" shape `TOOL_STAMPS` already uses -- Commit/Discard
-# here and Commit/Discard in the left-dock Biome paint panel are the same two
-# engine calls, so neither can disagree with the other about what is pending.
+# here, in the left-dock Biome paint panel, and (since 2026-09-05, §2.2.6) on
+# the tool options bar are all the same two engine calls, so no two of the
+# three can disagree about what is pending.
 # (They CAN both be on screen showing the same number, which is fine -- see
 # `TOOL_STAMPS`'s own header comment on why that is not the two-drafts bug
 # class `WW-13` was.)

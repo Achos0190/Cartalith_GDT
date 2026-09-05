@@ -2820,10 +2820,12 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 	head_pad.add_child(head)
 	col.add_child(head_pad)
 	col.add_child(DccTheme.rule())
-	## Always built, even in sheet mode, so `set_dock_readout("left", …)`
-	## (`world_workspace.gd`) never hits the "no dock readout" error -- it just
-	## stays permanently hidden, since a sheet has no collapsed state to
-	## surface it in.
+	## Always built, even in sheet mode, so `set_dock_readout("left", …)` never
+	## hits the "no dock readout" error -- it just stays permanently hidden,
+	## since a sheet has no collapsed state to surface it in. Its writers are
+	## `Workspace.push_dock_readout()` and `world_workspace.gd`'s override of
+	## it, reached on every domain switch from `DccApp._on_workspace_changed()`;
+	## until 2026-09-05 the WORLD one was the only writer in the shell.
 	col.add_child(_dock_readout("left"))
 
 	var scroll := _scroll()
@@ -3184,6 +3186,33 @@ func _build_timeline() -> Control:
 	pad.add_child(timeline_row)
 	bar.add_child(pad)
 	return bar
+
+## The two boxes `_build_timeline()` deliberately does not fix, set by whoever
+## fills `timeline_row` -- because §3.7 gives the strip's two forms two
+## different ones and the row is shared by four fillers.
+##
+## `pad_y` is the vertical half of the CSS `padding`: `8px var(--pad)` expanded,
+## **`0 var(--pad)` collapsed**. `fixed_h` is the collapsed form's
+## `height:calc(var(--sbH) - 2px)`, or `0` for "auto", which is what §3.7 says
+## the expanded form is.
+##
+## Set on the `PanelContainer`, border included, matching `_build_status_bar()`
+## -- which takes `--sbH` as the whole bar's height with the same 1 px top rule
+## inside it, and matching `02-rail-and-domains.md`'s own frame arithmetic
+## (`1080 − 36 − 40 − 26`), which subtracts the token and not the token plus a
+## border.
+##
+## **The horizontal margins are not touched**: `var(--pad)` is 14 in both forms
+## and was already right.
+func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
+	if timeline_row == null or timeline_bar == null:
+		return
+	var pad := timeline_row.get_parent() as MarginContainer
+	if pad == null:
+		return
+	pad.add_theme_constant_override("margin_top", pad_y)
+	pad.add_theme_constant_override("margin_bottom", pad_y)
+	timeline_bar.custom_minimum_size.y = float(fixed_h)
 
 # -- §10a The timeline model ------------------------------------------------
 #

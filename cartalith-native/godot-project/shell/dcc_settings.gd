@@ -219,12 +219,31 @@ static func set_cpu_thread_count(threads: int) -> void:
 ## Machine state, not world state, for the same reason the GPU block above is:
 ## how often *this install* writes a backup says nothing about the world, and
 ## a `.zip` carrying it would impose one user's habit on everyone who opens
-## the file. Off by default -- a background writer that starts without being
-## asked is the wrong first impression for a tool that writes hundreds of
-## megabytes per save.
+## the file.
+##
+## **On by default** (`design/dcc-environment-2026-08-31/spec/03-menu-bar.md`
+## §6.1 row 7: *"on = `prefs.autosave` (**default `true`**)"*, and the DCC Shell
+## canvas draws the File menu's interval row as `every 5 min · on`). It shipped
+## `false` until 2026-09-05, argued as "a background writer that starts without
+## being asked is the wrong first impression for a tool that writes hundreds of
+## megabytes per save" -- which was an argument against the design rather than a
+## reading of it, and it is also not what this writer does:
+## `DccApp._autosave_tick()` writes nothing at all until a project has been
+## saved once (`current_project_path`), the world is dirty and no generate is in
+## flight, and then writes *beside* the project, never over it.
+##
+## **What the flip changes, deliberately narrowed to one case.** `get_value`
+## returns the stored value whenever the key exists, so moving this argument
+## moves the **absent key only**: an install whose owner ever touched
+## `File ▸ Autosave` or the interval submenu has an explicit `enabled` in
+## `user://cartalith_settings.cfg` and keeps it, off included.
+## `set_autosave_enabled()` below and `set_autosave_minutes()` are the only two
+## writers of this section (grepped across `godot-project/`), and nothing calls
+## either on boot -- so no start-up path can freeze the old default into a file
+## and disguise it as a choice.
 static func autosave_enabled() -> bool:
 	_ensure_loaded()
-	return bool(_cfg.get_value(_SEC_AUTOSAVE, "enabled", false))
+	return bool(_cfg.get_value(_SEC_AUTOSAVE, "enabled", true))
 
 static func set_autosave_enabled(on: bool) -> void:
 	_ensure_loaded()
@@ -233,9 +252,23 @@ static func set_autosave_enabled(on: bool) -> void:
 
 ## Minutes between autosaves. Floored at 1 so a corrupt config cannot ask for
 ## a save every frame.
+##
+## **5, the design's own default** (`03-menu-bar.md` §6.1 row 8: *"`off` · `1
+## min` · `5 min` · `15 min` -- selected = `prefs.autoInt` (**default `5
+## min`**)"*). It was 10 until 2026-09-05, which was not one of the four values
+## the interval submenu offers -- so a fresh install opened `File ▸ Autosave
+## interval` and found every radio row unchecked, reporting a number no control
+## on that menu could have set. `DccMenus.AUTOSAVE_MINUTES` is `[1, 5, 15]` and
+## was always right; this argument was the half that disagreed with it.
+##
+## The same absent-key-only rule `autosave_enabled()` above states: a stored
+## `minutes` survives untouched. Only `set_autosave_minutes()` writes it, and
+## only from `DccMenus._on_autosave_interval()`, so an existing value can only
+## be one the user picked off that submenu -- or a hand-edited one, which the
+## unchecked-row path below still reports rather than rounding into a neighbour.
 static func autosave_minutes() -> int:
 	_ensure_loaded()
-	return maxi(1, int(_cfg.get_value(_SEC_AUTOSAVE, "minutes", 10)))
+	return maxi(1, int(_cfg.get_value(_SEC_AUTOSAVE, "minutes", 5)))
 
 static func set_autosave_minutes(minutes: int) -> void:
 	_ensure_loaded()
