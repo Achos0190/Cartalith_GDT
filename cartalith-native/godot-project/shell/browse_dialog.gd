@@ -61,6 +61,9 @@ var _cwd := ""
 var _selected := ""
 
 var _crumb_row: HBoxContainer
+## The viewport `_crumb_row` scrolls inside. Held because `_refresh_crumbs()`
+## has to re-pin it to its tail after every rebuild -- see `_pin_crumbs()`.
+var _crumb_scroll: ScrollContainer
 var _path_edit: LineEdit
 var _list: VBoxContainer
 var _foot_note: Label
@@ -218,33 +221,108 @@ func _build_head(dialog_title: String) -> Control:
 ## accent. A breadcrumb is also the whole of this dialog's "go up": the parent
 ## of the current folder is always one of the segments, so there is no `..`
 ## row and none of the nested-tree disclosure the mockup's comment rejects.
+## **A breadcrumb is as wide as the path it describes, and that is not a phone
+## problem.** `Button.get_minimum_size().x` is the width of its own text, so the
+## crumb row's minimum is the whole path plus its separators, and a
+## `VBoxContainer` hands the widest child's minimum to the window. Measured
+## 2026-09-05 at 4.7.1, three densities -- DESKTOP 1920x1080, LAPTOP 1366x768,
+## TABLET 1600x1000 (`--force-touch`) -- with `_lb2browse_probe.gd`, and the
+## three agree to the pixel because nothing on this screen reads `ROLE`:
+##
+## | start directory | crumb row min | dialog `contents_min.x` | window |
+## |---|---|---|---|
+## | `C:/Users/Vincent` (3) | 187 | 265 (the foot) | 760 |
+## | 9 short segments | 541 | **597** | 760 |
+## | 9 real segments (`…/Cartalith Projects`) | 640 | **696** | 760 |
+## | 13 real segments (`…/heightmaps/2026-09-05`) | 988 | **1044** | 760 |
+##
+## So a deep path overflowed its own window by **284 px** and there was no
+## scrollbar anywhere to reveal it. Note which half of that is the variable:
+## 13 one-letter segments measure 729 and fit, 9 real ones measure 696 and
+## nearly do not. **Segment count is half of it; segment text is the other
+## half**, and a path is unbounded in both.
+##
+## **Scrolled, and pinned to the tail.** The three candidates, and why this one:
+##
+##   * *Widen the window to fit.* There is no width that fits: the next folder
+##     down makes the path longer. Sizing for the deepest plausible path would
+##     also make every shallow browse enormous -- shallow needs 265.
+##   * *Elide with `clip_text`.* It collapses a `Label`'s minimum width to 1
+##     (`MISTAKES.md`; this dialog's own foot hint shipped at 1 px for exactly
+##     that reason), and an elided segment stops being a jump target -- the
+##     breadcrumb *is* this dialog's "go up", per the comment above.
+##   * *Scroll it.* A `ScrollContainer` contributes no minimum on the axis it
+##     scrolls, so the row can no longer widen the window, and every segment
+##     stays clickable. Pinned to the **tail** by `_pin_crumbs()` because the
+##     last segments are where the user is -- the accent one is the current
+##     folder -- and the root is one drag away.
+##
+## Two details the phone-only version got wrong for the general case. `⌂ Home`
+## now sits *outside* the scroll, pinned right where the mockup draws it, so
+## the one absolute jump can never be scrolled off; it used to ride at the end
+## of `_crumb_row` behind a spacer. And the bar is `SHOW_NEVER` only on the
+## phone, where the crumbs drag-scroll (`phone_fit()` leaves them
+## `MOUSE_FILTER_PASS`, PH-05); a pointer density gets `AUTO`, which is
+## `journey_planner_view.gd`'s own remedy for this trap and the only visible
+## affordance a mouse has that the row goes on.
+##
+## `vertical_scroll_mode` is DISABLED on purpose and is **not** a fifth
+## instance of `MISTAKES.md`'s disabled-axis trap: the folded axis is the one
+## with nothing to overflow, and folding it is what makes the row exactly as
+## tall as one crumb.
 func _build_breadcrumb() -> Control:
 	_crumb_row = HBoxContainer.new()
 	_crumb_row.add_theme_constant_override("separation", 6)
-	if not _phone:
-		return _pad(_crumb_row, 28, 14, 28, 0)
-	## PH-06, found on the handset and nowhere else: a breadcrumb is as wide as
-	## the path it describes, and **a `Button` reports its own text as its
-	## minimum width** -- the hazard `DccShell.phone_fit()` already records for
-	## the faction roster. Android's own home directory is
-	## `/data/data/org.cartalith.walkingskeleton/files`, four deep and long,
-	## which put the crumb row's minimum at 715 px inside a 393 dp window and
-	## dragged every sibling -- the list, the foot, the Open button -- off the
-	## right edge with it. On Windows the same dialog fits, because
-	## `C:/Users/Vincent` does; the desktop run is not evidence here.
-	##
-	## Scrolled rather than trimmed: a `ScrollContainer` contributes no minimum
-	## on the axis it scrolls, so the row can no longer widen the window, and
-	## every segment stays reachable rather than being dropped behind an
-	## ellipsis. The bar is hidden because the crumbs themselves are the
-	## affordance -- and they drag-scroll, since `phone_fit()` leaves them
-	## `MOUSE_FILTER_PASS` (PH-05).
-	var sc := ScrollContainer.new()
-	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
-	sc.add_theme_stylebox_override("panel", DccTheme.empty())
-	sc.add_child(_crumb_row)
-	return _pad(sc, 28, 14, 28, 0)
+
+	_crumb_scroll = ScrollContainer.new()
+	_crumb_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_crumb_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER \
+		if _phone else ScrollContainer.SCROLL_MODE_AUTO
+	_crumb_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	_crumb_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_crumb_scroll.add_child(_crumb_row)
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.add_child(_crumb_scroll)
+	row.add_child(_build_home_button())
+	return _pad(row, 28, 14, 28, 0)
+
+## `⌂ Home` -- "at the right" in the mockup, and built once here rather than
+## per navigation, because it is the one crumb that never changes and the one
+## that must survive the scroll.
+func _build_home_button() -> Button:
+	var home := Button.new()
+	home.text = "⌂ Home"
+	home.flat = true
+	home.focus_mode = Control.FOCUS_NONE
+	home.add_theme_font_override("font", DccTheme.mono())
+	home.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	home.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+	home.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	home.add_theme_stylebox_override("normal", DccTheme.empty())
+	home.add_theme_stylebox_override("hover", DccTheme.empty())
+	home.pressed.connect(func(): navigate(home_dir()))
+	return home
+
+## Put the crumb view at its right-hand end, so the current folder and its
+## nearest parents are what is on screen.
+##
+## Two frames, not `call_deferred()`: the rebuild only *queues* a sort on the
+## `HBoxContainer`, whose new minimum then queues a second sort on the
+## `ScrollContainer`, and `max_value` is not written until that second one
+## runs. A deferred call is flushed inside the first. `scroll_horizontal`
+## clamps itself, so this is a no-op on a path that already fits.
+##
+## Awaits on the tree rather than on a node signal, so the guard below is
+## needed: the dialog frees itself on close (`_spawn()`), and a navigation on
+## the frame before that would otherwise resume into a freed node.
+func _pin_crumbs() -> void:
+	for i in 2:
+		await get_tree().process_frame
+		if not is_inside_tree() or _crumb_scroll == null:
+			return
+	_crumb_scroll.scroll_horizontal = int(_crumb_scroll.get_h_scroll_bar().max_value)
 
 func _build_path_well() -> Control:
 	_path_edit = LineEdit.new()
@@ -272,9 +350,20 @@ func _build_path_well() -> Control:
 ##     took its minimum. Three note lengths -- 11, 33 and 76 characters -- all
 ##     measured `_foot_note.size.x == 1.0`. Fixed by making the note itself
 ##     the row's expanding child: it *is* the spacer now, so there is nothing
-##     left to lose the width to. In the same harness the same three then all
-##     measure 460 px in FOLDERS and 510 px in FILES -- identical across the
-##     three, because a filling label's width stops depending on its text.
+##     left to lose the width to. The invariant that fix buys is that the three
+##     lengths all measure the *same* width, because a filling label's width
+##     stops depending on its text; **the width itself is the dialog's laid-out
+##     width minus the buttons, and that used to be path-dependent.** Before
+##     `_build_breadcrumb()` was made to scroll, an overflowing crumb row laid
+##     the whole body out at its own minimum and the note rode along:
+##     `_lanebpickers_probe.gd`, same machine, 2026-09-05 -- FILES at a 9-segment
+##     start directory measured a 823 px body and a **609 px** note, and the
+##     same probe after the fix measures a 760 px body and a **546 px** note.
+##     Re-measured with `_lb2browse_probe.gd` across 11, 33 and 76 characters,
+##     at both a 3-segment and a 13-segment path, all six agreeing: **496 px in
+##     FOLDERS, 546 in FILES, 704 in SAVE**. The pair this comment used to carry
+##     (460 and 510) does not reproduce in either harness; what produced it was
+##     not established, so it is replaced rather than explained.
 ##   * **SAVE mode had no hint at all.** `choose_save_path` accepts a
 ##     `footnote` and this function dropped it on the floor -- `menus.gd
 ##     ::_export_atlas()` passes a full sentence that has never been on
@@ -403,19 +492,11 @@ func _refresh_crumbs() -> void:
 		b.pressed.connect(func(): navigate(jump))
 		_crumb_row.add_child(b)
 
-	_crumb_row.add_child(DccTheme.spacer())
-	var home := Button.new()
-	home.text = "⌂ Home"
-	home.flat = true
-	home.focus_mode = Control.FOCUS_NONE
-	home.add_theme_font_override("font", DccTheme.mono())
-	home.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	home.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
-	home.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	home.add_theme_stylebox_override("normal", DccTheme.empty())
-	home.add_theme_stylebox_override("hover", DccTheme.empty())
-	home.pressed.connect(func(): navigate(home_dir()))
-	_crumb_row.add_child(home)
+	## `⌂ Home` is not rebuilt here -- it lives outside the scroll, so it is
+	## built once in `_build_breadcrumb()` and survives every clear above. The
+	## `DccTheme.spacer()` that used to push it right went with it: the scroll
+	## viewport is the expanding child now.
+	_pin_crumbs()
 
 func _refresh_list() -> void:
 	for c in _list.get_children():

@@ -9,42 +9,76 @@ class_name PhoneMenu
 ## faults: nothing phone-scaled, desktop status chrome squeezing the row into a
 ## strip, no touch response, and ~41 items behind 15 hover-opened submenus.
 ##
-## **It re-presents `menus.gd`, it does not reimplement it.** Every row here is
-## read off the real `PopupMenu` objects `DccShell.add_menu()` already built,
-## and every tap goes back out through `PopupMenu.activate_item()` -- the
-## engine's own activation path, which emits `id_pressed`/`index_pressed` to
-## whatever `menus.gd` connected. No menu id, callback or label is duplicated in
-## this file; add an item to `menus.gd` and it appears here with no change.
-## `about_to_popup` is emitted before a popup is read, so the rows that rebuild
-## themselves on open (Recent worlds, GPU devices, Open windows, the Preferences
-## busy-lock) are as live here as they are on desktop.
+## ## The 2026-09-05 ruling: five bespoke screens, not seven menu drills
 ##
-## ## The five levels, and where each one really occurs
+## `LARGE_ITEM_RULINGS.md`, owner, 2026-09-05: *"Phone MORE — build the bespoke
+## screens per `06-phone.md` §6.6. The shell's re-presentation of the desktop
+## popups is superseded. Five purpose-built screens: Project, Civilization,
+## Data, Simulation, Preferences."* Also recorded there, and repeated here so a
+## reader of this file alone does not go looking: `docs/ANDROID_UI_SPEC.md`,
+## which the paragraphs below still cite, **is not in this repository** -- it
+## lives in the owner's design project. `06-phone.md` is what was ruled on, and
+## it is what every screen below is built from.
 ##
-## The canvas's own PHONE RULES: "L1 is the bottom bar, L2 a drill screen, L3 a
-## titled band, L4 a sheet, L5 a full screen", and "Drilling replaces rather
-## than stacks: at most one L2 screen and one sheet exist at a time."
+## ## It still re-presents `menus.gd`; what changed is who chooses the order
 ##
-## | Level | Canvas treatment | What it is here |
-## |---|---|---|
-## | L1 | bottom bar | `DccShell._build_phone_menu_bar()` -- WORLD/CIVIL/CARTO/PANELS/MENU. Not this file. |
-## | L2 | drill screen | This file's **root**: `ANDROID_UI_SPEC.md`'s MORE list -- the seven program menus plus Civilization, Travel library and Simulation, banded per `GROUPS`, over the live status readouts. |
-## | L3 | titled band | One program menu's items. Its `add_separator()` groups are the bands. |
-## | L4 | sheet, 60% cap | A submenu (Recent worlds, Theme, Devices, Asset pack, Workspace, ...). |
-## | L5 | full screen | A submenu *inside* a submenu -- really three of them: `Assets ▸ Asset pack ▸ Edit / Batch / Build`. |
+## Before this pass a screen *was* a `PopupMenu`: the root listed the seven
+## program menus and everything below it was that menu's own items in that
+## menu's own order. Now the five ruled screens carry **§6.6's** rows in
+## **§6.6's** order -- but each row still resolves to a real `PopupMenu` item
+## (by menu name and item id, or by a submenu's node name) and still fires
+## through `_activate()`, which emits `id_pressed`/`index_pressed` exactly as a
+## pointer would. **No handler, callback or menu id is reimplemented here.** A
+## row `menus.gd` deletes stops resolving and draws its absence
+## (`_missing_row()`) rather than silently vanishing.
 ##
-## Levels past 5 (none exist in the shipped tree today) keep the L5 treatment
-## rather than nesting sheets, which is what the canvas's "at most one sheet"
-## rule requires.
+## `about_to_popup` is emitted before any popup is read, so the rows that
+## rebuild themselves on open (Recent worlds, the autosave interval, the CPU
+## thread pool state, the undo budget's step counts) are as live here as they
+## are on desktop. It is emitted **once per menu per screen render**, and only
+## for the menus that screen actually reads -- so entering a screen costs
+## exactly what opening that menu costs on desktop, which is the budget
+## `command_index.gd`'s own header explains must not be exceeded.
 ##
-## ## The one honest shortfall
+## ## Reachability is the constraint, and it is checked, not assumed
 ##
-## The canvas draws L3 bands with titles ("§ HYDRAULIC PASSES"). Every
-## `add_separator()` in `menus.gd` is **unlabelled**, so a band here draws as
-## the hairline-plus-gap the desktop menu itself draws. The moment a separator
-## is given text it becomes a titled band with no change to this file -- but
-## today it is a rule, not a caption, and that is stated rather than faked with
-## invented headings.
+## §6.6's `help` screen states the rule this build is held to: *"The phone
+## reorganises rather than truncates: every desktop function is reachable
+## through MAP · GENERATE · PLAN · MORE."* Five screens cannot carry 361 menu
+## rows, so the coverage is explicit:
+##
+## | Program menu | Where it is reached on the phone |
+## |---|---|
+## | `File` | the `project` screen -- §6.6's four acts and its autosave block first, then **every remaining File row in File's own order** (`_rest_of()`) |
+## | `Data` | the `data` screen -- the whole Data popup, whose own `IMPORT`/`EXPORT`/`SOURCES`/`VALIDATION` separators are already §6.6's bands |
+## | `Preferences` | the `prefs` screen -- Theme and Units lifted to the top per §6.6, then the rest of the popup in its own order |
+## | `Assets` | the root's `Asset library` row (a drill into the real popup) **and** the `civ` screen's `Landmark generation` row (`Assets ▸ Landmark types`) |
+## | `Help` | the root's `Help & about` row |
+## | `Edit`, `Window` | the root's last band. §6.6's root table has no row for either, and dropping them would make Undo history, Find on map, Reset one stage, the dock toggles, Workspace, Open windows and Layouts unreachable on a handset |
+##
+## `_phonemore_reach_probe.gd` renders each built screen and reads back the
+## strings it drew. It asserts (a) all eight of §6.6's root rows plus the two
+## fallback rows are on the root, (b) every `MenuButton` on the live menu bar is
+## reached by one of them, and (c) every **top-level** row of File, Data and
+## Preferences is drawn on its screen -- counting a submenu as drawn when its
+## own text appears OR, for one expanded into chips, when a child's does.
+## Deeper levels are `_popup_row()`'s ordinary drill and are not re-walked.
+##
+## ## Row types
+##
+## §6.6's own vocabulary (`head`, `nav`, `act`, `tog`, `seg`, `range`, `read`,
+## `info`), mapped onto what a `PopupMenu` item already is:
+##
+## | §6.6 | Here |
+## |---|---|
+## | `head` | `_band()` -- also what a labelled `add_separator()` renders as |
+## | `nav` | `_row()` with a chevron: another screen, a program menu, or a submenu |
+## | `act` | a plain item, fired by `_activate()` |
+## | `tog` | a `p.is_item_checkable()` item, drawn with `_switch()` |
+## | `seg` | a submenu of radio items, **expanded inline as chips** -- see `_expandable()` |
+## | `range` | only where a continuous quantity really exists: the `sim` screen's Year, over `DccShell.TL_YEAR_MIN..TL_YEAR_MAX`. Everywhere §6.6 draws a range over what this port models as a fixed set (CPU threads, undo budget, zoom levels) the set is drawn, because inventing intermediate values would offer settings the engine has no call for |
+## | `read` | a `menus.gd::_readout()` row, or a `DccShell` status slot |
+## | `info` | a `menus.gd::_signpost()` row, or a stated absence |
 ##
 ## ## Theme
 ##
@@ -61,73 +95,116 @@ class_name PhoneMenu
 ## 4 is a sheet, everything else is a screen.
 class _Step:
 	var popup: PopupMenu
+	## One of `SCREEN_IDS` when this step is a bespoke §6.6 screen, `""` when it
+	## is a popup being re-presented. Exactly one of `popup` / `screen` is set;
+	## the root is the `"more"` screen and so has neither a popup nor a parent.
+	var screen: String
 	var title: String
 	var trail: String
 	var level: int
 
-	func _init(p: PopupMenu, t: String, tr: String, lv: int) -> void:
+	func _init(p: PopupMenu, t: String, tr: String, lv: int, scr: String = "") -> void:
 		popup = p
 		title = t
 		trail = tr
 		level = lv
+		screen = scr
 
 	func is_sheet() -> bool:
 		return level == 4
 
-## The L2 destination list, banded the way the canvas's own "07 · MORE"
-## artboard bands its list (PROJECT / ASSETS / VIEW).
+## §6.6's `_moreTitle()` table -- the title and subtitle for every screen this
+## file builds, quoted from the spec's own two columns.
 ##
-## The order and the contents are `ANDROID_UI_SPEC.md`'s MORE line, verbatim:
+## Two subtitles deviate, and both are the spec being stale rather than this
+## file taking a liberty:
 ##
-##   "MORE: Project, Civilization (settlement/POI/way tools arm & place on
-##    map), Data manager, Asset library, Travel library, Simulation (mini
-##    transport strip overlay), Preferences (theme dark/light + units km/mi
-##    wired), Help/about."
+##   - **`data`** is `import · export · sources · conversion · validation` in
+##     §6.6. `Data ▸ Conversion` was **removed by owner decision, 2026-08-20**
+##     (the root `CLAUDE.md` records it as the one case where a canvas is the
+##     stale party), and `menus.gd::_data()` accordingly builds four bands, not
+##     five. Naming a fifth in the subtitle would advertise a band the screen
+##     cannot contain.
+##   - **`root`** is `program · data · preferences` there; `MORE`'s own bottom
+##     bar cell already says MORE, so the subtitle carries the three §6.6 words
+##     unchanged.
 ##
-## **The units half of that line is real as of 2026-09-02** (PR-15,
-## `OUTSTANDING_WORK.md`). `menus.gd`'s Preferences ▸ Units used to be a
-## `_todo` row; it is now a live three-way radio (km/mi **and** nautical
-## miles -- the owner's ruling went past the spec quote above, see
-## `menus.gd`'s own note on it) backed by `DccSettings.units_mode()`. Nothing
-## in this file changed to carry it: this screen's whole contract with
-## `menus.gd` is re-presenting whatever real `PopupMenu` it built, so
-## Preferences ▸ Units drills exactly like Theme already did, with no new
-## code here either time.
+## `civ`'s subtitle is §6.6's verbatim, **including "POI"**, which this port has
+## no tool for -- see `_fill_civ()`, which draws that absence as a row rather
+## than quietly shortening the promise.
+const SCREEN_TITLES: Dictionary = {
+	"more": ["More", "program · data · preferences"],
+	"project": ["Project", "files · autosave · storage"],
+	"civ": ["Civilization", "settlement · POI · way tools"],
+	"data": ["Data manager", "import · export · sources · validation"],
+	"sim": ["Simulation", "timeline · layers"],
+	"prefs": ["Preferences", "application · performance · graphics"],
+}
+
+## §6.6's `root` table, in its order, with its glyphs and its sub text.
 ##
-## Two kinds of entry, because that list mixes two kinds of destination:
+## `t` is what the row goes to: `screen` a bespoke screen id, `menu` a program
+## menu re-presented whole, `call` one of `_root_action()`'s destinations.
 ##
-##   - **`menus`** names a program menu on the desktop menu bar. The row drills
-##     into the real `PopupMenu` (`_menu_row()`) -- this file's whole contract
-##     with `menus.gd` -- and keeps the menu's own text as its title. The band
-##     carries the spec's word ("Project"), the row carries the thing that is
-##     actually opening ("File"), so neither authority is retyped.
-##   - **`rows`** names an entry in `_action_row()`: a destination with no
-##     program menu behind it, wired to the exact call the desktop reaches it
-##     by.
-##
-## Menus are drawn before rows inside a band. That is what keeps the spec's own
-## sequence (Data manager, Asset library, Travel library) intact in the third
-## band rather than leaving it to luck.
-##
-## Three band captions are the spec's own words; "Data & assets" and "System"
-## are groupings, since the spec gives that list no headings of its own.
-## `Window` is the one menu the list does not name -- it joins System rather
-## than falling through, and the "Other" fallback in `_fill_root()` still
-## catches whatever an eighth program menu adds, so a menu can never go
-## silently missing from the phone.
-##
-## **Civilization is reached from here and nowhere else.** It stopped being a
-## bottom-bar tab when the bar became MAP · GENERATE · PLAN · MORE
-## (`DccShell.PHONE_TABS`, whose own comment records that the spec moved it
-## here rather than dropping it), so this row is the only route to the CIVIL
-## domain on a phone. `_go_civilization()` is why it lands somewhere.
-const GROUPS: Array = [
-	{"title": "Project", "menus": ["File", "Edit"]},
-	{"title": "Civilization", "rows": ["civilization"]},
-	{"title": "Data & assets", "menus": ["Data", "Assets"], "rows": ["travel_library"]},
-	{"title": "Simulation", "rows": ["simulation"]},
-	{"title": "System", "menus": ["Preferences", "Window", "Help"]},
+## **Three of the eight are not bespoke screens, and that is the ruling, not a
+## shortfall.** The owner named five (Project, Civilization, Data, Simulation,
+## Preferences); §6.6's `assets`/`assets-grid`/`asset-slot` and its `help`/
+## `gestures` screens were not among them, and this port already has a real
+## Asset Library window and a real Help menu behind those two rows. The Travel
+## library row likewise opens the real `travel_library_window.gd`, which is a
+## whole window rather than §6.6's two mock screens.
+const ROOT_ROWS: Array = [
+	{"t": "screen", "id": "project", "glyph": "⧉", "label": "Project",
+		"sub": "save · recent · storage"},
+	{"t": "screen", "id": "civ", "glyph": "◍", "label": "Civilization",
+		"sub": "settlement · POI · way tools"},
+	{"t": "screen", "id": "data", "glyph": "⇅", "label": "Data manager",
+		"sub": "import · export · sources · validation"},
+	{"t": "menu", "id": "Assets", "glyph": "▦", "label": "Asset library",
+		"sub": "families · slots · packs · landmark types"},
+	{"t": "call", "id": "travel_library", "glyph": "≋", "label": "Travel library",
+		"sub": "animals · vehicles · vessels · parties"},
+	{"t": "screen", "id": "sim", "glyph": "◷", "label": "Simulation",
+		"sub": ""},
+	{"t": "screen", "id": "prefs", "glyph": "⚙", "label": "Preferences",
+		"sub": "theme · units · performance · graphics"},
+	{"t": "menu", "id": "Help", "glyph": "?", "label": "Help & about",
+		"sub": "documentation · shortcuts · credits · about"},
 ]
+
+## The two program menus §6.6's root table has no row for.
+##
+## Dropping them is what the ruling does **not** authorise: `Edit` owns Undo
+## history, Delete, Deselect, Find on map, Reset generation parameters and
+## Reset one stage; `Window` owns the four dock/bar toggles, the diagnostics
+## overlay, Workspace, Open windows, Reset layout and Layouts. None of those is
+## carried by any of the five bespoke screens, and the phone has no menu bar --
+## so without this band they would be reachable nowhere at all. §6.6's own
+## `help` screen is the authority for keeping them: *"The phone reorganises
+## rather than truncates: every desktop function is reachable through MAP ·
+## GENERATE · PLAN · MORE."*
+##
+## Appended **after** §6.6's last root row (the `STATUS` block) rather than
+## inserted among the eight, so the spec's own order is intact above it.
+const ROOT_REST: Array = ["Edit", "Window"]
+
+## Submenus `_expandable()` must never expand inline, whatever their shape.
+##
+## Expanding a submenu means emitting its `about_to_popup`, and these two
+## handlers are not observers:
+##
+##   - `AtlasCache` -> `menus.gd::_refresh_atlas_cache_menu()`, which calls
+##     `_enforce_atlas_cap()` and **evicts baked chunks**.
+##   - `GpuDevices` -> `_on_gpu_devices_about_to_popup()`, which enumerates
+##     `wgpu` adapters -- the cost `menus.gd::_build_gpu_devices_menu()`
+##     documents as the crash it was restructured to put behind a first open.
+##
+## `command_index.gd`'s header records the same hazard for the same two
+## handlers and the same reason. Both are excluded **by name** even though
+## neither satisfies `_expandable()` today (one nests a submenu, the other has
+## no radio items): that is a fact about their current shape, not a property
+## anyone maintaining `menus.gd` has agreed to preserve.
+const NO_EXPAND: Array = ["AtlasCache", "GpuDevices"]
 
 ## The status readouts, in the order they read best as a list. Keys are
 ## `DccShell`'s own status slots; `set_status()` keeps them live and this
@@ -316,7 +393,16 @@ func _build_screen() -> PanelContainer:
 	col.add_child(_screen_scroll)
 	return panel
 
-## Canvas "SHEETS STOP AT 60% HEIGHT". Expressed as anchors (top 0.4) rather
+## Canvas "SHEETS STOP AT 60% HEIGHT".
+##
+## **`open_sheet()` is now its only caller.** Until the 2026-09-05 ruling this
+## also drew every submenu one level down (L4 in the old grammar); §6.6 makes
+## the MORE tab a single navigation stack, so `SCREEN_LEVEL` sends those to the
+## screen instead. What is left here is the map context menu, which really is an
+## overlay over an unrelated surface and is what the scrim and the 60% cap are
+## for.
+##
+## Expressed as anchors (top 0.4) rather
 ## than a pixel offset computed from `size`, because at build time this node has
 ## no size yet and a rotation changes it afterwards -- an anchor is correct in
 ## both cases with nothing to re-apply.
@@ -433,9 +519,17 @@ func open() -> void:
 	## L1 is the bottom bar itself, so the first screen this file owns is L2.
 	## `MORE` is the canvas's own word for this screen and for the bar cell that
 	## opens it; it read `MENU` until the 412 migration.
-	_stack.append(_Step.new(null, "More", "", 2))
+	_stack.append(_Step.new(null, _screen_title("more"), "", 2, "more"))
 	visible = true
 	_render()
+
+func _screen_title(id: String) -> String:
+	var row: Array = SCREEN_TITLES.get(id, [])
+	return String(row[0]) if row.size() == 2 else id
+
+func _screen_sub(id: String) -> String:
+	var row: Array = SCREEN_TITLES.get(id, [])
+	return String(row[1]) if row.size() == 2 else ""
 
 ## The canvas's `ELDRA · 1.6 GB` -- the world's name beside what it costs.
 ## Read off the live status slots rather than stored: `top_world` is written as
@@ -523,6 +617,23 @@ func _push(popup: PopupMenu, title: String, level: int) -> void:
 	_stack.append(_Step.new(popup, title, " · ".join(trail), level))
 	_render()
 
+## Push one of §6.6's bespoke screens. Same stack, same back button, same
+## breadcrumb -- §6.6 calls it `moreStack` and gives it exactly this behaviour:
+## *"A navigation stack (`moreStack`, starts `['root']`). The back button pops
+## one level."*
+##
+## Level 3, so it draws as a **screen** and not as the 60%-cap sheet: §5.1 makes
+## the sheet the container for the whole MORE tab, and §6.6's sub-screens are
+## pages *inside* it, not a second surface stacked over it. `is_sheet()` (level
+## 4) stays what `open_sheet()` uses for the map context menu, which is the one
+## thing in this file that really is an overlay over an unrelated surface.
+func _push_screen(id: String) -> void:
+	var trail := PackedStringArray()
+	for s in _stack:
+		trail.append(s.title)
+	_stack.append(_Step.new(null, _screen_title(id), " · ".join(trail), SCREEN_LEVEL, id))
+	_render()
+
 # -- Render -------------------------------------------------------------------
 
 func _render() -> void:
@@ -547,8 +658,16 @@ func _render() -> void:
 	if screen_step != null:
 		var root: bool = screen_step.level == 2
 		_screen_head_title.text = screen_step.title.to_upper()
-		_screen_head_trail.text = "" if root else screen_step.trail
-		_screen_head_trail.visible = not root
+		## §6.6's `_moreTitle()` gives every bespoke screen its OWN subtitle
+		## ("files · autosave · storage"), which is what §5.4's subtitle slot
+		## draws. A breadcrumb is the fallback for a re-presented popup, where
+		## no such subtitle exists and the trail is the only orientation there
+		## is. The root keeps neither: its right-hand readout is §6.6's `root`
+		## header and a subtitle under `MORE` would push it off.
+		var sub := _screen_sub(screen_step.screen) if screen_step.screen != "" \
+			else screen_step.trail
+		_screen_head_trail.text = "" if root else sub
+		_screen_head_trail.visible = not root and sub != ""
 		## Canvas "07 More": the root's header is a title and a readout, with no
 		## button on either side. Everything deeper is "02"/"03": `←` and a
 		## right-hand slot.
@@ -576,8 +695,17 @@ func _clear(body: VBoxContainer) -> void:
 
 func _fill(body: VBoxContainer, step: _Step) -> void:
 	_clear(body)
-	if step.popup == null:
-		_fill_root(body)
+	_refreshed.clear()
+	if step.screen != "":
+		_fill_screen(body, step.screen)
+	elif step.popup == null:
+		## Unreachable through `open()` / `_push_screen()` / `_push()`, all of
+		## which set one of the two. Drawn rather than returning silently, for
+		## the same reason `_missing_row()` exists: an empty screen with a
+		## working back button is indistinguishable from a screen whose rows all
+		## went away.
+		body.add_child(_missing_row("This screen has no content source.",
+			"Neither a bespoke screen id nor a PopupMenu reached _fill()."))
 	else:
 		_fill_popup(body, step)
 	## Canvas "02"/"03"/"07" all close their list with a hairline and a padded
@@ -588,7 +716,13 @@ func _fill(body: VBoxContainer, step: _Step) -> void:
 	tail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	body.add_child(tail)
 
-# -- L2: the root screen ------------------------------------------------------
+# -- Resolving a §6.6 row to a real menu item ---------------------------------
+
+## Which menus have had `about_to_popup` emitted during the screen currently
+## being filled. Cleared by `_fill()`, so entering a screen refreshes each menu
+## it reads exactly once -- see the header on why "once per screen" is the
+## budget rather than "once per row" or "never".
+var _refreshed: Dictionary = {}
 
 func _menu_buttons() -> Array:
 	var out: Array = []
@@ -599,18 +733,124 @@ func _menu_buttons() -> Array:
 			out.append(child)
 	return out
 
+## A program menu's `PopupMenu` by the title `DccShell.add_menu()` gave it, or
+## `null`.
+##
+## `refresh` fires `about_to_popup` -- once per menu per screen fill, tracked in
+## `_refreshed`. The root passes `false` for its two drill rows: it only needs
+## the popup OBJECT to push, and refreshing a menu the user is merely looking at
+## the name of is the cost `_menu_row()`'s own header refuses. A screen that
+## reads a menu's *items* passes `true`, which is the same refresh opening that
+## menu performs on desktop.
+func _menu_popup(title: String, refresh: bool = true) -> PopupMenu:
+	for mb in _menu_buttons():
+		if String(mb.text) == title:
+			var p := (mb as MenuButton).get_popup()
+			if refresh and not _refreshed.has(title):
+				_refreshed[title] = true
+				p.about_to_popup.emit()
+			return p
+	return null
+
+## First index in `p` carrying `id`, or -1.
+##
+## **First, deliberately, and it is not arbitrary.** Item ids are unique per
+## *command*, not per popup: `menus.gd::_todo()` and `_signpost()` call
+## `add_item(text)` with no id, so Godot assigns the item's index -- which
+## collides with the small explicit ids at the top of the same menu. Measured
+## on the built tree by `_phonemore_inv_probe.gd`: File carries id 10 twice
+## (`New world…` and the `projects` storage readout), 11, 12, 13 and 19 likewise,
+## and Data carries id 45 three times. In every collision the **named command
+## comes first**, because `menus.gd` adds it before the readout block. Rows here
+## therefore resolve to the command and never to the readout that shadows it.
+func _find_id(p: PopupMenu, id: int) -> int:
+	for i in p.item_count:
+		if not p.is_item_separator(i) and p.get_item_id(i) == id:
+			return i
+	return -1
+
+## Index in `p` whose submenu is the node named `node`, or -1. Submenu node
+## names are `menus.gd`'s own literals (`"ThemeChoice"`, `"AutosaveInterval"`,
+## …) and are stable in a way a submenu row's *id* is not -- `add_submenu_item`
+## takes no id, so those ids are indices and move whenever a row above them is
+## added or removed.
+func _find_sub(p: PopupMenu, node: String) -> int:
+	for i in p.item_count:
+		if p.get_item_submenu(i) == node:
+			return i
+	return -1
+
+## A row for a menu item this build does not have.
+##
+## Drawn, not skipped. A screen assembled from ids in another file will one day
+## name an id that file no longer has, and the failure mode of skipping is a
+## screen that is quietly one row shorter than the spec it was built from --
+## which is the class of defect this whole surface exists to remove.
+func _missing_row(label: String, why: String) -> Control:
+	return _row(label, why, null, null, Callable(), true)
+
+# -- The screens --------------------------------------------------------------
+
+func _fill_screen(body: VBoxContainer, id: String) -> void:
+	match id:
+		"more": _fill_root(body)
+		"project": _fill_project(body)
+		"civ": _fill_civ(body)
+		"data": _fill_data(body)
+		"sim": _fill_sim(body)
+		"prefs": _fill_prefs(body)
+		_:
+			body.add_child(_missing_row("Unknown screen '%s'." % id,
+				"No builder in _fill_screen()."))
+
+## §6.6 `root`: eight nav rows, then `STATUS`, then the readouts.
 func _fill_root(body: VBoxContainer) -> void:
+	for spec in ROOT_ROWS:
+		var label := String(spec.label)
+		var sub := String(spec.sub)
+		var glyph := _glyph(String(spec.glyph))
+		match String(spec.t):
+			"screen":
+				var target := String(spec.id)
+				if sub == "":
+					sub = _live_root_sub(target)
+				_add(body, _row(label, sub, null, _chevron(),
+					func(): _push_screen(target), false, glyph))
+			"menu":
+				var p := _menu_popup(String(spec.id), false)
+				if p == null:
+					_add(body, _missing_row(label,
+						"The %s menu is not on this build's menu bar." % spec.id))
+				else:
+					## §6.6 badges its `Asset library` row `72 / 113`. This
+					## build has no filled/total to report, so the badge is the
+					## popup's own row count -- read off the menu, never written
+					## down, exactly as `_menu_row()` trails it.
+					var n := 0
+					for i in p.item_count:
+						if not p.is_item_separator(i):
+							n += 1
+					_add(body, _row(label, sub, _trail_label("%d" % n), _chevron(),
+						func(): _push(p, label, SCREEN_LEVEL), false, glyph))
+			"call":
+				_add(body, _root_action(String(spec.id), label, sub, glyph))
+
 	## §15 fault 2: the desktop readout cluster used to be reparented into the
 	## sheet whole -- a 150 px wordmark and five labels that are empty before a
 	## generation, eating most of the surface. The readouts themselves are worth
 	## having; the desktop chrome around them is not. They are rows now.
+	##
+	## §6.6's `root` table ends on exactly this block: `head STATUS`, then
+	## `WORLD`, `STATE`, `LAST AUTOSAVE` and `UNDO DEPTH`. `STATUS_ROWS` is this
+	## shell's own slot list rather than those four, because these are the slots
+	## `app.gd` actually writes -- a `read` row for a value nothing produces is
+	## the "no value drawn as a plausible value" defect, not conformance.
 	var status := _status_rows()
 	if not status.is_empty():
-		body.add_child(_band("Status"))
+		_head(body, "Status")
 		for entry in status:
-			body.add_child(DccTheme.rule())
 			## `entry[2]` is set only for the one slot that holds a sentence.
-			body.add_child(_note_row(String(entry[0]), String(entry[1])) if bool(entry[2])
+			_add(body, _note_row(String(entry[0]), String(entry[1])) if bool(entry[2])
 				else _value_row(String(entry[0]), String(entry[1])))
 		## The only status row a user can *act* on, and until 2026-09-01 the
 		## phone showed the readout and offered nothing. `app.gd` puts a
@@ -621,43 +861,273 @@ func _fill_root(body: VBoxContainer) -> void:
 		## where the phone half belongs. This is that row: the same act, on
 		## the same two preconditions, presented as a list row.
 		if _can_recompute_stale():
-			body.add_child(DccTheme.rule())
-			body.add_child(_row("Recompute stale stages",
+			_add(body, _row("Recompute stale stages",
 				"Re-runs only the stages the graph reports stale. The civilisation "
 					+ "layer is deliberately not cascaded per edit, so \"civ\" usually "
 					+ "stays -- Civilization ▸ Settlements ▸ Recompute civilisation is "
 					+ "the one that clears it.",
 				null, null, _go_recompute_stale, false))
 
-	var buttons := _menu_buttons()
-	var placed := {}
-	for group in GROUPS:
-		var rows: Array = []
-		## Menus first, then action rows -- `GROUPS` explains why that ordering
-		## is what preserves the spec's own sequence inside a band.
-		for wanted in group.get("menus", []):
-			for mb in buttons:
-				if String(mb.text) == String(wanted):
-					rows.append(mb)
-					placed[mb] = true
-		for action in group.get("rows", []):
-			rows.append(String(action))
-		if rows.is_empty():
-			continue
-		body.add_child(_band(String(group.title)))
-		for r in rows:
-			body.add_child(DccTheme.rule())
-			body.add_child(_menu_row(r) if r is MenuButton else _action_row(String(r)))
-
+	## Everything §6.6's root table does not name -- see `ROOT_REST`.
 	var rest: Array = []
-	for mb in buttons:
-		if not placed.has(mb):
+	for mb in _menu_buttons():
+		var name_ := String(mb.text)
+		if ROOT_REST.has(name_) or not _named_in_root(name_):
 			rest.append(mb)
 	if not rest.is_empty():
-		body.add_child(_band("Other"))
+		_head(body, "Not on the MORE list")
 		for mb in rest:
-			body.add_child(DccTheme.rule())
-			body.add_child(_menu_row(mb))
+			_add(body, _menu_row(mb))
+
+## Is this program menu already reached by one of `ROOT_ROWS`, or by one of the
+## bespoke screens? Drives the fallback band, so a menu can never go silently
+## missing from the phone -- including an eighth one a future `menus.gd` adds,
+## which lands in `Not on the MORE list` rather than nowhere.
+##
+## The three screen-owned menus are named here rather than derived, because the
+## coverage lives in `_fill_project()` / `_fill_data()` / `_fill_prefs()` as row
+## calls and there is nothing to read it off. `Assets` is deliberately NOT among
+## them: the root already drills it (`ROOT_ROWS`), so the loop below finds it,
+## and listing it twice would hide a future edit that removed that row.
+## `_phonemore_reach_probe.gd` is what checks the claim either way.
+func _named_in_root(menu_title: String) -> bool:
+	if ["File", "Data", "Preferences"].has(menu_title):
+		return true
+	for spec in ROOT_ROWS:
+		if String(spec.t) == "menu" and String(spec.id) == menu_title:
+			return true
+	return false
+
+## §6.6's root glyph column, with a coverage check.
+##
+## The eight glyphs are literal characters in the spec (`⧉ ◍ ⇅ ▦ ≋ ◷ ⚙ ?`) and
+## this shell's mono face is IBM Plex Mono, which does not carry all of them. A
+## glyph the font has no outline for draws as a notdef box -- a row that reads
+## as broken rather than as decorated -- so an absent one falls back to the
+## submenu arrow every other drill row in this file already uses.
+##
+## `Font.has_char()` is asked at draw time rather than a list being written
+## down, so swapping the face (or adding a fallback to it) changes the answer
+## with no edit here.
+func _glyph(ch: String) -> Label:
+	var f := DccTheme.mono(0)
+	var text := ch
+	if ch == "" or (f != null and not f.has_char(ch.unicode_at(0))):
+		text = DccIcons.SYMBOLS["submenu"]
+	var l := DccTheme.mono_label(text, "text_faint", _ps(12), 0)
+	l.custom_minimum_size.x = _ps(18)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+## §6.6 `project`: the spec's four acts and its autosave block in the spec's
+## order, then every remaining `File` row in `File`'s own order.
+##
+## The tail is `_rest_of()` rather than a written list, and that is what makes
+## this screen a re-presentation of File rather than a second copy of it: Revert
+## to last save, the `STORAGE LOCATIONS` band and its four readouts, Change
+## locations…, Show project on disk, Close project and File's two signposts all
+## arrive because they are in the popup, not because they are named here.
+##
+## §6.6 also draws a `RECENT WORLDS` head with two worlds under it as ordinary
+## rows. `_inline_sub()` does that with the real `RecentWorlds` submenu, so the
+## list is however many projects have actually been opened -- including the
+## "No recent projects" readout `menus.gd` puts there when none have.
+func _fill_project(body: VBoxContainer) -> void:
+	var p := _menu_popup("File")
+	if p == null:
+		_add(body, _missing_row("Project", "The File menu is not on this build's menu bar."))
+		return
+	var drawn := {}
+	_act(body, p, DccMenus.ID_SAVE, drawn)
+	_act(body, p, DccMenus.ID_SAVE_AS, drawn)
+	_act(body, p, DccMenus.ID_NEW_WORLD, drawn)
+	_act(body, p, DccMenus.ID_OPEN_PROJECT, drawn)
+
+	_head(body, "Recent worlds")
+	_inline_sub(body, p, "RecentWorlds", drawn)
+
+	_head(body, "Autosave")
+	_act(body, p, DccMenus.ID_AUTOSAVE, drawn)
+	_expand_sub(body, p, "AutosaveInterval", "Interval", drawn)
+
+	_rest_of(body, p, drawn)
+
+## §6.6 `civ`. The spec's row list is `Settlement · Point of interest · Way`,
+## then Landmark generation, then the journey planner.
+##
+## **This port's CIVIL tool set is four, and one of the spec's three is not in
+## it.** `civilization_workspace.gd::_build_tools()` builds Settlement,
+## Territory, Way and Route; the comment directly above it says of POI: *"no
+## function anywhere in this workspace drops one, so there is nothing an armed
+## POI tool could call. Arming a button with no engine behind it would be the
+## fake control this port's own discipline exists to avoid, so it is omitted
+## rather than built disabled or wired to a stub."* That reasoning decides this
+## screen too -- the row is drawn with the reason, and arms nothing.
+##
+## `CIV_TOOLS` mirrors that block **by hand**. There is no accessor on the
+## workspace to read the list from -- `_build_tools()` passes its four
+## dictionaries straight to `DccWidgets.tools_block()` and keeps nothing -- so
+## the ids here are a copy and can go stale. `_phonemore_act_probe.gd` arms all
+## four through the drawn rows and reads `app.armed_tool` back, which is what
+## turns the copy into a checked claim.
+const CIV_TOOLS: Array = [
+	{"id": "settlement", "label": "Settlement",
+		"sub": "tap drops a place · class and snapping from the CIVIL dock"},
+	{"id": "territory", "label": "Territory",
+		"sub": "drag to claim · commit or discard from the tool options"},
+	{"id": "way", "label": "Way", "sub": "taps append waypoints · commit from the dock"},
+	{"id": "route", "label": "Route", "sub": "sea and river legs between two ports"},
+]
+
+func _fill_civ(body: VBoxContainer) -> void:
+	_info(body, "Arming a tool closes this screen — tap the map to place. "
+		+ "Esc, or arming another tool, disarms.")
+	for t in CIV_TOOLS:
+		var id := String(t.id)
+		var armed: bool = String(_shell.get("armed_tool")) == id
+		## §6.6's `nav` row spec: *"Badge `9px mono` at its own colour"*, and for
+		## this row *"badge `ARMED` in `var(--acc)`"*. `_trail_label()` is
+		## `text_dim`, which is the count colour, so the badge gets its own.
+		_add(body, _row(String(t.label), String(t.sub), null,
+			_badge("ARMED") if armed else _chevron(),
+			func(): _arm_civ_tool(id), false))
+	## §6.6's third row, and the one thing on its `civ` screen this port has no
+	## engine for. See `CIV_TOOLS`' header for the workspace's own wording.
+	_add(body, _missing_row("Point of interest",
+		"No POI placement tool exists in this port: nothing in the civilisation "
+			+ "workspace drops one, so an armed tool would have nothing to call. "
+			+ "POI art is an icon family — Assets ▸ Icon families ▸ Points of interest."))
+
+	var assets := _menu_popup("Assets")
+	if assets == null:
+		_add(body, _missing_row("Landmark generation",
+			"The Assets menu is not on this build's menu bar."))
+	else:
+		var li := _find_sub(assets, "LandmarkTypes")
+		if li < 0:
+			_add(body, _missing_row("Landmark generation",
+				"Assets ▸ Landmark types is not in this build."))
+		else:
+			var sub := assets.get_node_or_null(NodePath("LandmarkTypes")) as PopupMenu
+			_add(body, _row("Landmark generation", _landmark_sub(sub), null, _chevron(),
+				func(): _push(sub, "Landmark types", SCREEN_LEVEL), false))
+
+	_add(body, _row("Open journey planner", "Party, season, carriage, stages and cost.",
+		null, _chevron(), _go_journey_planner, false))
+	_add(body, _row("Civilization dock",
+		"Settlements, factions, provinces, trade, roads, sea routes and journeys.",
+		null, _chevron(), _go_civilization, false))
+
+## `49 types · 6 families` in §6.6 -- counted off the real submenu rather than
+## written down, so a family or a type added to `menus.gd` moves this line.
+func _landmark_sub(sub: PopupMenu) -> String:
+	if sub == null:
+		return ""
+	var fams := 0
+	var types := 0
+	for i in sub.item_count:
+		var node := sub.get_item_submenu(i)
+		if node == "":
+			continue
+		fams += 1
+		var fp := sub.get_node_or_null(NodePath(node)) as PopupMenu
+		if fp == null:
+			continue
+		for j in fp.item_count:
+			## The family popups end in an "Open … in the dock" command and a
+			## signpost; a *type* is a plain enabled row before those.
+			if fp.is_item_separator(j) or fp.get_item_id(j) >= DccMenus.ID_LM_FAMILY_FIRST:
+				continue
+			if typeof(fp.get_item_metadata(j)) == TYPE_STRING:
+				continue
+			types += 1
+	return "%d types · %d families · cap + spacing" % [types, fams]
+
+## §6.6 `data`. The Data popup already carries §6.6's own band names as labelled
+## separators (`IMPORT`, `EXPORT`, `SOURCES`, `VALIDATION`) in §6.6's own order,
+## so this screen is the popup re-presented with §6.6's row types and nothing
+## re-ordered. The fifth band §6.6 draws, `CONVERSION`, is not built: see
+## `SCREEN_TITLES` for the owner decision that removed it.
+func _fill_data(body: VBoxContainer) -> void:
+	var p := _menu_popup("Data")
+	if p == null:
+		_add(body, _missing_row("Data manager",
+			"The Data menu is not on this build's menu bar."))
+		return
+	_rest_of(body, p, {})
+
+## §6.6 `sim`. Every quantity on this screen is `DccShell`'s own timeline model
+## -- `TL_YEAR_MIN..TL_YEAR_MAX`, `TL_SPEEDS` and `TL_LAYERS` -- and each of the
+## three matches §6.6's table exactly (−400…1200; ×1 · ×10 · ×100; Climate on,
+## Population on, Economy off, Politics on, Infrastructure off, Warfare off).
+## Nothing here is a written copy of the spec's numbers.
+##
+## **One row is an addition, not §6.6's**: `Playback`. The spec puts the
+## transport in the on-map strip and gives this screen a rate but no way to
+## start anything, so Speed here would set a number nothing consumed until the
+## user found the strip. `DccShell.tl_toggle_play()` is the same call the
+## strip's own button makes.
+func _fill_sim(body: VBoxContainer) -> void:
+	var strip_on := _shell.is_phone_sim_strip_open()
+	_add(body, _row("Transport strip on map", "Mini scrub above the nav bar.",
+		null, _switch(strip_on), func(): _toggle_sim_strip(not strip_on), false))
+
+	var live := _shell.tl_available()
+	if not live:
+		_add(body, _missing_row("Year", DccShell.TL_UNAVAILABLE))
+	else:
+		_add(body, _slider_row("Year", "YEAR %d" % _shell.tl_year(),
+			DccShell.TL_YEAR_MIN, DccShell.TL_YEAR_MAX, _shell.tl_year(),
+			func(v: float): _shell.tl_set_year(int(v))))
+		var speeds: Array = []
+		for mult in DccShell.TL_SPEEDS:
+			var m := int(mult)
+			speeds.append({"label": "×%d" % m, "on": _shell.tl_speed == m,
+				"press": func(): _set_sim_speed(m)})
+		_chips(body, "Speed", speeds)
+		_add(body, _row("Playback", _shell.tl_state_text(), null,
+			_switch(_shell.tl_playing), func(): _toggle_sim_play(), false))
+
+	_head(body, "Simulation layers")
+	for row in DccShell.TL_LAYERS:
+		var lid := String(row[0])
+		var on: bool = bool(_shell.tl_layers.get(lid, bool(row[1])))
+		_add(body, _row(lid, "", null, _switch(on), func(): _toggle_sim_layer(lid), false))
+	## §6.6's info row is *"Generation is not time-based — the timeline drives
+	## simulation layers only."* Its first clause is true here; its second is
+	## not, and `DccShell.TL_LAYER_NOTE` is this shell's own wording for what
+	## these six toggles do instead. Quoted rather than paraphrased, the same
+	## way `app.gd::_build_timeline_layers()` quotes it.
+	_info(body, "Generation is not time-based. Simulation layers — %s."
+		% DccShell.TL_LAYER_NOTE)
+	_add(body, _row("Simulation model", "Collapse and recovery, over the recorded years.",
+		null, _chevron(), _go_simulation, false))
+
+## §6.6 `prefs`. Theme and Units are lifted to the top -- §6.6 opens with them
+## and its subtitle names `application` first -- and the rest of the Preferences
+## popup follows in the popup's own order, which already carries §6.6's
+## `PERFORMANCE`, `GRAPHICS`, `TILES & LOD` and `MEMORY` heads as labelled
+## separators.
+##
+## §6.6's `TOUCH` head and its `Gesture reference` screen are **not built**.
+## That screen is nine claims about what a gesture does on this shell (pan,
+## pinch, rotate, double-tap, long-press sample, edge-swipe inspector, sheet
+## handle, tab re-tap, undo chip), and writing them down without testing each
+## one against this build is exactly the "prose that describes behaviour nobody
+## checked" defect. Reported as outstanding rather than guessed at.
+func _fill_prefs(body: VBoxContainer) -> void:
+	var p := _menu_popup("Preferences")
+	if p == null:
+		_add(body, _missing_row("Preferences",
+			"The Preferences menu is not on this build's menu bar."))
+		return
+	var drawn := {}
+	_head(body, "Application")
+	_expand_sub(body, p, "ThemeChoice", "Theme", drawn)
+	_expand_sub(body, p, "UnitsChoice", "Units", drawn)
+	_rest_of(body, p, drawn)
 
 ## The live status rows, as `[label, value, wraps]`.
 ##
@@ -678,29 +1148,19 @@ func _status_rows() -> Array:
 			out.append([String(entry[1]), text, key == "hint"])
 	return out
 
-## A MORE row for one of the spec's destinations that has no program menu
-## behind it. All three are real places in this shell, reached by the same call
-## the desktop reaches them by -- none of this is a stub, and none of it
-## duplicates a `menus.gd` handler.
-func _action_row(id: String) -> Control:
+## A `ROOT_ROWS` entry whose destination is neither a bespoke screen nor a
+## program menu: a real window or view, opened by the same call the desktop
+## opens it by. Nothing here is a stub and nothing duplicates a `menus.gd`
+## handler.
+func _root_action(id: String, label: String, sub: String, glyph: Control) -> Control:
 	match id:
-		"civilization":
-			return _row("Civilization",
-				"Settlement, POI and way tools — arm one here, then place it on the map.",
-				null, _chevron(), _go_civilization, false)
 		"travel_library":
-			return _row("Travel library",
-				"Animals and mounts, vehicles, vessels and party presets.",
-				null, _chevron(), _go_travel_library, false)
-		"simulation":
-			return _row("Simulation",
-				"The collapse and recovery model, run over the recorded years.",
-				null, _chevron(), _go_simulation, false)
-	## Only reachable if `GROUPS` names a row this match has no case for. Drawn
-	## disabled with the reason, not skipped -- the same honesty rule `menus.gd`
-	## follows for an item the port cannot honour, and the alternative is a
-	## destination that vanishes with nothing said.
-	return _row(id, "No destination is wired to this row.", null, null, Callable(), true)
+			return _row(label, sub, null, _chevron(), _go_travel_library, false, glyph)
+	## Only reachable if `ROOT_ROWS` names a destination this match has no case
+	## for. Drawn disabled with the reason, not skipped -- the same honesty rule
+	## `menus.gd` follows for an item the port cannot honour, and the
+	## alternative is a destination that vanishes with nothing said.
+	return _row(label, "No destination is wired to this row.", null, null, Callable(), true, glyph)
 
 ## Both halves of the condition `app.gd` puts on its own Recompute button:
 ## something is actually stale, and this GDExtension build can act on it.
@@ -787,12 +1247,323 @@ func _go_travel_library() -> void:
 	if _shell.has_method("open_travel_library"):
 		_shell.call("open_travel_library")
 
+## §6.6 `civ`'s `OPEN JOURNEY PLANNER ➔`. Reached by name for the same class
+## cycle reason as `_go_travel_library()` above, and it is the same call
+## `DccShell._pick_phone_tab()` makes for the PLAN tab -- so this row and that
+## tab land on one view, not two.
+func _go_journey_planner() -> void:
+	close()
+	if _shell.has_method("open_journey_planner"):
+		_shell.call("open_journey_planner")
+
+## §6.6 `civ`: *"Arming a tool closes this sheet — tap the map to place."*
+##
+## Domain first, then arm, then close, and the order is the whole of it. A tool
+## armed while another domain is selected leaves the dock and the tool options
+## describing something else; `civilization_workspace.gd::_on_civ_tool_armed()`
+## fills the tool-options row from the `tool_armed` emit, so the domain has to
+## already be CIVIL when that fires. Closing last, because `close()` only hides
+## this overlay and nothing downstream re-opens it.
+##
+## Deliberately does **not** open the left sheet, unlike `_go_civilization()`:
+## the point of arming from here is to get to the map, and the dock sheet would
+## cover the thing the user is about to tap.
+func _arm_civ_tool(id: String) -> void:
+	_shell.select_domain("civilization")
+	if _shell.has_method("arm_tool"):
+		_shell.call("arm_tool", id)
+	close()
+
+## §6.6's root row for Simulation reads `year {n} · running|paused`. Before a
+## generate there is no cursor -- `DccShell.tl_year()` returns `0`, which is a
+## legal year and would print as though measured -- so the row says what is
+## missing instead of printing the placeholder.
+func _live_root_sub(screen_id: String) -> String:
+	if screen_id != "sim":
+		return ""
+	if not _shell.tl_available():
+		return "no cursor yet — generate a world first"
+	return "year %d · %s" % [_shell.tl_year(), _shell.tl_state_text()]
+
+func _toggle_sim_strip(on: bool) -> void:
+	_shell.set_phone_sim_strip_open(on)
+	## Turning the strip ON and staying on a full-screen overlay would show the
+	## user nothing: the strip draws over the map, which this screen covers.
+	## §6.6's own toast for this row says the same thing -- *"close this sheet
+	## to scrub"* -- so the close is the instruction carried out rather than
+	## printed.
+	if on:
+		close()
+	else:
+		_render()
+
+func _toggle_sim_play() -> void:
+	_shell.tl_toggle_play()
+	_render()
+
+func _set_sim_speed(mult: int) -> void:
+	_shell.tl_set_speed(mult)
+	_render()
+
+func _toggle_sim_layer(id: String) -> void:
+	_shell.tl_toggle_layer(id)
+	_render()
+
+# -- §6.6 row types over a real popup -----------------------------------------
+
+## Append a control, with the hairline every list in this file puts between its
+## rows. A band supplies its own leading gap, so no rule is drawn against one.
+func _add(body: VBoxContainer, ctrl: Control) -> void:
+	var n := body.get_child_count()
+	if n > 0 and not bool(body.get_child(n - 1).get_meta(_META_BAND, false)):
+		body.add_child(DccTheme.rule())
+	body.add_child(ctrl)
+
+const _META_BAND := "phone_band"
+
+func _head(body: VBoxContainer, title: String) -> void:
+	var b := _band(title)
+	b.set_meta(_META_BAND, true)
+	body.add_child(b)
+
+## §6.6's `info` row: prose, not a control. Same wrapped second-line treatment a
+## disabled row gets, with no title above it.
+func _info(body: VBoxContainer, text: String) -> void:
+	var wrap := MarginContainer.new()
+	wrap.add_theme_constant_override("margin_left", _ps(16))
+	wrap.add_theme_constant_override("margin_right", _ps(16))
+	wrap.add_theme_constant_override("margin_top", _ps(8))
+	wrap.add_theme_constant_override("margin_bottom", _ps(8))
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := DccTheme.mono_label(text, "text_ghost", _ps(9.5), 0)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(l)
+	_add(body, wrap)
+
+## One named item of `p`, drawn by whatever kind of item it turned out to be --
+## §6.6's `act`, `tog` or `read` all come out of `_popup_row()`, which already
+## reads checkable/radio/disabled/submenu off the item itself.
+##
+## **§6.6's primary/secondary `act` styling is not carried**, and that is
+## stated rather than approximated. Its primary act is a filled `var(--acc)`
+## pill; the only filled-accent surface in this screen's vocabulary is the
+## ARMED badge, and giving Save project the same fill as an armed tool would
+## make two unrelated things look like one state. Reported as outstanding.
+func _act(body: VBoxContainer, p: PopupMenu, id: int, drawn: Dictionary) -> void:
+	var i := _find_id(p, id)
+	if i < 0:
+		_add(body, _missing_row("Menu item %d" % id,
+			"%s has no item with this id in this build." % p.name))
+		return
+	drawn[i] = true
+	_add(body, _popup_row(p, i))
+
+## Draw a submenu's items **inline**, as rows of the screen, rather than as a
+## drill. §6.6 does this for `RECENT WORLDS`, whose entries are the screen's own
+## content and not a level below it.
+func _inline_sub(body: VBoxContainer, p: PopupMenu, node: String,
+		drawn: Dictionary) -> void:
+	var i := _find_sub(p, node)
+	if i < 0:
+		_add(body, _missing_row(node, "No such submenu in %s." % p.name))
+		return
+	drawn[i] = true
+	var sub := p.get_node_or_null(NodePath(node)) as PopupMenu
+	if sub == null:
+		_add(body, _missing_row(node, "The submenu node is not under %s." % p.name))
+		return
+	sub.about_to_popup.emit()
+	for j in sub.item_count:
+		if sub.is_item_separator(j):
+			continue
+		_add(body, _popup_row(sub, j))
+
+## §6.6's `seg`: a submenu of radio items drawn as a chip row on this screen
+## instead of a level below it, with anything in the submenu that is *not* a
+## radio drawn as an ordinary row underneath.
+##
+## Falls back to a drill row when `_expandable()` says no, so the caller never
+## has to know which submenus qualify.
+func _expand_sub(body: VBoxContainer, p: PopupMenu, node: String, label: String,
+		drawn: Dictionary) -> void:
+	var i := _find_sub(p, node)
+	if i < 0:
+		_add(body, _missing_row(label, "No submenu '%s' in %s." % [node, p.name]))
+		return
+	drawn[i] = true
+	var sub := p.get_node_or_null(NodePath(node)) as PopupMenu
+	if sub == null:
+		_add(body, _missing_row(label, "The submenu node is not under %s." % p.name))
+		return
+	if not _expandable(sub, node):
+		_add(body, _popup_row(p, i))
+		return
+	sub.about_to_popup.emit()
+	var chips: Array = []
+	var rest: Array = []
+	for j in sub.item_count:
+		if sub.is_item_separator(j):
+			continue
+		if sub.is_item_radio_checkable(j) and not sub.is_item_disabled(j):
+			var idx := j
+			chips.append({"label": _clean(sub.get_item_text(j)),
+				"on": sub.is_item_checked(j),
+				"press": func(): _activate(sub, idx, true)})
+		else:
+			rest.append(j)
+	_chips(body, label, chips)
+	for j in rest:
+		_add(body, _popup_row(sub, j))
+
+## May this submenu be drawn inline as chips?
+##
+## Two derived conditions and one written exclusion, named separately because
+## they are not the same kind of fact:
+##
+##   - **derived** — at least two enabled radio items, and no nested submenu. A
+##     nested submenu has nowhere to go on a chip row, and a submenu with fewer
+##     than two radios is a list of commands rather than a choice.
+##   - **written** — `NO_EXPAND`, whose two entries have `about_to_popup`
+##     handlers with side effects. See that constant for what each one does.
+func _expandable(sub: PopupMenu, node: String) -> bool:
+	## `_rest_of()` passes the result of a `get_node_or_null()` straight in, so
+	## a submenu row whose node is missing arrives here as null. Not expandable
+	## rather than a crash -- `_popup_row()` then draws it as an ordinary row,
+	## which is what a submenu with nothing behind it should look like.
+	if sub == null or NO_EXPAND.has(node):
+		return false
+	var radios := 0
+	for j in sub.item_count:
+		if sub.is_item_separator(j):
+			continue
+		if sub.get_item_submenu(j) != "":
+			return false
+		if sub.is_item_radio_checkable(j) and not sub.is_item_disabled(j):
+			radios += 1
+	return radios >= 2
+
+## Every item of `p` not already in `drawn`, in `p`'s own order.
+##
+## This is what keeps a bespoke screen a re-presentation rather than a second
+## copy: §6.6 decides the order of the rows it names, and everything else
+## arrives because `menus.gd` put it in the popup. A row added there appears
+## here with no edit to this file, which is the property the whole surface had
+## before the ruling and the one thing worth carrying across it.
+func _rest_of(body: VBoxContainer, p: PopupMenu, drawn: Dictionary) -> void:
+	for i in p.item_count:
+		if drawn.has(i):
+			continue
+		if p.is_item_separator(i):
+			var cap := _clean(p.get_item_text(i))
+			if cap != "":
+				_head(body, cap)
+			continue
+		var node := p.get_item_submenu(i)
+		if node != "" and _expandable(p.get_node_or_null(NodePath(node)) as PopupMenu, node):
+			_expand_sub(body, p, node, _clean(p.get_item_text(i)), drawn)
+			continue
+		_add(body, _popup_row(p, i))
+
+## §6.6's `seg` control: a label over a wrapped row of chips.
+##
+## Chips are `_pt(44)` tall, not §6.6's `min-height:40px`. 44 dp is the TARGETS
+## card's own floor and the one this shell is held to; `DccWidgets.action`'s
+## 39 px and `DccTheme.role_px("chip_min_h")`'s 34 are both filed standing
+## issues, so neither is the number to copy.
+func _chips(body: VBoxContainer, label: String, entries: Array) -> void:
+	if entries.is_empty():
+		return
+	var wrap := MarginContainer.new()
+	wrap.add_theme_constant_override("margin_left", _ps(16))
+	wrap.add_theme_constant_override("margin_right", _ps(16))
+	wrap.add_theme_constant_override("margin_top", _ps(8))
+	wrap.add_theme_constant_override("margin_bottom", _ps(6))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", _ps(7))
+	wrap.add_child(col)
+	var cap := DccTheme.mono_label(label, "text_dim", _ps(10), 0)
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(cap)
+	var flow := HFlowContainer.new()
+	flow.add_theme_constant_override("h_separation", _ps(6))
+	flow.add_theme_constant_override("v_separation", _ps(6))
+	col.add_child(flow)
+	for e in entries:
+		flow.add_child(_chip(String(e["label"]), bool(e["on"]), e["press"]))
+	_add(body, wrap)
+
+func _chip(text: String, on: bool, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size.y = _pt(44)
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size", _ps(10))
+	## `accent_ink`, not `bg`: the on-chip's background IS `c("accent")`, and
+	## `DccTheme.pill()`'s own comment names `accent_ink` as the ink that reads
+	## on it in both palettes. The off-chip sits on the screen's `bg` panel and
+	## so takes an ordinary text token.
+	b.add_theme_color_override("font_color",
+		DccTheme.c("accent_ink" if on else "text_dim"))
+	b.add_theme_color_override("font_hover_color",
+		DccTheme.c("accent_ink" if on else "text_bright"))
+	b.add_theme_color_override("font_pressed_color",
+		DccTheme.c("accent_ink" if on else "text_bright"))
+	var pad := _ps(13)
+	b.add_theme_stylebox_override("normal", DccTheme.pill(on, _ps(20), pad, _ps(9)))
+	b.add_theme_stylebox_override("hover", DccTheme.pill(on, _ps(20), pad, _ps(9)))
+	b.add_theme_stylebox_override("pressed", DccTheme.pill(true, _ps(20), pad, _ps(9)))
+	b.pressed.connect(on_press)
+	return b
+
+## §6.6's `range`: a label, a right-hand display, and a full-width slider with
+## no steppers. Used **only** where the underlying quantity really is
+## continuous -- see the row-type table in this file's header.
+func _slider_row(label: String, display: String, lo: float, hi: float, value: float,
+		on_change: Callable) -> Control:
+	var wrap := MarginContainer.new()
+	wrap.add_theme_constant_override("margin_left", _ps(16))
+	wrap.add_theme_constant_override("margin_right", _ps(16))
+	wrap.add_theme_constant_override("margin_top", _ps(8))
+	wrap.add_theme_constant_override("margin_bottom", _ps(4))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", _ps(6))
+	wrap.add_child(col)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", _ps(10))
+	col.add_child(line)
+	var cap := DccTheme.mono_label(label, "text_dim", _ps(10), 0)
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(cap)
+	var val := DccTheme.mono_label(display, "text_bright", _ps(11), 0)
+	val.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(val)
+	var s := HSlider.new()
+	s.min_value = lo
+	s.max_value = hi
+	s.step = 1.0
+	s.value = value
+	s.focus_mode = Control.FOCUS_NONE
+	## The grab region, not the drawn track: a 4 dp rail is not a touch target,
+	## and the slider's own height is what the finger has to find.
+	s.custom_minimum_size.y = _pt(44)
+	s.value_changed.connect(func(v: float): on_change.call(v))
+	col.add_child(s)
+	return wrap
+
 ## Deliberately does **not** fire `about_to_popup` to build the preview. A
-## preview needs names and a count, both static; firing it would run all seven
-## handlers on every render of this screen -- and `Preferences ▸ Devices` walks
-## every `wgpu` backend in its own, which is the enumeration cost
-## `menus.gd` moved behind a first-open for a reason. The refresh happens when
-## the row is *entered* (`_fill_popup`), which is when the desktop does it too.
+## preview needs names and a count, both static; firing it would run that
+## menu's handler on every render of the screen the row is on -- and
+## `Preferences ▸ Devices` walks every `wgpu` backend in its own, which is the
+## enumeration cost `menus.gd` moved behind a first-open for a reason. The
+## refresh happens when the row is *entered* (`_fill_popup`), which is when the
+## desktop does it too.
+##
+## Since the 2026-09-05 ruling this draws only the root's `Not on the MORE list`
+## band -- `Edit` and `Window`. The root's two §6.6 drill rows build their own
+## row and pass `refresh:false` to `_menu_popup()` for exactly the same reason.
 func _menu_row(mb: MenuButton) -> Control:
 	var popup := mb.get_popup()
 	var title := String(mb.text)
@@ -806,9 +1577,9 @@ func _menu_row(mb: MenuButton) -> Control:
 			names.append(_clean(popup.get_item_text(i)))
 	var subtitle := " · ".join(names)
 	return _row(title, subtitle, _trail_label("%d" % count), _chevron(),
-		func(): _push(popup, title, 3), false)
+		func(): _push(popup, title, SCREEN_LEVEL), false)
 
-# -- L3/L4/L5: one popup ------------------------------------------------------
+# -- One popup, re-presented --------------------------------------------------
 
 func _fill_popup(body: VBoxContainer, step: _Step) -> void:
 	var p := step.popup
@@ -830,9 +1601,23 @@ func _fill_popup(body: VBoxContainer, step: _Step) -> void:
 		if not first:
 			body.add_child(DccTheme.rule())
 		first = false
-		body.add_child(_popup_row(p, i, step.level))
+		body.add_child(_popup_row(p, i))
 
-func _popup_row(p: PopupMenu, i: int, level: int) -> Control:
+## **Every drill inside the MORE stack pushes `SCREEN_LEVEL`, not one more than
+## its parent.** The 2026-08-25 grammar this file shipped with gave L4 -- one
+## submenu deep -- a 60%-cap sheet over a scrim, and L5 a full screen again, so
+## walking Preferences > Lighting rig defaults > Azimuth changed presentation
+## twice on the way down. §5 makes the sheet the container for the *whole* MORE
+## tab and §6.6 makes everything inside it one navigation stack (*"`moreStack`,
+## starts `['root']`. The back button pops one level."*), so every level below
+## the root now draws the same way.
+##
+## The 60%-cap sheet is not gone: `open_sheet()` still pushes level 4 for the
+## map context menu, which really is an overlay over an unrelated surface. That
+## is the one caller left, and `_build_sheet()` exists for it.
+const SCREEN_LEVEL := 3
+
+func _popup_row(p: PopupMenu, i: int) -> Control:
 	var text := _clean(p.get_item_text(i))
 	var disabled := p.is_item_disabled(i)
 	var sub_name := p.get_item_submenu(i)
@@ -853,7 +1638,7 @@ func _popup_row(p: PopupMenu, i: int, level: int) -> Control:
 			if subtitle == "":
 				subtitle = _count_label(count)
 			return _row(text, subtitle, _trail_label("%d" % count), _chevron(),
-				func(): _push(sub, text, level + 1), false)
+				func(): _push(sub, text, SCREEN_LEVEL), false)
 
 	## An item the port cannot honour is added disabled with the reason in its
 	## tooltip (`menus.gd`'s own honesty rule). A phone has no hover, so the
@@ -914,8 +1699,12 @@ func _activate(p: PopupMenu, index: int, stay: bool) -> void:
 const _META_PRESSED := "pressed"
 const _META_PRESS_POS := "press_pos"
 
+## `lead` is §6.6's `nav` glyph column -- *"Glyph `12px mono`, `width:18px`,
+## centred"* -- and it is a seventh, optional argument rather than a reuse of
+## `trail` because the two sit on opposite sides of the row: the glyph opens the
+## line, the count and the chevron close it.
 func _row(title: String, subtitle: String, trail: Control, mark: Control,
-		on_press: Callable, dim: bool) -> Control:
+		on_press: Callable, dim: bool, lead: Control = null) -> Control:
 	var row := PanelContainer.new()
 	row.add_theme_stylebox_override("panel", DccTheme.empty())
 	## Canvas TARGETS: "52 dp list rows". A row grows past it when its text
@@ -940,6 +1729,9 @@ func _row(title: String, subtitle: String, trail: Control, mark: Control,
 	line.add_theme_constant_override("separation", _ps(12))
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pad.add_child(line)
+
+	if lead != null:
+		line.add_child(lead)
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", _ps(3))
@@ -1069,6 +1861,16 @@ func _note_row(title: String, text: String) -> Control:
 
 func _trail_label(text: String) -> Label:
 	var l := DccTheme.mono_label(text, "text_dim", _ps(11), 0)
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+## §6.6's `nav` badge slot: a short word at its own colour, accent by default
+## because the only badge this screen set draws is `ARMED`. Separate from
+## `_trail_label()` so the count and the badge cannot drift into one another --
+## a count is a quantity and a badge is a state.
+func _badge(text: String, token: String = "accent") -> Label:
+	var l := DccTheme.mono_label(text, token, _ps(9), 1)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l

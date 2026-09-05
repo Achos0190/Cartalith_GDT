@@ -80,11 +80,12 @@ func category_visible(title: String) -> bool:
 			return wrap != null and wrap.visible
 	return false
 
-## One visible category is always open. A gated dock can reach zero two ways --
-## the mode's own body was closed when the user left it, or `_toggle_category()`
-## re-collapsed the one open header -- and both leave a dock of headings with
-## nothing under them, which reads as an empty domain rather than a closed
-## accordion.
+## One visible category is always open **in a dock the floor is for**, and
+## `_floor_applies()` is the whole of which docks those are. Such a dock can
+## reach zero two ways -- the mode's own body was closed when the user left it,
+## or `_toggle_category()` re-collapsed the one open header -- and both leave a
+## dock of headings with nothing under them, which reads as an empty domain
+## rather than a closed accordion.
 ##
 ## The floor is `floor_category()` when that category is currently rendered, and
 ## *the first visible category* otherwise. Both halves are needed and neither is
@@ -96,7 +97,12 @@ func category_visible(title: String) -> bool:
 ##
 ## The named floor is skipped when the mode hides it, which is why this cannot
 ## re-open a gated category behind the gate's back.
+##
+## **Does nothing where the dock does not need a floor** -- see
+## `_floor_applies()`, which is the whole of that judgement.
 func _enforce_open_floor() -> void:
+	if not _floor_applies():
+		return
 	var first: Dictionary = {}
 	var named: Dictionary = {}
 	var want := floor_category()
@@ -114,8 +120,53 @@ func _enforce_open_floor() -> void:
 	if not pick.is_empty():
 		DccWidgets._toggle_category(pick, categories)
 
+## Whether this dock, **as it stands right now**, is one the floor is for.
+##
+## Two independent reasons, and neither implies the other:
+##
+## - the domain **names** a floor category, which is `04-left-dock.md` §6's
+##   unconditional rule for CIVIL (*"Landmarks is the floor -- one category is
+##   always open, and it is never zero"*). CIVIL gates in no mode, so nothing
+##   below would ever fire for it;
+## - the **current mode** gates -- `DccShell.mode_shows()` non-empty -- which is
+##   §3's reason: a mode that hides headers can leave the dock a single heading
+##   with nothing under it.
+##
+## **Scoped to the mode, corrected 2026-09-05.** It used to be scoped to the
+## *domain*: `setup()` wired the floor for any domain `domain_gates()` was true
+## of, and `apply_mode()` called it unconditionally, so WORLD ▸ Generation
+## pipeline -- nine headers on screen, gating nothing -- re-opened a header the
+## user had just closed. The comment beside the wiring already said that was not
+## its job (*"a floor is a behaviour change to a dock that does not need one:
+## CARTO has ten headers and closing them all is a legible state there"*); nine
+## is not ten, and `a` is not a gated dock. `domain_gates()` is the right
+## question for *"wire the signal at all"* and the wrong one for *"floor this
+## press"*, and both call sites now ask this instead.
+##
+## The mode comes from `DccShell._domain_mode` through `active_mode()` rather
+## than from `apply_mode()`'s argument, because that argument is a copy of the
+## same field and this one is right from the first frame: `_domain_mode` is
+## seeded from `RAIL_NODES` at declaration, while `apply_mode()` has not
+## necessarily run when the first header press arrives.
+##
+## The second half returns false with no `app`, or before `bind_domain()` --
+## probes construct workspaces bare, and the honest answer for a dock with no
+## shell behind it is "do not move anything". The first half still holds there:
+## a `floor_category()` is a property of the subclass, not of the shell, so a
+## bare CIVIL panel floors exactly as it did before this function existed.
+func _floor_applies() -> bool:
+	if not floor_category().is_empty():
+		return true
+	if domain_id.is_empty() or app == null or not app.has_method("active_mode"):
+		return false
+	return not DccShell.mode_shows(
+		domain_id, String(app.call("active_mode", domain_id))).is_empty()
+
 ## The category this dock falls back to when every header is closed, or `""` for
 ## *"whichever is rendered first"*. Overridden by CIVIL alone, per §6.
+##
+## Non-empty is also *"this domain always has a floor"* -- see `_floor_applies()`,
+## which reads it as the §6 half of that question.
 func floor_category() -> String:
 	return ""
 
@@ -141,6 +192,17 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## ten headers and closing them all is a legible state there, not an empty
 	## dock. `domain_gates()` is asked rather than `"world"` written down, so a
 	## domain that later gains a gate gains the floor with it.
+	##
+	## **This is the necessary half, not the whole condition.** `domain_gates()`
+	## is true of a *domain* that gates in **some** mode; the floor is only owed
+	## in the mode that actually gates. WORLD ▸ Generation pipeline satisfies
+	## this connect and must not floor, and until 2026-09-05 it did -- closing
+	## the one open header of nine re-opened it. `_enforce_open_floor()` asks
+	## `_floor_applies()` first, which is where the per-mode half lives; this
+	## line stays as the cheap filter that keeps CARTO from connecting ten
+	## signals it can never use. CIVIL does not connect here either: it wires the
+	## same handler itself through `_lm_enforce_floor()`, and reaches the floor
+	## by naming a `floor_category()` rather than by gating.
 	if not domain_id.is_empty() and DccShell.domain_gates(domain_id):
 		for e: Dictionary in categories:
 			var cat_btn: Button = e.get("button")

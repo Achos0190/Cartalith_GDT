@@ -3172,30 +3172,81 @@ func _collapse_button(is_left: bool) -> Button:
 # That is the whole reason a gate is permitted at all here (see `RAIL_NODES`'
 # header), so the switch and the gate ship together or neither ships.
 #
-# **Only the VISIBILITY is derived. Corrected 2026-09-05 after a verifier read
-# the rest of the function.** `domain_gates()` asks whether any of a domain's
-# nodes carries a `shows`, so the pill appears for a gated domain without being
-# told which one. Everything else here is hardcoded to WORLD:
-# `_build_mode_switch()` iterates `domain_nodes("world")`, `_MODE_SWITCH_LABELS`
-# is `{a: PIPELINE, b: SCULPT}`, and `_refresh_mode_switch()` reads WORLD's mode.
+# **What is derived and what is not, part by part.** A verifier read this
+# function on 2026-09-05 and found only the *visibility* derived while the nodes,
+# the labels, the refresh's tooltip and the press all named `"world"` — so a
+# future CIVIL or CARTO gate would have drawn an empty pill carrying WORLD's two
+# labels. Generalised the same day. Stated per part, because "derived, not
+# hardcoded" is the claim this shell has already got wrong once here:
 #
-# So a future CIVIL or CARTO gate would show an **empty pill with WORLD's two
-# labels**, not its own affordance — the opposite of what the first version of
-# this comment claimed. Generalising it means sourcing the nodes and the labels
-# from the active domain too; that is a real change, not a rename, and it is not
-# made here because nothing needs it yet.
+# - **Derived** — *whether* the pill shows: `domain_gates()`, which asks whether
+#   any of the domain's nodes carries a `shows`.
+# - **Derived** — *which segments* it has: `domain_nodes(_active_domain)`, so the
+#   pill is as many halves as that domain has modes, in `RAIL_NODES` order.
+# - **Derived** — the lit segment, the tooltips and the press target: all read
+#   `_active_domain` and `rail_node(_active_domain, mode)`.
+# - **NOT derived, and deliberately** — two of the ten labels.
+#   `_MODE_SWITCH_LABELS` overrides `world/a` and `world/b`; `mode_switch_label()`
+#   falls back to the node's own `label` upper-cased for the other eight.
 #
-# **The two labels are a decision, not a quotation.** §9.1: *"the switch's own
-# two labels are not recoverable ... `Generation pipeline` / `Sculpt` are the
-# closest evidence but are 19 and 6 characters -- almost certainly not the pill
-# text."* `PIPELINE` / `SCULPT` is this port's choice: both are words the rail's
-# own node labels already use, both fit the `--m2` uppercase mono the dock sets
-# every heading in, and they balance at 8 and 6 characters across two `flex:1`
-# halves. Recorded the same way `Workspace.push_dock_readout()` records its own
-# unrecoverable string, rather than passed off as the design's.
+# **Why those two are an override rather than a derivation.** §9.1: *"the
+# switch's own two labels are not recoverable ... `Generation pipeline` /
+# `Sculpt` are the closest evidence but are 19 and 6 characters -- almost
+# certainly not the pill text."* `PIPELINE` / `SCULPT` is this port's decision,
+# recorded the way `Workspace.push_dock_readout()` records its own unrecoverable
+# string: both are words the rail's own node labels already use, both fit the
+# `--m2` uppercase mono the dock sets every heading in, and they balance at 8 and
+# 6 characters across two `flex:1` halves. Deriving them would silently put a
+# 19-character label in one half of a `W_LEFT_DOCK` (372 px) dock's pill and
+# reverse a recorded decision, so the override stays and is keyed
+# **`domain/mode`** rather than by
+# bare mode — `a` and `b` are not reserved words, and a future domain naming a
+# mode `a` must not inherit WORLD's noun.
+#
+# **The fallback is the node's own label, and it is not free.** No domain but
+# WORLD has a gate, so no other label is on screen today; if one gains one, the
+# derived text is `LANDMARKS` / `FACTIONS & SETTLEMENTS` / `WAYS & ROUTES` /
+# `JOURNEY PLANNER` for CIVIL (9/22/13/15 characters over four halves) and
+# `LAYERS & STYLE` / `LABELS` / `ICONS` / `TERRAIN APPEARANCE` for CARTO
+# (14/6/5/19). Those are legible strings, not placeholders, and whether four of
+# them fit is a measurement rather than an opinion -- the pill sits in the header
+# band *above* the scroll, so an overflow there has no scrollbar anywhere to
+# reveal it, which is this tree's recurring class. `_leftdock12_probe.gd` §7(f)
+# builds the real segments through `_mode_switch_segment()` and prints each
+# band's combined minimum against the dock it would sit in, at all three
+# densities. Measured 2026-09-05, band-2 minimum x against the live dock width:
+#
+# | density                | dock | WORLD (2) | CIVIL (4) | CARTO (4) |
+# |------------------------|------|-----------|-----------|-----------|
+# | desktop 1920x1080      |  372 |     153.0 | **461.0** |     365.0 |
+# | tablet 2560x1600       |  400 |     211.0 | **633.0** | **508.0** |
+# | phone 1080x2340, sheet | 1080 |     153.0 |     461.0 |     365.0 |
+#
+# Bold overflows. WORLD's shipping pill clears every density with room; CARTO's
+# four derived labels clear the desktop dock by 7 px and overflow the tablet's;
+# CIVIL's overflow both. (The phone row is the *authored* figure -- §7(f)'s
+# scratch segments sit outside both docks, so `_on_phone_node_added()` never
+# fits them; the real fitted pill is §8's.) So the answer for a domain that
+# gains a gate is a shorter string in this table, which is why the table is the
+# extension point rather than something to delete once the fallback exists.
 var _mode_switch_row: Control
-var _mode_switch_buttons: Dictionary = {}   ## mode -> Button
-const _MODE_SWITCH_LABELS: Dictionary = {"a": "PIPELINE", "b": "SCULPT"}
+var _mode_switch_pill: HBoxContainer        ## the segment row; its children are per-domain
+var _mode_switch_buttons: Dictionary = {}   ## mode -> Button, for `_mode_switch_domain` only
+var _mode_switch_domain := ""               ## which domain those buttons were built for
+const _MODE_SWITCH_LABELS: Dictionary = {"world/a": "PIPELINE", "world/b": "SCULPT"}
+
+## The pill text for one rail node: the `_MODE_SWITCH_LABELS` override where one
+## exists, and the node's own `label` upper-cased where none does. See the block
+## above for which of the ten are which and why.
+##
+## Public because `_leftdock12_probe.gd` asserts the derivation for every node of
+## every domain, including the eight with no pill today — a fallback nothing
+## exercises is a fallback nobody has read.
+static func mode_switch_label(id: String, mode: String) -> String:
+	var key := "%s/%s" % [id, mode]
+	if _MODE_SWITCH_LABELS.has(key):
+		return String(_MODE_SWITCH_LABELS[key])
+	return String(rail_node(id, mode).get("label", mode)).to_upper()
 
 func _build_mode_switch() -> Control:
 	var pad := MarginContainer.new()
@@ -3224,45 +3275,107 @@ func _build_mode_switch() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 3)
 	shellbox.add_child(row)
-
-	for n in domain_nodes("world"):
-		var mode := String(n["mode"])
-		var b := DccWidgets.segment(row, String(_MODE_SWITCH_LABELS.get(mode, mode)),
-			_on_mode_switch_pressed.bind(mode))
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		## §2.3's `flex:1` halves are `--ctl` tall (24 desktop / 36 tablet).
-		## **The tablet figure is raised to the 44 px tap floor rather than taking
-		## the canvas's 36**, which is the same call `_scaled()` makes for every
-		## height its own table does not name; `DccWidgets.segment()`'s
-		## `role_px("chip_min_h")` of 34 is below the floor and is a standing
-		## shell-wide issue, so matching it would not be conformance.
-		##
-		## **The phone takes the authored 24 and nothing else.** `phone_fit()`
-		## multiplies `custom_minimum_size.y` by its own unit and *then* floors
-		## every `BaseButton` at `PHONE_TAP_MIN * unit`, so writing a
-		## pre-scaled `_ptap(24)` here scaled it twice: measured at **301 px**
-		## for one segment on a 1080x2340 sheet, against the 115 px the floor
-		## actually asks for. Authoring in desktop pixels and letting the fitter
-		## scale is what every other control in the dock does.
-		b.custom_minimum_size.y = 44 if (_touch and not _phone) else 24
-		## Two segments, one lit: the state has to be legible without colour
-		## alone, so the tooltip names it in words. `set_segment_on()` supplies
-		## the accent ink and wash; `_refresh_mode_switch()` owns both.
-		_mode_switch_buttons[mode] = b
+	_mode_switch_pill = row
+	## The segments themselves are **not** built here. They belong to whichever
+	## domain is active, and the active domain changes; `_refresh_mode_switch()`
+	## builds them the first time it runs (from the line below, still inside this
+	## function, so the pill is populated before this returns exactly as it was
+	## when the loop lived here) and rebuilds them whenever the domain changes.
 	_refresh_mode_switch()
 	return pad
 
-## Show the pill for a gating domain, hide it for the rest, and light whichever
-## segment is the active mode. Called from `_select_domain()` -- the one choke
-## point every domain and every mode change passes through -- so the pill cannot
-## disagree with the body beneath it.
+## One `flex:1` half of the pill, for one rail node of one domain.
+##
+## Separate from the rebuild loop so `_leftdock12_probe.gd` §7(f) can measure the
+## **shipped** builder for a domain that has no pill today, rather than a replica
+## of it that could drift from this one.
+func _mode_switch_segment(row: Control, id: String, mode: String) -> Button:
+	var b := DccWidgets.segment(row, mode_switch_label(id, mode),
+		_on_mode_switch_pressed.bind(id, mode))
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## §2.3's `flex:1` halves are `--ctl` tall (24 desktop / 36 tablet).
+	## **The tablet figure is raised to the 44 px tap floor rather than taking
+	## the canvas's 36**, which is the same call `_scaled()` makes for every
+	## height its own table does not name; `DccWidgets.segment()`'s
+	## `role_px("chip_min_h")` of 34 is below the floor and is a standing
+	## shell-wide issue, so matching it would not be conformance.
+	##
+	## **The phone takes the authored 24 and nothing else.** `phone_fit()`
+	## multiplies `custom_minimum_size.y` by its own unit and *then* floors
+	## every `BaseButton` at `PHONE_TAP_MIN * unit`, so writing a
+	## pre-scaled `_ptap(24)` here scaled it twice: measured at **301 px**
+	## for one segment on a 1080x2340 sheet, against the 115 px the floor
+	## actually asks for. Authoring in desktop pixels and letting the fitter
+	## scale is what every other control in the dock does. A segment rebuilt
+	## *after* boot is fitted too: `_on_phone_node_added()` watches `node_added`
+	## for anything parented under either dock and defers one `phone_fit()` pass
+	## per frame, which is the same hook every rebuilt panel row already uses.
+	b.custom_minimum_size.y = 44 if (_touch and not _phone) else 24
+	return b
+
+## Replace the pill's halves with one domain's modes.
+##
+## Called only when the domain the buttons were built for is not the domain now
+## active, so a switch WORLD → CIVIL → WORLD (CIVIL being ungated, so the pill is
+## hidden and never rebuilt) leaves the same two `Button`s in place. That matters
+## beyond cost: `_mode_switch_buttons` is mutated rather than reassigned, so the
+## probes that take a reference to it once and press segments later keep pressing
+## live buttons.
+func _rebuild_mode_switch(id: String) -> void:
+	_mode_switch_domain = id
+	_mode_switch_buttons.clear()
+	for c in _mode_switch_pill.get_children():
+		## Removed *and* queued, in that order, and neither half is optional.
+		## `queue_free()` alone leaves the child in the tree until idle, so the
+		## pill would measure both domains' halves for a frame; a plain `free()`
+		## is worse, because this function is reachable from a segment's own
+		## `pressed` handler -- press → `select_domain_mode()` → `_select_domain()`
+		## → `_refresh_mode_switch()` → here -- and freeing the button that is
+		## mid-emit takes the process with it.
+		_mode_switch_pill.remove_child(c)
+		c.queue_free()
+	for n in domain_nodes(id):
+		var mode := String(n["mode"])
+		## One half lit and the rest quiet: the state has to be legible without
+		## colour alone, so the tooltip names it in words. `set_segment_on()`
+		## supplies the accent ink and wash; `_refresh_mode_switch()` owns both,
+		## and owns them for every half this loop makes.
+		_mode_switch_buttons[mode] = _mode_switch_segment(_mode_switch_pill, id, mode)
+
+## Show the pill for a gating domain, hide it for the rest, build its halves for
+## whichever domain that is, and light whichever segment is the active mode.
+## Four call sites, and each is why one of the reads below is here:
+## `_select_domain()` -- the one choke point every domain and every mode change
+## passes through, so the pill cannot disagree with the body beneath it;
+## `apply_domain_mode()`, which writes a mode without switching domain;
+## `_toggle_dock()`, which is why `_left_collapsed` is read here rather than only
+## at the collapse; and `_build_mode_switch()`, which is how the pill gets its
+## first set of halves.
+##
+## **A one-mode domain gets no pill even if it gates.** `domain_gates()` is
+## satisfied by a single node carrying a `shows`, and a pill of one half is a
+## control that cannot change anything -- a permanently-lit segment offering the
+## state it is already in. The gate would still be honoured by the rail; what is
+## suppressed is only the switch. Written as a separate clause rather than folded
+## into `domain_gates()` because that function answers *"can a mode change remove
+## a header here"*, which is a true and useful thing to know about such a domain
+## and is what `Workspace` asks it.
 func _refresh_mode_switch() -> void:
 	if _mode_switch_row == null or not is_instance_valid(_mode_switch_row):
 		return
-	var on := domain_gates(_active_domain) and not _left_collapsed
+	var on := domain_gates(_active_domain) and domain_nodes(_active_domain).size() > 1 \
+		and not _left_collapsed
 	_mode_switch_row.visible = on
 	if not on:
+		## Deliberately before the rebuild. A hidden pill showing another
+		## domain's halves is not a defect -- nothing renders it, and
+		## `_mode_switch_domain` still says whose they are, so the next refresh
+		## that turns the pill back on rebuilds if and only if it has to. The
+		## collapse path depends on this: `_toggle_dock()` refreshes twice around
+		## a state the user never sees.
 		return
+	if _mode_switch_domain != _active_domain:
+		_rebuild_mode_switch(_active_domain)
 	var active := String(_domain_mode.get(_active_domain, ""))
 	for mode in _mode_switch_buttons:
 		var b: Button = _mode_switch_buttons[mode]
@@ -3271,7 +3384,7 @@ func _refresh_mode_switch() -> void:
 		var lit: bool = String(mode) == active
 		DccWidgets.set_segment_on(b, lit)
 		b.tooltip_text = "%s — %s" % [
-			String(rail_node("world", String(mode)).get("label", mode)),
+			String(rail_node(_active_domain, String(mode)).get("label", mode)),
 			"showing" if lit else "click to show"]
 
 ## Pressing a segment is exactly a rail-node press on the same node, minus the
@@ -3279,8 +3392,13 @@ func _refresh_mode_switch() -> void:
 ## through `select_domain_mode()` rather than writing `_domain_mode` here, so a
 ## future node behaviour (the Journey takeover is one already) cannot arrive for
 ## the rail and not for the pill.
-func _on_mode_switch_pressed(mode: String) -> void:
-	select_domain_mode("world", mode)
+##
+## The domain is bound at build time beside the mode, not re-read from
+## `_active_domain` here: the two agree for a press on a visible pill, and a
+## bound pair is the version that stays right if a queued press ever arrives
+## after a domain change.
+func _on_mode_switch_pressed(id: String, mode: String) -> void:
+	select_domain_mode(id, mode)
 
 func _dock_readout(side: String) -> Control:
 	var l := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
@@ -3330,8 +3448,9 @@ func _toggle_dock(is_left: bool) -> void:
 		left_dock_title.visible = not collapsed
 		_left_collapsed = collapsed
 		## **And neither has the mode switch** (`04-left-dock.md` §2.1 band 2).
-		## Two `SIZE_EXPAND_FILL` segments carrying `PIPELINE` and `SCULPT` have
-		## a combined minimum width far past `W_RAIL_COLLAPSED`, and a
+		## Its `SIZE_EXPAND_FILL` halves -- two, `PIPELINE` and `SCULPT`, in the
+		## one domain that gates today, and however many the next one has --
+		## carry a combined minimum width far past `W_RAIL_COLLAPSED`, and a
 		## `MarginContainer` propagates its child's minimum to the `VBoxContainer`
 		## and on to the dock -- so leaving it up would hold the collapsed strip
 		## open at the switch's width with no scrollbar anywhere to show why.

@@ -73,6 +73,7 @@ its rule before you start.
 | **Reserve a file from every lane** | Reserving prevents collisions and **strands the fix that needs it**. Three lanes correctly reported that the index and the shortcuts list needed rows; none could write them, and the regression shipped to the verifier | Either give the shared file to exactly one lane, or accept that the main loop must land those edits before the batch is called done |
 | **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks, one body per rail node" was the main loop's summary of `04-left-dock.md` §3, which actually gates **one node of ten** — and an owner accepted a consequence ("this hides controls") on the strength of it | Quote the spec's own condition column into the row. If the summary and the table disagree, the table is the spec |
 | **Claim a mechanism is "derived, not hardcoded"** | Check every line of it, not the entry point. The mode switch derived its **visibility** and hardcoded its node source, its labels and its refresh — so a future gated domain would get an empty pill carrying another domain's labels | Name the parts that are derived and the parts that are not, separately |
+| **Write a probe's usage header** | The header is a claim about the probe's own code. One documented `--resolution`, which it never read — it read `-- --vp WxH`. Following it would have measured **the same box three times and called it three densities**, the single-sample shape in disguise | Grep the flag in the probe body before writing it in the header, and have the harness **fail loudly** on an argument it does not understand rather than defaulting |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -120,7 +121,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×47
+### [2026-09-03] Leaving prose that describes the old behaviour ×48
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

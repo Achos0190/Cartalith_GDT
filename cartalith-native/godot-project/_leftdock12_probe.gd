@@ -67,6 +67,28 @@ const EXPECTED: Dictionary = {
 ## in it, which is why nine of the ten nodes are ungated.
 const DESIGN_GATES: Dictionary = {"world/b": ["Terrain"]}
 
+## The mode-switch pill's text for every rail node, written out rather than
+## derived, so §7 compares two sources instead of one source with itself.
+##
+## WORLD's two are `DccShell._MODE_SWITCH_LABELS`' recorded decision --
+## `04-left-dock.md` §9.1 lost the drawn ones with the prototype's truncated
+## tail, and `Generation pipeline` at 19 characters is not a `flex:1` half. The
+## other eight are the fallback: the node's own `label`, upper-cased. They are on
+## no screen today, because WORLD is the only domain that gates; they are pinned
+## here because a fallback nothing exercises is a fallback nobody has read.
+const EXPECTED_PILL_LABELS: Dictionary = {
+	"world/a": "PIPELINE",
+	"world/b": "SCULPT",
+	"civilization/landmarks": "LANDMARKS",
+	"civilization/factions": "FACTIONS & SETTLEMENTS",
+	"civilization/infra": "WAYS & ROUTES",
+	"civilization/planner": "JOURNEY PLANNER",
+	"cartography/style": "LAYERS & STYLE",
+	"cartography/labels": "LABELS",
+	"cartography/icons": "ICONS",
+	"cartography/terrain": "TERRAIN APPEARANCE",
+}
+
 func _boot(w: int, h: int) -> Node:
 	var vp := SubViewport.new()
 	vp.size = Vector2i(w, h)
@@ -341,6 +363,82 @@ func _run(app: Node, label: String) -> void:
 	_ok("(h) CIVIL's floor is still Landmarks, not the first-built category",
 		_body(civ, "Landmarks").visible, true)
 
+	## (i) and the floor stops where the need stops. The floor exists so a
+	## **gated** dock cannot be left as headings with nothing under them; until
+	## 2026-09-05 it was scoped to gating *domains*, so WORLD ▸ Generation
+	## pipeline -- nine headers on screen, hiding nothing -- re-opened a header
+	## the user had just closed. `Workspace._floor_applies()` is now the whole of
+	## that judgement and this is the transition OUT of the state that needs one.
+	app.call("select_domain_mode", "world", "a")
+	await _frames(2)
+	_ok("(i) precondition: WORLD ▸ a renders nine headers", _rendered(world).size(), 9)
+	var open_a: Button = null
+	## Seeded with a real WORLD category, not `""`: `_body()` returns null for a
+	## name no dock has, and a null deref below would end the script instead of
+	## failing the assertion. A wrong-but-real name fails loudly; an empty one
+	## takes the tablet and phone legs down with it.
+	var open_a_title := "Generate"
+	for e in (world.get("categories") as Array):
+		if (e["body"] as Control).visible:
+			open_a = e["button"]
+			open_a_title = String(e["title"])
+	_ok("(i) precondition: exactly one header is open in it", open_a != null, true)
+	## Guarded, not asserted-and-dereferenced: a null here would abort the whole
+	## script mid-run and take the tablet and phone legs with it, and a probe
+	## that stops printing is a probe whose remaining sections cannot fail.
+	if open_a != null:
+		open_a.pressed.emit()
+	await _frames(2)
+	_ok("(i) closing it in an ungated mode leaves it closed",
+		_body(world, open_a_title).visible, false)
+	var still_open := 0
+	for e in (world.get("categories") as Array):
+		if (e["body"] as Control).visible:
+			still_open += 1
+	_ok("(i) ...and opens no sibling in its place", still_open, 0)
+	if open_a != null:
+		open_a.pressed.emit()
+	await _frames(2)
+	_ok("(i) ...and it is a toggle, not a dead header",
+		_body(world, open_a_title).visible, true)
+
+	## (j) the transition INTO the gated state from an all-closed dock, which is
+	## the half of the floor `apply_mode()` owns. Driven through
+	## `apply_domain_mode()` and **not** `select_domain_mode()`: the latter opens
+	## the node's category itself, so it would report this green with no floor at
+	## all. Ask of a check what would refute it.
+	if open_a != null:
+		open_a.pressed.emit()
+	await _frames(2)
+	var closed := 0
+	for e in (world.get("categories") as Array):
+		if (e["body"] as Control).visible:
+			closed += 1
+	_ok("(j) precondition: WORLD ▸ a is closed to zero", closed, 0)
+	app.call("apply_domain_mode", "world", "b")
+	await _frames(2)
+	_ok("(j) entering the gated mode floors the dock", _body(world, "Terrain").visible, true)
+	_ok("(j) ...on the gated block, not a hidden sibling",
+		", ".join(_rendered(world)), "Terrain")
+
+	## (k) CARTO, the case the scope comment names: ten headers, no gate, so
+	## closing them all is a legible state and nothing may re-open one.
+	app.call("select_domain_mode", "cartography", "style")
+	await _frames(2)
+	var open_c: Button = null
+	for e in (carto.get("categories") as Array):
+		if (e["body"] as Control).visible:
+			open_c = e["button"]
+	_ok("(k) precondition: one CARTO header is open", open_c != null, true)
+	if open_c != null:
+		open_c.pressed.emit()
+	await _frames(2)
+	var carto_open := 0
+	for e in (carto.get("categories") as Array):
+		if (e["body"] as Control).visible:
+			carto_open += 1
+	_ok("(k) CARTO closes to zero and stays there", carto_open, 0)
+
 	# =====================================================================
 	print("\n=== 6: the mode switch (§2.1 band 2 / §2.3) ===")
 	app.call("select_domain_mode", "world", "a")
@@ -366,7 +464,130 @@ func _run(app: Node, label: String) -> void:
 	_ok("...and it is the active mode", ", ".join(lit), app.call("active_mode", "world"))
 
 	# =====================================================================
-	print("\n=== 7: the collapsed dock, measured ===")
+	print("\n=== 7: the pill is the ACTIVE domain's, not WORLD's ===")
+	## Until 2026-09-05 only the pill's *visibility* was derived: its nodes came
+	## from `domain_nodes("world")`, its labels from a mode-keyed constant, its
+	## tooltips from `rail_node("world", …)` and its press from
+	## `select_domain_mode("world", …)`. A domain that later carried a `shows`
+	## would have drawn an empty pill wearing WORLD's two labels. WORLD is still
+	## the only gated domain, so no user route exercises the generalisation --
+	## which is exactly why this section drives it rather than waiting for a
+	## second gate and finding out then.
+
+	## (a) the label derivation, for every node of every domain -- the eight with
+	## no pill today included, since an unexercised fallback is an unread one.
+	for key in EXPECTED_PILL_LABELS:
+		var parts := String(key).split("/")
+		_ok("(a) label %s" % key,
+			DccShell.mode_switch_label(parts[0], parts[1]), EXPECTED_PILL_LABELS[key])
+
+	## (b) what is actually on screen in WORLD, read off the pill's own children.
+	app.call("select_domain_mode", "world", "a")
+	await _frames(2)
+	var pill: HBoxContainer = app.get("_mode_switch_pill")
+	var texts: Array = []
+	for c in pill.get_children():
+		texts.append((c as Button).text)
+	_ok("(b) two halves, in RAIL_NODES order", ", ".join(texts), "PIPELINE, SCULPT")
+	_ok("(b) built for WORLD and recorded as such", app.get("_mode_switch_domain"), "world")
+	_ok("(b) the tooltip names the node's own label, not a constant",
+		(segs["a"] as Button).tooltip_text, "Generation pipeline — showing")
+
+	## (c) rebuilt for a domain that is not WORLD. The halves it replaces must
+	## actually go: `_rebuild_mode_switch()` removes them from the pill and
+	## queues the free (a plain `free()` there would kill the process, since the
+	## rebuild is reachable from a segment's own `pressed`), and a queued free on
+	## a parentless node is the part worth measuring rather than assuming -- a
+	## domain switch that leaked its pill every time would be invisible.
+	var doomed_a: Button = segs["a"]
+	var doomed_b: Button = segs["b"]
+	app.call("_rebuild_mode_switch", "cartography")
+	await _frames(4)
+	_ok("(c) the replaced halves are freed, not orphaned",
+		is_instance_valid(doomed_a) or is_instance_valid(doomed_b), false)
+	var ctexts: Array = []
+	for c in pill.get_children():
+		ctexts.append((c as Button).text)
+	_ok("(c) four CARTO halves, derived from the nodes", ", ".join(ctexts),
+		"LAYERS & STYLE, LABELS, ICONS, TERRAIN APPEARANCE")
+	_ok("(c) ...and the button map is keyed by CARTO's modes",
+		", ".join((app.get("_mode_switch_buttons") as Dictionary).keys()),
+		"style, labels, icons, terrain")
+
+	## (d) a CARTO half presses to CARTO. The domain is bound per button beside
+	## the mode, so this cannot be right by accident from a live `_active_domain`
+	## read -- the pill is still WORLD's on screen at the moment of the press.
+	((app.get("_mode_switch_buttons") as Dictionary)["labels"] as Button).pressed.emit()
+	await _frames(3)
+	_ok("(d) pressing it selects CARTO", app.call("active_domain"), "cartography")
+	_ok("(d) ...in that half's own mode", app.call("active_mode", "cartography"), "labels")
+	_ok("(d) ...and CARTO gates nothing, so the pill goes away", row.visible, false)
+
+	## (e) and back. `_mode_switch_buttons` is mutated in place and never
+	## reassigned, so `segs` -- taken once at §5(b), two rebuilds ago -- must
+	## still press a live segment. A reassignment here would leave every probe
+	## and every future caller holding freed buttons.
+	app.call("select_domain", "world")
+	await _frames(3)
+	_ok("(e) the pill is back", row.visible, true)
+	_ok("(e) ...rebuilt for WORLD", app.get("_mode_switch_domain"), "world")
+	_ok("(e) ...with WORLD's halves", ", ".join(
+		[(pill.get_child(0) as Button).text, (pill.get_child(1) as Button).text]),
+		"PIPELINE, SCULPT")
+	(segs["b"] as Button).pressed.emit()
+	await _frames(3)
+	_ok("(e) the §5 reference still presses a live segment",
+		app.call("active_mode", "world"), "b")
+	_ok("(e) ...and it gated the dock", ", ".join(_rendered(world)), "Terrain")
+
+	## (f) what the derived label costs, measured with the **shipped** segment
+	## builder rather than a replica of it. The pill sits in the header band
+	## above the scroll (`04-left-dock.md` §2.1 band 2), so a pill wider than the
+	## dock has no scrollbar anywhere to reveal it -- this tree's recurring
+	## overflow class. Parented under `viewport_content` so the segments resolve
+	## the real theme without disturbing either dock's minimum size.
+	##
+	## **The figures are authored pixels.** These throwaway segments are outside
+	## both docks, so `_on_phone_node_added()` does not reach them and the phone
+	## leg's numbers are unscaled -- the real fitted pill is measured in §8.
+	var host: Control = app.get("viewport_content")
+	var probe_box := HBoxContainer.new()
+	probe_box.add_theme_constant_override("separation", 3)
+	host.add_child(probe_box)
+	var dock_w := float((app.get("left_dock") as Control).size.x)
+	var world_pill_min := 0.0
+	for dom in ["world", "civilization", "cartography"]:
+		for c in probe_box.get_children():
+			probe_box.remove_child(c)
+			c.free()
+		var names: Array = []
+		for n in app.call("domain_nodes", String(dom)):
+			names.append((app.call("_mode_switch_segment", probe_box, String(dom),
+				String(n["mode"])) as Button).text)
+		await _frames(2)
+		## `+6` is the pill's own `padding:3px`; `+28` band 2's `14 px` margins.
+		var band := probe_box.get_combined_minimum_size().x + 6.0 + 28.0
+		if dom == "world":
+			world_pill_min = band
+		print("        %-13s %d halves  band-2 min.x=%7.1f  dock=%6.1f  W_LEFT_DOCK=%d  %s"
+			% [String(dom), names.size(), band, dock_w, DccTheme.W_LEFT_DOCK,
+				"fits" if band <= dock_w else "OVERFLOWS THE DOCK"])
+		print("           ", " | ".join(names))
+	## Freed, not queued: `get_tree().quit()` is a few lines away in the phone
+	## leg and a queued free never runs, so the box and its last four segments
+	## would be reported as leaked ObjectDB instances at exit. Safe here in a way
+	## it is not inside `_rebuild_mode_switch()` -- nothing is mid-`pressed` on
+	## these, because nothing ever pressed them.
+	for c in probe_box.get_children():
+		probe_box.remove_child(c)
+		c.free()
+	host.remove_child(probe_box)
+	probe_box.free()
+	_ok("(f) the pill that ships fits the dock it is pinned in",
+		world_pill_min <= dock_w, true)
+
+	# =====================================================================
+	print("\n=== 8: the collapsed dock, measured ===")
 	## The phone has no collapsed dock: `_build_left_dock(true)` makes the dock a
 	## full-height sheet with a close button where the collapse chevron is, and
 	## `_toggle_dock()` is never reached. §6 above already proved the switch is
