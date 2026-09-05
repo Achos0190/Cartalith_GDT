@@ -156,10 +156,15 @@
 //!   *after* the cleanup passes rather than the metres `grow` laid before them.
 //! - **Nine layers arrived at once**: the wall circuit and its gates, buildings,
 //!   per-parcel districts, markets, farmland, the harbour, the crossings, the
-//!   civic hall and the head count. Five are surfaced through this type today
-//!   (walls, buildings, districts, markets, farmland); the rest are in the
-//!   [`cartalith_urban::Town`] this function projects from and are one field
-//!   each away.
+//!   civic hall and the head count. Seven are surfaced whole through this type
+//!   today — walls, buildings, districts, markets, farmland, the head count
+//!   ([`UrbanLayout::pop`]) and, since 2026-09-05, the crossings
+//!   ([`UrbanLayout::bridges`] / [`UrbanLayout::ford`]). The harbour is
+//!   surfaced as its **point only** ([`UrbanLayout::harbour_pt`]); its quay,
+//!   piers, mole and defence stay on [`cartalith_urban::HarbourWorks`]. The
+//!   civic hall ([`cartalith_urban::Town::civic`], and the games buildings
+//!   beside it) is the one layer with no field here at all, and it is still one
+//!   field away on the [`cartalith_urban::Town`] this function projects from.
 
 use cartalith_urban::{
     Economy, GenOpts, TerrainCtx, WaterCtx, generate, js_hypot, js_max, js_min, js_round,
@@ -172,8 +177,11 @@ use cartalith_urban::{
 ///
 /// The list grew on 2026-09-02 with [`UrbanLayout`]'s five new layers: a
 /// consumer that reads `buildings`, `wall`, `markets` or `farmland` has to be
-/// able to spell their types.
-pub use cartalith_urban::{Building, Detail, DetailGeom, Gate, Market, Plaza, Vec2, WallState};
+/// able to spell their types. It grew again on 2026-09-05 with [`Bridge`] and
+/// [`Ford`], for [`UrbanLayout::bridges`] / [`UrbanLayout::ford`].
+pub use cartalith_urban::{
+    Bridge, Building, Detail, DetailGeom, Ford, Gate, Market, Plaza, Vec2, WallState,
+};
 
 /// `Math.atan2` and `x||0`; neither is re-exported by `cartalith-urban`, and
 /// `military.rs` already takes them from `cartalith-jsmath` directly.
@@ -1801,7 +1809,7 @@ pub struct LayoutParcel {
 ///
 /// Every field is engine output, never a placeholder. Where a collection is
 /// **empty** that is now a real answer rather than a missing port: a hamlet the
-/// wall ladder never walled has no [`Self::wall_ring`], a Venus profile has no
+/// wall ladder never walled has no [`WallState::ring`], a Venus profile has no
 /// [`Self::farmland`] of the strip kind, a landlocked site has no
 /// [`Self::harbour_pt`].
 pub struct UrbanLayout {
@@ -1825,10 +1833,29 @@ pub struct UrbanLayout {
     pub river: Vec<Vec2>,
     pub river_w: f64,
     /// `site.bridgePt` — the flattest crossing point `buildSite` chose, which
-    /// is a *site* fact. It is **not** `site.bridges`, `detectRiverCrossings`'
-    /// answer about where a live road really crosses; that now exists on the
-    /// [`cartalith_urban::Town`] this projects from and is not surfaced here.
+    /// is a *site* fact and a *candidate*: it exists whether or not a road ever
+    /// crossed there. It is **not** `site.bridges`, which is
+    /// [`Self::bridges`] below.
     pub bridge_pt: Option<Vec2>,
+    /// `site.bridges` — `detectRiverCrossings`' answer about where a **live**
+    /// road really crosses the **real** river, run on the final graph after
+    /// `removeWaterCrossings`, `privatizeAlleys` and `clearFortZone`.
+    ///
+    /// `None` and `Some` are the reference's own `site.bridges || null`, and
+    /// the detector never writes an empty vector: `None` covers both "the site
+    /// has no real river to cross" (its two guards, [`Self::uses_real_water`]
+    /// being the one this type carries) and "no live non-quay road met the
+    /// centreline". Carried whole rather than reduced to a count, because a
+    /// [`Bridge`]'s `pt` and `dir` are what a renderer needs to strike the
+    /// span across the river — the reference's own three renderers all take
+    /// exactly that pair plus [`Self::river_w`].
+    pub bridges: Option<Vec<Bridge>>,
+    /// `site.ford` — the unbridged fallback, and the *other* branch of the same
+    /// three-way: a through-town with a `bridgePt` and no crossing road at all.
+    /// Mutually exclusive with [`Self::bridges`] by construction
+    /// ([`cartalith_urban::Crossings`] is an enum), so both `None` is "neither",
+    /// not "unknown".
+    pub ford: Option<Ford>,
     /// `site.routeEnds` — the approach-road endpoints on the box edge, real
     /// (from [`um_route_ends`]) or `build_site`'s synthetic ones.
     pub route_ends: Vec<Vec2>,
@@ -2028,6 +2055,8 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         river: t.site.river,
         river_w: t.site.river_w,
         bridge_pt: t.site.bridge_pt,
+        bridges: t.site.bridges,
+        ford: t.site.ford,
         route_ends: t.site.route_ends,
         harbour_pt: t.harbour.as_ref().map(|h| h.pt),
         edges,

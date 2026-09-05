@@ -16,6 +16,13 @@
 //! five layers that had no key here arrived at once: the wall circuit and its
 //! gates, buildings, per-parcel districts, markets and farmland.
 //!
+//! **A sixth arrived 2026-09-05: the crossings.** `detect_river_crossings` had
+//! been a full port running in `generate()` since milestone 16, with its own
+//! ordering tests, and the only thing missing was a field —
+//! `cartalith_civ::urban_adapter::UrbanLayout` dropped `site.bridges` and
+//! `site.ford` on the way through, so nothing here could count a crossing.
+//! `"bridges"`/`"bridge_dirs"`/`"ford"`/`"ford_dir"` are that field, arriving.
+//!
 //! The rule those keys are written to has not changed, only what it now
 //! permits. An **absent** key means the engine cannot produce the thing; an
 //! **empty** one means this town does not have it. So `"buildings"` is always
@@ -289,11 +296,48 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     d.set("farmland", &farm_poly);
     d.set("farmland_pasture", &farm_pasture);
 
-    // `site.bridgePt` is `buildSite`'s flattest crossing point, NOT
-    // `detectRiverCrossings`' answer about where a road really crosses --
-    // absent rather than null so a renderer cannot read it as "no bridge here".
+    // `site.bridgePt` is `buildSite`'s flattest crossing *candidate*, chosen
+    // before a single street exists -- absent rather than null so a renderer
+    // cannot read it as "no bridge here". Where a road *really* crosses is
+    // `"bridges"` below, and the two are different questions.
     if let Some(b) = l.bridge_pt {
         d.set("bridge_pt", pt(b));
+    }
+
+    // `detectRiverCrossings`, run on the FINAL graph -- after
+    // `removeWaterCrossings`, `privatizeAlleys` and `clearFortZone`, so every
+    // point here has a live road on it.
+    //
+    // **Always present, possibly empty**, which is this module's own rule for a
+    // collection: zero crossings is a real generated answer, not a missing
+    // builder. Flattening the engine's three-way (`cartalith_urban::Crossings`)
+    // this way loses nothing, because its `Bridges` arm is never empty -- so a
+    // non-empty `"bridges"` is that arm, a present `"ford"` is the `Ford` arm,
+    // and an empty `"bridges"` with no `"ford"` is `None`. `bridges.size()` is
+    // therefore a real count and needs no `has()` beside it.
+    //
+    // `pt` and `dir` and no more: all three of the reference's renderers strike
+    // the span from exactly that pair plus `riverW` -- the perpendicular
+    // `nl={x:-b.dir.y,y:b.dir.x}` at half-length `hl=rw/2+10` for a bridge and
+    // `hl=rw/2+8` for the ford, byte-identical in all three (`grep -n` on
+    // v2.11 puts the bridge form at 23380/23465/23590 and the ford's at
+    // 23387/23471/23596). None of them reads `b.cls`, so it is not copied.
+    // Parallel packed arrays for the same reason the parcels are (`_draw` wants
+    // them packed), and there are only ever a handful of crossings.
+    let br: &[urban_adapter::Bridge] = l.bridges.as_deref().unwrap_or(&[]);
+    d.set("bridges", &poly(&br.iter().map(|b| b.pt).collect::<Vec<_>>()));
+    d.set("bridge_dirs", &poly(&br.iter().map(|b| b.dir).collect::<Vec<_>>()));
+    // The ford is a single point, so it follows `plaza`/`bridge_pt` instead:
+    // absent when there is none, because an empty point is not a thing.
+    if let Some(f) = &l.ford {
+        d.set("ford", pt(f.pt));
+        // `site.bridgeDir` is `undefined` whenever `build_site` never set one,
+        // and the reference's own draw guard is `if(fd&&fd.pt&&fd.dir)`. Absent
+        // rather than a zero vector, which would point the stipple band due
+        // east and look like a measurement.
+        if let Some(dir) = f.dir {
+            d.set("ford_dir", pt(dir));
+        }
     }
     // `buildHarbour`'s own works, not `buildSite`'s candidate point. Absent
     // both when the site has no harbour and when `buildHarbour` refused one.
@@ -329,6 +373,17 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
             Some(_) => "buildHarbour → quay and piers".to_string(),
             None => "buildHarbour → none (landlocked, or refused)".to_string(),
         },
+        match (&l.bridges, &l.ford) {
+            (Some(b), _) => {
+                format!("detectRiverCrossings → {} road crossing(s) of the real river", b.len())
+            }
+            (None, Some(_)) => {
+                "detectRiverCrossings → no crossing road; an unbridged ford".to_string()
+            }
+            (None, None) => {
+                "detectRiverCrossings → none (no real river, or no road meets it)".to_string()
+            }
+        },
     ]
     .iter()
     .map(GString::from)
@@ -356,11 +411,22 @@ impl WorldGen {
     /// reports what each stage actually produced — including the ones that
     /// produced nothing, and why.
     ///
-    /// Three things the reference's model carries are still not surfaced here:
-    /// the crossings (`detectRiverCrossings`' bridges and ford), the civic hall
-    /// and places of worship, and the hinterland clutter (trees, fences, drying
-    /// racks). All three are on the `cartalith_urban::Town` the adapter
-    /// projects from and are one field each away.
+    /// **The crossings arrived 2026-09-05.** `"bridges"`/`"bridge_dirs"` are
+    /// `detectRiverCrossings`' answer — where a *live* non-quay road really
+    /// meets the *real* river's centreline, measured on the final graph — and
+    /// `"ford"`/`"ford_dir"` the unbridged fallback for a through-town that no
+    /// road crosses. `"bridges"` is always present and often empty, so
+    /// `bridges.size()` is a real count rather than a stand-in;
+    /// `"bridge_pt"` remains what it always was, `buildSite`'s candidate point,
+    /// chosen before a single street exists.
+    ///
+    /// Two things the reference's model carries are still not surfaced here:
+    /// the civic hall and places of worship
+    /// (`cartalith_urban::Town::civic`, and the games buildings beside it), and
+    /// the hinterland clutter (trees, fences, drying racks — `Town::details`
+    /// minus the `field`/`pasture` kinds the adapter already keeps). Both are
+    /// on the `cartalith_urban::Town` the adapter projects from and are one
+    /// field each away.
     ///
     /// **The place editor's overrides reach the layout** (2026-09-03). This
     /// call took `settlement_layout()` — the entry point that supplies
@@ -543,18 +609,20 @@ impl WorldGen {
     /// the reference's own `'none'` default, which the shell should dash
     /// with that reason rather than present as a port gap.
     ///
-    /// **Bridge/ford validity is not in this dictionary at all**, and that
-    /// is the honest remainder the old tooltip's "blocked on milestones
-    /// 9/10/13" papered over. The reference's third line reads it from a
-    /// cached model (`_umModelCache`, out of scope for every milestone —
-    /// this module's own header). This port's nearest equivalent,
-    /// [`Self::urban_layouts`], surfaces `bridge_pt`/`harbour_pt` as
-    /// *candidate points*, not `detectRiverCrossings`' validated crossings —
-    /// that call's own doc comment lists the crossings among what is still
-    /// "one field away" and unsurfaced. So there is nothing true this
-    /// function could put in a bridge/ford field, and it does not try;
-    /// `"has_harbour"`/`"harbour_scale"` (real whenever `site_kind` is not
-    /// `"landlocked"`) occupy the space the third line would otherwise take.
+    /// **Bridge/ford validity is not in this dictionary, and the reason is
+    /// cost, not a port gap** (corrected 2026-09-05; the older wording here
+    /// said the crossings were unsurfaced anywhere, which stopped being true
+    /// when [`Self::urban_layouts`] gained `"bridges"`/`"ford"`). The
+    /// reference's third line reads it from a cached model (`_umModelCache`,
+    /// out of scope for every milestone — this module's own header).
+    /// `detectRiverCrossings` needs the *final* street graph, so the only way
+    /// to answer it is to run the whole of `generate()` — which is exactly
+    /// what the paragraph above refuses to do at every settlement on the map.
+    /// A caller that wants a real crossing count for one settlement calls
+    /// [`Self::urban_layouts`] with that index and reads `bridges.size()`.
+    /// What this function *can* say cheaply occupies the third line instead:
+    /// `"has_harbour"`/`"harbour_scale"`, real whenever `site_kind` is not
+    /// `"landlocked"`.
     ///
     /// Skips an out-of-range index or one with no world, same as
     /// [`Self::urban_layouts`]. Never panics across the boundary: no

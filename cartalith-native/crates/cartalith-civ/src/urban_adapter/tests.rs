@@ -1553,3 +1553,141 @@ fn site_profile_elev_n_divisor_is_floored_at_1e_minus_6() {
 //    cell fails the range test, so `bx`/`by` stay 0 and the underfoot branch
 //    returns `None` anyway. The guard is a readability statement, not a
 //    behaviour.
+
+// =========================== the crossings ==================================
+
+/// A river world: the fixture's flow column at `x == 20` traced as a real
+/// stem, with a Strahler order beside it, so [`um_water_ctx`] returns a
+/// `river_path` and `build_site` sets `realRiver`. Both of
+/// `detect_river_crossings`' guards need that; on `Fixture::world()` as it
+/// ships (`order: None`, `river_polys: &[]`) the detector returns before it
+/// looks at a single road.
+fn river_world<'a>(
+    f: &'a Fixture,
+    order: &'a [i16],
+    polys: &'a [Vec<(f64, f64)>],
+) -> UrbanWorld<'a> {
+    UrbanWorld { order: Some(order), river_polys: polys, ..f.world() }
+}
+
+/// A road reaching the settlement from each bank, so `build_primaries_from_paths`
+/// lays a primary that genuinely crosses the stem at `x == 20`.
+///
+/// This is what it takes to earn a bridge on the real-water path, and the
+/// reason is `add_river_bridges`' own first guard: with real map water it
+/// returns without touching the graph, so **no span is free** and the only
+/// bridges that exist are ones `detect_river_crossings` found under a road.
+/// A river town with no crossing road gets none, which is why the fixture
+/// below needs two ways rather than a position.
+fn crossing_ways(y: f64) -> Vec<Way> {
+    let mk = |tid: u64, b_idx: usize, pts: Vec<(f64, f64)>| Way {
+        tid,
+        pts,
+        brks: vec![],
+        km: 100.0,
+        name: "Test Road".into(),
+        way_type: WayType::Road,
+        a_idx: 0,
+        b_idx,
+        hidden: false,
+    };
+    vec![
+        mk(0, 1, vec![(20.0, y), (26.0, y), (34.0, y)]),
+        mk(1, 2, vec![(20.0, y), (14.0, y), (6.0, y)]),
+    ]
+}
+
+/// `site.bridges` reaches [`UrbanLayout`].
+///
+/// `detect_river_crossings` has been a full port running inside
+/// `cartalith_urban::generate` since milestone 16, with its own ordering
+/// tests — the gap was one field in this adapter, which projected
+/// [`cartalith_urban::TownSite`] without `bridges` or `ford`. This test is
+/// what stops it being dropped again, and it asserts *shape* as well as
+/// presence per `CLAUDE.md`'s silently-empty rule: `Some(vec![])` would look
+/// exactly like success and the detector never produces one.
+#[test]
+fn a_road_that_crosses_the_river_becomes_a_bridge_on_the_layout() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+
+    let s = settlement(20, 44, 4_000);
+    let ctx = um_place_context(&w, &s, &crossing_ways(44.0));
+    assert_eq!(ctx.site_kind, "river");
+    let water = ctx.water.as_ref().expect("a river town has a real water context");
+    assert!(water.ctx.river_path.is_some(), "no river_path -- the detector's second guard");
+
+    let l = run_layout(&ctx).expect("a layout");
+    assert!(l.uses_real_water, "the detector's first guard");
+    // Not a through town, so the ford arm is not the one under test here.
+    assert!(l.ford.is_none());
+
+    let bridges = l.bridges.as_ref().expect("the crossing road recorded no bridge");
+    assert_eq!(bridges.len(), 1, "one primary crosses this stem once");
+    for b in bridges {
+        // Local box metres, so inside the box.
+        assert!(b.pt.x >= 0.0 && b.pt.x <= l.wm, "bridge off the box: {:?}", b.pt);
+        assert!(b.pt.y >= 0.0 && b.pt.y <= l.hm, "bridge off the box: {:?}", b.pt);
+        // The crossing sits ON the centreline, within the dedup radius the
+        // detector itself uses -- 80 m -- of some segment of it.
+        let near = l.river.windows(2).any(|s| {
+            let (a, c) = (s[0], s[1]);
+            let d = c - a;
+            let t = if d.x * d.x + d.y * d.y > 0.0 {
+                (((b.pt - a).x * d.x + (b.pt - a).y * d.y) / (d.x * d.x + d.y * d.y)).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            b.pt.dist(a + d * t) < 80.0
+        });
+        assert!(near, "a recorded crossing is not on the centreline: {:?}", b.pt);
+        // `dir` is the river's local direction, normalised. A renderer strikes
+        // the span across it, so a zero vector would draw nothing.
+        let m = (b.dir.x * b.dir.x + b.dir.y * b.dir.y).sqrt();
+        assert!((m - 1.0).abs() < 1e-9, "river direction is not a unit vector: {m}");
+        // The detector skips quays because a quay runs *along* the water.
+        assert_ne!(b.cls, "quay");
+    }
+}
+
+/// The second arm: a through-town that no road crosses gets `site.ford`
+/// instead, and it reaches the layout too. Both arms are exercised because a
+/// shell reading only the live one cannot see an inversion between them.
+#[test]
+fn a_through_town_with_no_crossing_road_gets_a_ford() {
+    let f = Fixture::new();
+    let order = vec![4i16; GW * GH];
+    let stem: Vec<(f64, f64)> = (0..48).map(|y| (20.0, y as f64)).collect();
+    let polys = vec![stem];
+    let w = river_world(&f, &order, &polys);
+
+    let ctx = um_place_context(&w, &settlement(20, 46, 4_000), &[]);
+    assert_eq!(ctx.site_kind, "riverthrough", "the ford arm needs site.through");
+    let l = run_layout(&ctx).expect("a layout");
+    assert!(l.bridges.is_none(), "no road crosses here, so there is no bridge");
+    let ford = l.ford.as_ref().expect("a through town with no crossing road fords it");
+    // `site.ford = {pt: site.bridgePt, dir: site.bridgeDir}` -- the fallback is
+    // `buildSite`'s candidate point promoted, so the two projected fields must
+    // agree exactly. This is the assertion that catches a mis-wired projection,
+    // and it is deliberately not a box test: at this fixture's resolution one
+    // grid cell is 12.5 km against a 1.7 km site box, so `_umWaterCtx`'s own
+    // adjacent-cell search radius puts the clipped stem -- and the candidate
+    // point on it -- legitimately outside the box.
+    assert_eq!(Some(ford.pt), l.bridge_pt, "the ford is not buildSite's candidate point");
+}
+
+/// The third arm, so a shell's dash over an empty answer carries a true
+/// reason: a landlocked town produces neither, and that is
+/// `detect_river_crossings`' own guard rather than a dropped field.
+#[test]
+fn a_landlocked_town_has_neither_bridges_nor_a_ford() {
+    let f = Fixture::new();
+    let w = f.world();
+    let l = settlement_layout(&w, &settlement(50, 8, 4_000), &[]).expect("a layout");
+    assert!(!l.uses_real_water);
+    assert!(l.bridges.is_none(), "a dry box produced river crossings");
+    assert!(l.ford.is_none(), "a dry box produced a ford");
+}

@@ -478,15 +478,42 @@ func _build_trade() -> void:
 ##
 ## Diagnostic only, and said so in the note: the reference reconciles the
 ## overshoot in `_civApplyFoodShedCeilings`, and **that function is not ported**
-## (checked repo-wide 2026-09-01 -- `cartalith-civ` names it in a comment and
-## nothing implements it). Nothing here clamps a population, so a reader must
-## not take an unsustainable settlement for one the engine will shrink.
+## (re-checked repo-wide 2026-09-05 -- `grep -rn "apply_food_shed\|ApplyFoodShed"`
+## over `crates/` returns exactly one hit, a comment in `trade.rs`, and nothing
+## implements it). Nothing here clamps a population, so a reader must not take
+## an unsustainable settlement for one the engine will shrink.
+##
+## ## Two ways to have no row, and they are not the same fact
+##
+## `TradeStore.food_shed_for()` answers `{}` for **either** "no pass is held"
+## **or** "the pass is held and this index is past its rows", and until
+## 2026-09-05 both drew the same sentence: *"civ_food_shed() returned
+## nothing, which is what an engine build older than milestone 2 does."* On
+## the second branch that is false, and provably so in the same breath -- the
+## pass is right there holding a row for every other settlement.
+##
+## Found by driving both branches (`_lanedfoodshed_probe.gd` T2, on a live
+## 215-settlement world: index 215 drew the engine-too-old reason while
+## indices 0..214 all answered). `MISTAKES.md`'s dash-reason row is exactly
+## this shape -- *a wrong reason is worse than none, because it reads as
+## freshly checked and it routes the next brief at a whole subsystem*. So the
+## two branches now say the two different true things, and
+## `is_food_shed_matched()` is what tells them apart.
 func _food_shed_note(sec: Control) -> void:
 	var shed := TradeStore.food_shed_for(_index)
 	if shed.is_empty():
-		DccWidgets.note(sec, "Food shed: — no row for this settlement. civ_food_shed() "
-			+ "returned nothing, which is what an engine build older than ECONOMY_SCOPE.md "
-			+ "milestone 2 does.")
+		if not TradeStore.is_food_shed_matched():
+			DccWidgets.note(sec, "Food shed: — no row for this settlement. civ_food_shed() "
+				+ "returned nothing, which is what an engine build older than ECONOMY_SCOPE.md "
+				+ "milestone 2 does.")
+		else:
+			## Counted off the existing public reader rather than through a new
+			## `row_count()` on `TradeStore`: one call site does not earn API.
+			var held: int = (TradeStore.food_shed().get("rows", []) as Array).size()
+			DccWidgets.note(sec, "Food shed: — the pass ran and covers %d settlement%s, "
+				% [held, "" if held == 1 else "s"]
+				+ "but has no row at index %d. The roster and the last food-shed pass " % _index
+				+ "have drifted apart -- re-run Civilization ▸ Trade ▸ Match trade flows.")
 		return
 	var supported := FactionRosterWindow._thousands(int(round(float(shed.get("supported", 0.0)))))
 	var local := FactionRosterWindow._thousands(int(round(float(shed.get("local_capacity", 0.0)))))
@@ -522,11 +549,26 @@ func _food_shed_note(sec: Control) -> void:
 ## catchment budgets binds, and `fuel_poor`/`ore_rich` flag the two lopsided
 ## cases (ore to spare with no wood to fire it, and the converse -- a charcoal
 ## exporter with nothing to smelt).
+##
+## Both dashes below carry the **two-branch split** `_food_shed_note` documents,
+## and for the identical reason: `smelting_for()`/`salt_access_for()` each
+## answer `{}` for either "no pass is held" or "this index is past the pass's
+## rows", and until 2026-09-05 both printed one whole-pass sentence -- which
+## on the second branch is false. Fixed here in the same change that fixed the
+## food shed's, since the defect is one shape in three readouts, not three
+## defects. `coppice_ha_needed` is emitted by `civ_place_smelting` and drawn by
+## nothing; that is a missing reader, not a missing value, and it is recorded
+## in `trade_store.gd::smelting_for`'s doc rather than dashed here.
 func _smelting_salt_note(sec: Control) -> void:
 	var smelt := TradeStore.smelting_for(_index)
 	if smelt.is_empty():
-		DccWidgets.note(sec, "Smelting: — no row for this settlement. civ_place_smelting() "
-			+ "returned nothing, the same defensive case civ_food_shed()'s own reader states above.")
+		if not TradeStore.is_smelting_matched():
+			DccWidgets.note(sec, "Smelting: — no row for this settlement. civ_place_smelting() "
+				+ "returned nothing, the same defensive case civ_food_shed()'s own reader states "
+				+ "above for an engine build without the binding.")
+		else:
+			DccWidgets.note(sec, "Smelting: — the pass ran but has no row at index %d. " % _index
+				+ "Re-run Civilization ▸ Trade ▸ Match trade flows.")
 	elif float(smelt.get("iron_kg_yr", 0.0)) <= 0.0:
 		DccWidgets.note(sec, "Smelting: none possible here -- ore, fuel, or both are absent from "
 			+ "this catchment.")
@@ -546,8 +588,13 @@ func _smelting_salt_note(sec: Control) -> void:
 
 	var salt := TradeStore.salt_access_for(_index)
 	if salt.is_empty():
-		DccWidgets.note(sec, "Salt: — no row for this settlement. civ_salt_access() "
-			+ "returned nothing, the same defensive case civ_food_shed()'s own reader states above.")
+		if not TradeStore.is_salt_matched():
+			DccWidgets.note(sec, "Salt: — no row for this settlement. civ_salt_access() "
+				+ "returned nothing, the same defensive case civ_food_shed()'s own reader states "
+				+ "above for an engine build without the binding.")
+		else:
+			DccWidgets.note(sec, "Salt: — the pass ran but has no row at index %d. " % _index
+				+ "Re-run Civilization ▸ Trade ▸ Match trade flows.")
 	elif bool(salt.get("has", false)):
 		DccWidgets.note(sec, "Salt: yes, from %s." % String(salt.get("source", "?")))
 	else:

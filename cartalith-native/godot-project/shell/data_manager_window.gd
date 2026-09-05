@@ -481,12 +481,17 @@ var _gis_dest := ""
 ## The last GeoJSON document's own per-layer feature counts, measured by parsing
 ## the text this window just wrote -- `{layer: count}` plus `"features"`.
 ##
-## Measured, not modelled, and that is the point: the shell can count
-## settlements, ways and provinces before a run, but it cannot count **rivers**
-## (they are traced inside `geojson_bridge.rs::export_geojson` from
-## `stream_order`/`channels`, which no binding exposes). So the INCLUDE chips
-## dash that group before a run and the receipt reports its real number after
-## one. Empty until an export has run in this session; `has()`, never a zero.
+## Measured, not modelled, and that is the point: these counts come off the
+## **written file**, so the receipt reports what the export actually holds
+## rather than repeating what the INCLUDE chips predicted it would.
+##
+## Until 2026-09-05 this note also said rivers were the one group the shell
+## could not count before a run, "which no binding exposes". `WorldGen::
+## get_rivers(min_order)` always exposed it; what was missing was the GDScript
+## forwarder, and `EngineBridge.rivers(2)` is it -- so every carried group now
+## has a pre-run number and this dictionary's job is narrower and sharper:
+## it is the independent check on all five, not the only source for one.
+## Empty until an export has run in this session; `has()`, never a zero.
 var _gis_doc_layers: Dictionary = {}
 
 ## Export ▸ World Data -- the two disclosures this route owes, and the one it
@@ -1408,10 +1413,13 @@ func _gis_count(key: String) -> Dictionary:
 					n += 1
 			return {"count": n, "how": "Generated roads plus sea lanes (civ.ways where not hidden, plus civ.sea_routes). Hand-drawn ways are excluded because export_geojson does not read infra.ways -- if any exist, the receipt says how many were left out."} if n > 0 else {"why": civ_absent}
 		"rivers":
-			## The one carried group with no pre-run count anywhere in the
-			## shell. Deliberately dashed rather than guessed; the receipt
-			## reports the real number, measured off the written document.
-			return {"why": "The count exists in the engine -- WorldGen::get_rivers(2) runs the same trace/split pair the exporter does and returns the same set -- but engine_bridge.gd has no forwarder for it, so this dock cannot ask. One line away, not a missing capability. Rivers ARE written; the count appears in the receipt after a run until the forwarder lands."}
+			## `2` is not a choice here. `geojson_bridge.rs`'s
+			## `EXPORT_MIN_RIVER_ORDER` is `2`, so asking for any other order
+			## would put this chip and the post-run receipt at different
+			## numbers -- a chip that disagrees with the file is worse than the
+			## dash this branch was until 2026-09-05.
+			var n: int = _bridge.rivers(2).size()
+			return {"count": n, "how": "EngineBridge.rivers(2) -> WorldGen::get_rivers(2). Both this and the exporter's river block build their set from the same split_river_polylines(trace_river_polylines(order, recv, w, h, 2), w, None) pair -- river_entities() calls it on one side, export_geojson() on the other -- so the chip and the written document count the same runs by construction, not by coincidence. The receipt still measures the file itself."} if n > 0 else {"why": "get_rivers(2) answered empty, and this window cannot tell which absence that is: a loaded .zip save retains no channel topology at all (SAVEFILE_COMPAT.md -- stream_order and channels are None, so nothing can be traced), the forwarder also answers empty while a generation is in flight, and a generated world can simply have no run reaching Strahler order 2. export_geojson's river block tests the same condition, so the document carries no river feature either way."}
 		"provinces":
 			var n: int = _bridge.provinces().size()
 			return {"count": n, "how": "EngineBridge.provinces() -> get_provinces(). A province with no cells in the province raster contributes no feature."} if n > 0 else {"why": civ_absent}
@@ -2530,9 +2538,12 @@ func _rebuild_gis() -> void:
 ## The written document's own feature counts, keyed by `properties.layer`, plus
 ## `"features"` for the whole collection.
 ##
-## Parsed back out of the text this window just wrote, because the shell has no
-## other way to know how many rivers went in -- they are traced inside
-## `geojson_bridge.rs` at export time. A run is already synchronous seconds of
+## Parsed back out of the text this window just wrote, so the receipt reports
+## what the file holds rather than what the chips predicted. (Until 2026-09-05
+## this said the shell had no other way to know how many rivers went in.
+## `EngineBridge.rivers(2)` is that other way now -- but it is a second
+## opinion, not a replacement: the two agreeing is what makes printing this
+## worth the pass.) A run is already synchronous seconds of
 ## work, so one more pass over the string it produced is not what makes this
 ## route slow.
 ##

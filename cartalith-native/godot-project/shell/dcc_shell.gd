@@ -3946,8 +3946,9 @@ func _tl_save_layers() -> void:
 #
 #   1. one priority message                       the `pass` slot, unchanged
 #   2. multi-slot, 1 px rules between neighbours  every slot below at once
-#   3. autosave as a STATE, with a dot            `autosave`, which this file
-#                                                 registered and never drew
+#   3. autosave as a STATE, with a dot            the `autosave` cell, which
+#                                                 this file had registered and
+#                                                 never drawn until this change
 #   4. `loaded -- no generation this session`     composed in `app.gd`
 #
 # and one rule across all four: **a slot with nothing to say is omitted -- never
@@ -3970,19 +3971,25 @@ func _tl_save_layers() -> void:
 #   tile_size / world_key / root` and no cap, budget or quota anywhere, so
 #   there is nothing for a percent to be a percent OF. It would need a
 #   per-world atlas budget on `BakeState` first.
-# - `saved 47 s ago` -- the shell holds the *clock*, not the elapsed:
-#   `app.gd` writes `autosaved HH:MM` from `Time.get_time_string_from_system()`.
-#   A relative form needs the `Time.get_ticks_msec()` of the write kept and a
-#   repaint tick to age it; neither exists.
+# - `saved 47 s ago` -- the shell holds the *clock*, not the elapsed, so the
+#   slot draws `· saved HH:MM` (`app.gd::_autosave_state_text()`, from
+#   `Time.get_time_string_from_system()`). A relative form needs the
+#   `Time.get_ticks_msec()` of the write kept and a repaint tick to age it;
+#   neither exists.
 # - `timings read from the save` -- **no source at all.**
 #   `EngineBridge.last_generate_ms` is assigned in exactly three places and all
 #   three are `Time.get_ticks_msec() - _gen_start_msec` from a live run; nothing
 #   reads a timing back out of a project archive. So state 4 draws its first
 #   half -- `app.gd::_refresh_status_mid()` composes `loaded -- no generation
 #   this session` verbatim -- and not its second.
-# - `autosave every 4 min` -- real, and **not 4**. The interval is
-#   `DccSettings.autosave_minutes()`, floored at 1, default **5**; the artboard
-#   figure is illustrative and is copied nowhere.
+# - `autosave every 4 min` -- real, **not 4, and not any one number**: the
+#   interval is `DccSettings.autosave_minutes()`, `maxi(1, …)` over
+#   `user://cartalith_settings.cfg`'s `autosave/minutes`, absent-key default
+#   **5**, and `File ▸ Autosave interval` sets it from
+#   `DccMenus.AUTOSAVE_MINUTES` = `[1, 5, 15]` plus `Off`. 4 is not on that
+#   ladder and appears nowhere in the shell. `app.gd::_autosave_interval_text()`
+#   reads the setting on every write of the slot, so the sentence follows the
+#   armed `_autosave_timer.wait_time` rather than restating a constant.
 # - `3 stages stale` -- real (`EngineBridge.stale_stages()`), though `app.gd`
 #   spends the slot on the stage NAMES plus the upstream reason rather than on
 #   a count.
@@ -4062,8 +4069,9 @@ func _build_status_bar() -> Control:
 	## Recompute button and then `move_child(_stale_recompute, 2)` to sit it
 	## immediately after the `stale` readout, and that arithmetic has to keep
 	## meaning what it says. It does -- 0 `pass`, 1 `stale`, so 2 is still the
-	## first position after it -- but the *order past that point* has changed
-	## and `app.gd`'s comment there still spells the old one out.
+	## first position after it -- and the reorder past that point (`autosave`
+	## moved behind `atlas` and `progress`) is now spelled out at that call site
+	## too, so neither comment can be read as describing the old order.
 	for slot in STATUS_SLOTS:
 		var cell := HBoxContainer.new()
 		cell.name = "Slot_" + slot
@@ -4180,10 +4188,13 @@ func _apply_status_omission() -> void:
 			tl.visible = tl.text != ""
 
 ## The autosave marker's ink follows its own sentence's severity rather than
-## sitting on `--good` forever. `app.gd`'s four autosave writers use a quiet
-## token while the autosave is healthy and `accent` when it is not (`autosave
-## failed`, `unsaved changes`), and a green dot in front of "autosave failed"
-## would be the readout contradicting itself.
+## sitting on `--good` forever. `app.gd`'s five autosave writers -- three
+## branches of `_refresh_save_status()` and two of `_autosave_tick()`, measured
+## 2026-09-05 with `grep -n 'set_status("autosave"' shell/app.gd |
+## grep -vc '^[0-9]*:\s*#'` -- use a
+## quiet token while the autosave is healthy and `accent` when it is not
+## (`autosave failed`, `unsaved changes`), and a green dot in front of
+## "autosave failed" would be the readout contradicting itself.
 func _paint_status_dot(token: String) -> void:
 	if _status_dot == null:
 		return

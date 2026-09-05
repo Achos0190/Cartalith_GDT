@@ -822,6 +822,35 @@ func provinces() -> Array:
 func trade_balances() -> Array:
 	return world_gen.get_trade_balances()
 
+## Every traced river run of Strahler order `min_order` and above, as the
+## entity dictionaries `lib.rs::get_rivers` documents -- `order`, `km`,
+## `discharge`, `catchment_km2`, `width_cells`, the two end cells, and the
+## rest. `river_at()` (called direct off `world_gen` by `right_dock.gd`)
+## returns one entry of this same shape for a click.
+##
+## **Pass `2` for anything that must agree with a written GeoJSON document.**
+## `geojson_bridge.rs`'s `EXPORT_MIN_RIVER_ORDER` is `2`, and both sides build
+## their set from the same `split_river_polylines(trace_river_polylines(order,
+## recv, w, h, min_order), w, None)` pair -- `river_entities()` on this side,
+## `export_geojson()` on that one -- so the two counts are equal by
+## construction and not by coincidence. `1` traces every headwater trickle
+## instead; `right_dock.gd`'s own note records 784 runs at order 1 against 128
+## at order 2 for the world it measured.
+##
+## Empty for a loaded `.zip` save as well as before the first generate:
+## `SAVEFILE_COMPAT.md` stores no channel topology, so `stream_order` and
+## `channels` are `None` and there is nothing to trace. **That empty is an
+## absence, not a measured zero** -- a caller putting the number in front of a
+## user has to say which it is rather than print `0`, the way
+## `data_manager_window.gd::_gis_count()` does.
+##
+## Refused mid-generation for the `Gd<T>::bind()` reason `stale_stages()` above
+## is, and empty against a binary built before this landed.
+func rivers(min_order: int) -> Array:
+	if generating or not _has("get_rivers"):
+		return []
+	return world_gen.get_rivers(min_order)
+
 ## Town layouts for the given settlement indices (`urban_bridge.rs`). Shorter
 ## than `indices` whenever the engine refuses a settlement -- a pin in open
 ## water gets no town, which is the reference's own `_umModelFor` refusal. Each

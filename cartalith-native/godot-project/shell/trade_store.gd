@@ -21,11 +21,23 @@ class_name TradeStore
 ## per-cell field for the lifetime of a session — which was the whole of the
 ## register's memory objection.
 ##
-## The food-shed pass is cached the same way and for the same reason, even
-## though it has one real reader today ([refresh] itself) and no dock section
-## yet: `food_shed_for()` is written for the place editor's Trade tab, right
-## beside its existing [navigability] read, so that section can be added
-## without a second engine call.
+## The food-shed pass is cached the same way and for the same reason, and it
+## now has the reader it was written for: `place_editor_window.gd`'s
+## `_food_shed_note`, drawn in the Trade section right beside the
+## [navigability] read, one `DccWidgets.note` per clause. (Through 2026-09-01
+## this paragraph said the pass had "no dock section yet" and named the
+## editor as somewhere a section "can be added"; the section landed and the
+## paragraph did not. Corrected 2026-09-05 -- the symbol is
+## `_food_shed_note`.
+##
+## That correction shipped its own false clause in the same edit: it said
+## `_foodshed_probe.gd` "drives all four of its branches". It has **five**
+## branches after that edit, and that probe reaches **branch 1 only** -- its
+## `_render()` does `TradeStore._food_shed = {} if row == null else
+## {"rows": [row]}`, so the empty case is the only absent state it produces.
+## The "pass held, index past its rows" branch is driven by
+## `_lanedfoodshed_probe.gd` T2. Caught by a verifier the same day: a stale
+## clause written *inside* the correction that existed to remove one.)
 ##
 ## The smelting and salt-access passes (`ECONOMY_SCOPE.md` EC-2/EC-7,
 ## 2026-09-02) are cached the same way again, one dictionary each: neither
@@ -79,6 +91,27 @@ static func last() -> Dictionary:
 static func is_food_shed_matched() -> bool:
 	return not _food_shed.is_empty()
 
+## True when a smelting pass has been run against the current world.
+##
+## This and [is_salt_matched] complete a set that was two-of-four: [refresh]
+## populates all four dictionaries and **any one of them can independently be
+## `{}`** (each has its own `has_method` guard here and its own `_has()`
+## binding guard in `engine_bridge.gd` -- which is exactly the state smelting
+## and salt were in from 2026-09-02 to 2026-09-05). A reader that can only
+## ask two of the four cannot tell "the pass is absent" from "the pass ran and
+## this index is past it", and `place_editor_window.gd::_smelting_salt_note`
+## needs that distinction for the same reason `_food_shed_note` does: without
+## it, both branches print the whole-pass reason, and on the second branch
+## that reason is false. `_bridgeforward_probe.gd` had to measure row counts
+## through the per-settlement readers because these two did not exist.
+static func is_smelting_matched() -> bool:
+	return not _smelting.is_empty()
+
+## True when a salt-access pass has been run against the current world. See
+## [is_smelting_matched] for why both were added 2026-09-05.
+static func is_salt_matched() -> bool:
+	return not _salt.is_empty()
+
 ## The last food-shed pass, `{}` if there is none. Never runs one, for the
 ## same reason [last] does not.
 static func food_shed() -> Dictionary:
@@ -86,9 +119,27 @@ static func food_shed() -> Dictionary:
 
 ## One settlement's food-shed row from the last pass -- `{}` when none has
 ## run, or when this index has no row. Parallel in shape to [navigability]
-## below: `local_capacity`, `hinterland_capacity`, `import_capacity`,
-## `supported`, `suppliers`, `best_mode`, `limited_by`, `sustainable`,
-## `over_by` (`civ_food_shed()`'s own doc comment names every key).
+## below.
+##
+## Twelve keys, in two groups, because they come from two places and a reader
+## writing a probe against this needs to know which:
+##
+## * From `cartalith_civ::trade::FoodShed` itself -- `local_capacity`,
+##   `hinterland_capacity`, `import_capacity`, `supported`, `suppliers`,
+##   `best_mode` (`land`/`river`/`sea`), `limited_by` (`local`/`trade`),
+##   `sustainable`, `over_by`.
+## * Added by the binding from `civ.settlements[i]`, not by the model --
+##   `index`, `name`, `pop`. `pop` is the settlement's population **as the
+##   pass saw it**, which is why `place_editor_window.gd::_food_shed_note`
+##   draws it as "Population N when the match ran" rather than reading a
+##   live figure back off the roster.
+##
+## This list previously named the nine model keys only and claimed the Rust
+## doc "names every key" -- while `_food_shed_note` reads `pop`, one of the
+## three it omitted. Corrected 2026-09-05 against `civ_trade_bridge.rs`'s
+## `civ_food_shed` `dict!` literal, which is the definition; `_lanedfoodshed_probe.gd`
+## now asserts all twelve by `has()` on a live pass so the two cannot drift
+## again silently.
 static func food_shed_for(index: int) -> Dictionary:
 	var rows: Array = _food_shed.get("rows", [])
 	if index < 0 or index >= rows.size():
@@ -96,10 +147,19 @@ static func food_shed_for(index: int) -> Dictionary:
 	return rows[index]
 
 ## One settlement's smelting economics from the last pass -- `{}` when none
-## has run, or when this index has no row. `iron_kg_yr`, `charcoal_kg_yr`,
-## `ore_kg_yr`, `woodland_ha`, `limited_by` (`fuel`/`ore`), `fuel_poor`,
-## `ore_rich`, `coppice_ha_needed` (`civ_place_smelting()`'s own doc comment
-## names every key).
+## has run, or when this index has no row. Ten keys: `iron_kg_yr`,
+## `charcoal_kg_yr`, `ore_kg_yr`, `woodland_ha`, `limited_by` (`fuel`/`ore`),
+## `fuel_poor`, `ore_rich`, `coppice_ha_needed` from the model, plus `index`
+## and `name` added by the binding -- the same two-group split
+## [food_shed_for] documents above, and the same two the list here omitted
+## until 2026-09-05. `_bridgeforward_probe.gd`'s T5 asserts all ten by
+## `has()` on a live pass.
+##
+## `coppice_ha_needed` is the one key no surface draws:
+## `place_editor_window.gd::_smelting_salt_note` reports the four figures
+## and the two lopsided-case flags and stops there. Not a defect to paper
+## over with a dashed row -- the value is present and correct, it simply has
+## no reader yet.
 static func smelting_for(index: int) -> Dictionary:
 	var rows: Array = _smelting.get("rows", [])
 	if index < 0 or index >= rows.size():
@@ -107,9 +167,11 @@ static func smelting_for(index: int) -> Dictionary:
 	return rows[index]
 
 ## One settlement's salt access from the last pass -- `{}` when none has run,
-## or when this index has no row. `has`, `source` (`none`/`sea salt`/
-## `salt deposit`/`salt lake` -- `civ_salt_access()`'s own doc comment names
-## both keys).
+## or when this index has no row. Four keys: `has` and `source`
+## (`none`/`sea salt`/`salt deposit`/`salt lake`) from the model, plus
+## `index` and `name` added by the binding -- the same two-group split
+## [food_shed_for] documents above. `_bridgeforward_probe.gd`'s T5 asserts
+## all four by `has()` on a live pass.
 static func salt_access_for(index: int) -> Dictionary:
 	var rows: Array = _salt.get("rows", [])
 	if index < 0 or index >= rows.size():

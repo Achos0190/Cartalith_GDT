@@ -781,19 +781,40 @@ func _wire_status() -> void:
 # time it; this shell composites through `ViewportHost` plus
 # `map_overlay.gd` plus whatever overlays are live, and has no equivalent
 # single-pass timer to read. `grep -rn repaint shell/*.gd` finds prose and
-# nothing else. The field goes here, between the pass duration and the autosave
-# clock, once question 2 says what it should measure.
+# nothing else. The field goes here, straight after the pass duration -- which
+# is now the composite's last field, since the autosave clock the answer put
+# behind it has moved to its own cell (below) -- once question 2 says what it
+# should measure.
 #
-# Everything else here comes from writers that already existed -- the pass
-# duration is `bridge.last_generate_ms`, the same figure the `pass` slot prints
-# as `generated · 1.4s`, and the autosave state is the same
-# `DccSettings.autosave_enabled()` / last-autosave pair the `autosave` slot's
-# four writers read. That slot is now registered and not drawn
-# (`DccShell._build_status_bar()`), so the clock appears once.
+# The pass duration is `bridge.last_generate_ms`, the same figure the `pass`
+# slot prints as `generated · 1.4s`.
+#
+# **§2.2's `autosave 14:02` field is deliberately NOT composed here, and this
+# is the paragraph that owes the reader why.** It used to be, and once
+# `DccShell._build_status_bar()` started drawing the `autosave` cell the same
+# state stood twice in one bar. `design/proposed-2026-09-05/StatusBar.dc.html`
+# settles which of the two is the design's, and not by being the newer
+# document:
+#
+#   - **slot order.** State 3 draws autosave in the LEFT group, immediately
+#     behind a 1 px `--div` rule with a 5 px `--good` dot 6 px ahead of its
+#     text. `mid` is drawn past the spacer, where the artboard shows neither a
+#     rule nor a dot -- so the drawing describes the cell, not this composite.
+#   - **the omission rule.** "A slot with nothing to say is omitted." The cell
+#     can satisfy it: `_refresh_save_status()` writes "" when autosave is off
+#     with nothing unsaved, and `_apply_status_omission()` removes it. This
+#     composite could not -- it appended `autosave off` unconditionally, so the
+#     field was structurally un-omittable.
+#   - state 4, the one state the artboard gives `mid` content of its own,
+#     draws `loaded -- no generation this session` and no autosave beside it.
+#
+# So the cell owns the autosave state and this function no longer mentions it.
+# `parts` can now come back empty -- mid-regenerate, before the first stage
+# tick -- which writes "" and lets the omission rule take the slot out, rather
+# than leaving a lone `autosave off` standing where a stage name will be.
 
 var _mid_stage := ""           ## The last stage that has RESOLVED, `NN Name`.
 var _mid_running_stage := ""   ## The one currently running; not yet resolved.
-var _mid_autosave_at := ""     ## `HH:MM` of the last successful autosave.
 
 func _refresh_status_mid() -> void:
 	if not bridge.has_world and not bridge.generating:
@@ -827,18 +848,7 @@ func _refresh_status_mid() -> void:
 		## generation this session" in the same breath the `pass` slot beside
 		## it read "generating…".
 		parts.append("loaded — no generation this session")
-	parts.append("autosave %s" % _status_mid_autosave())
 	set_status("mid", " · ".join(parts), "text_ghost")
-
-## §2.2's autosave field. `off` is fixed by the answer; the other two states
-## are this shell's, and each is a fact rather than a promise -- a clock only
-## once an autosave has actually written one, and the interval before that.
-func _status_mid_autosave() -> String:
-	if not DccSettings.autosave_enabled():
-		return "off"
-	if _mid_autosave_at != "":
-		return _mid_autosave_at
-	return "every %d min" % DccSettings.autosave_minutes()
 
 ## SG-01's clock. A `Timer` and not a `_process` tick, and not a signal either:
 ## staleness is produced by half a dozen unrelated `#[func]`s (every commit
@@ -889,10 +899,15 @@ func _setup_staleness() -> void:
 		+ "(UNIFIED_TOOL_PLAN.md milestone C measured why), so \"civ\" usually stays -- "
 		+ "Civilization ▸ Settlements ▸ Recompute civilisation is the one that clears it.")
 	## `dcc_shell.gd`'s `_build_status_bar()` fills this row in its own fixed
-	## order -- pass, stale, autosave, atlas, spacer, hint -- so index 2 is
-	## immediately after the `stale` label. Appended and moved rather than built
-	## into that function, because the row is shell geometry and this is
-	## composition, which is the split `app.gd`'s own header states.
+	## order, one child per slot: `STATUS_SLOTS` -- **pass, stale, atlas,
+	## progress, autosave** -- then the spacer, then `mid` and `hint`. So child
+	## 0 is `Slot_pass`, child 1 is `Slot_stale`, and index 2 is immediately
+	## after the `stale` readout, which is the contract this call exists to
+	## express. (`autosave` used to sit at 2; the 2026-09-05 artboard moved it
+	## behind `atlas` and `progress`, and index 2 still means the same thing
+	## because only the slots *after* `stale` moved.) Appended and moved rather
+	## than built into that function, because the row is shell geometry and this
+	## is composition, which is the split `app.gd`'s own header states.
 	status_row.move_child(_stale_recompute, 2)
 
 ## Reads the engine's stage graph and writes the `stale` status slot. Public
@@ -2025,15 +2040,32 @@ func open_recent_project(path: String) -> void:
 ## per-frame resolution.
 var _autosave_timer: Timer
 
+## `HH:MM` of the last successful autosave **this session**, "" before the
+## first one. It lives here rather than up in §11 because the autosave state is
+## the `autosave` cell's and no longer the `mid` composite's -- see that
+## section's header for which drawing settles it. Also read by
+## `confirm_unsaved_world()`'s `LAST AUTOSAVE` row.
+##
+## (That citation said `_show_project_stats()` for one batch. **No such symbol
+## exists anywhere in the project** — `grep -rn '_show_project_stats'` returned
+## exactly one hit, the comment itself. Corrected 2026-09-05 by a verifier: the
+## row is real, its home was not. Same class as the "cite a test file in a doc
+## comment" row — a symbol citation that reads as freshly checked and resolves
+## to nothing.)
+var _last_autosave_at := ""
+
 func _setup_autosave() -> void:
 	_autosave_timer = Timer.new()
 	_autosave_timer.name = "Autosave"
 	_autosave_timer.one_shot = false
 	_autosave_timer.timeout.connect(_autosave_tick)
 	add_child(_autosave_timer)
-	## The status slot is one of the four the shell already reserves
-	## (`dcc_shell.gd`'s `_build_status_bar`) and has been empty since it was
-	## built -- this is what it was for.
+	## The status slot is one of the seven `DccShell._build_status_bar()`
+	## reserves (`STATUS_SLOTS`'s five plus `STATUS_TAIL_SLOTS`'s two). It has
+	## exactly five writers, all in this file and all below: three branches of
+	## `_refresh_save_status()` and two of `_autosave_tick()`. Measured
+	## 2026-09-05 with the comment lines excluded, which this sentence is one of:
+	## `grep -n 'set_status("autosave"' shell/app.gd | grep -vc '^[0-9]*:\s*#'`.
 	bridge.dirty_changed.connect(func(_d: bool): _refresh_save_status())
 	bridge.project_saved.connect(func(_p: String): _refresh_save_status())
 	apply_autosave_setting()
@@ -2100,8 +2132,8 @@ func _autosave_tick() -> void:
 	## the user chose to keep is still unwritten. That wrapper's own doc names
 	## this call site as its reason for existing.
 	if bool(bridge.project_save_with_documents(target, _project_documents()).get("ok", false)):
-		_mid_autosave_at = Time.get_time_string_from_system().substr(0, 5)
-		set_status("autosave", "autosaved %s" % _mid_autosave_at, "text_faint")
+		_last_autosave_at = Time.get_time_string_from_system().substr(0, 5)
+		set_status("autosave", _autosave_state_text(), "text_faint")
 	else:
 		set_status("autosave", "autosave failed", "accent")
 		## The third of the three phone-invisible failures. The `autosave` slot
@@ -2113,7 +2145,12 @@ func _autosave_tick() -> void:
 		_show_phone_toast(
 			"Autosave failed — %s could not be written. Your project itself is untouched."
 				% target.get_file(), null, 4.5)
-	_refresh_status_mid()
+	## No `_refresh_status_mid()` here any more. It was called for the composite's
+	## `autosave` field, which the `autosave` cell now owns; nothing this function
+	## touches is an input of `_refresh_status_mid()` (`bridge.has_world`,
+	## `bridge.generating`, `_mid_stage`, `bridge.last_generate_ms`), and each of
+	## those four is refreshed by the bridge signal that changes it.
+	##
 	## Restored through `mark_world_dirty()` rather than by writing the field,
 	## so `dirty_changed` fires and the status bar cannot drift out of step
 	## with the flag. A no-op on today's code path -- nothing between here and
@@ -2122,6 +2159,41 @@ func _autosave_tick() -> void:
 	if was_dirty:
 		bridge.mark_world_dirty()
 
+## The interval sentence, read live off the setting every time rather than
+## captured once. `DccSettings.autosave_minutes()` is `maxi(1, …)` over
+## `user://cartalith_settings.cfg`'s `autosave/minutes`, whose absent-key
+## default is **5**; `File ▸ Autosave interval` is the only writer and offers
+## `DccMenus.AUTOSAVE_MINUTES` -- `[1, 5, 15]` -- plus `Off`, so **there is no
+## one number to print**: the bar states whichever of those is armed. The
+## artboard's `every 4 min` is illustrative and 4 is not on the ladder.
+##
+## `apply_autosave_setting()` arms `_autosave_timer.wait_time` from the same
+## call and then refreshes this readout, so the sentence and the clock behind
+## it cannot disagree -- and a hand-edited `minutes` outside the ladder is
+## reported as it stands rather than rounded, the same rule
+## `DccMenus._refresh_autosave_menu()` follows.
+func _autosave_interval_text() -> String:
+	return "autosave every %d min" % DccSettings.autosave_minutes()
+
+## State 3's slot: the artboard draws `autosave every 4 min · saved 47 s ago`,
+## i.e. the interval and the last write together in one cell rather than one
+## replacing the other. The second half is the **clock** -- `saved HH:MM` --
+## and not the artboard's relative age, because the shell holds the time of the
+## write and not its elapsed (`dcc_shell.gd`'s §11 header records what an
+## elapsed form would need). Before the first write of a session there is no
+## second half and the slot is the interval alone, which is a fact rather than
+## a promise of a time that has not happened.
+func _autosave_state_text() -> String:
+	if _last_autosave_at == "":
+		return _autosave_interval_text()
+	return "%s · saved %s" % [_autosave_interval_text(), _last_autosave_at]
+
+## Writes the `autosave` cell and nothing else. It used to end in
+## `_refresh_status_mid()`, for the composite's own copy of this state; with
+## that field gone the call had no input to carry. The one caller that changes
+## something `_refresh_status_mid()` reads is `_close_world()`, and
+## `EngineBridge.close_world()` emits `world_loaded` before this runs -- whose
+## handler already refreshes the composite with `has_world` false.
 func _refresh_save_status() -> void:
 	if not DccSettings.autosave_enabled():
 		set_status("autosave", "" if not bridge.world_dirty else "unsaved changes",
@@ -2129,8 +2201,12 @@ func _refresh_save_status() -> void:
 	elif current_project_path == "":
 		set_status("autosave", "autosave waiting for a saved project", "text_ghost")
 	else:
-		set_status("autosave", "autosave every %d min" % DccSettings.autosave_minutes(), "text_faint")
-	_refresh_status_mid()
+		## Through the composer, so the interval survives the first successful
+		## write. It did not: the tick wrote `autosaved HH:MM` and the next
+		## `dirty_changed` -- the very next edit -- landed here and replaced it
+		## with the bare interval, so the two halves the artboard draws together
+		## could never be on screen at the same time.
+		set_status("autosave", _autosave_state_text(), "text_faint")
 
 ## A failure the person has to see, on **every** composition.
 ##
@@ -2406,8 +2482,8 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 	## here would be invented, which is the one outcome worse than a dash.
 	DccWidgets.modal_stat_absent(stats, "edits since save",
 		"no edit counter exists — EngineBridge.world_dirty is a boolean, not a count")
-	if _mid_autosave_at != "":
-		DccWidgets.modal_stat(stats, "last autosave", _mid_autosave_at)
+	if _last_autosave_at != "":
+		DccWidgets.modal_stat(stats, "last autosave", _last_autosave_at)
 	else:
 		DccWidgets.modal_stat_absent(stats, "last autosave",
 			"autosave is off" if not DccSettings.autosave_enabled()
