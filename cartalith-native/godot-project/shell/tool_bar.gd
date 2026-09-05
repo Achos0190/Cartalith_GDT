@@ -483,12 +483,17 @@ func _on_paint_commit() -> void:
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	rebuild()
-	## The WORLD dock draws its own Commit / Discard pair over the same draft
-	## and is on screen at the same time (WW-13) -- refresh it, or it keeps a
-	## live pair over a draft this button just emptied.
+	## **All three surfaces over the one draft**, matching `_on_paint_discard`
+	## below exactly: this bar (`rebuild()` above), the WORLD dock's Biome paint
+	## panel (WW-13) and the right dock's paint context. The last of those was
+	## missing until 2026-09-05 and its own defect was measured before it was
+	## fixed (`_rdrefresh_probe.gd` R2): committing here left the right dock
+	## reporting "1 dab pending" with a live Commit over an emptied draft, and
+	## rebuilt that dock **zero** times.
 	var ws: WorldWorkspace = app._world_workspace()
 	if ws != null:
 		ws.rebuild_paint_panel()
+		ws._refresh_right_dock_paint()
 
 ## §2.2.6's second button. The sequence is `world_workspace.gd`'s own
 ## `_on_paint_discard()` -- the one that already owns this draft -- rather than
@@ -504,10 +509,10 @@ func _on_paint_commit() -> void:
 ## - All three surfaces over the one draft are refreshed: this bar, the WORLD
 ##   dock's Biome paint panel (WW-13) and the right dock's paint context.
 ##
-## **`_on_paint_commit` above refreshes the first two and not the third.** Left
-## as it is rather than changed in passing -- it is a separate finding and is
-## reported as one; what is not left is this button introducing a fourth way
-## for the same draft to be described differently in two places.
+## **`_on_paint_commit` above refreshed the first two and not the third**, which
+## this comment reported as a separate finding rather than fixing in passing.
+## It was filed, probed and fixed on 2026-09-05, so the two handlers now match
+## line for line and the sentence above describes both.
 func _on_paint_discard() -> void:
 	bridge.paint_discard()
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)

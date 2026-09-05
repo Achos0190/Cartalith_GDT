@@ -65,6 +65,8 @@ its rule before you start.
 | **Name the precondition for what the code does today** | The gate is usually **nearer** than the story suggests. Three clauses said badges draw as discs "until a pack is imported"; the real gate is that no resolver Callable is installed, so a world holding a pack full of art still draws discs | Write the condition the code actually branches on, then read the branch back and check it says the same thing |
 | **Enumerate a surface for an audit** | Walk the **code**, then ask the designs about each entry. Walking the designs and ticking items off can only ever find what the designs already list — a surface nobody drew is invisible to it. Measured: 37 of 283 menu items had **no design at all** | State the inventory method and how you know it is complete; have the checker re-run it looking for what was missed |
 | **Call a constant dead** | Probes are committed files and they read theme tables. `ROLE["h_timeline"]` was proposed for removal while `_roleresolve_probe.gd` asserts on it | `grep -rn` the key across the whole project **including probes and tests**, not just the shipping call sites |
+| **Emit a change signal** | Emit **after** the engine call, not before. Ten emitters here fired ahead of their own `world_gen.sculpt_*()`, so a synchronous listener re-read the count from before the change — measured at 0 stamps on the stroke that created the first | Probe the listener's value **inside** the emit. And check each connection's flags: a `CONNECT_DEFERRED` listener runs a frame later and never sees the stale value, so "both listeners" is a claim about flags, not about count |
+| **Write a backward-compatibility test** | A fixture of empty collections proves nothing about the installed base. The whole legacy check here was `{"vaults":[],"links":[]}` | Build the fixture from a real prior-format document at the commit that wrote it (`git show <sha>:<path>`), and assert it **opens, resolves, and re-serialises byte-identically** — so opening an old file does not silently rewrite it |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -112,7 +114,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×36
+### [2026-09-03] Leaving prose that describes the old behaviour ×38
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

@@ -467,21 +467,29 @@ impl LinkStore {
     /// deciding *"do I write a `vault.json` into this archive at all?"* is
     /// actually asking.
     ///
-    /// It exists because that caller was asking a narrower one.
-    /// `cartalith-godot`'s `project_bridge.rs` gates the whole `vault.json`
-    /// write on `!self.vault.store.links.is_empty()`, and
-    /// [`LinkStore::snapshots`] is keyed by **entity, not by link**: its own
-    /// doc says a snapshot "exists whether or not anyone has attached a note
-    /// to it", and `vault_bridge.rs`'s `vault_snapshot` requires no link to
-    /// file one. A project whose only vault state is a generated map
-    /// therefore has `links.is_empty() == true`, writes no document, and
-    /// loses the snapshot map on save — with no second copy anywhere, since
-    /// `shell/vault_store.gd` stops writing the `store` half of the sidecar
-    /// for exactly the sessions that have a project open.
+    /// It exists because that caller was asking a narrower one, and it is
+    /// **the gate `project_bridge.rs` uses as of `52666b9`** — the call site
+    /// reads `if !self.vault.store.is_empty()`. Before that commit it read
+    /// `!self.vault.store.links.is_empty()`, one member of a three-member
+    /// store, and [`LinkStore::snapshots`] is keyed by **entity, not by
+    /// link**: its own doc says a snapshot "exists whether or not anyone has
+    /// attached a note to it", and `vault_bridge.rs`'s `vault_snapshot`
+    /// requires no link to file one. A project whose only vault state was a
+    /// generated map therefore had `links.is_empty() == true`, wrote no
+    /// document, and lost the snapshot map on save — with no second copy
+    /// anywhere, since `shell/vault_store.gd` stops writing the `store` half
+    /// of the sidecar for exactly the sessions that have a project open.
     ///
     /// Three members, three ways to have something to say, so the predicate
     /// belongs to the store rather than to whichever caller last guessed at
     /// it. [`ImportedData::is_empty`] is the same shape one layer down.
+    ///
+    /// **A new member of [`LinkStore`] has to be added to this conjunction in
+    /// the same change that adds it.** Nothing structural forces that — the
+    /// gate asks this one function, so a member missing from here is a member
+    /// that silently does not survive a save, which is precisely the defect
+    /// above. `a_store_holding_only_a_snapshot_is_not_an_empty_store` asserts
+    /// each member alone for that reason.
     ///
     /// Note what it costs to be right here: a store holding only a
     /// [`VaultRef`] is **not** empty, so connecting a vault and linking
@@ -660,26 +668,120 @@ mod tests {
         assert_eq!(back.snapshot("settlement:42", "immediate"), None, "an ungenerated radius is absent, not empty");
         assert_eq!(back.snapshot("settlement:43", "local"), None);
 
-        // The shape every store written before 2026-09-02 has.
-        let older = r#"{"version":1,"vaults":[],"links":[]}"#;
-        assert_eq!(LinkStore::from_json(older).unwrap().snapshots.len(), 0);
+        // An older store parses, and so does an empty one. The *installed
+        // base* — a pre-snapshot document that actually has something in it —
+        // is `LEGACY_STORE` and its own test below; two empty arrays would
+        // pass whatever `from_json` did to the members.
+        assert_eq!(LinkStore::from_json(r#"{"version":1,"vaults":[],"links":[]}"#).unwrap(), LinkStore::default());
     }
 
-    /// The predicate `project_bridge.rs` needs and does not yet use.
+    /// A `vault.json` as a build before 2026-09-02 wrote it — `version`,
+    /// `vaults`, `links`, and **no `snapshots` member**, because
+    /// [`LinkStore::snapshots`] did not exist (`git show
+    /// 2972689:…/links.rs`, where `LinkStore` is two fields).
+    ///
+    /// Verbatim `to_json` output, which is what makes it a fixture rather
+    /// than a guess — `a_pre_snapshot_document_still_opens_and_still_resolves`
+    /// re-derives it and asserts byte equality, so a change to the wire shape
+    /// of any member fails there rather than silently rewriting the meaning of
+    /// this string.
+    const LEGACY_STORE: &str = r###"{
+  "version": 1,
+  "vaults": [
+    {
+      "id": "vault_f4dce017eb51232b",
+      "display_name": "Elaris"
+    }
+  ],
+  "links": [
+    {
+      "link_id": "link_7a79cb0395536f7e",
+      "entity_kind": "settlement",
+      "entity_id": 42,
+      "entity_label": "Nareth",
+      "vault_id": "vault_f4dce017eb51232b",
+      "relative_path": "Locations/Nareth.md",
+      "selection": {
+        "type": "heading",
+        "value": "The Old Quarter"
+      },
+      "source_modified": 1000,
+      "source_hash": "aaaa",
+      "imported_text": "## The Old Quarter\n\nNarrow streets.\n"
+    }
+  ]
+}"###;
+
+    /// Backward compatibility, measured on the installed base rather than on
+    /// a new save round-tripped against itself.
+    ///
+    /// The three things a person with a pre-milestone-2 project cares about,
+    /// in order: the document still opens; every link in it still resolves
+    /// exactly what it resolved (id, entity, vault, selection, imported text,
+    /// status); and opening it does **not** silently rewrite its shape — an
+    /// archive with no snapshots must still be written back with no
+    /// `snapshots` member, or every old project gains a diff on first open.
+    #[test]
+    fn a_pre_snapshot_document_still_opens_and_still_resolves() {
+        let old = LinkStore::from_json(LEGACY_STORE).expect("a pre-snapshot vault.json still opens");
+
+        // Still resolves what it resolved.
+        assert_eq!(old.vault("vault_f4dce017eb51232b").map(|v| v.display_name.as_str()), Some("Elaris"));
+        let found = old.links_for(EntityKind::Settlement, 42);
+        assert_eq!(found.len(), 1, "the one link in the document");
+        let l = found[0];
+        assert_eq!(l.link_id, "link_7a79cb0395536f7e");
+        assert_eq!(l.entity_key(), "settlement:42");
+        assert_eq!(l.vault_id, "vault_f4dce017eb51232b");
+        assert_eq!(l.relative_path, "Locations/Nareth.md");
+        assert_eq!(l.selection, Selection::Heading { value: "The Old Quarter".into() });
+        assert_eq!(l.working_text(), "## The Old Quarter\n\nNarrow streets.\n");
+        assert!(!l.has_local_changes());
+        assert!(old.get("link_7a79cb0395536f7e").is_some());
+        assert_eq!(
+            l.status(true, Some(FileMeta { modified: 1000, len: 36 }), Some("aaaa")),
+            LinkStatus::Connected,
+            "an unchanged source is still Connected under the new store"
+        );
+
+        // The new member is absent, not empty-valued: nothing to show, and
+        // `snapshot()` says so with `None` rather than an empty path.
+        assert!(old.snapshots.is_empty());
+        assert_eq!(old.snapshot("settlement:42", "local"), None);
+        // ...and the document is worth writing, so opening and saving does
+        // not drop it (`is_empty` gates that write).
+        assert!(!old.is_empty());
+
+        // Byte-identical both ways: this build re-derives the fixture, so the
+        // fixture is what an older build wrote; and re-saving an opened
+        // legacy project adds no member to its `vault.json`.
+        let mut rebuilt = LinkStore::default();
+        let vid = rebuilt.add_vault("Elaris");
+        assert_eq!(vid, "vault_f4dce017eb51232b");
+        let mut l = link();
+        l.vault_id = vid;
+        rebuilt.attach(l);
+        assert_eq!(rebuilt.to_json(), LEGACY_STORE, "the wire shape of a snapshot-less store has not moved");
+        assert_eq!(old.to_json(), LEGACY_STORE, "opening a legacy store and saving it writes the same bytes");
+        assert!(!old.to_json().contains("snapshots"));
+    }
+
+    /// The predicate `project_bridge.rs`'s `vault.json` gate calls, wired at
+    /// `52666b9`.
     ///
     /// Each of the three members is asserted **alone**, so dropping any one
     /// conjunct from [`LinkStore::is_empty`] turns exactly one case red. The
     /// snapshot-only case is the live one: it is the state a person reaches
     /// by generating a map for a settlement they have not linked a note to,
-    /// and the gate in use today (`!store.links.is_empty()`) calls it
-    /// nothing to write.
+    /// and the superseded gate (`!store.links.is_empty()`) called it nothing
+    /// to write and dropped the snapshot on save.
     #[test]
     fn a_store_holding_only_a_snapshot_is_not_an_empty_store() {
         assert!(LinkStore::default().is_empty(), "nothing filed is empty");
 
         let mut snap_only = LinkStore::default();
         snap_only.set_snapshot("settlement:42", "local", ".cartalith/maps/settlement_42_local.png");
-        assert!(snap_only.links.is_empty(), "the gate in use reads this store as empty");
+        assert!(snap_only.links.is_empty(), "the superseded gate read this store as empty");
         assert!(!snap_only.is_empty(), "and a generated map is not nothing");
 
         let mut vault_only = LinkStore::default();

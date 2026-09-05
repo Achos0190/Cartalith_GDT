@@ -30,13 +30,31 @@ signal params_applied()            ## A generate landed; nothing is stale.
 signal world_loaded()              ## A save or asset pack changed the world.
 signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
 ## The sculpt draft stack changed shape (a stamp added, removed, reordered,
-## undone, redone, committed or discarded). Added 2026-09-01: the right
-## dock re-reads the stack every time `show_sculpt_stack()` rebuilds it, so
-## it never needed one -- but `world_workspace.gd`'s WORLD - Terrain - Draft
-## section reads `sculpt_stamp_count()` ONCE at build time and gates its
-## Commit/Discard buttons on it, so a stroke drawn after that panel was
-## built left both buttons greyed with a non-empty draft behind them.
-## `_deadwire_probe` found it the first time it audited that surface.
+## undone, redone, committed or discarded). Added 2026-09-01 for
+## `world_workspace.gd`'s WORLD - Terrain - Draft section, which reads
+## `sculpt_stamp_count()` ONCE at build time and gates its Commit/Discard
+## buttons on it, so a stroke drawn after that panel was built left both
+## buttons greyed with a non-empty draft behind them. `_deadwire_probe` found
+## it the first time it audited that surface.
+##
+## **Emitted after the engine call, and that is load-bearing.** Godot delivers
+## signals synchronously. **Corrected 2026-09-05:** this said "both listeners
+## re-read `sculpt_stamp_count()` inside the emit". Only one does —
+## `right_dock.gd:569` connects `_sculpt_draft_backstop` with `CONNECT_DEFERRED`,
+## so it runs a frame later and was never handed a pre-change count. The ordering
+## below is still load-bearing, for the synchronous listener. Every emitter used
+## to fire before its own
+## `world_gen.sculpt_*()`, so both were handed the count from before the change
+## (`_rdrefresh_probe.gd` T0, measured 2026-09-05: 0 stamps reported on the
+## stroke that created the draft's first).
+##
+## **Two listeners, not one.** The line here used to add that the right dock
+## "re-reads the stack every time `show_sculpt_stack()` rebuilds it, so it never
+## needed one"; that is true of every shell gesture and false of the one that
+## is not a gesture. A direct `bridge.sculpt_*` call rebuilds nothing, and the
+## dock then draws a body built for the old count -- so `right_dock.gd` listens
+## too, deferred and gated on the count having moved, as a backstop that costs
+## nothing on the covered paths. See `_sculpt_draft_backstop()` there.
 signal sculpt_draft_changed()
 signal project_saved(path: String) ## A `.zip` was written.
 ## A landmark pass finished, carrying that run's own reply dictionary.
@@ -1810,8 +1828,15 @@ func sculpt_end_stroke() -> int:
 	if not _has("sculpt_end_stroke"):
 		return -1
 	mark_world_dirty()
+	## **After the engine call, not before it.** Every emit in this group used
+	## to precede its own `world_gen.sculpt_*()`, so a listener that re-read
+	## `sculpt_stamp_count()` inside the emit -- which is exactly what
+	## `world_workspace.gd::_refresh_sculpt_draft` does -- got the count from
+	## before the change. Measured 2026-09-05 (`_rdrefresh_probe.gd` T0): the
+	## signal reported 0 stamps on the stroke that made the draft's first one.
+	var stamp := world_gen.sculpt_end_stroke()
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_end_stroke()
+	return stamp
 
 func sculpt_stamp_count() -> int:
 	if not _has("sculpt_stamp_count"):
@@ -1867,22 +1892,25 @@ func sculpt_move_stamp_up(index: int) -> bool:
 	if not _has("sculpt_move_stamp_up"):
 		return false
 	mark_world_dirty()
+	var ok := world_gen.sculpt_move_stamp_up(index)
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_move_stamp_up(index)
+	return ok
 
 func sculpt_move_stamp_down(index: int) -> bool:
 	if not _has("sculpt_move_stamp_down"):
 		return false
 	mark_world_dirty()
+	var ok := world_gen.sculpt_move_stamp_down(index)
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_move_stamp_down(index)
+	return ok
 
 func sculpt_delete_stamp(index: int) -> bool:
 	if not _has("sculpt_delete_stamp"):
 		return false
 	mark_world_dirty()
+	var ok := world_gen.sculpt_delete_stamp(index)
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_delete_stamp(index)
+	return ok
 
 func sculpt_can_undo() -> bool:
 	if not _has("sculpt_can_undo"):
@@ -1898,15 +1926,17 @@ func sculpt_undo() -> bool:
 	if not _has("sculpt_undo"):
 		return false
 	mark_world_dirty()
+	var ok := world_gen.sculpt_undo()
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_undo()
+	return ok
 
 func sculpt_redo() -> bool:
 	if not _has("sculpt_redo"):
 		return false
 	mark_world_dirty()
+	var ok := world_gen.sculpt_redo()
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_redo()
+	return ok
 
 func build_sculpt_preview_texture() -> Texture2D:
 	if not _has("build_sculpt_preview_texture"):
@@ -1917,15 +1947,17 @@ func sculpt_commit(reason: String) -> Dictionary:
 	if not _has("sculpt_commit"):
 		return {}
 	mark_world_dirty()
+	var summary: Dictionary = world_gen.sculpt_commit(reason)
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_commit(reason)
+	return summary
 
 func sculpt_discard() -> int:
 	if not _has("sculpt_discard"):
 		return -1
 	mark_world_dirty()
+	var dropped := world_gen.sculpt_discard()
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_discard()
+	return dropped
 
 # -- Global heightmap undo (Edit ▸ Undo, Ctrl+Z) -------------------------------
 #
@@ -4228,8 +4260,9 @@ func project_engine_built_documents() -> Dictionary:
 func sculpt_restore_document(text: String) -> Dictionary:
 	if not _has("sculpt_restore_document"):
 		return {"ok": false, "error": "sculpt_restore_document not available on this binary"}
+	var restored: Dictionary = world_gen.sculpt_restore_document(text)
 	sculpt_draft_changed.emit()
-	return world_gen.sculpt_restore_document(text)
+	return restored
 
 ## Puts a `drafts/paint.json` back into the live Paint editor. Returns
 ## `{ok, error, biome, terrain, splat}` -- the painted-cell count each layer

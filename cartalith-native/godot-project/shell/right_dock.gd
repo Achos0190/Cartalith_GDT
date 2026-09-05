@@ -564,6 +564,9 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			_context = CTX_SAMPLE
 		_forget_way_draft()
 		_rebuild())
+	## The stamp-count backstop -- see `_sculpt_draft_backstop()` for why it is
+	## deferred and gated rather than a plain `_rebuild`.
+	bridge.sculpt_draft_changed.connect(_sculpt_draft_backstop, CONNECT_DEFERRED)
 	## River selection (`OUTSTANDING_WORK.md` §2.2). Connected here rather than
 	## in `app.gd`'s `_wire_selection()` for the same reason
 	## `asset_library_window.gd` reaches `world_gen` directly: `app.gd` is a
@@ -1072,6 +1075,12 @@ func _rebuild() -> void:
 	_append_layers(body)
 	app.set_right_dock_title(_current_title())
 	_push_dock_readout()
+	## The draft size this body was built for -- `_sculpt_draft_backstop()`'s
+	## whole state. Recorded here rather than in `_build_sculpt`, because the
+	## count decides whether that section is drawn AT ALL (`_tool_section()`'s
+	## draft clause), so a rebuild that drew no stack still answered the
+	## question and still has to say so.
+	_sculpt_drawn_stamps = bridge.sculpt_stamp_count() if bridge != null else -1
 
 ## `_build_settlement` falls back to `_build_sample()` when its own data is
 ## missing (a settlement deselected out from under the dock) -- mirrored here
@@ -1371,6 +1380,48 @@ func _append_tool(body: Control) -> void:
 	## Caught by a verifier, not by the conversion.
 	if section != TOOL_STAMPS and _draft_stack_live():
 		_build_sculpt(body)
+
+## What `sculpt_stamp_count()` answered the last time `_rebuild()` ran, and
+## `-1` before the first one. Read only by `_sculpt_draft_backstop()`.
+var _sculpt_drawn_stamps := -1
+
+## `EngineBridge.sculpt_draft_changed` -- the backstop for a draft that changes
+## with nothing behind it that rebuilds this dock.
+##
+## **Connected `CONNECT_DEFERRED`, and gated, so the covered paths pay nothing.**
+## `EngineBridge`'s seven mutators of `sculpt_stamp_count()` were re-walked on
+## 2026-09-05: `sculpt_end_stroke`, `sculpt_delete_stamp`, `sculpt_undo`,
+## `sculpt_redo`, `sculpt_commit`, `sculpt_discard` and
+## `sculpt_restore_document`. Every shell caller of the first six already
+## redraws this dock itself -- `_on_sculpt_stack_commit/discard/undo/redo` and
+## `_on_stamp_delete` here, `tool_bar.gd`'s Commit and Discard chips, and
+## `world_workspace.gd`'s `_on_sculpt_commit`, `_on_sculpt_discard` and
+## `_sculpt_release`. The seventh has no shell caller at all (the load path
+## restores the archive's draft inside the engine, so `app.gd` never calls it).
+##
+## A second rebuild on a covered path would be its own defect, so by the time
+## the deferred call runs the explicit one has landed, the counts agree, and
+## this returns having done nothing -- measured, not assumed:
+## `_rdrefresh_probe.gd` counts `child_exiting_tree` on `right_dock_body` and
+## holds every covered path to exactly one rebuild. Removing either the
+## deferral or the count gate takes those paths to two.
+##
+## The uncovered creator is a direct `bridge.sculpt_*` call, which fires no
+## `tool_armed` (`app.arm_tool()` early-returns when the tool is already armed)
+## and calls nothing here. At HEAD that left the dock drawing `["SAMPLE"]` over
+## a one-stamp draft with **zero** rebuilds, and the collapsed readout on "—".
+##
+## **The key is the draft's SIZE, not its arrangement.** A reorder or a
+## hidden-toggle leaves the count where it was and this skips -- and neither
+## needs it: `_on_stamp_move_up/down` and `_on_stamp_toggle_hidden` are the only
+## ways to reach either, and both redraw directly. The count is what decides
+## whether the section is on screen at all, which is the state this backstops.
+func _sculpt_draft_backstop() -> void:
+	if app == null or bridge == null:
+		return
+	if bridge.sculpt_stamp_count() == _sculpt_drawn_stamps:
+		return
+	_rebuild()
 
 ## True while a sculpt draft is uncommitted and reachable -- the condition the
 ## draft clause in `_tool_section()` carries, named once so the two cannot

@@ -230,6 +230,43 @@ mod tests {
         }
     }
 
+    /// §21's three radii, pinned as **literals** rather than described.
+    ///
+    /// Every consumer reads the table. `vault_bridge.rs`'s
+    /// `vault_snapshot_radii`, `vault_snapshot` and `entity_values` are the
+    /// only three FUNCTIONS outside this file that read it (five references in
+    /// all — corrected 2026-09-05 after a verifier counted them: `vault_snapshot`
+    /// reads it twice and one hit is a doc link). None of them names a number,
+    /// and the shell reads the km back out of
+    /// `vault_snapshot_radii`'s own rows. So nothing else pins these values,
+    /// and until this test any of them could move while the suite stayed
+    /// green and every snapshot in every note silently covered a different
+    /// area — `assert!(km > 0.0)`, what the test below has, holds for any
+    /// replacement.
+    ///
+    /// Measured rather than argued: with this test skipped, 10->12, 50->60,
+    /// 250->200 and immediate/regional swapped all **SURVIVE**
+    /// `cargo test -p cartalith-vault`; with it, all four are killed here.
+    ///
+    /// Half-widths in km, in the table's own order, which is the order the
+    /// checkbox list and the note's Map rows are drawn in. Strictly
+    /// increasing, or "Immediate map" would offer a wider crop than
+    /// "Regional map" while still being labelled the tighter one.
+    #[test]
+    fn the_three_radii_are_the_literals_every_written_note_was_scaled_to() {
+        assert_eq!(
+            MAP_RADII,
+            &[
+                ("map_immediate", "immediate", 10.0),
+                ("map_local", "local", 50.0),
+                ("map_regional", "regional", 250.0),
+            ]
+        );
+        for pair in MAP_RADII.windows(2) {
+            assert!(pair[0].2 < pair[1].2, "{} must crop tighter than {}", pair[0].1, pair[1].1);
+        }
+    }
+
     /// Milestone 2's Map group, from the three sides that have a wrong answer
     /// available: a culture is not a place and must never be offered a map; a
     /// placed entity with no snapshot yet must not be offered a blank one

@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**97 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-05 (thirty-second pass)**, after an earlier pass left four
+**96 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-05 (thirty-third pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,36 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-05, twenty-eighth batch — 97 → 96.** Vault milestone 2 closes as
+already done; both right-dock refresh gaps close; one §20 gap filed. `cargo test
+--workspace` **3 133 → 3 135**, 0 failed.
+
+*Sixth false-premise row in nine batches, and guarding it was still worth it.*
+Milestone 2 shipped in `4ec07f5`, four commits before HEAD, and the one defect it
+left — the save gate — was fixed in `52666b9` two commits later. Both ancestors of
+HEAD. But **§21's three radii were pinned by nothing**: with the new test skipped,
+`10→12`, `50→60`, `250→200` and immediate/regional **swapped** all SURVIVED the
+suite. A snapshot in every note could have silently covered a different area with
+the tests green. Now an `assert_eq!` against the literal table plus a
+strictly-increasing check, so "Immediate" can never crop wider than "Regional".
+
+*A backward-compatibility test that proved nothing.* The whole legacy check was
+two empty arrays. Replaced with a real pre-snapshot `vault.json` — one vault, one
+heading link with imported text, no `snapshots` member — asserting it opens,
+resolves, reports `Connected`, returns `snapshot() == None` (**absent, not an
+empty path**), and re-serialises byte-identically, so no old project gains a
+spurious `"snapshots": {}` on first open.
+
+*Lane B found a third bug on its own.* `sculpt_draft_changed` was emitted
+**before** the engine call, so a synchronous listener re-read the count from
+before the change — measured at 0 stamps on the stroke that created the draft's
+first.
+
+*Ninth consecutive batch with a false clause in prose written the same pass*,
+three this time: "three references" that are five, "both listeners" when one is
+`CONNECT_DEFERRED` and never sees the emit, and an emit count of nine against ten
+(that last only in the report, never shipped). The two in the tree are corrected.
 
 **2026-09-05, the menu design-conformance audit and its first fixes — 96 → 97.**
 Owner instruction: the GUI verification runs **before** the rest of the list.
@@ -1121,7 +1151,6 @@ tracked in `HEAD` as of `fd9de7c` — see §6.1.*
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
-| Vault **milestone 2** — the map snapshot (§21, §22) at immediate/local/regional radii | `MARKDOWN_VAULT_SCOPE.md` | medium | Its own record: "blocked on nothing — `export_raster.rs` already crops" |
 | Project archive remainder — project-layer panels, the `library/` and `drafts/` slots, a `preview.png` producer, foreign-entry preservation | `STATUS.md`, `SAVEFILE_COMPAT.md` §17 | medium | Nothing draws any of it; `preview.png` has a writer and no producer; foreign entries are reported rather than preserved |
 | Story planning **SP-1** — the `Journey` entity proper | `STORY_PLANNING_SCOPE.md` | medium | Half met, and the half that landed was built outside this document's plan: journeys persist as GDScript-owned state (`journey_planner_view.gd:3125` → `entities/journeys.json`). Not met: no `Journey` type in `cartalith-civ`, and the doc's own acceptance test still fails — `travel_bridge.rs:252` returns a hardcoded `0` |
 
@@ -1181,8 +1210,8 @@ No Android pass has run since 2026-08-25. All six items below are live.
 | Six features never driven on device since the 2026-08-24 USB disconnect — paint visibility, save/undo, the debug views, GeoJSON export, hand-drawn ways, civ-recompute | `ANDROID_BUILD_SCOPE.md` | medium | Recorded as *unverified on device*, not as verified. The 2026-08-25 pass drove a different list and did not pick these up |
 | The phone shell with **no world open** scans 1 494 of 2 400 rows blank | medium | **Re-filed 2026-09-03 from PH-16, which attributed it to the wrong surface.** The register measured one state — planner open, no world — and read the result as the Journey Planner's. With a control state added, opening the planner **removes 447 blank rows**: closed 1 494, open 1 047. So the band belongs to the app with no world loaded, not to this panel, and there is nothing honest to draw into a world that does not exist. Whatever the empty shell should show is a design question `06-phone.md` does not answer |
 | The phone inspector's widest rows demand 1 408 px on a 1 080 px screen | small | **Found 2026-09-03 while closing PH-16; the register never caught it.** Contained rather than removed: those rows now sit inside `SCROLL_MODE_AUTO` containers so they are reachable by horizontal scroll and no ancestor exceeds the screen. The row *widths* are the remaining question and they are a design one. *The container half was a real defect and is fixed — `inspector_scroll` had its horizontal axis DISABLED, and a `ScrollContainer` folds its child's minimum size into its own on a disabled axis, so 1 436 px propagated up to `_center_panel` and Godot clamped it past `PRESET_FULL_RECT`. `_route_map_wrap` 1 437 → 1 080* |
+| A Map field stays offered after its snapshot PNG is deleted | `MARKDOWN_VAULT_SCOPE.md` §20 | small | **Found 2026-09-05 by the lane that re-opened milestone 2, and outside its crate.** `vault_snapshot_radii` and `entity_values` (`vault_bridge.rs`) read the path straight out of `LinkStore::snapshots` with **no existence check**, so deleting `.cartalith/maps/<key>_<radius>.png` leaves the checkbox offered and writes `![](...)` into the user's note pointing at nothing — §20's *must not expose information the entity does not possess*, which `LinkStore::snapshot`'s own doc claims the data enforces. cartalith-vault cannot fix it (no provider at that layer); the fix is one line where `binding.as_fs_vault()` is already in hand |
 | The `vault.json` write gate has no test at its call site | `MARKDOWN_VAULT_SCOPE.md` | small | **The bug is fixed, the guard is not built.** The gate read `!store.links.is_empty()` — one member of a three-member store — so a project with a connected vault and a map snapshot but **no knowledge links** wrote no `vault.json` at all and lost the snapshot on save. Now `!store.is_empty()`. `LinkStore::is_empty()` itself is mutation-tested (2 of 3 conjuncts killed), but **the call site is not**: `project_save_with_documents` takes gdext types on a `GodotClass`, so no Rust unit test can reach it — this needs a probe scene that saves a snapshot-only project and reopens it |
-| A sculpt draft that appears without a tool-arm does not rebuild the right dock | `UNWIRED_FUNCTIONS.md` | small | **Found 2026-09-03 by a verifier probe, measured pre-existing at HEAD before crediting it.** `app.arm_tool()` early-returns when the tool is already armed, so no `tool_armed` fires; nothing else signals a stamp-count change to the dock. A draft created while Inspect is already armed leaves the dock showing a body built when the count was 0 — `_tool_section()` answers `stamps` while the body reads `["SAMPLE"]`. Distinct from the append bug fixed the same day, which was about arming a *different* tool |
 | The Colour relief layer row is live over a layer that draws nothing | small | **Disclosed 2026-09-03, not fixed.** `TerrainAppearance::ramp_strength` ships at `0.0` and `LayerStack::composite` skips Colour relief entirely when the ramp contributes nothing (`None => continue`), so at the shipped default that row's dot, opacity, blend and reorder are live controls over an invisible layer — a verifier measured a default-state hillshade/colour-relief swap as byte-identical. The left dock now says so in a note; **the right dock's Layers section does not**, and the honest end state is probably that the ramp gets a non-zero default or the row is folded away until it has one. A judgement, not a patch |
 | The default 2048×1311 new world costs ~878 MB peak on the phone | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |
 | Prove `push_warning` reaches Android's `logcat` (a positive control) | `ANDROID_BUILD_SCOPE.md` | small | Owed by two consecutive passes; the second explicitly declined it, noting the alternative "rests on an argument, not a measurement" |
