@@ -45,6 +45,17 @@ signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 ## every reader of it can stay honest without polling.
 signal layer_visibility_changed(layer: String, shown: bool)
 
+## Every `set_pan_mode()` that actually changed the mode -- the latch the
+## thumb cluster's ✋ arms. It becomes the phone toast, because a
+## latched mode whose only announcement is a repainted 44 dp disc is the
+## failure `PhoneViewportControls.dc.html`'s ANATOMY footnote names: the
+## finger that armed it has already left the screen, and on a handset there is
+## no hover, no cursor and no status bar in view to say what changed. A signal
+## rather than a direct call for the same reason `layers_button_pressed` is one:
+## this node stays ignorant of the chrome. `_build_navpad()` makes the one
+## connection, to `_announce_pan_mode()` below.
+signal pan_mode_changed(on: bool)
+
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
 ## header. A tile texture is a relief-detail shade ratio, not a picture; this
@@ -81,8 +92,16 @@ var _vp_field := "relief"
 var _layers_btn: Button
 ## The touch navpad (`GUI_GAP_REGISTER.md` SH-14) and its one stateful member.
 ## `null` on desktop -- see `_build_navpad()` for the reachability call.
-var _navpad: VBoxContainer
+##
+## **A row, not a column, since DS-13.** Owner ruling 2026-09-05: a
+## thumb-reachable bottom cluster. The type is load-bearing enough to state --
+## `_navpad_probe.gd` types its own local off it.
+var _navpad: HBoxContainer
 var _pan_btn: Button
+## The zoom rocker's hairline. Held because `_apply_touch_scale()` has to grow
+## it with everything else, and it is the one navpad child that is not a
+## `Button` and so is invisible to that pass's meta filter.
+var _zoom_rule: ColorRect
 var _bridge: EngineBridge
 var _width_km := 0.0
 
@@ -618,7 +637,7 @@ func _input(event: InputEvent) -> void:
 			## going to the magnify/pan gesture pair below, unaffected.
 			##
 			## One guard the reference does not need: its buttons live outside
-			## the canvas element, while this column sits *over* the map. This
+			## the canvas element, while this cluster sits *over* the map. This
 			## handler runs before GUI dispatch, so without it a tap on ✋ or ⟳
 			## would start a pan drag as well as press the button.
 			## `get_global_rect()` rather than `get_rect()` -- the former
@@ -757,12 +776,16 @@ func set_pan_mode(on: bool) -> void:
 		_panning = false
 	if _pan_btn != null:
 		_pan_btn.set_pressed_no_signal(on)
-		## Accent fill, dark glyph -- the phone canvas's own on-toggle idiom
-		## (`#e0a34a` track, `#141617` knob), not a border or a tint, so the
-		## one latched control in the column is unmistakable at arm's length.
-		_navpad_paint(_pan_btn,
-			DccTheme.c("accent") if on else DccTheme.c("panel"),
-			DccTheme.c("bg") if on else DccTheme.c("text"))
+		## §0.4's selected-chip formula -- accent border, accent glyph, accent
+		## wash over the same scrim the unarmed pill carries. **Not the accent
+		## *fill* with a dark glyph this painted until DS-13**: an accent fill is
+		## the phone canvas's one primary-action surface, and a mode is not a
+		## primary action. See `_navpad_paint()` for the wash and its source.
+		_navpad_paint(_pan_btn, DccTheme.c("panel"),
+			DccTheme.c("accent") if on else DccTheme.c("text"), on)
+	## After the state is settled, never before -- a listener that reads
+	## `pan_mode()` inside the emit must see the mode it is being told about.
+	pan_mode_changed.emit(on)
 
 func pan_mode() -> bool:
 	return _pan_mode
@@ -998,8 +1021,14 @@ func _apply_touch_scale(scale: float) -> void:
 		return
 	_navpad.add_theme_constant_override("separation",
 		maxi(1, int(round(NAVPAD_GAP * scale))))
-	for child in _navpad.get_children():
-		if not (child is Button) or not child.has_meta(NAVPAD_GLYPH_META):
+	## `find_children`, not `get_children`: since DS-13 the zoom rocker is a
+	## nested `HBoxContainer`, so two of the four buttons are grandchildren and a
+	## direct-child walk would leave them at the raw 44 px this whole function
+	## exists to grow. Sizing every *button* to `hit` is also what the board's
+	## own "size by group rather than by child" flag asks for -- the rocker's own
+	## width is then two hits plus the rule, with nothing setting it directly.
+	for child in _navpad.find_children("", "Button", true, false):
+		if not child.has_meta(NAVPAD_GLYPH_META):
 			continue
 		var b := child as Button
 		b.custom_minimum_size = Vector2(hit, hit)
@@ -1008,10 +1037,22 @@ func _apply_touch_scale(scale: float) -> void:
 		## `hover_pressed` included -- see the matching comment on the
 		## `_layers_btn` loop above. This is the one that matters: `_pan_btn`
 		## is `toggle_mode` and lives in this exact list.
+		##
+		## `_pill_corners`, not `set_corner_radius_all`: the rocker's halves
+		## round one end each, and rounding all four here would undo the capsule
+		## at exactly the density it matters on.
 		for state in ["normal", "hover", "pressed", "hover_pressed"]:
 			var sb: StyleBox = b.get_theme_stylebox(state)
 			if sb is StyleBoxFlat:
-				(sb as StyleBoxFlat).set_corner_radius_all(int(hit / 2.0))
+				_pill_corners(sb as StyleBoxFlat, int(hit / 2.0),
+					int(b.get_meta(NAVPAD_SHAPE_META, PILL_FULL)))
+	if _zoom_rule != null:
+		## The rule is inset off the pill's own height, so it has to be derived
+		## from `hit` rather than scaled from its 44 dp authored value -- `hit`
+		## carries `PHONE_TAP_MIN`'s floor and a scaled 22 would not.
+		_zoom_rule.custom_minimum_size = Vector2(
+			maxi(1, int(round(DccTheme.role_px("hairline") * scale))),
+			maxf(1.0, hit - 2.0 * round(NAVPAD_RULE_INSET * scale)))
 	_navpad.reset_size()
 
 ## Sets offsets directly rather than `.position` -- found by screenshot that
@@ -1057,8 +1098,9 @@ func _apply_safe_insets() -> void:
 	## button now painting a real 121 px pill rather than a bare glyph, a left
 	## offset of 0 makes that pill *tangent to the panel edge*. Measured on the
 	## handset after the paint fix: the disc ran x 0-121 with the screen at 0.
-	## The navpad's `right:14px` is the canvas's own value for exactly this
-	## relationship, and this is the same relationship on the other side.
+	## `NAVPAD_EDGE` is §6.2's own `right:12px` for exactly this relationship,
+	## and this is the same relationship on the other side -- which is why the
+	## two share one constant rather than each carrying an edge.
 	## Gated on `_touch` rather than applied unconditionally the way the navpad
 	## applies it, because on desktop `l` is 10 and the floor would move a glyph
 	## §46 and §48 both measured -- and there it is a flat 26 px flat button with
@@ -1085,10 +1127,45 @@ func _apply_safe_insets() -> void:
 	## The navpad rides the same insets, so it clears the app bar, the bottom
 	## bar, the timeline and the gesture strip without a second set of
 	## numbers -- and stacks *above* `_coords_label`, which owns this corner.
+	##
+	## **That is the board's ONE RULE already, arrived at from the other end.**
+	## `PhoneViewportControls.dc.html` writes the sheet-open anchor as
+	## `bottom = 84 + _detH(detent) + 12`; `b` here is
+	## `DccShell.phone_content_insets()["bottom"]`, which is
+	## `_phone_bottom_reserve()` -- the bottom nav, the tool sheet at its current
+	## detent, the timeline and the gesture inset, summed from their real sizes.
+	## So the row tracks the sheet's top edge with no detent named on this side
+	## of the boundary, which is also why a touch *tablet* -- same
+	## `_build_navpad()`, no `_phone` anywhere in it -- needs no second path.
+	## The one deviation is stated: this shell keeps a coordinate readout in
+	## this corner that the board does not draw, so the row clears that too
+	## instead of sitting the board's flat 12 above the sheet.
 	if _navpad != null:
 		var pad := _navpad.get_combined_minimum_size()
 		_navpad.position = Vector2(size.x - maxf(r, float(NAVPAD_EDGE)) - pad.x,
 			size.y - b - coords_size.y - float(NAVPAD_GAP) - pad.y)
+		## **Hidden when the band it would occupy is not there.** The board hides
+		## the whole cluster at the `full` detent, where §5.2 leaves 96 dp of map
+		## with nothing left to navigate. Written as the measurement rather than
+		## as the detent's name, because this node is not told which detent is
+		## live and should not learn: `phone_content_insets()` clamps `bottom` so
+		## that exactly one tap target of band survives at `full`
+		## (`get_viewport_rect().size.y - top - PHONE_TAP_MIN`), and
+		## `_coords_label` already owns it. Measured this batch at both densities
+		## rather than read off that formula alone: `full` leaves a band of 115 px
+		## at 1080x2400 and 154 px at 1440x3168, which is `PHONE_TAP_MIN` scaled
+		## in each case. The same test also catches what a detent name would
+		## miss -- a landscape sheet plus an open IME, or any future reserve big
+		## enough to push this row up under the app bar, which is where an
+		## unguarded `position.y` would put it.
+		##
+		## `size.y <= 0` is not a verdict. `_ready()` runs this once before any
+		## layout pass, and a control that has no height yet has no band to
+		## measure; hiding on that would strand the row on a tablet, which never
+		## calls `set_safe_insets()` and would be relying on the `resized` signal
+		## to undo it.
+		_navpad.visible = size.y <= 0.0 \
+			or (size.y - t - b) >= (coords_size.y + float(NAVPAD_GAP) + pad.y)
 
 func _raster() -> TextureRect:
 	var t := TextureRect.new()
@@ -1106,10 +1183,39 @@ func _raster() -> TextureRect:
 ## content. Designed rather than transliterated (owner decision, 2026-08-23):
 ## the reference draws four bare floating web buttons, a mobile-web idiom this
 ## shell uses nowhere else, so this is the same four functions in the phone
-## canvas's own language -- one right-edge column of 44 dp pills, exactly the
-## floating cluster `design/Cartalith Android Phone.dc.html`'s artboard
-## "01 · VIEWPORT" already puts at `right:14px` with a 10 px gap. Nothing here
-## is a new mechanism; it is `_layers_btn` four more times.
+## canvas's own language. Nothing here is a new mechanism; it is `_layers_btn`
+## three more times, one of them split.
+##
+## **A bottom row since DS-13, not the right-edge column this used to build.**
+## Owner ruling 2026-09-05, and `design/proposed-2026-09-05-round2/
+## PhoneViewportControls.dc.html`: on a 6.7-inch handset the top two-thirds of
+## the right edge is outside the thumb arc, so a column put three of its four
+## targets where a one-handed grip cannot reach them. The board's argument for
+## *this* band is the spec agreeing with itself rather than an anthropometric:
+## `06-phone.md` §3 already commits the bottom of the screen as the reachable
+## region by putting the four-tab bar at `bottom:0..84`. This is the next 44 dp
+## band above it.
+##
+## **The four functions did not change; their grouping did.** Zoom out and zoom
+## in are inverse operations on one quantity, so they are one rocker split by a
+## hairline rather than two identical discs -- what the register called "four
+## identical dark pills". Pan latches and recentre fires, so those stay separate.
+##
+## **This cluster replaces §6.2's FAB column rather than sitting beside it.**
+## That floating-furniture table assigns `right:12px; bottom:104px` to a 48 dp
+## 3D/2D FAB above a 48 dp recentre FAB, and two things cannot own one anchor.
+## Recentre is absorbed -- same anchor, same `view_fill` glyph, same
+## `reset_view()`. The 3D/2D FAB is **removed, not rehoused**, and the removal
+## is stated because a control may not simply vanish: `DECISIONS.md` §4 keeps v1
+## 2D and hands 3D to `ROADMAP.md` Phase 3, so the FAB's own spec -- "toggles a
+## label only", with a toast pointing at Preferences ▸ Graphics -- has no
+## viewport to toggle to. Nothing is lost in code, because **it was never
+## built**: no 3D/2D FAB node exists anywhere under `shell/`, only `menus.gd`'s
+## own note that Graphics was `BUILD_ANSWERS.md` §3's destination for its toast.
+## The half of it that is real did land -- `menus.gd::_build_relief_exag_menu()`
+## builds Preferences ▸ Graphics ▸ Relief exaggeration as a live submenu over
+## `DccSettings.RELIEF_EXAG_CHOICES` (1x / 2x / 4x) today. 48 dp leaves with the
+## column; 44 is §4.2's own disc, which the same frame already draws twice.
 ##
 ## **Reachability: every touch device, not phones only.** `_touch` is the gate
 ## the reference's own `isMobile` gate means -- what that gate is really
@@ -1120,34 +1226,86 @@ func _raster() -> TextureRect:
 ## chrome with no mouse, which is precisely the case that needs this most.
 ## Desktop is excluded because it already has all four (wheel, MMB/Space,
 ## and now this file's `reset_view()` from the same call).
-const NAVPAD_HIT := 44     ## §13's floor. Raw, not `_phone_scale`d, for the
-	## same reason `_layers_btn` above is: the shipped phone's viewport is
-	## ~393 px (see `_apply_safe_insets()`'s own note), where that scale is
-	## 1.0 -- and `_safe_insets`, which positions this, arrives already
-	## scaled from `DccShell.phone_content_insets()`.
-const NAVPAD_GAP := 10     ## The canvas's own column gap, and above the 8 px
-	## adjacent-target minimum.
-const NAVPAD_EDGE := 14    ## The canvas's own `right:14px`, used as a *floor*
-	## on the safe inset rather than instead of it. Portrait phone reports
-	## `right: 0.0` (`DccShell.phone_content_insets()`) because no chrome
-	## occupies that edge -- correct for a text readout, wrong for a round
-	## 44 px target, which would sit against the bezel with half its area in
-	## the palm-rejection zone.
+const NAVPAD_HIT := 44     ## §13's floor and §4.2's own disc, in **dp**: the
+	## construction-time size, which `_apply_touch_scale()` then multiplies by
+	## `DccShell._phone_scale` to reach device pixels.
+	##
+	## **This used to say the multiply was unnecessary** -- "the shipped
+	## phone's viewport is ~393 px, where that scale is 1.0" -- and
+	## `_apply_touch_scale()`'s own HD-03 note already records that as simply
+	## wrong; the main viewport is not content-scaled, so the constant is dp and
+	## the device figure is bigger. Measured again this batch: 115 px at
+	## 1080x2400 (`_phone_scale` 2.6214, 7.39 mm at 395 ppi) and 154 px at
+	## 1440x3168 (3.4951, 7.67 mm at 510 ppi). The stale half of the sentence is
+	## removed here rather than left for a third reader to re-refute.
+const NAVPAD_GAP := 10     ## §6.2's own FAB-column `gap:10px`, kept as the row
+	## gap the board draws between rocker, latch and recentre, and above the
+	## 8 px adjacent-target minimum.
+const NAVPAD_EDGE := 12    ## §6.2's `right:12px` -- the floating-furniture
+	## table's own edge for the anchor this cluster takes over, and the same
+	## number it gives the undo chip's `left:12px` on the other side. **Was 14**,
+	## read off `design/Cartalith Android Phone.dc.html`; that canvas is the
+	## older of the two and the newer wins (owner ruling 2026-08-25). Used as a
+	## *floor* on the safe inset rather than instead of it: portrait phone
+	## reports `right: 0.0` (`DccShell.phone_content_insets()`) because no chrome
+	## occupies that edge -- correct for a text readout, wrong for a round 44 px
+	## target, which would sit against the bezel with half its area in the
+	## palm-rejection zone. `_layers_btn` takes the same floor on the left, so
+	## the two float at one edge distance rather than two.
+## The zoom rocker's hairline: `hairline` wide, inset `margin:11px 0` off a
+## 44 dp pill, which leaves 22 dp of drawn rule. The board draws exactly one
+## line between the two halves, so the halves themselves suppress the border on
+## the edge they share -- see `_navpad_paint()`.
+const NAVPAD_RULE_INSET := 11
+## Which corners a navpad pill rounds. The rocker is one pill made of two real
+## buttons, so each half rounds only its own outer end and the pair reads as the
+## capsule the ANATOMY row labels `88 × 44`. It measures a hair over that here:
+## two hit targets plus the rule, `2 × 44 + 1` at scale 1 -- and 115 + 3 + 115 =
+## 233 px measured at 1080x2400, which is 88.9 dp. The label's 88 is the
+## artboard's own figure for the same shape and is carried, not recomputed.
+## Stored per-button in
+## `NAVPAD_SHAPE_META` so `_apply_touch_scale()` can re-derive the radii at the
+## device's own hit size without knowing which child it is looking at.
+const PILL_FULL := 0
+const PILL_LEFT := 1
+const PILL_RIGHT := 2
+const NAVPAD_SHAPE_META := "dcc_navpad_shape"
+## `background:rgba(...,.92)` on every floating map control the phone canvas
+## draws -- a scrim the map shows through, not an opaque disc. See
+## `_navpad_paint()` for what painting it fully opaque cost.
+const NAVPAD_ALPHA := 0.92
 
 func _build_navpad() -> void:
 	if not _touch:
 		return
-	_navpad = VBoxContainer.new()
+	_navpad = HBoxContainer.new()
 	_navpad.add_theme_constant_override("separation", NAVPAD_GAP)
 	_navpad.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
 	_navpad.mouse_filter = Control.MOUSE_FILTER_IGNORE   ## The buttons pick;
-		## the column itself must not, or it would eat the map between them.
+		## the row itself must not, or it would eat the map between them.
 	add_child(_navpad)
 
-	_navpad.add_child(_navpad_button("zoom_in", "Zoom in",
-		func(): zoom_step(ZOOM_BUTTON_STEP)))
-	_navpad.add_child(_navpad_button("zoom_out", "Zoom out",
-		func(): zoom_step(1.0 / ZOOM_BUTTON_STEP)))
+	## The rocker: `−` then `＋`, left to right, the order §0.4's stepper pair is
+	## written in. Its own `separation` is 0 -- the two halves must touch, with
+	## the hairline the only thing between them.
+	var rocker := HBoxContainer.new()
+	rocker.add_theme_constant_override("separation", 0)
+	rocker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_navpad.add_child(rocker)
+	rocker.add_child(_navpad_button("zoom_out", "Zoom out",
+		func(): zoom_step(1.0 / ZOOM_BUTTON_STEP), PILL_LEFT))
+	_zoom_rule = ColorRect.new()
+	_zoom_rule.color = DccTheme.c("line")
+	## `IGNORE`, so the hairline between the halves is not a dead strip that eats
+	## a tap meant for either of them -- it falls through to the map, exactly as
+	## the gaps between the row's three groups do.
+	_zoom_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_zoom_rule.custom_minimum_size = Vector2(DccTheme.role_px("hairline"),
+		NAVPAD_HIT - 2 * NAVPAD_RULE_INSET)
+	_zoom_rule.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	rocker.add_child(_zoom_rule)
+	rocker.add_child(_navpad_button("zoom_in", "Zoom in",
+		func(): zoom_step(ZOOM_BUTTON_STEP), PILL_RIGHT))
 
 	_pan_btn = _navpad_button("tool_pan", "Pan mode", Callable())
 	_pan_btn.toggle_mode = true
@@ -1159,8 +1317,43 @@ func _build_navpad() -> void:
 
 	_navpad.add_child(_navpad_button("view_fill", "Reset view", reset_view))
 
-func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
+	## Connected here rather than in `_ready()` so the announcement exists on
+	## exactly the compositions the latch does.
+	pan_mode_changed.connect(_announce_pan_mode)
+
+## The board's ANATOMY footnote, verbatim, at its stated 4.5 s: *"A latched mode
+## with no announcement is the failure a toggle-only repaint already is."* That
+## is sharper after DS-13, not softer -- the armed pill went from an accent
+## *fill* to §0.4's wash, which is a quieter mark, so the sentence carries more
+## of the load than it did.
+##
+## Only the arming edge speaks. Disarming needs no toast: the toast's own second
+## clause is the instruction for it, and a pill that announces itself twice per
+## round trip is noise.
+##
+## **Found by capability, not by path.** `_show_phone_toast()` belongs to
+## `DccShell` and returns immediately off phone, so this is a no-op on desktop
+## and on tablet -- the two compositions that build the latch but have no toast
+## stack. Walking for the method rather than reaching a known ancestor keeps
+## this node's ignorance of the shell intact: it asks for a capability and does
+## nothing if the tree does not offer one, which is also what a probe scene
+## instantiating `ViewportHost` alone would get.
+func _announce_pan_mode(on: bool) -> void:
+	if not on:
+		return
+	var n: Node = get_parent()
+	while n != null:
+		if n.has_method("_show_phone_toast"):
+			n.call("_show_phone_toast",
+				"one finger pans — tap again to give it back to the tool",
+				null, 4.5)
+			return
+		n = n.get_parent()
+
+func _navpad_button(glyph: String, tip: String, on_press: Callable,
+		shape: int = PILL_FULL) -> Button:
 	var b := Button.new()
+	b.set_meta(NAVPAD_SHAPE_META, shape)
 	## Deliberately **not** `flat`, unlike `_layers_btn` and every other button
 	## in this shell: `Button.flat` suppresses the background stylebox
 	## entirely, so a flat button with a `normal` override draws the override
@@ -1178,7 +1371,7 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
 	##
 	## `_apply_touch_scale()` above records this exact trap, found on a real
 	## OnePlus 6T, and set `icon_alignment` on `_layers_btn` -- and only on
-	## `_layers_btn`. The four pills built here were never given the same line,
+	## `_layers_btn`. The pills built here were never given the same line,
 	## so the bug it documents was half-fixed for a year of screenshots. It
 	## belongs at construction rather than in the touch-scale pass, because it
 	## is true of the button on every device, not only a scaled one.
@@ -1191,25 +1384,59 @@ func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
 		b.pressed.connect(on_press)
 	return b
 
+## The one place a navpad radius is written, so `_navpad_paint()` (build) and
+## `_apply_touch_scale()` (device) cannot disagree about which corners a rocker
+## half rounds. `set_corner_radius_all` first, because a stylebox re-entering
+## here after a shape change would otherwise keep the corners the old shape set.
+static func _pill_corners(sb: StyleBoxFlat, r: int, shape: int) -> void:
+	sb.set_corner_radius_all(0 if shape != PILL_FULL else r)
+	match shape:
+		PILL_LEFT:
+			sb.corner_radius_top_left = r
+			sb.corner_radius_bottom_left = r
+		PILL_RIGHT:
+			sb.corner_radius_top_right = r
+			sb.corner_radius_bottom_right = r
+
 ## One pill's fill and glyph colour, across all three states. Tinting the
 ## glyph through `icon_*_color` rather than `modulate` is what lets the fill
 ## and the glyph carry different colours -- `modulate` multiplies the whole
 ## control, so an accent pill would drag its own glyph to accent with it.
-func _navpad_paint(b: Button, fill: Color, ink: Color) -> void:
+## `armed` is the pan latch's on-state and nothing else's, and it is §0.4's
+## selected-chip formula rather than an accent *fill*: `border-color:var(--acc)`,
+## `color:var(--acc)`, an accent wash over the scrim. **This used to paint an
+## accent-filled disc with a dark glyph** and the board refuses it -- an accent
+## fill is the phone canvas's one primary-action surface, and a mode is not a
+## primary action. The wash is `--wash2`, `accent_wash_2`: `dcc_theme.gd`'s own
+## note on that token is that the prototype uses it 44 times and always for the
+## same distinction, "a control that is armed and will act on the next click".
+## The board's ANATOMY disc draws `var(--wash2)`; its comment beside it quotes
+## §0.4's `var(--wash)`. The drawing and that third source agree, so the drawing
+## is built -- reported rather than resolved silently.
+func _navpad_paint(b: Button, fill: Color, ink: Color, armed: bool = false) -> void:
 	var pill := StyleBoxFlat.new()
-	## `background:rgba(20,22,23,.92)` on every floating map control in
-	## `design/Cartalith Android Phone.dc.html` -- a scrim the map shows
-	## through, not an opaque disc. Painted fully opaque until 2026-08-25,
-	## which over a bright desert or an ice cap read as four black holes
-	## punched in the terrain rather than as chrome sitting on top of it.
-	pill.bg_color = Color(fill, 0.92)
-	pill.set_corner_radius_all(NAVPAD_HIT / 2)
+	## A scrim the map shows through, not an opaque disc. Painted fully opaque
+	## until 2026-08-25, which over a bright desert or an ice cap read as four
+	## black holes punched in the terrain rather than as chrome sitting on top
+	## of it. `blend()` over a fully transparent wash returns the base untouched,
+	## so the unarmed pill is bit-identical to what it was.
+	pill.bg_color = Color(fill, NAVPAD_ALPHA).blend(
+		DccTheme.c("accent_wash_2") if armed else Color(0, 0, 0, 0))
+	_pill_corners(pill, NAVPAD_HIT / 2, int(b.get_meta(NAVPAD_SHAPE_META, PILL_FULL)))
 	## A hairline, because unlike every other button in this shell these float
 	## over the *map*: `panel` against dark terrain reads as a shape, against
 	## bright desert or ice it does not. The canvas's own floating chips carry
 	## the same `rgba(255,255,255,.12)` edge for the same reason.
 	pill.set_border_width_all(1)
-	pill.border_color = DccTheme.c("line")
+	## The rocker's two halves share an edge, and the board draws **one** line
+	## there, not two abutting borders plus a rule. Each half drops the border on
+	## the end it shares; `_zoom_rule` is the line.
+	match int(b.get_meta(NAVPAD_SHAPE_META, PILL_FULL)):
+		PILL_LEFT:
+			pill.border_width_right = 0
+		PILL_RIGHT:
+			pill.border_width_left = 0
+	pill.border_color = DccTheme.c("accent") if armed else DccTheme.c("line")
 	b.add_theme_stylebox_override("normal", pill)
 	## A visible press, which a 44 px target with no hover state on a
 	## touchscreen otherwise has no feedback at all for. Lightened toward the

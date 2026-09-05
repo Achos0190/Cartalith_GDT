@@ -392,13 +392,39 @@ func _on_world_changed() -> void:
 	_lm_rebuild()
 
 ## A place edit or delete moved map data: repaint the pins, refresh the
-## selection state that may now point at a different (or no) settlement, and
-## rebuild the dock's own rosters/readouts.
+## selection state that may now point at a different (or no) settlement,
+## rebuild the dock's own rosters/readouts, and re-push the RIGHT dock's
+## settlement snapshot.
+##
+## **The right dock's line is the 2026-09-05 fix and it belongs here rather
+## than in either window.** `right_dock.gd`'s Settlement context draws a
+## snapshot handed to it by `on_settlement_selected(data, index)` at click
+## time; `place_editor_window.gd` writes the engine live and emits
+## `place_changed` / `place_deleted` correctly. Nothing re-pushed the snapshot,
+## so the two surfaces drew the same town differently --
+## `_pesibling_probe.gd`, 40 settlements: a rename left the dock on the OLD
+## name, a delete left it drawing a town that no longer exists. This handler is
+## the only place that owns both connections (see the `connect` calls in
+## `_build`, and their own comment for why they are here), so it is where the
+## third refresh goes.
+##
+## **It covers five entry points, not two**, which is the reason it sits in
+## this function rather than on the two signals: `place_changed`,
+## `place_deleted`, `_on_roster_changed` (a faction removed reverts its
+## settlements to Unclaimed -- the dock draws a Faction row), `_recompute_civ`
+## and `_after_civ_layer_replaced` (both replace the layer under the dock
+## wholesale). Measured in the same edit -- `grep -rn "_on_civ_edited" shell/`
+## is two `connect(...)` lines and three direct calls, 2026-09-05.
+##
+## Last, after the two refreshes above, so one handler leaves the map, this
+## dock and the right dock agreeing; and after the engine call by construction,
+## since every entry point above is a listener or a post-call tail.
 func _on_civ_edited() -> void:
 	if _selected_index >= bridge.settlements().size():
 		_selected_index = -1
 	_refresh_civ_data()
 	_rebuild_readouts()
+	app.right_dock_ctrl.refresh_settlement()
 
 func _on_roster_changed() -> void:
 	## Removing a faction reverts its settlements AND its territory cells to

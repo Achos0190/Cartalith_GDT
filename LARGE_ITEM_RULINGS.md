@@ -280,13 +280,29 @@ exist in any readable file.
 
 Three consequences travel with it, and they are the cost of the option chosen:
 
-- **The two captions are DERIVED, not read.** `ldSwA` / `ldSwB` sit in the
-  truncated tail of `02-rail-and-domains.md` §8 and cannot be recovered. The
-  build derives them from what each mode actually contains
-  (`world_workspace.gd`) and **must say in its own source that they were
-  derived**, not quoted.
-- **The pill costs 34 px**, which pushes World data below the fold. That is the
-  artboard's own stated cost and the whole reason Option A existed.
+- ~~**The two captions are DERIVED, not read.**~~ **WITHDRAWN 2026-09-06 — this
+  consequence was false when written, and following it would have made the tree
+  lie.** `ldSwA:'GENERATION PIPELINE',ldSwB:'SCULPT',` is at
+  `design/dcc-environment-2026-08-31/Cartalith DCC Environment.dc.html:1940`,
+  `ldCollapsedLabel`'s word for mode a at `:1937`, and `04-left-dock.md:138`
+  binds segment B's text to `{{ ldSwB }}`. **The captions are QUOTED.** That file
+  is whole — 239 712 bytes, 1 994 lines, ending `</script></body></html>` — since
+  commit `660cbef` ("Design answered: the files are whole"); `04-left-dock.md`
+  §0's truncation note and its §9.1 "Lost to truncation" table were never
+  updated. The derivation reasoning is kept in `world_workspace.gd` as
+  **corroboration, not provenance**.
+- ~~**The pill costs 34 px**, which pushes World data below the fold.~~
+  **BOTH HALVES MEASURED WRONG, 2026-09-06.** Read off the drawn nodes at
+  1920×1080: the band is **40.0 px**, confirmed by hiding it and watching every
+  category move up by exactly 40.0. And it does **not** cause the fold crossing —
+  the scroll fold is `y=1054`, the World data header is at `y=1656` with the pill
+  and `y=1616` without: a 40 px shift onto a header already ~562 px below the
+  fold. **8 of 9 categories are below it either way; only `Generate` clears it,
+  and the cause is Generate's expanded body.** The artboard's B1 caption carries
+  the same two errors. Related: the shipped comment's reason for the short form —
+  that `GENERATION PIPELINE` would not fit — is false too; it measures **185 px
+  in a 372 px dock, 187 px spare**. `PIPELINE` stays on the newest-canvas rule,
+  not on a width.
 - **`WorldDockB.dc.html` must be fixed before it is built.** Its lit half is
   drawn as a filled amber slab (`--acc` / `--accInk`). `dcc_widgets.gd:1194`
   reserves that treatment for the tool bar's three SCULPT / PAINT / MEASURE
@@ -304,6 +320,135 @@ border — which is what `DccWidgets.segment()` → `set_segment_on()` already
 builds and what the approved `Religion.dc.html` uses. This is not a style
 preference: the filled alternative is the one DS-02 deleted shell-wide, so
 building it would reintroduce something a previous pass deliberately removed.
-**Recorded as an interpretation:** the owner said "b", the artboard labelled "b"
-draws the filled slab, and it is the drawing that is wrong rather than the
-choice. If the filled look was meant specifically, this reverses.
+~~**Recorded as an interpretation** … if the filled look was meant specifically,
+this reverses.~~ **HEDGE RETIRED 2026-09-06 — the canvas settles it.**
+`ldSwABg` is `var(--wash2)` and `ldSwACol` is `var(--acc)` at
+`Cartalith DCC Environment.dc.html:1941-42`, and `tlSpeeds` carries its own
+`bg:'var(--wash2)'` for §7. Owner ruling, shipped code and prototype all agree;
+`ldSwitch:s.domain==='WORLD'` also settles which domains show the pill.
+**One real open question remains, and it is a token question rather than a
+correction:** the prototype's `--wash2` is alpha **0.16**, while
+`DccWidgets.set_segment_on()` paints `accent_wash` at **0.09**. The operative
+instruction — go through `set_segment_on()` — is unchanged; moving the shell to
+0.16 would re-base 141+ call sites and is filed in `OUTSTANDING_WORK.md`.
+
+---
+
+## 2026-09-06 — all nineteen open decisions answered
+
+`OUTSTANDING_WORK.md` §4 goes to **zero**. Put to the owner in five rounds, each
+option grounded in what the scope documents say and in how comparable tools
+(Azgaar's FMG, grand-strategy titles, DCC apps) solve the same problem.
+
+**Five went against the recommendation offered. Each is recorded with its cost;
+none of them is agreement.** Q2 was amended rather than chosen.
+
+**8. What is a conflict attached to? → GEOMETRY WITH OPTIONAL REFERENCES.**
+Settles what `STORY_PLANNING_SCOPE.md` §6 called the highest-leverage unanswered
+question. Unblocks **SP-4** and through it **landmark M9**. Two obligations that
+are not optional: a deleted referenced entity leaves the geometry and dashes the
+reference through the existing absent-vs-set discipline (omit the key, `has()`,
+state the reason) — **never a sentinel id**; and the reverse query *"which
+conflicts touch this settlement?"* must be answerable, or the references are
+decoration.
+
+**9. Journey route on regenerate? → INVALIDATE.** *(Against the recommendation,
+which was to keep it with a staleness mark.)* The cost stands and is recorded: a
+regenerate is cheap and frequent here, so this repeatedly discards authored work.
+Build the mitigations rather than re-litigating — invalidation must be **loud**,
+**re-plan from the same endpoints** must be one click (party, season, carriage
+and stages are authored inputs and survive), and the Journey entity itself is not
+deleted; only its polyline is invalid.
+
+**10. Landmark persistence? → PERSIST** in `entities/landmarks.json`. Consistent
+with the recorded finding that research §25's state transitions cannot be
+recomputed. Needs a `SAVEFILE_COMPAT.md` entry and a format-version note.
+
+**11. Settlement density? → RAISE THE `ecological_factor` CEILING.** It saturates
+at 2.0 on 5 of 6 real factions, so the ceiling and not the ecology is deciding.
+**This ruling IS the golden re-baseline authorisation** — record it as such, since
+a lane will otherwise correctly refuse. Re-measure afterwards: if it still pins on
+most factions the ceiling was not the binding constraint and the row re-opens.
+
+**12. Parity contract for landmarks? → EXEMPT.** `FUNCTION_INDEX.md` returns
+nothing for "landmark"; there is no reference to diff against. **Write it into
+`DECISIONS.md` as a §7-series note**, not only here — §7a/§7d is where a lane
+looks. The project's standing bar (property tests, mutation-tested constants,
+probes on drawn output) applies anyway; it was not separately ruled.
+
+**13. Landmark as a vault `EntityKind`? → YES**, finish the wiring. The template
+exists and `template.rs:155` recognises it; `links.rs:81-84` does not resolve it.
+The half-wired state was the worst of the three.
+
+**14. Generated landmarks vs the manual icon tool? → ONE LAYER, TWO ORIGINS.**
+One collection with an `origin` field. The renderer draws one layer; **M6 spacing
+sees everything**, so generation cannot place a landmark on top of a hand-placed
+icon; a regenerate replaces only the generated ones. Costs a migration of
+`annotations/icons.json`.
+
+**15. 16K/32K export? → UN-SHELVE.** *(Against the recommendation.)* Back on the
+critical path with `EXPORT_SCOPE.md` §5's costs unchanged: the **render-once
+decision must be reversed** (establish what depends on it first); four measured
+gaps close; **the codec question is now live and may need its own decision** —
+WebP dies at 16 383 px, JPEG XL dies on its AGPL encoder, and neither survivor is
+obvious; and the banded renderer that was prototyped, measured byte-identical and
+reverted should be recovered from history rather than rewritten. Note also that
+the reference's own bake draws **terrain and nothing else**.
+
+**16. Viewshed budget? → CHEAP AND COARSE, PLUS A MANUAL "recompute and refine".**
+*(Amended by the owner; the refine action is theirs.)* Coarse keeps a regenerate
+interactive; an explicit action upgrades it. **The shell already has this
+vocabulary** — `Refine detail for the current view` on the WORLD tool-options
+bar. Follow it rather than inventing a second. Open while building: view-scoped or
+whole-world, and whether a refined result persists (interacts with ruling 10).
+
+**17. Sculpt stamp on sea-level move? → RE-READ LIVE**, matching the reference.
+*(Against the recommendation.)* This port's snapshot at `sculpt.rs:1076` becomes
+the divergence to remove. **The cost stands: one global slider retroactively
+changes every committed stamp.** Together with ruling 9 this is one coherent
+position — *the world is live and authored artefacts follow it* — and both need
+the same thing built: **the change is visible when it happens.**
+
+**18. Shrink `STATUS.md`? → NO.** The tax is the accepted price of one place
+holding state. Closes the §4 row **and** the §3.1 blocker pointing at it. Not to
+be re-opened as an efficiency idea.
+
+**19. Diagnostics window? → NO WINDOW.** The spec draws exactly two (§8 Asset
+library, §9 Data manager) and §2.6's Window menu names those two; §2.5 gives
+`Working set` as a read row and `GPU acceleration` as a toggle plus readout.
+**`performance_window.gd` folds away** — and its DCC restyle hours earlier is
+superseded, not wasted, since the *rows* move. **Inventory what it shows and give
+each item a menu-row home or drop it deliberately**, or this quietly loses
+capability.
+
+**20. Phone app bar `☰` / `▤`? → STALE.** Adopt `[world pill] · ⌕ · ⋮` per the
+2026-08-31 Android canvas; newer-canvas-wins applies. Scopes stage 3 of the shell
+rebuild. **Measure that everything the two glyphs reach is still reachable
+before deleting either** — the phone MORE rewrite passed exactly that test.
+
+**21. `statusMid`'s `repaint NN ms`? → `_refresh_map()` WALL TIME.** The number a
+user can act on and the one measurable honestly without a rendering-server hook.
+Quote it as a median with min..max, harness run alone.
+
+**22. Declared-but-unused residue? → DELETE `init_gpu_f64`, KEEP `--good` /
+`--accH`.** They look alike and are not: the function is pilot residue with no
+caller, the two tokens are declared-and-never-used **in the prototype too**, so
+declaring them is fidelity. **Record that reason beside them** or the next
+dead-code sweep removes them and is right to by its own rule.
+
+**23. Store distribution and signing? → NOT YET, a deliberate non-goal.** Stay on
+debug signing; this repo continues to hold no secret. `--export-release` failing
+at signing is **expected and correct** — the unsigned APK it leaves is the good
+one. Keep that attached to the APK recipe.
+
+**24. Landmarks in the crate graph? → CONSOLIDATE INTO `cartalith-civ`.**
+*(Against the recommendation, which was to ratify the existing split.)* A real
+refactor, scheduled as its own row: the terrain-derived half moves in, the
+dependency direction wants watching, and **golden tests must not move** — a crate
+move that changes a value is a re-baseline and this ruling does not grant one.
+
+**25. WASM target? → NOT YET, a deliberate non-goal.** Recorded as decided rather
+than unexamined, because it is not cheap: every crate on the shared path would
+have to stay wasm-compatible, forbidding threads, filesystem and some
+dependencies in exactly the crates doing the heavy work. Zero `wasm32` hits in
+any `Cargo.toml` today, which is correct.

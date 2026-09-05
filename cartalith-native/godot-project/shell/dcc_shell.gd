@@ -1146,12 +1146,20 @@ const MENU_CTL := [24, 36]
 ## One `var(--ctl)` square: `width/height:var(--ctl); border-radius:8px;
 ## background:var(--ins); display:grid; place-items:center`.
 ##
-## `undoCol`/`redoCol` were inside the prototype's truncated tail and do not
-## exist to read (`03-menu-bar.md`'s own file-integrity header). The `ROLE`
-## equivalents stand in, and they are the pair every other quiet control in this
-## bar already uses: `--sec` (`text_secondary`) live, `--dis` (`text_ghost`)
-## dead. `_paint_menu_square()` swaps between them, so "can I press this" is
-## carried by ink as well as by the `disabled` flag.
+## `undoCol`/`redoCol` **are readable, and they say exactly this.** Prototype
+## line 1907: `undoCol:s.undoStack.length?'var(--sec)':'var(--dis)'`, and
+## `redoCol` the same over `redoStack`. So `--sec` (`text_secondary`) live and
+## `--dis` (`text_ghost`) dead is a quotation, not a stand-in, and
+## `_paint_menu_square()`'s swap between them is the canvas's own rule —
+## "can I press this" carried by ink as well as by the `disabled` flag.
+##
+## Corrected 2026-09-05. This comment previously said the pair "were inside the
+## prototype's truncated tail and do not exist to read", citing
+## `03-menu-bar.md`'s file-integrity header. That header, like
+## `04-left-dock.md` §0/§9.1, describes a 262 144-byte truncated copy; the
+## frozen file here is 239 712 bytes and complete. The choice this comment
+## defends was right — it is the *reason* that was wrong, which is the more
+## expensive half to leave standing.
 func _menu_square(glyph: String, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = glyph
@@ -3270,8 +3278,19 @@ func _collapse_button(is_left: bool) -> Button:
 #
 # `04-left-dock.md` §2.1 band 2: a two-segment pill, pinned between the dock
 # header and the TOOLS block, *"shown only when `ldSwitch` is true"*. §2.3 reads
-# it as the WORLD **a / b** switch and says so; §9.1 records that the literal
-# condition, and both segment labels, went with the prototype's truncated tail.
+# it as the WORLD **a / b** switch and says so — and the literal condition is in
+# the prototype after all: `ldSwitch:s.domain==='WORLD'` (line 1939), so the
+# canvas gates the pill on the domain being WORLD, full stop. §9.1 files that
+# binding, and both segment labels, under *Lost to truncation*; **that table is
+# stale, not the file.** See `_MODE_SWITCH_LABELS`' own block below for the
+# measurement and the three other bindings §9.1 gives up on that are present.
+#
+# The code below gates on `domain_gates()` instead, which is the same answer by
+# a route that survives a second domain gaining a `shows` — see the four
+# derived/not-derived bullets further down. Where the canvas says *"WORLD"* and
+# this file says *"any domain that gates"*, the two agree today because WORLD is
+# the only gating domain; the derived form is kept because a literal `"world"`
+# is exactly what a verifier caught here on 2026-09-05.
 #
 # **Why it exists here rather than being left to the rail.** `RAIL_NODES`'
 # `shows` key gives `world/b` a real gate -- in Sculpt the dock renders one
@@ -3295,23 +3314,64 @@ func _collapse_button(is_left: bool) -> Button:
 #   pill is as many halves as that domain has modes, in `RAIL_NODES` order.
 # - **Derived** — the lit segment, the tooltips and the press target: all read
 #   `_active_domain` and `rail_node(_active_domain, mode)`.
-# - **NOT derived, and deliberately** — two of the ten labels.
-#   `_MODE_SWITCH_LABELS` overrides `world/a` and `world/b`; `mode_switch_label()`
-#   falls back to the node's own `label` upper-cased for the other eight.
+# - **NOT derived, and deliberately — because they are QUOTED** — two of the ten
+#   labels. `_MODE_SWITCH_LABELS` overrides `world/a` and `world/b` with the
+#   canvas's own two strings; `mode_switch_label()` falls back to the node's own
+#   `label` upper-cased for the other eight, which *is* a derivation. The
+#   distinction matters and this file had it backwards until 2026-09-05: the two
+#   overridden strings are the **more** faithful of the ten, not the less.
 #
-# **Why those two are an override rather than a derivation.** §9.1: *"the
-# switch's own two labels are not recoverable ... `Generation pipeline` /
-# `Sculpt` are the closest evidence but are 19 and 6 characters -- almost
-# certainly not the pill text."* `PIPELINE` / `SCULPT` is this port's decision,
-# recorded the way `Workspace.push_dock_readout()` records its own unrecoverable
-# string: both are words the rail's own node labels already use, both fit the
-# `--m2` uppercase mono the dock sets every heading in, and they balance at 8 and
-# 6 characters across two `flex:1` halves. Deriving them would silently put a
-# 19-character label in one half of a `W_LEFT_DOCK` (372 px) dock's pill and
-# reverse a recorded decision, so the override stays and is keyed
-# **`domain/mode`** rather than by
-# bare mode — `a` and `b` are not reserved words, and a future domain naming a
-# mode `a` must not inherit WORLD's noun.
+# **Both strings are QUOTED FROM THE CANVAS. Neither is derived, and neither is
+# this port's invention.** Corrected 2026-09-05 (batch 35), because this block
+# previously said the opposite and cited a spec section that is stale:
+#
+# | string | canvas binding | where |
+# |---|---|---|
+# | `SCULPT` | `ldSwB` — the pill's own segment-b caption | prototype line 1940 |
+# | `PIPELINE` | `ldCollapsedLabel`'s own word for mode a, `(wm==='a'?'PIPELINE':'SCULPT')` | prototype line 1937 |
+#
+# `design/dcc-environment-2026-08-31/Cartalith DCC Environment.dc.html:1940`
+# reads, verbatim: `ldSwA:'GENERATION PIPELINE',ldSwB:'SCULPT',`. The two lines
+# under it carry `ldSwACol`/`ldSwABg` and `ldSwBCol`/`ldSwBBg`, and the line
+# above carries `ldSwitch:s.domain==='WORLD'`.
+#
+# **What this block used to say, and why it was wrong.** It quoted
+# `04-left-dock.md` §9.1 — *"the switch's own two labels are not recoverable"* —
+# and concluded that `PIPELINE`/`SCULPT` was "this port's decision". §9.1's
+# sixteen-row *Lost to truncation* table, and §0's *"the source file is
+# truncated ... exactly 262 144 bytes (256 KiB) and ends mid-token"*, describe a
+# copy of the prototype this repository no longer holds. **The frozen file is
+# 239 712 bytes and 1 994 lines and ends `</script></body></html>`**; §0's own
+# truncation point, `measRows.push({i:('0'+i).slice(-2),len:this.fmtKm(km),be`,
+# is a complete statement at line 1863. §0's last instruction was *"Get an
+# untruncated copy of this file before building"* and commit `660cbef` ("Design
+# answered: the files are whole") is someone doing exactly that. **The spec
+# section was never updated, and this file went on citing it.** The spec is
+# frozen under `design/` and is not this file's to fix; what is fixed here is
+# the claim made in this tree's own source.
+#
+# **`GENERATION PIPELINE` — `ldSwA` itself — is not used, and NOT because it
+# does not fit.** That was the old block's reasoning ("would silently put a
+# 19-character label in one half of a 372 px dock's pill") and it is false.
+# Measured 2026-09-05, `_worlddockb_probe.gd` §2, headless, desktop 1920x1080,
+# light palette, both pairs built through this file's own `_mode_switch_segment`
+# → `DccWidgets.segment()`:
+#
+#   dock width                                372 px
+#   shipped `PIPELINE` | `SCULPT`, minimum x  119 px
+#   canvas `GENERATION PIPELINE` | `SCULPT`   185 px   — clears by 187 px
+#
+# It fits with room. The short form stays for a different and better reason:
+# `design/proposed-2026-09-05-round2/WorldDockB.dc.html` is the canvas the owner
+# approved on 2026-09-05 and it draws `PIPELINE`, and the standing rule is that
+# where two canvases disagree the **newer** one wins (`CLAUDE.md`, owner ruling
+# 2026-08-25). `PIPELINE` is not a compromise against `ldSwA` — it is
+# `ldCollapsedLabel`'s own abbreviation of the same mode, so both halves of the
+# pill are canvas words either way.
+#
+# The override is keyed **`domain/mode`** rather than by bare mode — `a` and `b`
+# are not reserved words, and a future domain naming a mode `a` must not inherit
+# WORLD's noun.
 #
 # **The fallback is the node's own label, and it is not free.** No domain but
 # WORLD has a gate, so no other label is on screen today; if one gains one, the
@@ -3773,13 +3833,31 @@ func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
 # running, the speed multiplier, and the six layer toggles. None of the three
 # has an engine counterpart to defer to.
 #
-# The two figures the prototype leaves `UNSPECIFIED` and this file has to
-# choose, both chosen so the speed pill means one thing rather than two:
-#   - **step size** is `tl_speed` years. `hTlStep`'s own step is truncated out
-#     of the delivered file.
+# **The step size is a DELIBERATE DIVERGENCE, not a recovery.** Corrected
+# 2026-09-05: this block used to say `hTlStep`'s own step "is truncated out of
+# the delivered file", so `tl_speed` was recorded as a forced choice. It is not
+# truncated. Prototype line 1979:
+#
+#     hTlStep:e=>this.setState(x=>({tlYear:Math.min(1200,Math.max(-400,
+#       x.tlYear+ +e.currentTarget.dataset.d))}))
+#
+# and the two buttons that call it carry `data-d="-1"` and `data-d="1"`
+# (markup lines 1198-1199). **The canvas steps by exactly one year, and the
+# speed pill does not touch the step buttons at all** — `tlSpeed` is consumed by
+# playback alone there.
+#
+# `tl_step()` below steps by `tl_speed` instead, and that is kept rather than
+# reverted, because a ±1 step on a 1 600-year track is 233 clicks to cross the
+# span the pill claims to control, and because §4.2 places the two step squares
+# immediately beside the pill and offers no other reading of what the pill is
+# for. But it is now a divergence this port has chosen with the canvas in front
+# of it, which is a different thing from a gap it had to fill — and if the ±1
+# behaviour is ever wanted, `data-d` is where it is written down.
 #   - **playback** advances the cursor by `tl_speed` years every `TL_TICK_SEC`,
 #     which is §6.2's rule for the phone strip stated literally ("playing
-#     advances the year by `speed` every 600 ms") and is applied to both views.
+#     advances the year by `speed` every 600 ms") and matches the desktop
+#     canvas's own `tlState:s.tlRun?'RUNNING '+s.tlSpeed:'PAUSED'` (line 1978),
+#     where the speed is likewise the *playback* rate. Applied to both views.
 #
 # `civ_goto_year(y)` accepts any year: it writes `CivData::year` unconditionally
 # and then loads a snapshot only if one was recorded for exactly that year
@@ -3795,10 +3873,21 @@ func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
 ## `min=-400 max=1200 step=1`. The same two numbers, in both canvases.
 const TL_YEAR_MIN := -400
 const TL_YEAR_MAX := 1200
-## `tlSpeeds` is truncated out of the prototype; §4.3 records that its markup
-## says three options and that `×10` is the surviving default. `06-phone.md`
-## §6.2 has the other two verbatim -- `×1 ×10 ×100` -- so the ladder is
-## recovered from the phone canvas rather than guessed.
+## `tlSpeeds` is **in** the prototype, at line 1980, and it is this ladder
+## exactly: `tlSpeeds:['×1','×10','×100'].map(v=>({v,col:s.tlSpeed===v?
+## 'var(--acc)':'var(--dim)',bg:s.tlSpeed===v?'var(--wash2)':'transparent'}))`.
+## Corrected 2026-09-05 — this said "truncated out of the prototype ... recovered
+## from the phone canvas rather than guessed". The recovery was right and the
+## reason for needing one was not; `06-phone.md` §6.2 and the desktop canvas
+## agree, which is a corroboration rather than a substitution.
+##
+## That line also settles the lit segment's colours **for the timeline pill**
+## the same way `ldSwABg` settles them for the WORLD dock's: `var(--wash2)` fill
+## under `var(--acc)` ink when selected, `transparent` when not — which is
+## `DccWidgets.set_segment_on()`, the washed form, and not the filled amber slab
+## `set_mode_segment_on()` keeps for the tool bar. The owner ruled the same way
+## on 2026-09-05 (`LARGE_ITEM_RULINGS.md` §7) and recorded it as an
+## interpretation open to reversal; it is not an interpretation.
 const TL_SPEEDS := [1, 10, 100]
 const TL_TICK_SEC := 0.6
 ## §4.3's `tlTog`, in its order, with its defaults. The markup renders the id
@@ -3864,6 +3953,75 @@ func tl_set_year(year: int) -> void:
 func tl_step(direction: int) -> void:
 	tl_set_year(tl_year() + direction * tl_speed)
 
+## Every year CIVIL ▸ Politics has recorded a snapshot for, ascending.
+##
+## `Timeline.dc.html`'s row 2 draws one mark per entry of this array, and the
+## board's own note is the reason it could be drawn at all: the marks are real
+## or they are not drawn, and a tick row that can never populate is worse than
+## a bare rail. `engine_bridge.gd::get_civ_timeline_years()` is a real binding
+## over `WorldGen::get_civ_timeline_years`, guarded by `_has()` so a binary
+## that predates the timeline milestone answers an empty array rather than
+## erroring.
+##
+## **Empty is a state, not an error, and it is the state a fresh world is in.**
+## Measured (`_tlscrub_probe.gd` §3): a completed `generate()` leaves this at
+## **0** entries -- generation records no timeline year -- so board G is what
+## every newly generated world draws until `civ_add_year` or a collapse
+## simulation runs.
+func tl_recorded_years() -> PackedInt64Array:
+	var bridge := _find_engine_bridge()
+	return PackedInt64Array() if bridge == null else bridge.get_civ_timeline_years()
+
+## Where one year sits among the recorded ones: `at` when the cursor is
+## standing on a recorded year, `prev` for the nearest recorded year below it,
+## `next` for the nearest above.
+##
+## **Every key is omitted rather than defaulted.** There is no year value that
+## means "none" on a -400..1200 track -- `0` and `-400` are both legal cursor
+## positions and `-400` is the first frame of the axis -- so callers ask with
+## `has()`. Board D's readout is exactly this dictionary rendered: `prev`
+## present and `next` present prints *territory holds at 412 AD · next 500 AD*;
+## board F's cursor at 1200 has no `next` and the clause is dropped rather than
+## printed empty.
+##
+## `prev` is also the year `civ_year_diff()` diffs against: `engine_bridge.gd`
+## documents that binding as diffing "against the chronologically-previous
+## recorded year", so board C's *since 340 AD* is this key and not a second
+## source that could disagree with the counts beside it.
+func tl_year_neighbours(year: int) -> Dictionary:
+	var out: Dictionary = {}
+	## Ascending, so the last write below `year` is the greatest such year and
+	## the first write above it is the least -- no sort and no min/max pass.
+	for y in tl_recorded_years():
+		var yi := int(y)
+		if yi == year:
+			out["at"] = yi
+		elif yi < year:
+			out["prev"] = yi
+		elif not out.has("next"):
+			out["next"] = yi
+	return out
+
+## The recorded year a shift-drag magnets to, as `{"year": int}` -- or `{}`
+## when the world has recorded none, which is the state every freshly generated
+## world is in.
+##
+## Ties go to `prev`, deliberately: dragging forward through the midpoint
+## between two marks should not jump ahead of the pointer.
+func tl_nearest_recorded(year: int) -> Dictionary:
+	var n := tl_year_neighbours(year)
+	if n.has("at"):
+		return {"year": int(n["at"])}
+	if n.has("prev") and n.has("next"):
+		var p := int(n["prev"])
+		var q := int(n["next"])
+		return {"year": p if (year - p) <= (q - year) else q}
+	if n.has("prev"):
+		return {"year": int(n["prev"])}
+	if n.has("next"):
+		return {"year": int(n["next"])}
+	return {}
+
 func tl_set_speed(mult: int) -> void:
 	if not TL_SPEEDS.has(mult):
 		return
@@ -3902,11 +4060,34 @@ func _tl_tick() -> void:
 		return
 	tl_set_year(next)
 
-## The running/paused string §4.2 binds as `{{ tlState }}` and leaves
-## `UNSPECIFIED`. It says which of the two states is live and, when playing, at
-## what rate -- the speed pill is a set of three and only one of them is what is
-## actually happening.
+## The string §4.2 binds as `{{ tlState }}`. It says which state is live and,
+## when playing, at what rate -- the speed pill is a set of three and only one
+## of them is what is actually happening.
+##
+## **The canvas spells it in upper case and this shell does not.** Corrected
+## 2026-09-05: this comment said §4.2 leaves `tlState` `UNSPECIFIED`. It does
+## not -- prototype line 1978 is `tlState:s.tlRun?'RUNNING '+s.tlSpeed:'PAUSED'`,
+## so the older canvas's two words are `RUNNING ×10` and `PAUSED`. The lower-case
+## forms below are `design/proposed-2026-09-05-round2/Timeline.dc.html`'s, which
+## draws `paused` (board C), `scrubbing` (E) and `end of track` (F) in the same
+## `--m1` accent slot; the newer approved canvas wins, and three states in one
+## slot want a sentence voice rather than three shouted words.
+##
+## **A third word, added 2026-09-05 for `Timeline.dc.html` board F.** At the top
+## of the track `tl_toggle_play()` refuses to start and `_tl_tick()` has already
+## stopped, so `playing` is unreachable there and `paused` -- beside a play
+## square this repaint draws dead -- reads as a fault rather than as the end of
+## the range. `end of track` is checked first because it is the stronger claim:
+## it is true whatever the run state, and the run state at 1200 is always
+## stopped anyway.
+##
+## This is the string all **three** views of the cursor print, not just the
+## desktop strip: `_refresh_phone_sim_strip()` and `phone_menu.gd`'s
+## Simulation rows read the same function, and the end of the track is as true
+## on the phone as it is here.
 func tl_state_text() -> String:
+	if tl_year() >= TL_YEAR_MAX:
+		return "end of track"
 	return ("playing ×%d" % tl_speed) if tl_playing else "paused"
 
 func tl_toggle_layer(id: String) -> void:

@@ -64,11 +64,20 @@ const PATHS := {
 
 	## The touch navpad (`GUI_GAP_REGISTER.md` SH-14), the port's answer to the
 	## reference's mobile `#zoomOverlay`. Drawn rather than left as the
-	## reference's own `+` / `-` / `✋` / `⟳` text: the four sit in one column
+	## reference's own `+` / `-` / `✋` / `⟳` text: the four sit in one cluster
 	## and have to read as one family, which a type glyph beside a 1.2 px
 	## stroke never does -- and `⟳` (U+27F3) is missing from Plex Mono and the
 	## whole fallback chain anyway, the same tofu case `search`/`import` were
 	## drawn for. The hand is `tool_pan` above, reused unchanged.
+	##
+	## **"One column" until DS-13** (2026-09-05), which made the cluster a
+	## thumb-reachable bottom row and split `zoom_out`/`zoom_in` into one rocker
+	## -- see `viewport_host.gd::_build_navpad()`. The argument for drawing them
+	## is unchanged by that and so are the four paths; only the word was wrong.
+	## `view_fill` is also where §6.2's recentre FAB landed, and it keeps this
+	## drawn mark rather than that table's `⌖` (U+2316) for the reason above:
+	## Plex Mono does not carry it either, and one type glyph among three
+	## stroked ones is exactly the family break this entry exists to avoid.
 	##
 	## `view_fill` is a *frame with the content pushed out to it* -- the cover
 	## reset, not a fit: the two diagonals run outward to opposite corners.

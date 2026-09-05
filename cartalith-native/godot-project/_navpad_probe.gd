@@ -73,7 +73,10 @@ func _ready() -> void:
 	print("=== has_world=", app.bridge.has_world, " grid=", app.bridge.grid_size(), " ===")
 
 	# --- The navpad exists, is 44 dp, and clears the chrome ------------------
-	var pad: VBoxContainer = vp._navpad
+	## `Container`, not `VBoxContainer`: DS-13 made the navpad a bottom row and
+	## the zoom pair a nested rocker inside it, so a `VBoxContainer` local here
+	## is a hard runtime error rather than a stale comment.
+	var pad: Container = vp._navpad
 	print("[pad] built=", pad != null)
 	if pad == null:
 		get_tree().quit(1)
@@ -105,12 +108,18 @@ func _ready() -> void:
 		" centred=", is_equal_approx(tl.x + br.x, vp.size.x) and is_equal_approx(tl.y + br.y, vp.size.y))
 
 	# --- Zoom step buttons ---------------------------------------------------
+	## By tooltip, not by index. The rocker draws `-` left of `+`, which is the
+	## reverse of the order the old column added them in, and an index here
+	## would have kept passing with the two ratios swapped.
+	var by_tip := {}
+	for b in btns:
+		by_tip[(b as Button).tooltip_text] = b
 	var z0: float = vp.zoom()
-	(btns[0] as Button).emit_signal("pressed")
+	(by_tip["Zoom in"] as Button).emit_signal("pressed")
 	await _frames(2)
 	print("[zoom] in  ", z0, " -> ", vp.zoom(), " ratio=", vp.zoom() / z0, " (want 1.35)")
 	var z1: float = vp.zoom()
-	(btns[1] as Button).emit_signal("pressed")
+	(by_tip["Zoom out"] as Button).emit_signal("pressed")
 	await _frames(2)
 	print("[zoom] out ", z1, " -> ", vp.zoom(), " ratio=", vp.zoom() / z1, " (want 0.7407)")
 

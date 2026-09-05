@@ -387,6 +387,43 @@ func _build() -> void:
 	## body where the canvas puts it, so it never scrolls away from what it
 	## hides. CIVIL and CARTO are still accordion-only; neither gates.
 	##
+	## **The pill's two captions are QUOTED FROM THE CANVAS.** `SCULPT` is
+	## `ldSwB` verbatim and `PIPELINE` is `ldCollapsedLabel`'s own word for mode
+	## a, both at `design/dcc-environment-2026-08-31/Cartalith DCC
+	## Environment.dc.html:1937-1940`, and `04-left-dock.md:138` binds segment
+	## B's text to `{{ ldSwB }}`.
+	##
+	## **This block said the opposite for one batch**, on the authority of
+	## `LARGE_ITEM_RULINGS.md` §6's first consequence and `04-left-dock.md` §0's
+	## truncation note. Both were stale: the canvas in this tree is **whole** --
+	## 239 712 bytes, 1 994 lines, ending `</script></body></html>` -- since
+	## commit `660cbef` ("Design answered: the files are whole"), and §0/§9.1
+	## were never updated. Corrected 2026-09-06 after a verifier found this file
+	## contradicting `dcc_shell.gd`, which had already been fixed in the same
+	## batch. **Deriving here would have replaced two verbatim canvas strings
+	## with a derivation and labelled a true provenance false.**
+	##
+	## The derivation below is kept as **corroboration, not provenance** -- it is
+	## why the canvas's two words are the right ones for what these modes hold,
+	## and it is probe-verified:
+	##
+	## - **mode `a`** owns eight of the nine `CATEGORIES` above -- Generate,
+	##   Geology, Hydrology, Climate, Biomes, Ecology, Resources, World data --
+	##   and `Generate`'s own `lead` says what they are collectively for: *"The
+	##   one act: seed, extent, steering, run … this call resolves all ten
+	##   pipeline stages at once."* Eight categories whose every parameter feeds
+	##   one `generate()` call are a **pipeline**.
+	## - **mode `b`** owns and `shows` exactly `Terrain`, the one category
+	##   `_build_sculpt()` parents `_sculpt_body` into, and the mode arming the
+	##   sculpt tool jumps the dock to. One category holding the sculpt block is
+	##   **sculpt**.
+	##
+	## `DccShell._MODE_SWITCH_LABELS` carries the resulting `PIPELINE` /
+	## `SCULPT`. The rail-node labels (`Generation pipeline` / `Sculpt`) reach
+	## the same two head nouns by a different route, which is corroboration and
+	## not a source. **What is not claimed: that either word appears in any
+	## canvas as the pill's own text.** Neither does.
+	##
 	## `_sculpt_body`/`_paint_body` are unaffected and are still parented into
 	## their categories rather than into a mode panel -- the mode hides the
 	## category, it does not re-home the body.

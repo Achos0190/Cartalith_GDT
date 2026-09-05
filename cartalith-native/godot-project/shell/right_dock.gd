@@ -574,6 +574,26 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			clear_measurements()
 		if _context == CTX_RIVER:
 			_context = CTX_SAMPLE
+		## And the pinned settlement, which had no clause here at all until
+		## 2026-09-05 and kept drawing a town out of the world that was just
+		## replaced. **`refresh_settlement()` is the wrong tool on this path
+		## and would be worse than the leak:** it matches by `tid`, and `tid`s
+		## are issued per world from 1 -- `compute_civilisation` in `lib.rs`
+		## says so in its own comment, *"`kept_next_tid` is 1 on the
+		## auto-populate path (nothing has an id yet)"*, which is the path a
+		## fresh generate takes. So settlement 0 of the NEW world carries the
+		## old pin's tid, and the panel would refresh into a *different* town
+		## under the old one's identity. Dropped outright instead, the same
+		## way the river above is and for the same reason.
+		##
+		## Two of the eight non-Sample contexts are reset here now, and the rest
+		## of the gap is named rather than quietly widened: `CTX_ROUTE`,
+		## `CTX_FACTION`, `CTX_MEASURE`,
+		## `CTX_REGION`, `CTX_WILDLIFE` and `CTX_HISTORY` all still survive a
+		## world replacement holding an index into a world that is gone. Same
+		## defect, unmeasured, not fixed by this clause.
+		if _context == CTX_SETTLEMENT:
+			on_settlement_selected(null, -1)
 		## And the Way/Route draft, for the measurements' own reason one line
 		## up: its points are grid cells, so a draft kept across a regenerate
 		## would report a length and a grade over ground it was never drawn on.
@@ -592,6 +612,21 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			clear_measurements()
 		if _context == CTX_RIVER:
 			_context = CTX_SAMPLE
+		## Unconditional, unlike the measurements two lines up, and that is a
+		## decision rather than an oversight: this signal's emitters split in
+		## half. `grep -n "world_loaded.emit" shell/engine_bridge.gd`,
+		## 2026-09-05 -- `load_save` (a project open), `close_world`,
+		## `_finish_import` and `_finish_region_new_world` each replace the
+		## roster and every `tid` with it; `load_asset_pack`,
+		## `center_landmasses`, `carve_fjords` and `as_apply_to_map` keep it --
+		## and nothing carried by the signal says which arrived. Closing the
+		## panel after `carve_fjords` costs a re-click; keeping it open after a
+		## project open draws the previous project's town, which is the failure
+		## this clause exists to stop. The two `_finish_*` emitters also fire
+		## `generation_finished`, so they reach the handler above first and
+		## this is a second, already-satisfied drop for them.
+		if _context == CTX_SETTLEMENT:
+			on_settlement_selected(null, -1)
 		_forget_way_draft()
 		_rebuild())
 	## The stamp-count backstop -- see `_sculpt_draft_backstop()` for why it is
@@ -731,6 +766,50 @@ func on_settlement_selected(data: Variant, index: int) -> void:
 		_settlement_data = data
 		_settlement_index = index
 	_rebuild()
+
+## The engine's settlement list changed under a live Settlement context: push
+## the entry again so this panel stops drawing a snapshot of how that town used
+## to be, or leave the context when the index is no longer that town.
+##
+## **Why this exists.** Everything `_build_settlement` draws except the faith
+## section comes from `_settlement_data`, the dictionary handed to
+## `on_settlement_selected` at click time; `place_editor_window.gd` writes the
+## engine live. `_pesibling_probe.gd` measured the disagreement against a
+## 40-settlement world: a rename left the dock drawing the OLD name, a delete
+## left it drawing a town that no longer exists.
+##
+## **Why a `{}` from `_live_settlement` closes the panel instead of hunting the
+## town down by `tid` at its new index.** Re-pointing would fix the six fields
+## above and break the two below them. `lib.rs`'s `civ_delete_settlement` says
+## so itself -- *"`explanations` is not re-indexed either, so
+## `explain_settlement` is stale past the deleted row until the layer is
+## rebuilt"* -- and `_build_settlement_why` and the `Water access` row are both
+## `bridge.explain_settlement(_settlement_index)`. So `_live_settlement`'s test
+## is exactly the right one to close on: the index still holding this town is
+## the same fact as everything keyed to that index still being this town's.
+## Deleting a settlement *below* this one leaves both true and the panel open;
+## deleting one above renumbers both and the panel goes rather than draw a
+## neighbour's causal chain under this name. A recompute re-indexes the
+## explanations, and a re-select after it opens the panel with all of it live.
+##
+## **Not for a world replacement.** `tid` identifies a town within one world
+## and is re-issued from 1 by the next generate, so this function would happily
+## "refresh" the pin into a same-tid stranger. `setup()`'s `generation_finished`
+## and `world_loaded` handlers drop the context outright instead -- see the
+## clauses there.
+func refresh_settlement() -> void:
+	if _context != CTX_SETTLEMENT or not (_settlement_data is Dictionary):
+		return
+	var live := _live_settlement(_settlement_data)
+	if live.is_empty():
+		var was := String((_settlement_data as Dictionary).get("name", "that place"))
+		on_settlement_selected(null, -1)
+		if app != null:
+			app.set_status("hint", ("%s is no longer the settlement at that position in the "
+				+ "roster, so the right dock is back to Sample — re-select it on the map.")
+				% was, "text_ghost")
+		return
+	on_settlement_selected(live, _settlement_index)
 
 func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if _context != CTX_SAMPLE:
@@ -1935,11 +2014,15 @@ func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 ## people follow no faith -- rather than as a second kind of dash.
 ##
 ## **Read fresh from the bridge, not from `_settlement_data`.** That dictionary
-## is the snapshot taken when the pin was clicked, and a diffusion run
-## afterwards adds the two keys to the engine's answer without being able to
-## add them to a copy taken before it. Every other row in this section is a
-## placement fact that does not move, which is why they still read the
-## snapshot and this one does not.
+## is the snapshot last pushed into this panel -- at click time, or by
+## `refresh_settlement()` after a place edit -- and a diffusion run afterwards
+## adds the two keys to the engine's answer without being able to add them to a
+## copy taken before it. `refresh_settlement()` does not narrow that: the
+## diffusion is `_religion_run()`, which refreshes the map overlay and the
+## Religion panel and emits nothing this dock listens to, so a belief run still
+## reaches this section and no other. Every other row here is a placement fact
+## that does not move, which is why they still read the snapshot and this one
+## does not.
 ##
 ## **Matched by `tid`, not by position.** `_settlement_index` is an index into
 ## `get_settlements()`; deleting a settlement makes index N a different town,
@@ -2318,7 +2401,12 @@ func _contribution_of(t: Variant) -> float:
 ## `{}` is the honest answer for both failures and they are not distinguished
 ## here on purpose: an index past the end of the list and an index that now
 ## holds a different `tid` are the same fact for a caller -- there is no entry
-## for this settlement -- and the caller says so once.
+## for this settlement -- and each caller says so once, in its own vocabulary.
+## Two of them now: `_build_settlement_faith` dashes its own section and leaves
+## the rest of the panel standing, and `refresh_settlement` closes the panel,
+## because a `{}` there also means every row keyed to `_settlement_index` --
+## `explain_settlement`, `urban_layouts`, `open_city_viewer` -- has stopped
+## being about this town.
 ##
 ## Falls back to comparing names only when `tid` is missing from either side,
 ## which is what an older cdylib looks like; a name is a weaker id than a tid

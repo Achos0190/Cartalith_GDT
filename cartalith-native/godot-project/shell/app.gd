@@ -1203,10 +1203,28 @@ var _tl_expanded := false
 var _tl_year_labels: Array[Label] = []
 var _tl_state_label: Label
 var _tl_play_button: Button
+var _tl_fwd_button: Button                ## Dead at the top of the track, with `_tl_play_button`.
 var _tl_speed_segments: Dictionary = {}   ## multiplier -> Button
 var _tl_track: Control
 var _tl_head: ColorRect
 var _tl_phone_button: Button
+## `Timeline.dc.html` rows 2-3, 2026-09-05. The scrub track's marks, the word
+## beside the year and the clause after it, the drag bubble, and the two range
+## literals that lift when the cursor is standing on one.
+var _tl_status_labels: Array[Label] = []  ## `recorded` / `between` / `no years recorded` / `scrubbing`.
+var _tl_detail_label: Label               ## The clause after the word; hidden when there is none.
+var _tl_detail_dot: Label                 ## Its separator, hidden with it.
+var _tl_count_row: HBoxContainer          ## `42 present · +3 −1 since 340 AD`; recorded years only.
+var _tl_count_parts: Dictionary = {}      ## Its five labels, by name -- three inks, so three Labels.
+var _tl_bubble: Label                     ## Rides the playhead, and only during a drag.
+var _tl_min_label: Label
+var _tl_max_label: Label
+var _tl_end_hint: Label                   ## `step back or drag to resume`, row 1, end of track only.
+var _tl_collapsed_dot: Label              ## Board B's `·`; hidden with the word it separates.
+## True between a press on the scrub track and the release that ends it. Drives
+## the bubble and the `scrubbing` word, and nothing else -- the cursor itself is
+## written on every motion event exactly as it was before.
+var _tl_scrubbing := false
 ## Everything `DccShell.tl_available()` gates -- the three transport squares,
 ## the three speed pills and the scrub track. **Not** the six layer toggles:
 ## those are a persisted shell preference with no engine behind them either way,
@@ -1230,11 +1248,25 @@ func _fill_timeline_strip() -> void:
 	_tl_year_labels = []
 	_tl_state_label = null
 	_tl_play_button = null
+	_tl_fwd_button = null
 	_tl_speed_segments = {}
 	_tl_track = null
 	_tl_head = null
 	_tl_phone_button = null
 	_tl_transport = []
+	_tl_collapsed_dot = null
+	_tl_status_labels = []
+	_tl_detail_label = null
+	_tl_detail_dot = null
+	_tl_count_row = null
+	_tl_count_parts = {}
+	_tl_bubble = null
+	_tl_min_label = null
+	_tl_max_label = null
+	_tl_end_hint = null
+	## A rebuild ends any drag: the `Control` that was receiving the motion
+	## events is on its way out of the tree, so its release never arrives.
+	_tl_scrubbing = false
 	if is_phone():
 		_fill_phone_timeline_row()
 		return
@@ -1287,6 +1319,24 @@ func _build_timeline_collapsed() -> void:
 		DccTheme.role_px("fs_timeline"), 0)
 	_tl_year_labels.append(year_lbl)
 	row.add_child(year_lbl)
+	## `Timeline.dc.html` board B's one addition to §4.1's four slots, and the
+	## board states its own cost: a fifth thing to read on a 24 px strip. It
+	## earns the width because it is the single fact that decides whether the
+	## map under the strip will change when you scrub -- a set-membership test
+	## against `tl_recorded_years()`, no per-frame engine call and no new
+	## binding. Board A (no world) draws neither, so both are hidden by
+	## `_repaint_timeline()` rather than built conditionally: the collapsed
+	## strip is not rebuilt when a world appears.
+	##
+	## `--faint` here and `--acc` in the expanded row 3 is the two boards'
+	## own pair of literals, not one value drifting -- collapsed, the word is
+	## an annotation on a status strip; expanded, it is the subject of the row.
+	var dot := DccTheme.mono_label("·", "text_ghost", DccTheme.role_px("fs_timeline"), 0)
+	row.add_child(dot)
+	var status := DccTheme.mono_label("", "text_faint", DccTheme.role_px("fs_timeline"), 0)
+	_tl_status_labels.append(status)
+	row.add_child(status)
+	_tl_collapsed_dot = dot
 	row.add_child(DccTheme.spacer())
 	## `▴` U+25B4 -- not in `DccIcons.SYMBOLS`, and the table is not this
 	## file's to extend. Same `SystemFont` fallback as every other missing mark.
@@ -1328,6 +1378,10 @@ func _build_timeline_expanded() -> void:
 	back.tooltip_text = "Step the year cursor back by the selected speed."
 	var fwd := _tl_square(t, DccIcons.SYMBOLS["play"], "text_secondary", func(): tl_step(1))
 	fwd.tooltip_text = "Step the year cursor forward by the selected speed."
+	## Held for board F: at 1200 this square and the play square are the two
+	## controls with nothing behind them, and `_repaint_timeline()` draws both
+	## dead with the reason. Step *back* stays live -- it is the way out.
+	_tl_fwd_button = fwd
 
 	## The speed pill group. `DccWidgets.segment()`/`set_segment_on()` is this
 	## shell's own lit-one-of-a-set control, so the group reads like every other
@@ -1341,6 +1395,24 @@ func _build_timeline_expanded() -> void:
 
 	_tl_state_label = DccTheme.mono_label("", "accent", DccTheme.role_px("fs_timeline"), 0)
 	t.add_child(_tl_state_label)
+	## Board F's way out of the end of the track, and **not where F draws it.**
+	## F puts it hard right, after the `flex:1` -- but F draws no layer toggles,
+	## so its right half is empty and C's is six pills and a chevron. The hint
+	## is a clause on `tlState` ("end of track" says the transport is stopped;
+	## this says how to restart it), so it sits beside the string it explains
+	## rather than fighting the toggles for an edge that is already taken.
+	##
+	## **What it costs, measured rather than waved at** (`_tlscrub_probe.gd`
+	## §5, 1920x1080 pointer, dark): row 1's combined minimum x goes **771 →
+	## 963** while the hint is up, and it is only up at year 1200. Order within
+	## the row does not change that total -- an `HBoxContainer`'s minimum is the
+	## sum of its children whichever end the label is at -- so this placement
+	## costs exactly what F's would; what it buys is that the string sits next
+	## to the one it explains.
+	_tl_end_hint = DccTheme.mono_label("step back or drag to resume", "text_ghost",
+		DccTheme.FS_MICRO, 0)
+	_tl_end_hint.visible = false
+	t.add_child(_tl_end_hint)
 	t.add_child(DccTheme.spacer())
 	_build_timeline_layers(t)
 	## `⌄` collapse, `color:var(--faint)`, `padding:0 4px`.
@@ -1355,16 +1427,15 @@ func _build_timeline_expanded() -> void:
 	# Row 3 -- the track scale, `justify-content:space-between`.
 	var foot := HBoxContainer.new()
 	col.add_child(foot)
-	foot.add_child(DccTheme.mono_label("YEAR %d" % TL_YEAR_MIN, "text_ghost",
-		DccTheme.role_px("fs_timeline"), 0))
-	foot.add_child(DccTheme.spacer())
-	var foot_year := DccTheme.mono_label(_tl_year_label(), "text_secondary",
+	_tl_min_label = DccTheme.mono_label("YEAR %d" % TL_YEAR_MIN, "text_ghost",
 		DccTheme.role_px("fs_timeline"), 0)
-	_tl_year_labels.append(foot_year)
-	foot.add_child(foot_year)
+	foot.add_child(_tl_min_label)
 	foot.add_child(DccTheme.spacer())
-	foot.add_child(DccTheme.mono_label("YEAR %d" % TL_YEAR_MAX, "text_ghost",
-		DccTheme.role_px("fs_timeline"), 0))
+	foot.add_child(_build_timeline_readout())
+	foot.add_child(DccTheme.spacer())
+	_tl_max_label = DccTheme.mono_label("YEAR %d" % TL_YEAR_MAX, "text_ghost",
+		DccTheme.role_px("fs_timeline"), 0)
+	foot.add_child(_tl_max_label)
 
 	# Row 4 -- the note the six toggles owe the reader. See below.
 	var note := DccTheme.mono_label("Simulation layers — %s." % TL_LAYER_NOTE,
@@ -1432,6 +1503,98 @@ func _build_timeline_layers(parent: Control) -> void:
 		## Want; No Layer Renders Yet".
 		pill.tooltip_text = "%s: %s — %s." % [id, "on" if on else "off", TL_LAYER_NOTE]
 
+## Row 3's centre item, widened in place rather than given a row of its own --
+## `Timeline.dc.html` boards C/D/E/G, which draw four states of one composition:
+## the year, one word for where the cursor is standing, and one clause after it.
+##
+## §4.2 binds only `{{ tlYearLabel }}` here and fixes the two literals either
+## side of it. Everything after the year is this design's addition, and all of
+## it is `tl_recorded_years()` and `civ_year_diff()` -- see `_tl_readout_state()`
+## for which key supplies which word.
+func _build_timeline_readout() -> Control:
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 8)
+	var year := DccTheme.mono_label(_tl_year_label(), "text_secondary",
+		DccTheme.role_px("fs_timeline"), 0)
+	_tl_year_labels.append(year)
+	box.add_child(year)
+	## The word's ink changes with the word -- `--acc` for `recorded`, `--dim`
+	## for the other three -- so the token is written by the repaint rather
+	## than fixed here.
+	var word := DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 0)
+	_tl_status_labels.append(word)
+	box.add_child(word)
+	_tl_detail_dot = DccTheme.mono_label("·", "text_ghost", DccTheme.FS_MICRO, 0)
+	box.add_child(_tl_detail_dot)
+	## Board C's counts and boards D/E/G's clause are alternatives, never both:
+	## a recorded year has counts and needs no "territory holds at", and an
+	## unrecorded one has no counts to print. One of the two is visible at a
+	## time and the `·` above serves whichever it is.
+	_tl_count_row = HBoxContainer.new()
+	_tl_count_row.add_theme_constant_override("separation", 8)
+	box.add_child(_tl_count_row)
+	_tl_count_parts = {
+		"present": DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 0),
+		"dot": DccTheme.mono_label("·", "text_ghost", DccTheme.FS_MICRO, 0),
+		"added": DccTheme.mono_label("", "good", DccTheme.FS_MICRO, 0),
+		"removed": DccTheme.mono_label("", "block", DccTheme.FS_MICRO, 0),
+		"since": DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 0),
+	}
+	for k in ["present", "dot", "added", "removed", "since"]:
+		_tl_count_row.add_child(_tl_count_parts[k])
+	_tl_detail_label = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 0)
+	box.add_child(_tl_detail_label)
+	return box
+
+## What row 3 says about where the cursor is standing, as `word` / `token` and
+## an optional `detail`.
+##
+## **`detail` is omitted, never blanked**, and the four states differ in which
+## clauses they can support at all:
+##
+## - **no year recorded anywhere** -- board G, and the state every freshly
+##   generated world is in: `generate()` records no timeline year, so
+##   `get_civ_timeline_years()` is empty until `civ_add_year` or a collapse
+##   simulation runs. The clause names the command that puts a mark on the
+##   track, because a bare rail with no explanation is indistinguishable from
+##   a broken one.
+## - **scrubbing** -- board E. The clause is the shift-snap hint, and it is
+##   omitted rather than printed dead when there is no recorded year to snap
+##   to (`tl_nearest_recorded()` answers `{}`), which is the same world state
+##   board G draws.
+## - **on a recorded year** -- board C. No clause: the counts row takes the
+##   slot, and `since` inside it is the year `civ_year_diff()` diffed against.
+## - **between** -- boards D and F. `prev` and `next` are both optional and the
+##   clause is built from whichever exist. A cursor below the first recorded
+##   year has no `prev`, so "territory holds at ..." would be a false sentence
+##   and only "next ..." is printed; board F's cursor at 1200 has no `next`.
+func _tl_readout_state() -> Dictionary:
+	var year := tl_year()
+	var recorded := tl_recorded_years()
+	if recorded.is_empty():
+		return {"word": "no years recorded", "token": "text_dim",
+			"detail": "CIVIL › Politics › Add year puts a mark here"}
+	var n := tl_year_neighbours(year)
+	if _tl_scrubbing:
+		var snap := tl_nearest_recorded(year)
+		var out := {"word": "scrubbing", "token": "text_dim"}
+		if snap.has("year"):
+			## `⇧` U+21E7, the modifier's own glyph, as every NLE and Blender
+			## label it. The hint is the only place the modifier is announced.
+			out["detail"] = "⇧ snaps to %s" % _tl_format_year(int(snap["year"]))
+		return out
+	if n.has("at"):
+		return {"word": "recorded", "token": "accent"}
+	var parts: Array[String] = []
+	if n.has("prev"):
+		parts.append("territory holds at %s" % _tl_format_year(int(n["prev"])))
+	if n.has("next"):
+		parts.append("next %s" % _tl_format_year(int(n["next"])))
+	var between := {"word": "between", "token": "text_dim"}
+	if not parts.is_empty():
+		between["detail"] = " · ".join(parts)
+	return between
+
 ## §4.2 row 2: `height:16px`, rail `flex:1; height:3px; background:var(--ins)`,
 ## playhead `width:2px; height:13px; top:-5px; background:var(--acc)`, and
 ## `hTlScrub` on pointer-down, and on motion with the button still held --
@@ -1440,11 +1603,23 @@ func _build_timeline_layers(parent: Control) -> void:
 ## playhead's fraction comes from.
 func _build_timeline_scrub() -> Control:
 	var track := Control.new()
-	track.custom_minimum_size.y = DccTheme.role_px("timeline_track_h")
+	## **44 on touch is a floor, not a token.** `timeline_track_h` is `[12, 20]`
+	## and 20 is below the tap floor every other control on this row already
+	## clears -- `_tl_square()` grows the transport squares to
+	## `role_px("btn_min_h")` the same way, and that role answers `0` on the
+	## desktop, which means "the design states no constraint" and leaves the 12
+	## alone. `Timeline.dc.html` board H is explicit about which part grows: the
+	## **row** becomes the target and the rail and the marks stay where they
+	## are, drawn from the row's own centre, because a 3 px rail fattened to a
+	## finger is a different drawing rather than a bigger one.
+	track.custom_minimum_size.y = maxf(float(DccTheme.role_px("timeline_track_h")),
+		float(DccTheme.role_px("btn_min_h")))
 	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	track.tooltip_text = ("Drag to move the CIVIL year cursor (civ_goto_year) anywhere in "
 		+ "-400..1200. The map's territory changes only at the years CIVIL > Politics has "
-		+ "recorded a snapshot for; between them the cursor moves and the territory holds.")
+		+ "recorded a snapshot for; between them the cursor moves and the territory holds. "
+		+ "The marks below the rail are those recorded years; hold Shift while dragging to "
+		+ "snap to the nearest one.")
 
 	var rail := ColorRect.new()
 	rail.color = DccTheme.c("sunken")
@@ -1462,6 +1637,28 @@ func _build_timeline_scrub() -> Control:
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	head.custom_minimum_size = Vector2(2, 13)
 	track.add_child(head)
+	## The drag bubble -- board E. It exists only while the pointer is down, and
+	## it is the only thing that travels with it: the NLE convention, so the eye
+	## does not have to leave the playhead for a readout at the far end of a
+	## 700 px track. One `Label` repositioned per motion event, which is the
+	## same event `_repaint_timeline()` already writes on.
+	##
+	## Drawn over the transport row rather than in a gap reserved for it: the
+	## board's own container grows its top padding from 8 px to 15 px to seat
+	## the bubble, and growing the strip on pointer-down would relayout the
+	## track under the drag that is using it. Siblings draw in tree order and
+	## the track is added after row 1, so the bubble is already on top.
+	_tl_bubble = DccTheme.mono_label("", "accent_ink", DccTheme.FS_MICRO, 0)
+	var bub := DccTheme.flat(DccTheme.c("accent"))
+	bub.content_margin_left = 7
+	bub.content_margin_right = 7
+	bub.content_margin_top = 2
+	bub.content_margin_bottom = 2
+	_tl_bubble.add_theme_stylebox_override("normal", bub)
+	_tl_bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tl_bubble.visible = false
+	track.add_child(_tl_bubble)
+
 	_tl_track = track
 	_tl_head = head
 	_tl_transport.append(track)
@@ -1469,20 +1666,138 @@ func _build_timeline_scrub() -> Control:
 	## is a function of the year, but the pixel it lands on is a function of the
 	## width, and this row sits between two resizable docks.
 	track.resized.connect(_place_timeline_head)
+	## The marks are a function of the width too, and they are drawn rather than
+	## built: one `draw_rect` per recorded year against fourteen-plus `ColorRect`
+	## children that would each need repositioning on every resize, and the
+	## merge below is a line of it rather than a node-lifecycle problem.
+	track.resized.connect(track.queue_redraw)
+	track.draw.connect(_draw_timeline_marks.bind(track))
 	_place_timeline_head.call_deferred()
 
 	track.gui_input.connect(func(ev: InputEvent):
 		var at := -1.0
-		if ev is InputEventMouseButton and ev.pressed \
-				and ev.button_index == MOUSE_BUTTON_LEFT:
-			at = ev.position.x
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+			if ev.pressed:
+				at = ev.position.x
+				_tl_scrubbing = true
+			else:
+				## The drag is over: drop the bubble and the `scrubbing` word.
+				## Repainted here rather than left to `timeline_changed`,
+				## because a release moves no year and emits nothing.
+				_tl_scrubbing = false
+				_repaint_timeline()
+				return
 		elif ev is InputEventMouseMotion and (ev.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 			at = ev.position.x
+		elif ev is InputEventMouseMotion and _tl_scrubbing:
+			## A release delivered somewhere else -- the pointer left the track
+			## before letting go. The next motion with no button held is the
+			## only evidence this control gets, and without this clause the
+			## bubble would sit on the track until the next rebuild.
+			_tl_scrubbing = false
+			_repaint_timeline()
+			return
 		if at < 0.0 or track.size.x <= 0.0:
 			return
 		var f: float = clampf(at / track.size.x, 0.0, 1.0)
-		tl_set_year(TL_YEAR_MIN + int(round(f * float(TL_YEAR_MAX - TL_YEAR_MIN)))))
+		var year := TL_YEAR_MIN + int(round(f * float(TL_YEAR_MAX - TL_YEAR_MIN)))
+		## Shift magnets to the nearest recorded year -- board E's hint, and the
+		## modifier Photoshop, Blender and every NLE already use for "snap".
+		## `tl_nearest_recorded()` answers `{}` on a world with no recorded
+		## year, and the drag is then unmodified rather than snapping to a
+		## year that does not exist.
+		var mods := ev as InputEventWithModifiers
+		if mods != null and mods.shift_pressed:
+			var snap := tl_nearest_recorded(year)
+			if snap.has("year"):
+				year = int(snap["year"])
+		tl_set_year(year)
+		## `tl_set_year()` emits `timeline_changed` and so repaints -- but only
+		## when the year actually changed something. Dragging inside one year's
+		## worth of pixels, or dragging at all before a world exists, moves
+		## nothing, and the bubble still has to follow the pointer.
+		_repaint_timeline())
 	return track
+
+## Row 2's marks: one per recorded year, below the rail, plus the one mark the
+## cursor is on or approaching.
+##
+## `Timeline.dc.html` puts them **below** the rail deliberately -- the playhead
+## crosses above it, so nothing 13 px tall can ever be misread as one of them.
+##
+## **Colliding marks merge and are never fattened.**
+## `civ_run_collapse_simulation` writes one entry per step, so a run can leave
+## marks five years apart -- about 2 px on a 700 px track -- and a fatter mark
+## would read as a bigger year. One mark per pixel column is the whole of the
+## merge.
+##
+## The emphasised mark is `accent` when the cursor is standing on it and
+## `text_secondary` when a drag is approaching it: `accent` is the playhead's
+## own ink, and two accents on one track would say the cursor is in two places.
+## The year -> pixel-column mapping the marks are drawn from, pulled out of
+## `_draw_timeline_marks()` so a probe can assert **the shipped function** rather
+## than a replica of it.
+##
+## It was inline until 2026-09-06, and a verifier showed why that mattered:
+## `_tlscrub_probe` §6 re-implemented this expression with a hardcoded `699` and
+## asserted its own copy, so **deleting the clamp left the probe printing PASS**.
+## The clamp is the whole point of the function -- `TL_YEAR_MAX` maps to `w`
+## exactly, one pixel past a track whose columns are `0..w-1`, which drew the
+## top-of-range mark off the right-hand edge and produced 701 distinct columns
+## on a 700 px track.
+func tl_mark_column(year: int, w: float) -> int:
+	var span := float(TL_YEAR_MAX - TL_YEAR_MIN)
+	return mini(floori(w * float(year - TL_YEAR_MIN) / span), int(w) - 1)
+
+func _draw_timeline_marks(track: Control) -> void:
+	var w := track.size.x
+	if w <= 0.0:
+		return
+	var years := tl_recorded_years()
+	if years.is_empty():
+		return
+	var mid := track.size.y * 0.5
+	var span := float(TL_YEAR_MAX - TL_YEAR_MIN)
+	var dim := DccTheme.c("text_dim")
+	var cols: Dictionary = {}
+	for y in years:
+		var yi := int(y)
+		if yi < TL_YEAR_MIN or yi > TL_YEAR_MAX:
+			continue
+		## Clamped to the last column, not just floored. `TL_YEAR_MAX` maps to
+		## `w` exactly, which is one pixel past a track whose columns are
+		## `0..w-1` -- so the mark for the top of the range was drawn off the
+		## right-hand edge. Measured by `_tlscrub_probe.gd` §6: the whole axis
+		## produced **701** distinct columns on a 700 px track, and 701 marks
+		## cannot fit in 700 pixels.
+		cols[tl_mark_column(yi, w)] = true
+	for cx in cols:
+		track.draw_rect(Rect2(float(cx), mid + 3.0, 1.0, 5.0), dim)
+	## Which one is emphasised, and in which ink, is exactly what row 3's word
+	## says in prose -- both read the same two functions, so the track and the
+	## readout cannot disagree about where the cursor is standing.
+	var emph := 0
+	## A separate flag, not a sentinel year: **every** integer on this track is
+	## a legal year, `-1` and `0` included, so "no emphasised mark" has no year
+	## value to hide behind.
+	var has_emph := false
+	var ink := dim
+	if _tl_scrubbing:
+		var snap := tl_nearest_recorded(tl_year())
+		if snap.has("year"):
+			emph = int(snap["year"])
+			has_emph = true
+			ink = DccTheme.c("text_secondary")
+	else:
+		var n := tl_year_neighbours(tl_year())
+		if n.has("at"):
+			emph = int(n["at"])
+			has_emph = true
+			ink = DccTheme.c("accent")
+	if not has_emph or emph < TL_YEAR_MIN or emph > TL_YEAR_MAX:
+		return
+	var ex := w * float(emph - TL_YEAR_MIN) / span
+	track.draw_rect(Rect2(ex - 1.0, mid + 2.0, 2.0, 7.0), ink)
 
 ## The phone has no room for §4.2's row, so its timeline region carries the
 ## collapsed form only and the transport lives in `06-phone.md` §6.2's floating
@@ -1510,13 +1825,33 @@ func _fill_phone_timeline_row() -> void:
 	timeline_row.add_child(DccTheme.mono_label(
 		DccIcons.SYMBOLS["chevron"] if open else "\u25b4", "text_faint", DccTheme.FS_MICRO, 0))
 
-## `tlYearLabel`'s format is `UNSPECIFIED` in the prototype (§4.3 lists three
-## candidates and settles none). This uses the CIVIL dock's own
-## `_civFormatYear` grammar -- `412 AD`, `-400` as `400 BC` -- because that is
-## already what the year pills beside it print, and two spellings of one year in
-## one shell is worse than either spelling.
+## `tlYearLabel` **is** in the prototype and this format is a deliberate
+## divergence from it. Corrected 2026-09-05: this comment said the format was
+## `UNSPECIFIED` and that §4.3 "lists three candidates and settles none". Line
+## 1975 of `design/dcc-environment-2026-08-31/Cartalith DCC Environment.dc.html`
+## reads `tlYearLabel:'YEAR '+s.tlYear`, so the canvas's own spelling of the
+## cursor is bare — `YEAR 412`, `YEAR -400` — and it is used twice, in the
+## collapsed strip (markup 1189) and in the middle of the scale row (1212).
+##
+## `412 AD` / `400 BC` is kept over it for two reasons that outrank the older
+## canvas. First, `design/proposed-2026-09-05-round2/Timeline.dc.html` — the
+## board the owner approved on 2026-09-05 — draws `412 AD` in every one of its
+## seven states and names the grammar as "the CIVIL dock's own", and the
+## standing rule is that the newer canvas wins. Second, the bare form collides
+## with the scale row's own fixed literals: `YEAR −400` and `YEAR 1200` sit at
+## the two ends of that row, so a centre reading `YEAR 412` makes three
+## identically-shaped strings of which only the middle one moves.
+##
+## The cost of the divergence, stated: `YEAR -400` would have been unambiguous
+## about sign, and `400 BC` relies on the reader knowing the convention.
 func _tl_year_label() -> String:
-	var y := tl_year()
+	return _tl_format_year(tl_year())
+
+## The same grammar for a year that is **not** the cursor -- the neighbours in
+## row 3's clause, and the snap hint's target. Split out so `412 AD` and
+## `next 500 AD` cannot spell one year two ways, which is the whole reason
+## `_tl_year_label()` took the CIVIL dock's format rather than inventing one.
+func _tl_format_year(y: int) -> String:
 	return ("%d BC" % -y) if y < 0 else ("%d AD" % y)
 
 ## Everything on the strip that follows the cursor, the run state or the speed,
@@ -1569,6 +1904,16 @@ func _repaint_timeline() -> void:
 		_tl_phone_button.text = "TIMELINE · %s" % label
 	if is_instance_valid(_tl_state_label):
 		_tl_state_label.text = tl_state_text() if live else "no world"
+		## **The ink is per state, not per label.** Board C draws `paused` in the
+		## accent slot; board F draws `end of track` in `--dim`, and this label
+		## shipped for one batch painting every state accent because the colour
+		## was fixed at construction. Corrected 2026-09-06 by a verifier that
+		## opened the board rather than the doc clause justifying it -- the
+		## clause was false. `no world` follows F rather than C: it is an absence,
+		## not a run state.
+		var _tl_end := live and tl_state_text() == "end of track"
+		_tl_state_label.add_theme_color_override("font_color",
+			DccTheme.c("text_dim") if (_tl_end or not live) else DccTheme.c("accent"))
 	if is_instance_valid(_tl_play_button):
 		_tl_play_button.text = DccIcons.SYMBOLS["pause"] if tl_playing \
 			else DccIcons.SYMBOLS["play"]
@@ -1580,11 +1925,116 @@ func _repaint_timeline() -> void:
 		if is_instance_valid(seg):
 			DccWidgets.set_segment_on(seg, int(mult) == tl_speed)
 	_place_timeline_head()
+	_repaint_timeline_readout(live)
 
-## `tlPct` is `UNSPECIFIED` in the prototype; §4.3 records `(tlYear + 400) /
-## 1600` as the obvious candidate and states that it is not written down. It is
-## used here because it is the only formula a fixed -400..1200 track admits, and
-## it is named as recovered rather than as read.
+## Everything `Timeline.dc.html` adds to §4.2, written on the same signal as
+## the rest of the strip: the word and its clause, the counts, the two range
+## literals, the drag bubble, and the two transport controls the top of the
+## track kills.
+##
+## `live` is `tl_available()`, resolved once by the caller.
+func _repaint_timeline_readout(live: bool) -> void:
+	var at_max: bool = live and tl_year() >= TL_YEAR_MAX
+	## Board F draws the play and step-forward squares dead at 1200 --
+	## `tl_toggle_play()` refuses to start there and `_tl_tick()` has already
+	## stopped, so both are controls with nothing behind them, and this shell's
+	## standing rule is to draw such a control dead with the reason on it. Step
+	## **back** stays live: it is the way out, and the hint beside the state
+	## string names it.
+	if at_max:
+		for b in [_tl_play_button, _tl_fwd_button]:
+			if is_instance_valid(b):
+				b.disabled = true
+				b.tooltip_text = ("The cursor is at year %d, the top of the track. "
+					+ "Playback stops here rather than wrapping. Step back or drag "
+					+ "to resume.") % TL_YEAR_MAX
+	if is_instance_valid(_tl_end_hint):
+		_tl_end_hint.visible = at_max
+	## The cheapest end-of-range signal there is, and it costs no width: the
+	## literal is already drawn, and it lifts from `--dis` to `--faint` when the
+	## cursor is standing on it. Board F draws the top; the bottom is the same
+	## condition on the other literal, so both ends are written here rather than
+	## one end being a special case.
+	if is_instance_valid(_tl_min_label):
+		_tl_min_label.add_theme_color_override("font_color",
+			DccTheme.c("text_faint" if (live and tl_year() <= TL_YEAR_MIN) else "text_ghost"))
+	if is_instance_valid(_tl_max_label):
+		_tl_max_label.add_theme_color_override("font_color",
+			DccTheme.c("text_faint" if at_max else "text_ghost"))
+
+	var st := _tl_readout_state()
+	for l in _tl_status_labels:
+		if not is_instance_valid(l):
+			continue
+		## Board A draws no word at all on a world-less strip, so the word and
+		## the `·` beside it go away rather than printing a state for a cursor
+		## that does not exist.
+		l.visible = live
+		l.text = String(st["word"]) if live else ""
+		l.add_theme_color_override("font_color", DccTheme.c(String(st["token"])))
+	if is_instance_valid(_tl_collapsed_dot):
+		_tl_collapsed_dot.visible = live
+
+	var on_recorded: bool = live and String(st["word"]) == "recorded"
+	if is_instance_valid(_tl_count_row):
+		_tl_count_row.visible = on_recorded
+		if on_recorded:
+			_repaint_timeline_counts()
+	if is_instance_valid(_tl_detail_label):
+		var has_detail: bool = live and st.has("detail")
+		_tl_detail_label.visible = has_detail
+		_tl_detail_label.text = String(st["detail"]) if has_detail else ""
+	if is_instance_valid(_tl_detail_dot):
+		## One `·`, serving whichever of the two alternatives is showing.
+		_tl_detail_dot.visible = on_recorded or (is_instance_valid(_tl_detail_label) \
+			and _tl_detail_label.visible)
+
+	if is_instance_valid(_tl_bubble):
+		_tl_bubble.visible = _tl_scrubbing and live
+		if _tl_bubble.visible:
+			_tl_bubble.text = _tl_year_label()
+			var bw := _tl_bubble.get_combined_minimum_size()
+			var f := float(tl_year() - TL_YEAR_MIN) / float(TL_YEAR_MAX - TL_YEAR_MIN)
+			_tl_bubble.size = bw
+			_tl_bubble.position = Vector2(_tl_track.size.x * f - bw.x * 0.5,
+				_tl_track.size.y * 0.5 - 6.5 - bw.y - 3.0)
+	if is_instance_valid(_tl_track):
+		_tl_track.queue_redraw()
+
+## `civ_year_diff(y)` in one call: `present`, `added` and `removed` tid sets for
+## a recorded year, diffed against the chronologically previous recorded one.
+## Called only when the cursor is standing on a recorded year, which is the only
+## year the binding has anything to say about -- for any other it returns empty
+## sets, and printing those as `+0 −0` would be a missing value wearing a
+## plausible one.
+func _repaint_timeline_counts() -> void:
+	var diff: Dictionary = {} if bridge == null else bridge.civ_year_diff(tl_year())
+	var present := (diff.get("present", PackedInt64Array()) as PackedInt64Array).size()
+	var added := (diff.get("added", PackedInt64Array()) as PackedInt64Array).size()
+	var removed := (diff.get("removed", PackedInt64Array()) as PackedInt64Array).size()
+	(_tl_count_parts["present"] as Label).text = "%d present" % present
+	## `−` is U+2212, the minus sign the board draws, not a hyphen.
+	(_tl_count_parts["added"] as Label).text = "+%d" % added
+	(_tl_count_parts["removed"] as Label).text = "−%d" % removed
+	## The first recorded year has nothing before it, so there is no "since" to
+	## print -- and `civ_year_diff` has nothing to diff against either, which is
+	## why `added`/`removed` there are the whole set and not a change.
+	var n := tl_year_neighbours(tl_year())
+	var l := _tl_count_parts["since"] as Label
+	l.visible = n.has("prev")
+	l.text = ("since %s" % _tl_format_year(int(n["prev"]))) if n.has("prev") else ""
+
+## `tlPct` **is** written down, and this is it. Prototype line 1975:
+## `tlPct:((s.tlYear+400)/1600*100)+'%'`. Corrected 2026-09-05 — the comment
+## here said it was `UNSPECIFIED` and that §4.3 "records `(tlYear + 400) / 1600`
+## as the obvious candidate and states that it is not written down", so the
+## formula below was labelled *recovered rather than read*. It is read: the
+## expression is character-for-character the one in the canvas, with
+## `TL_YEAR_MIN`/`TL_YEAR_MAX` standing in for the two literals.
+##
+## The playhead's own box is quoted too — markup line 1210 gives the rail
+## `height:3px` and the head `top:-5px;width:2px;height:13px`, which is the
+## `Vector2(2, 13)` and the half-height offset below.
 func _place_timeline_head() -> void:
 	if not is_instance_valid(_tl_track) or not is_instance_valid(_tl_head):
 		return
