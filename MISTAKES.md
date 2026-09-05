@@ -67,6 +67,8 @@ its rule before you start.
 | **Call a constant dead** | Probes are committed files and they read theme tables. `ROLE["h_timeline"]` was proposed for removal while `_roleresolve_probe.gd` asserts on it | `grep -rn` the key across the whole project **including probes and tests**, not just the shipping call sites |
 | **Emit a change signal** | Emit **after** the engine call, not before. Ten emitters here fired ahead of their own `world_gen.sculpt_*()`, so a synchronous listener re-read the count from before the change — measured at 0 stamps on the stroke that created the first | Probe the listener's value **inside** the emit. And check each connection's flags: a `CONNECT_DEFERRED` listener runs a frame later and never sees the stale value, so "both listeners" is a claim about flags, not about count |
 | **Write a backward-compatibility test** | A fixture of empty collections proves nothing about the installed base. The whole legacy check here was `{"vaults":[],"links":[]}` | Build the fixture from a real prior-format document at the commit that wrote it (`git show <sha>:<path>`), and assert it **opens, resolves, and re-serialises byte-identically** — so opening an old file does not silently rewrite it |
+| **Replace a single-sample timing with a median** | **A median of five on a noisy device is still one sample of the median.** The pass sent to retire single-sample timings wrote `1.06x (1.00..1.08x)`; three independent serial re-runs measured 1.00x, 1.00x, 1.02x — outside all of it, with the "saving" changing sign | Re-run the whole measurement in a **separate process** and check the new median lands inside the old bracket. If a bracket's low end already touches parity, say **no difference is established** and quote nothing |
+| **Quote a sub-millisecond figure to three significant figures** | The precision is the claim. `9.65 us (9.63..9.66)` across 7 runs was measuring that run's cache state; an independent harness of the same shape got 10.02 (9.95..10.04) — magnitude right, brackets disjoint | Give an order of magnitude when that is what the number is for, and let the test print the spread |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -114,7 +116,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×38
+### [2026-09-03] Leaving prose that describes the old behaviour ×42
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

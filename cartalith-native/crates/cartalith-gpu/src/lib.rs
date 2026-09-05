@@ -18,6 +18,12 @@ use wgpu::util::DeviceExt;
 /// dispatch (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05). Re-exported
 /// flat, like everything else this crate offers.
 mod multi;
+
+/// Shared by this crate's unit tests and by `tests/multi_gpu.rs`, which pulls
+/// the same file in with `#[path]`. Test-only, so it never reaches the crate's
+/// public surface.
+#[cfg(test)]
+mod timing_harness;
 pub use multi::*;
 
 const SHADER_SRC: &str = include_str!("../shaders/vnoise.wgsl");
@@ -576,10 +582,13 @@ pub struct GpuBlurContext {
 /// from one shared bind group layout, `GpuBlurContext`'s two-pipeline shape
 /// generalized to three. Built only via [`init_gpu_weather_with`] (a
 /// shared [`GpuDevice`]) -- this kernel runs up to `iters` (70 by default)
-/// x 2 dispatches per `generate_terrain` call, so paying milestone 6's own
-/// ~1.3-1.4s per-call adapter/device handshake independently would have
-/// been even more costly here than for the four milestone-8 kernels; there
-/// is deliberately no milestone-6-style standalone `init_gpu_weather`.
+/// x 2 dispatches per `generate_terrain` call, so paying a per-call
+/// adapter/device handshake independently would have been even more costly
+/// here than for the four milestone-8 kernels; there is deliberately no
+/// milestone-6-style standalone `init_gpu_weather`. (Milestone 6 put that
+/// handshake at ~1.3-1.4 s and it no longer reproduces at that size --
+/// [`GpuDevice`] carries the current figure and its range -- which changes
+/// how large the saving is, not whether there is one.)
 pub struct GpuWeatherContext {
     pub adapter_name: String,
     pub adapter_vendor: u32,
@@ -1008,31 +1017,48 @@ fn init_gpu_with(
 /// scheme.
 ///
 /// **The ~1.3-1.4 s above is milestone 6's number and no longer reproduces.**
-/// Re-measured 2026-09-03 by
-/// `measured_device_handshake_and_per_stage_pipeline_build` (AMD Radeon RX
-/// 7800 XT, Vulkan, discrete): **the first handshake of a process costs
-/// several hundred milliseconds and each one after costs appreciably less.**
+/// Re-measured by `measured_device_handshake_and_per_stage_pipeline_build`:
+/// **a handshake costs a couple of hundred milliseconds**, and the first one
+/// of a process costs somewhat more than the ones after it -- by less than the
+/// margin the old "416 ms then ~198 ms" implied. Figures below.
 ///
-/// **Deliberately stated without a headline figure.** The first version of
-/// this comment said "416 ms cold, then ~198 ms". An independent re-run on the
-/// same hardware measured **730 ms cold** -- 1.75x the number, and outside the
-/// range this comment had already been cited for in two other places. Both are
+/// **Why the figures below all carry a range.** The first version of this
+/// comment said "416 ms cold, then ~198 ms". An independent re-run on the same
+/// hardware measured **730 ms cold** -- 1.75x the number, and outside the range
+/// this comment had already been cited for in two other places. Both were
 /// single samples, and this device is demonstrably noisy: a `512x512` GPU
 /// timing quoted from a parallel `cargo test` run spanned 596 ms to 2.98 s,
-/// while the same measurement run alone spanned 499-506 ms. Committing a
-/// point estimate here is the exact defect §2.6's *"average the GPU-vs-CPU
-/// benchmark over multiple runs"* row exists to fix, so this comment states
-/// the order of magnitude and points at the test for a number.
+/// while the same measurement run alone spanned 499-506 ms. The test now draws
+/// `TIMING_ROUNDS` samples and prints median with min..max, and refuses to
+/// print anything at all unless it was started with `--test-threads=1`.
 ///
-/// Run `measured_device_handshake_and_per_stage_pipeline_build` **alone**, not
-/// under a parallel suite, if you need a figure. What survives re-measurement
-/// is the *ratio*, which is what the conclusions below rest on: pipeline
-/// builds are a small fraction of the handshake, and the handshake is far
-/// cheaper than milestone 6's 1.3-1.4 s. Sharing the device is still worth
-/// it -- a few hundred ms x five stages is a large fraction of a second per
-/// generation -- but two
+/// Re-measured 2026-09-05 by
+/// `cargo test --release -p cartalith-gpu measured_device_handshake --`
+/// `--ignored --test-threads=1 --nocapture`, run alone, **on one machine**
+/// (AMD Radeon RX 7800 XT, Vulkan, discrete -- these are figures about that
+/// box and not about GPUs):
+///
+/// - **Cold handshake: 235 ms.** One sample by construction -- a process has
+///   exactly one first handshake, so this is the one number here that cannot
+///   be given a spread, and it is reported separately for that reason rather
+///   than pooled with the warm ones.
+/// - **Warm handshake: 190 ms median (189.7-202.2 ms, n=5).**
+/// - **Pipeline builds: medians summing to ~3 ms for all six**, the dearest
+///   stage `weather` and the cheapest `jfa_plates` about 4x apart.
+///
+///   The per-stage figures carried spreads in the test output and lost them
+///   here — a verifier caught eight such bare estimates in this pass, in the
+///   very prose written to retire single-sample timings (corrected
+///   2026-09-05). Run `measured_pipeline_build_cost` for the numbers with
+///   their brackets; the conclusion below needs only the order of magnitude,
+///   and quoting three significant figures for a sub-millisecond timing on a
+///   noisy device implies a precision the harness does not have.
+///
+/// Sharing the device is still worth it -- ~190 ms once per stage that would
+/// otherwise open its own is a large fraction of a second per generation --
+/// and it is far cheaper than milestone 6's 1.3-1.4 s. Two
 /// `OUTSTANDING_WORK.md` §2.6 rows lean on the old number and should be read
-/// against the new one:
+/// against these:
 ///
 /// - *"Per-pipeline caching across repeated `generate_terrain` calls."*
 ///   `generate_terrain` holds this device in a local and drops it at the end,
@@ -1040,13 +1066,13 @@ fn init_gpu_with(
 ///   `*_grid_gpu_with` entry point calls its own `init_gpu_*_with` inside the
 ///   dispatch rather than accepting a built context (`gpu_flow` is the lone
 ///   exception, hoisted by milestone 9 because one call uses it four times).
-///   Measured, the two halves are nothing like equal: the six pipeline builds
-///   total **2.60 ms** (0.24-0.71 ms each), against **198 ms** for the
-///   handshake. Caching *pipelines* across calls -- the thing the row asks
-///   for -- is the smaller half by ~76x. Caching the *device* is where that
-///   row's value actually is.
+///   The two halves are nothing like equal: ~3 ms of pipeline against ~190 ms
+///   of handshake, so caching *pipelines* -- the thing the row asks for -- is
+///   the smaller half by roughly two orders of magnitude. Caching the *device* is where that row's value
+///   actually is, and that conclusion is the one thing here that does not turn
+///   on the exact figures: the ranges do not come close to overlapping.
 /// - *"Hardware capability cache (§30)"*, re-opened because the handshake was
-///   thought to be 1.3-1.4 s. At ~198 ms the original deferral ("nothing
+///   thought to be 1.3-1.4 s. At ~190 ms the original deferral ("nothing
 ///   expensive enough to cache") is much closer to right than the row
 ///   supposes. **Re-measure before building anything**, which is what that
 ///   row asked for and what this note records.
@@ -1651,32 +1677,50 @@ fn dispatch_gpu_heterogeneity(
 ///    validation error, i.e. a panic, i.e. the Godot process --
 ///    `cartalith-rust-conventions`, and the measured incident recorded at
 ///    `generate_terrain`'s own `gpu_allowed_for_grid` check), or giving
-///    height its own device and paying a second **several-hundred-millisecond** handshake
-///    ([`GpuDevice`]'s re-measurement).
+///    height its own device and paying a second handshake of **roughly
+///    200 ms** ([`GpuDevice`]'s re-measurement, which carries the range).
 /// 2. **The speedup on record is against the wrong baseline.** 5.17× / 8.13× /
 ///    4.84× (milestone 3) compare this kernel to [`gpu_height_grid_cpu`], a
 ///    **single-threaded `f32` twin written to match the shader**.
 ///    `generate_terrain` calls `cartalith_terrain::compute_height`, which is
 ///    `f64` and already `par_chunks_mut` across every core. Against *that*
-///    baseline -- `measured_gpu_height_vs_the_real_compute_height`, medians of
-///    five -- the GPU wins **2.13× at 1024² and 1.15× at 2048²**, worth about
-///    **5 ms** either way. Five milliseconds does not buy a handshake two orders
-///    of magnitude larger,
-///    and it is well inside the run-to-run spread of a single generation.
+///    baseline -- `measured_gpu_height_vs_the_real_compute_height`, run alone
+///    2026-09-05, medians of five with the range each bracket allows -- the
+///    GPU wins **1.95× (1.52..2.01×) at 1024²**.
+///
+///    **The 2048² figure was refuted and is withdrawn (2026-09-05).** This
+///    said "1.06× (1.00..1.08×) at 2048², saving 2.2 ms". A verifier re-ran
+///    the same test serially three times, medians of five each, and measured
+///    **1.00× (0.98..1.04), 1.00× (0.97..1.03), 1.02× (0.96..1.03)** — the
+///    claimed median sits outside all three brackets, and the "saving" spanned
+///    +0.10 to -0.17 ms, i.e. it changed sign. **At 2048² no difference is
+///    established between this kernel and the function that ships.** Quote no
+///    number here; there is not one.
+///
+///    That this was written by the very pass sent to replace single-sample
+///    timings with medians is the point of the rule, not an aside: a median of
+///    five on a noisy device is still one sample of the median. A few
+///    milliseconds would not buy a handshake two orders of magnitude larger in
+///    any case, and it is well inside the run-to-run spread of one generation.
 /// 3. **It is the widest bind group in the crate, and that is what limits
 ///    it.** See `measured_gpu_height_is_bandwidth_bound_at_nine_buffers`: the
-///    eight input uploads are 62-80% of the dispatch, and this kernel's
-///    per-cell cost *rises* 2.1× from 1024² to 2048² while every narrower
-///    kernel's falls. Its advantage shrinks exactly where a bigger grid would
-///    make it matter.
+///    eight input uploads are **63% (2048²) to 82% (1024²)** of the dispatch
+///    median, and this kernel's per-cell cost *rises* **2.19×** from 1024² to
+///    2048² (3.92 -> 8.58 ns/cell) while every narrower kernel's falls. Its
+///    advantage shrinks exactly where a bigger grid would make it matter.
 ///
 /// So this stays a verified, tested, uncalled kernel -- the same standing as
-/// `dispatch_gpu_resistance` (0.38×), which `GPU_LAYER_INTEGRATION_SCOPE.md`
-/// already documents as deliberately unwired. **What would overturn it**: a
-/// generation that runs the height stage many times (live sculpt, a
-/// parameter sweep) so one handshake amortises, or a kernel reshaped to bind
-/// fewer than nine storage buffers. Re-run the two `measured_*` tests named
-/// above before acting on either.
+/// `dispatch_gpu_resistance`, which `GPU_LAYER_INTEGRATION_SCOPE.md` already
+/// documents as deliberately unwired at 0.38× (re-measured alone 2026-09-05 by
+/// `measured_gpu_blur_and_resistance_timing` at **0.24× at 1024² and 0.13× at
+/// 2048²**, so the scope document's figure is optimistic and its conclusion is
+/// not). **What would overturn it**: a generation that runs the height stage
+/// many times (live sculpt, a parameter sweep) so one handshake amortises, or
+/// a kernel reshaped to bind fewer than nine storage buffers. Re-run the two
+/// `measured_*` tests named above before acting on either.
+///
+/// Every figure in this comment is from one machine (AMD Radeon RX 7800 XT,
+/// Vulkan, discrete). Re-run before carrying any of them onto another.
 #[allow(clippy::too_many_arguments)]
 fn dispatch_gpu_height(
     ctx: &GpuContext,
@@ -3384,26 +3428,28 @@ mod tests {
         };
         // Warm up: first dispatch pays one-time pipeline/driver JIT cost.
         let _ = dispatch_gpu(&ctx, 8, 8, 1, 0.5);
+        let quote = timings_quotable("measured_gpu_vs_cpu_timing");
+        if quote {
+            eprintln!("vnoise pilot kernel {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
+        }
 
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let seed = 24601;
             let scale = 0.02f32;
+            let n = (w * h) as usize;
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu(&ctx, w, h, seed, scale);
-            let gpu_time = t0.elapsed();
+            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu(&ctx, w, h, seed, scale));
+            let (cpu_t, cpu) = timed_for(quote, || vnoise_grid_cpu(w, h, seed, scale));
 
-            let t1 = Instant::now();
-            let _ = vnoise_grid_cpu(w, h, seed, scale);
-            let cpu_time = t1.elapsed();
+            assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
 
-            eprintln!(
-                "{w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                w * h,
-                gpu_time,
-                cpu_time,
-                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
-            );
+            if quote {
+                eprintln!(
+                    "{w}x{h} ({n} cells): GPU dispatch+readback = {gpu_t}, CPU (single-thread) = {cpu_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_t, gpu_t)
+                );
+            }
         }
     }
 
@@ -3490,26 +3536,28 @@ mod tests {
         };
         // Warm up: first dispatch pays one-time pipeline/driver JIT cost.
         let _ = dispatch_gpu(&ctx, 8, 8, 1, 0.5);
+        let quote = timings_quotable("measured_gpu_safe_noise_vs_cpu_timing");
+        if quote {
+            eprintln!("gpu-safe noise {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
+        }
 
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let seed = 24601;
             let scale = 0.02f32;
+            let n = (w * h) as usize;
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu(&ctx, w, h, seed, scale);
-            let gpu_time = t0.elapsed();
+            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu(&ctx, w, h, seed, scale));
+            let (cpu_t, cpu) = timed_for(quote, || gpu_safe_noise_grid_cpu(w, h, seed, scale));
 
-            let t1 = Instant::now();
-            let _ = gpu_safe_noise_grid_cpu(w, h, seed, scale);
-            let cpu_time = t1.elapsed();
+            assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
 
-            eprintln!(
-                "gpu-safe noise {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                w * h,
-                gpu_time,
-                cpu_time,
-                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
-            );
+            if quote {
+                eprintln!(
+                    "gpu-safe noise {w}x{h} ({n} cells): GPU dispatch+readback = {gpu_t}, CPU (single-thread) = {cpu_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_t, gpu_t)
+                );
+            }
         }
     }
 
@@ -3733,26 +3781,28 @@ mod tests {
             return;
         };
         let _ = dispatch_gpu_warp(&ctx, 8, 8, 1, 0.5, 10.0); // warm up
+        let quote = timings_quotable("measured_gpu_warp_vs_cpu_timing");
+        if quote {
+            eprintln!("gpu_warp {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
+        }
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let seed = 24601;
             let wf = 2.5 / w as f32;
             let amp = 40.0f32;
+            let n = (w * h) as usize;
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu_warp(&ctx, w, h, seed, wf, amp);
-            let gpu_time = t0.elapsed();
+            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu_warp(&ctx, w, h, seed, wf, amp));
+            let (cpu_t, cpu) = timed_for(quote, || gpu_warp_grid_cpu(w, h, seed, wf, amp));
 
-            let t1 = Instant::now();
-            let _ = gpu_warp_grid_cpu(w, h, seed, wf, amp);
-            let cpu_time = t1.elapsed();
+            assert_eq!((gpu.0.len(), gpu.1.len()), (n, n), "GPU warp field is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!((cpu.0.len(), cpu.1.len()), (n, n), "CPU warp field is the wrong length -- the call that was timed produced nothing usable");
 
-            eprintln!(
-                "gpu_warp {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                w * h,
-                gpu_time,
-                cpu_time,
-                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
-            );
+            if quote {
+                eprintln!(
+                    "gpu_warp {w}x{h} ({n} cells): GPU dispatch+readback = {gpu_t}, CPU (single-thread) = {cpu_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_t, gpu_t)
+                );
+            }
         }
     }
 
@@ -3766,6 +3816,10 @@ mod tests {
         let warm_age = vec![0.5f32; warm_n];
         let warm_zero = vec![0.0f32; warm_n];
         let _ = dispatch_gpu_heterogeneity(&ctx, 8, 8, 1, 0.5, &warm_age, &warm_zero, &warm_zero); // warm up
+        let quote = timings_quotable("measured_gpu_heterogeneity_vs_cpu_timing");
+        if quote {
+            eprintln!("gpu_heterogeneity {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
+        }
 
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let n = (w * h) as usize;
@@ -3775,21 +3829,20 @@ mod tests {
             let warp_x = vec![0.0f32; n];
             let warp_y = vec![0.0f32; n];
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
-            let gpu_time = t0.elapsed();
+            let (gpu_t, gpu) =
+                timed_for(quote, || dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, &age, &warp_x, &warp_y));
+            let (cpu_t, cpu) =
+                timed_for(quote, || gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, &age, &warp_x, &warp_y));
 
-            let t1 = Instant::now();
-            let _ = gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
-            let cpu_time = t1.elapsed();
+            assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
 
-            eprintln!(
-                "gpu_heterogeneity {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                w * h,
-                gpu_time,
-                cpu_time,
-                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
-            );
+            if quote {
+                eprintln!(
+                    "gpu_heterogeneity {w}x{h} ({n} cells): GPU dispatch+readback = {gpu_t}, CPU (single-thread) = {cpu_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_t, gpu_t)
+                );
+            }
         }
     }
 
@@ -3954,28 +4007,105 @@ mod tests {
         eprintln!("wrote GPU height debug image to {} (range [{mn},{mx}]) -- open it to visually confirm no banding/lattice artifacts", path.display());
     }
 
-    /// How many samples the median-taking timers below draw. Odd, so the
-    /// median is a real sample rather than an average of two.
-    const TIMING_ROUNDS: usize = 5;
+    // The timing harness every `measured_*` test below uses -- `Timing`,
+    // `timed`, `timed_for`, `ratio`, `timings_quotable`, `device_note` --
+    // lives in `src/timing_harness.rs` so `tests/multi_gpu.rs` can pull the
+    // identical one in with `#[path]`. Two definitions of "how a timing is
+    // taken" is how two of them drift apart.
+    use crate::timing_harness::*;
 
-    /// Run `f` [`TIMING_ROUNDS`] times; return the **median** elapsed time and
-    /// the last value produced. A single GPU dispatch on this hardware varied
-    /// by more than 2x run to run while §2.6's GPU rows were being answered,
-    /// so a lone `Instant::now()` pair around one call reports noise with the
-    /// confidence of a result -- which is the defect `OUTSTANDING_WORK.md`
-    /// §2.6's "average the GPU-vs-CPU benchmark over multiple runs" names.
-    /// Median rather than mean: one scheduler hiccup should not move it.
-    fn timed_median<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, T) {
-        let mut times = Vec::with_capacity(TIMING_ROUNDS);
-        let mut last = None;
-        for _ in 0..TIMING_ROUNDS {
-            let t0 = Instant::now();
-            let v = f();
-            times.push(t0.elapsed());
-            last = Some(v);
+    /// The timing harness's own tests. They live here rather than beside it
+    /// because `tests/multi_gpu.rs` compiles that file a second time via
+    /// `#[path]`, where `cfg(test)` is also set -- so a test module inside it
+    /// would run twice, in two binaries, for no extra coverage.
+    mod harness_tests {
+        use std::time::Duration;
+
+        use crate::timing_harness::*;
+
+        /// The property the doc comment claims, asserted independently of the
+        /// value: odd so the median is a real sample, and above one so there is a
+        /// range to report. `TIMING_ROUNDS = 1` or `= 4` must fail here.
+        #[test]
+        fn timing_rounds_is_an_odd_number_above_one() {
+            assert_eq!(TIMING_ROUNDS % 2, 1, "an even sample count makes the median an average of two samples");
+            assert!(TIMING_ROUNDS > 1, "one sample has no range, which is the whole defect this harness exists to fix");
         }
-        times.sort_unstable();
-        (times[TIMING_ROUNDS / 2], last.expect("TIMING_ROUNDS is a non-zero constant"))
+
+        #[test]
+        fn timed_draws_exactly_the_rounds_asked_for_and_orders_them() {
+            let mut calls = 0usize;
+            let (t, last) = timed(3, || {
+                calls += 1;
+                calls
+            });
+            assert_eq!(calls, 3, "timed must call f once per round");
+            assert_eq!(last, 3, "timed must return the last value produced, not the first");
+            assert_eq!(t.rounds, 3);
+            assert!(t.min <= t.median && t.median <= t.max, "min <= median <= max");
+        }
+
+        #[test]
+        fn timed_for_draws_one_sample_when_it_may_not_quote() {
+            let mut calls = 0usize;
+            let (t, ()) = timed_for(false, || calls += 1);
+            assert_eq!(calls, 1, "a run that cannot print a figure must not pay for five samples");
+            assert_eq!(t.rounds, 1);
+        }
+
+        /// A one-sample `Timing` must never render as though it were measured --
+        /// that is the exact failure this file exists to prevent.
+        #[test]
+        fn a_single_sample_says_so_in_both_renderings() {
+            let one = Timing { median: Duration::from_millis(10), min: Duration::from_millis(10), max: Duration::from_millis(10), rounds: 1 };
+            let five = Timing { median: Duration::from_millis(10), min: Duration::from_millis(8), max: Duration::from_millis(20), rounds: 5 };
+            assert!(one.to_string().contains("not a measurement"), "got {one}");
+            assert!(ratio(five, one).contains("not a measurement"), "a ratio is only as sampled as its worst operand");
+            assert!(!five.to_string().contains("not a measurement"), "got {five}");
+        }
+
+        #[test]
+        fn a_ratio_carries_the_bracket_its_two_ranges_permit() {
+            let num = Timing { median: Duration::from_millis(100), min: Duration::from_millis(90), max: Duration::from_millis(110), rounds: 5 };
+            let den = Timing { median: Duration::from_millis(50), min: Duration::from_millis(40), max: Duration::from_millis(60), rounds: 5 };
+            // 100/50 = 2.00; low = 90/60 = 1.50; high = 110/40 = 2.75.
+            assert_eq!(ratio(num, den), "2.00x (1.50..2.75x)");
+        }
+
+        #[test]
+        fn spread_is_max_over_min() {
+            let t = Timing { median: Duration::from_millis(10), min: Duration::from_millis(8), max: Duration::from_millis(20), rounds: 5 };
+            assert!((t.spread() - 2.5).abs() < 1e-9, "got {}", t.spread());
+            assert!((t.ms() - 10.0).abs() < 1e-9);
+            // 10 ms is 1e7 ns; over 1e6 cells that is 10 ns/cell.
+            assert!((t.ns_per_cell(1_000_000) - 10.0).abs() < 1e-9, "got {}", t.ns_per_cell(1_000_000));
+        }
+
+        fn argv(parts: &[&str]) -> std::vec::IntoIter<String> {
+            parts.iter().map(|s| (*s).to_string()).collect::<Vec<_>>().into_iter()
+        }
+
+        /// All three shapes libtest accepts, plus the ones that must NOT count as
+        /// serialised. A detector that answers `true` too readily is worse than
+        /// none: it re-opens the door this harness closes.
+        #[test]
+        fn every_way_of_asking_for_one_thread_is_recognised() {
+            assert!(serialised_from(argv(&["bin", "--test-threads=1"]), None));
+            assert!(serialised_from(argv(&["bin", "--test-threads", "1"]), None));
+            assert!(serialised_from(argv(&["bin", "--nocapture"]), Some("1")));
+
+            assert!(!serialised_from(argv(&["bin", "--nocapture"]), None));
+            assert!(!serialised_from(argv(&["bin", "--test-threads=8"]), None));
+            assert!(!serialised_from(argv(&["bin", "--test-threads", "8"]), None));
+            assert!(!serialised_from(argv(&["bin"]), Some("8")));
+            // A bare trailing `--test-threads` with no value is not a request for one.
+            assert!(!serialised_from(argv(&["bin", "--test-threads"]), None));
+            // The flag wins over the variable, in both directions.
+            assert!(!serialised_from(argv(&["bin", "--test-threads=8"]), Some("1")));
+            assert!(serialised_from(argv(&["bin", "--test-threads=1"]), Some("8")));
+            // A filter that merely contains the text is not the flag.
+            assert!(!serialised_from(argv(&["bin", "my_test_threads_1"]), None));
+        }
     }
 
     /// One tiny dispatch, so the first *measured* one is not also paying the
@@ -3997,6 +4127,13 @@ mod tests {
             return;
         };
         warm_up_height(&ctx);
+        let quote = timings_quotable("measured_gpu_height_vs_cpu_timing");
+        if quote {
+            eprintln!(
+                "gpu_height vs its single-threaded f32 twin {}",
+                device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type)
+            );
+        }
 
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let n = (w * h) as usize;
@@ -4005,27 +4142,29 @@ mod tests {
             let warp_y = vec![0.0f32; n];
             let oro = vec![0.0f32; n];
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu_height(
-                &ctx, w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
-                &warp_x, &warp_y, &oro,
-            );
-            let gpu_time = t0.elapsed();
+            let (gpu_t, gpu) = timed_for(quote, || {
+                dispatch_gpu_height(
+                    &ctx, w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero,
+                    &age, &warp_x, &warp_y, &oro,
+                )
+            });
 
-            let t1 = Instant::now();
-            let _ = gpu_height_grid_cpu(
-                w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
-                &warp_x, &warp_y, &oro,
-            );
-            let cpu_time = t1.elapsed();
+            let (cpu_t, cpu) = timed_for(quote, || {
+                gpu_height_grid_cpu(
+                    w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
+                    &warp_x, &warp_y, &oro,
+                )
+            });
 
-            eprintln!(
-                "gpu_height {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                w * h,
-                gpu_time,
-                cpu_time,
-                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
-            );
+            assert_eq!(gpu.len(), n, "GPU field is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu.len(), n, "CPU field is the wrong length -- the call that was timed produced nothing usable");
+
+            if quote {
+                eprintln!(
+                    "gpu_height {w}x{h} ({n} cells): GPU dispatch+readback = {gpu_t}, CPU (single-thread) = {cpu_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_t, gpu_t)
+                );
+            }
         }
     }
 
@@ -4043,29 +4182,37 @@ mod tests {
     ///    (9 buffers, 36 B/cell) all dispatch and read back through the same
     ///    code path. If the drop were about grid size, it would show in all
     ///    three; if it is about bytes moved, only the widest bind group turns
-    ///    around. Measured: the two narrow kernels get **cheaper** per cell as
-    ///    the grid grows (fixed dispatch overhead amortising over 4× the
-    ///    cells) while the nine-buffer one gets **~1.5× dearer**.
+    ///    around. Re-measured alone 2026-09-05, ns/cell medians: the two narrow
+    ///    kernels get **cheaper** per cell as the grid grows (`gpu_warp` 1.84
+    ///    -> 1.66, `gpu_heterogeneity` 2.23 -> 1.85 -- fixed dispatch overhead
+    ///    amortising over 4× the cells) while the nine-buffer one gets
+    ///    **2.19× dearer** (3.92 -> 8.58). The direction is what the argument
+    ///    rests on and it is not close; the factor is one box's.
     ///
     /// 2. *The direct half.* The eight host→device input uploads timed on
-    ///    their own against the full dispatch. At 2048² they are the clear
-    ///    majority of it. `create_buffer_init` maps at creation and unmaps, so
-    ///    a buffer's cost can partly defer to the next submit -- the flush
-    ///    below makes this a **floor** on the upload cost, not an estimate of
-    ///    all of it, which only strengthens the conclusion.
+    ///    their own against the full dispatch. They are the majority of it at
+    ///    both sizes -- **82% at 1024², 63% at 2048²** of the dispatch median,
+    ///    re-measured alone 2026-09-05, at 9.22 and 5.51 GiB/s.
+    ///    `create_buffer_init` maps at creation and unmaps, so a buffer's cost
+    ///    can partly defer to the next submit -- the flush below makes this a
+    ///    **floor** on the upload cost, not an estimate of all of it, which
+    ///    only strengthens the conclusion.
     ///
-    /// Every figure is a **median of [`TIMING_ROUNDS`]**, because a single
-    /// GPU dispatch on this hardware varied 38-78 ms at 2048² across runs
-    /// while this row was being answered -- `OUTSTANDING_WORK.md` §2.6's own
-    /// *"single-run variance is indistinguishable from a result"*, in
-    /// miniature. Run it alone (`--test-threads=1`); three timing tests
-    /// sharing one GPU is itself a source of spread.
+    /// Every figure is a **median of [`TIMING_ROUNDS`] printed with the range
+    /// its samples spanned**, because a single GPU dispatch on this hardware
+    /// varied 38-78 ms at 2048² across runs while this row was being answered
+    /// -- `OUTSTANDING_WORK.md` §2.6's own *"single-run variance is
+    /// indistinguishable from a result"*, in miniature. Three timing tests
+    /// sharing one GPU is itself a source of spread, so [`timings_quotable`]
+    /// prints nothing at all unless the binary was started with
+    /// `--test-threads=1`.
     ///
     /// The consequence worth carrying forward: this kernel's cost is set by
     /// its **bind group**, not its formula. That is why `gpu_height` cannot be
-    /// pointed at a bigger grid and expected to keep an 8× win, and it is one
-    /// of the two reasons the height stage stays unwired -- see
-    /// [`dispatch_gpu_height`] for the decision and the other reason.
+    /// pointed at a bigger grid and expected to keep its 1024² win against the
+    /// f32 twin, and it is one of the two reasons the height stage stays
+    /// unwired -- see [`dispatch_gpu_height`] for the decision and the other
+    /// reason.
     #[test]
     fn measured_gpu_height_is_bandwidth_bound_at_nine_buffers() {
         let (Some(hctx), Some(wctx), Some(xctx)) = (try_gpu_height(), try_gpu_warp(), try_gpu_heterogeneity()) else {
@@ -4073,16 +4220,23 @@ mod tests {
             return;
         };
         warm_up_height(&hctx);
+        let quote = timings_quotable("measured_gpu_height_is_bandwidth_bound_at_nine_buffers");
+        if quote {
+            eprintln!(
+                "bind-group width vs per-cell cost {}",
+                device_note(&hctx.adapter_name, hctx.adapter_backend, hctx.device_type)
+            );
+        }
         for &(w, h) in &[(1024u32, 1024u32), (2048, 2048)] {
             let n = (w * h) as usize;
-            let per_cell = |d: std::time::Duration| d.as_secs_f64() * 1e9 / n as f64;
             let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
             let zero = vec![0.0f32; n];
 
-            let (warp_t, _) = timed_median(|| dispatch_gpu_warp(&wctx, w, h, 24601, 2.5 / w as f32, 40.0));
-            let (hetero_t, _) =
-                timed_median(|| dispatch_gpu_heterogeneity(&xctx, w, h, 24601 ^ 0x44bb, 18.0 / w as f32, &age, &zero, &zero));
-            let (height_t, out) = timed_median(|| {
+            let (warp_t, _) = timed_for(quote, || dispatch_gpu_warp(&wctx, w, h, 24601, 2.5 / w as f32, 40.0));
+            let (hetero_t, _) = timed_for(quote, || {
+                dispatch_gpu_heterogeneity(&xctx, w, h, 24601 ^ 0x44bb, 18.0 / w as f32, &age, &zero, &zero)
+            });
+            let (height_t, out) = timed_for(quote, || {
                 dispatch_gpu_height(
                     &hctx, w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero,
                     &age, &zero, &zero, &zero,
@@ -4092,7 +4246,7 @@ mod tests {
             // The eight input uploads that dispatch performed, created exactly
             // as `dispatch_gpu_height` creates them (same usage, same path).
             let inputs: [&[f32]; 8] = [&base, &stress, &flex, &hetero, &age, &zero, &zero, &zero];
-            let (upload_t, uploaded_bytes) = timed_median(|| {
+            let (upload_t, uploaded_bytes) = timed_for(quote, || {
                 let bufs: Vec<wgpu::Buffer> = inputs
                     .iter()
                     .map(|data| {
@@ -4108,18 +4262,32 @@ mod tests {
                 bufs.iter().map(|b| b.size()).sum::<u64>()
             });
 
-            eprintln!(
-                "{w}x{h} ns/cell (median of {TIMING_ROUNDS}): gpu_warp[2 buf, 8 B/cell] = {:.2}, \
-                 gpu_heterogeneity[4 buf, 16 B/cell] = {:.2}, gpu_height[9 buf, 36 B/cell] = {:.2} \
-                 -- of which {:.1} MiB of input upload = {:?} ({:.0}% of the dispatch, {:.2} GiB/s)",
-                per_cell(warp_t),
-                per_cell(hetero_t),
-                per_cell(height_t),
-                uploaded_bytes as f64 / (1024.0 * 1024.0),
-                upload_t,
-                100.0 * upload_t.as_secs_f64() / height_t.as_secs_f64().max(1e-9),
-                uploaded_bytes as f64 / (1024.0 * 1024.0 * 1024.0) / upload_t.as_secs_f64().max(1e-9),
-            );
+            if quote {
+                // Per-cell figures are medians; the bracket beside each is the
+                // same statistic taken from that timing's own min and max, so
+                // a reader can see whether two kernels' costs actually
+                // separate or merely have separated medians.
+                let per_cell = |t: Timing| {
+                    format!(
+                        "{:.2} ({:.2}..{:.2}, {:.2}x spread)",
+                        t.ns_per_cell(n),
+                        t.min.as_secs_f64() * 1e9 / n as f64,
+                        t.max.as_secs_f64() * 1e9 / n as f64,
+                        t.spread()
+                    )
+                };
+                eprintln!(
+                    "{w}x{h} ns/cell (median of {TIMING_ROUNDS}, range in brackets): gpu_warp[2 buf, 8 B/cell] = {}, \
+                     gpu_heterogeneity[4 buf, 16 B/cell] = {}, gpu_height[9 buf, 36 B/cell] = {} \
+                     -- of which {:.1} MiB of input upload = {upload_t} ({:.0}% of the dispatch median, {:.2} GiB/s at the median)",
+                    per_cell(warp_t),
+                    per_cell(hetero_t),
+                    per_cell(height_t),
+                    uploaded_bytes as f64 / (1024.0 * 1024.0),
+                    100.0 * upload_t.secs() / height_t.secs().max(1e-9),
+                    uploaded_bytes as f64 / (1024.0 * 1024.0 * 1024.0) / upload_t.secs().max(1e-9),
+                );
+            }
 
             // Non-vacuity, per root `CLAUDE.md`'s "watch for silently-empty
             // golden output": the probe must have moved the bytes it claims
@@ -4156,20 +4324,27 @@ mod tests {
             return;
         };
         warm_up_height(&ctx);
+        let quote = timings_quotable("measured_gpu_height_vs_the_real_compute_height");
+        if quote {
+            eprintln!(
+                "gpu_height vs the shipped f64 rayon compute_height {}",
+                device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type)
+            );
+        }
         for &(w, h) in &[(1024u32, 1024u32), (2048, 2048)] {
             let n = (w * h) as usize;
             let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
             let zero = vec![0.0f32; n];
             let (nf, a, b, age_inf, fwt, hwt) = (5.0f32, 0.5f32, 0.3f32, 0.5f32, 0.15f32, 0.1f32);
 
-            let (gpu_time, gpu) = timed_median(|| {
+            let (gpu_time, gpu) = timed_for(quote, || {
                 dispatch_gpu_height(
                     &ctx, w, h, 24601, nf, a, b, age_inf, fwt, hwt, false, false, &base, &stress, &flex, &hetero, &age,
                     &zero, &zero, &zero,
                 )
             });
 
-            let (real_time, real) = timed_median(|| {
+            let (real_time, real) = timed_for(quote, || {
                 cartalith_terrain::compute_height(
                     w as usize,
                     h as usize,
@@ -4206,14 +4381,14 @@ mod tests {
                 .map(|(g, r)| ((*g as f64) - (*r as f64)).abs())
                 .fold(0.0f64, f64::max);
 
-            eprintln!(
-                "gpu_height {w}x{h} (medians of {TIMING_ROUNDS}): GPU = {:?}, \
-                 REAL cartalith_terrain::compute_height (f64, rayon) = {:?}, ratio (CPU/GPU) = {:.2}x, \
-                 max_abs_diff vs the shipped field = {max_abs_diff:.4}",
-                gpu_time,
-                real_time,
-                real_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9),
-            );
+            if quote {
+                eprintln!(
+                    "gpu_height {w}x{h}: GPU = {gpu_time}, \
+                     REAL cartalith_terrain::compute_height (f64, rayon) = {real_time}, ratio (CPU/GPU) = {}, \
+                     max_abs_diff vs the shipped field = {max_abs_diff:.4}",
+                    ratio(real_time, gpu_time),
+                );
+            }
 
             assert_eq!(gpu.len(), n);
             assert_eq!(real.len(), n);
@@ -4238,26 +4413,55 @@ mod tests {
     ///
     /// `#[ignore]`d: it opens fresh adapters in a loop, which is slow and is
     /// exactly the cost being measured. Run it with
-    /// `cargo test --release -p cartalith-gpu measured_device_handshake -- --ignored --nocapture`.
+    /// `cargo test --release -p cartalith-gpu measured_device_handshake -- --ignored --test-threads=1 --nocapture`.
+    ///
+    /// **This one panics rather than suppressing.** The other `measured_*`
+    /// tests run inside the default suite, so [`timings_quotable`] lets them
+    /// fall back to assertions and print nothing; this one runs only when
+    /// somebody typed `--ignored`, so the only reason to be here is the
+    /// figure, and producing a contended one is worse than failing.
+    ///
+    /// The **first** handshake of the process is separated out, because there
+    /// is only ever one of it: it cannot be given a spread, it measures dearer
+    /// than the ones after it, and it is the one a fresh `generate_terrain` in
+    /// a fresh process actually pays. Pooling it with its successors is how
+    /// "416 ms" was published and then re-measured at 730 ms.
     #[test]
-    #[ignore]
+    #[ignore = "opens fresh adapters in a loop (that is the cost being measured), and refuses to run without --test-threads=1"]
     fn measured_device_handshake_and_per_stage_pipeline_build() {
-        const ROUNDS: usize = 3;
-        let mut handshakes = Vec::with_capacity(ROUNDS);
-        for _ in 0..ROUNDS {
-            let t0 = Instant::now();
-            let dev = init_gpu_shared_device();
-            handshakes.push(t0.elapsed());
-            if dev.is_err() {
-                eprintln!("no GPU available -- skipping handshake measurement");
-                return;
-            }
-        }
-        let total: std::time::Duration = handshakes.iter().sum();
-        eprintln!("init_gpu_shared_device x{ROUNDS}: {handshakes:?}, mean = {:?}", total / ROUNDS as u32);
+        assert!(
+            timing_is_serialised(),
+            "measured_device_handshake_and_per_stage_pipeline_build refuses to run under a parallel test binary -- \
+             a handshake timed against other tests' GPU work is a figure about contention, which is how a 416 ms \
+             handshake was published and re-measured at 730 ms. Re-run with: cargo test --release -p cartalith-gpu \
+             measured_device_handshake -- --ignored --test-threads=1 --nocapture"
+        );
 
-        let Ok(gpu) = init_gpu_shared_device() else { return };
+        // The cold one, on its own: it is not a sample of the same population
+        // as the warm ones and must not be pooled with them.
+        let t0 = Instant::now();
+        let first = init_gpu_shared_device();
+        let cold = t0.elapsed();
+        if first.is_err() {
+            eprintln!("no GPU available -- skipping handshake measurement");
+            return;
+        }
+        drop(first);
+
+        let (warm, dev) = timed(TIMING_ROUNDS, init_gpu_shared_device);
+        let Ok(gpu) = dev else {
+            eprintln!("no GPU available -- skipping handshake measurement");
+            return;
+        };
+        eprintln!("handshake {}", device_note(&gpu.adapter_name, gpu.adapter_backend, gpu.device_type));
+        eprintln!(
+            "init_gpu_shared_device: first-of-process = {cold:?} [1 sample by definition -- there is only one cold \
+             handshake per process], then warm = {warm}"
+        );
+
         let mut pipeline_total = std::time::Duration::ZERO;
+        let mut pipeline_min = std::time::Duration::MAX;
+        let mut pipeline_max = std::time::Duration::ZERO;
         for (label, build) in [
             ("warp", &(|g: &GpuDevice| { init_gpu_warp_with(g); }) as &dyn Fn(&GpuDevice)),
             ("heterogeneity", &|g: &GpuDevice| { init_gpu_heterogeneity_with(g); }),
@@ -4266,18 +4470,20 @@ mod tests {
             ("flow", &|g: &GpuDevice| { init_gpu_flow_with(g); }),
             ("weather", &|g: &GpuDevice| { init_gpu_weather_with(g); }),
         ] {
-            let t0 = Instant::now();
-            build(&gpu);
-            let dt = t0.elapsed();
-            pipeline_total += dt;
-            eprintln!("  init_gpu_{label}_with (shader compile + pipeline) = {dt:?}");
+            let (t, ()) = timed(TIMING_ROUNDS, || build(&gpu));
+            pipeline_total += t.median;
+            pipeline_min = pipeline_min.min(t.median);
+            pipeline_max = pipeline_max.max(t.median);
+            eprintln!("  init_gpu_{label}_with (shader compile + pipeline) = {t}");
         }
         eprintln!(
-            "a second generate_terrain call rebuilds: 1 handshake ({:?} mean) + every pipeline ({pipeline_total:?} for all six)",
-            total / ROUNDS as u32
+            "a second generate_terrain call in the same process rebuilds: 1 warm handshake ({warm}) + every pipeline \
+             (medians sum to {pipeline_total:?} for all six; the dearest single stage's median is {pipeline_max:?}, \
+             the cheapest {pipeline_min:?})"
         );
 
-        assert_eq!(handshakes.len(), ROUNDS, "handshake loop did not run");
+        assert!(cold > std::time::Duration::ZERO, "the cold handshake took no measurable time -- nothing ran");
+        assert!(warm.rounds > 1 && warm.min <= warm.max, "the warm handshake did not draw a sample set with a range");
         assert!(pipeline_total > std::time::Duration::ZERO, "pipeline builds took no measurable time -- nothing ran");
     }
 
@@ -4553,6 +4759,10 @@ mod tests {
         // Warm up: first dispatch pays one-time pipeline/driver JIT cost.
         let (wx, wy) = scattered_plates(8, 64, 64, 1);
         let _ = dispatch_gpu_assign_plates(&ctx, 64, 64, &wx, &wy, None, None);
+        let quote = timings_quotable("measured_gpu_jfa_plates_vs_cpu_timing");
+        if quote {
+            eprintln!("gpu_jfa_plates {}", device_note(&ctx.adapter_name, ctx.adapter_backend, ctx.device_type));
+        }
 
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let np = 24usize;
@@ -4566,23 +4776,22 @@ mod tests {
                     base: 0.0,
                 }).collect();
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
-            let gpu_time = t0.elapsed();
+            let n = (w * h) as usize;
+            let (gpu_t, gpu) = timed_for(quote, || dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None));
+            let (cpu_t, cpu) =
+                timed_for(quote, || cartalith_terrain::assign_plates(w as usize, h as usize, false, &plates, None, None));
 
-            let t1 = Instant::now();
-            let _ = cartalith_terrain::assign_plates(w as usize, h as usize, false, &plates, None, None);
-            let cpu_time = t1.elapsed();
+            assert_eq!(gpu.len(), n, "GPU plate map is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu.len(), n, "CPU plate map is the wrong length -- the call that was timed produced nothing usable");
 
             let max_dim = w.max(h) as f64;
             let passes = max_dim.log2().ceil() as u32;
-            eprintln!(
-                "{w}x{h} ({} cells, {passes} JFA passes, {np} plates): GPU dispatch+readback = {:?}, CPU (single-thread, in-place JFA) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                w * h,
-                gpu_time,
-                cpu_time,
-                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
-            );
+            if quote {
+                eprintln!(
+                    "{w}x{h} ({n} cells, {passes} JFA passes, {np} plates): GPU dispatch+readback = {gpu_t}, CPU (single-thread, in-place JFA) = {cpu_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_t, gpu_t)
+                );
+            }
         }
     }
 
@@ -4607,22 +4816,29 @@ mod tests {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
         };
+        let quote = timings_quotable("measured_gpu_blur_and_resistance_timing");
+        if quote {
+            eprintln!(
+                "gpu_gauss_blur + gpu_compute_resistance {}",
+                device_note(&blur_ctx.adapter_name, blur_ctx.adapter_backend, blur_ctx.device_type)
+            );
+        }
         for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
             let n = (w * h) as usize;
             let src = synthetic_field(n, 23);
 
-            let t0 = Instant::now();
-            let _ = dispatch_gpu_gauss_blur(&blur_ctx, &src, 12.0, w, h, false);
-            let gpu_blur_time = t0.elapsed();
-            let t1 = Instant::now();
-            let _ = cartalith_terrain::gauss_blur(&src, 12.0, w as usize, h as usize, false);
-            let cpu_blur_time = t1.elapsed();
-            eprintln!(
-                "gpu_gauss_blur {w}x{h}: GPU = {:?}, CPU (real, running-sum) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                gpu_blur_time,
-                cpu_blur_time,
-                cpu_blur_time.as_secs_f64() / gpu_blur_time.as_secs_f64().max(1e-9)
-            );
+            let (gpu_blur_t, gpu_blur) =
+                timed_for(quote, || dispatch_gpu_gauss_blur(&blur_ctx, &src, 12.0, w, h, false));
+            let (cpu_blur_t, cpu_blur) =
+                timed_for(quote, || cartalith_terrain::gauss_blur(&src, 12.0, w as usize, h as usize, false));
+            assert_eq!(gpu_blur.len(), n, "GPU blur is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu_blur.len(), n, "CPU blur is the wrong length -- the call that was timed produced nothing usable");
+            if quote {
+                eprintln!(
+                    "gpu_gauss_blur {w}x{h}: GPU = {gpu_blur_t}, CPU (real, running-sum) = {cpu_blur_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_blur_t, gpu_blur_t)
+                );
+            }
 
             let num_plates = 9usize;
             let plate_id_u32: Vec<u32> = (0..n).map(|i| (i % num_plates) as u32).collect();
@@ -4633,18 +4849,19 @@ mod tests {
                 .collect();
             let crustal_per_plate: Vec<f32> = plates.iter().map(|p| p.base.max(0.0) as f32).collect();
 
-            let t2 = Instant::now();
-            let _ = dispatch_gpu_resistance(&res_ctx, w, h, &plate_id_u32, &age, &crustal_per_plate);
-            let gpu_res_time = t2.elapsed();
-            let t3 = Instant::now();
-            let _ = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_u16, &plates, &age);
-            let cpu_res_time = t3.elapsed();
-            eprintln!(
-                "gpu_compute_resistance {w}x{h}: GPU = {:?}, CPU (real) = {:?}, ratio (CPU/GPU) = {:.2}x",
-                gpu_res_time,
-                cpu_res_time,
-                cpu_res_time.as_secs_f64() / gpu_res_time.as_secs_f64().max(1e-9)
-            );
+            let (gpu_res_t, gpu_res) =
+                timed_for(quote, || dispatch_gpu_resistance(&res_ctx, w, h, &plate_id_u32, &age, &crustal_per_plate));
+            let (cpu_res_t, cpu_res) = timed_for(quote, || {
+                cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_u16, &plates, &age)
+            });
+            assert_eq!(gpu_res.len(), n, "GPU resistance is the wrong length -- the dispatch that was timed produced nothing usable");
+            assert_eq!(cpu_res.len(), n, "CPU resistance is the wrong length -- the call that was timed produced nothing usable");
+            if quote {
+                eprintln!(
+                    "gpu_compute_resistance {w}x{h}: GPU = {gpu_res_t}, CPU (real, rayon) = {cpu_res_t}, ratio (CPU/GPU) = {}",
+                    ratio(cpu_res_t, gpu_res_t)
+                );
+            }
         }
     }
 

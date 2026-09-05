@@ -19,8 +19,13 @@
 //! landed between this one's write and its read. The two tests that
 //! genuinely exercise the global path take `PREFS_LOCK` instead.
 //!
-//! Run the timing test's numbers with:
+//! Run the timing tests' numbers with:
 //! `cargo test -p cartalith-gpu --test multi_gpu -- --nocapture --test-threads=1`
+//!
+//! Without that `--test-threads=1` the two `*_measured` tests below print no
+//! figures at all -- see [`timing_harness::timings_quotable`]. They still run
+//! and still assert; they just refuse to hand back a number taken while other
+//! tests were on the same GPU.
 
 use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
@@ -29,6 +34,13 @@ use cartalith_gpu::{
     GpuPreferences, MultiGpuMode, enumerate_devices, gpu_working_set_bytes, init_gpu_device_set,
     init_gpu_device_set_with, set_preferences, split_rows, warp_grid_gpu_split, warp_grid_gpu_with,
 };
+
+/// The same harness the crate's own `measured_*` tests use, compiled in
+/// rather than re-implemented: one definition of median-with-range and of the
+/// serial-run refusal, so the two cannot drift.
+#[path = "../src/timing_harness.rs"]
+mod timing_harness;
+use timing_harness::{TIMING_ROUNDS, timed, timings_quotable};
 
 /// Held for the whole of any test that writes the process-global
 /// preferences, so those tests never overlap each other.
@@ -312,6 +324,8 @@ fn split_tiles_across_two_real_devices_measured() {
     }
     let keys: Vec<String> = devs.iter().take(2).map(|d| d.key.clone()).collect();
     println!("split across: {:?} + {:?}", devs[0].name, devs[1].name);
+    let quote = timings_quotable("split_tiles_across_two_real_devices_measured");
+    let rounds = if quote { TIMING_ROUNDS } else { 1 };
 
     for &(w, h) in &[(512u32, 512u32), (1024, 1024), (2048, 2048), (4096, 4096)] {
         const SEED: i32 = 1337;
@@ -322,9 +336,9 @@ fn split_tiles_across_two_real_devices_measured() {
         // Warm-up: the first dispatch on a fresh device pays shader
         // compilation, which is not what this measures.
         let _ = warp_grid_gpu_with(single.primary(), 64, 64, SEED, wf, amp);
-        let t0 = Instant::now();
-        let (sx, _sy) = warp_grid_gpu_with(single.primary(), w, h, SEED, wf, amp).expect("single-device warp");
-        let single_ms = t0.elapsed().as_secs_f64() * 1e3;
+        let (single_t, single_out) =
+            timed(rounds, || warp_grid_gpu_with(single.primary(), w, h, SEED, wf, amp).expect("single-device warp"));
+        let (sx, _sy) = single_out;
         drop(single);
 
         let split_prefs =
@@ -332,19 +346,21 @@ fn split_tiles_across_two_real_devices_measured() {
         let split = init_gpu_device_set_with(&split_prefs).expect("split device set");
         assert!(split.is_split(), "two selected devices in split_tiles mode must actually split");
         let _ = warp_grid_gpu_split(&split, 64, 64, SEED, wf, amp);
-        let t1 = Instant::now();
-        let (px, _py) = warp_grid_gpu_split(&split, w, h, SEED, wf, amp).expect("split warp");
-        let split_ms = t1.elapsed().as_secs_f64() * 1e3;
+        let (split_t, split_out) =
+            timed(rounds, || warp_grid_gpu_split(&split, w, h, SEED, wf, amp).expect("split warp"));
+        let (px, _py) = split_out;
 
         assert_eq!(px.len(), sx.len(), "split output must be the full grid");
         // Across two *different* devices the last bits may differ (two
         // shader compilers), so this is a tolerance comparison, unlike the
         // same-device band test above which is bit-exact.
         let worst = px.iter().zip(sx.iter()).map(|(a, b)| (*a as f64 - *b as f64).abs()).fold(0.0f64, f64::max);
-        println!(
-            "{w}x{h}: single {single_ms:7.1} ms   split {split_ms:7.1} ms   ratio {:.2}x   worst |split-single| = {worst:.3e}",
-            single_ms / split_ms
-        );
+        if quote {
+            println!(
+                "{w}x{h}: single {single_t}   split {split_t}   ratio {}   worst |split-single| = {worst:.3e}",
+                timing_harness::ratio(single_t, split_t)
+            );
+        }
         assert!(worst < 1e-2 * f64::from(amp).max(1.0), "split must compute the same field, not a different one");
         drop(split);
     }
@@ -356,6 +372,12 @@ fn split_tiles_across_two_real_devices_measured() {
 /// the constant is set from what this prints, and this test exists so the
 /// next person can re-run it on their own hardware rather than inheriting
 /// one machine's ratio as if it were universal.
+///
+/// **A shipped constant is set from this output, so it prints medians with
+/// their range and nothing at all from a parallel run.** A weight is a *ratio
+/// of two* of these numbers and inherits both spreads, which is why the table
+/// in `device_weight`'s doc comment now carries a bracket per row rather than
+/// the single sample per cell it was first built from.
 #[test]
 fn per_device_warp_throughput_measured() {
     let devs = real_devices();
@@ -363,18 +385,27 @@ fn per_device_warp_throughput_measured() {
         println!("skipped: no non-software GPU on this machine");
         return;
     }
+    let quote = timings_quotable("per_device_warp_throughput_measured");
+    let rounds = if quote { TIMING_ROUNDS } else { 1 };
     for d in &devs {
         let prefs = GpuPreferences { selected_keys: vec![d.key.clone()], ..Default::default() };
         let set = init_gpu_device_set_with(&prefs).expect("device");
-        print!("{:<28} {:?}", d.name, d.device_type);
+        if quote {
+            println!("{:<28} {:?}", d.name, d.device_type);
+        }
         for &(w, h) in &[(1024u32, 1024u32), (2048, 2048), (4096, 4096)] {
             let (wf, amp) = (2.5 / w as f32, 0.18 * w as f32);
             let _ = warp_grid_gpu_with(set.primary(), 64, 64, 7, wf, amp); // warm-up: shader compile
-            let t = Instant::now();
-            let _ = warp_grid_gpu_with(set.primary(), w, h, 7, wf, amp);
-            print!("   {w}²: {:6.1} ms", t.elapsed().as_secs_f64() * 1e3);
+            let (t, out) = timed(rounds, || warp_grid_gpu_with(set.primary(), w, h, 7, wf, amp));
+            assert!(
+                out.is_some_and(|(x, _)| x.len() == (w * h) as usize),
+                "{w}x{h} warp on {} produced no full field -- nothing was timed",
+                d.name
+            );
+            if quote {
+                println!("   {w}²: {t}");
+            }
         }
-        println!();
     }
 }
 

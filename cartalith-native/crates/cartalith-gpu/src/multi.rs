@@ -770,8 +770,11 @@ pub fn device_usage(gpu: &GpuDevice) -> Option<GpuMemoryUse> {
 static LAST_USAGE: RwLock<Vec<(String, GpuMemoryUse)>> = RwLock::new(Vec::new());
 
 /// Record every device in `set`'s current memory use, so a UI can show a
-/// real number without paying an adapter/device handshake of its own (~1.3 s,
-/// measured in `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6) just to ask.
+/// real number without paying an adapter/device handshake of its own just to
+/// ask. `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6 put that handshake at
+/// ~1.3 s; it no longer reproduces at anything like that — see
+/// [`crate::GpuDevice`], which carries the current figure and its range — but
+/// a couple of hundred milliseconds to answer "how much VRAM" is still absurd.
 pub fn record_usage(set: &GpuDeviceSet) {
     let snapshot: Vec<(String, GpuMemoryUse)> =
         set.devices.iter().filter_map(|d| device_usage(d).map(|u| (d.adapter_name.clone(), u))).collect();
@@ -1048,20 +1051,29 @@ fn open_primary(instance: &wgpu::Instance, selected_keys: &[String]) -> Result<G
 /// **Measured, not assumed.** `per_device_warp_throughput_measured` in
 /// `tests/multi_gpu.rs` times the whole-grid warp kernel on each device
 /// alone; on this project's development machine (AMD Radeon RX 7800 XT
-/// discrete + AMD Radeon integrated, both Vulkan) it reports:
+/// discrete + AMD Radeon(TM) Graphics integrated, both Vulkan) it reports,
+/// re-run alone 2026-09-05 as **medians of five with the range each set
+/// spanned** — the original table was one sample per cell, and a weight is a
+/// ratio of two of them, so it inherited both spreads:
 ///
 /// | grid | discrete | integrated | ratio |
 /// |---|---|---|---|
-/// | 1024² | 3.5 ms | 16.1 ms | 0.217 |
-/// | 2048² | 8.0 ms | 60.3 ms | 0.133 |
-/// | 4096² | 48.1 ms | 283.3 ms | 0.170 |
+/// | 1024² | 2.47 ms (2.37..3.63) | 16.01 ms (15.65..16.33) | 0.154 (0.145..0.232) |
+/// | 2048² | 7.43 ms (7.24..7.84) | 60.52 ms (59.87..61.05) | 0.123 (0.119..0.131) |
+/// | 4096² | 44.23 ms (43.48..47.26) | 275.0 ms (270.98..285.96) | 0.161 (0.152..0.174) |
 ///
-/// `0.17` is the 4096² figure, chosen over the other two because that is
-/// the size at which splitting is not already lost to fixed overhead
-/// (~1.8 ms, also measured) — sizing the bands correctly at a size where
-/// the split cannot win regardless would be optimising the wrong point.
-/// The full numbers and what they mean are in `HARDWARE_ACCELERATION.md`'s
-/// 2026-08-20 section.
+/// `0.17` is the 4096² figure, chosen over the other two because that is the
+/// size at which splitting is not already lost to fixed overhead — sizing the
+/// bands correctly at a size where the split cannot win regardless would be
+/// optimising the wrong point. **Both halves of that survived the re-run**:
+/// 0.17 sits inside the 4096² bracket, and
+/// `split_tiles_across_two_real_devices_measured` puts the split at
+/// **0.71x (0.58..0.82x) of one device at 2048²** — losing, unambiguously —
+/// against **1.23x (1.08..1.37x) at 4096²**. At 1024² that same test measures
+/// 0.69x (0.49..1.21x), a bracket straddling 1.0, which is the shape of a
+/// comparison that is not there rather than a small win.
+/// The wider context is in `HARDWARE_ACCELERATION.md`'s 2026-08-20 section,
+/// whose figures are the single-sample originals.
 ///
 /// A fixed table rather than a running self-calibration on purpose: the band
 /// boundaries are part of what the result depends on, so weights that

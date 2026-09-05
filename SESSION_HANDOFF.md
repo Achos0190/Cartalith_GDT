@@ -15,11 +15,10 @@ of work done. Use at most 3 agents at a time. Every time a batch is done, update
 the outstanding work file before starting the next. The goal is complete when the
 whole list has been finished.**
 
-**Two agents at a time** (owner, 2026-09-05 — the current instruction; it has
-moved 3 -> 2 -> 4 -> 2 over two days, so **read this line rather than a batch's
-precedent**). Two concurrent agents total, verifier included: run two build
-lanes and then the verifier, or one lane beside the verifier — not two lanes
-*plus* a verifier. The
+**Three build lanes, plus the verifier** (owner, 2026-09-05 — the current
+instruction; the count has moved 3 -> 2 -> 4 -> 2 -> 3 over two days, so **read
+this line rather than a batch's precedent**). Three concurrent build lanes, then
+the verifier. The
 adversarial verifier has found a real defect in every batch it has run,
 including in the brief itself in sixteen consecutive batches, so when the budget
 is two it is the **second** agent, not the one dropped.

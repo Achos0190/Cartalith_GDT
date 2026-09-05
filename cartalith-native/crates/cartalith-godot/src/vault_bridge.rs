@@ -561,20 +561,45 @@ impl WorldGen {
     /// `cells` is `0` before a world exists or when the world declares no
     /// width in km, which is the caller's cue that a snapshot cannot be
     /// scaled honestly — not a cue to substitute a cell count.
+    ///
+    /// # `missing`, and the three states a row can be in
+    ///
+    /// A seventh key, **`missing`, is set only when a path is filed and
+    /// [`Self::snapshot_on_disk`] confirms the image is not there** — so
+    /// three states stay apart in the row rather than collapsing into one:
+    ///
+    /// | `path` | `missing` | what happened |
+    /// |---|---|---|
+    /// | `""` | absent | never generated |
+    /// | a path | absent | generated, and the image is there (or this device cannot check — see [`Self::snapshot_on_disk`]) |
+    /// | a path | `true` | generated, and the image has since been deleted or moved |
+    ///
+    /// The third row is why the key exists. `entity_values` drops the Map
+    /// field entirely in that state, which is §20 — but a panel that only
+    /// knew "not offered" could not tell the user whether to press *Generate*
+    /// for the first time or because their file manager ate the last one, and
+    /// "never generated" and "generated then deleted" are different things a
+    /// user may want told apart. Absent rather than `false` so a caller reads
+    /// it with `has()`: there is no value of `missing` that means *unknown*.
     #[func]
     fn vault_snapshot_radii(&self, kind: GString, entity_id: i64) -> Array<VarDictionary> {
         let key = kind_of(&kind).map(|k| entity_key(k, entity_id)).unwrap_or_default();
         export::MAP_RADII
             .iter()
             .map(|(field, radius, km)| {
-                vdict! {
+                let filed = self.vault.store.snapshot(&key, radius);
+                let mut row = vdict! {
                     "key" => *field,
                     "radius" => *radius,
                     "label" => export::field(field).map(|f| f.label).unwrap_or(*radius),
                     "km" => *km,
                     "cells" => self.snapshot_radius_cells(*km),
-                    "path" => self.vault.store.snapshot(&key, radius).unwrap_or_default(),
+                    "path" => filed.unwrap_or_default(),
+                };
+                if filed.is_some_and(|rel| self.snapshot_on_disk(rel) == Some(false)) {
+                    row.set("missing", true);
                 }
+                row
             })
             .collect()
     }
@@ -1234,13 +1259,74 @@ impl WorldGen {
         //
         // The value is the Markdown image `export.rs`'s module doc specifies:
         // a relative path, never a base64 payload (§22).
+        //
+        // **A filed path is a record that a snapshot was written, not proof
+        // it is still there** (2026-09-05). The store is the only thing this
+        // loop used to consult, so deleting or moving `.cartalith/maps/*.png`
+        // from outside Cartalith left the Map checkbox offered and let
+        // `vault_block_body` write `![](…)` into the user's own note pointing
+        // at nothing — §20's "must not expose information that the entity
+        // does not possess" failing on the one field whose value lives
+        // outside the process. `snapshot_on_disk` closes it, and only ever
+        // *removes* a field: `None` (this device cannot check) keeps the old
+        // behaviour rather than hiding a snapshot nobody verified was gone.
         let key = entity_key(kind, entity_id);
         for (field, radius, _) in export::MAP_RADII {
             if let Some(rel) = self.vault.store.snapshot(&key, radius) {
+                if self.snapshot_on_disk(rel) == Some(false) {
+                    continue;
+                }
                 out.insert(*field, format!("![]({rel})"));
             }
         }
         out
+    }
+
+    /// Whether the image a filed snapshot points at is still on disk.
+    /// `Some(false)` is *gone*; `None` is **cannot answer**, which is a
+    /// different thing and is why this is not a `bool`.
+    ///
+    /// # Scoped to the filesystem provider, deliberately
+    ///
+    /// [`cartalith_vault::VaultProvider::exists`] would also answer for the
+    /// Storage-Access-Framework provider, and asking it would be a `Callable`
+    /// round trip into GDScript per radius instead of one `is_file()` — but
+    /// the stronger reason is that nothing in `shell/` connects a SAF vault
+    /// at all today (`vault_connect_saf` has an `engine_bridge.gd` wrapper
+    /// and no caller but `_vaultsaf_probe.gd`), so the `"exists"` op's real
+    /// behaviour on a device is unverified, and a handler that answered
+    /// `false` would hide every snapshot on Android. `vault_snapshot` refuses
+    /// a non-filesystem provider outright, so the only way a store holds
+    /// snapshots this cannot check is a project written on a desktop and
+    /// opened on a device — where `project_open` assigns `store.snapshots`
+    /// wholesale. Unknown, there, is the honest answer.
+    ///
+    /// # Cost
+    ///
+    /// One `Path::is_file()` per **filed** radius, and none at all otherwise:
+    /// callers ask only after [`cartalith_vault::LinkStore::snapshot`] has
+    /// already returned a path, so an entity with no snapshot pays nothing
+    /// and an entity with all three pays three.
+    ///
+    /// Measured 2026-09-05, this machine, warm NTFS directory, harness linked
+    /// against the built `cartalith-vault` rlib and run alone — median of 7
+    /// runs of 200 000 calls each: **~10 µs** per call when the file is there,
+    /// **~4 µs** when it is not.
+    ///
+    /// **The brackets are deliberately not quoted (2026-09-05).** This read
+    /// "9.65 µs (9.63..9.66)" and "4.11 µs (4.11..4.14)"; an independent
+    /// harness of the same shape, also run alone, measured 10.02 µs
+    /// (9.95..10.04) — the magnitude holds and the bracket does not overlap.
+    /// A three-hundredths-of-a-microsecond spread across 7 runs was measuring
+    /// this run's cache state, not the call. Order of magnitude is what this
+    /// number is for. Why the
+    /// present case is the dearer one was not measured and is not claimed
+    /// here. Worst case for one entity is three of the former, ~29 µs, once
+    /// per panel rebuild — against a rebuild that also crosses gdext and
+    /// constructs Godot `Control`s. It is **not** cheap enough to call per
+    /// frame, and nothing here does.
+    fn snapshot_on_disk(&self, rel: &str) -> Option<bool> {
+        Some(self.vault.vault()?.as_fs_vault()?.exists(rel))
     }
 
     /// One `(key, label)` vocabulary row's display label, falling back to the

@@ -209,3 +209,57 @@ exist when it was dispatched) — it is batch 23's.
 interoperability surface, not Gen1's, and a reader that does not know the key
 ignores it. Provenance stays in both the project save and the flat export.
 Closes the question Lane C raised rather than decided.
+
+## Owner rulings — 2026-09-05, the five held groups from the menu design-conformance audit
+
+The audit (four Fable 5.1 auditors + an adversarial cross-check, 283 items
+enumerated from code) produced 99 deviations. Six were fixed under "fix what
+needs no input"; five groups were held because each needed a decision. All five
+are now ruled, and **four of the five go toward the drawings**, which is worth
+recording: the earlier `Data ▸ Conversion` precedent made the canvas the stale
+party, and these do not follow that pattern.
+
+**1. Phone MORE — build the bespoke screens per `06-phone.md` §6.6.** The shell's
+re-presentation of the desktop popups is superseded. Five purpose-built screens:
+Project, Civilization, Data, Simulation, Preferences. This is a phone-navigation
+rewrite, not a conformance fix, and should run as its own multi-batch arc.
+**Unresolved and stated rather than guessed:** `phone_menu.gd` names
+`docs/ANDROID_UI_SPEC.md` as its authority and that file is not in this
+repository — it lives in the owner's design project. The build proceeds from
+`06-phone.md`; if the missing spec later contradicts it, `06-phone.md` is what
+was ruled on here.
+
+**2. Left dock — restructure to the 12 mode-gated blocks** of
+`04-left-dock.md` §3. One body per rail node, gated by mode. **This deliberately
+hides controls that are reachable today**, which is the opposite instinct to the
+tablet ruling ("keep everything, reflow only") — the two surfaces are being
+decided differently on purpose. Architectural; touches all three workspaces.
+
+**3. Δ vertical — keep it live in 2D, and re-present it horizontally.** The
+Measurement Toolbar canvas's "vertical tools appear only in 3D relief" is
+recorded as superseded: the heightmap carries the data and this port has no 3D
+viewport, so gating it there would make the mode unreachable. **Beyond the
+options offered, the owner asked for a presentation change**: rotate it so the
+readout is horizontal, with **X = distance and Y = height**. That is a
+cross-section profile chart, not the current numeric list — scope it as new
+drawing work over the same measurements, not as a relayout.
+
+**4. All three structural moves — go to where the newest design puts them.**
+Journey planner becomes a CIVIL rail node (v3/RP) rather than a Data menu row;
+Atlas "Refine detail for the current view" moves to the WORLD rail beside Bake &
+finalize; the Asset-pack submenu flattens from four bands to the newest 9-row
+expansion. **A consequence was raised before the ruling and the ruling stands:**
+the flat shape has nowhere for `Clear library… destructive`, which the bands
+carry. **Do not silently drop it** — find it a home and say where, because losing
+a destructive action to a layout change is a capability loss wearing conformance
+clothes.
+
+**5. All 37 no-design surfaces — derive from the DCC vocabulary and build them.**
+The 2026-08-25 ruling ("where none exists, derive from the DCC canvases' own
+vocabulary") is extended to the whole set. Eight of them are not really
+undesigned — the DCC Shell canvas draws a bespoke breadcrumb browser whose own
+comment says it "replaces the stock OS tree picker", and `browse_dialog.gd`
+already exists — so those eight stock `FileDialog`s are derivable work. **The
+other 29 have no drawing at all**, so the owner will first see them running
+rather than drawn; each should carry, in its own source, which canvas vocabulary
+it was derived from.
