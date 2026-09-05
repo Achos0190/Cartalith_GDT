@@ -840,6 +840,14 @@ verify it, and re-cutting the export filter is a separate change that wants its
 own build-install-run cycle rather than being smuggled into a verification
 pass. Worth ~19 MB and one line to whoever picks it up.
 
+**Corrected 2026-09-06: picked up already.** `export_presets.cfg:56`'s
+Android preset carries `exclude_filter="addons/godotsteam/*,addons/godot_ai/*,_*"`
+— landed 2026-08-20 (`d044af9`, "Android export: exclude the unused
+godotsteam/godot_ai addons"), with no `CHANGELOG.md` entry, which is why this
+section never learned about it. Whether that line still holds, and whether it
+actually drops the ~19 MB from a built APK, is a
+`cartalith-native/docs/STATUS.md` question, not this document's.
+
 ## What this pass got
 
 | Item | Result |

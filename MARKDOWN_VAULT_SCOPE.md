@@ -299,10 +299,26 @@ The owner's direction, verbatim:
 > it's an explicit action with a prompt confirmation (the prompt should have an
 > option to confirm always)"*
 
-Four requirements. This pass is the **Rust half**: the engine, the
-`cartalith-vault` crate and the `#[func]` surface. The panel work — a search
-field, a culture picker, a "note says" readout and the *don't ask again*
-checkbox — is a separate pass.
+Four requirements. This pass (2026-08-25) was the **Rust half**: the engine,
+the `cartalith-vault` crate and the `#[func]` surface. The panel work — a
+search field, a culture picker, a "note says" readout and the *don't ask
+again* checkbox — was scoped as a separate pass.
+
+**Corrected 2026-09-06**: that separate pass mostly landed since. Three of
+the four panel pieces are real, in `vault_window.gd`: search
+(`_build_search()` over `engine_bridge.gd`'s `vault_search`), the "note says"
+readout (`_build_note_data()`/`_build_entity_data()`), and the three
+don't-ask-again checkboxes (`_build_write_prefs()`).
+
+**All four are real.** A correction written here on 2026-09-06 claimed the
+culture picker was still missing, on the grounds that *"no `_knowledge_row` call
+site in the shell passes `"culture"`"* — **that was false twice over**, and a
+verifier caught it the same day. `civilization_workspace.gd:2277` passes
+`"culture"` and has since `fd9de7c` (2026-09-01), opening the vault scoped to
+that entity; and no call site passes `"settlement"` at all, so the list of what
+it *does* pass was wrong too. The clause was copied from `STATUS.md`'s MV-6 row
+without grepping, and it re-opened a gap that had closed five days earlier.
+**`STATUS.md`'s MV-6 row is the stale party here and needs the same correction.**
 
 Still outside `DECISIONS.md` §7d's contract, for the reason §0 of this
 document already gives: nothing in `reference/Cartalith Gen1 v2.10.html` links
@@ -347,10 +363,16 @@ as well as textual. Nothing was removed and no existing behaviour moved.
 
 **1. Where does the copied JSON live?** In `LinkStore`'s existing JSON, on the
 link it belongs to. That is deliberately **not** a new persistence path: it
-rides whatever carries the link store, so when the save-format restructure
+~~rides whatever carries the link store, so when the save-format restructure
 lands (milestone 3, unblocked by the owner's 2026-08-25 ruling that saving is
 strictly the new format) the copy moves with the links and needs no separate
-home. Nothing was parked in a private file and nothing was invented for the
+home.~~ — **corrected 2026-09-06**: milestone 3's blocker lifted with
+2026-08-25's ruling and the milestone itself shipped 2026-09-02 in `4ec07f5`
+(`STATUS.md`'s MV-3 row; §2's table above already reflects it). The
+prediction held: the copy rides whatever carries
+the link store, so it moved with the links into `project_bridge.rs`'s
+`SLOT_VAULT` for a project's own save, with no separate home ever needed.
+Nothing was parked in a private file and nothing was invented for the
 device sidecar to hold.
 
 **2. Every copied value is a string, and that is load-bearing.**

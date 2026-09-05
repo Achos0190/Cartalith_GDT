@@ -456,6 +456,17 @@ never enumerating the integrated one for anything. That was the state this
 idea was raised against; whether it still holds is a status question and
 belongs to `cartalith-native/docs/STATUS.md`, not to this document.
 
+**Corrected 2026-09-06: it does not still hold.** `cartalith-gpu/src/multi.rs`
+(`0de790a`, 2026-08-20, "Multi-GPU: enumeration, device selection, split
+tiles, VRAM budget") is the more-complex multi-adapter work this section
+declined to scope: real adapter enumeration (`enumerate_devices`), a
+`split tiles` dispatch mode that runs more than one physical device at once
+(`GpuDeviceSet`), weighted by a measured per-device-type throughput share
+that names `wgpu::DeviceType::IntegratedGpu` explicitly, and a VRAM cap. Its
+test suite opens and exercises this machine's real integrated Radeon, not a
+mock (`multi_gpu.rs::the_integrated_gpu_at_8192_falls_back_instead_of_panicking`).
+The idea recorded here shipped, under a different document.
+
 The idea itself — running smaller/latency-tolerant workloads on the
 integrated GPU in parallel with the dedicated GPU handling the main pipeline
 — is real and valid, but it is a genuinely more complex multi-adapter

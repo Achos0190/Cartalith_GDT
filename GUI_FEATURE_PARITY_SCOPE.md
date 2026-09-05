@@ -445,6 +445,22 @@ what a popup *would* look like if never opened during verification):
 
 ## Milestone breakdown
 
+> **Corrected 2026-09-06** — this section and the rest of the document below
+> still read as an open plan. They are not: `STATUS.md`'s GUI feature parity
+> ledger has **seven of these eight milestones done**, verified against the
+> code — 1 (Category 1 sweep), 3 (stale-field tracking), 4 (heightmap import/
+> GeoJSON export/CPU-memory readout, plus route-corridor/travel-cost as a
+> selectable analysis field, closed 2026-09-01 in `sample_bridge.rs`), 5
+> (terrain appearance GUI, `render_workspace.gd`), 6 (faction roster,
+> `faction_roster_window.gd`), 7 (layer opacity/measurement/quality tiers),
+> and 8 (Journey Planner, Asset Library UI, tile/LOD viewport). **Item 2 is
+> partial, not done**: `PopupMenu` theming was solved by a different route
+> (`DccWidgets.style_popup()`, called from `DccShell.style_popup()`, rather
+> than a `dark_theme.tres` entry), but Tooltip and ScrollBar chrome are still
+> Godot stock. This document should be closed out; the only real remaining
+> work it names is the never-attempted per-stage slider audit in its own
+> closing paragraph below, which was never one of these eight milestones.
+
 Ordered by value/risk: Category 1 first (near-zero new engine work, real
 function today), then Category 2 by size (small → medium → large, citing
 existing scope docs rather than re-scoping them), then Category 3's

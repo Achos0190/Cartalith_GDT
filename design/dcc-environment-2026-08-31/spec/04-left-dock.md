@@ -5,19 +5,17 @@ Markup lines 303–818; logic class `Component extends DCLogic`, lines 1164–21
 
 ---
 
-## 0. CRITICAL — the source file is truncated
+## 0. The source file was truncated — re-exported whole 2026-08-31
 
-**The desktop `.dc.html` is exactly 262 144 bytes (256 KiB) and ends mid-token**, inside `valsCore()`:
+**Historical**, kept for why every `UNSPECIFIED:` below exists: the desktop `.dc.html` this specification was written against arrived at exactly 262 144 bytes (256 KiB, the design MCP's own `get_file` cap) and ended mid-token, inside `valsCore()`:
 
 ```
       measRows.push({i:('0'+i).slice(-2),len:this.fmtKm(km),be
 ```
 
-There is no closing `}`, no `render()`, and no `</script>`/`</body>`/`</html>`. The Android file in the same folder (166 424 bytes) *is* complete, so this is a per-file truncation, not a convention.
+with no closing `}`, no `render()`, and no `</script>`/`</body>`/`</html>`. The Android file in the same folder (166 424 bytes) was already complete, so this was a per-file cap, not a convention. Everything in `valsCore()` after that byte was lost — the dock's own title strings, the WORLD a/b mode-switch labels, the collapsed-rail label, and roughly a dozen handler bindings the markup references. Everything **else** in this document — structure, controls, ranges, defaults, copy — came from the markup (lines 1–1162) and the six `vals2()`–`vals6()` methods, which were intact throughout.
 
-Everything in `valsCore()` after that byte is lost. That accounts for **every `UNSPECIFIED` in §9** — the dock's own title strings, the WORLD a/b mode-switch labels, the collapsed-rail label, and roughly a dozen handler bindings the markup references. The structure, controls, ranges, defaults and copy below are all recovered from the markup (lines 1–1162) plus the six `vals2()`–`vals6()` methods, which are intact.
-
-**Get an untruncated copy of this file before building.** The gap list is short and mechanical, but it is real.
+**Corrected 2026-09-06 — answered 2026-08-31 (`660cbef`, "Design answered: the files are whole"), never updated here.** `Cartalith DCC Environment.dc.html` is now **239 712 bytes, 1 994 lines, ending `</script></body></html>`** — split, not stripped: heavy method bodies moved into a sibling `cartalith-dcc-parts.js` behind `window.CDCC`, no behaviour change (`BUILD_ANSWERS.md` §1). Every binding §9.1 lists as lost reads out a real value now, not a gap — `ldOpen`/`ldClosed`/`hLdClose` at line 1935, `hLdOpen` 1936, `ldCollapsedLabel` 1937, `ldTitle` 1938, `ldSwitch` 1939, `ldSwA`/`ldSwB` 1940, `ldSwACol`/`ldSwABg` 1941 — checked directly against the current file, not inferred. §9.1's own note carries the rest of what was checked.
 
 ---
 
@@ -1161,11 +1159,11 @@ Active test: `n.dom === domain && (!n.mode || n.mode === (dom === 'WORLD' ? worl
 
 ## 9. `UNSPECIFIED:` — what a builder cannot get from this file
 
-All of §9.1 is a consequence of the 256 KiB truncation described in §0 and is recoverable from an intact copy. §9.2 is not.
+All of §9.1 was a consequence of the 256 KiB truncation described in §0. **Corrected 2026-09-06: the intact copy §0 describes now exists, and every row below was checked against it directly** — all 14 rows that name a binding (every row except the one that already says "no gap") resolve to a real value in `Cartalith DCC Environment.dc.html`, none of them still missing. The table stays as the record of what the six specification passes had to leave `UNSPECIFIED:` at the time; read an "unknown" / "cannot be labelled" / "not present" cell below as **closed by the 2026-08-31 re-export**, not as a live gap. §9.2 is a separate, still-real list — see below.
 
-### 9.1 Lost to truncation (all inside `valsCore()`)
+### 9.1 Lost to truncation (all inside `valsCore()`) — closed 2026-08-31, kept as record
 
-| Missing binding | What is missing | Consequence |
+| Missing binding | What is missing | Consequence (as of the original truncation) |
 |---|---|---|
 | `ldTitle` | The dock header title string, per domain and mode | **No dock has a title.** 6+ distinct strings unknown. |
 | `ldSwitch` | The condition that shows the mode-switch pill | Assumed WORLD-only; unconfirmed |

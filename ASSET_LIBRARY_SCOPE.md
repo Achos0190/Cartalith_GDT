@@ -1109,12 +1109,19 @@ control, not a disabled item).
 slice operation (AS-09/AS-10/AS-11) -- `cartalith-assets::raster` still only
 decodes/encodes whole PNGs, no sheet-splitting function exists anywhere in
 the crate, and inventing one was explicitly out of this dispatch's scope, a
-real engine gap not a binding gap. Per-item scale/pan **editing** -- the
+real engine gap not a binding gap. ~~Per-item scale/pan **editing** -- the
 inspector now shows the real `ItemTransform`, but no `as_set_item_transform`
 writes a new one back; reading it is done, writing it is a smaller
-follow-on. AS-12's "Unassigned imports" bucket is still unmodeled (the
-engine has no slot-less bucket to bind it to); AS-14/AS-15/AS-16 are (D)
-owner decisions, not gaps, unchanged from §9.
+follow-on.~~ — **corrected 2026-09-06, closed 2026-08-23** (`GUI_GAP_REGISTER.md`
+AS-07): `as_set_item_transform`/`as_reset_item_transform` (new `#[func]`s in
+`lib.rs`) write `LibraryItem::transform` for real; the Scale slider and two
+Pan SpinBoxes call the setter live, Fit/Reset call the reset. ~~AS-12's
+"Unassigned imports" bucket is still unmodeled (the engine has no slot-less
+bucket to bind it to)~~ — **corrected 2026-09-06, closed the same day**
+(`GUI_GAP_REGISTER.md` AS-12): modeled as a reserved custom-slot set
+(`UNASSIGNED_SET`) rather than a true slot-less concept, with a real pinned
+rail row and a new `#[func] as_collections` (`lib.rs`) as its read side.
+AS-14/AS-15/AS-16 are (D) owner decisions, not gaps, unchanged from §9.
 
 **Verified**: `cargo test -p cartalith-assets -p cartalith-godot --lib` --
 344 tests across the two crates, all passing (227 in `cartalith-godot`, 117
@@ -1217,11 +1224,19 @@ loaded, so it can be re-sliced with different settings, and closing the modal
 drops the engine-side sheet.
 
 **Deliberately left out by this pass, and said so plainly**: the slicer's
-*canvas interaction* — pan/zoom, draggable grid lines, click-to-select
-individual cells (`GUI_GAP_REGISTER.md` AS-17, opened by this pass). The
+~~*canvas interaction* — pan/zoom, draggable grid lines, click-to-select
+individual cells~~ (`GUI_GAP_REGISTER.md` AS-17, opened by this pass). The
 modal slices the whole uniform grid rather than a hand-picked selection. `compute_cells` is written against line
 *fractions* rather than `cols`/`rows` specifically so a draggable-line UI can
 supply its own without touching the golden-verified arithmetic.
+
+**Corrected 2026-09-06, closed 2026-08-23** (`GUI_GAP_REGISTER.md` AS-17):
+`SheetPreview` now has real wheel-zoom, middle-drag pan, click-to-select-a-cell
+and a draggable Margin handle, plus per-interior-line dragging
+(`cartalith_assets::SliceGrid::with_lines`/`move_line`, `slicer.rs`) and
+cell-scoped slicing (`SliceParams::only_cell`), exposed as `as_slicer_move_line`
+and `as_uniform_lines`. The `compute_cells` fraction-based design this
+paragraph anticipated is exactly what made the later addition golden-safe.
 
 ### Verified
 

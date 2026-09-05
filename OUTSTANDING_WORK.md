@@ -1609,20 +1609,34 @@ Three further `STATUS.md` defects:
 - It has no section for `MILITARY_MANPOWER_SCOPE.md` (built 2026-08-25) or for
   `ECONOMY_SCOPE.md` at all.
 
-### 6.4 Six scope documents are stale in the same direction
+### 6.4 ~~Six scope documents are stale in the same direction~~ — CLOSED 2026-09-06
 
-Every one understates progress. The pattern is consistent and worth naming: the
-gap registers get re-verified, the scope documents do not.
+All twelve rows corrected and verified. The corrections are visible in each
+document (struck through with what is true and the symbol or commit that settles
+it) rather than silently deleted, because this project keeps re-examining its own
+claims and the reasoning is what makes that possible.
 
-| Document | What it still says | What is true |
-|---|---|---|
-| `TERRAIN_APPEARANCE_SCOPE.md:1113` "Still open" | Nine items, incl. "the GUI editing panel (all UI work on hold)", "§17 colour vibrancy", and milestone 1's elevation-ramp question | **Three of nine are stale.** The UI hold lifted 2026-08-18 and the panel shipped as `render_workspace.gd`; §17 shipped as the "Colour grade" and "Grade field influence" groups; the ramp question is answered in code both ways (`lib.rs:1873`, `list_ramp_presets`). §19 is half-done rather than open |
-| `ASSET_LIBRARY_SCOPE.md:1068`, `:1179` | AS-07, AS-12 and AS-17 are "still honestly a gap" | All three closed **2026-08-23** (`as_set_item_transform` at `lib.rs:11060`, `as_collections`, `SliceGrid::move_line`) and are recorded closed in `GUI_GAP_REGISTER.md` |
-| `UNIFIED_TOOL_PLAN.md:2265`, `:2268`; `STRANDED_TOOLS.md:34` | "all UI work is on hold"; milestone F is the only work left and is unwired | **Resolved 2026-09-01, not just historical.** The hold-lifted claim itself was already stale — `CLAUDE.md` records having already corrected this exact class of error once — and the second half is now fixed rather than merely diagnosed: `UNIFIED_TOOL_PLAN.md` carries a verified "Milestone F as built" section, and `STRANDED_TOOLS.md`'s "44 methods... not one wired" claim is annotated false in place. See `STATUS.md`'s Tool system row |
-| `MARKDOWN_VAULT_SCOPE.md:247`, `:259`, `:439` | Milestone 3 "blocked"; milestone 6 "engine half done", "the UI half is not built" | Milestone 3's blocker lifted 2026-08-25 (it is not-started, not blocked). Milestone 6's UI landed 2026-08-26 — `vault_window.gd` 641 → 1 140 lines, with `_build_search` and the "confirm always" checkbox |
-| `GUI_FEATURE_PARITY_SCOPE.md` status box | Twelve items open, incl. heightmap import, GeoJSON export, the appearance GUI, the faction roster, the Journey Planner GUI, the Asset Library UI, the LOD viewport, light theme, opacity, measurement, quality tiers, PopupMenu theming | **Fully discharged as of 2026-09-01.** Every milestone item now exists in code — the one survivor, route corridors/travel cost as a selectable analysis field, shipped this pass (`sample_bridge.rs`'s `corridor`/`travel_cost` ids, tested). Only the never-attempted per-stage slider audit the document names in its own closing paragraph remains, and that was never a milestone item. The document should be closed out |
-| `DCC_SHELL_SCOPE.md` | "Milestone 2 and milestone 3+ remain not yet dispatched"; "still deferred: light theme, responsive breakpoints, all tool functionality" | Both dispatched and completed the same day the sentence was written; all three deferrals closed. It is a 2026-08-18 snapshot wearing a milestone-plan title |
-| `design/…/00-REPLACEMENT-PLAN.md` §0 | Opens with "the desktop prototype we received is truncated"; stages 5 and parts of 2 blocked | The split re-export landed the same day (Environment 239 712 B + `cartalith-dcc-parts.js`), `BUILD_ANSWERS.md` §1 confirms everything is present, and stage 2 completed. **Stage 5 is not blocked; it is not started** |
+**Two of the twelve were NOT stale and were deliberately left alone** —
+`UNIFIED_TOOL_PLAN.md`/`STRANDED_TOOLS.md` and `GPU_LAYER_INTEGRATION_SCOPE.md`'s
+`use_gpu` row had already been corrected by `fd9de7c` (2026-09-01) and are still
+right today. Declining to "fix" a correct document is the outcome this section
+wanted, not a shortfall.
+
+**The batch also found three defects in its own corrections, all fixed:** a claim
+that the vault's culture picker was missing (`civilization_workspace.gd:2277`
+passes `"culture"` and has since 2026-09-01 — it re-opened a gap that closed five
+days earlier); a claim that two milestones completed "the same day", collapsing a
+fortnight into one date; and two internal contradictions in `STATUS.md` itself,
+where a table row said `done` while the paragraph beneath it said not-started, and
+a section header said "Five rows" over six.
+
+**The highest-value correction was `04-left-dock.md`.** Its §0 truncation note and
+§9.1's sixteen-row "Lost to truncation" table described a file that has not
+existed in that state since `660cbef` re-imported the prototype whole. Thirteen
+shipped `.gd` comments had been citing it as authority for values that are
+readable, and it reached a ruling in `LARGE_ITEM_RULINGS.md`. That is the concrete
+form of this section's own warning: *each of these will cause someone to skip
+real, startable work.*
 
 ### 6.5 `FUNCTIONAL_CONTRACT.md` disagrees with itself in four places
 
@@ -1662,33 +1676,34 @@ raised rather than closed: whether the root `Cartalith Gen1 v2.11.html` is
 `Cartalith_RC`'s actual live head, or a copy that repository has since moved
 past, is unverified and unverifiable from this machine — see §3.3.
 
-### 6.7 Five documents claim a blocker that has already lifted
+### 6.7 ~~Five documents claim a blocker that has already lifted~~ — CLOSED 2026-09-06
 
-Each of these will cause someone to skip real, startable work:
+All twelve rows corrected and verified. The corrections are visible in each
+document (struck through with what is true and the symbol or commit that settles
+it) rather than silently deleted, because this project keeps re-examining its own
+claims and the reasoning is what makes that possible.
 
-**A fifth instance was found and fixed 2026-09-02, and it is the most expensive
-one yet recorded — it cost a dispatched wave.** Three live test headers stated
-that golden fixtures *"could not be extracted because the environment has no JS
-runtime"*. `node` is v24.19.0 and has been available for weeks; the retired
-`CHANGELOG.md` even notes at its line 2000 that *"Node is installed now"*. Worse,
-everything the claim gated had **already shipped on 2026-08-15**:
-`stamp_volcanoes_provinces` was golden-verified in `713e0b1`, and `555b753` /
-`3fd2fef` flipped `volc.provinces`, `terrain_wind_deflection` and `currents` to
-`true`. Nothing in this port was ever off-by-default because of it; only the
-prose lagged, for eighteen days. `tools/jsruntime_probe.js` now settles it two
-ways — it proves the runtime executes the frozen reference *and* that the
-committed fixtures are genuinely its output rather than the Rust port's, with
-4/4 mutants killed. Three further stale claims in the same family
-(`cartalith-climate/src/lib.rs`, `golden_parity_weather.rs`, and
-`cartalith-engine/src/lib.rs`'s own `WorldParams::defaults` comment) are
-recorded but **not yet swept**.
+**Two of the twelve were NOT stale and were deliberately left alone** —
+`UNIFIED_TOOL_PLAN.md`/`STRANDED_TOOLS.md` and `GPU_LAYER_INTEGRATION_SCOPE.md`'s
+`use_gpu` row had already been corrected by `fd9de7c` (2026-09-01) and are still
+right today. Declining to "fix" a correct document is the outcome this section
+wanted, not a shortfall.
 
-| Claim | Reality |
-|---|---|
-| `journey_bridge.rs:70` and `JOURNEY_PLANNER_SCOPE.md`: the ecoregion/species-richness subsystem "is unported and on no milestone anywhere" | Ported 2026-08-23 (`b7a46a7`) — `wildlife.rs:367` `build_ecoregions`, `:550` `region_richness`, `:588` `assign_wildlife`. The remaining work is wiring, and smaller than either document says |
-| `ANDROID_BUILD_SCOPE.md`: the ~19 MB of `godotsteam`/`godot_ai` addons is "flagged, not fixed", including in a Done-means table row | Fixed 2026-08-20 in `d044af9` (`export_presets.cfg:56 exclude_filter`), with no `CHANGELOG` entry — so the fix is invisible to the docs and the doc actively misreports it |
-| `GPU_LAYER_INTEGRATION_SCOPE.md` m6: `use_gpu` is deliberately "unexposed in the UI until a real UI/UX pass adds the §7c messaging" | The shell exposes it (`menus.gd:2792`) **and defaults it on at boot** (`engine_bridge.gd:170`). The engine default is still `false`, so both statements are locally true and the conclusion is stale. §7c's messaging requirement *was* met (`menus.gd:1629-1632`), but nowhere in that document |
-| `CPU_MULTITHREADING_SCOPE.md`: using the integrated GPU alongside the dedicated one is a "separate, lower-priority idea recorded, not scoped" | Shipped 2026-08-20 as `crates/cartalith-gpu/src/multi.rs` — enumeration, selection, split tiles and a VRAM cap |
+**The batch also found three defects in its own corrections, all fixed:** a claim
+that the vault's culture picker was missing (`civilization_workspace.gd:2277`
+passes `"culture"` and has since 2026-09-01 — it re-opened a gap that closed five
+days earlier); a claim that two milestones completed "the same day", collapsing a
+fortnight into one date; and two internal contradictions in `STATUS.md` itself,
+where a table row said `done` while the paragraph beneath it said not-started, and
+a section header said "Five rows" over six.
+
+**The highest-value correction was `04-left-dock.md`.** Its §0 truncation note and
+§9.1's sixteen-row "Lost to truncation" table described a file that has not
+existed in that state since `660cbef` re-imported the prototype whole. Thirteen
+shipped `.gd` comments had been citing it as authority for values that are
+readable, and it reached a ruling in `LARGE_ITEM_RULINGS.md`. That is the concrete
+form of this section's own warning: *each of these will cause someone to skip
+real, startable work.*
 
 ### 6.8 Counts that disagree with themselves
 

@@ -240,6 +240,22 @@ finds. Expect this to be large — potentially comparable
 to Journey Planner or the Asset Library in scope, since it is genuinely new
 engine capability, not a port of already-computed data.
 
+**Corrected 2026-09-06**: read literally, the two paragraphs above still
+describe both as future work. ~~Milestone 2 (parallel with milestone 1, no
+code) — write `UNIFIED_TOOL_PLAN.md` for real~~ and ~~Milestone 3+ — the tool
+system itself~~ are both done — **but not on the same day, and this sentence
+said so for a few hours on 2026-09-06 before a verifier caught it.** Milestone 2
+was dispatched and completed the same day this section was written; **Milestone
+3+ closed on 2026-09-01**, two weeks later (`UNIFIED_TOOL_PLAN.md:2297`,
+"Milestone F as built (2026-09-01)"). Collapsing the two into one date made a
+fortnight of work look instantaneous, which is the kind of tidy-sounding claim
+this document exists to stop. (`STATUS.md`'s DCC-T2/DCC-T3 rows.) `UNIFIED_TOOL_PLAN.md`
+exists at the repository root, 2 500+ lines, with the tool-by-tool table and
+the A-F breakdown milestone 2 called for; milestones A-F it produced are all
+built (`STATUS.md`'s Tool system section, UTP-A…UTP-F, "Group total: 7 — 7
+done") and `UNIFIED_TOOL_PLAN.md`'s own "Milestone F as built (2026-09-01)"
+section is the tool-by-tool evidence.
+
 ## Hard constraint, unchanged from every GUI pass this session
 
 The real, working golden path must not regress at any point: seed/resolution/
@@ -451,8 +467,10 @@ hover *and* click-to-pin with the pin surviving subsequent layer toggles,
 Credits, and File > Open project's dialog.
 
 **Deferred by this pass, unchanged**: light theme, responsive breakpoints, and all
-tool functionality. The pre-existing `dark_theme.tres` unchecked-`CheckBox`
-glyph issue recorded under milestone 1 is unchanged and visible in these
+tool functionality. (All three shipped later — see the 2026-09-06 correction
+after the identical sentence at the end of this document.) The pre-existing
+`dark_theme.tres` unchecked-`CheckBox` glyph issue recorded under milestone 1
+is unchanged and visible in these
 dialogs too.
 
 ## Milestone 3 (GUI track): the World Setup dialog — as built (2026-08-18)
@@ -587,3 +605,15 @@ hand-made signal emit — all six Generate stage dialogs building, and Credits.
 **Deferred by this pass, unchanged**: light theme, responsive breakpoints, and all
 tool functionality. Saving a *parameter set* as a named preset document is
 the natural follow-up this milestone deliberately does not attempt.
+
+**Corrected 2026-09-06**: this is the last of this document's milestone
+write-ups, so read on its own it leaves all three of these looking permanently
+deferred. They are not — each shipped in a later, independent pass, not this
+one: ~~light theme~~ is `dcc_theme.gd`'s `const LIGHT` (`var pal: Dictionary =
+DARK if _dark else LIGHT`, `STATUS.md`'s AND-4c/GGR-10); ~~responsive
+breakpoints~~ are `dcc_theme.gd`'s four density sets (`TABLET`, `PHONE_*`,
+`LAPTOP`, desktop default) behind `is_touch()`/`is_phone()`/`is_laptop()`,
+plus the dedicated 412 dp phone migration (`STATUS.md`'s DCC-P412); and ~~all
+tool functionality~~ is the tool-track's own milestones A-F, all built (see
+the correction after this document's tool-track "Milestone 3+" paragraph,
+above, and `STATUS.md`'s Tool system section).

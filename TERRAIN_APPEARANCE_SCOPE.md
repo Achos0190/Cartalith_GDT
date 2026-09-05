@@ -801,6 +801,10 @@ high-precision display pipeline, §21 the GPU rendering path, §29 quality
 tiers, the GUI editing panel (`GUI_SHELL_SCOPE.md`), and milestone 1's
 elevation-ramp question.
 
+**Note (2026-09-06)**: several of these shipped later — the GUI editing
+panel, §16, §17, and part of §19. See the correction after the identical
+list at the end of milestone 6, below, for what shipped and where.
+
 ## Milestone 6 — the GPU question, answered by measurement; and §29 quality tiers (2026-08-18)
 
 **What was chosen, and why these two.** §21 (the GPU rendering path) and §29
@@ -1127,6 +1131,26 @@ high-precision display pipeline, §21 the GPU rendering path (with
 `apply_local_contrast` named as its beachhead), the ocean value-noise lattice
 above, the GUI editing panel (`DCC_SHELL_SCOPE.md`), and milestone 1's
 elevation-ramp question.
+
+**Corrected 2026-09-06**: four of these nine shipped after this milestone's
+own date (`OUTSTANDING_WORK.md` §6.4). ~~The GUI editing panel~~ is
+`render_workspace.gd`. ~~§17 colour vibrancy~~ shipped 2026-08-24 as the
+"Colour grade" and "Grade field influence" groups in that same file. ~~§16
+multi-scale detail as an explicit control set~~ — rejected two paragraphs
+above as "relabelling, not building" — shipped anyway:
+`detail_macro_weight`/`detail_meso_weight`/`detail_micro_weight` (`render.rs`)
+are TUNABLE-wired and have their own "Multi-scale detail" GUI group. §19's
+three research-named axes (`haze_strength`, `atmo_desaturation`,
+`atmo_contrast`) are likewise built and GUI-wired under an "Atmosphere"
+group — not simply open, though the panel's own help text still owes a
+further, elevation-keyed haze distinct from these three. Milestone 1's
+elevation-ramp question is answered both ways in code: `render::RAMP_PRESETS`
+(`list_ramp_presets`/`load_ramp_preset`, `lib.rs:6372`) gives the literal
+preset ramp, and `TerrainAppearance`'s own palettes exposed through "Colour
+grade" give the alternative. Genuinely still open: the hand-lettered glyphs,
+§20's high-precision pipeline, §21's GPU path, and the ocean value-noise
+lattice (all three still real per `render.rs`'s own doc comments at the time
+of this correction).
 
 <!-- A duplicate, shorter "Milestone 3" section briefly existed here,
 committed by a concurrent fork that picked up this milestone's

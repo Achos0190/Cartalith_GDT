@@ -824,15 +824,25 @@ the reference's own answer on a world missing a layer — deliberately, with the
 argument recorded — rather than a defect. They are declared here and tracked in
 `cartalith-native/docs/STATUS.md`:
 
-- **Wildlife richness** (`jp_foraging` via `_jpWildlifeForageMod`) is
+- ~~**Wildlife richness** (`jp_foraging` via `_jpWildlifeForageMod`) is
   caller-supplied, because at closeout the ecoregion-segmentation and
   species-roster subsystem behind it (`buildEcoregions`/`regionRichness`/
   `assignWildlife`/`WILD_ROSTERS`) was unported and on no milestone anywhere.
-  `1.0` is the reference's **own** answer on a world with no wildlife layer,
-  and also what an exactly-average region gives — so a caller-supplied `1.0`
-  costs no fidelity, and the flat `JP_BIOMES.forage` table stays the anchor it
-  was designed to be. Closing the ceiling means supplying a real richness
-  field, not changing `jp_foraging`.
+  `1.0` is the reference's own answer on a world with no wildlife layer, and
+  also what an exactly-average region gives — so a caller-supplied `1.0`
+  costs no fidelity, and the flat `JP_BIOMES.forage` table stays the anchor
+  it was designed to be. Closing the ceiling means supplying a real richness
+  field, not changing `jp_foraging`.~~ **Corrected 2026-09-06: closed.** The
+  subsystem is ported (`cartalith-civ/src/wildlife.rs`'s
+  `build_ecoregions`/`region_richness`/`assign_wildlife`, golden-tested) and wired exactly the
+  way this bullet said closing it would work — through `jp_foraging`'s
+  existing signature, unchanged: `cartalith-godot/src/lib.rs`'s
+  `jp_plan_ex` call site now passes a real `forage_mod` closure over
+  `sample_bridge::WildlifeCache`, not the `&|_, _| 1.0` stub `PARITY_AUDIT.md`
+  F12 found. `1.0` survives only as the fallback for the reference's own
+  no-data cases — no civilisation layer, no region under the stage midpoint,
+  or a world mean of zero (`journey_bridge.rs`'s own module doc; `STATUS.md`
+  row `JP-QC1`).
 - **`_civSeaTimeEdgeCost`** (v1.98 current/wind-costed sea lanes) was flagged
   unported by Phase 2 milestone 13, for the same reason; the Journey Planner
   reads sea *conditions* from the real fields and is unaffected.

@@ -850,9 +850,13 @@ continents did not exist as entities; milestone 0 created them.
 
 **Group total: 7 — 5 done, 1 partial, 1 not started.**
 
-MV-3 is the row to watch: **the defining document files it as *blocked* and the
-blocker is gone.** It is not-started, not blocked, and both `vault_store.gd` and
-`vault_bridge.rs` still recite the retired reason in source.
+~~MV-3 is the row to watch … It is not-started, not blocked~~ — **superseded
+2026-09-06.** MV-3 **shipped 2026-09-02** in `4ec07f5`, and this table's own MV-3
+row has said `done` since. This paragraph was left behind when the row was
+updated, so the table and the prose beneath it contradicted each other for four
+days. `MARKDOWN_VAULT_SCOPE.md` was itself corrected on this point on 2026-09-04
+(`52666b9`). **Still true and still worth doing:** `vault_store.gd` and
+`vault_bridge.rs` recite the retired blocker in source.
 
 ### Landmark generation · `LANDMARK_GENERATION_SCOPE.md`
 
@@ -1234,8 +1238,9 @@ handset numbers.
 
 ### DCC shell · `DCC_SHELL_SCOPE.md`
 
-Five rows. All complete — but **milestones 1 and 2 cite files that no longer
-exist**, which makes them unverifiable at face value even though the capability
+**Six** rows — the header said five while the table listed six and the group
+total below it said six; corrected 2026-09-06. All complete — but **milestones 1
+and 2 cite files that no longer exist**, which makes them unverifiable at face value even though the capability
 survived.
 
 | ID | Milestone | Status | Evidence |
