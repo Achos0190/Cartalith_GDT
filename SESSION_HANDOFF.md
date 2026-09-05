@@ -18,10 +18,10 @@ whole list has been finished.**
 **Three build lanes, plus the verifier** (owner, 2026-09-05 — the current
 instruction; the count has moved 3 -> 2 -> 4 -> 2 -> 3 over two days, so **read
 this line rather than a batch's precedent**). Three concurrent build lanes, then
-the verifier. The
-adversarial verifier has found a real defect in every batch it has run,
-including in the brief itself in sixteen consecutive batches, so when the budget
-is two it is the **second** agent, not the one dropped.
+the verifier — never four at once. The
+adversarial verifier has found a real defect in **every** batch it has run,
+including a defect in the brief itself in twenty-one consecutive batches, so it
+is never one of the three the count refers to and is never the thing cut.
 
 Keep lanes **file-disjoint**: assign by crate or by directory, and where two rows
 want the same file, serialize them across batches rather than forbidding the edit
