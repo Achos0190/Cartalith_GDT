@@ -34,6 +34,42 @@ class_name FactionRosterWindow
 ## milestone, not a widget. **Diplomacy** has no model at all, in either
 ## codebase; the reference's own inspector says "not yet implemented" there
 ## and so does this.
+##
+## ## Nothing draws this window; here is what it derives from instead
+##
+## Stated because it was got wrong here once (see `setup()`'s corrected
+## nesting comment). `design/dcc-environment-2026-08-31/README.md`, verbatim:
+## the two DCC files specify the shell frame and its information architecture
+## and *"do not specify the dedicated windows: Faction roster, Place editor,
+## City viewer, Data manager, Vault, Travel library, Asset library."* So every
+## choice below is derived from the canvases' own vocabulary, and named:
+##
+## - **`§`-headed sections** — `DccTheme.header()`'s `§ TITLE`, the L3 sigil the
+##   DCC Environment markup uses for its own panels (`§ TOOLS`, `§ LAYERS`,
+##   `§ RESULTS`, `§ BRUSH · GLOBAL`). "Not built" keeps its wording because it
+##   is the shell's own settled title for that block — **ten** other
+##   `DccWidgets.section(…, "Not built")` call sites across four workspace files
+##   (cartography 3, civilization 5, infrastructure 1, world 1; counted at HEAD,
+##   not in a working tree other lanes are editing) — and matching them beats
+##   matching a canvas that draws no such block at all.
+## - **The phone header's title/subtitle voice** — `06-phone.md` §6.6's
+##   `_moreTitle()` table: an upper-cased title beside a lower-case
+##   `·`-separated list of what the screen holds (`files · autosave · storage`;
+##   `import · export · sources · conversion · validation`).
+## - **One scroller per phone screen** — §5.5 (`flex:1; overflow-y:auto;
+##   overscroll-behavior:contain`).
+##
+## **Open, and deliberately not resolved here.** On a phone, is this a window
+## or a `moreStack` sub-screen? §6.6's `_moreTitle()` answers that for **three**
+## of those seven windows and no more: the Data manager, the Travel library and
+## the Asset library each get a sub-screen (`data`, `travel`, `assets`, plus
+## their own leaves), reached by a `nav` row on the `root` screen. There is no
+## row for the Vault, and none for the faction roster, the place editor or the
+## city viewer — and §6.6's own `civ` screen, which is where a CIVIL surface
+## would sit, lists the three place tools, Landmark generation and the Journey
+## Planner and nothing else. The stack exists and these three are not in it.
+## That silence is not a licence to rebuild them as sheets, so the window shape
+## is unchanged and the question is recorded instead of guessed.
 
 var app                       ## `DccApp`
 var bridge: EngineBridge
@@ -55,11 +91,12 @@ var _military: Dictionary = {}
 ## 140 -- narrower than a single one of its own vocabulary pickers. So phone
 ## runs the classic master-*then*-detail: the list is a screen until a faction
 ## is picked, after which it folds into a 52 dp bar carrying that faction's
-## banner and name, and the bar is what reopens it.
+## banner, its name and its place in the roster, and the bar is what reopens it.
 var _phone := false
 var _phone_list_pane: Control
 var _phone_list_bar: PanelContainer
 var _phone_bar_name: Label
+var _phone_bar_sub: Label
 var _phone_bar_banner: Control
 ## The inspector head's own banner, held so the colour picker can repaint it
 ## live without rebuilding the inspector under the open picker (CV-21).
@@ -98,9 +135,22 @@ func setup(a, b: EngineBridge) -> void:
 	## window from the same helper -- which is what identified the nesting as the
 	## cause rather than the window size. Phone follows that shape.
 	##
-	## It is also the better phone design independently: nested scroll regions
-	## on a touch screen make every drag ambiguous, and the design canvas's own
-	## roster artboard is one column from the overview to the settlement list.
+	## It is also what the phone canvas settles for every screen it *does* draw:
+	## `06-phone.md` §5.5 gives a sheet exactly one scroller, `flex:1;
+	## overflow-y:auto; overscroll-behavior:contain`, and §6.0's screen graph
+	## has no screen with two. Nested scroll regions on a touch screen also make
+	## every drag ambiguous, which is the reason behind the rule.
+	##
+	## **Corrected 2026-09-05.** This clause used to read "the design canvas's
+	## own roster artboard is one column from the overview to the settlement
+	## list". There is no roster artboard. `design/` was grepped whole: the only
+	## hits for "roster" are menu rows naming `#civOpenFactionsBtn` in
+	## `Cartalith Menu Structure v2/v3.dc.html` and `cartalith-menu-structure.md`
+	## -- a menu entry, not a drawing -- and
+	## `design/dcc-environment-2026-08-31/README.md` says the opposite in as
+	## many words: *"They do not specify the dedicated windows: Faction roster,
+	## Place editor, City viewer, Data manager, Vault, Travel library, Asset
+	## library."* The conclusion held; the authority cited for it did not exist.
 	if _phone:
 		var root := ScrollContainer.new()
 		root.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -176,7 +226,11 @@ func setup(a, b: EngineBridge) -> void:
 	inspector_host.add_child(_inspector_body)
 
 	if _phone:
-		DccWidgets.phone_head(outer, "Faction roster", "world politics")
+		## Subtitle in §6.6 `_moreTitle()`'s voice — lower case, `·`-separated,
+		## naming what the screen holds rather than describing it. It read
+		## "world politics", which is a topic; the canvas's own subtitles are
+		## contents lists (`files · autosave · storage`).
+		DccWidgets.phone_head(outer, "Faction roster", "roster · identity · territory · military")
 		_set_phone_list_open(true)
 
 	## `GUI_GAP_REGISTER.md` **RF-03**. §23 asked "what re-runs this, and on
@@ -213,9 +267,31 @@ func _on_world_changed() -> void:
 # -- Phone: the folded master pane -------------------------------------------
 
 ## The bar the list folds into: the selected faction's own banner, its name,
-## its position in the roster, and a chevron. 52 dp, the canvas's list-row
-## height, because it *is* a list row -- the one row of the list still worth
-## showing once a choice has been made.
+## its position in the roster, and a chevron. It *is* a list row -- the one row
+## still worth showing once a choice has been made -- so it is built as one,
+## against `06-phone.md` §6.6's `nav` row, which is the only list row the phone
+## canvas specifies:
+##
+## | canvas (`nav`) | here |
+## |---|---|
+## | `min-height:52px` | `custom_minimum_size.y = 52` |
+## | `gap:12px` | separation 12 |
+## | glyph, `width:18px` | the faction banner, 22 px (it carries the identity colour, which a glyph cannot) |
+## | label `12.5px`, `var(--ink)` | `text_bright`, `FS_SMALL` |
+## | sub `9.5px mono`, `var(--dim)`, ellipsised | `_phone_bar_sub` |
+## | chevron `›`, `var(--faint)` | `DccIcons.SYMBOLS["expand"]` is `›`, `text_faint` |
+##
+## Two deviations, both deliberate. The canvas's `padding:0 12px` sits *inside*
+## §5.5's scroller, which already pays `padding:2px 14px`; this bar has no
+## scroller around it, so its own 14 is that outer inset and not a second one.
+## And the canvas's `nav` row ends in a badge slot, which has nothing to carry
+## here -- an empty badge is a column of air, so there is none.
+##
+## **The sub line is new, 2026-09-05, and the comment above is why.** It has
+## claimed "its position in the roster" since the bar shipped, and the bar drew
+## a banner, a name and a chevron. The canvas settles what a `nav` sub looks
+## like, so the fix is to draw the thing the comment promised rather than to
+## delete the promise.
 func _build_phone_list_bar() -> PanelContainer:
 	var bar := PanelContainer.new()
 	bar.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"bottom": 1}))
@@ -233,7 +309,7 @@ func _build_phone_list_bar() -> PanelContainer:
 	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(m)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 12)
 	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	m.add_child(row)
@@ -241,12 +317,44 @@ func _build_phone_list_bar() -> PanelContainer:
 	_phone_bar_banner = FactionBanner.new()
 	_phone_bar_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(_phone_bar_banner)
+
+	## Label over sub, which is the `nav` row's own stack. The column takes the
+	## expand so the chevron stays pinned right.
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 1)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(col)
 	_phone_bar_name = DccTheme.mono_label("", "text_bright", DccTheme.FS_SMALL, 0)
 	_phone_bar_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_phone_bar_name.clip_text = true
 	_phone_bar_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(_phone_bar_name)
-	var chev := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_ghost", DccTheme.FS_SMALL, 0)
+	col.add_child(_phone_bar_name)
+	## `9.5px mono, var(--dim), ellipsised` — the canvas's own sub, at the
+	## nearest whole pixel this theme carries. `OVERRUN_TRIM_ELLIPSIS` is set
+	## here for the "ellipsised", not left to `DccShell.phone_fit`, which sets
+	## the same pair on every expanding non-wrapping `Label` it walks: the
+	## property belongs with the row it was derived for rather than arriving as
+	## a side effect of a walk.
+	##
+	## `clip_text` is *not* set here and is expected to be true at runtime,
+	## because that walk sets it — measured, `_entwinphone_probe.gd` FR6 reads
+	## `clip=true` on a bar this file never clipped. That is safe in a
+	## `VBoxContainer`: `clip_text` does collapse a `Label`'s minimum width to 1
+	## (MISTAKES), which strands a label beside an expanding *horizontal*
+	## sibling, and this one stacks under the name rather than beside it, so the
+	## column hands it the full width regardless.
+	_phone_bar_sub = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 0)
+	_phone_bar_sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_phone_bar_sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_phone_bar_sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(_phone_bar_sub)
+
+	## `text_faint` (`--faint`), the colour §6.6 gives a `nav` chevron. It was
+	## `text_ghost`, which is `--dis` -- this shell's disabled ink, on a bar
+	## whose entire purpose is that it is tappable.
+	var chev := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_faint", DccTheme.FS_SMALL, 0)
 	chev.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(chev)
 	return bar
@@ -263,6 +371,35 @@ func _set_phone_list_open(open: bool) -> void:
 		_phone_bar_name.text = String(d.get("name", "?")) if not d.is_empty() else "—"
 		if not d.is_empty():
 			(_phone_bar_banner as FactionBanner).configure(_selected, _color_of(d), 22)
+		_phone_bar_sub.text = _phone_bar_sub_text(d)
+		## Hidden, not blank, when there is nothing to say. A `Label` holding ""
+		## still claims a line of the 52 dp row and would push the name off
+		## centre for no information.
+		_phone_bar_sub.visible = _phone_bar_sub.text != ""
+
+
+## The `nav` sub for the folded bar: where this faction sits in the roster, and
+## how much of the world it holds. `·`-separated in §6.6's own voice
+## (`129384 · stages 01–07 · 5 d ago`).
+##
+## **The position is looked up, not assumed.** `_selected` is a faction *id* and
+## the roster is an array; `civ_remove_faction` can leave the two out of step,
+## and a bar that printed the id as an ordinal would be wrong exactly when the
+## roster has been edited -- which is the only time anyone reads this window.
+## When the id is not in the roster there is no position, so the clause is
+## omitted rather than defaulted to a plausible `1 of n`.
+func _phone_bar_sub_text(d: Dictionary) -> String:
+	if d.is_empty():
+		return ""
+	var roster := bridge.get_factions()
+	var parts: Array[String] = []
+	for i in roster.size():
+		if int((roster[i] as Dictionary).get("id", -1)) == _selected:
+			parts.append("%d of %d" % [i + 1, roster.size()])
+			break
+	var n := int(d.get("settlement_count", 0))
+	parts.append("%d settlement%s" % [n, "" if n == 1 else "s"])
+	return " · ".join(parts)
 
 func open() -> void:
 	## Cached once per open, not per faction row: the underlying pass is

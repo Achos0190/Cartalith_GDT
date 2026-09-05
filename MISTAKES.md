@@ -74,6 +74,8 @@ its rule before you start.
 | **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks, one body per rail node" was the main loop's summary of `04-left-dock.md` §3, which actually gates **one node of ten** — and an owner accepted a consequence ("this hides controls") on the strength of it | Quote the spec's own condition column into the row. If the summary and the table disagree, the table is the spec |
 | **Claim a mechanism is "derived, not hardcoded"** | Check every line of it, not the entry point. The mode switch derived its **visibility** and hardcoded its node source, its labels and its refresh — so a future gated domain would get an empty pill carrying another domain's labels | Name the parts that are derived and the parts that are not, separately |
 | **Write a probe's usage header** | The header is a claim about the probe's own code. One documented `--resolution`, which it never read — it read `-- --vp WxH`. Following it would have measured **the same box three times and called it three densities**, the single-sample shape in disguise | Grep the flag in the probe body before writing it in the header, and have the harness **fail loudly** on an argument it does not understand rather than defaulting |
+| **Cite two examples as agreeing** | Open the **second** one. A new header quoted the asset-pack inspector *and* the Data manager's RECENT RUNS block and said *"Both settle one thing"* — RECENT RUNS settles the opposite (parent `#6f7478`, value overridden to `#8d9296`, so the identity is the **dimmer** ink). The code change was right for the first reason alone; the second example was decoration that made it false | Quote both, in full, with line numbers. If they disagree, say the canvas is split and name what actually breaks the tie |
+| **Quote a count of call sites, instances or files** | Measure it in the same edit that writes it, and paste the command. A comment shipped *"its 94 call sites across the shell"*; the real figure is **189 code call sites in 18 files**. It was an understatement, so the argument held anyway — which is exactly why nobody checked | `grep -rn 'Symbol(' dir/ \| grep -v ':[0-9]*:[[:space:]]*#' \| wc -l`, then write that number and the date |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -374,7 +376,22 @@ check produce it, and does the environment it runs in satisfy its premise?
 
 ---
 
-### [2026-09-03] Orchestration errors that waste a wave ×12
+### [2026-09-03] Orchestration errors that waste a wave ×14
+
+**Batch 33 — two more, both quoting something never opened.** (1) The brief told
+a lane *"check what else `apply_insets()` moved: the app bar, nav bar and timeline
+share it."* They do not. `PhoneMenu.apply_insets()` (`shell/phone_menu.gd:497`) has
+exactly **one** caller and writes only `_screen`, `_sheet` and `_sheet_scrim` — all
+inside `phone_menu.gd`; the app bar, bottom nav and timeline are laid out by
+`_apply_phone_orientation()`. Measured too: driving peek → full moves **none** of
+the six chrome rects at three densities. The lane caught it and was right to.
+(2) The brief asserted *"`DccWidgets.action` ships 39 px."* `action()` sets
+`role_px("btn_min_h")` on touch and **26** on pointer; **39 appears nowhere in
+`dcc_widgets.gd`.** Both figures were carried into the brief from an earlier
+summary instead of re-read at the symbol — the same shape as the `×15` row below,
+applied to a brief rather than a backlog row.
+
+
 
 **Batch 17 — a whole class of brief defect: an item whose premise is false, so
 the check cannot be performed as written.** The verifier found four, three of

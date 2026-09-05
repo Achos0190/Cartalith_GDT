@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="height:860px;display:flex;background:var(--sur)">
+<div class="dock">
+
+  <div class="dockhead">
+    <div class="closebtn">&rsaquo;</div>
+    <div class="docktitle mono">SETTLEMENT</div>
+  </div>
+
+  <div class="dockbody" style="gap:9px">
+
+    <div style="background:var(--ins);border-radius:8px;min-height:var(--ctl);
+                padding:4px 11px;color:var(--ink);font-weight:500;font-size:var(--fs);
+                display:flex;align-items:center">Sevjuniana</div>
+
+    <div>
+      <div class="row"><span class="k mono">CLASS</span><span class="v mono">city</span></div>
+      <div class="row"><span class="k mono">FACTION</span><span class="v mono">Vhal Serai Compact</span></div>
+      <div class="row"><span class="k mono">POPULATION</span><span class="v mono">38 000</span></div>
+      <div class="row"><span class="k mono">GOVERNMENT</span><span class="v mono">council</span></div>
+      <div class="row"><span class="k mono">AGRICULTURE</span><span class="v mono">mixed arable</span></div>
+      <div class="row"><span class="k mono">WATER ACCESS</span><span class="v mono">river &middot; good</span></div>
+      <div class="row"><span class="k mono">DEFENSIBILITY</span><span class="v mono">0.62</span></div>
+      <div class="row"><span class="k mono">ROUTES</span><span class="v mono">3 connected</span></div>
+    </div>
+
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <span class="chip mono">Economy</span>
+      <span class="chip mono">Politics</span>
+      <span class="chip mono">Logistics</span>
+    </div>
+
+    <div class="rule"></div>
+
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;min-height:var(--row)">
+        <span class="mono" style="color:var(--faint);font-size:10px">&#9662;</span>
+        <span class="cap mono" style="flex:1">FAITH</span>
+        <span class="mono" style="font-size:var(--m1);color:var(--sec)">Kel Vharan</span>
+      </div>
+      <div class="bar" style="height:6px;border-radius:3px;margin:2px 0 7px">
+        <span style="width:54%;background:var(--acc)"></span>
+        <span style="width:23%;background:#6a9bc4"></span>
+        <span style="width:14%;background:#6fae7d"></span>
+        <span style="width:9%;background:#5f6468"></span>
+      </div>
+      <div class="row" style="min-height:20px">
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:2px;
+                background:var(--acc);margin-right:7px"></span>Kel Vharan</span>
+        <span class="v mono">54&#8202;%</span>
+      </div>
+      <div class="row" style="min-height:20px">
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:2px;
+                background:#6a9bc4;margin-right:7px"></span>Tide of Ammur</span>
+        <span class="v mono">23&#8202;%</span>
+      </div>
+      <div class="row" style="min-height:20px">
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:2px;
+                background:#6fae7d;margin-right:7px"></span>Old Rite</span>
+        <span class="v mono">14&#8202;%</span>
+      </div>
+      <div class="row mono" style="min-height:20px;font-size:var(--m2);color:var(--dis)">
+        <span style="flex:1">2 more &middot; unaffiliated 9&#8202;%</span>
+      </div>
+    </div>
+
+    <div class="rule"></div>
+
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;min-height:var(--row)">
+        <span class="mono" style="color:var(--faint);font-size:10px">&#9662;</span>
+        <span class="cap mono" style="flex:1">CITY LAYOUT</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis)">draft</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-start">
+        <div style="width:84px;height:84px;flex:none;border-radius:6px;background:var(--ins);
+             border:1px solid var(--div);position:relative;overflow:hidden">
+          <svg viewBox="0 0 84 84" style="position:absolute;inset:0;width:100%;height:100%">
+            <path d="M0 52 C 18 46, 30 58, 44 52 S 70 40, 84 44" fill="none"
+                  stroke="#6a9bc4" stroke-width="3" opacity=".8"></path>
+            <path d="M12 84 L34 40 L58 26 L84 20" fill="none" stroke="#8d9296"
+                  stroke-width="1.2"></path>
+            <path d="M34 40 L4 22" fill="none" stroke="#8d9296" stroke-width="1"></path>
+            <circle cx="34" cy="40" r="9" fill="none" stroke="#e0a34a" stroke-width="1.3"></circle>
+            <rect x="28" y="34" width="5" height="5" fill="#e0a34a" opacity=".75"></rect>
+            <rect x="37" y="36" width="4" height="6" fill="#a9adb0" opacity=".6"></rect>
+            <rect x="30" y="43" width="6" height="4" fill="#a9adb0" opacity=".6"></rect>
+            <rect x="42" y="44" width="5" height="4" fill="#a9adb0" opacity=".45"></rect>
+            <rect x="22" y="45" width="4" height="4" fill="#a9adb0" opacity=".45"></rect>
+          </svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div class="row" style="min-height:19px"><span class="k mono">WARDS</span><span class="v mono">6</span></div>
+          <div class="row" style="min-height:19px"><span class="k mono">WALLS</span><span class="v mono">partial</span></div>
+          <div class="row" style="min-height:19px"><span class="k mono">BRIDGES</span><span class="v mono">2</span></div>
+          <div class="mono" style="padding-top:6px;font-size:var(--m1);color:var(--acc)">open viewer &rsaquo;</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rule"></div>
+
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;min-height:var(--row)">
+        <span class="mono" style="color:var(--faint);font-size:10px">&#9662;</span>
+        <span class="cap mono" style="flex:1">WHY HERE</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis)">5 factors</span>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+            <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">river confluence</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dim)">0.91</span>
+          </div>
+          <div class="bar"><span style="width:91%;background:var(--acc)"></span></div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+            <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">arable soil</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dim)">0.74</span>
+          </div>
+          <div class="bar"><span style="width:74%;background:var(--acc)"></span></div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+            <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">pass corridor</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dim)">0.58</span>
+          </div>
+          <div class="bar"><span style="width:58%;background:var(--acc)"></span></div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+            <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">defensible spur</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dim)">0.41</span>
+          </div>
+          <div class="bar"><span style="width:41%;background:var(--acc)"></span></div>
+        </div>
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+            <span class="mono" style="flex:1;font-size:var(--m1);color:var(--dis)">iron within 40 km</span>
+            <span class="mono" style="font-size:var(--m2);color:var(--dis)">0.12</span>
+          </div>
+          <div class="bar"><span style="width:12%;background:var(--dis)"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="flex:1;min-height:10px"></div>
+
+    <div class="danger mono">&#10005; delete</div>
+
+    <div class="foot mono">
+      the four sections above are appended, not a replacement &mdash; the eight<br>
+      rows are &sect;1.11 unchanged. A section with no data is omitted, not<br>
+      drawn empty
+    </div>
+
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

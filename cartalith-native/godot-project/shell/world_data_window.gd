@@ -1,12 +1,72 @@
 extends AcceptDialog
 class_name WorldDataWindow
 
-## Data ▸ World data tables (`DCC_SHELL_SPEC.md` §2.4/§9): the settlement,
-## province and economy tables, sortable and filterable.
+## Data ▸ World data tables. **No design draws this window.**
 ##
-## §9's Data manager is a five-route window this is one route of; the rest
-## (import, export, sources, conversion, validation) has no engine behind it
-## yet and is not faked here.
+## ## The citation that used to head this file was false (checked 2026-09-05)
+##
+## It read *"`DCC_SHELL_SPEC.md` §2.4/§9: the settlement, province and economy
+## tables, sortable and filterable"*, and then *"§9's Data manager is a
+## five-route window this is one route of; the rest (import, export, sources,
+## conversion, validation)…"*. Four claims, all wrong, and they were re-read at
+## the section rather than taken on the header's word:
+##
+## - **§2.4 is the Data *dropdown*.** Its own opening line: *"Dropdown mirrors
+##   the window's four groups. Every item opens the Data manager window (§9) on
+##   the matching route; the dropdown is a shortcut, not a second
+##   implementation."* Its table lists Import · Export · Sources · Validation.
+##   No World-data-tables row is in it.
+## - **§9 is the Data manager window** — routes rail, route pane, estimate
+##   block, footer — and says in its second sentence *"nothing here alters
+##   world data"*. It describes no table of settlements.
+## - **"sortable and filterable" is not spec vocabulary.** `grep -in
+##   "sortab\|filterab"` over the whole of `DCC_SHELL_SPEC.md` returns nothing.
+##   "Province" appears exactly twice and neither is a table: once as a
+##   *volcanic* province in the stage-05 row, once inside the Faction
+##   inspector's own field list ("Roster entry, territory, provinces, state
+##   religion").
+## - **"five-route… conversion"** contradicts §2.4's own 2026-08-20 owner
+##   correction, which deleted the Conversion group: the Data manager has
+##   **four** groups, `data_manager_window.gd`'s `GROUP_ORDER` is four, and
+##   this window is not one of its `ROUTES` at all.
+##
+## So this window has no design authority, and inventing one for it was worse
+## than admitting it had none. What is real is the menu row —
+## `menus.gd::_data()`'s `_live(p, "World data tables…", ID_WORLD_DATA)` — and
+## the engine behind it. `GUI_GAP_REGISTER.md` §8.3 already had it right and
+## nothing here read it: its table files this row as *"a **read-only browser**
+## over generated world state"*, one of the three items in a seven-item `Data`
+## menu that "are not data management at all" — which is a statement that the
+## window sits outside §9, not inside it.
+##
+## ## What it is derived from instead
+##
+## Its **content** is the port's own: `bridge.settlements()` / `provinces()` /
+## `trade_balances()`. Its **presentation** is derived from the two multi-row
+## data listings the DCC canvas does draw, in
+## `design/Cartalith DCC Shell.dc.html` screen `DCC shell 1920`:
+##
+##   <span>name</span><span style="color:#e8ebec">Custom Asset Pack</span>
+##   <span>author</span><span style="color:#8d9296">—</span>
+##
+## (the asset-pack inspector). It settles the thing this file had backwards:
+## **the identifying text is the brightest ink in the row and the values are
+## dimmer.** See `_cells()`.
+##
+## **The canvas's other multi-row listing does the opposite, and it was cited
+## here as agreeing.** The Data manager's RECENT RUNS block sets the row's
+## parent to `color:#6f7478` (`text_faint`) and overrides only the *value* to
+## `#8d9296` (`text_dim`) — `Cartalith DCC Shell.dc.html:1042-1043`. There the
+## identity is one step **dimmer** than its value. So the canvas is split, and
+## the tie is broken by this file's own `_phone_row()`, which already drew the
+## name bright, rather than by a majority that does not exist. Corrected
+## 2026-09-05 after a verifier opened both listings; the code change stands,
+## the claim that both agreed did not.
+##
+## Neither canvas settles the ink of a *column header* over a table, because
+## neither draws a table with columns; §11's own `header()` ink (`text_faint`)
+## is used here unchanged rather than re-based for one window. That is an open
+## question for `DESIGN_HANDOFF.md`, not a licence to pick a value.
 ##
 ## Was a placeholder ("Being ported from main.gd's world-data dialog") behind
 ## a live, enabled `Data ▸ World data tables…` menu item -- found in the
@@ -17,10 +77,13 @@ class_name WorldDataWindow
 ## Settlements/Politics/Economy categories, capped at a top-N summary; this
 ## window is the uncapped, filterable table those categories point at). Three
 ## tabs, one filter field shared across them (filters by name substring,
-## case-insensitive). "Sortable" is Settlements sorted by population
-## descending, unconditionally -- the reference's own most useful ordering,
-## not a full per-column sort UI with a clickable header, which the spec's
-## own three-field table doesn't name by control.
+## case-insensitive), and Settlements sorted by population descending,
+## unconditionally -- the reference's own most useful ordering. There is no
+## per-column sort UI with a clickable header. *The clause that used to end
+## this paragraph justified that absence against "the spec's own three-field
+## table", which is part of the same false citation corrected at the top of
+## this file: no such table exists. The real reason is that nothing has asked
+## for one.*
 
 var bridge: EngineBridge
 
@@ -95,9 +158,29 @@ func setup(b: EngineBridge) -> void:
 	filter_row.add_theme_constant_override("separation", 8)
 	var search := LineEdit.new()
 	search.placeholder_text = "filter by name"
+	## The canvas's outlined search well, not Godot's stock `LineEdit`
+	## chrome. `DccWidgets.well()` is the factory for it and names its own
+	## source ("the canvas's Tile size / World bounds / Destination wells and
+	## the Asset library's search"); the closest existing twin is
+	## `dcc_shell.gd`'s desktop search dialog, which is a `LineEdit` with a
+	## placeholder and this same call and nothing else. Same idiom-break as the
+	## raw-`Button` one `_cap_note()` records just above, on the other stock
+	## control.
+	##
+	## **Desktop/tablet only, deliberately.** `well()` pins `FS_TINY` (10), and
+	## the phone composition draws this field through `phone_window()`'s content
+	## scale off a *stock* `LineEdit` size; swapping 10 px in under that scale
+	## makes the one control that answers "where is settlement X" smaller than
+	## it is today, and the phone half of this window is measured and declared
+	## (see `_phone_row()`) rather than up for re-derivation in this pass.
+	## `dcc_shell.gd` hits the same wall and answers it the other way, with
+	## `well(_phone_search_field, _pscale(12), _pscale(8))` -- scaled padding
+	## around the same unscaled font. That `well()` has no role-scaled type is a
+	## `DccWidgets` question, not this window's.
 	if _phone:
 		search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	else:
+		DccWidgets.well(search)
 		search.custom_minimum_size.x = 220
 	search.text_changed.connect(func(t: String): _filter = t.to_lower(); _rebuild())
 	filter_row.add_child(search)
@@ -206,7 +289,27 @@ func _cells(cols: Array, from: int, header: bool) -> HBoxContainer:
 		if header:
 			l = DccTheme.mono_label(String(cols[i]), "text_faint", DccTheme.FS_MICRO, 1, true)
 		else:
-			l = DccTheme.mono_label(String(cols[i]), "text_dim" if i == 0 else "text", DccTheme.FS_SMALL)
+			## **The inversion, corrected 2026-09-05.** This read
+			## `"text_dim" if i == 0 else "text"` -- the settlement name, the one
+			## cell a reader scans a 240-row table *for* and the only one the
+			## filter field above matches on, drawn dimmer than the five values
+			## beside it. No comment ever claimed a reason, and both canvas
+			## listings quoted in this file's header say the opposite: identity
+			## `#e8ebec` (`text_bright`), values `#8d9296`. It is also what this
+			## file's own phone row already does -- `_phone_row()`'s primary line
+			## is `"text"` over a `"text_ghost"` subtitle -- so the two halves of
+			## one window disagreed about which end of a row matters.
+			##
+			## **Only the identity moves.** The values stay at `text` rather than
+			## following the canvas down to `text_dim`, because the canvas uses
+			## BOTH for a value (#c8cbcd in the sculpt inspector, #8d9296 in the
+			## two listings) and so settles nothing there -- and dimming five
+			## columns of a read-only table is a readability cost no drawing asks
+			## for. Contrast on `panel`, computed for BOTH palettes rather than
+			## the booted one: the name goes 5.92 -> 15.52:1 (dark) and
+			## 4.90 -> 18.00:1 (light); every other cell is unchanged at
+			## 11.41 / 14.97:1.
+			l = DccTheme.mono_label(String(cols[i]), "text_bright" if i == 0 else "text", DccTheme.FS_SMALL)
 			l.clip_text = true
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		l.size_flags_stretch_ratio = 2.0 if i == 0 else 1.0

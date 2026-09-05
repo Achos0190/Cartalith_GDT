@@ -24,6 +24,39 @@ class_name CityViewerWindow
 ## and the blocks second, which are the reference's own first two choices, with
 ## the street graph's extent still there as the third for a town that produced
 ## neither.
+##
+## ## Nothing draws this window; here is what it derives from instead
+##
+## `design/dcc-environment-2026-08-31/README.md`, verbatim: the two DCC files
+## specify the shell frame and its information architecture and *"do not specify
+## the dedicated windows: Faction roster, Place editor, City viewer, Data
+## manager, Vault, Travel library, Asset library."* Each choice below therefore
+## names the canvas vocabulary it came from:
+##
+## - **The legend row** — `05-right-dock-and-bars.md` §1.8, the paint legend,
+##   which is the *only* legend the canvases draw. See `_swatch`.
+## - **The key/value read row** — `06-phone.md` §6.7's Inspector drawer and
+##   §6.6's `read` row type. See `_field`.
+## - **`§`-headed noun-phrase section titles** — `DccTheme.header()`'s `§ TITLE`,
+##   the L3 sigil the DCC Environment markup uses (`§ TOOLS`, `§ LAYERS`,
+##   `§ RESULTS`, `§ BRUSH · GLOBAL`), and §6.6's `head` rows (`STATUS`,
+##   `RECENT WORLDS`, `STORAGE LOCATIONS`). Every one of those is a noun
+##   phrase, which is why `§ WHAT PRODUCED THIS` became `§ STAGES` on
+##   2026-09-05: a question is not a label in this vocabulary. The words it
+##   carried are in the section's own notes, unchanged.
+## - **The phone header's title/subtitle voice** — §6.6's `_moreTitle()` table.
+##
+## **Open, and deliberately not resolved here.** On a phone, is this a window or
+## a `moreStack` sub-screen? §6.6's `_moreTitle()` answers that for **three** of
+## those seven windows and no more: the Data manager, the Travel library and the
+## Asset library each get a sub-screen (`data`, `travel`, `assets`, plus their
+## own leaves), reached by a `nav` row on the `root` screen. There is no row for
+## the Vault, and none for the city viewer, the place editor or the faction
+## roster — and §6.6's own `civ` screen, which is where an urban surface would
+## sit, lists the three place tools, Landmark generation and the Journey Planner
+## and nothing else. The stack exists and these three are not in it. That
+## silence is not authority to rebuild them as sheets, so the window shape is
+## unchanged.
 
 ## `preload`, not the `UrbanLayoutDraw` global class name -- a global name
 ## only resolves once the editor has rescanned and written
@@ -54,14 +87,31 @@ const ZOOM_MIN := 0.25
 const ZOOM_MAX := 12.0
 const ZOOM_STEP := 1.18
 
+## The info panel's key column. Deliberately the same number as
+## `right_dock.gd`'s `_FIELD_LABEL_W`, because that dock's Settlement context is
+## this window's sibling surface -- the two draw the same settlement, and a
+## reader moving between them should not see the value column jump.
+const FIELD_KEY_W := 116
+
 ## Phone (§13). The canvas and its companion column cannot sit side by side at
 ## 393 dp -- the column alone is 264 of them -- so they stack, canvas over
 ## column, and the canvas takes a fixed band rather than the leftover height
 ## (which under a scrolling column is not a well-defined quantity).
 var _phone := false
-## Dp, and the design canvas's own figure: enough to read a street skeleton at
-## the fit scale, and under 40% of the screen so the info column still opens on
-## real content rather than on a caption.
+## Dp. Enough to read a street skeleton at the fit scale, and under 40% of the
+## screen (330 / 852 = 38.7%) so the column below it still opens on real content
+## rather than on a caption.
+##
+## **Corrected 2026-09-05: no canvas carries this number.** It used to read "and
+## the design canvas's own figure". `design/` was grepped whole for `330`; every
+## hit is one of base64 font data, an SVG path coordinate in
+## `landmark-generation/Phone.dc.html`, a 330 px desktop submenu/annotation width
+## in `landmark-generation/Submenu.dc.html`, or the `--ldW` left-dock width on
+## the LAPTOP 1366 frame (`01-frame-and-tokens.md`, `04-left-dock.md`,
+## `05-right-dock-and-bars.md`). None of them is a phone map band. The
+## proportion argument above is the whole justification and always was --
+## `asset_library_window.gd`'s `PHONE_SHEET_PREVIEW` cites exactly that half of
+## this comment and is unaffected.
 const PHONE_CANVAS_H := 330
 
 
@@ -170,7 +220,11 @@ func setup(b: EngineBridge, host = null) -> void:
 	side_body.add_child(_info)
 
 	if _phone:
-		DccWidgets.phone_head(outer, "City viewer", "urban morphology")
+		## Subtitle in §6.6 `_moreTitle()`'s voice -- lower case, `·`-separated,
+		## naming what the screen holds. It read "urban morphology", which is the
+		## subsystem's name rather than the screen's contents; the canvas's own
+		## subtitles are contents lists (`timeline · layers`).
+		DccWidgets.phone_head(outer, "City viewer", "plan · legend · stages")
 
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _reload())
 	bridge.world_loaded.connect(func(): if visible: _reload())
@@ -362,30 +416,37 @@ func _rebuild_side() -> void:
 		return
 
 	var leg := DccWidgets.section(_legend, "Legend")
-	_swatch(leg, DRAW._roof_color(0.62),
-		"Rooftops — one per building footprint, each a slightly different weathered shade")
-	_swatch(leg, DRAW.BLOCK_GROUND, "Block ground — the built interior between streets (buildBlocks)")
+	_swatch(leg, DRAW._roof_color(0.62), "Rooftops",
+		"One per building footprint, each a slightly different weathered shade (buildBuildings).")
+	_swatch(leg, DRAW.BLOCK_GROUND, "Block ground",
+		"The built interior between streets (buildBlocks).")
 	## Only when the town has one: a site with no primary to widen gets no
 	## plaza, and a swatch for a colour that is not on screen is a lie.
 	if _layout.has("plaza") or not (_layout.get("markets", []) as Array).is_empty():
-		_swatch(leg, DRAW.PLAZA_GROUND,
-			"Open squares — the market place and the specialised markets, swept clear of lots")
+		_swatch(leg, DRAW.PLAZA_GROUND, "Open squares",
+			"The market place and the specialised markets, swept clear of lots.")
 	## The wall is the ladder's verdict, so its swatch appears only when this
 	## settlement was actually walled -- and in the colour its own style got.
 	if _layout.has("wall_ring"):
 		var wstyle := String(_layout.get("wall_style", "curtain"))
 		var wcol: Color = DRAW.WALL_PALISADE if wstyle == "palisade" \
 			else (DRAW.WALL_DITCH if wstyle == "ditch" else DRAW.WALL_STONE)
-		_swatch(leg, wcol, "The circuit — a %s wall with its gates (buildWall)" % wstyle)
-	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets — the arterial backbone (buildPrimaries)")
-	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes — organic growth (grow)")
-	_swatch(leg, DRAW.DISTRICT_FILL["market"],
-		"District tints on the lots — market, burgher, artisan, riverside craft, "
-		+ "harbour, suburb, agrarian (assignDistricts)")
-	_swatch(leg, DRAW.FARM_FIELD, "Farmland — the strip or ring fields outside the town")
-	_swatch(leg, DRAW.WATER, "The site's water — the map's own river/coast")
-	_swatch(leg, DRAW.MARKET, "Market anchor — the point the town organises around")
-	_swatch(leg, DRAW.ROUTE_END, "Approach-road endpoints")
+		_swatch(leg, wcol, "The circuit",
+			"A %s wall with its gates (buildWall)." % wstyle)
+	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets",
+		"The arterial backbone (buildPrimaries).")
+	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes", "Organic growth (grow).")
+	_swatch(leg, DRAW.DISTRICT_FILL["market"], "District tints",
+		"On the lots: market, burgher, artisan, riverside craft, harbour, suburb, "
+		+ "agrarian (assignDistricts). The swatch is the market tint; each district "
+		+ "draws in its own.")
+	_swatch(leg, DRAW.FARM_FIELD, "Farmland",
+		"The strip or ring fields outside the town.")
+	_swatch(leg, DRAW.WATER, "Water", "The site's own water — the map's river or coast.")
+	_swatch(leg, DRAW.MARKET, "Market anchor",
+		"The point the town organises around.")
+	_swatch(leg, DRAW.ROUTE_END, "Approach roads",
+		"Where the roads running to the town meet the frame.")
 
 	var sec := DccWidgets.section(_info, "Settlement")
 	_field(sec, "Name", String(_settlement.get("name", "—")))
@@ -424,17 +485,33 @@ func _rebuild_side() -> void:
 	_field(gen, "Markets", str((_layout.get("markets", []) as Array).size()))
 	_field(gen, "Farm plots", str((_layout.get("farmland", []) as Array).size()))
 
-	var stages := DccWidgets.section(_info, "What produced this")
+	## `§ STAGES`, not `§ WHAT PRODUCED THIS` (2026-09-05). Every section title
+	## the canvases carry is a noun phrase -- `§ TOOLS`, `§ LAYERS`,
+	## `§ RESULTS`, `§ BRUSH · GLOBAL` in the DCC Environment markup; `STATUS`,
+	## `RECENT WORLDS`, `AUTOSAVE`, `STORAGE LOCATIONS` in `06-phone.md` §6.6's
+	## `head` rows -- and none is a question. The section reads the engine's own
+	## `stages` array, so `Stages` is also what it literally is. No other call
+	## site used the old string (grepped repo-wide before the change).
+	var stages := DccWidgets.section(_info, "Stages")
 	var ran := ""
 	for s in _layout.get("stages", PackedStringArray()) as PackedStringArray:
 		ran += "· " + s + "\n"
 	DccWidgets.note(stages, ran.strip_edges())
+	## **Corrected 2026-09-05.** This read "Every line above is the reference's
+	## own generate() — all 29 stages", against a list a reader can count: it is
+	## ten lines (`_entwin_probe.gd` CV6 measures the array), because
+	## `urban_bridge.rs` builds `stages` as ten entries whose own first line
+	## already carries the 29. The run is 29; the list is the ten whose output
+	## this window draws, which is what that file's own comment says it is.
 	DccWidgets.note(stages,
-		"Every line above is the reference's own generate() — all 29 stages, in "
-		+ "its own order, golden-verified whole against its own hashModel. It "
-		+ "replaced a hand-ordered subset on 2026-09-02, which is where the "
-		+ "buildings, the wall, the districts, the markets and the farmland "
-		+ "came from all at once.")
+		"Ten lines above, and twenty-nine stages behind them. run_layout calls "
+		+ "the reference's own generate() — all 29, in its own order, "
+		+ "golden-verified whole against its own hashModel; these ten are the "
+		+ "stages whose output is visible in this window, each carrying what it "
+		+ "actually produced. The list is built in urban_bridge.rs beside the "
+		+ "code that ran, so it cannot drift from it. It replaced a hand-ordered "
+		+ "subset on 2026-09-02, which is where the buildings, the wall, the "
+		+ "districts, the markets and the farmland came from all at once.")
 	DccWidgets.note(stages,
 		"Three of the model's own layers are generated and not drawn: the "
 		+ "justified crossings (a stone deck where a road really crosses the "
@@ -474,29 +551,102 @@ func _no_layout_reason() -> String:
 		+ "`_umModelFor` refusal, which leaves the bare pin standing.")
 
 
-func _swatch(parent: Control, color: Color, text: String) -> void:
+## One legend row, against `05-right-dock-and-bars.md` §1.8's — the paint
+## legend, which is the only legend the canvases draw:
+##
+## | canvas (`rdPaint` legend row) | here |
+## |---|---|
+## | `min-height:var(--row)` (28 px pointer, 44 px touch) | `role_px("row_min_h")` on tablet, 28 otherwise |
+## | `gap:9px` | separation 9 |
+## | swatch `10×10px; border-radius:3px` | a `Panel` at `DccTheme.flat(color, 3)` — a `ColorRect` cannot round a corner |
+## | value name, `var(--body)` | `DccTheme.label(name, "text")` |
+## | `padding:2px 4px` | the section's own body padding (`DccWidgets.section`) |
+##
+## **The name is a name now, and the sentence is the tooltip.** Every one of
+## these rows used to be a whole clause of micro-text in `text_dim` — "Rooftops
+## — one per building footprint, each a slightly different weathered shade" — in
+## a 264 px column. The canvas's legend value is `temperate forest`: a name, at
+## body ink, on one row. That is the part of this legend nobody had drawn, and
+## deriving it is what the 2026-09-05 ruling asks for. Nothing was deleted; each
+## sentence moved to the row's `tooltip_text`.
+##
+## **The canvas's fourth cell has no honest content here, so there is none.**
+## Its row ends `spacer` + a per-value painted count at `var(--m2)`/`var(--dim)`.
+## This legend's equivalent counts — blocks, parcels, buildings, markets, farm
+## plots — are already rows of the `§ GENERATION` section a few lines below in
+## the same column, and several swatches (Water, Market anchor, Approach roads)
+## have no count at all. A column that is empty on a third of its rows and a
+## duplicate on the rest is worse than no column: `MISTAKES`' rule is to omit
+## the field rather than fill it with something plausible.
+##
+## **Not derived, because nothing settles it:** the canvas's legend rows are
+## *interactive* (click arms that paint value, and the armed row takes
+## `var(--wash)` behind it and `var(--acc)` ink). These rows arm nothing —
+## there is no per-layer visibility toggle on this canvas to arm — so the
+## armed/unarmed pair is left unimplemented rather than faked as a hover.
+func _swatch(parent: Control, color: Color, name: String, tip: String = "") -> void:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	var sw := ColorRect.new()
-	sw.color = color
-	sw.custom_minimum_size = Vector2(11, 11)
+	row.add_theme_constant_override("separation", 9)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 28
+	row.tooltip_text = tip
+	## `Panel` over `ColorRect` for the 3 px radius the canvas specifies.
+	## `mouse_filter` stays default so the row's own tooltip is what surfaces,
+	## rather than the swatch swallowing the hover with no tooltip of its own.
+	var sw := Panel.new()
+	sw.add_theme_stylebox_override("panel", DccTheme.flat(color, 3))
+	sw.custom_minimum_size = Vector2(10, 10)
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(sw)
-	var lb := DccTheme.label(text, "text_dim", DccTheme.FS_MICRO)
-	lb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var lb := DccTheme.label(name, "text", DccTheme.FS_SMALL)
 	lb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	lb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(lb)
 	parent.add_child(row)
 
 
+## One key/value readout, against the two read rows the canvases do specify:
+## `06-phone.md` §6.7's Inspector drawer (`Key 9.5px mono, .14em, var(--dim)`;
+## `value 11px mono, var(--ink), right`) and §6.6's `read` row type
+## (`min-height:42px`; key `9.5px mono, .1em, var(--dim)`; value `10.5px mono`,
+## right-aligned).
+##
+## Derived from them, and each is a change:
+##
+## - **The value is mono.** It was proportional. Both canvas read rows set every
+##   value in mono, text ones included — §6.7 puts `lithology`, `biome` and
+##   `Kess basin` there beside the numbers — and this panel is all readouts:
+##   nothing in it is editable.
+## - **The row has a height.** It had none, so a one-line row was as tall as its
+##   font. `--row` is 28 px on a pointer and 44 on touch
+##   (`01-frame-and-tokens.md`); `role_px("row_min_h")` is the shell's own name
+##   for the second.
+## - **The key column stays 116 px**, which is what `right_dock.gd`'s own
+##   `_FIELD_LABEL_W` already is — the sibling surface this window's Settlement
+##   block sits beside. It was already that number; stating it so a future
+##   change moves both.
+##
+## **Not derived, because nothing settles it: what a read row does with a value
+## too long for its column.** Every value in both canvas tables is short
+## (`{slope}° · {aspect}°`, a biome name, a path), so their `right` alignment
+## never has to wrap. Several values here are sentences — `no — synthetic
+## hills`, `none — palisade on the wall ladder` — in a 264 px column against a
+## 116 px key. Right-aligning them would wrap right-aligned prose, and
+## ellipsising them would drop the half that carries the reason. So the
+## alignment and the autowrap are **left exactly as they were**, and this
+## paragraph is the record that the canvas's `right` was read and not applied.
 func _field(parent: Control, key: String, value: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 28
 	var k := DccTheme.label(key, "text_dim", DccTheme.FS_SMALL)
-	k.custom_minimum_size.x = 116
+	k.custom_minimum_size.x = FIELD_KEY_W
+	k.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(k)
-	var v := DccTheme.label(value, "text", DccTheme.FS_SMALL)
+	var v := DccTheme.mono_label(value, "text", DccTheme.FS_SMALL)
 	v.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(v)
 	parent.add_child(row)

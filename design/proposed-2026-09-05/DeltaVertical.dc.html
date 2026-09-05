@@ -1,0 +1,118 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="height:460px;display:flex;background:var(--sur)">
+<div class="dock">
+
+  <div class="dockhead">
+    <div class="closebtn">&rsaquo;</div>
+    <div class="docktitle mono">MEASURE</div>
+  </div>
+
+  <div class="dockbody">
+
+    <div style="display:flex;flex-direction:column;gap:2px;padding-bottom:10px;
+                border-bottom:1px solid var(--div);margin-bottom:9px">
+      <div class="cap mono" style="letter-spacing:.1em">&#916; VERTICAL</div>
+      <div class="mono hero">+1 240 m</div>
+      <div class="mono" style="font-size:var(--m2);color:var(--faint)">
+        A 340 m &rarr; B 1 580 m &middot; 84 km apart</div>
+    </div>
+
+    <div style="display:flex;gap:8px;min-height:0">
+      <div class="mono" style="width:40px;flex:none;display:flex;flex-direction:column;
+           justify-content:space-between;text-align:right;font-size:var(--m2);
+           color:var(--dis);padding:2px 0 14px;height:132px">
+        <span>1 580</span><span>960</span><span>340</span>
+      </div>
+      <div style="flex:1;min-width:0;position:relative;height:132px;
+           border-left:1px solid var(--div)">
+        <svg viewBox="0 0 1000 130" preserveAspectRatio="none"
+             style="position:absolute;inset:0;width:100%;height:calc(100% - 14px)">
+          <line x1="0" y1="43" x2="1000" y2="43" stroke="rgba(255,255,255,.06)" stroke-width="1"></line>
+          <line x1="0" y1="86" x2="1000" y2="86" stroke="rgba(255,255,255,.06)" stroke-width="1"></line>
+          <path d="M0,130 L0,118 L70,112 L140,120 L210,104 L280,96 L350,101 L420,84
+                   L490,72 L560,78 L630,58 L700,44 L770,49 L840,30 L910,18 L1000,8
+                   L1000,130 Z"
+                fill="rgba(224,163,74,.13)" stroke="#e0a34a" stroke-width="1.6"></path>
+        </svg>
+        <div class="mono" style="position:absolute;left:0;right:0;bottom:0;height:14px;
+             display:flex;justify-content:space-between;font-size:var(--m2);color:var(--dis)">
+          <span>A &middot; 0</span><span>42 km</span><span>B &middot; 84 km</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding-top:12px">
+      <div class="row"><span class="k mono">HIGH POINT</span><span class="v mono">1 612 m &middot; 76 km</span></div>
+      <div class="row"><span class="k mono">LOW POINT</span><span class="v mono">318 m &middot; 6 km</span></div>
+      <div class="row"><span class="k mono">TOTAL CLIMB</span><span class="v mono">+1 486 m</span></div>
+      <div class="row"><span class="k mono">TOTAL DESCENT</span><span class="v mono">&minus;246 m</span></div>
+      <div class="row"><span class="k mono">MEAN GRADE</span><span class="v mono">1.5&#8202;%</span></div>
+      <div class="row"><span class="k mono">SAMPLES</span><span class="v mono">121 &middot; 1 per 0.7 km</span></div>
+    </div>
+
+    <div class="foot mono">
+      X is ground distance, Y is height &mdash; the same axes as the<br>
+      cross-section strip under the map (&sect;5.7), at dock width<br>
+      no vertical exaggeration is applied; the trace fills min&hellip;max
+    </div>
+
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

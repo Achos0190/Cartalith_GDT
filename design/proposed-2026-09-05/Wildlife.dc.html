@@ -1,0 +1,159 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="height:640px;display:flex;background:var(--sur)">
+<div class="dock">
+
+  <div class="dockhead">
+    <div class="closebtn">&rsaquo;</div>
+    <div class="docktitle mono">ECOREGION</div>
+  </div>
+
+  <div class="dockbody">
+
+    <div style="display:flex;flex-direction:column;gap:2px;padding-bottom:10px;
+                border-bottom:1px solid var(--div);margin-bottom:9px">
+      <div class="mono" style="font-size:var(--m2);color:var(--faint)">
+        49.2&deg;N 12.8&deg;E &middot; cell 318, 204</div>
+      <div class="mono hero">Kell Uplands</div>
+      <div class="mono" style="font-size:var(--m2);color:var(--faint)">
+        taiga &middot; 41 400 km&sup2; &middot; 12 neighbouring regions</div>
+    </div>
+
+    <div class="row"><span class="k mono">BIOME</span><span class="v mono">taiga</span></div>
+    <div class="row"><span class="k mono">ELEVATION BAND</span><span class="v mono">340 &ndash; 1 180 m</span></div>
+    <div class="row"><span class="k mono">MEAN TEMP</span><span class="v mono">2 &deg;C</span></div>
+    <div class="row"><span class="k mono">PRECIPITATION</span><span class="v mono">740 mm</span></div>
+    <div class="row"><span class="k mono">SOIL</span><span class="v mono">1.4 &middot; podzol</span></div>
+    <div class="row"><span class="k mono">DRAINAGE</span><span class="v mono">river 3</span></div>
+
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 0 7px">
+      <div class="cap mono" style="flex:none">FAUNA &middot; 17</div>
+      <div class="rule" style="flex:1"></div>
+      <div class="mono" style="font-size:var(--m2);color:var(--dis)">by abundance</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:7px">
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+          <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">boreal elk</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">abundant</span>
+        </div>
+        <div class="bar"><span style="width:82%;background:var(--acc)"></span></div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+          <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">grey wolf</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">common</span>
+        </div>
+        <div class="bar"><span style="width:58%;background:var(--acc)"></span></div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+          <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">river otter</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">common</span>
+        </div>
+        <div class="bar"><span style="width:44%;background:var(--acc)"></span></div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+          <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">snow hare</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">common</span>
+        </div>
+        <div class="bar"><span style="width:38%;background:var(--acc)"></span></div>
+      </div>
+
+      <div>
+        <div style="display:flex;align-items:baseline;gap:10px;padding-bottom:3px">
+          <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">lynx</span>
+          <span class="mono" style="font-size:var(--m2);color:var(--dim)">scarce</span>
+        </div>
+        <div class="bar"><span style="width:14%;background:var(--acc)"></span></div>
+      </div>
+
+    </div>
+
+    <div class="row mono" style="margin-top:4px;color:var(--faint);font-size:var(--m1)">
+      <span style="flex:1">&#9662;&nbsp; 12 more</span>
+      <span style="font-size:var(--m2);color:var(--dis)">scarce &amp; rare</span>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 0 7px">
+      <div class="cap mono" style="flex:none">FLORA</div>
+      <div class="rule" style="flex:1"></div>
+    </div>
+
+    <div style="display:flex;gap:4px;flex-wrap:wrap">
+      <span class="chip mono">spruce</span>
+      <span class="chip mono">birch</span>
+      <span class="chip mono">peat moss</span>
+      <span class="chip mono">lichen</span>
+    </div>
+
+    <div class="foot mono">
+      abundance is derived, not authored &mdash; it reads biome, elevation band<br>
+      and drainage, and re-reads when any of the three goes stale
+    </div>
+
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

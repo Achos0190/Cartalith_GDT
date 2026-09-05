@@ -370,24 +370,66 @@ var _phone_gesture_inset: Control
 
 # -- Phone bottom-sheet detents ------------------------------------------------
 #
-# `docs/ANDROID_UI_SPEC.md`, Locked decisions: *"Sheets: peek → half → full
-# detents, drag handle; tab tap opens half"* and *"bar stays visible at full
-# sheet"*.
+# **Derived from** `design/dcc-environment-2026-08-31/spec/06-phone.md` §5.1
+# (geometry), §5.2 (`_detH(det)`) and §5.3 (drag handle) -- the in-repo,
+# greppable authority for everything in this block, added 2026-09-05 alongside
+# the citation below rather than in place of it.
+#
+# The older citation, `docs/ANDROID_UI_SPEC.md`, Locked decisions: *"Sheets:
+# peek → half → full detents, drag handle; tab tap opens half"* and *"bar stays
+# visible at full sheet"*. **That file is not in this repository** and never has
+# been (`git log --all -- '*ANDROID_UI_SPEC*'` is empty): per
+# `design/android-2026-08-30/README.md` it lives in the owner's Claude Design
+# project and is reachable only through DesignSync. It is kept here because it
+# is real and it is what the detents were built from; §5 is added because a
+# reader who greps this repo for it finds nothing.
 #
 # The three heights are the interactive prototype's own arithmetic, not derived
-# ones -- `design/android-2026-08-30/Cartalith Android.dc.html`, `_detH()`:
+# ones -- `design/android-2026-08-30/Cartalith Android.dc.html`, `_detH()`, and
+# **byte-for-byte the same expression** in the newer
+# `design/dcc-environment-2026-08-31/Cartalith Android.dc.html` that §5 is a
+# transcription of (the two imports differ -- 157 021 vs 168 836 bytes -- and
+# `_detH` is not one of the places they differ):
 #
 #     fh   = frameH - 84            (portrait; the whole frame in landscape)
 #     peek = 66                     a constant, not a fraction of anything
 #     half = round(fh * 0.46)
 #     full = fh - 96                so 96 dp of map is never covered
 #
-# That `84` is the prototype's `navH`, which is exactly this shell's bottom bar
-# (`H_PHONE_BOTTOM_NAV` 64) plus its gesture inset (`H_PHONE_GESTURE` 20) -- the
-# same figure reached from two constants instead of one literal.
+# That `84` is the prototype's `navH` (`navH = land ? 0 : 84`), and it is this
+# shell's bottom bar (`H_PHONE_BOTTOM_NAV` 64) plus its gesture inset
+# (`H_PHONE_GESTURE` 20) -- the same figure reached from two constants instead
+# of one literal. **The two split it differently**: §3 gives the same 84 as a
+# 66 dp tab row over an 18 dp gesture inset, so the total agrees and the seam
+# inside it does not. Nothing here depends on the seam; `H_PHONE_BOTTOM_NAV`
+# and `H_PHONE_GESTURE` are `dcc_theme.gd`'s, and the discrepancy is recorded
+# rather than resolved from this file.
+#
 # `_phone_nav_reserve()` reads it live rather than hard-coding 84, because this
 # shell parks the timeline between the sheet and the bar and the prototype has
-# no equivalent of that row.
+# no equivalent of that row -- **and because its gesture term is
+# `_safe_bottom()`, which is `max(_pscale(H_PHONE_GESTURE), the real display
+# inset)`, not `H_PHONE_GESTURE` unconditionally.** On a handset whose bottom
+# cutout inset exceeds 20 dp the reserve grows and `fh` shrinks with it, which
+# is the intended behaviour and is why the sum is computed rather than written
+# down.
+#
+# Measured 2026-09-05 at three densities by `_detent_probe.gd`, which drives
+# the gesture through `SubViewport.push_input()` -- the viewport's own hit-test
+# and `gui_input` dispatch, not a direct call on the handler. `dp` is physical
+# px over `phone_scale()`; the three scales are distinct (1.7476 / 2.6214 /
+# 3.4951) so this is three densities and not one box measured three times:
+#
+#     720x1600   scale 1.7476  reserve  147 px = 84.12 dp  fh 1453 px = 831.44 dp
+#     1080x2340  scale 2.6214  reserve  220 px = 83.93 dp  fh 2120 px = 808.74 dp
+#     1440x3200  scale 3.4951  reserve  294 px = 84.12 dp  fh 2906 px = 831.44 dp
+#
+#     peek  115 /  173 /  231 px  = 65.81 / 66.00 / 66.09 dp   (§5.2: 66)
+#     half  668 /  975 / 1337 px  = 382.24 / 371.94 / 382.53   (§5.2: 382 / 372 / 382)
+#     full 1285 / 1868 / 2570 px  = 735.31 / 712.61 / 735.31   (§5.2: 735 / 713 / 735)
+#
+# All three land inside 1 dp of §5.2 at all three densities; the residue is
+# `_pscale()` rounding a dp constant into whole physical px, not a divergence.
 #
 # **"Bar stays visible at full sheet" is structural here, not arithmetic.** The
 # sheet is a *sibling above* the bottom bar in the chrome column, so no detent
@@ -4772,11 +4814,44 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## press; everything else in the phone chrome that is *not* meant to pick
 	## is `IGNORE` for the reason `_phone_content_gap` documents at length.
 	_phone_sheet_grab = Control.new()
-	## `height:24px` with a `40x4` radius-2 bar
-	## (`candidates/Android Chrome B.dc.html`, the sheet's own first row). This
-	## was `20`/`34x4` from `design/Cartalith Android Phone.dc.html`; the
-	## candidate is the newer canvas and `CLAUDE.md`'s first working rule gives
-	## it the disagreement.
+	## Two quantities from two canvases, and they are not the same question.
+	##
+	## **The pill is 42 x 4**, from the newest canvas -- verified at the source
+	## rather than through its transcription:
+	## `design/dcc-environment-2026-08-31/Cartalith Android.dc.html` carries
+	## `width:42px;height:4px;border-radius:2px;background:var(--bord)`, and
+	## `spec/06-phone.md` §5.3 transcribes exactly that. It was `40x4` from
+	## `candidates/Android Chrome B.dc.html` (a file that is **not in this
+	## repository** -- see the detent constant block for where those two
+	## citations live), and `34x4` before that from
+	## `design/Cartalith Android Phone.dc.html`. The comment here used to give
+	## the candidate the disagreement as "the newer canvas"; the 2026-08-31
+	## import is newer than it, so that ordering is stale and the newest canvas
+	## wins under `CLAUDE.md`'s first working rule. The `border-radius:2px` is
+	## the one value not matched: this is a `ColorRect`, which has no corner
+	## radius, and 2 px of it does not justify a `Panel` and a `StyleBoxFlat`.
+	##
+	## **The row stays 24 dp, and that is left alone deliberately.** §5.3's
+	## grab region is not the pill's row -- it is *"the whole header block above
+	## the scroller"*, which in the prototype is the 20 dp handle row plus a
+	## title row (`padding:0 14px 10px` around 38 x 38 back/close buttons), so
+	## roughly 68 dp of grabbable header. **This sheet has no header block**:
+	## it is the desktop tool-options bar (§13), with no title, no back arrow
+	## and no close ✕, so the handle row IS the grab region. Following §5.3's
+	## `height:20px` literally would therefore shrink the only gesture target
+	## this sheet has, which is the opposite of what §5.3 is doing.
+	##
+	## What no canvas settles is how tall a *headerless* sheet's grab region
+	## should be, so it is not invented here. Measured 2026-09-05 by
+	## `_detent_probe.gd` at 720x1600, 1080x2340 and 1440x3200: 42 / 63 / 84
+	## physical px, **24.03 dp at all three** -- below the 44 dp floor, and
+	## below the 48 dp Android minimum §9's own accessibility item invokes. That
+	## item lists the prototype's sub-minimum targets (36 dp stage-override
+	## chips, 38 dp segment chips and sculpt presets, 38 x 38 steppers, 48 x 44
+	## icon cells) and does **not** name any sheet handle, because in the
+	## prototype the grab region is the header block and is nowhere near the
+	## limit. Filed as an open question for `DESIGN_HANDOFF.md` rather than
+	## answered from this file.
 	_phone_sheet_grab.custom_minimum_size.y = _pscale(24)
 	_phone_sheet_grab.mouse_filter = Control.MOUSE_FILTER_STOP
 	_phone_sheet_grab.gui_input.connect(_on_phone_sheet_grab_input)
@@ -4786,9 +4861,21 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	## would stay white when the palette goes light and vanish into the panel.
 	## The candidate's `rgba(255,255,255,.25)` is therefore matched in *weight*
 	## rather than in value -- `text_ghost` at the alpha this handle already
-	## carried, unchanged; only its geometry moved to the candidate's.
+	## carried, unchanged.
+	##
+	## The newest canvas paints this pill `var(--bord)`, which its §0.3 table
+	## gives as `rgba(255,255,255,.16)` dark / `rgba(0,0,0,.20)` light -- a
+	## *lighter* weight than either the candidate's `.25` or the `0.55` shipped
+	## here. **Left alone on purpose.** An alpha on a shared token is a
+	## relationship, not a value: this pill sits on the sheet's `raised` ground
+	## in both palettes, and re-weighting it is a contrast change that has to be
+	## computed for light and dark both. That is a token pass, not a detent
+	## pass; recorded here so the next one has the three candidate weights in
+	## one place.
 	handle.color = Color(DccTheme.c("text_ghost"), 0.55)
-	var hw := _pscale(40)
+	## 42 x 4, the newest canvas's own figure -- see the grab row above for the
+	## three-way provenance and why the row's height did not move with it.
+	var hw := _pscale(42)
 	var hh := _pscale(4)
 	handle.set_anchors_preset(Control.PRESET_CENTER)
 	handle.size = Vector2(hw, hh)
@@ -4908,6 +4995,38 @@ func set_phone_detent(det: String) -> void:
 ## Move to a detent. `animate` is false for the two cases where a transition
 ## would be wrong: the initial layout, and a rotation (where the whole chrome
 ## re-lays out in one frame anyway).
+##
+## **Every way in, enumerated from the call sites rather than from memory** --
+## the sheet is a gesture surface, and the failure that matters on one is not a
+## wrong height but a height with no way back out of it. Walked 2026-09-05 and
+## exercised end to end by `_detent_probe.gd`:
+##
+## | Route | Reaches | Leaves by |
+## |---|---|---|
+## | boot / rotation into portrait -- `_apply_phone_orientation()` → `_snap_phone_sheet(false)` | whatever `_phone_detent` already held; `peek` on a cold start | any row below |
+## | `_pick_phone_tab()`, any workspace tab tapped while at `peek` -- the lit one included, since the `elif` catches it | `half` | re-tap, or drag |
+## | `_pick_phone_tab()`, the LIT workspace tab re-tapped while ABOVE `peek` | `peek` | tab tap, or drag |
+## | `_on_phone_sheet_grab_input()` release | nearest of the three | tab tap, or drag |
+## | `_on_phone_sheet_grab_input()` release under `PHONE_DETENT_DISMISS` | `peek` | tab tap, or drag |
+## | `set_phone_detent()` -- `menus.gd`'s `_apply_layout()`, `Window ▸ Layouts` | any of the three | tab tap, or drag |
+##
+## Two things fall out of that table and neither is a defect, so both are
+## written down instead of fixed:
+##
+## 1. **`full` has exactly one entrance a finger can take** -- the drag. No tab
+##    tap reaches it (§5.2's `hTab` only ever lifts `peek` to `half`, and this
+##    shell follows it), so if the drag ever regresses, `full` becomes
+##    unreachable *silently*: every other detent still works and nothing
+##    fails. That is what `_detent_probe.gd` asserts through real hit-tested
+##    routing rather than by calling the handler.
+## 2. **No detent can strand anyone.** Every row's exit column is a control
+##    that is on screen at that detent: the bottom bar is a *sibling above*
+##    which no height can cover (see the constant block), so the tab route is
+##    live at `full` as much as at `peek`.
+##
+## Landscape has no rows at all: `_on_phone_sheet_grab_input()` returns
+## immediately, `_snap_phone_sheet()` returns immediately, and the grab handle
+## is hidden -- `_apply_phone_orientation()` sets the drawer's width instead.
 func _set_phone_detent(det: String, animate: bool = true) -> void:
 	_phone_detent = det
 	## `BUILD_ANSWERS.md` §4's "detent snap", 8 ms -- and only on the animated
@@ -4927,6 +5046,15 @@ func _set_phone_detent(det: String, animate: bool = true) -> void:
 ## thing a child gets to say about it. `_phone_content_gap` above it carries
 ## `SIZE_EXPAND_FILL`, so every pixel the sheet claims comes out of the map gap
 ## and none of it out of the bar below.
+##
+## **What else a detent change moves: nothing.** That is the claim the sentence
+## above makes structurally, and it was measured rather than reasoned from the
+## node tree -- `_detent_probe.gd` records the global rect of the app bar, the
+## bottom nav, the timeline, both dock sheets and the phone menu, drives
+## `peek → full`, and re-reads all six. At 720x1600, 1080x2340 and 1440x3200,
+## 2026-09-05, every one came back `moved=false`. The map gap absorbs the whole
+## delta, which is why `phone_insets_changed` only has to reach
+## `ViewportHost`'s floating chrome and not the chrome column.
 func _snap_phone_sheet(animate: bool) -> void:
 	if _phone_tool_sheet == null or _landscape:
 		return
@@ -6294,6 +6422,22 @@ func _set_overflow_open(open: bool) -> void:
 ## close button of its own -- tapping the lit tab again is how you leave it, the
 ## way a bottom-nav tab behaves everywhere else. Without this, MORE would be the
 ## one tab in the bar that cannot be undone by pressing it.
+##
+## **Where this parts from `06-phone.md`, stated rather than left to be
+## rediscovered.** §2's tab table gives MORE a *sheet title* and *sheet
+## subtitle* like the other three, and §5.4 puts its back arrow in the sheet
+## header (`Visible when (tab==='more' && moreStack.length>1)`): in the
+## prototype MORE is **content inside the detented sheet**, sharing its peek /
+## half / full geometry. Here it is `PhoneMenu`, a full-rect overlay with its
+## own header, and the detents are the tool-options sheet's alone.
+##
+## Converting it is a real piece of work and it is **not** a `dcc_shell.gd`
+## change: the overlay's rect is written by `PhoneMenu.apply_insets()` in
+## `phone_menu.gd`, its five levels carry their own header and back stack, and
+## `phone_present_popup()` reuses the same node for transient `PopupMenu`s. The
+## cost is enumerable and worth writing down before anyone attempts it -- L2-L5
+## would have to survive being resized to 66 dp at `peek`, and §5.4's header
+## would have to take over from `PhoneMenu`'s. Not attempted from this file.
 func _toggle_overflow() -> void:
 	var was_open: bool = _phone_menu != null and _phone_menu.is_open()
 	_close_all_phone_overlays()
@@ -6529,6 +6673,15 @@ func _apply_phone_orientation() -> void:
 	var bar_reserve := 0
 	if _phone_menu_bar != null and _phone_menu_bar.visible and not _landscape:
 		bar_reserve = _ptap(DccTheme.H_PHONE_BOTTOM_NAV)
+	## `apply_insets()` is **`PhoneMenu`'s**, not this class's, and it is not
+	## the shared pass -- it writes three offsets on `_screen`, `_sheet` and
+	## `_sheet_scrim`, all of them inside `phone_menu.gd`, and reaches nothing
+	## else. *This* function is the shared pass: the chrome column's margins
+	## (and with them the app bar), `_apply_phone_nav_orientation()`, both dock
+	## sheets, the menu's insets here, and `_snap_phone_sheet()` below. Written
+	## down 2026-09-05 because a brief reached this line calling it
+	## `DccShell::apply_insets()` and describing it as serving the app bar, the
+	## nav bar and the timeline; it serves none of the three.
 	if _phone_menu != null:
 		_phone_menu.apply_insets(float(safe_top), float(side_reserve + rail_w),
 			float(_safe_bottom() + bar_reserve))
@@ -6650,7 +6803,7 @@ func _apply_phone_nav_orientation(side_reserve: int, rail_w: int,
 	## `_on_phone_sheet_grab_input()` returns immediately in landscape, because
 	## `BUILD_ANSWERS.md` §4 rules that the landscape drawer has no detents to
 	## re-snap to -- correct, and correctly implemented. What was missing is the
-	## disclosure: a 40x4 bar was still drawn over a 24 dp row that could not be
+	## disclosure: a 42x4 bar was still drawn over a 24 dp row that could not be
 	## dragged, and coach mark #2 told the user to drag it. Hidden rather than
 	## dimmed, because there is no disabled state for a drag target and no hover
 	## surface on a phone to carry the reason in a tooltip -- the coach mark is

@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="height:560px;display:flex;background:var(--sur)">
+<div class="dock">
+
+  <div class="dockhead">
+    <div class="closebtn">&rsaquo;</div>
+    <div class="docktitle mono">FACTION</div>
+  </div>
+
+  <div class="dockbody">
+
+    <div style="display:flex;align-items:center;gap:8px;padding-bottom:10px;
+                border-bottom:1px solid var(--div);margin-bottom:9px">
+      <span style="width:12px;height:12px;border-radius:3px;background:#6a9bc4;flex:none"></span>
+      <span class="mono" style="font-weight:500;font-size:var(--m0);color:var(--ink)">Vhal Serai Compact</span>
+    </div>
+
+    <div class="row"><span class="k mono">CAPITAL</span><span class="v mono">Sevjuniana</span></div>
+    <div class="row"><span class="k mono">SETTLEMENTS</span><span class="v mono">14</span></div>
+    <div class="row"><span class="k mono">CLAIMED CELLS</span><span class="v mono">3 812</span></div>
+
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 0 7px">
+      <div class="cap mono" style="flex:none">RELATIONS &middot; 5</div>
+      <div class="rule" style="flex:1"></div>
+      <div class="mono" style="font-size:var(--m2);color:var(--dis)">this year</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column">
+
+      <div style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+        <span style="width:12px;height:12px;border-radius:3px;background:#c96a5a;flex:none"></span>
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">Kessan League</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis);width:26px;text-align:right">&minus;41</span>
+        <span class="mono" style="padding:2px 8px;border-radius:999px;font-size:var(--m2);
+              letter-spacing:.08em;background:rgba(201,106,90,.16);color:var(--block)">WAR</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+        <span style="width:12px;height:12px;border-radius:3px;background:#6fae7d;flex:none"></span>
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">Free Marches</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis);width:26px;text-align:right">+68</span>
+        <span class="mono" style="padding:2px 8px;border-radius:999px;font-size:var(--m2);
+              letter-spacing:.08em;background:rgba(111,174,125,.16);color:var(--good)">ALLY</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+        <span style="width:12px;height:12px;border-radius:3px;background:#8d9296;flex:none"></span>
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">Orren Hold</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis);width:26px;text-align:right">+4</span>
+        <span class="mono" style="padding:2px 8px;border-radius:999px;font-size:var(--m2);
+              letter-spacing:.08em;background:var(--ins);color:var(--dim)">NEUTRAL</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+        <span style="width:12px;height:12px;border-radius:3px;background:#b08bbf;flex:none"></span>
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">Thal Divannic See</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis);width:26px;text-align:right">+31</span>
+        <span class="mono" style="padding:2px 8px;border-radius:999px;font-size:var(--m2);
+              letter-spacing:.08em;background:var(--wash2);color:var(--acc)">TRADE</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:9px;min-height:var(--row)">
+        <span style="width:12px;height:12px;border-radius:3px;background:#c8a15a;flex:none"></span>
+        <span class="mono" style="flex:1;font-size:var(--m1);color:var(--sec)">Ashen Reach</span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis);width:26px;text-align:right">&minus;12</span>
+        <span class="mono" style="padding:2px 8px;border-radius:999px;font-size:var(--m2);
+              letter-spacing:.08em;background:var(--ins);color:var(--dim)">TENSE</span>
+      </div>
+
+    </div>
+
+    <div style="display:flex;align-items:center;gap:8px;padding:12px 0 6px">
+      <div class="cap mono" style="flex:none">BALANCE</div>
+      <div class="rule" style="flex:1"></div>
+    </div>
+
+    <div class="bar" style="height:6px;border-radius:3px">
+      <span style="width:22%;background:var(--block)"></span>
+      <span style="width:14%;background:#8d9296"></span>
+      <span style="width:26%;background:var(--acc)"></span>
+      <span style="width:38%;background:var(--good)"></span>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding-top:4px">
+      <span class="mono" style="font-size:var(--m2);color:var(--dis)">hostile</span>
+      <span class="mono" style="font-size:var(--m2);color:var(--dis)">friendly</span>
+    </div>
+
+    <div class="foot mono">
+      stance is a band over the standing score, not a stored field &mdash;<br>
+      a score that crosses a band edge renames the chip and nothing else
+    </div>
+
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

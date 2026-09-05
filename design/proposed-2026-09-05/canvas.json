@@ -1,0 +1,29 @@
+{
+  "pages": [
+    { "id": "page-1", "name": "Right dock" },
+    { "id": "page-2", "name": "Left dock & data" },
+    { "id": "page-3", "name": "Modals & chrome" }
+  ],
+  "artboards": [
+    { "file": "Main.dc.html",             "page": "page-1", "x": 0,    "y": 0, "w": 304, "h": 720, "title": "History" },
+    { "file": "SettlementExtras.dc.html", "page": "page-1", "x": 400,  "y": 0, "w": 304, "h": 860, "title": "Settlement — appended sections" },
+    { "file": "Wildlife.dc.html",         "page": "page-1", "x": 800,  "y": 0, "w": 304, "h": 640, "title": "Ecoregion / wildlife" },
+    { "file": "Relations.dc.html",        "page": "page-1", "x": 1200, "y": 0, "w": 304, "h": 560, "title": "Faction — relations" },
+    { "file": "DeltaVertical.dc.html",    "page": "page-1", "x": 1600, "y": 0, "w": 304, "h": 460, "title": "Measure — Δ vertical" },
+
+    { "file": "Religion.dc.html",         "page": "page-2", "x": 0,   "y": 0, "w": 372, "h": 820, "title": "CIVIL ▸ Religion" },
+    { "file": "DataPane.dc.html",         "page": "page-2", "x": 500, "y": 0, "w": 760, "h": 540, "title": "Data manager — route pane" },
+
+    { "file": "Modal.dc.html",            "page": "page-3", "x": 0, "y": 0,   "w": 980,  "h": 640, "title": "Modal pattern" },
+    { "file": "StatusBar.dc.html",        "page": "page-3", "x": 0, "y": 780, "w": 1200, "h": 280, "title": "Status bar states" }
+  ],
+  "annotations": [
+    { "id": "note-rd", "page": "page-1", "x": 0, "y": -150, "w": 700,
+      "text": "Five right-dock contexts the newest design set never draws.\nEvery measurement is lifted from 05-right-dock-and-bars.md — 304 px dock, 14 px pad, 24 px controls, 28 px rows, 26 px hero, and the same key/value row geometry the drawn contexts use.\nHistory is deliberately STAMP STACK's twin rather than a new panel." },
+    { "id": "note-ld", "page": "page-2", "x": 0, "y": -170, "w": 700,
+      "text": "Religion sits as a fifth CIVIL accordion, using 04-left-dock.md §6's exact header row (chevron, .18em caps, right-hand count).\nIts table follows Azgaar's Religions editor — swatch, name, type, share, trend, sortable — because that is the closest comparable that already works.\nThe Data-manager pane is a PATTERN: one pane drawn so the other eleven routes inherit it instead of being designed one at a time." },
+    { "id": "note-mo", "page": "page-3", "x": 0, "y": -150, "w": 700,
+      "text": "One modal pattern replaces every stock ConfirmationDialog and AcceptDialog in the shell — the asset-library prompts, app.gd's two confirms, and the import warnings.\nThe status-bar states are the four the spec's single priority message cannot express." }
+  ],
+  "launch": { "view": "canvas", "page": "page-1" }
+}

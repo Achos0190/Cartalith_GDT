@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="height:720px;display:flex;background:var(--sur)">
+<div class="dock">
+
+  <div class="dockhead">
+    <div class="closebtn">&rsaquo;</div>
+    <div class="docktitle mono">HISTORY</div>
+  </div>
+
+  <div class="dockbody">
+
+    <div style="display:flex;align-items:center;gap:6px;padding-bottom:10px;
+                border-bottom:1px solid var(--div);margin-bottom:9px">
+      <div class="mono" style="font-weight:500;font-size:20px;color:var(--acc)">12</div>
+      <div class="cap mono">STEPS</div>
+      <div style="flex:1"></div>
+      <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;
+           background:var(--ins);color:var(--sec);display:flex;align-items:center;
+           justify-content:center">&#8624;</div>
+      <div class="mono" style="width:var(--ctl);height:var(--ctl);border-radius:8px;
+           background:var(--ins);color:var(--dis);display:flex;align-items:center;
+           justify-content:center">&#8625;</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column">
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">01</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--sec);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--sec)">generate world</span>
+        <span style="font-size:var(--m2);color:var(--dis)">seed 44 812</span>
+      </div>
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">02</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--sec);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--sec)">raise mountains &middot; 3 passes</span>
+      </div>
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">03</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--sec);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--sec)">place settlements &middot; 40</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding:7px 0 6px">
+        <div style="flex:none" class="mono cap">COMMITTED</div>
+        <div class="rule" style="flex:1"></div>
+        <div class="mono" style="font-size:var(--m2);color:var(--dis)">saved 4 min ago</div>
+      </div>
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">04</span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--dim);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--dim)">paint biome &middot; steppe</span>
+        <span style="font-size:var(--m2);color:var(--dis)">412 cells</span>
+      </div>
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">05</span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--dim);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--dim)">rename &middot; Sevjuniana</span>
+      </div>
+
+      <div class="row mono" style="gap:9px;background:var(--wash);
+           margin:0 calc(var(--pad) * -1);padding:0 var(--pad);
+           border-left:2px solid var(--acc)">
+        <span style="width:16px;font-size:var(--m2);color:var(--acc)">06</span>
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--acc);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--ink)">delete settlement</span>
+        <span style="font-size:var(--m2);color:var(--acc)">here</span>
+      </div>
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">07</span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--dis);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--dis)">add label &middot; &ldquo;Ashen Reach&rdquo;</span>
+      </div>
+
+      <div class="row mono" style="gap:9px">
+        <span style="width:18px;font-size:var(--m2);color:var(--dis)">08</span>
+        <span style="width:7px;height:7px;border-radius:50%;border:1px solid var(--dis);flex:none"></span>
+        <span style="flex:1;font-size:var(--m1);color:var(--dis)">move label</span>
+      </div>
+
+    </div>
+
+    <div style="flex:1;min-height:14px"></div>
+
+    <div class="rule" style="margin-bottom:9px"></div>
+    <div class="danger mono">&#10005; discard the 2 undone steps</div>
+
+    <div class="foot mono">
+      click a step to move the cursor &mdash; steps below it are undone, not deleted<br>
+      the next edit drops them<br>
+      reverting above <span style="color:var(--faint)">COMMITTED</span> asks first
+    </div>
+
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

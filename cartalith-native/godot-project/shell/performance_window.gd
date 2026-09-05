@@ -20,6 +20,50 @@ class_name PerformanceWindow
 ## Godot's own `OS.get_static_memory_usage()` (the same source `app.gd`'s
 ## `_wire_status()` already feeds into the menu bar's `top_mem` readout).
 ##
+## ## The open question, and it is not this file's to answer
+##
+## **`DCC_SHELL_SPEC.md` designs a menu ROW, not a window.** §2.5's Memory
+## group has `Working set | Read-only, \`1.6 GB of 12 GB\``, and the Performance
+## group has `GPU acceleration | Toggle + backend readout`. Both are rows in a
+## Preferences dropdown. No section of the spec draws a diagnostics window: §8
+## (Asset library) and §9 (Data manager) are the only two windows it specifies,
+## and §2.6's Window menu lists exactly those two as the ones that "appear here
+## while open". So *whether a diagnostics window should exist at all* is a
+## designer's decision that has never been taken, and taking it here would be
+## inventing design authority -- the failure `world_data_window.gd`'s header
+## documents in its own false citation.
+##
+## What this pass does instead: leaves the decision open, states it here so it
+## reaches `DESIGN_HANDOFF.md` rather than dying in a diff, and brings the
+## chrome of the window that already exists into the DCC vocabulary the rest of
+## the shell uses -- `DccWidgets.section()` bands with `§` headers, notes in the
+## dock's own prose voice, and nothing invented beyond that.
+##
+## ## Measured 2026-09-05, three named densities, `_lanea_probe.gd`
+##
+## The content did not fit the window, at any of them, and there was no scroll
+## on the pointer path to reveal it. Laid-out extent against the declared
+## `560x420`:
+##
+##                                          before    after this pass
+##   desktop  1920x1080 (pointer, base)     545 px      420 px
+##   laptop   1600x900  (`is_laptop()`)     545 px      420 px
+##   tablet   2560x1600 (`is_tablet()`)    1088 px      420 px
+##
+## 420 is the declared height exactly, which is what a scroll should read
+## as: the column now ends at the box instead of past it. The `before`
+## column was taken at HEAD, before the `Devices` section this pass also
+## adds -- that section makes the column taller still, and the scroll is
+## why it costs nothing.
+##
+## The tablet figure is not a surprise once stated: `DccWidgets.note()` resolves
+## `role_px("fs_prose")`, which is 11 on a pointer and **14** on touch, and this
+## window is nothing but autowrapping notes -- **eight of them on screen at once**
+## (twelve `note()` call sites, of which the five GPU-branch ones are mutually
+## exclusive) under four `section()` headers. The `ScrollContainer` that answers
+## it was already here; it was just inside `if _phone`. It is now unconditional,
+## which is the whole fix -- no size, no font and no note text changed with it.
+##
 ## §2.5's "Devices" checklist, per-device utilisation and VRAM budget are not
 ## rebuilt here -- `menus.gd`'s own `_todo()` entries for those already carry
 ## an accurate reason (`cartalith_gpu::init_gpu()` requests one adapter, no
@@ -34,8 +78,9 @@ var _body: VBoxContainer
 ## it opened as a 560x420 desktop card in the middle of a 1440x3168 panel with
 ## its only way out -- `AcceptDialog`'s own OK button -- measured at 29 dp.
 ## Nothing here needs stacking: it is one column of prose. What it needs is the
-## content scale, the tap floor, and somewhere for six autowrapping notes to
-## scroll once they are set to a 393 dp measure instead of a 560 px one.
+## content scale and the tap floor. *It also used to be the only density with
+## somewhere for the notes to scroll; since 2026-09-05 every density has that,
+## so this flag no longer selects the scroll -- see `setup()`.*
 var _phone := false
 
 func setup(b: EngineBridge) -> void:
@@ -49,22 +94,34 @@ func setup(b: EngineBridge) -> void:
 	_phone = DccWidgets.phone_window(self, get_parent())
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", 4)
+	## The head sits OUTSIDE the scroll, not inside `_body`: `_rebuild()` clears
+	## every child of `_body` on each refresh, and a header parented there would
+	## be destroyed by the first one.
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 0)
+	add_child(outer)
 	if _phone:
-		## The head sits OUTSIDE the scroll, not inside `_body`: `_rebuild()`
-		## clears every child of `_body` on each refresh, and a header parented
-		## there would be destroyed by the first one.
-		var outer := VBoxContainer.new()
-		outer.add_theme_constant_override("separation", 0)
-		add_child(outer)
 		DccWidgets.phone_head(outer, "Performance", "gpu · quality · memory")
-		var scroll := ScrollContainer.new()
-		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		outer.add_child(scroll)
-		_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		scroll.add_child(_body)
-	else:
-		add_child(_body)
+	## **Unconditional since 2026-09-05.** This whole block was inside
+	## `if _phone`, and the pointer path was a bare `add_child(_body)` -- so the
+	## one density whose type is *largest* (`fs_prose` 14 on touch, against 11
+	## on a pointer) was the one with no way to reach the bottom of the column.
+	## See the measurement table in this file's header for the three figures.
+	##
+	## `SCROLL_MODE_DISABLED` on the horizontal axis is deliberate and is also
+	## the axis to watch: a disabled axis folds the child's minimum width into
+	## the container's own, so an over-wide leaf would push the *dialog* wider
+	## with no scrollbar to show for it (`MISTAKES.md`'s disabled-axis row).
+	## Measured at 216 px against a 560 px window, all three densities, and
+	## `_lanea_probe.gd` asserts it rather than leaving it to be rediscovered --
+	## every note here is autowrapping with `DccWidgets.note()`'s own 190 px
+	## floor, which is what keeps the number that low.
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(scroll)
+	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_body)
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _rebuild())
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
 	_rebuild()
@@ -143,7 +200,15 @@ func _rebuild() -> void:
 	## per-device enumeration exists in cartalith-gpu" until 2026-09-03; it does --
 	## `cartalith_gpu::enumerate_devices` (`multi.rs`), bound as
 	## `WorldGen::gpu_enumerate_devices`.
-	DccWidgets.note(_body, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance. Per-device enumeration is cartalith-gpu's enumerate_devices, bound as WorldGen.gpu_enumerate_devices; those rows are live whenever the loaded GDExtension build exposes that binding, and say so on hover when it does not (GPU_LAYER_INTEGRATION_SCOPE.md).")
+	## **Was parented to `_body` directly**, which put it outside every section:
+	## no `§` header over it, and `section()`'s own 14 px left margin missing, so
+	## the one note in the window carrying a cross-reference sat a step to the
+	## left of the seven above it and read as a footer nobody had styled. Its own
+	## section now, titled from `DCC_SHELL_SPEC.md` §2.5's own row name --
+	## `| | Devices | Expands to a per-device checklist with live utilisation`
+	## -- rather than a title invented for it.
+	var devices := DccWidgets.section(_body, "Devices")
+	DccWidgets.note(devices, "Devices, multi-GPU mode and VRAM budget: see Preferences ▸ Performance. Per-device enumeration is cartalith-gpu's enumerate_devices, bound as WorldGen.gpu_enumerate_devices; those rows are live whenever the loaded GDExtension build exposes that binding, and say so on hover when it does not (GPU_LAYER_INTEGRATION_SCOPE.md).")
 
 	## PH-12: every row above is a fresh node, and a generate finishing while
 	## this window is open rebuilds them behind the one-shot fit `open()` did.

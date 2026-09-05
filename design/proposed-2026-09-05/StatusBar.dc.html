@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+    *{box-sizing:border-box}
+    body{margin:0;background:#0d0e0f;
+      font:11.5px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased}
+    a{color:#e0a34a;text-decoration:none}
+    a:hover{color:#f0bd72}
+    .tok{--sur:#0d0e0f;--pan:#121314;--ins:#191c1e;--ink:#e8ebec;--body:#c8cbcd;
+      --sec:#a9adb0;--dim:#8d9296;--faint:#6f7478;--dis:#5f6468;
+      --acc:#e0a34a;--accH:#f0bd72;--accInk:#141005;
+      --hair:rgba(255,255,255,.10);--div:rgba(255,255,255,.07);--bor:rgba(255,255,255,.16);
+      --wash:rgba(224,163,74,.09);--wash2:rgba(224,163,74,.16);
+      --shadow:0 14px 34px rgba(0,0,0,.55);
+      --good:#6fae7d;--block:#c96a5a;--water:#6a9bc4;
+      --fs:11.5px;--m0:10.5px;--m1:10px;--m2:9px;
+      --ctl:24px;--btnH:28px;--row:28px;--tool:30px;--pad:14px;
+      --rdW:304px;--ldW:372px;--sbH:26px;
+      color:var(--body);font-size:var(--fs)}
+    .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace}
+    .dock{width:var(--rdW);height:100%;background:var(--pan);
+      border-left:1px solid var(--hair);display:flex;flex-direction:column;min-height:0}
+    .dockhead{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--pad) 6px}
+    .closebtn{width:var(--ctl);height:var(--ctl);border-radius:8px;color:var(--faint);
+      display:flex;align-items:center;justify-content:center;font-size:13px}
+    .docktitle{flex:1;text-align:right;font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .dockbody{flex:1;overflow-y:auto;min-height:0;padding:0 var(--pad) 14px;
+      display:flex;flex-direction:column}
+    .row{display:flex;align-items:baseline;gap:10px;min-height:calc(var(--row) - 6px)}
+    .k{flex:1;font-size:var(--m2);letter-spacing:.1em;color:var(--faint)}
+    .v{font-size:var(--m1);color:var(--sec);text-align:right}
+    .hero{font-weight:500;font-size:26px;color:var(--acc);line-height:1.1}
+    .cap{font-size:var(--m2);letter-spacing:.2em;color:var(--faint)}
+    .foot{padding-top:9px;font-size:var(--m2);line-height:1.6;color:var(--dis)}
+    .chip{padding:3px 11px;border-radius:999px;background:var(--ins);color:var(--sec);
+      font-size:var(--m1)}
+    .btn{min-height:var(--btnH);border-radius:8px;background:var(--acc);color:var(--accInk);
+      font-weight:600;display:flex;align-items:center;justify-content:center;font-size:var(--fs)}
+    .btn2{min-height:var(--btnH);border-radius:8px;background:var(--ins);color:var(--sec);
+      display:flex;align-items:center;justify-content:center;font-size:var(--fs);padding:0 12px}
+    .danger{background:var(--ins);color:var(--block);align-self:flex-start;
+      padding:5px 11px;border-radius:8px;font-size:var(--m1)}
+    .rule{height:1px;background:var(--div)}
+    .bar{height:4px;border-radius:2px;background:var(--ins);overflow:hidden;display:flex}
+  </style>
+</helmet>
+<div class="tok" style="width:1200px;height:280px;background:var(--sur);padding:18px;
+     display:flex;flex-direction:column;gap:14px">
+
+  <div class="mono" style="font-size:var(--m2);letter-spacing:.2em;color:var(--faint)">
+    STATUS BAR &mdash; 26 px, four states the newest set never draws</div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">1 &middot; one priority message (the drawn case, for reference)</div>
+    <div class="mono" style="height:var(--sbH);background:var(--pan);border-top:1px solid var(--hair);
+         display:flex;align-items:center;gap:14px;padding:0 var(--pad);font-size:var(--m2)">
+      <span style="color:var(--acc)">stage 06 complete &middot; 2.4 s</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--dis)">V M R &middot; B F &middot; &#8984;Z &middot; Esc</span>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">2 &middot; multi-slot &mdash; slots are fixed in order and each is omitted when it has nothing to say</div>
+    <div class="mono" style="height:var(--sbH);background:var(--pan);border-top:1px solid var(--hair);
+         display:flex;align-items:center;gap:0;padding:0 var(--pad);font-size:var(--m2)">
+      <span style="color:var(--acc);padding-right:12px">baked atlas L0&ndash;L3</span>
+      <span style="width:1px;height:12px;background:var(--div)"></span>
+      <span style="color:var(--block);padding:0 12px">3 stages stale</span>
+      <span style="width:1px;height:12px;background:var(--div)"></span>
+      <span style="color:var(--dim);padding:0 12px">atlas 62&#8202;% &middot; 148 MB</span>
+      <span style="width:1px;height:12px;background:var(--div)"></span>
+      <span style="color:var(--dim);padding:0 12px">pass 4 / 6</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--dis)">V M R &middot; B F &middot; &#8984;Z &middot; Esc</span>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">3 &middot; autosave &mdash; a state, not a message; it never displaces the priority slot</div>
+    <div class="mono" style="height:var(--sbH);background:var(--pan);border-top:1px solid var(--hair);
+         display:flex;align-items:center;gap:0;padding:0 var(--pad);font-size:var(--m2)">
+      <span style="color:var(--acc);padding-right:12px">stage 06 complete &middot; 2.4 s</span>
+      <span style="width:1px;height:12px;background:var(--div)"></span>
+      <span style="color:var(--dim);padding:0 12px">
+        <span style="display:inline-block;width:5px;height:5px;border-radius:50%;
+              background:var(--good);margin-right:6px;vertical-align:middle"></span>autosave every 4 min &middot; saved 47 s ago</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--dis)">V M R &middot; B F &middot; &#8984;Z &middot; Esc</span>
+    </div>
+  </div>
+
+  <div>
+    <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">4 &middot; a world was loaded and nothing has been generated in this session</div>
+    <div class="mono" style="height:var(--sbH);background:var(--pan);border-top:1px solid var(--hair);
+         display:flex;align-items:center;gap:0;padding:0 var(--pad);font-size:var(--m2)">
+      <span style="color:var(--dim);padding-right:12px">loaded &mdash; no generation this session</span>
+      <span style="width:1px;height:12px;background:var(--div)"></span>
+      <span style="color:var(--dis);padding:0 12px">timings read from the save</span>
+      <span style="flex:1"></span>
+      <span style="color:var(--dis)">V M R &middot; B F &middot; &#8984;Z &middot; Esc</span>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:24px;align-items:flex-start;padding-top:4px">
+    <div>
+      <div class="mono" style="font-size:var(--m2);color:var(--dis);padding-bottom:4px">5 &middot; rail foot, no world</div>
+      <div style="width:40px;height:96px;background:var(--pan);border-right:1px solid var(--hair);
+           display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+           padding-bottom:8px;gap:6px">
+        <span class="mono" style="font-size:var(--m2);color:var(--dis)">00</span>
+        <span style="width:14px;height:1px;background:var(--div)"></span>
+        <span class="mono" style="font-size:var(--m2);color:var(--dis)">10</span>
+      </div>
+    </div>
+    <div class="mono" style="flex:1;font-size:var(--m2);line-height:1.8;color:var(--dis);padding-top:18px">
+      the foot counts stages <span style="color:var(--faint)">run / total</span>. With no world both halves are<br>
+      real: nothing has run, ten exist. It reads <span style="color:var(--faint)">00 / 10</span> in <span style="color:var(--faint)">--dis</span> and is not<br>
+      a placeholder &mdash; so it must not be dashed out, and must not be hidden
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>
