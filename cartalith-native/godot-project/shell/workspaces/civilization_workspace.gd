@@ -3546,19 +3546,22 @@ func open_landmark_family(family: String) -> void:
 ## `Workspace.open_category()`'s own string match, one more reason that field
 ## has to stay exactly `"Landmarks"` (see the header comment above this
 ## section for the readout this same constraint already ruled out).
+## **The body moved to `Workspace._enforce_open_floor()` on 2026-09-05** and
+## this is now the name CIVIL's fifteen `pressed` connections still call. The
+## reasoning above is unchanged and still lives here, because CIVIL is the only
+## dock the spec gives a *named* floor to; what changed is that WORLD's Sculpt
+## mode also needs a floor (`04-left-dock.md` §3 renders one category there, and
+## re-clicking its header would otherwise leave that dock with no body at all),
+## and two implementations of "never leave the accordion empty" is one more than
+## this shell should have. The shared one skips a named floor its mode hides, so
+## the gate cannot be reopened behind its own back.
 func _lm_enforce_floor() -> void:
-	var landmarks_entry: Dictionary = {}
-	var any_open := false
-	for e: Dictionary in categories:
-		var body: Control = e.get("body")
-		if body == null or not is_instance_valid(body):
-			continue
-		if String(e.get("title", "")) == "Landmarks":
-			landmarks_entry = e
-		if body.visible:
-			any_open = true
-	if not any_open and not landmarks_entry.is_empty():
-		DccWidgets._toggle_category(landmarks_entry, categories)
+	_enforce_open_floor()
+
+## §6's rule, stated once. `Workspace._enforce_open_floor()` reads it; the base
+## returns `""` for the two docks the spec names no floor for.
+func floor_category() -> String:
+	return "Landmarks"
 
 ## Rebuild the category from the bridge. Called on a new world and after a
 ## settings reset -- NOT from `_rebuild_readouts()`, because a place edit does

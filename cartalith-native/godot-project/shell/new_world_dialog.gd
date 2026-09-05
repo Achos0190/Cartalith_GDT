@@ -55,6 +55,23 @@ const GRID_MIN := 4 ## generate_sized() clamps each dimension to >= 4; match it 
 const GRID_MAX := 8192
 const DEGENERATE_ASPECT := 16.0 ## Past this, the coarse weather grid loses almost all resolution on the short axis.
 
+## The two advisories the form opens with. Constants rather than literals at
+## the call site because there are now two call sites: the desktop form draws
+## them above the scroll, and §6.7's phone card carries them inside itself.
+const NOTE_CREATION_ONLY := "Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason."
+const NOTE_APPEARANCE_KEPT := "Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it."
+
+## `design/dcc-environment-2026-08-31/spec/06-phone.md` §6.7's New World modal:
+## a card, `max-width:360px`, radius 22, centred over a scrim padded `22px` --
+## a genuinely smaller form, not this one reflowed. The owner's "keeps
+## everything and reflows" ruling (`DCC_SHELL_SCOPE.md`) is a **tablet**
+## ruling; §6.7 is the phone's own drawing and these are its numbers.
+const PHONE_CARD_MAX_W := 360
+const PHONE_CARD_INSET := 22    ## The scrim's `padding:22px`, both sides.
+const PHONE_CARD_RADIUS := 22
+const PHONE_CARD_MIN_W := 240   ## A floor, so a narrow viewport yields a card rather than a sliver.
+const PHONE_CHIP_RADIUS := 14   ## §6.7's extent chips.
+
 const EXTENT_NOTE_REGION := "Region — a framed area of a world. The map's north and south edge latitudes are set in the Climate stage. X does not wrap. Any aspect ratio is physically fine here."
 const EXTENT_NOTE_WORLD := "Whole world -- a seamless equirectangular sheet: X wraps a full 360° of longitude and Y spans 180° of latitude, pole to pole. 2:1 is the ratio that keeps the graticule true; anything else stretches it against the terrain. Advisory, not enforced -- pick any size you want."
 
@@ -97,6 +114,10 @@ var _biome_k := false
 ## Cancel button exist, and whether the form is re-fitted for touch.
 var _phone := false
 var _dim_syncing := false
+## §6.7's card and its two extent chips. Both phone-only -- `null` and empty on
+## desktop and tablet, which is what makes `_set_extent_chips()` a no-op there.
+var _card: PanelContainer
+var _extent_chips: Array[Button] = []
 
 func setup(b: EngineBridge) -> void:
 	bridge = b
@@ -142,8 +163,12 @@ func setup(b: EngineBridge) -> void:
 	root.add_theme_constant_override("separation", 4)
 	margin.add_child(root)
 
-	DccWidgets.note(root,
-		"Creation-time only. Extent, resolution and archetype reallocate every field in the pipeline, so changing them later means a fresh Create, not a live edit — the reference itself refuses to make width mid-project editable for the same reason.")
+	## Above the scroll on desktop and tablet, so they stay on screen while the
+	## form is scrolled. On a phone they ride **inside** §6.7's card instead --
+	## see the end of `_build()` -- because a full-width paragraph above a
+	## 360 dp card is not a card.
+	if not _phone:
+		DccWidgets.note(root, NOTE_CREATION_ONLY)
 
 	## The appearance separation is real and was invisible. `look`, `npr`,
 	## `appearance_over`, `appearance_ramp` and `appearance_preset` are session
@@ -153,8 +178,8 @@ func setup(b: EngineBridge) -> void:
 	## Nortantis's "New Map With Same Theme…" is already this shell's DEFAULT
 	## behaviour -- the dialog simply never said so, and a user with a look they
 	## like had no way to know Create would not take it away.
-	DccWidgets.note(root,
-		"Your appearance settings are kept. Look, NPR, ramps and any saved preset are not part of a world, so Create changes the terrain and leaves the map's style exactly as you have it.")
+	if not _phone:
+		DccWidgets.note(root, NOTE_APPEARANCE_KEPT)
 
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -185,20 +210,54 @@ func setup(b: EngineBridge) -> void:
 	## square it. The form is built once, so one pass is enough.
 	if _phone:
 		get_parent().phone_fit(self, 1.0)
+		## The card's width is a measurement, and a rotation changes both the
+		## viewport it measures and the scale it is measured in --
+		## `phone_window()` re-runs `phone_present()` on `phone_insets_changed`
+		## for exactly that reason. Re-measuring on every open covers the same
+		## ground from the one signal this dialog already listens to.
+		about_to_popup.connect(_fit_phone_card)
 
+## `card` is what §6.7's phone card holds and `rest` is what it does not. On
+## desktop and tablet **both are `body`**, so the sections below are the same
+## sections, built in the same order, into the same container they always were.
+##
+## `rest` is HIDDEN on a phone rather than not built, and that is the
+## load-bearing half. Counted, not estimated: `request()` reads **three** of
+## its controls directly (`width_input`, `grid_w_input`, `grid_h_input`; it is
+## the second of those that `heightmap_grid_summary()` reads again), and it
+## posts **four** more values — `_villages`, `_metropolis`, `_biome_k`,
+## `_recovery_phase` — whose only writers other than construction are those
+## hidden controls' own handlers and `_sync_from_engine()`. A phone build that
+## skipped them would post this dialog's construction-time defaults back into
+## the engine on every Create, which is the exact defect
+## `_sync_from_engine()`'s own biome-K clause below records, one control at a
+## time. An invisible child contributes nothing to a `BoxContainer`'s minimum
+## size, so the hidden form cannot widen the card either.
 func _build(body: VBoxContainer) -> void:
-	var seed_sec := DccWidgets.section(body, "Seed")
+	var card := body
+	var rest := body
+	if _phone:
+		card = _phone_card(body)
+		rest = VBoxContainer.new()
+		rest.visible = false
+		body.add_child(rest)
+
+	var seed_sec := DccWidgets.section(card, "Seed")
 	seed_input = DccWidgets.number(seed_sec, "Seed", 0, 2147483647, 1, randi() % 1000000,
 		func(_v: float): pass,
 		"Integer seed. The same seed and settings reproduce the same world.")
+	if _phone:
+		_build_seed_dice()
 
-	var extent_sec := DccWidgets.section(body, "Extent")
+	var extent_sec := DccWidgets.section(rest, "Extent")
 	extent_input = DccWidgets.choice(extent_sec, "Extent", ["Region", "Whole world"],
 		1 if bool(bridge.param_get("world")) else 0, _on_extent_selected,
 		"Reference control #extentSeg. Region = a framed area with user-set latitudes; Whole world = a seamless equirectangular sheet with toroidal X wrap.")
 	extent_note_label = DccWidgets.note(extent_sec, "")
+	if _phone:
+		_build_extent_chips(card)
 
-	var size_sec := DccWidgets.section(body, "Map width & resolution")
+	var size_sec := DccWidgets.section(rest, "Map width & resolution")
 	var size_labels: Array = []
 	for preset: Dictionary in SIZE_PRESETS:
 		size_labels.append(String(preset["label"]))
@@ -213,7 +272,18 @@ func _build(body: VBoxContainer) -> void:
 	for l in RESOLUTION_LABELS:
 		res_labels.append(l)
 	res_labels.append("Custom")
-	resolution_input = DccWidgets.choice(size_sec, "Resolution", res_labels, RESOLUTION_DEFAULT_INDEX,
+	## §6.7 draws no resolution control; `DCC_SHELL_SPEC.md` §2.1 names one --
+	## *"Modal: name, seed, extent (region/world), working resolution"* -- for
+	## the same command, so this one field of the desktop form rides into the
+	## card. It is the only creation-time value whose absence is a trap rather
+	## than a preference: the default is 2 048 columns, `_on_create()` is the
+	## only path that ever sizes a grid, and a handset is the device least able
+	## to afford the difference. `dimension_warning_label` moves with it, so
+	## the 4K/8K cost is still disclosed where the choice is made.
+	var res_parent := size_sec
+	if _phone:
+		res_parent = DccWidgets.section(card, "Resolution")
+	resolution_input = DccWidgets.choice(res_parent, "Resolution", res_labels, RESOLUTION_DEFAULT_INDEX,
 		_on_resolution_selected,
 		"The reference's own 512/1K/2K/4K/8K segment. Sets the grid WIDTH only; grid height follows below.")
 	grid_w_input = DccWidgets.number(size_sec, "Grid columns", GRID_MIN, GRID_MAX, 1,
@@ -231,10 +301,10 @@ func _build(body: VBoxContainer) -> void:
 		"A call argument to generate_sized(), not a stored parameter: changing it reallocates every field in the pipeline.")
 
 	_build_derived_panel(size_sec)
-	dimension_warning_label = DccWidgets.note(size_sec, "")
+	dimension_warning_label = DccWidgets.note(res_parent, "")
 	dimension_warning_label.add_theme_color_override("font_color", DccTheme.c("stale"))
 
-	var struct_sec := DccWidgets.section(body, "World structure")
+	var struct_sec := DccWidgets.section(rest, "World structure")
 	var archetype_labels: Array = ["Classic"]
 	for name in _archetype_names:
 		archetype_labels.append(String(ARCHETYPE_LABELS.get(String(name), String(name).capitalize())))
@@ -243,7 +313,7 @@ func _build(body: VBoxContainer) -> void:
 	DccWidgets.note(struct_sec,
 		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.")
 
-	var gen_sec := DccWidgets.section(body, "Generation")
+	var gen_sec := DccWidgets.section(rest, "Generation")
 	villages_check = DccWidgets.toggle(gen_sec, "Village seeding (additive hamlets)", false,
 		func(v: bool): _villages = v,
 		"Reference civVillagesChk, default off. Seeds an extra tier of hamlets after the main settlement pass.")
@@ -267,6 +337,188 @@ func _build(body: VBoxContainer) -> void:
 	_build_placement_dials(gen_sec)
 	DccWidgets.note(gen_sec,
 		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
+
+	## §6.7's card carries no advisory prose, and both of these are kept
+	## anyway: one says the choice above cannot be revisited later and the
+	## other says Create will not take the user's look away. A smaller form is
+	## a smaller set of *controls*; dropping a warning because the artboard is
+	## narrower is a different thing.
+	if _phone:
+		DccWidgets.note(card, NOTE_CREATION_ONLY)
+		DccWidgets.note(card, NOTE_APPEARANCE_KEPT)
+
+## §6.7's card. The window around it is `DccWidgets.phone_present()`'s
+## full-screen fill -- `app.gd` makes that call and owns it -- so what is
+## buildable here is the card itself: a bounded column on its own rounded
+## surface, rather than the desktop form run edge to edge. The scrim §6.7 draws
+## the card over is this window's opaque panel instead, and that is the half
+## this file cannot reach.
+##
+## Told apart from the dialog's surface by its **border**, not its fill:
+## `dcc_shell.gd` themes `AcceptDialog`'s own panel `c("panel")`, and picking a
+## card fill for contrast alone is the (2,3,4) mistake `MISTAKES.md` records
+## against the 2026-08-31 token re-base. `sunken` over `panel` is (7,9,10) and
+## the hairline is what actually draws the edge.
+func _phone_card(parent: Control) -> VBoxContainer:
+	var center := CenterContainer.new()
+	center.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(center)
+
+	_card = PanelContainer.new()
+	var sb := DccTheme.flat(DccTheme.c("sunken"), PHONE_CARD_RADIUS)
+	sb.border_color = DccTheme.c("border")
+	sb.set_border_width_all(1)
+	_card.add_theme_stylebox_override("panel", sb)
+	center.add_child(_card)
+
+	## §6.7's `padding:18px 16px 16px`.
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_theme_constant_override("margin_top", 18)
+	pad.add_theme_constant_override("margin_bottom", 16)
+	_card.add_child(pad)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(col)
+	_fit_phone_card()
+	return col
+
+## `min(360, screen - 2x22)`, in the window's own content-scale units -- §6.7's
+## `max-width` and its scrim padding, together.
+##
+## Measured off the HOST viewport rather than `self.size`, for two reasons that
+## both bite: `setup()` runs at startup, long before this dialog is ever shown,
+## and `about_to_popup` fires from inside `Window.popup()` *before* the new
+## rect is applied. The host's viewport and `phone_scale()` are what
+## `phone_present()` itself divides, so this is the same measurement it makes.
+##
+## **On every mainstream handset this returns 360, and that is not because the
+## number is hardcoded.** `dcc_shell.gd` sets `_phone_scale` to
+## `max(1.0, short_side / PHONE_REF_SHORT)`, so a device whose short side is at
+## or above 412 px normalises to exactly 412 dp whatever its resolution:
+## measured 412 dp at 1080x2400, 1080x2340, 720x1600 and 1440x3120 alike
+## (`_nwcard_probe.gd`), and 915 dp in landscape at 2400x1080 — all four clamp
+## to §6.7's `max-width`. The subtraction is what a screen *narrower* than the
+## reference gets, where the scale floors at 1.0 and the dp is the real width:
+## 380x800 measures 380 dp and a 336 px card, in the same probe.
+func _fit_phone_card() -> void:
+	if _card == null:
+		return
+	var host := get_parent()
+	if host == null or not host.has_method("phone_scale"):
+		return
+	var scale: float = host.phone_scale()
+	if scale <= 0.0:
+		return
+	var dp := int(host.get_viewport_rect().size.x / scale)
+	_card.custom_minimum_size.x = float(
+		clampi(dp - 2 * PHONE_CARD_INSET, PHONE_CARD_MIN_W, PHONE_CARD_MAX_W))
+
+## §6.7's dice button -- `44 x 42`, radius 12, glyph `⚄` -- drawn with
+## `DccIcons`' own `dice` mark rather than U+2684. That is `dcc_icons.gd`'s
+## standing rule and not a preference: a typographic symbol stays text only
+## where the glyph exists somewhere in the fallback chain, and that file
+## records 19 of its own 24 `SYMBOLS` missing from Plex Mono outright.
+## `world_workspace.gd`'s sculpt-seed dice is the same mark at the same job.
+##
+## Height is the shell's `PHONE_TAP_MIN` (44), not §6.7's 42: the floor wins
+## over the artboard where they disagree by two pixels.
+##
+## Sits in the row `DccWidgets.number()` just built, so the label column and
+## the spin box keep the shell's own row geometry, and it fires
+## `randomise_seed()` -- the same action the **left dock's** WORLD ▸ Generate
+## category reaches through `app.gd::_new_seed()`, so the phone gets the
+## desktop's reroll rather than a second behaviour that happens to look like it.
+## (Corrected 2026-09-05: this said `World ▸ Generate ▸ New seed`, implying a
+## menu row. There is none — `grep 'New seed' menus.gd` and `command_index.gd`
+## both return nothing, so it is not searchable either. Its only home is
+## `world_workspace.gd`'s Generate category.)
+func _build_seed_dice() -> void:
+	var row := seed_input.get_parent() as Control
+	if row == null:
+		return
+	var dice := Button.new()
+	dice.icon = DccIcons.get_icon("dice", 14)
+	dice.focus_mode = Control.FOCUS_NONE
+	dice.custom_minimum_size = Vector2(DccTheme.PHONE_TAP_MIN, DccTheme.PHONE_TAP_MIN)
+	dice.tooltip_text = "New seed — reroll to a fresh random world. The same reroll as the WORLD dock's Generate category."
+	## **A tooltip is not a name on a handset.** There is no hover, so an
+	## icon-only button's tooltip is unreachable by any route -- the same fault
+	## `dcc_shell.gd::_phone_fit_tool_button()` was written to fix for the tool
+	## palette. `accessibility_name` is the route that survives without a
+	## pointer, and `dcc_shell.gd` already fills it from `tooltip_text` for its
+	## own icon buttons; one short name reads better than a whole sentence.
+	dice.accessibility_name = "New seed"
+	var quiet := DccTheme.pill(false, 12, 10, 4)
+	var lit := DccTheme.pill(false, 12, 10, 4)
+	lit.bg_color = DccTheme.c("line_soft")
+	dice.add_theme_stylebox_override("normal", quiet)
+	dice.add_theme_stylebox_override("hover", lit)
+	dice.add_theme_stylebox_override("pressed", lit)
+	dice.pressed.connect(randomise_seed)
+	row.add_child(dice)
+
+## §6.7's two extent chips -- `flex:1`, `min-height:42px`, radius 14, `REGION`
+## (the default) and `WORLD` -- in place of the dropdown the desktop form uses.
+## Two mutually exclusive values is what a segmented pair is for, and the
+## alternative on a handset is an `OptionButton` whose popup rows
+## `dcc_shell.gd::phone_fit()` measured at about 21 dp.
+##
+## They **drive** the dropdown rather than replacing it: `extent_input` is
+## still built (hidden, in `rest`), because `_update_extent_state()`,
+## `_derived_grid_h()` and `_refresh_dimensions()` all read
+## `extent_input.selected`, and a second source of truth for one fact is how
+## those three come to disagree.
+func _build_extent_chips(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Extent")
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	sec.add_child(row)
+	for i in 2:
+		var chip := DccWidgets.segment(row, "REGION" if i == 0 else "WORLD",
+			func(): _on_extent_chip(i))
+		chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		chip.custom_minimum_size.y = DccTheme.PHONE_TAP_MIN
+		chip.tooltip_text = EXTENT_NOTE_REGION if i == 0 else EXTENT_NOTE_WORLD
+		_extent_chips.append(chip)
+	_set_extent_chips()
+
+## Assigning `OptionButton.selected` does not emit `item_selected` -- only a
+## user's pick does -- so the handler is called by name here rather than left
+## to fire twice or not at all.
+func _on_extent_chip(index: int) -> void:
+	extent_input.selected = index
+	_on_extent_selected(index)
+
+## Every route into an extent has to reach the chips, not only the tap that
+## took one. There are three, and hanging the refresh off
+## `_update_extent_state()` rather than off `_on_extent_chip()` is what covers
+## all three: a chip tap; `setup()`'s own first call, for the value
+## `param_get("world")` seeded the dropdown with; and `extent_input`'s own
+## `item_selected`, which no phone user can reach today because the dropdown
+## is hidden — and which stays covered anyway rather than depending on that.
+func _set_extent_chips() -> void:
+	for i in _extent_chips.size():
+		var chip: Button = _extent_chips[i]
+		var on := extent_input.selected == i
+		DccWidgets.set_segment_on(chip, on)
+		## The lit state is a border colour, a wash and an ink step -- three
+		## visual facts and nothing a non-visual reader can reach. A `Button`
+		## that is not in `toggle_mode` exposes no pressed state either, so the
+		## selection rides in the name, refreshed here with it rather than set
+		## once at build where it would immediately be wrong.
+		chip.accessibility_name = "%s extent%s" % [
+			chip.text.capitalize(), " (selected)" if on else ""]
+		## §6.7's radius 14. `set_segment_on()` installs §11's square desktop
+		## box; rounding the three instances it just made keeps the phone
+		## radius here instead of putting it on every segment in the shell.
+		for sb_name in ["normal", "pressed", "disabled"]:
+			var sb := chip.get_theme_stylebox(sb_name) as StyleBoxFlat
+			if sb != null:
+				sb.set_corner_radius_all(PHONE_CHIP_RADIUS)
 
 ## The three settlement-placement dials the civ `PARAMS` group added
 ## (`LARGE_ITEM_RULINGS.md`, owner 2026-08-31). Written straight through
@@ -350,6 +602,7 @@ func _update_extent_state() -> void:
 	aspect_input.disabled = false
 	grid_h_input.editable = true
 	extent_note_label.text = EXTENT_NOTE_WORLD if world else EXTENT_NOTE_REGION
+	_set_extent_chips()
 	_refresh_dimensions()
 
 func _on_size_preset_selected(index: int) -> void:
@@ -547,6 +800,27 @@ func _sync_from_engine() -> void:
 	if recovery_input != null and recovery_input.item_count > 0:
 		_recovery_phase = clampi(bridge.get_recovery_phase(), 0, recovery_input.item_count - 1)
 		recovery_input.select(_recovery_phase)
+	## **The fifth reader F14 missed, and the one this pass made visible.**
+	## `extent_input` is seeded from `param_get("world")` in `_build()` and was
+	## never read again, so opening this dialog over a project whose extent had
+	## since changed -- `project_open` and `load_save` both write that
+	## parameter -- displayed the extent of the *previous* world. The other
+	## four re-reads below it were added by F14; this one was not, and it is
+	## the one that lies loudest, because `request()` carries no extent at all:
+	## Create takes whatever the live parameter holds, so a stale REGION on
+	## screen produces a whole-world map with no warning.
+	##
+	## Routed through `_update_extent_state()` rather than assigning
+	## `selected`, because the extent note, the one-time aspect suggestion, the
+	## derived readout and (on a phone) the two chips all hang off it.
+	## `param_get` answers `null` before the table has been probed, and `null`
+	## is not `false` -- an unprobed table leaves the control as it was rather
+	## than being told the world is a region.
+	var world_now = bridge.param_get("world")
+	if extent_input != null and world_now != null \
+			and (extent_input.selected == 1) != bool(world_now):
+		extent_input.selected = 1 if bool(world_now) else 0
+		_update_extent_state()
 
 func request() -> Dictionary:
 	return {

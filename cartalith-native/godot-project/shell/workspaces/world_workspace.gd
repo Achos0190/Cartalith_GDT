@@ -373,15 +373,23 @@ func _build() -> void:
 		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)"},
 	])
 
-	## **The two-button switch (Generation pipeline | Sculpt) is gone**
-	## (2026-08-24, v3). It was a mode selector over one domain, and v3 has no
-	## such control anywhere: Sculpt is a row inside TERRAIN, which is where a
-	## person looking for "change the shape of the ground" would go. Removing it
-	## also removes the one place in this shell where a dock had a hidden half
-	## -- the accordion is now the only disclosure WORLD uses, like CIVIL and
-	## CARTO. `_sculpt_body`/`_paint_body` still exist and are still rebuilt
-	## wholesale on every generate; they are parented into their categories
-	## instead of into a mode panel.
+	## **The two-button switch (Generation pipeline | Sculpt) came back on
+	## 2026-09-05, in the dock chrome rather than here.** It was removed on
+	## 2026-08-24 on the reading that v3 has no such control and that WORLD's
+	## only disclosure should be the accordion, like CIVIL and CARTO. The owner's
+	## 2026-09-05 ruling (`LARGE_ITEM_RULINGS.md` item 2) settles that the other
+	## way for this domain: `04-left-dock.md` §2.1 band 2 and §2.3 draw a
+	## two-segment mode pill, §3 rows 1 and 2 make WORLD ▸ a and WORLD ▸ b
+	## genuine complements, and `DccShell.RAIL_NODES`' `shows` gate now hides
+	## eight of WORLD's nine categories in Sculpt. **So WORLD does have a hidden
+	## half again, deliberately, and the switch is the affordance that admits
+	## it** -- `DccShell._build_mode_switch()` owns it, pinned above the scroll
+	## body where the canvas puts it, so it never scrolls away from what it
+	## hides. CIVIL and CARTO are still accordion-only; neither gates.
+	##
+	## `_sculpt_body`/`_paint_body` are unaffected and are still parented into
+	## their categories rather than into a mode panel -- the mode hides the
+	## category, it does not re-home the body.
 	_sculpt_body = VBoxContainer.new()
 	_sculpt_body.add_theme_constant_override("separation", 0)
 	_sculpt_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2215,6 +2223,55 @@ func _on_tool_armed(id: String) -> void:
 	## this context on a domain switch.
 	if id == "paint" and app.right_dock_ctrl.has_method("show_paint"):
 		app.right_dock_ctrl.show_paint(_paint_layer, _on_paint_value_picked_from_dock)
+	_follow_tool_to_its_block(id)
+
+## **`armTool`'s navigation half** (`04-left-dock.md` §2.4, and §4c of
+## `02-rail-and-domains.md` which lists it among the writers of `domain`/`mode`):
+## *"If id is `sculpt` or `freehand`, it also forces `domain: 'WORLD'` and
+## `worldMode: 'b'` -- arming a sculpt tool from anywhere jumps the dock to
+## WORLD·b."* Not reproduced until 2026-09-05, because until then there was
+## nothing to jump to: WORLD's nine categories were all on screen in both modes,
+## so arming Sculpt from CIVIL left the sculpt controls one domain click away
+## and no mode was wrong.
+##
+## `RAIL_NODES`' `shows` gate changes that. `world/b` now renders `Terrain` and
+## hides the other eight, so arming Sculpt and then walking to WORLD by hand
+## would land on whichever mode was last active -- the pipeline, in the default
+## state -- with the brush armed over a dock that does not show a brush. This is
+## the transition INTO the gated state that the gate creates, and it is closed
+## here rather than left as a corner.
+##
+## **Two tools, two destinations, each derived from where its controls actually
+## are** rather than from the prototype's tool names. `_sculpt_body` is parented
+## into the `Terrain` category and `_paint_body` into `Biomes` (`_build_categories()`),
+## so Sculpt goes to the mode that renders `Terrain` and Biome paint to the mode
+## that renders `Biomes` -- `mode_for_category()` is asked, so neither letter is
+## written down twice.
+##
+## The prototype's third id, `freehand`, needs no arm of its own here: in this
+## port Freehand is a sculpt **feature**, not a tool, and both routes to it
+## (`tool_bar.gd`'s pill and this file's own feature picker) call
+## `sculpt_set_feature("freehand")` and then `arm_tool("sculpt")` -- so it
+## already arrives through the `sculpt` arm above, which is exactly where §2.4
+## sends it.
+func _follow_tool_to_its_block(id: String) -> void:
+	var category := ""
+	match id:
+		"sculpt": category = "Terrain"
+		"paint": category = "Biomes"
+		_: return
+	if DccShell.mode_for_category("world", category).is_empty():
+		return
+	## `select_domain_category`, not `select_domain_mode`: the mode is the half
+	## that makes the block *visible*, and the category is the half that makes it
+	## *open*. `select_domain_mode("world", "a")` opens that node's own category
+	## (`Generate`) and would leave Biome paint armed over a closed `Biomes`
+	## accordion — the tool's controls rendered, in a body nobody expanded.
+	## `select_domain_category()` derives the same mode through
+	## `mode_for_category()` and then opens the category that actually holds the
+	## brush, so both halves land. It forces the domain too, which is the third
+	## thing §2.4's `armTool` asks for.
+	app.select_domain_category("world", category)
 
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
 ## substrate's own instructions -- `app.gd`'s `_wire_selection` forwards every

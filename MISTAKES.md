@@ -71,6 +71,8 @@ its rule before you start.
 | **Quote a sub-millisecond figure to three significant figures** | The precision is the claim. `9.65 us (9.63..9.66)` across 7 runs was measuring that run's cache state; an independent harness of the same shape got 10.02 (9.95..10.04) — magnitude right, brackets disjoint | Give an order of magnitude when that is what the number is for, and let the test print the spread |
 | **Move a command off the menu bar** | The searchable index is built by **walking the live `MenuBar`**, so a command that stops being a menu row stops being findable — silently, with nothing failing. Two ruled moves scored **0 title matches out of 361** the moment they landed, and one accelerator became unrebindable and unlisted | Add a `command_index.gd` `EXTRAS` row and a `shortcuts_dialog.gd` `UNLISTED` row **in the same change**. Assert by TITLE, not `search()` — search matches blurbs and will pass on a neighbour's tooltip |
 | **Reserve a file from every lane** | Reserving prevents collisions and **strands the fix that needs it**. Three lanes correctly reported that the index and the shortcuts list needed rows; none could write them, and the regression shipped to the verifier | Either give the shared file to exactly one lane, or accept that the main loop must land those edits before the batch is called done |
+| **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks, one body per rail node" was the main loop's summary of `04-left-dock.md` §3, which actually gates **one node of ten** — and an owner accepted a consequence ("this hides controls") on the strength of it | Quote the spec's own condition column into the row. If the summary and the table disagree, the table is the spec |
+| **Claim a mechanism is "derived, not hardcoded"** | Check every line of it, not the entry point. The mode switch derived its **visibility** and hardcoded its node source, its labels and its refresh — so a future gated domain would get an empty pill carrying another domain's labels | Name the parts that are derived and the parts that are not, separately |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
 
 ---
@@ -118,7 +120,7 @@ over the diff, then render over real data and count.
 
 ---
 
-### [2026-09-03] Leaving prose that describes the old behaviour ×44
+### [2026-09-03] Leaving prose that describes the old behaviour ×47
 
 **Mistake:** Controls disabled by reasons that had become false; `render.rs`'s
 module doc listing `rockSlope` refinement as **excluded** in the file that had

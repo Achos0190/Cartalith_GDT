@@ -61,17 +61,50 @@ const DOMAINS: Array = [
 # `{t:'n'}` nodes -- and so does `_build_rail_expansion()`, which is why this is
 # one flat array and not a nested one.
 #
-# **`mode` is a rail-and-dock *selector* here, not a dock gate.** The prototype
-# hides dock content by mode (`ldPipe`/`ldSculpt`/`ldCarto`/`ldLabels`/... at
-# `parts.js:374` and `ENV:1945`): when `cartoCat` is `labels`, the layer tree is
-# not in the DOM at all. This shell cannot do that, and must not: each domain's
-# dock is ONE accordion of every category that domain owns, reached only from
-# that accordion, so gating it by mode would make the eight CIVIL categories the
-# prototype has no node for -- Civilizations, Territories, Economy, Culture,
-# Politics, Military, Relationships, Simulation -- unreachable. That is exactly
-# the failure this stage's own rule forbids ("every category reachable before
-# must be reachable after"). So a node click *opens* its category and lights the
-# rail; it never hides a sibling.
+# **`mode` selects; `shows` gates. Most nodes have no `shows`.**
+#
+# Owner ruling, `LARGE_ITEM_RULINGS.md` 2026-09-05 item 2: restructure the left
+# dock to `04-left-dock.md` §3's blocks. Read in full, §3 gates far less than a
+# one-line summary of it suggests, and this table is that reading written down:
+#
+#   - **§3 point 3** -- *"CIVIL always shows all four category headers, with
+#     exactly one body expanded between them"*. The headers are interleaved with
+#     the bodies; the shape is an accordion, not a tab strip. So no CIVIL node
+#     carries `shows`, and every CIVIL category header stays on screen in every
+#     CIVIL mode, exactly as it does today.
+#   - **§3 point 2** -- the four CARTO nodes render *one* dock (`ldCarto` and
+#     `ldRender` are both plain `domain==='CARTO'`). BUILD_ANSWERS §2.1 then
+#     gave those four nodes four real destinations *"accordion headers in the
+#     left dock ... same grammar as the CIVIL categories"*, which is the newer
+#     document and the one this shell follows -- but neither statement hides a
+#     header, so no CARTO node carries `shows` either.
+#   - **§3 rows 1 and 2** -- `ldPipe` and `ldSculpt` are genuine complements,
+#     and WORLD is the only domain in the whole table where one block's presence
+#     is another's absence. That is the one gate, and it is `world/b`'s.
+#
+# `shows` therefore means: *while this mode is active, the dock renders exactly
+# these category headers.* Absent (nine nodes of ten) means no gate at all.
+# `world/b`'s `["Terrain"]` is §3 row 2 -- the sculpt block alone -- and
+# `world/a` deliberately has none, so the Generation pipeline block keeps all
+# nine WORLD categories including `Terrain`'s stage-5 erosion parameters, which
+# are pipeline parameters and belong in the pipeline view. `Workspace.apply_mode()`
+# is what reads this, and `_select_domain()` is the one place that calls it.
+#
+# **A gate is only allowed where a route exists.** `world/b` is reachable from
+# its rail node, from the dock's own mode switch (`_build_mode_switch()`), and
+# from arming Sculpt; `world/a` from all three of the same. Nothing else in the
+# three docks is gated, so nothing else can be stranded by one -- which is the
+# property `_leftdock12_probe.gd` §2 asserts by name over all thirty-four
+# categories rather than by counting them.
+#
+# The rest of `mode` is a rail-and-dock *selector*, not a gate. Each domain's
+# dock is ONE accordion of every category that domain owns, so gating CIVIL by
+# mode would make the nine CIVIL categories the prototype has no node for --
+# Civilizations, Territories, Economy, Culture, Religion, Politics, Military,
+# Relationships, Simulation -- reachable only by a rail trip. That is the
+# failure this stage's own rule forbids ("every category reachable before must
+# be reachable after"), and §3 does not ask for it. So a node click *opens* its
+# category and lights the rail; outside `world/b` it never hides a sibling.
 #
 # **One node does more than that, and the design is why.** CIVIL ▸ `planner`
 # opens the `Travel` category exactly like its siblings *and* arms the Journey
@@ -100,7 +133,7 @@ const RAIL_NODES: Array = [
 		"owns": ["Generate", "Geology", "Hydrology", "Climate", "Biomes",
 			"Ecology", "Resources", "World data"]},
 	{"kind": "node", "domain": "world", "mode": "b", "label": "Sculpt",
-		"category": "Terrain", "owns": ["Terrain"]},
+		"category": "Terrain", "owns": ["Terrain"], "shows": ["Terrain"]},
 
 	{"kind": "head", "domain": "civilization", "label": "CIVIL"},
 	{"kind": "node", "domain": "civilization", "mode": "landmarks", "label": "Landmarks",
@@ -108,8 +141,8 @@ const RAIL_NODES: Array = [
 	{"kind": "node", "domain": "civilization", "mode": "factions",
 		"label": "Factions & settlements", "category": "Factions",
 		"owns": ["Civilizations", "Factions", "Territories", "Settlements",
-			"Economy", "Culture", "Politics", "Military", "Relationships",
-			"Simulation"]},
+			"Economy", "Culture", "Religion", "Politics", "Military",
+			"Relationships", "Simulation"]},
 	{"kind": "node", "domain": "civilization", "mode": "infra", "label": "Ways & routes",
 		"category": "Routes & ways", "owns": ["Routes & ways", "Trade"]},
 	{"kind": "node", "domain": "civilization", "mode": "planner", "label": "Journey planner",
@@ -2639,6 +2672,25 @@ func _select_domain(id: String) -> void:
 				DccTheme.c("accent") if on else DccTheme.c(off)
 	for key in _workspace_panels:
 		(_workspace_panels[key] as Control).visible = key == id
+	## **The §3 gate, applied at the one choke point every route reaches.**
+	## `select_domain_mode()`, `select_domain_category()`, `select_domain()`,
+	## `Window ▸ Workspace`, the phone tabs and every in-shell "→ Cartography ▸ …"
+	## jump all land here, and all of them can arrive with a *different* mode
+	## than the panel was last painted for -- `_domain_mode` persists per domain,
+	## so returning to WORLD after leaving it in Sculpt has to restore Sculpt's
+	## body, not the pipeline's. Applied to every registered panel and not only
+	## the active one, so a panel that was gated while hidden is correct the
+	## instant it is shown rather than one frame later.
+	##
+	## Ordered after the visibility loop above for a reason: `apply_mode()` ends
+	## by making sure one *visible* category is open, and "visible" is read off
+	## the wraps it has just set, not off the panel -- so it is safe either way,
+	## but a reader looking for the gate should find it beside the thing it gates.
+	for key in _workspace_panels:
+		var p: Control = _workspace_panels[key]
+		if p.has_method("apply_mode"):
+			p.call("apply_mode", String(_domain_mode.get(key, "")))
+	_refresh_mode_switch()
 	for d in DOMAINS:
 		if d.id == id:
 			left_dock_title.text = String(d.label).to_upper()
@@ -2702,6 +2754,31 @@ func select_domain_mode(id: String, mode: String) -> void:
 			push_warning("Cartalith: rail node '%s/%s' names category '%s', which the %s dock does not have."
 				% [id, mode, String(node["category"]), id])
 
+## Write one domain's mode and re-run everything that reads it -- the rail ink,
+## the dock's mode switch, and the §3 gate on that domain's panel -- **without**
+## opening a category.
+##
+## That omission is the whole reason this is separate from `select_domain_mode()`
+## rather than a flag on it. `Workspace.open_category()` calls this when the
+## category it was asked for is behind a mode switch; if this opened a category
+## too, the two would recurse through each other. `select_domain_mode()` is the
+## composition of this and the open, and stays the entry point for anything that
+## wants both.
+##
+## Does not switch domain: a mode is per-domain state that survives leaving it
+## (`_domain_mode`'s own header), so writing CIVIL's mode from a CARTO dock is
+## meaningful and must not drag the user across the rail.
+func apply_domain_mode(id: String, mode: String) -> void:
+	if rail_node(id, mode).is_empty():
+		push_warning("Cartalith: no rail node '%s/%s'." % [id, mode])
+		return
+	_domain_mode[id] = mode
+	_paint_rail_nodes()
+	_refresh_mode_switch()
+	var panel: Control = _workspace_panels.get(id)
+	if panel != null and panel.has_method("apply_mode"):
+		panel.call("apply_mode", mode)
+
 ## The `RAIL_NODES` row for one (domain, mode) pair, or `{}`.
 static func rail_node(id: String, mode: String) -> Dictionary:
 	for n in RAIL_NODES:
@@ -2725,6 +2802,41 @@ static func rail_node(id: String, mode: String) -> Dictionary:
 ## mode alone" rather than guessing, and `_railfold_probe.gd` §3 asserts that no
 ## category in any of the three docks is unowned, so the `""` branch is
 ## unreachable in a correct build and is there to make an incorrect one visible.
+## The categories one mode renders, or `[]` for *"all of them"* -- the read side
+## of `RAIL_NODES`' `shows` key, whose header block above is the reasoning.
+##
+## `[]` and "this mode hides everything" are deliberately not the same value:
+## nine of the ten nodes carry no `shows` at all, and a gate that defaulted to
+## an empty allow-list would blank nine docks. Absent means ungated, which is
+## why this returns the key's own value untouched rather than something derived
+## from `owns` -- `owns` answers *which node lights*, and every category is in
+## exactly one `owns` list, so deriving a gate from it would take `Terrain`'s
+## erosion parameters out of the pipeline in WORLD `a`, and leave CIVIL showing
+## only the categories one node happens to own -- one header in `landmarks`, two
+## in `infra`, one in `planner`.
+static func mode_shows(id: String, mode: String) -> Array:
+	var n := rail_node(id, mode)
+	return (n.get("shows", []) as Array) if not n.is_empty() else []
+
+## Whether a domain gates its dock at all -- true when any of its nodes carries
+## a `shows`. Drives the dock's own mode switch (`_build_mode_switch()`), which
+## is shown for exactly the domains where a mode change is capable of removing a
+## header from the body, and hidden where it cannot.
+static func domain_gates(id: String) -> bool:
+	for n in RAIL_NODES:
+		if String(n.get("kind", "")) == "node" and String(n["domain"]) == id \
+				and not (n.get("shows", []) as Array).is_empty():
+			return true
+	return false
+
+## Every node of one domain, in `RAIL_NODES` order.
+static func domain_nodes(id: String) -> Array:
+	var out: Array = []
+	for n in RAIL_NODES:
+		if String(n.get("kind", "")) == "node" and String(n["domain"]) == id:
+			out.append(n)
+	return out
+
 static func mode_for_category(id: String, category: String) -> String:
 	for n in RAIL_NODES:
 		if String(n.get("kind", "")) != "node" or String(n["domain"]) != id:
@@ -2739,6 +2851,15 @@ static func mode_for_category(id: String, category: String) -> String:
 func register_workspace(id: String, panel: Control) -> void:
 	panel.visible = id == _active_domain
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## Which domain's dock this panel *is*. A `Workspace` could not answer that
+	## before: `app.active_domain()` is the domain currently on screen, which is
+	## the wrong question for a panel that is not on screen -- and every one of
+	## the three is off screen two thirds of the time. `apply_mode()` needs it to
+	## look its own `shows` list up in `RAIL_NODES`, so it is written here, at the
+	## one call that knows the pairing, rather than duplicated as a constant in
+	## each of the three subclasses where it could drift from this dictionary.
+	if panel.has_method("bind_domain"):
+		panel.call("bind_domain", id)
 	_workspace_panels[id] = panel
 	left_dock_body.add_child(panel)
 	## **Deferred, not called here directly -- measured, not assumed.**
@@ -2880,6 +3001,10 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 	## it, reached on every domain switch from `DccApp._on_workspace_changed()`;
 	## until 2026-09-05 the WORLD one was the only writer in the shell.
 	col.add_child(_dock_readout("left"))
+	## `04-left-dock.md` §2.1's band 2 -- pinned above the scroll body, exactly
+	## where the canvas puts it, so the one control that can put a hidden block
+	## back never scrolls away from the body it is hiding.
+	col.add_child(_build_mode_switch())
 
 	var scroll := _scroll()
 	_left_dock_scroll = scroll
@@ -3031,6 +3156,132 @@ func _collapse_button(is_left: bool) -> Button:
 ## The label lives outside the ScrollContainer precisely because collapsing
 ## hides that container -- putting the readout inside it would hide the thing
 ## the rule exists to preserve.
+# -- §2.3 The left dock's mode switch (`ldSwitch`) -----------------------------
+#
+# `04-left-dock.md` §2.1 band 2: a two-segment pill, pinned between the dock
+# header and the TOOLS block, *"shown only when `ldSwitch` is true"*. §2.3 reads
+# it as the WORLD **a / b** switch and says so; §9.1 records that the literal
+# condition, and both segment labels, went with the prototype's truncated tail.
+#
+# **Why it exists here rather than being left to the rail.** `RAIL_NODES`'
+# `shows` key gives `world/b` a real gate -- in Sculpt the dock renders one
+# category and hides eight. The rail can put them back, but the rail's node list
+# is `railExp:false` at rest (`ENV:1199`), so from inside a gated dock the way
+# out is two clicks through a column that is not on screen. The canvas draws the
+# pill precisely so that it is one click, in the dock, beside what it hides.
+# That is the whole reason a gate is permitted at all here (see `RAIL_NODES`'
+# header), so the switch and the gate ship together or neither ships.
+#
+# **Only the VISIBILITY is derived. Corrected 2026-09-05 after a verifier read
+# the rest of the function.** `domain_gates()` asks whether any of a domain's
+# nodes carries a `shows`, so the pill appears for a gated domain without being
+# told which one. Everything else here is hardcoded to WORLD:
+# `_build_mode_switch()` iterates `domain_nodes("world")`, `_MODE_SWITCH_LABELS`
+# is `{a: PIPELINE, b: SCULPT}`, and `_refresh_mode_switch()` reads WORLD's mode.
+#
+# So a future CIVIL or CARTO gate would show an **empty pill with WORLD's two
+# labels**, not its own affordance — the opposite of what the first version of
+# this comment claimed. Generalising it means sourcing the nodes and the labels
+# from the active domain too; that is a real change, not a rename, and it is not
+# made here because nothing needs it yet.
+#
+# **The two labels are a decision, not a quotation.** §9.1: *"the switch's own
+# two labels are not recoverable ... `Generation pipeline` / `Sculpt` are the
+# closest evidence but are 19 and 6 characters -- almost certainly not the pill
+# text."* `PIPELINE` / `SCULPT` is this port's choice: both are words the rail's
+# own node labels already use, both fit the `--m2` uppercase mono the dock sets
+# every heading in, and they balance at 8 and 6 characters across two `flex:1`
+# halves. Recorded the same way `Workspace.push_dock_readout()` records its own
+# unrecoverable string, rather than passed off as the design's.
+var _mode_switch_row: Control
+var _mode_switch_buttons: Dictionary = {}   ## mode -> Button
+const _MODE_SWITCH_LABELS: Dictionary = {"a": "PIPELINE", "b": "SCULPT"}
+
+func _build_mode_switch() -> Control:
+	var pad := MarginContainer.new()
+	## §2.1 band 2's own box: `padding: 8px var(--pad) 2px`.
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_theme_constant_override("margin_bottom", 2)
+	pad.visible = false
+	_mode_switch_row = pad
+
+	## §2.3's container: `background: var(--ins); border-radius:999px; padding:3px`.
+	## `--ins` is the `sunken` token. **The radius is not reproduced**: §11's
+	## "radius 0 everywhere" governs every desktop artboard, `DccTheme.pill()`'s
+	## own header records that the phone canvas is the single exception, and the
+	## shell's 22 other `set_segment_on()` call sites are all square. A rounded switch
+	## among square siblings would read as a different kind of control.
+	var shellbox := PanelContainer.new()
+	var pill_box := DccTheme.flat(DccTheme.c("sunken"))
+	pill_box.content_margin_left = 3
+	pill_box.content_margin_right = 3
+	pill_box.content_margin_top = 3
+	pill_box.content_margin_bottom = 3
+	shellbox.add_theme_stylebox_override("panel", pill_box)
+	pad.add_child(shellbox)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 3)
+	shellbox.add_child(row)
+
+	for n in domain_nodes("world"):
+		var mode := String(n["mode"])
+		var b := DccWidgets.segment(row, String(_MODE_SWITCH_LABELS.get(mode, mode)),
+			_on_mode_switch_pressed.bind(mode))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## §2.3's `flex:1` halves are `--ctl` tall (24 desktop / 36 tablet).
+		## **The tablet figure is raised to the 44 px tap floor rather than taking
+		## the canvas's 36**, which is the same call `_scaled()` makes for every
+		## height its own table does not name; `DccWidgets.segment()`'s
+		## `role_px("chip_min_h")` of 34 is below the floor and is a standing
+		## shell-wide issue, so matching it would not be conformance.
+		##
+		## **The phone takes the authored 24 and nothing else.** `phone_fit()`
+		## multiplies `custom_minimum_size.y` by its own unit and *then* floors
+		## every `BaseButton` at `PHONE_TAP_MIN * unit`, so writing a
+		## pre-scaled `_ptap(24)` here scaled it twice: measured at **301 px**
+		## for one segment on a 1080x2340 sheet, against the 115 px the floor
+		## actually asks for. Authoring in desktop pixels and letting the fitter
+		## scale is what every other control in the dock does.
+		b.custom_minimum_size.y = 44 if (_touch and not _phone) else 24
+		## Two segments, one lit: the state has to be legible without colour
+		## alone, so the tooltip names it in words. `set_segment_on()` supplies
+		## the accent ink and wash; `_refresh_mode_switch()` owns both.
+		_mode_switch_buttons[mode] = b
+	_refresh_mode_switch()
+	return pad
+
+## Show the pill for a gating domain, hide it for the rest, and light whichever
+## segment is the active mode. Called from `_select_domain()` -- the one choke
+## point every domain and every mode change passes through -- so the pill cannot
+## disagree with the body beneath it.
+func _refresh_mode_switch() -> void:
+	if _mode_switch_row == null or not is_instance_valid(_mode_switch_row):
+		return
+	var on := domain_gates(_active_domain) and not _left_collapsed
+	_mode_switch_row.visible = on
+	if not on:
+		return
+	var active := String(_domain_mode.get(_active_domain, ""))
+	for mode in _mode_switch_buttons:
+		var b: Button = _mode_switch_buttons[mode]
+		if not is_instance_valid(b):
+			continue
+		var lit: bool = String(mode) == active
+		DccWidgets.set_segment_on(b, lit)
+		b.tooltip_text = "%s — %s" % [
+			String(rail_node("world", String(mode)).get("label", mode)),
+			"showing" if lit else "click to show"]
+
+## Pressing a segment is exactly a rail-node press on the same node, minus the
+## expansion column: same mode write, same category open, same gate. Routed
+## through `select_domain_mode()` rather than writing `_domain_mode` here, so a
+## future node behaviour (the Journey takeover is one already) cannot arrive for
+## the rail and not for the pill.
+func _on_mode_switch_pressed(mode: String) -> void:
+	select_domain_mode("world", mode)
+
 func _dock_readout(side: String) -> Control:
 	var l := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -3078,6 +3329,17 @@ func _toggle_dock(is_left: bool) -> void:
 		## is the only affordance for getting the dock back.
 		left_dock_title.visible = not collapsed
 		_left_collapsed = collapsed
+		## **And neither has the mode switch** (`04-left-dock.md` §2.1 band 2).
+		## Two `SIZE_EXPAND_FILL` segments carrying `PIPELINE` and `SCULPT` have
+		## a combined minimum width far past `W_RAIL_COLLAPSED`, and a
+		## `MarginContainer` propagates its child's minimum to the `VBoxContainer`
+		## and on to the dock -- so leaving it up would hold the collapsed strip
+		## open at the switch's width with no scrollbar anywhere to show why.
+		## The same reason the title is hidden two lines above, and the same
+		## failure class as the disabled-axis `ScrollContainer`s this tree has
+		## repeatedly grown. `_refresh_mode_switch()` re-reads `_left_collapsed`, so
+		## re-opening the dock restores it in the right state.
+		_refresh_mode_switch()
 	else:
 		_right_collapsed = collapsed
 	var btn: Button = _collapse_buttons.get(side)

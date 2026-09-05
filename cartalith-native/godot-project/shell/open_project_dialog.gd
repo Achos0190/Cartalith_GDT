@@ -49,33 +49,87 @@ class_name OpenProjectDialog
 ##   seed is read out of the save's `params.json` (`state.tect.seed`), which
 ##   is display metadata, not a computation -- nothing downstream reads it.
 ##
-## ## Welcome mode
+## ## Welcome mode -- a second composition, not a re-titled gallery
 ##
-## `open_welcome()` is the same dialog with the cold-start framing: a
-## different head, two extra action tiles ahead of the gallery, and a foot
-## that says leaving is allowed. `app.gd`'s `_ready` opens it once when no
-## world exists.
+## `open_welcome()` shows the **cold-start picker** the 2026-08-31 environment
+## canvas boots into (`design/dcc-environment-2026-08-31/Cartalith DCC
+## Environment.dc.html`, `state.scr = 'picker'`): a vertically centred column
+## of a wordmark, up to three world cards, a row of peer action buttons and one
+## foot line. `app.gd`'s `_ready` opens it once when no world exists; phone
+## goes to `phone_project_picker.gd` instead and never reaches this.
 ##
-## **Why this and not a separate welcome screen.** The reference's own setup
-## gate (reference HTML lines 657-666) is one card offering three peer
-## choices -- generate, load a `.zip`, import a heightmap. This dialog is
-## already two of those three: it *is* the load-a-project surface, and it
-## already carries one action tile that is not a project (the dashed
-## `.zip`-from-disk tile). Adding "create" and "import a heightmap" beside it
-## gives the reference's exact three choices on one screen, in the visual
-## language this shell already has, and reuses the recents list, the search
-## well, the drop handling and the theme scaffolding. A third dialog would
-## have had to duplicate all of that to say the same thing, and would have
-## put a chooser in front of a gallery that is itself a chooser.
+## **It used to be the gallery with different words in the head**, and that was
+## the finding: `_paint_head()` re-lettered the modal title to `Cartalith`,
+## added two action tiles ahead of the grid, and shipped the search well, the
+## three scope chips, the dashed import tile and an `Open selected` button on
+## the first screen a user ever sees. None of those are in the drawn picker.
+## The two compositions now exist side by side under `_build()` -- `_gallery`
+## (`File ▸ Open project…`, unchanged, and it matches its own "Open project
+## dialog 1920" artboard almost line for line) and `_picker` -- with exactly
+## one visible, chosen in `_refresh()`.
 ##
-## The two extra tiles appear **only** in welcome mode. `File ▸ Open
-## project…` is unchanged, because it answers a narrower question ("which of
-## my worlds?") and answering it with two tiles about making a new one would
-## be noise. The heightmap route stays reachable afterwards through
-## `Data ▸ Import ▸ Heightmaps`.
+## **Where the three routes went.** The reference's own setup gate (reference
+## HTML lines 657-666) offers three peer choices -- generate, load a `.zip`,
+## import a heightmap -- and the picker canvas draws only the first two, as
+## `＋ New world…` and `Open project .zip…`. There is no drawn home for the
+## heightmap route, so rather than drop the only cold-start way in for a
+## heightmap it takes a third button in the same row, in the row's own
+## secondary treatment. That is the one element on this screen the canvas does
+## not draw, it is derived from the canvas's own vocabulary, and it is
+## reported as a gap rather than presented as conformance. Hidden (not
+## disabled) when the loaded extension has no import binding -- an affordance
+## that cannot work is worse than one that is absent, and unlike the `Shared`
+## chip in the gallery there is no design element here it would be dishonest
+## to drop.
+##
+## **What the picker deliberately does not carry**, all of it still one
+## dismissal away through `File ▸ Open project…` (Ctrl+O), which opens the
+## gallery: the search well, the `Recent`/`All worlds`/`Shared` chips, and any
+## world past the third. The canvas draws three cards and no chrome around
+## them; the cards are the shortcut, not the index.
+##
+## **One drawn element has no data behind it and is therefore not drawn**: the
+## canvas's cards carry a pill in the thumbnail's top-left reading `ATLAS
+## BAKED` / `IN PROGRESS` / `DRAFT`, over a `status` of `stages 01-10
+## resolved`. Nothing in this port records how far a *saved* world got --
+## `project.json` carries a format and `params.json` a seed, and the stage
+## ledger is live state that is not serialised (`SAVEFILE_COMPAT.md`) -- so
+## there is no honest value to put in that pill, and inventing one would label
+## every world `DRAFT` or every world `ATLAS BAKED`. The slot is not empty:
+## `CURRENT` already occupies it, at the same 8 px inset, and that badge is
+## real. If a save ever records its own stage ledger, this is where it goes.
+##
+## **Where each figure comes from.** Stated by the canvas: the 40 px frame
+## padding, the 34 px inter-block gap, `CARTALITH` at `500 20px` mono with
+## `.34em`, the tagline at `--m1`/`.2em`/`--faint`, the 16 px card gap, the
+## 252 px card, its 130 px thumbnail, its `500 13px`/`.12em` name and `--m2`
+## `--dim` meta, the 10 px action gap and the `6px 18px` radius-8 pill. Derived
+## from the shell's vocabulary because the canvas states nothing: the 44 px
+## action height (the canvas's `--btnH` is 28, below §13's target floor, and
+## this is the one screen a tablet user meets first), the foot's `--dim`
+## instead of `--dis` (the prototype's foot only says its file dialogs are
+## mocked; this one carries the empty-state instruction and has to be legible
+## -- `--dis` measures 2.64:1 on the light panel), the `Continue without a
+## world` opt-out (the canvas's picker is a gate and this port's is not), and
+## the cards' `--ins` fill, which keeps the canvas's *relationship* -- a card
+## lifted off the ground behind it -- where taking its literal `--pan` would
+## paint the card the same colour as the modal it now sits in.
 
 const TILE_MIN := Vector2(232, 186)
 const GRID_COLUMNS := 4
+
+## The picker card: `width:252px` with a `height:130px` thumbnail. Width only --
+## the height is whatever the thumbnail plus the two caption lines come to, the
+## same way the canvas's card is sized by its content.
+const PICKER_TILE_W := 252
+const PICKER_THUMB_H := 130
+## `flex-wrap:wrap` over `width:850px` fits three 252 px cards and their two
+## 16 px gaps (788 px) and no fourth, so the canvas's own row holds three. The
+## cap is that figure, not a taste call; the 850 px box is not reproduced
+## because three cards are inside it at every density this dialog opens at.
+const PICKER_MAX_TILES := 3
+## `--btnH` is 28 and `DCC_SHELL_SPEC.md` §13's floor is 44. See the header.
+const PICKER_BTN_H := 44
 
 var _host: DccApp
 
@@ -88,12 +142,17 @@ var _scope_buttons: Dictionary = {}   ## scope id -> Button
 var _selected := ""
 var _tiles: Dictionary = {}           ## path -> PanelContainer
 
-## Cold-start framing (see this file's header). Set by `open_welcome()`,
-## cleared by `open()`, read by `_build_head`'s labels and by `_refresh`.
-var _welcome := false
-var _title_label: Label
 var _subtitle_label: Label
-var _cancel_btn: Button
+
+## Cold-start framing (see this file's header). Set by `open_welcome()`,
+## cleared by `open()`, and read by `_refresh()`, which is the **only** place
+## that decides which of the two compositions below is on screen.
+var _welcome := false
+var _gallery: VBoxContainer      ## `File ▸ Open project…` -- the 08-23 artboard.
+var _picker: Control             ## Cold start -- the 08-31 canvas's `scr:'picker'`.
+var _picker_tiles: HFlowContainer
+var _picker_note: Label
+var _picker_import_btn: Button   ## Held so `_refresh()` can re-ask the bridge.
 
 ## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
 ## treatment and why; here it decides whether the toolbar stacks and whether
@@ -161,9 +220,12 @@ func open() -> void:
 	_present()
 	_refresh()
 
-## The cold-start prompt: the same gallery, framed as "start here" and
-## carrying the two actions that are not "open one of these". See this
-## file's header for why welcome is a mode rather than its own dialog.
+## The cold-start prompt. **Rewritten 2026-09-05 and this doc with it:** it is no
+## longer "the same gallery framed as start here" — it is the 08-31 canvas's
+## `state.scr = 'picker'` centred column, and it carries THREE routes out
+## (Create / Open / Import), not two. The old sentence survived the rewrite that
+## falsified it and a verifier caught it; see this file's header for why welcome
+## is a mode rather than its own dialog.
 ##
 ## Closing it -- Escape, the ✕, or the foot's own opt-out -- leaves the shell
 ## exactly as it was. Nothing about this is a gate.
@@ -266,10 +328,27 @@ func _fit_columns(layout_width: float) -> void:
 # Layout
 # ---------------------------------------------------------------------------
 
+## An `AcceptDialog` sizes **one** content child, so both compositions hang off
+## a single `outer` column and swap by `visible`. A `BoxContainer` skips hidden
+## children when it computes its own minimum, so the hidden half costs the
+## dialog no width and no height -- which is what lets a 252 px picker and an
+## 880 px gallery share one window without either widening the other.
 func _build() -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
 	add_child(outer)
+	_gallery = _build_gallery()
+	outer.add_child(_gallery)
+	_picker = _build_picker()
+	## `_refresh()` sets both every time; this is the state before the first
+	## one runs, and `_welcome` starts false.
+	_picker.visible = false
+	outer.add_child(_picker)
+
+func _build_gallery() -> VBoxContainer:
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 0)
+	outer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 	outer.add_child(_build_head())
 	outer.add_child(DccTheme.rule())
@@ -295,14 +374,15 @@ func _build() -> void:
 
 	outer.add_child(DccTheme.rule())
 	outer.add_child(_build_foot())
+	return outer
 
 func _build_head() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
-	## Both are re-worded in welcome mode (`_paint_head`) rather than built
-	## twice -- the row's layout is identical either way.
-	_title_label = DccTheme.label("Open project", "text_bright", DccTheme.FS_MODAL_TITLE)
-	row.add_child(_title_label)
+	## One wording, not two. Both labels used to be re-lettered by a
+	## `_paint_head()` that turned this head into the welcome screen's; the
+	## welcome screen is `_build_picker()` now and never touches this row.
+	row.add_child(DccTheme.label("Open project", "text_bright", DccTheme.FS_MODAL_TITLE))
 	_subtitle_label = DccTheme.label("choose a world to continue, or bring one in from disk",
 		"text_ghost", DccTheme.FS_SMALL)
 	row.add_child(_subtitle_label)
@@ -408,26 +488,176 @@ func _build_foot() -> Control:
 	_foot_note.clip_text = true
 	row.add_child(_foot_note)
 	row.add_child(DccTheme.spacer())
-	_cancel_btn = DccWidgets.modal_button(row, "Cancel", func(): hide())
+	DccWidgets.modal_button(row, "Cancel", func(): hide())
 	_open_btn = DccWidgets.modal_button(row, "Open selected", _confirm, true)
 	_open_btn.disabled = true
 	return _pad(row, 30, 14, 30, 14)
 
-## Welcome mode re-words the head and the opt-out; everything else is the
-## same screen. Called from `_refresh`, so it tracks whichever `open*` ran.
-func _paint_head() -> void:
-	if _welcome:
-		_title_label.text = "Cartalith"
-		_subtitle_label.text = "start a world, continue one, or bring a heightmap in from disk"
-		## Not "Cancel": in welcome mode nothing is being cancelled, and the
-		## wording has to say that closing is a real, supported outcome --
-		## the one place this port deliberately parts company with the
-		## reference's mandatory gate (see `app.gd`'s `_ready`).
-		_cancel_btn.text = "Continue without a world"
+# ---------------------------------------------------------------------------
+# The cold-start picker (08-31 canvas, `state.scr = 'picker'`)
+# ---------------------------------------------------------------------------
+
+## `padding:40px` around a column that is `justify-content:center` (a
+## `BoxContainer` with `ALIGNMENT_CENTER`, which centres its children along its
+## own axis when there is spare room) and `align-items:center` -- which in
+## Godot is not one property but one per child: a `Label` centres its text, a
+## `FlowContainer` centres its line.
+##
+## `gap:34px` separates four blocks, and the second of them disappears
+## entirely on a fresh profile. That is why the tile row's visibility is
+## toggled rather than its contents merely emptied: an empty `HFlowContainer`
+## still takes a full 34 px gap on each side of nothing, which is the "looks
+## broken on first run" the empty state has to avoid.
+func _build_picker() -> Control:
+	## **There is deliberately no `ScrollContainer` here, and that was measured
+	## rather than assumed.** One was fitted first, because `wrap_controls` is
+	## false on this dialog (`DccWidgets.phone_window()` sets it) so the window
+	## does not grow to fit its content and an overflow clips instead of
+	## scrolling. It made things worse: a `ScrollContainer` reserves 20 px for
+	## its vertical bar, which leaves 780 px of row at the dialog's 880 x 560
+	## `min_size` floor -- eight short of the 788 three cards need -- so the row
+	## wrapped to two lines and the column measured 761 px tall where it had
+	## been 552. A guard that creates the overflow it exists to absorb is worse
+	## than the eight pixels of headroom it was protecting.
+	##
+	## What bounds the height instead is the foot's `max_lines_visible` below.
+	## Every other block on this screen is fixed: the wordmark is two lines, the
+	## card row is capped at `PICKER_MAX_TILES` on one row, and the actions are
+	## one row of 44 px pills. The foot was the only thing that could grow, and
+	## it now cannot grow past two lines.
+	var frame := MarginContainer.new()
+	for side in ["left", "top", "right", "bottom"]:
+		frame.add_theme_constant_override("margin_" + side, 40)
+	frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 34)
+	frame.add_child(col)
+
+	## `font:500 20px 'IBM Plex Mono';letter-spacing:.34em` over
+	## `var(--m1)`/`.2em`/`var(--faint)`, `gap:8px`. Tracking is whole pixels
+	## in Godot (`FontVariation.spacing_glyph`), so `.34em` at 20 px is 6.8 ->
+	## 7 and `.2em` at 10 px is exactly 2.
+	var mark := VBoxContainer.new()
+	mark.add_theme_constant_override("separation", 8)
+	mark.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var word := DccTheme.mono_label("CARTALITH", "text_bright", 20, 7, true)
+	word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mark.add_child(word)
+	## The canvas reads `WORLD CONSTRUCTION · 2.11 DESKTOP`. The version half is
+	## dropped: the prototype is naming its own artboard, and "2.11" here would
+	## be this shell asserting parity with `reference/Cartalith Gen1 v2.11.html`
+	## -- a claim no code checks and nothing would update.
+	var tag := DccTheme.mono_label("WORLD CONSTRUCTION", "text_faint", DccTheme.FS_TINY, 2)
+	tag.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	mark.add_child(tag)
+	col.add_child(mark)
+
+	## `display:flex;gap:16px;flex-wrap:wrap;justify-content:center`.
+	_picker_tiles = HFlowContainer.new()
+	_picker_tiles.alignment = FlowContainer.ALIGNMENT_CENTER
+	_picker_tiles.add_theme_constant_override("h_separation", 16)
+	_picker_tiles.add_theme_constant_override("v_separation", 16)
+	_picker_tiles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(_picker_tiles)
+
+	## `display:flex;gap:10px`. An `HFlowContainer` rather than an `HBox` so the
+	## three buttons wrap instead of overlapping when the dialog is dragged
+	## narrow -- a `BoxContainer` handed less width than its minimum overlaps,
+	## which is the fault `_apply_phone_toolbar()` exists to undo one screen up.
+	var actions := HFlowContainer.new()
+	actions.alignment = FlowContainer.ALIGNMENT_CENTER
+	actions.add_theme_constant_override("h_separation", 10)
+	actions.add_theme_constant_override("v_separation", 10)
+	actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_picker_button(actions, "%s New world…" % DccIcons.SYMBOLS["add"], true, func():
+		hide()
+		_host.open_new_world())
+	_picker_button(actions, "Open project .zip…", false, _browse_from_disk)
+	## The reference gate's third choice, which the canvas does not draw. See
+	## this file's header; visibility is re-asked every `_refresh()`, because
+	## `setup()` runs while `app.gd` is still standing the bridge up.
+	_picker_import_btn = _picker_button(actions, "Import a heightmap…", false, func():
+		hide()
+		_host.open_heightmap_import())
+	col.add_child(actions)
+
+	## The canvas's one foot line, plus the opt-out it has no need for: its
+	## picker is a gate and this one is not (`app.gd`'s `_ready`). `--dim`, not
+	## the canvas's `--dis`: this line carries the empty-state instruction.
+	var foot := VBoxContainer.new()
+	foot.add_theme_constant_override("separation", 10)
+	foot.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_picker_note = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO)
+	_picker_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	## Wrapped, not clipped. A storage root is an absolute path and the column
+	## is only as wide as the dialog; `clip_text` would collapse this label's
+	## minimum width to 1 px (`MISTAKES.md`) and hide the instruction rather
+	## than the path.
+	##
+	## Two lines is the cap, and it is what makes this composition's height a
+	## known quantity -- see `_build_picker()`. The measured worst case already
+	## needs both: at the 880 px floor the truncation notice plus a real
+	## `user://` storage root wraps once. A third line would put the opt-out
+	## past the bottom edge, so a longer root ellipsises the path instead.
+	_picker_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_picker_note.max_lines_visible = 2
+	_picker_note.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	foot.add_child(_picker_note)
+	var out := DccWidgets.text_button(foot, "Continue without a world", func(): hide())
+	out.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	## `maxf`, not an assignment: `DccWidgets.text_button()` already floors this
+	## at `PHONE_TAP_MIN * phone_scale()` on a handset, which is larger than 44,
+	## and overwriting it would shrink the one target this factory already
+	## sizes correctly. Desktop and tablet get nothing from it, hence the raise.
+	out.custom_minimum_size.y = maxf(out.custom_minimum_size.y, PICKER_BTN_H)
+	col.add_child(foot)
+	return frame
+
+## The canvas's action pill: `min-height:var(--btnH);padding:6px 18px;
+## border-radius:8px`, `background:var(--acc);color:var(--accInk)` on the
+## primary and `background:var(--ins);color:var(--sec)` on the rest. Radius 8
+## overrides §11's "radius 0 everywhere", which is a rule about the desktop
+## *shell*; this screen's own canvas answers the question differently and is
+## the newer of the two.
+##
+## Height is the one figure not taken from the canvas -- see the header. The
+## hover is derived too: the canvas gives these buttons none, so the secondary
+## borrows the accent border its own sibling card hovers with
+## (`style-hover="border-color:var(--acc)"`), which is the only hover
+## vocabulary this screen has.
+##
+## Measured pairs, both palettes: primary ink on accent 8.60:1 dark / 4.30:1
+## light; secondary `--sec` on `--ins` 7.58:1 / 8.87:1; secondary hover ink
+## 14.29:1 / 15.62:1. The light primary is the shell-wide `accent_ink`-on-
+## `accent` pair, below 4.5:1 and reported rather than locally patched.
+func _picker_button(parent: Control, text: String, primary: bool, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, PICKER_BTN_H)
+	b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	b.add_theme_color_override("font_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("text_secondary"))
+	b.add_theme_color_override("font_hover_color",
+		DccTheme.c("accent_ink") if primary else DccTheme.c("text_bright"))
+	var rest := DccTheme.pill(primary, 8, 18, 6)
+	var hover := DccTheme.pill(primary, 8, 18, 6)
+	if primary:
+		hover.bg_color = DccTheme.c("accent_hover")
 	else:
-		_title_label.text = "Open project"
-		_subtitle_label.text = "choose a world to continue, or bring one in from disk"
-		_cancel_btn.text = "Cancel"
+		rest.bg_color = DccTheme.c("sunken")
+		rest.set_border_width_all(0)
+		hover.bg_color = DccTheme.c("sunken")
+		hover.border_color = DccTheme.c("accent")
+	for state in ["normal", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(state, rest)
+	b.add_theme_stylebox_override("hover", hover)
+	b.pressed.connect(on_press)
+	parent.add_child(b)
+	return b
 
 # ---------------------------------------------------------------------------
 # Content
@@ -452,39 +682,57 @@ func _paths() -> Array:
 			return FileAccess.get_modified_time(a) > FileAccess.get_modified_time(b))
 	return out
 
+## The worlds the picker offers: recents first, in the order `DccSettings`
+## maintains, then every other `.zip` in the projects root. That union is the
+## two scope chips the picker does not draw, and it is the honest answer for
+## the case `open_welcome()` is *for* -- a re-install or a wiped config keeps
+## the worlds folder and loses the recents list, so a "recent"-only picker
+## would tell a user with twelve saved worlds that they have none.
+##
+## Written by swapping `_scope` around `_paths()` rather than restating either
+## branch, so a change to how a scope is read reaches both screens.
+func _welcome_paths() -> Array:
+	var keep := _scope
+	_scope = "recent"
+	var out := _paths()
+	_scope = "all"
+	for p in _paths():
+		if not out.has(p):
+			out.append(p)
+	_scope = keep
+	return out
+
+## The one place that decides which composition is on screen. Both holders are
+## emptied every time, not just the one about to be filled: the two screens
+## read the same worlds folder, so a world deleted between one open and the
+## next would otherwise still be drawn in whichever half was not rebuilt, and
+## `_tiles` -- which only the gallery writes -- would name tiles that are no
+## longer the ones on screen.
+##
+## `remove_child` before `queue_free`: freeing alone is deferred to the end of
+## the frame, so two refreshes inside one frame (opening the dialog and the
+## first keystroke in the search well) would rebuild on top of tiles that are
+## still parented.
 func _refresh() -> void:
-	## `remove_child` before `queue_free`: freeing alone is deferred to the end
-	## of the frame, so two refreshes inside one frame (opening the dialog and
-	## the first keystroke in the search well) would rebuild the gallery on top
-	## of tiles that are still parented.
-	for c in _grid.get_children():
-		_grid.remove_child(c)
-		c.queue_free()
+	for holder in [_grid, _picker_tiles]:
+		for c in holder.get_children():
+			holder.remove_child(c)
+			c.queue_free()
 	_tiles.clear()
-	_paint_head()
-
-	## Welcome mode leads with the two actions the gallery cannot express --
-	## make a world, bring a heightmap in -- so the reference's three choices
-	## read left to right across the first row before any project tile.
+	_gallery.visible = not _welcome
+	_picker.visible = _welcome
 	if _welcome:
-		_grid.add_child(_build_action_tile(
-			"domain_world", "Create a new world",
-			"seed, size and world shape",
-			true, func():
-				hide()
-				_host.open_new_world()))
-		## Hidden outright, not disabled, when the loaded extension has no
-		## import binding: an affordance that cannot work is worse than one
-		## that is absent, and unlike the `Shared` chip above there is no
-		## design element here it would be dishonest to drop.
-		if _host != null and _host.bridge.import_api:
-			_grid.add_child(_build_action_tile(
-				"mountains", "Import a heightmap",
-				"a PNG image, white = high —\ntectonics inferred from it",
-				false, func():
-					hide()
-					_host.open_heightmap_import()))
+		_refresh_picker()
+	else:
+		_refresh_gallery()
+	## The composition just changed, and on a phone its width is what the window
+	## has to be re-measured against -- see `_fit_phone_content()` for why that
+	## does not happen on its own. Runs on every keystroke in the search well,
+	## which is what `child_controls_changed()` is cheap enough for.
+	if _phone:
+		_fit_phone_content()
 
+func _refresh_gallery() -> void:
 	_grid.add_child(_build_import_tile())
 
 	var query := _search.text.strip_edges().to_lower()
@@ -501,21 +749,40 @@ func _refresh() -> void:
 		_foot_note.text = "Shared projects are not a concept in this port"
 	elif shown == 0 and query != "":
 		_foot_note.text = "no match · projects read from %s" % root
-	elif shown == 0 and _welcome:
-		## The first-ever launch. "nothing here yet" alone reads as a fault;
-		## the two tiles above are the answer, so the foot names them.
-		_foot_note.text = "no saved worlds yet — start one above · projects read from %s" % root
 	elif shown == 0:
 		_foot_note.text = "nothing here yet · projects read from %s" % root
 	else:
 		_foot_note.text = "projects read from %s" % root
 	_refresh_open_button()
-	## The gallery just changed, and on a phone its width is what the window
-	## has to be re-measured against -- see `_fit_phone_content()` for why that
-	## does not happen on its own. Runs on every keystroke in the search well,
-	## which is what `child_controls_changed()` is cheap enough for.
-	if _phone:
-		_fit_phone_content()
+
+## Three cards at most (`PICKER_MAX_TILES`), and none at all on a fresh
+## profile, where the row is hidden outright so the 34 px gaps around it close
+## up and the wordmark sits directly over the three actions -- which is then
+## exactly the reference's own setup gate.
+func _refresh_picker() -> void:
+	var paths := _welcome_paths()
+	var shown: int = mini(paths.size(), PICKER_MAX_TILES)
+	for i in shown:
+		_picker_tiles.add_child(_build_tile(String(paths[i]),
+			project_meta(String(paths[i])), true))
+	_picker_tiles.visible = shown > 0
+	## Re-asked here, not at build time: `setup()` runs from `app.gd`'s
+	## `_ready` while the bridge is still resolving which `#[func]`s the loaded
+	## extension actually exports.
+	_picker_import_btn.visible = _host != null and _host.bridge.import_api
+
+	var root := DccSettings.storage_root("projects")
+	if paths.is_empty():
+		## The first-ever launch. "nothing here yet" alone reads as a fault;
+		## the actions below are the answer, so the foot names them.
+		_picker_note.text = "no saved worlds yet — start one below · projects read from %s" % root
+	elif paths.size() > shown:
+		## Counted, not asserted: `paths` is the union `_welcome_paths()` just
+		## walked, and the rest of it is reached through the gallery.
+		_picker_note.text = "%d of %d worlds · the rest are in File ▸ Open project… · projects read from %s" \
+			% [shown, paths.size(), root]
+	else:
+		_picker_note.text = "projects read from %s" % root
 
 ## The search well offers "name, seed or region". Name and seed are real
 ## fields; "region" has no equivalent -- a save carries no region name -- so
@@ -525,44 +792,6 @@ static func _matches(path: String, meta: Dictionary, query: String) -> bool:
 	if path.to_lower().contains(query):
 		return true
 	return String(meta.get("seed", "")).to_lower().contains(query)
-
-## A welcome-mode action tile: same footprint and caption rhythm as a
-## project tile, but a solid outline rather than the dashed-import one and a
-## glyph rather than an identicon, so it reads as an action and not as a
-## world you could select. `primary` gives the accent treatment the mockup's
-## own primary button carries -- exactly one tile has it, matching the
-## reference gate's single `class="accent"` button.
-func _build_action_tile(icon: String, title: String, note: String, primary: bool, on_click: Callable) -> Control:
-	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size = TILE_MIN
-	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	wrap.add_theme_stylebox_override("panel",
-		DccTheme.outline("accent" if primary else "line", "raised" if primary else "panel"))
-
-	var col := VBoxContainer.new()
-	col.alignment = BoxContainer.ALIGNMENT_CENTER
-	col.add_theme_constant_override("separation", 10)
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 16)
-	pad.add_theme_constant_override("margin_right", 16)
-	pad.add_child(col)
-	wrap.add_child(pad)
-
-	var glyph := DccIcons.rect(icon, 30, "accent" if primary else "text")
-	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	col.add_child(glyph)
-	var title_label := DccTheme.label(title, "accent" if primary else "text_bright", DccTheme.FS_BODY)
-	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(title_label)
-	var note_label := DccTheme.mono_label(note, "text_faint", DccTheme.FS_TINY)
-	note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(note_label)
-
-	_ignore_mouse(wrap)
-	wrap.gui_input.connect(func(event: InputEvent):
-		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
-			on_click.call())
-	return wrap
 
 func _build_import_tile() -> Control:
 	var wrap := PanelContainer.new()
@@ -598,13 +827,27 @@ func _build_import_tile() -> Control:
 			_browse_from_disk())
 	return wrap
 
-func _build_tile(path: String, meta: Dictionary) -> Control:
+## `picker` draws the same world as the 08-31 canvas's picker card rather than
+## the 08-23 gallery's tile: 252 px wide and content-tall instead of the 232 x
+## 186 grid cell, a 130 px thumbnail, and the name in `500 13px` mono tracked
+## `.12em` (1.56 px -> 2) where the gallery sets it in prose at 12. The two
+## canvases disagree about the name's face and the newer one wins for its own
+## screen.
+##
+## The fill is `--ins`, not the canvas's `--pan`. The canvas card sits on
+## `--sur`; here it sits inside a modal whose own panel is already `--pan`
+## (`dcc_shell.gd`'s `AcceptDialog` stylebox), so taking the literal token
+## would paint the card the colour of the surface behind it and leave only the
+## hairline. `--ins` is the same *relationship* -- one surface step above the
+## ground -- which is the property the card was drawn for.
+func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Control:
 	var current := _host != null and _host.current_project_path == path
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size = TILE_MIN
-	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.custom_minimum_size = Vector2(PICKER_TILE_W, 0) if picker else TILE_MIN
+	if not picker:
+		wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	wrap.add_theme_stylebox_override("panel",
-		DccTheme.outline("accent" if current else "line", "panel"))
+		DccTheme.outline("accent" if current else "line", "sunken" if picker else "panel"))
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -614,7 +857,7 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	## real thumbnail to draw.
 	var thumb := Control.new()
 	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	thumb.custom_minimum_size.y = 128
+	thumb.custom_minimum_size.y = PICKER_THUMB_H if picker else 128
 	thumb.clip_contents = true
 	var tex := TextureRect.new()
 	tex.texture = identicon(path)
@@ -639,18 +882,22 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	col.add_child(thumb)
 	col.add_child(DccTheme.rule())
 
+	## `padding:12px 14px;gap:4px` on the picker card; `9px 11px` and 2 on the
+	## gallery tile.
 	var caption := VBoxContainer.new()
-	caption.add_theme_constant_override("separation", 2)
+	caption.add_theme_constant_override("separation", 4 if picker else 2)
 	var cap_pad := MarginContainer.new()
-	cap_pad.add_theme_constant_override("margin_left", 11)
-	cap_pad.add_theme_constant_override("margin_right", 11)
-	cap_pad.add_theme_constant_override("margin_top", 9)
-	cap_pad.add_theme_constant_override("margin_bottom", 9)
+	cap_pad.add_theme_constant_override("margin_left", 14 if picker else 11)
+	cap_pad.add_theme_constant_override("margin_right", 14 if picker else 11)
+	cap_pad.add_theme_constant_override("margin_top", 12 if picker else 9)
+	cap_pad.add_theme_constant_override("margin_bottom", 12 if picker else 9)
 	cap_pad.add_child(caption)
 	col.add_child(cap_pad)
 
-	var title_label := DccTheme.label(path.get_file().get_basename(),
-		"text_bright" if current else "text", DccTheme.FS_BODY)
+	var name_token := "text_bright" if (current or picker) else "text"
+	var title_label := DccTheme.mono_label(path.get_file().get_basename(),
+			name_token, 13, 2, true) if picker \
+		else DccTheme.label(path.get_file().get_basename(), name_token, DccTheme.FS_BODY)
 	title_label.name = "Title"
 	title_label.clip_text = true
 	caption.add_child(title_label)
@@ -660,11 +907,42 @@ func _build_tile(path: String, meta: Dictionary) -> Control:
 	## tile would say nothing about the file the tile opens.
 	var fmt := int(meta.get("format", 0))
 	var fmt_part := ("fmt %d · " % fmt) if fmt > 0 else ""
+	## `var(--m2)`/`var(--dim)` on the picker card, `10px`/`--faint` on the
+	## gallery tile -- both stated by their own canvas.
 	caption.add_child(DccTheme.mono_label(
 		"%s · %s%s" % [meta.get("seed", "seed unread"), fmt_part, meta.get("edited", "")],
-		"text_faint", DccTheme.FS_TINY))
+		"text_dim" if picker else "text_faint",
+		DccTheme.FS_MICRO if picker else DccTheme.FS_TINY))
 
 	_ignore_mouse(wrap)
+	if picker:
+		## The canvas card is `onClick="{{ hPickWorld }}"` straight to the shell
+		## -- there is no selection on this screen and no `Open selected` button
+		## for one to feed, so one click opens. `style-hover="border-color:
+		## var(--acc)"` is the only affordance saying it is clickable, and it is
+		## load-bearing here in a way it is not in the gallery.
+		var rest := DccTheme.outline("accent" if current else "line", "sunken")
+		var hot := DccTheme.outline("accent", "sunken")
+		wrap.mouse_entered.connect(func(): wrap.add_theme_stylebox_override("panel", hot))
+		wrap.mouse_exited.connect(func(): wrap.add_theme_stylebox_override("panel", rest))
+		wrap.gui_input.connect(func(event: InputEvent):
+			if not (event is InputEventMouseButton):
+				return
+			var mb := event as InputEventMouseButton
+			if not (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT):
+				return
+			## The same guard `_confirm()` has, in the same words as
+			## `_refresh_open_button()`'s tooltip: a card is built from a
+			## directory listing, and the file behind it can be gone by the
+			## time it is clicked. Rebuild first, then say why -- `_refresh()`
+			## writes the foot itself, so the message has to land after it.
+			if not FileAccess.file_exists(path):
+				_refresh()
+				_say("%s is no longer on disk." % path.get_file())
+				return
+			hide()
+			_host.open_recent_project(path))
+		return wrap
 	wrap.gui_input.connect(func(event: InputEvent):
 		if not (event is InputEventMouseButton):
 			return
@@ -737,7 +1015,17 @@ func _on_files_dropped(files: PackedStringArray) -> void:
 			hide()
 			_host.open_recent_project(String(f))
 			return
-	_foot_note.text = "that is not a .zip save"
+	_say("that is not a .zip save")
+
+## `files_dropped` is a *window* signal, so a drop lands on whichever
+## composition is up -- and the gallery's foot is not on screen in welcome
+## mode. Writing to `_foot_note` alone put the only feedback for a bad drop
+## into a hidden control the moment welcome stopped being the gallery.
+func _say(text: String) -> void:
+	if _welcome:
+		_picker_note.text = text
+	else:
+		_foot_note.text = text
 
 # ---------------------------------------------------------------------------
 # Per-project metadata

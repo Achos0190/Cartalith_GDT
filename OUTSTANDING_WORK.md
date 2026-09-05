@@ -41,8 +41,8 @@ should read §6 before §2.
 
 ## The count, honestly
 
-**99 outstanding items across 24 subsystems** — **re-derived by counting table
-rows mechanically, 2026-09-05 (thirty-sixth pass)**, after an earlier pass left four
+**100 outstanding items across 24 subsystems** — **re-derived by counting table
+rows mechanically, 2026-09-05 (thirty-seventh pass)**, after an earlier pass left four
 different totals in this file at once (a headline of 142, a table summing to 143,
 and a report claiming 145). That is §6.8's own "counts that disagree with
 themselves", reintroduced; the fix is the count, and the lesson is that the
@@ -50,6 +50,35 @@ arithmetic here is not safe to delegate.
 
 The figure is `§1 + §2 + §3 + §4`, with §5's declined entries deliberately
 outside it.
+
+**2026-09-05, thirty-first batch — 99 → 100.** The left dock is restructured to
+`04-left-dock.md` §3, the New world phone card is built, and the cold-start
+screen is the canvas's centred column. Two findings filed, so the count rises.
+`cargo test --workspace` holds at **3 142** — correct for GDScript-only lanes.
+
+*The consequence the owner accepted was bought for almost nothing, and that is
+now measured.* The ruling was accepted against my summary "one body per rail
+node, gated by mode", which was wrong. §3 gates **one node of ten**. Measured
+after the build: WORLD·a renders 9 of 9, WORLD·b renders 1; **CIVIL renders 15
+in all four modes, CARTO 10 in all four**. The only thing that leaves the default
+view is eight WORLD categories, and only while Sculpt is armed — each with
+**four routes back**, all exercised. **34 categories render before and after; 8
+of them in one fewer mode; 0 controls without a route.**
+
+*A category that no rail node owned.* `mode_for_category("civilization",
+"Religion")` returned `""`, so opening Religion left the rail lighting whichever
+node was last active — you could reach it and the rail lied about where you
+were. Now owned by the `factions` node.
+
+*Lane B declined the NAME field, and was right to.* The brief said to establish
+what a name would **do** first; there is nowhere to put one, so a control that
+collects a string nothing stores was not added.
+
+*Eleventh consecutive batch with a false clause in prose written the same pass* —
+three this time, all corrected: a mode-switch claimed "derived, not hardcoded"
+when only its visibility is; a `open_welcome()` doc still describing the gallery
+the same commit replaced; and a tooltip pointing at a menu row (`World ▸ Generate
+▸ New seed`) that does not exist in `menus.gd` or the command index.
 
 **2026-09-05, thirtieth batch — 98 → 99.** The owner's three structural moves
 ship, eight of the 37 no-design surfaces close, and the vault snapshot panel
@@ -1260,8 +1289,9 @@ No Android pass has run since 2026-08-25. All six items below are live.
 |---|---|---|---|
 | The Android adaptive icon had **no background layer** | `ANDROID_BUILD_SCOPE.md` | small | **Owner-reported 2026-09-03 ("on the 6t the icon is a dull weird grey scale"); root-caused and fixed the same day, unverified on device.** `icons/android_adaptive_background_432.png` was an 804-byte blank — **one distinct colour, `(0,0,0,0)`, fully transparent**. An adaptive icon's background layer must be opaque; when it is empty the launcher substitutes its own neutral plate, which is the reported grey and happens under any theme. Now opaque `rgb(0,24,48)`, the dominant band of the owner's own `Cartalith icon.png` rather than an invented colour. **Second change, owner ruling same day: thicken `cartalith icon2.png` into the monochrome layer.** Measured first and the measurement changed the plan — icon2 converted straight across gives **2.4-6.4%** ink against the shipped **5.1%**, i.e. a *fainter* themed icon, because icon2 is fine line art on black. Dilated at source resolution (MaxFilter 19) then fitted: **17.05% ink**, inside the band Android's own themed icons occupy, with **100% of ink inside both the 66dp safe circle and the 72dp visible circle** so no launcher mask clips it. **Verify on the handset with the next APK** — launcher behaviour for a transparent background is launcher-dependent and cannot be checked headlessly |
 | **Phone MORE — build the five bespoke screens** (`06-phone.md` §6.6) | `DESIGN_HANDOFF.md` | large | **Ruled 2026-09-05: build them.** Project · Civilization · Data · Simulation · Preferences, each with its own controls, replacing the current re-presentation of seven desktop popups as drill rows. A phone-navigation rewrite — its own multi-batch arc. **Unresolved:** `phone_menu.gd` cites `docs/ANDROID_UI_SPEC.md`, which is not in this repository; `06-phone.md` is what was ruled on |
-| **Left dock — restructure to the 12 blocks of `04-left-dock.md` §3** | `DCC_SHELL_SCOPE.md` | large | **Ruled 2026-09-05: restructure.** **The spec was read in full 2026-09-05 and it does NOT say "one body per rail node" — that summary was the main loop's and it overstated the gating.** §3's actual table: **CIVIL always shows all four category headers** with exactly one body expanded between them, so it is **accordion-shaped, not tabbed**; **the four CARTO rail nodes do not switch the dock at all** (`mode: ''`, all four highlight together and show one dock), and **Labels and Icons have no left-dock body** — their controls live in the toolbar and right dock. Only WORLD genuinely gates, a/b. **So far less is hidden than the ruling was framed against**; re-check the owner's accepted consequence against this. **Two defects in the spec itself:** block 1's condition is **UNSPECIFIED (truncated)** and only implied `WORLD && worldMode=='a'`, and `civCats` at line 1300 is a **dead binding** never consumed by the markup (the four headers are hand-written) |
 | **Δ vertical — re-present as a horizontal profile** (X = distance, Y = height) | `DESIGN_HANDOFF.md` | medium | **Ruled 2026-09-05.** It stays live in 2D and the canvas's "3D relief only" is superseded (no 3D viewport exists, so gating it would make the mode unreachable). **New work beyond conformance:** the owner asked for the readout rotated to a horizontal **cross-section profile chart** — distance on X, height on Y — over the same measurements the numeric list already computes |
+| The mode-switch pill is WORLD-hardcoded below its derived visibility | `DCC_SHELL_SCOPE.md` | small | **Found 2026-09-05 by a verifier.** `domain_gates()` derives *whether* the pill shows, so a future gated domain gets one — but `_build_mode_switch()` iterates `domain_nodes("world")`, `_MODE_SWITCH_LABELS` is `{a: PIPELINE, b: SCULPT}`, and `_refresh_mode_switch()` reads WORLD's mode. A CIVIL or CARTO gate would show an **empty pill carrying WORLD's labels**. Generalising means sourcing nodes and labels from the active domain; a real change, not a rename |
+| The left dock's re-open floor is scoped by domain where the need is by mode | `DCC_SHELL_SCOPE.md` | small | **Found 2026-09-05.** The floor that re-opens the last visible header exists so a *gated* dock cannot be left empty, but it is applied to whole gating **domains**. Measured: in WORLD ▸ Generation pipeline (ungated, nine headers on screen) closing the one open header re-opens it, which the floor's own comment says is not its job |
 | **29 no-design surfaces remain — derive from the DCC vocabulary and build** | `DESIGN_HANDOFF.md` | large | **Ruled 2026-09-05: build all 37. Eight closed the same day** — the five Data-manager and three Asset-library stock `FileDialog`s now route through `DccBrowseDialog`, the bespoke breadcrumb browser the DCC Shell canvas draws and whose own comment says it *replaces the stock OS tree picker*. **The other 29 have no drawing at all**, so each must record in its own source which canvas vocabulary it was derived from; the owner will first see them running rather than drawn |
 | **Menu-by-menu design-conformance audit — owner request, 2026-09-04** | `DESIGN_HANDOFF.md` | medium | **Trigger: when GUI work is done, alongside the APK build, not before.** Owner instruction: verify that **every single menu** conforms to the latest designs. **Fable 5.1 at Ultracode, minimum 2 agents.** Read the 2026-08-25 ruling first — *when two design canvases disagree the newer one wins; where none exists, derive from the DCC canvases' own vocabulary* — and note an owner decision is newer than any canvas (`Data ▸ Conversion` is still drawn and was removed by decision 2026-08-20, so the canvas is the stale party there). Enumerate menus from the code, not from the design set, or the audit can only find what the designs already list. `GUI_GAP_REGISTER.md`'s menu-naming audit is prior art. **Owner ruling 2026-09-04 on ordering and models:** the audit runs **before** the rest of the outstanding list, not after GUI work completes; the audit itself is **Fable 5.1 at Ultracode** (4 auditors + an adversarial cross-check, dispatched `w9cjb2jog`); **the fixes that follow are Opus 5 at Ultracode, with Fable 5.1 where design judgment is needed** rather than mechanical conformance |
 | **Rebuild the APK and drop it on D: — owner request, 2026-09-03** | `ANDROID_BUILD_SCOPE.md` | small | **Trigger: when GUI work is done, not before.** Recipe in memory `cartalith-apk-build-and-drop`, verified: `cargo ndk -t arm64-v8a build --release -p cartalith-godot`, then `--export-release "Android"` (**expect it to fail at signing — there is no release keystore and never has been; the unsigned APK it leaves behind is good**), then sign with Godot own debug keystore via `apksigner`. **Two things must be verified, not assumed:** that the `.so` inside the APK is the one just built — a shipped APK once carried a library 25 commits stale, so features were live in the tree and dead on the handset, and Godot accepts a wrong `.gdextension` key with no error — and the md5 at the destination after copying. Destination `D:\Users\Vincent\Documents\Vincent\Persoonlijk\Writing\Tools & writing hacks\`, which already holds `Cartalith.apk` (57 021 549 bytes, 2026-09-01 14:10, sha256 `6c70b414...`). **Preserve that build rather than overwriting it blind** — date-stamp the old one aside first |
