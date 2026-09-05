@@ -74,6 +74,9 @@ its rule before you start.
 | **Summarise a spec into a backlog row** | **Paraphrase the table, do not compress it.** "12 mode-gated blocks, one body per rail node" was the main loop's summary of `04-left-dock.md` §3, which actually gates **one node of ten** — and an owner accepted a consequence ("this hides controls") on the strength of it | Quote the spec's own condition column into the row. If the summary and the table disagree, the table is the spec |
 | **Claim a mechanism is "derived, not hardcoded"** | Check every line of it, not the entry point. The mode switch derived its **visibility** and hardcoded its node source, its labels and its refresh — so a future gated domain would get an empty pill carrying another domain's labels | Name the parts that are derived and the parts that are not, separately |
 | **Write a probe's usage header** | The header is a claim about the probe's own code. One documented `--resolution`, which it never read — it read `-- --vp WxH`. Following it would have measured **the same box three times and called it three densities**, the single-sample shape in disguise | Grep the flag in the probe body before writing it in the header, and have the harness **fail loudly** on an argument it does not understand rather than defaulting |
+| **Carry a rule from one variant of a design to another** | Open the other variant's **drawing**. A brief told a verifier "the destructive action must be text-only and not the rightmost" — the approved artboard's variant B draws it filled and rightmost, because B has no safe action for the rule to be relative to. A verifier following that literally would have failed a lane for building the approved design | Scope the rule to the condition that makes it true, in the design itself. Where two variants of one artboard disagree, the artboard is wrong and gets fixed before the code does |
+| **Choose which preflight rows to put in a brief** | Scan the table against the batch's **verbs**, not from memory. 7 of 55 rows were inlined by recall; four that matched exactly what the lanes were about to do were missing — change behaviour, grep `func <name>` first, change a widget's ink, replacing→appended context. One of them then bit the main loop personally in the same session | Read the left column top to bottom against the batch's own scope. It is one screen |
+| **Re-run the parse check after EVERY edit, not once per file** | A probe edited twice parse-checked clean after the first edit and shipped a duplicate `var` from the second. A failed script load makes `godot --headless` **hang** rather than exit, so it reads as a slow probe, not a broken one — two timeouts were spent before the output was captured | `--check-only --script` after the last edit to a file, always. If a probe that used to finish in seconds hangs, suspect a parse error first and capture stdout |
 | **Cite two examples as agreeing** | Open the **second** one. A new header quoted the asset-pack inspector *and* the Data manager's RECENT RUNS block and said *"Both settle one thing"* — RECENT RUNS settles the opposite (parent `#6f7478`, value overridden to `#8d9296`, so the identity is the **dimmer** ink). The code change was right for the first reason alone; the second example was decoration that made it false | Quote both, in full, with line numbers. If they disagree, say the canvas is split and name what actually breaks the tie |
 | **Quote a count of call sites, instances or files** | Measure it in the same edit that writes it, and paste the command. A comment shipped *"its 94 call sites across the shell"*; the real figure is **189 code call sites in 18 files**. It was an understatement, so the argument held anyway — which is exactly why nobody checked | `grep -rn 'Symbol(' dir/ \| grep -v ':[0-9]*:[[:space:]]*#' \| wc -l`, then write that number and the date |
 | **Dispatch agent lanes** | One brief per lane, checked before launch. Serialize lanes sharing a file rather than forbidding the edit. Tell every lane to **report** false prose in files it does not own. **Every verification item carries a premise — check it holds before you write the item** ("mutate a constant each lane introduced" is unsatisfiable for a lane that introduced none) | Re-read each prompt for a foreign lane's heading. Ask of each check: what state of the world makes this impossible to perform? Four such items in one brief, six batches running |
@@ -376,7 +379,26 @@ check produce it, and does the environment it runs in satisfy its premise?
 
 ---
 
-### [2026-09-03] Orchestration errors that waste a wave ×14
+### [2026-09-03] Orchestration errors that waste a wave ×16
+
+**Batch 34 — two more, and the first one could have destroyed correct work.**
+(1) The brief told the verifier *"the destructive action must be text-only and
+not the rightmost — if the filled button is the destructive one, the pattern is
+inverted and worse than what it replaced."* The **approved artboard's variant B
+draws exactly that**: `Clear 128 packs`, rightmost, block-washed fill, no safe
+action. The rule belongs to variant A's footnote, where a safe action exists to
+sit last. A verifier executing the item literally would have refuted a lane for
+building the design the owner signed off. It did not — it opened the drawing and
+refuted the brief instead, which is the whole reason the verifier is told to
+check the brief. **The artboard was also genuinely inconsistent** (A's footnote
+stated a universal rule B breaks) and was corrected and republished.
+(2) The brief hedged *"two of three lanes may have introduced none [no
+constants], and that is fine."* All three introduced constants — 13 in
+`dcc_widgets.gd` alone. The hedge widened rather than blocked the check, but it
+invited skipping the one that produced this batch's largest finding: seven modal
+constants asserted against themselves, all seven surviving mutation.
+
+
 
 **Batch 33 — two more, both quoting something never opened.** (1) The brief told
 a lane *"check what else `apply_insets()` moved: the app bar, nav bar and timeline

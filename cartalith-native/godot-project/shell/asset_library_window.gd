@@ -1666,22 +1666,44 @@ func _on_delete_collection() -> void:
 		_host.set_status("hint", "select a collection first, then Delete…", "text_ghost")
 		return
 	var coll_name := _current_collection
-	var d := ConfirmationDialog.new()
-	d.title = "Delete collection \"%s\"?" % coll_name
-	d.dialog_text = "Remove the \"%s\" collection? The assets in it are not deleted -- only the grouping is." % coll_name
-	d.confirmed.connect(func():
-		_bridge.as_drop_collection(coll_name)
-		_dirty = true
-		_current_collection = ""
-		_highlight_collection_row("")
-		_host.set_status("hint", "deleted collection \"%s\"" % coll_name, "accent")
-		_refresh_collections_rail()
-		_refresh_grid()
-		_refresh_status_line()
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
+	## Variant B. `MEMBERS` is the collection's own uid list, read back through
+	## the same `as_collections()` call `_refresh_collections_rail()` uses; the
+	## row is omitted rather than shown as `0` on a binary that lacks it.
+	var members := -1
+	if _bridge.world_gen != null and _bridge.world_gen.has_method("as_collections"):
+		## `as_collections()` yields `{name: String, uids: PackedStringArray}`
+		## per entry (`cartalith-godot::lib.rs::as_collections`) -- read as a
+		## `PackedStringArray`, not an `Array`, because the cast between the
+		## two fails rather than converting.
+		for entry in (_bridge.world_gen.as_collections() as Array):
+			var e := entry as Dictionary
+			if String(e.get("name", "")) == coll_name and e.has("uids"):
+				members = (e["uids"] as PackedStringArray).size()
+	var card := DccWidgets.modal_card(self, "Delete collection", DccWidgets.MODAL_DESTRUCTIVE)
+	DccWidgets.modal_prose(card["body"],
+		"Remove the \"%s\" collection." % coll_name)
+	var stats := DccWidgets.modal_inset(card["body"], true)
+	DccWidgets.modal_stat(stats, "collection", coll_name)
+	if members >= 0:
+		DccWidgets.modal_stat(stats, "members", str(members))
+	else:
+		DccWidgets.modal_stat_absent(stats, "members",
+			"this binary exposes no as_collections(), so the membership is unreadable")
+	DccWidgets.modal_foot(card["body"],
+		"the assets in it are not deleted — only the grouping is")
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"destructive": {"text": "Delete \"%s\"" % coll_name, "on": func():
+			_bridge.as_drop_collection(coll_name)
+			_dirty = true
+			_current_collection = ""
+			_highlight_collection_row("")
+			_host.set_status("hint", "deleted collection \"%s\"" % coll_name, "accent")
+			_refresh_collections_rail()
+			_refresh_grid()
+			_refresh_status_line()},
+	})
+	DccWidgets.modal_present(card, _host)
 
 ## "Import image…" targets whichever slot is focused in the grid; with none
 ## focused it still works (AS-12), landing the file in a fresh custom slot
@@ -2307,25 +2329,32 @@ func _selected_uids() -> PackedStringArray:
 ## handler below shares.
 func _prompt_text(prompt_title: String, label_text: String, default_text: String,
 		on_confirm: Callable) -> void:
-	var d := ConfirmationDialog.new()
-	d.title = prompt_title
-	d.min_size = Vector2i(360, 0)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 6)
-	body.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
+	## Variant A: a question with a safe answer, so the safe answer is the
+	## filled one and sits last. Nothing here is destructive, so the middle
+	## slot is empty and `modal_choices()` draws two buttons.
+	var card := DccWidgets.modal_card(self, prompt_title, DccWidgets.MODAL_CONFIRM, 360)
+	DccWidgets.modal_prose(card["body"], label_text)
 	var le := LineEdit.new()
 	le.text = default_text
 	le.select_all_on_focus = true
-	body.add_child(le)
-	d.add_child(body)
-	d.confirmed.connect(func():
-		var t := le.text.strip_edges()
-		if t != "":
-			on_confirm.call(t)
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
+	DccWidgets.well(le)
+	card["body"].add_child(le)
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"safe": {"text": "OK", "on": func():
+			var t := le.text.strip_edges()
+			if t != "":
+				on_confirm.call(t)},
+	})
+	## Enter inside the field is the same answer Enter anywhere else in the
+	## card is -- `modal_choices()` handles the card-level `ui_accept`, and a
+	## focused `LineEdit` consumes the key before it gets there, so the field
+	## needs its own route to the same action.
+	le.text_submitted.connect(func(_t: String):
+		var d: Callable = card["dialog"].get_meta("dcc_modal_default", Callable())
+		if d.is_valid():
+			d.call())
+	DccWidgets.modal_present(card, _host)
 	le.grab_focus.call_deferred()
 
 func _on_batch_tag() -> void:
@@ -2389,24 +2418,35 @@ func _on_batch_delete() -> void:
 	var uids := _selected_uids()
 	if uids.is_empty():
 		return
-	var d := ConfirmationDialog.new()
-	d.title = "Delete %d asset(s)?" % uids.size()
-	d.dialog_text = "Delete images of %d selected asset(s)? This cannot be undone. (Custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
-	d.confirmed.connect(func():
-		var result: Dictionary = _bridge.as_batch_delete(uids)
-		_dirty = true
-		_host.set_status("hint", "deleted %d asset(s)" % int(result.get("deleted", 0)), "accent")
-		_selected.clear()
-		_focused_uid = ""
-		_refresh_grid()
-		_refresh_inspector()
-		_refresh_rail_counts()
-		_refresh_collections_rail()
-		_refresh_status_line()
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
+	## Variant B. The count is `uids.size()` -- the live selection, the same
+	## array the delete itself is handed -- so the button cannot name a number
+	## the operation does not act on.
+	var card := DccWidgets.modal_card(self, "Delete selection", DccWidgets.MODAL_DESTRUCTIVE)
+	DccWidgets.modal_prose(card["body"],
+		"Delete the images of the selected assets. This cannot be undone.")
+	var stats := DccWidgets.modal_inset(card["body"], true)
+	DccWidgets.modal_stat(stats, "selected", str(uids.size()))
+	if _current_family != "":
+		DccWidgets.modal_stat(stats, "family", _current_family)
+	DccWidgets.modal_foot(card["body"],
+		"custom slots are removed entirely; frozen slots are emptied, not removed")
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"destructive": {"text": "Delete %d asset%s" % [uids.size(),
+			"" if uids.size() == 1 else "s"], "on": func():
+			var result: Dictionary = _bridge.as_batch_delete(uids)
+			_dirty = true
+			_host.set_status("hint",
+				"deleted %d asset(s)" % int(result.get("deleted", 0)), "accent")
+			_selected.clear()
+			_focused_uid = ""
+			_refresh_grid()
+			_refresh_inspector()
+			_refresh_rail_counts()
+			_refresh_collections_rail()
+			_refresh_status_line()},
+	})
+	DccWidgets.modal_present(card, _host)
 
 ## Delete / Backspace on the grid selection (`GUI_GAP_REGISTER.md` §31's last
 ## open item -- MN-09 recorded that "the Asset Library window has no key
@@ -2866,45 +2906,138 @@ func _on_validate() -> void:
 	if _validate_btn != null:
 		_validate_btn.text = "Validate" if warnings.is_empty() \
 			else "Validate · %d warning%s" % [warnings.size(), "" if warnings.size() == 1 else "s"]
-	var d := AcceptDialog.new()
-	d.title = "Validation"
-	d.min_size = Vector2i(420, 0)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 4)
-	if warnings.is_empty():
-		body.add_child(DccTheme.label("%s No issues found." % DccIcons.SYMBOLS["tick"],
-			"accent", DccTheme.FS_SMALL))
-	else:
+	## Variant C of `design/proposed-2026-09-05/Modal.dc.html`: a result, not a
+	## question. The work already happened, so there is no Cancel -- only Done,
+	## and Copy report, because the artboard's rule is that the list is never
+	## the only record of it.
+	##
+	## **The artboard's two dot colours have one source between them, so only
+	## one is drawn.** It draws `● dropped` and `● taken with a substitution`,
+	## which would need a per-warning severity. `AssetValidator::run()`
+	## (`cartalith-assets/src/library.rs`) returns a flat `Vec<String>` with no
+	## severity field, and its own header states the contract these strings
+	## carry: *"Warnings, not errors: a library with warnings still exports."*
+	## Nothing is dropped and nothing is substituted, so a second dot class
+	## would be a category this data cannot produce. `modal_legend()` reads the
+	## classes back off the rows themselves, so the key names exactly the one
+	## class that is on screen and would grow a second entry the moment a
+	## severity arrives.
+	var card := DccWidgets.modal_card(self,
+		"Validation" if warnings.is_empty()
+		else "Validation · %d warning%s" % [warnings.size(),
+			"" if warnings.size() == 1 else "s"],
+		DccWidgets.MODAL_WARNINGS, 420)
+	var pack_name := String(_bridge.as_pack_info().get("name", ""))
+	DccWidgets.modal_prose(card["body"],
+		"%s checked. %s" % [
+			pack_name if pack_name != "" else "This library",
+			"No issues found." if warnings.is_empty()
+				else "It still exports — every entry below is a warning, not an error."])
+	if not warnings.is_empty():
+		var list := DccWidgets.modal_list(card["body"])
 		for w in warnings:
-			var l := DccTheme.label("%s %s" % [DccIcons.SYMBOLS["warn_tri"], String(w)],
-				"warn", DccTheme.FS_SMALL)
-			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			body.add_child(l)
-	d.add_child(body)
-	d.confirmed.connect(func(): d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
+			DccWidgets.modal_list_row(list, "warn", String(w))
+		DccWidgets.modal_legend(card["body"], list,
+			{"warn": "exports anyway"})
+	var choices := DccWidgets.modal_choices(card, {
+		"safe": {"text": "Done", "on": func(): pass},
+	})
+	## Copy report, moved ahead of Done so the safe action keeps the last slot.
+	## The list is never the only record of the run.
+	var actions: HBoxContainer = choices["row"]
+	var copy := DccWidgets.modal_quiet(actions, "Copy report", func():
+		DisplayServer.clipboard_set("\n".join(warnings) if not warnings.is_empty()
+			else "No issues found.")
+		_host.set_status("hint", "validation report copied", "accent"))
+	actions.move_child(copy, 0)
+	DccWidgets.modal_present(card, _host)
 
+## Every figure the CLEAR LIBRARY card can name, each from a real source.
+##
+## `filled`/`slots` are the same walk `_refresh_rail_counts()` does for the
+## rail badges, and `items` is `as_pack_info()`'s own `total_items` -- the
+## number the status line already prints, so the confirm and the status line
+## cannot disagree. `collections` goes through `world_gen.as_collections()`
+## directly for the reason `_refresh_collections_rail()` records: no bridge
+## wrapper exists for it yet.
+##
+## **Keys are omitted, never defaulted.** A binary without `as_collections`
+## produces a dictionary with no `collections` key rather than a `0`, because
+## `0` is a legal collection count and would read as measured.
+func _library_totals() -> Dictionary:
+	var filled := 0
+	var slots := 0
+	for fam in FAMILIES:
+		var key := String(fam["key"])
+		var fam_slots: Array = _bridge.as_family_slots(key)
+		for s in fam_slots:
+			if bool(s.get("filled", false)):
+				filled += 1
+		slots += fam_slots.size() if bool(fam.get("custom", false)) \
+			else (fam["slots"] as Array).size()
+	var out := {"filled": filled, "slots": slots}
+	var info: Dictionary = _bridge.as_pack_info()
+	if info.has("total_items"):
+		out["items"] = int(info["total_items"])
+	if _bridge.world_gen != null and _bridge.world_gen.has_method("as_collections"):
+		out["collections"] = (_bridge.world_gen.as_collections() as Array).size()
+	return out
+
+## Variant B of `design/proposed-2026-09-05/Modal.dc.html` -- the artboard's own
+## worked example, down to "Clear 128 packs" naming the count in the button.
+##
+## The artboard's three rows were PACKS / SPRITES / ON DISK. Only one of those
+## survives contact with this engine and it is renamed for what it is:
+##
+##   * **PACKS has no counterpart.** The library is a single editing session
+##     with one `as_pack_info()` record, not a collection of installed packs;
+##     there is no count of packs to show, so no row is drawn for one.
+##   * **SPRITES** is `total_items`, drawn as ITEMS -- the word the rest of this
+##     window and `AssetValidator` both use.
+##   * **ON DISK is dashed.** `as_clear_library()` resets the in-memory session;
+##     nothing in `cartalith-assets` reports a byte size, and the imported
+##     source files are not this library's to measure.
 func _on_clear_library() -> void:
-	var d := ConfirmationDialog.new()
-	d.title = "Clear the asset library?"
-	d.dialog_text = "Clear the entire asset library? This removes every imported item and custom slot."
-	d.confirmed.connect(func():
-		_bridge.as_clear_library()
-		_dirty = true
-		_selected.clear()
-		_focused_uid = ""
-		_preview_index = 0
-		_refresh_grid()
-		_refresh_inspector()
-		_refresh_import_button()
-		_refresh_pack_status()
-		_host.set_status("hint", "asset library cleared", "accent")
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered()
+	var totals := _library_totals()
+	var card := DccWidgets.modal_card(self, "Clear library", DccWidgets.MODAL_DESTRUCTIVE)
+	DccWidgets.modal_prose(card["body"],
+		"Remove every imported item and custom slot from the asset library.")
+	var stats := DccWidgets.modal_inset(card["body"], true)
+	if totals.has("items"):
+		DccWidgets.modal_stat(stats, "items", str(totals["items"]))
+	else:
+		DccWidgets.modal_stat_absent(stats, "items",
+			"this binary's as_pack_info() returns no total_items")
+	DccWidgets.modal_stat(stats, "filled slots",
+		"%d / %d" % [totals["filled"], totals["slots"]])
+	if totals.has("collections"):
+		DccWidgets.modal_stat(stats, "collections", str(totals["collections"]))
+	else:
+		DccWidgets.modal_stat_absent(stats, "collections",
+			"this binary exposes no as_collections()")
+	DccWidgets.modal_stat_absent(stats, "on disk",
+		"nothing in cartalith-assets reports a byte size for the library")
+	DccWidgets.modal_foot(card["body"],
+		"the PNGs you imported from are not touched — this library is an index"
+		+ " and rebuilds by re-importing them")
+	var count_text := "Clear %d item%s" % [int(totals["items"]),
+		"" if int(totals["items"]) == 1 else "s"] if totals.has("items") \
+		else "Clear the library"
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"destructive": {"text": count_text, "on": func():
+			_bridge.as_clear_library()
+			_dirty = true
+			_selected.clear()
+			_focused_uid = ""
+			_preview_index = 0
+			_refresh_grid()
+			_refresh_inspector()
+			_refresh_import_button()
+			_refresh_pack_status()
+			_host.set_status("hint", "asset library cleared", "accent")},
+	})
+	DccWidgets.modal_present(card, _host)
 
 # ---------------------------------------------------------------------------
 # Pack status / pack metadata (AS-13's "Active pack" header)

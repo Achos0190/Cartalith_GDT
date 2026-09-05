@@ -1577,8 +1577,10 @@ static func _floor_dialog_bar(dlg: Window, target: Vector2i) -> void:
 	if ad.has_method("get_cancel_button"):
 		bar.append(ad.call("get_cancel_button"))
 	## An **untyped** loop element writes to a temporary copy of the vector and
-	## is lost -- `app.gd::_floor_prompt_buttons()`'s first trap, which applies
-	## here verbatim.
+	## is lost. That was `app.gd::_floor_prompt_buttons()`'s first trap; that
+	## function was deleted on 2026-09-05 when `confirm_unsaved_world()` moved
+	## to `modal_card()`, and the trap is recorded here because it applies
+	## verbatim to this loop and to any other written against a button bar.
 	for b: Button in bar:
 		if b != null and b.visible:
 			b.custom_minimum_size = Vector2(0.0, DccTheme.PHONE_TAP_MIN)
@@ -1725,3 +1727,492 @@ static func pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContai
 	m.add_theme_constant_override("margin_bottom", b)
 	parent.add_child(m)
 	return m
+
+# ---------------------------------------------------------------------------
+# The modal card
+#
+# `design/proposed-2026-09-05/Modal.dc.html`, approved by the owner 2026-09-05
+# ("I like the layouts as proposed, implement those"). One pattern, three
+# variants, drawn side by side in that artboard:
+#
+#   A CONFIRM      Cancel / Discard / Save and close -- a question with a safe
+#                  answer, so the safe answer is the filled one and sits last.
+#   B DESTRUCTIVE  Cancel / Clear 128 packs -- the destructive act IS the
+#                  dialog's purpose, so it sits last, in a block wash, and
+#                  NEVER in the accent fill.
+#   C WARNINGS     Copy report / Done -- a result, not a question, so there is
+#                  no Cancel.
+#
+# **The ordering rule, which is the whole point of the pattern and is enforced
+# by `modal_choices()` rather than left to a call site:** where a safe action
+# exists it is the filled one and sits last, and the destructive action beside
+# it is text-only, never filled and never the rightmost. Where the destructive
+# action is the only action (B) it is last -- there is nothing safe to put
+# after it -- but it takes the block wash, because the accent fill is what
+# tells a reader "this is the safe answer".
+#
+# Radius. §11's "radius 0 everywhere" is a rule from the 2026-08 desktop
+# canvases; this artboard is newer and draws `border-radius:10px` on the card
+# and `8px` on its insets and buttons, so the owner's 2026-08-25 ruling ("when
+# two design canvases disagree, the newer one wins") settles it for a floating
+# surface. Nothing that is not a modal changes: `DccTheme.outline()` still
+# returns radius 0 and every existing caller of it is untouched.
+#
+# Colour tokens, resolved out of `dcc_theme.gd` rather than pasted from the
+# artboard's hex (each was matched by grepping the hex in `dcc_theme.gd`):
+#   `--pan`  #121314        -> `panel`          (the card ground)
+#   `--ins`  #191c1e        -> `sunken`         (the stat block, the list)
+#   `--bor`  rgba(255,.16)  -> `border`         ("anything that floats")
+#   `--div`  rgba(255,.07)  -> `line_soft`      (the header rule, list rules)
+#   `--faint`#6f7478        -> `text_faint`     (title, keys, the closer)
+#   `--body` #c8cbcd        -> `text`           (the prose line)
+#   `--sec`  #a9adb0        -> `text_secondary` (values, list text)
+#   `--dim`  #8d9296        -> `text_dim`
+#   `--dis`  #5f6468        -> `text_ghost`     (the foot note, and dashes)
+#   `--acc`  #e0a34a        -> `accent`
+#   `--accInk` #141005      -> `accent_ink`
+#   `--block`#c96a5a        -> `block`
+# `rgba(201,106,90,.16)` on B's button is `block` at the same alpha
+# `accent_wash_2` carries for `accent`; there is no `block_wash` token, so it
+# is derived from `c("block")` here rather than written as a hex.
+#
+# Metrics. `--pad:14px` is `role_px("bar_pad_x")` (`[14, 22]`) -- the same
+# chrome inset every bar in the shell takes, and the only `ROLE` entry whose
+# desktop figure is the artboard's. `--btnH:28px`, `--ctl:24px` and the card
+# width have no `ROLE` counterpart at all (`btn_min_h` is `[0, 44]`, whose
+# desktop `0` means "no constraint"), so they are named constants below and
+# the tablet answer still comes from `btn_min_h`.
+# ---------------------------------------------------------------------------
+
+enum { MODAL_CONFIRM, MODAL_DESTRUCTIVE, MODAL_WARNINGS }
+
+const MODAL_RADIUS := 10        ## The card. `border-radius:10px`.
+const MODAL_INSET_RADIUS := 8   ## Stat block, list, buttons. `border-radius:8px`.
+const MODAL_BTN_H := 28         ## `--btnH`.
+const MODAL_CTL := 24           ## `--ctl`, the header's close box.
+## The artboard cards are 300 px in a 300 px column; 340 is that plus the two
+## 14 px pads and a little slack. It is a MINIMUM -- `wrap_controls` grows the
+## card for a longer question rather than clipping it.
+const MODAL_W := 340
+const MODAL_STAT_H := 19        ## The stat rows' own `min-height:19px`.
+
+## `--shadow:0 14px 34px rgba(0,0,0,.55)`. No palette token carries a shadow,
+## so it is a constant here. Drawn onto the dialog's own `panel` stylebox,
+## which is what `asset_library_window.gd::_build_slicer_modal()` already does
+## for the one other floating card in this shell.
+const MODAL_SHADOW_COLOR := Color(0, 0, 0, 0.55)
+const MODAL_SHADOW_SIZE := 34
+const MODAL_SHADOW_OFFSET := Vector2(0, 14)
+
+## Meta on the list container: which dot tokens `modal_list_row()` has actually
+## used. `modal_legend()` reads it, so the legend can only ever name classes
+## that are really on screen -- the artboard's "wire the legend to the same
+## source as the dots", made structural rather than a convention.
+const MODAL_DOTS_META := "dcc_modal_dot_tokens"
+
+## The floating card. Returns
+## `{"dialog": AcceptDialog, "root": VBoxContainer, "body": VBoxContainer,
+##   "title": Label, "close": Button, "variant": int}`.
+##
+## **One content child, deliberately.** `AcceptDialog` hands its FIRST content
+## child the whole rect and lays every later sibling out on top of it; this
+## shell has been bitten by that, so everything below hangs off `root`.
+##
+## Keyboard, and this is a capability the stock dialogs give away for free --
+## losing it to a restyle would be a regression wearing conformance clothes:
+##   * **Esc** cancels. `AcceptDialog` already routes `ui_cancel` to its own
+##     `canceled` signal; `modal_choices()` connects that to the dismissal.
+##   * **Enter** fires the last button, exactly as a stock
+##     `ConfirmationDialog`'s focused OK does. Wired in `modal_choices()`
+##     through `window_input`, because every button in this shell is
+##     `FOCUS_NONE` and there is therefore no focused control to press.
+##   * **Modality** is `AcceptDialog`'s own `exclusive`, re-asserted here after
+##     the reparent so it cannot depend on a constructor default.
+static func modal_card(host: Node, title: String, variant: int = MODAL_CONFIRM,
+		width: int = MODAL_W) -> Dictionary:
+	var dlg := AcceptDialog.new()
+	dlg.title = title
+	dlg.borderless = true
+	dlg.wrap_controls = true
+	dlg.get_ok_button().hide()
+	dlg.add_theme_constant_override("buttons_min_height", 0)
+	dlg.add_theme_constant_override("margin", 0)
+	var card := DccTheme.outline("border", "panel")
+	card.set_corner_radius_all(MODAL_RADIUS)
+	card.shadow_color = MODAL_SHADOW_COLOR
+	card.shadow_size = MODAL_SHADOW_SIZE
+	card.shadow_offset = MODAL_SHADOW_OFFSET
+	dlg.add_theme_stylebox_override("panel", card)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 0)
+	root.custom_minimum_size.x = width
+	dlg.add_child(root)
+
+	var pad_x := DccTheme.role_px("bar_pad_x")
+	var head_pad := pad(root, pad_x, 9, pad_x, 8)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head_pad.add_child(head)
+	## Tracked caps in the faint ink -- and in `block` for the destructive
+	## variant, which tints its title and (via `modal_inset()`) its inset's
+	## left rule, and nothing else. The header divider below stays `line_soft`
+	## in all three variants, which is what the artboard draws.
+	var t := DccTheme.mono_label(title.to_upper(),
+		"block" if variant == MODAL_DESTRUCTIVE else "text_faint",
+		DccTheme.FS_MICRO, 2)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(t)
+	var closer := Button.new()
+	closer.text = "✕"
+	closer.focus_mode = Control.FOCUS_NONE
+	closer.custom_minimum_size = Vector2(MODAL_CTL, MODAL_CTL)
+	closer.add_theme_font_override("font", DccTheme.mono(0))
+	closer.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	closer.add_theme_color_override("font_color", DccTheme.c("text_faint"))
+	closer.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	closer.add_theme_stylebox_override("normal", DccTheme.empty())
+	closer.add_theme_stylebox_override("pressed", DccTheme.empty())
+	closer.add_theme_stylebox_override("hover",
+		DccTheme.flat(DccTheme.c("line_soft"), MODAL_INSET_RADIUS))
+	head.add_child(closer)
+
+	var rule := ColorRect.new()
+	rule.color = DccTheme.c("line_soft")
+	rule.custom_minimum_size.y = DccTheme.role_px("hairline")
+	root.add_child(rule)
+
+	var body_pad := pad(root, pad_x, 13, pad_x, 14)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 11)
+	body_pad.add_child(body)
+
+	if host != null:
+		host.add_child(dlg)
+	dlg.transient = true
+	dlg.exclusive = true
+	return {"dialog": dlg, "root": root, "body": body, "title": t,
+		"close": closer, "variant": variant}
+
+## The card's prose line -- `color:var(--body);line-height:1.5`, wrapped.
+static func modal_prose(parent: Control, text: String) -> Label:
+	var l := DccTheme.label(text, "text", DccTheme.FS_BODY)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(l)
+	return l
+
+## The `--ins` block the stat rows sit in. `tinted` draws the destructive
+## variant's `border-left:2px solid var(--block)`.
+static func modal_inset(parent: Control, tinted: bool = false) -> VBoxContainer:
+	var pc := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = DccTheme.c("sunken")
+	sb.set_corner_radius_all(MODAL_INSET_RADIUS)
+	sb.content_margin_left = 11
+	sb.content_margin_right = 11
+	sb.content_margin_top = 9
+	sb.content_margin_bottom = 9
+	if tinted:
+		sb.border_color = DccTheme.c("block")
+		sb.border_width_left = 2
+	pc.add_theme_stylebox_override("panel", sb)
+	parent.add_child(pc)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	pc.add_child(col)
+	return col
+
+static func _modal_stat_row(parent: Control, key: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.custom_minimum_size.y = MODAL_STAT_H
+	parent.add_child(row)
+	var k := DccTheme.mono_label(key.to_upper(), "text_faint", DccTheme.FS_MICRO, 1)
+	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(k)
+	return row
+
+## One `KEY ..... value` row inside a `modal_inset()`.
+static func modal_stat(parent: Control, key: String, value: String) -> HBoxContainer:
+	var row := _modal_stat_row(parent, key)
+	var v := DccTheme.mono_label(value, "text_secondary", DccTheme.FS_TINY)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(v)
+	return row
+
+## The same row for a figure **the engine cannot supply**. Draws an em dash in
+## the ghost ink and puts `why` on the row's tooltip, so the reason travels
+## with the dash instead of living only in a source comment.
+##
+## This exists because the artboards were drawn to settle layout and their
+## contents are illustrative: a plausible number in one of these slots is a
+## worse outcome than a dash, and a factory makes the honest form the easy one.
+static func modal_stat_absent(parent: Control, key: String, why: String) -> HBoxContainer:
+	var row := _modal_stat_row(parent, key)
+	var v := DccTheme.mono_label("—", "text_ghost", DccTheme.FS_TINY)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.add_child(v)
+	row.tooltip_text = why
+	v.tooltip_text = why
+	return row
+
+## The micro foot -- "the autosave is a separate slot", "source files on disk
+## are not touched". A destructive confirm states what is NOT destroyed here.
+static func modal_foot(parent: Control, text: String) -> Label:
+	var l := DccTheme.mono_label(text, "text_ghost", DccTheme.FS_MICRO)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	parent.add_child(l)
+	return l
+
+## Variant C's list container. Rows go in through `modal_list_row()`, which is
+## also what records the dot tokens `modal_legend()` names.
+static func modal_list(parent: Control) -> VBoxContainer:
+	var pc := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = DccTheme.c("sunken")
+	sb.set_corner_radius_all(MODAL_INSET_RADIUS)
+	pc.add_theme_stylebox_override("panel", sb)
+	parent.add_child(pc)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.set_meta(MODAL_DOTS_META, PackedStringArray())
+	pc.add_child(col)
+	return col
+
+## One list row. `dot_token` empty draws the artboard's quiet "2 more" tail
+## row, which carries no dot and therefore contributes nothing to the legend.
+static func modal_list_row(list: VBoxContainer, dot_token: String,
+		text: String) -> HBoxContainer:
+	if list.get_child_count() > 0:
+		var sep := ColorRect.new()
+		sep.color = DccTheme.c("line_soft")
+		sep.custom_minimum_size.y = DccTheme.role_px("hairline")
+		list.add_child(sep)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	list.add_child(row)
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 11)
+	m.add_theme_constant_override("margin_right", 11)
+	m.add_theme_constant_override("margin_top", 6)
+	m.add_theme_constant_override("margin_bottom", 6)
+	m.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(m)
+	var inner := HBoxContainer.new()
+	inner.add_theme_constant_override("separation", 9)
+	m.add_child(inner)
+	if dot_token != "":
+		inner.add_child(DccTheme.mono_label("●", dot_token, DccTheme.FS_TINY))
+		var seen: PackedStringArray = list.get_meta(MODAL_DOTS_META, PackedStringArray())
+		if not seen.has(dot_token):
+			seen.append(dot_token)
+			list.set_meta(MODAL_DOTS_META, seen)
+	var l := DccTheme.mono_label(text,
+		"text_secondary" if dot_token != "" else "text_ghost",
+		DccTheme.FS_TINY if dot_token != "" else DccTheme.FS_MICRO)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	inner.add_child(l)
+	return row
+
+## The legend under a `modal_list()`. `captions` maps a dot token to its
+## caption; **only tokens the list actually drew are named**, read back off
+## `MODAL_DOTS_META`, so a class the data never produced can never appear in
+## the key. A caption with no matching dot is silently absent, which is the
+## honest answer -- not a legend entry for a category that is not on screen.
+static func modal_legend(parent: Control, list: VBoxContainer,
+		captions: Dictionary) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	parent.add_child(row)
+	var seen: PackedStringArray = list.get_meta(MODAL_DOTS_META, PackedStringArray())
+	for token in seen:
+		if not captions.has(token):
+			continue
+		var cell := HBoxContainer.new()
+		cell.add_theme_constant_override("separation", 5)
+		row.add_child(cell)
+		cell.add_child(DccTheme.mono_label("●", token, DccTheme.FS_MICRO))
+		cell.add_child(DccTheme.mono_label(String(captions[token]),
+			"text_ghost", DccTheme.FS_MICRO))
+	return row
+
+## The action row. Right-aligned, `gap:8px`.
+static func modal_actions(parent: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.alignment = BoxContainer.ALIGNMENT_END
+	parent.add_child(row)
+	return row
+
+const MODAL_KIND_META := "dcc_modal_button_kind"
+## The card's Enter action, stamped on the dialog by `modal_choices()`.
+const MODAL_DEFAULT_META := "dcc_modal_default"
+
+static func _modal_btn(row: Control, text: String, on_press: Callable,
+		kind: String, bg: Color, hover_bg: Color, ink: String,
+		ink_hover: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.set_meta(MODAL_KIND_META, kind)
+	## Three densities, and the phone one is not optional: these buttons are
+	## ordinary content children (unlike `AcceptDialog`'s internal button bar,
+	## which is why `app.gd::_floor_prompt_buttons()` had to exist), so nothing
+	## else floors them and a 28 px answer on a handset is the recorded
+	## "desktop pixels on a phone" bug. `is_tablet()` is deliberately false on
+	## a phone -- see its own comment -- so the two cases are separate.
+	var h := MODAL_BTN_H
+	if DccTheme.is_tablet():
+		h = DccTheme.role_px("btn_min_h")
+	elif DccTheme.is_phone():
+		h = DccTheme.PHONE_TAP_MIN
+	b.custom_minimum_size.y = h
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_TINY)
+	b.add_theme_color_override("font_color", DccTheme.c(ink))
+	b.add_theme_color_override("font_hover_color", DccTheme.c(ink_hover))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var pad_x := DccTheme.role_px("btn_pad_x") if DccTheme.is_tablet() else 14
+	var rest := DccTheme.flat(bg, MODAL_INSET_RADIUS)
+	rest.content_margin_left = pad_x
+	rest.content_margin_right = pad_x
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("disabled", rest)
+	var hover := DccTheme.flat(hover_bg, MODAL_INSET_RADIUS)
+	hover.content_margin_left = pad_x
+	hover.content_margin_right = pad_x
+	b.add_theme_stylebox_override("hover", hover)
+	b.add_theme_stylebox_override("pressed", hover)
+	b.pressed.connect(on_press)
+	row.add_child(b)
+	return b
+
+## `.btn2` -- the quiet dismissal. `background:var(--ins);color:var(--sec)`.
+static func modal_quiet(row: Control, text: String, on_press: Callable) -> Button:
+	return _modal_btn(row, text, on_press, "quiet", DccTheme.c("sunken"),
+		DccTheme.c("raised"), "text_secondary", "text_bright")
+
+## The destructive answer **beside a safe one** -- `.btn2`'s quiet box with the
+## block ink. Text-only in the sense that matters: it never takes a fill of its
+## own, never the accent, and never the rightmost slot.
+static func modal_text_destructive(row: Control, text: String, on_press: Callable) -> Button:
+	return _modal_btn(row, text, on_press, "destructive_text",
+		DccTheme.c("sunken"), DccTheme.c("raised"), "block", "block")
+
+## The destructive answer when it is the ONLY answer (variant B). Block wash at
+## `accent_wash_2`'s alpha, block ink -- never the accent fill.
+static func modal_destructive(row: Control, text: String, on_press: Callable) -> Button:
+	var wash := DccTheme.c("block")
+	wash.a = DccTheme.c("accent_wash_2").a
+	var lit := DccTheme.c("block")
+	lit.a = min(1.0, wash.a * 1.7)
+	return _modal_btn(row, text, on_press, "destructive_filled", wash, lit,
+		"block", "text_bright")
+
+## `.btn` -- the safe, filled answer. `background:var(--acc);color:var(--accInk)`.
+static func modal_safe(row: Control, text: String, on_press: Callable) -> Button:
+	return _modal_btn(row, text, on_press, "safe", DccTheme.c("accent"),
+		DccTheme.c("accent_hover"), "accent_ink", "accent_ink")
+
+## Builds the action row for a `modal_card()` and **enforces the artboard's
+## ordering**, so no call site can put the destructive answer last beside a
+## safe one or draw it in the accent fill.
+##
+## `spec` is read with `has()` throughout -- an absent key is an absent button,
+## never a button with an empty label:
+##   `cancel`      String -- the quiet dismissal, always first.
+##   `destructive` {"text": String, "on": Callable}
+##   `safe`        {"text": String, "on": Callable}
+##
+## Returns `{"row", "cancel"?, "destructive"?, "safe"?, "default"?}`; the keys
+## for buttons that were not asked for are omitted.
+##
+## Keyboard, restored rather than lost:
+##   * Esc -> `canceled` -> the card closes, and the caller's `on_cancel` runs.
+##   * Enter -> the LAST button, which is what a stock `ConfirmationDialog`'s
+##     focused OK does. Fired from `window_input` because every button here is
+##     `FOCUS_NONE`, so there is no focused control for `ui_accept` to reach.
+##   * The header close box and the window's own close both take the Esc path.
+static func modal_choices(card: Dictionary, spec: Dictionary) -> Dictionary:
+	var dlg: AcceptDialog = card["dialog"]
+	var row := modal_actions(card["body"])
+	var out := {"row": row}
+	var default_action := Callable()
+
+	var has_safe: bool = spec.has("safe")
+	var has_destructive: bool = spec.has("destructive")
+	var on_cancel: Callable = spec["on_cancel"] if spec.has("on_cancel") else Callable()
+
+	var dismiss := func():
+		if is_instance_valid(dlg) and not dlg.is_queued_for_deletion():
+			dlg.hide()
+			dlg.queue_free()
+
+	var cancel_action := func():
+		var was_live: bool = is_instance_valid(dlg) and not dlg.is_queued_for_deletion()
+		dismiss.call()
+		if was_live and on_cancel.is_valid():
+			on_cancel.call()
+
+	if spec.has("cancel"):
+		out["cancel"] = modal_quiet(row, String(spec["cancel"]), cancel_action)
+
+	if has_destructive:
+		var d: Dictionary = spec["destructive"]
+		var d_on: Callable = d["on"]
+		var run_destructive := func():
+			dismiss.call()
+			d_on.call()
+		if has_safe:
+			## Text-only, and NOT the rightmost -- the safe answer follows it.
+			out["destructive"] = modal_text_destructive(row, String(d["text"]),
+				run_destructive)
+		else:
+			out["destructive"] = modal_destructive(row, String(d["text"]),
+				run_destructive)
+			default_action = run_destructive
+
+	if has_safe:
+		var s: Dictionary = spec["safe"]
+		var s_on: Callable = s["on"]
+		var run_safe := func():
+			dismiss.call()
+			s_on.call()
+		out["safe"] = modal_safe(row, String(s["text"]), run_safe)
+		default_action = run_safe
+
+	if default_action.is_valid():
+		out["default"] = default_action
+		## Also stamped on the dialog, because a caller that puts a `LineEdit`
+		## in the body needs to route `text_submitted` to the same action: a
+		## focused `LineEdit` consumes Enter before `window_input` sees it, so
+		## the card-level handler below cannot be the field's route too.
+		dlg.set_meta(MODAL_DEFAULT_META, default_action)
+
+	## Esc. `AcceptDialog` routes `ui_cancel` here on its own; connecting it is
+	## what makes the restyle keep the capability the stock dialog had.
+	dlg.canceled.connect(cancel_action)
+	dlg.close_requested.connect(cancel_action)
+	(card["close"] as Button).pressed.connect(cancel_action)
+
+	## Enter.
+	if default_action.is_valid():
+		var fire := default_action
+		dlg.window_input.connect(func(ev: InputEvent):
+			if ev.is_action_pressed("ui_accept", false, true):
+				dlg.set_input_as_handled()
+				fire.call())
+	return out
+
+## Opens a `modal_card()`, phone-shaped where the host is a phone. Mirrors the
+## two-line `phone_present()` / `popup_centered()` pair every window in this
+## shell already uses.
+static func modal_present(card: Dictionary, host) -> void:
+	var dlg: AcceptDialog = card["dialog"]
+	if DccTheme.is_phone():
+		phone_window(dlg, host)
+	if not phone_present(dlg, host):
+		dlg.popup_centered()

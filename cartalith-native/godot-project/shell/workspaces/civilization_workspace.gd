@@ -184,6 +184,29 @@ var _religion_culture_key := PackedStringArray()
 ## conversion happens at all**, so fifty years is comfortably past the far end
 ## of that range and still one human lifetime rather than an epoch.
 var _religion_years := 50
+## `design/proposed-2026-09-05/Religion.dc.html`'s three-way segment, and the
+## sort state its table header carries. Both are shell-side view state and
+## neither is written to the engine: switching a segment or a sort column
+## re-fills this category's body from `bridge.settlements()` and does nothing
+## else.
+##
+## `"share"` is the artboard's own default -- it draws the caret on SHARE and
+## the rows in descending share order, which is also `_religion_sorted()`'s
+## existing order, so the default view is byte-identical to what shipped
+## before the segment existed.
+var _religion_view := "adherence"   ## "adherence" | "diffusion" | "divergence"
+var _religion_sort := "share"       ## "share" | "faith"
+## §6's right-hand count slot on the category header, drawn as a child of the
+## header `Button` rather than through `DccWidgets.category()`.
+##
+## The factory has no parameter for one and its `categories` entry reuses a
+## single `title` field as both the button's redraw source and the exact string
+## `Workspace.open_category()` matches -- see the LANDMARKS block below, which
+## disclosed that and stopped there. A `Label` parented to the button is the
+## way past it that needs no edit to a shared factory: `_toggle_category()`
+## rewrites `btn.text` and `font_color` and touches no child, so the count
+## survives every sibling's toggle instead of being repainted away by it.
+var _religion_head_count: Label
 ## CV-25's and CV-26's category bodies. Both refill on `_rebuild_readouts()`
 ## like the four above: their inputs are the settlement roster, the place
 ## editor's overrides and the territory raster, and all three move under a
@@ -2281,7 +2304,84 @@ func _fill_culture(parent: Control) -> void:
 
 func _build_religion() -> void:
 	_religion_body = DccWidgets.category(self, "Religion", categories)
+	_religion_build_head_count()
 	_fill_religion(_religion_body)
+
+## §6's `{{ lmCatCount }}` slot, for Religion: a right-aligned mono readout on
+## the category header itself, visible before the accordion opens.
+##
+## Attached to the header `Button` as a child rather than folded into its text.
+## The button's own label is rewritten by `DccWidgets._toggle_category()` on
+## every press of every sibling, from `entry["title"]` -- which is also the
+## string `Workspace.open_category()` matches to jump here from another domain
+## -- so a count baked into it would be wrong the moment a neighbour was
+## clicked and would break the jump. A child `Label` is outside that rewrite
+## entirely.
+##
+## The header entry `categories` holds is the authority for which node this is;
+## it is found by `title` rather than by position, because the fifteen
+## `_build_*` calls above may be reordered and `categories` is shared with
+## `InfrastructureWorkspace`.
+func _religion_build_head_count() -> void:
+	## Not on the phone. `DccWidgets.category()` already draws a count there --
+	## the number of controls inside, which is a different number for a
+	## different purpose (`design/Cartalith Android Phone.dc.html`'s `02 Domain`
+	## screen: "depth is legible before the tap") -- and two numbers at the end
+	## of one row is one too many.
+	if DccTheme.is_phone():
+		return
+	var btn: Button = null
+	for e: Dictionary in categories:
+		if String(e.get("title", "")) == "Religion":
+			btn = e.get("button")
+			break
+	if btn == null or not is_instance_valid(btn):
+		return
+	## `--m2` faint, the same rung and ink §6 gives `lmCatCount`.
+	_religion_head_count = DccTheme.mono_label("", "text_faint", DccTheme.FS_MICRO, 0)
+	_religion_head_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_religion_head_count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	## `MOUSE_FILTER_IGNORE` so the label cannot eat the header click. A
+	## `Label` already defaults to it; set explicitly because this one sits on
+	## top of a `Button` whose whole area is the control.
+	_religion_head_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_religion_head_count.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
+	## `category()` insets its own label by 12 on both sides
+	## (`DccTheme.inset(12, 0, 12, 0)`); the count sits inside the same margin.
+	_religion_head_count.offset_right = -12
+	_religion_head_count.offset_left = -180
+	btn.add_child(_religion_head_count)
+
+## What that slot says, and the one thing the artboard draws in it that this
+## engine cannot supply.
+##
+## `design/proposed-2026-09-05/Religion.dc.html` draws `5 faiths · year 412`.
+## The faith count is real -- it is the same count `_religion_totals()` prints,
+## computed the same way, over `adherents` keys with the unaffiliated slot
+## excluded. **The year half is not drawn, and is not replaced by a plausible
+## substitute.** `bridge.get_civ_year()` exists and would render, but printing
+## it here would assert a relationship that does not hold: the belief layer is
+## not year-indexed, `civ_snapshot_load()` restores `territory` and nothing
+## else, and `_tl_goto_year()` does not refill this category. A year beside an
+## adherence count reads as "this is the adherence at that year", which would
+## be false for every year but the one the run happened to end on.
+func _religion_head_refresh(places: Array, state: String) -> void:
+	if _religion_head_count == null or not is_instance_valid(_religion_head_count):
+		return
+	if state != "live":
+		## Not "0 faiths": no run and no faiths are different answers, and a
+		## zero here would be the plausible-value failure the panel below
+		## spends four states avoiding.
+		_religion_head_count.text = "— not run"
+		return
+	var seen := {}
+	for p in places:
+		var ad: Dictionary = (p as Dictionary).get("adherents", {})
+		for k in ad.keys():
+			if String(k) != "none" and int(ad[k]) > 0:
+				seen[String(k)] = true
+	var n := seen.size()
+	_religion_head_count.text = "%d faith%s" % [n, "" if n == 1 else "s"]
 
 ## Which of the four states this world is in, as a `{state, reason}` pair.
 ##
@@ -2347,75 +2447,206 @@ func _religion_state(places: Array) -> Dictionary:
 		+ "to None. That is a setting, not an empty result -- give a faction a religion in the "
 		+ "Faction Roster and run again."}
 
+## The category body, laid out to `design/proposed-2026-09-05/Religion.dc.html`.
+##
+## The artboard is a **specification** (owner, 2026-09-05: *"I like the layouts
+## as proposed, implement those"*), and its order is the order below: a
+## three-way segment, then -- on ADHERENCE -- a three-cell totals strip, a
+## stacked share bar, a sortable table, a BY FACTION disclosure, the primary
+## action, and the footnote.
+##
+## **The segment is a view switch, not three new subsystems.** Every pane's
+## content already existed as a `DccWidgets.section()` in this same function;
+## what changed is that one of the three is drawn at a time instead of all
+## three stacked. Nothing was deleted: DIFFUSION holds the years field, the run
+## button, the last-run line and the culture-staleness warning; DIVERGENCE
+## holds the ring's toggle, its sentence and its row list.
+##
+## No `§` section header inside a pane, deliberately. The artboard draws none,
+## and the lit segment already names the pane -- a `§ ADHERENCE` under a lit
+## ADHERENCE chip would be the same word twice.
 func _fill_religion(parent: Control) -> void:
 	var places := bridge.settlements()
 	var st := _religion_state(places)
 	var state := String(st["state"])
+	_religion_segments(parent)
+	var body := _religion_pane(parent)
+	match _religion_view:
+		"diffusion":
+			_religion_pane_diffusion(body, st, state)
+		"divergence":
+			_religion_pane_divergence(body, st, state, places)
+		_:
+			_religion_pane_adherence(body, st, state, places)
+	_religion_head_refresh(places, state)
 
-	var run := DccWidgets.section(parent, "Diffusion")
-	DccWidgets.note(run,
+## The artboard's `display:flex;gap:4px;background:var(--ins);border-radius:14px`
+## track carrying three chips.
+##
+## `--ins` is `sunken` and `--wash2` is `accent_wash_2`; the lit chip is drawn
+## by `DccWidgets.set_segment_on()`, which paints `accent_wash` (`--wash`)
+## behind an accent border rather than `--wash2` behind none. That is this
+## shell's one lit-segment vocabulary and DS-02's ruling about filled accent
+## surfaces sits behind it, so the factory is used as it stands rather than
+## restyled here for one category.
+func _religion_segments(parent: Control) -> void:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 12)
+	pad.add_theme_constant_override("margin_top", 10)
+	var track := PanelContainer.new()
+	## Radius from the artboard's own `border-radius:14px`; no `DccTheme` role
+	## carries a corner radius, because §11's rule for the desktop artboards is
+	## radius 0 and `pill()` is the phone's exception. Stated rather than
+	## routed through a role that does not exist.
+	track.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 14))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	track.add_child(row)
+	pad.add_child(track)
+	parent.add_child(pad)
+	for spec in [["ADHERENCE", "adherence"], ["DIFFUSION", "diffusion"],
+			["DIVERGENCE", "divergence"]]:
+		var key: String = spec[1]
+		var b := DccWidgets.segment(row, String(spec[0]), func(): _religion_set_view(key))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		DccWidgets.set_segment_on(b, _religion_view == key)
+
+func _religion_set_view(view: String) -> void:
+	if _religion_view == view:
+		return
+	_religion_view = view
+	if _religion_body != null and is_instance_valid(_religion_body):
+		_clear_body(_religion_body)
+		_fill_religion(_religion_body)
+
+## The padded column a pane draws into -- `DccWidgets.section()`'s own body
+## margins without its header, for the reason `_fill_religion()` gives.
+func _religion_pane(parent: Control) -> VBoxContainer:
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 2)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var bpad := MarginContainer.new()
+	bpad.add_theme_constant_override("margin_left", 14)
+	bpad.add_theme_constant_override("margin_right", 12)
+	bpad.add_theme_constant_override("margin_top", 10)
+	bpad.add_theme_constant_override("margin_bottom", 6)
+	bpad.add_child(body)
+	parent.add_child(bpad)
+	return body
+
+## DIFFUSION -- the run controls, unchanged in content from what this function
+## drew as its `Diffusion` section before the segment existed.
+func _religion_pane_diffusion(body: Control, st: Dictionary, state: String) -> void:
+	DccWidgets.note(body,
 		"Religion spreads along the generated road network, one step per simulated year "
 		+ "(RELIGION_DIFFUSION_SCOPE.md milestone 1). Each settlement starts wholly in its "
 		+ "faction's state religion; exposure is weighted by neighbour population and by the "
 		+ "road network's own carriage decay, so ports and crossroads become hubs without any "
 		+ "spread radius being drawn. Sea lanes carry nothing yet -- SeaRoute has no endpoint "
 		+ "indices, so this port's religion travels overland only.")
-
 	if state == "no_binding" or state == "no_world":
-		DccWidgets.note(run, String(st["reason"]))
-		_religion_stranded_layer(run)
+		DccWidgets.note(body, String(st["reason"]))
+		_religion_stranded_layer(body)
 		return
-
 	## Step 1, not 10. `Range.set_value` snaps to `min + k*step`, so a step of
 	## 10 with a minimum of 1 would have silently turned the shipped default
 	## of 50 into 51 -- a control that disagrees with the field behind it.
-	DccWidgets.number(run, "Years", 1, 2000, 1, float(_religion_years),
+	DccWidgets.number(body, "Years", 1, 2000, 1, float(_religion_years),
 		func(v: float): _religion_years = int(v),
 		"Diffusion steps to run, one per simulated year. A religion needs roughly 17-25 years "
 		+ "to carry a settlement it has reached at all (BELIEF_STEP_RATE's own measured range), "
 		+ "so fifty is past the far end of it. This is not the CIVIL timeline's year cursor: "
 		+ "the belief layer has no recorded snapshots and does not move with Politics.")
-	## Labelled without the year count on purpose: the number lives in the
-	## field above and this label is built once per fill, so baking it in
-	## would leave the button naming a span the spinbox no longer holds.
-	var go := DccWidgets.action(run, "Run diffusion", func(): _religion_run())
+	## Labelled without the year count on purpose **on this pane**: the number
+	## lives in the field directly above it, and this label is built once per
+	## fill, so baking it in would leave the button naming a span the spinbox no
+	## longer holds. ADHERENCE's copy of this action does carry the count, and
+	## can, because the field is not on that pane at all -- see there.
+	var go := DccWidgets.action(body, "Run diffusion", func(): _religion_run())
 	go.tooltip_text = ("Seeds the layer from the faction roster if it is missing or stale, then "
 		+ "runs the steps. A second press continues from where the first left off rather than "
 		+ "restarting. Nothing is written to the save file.")
-
 	if not _religion_status.is_empty():
 		var years := int(_religion_status.get("years", 0))
 		var seeded := bool(_religion_status.get("seeded", false))
-		DccWidgets.note(run, "Last run: %d year%s over %d settlements%s." % [
+		DccWidgets.note(body, "Last run: %d year%s over %d settlements%s." % [
 			years, "" if years == 1 else "s",
 			int(_religion_status.get("settlements", 0)),
 			" (the layer was re-seeded first)" if seeded else ""])
-	_religion_culture_warning(run)
+	_religion_culture_warning(body)
 
-	var sec := DccWidgets.section(parent, "Adherence")
+## DIVERGENCE -- the ring, its sentence and its rows.
+func _religion_pane_divergence(body: Control, st: Dictionary, state: String,
+		places: Array) -> void:
 	if state != "live":
-		DccWidgets.note(sec, String(st["reason"]))
+		DccWidgets.note(body, String(st["reason"]))
+		_religion_stranded_layer(body)
+		return
+	_religion_divergence(body, places)
+
+## ADHERENCE -- the artboard's own pane, in its own order.
+func _religion_pane_adherence(body: Control, st: Dictionary, state: String,
+		places: Array) -> void:
+	if state != "live":
+		DccWidgets.note(body, String(st["reason"]))
 		if state == "secular":
-			var jump := DccWidgets.action(sec, "Set a faction's religion → Faction roster…",
+			var jump := DccWidgets.action(body, "Set a faction's religion → Faction roster…",
 				func(): app.open_faction_roster())
 			jump.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			jump.tooltip_text = ("The roster inspector's Religion picker is the only thing in "
 				+ "this application that ever writes a religion. Setting one re-seeds the "
 				+ "belief layer on the next run.")
-		_religion_stranded_layer(sec)
+		_religion_stranded_layer(body)
 		return
+	_religion_totals(body, places)
+	_religion_by_faction(body, places)
+	_religion_settlement_lists(body, places)
+	## The artboard's primary action, at the foot of the pane. It carries the
+	## span because the years field lives on the DIFFUSION pane and cannot
+	## change while this one is drawn -- switching panes re-fills, so the number
+	## here is always the one the press will use.
+	var go := DccWidgets.action(body, "Run diffusion → %d more year%s"
+		% [_religion_years, "" if _religion_years == 1 else "s"],
+		func(): _religion_run(), true)
+	go.tooltip_text = ("Continues from where the last run left off, over the span set in "
+		+ "DIFFUSION. Re-seeds first if the layer is missing or stale. Nothing is written to "
+		+ "the save file.")
+	_religion_footnote(body)
 
-	DccWidgets.note(sec,
+## The artboard's footnote, with its second sentence corrected against the code.
+##
+## Drawn: *"adherence is a result, not an input — edit faiths and their seeds,
+## then run. The table re-reads on the Timeline's year cursor; it never writes
+## to it."*
+##
+## The first clause is true and is kept. **The second is false and is not
+## shipped.** Checked at three symbols rather than reasoned about:
+## `civ_snapshot_load()` (`cartalith-civ/src/timeline.rs`) fills `territory` and
+## copies a snapshot's territory into it -- settlements are not in a
+## `TimelineSnapshot` restore at all; `EngineBridge.settlements()` is a bare
+## `world_gen.get_settlements()` with no year argument; and `_tl_goto_year()`
+## calls `_refresh_civ_data()`, which does not touch `_religion_body`. So this
+## table does not re-read on the year cursor and would not change if it did.
+##
+## The half that IS true -- it never writes to the cursor -- is kept and is
+## worth keeping: this pane's only engine call is `civ_belief_run()`, and the
+## three `civ_*_year` writes all live in the Timeline category.
+func _religion_footnote(parent: Control) -> void:
+	## Kept from the `Adherence` section this pane replaced: how the shares are
+	## made, and the two readings a percentage can carry that a reader would
+	## otherwise have to guess between.
+	DccWidgets.note(parent,
 		"Adherent counts sum to exactly each settlement's population -- the engine hands the "
 		+ "rounding remainder to the largest fractions rather than rounding every share on its "
 		+ "own, so these percentages can be read as head-counts. A faith with nobody in it is "
 		+ "not listed at all; `<1%` is a real congregation too small to round, and it is not "
 		+ "the same reading as an absent row.")
-	_religion_totals(sec, places)
-	_religion_divergence(sec, places)
-	_religion_by_faction(sec, places)
-
-	_religion_settlement_lists(sec, places)
+	DccWidgets.note(parent,
+		"Adherence is a result, not an input — set a faction's religion in the Faction "
+		+ "Roster, then run. The belief layer is not year-indexed: a Timeline snapshot "
+		+ "restores territory and nothing else, so these shares are the last run's, whatever "
+		+ "year the cursor is on. Nothing here writes to that cursor.")
 
 ## The settlement list, split by whether the rows in it can carry a head-count.
 ##
@@ -2537,6 +2768,17 @@ func _religion_totals(parent: Control, places: Array) -> void:
 	for r in rows:
 		if String(r[1]) != "none":
 			faiths += 1
+	## The artboard's three-cell totals strip: FAITHS, ADHERENTS, UNAFFILIATED.
+	_religion_strip(parent, faiths, total, int(people.get("none", 0)))
+	## The artboard's stacked share bar, directly under the strip.
+	_religion_bar(parent, people, total)
+	## The artboard's table.
+	_religion_table(parent, rows, total)
+	## The two sentences that reconcile this panel's two ways of counting
+	## settlements. They were the headline before the strip existed and are
+	## still the only place the denominators are stated; the strip carries the
+	## numbers, this carries what they are numbers of.
+	##
 	## The denominator is the number of settlements the head-counts actually
 	## come from, not `places.size()`. "123 159 people across 173 settlements"
 	## was true of a world whose people are in 15 of them.
@@ -2554,25 +2796,244 @@ func _religion_totals(parent: Control, places: Array) -> void:
 			+ "village add-ons at population 0 and this port matches it — so each of them "
 			+ "still carries a real share vector: a leading faith, and no head-count. Every "
 			+ "count below says which of the two it is made of.")
-	_religion_bar(parent, people, total)
+	## Where each faith LEADS, which the artboard's table has no column for.
+	##
+	## Moved into its own disclosure rather than dropped: the artboard draws
+	## FAITH / TYPE / SHARE / TREND and nothing else, and repurposing one of
+	## those headings to carry a lead count would be a mislabelled column. The
+	## information is real and this function's whole header is about how easily
+	## it is misread beside a head-count, so it keeps its sentences.
+	var lead_rows: Array = []
 	for r in rows:
+		if int(leads.get(String(r[1]), 0)) > 0:
+			lead_rows.append(r)
+	if not lead_rows.is_empty():
+		var lg := DccWidgets.group(parent, "where each faith leads", false)
+		for r in lead_rows:
+			var key: String = r[1]
+			var n: int = r[0]
+			var lead := int(leads.get(key, 0))
+			var lead_pop := int(leads_pop.get(key, 0))
+			## `lead` and `n` are drawn from disjoint settlement sets whenever
+			## `lead_pop` is 0, which is the common case -- see this function's
+			## own header. The tail names the overlap instead of leaving
+			## "leads N" looking like the settlements the people are in.
+			var where := ""
+			if lead_pop == 0:
+				where = ", none of them with a population"
+			elif lead_pop < lead:
+				where = ", %d of them with a population" % lead_pop
+			DccWidgets.note(lg, "%s %s — %s people (%s), leads %d settlement%s%s" % [
+				_religion_swatch_glyph(key), _religion_label(key),
+				FactionRosterWindow._thousands(n), _religion_pct(n, total),
+				lead, "" if lead == 1 else "s", where])
+
+## The artboard's three-cell totals strip.
+##
+## Each cell is a large mono number over a tracked `--m2` caption. `hero2()` is
+## the number's rung: `ROLE["fs_hero_2"]` is `--hero2`, the design system's
+## *second* large readout, the one that "sits inside a dock rather than at the
+## top of one" -- which is exactly this. The artboard's own inline `20px` has no
+## `DccTheme` role at all, and inventing one for a single strip would put a
+## fourth type size in a table of two.
+##
+## Every one of the three has a real source and none is defaulted:
+##
+## - **FAITHS** -- `_religion_sorted(people)` with the unaffiliated slot
+##   excluded, the same count the headline sentence prints.
+## - **ADHERENTS** -- the summed `population` column, which
+##   `SettlementReligionState::adherents` is guaranteed to sum to exactly.
+## - **UNAFFILIATED** -- `people["none"]` over that total. A *missing* `none`
+##   key is a real zero and not an absence: `lib.rs` omits a zero adherent
+##   count from `adherents` rather than writing it, so "no key" means "nobody
+##   unaffiliated", and `_religion_pct(0, total)` is the honest render. The one
+##   absence this cell can have is `total == 0`, and `_religion_pct` already
+##   answers that with `—`.
+func _religion_strip(parent: Control, faiths: int, total: int, unaffiliated: int) -> void:
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", 8)
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_religion_strip_cell(strip, "%d" % faiths, "FAITHS", "accent")
+	_religion_strip_cell(strip, FactionRosterWindow._thousands(total), "ADHERENTS",
+		"text_bright")
+	_religion_strip_cell(strip, _religion_pct(unaffiliated, total), "UNAFFILIATED",
+		"text_secondary")
+	parent.add_child(strip)
+
+## One cell. `hero2()` hard-codes `accent`, so the two non-accent cells the
+## artboard draws (`--ink` and `--sec`) take the same size through
+## `role_px("fs_hero_2")` with their own token -- the size stays in the role
+## table either way, which is the part that must not become a literal.
+func _religion_strip_cell(parent: Control, value: String, caption: String,
+		token: String) -> void:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(DccTheme.mono_label(value, token, DccTheme.role_px("fs_hero_2"), 0, true))
+	## `.14em` at `--m2`, faint -- `mono()`'s spacing argument reads 1 as
+	## roughly .12 em and 2 as roughly .22 em at these sizes, so 1 is the rung.
+	col.add_child(DccTheme.mono_label(caption, "text_faint", DccTheme.FS_MICRO, 1))
+	parent.add_child(col)
+
+## The artboard's table: a colour swatch, the faith, its type, its share and
+## its trend, sorted by share descending with a caret on the sorted column.
+##
+## The shape is taken from Azgaar's Fantasy Map Generator Religions editor,
+## which is the closest comparable that already works over this data.
+##
+## # Two of its five columns have no source in this engine, and are dashed
+##
+## - **TYPE** (organized / folk / cult / heresy). There is no such field.
+##   `cartalith_civ::roster::CIV_RELIGIONS` is `[(&str, &str); 8]` -- a key and
+##   a label, nothing else -- and `belief.rs`'s own module doc says so in as
+##   many words (*"`CIV_RELIGIONS` is eight names and nothing else"*), in the
+##   passage that refuses to read "Sea Lords" as maritime because *"reading the
+##   label is parsing authored content; inventing a `C_ritual` for it is
+##   fabrication"*. A four-way taxonomy inferred from eight proper nouns is the
+##   same fabrication one step further on. Every row's TYPE is `—`.
+##   **What would supply it:** a `kind` (or equivalent) column on
+##   `CIV_RELIGIONS` plus a key for it in `civ_religion_vocabulary()`. That is
+##   authored content and an owner decision, not a shell one.
+## - **TREND** (`▲ 2.1`). A trend needs two observations. `civ_belief_run()`
+##   returns `{years, settlements, seeded, ...}` for the run just made and the
+##   layer keeps no history -- `CivData::belief` is a single current state, it
+##   is not persisted with the project, and `civ_snapshot_load()` restores
+##   `territory` only, so the Timeline cannot supply a previous year either.
+##   Every row's TREND is `—`.
+##   **What would supply it:** either a per-run previous-share snapshot held in
+##   this shell (cheap, but it would measure "since you last pressed Run",
+##   which is not a year-over-year trend and would be a mislabelled column), or
+##   a belief history in `CivData` that `civ_belief_run` appends to. The second
+##   is the real answer and it is engine work.
+##
+## Both headings are drawn dim and are **not** pressable, because a sort
+## control over a column with no values is an affordance that cannot do
+## anything. FAITH and SHARE are the two that sort.
+func _religion_table(parent: Control, rows: Array, total: int) -> void:
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sw := Control.new()
+	sw.custom_minimum_size.x = SWATCH_PX
+	head.add_child(sw)
+	_religion_sort_head(head, "FAITH", "faith", 0)
+	head.add_child(_religion_col_label("TYPE", "text_faint", COL_TYPE_PX,
+		HORIZONTAL_ALIGNMENT_LEFT, DccTheme.FS_MICRO, 1))
+	_religion_sort_head(head, "SHARE", "share", COL_SHARE_PX)
+	head.add_child(_religion_col_label("TREND", "text_faint", COL_TREND_PX,
+		HORIZONTAL_ALIGNMENT_RIGHT, DccTheme.FS_MICRO, 1))
+	parent.add_child(head)
+	parent.add_child(_religion_hairline())
+
+	var ordered := _religion_table_rows(rows)
+	for i in ordered.size():
+		var r: Array = ordered[i]
 		var key: String = r[1]
-		var n: int = r[0]
-		var lead := int(leads.get(key, 0))
-		var lead_pop := int(leads_pop.get(key, 0))
-		## `lead` and `n` are drawn from disjoint settlement sets whenever
-		## `lead_pop` is 0, which is the common case -- see this function's own
-		## header. The tail names the overlap instead of leaving "leads N"
-		## looking like the settlements the people are in.
-		var where := ""
-		if lead > 0 and lead_pop == 0:
-			where = ", none of them with a population"
-		elif lead > 0 and lead_pop < lead:
-			where = ", %d of them with a population" % lead_pop
-		DccWidgets.note(parent, "%s %s — %s people (%s), leads %d settlement%s%s" % [
-			_religion_swatch_glyph(key), _religion_label(key),
-			FactionRosterWindow._thousands(n), _religion_pct(n, total),
-			lead, "" if lead == 1 else "s", where])
+		var line := HBoxContainer.new()
+		line.add_theme_constant_override("separation", 8)
+		line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		## `role_px("row_min_h")` is `[0, 44]`; the desktop 0 means "the design
+		## states no constraint", so the row keeps its content height there and
+		## takes the 44 px touch floor on a tablet.
+		line.custom_minimum_size.y = DccTheme.role_px("row_min_h")
+		var chip := ColorRect.new()
+		chip.color = _religion_color(key)
+		chip.custom_minimum_size = Vector2(SWATCH_PX, SWATCH_PX)
+		chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		line.add_child(chip)
+		## The artboard inks the first row `--ink` and the rest `--sec`.
+		var name_label := DccTheme.mono_label(_religion_label(key),
+			"text_bright" if i == 0 else "text_secondary", DccTheme.FS_TINY, 0)
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		line.add_child(name_label)
+		## Dashed, with its reason in this function's header. `text_ghost` is
+		## `--dis`, the ink the artboard already gives a `— 0.0` trend cell.
+		line.add_child(_religion_col_label("—", "text_ghost", COL_TYPE_PX,
+			HORIZONTAL_ALIGNMENT_LEFT, DccTheme.FS_MICRO, 0))
+		line.add_child(_religion_col_label(_religion_pct(int(r[0]), total),
+			"text_secondary", COL_SHARE_PX, HORIZONTAL_ALIGNMENT_RIGHT,
+			DccTheme.FS_TINY, 0))
+		line.add_child(_religion_col_label("—", "text_ghost", COL_TREND_PX,
+			HORIZONTAL_ALIGNMENT_RIGHT, DccTheme.FS_TINY, 0))
+		parent.add_child(line)
+		parent.add_child(_religion_hairline())
+	DccWidgets.note(parent, "TYPE and TREND are dashed because this engine has no source for "
+		+ "either: cartalith_civ::roster::CIV_RELIGIONS is a key and a label per faith and "
+		+ "carries no category, and the belief layer keeps no history to compare a share "
+		+ "against — civ_belief_run() reports the run it just made and a Timeline snapshot "
+		+ "restores territory only. Neither is a zero and neither is guessed.")
+
+## The table's own row rule, at `--div` rather than `--hair`.
+##
+## `DccTheme.rule()` draws `line` (`--hair`, alpha .10), which is the rule
+## BETWEEN regions; `Religion.dc.html` separates its table rows with
+## `border-bottom:1px solid var(--div)` (alpha .07), the lighter rule used
+## INSIDE a surface -- `line_soft` here, and `dcc_theme.gd` states that
+## distinction in `line_soft`'s own comment. Three points of alpha, and it is
+## the difference between a table and a stack of regions.
+func _religion_hairline() -> Control:
+	var r := ColorRect.new()
+	r.color = DccTheme.c("line_soft")
+	r.custom_minimum_size = Vector2(0, DccTheme.role_px("hairline"))
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return r
+
+## `rows` in the order the sort caret says.
+##
+## `_religion_sorted()` has already put them in descending share with a
+## by-key tie-break, which IS the SHARE order and the artboard's default; the
+## FAITH order re-sorts by the printed label so the list reads alphabetically
+## the way the reader sees it, not by the underlying key.
+func _religion_table_rows(rows: Array) -> Array:
+	if _religion_sort != "faith":
+		return rows
+	var out := rows.duplicate()
+	out.sort_custom(func(a, b): return _religion_label(String(a[1])).naturalnocasecmp_to(
+		_religion_label(String(b[1]))) < 0)
+	return out
+
+## A pressable column heading: its own name, plus `▾` when it is the sorted one.
+func _religion_sort_head(parent: Control, text: String, key: String, width: int) -> void:
+	var b := Button.new()
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.text = "%s %s" % [text, DccIcons.SYMBOLS["caret"]] if _religion_sort == key else text
+	b.alignment = HORIZONTAL_ALIGNMENT_RIGHT if width > 0 else HORIZONTAL_ALIGNMENT_LEFT
+	if width > 0:
+		b.custom_minimum_size.x = width
+	else:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_override("font", DccTheme.mono(1))
+	b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+	b.add_theme_color_override("font_color",
+		DccTheme.c("accent") if _religion_sort == key else DccTheme.c("text_faint"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("pressed", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.empty())
+	b.pressed.connect(func(): _religion_set_sort(key))
+	parent.add_child(b)
+
+func _religion_set_sort(key: String) -> void:
+	if _religion_sort == key:
+		return
+	_religion_sort = key
+	if _religion_body != null and is_instance_valid(_religion_body):
+		_clear_body(_religion_body)
+		_fill_religion(_religion_body)
+
+## A fixed-width cell. `clip_text` is deliberately NOT set: it collapses a
+## `Label`'s `get_minimum_size().x` to 1, and beside a `SIZE_EXPAND_FILL`
+## sibling -- which the FAITH column is -- the cell would vanish.
+func _religion_col_label(text: String, token: String, width: int, align: int,
+		size: int, spacing: int) -> Label:
+	var l := DccTheme.mono_label(text, token, size, spacing)
+	l.custom_minimum_size.x = width
+	l.horizontal_alignment = align
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return l
 
 ## The only way to turn the faith-divergence ring **off** in a world that can
 ## no longer draw it, and it exists because the alternative was measured.
@@ -3170,6 +3631,23 @@ static func _religion_color(key: String) -> Color:
 const RELIGION_KEYS := ["none", "sun_cult", "earth_mother", "sea_lords", "sky_pantheon",
 	"ancestor_rites", "flame_creed", "old_gods"]
 
+## The Religion table's column widths, from `Religion.dc.html`'s own inline
+## `width:` values -- swatch 12, TYPE 56, SHARE 44, TREND 40.
+##
+## **These are the four figures in this pass that no `DccTheme` role carries,
+## and they are stated here rather than routed through a role that would be the
+## wrong one.** `ROLE` holds type sizes, region boxes, bar interiors, dock
+## interiors, control padding and five density-varying widths; it has no table
+## geometry at all, because §6 of `04-left-dock.md` describes no table. Naming
+## them once, beside the palette they sit in, is the closest this shell gets to
+## a token for them; picking `slider_track_w` or `w_popover` because the number
+## happened to be near would be worse than a literal, since it would move when
+## that control moved.
+const SWATCH_PX := 12
+const COL_TYPE_PX := 56
+const COL_SHARE_PX := 44
+const COL_TREND_PX := 40
+
 ## One column of the faction roster as a `faction - 1` indexed array, matching
 ## `map_overlay.gd`'s `_faction_colors` convention.
 ##
@@ -3365,6 +3843,15 @@ func _build_simulation() -> void:
 #   (now-wrong) title. That factory is not this pass's to edit; disclosed
 #   here rather than shipped as a readout that goes stale the instant a
 #   neighbour is clicked.
+#   **A way past that landed 2026-09-05, for Religion, and Landmarks could
+#   take it too.** `_religion_build_head_count()` parents a `Label` to the
+#   header `Button` instead of folding the count into its text:
+#   `_toggle_category()` rewrites `btn.text` and `font_color` and touches no
+#   child, so a child label survives every sibling's toggle and
+#   `entry["title"]` is never touched. Landmarks is NOT converted here --
+#   `_lm_rebuild()` and `_fill_landmarks()` are a different lane's rows and
+#   the armed/placed counts would need their own refresh call -- but the
+#   paragraph above should no longer be read as "this cannot be built".
 #
 # Places the design and what is buildable disagreed are marked **DIVERGENCE**
 # in place, with the reason, rather than left for a reader to find by holding

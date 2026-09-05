@@ -1703,9 +1703,15 @@ func _center_landmasses() -> void:
 	if not bridge.has_world:
 		set_status("hint", "no world to centre", "accent")
 		return
-	_confirm("Center landmasses?",
-		"This cannot be undone.\n\nThe civilisation layer and the sculpt draft are discarded. Labels, map icons, infrastructure and painted layers stay where they are and will no longer line up with the terrain.",
-		"Rotate the world", _do_center_landmasses)
+	## The two halves of this wording are now the two halves the artboard
+	## draws: what is destroyed goes in the prose, what SURVIVES goes in the
+	## foot. They were one paragraph, and the survivors were the second half of
+	## it -- the part a reader skims past on a prompt they want to dismiss.
+	_confirm("Center landmasses",
+		"This cannot be undone. The civilisation layer and the sculpt draft are discarded.",
+		"Rotate the world", _do_center_landmasses,
+		"labels, map icons, infrastructure and painted layers stay where they"
+		+ " are — they will no longer line up with the terrain")
 
 func _do_center_landmasses() -> void:
 	var r: Dictionary = bridge.center_landmasses()
@@ -2349,79 +2355,86 @@ func close_project() -> void:
 ##
 ## Returns the dialog, because `_close_requested()` has to be able to *check*
 ## that it really went up -- see there.
+##
+## **Variant A of `design/proposed-2026-09-05/Modal.dc.html`**, which draws
+## this exact prompt ("CLOSE WORLD ... has changes that are not saved") and is
+## the reason the shared card exists. The stock `ConfirmationDialog` it
+## replaced put Discard on the OK button, which is the rightmost and the
+## default -- the artboard's rule is the opposite, and `DccWidgets
+## .modal_choices()` now enforces it: Cancel, then Discard text-only in the
+## block ink, then the filled Save last.
+##
+## The three keyboard behaviours the stock dialog gave for free are kept and
+## are asserted in `_modalpattern_probe.gd`, not assumed: Esc cancels, Enter
+## takes the *safe* answer (which under the new ordering is Save rather than
+## Discard -- strictly safer than the stock default it replaces), and the
+## window is `exclusive`.
+##
+## `_floor_prompt_buttons()` went with the stock dialog. It existed because
+## `AcceptDialog` parents its button bar as an **internal** child, outside
+## every fit this shell performs, and because `Window.popup()` re-lays that bar
+## and clears a minimum written before it. The card's buttons are ordinary
+## content children built by `DccWidgets._modal_btn()`, which floors them at
+## `DccTheme.PHONE_TAP_MIN` on a phone at construction; neither trap applies
+## and there is nothing left to re-apply on rotation.
 func confirm_unsaved_world(prompt_title: String, question: String,
-		discard_text: String, save_text: String, then: Callable) -> ConfirmationDialog:
+		discard_text: String, save_text: String, then: Callable) -> AcceptDialog:
 	var body := "This world has unsaved changes." if bridge.world_dirty \
 		else "Tool edits made since the last save are not tracked, so save if in doubt."
-	var dlg := ConfirmationDialog.new()
-	dlg.title = prompt_title
-	## Phone treatment, and only on a phone: `DccWidgets.phone_window()` clears
-	## `wrap_controls` unconditionally, which is right for a window with a
-	## scrolling body and wrong for a text-sized prompt -- with it cleared and
-	## no size set, `popup_centered()` collapses the dialog onto its minimum and
-	## clips the question. A prompt nobody can read is not a fix, and a prompt
-	## whose buttons land at ~5 dp (the recorded "desktop pixels on a phone"
-	## bug class) is not one either -- which is what `phone_present()`'s
-	## content scale is here to prevent.
-	var phone := is_phone()
-	if phone:
-		DccWidgets.phone_window(dlg, self)
-	## `phone_window()` drops the title bar, so on a phone the title has to live
-	## in the body instead of vanishing with the decoration.
-	dlg.dialog_text = ("%s\n\n" % prompt_title if phone else "") \
-		+ "%s\n\n%s" % [body, question]
-	dlg.ok_button_text = discard_text
-	var save_btn := dlg.add_button(save_text, true, "save")
-	save_btn.pressed.connect(func():
-		dlg.hide()
-		if current_project_path == "":
-			save_project_as(then)
-		else:
-			_write_project(current_project_path, then))
-	dlg.confirmed.connect(then)
-	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
-	add_child(dlg)
-	if not DccWidgets.phone_present(dlg, self):
-		dlg.popup_centered()
-	if phone:
-		## AFTER the popup, and re-applied on every rotation -- see
-		## `_floor_prompt_buttons()` for why neither is optional. The relay
-		## is guarded and self-releasing for the same reason
-		## `DccWidgets.phone_window()`'s is: this dialog frees itself on close,
-		## and a rotation afterwards would otherwise touch a freed object.
-		_floor_prompt_buttons(dlg, save_btn)
-		var refloor := func():
-			if is_instance_valid(dlg) and dlg.visible:
-				_floor_prompt_buttons(dlg, save_btn)
-		phone_insets_changed.connect(refloor)
-		dlg.tree_exiting.connect(func():
-			if phone_insets_changed.is_connected(refloor):
-				phone_insets_changed.disconnect(refloor))
-	return dlg
+	var card := DccWidgets.modal_card(self, prompt_title, DccWidgets.MODAL_CONFIRM)
+	var dlg: AcceptDialog = card["dialog"]
+	DccWidgets.modal_prose(card["body"], "%s %s" % [body, question])
 
-## Floor `ConfirmationDialog`'s three stock answers at §13's 44 dp tap minimum.
-##
-## `DccShell.phone_fit()` cannot do it: it walks `get_children()`, and
-## `AcceptDialog` parents its whole button bar as an **internal** child, so the
-## stock row is outside every fit this shell performs and measured 29 dp.
-## Everywhere else that has mattered little, because a window's real controls
-## live in its content child. Here the three buttons *are* the dialog, and one
-## of them destroys a world.
-##
-## Two measured traps, both of which silently produced 29 dp buttons on the way
-## to this working:
-##
-##   1. `b.custom_minimum_size.y = 44` through an **untyped** loop element
-##      writes to a temporary copy of the vector and is lost. Hence the typed
-##      `for b: Button` and the whole-`Vector2` assignment.
-##   2. **`Window.popup()` clears it.** Isolated in a two-node scene: the value
-##      survives `content_scale_*`, `min_size` and `max_size`, and is `(0, 0)`
-##      the instant the window is shown, because `AcceptDialog` re-lays its
-##      internal button bar on popup. So this must run AFTER the popup -- and
-##      again after every re-popup, which is what a rotation is.
-func _floor_prompt_buttons(dlg: ConfirmationDialog, extra: Button) -> void:
-	for b: Button in [dlg.get_ok_button(), dlg.get_cancel_button(), extra]:
-		b.custom_minimum_size = Vector2(0.0, DccTheme.PHONE_TAP_MIN)
+	## The artboard's stat block, wired field by field -- and **dashed where
+	## this engine has no source**, rather than filled with a plausible number.
+	## The artboard's own two rows were EDITS SINCE SAVE and LAST AUTOSAVE;
+	## only the second of those has anything behind it.
+	var stats := DccWidgets.modal_inset(card["body"])
+	if bridge.world_gen != null and bridge.world_gen.has_method("get_seed"):
+		DccWidgets.modal_stat(stats, "seed", str(bridge.world_gen.get_seed()))
+	else:
+		DccWidgets.modal_stat_absent(stats, "seed",
+			"this binary exposes no get_seed()")
+	if current_project_path == "":
+		DccWidgets.modal_stat_absent(stats, "project file",
+			"this world has never been saved, so there is no project file yet")
+	else:
+		DccWidgets.modal_stat(stats, "project file", current_project_path.get_file())
+	## **Dashed, and this is the artboard's own EDITS SINCE SAVE row.** Nothing
+	## in `EngineBridge` counts edits: `world_dirty` is a boolean and
+	## `mark_world_dirty()` sets it rather than incrementing anything. A number
+	## here would be invented, which is the one outcome worse than a dash.
+	DccWidgets.modal_stat_absent(stats, "edits since save",
+		"no edit counter exists — EngineBridge.world_dirty is a boolean, not a count")
+	if _mid_autosave_at != "":
+		DccWidgets.modal_stat(stats, "last autosave", _mid_autosave_at)
+	else:
+		DccWidgets.modal_stat_absent(stats, "last autosave",
+			"autosave is off" if not DccSettings.autosave_enabled()
+			else "no autosave has written yet this session")
+	## True as written, checked against `_autosave_tick()`: it writes
+	## `<project>.autosave.zip` beside the project and never over it, so
+	## closing cannot overwrite it.
+	DccWidgets.modal_foot(card["body"],
+		"the autosave is a separate slot — it is not overwritten by closing")
+
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"destructive": {"text": discard_text, "on": then},
+		"safe": {"text": save_text, "on": func():
+			if current_project_path == "":
+				save_project_as(then)
+			else:
+				_write_project(current_project_path, then)},
+	})
+	## `_close_requested()` and `_backnav_probe.gd` both resolve this prompt by
+	## calling `hide()` on it directly, so the free has to hang off visibility
+	## as well as off the buttons.
+	dlg.visibility_changed.connect(func():
+		if not dlg.visible and not dlg.is_queued_for_deletion():
+			dlg.queue_free())
+	DccWidgets.modal_present(card, self)
+	return dlg
 
 ## Android's back gesture has run out of things to leave (`DccShell`'s chain).
 ##
@@ -2451,7 +2464,7 @@ func _back_exhausted() -> void:
 ## The exit prompt raised by the system close, while it is outstanding. `null`
 ## once it resolves; `_quit_asked` records that we *tried*, and is set before the
 ## attempt so that it survives an attempt that fails halfway.
-var _quit_prompt: ConfirmationDialog = null
+var _quit_prompt: AcceptDialog = null
 var _quit_asked := false
 
 ## The desktop title bar's ×, Alt+F4, the taskbar's Close (BK-02). Same fault as
@@ -2528,15 +2541,24 @@ func _close_world() -> void:
 
 ## A yes/no prompt with the shell's own wording rules: the destructive answer
 ## is named after what it does, never "OK".
-func _confirm(prompt_title: String, body: String, ok_text: String, on_ok: Callable) -> void:
-	var dlg := ConfirmationDialog.new()
-	dlg.title = prompt_title
-	dlg.dialog_text = body
-	dlg.ok_button_text = ok_text
-	dlg.confirmed.connect(on_ok)
-	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
-	add_child(dlg)
-	dlg.popup_centered()
+##
+## **Variant B of `design/proposed-2026-09-05/Modal.dc.html`.** Every caller
+## here is asking about an irreversible act with no safe alternative to offer,
+## which is exactly the case the artboard reserves the block wash for: the
+## action sits last because there is nothing safer to put after it, and it is
+## never given the accent fill, which in this pattern means "the safe answer".
+## `foot`, when given, is the artboard's "states what is *not* destroyed" line.
+func _confirm(prompt_title: String, body: String, ok_text: String,
+		on_ok: Callable, foot: String = "") -> void:
+	var card := DccWidgets.modal_card(self, prompt_title, DccWidgets.MODAL_DESTRUCTIVE)
+	DccWidgets.modal_prose(card["body"], body)
+	if foot != "":
+		DccWidgets.modal_foot(card["body"], foot)
+	DccWidgets.modal_choices(card, {
+		"cancel": "Cancel",
+		"destructive": {"text": ok_text, "on": on_ok},
+	})
+	DccWidgets.modal_present(card, self)
 
 ## Assets ▸ Import pack… Deliberately *not* the gallery above: the mockup's
 ## Open-project screen is world-shaped throughout (it captions tiles with a

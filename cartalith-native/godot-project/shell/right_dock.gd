@@ -384,7 +384,29 @@ var _saved_measurements: Array = []
 var _river: Dictionary = {}
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
+## ECOREGION's `12 more` collapse row (`design/proposed-2026-09-05/Wildlife.dc
+## .html`). Per-dock view state, not world state: reset whenever a different
+## ecoregion is shown, so the roster never opens itself for a region the user
+## did not expand.
+var _wildlife_show_all := false
 var _journey_view: JourneyPlannerView = null   ## TOOL_JOURNEY delegate -- see `show_journey()`.
+
+## -- HISTORY's `COMMITTED` boundary (`design/proposed-2026-09-05/Main.dc.html`).
+##
+## **The engine has no commit boundary and this is the whole of what stands in
+## for one.** `undo_ledger()`'s rows carry `seq`, `at_ms`, `kind` and
+## `reversible` and *nothing* about saving; `save_project()` writes a `.zip`
+## and stamps no ledger row. So the boundary is derived here, in the shell,
+## from `EngineBridge.project_saved` -- the same signal `app.gd`'s own save
+## bookkeeping and `dcc_shell.gd`'s phone `savedAt` already read, so this is a
+## second *reader* of one event rather than a second notion of "saved".
+##
+## `-1` and `0` are **not** "seq 0" and "just now": before the first save of
+## this session there is no boundary at all, and the panel draws none and says
+## why. A project saved in an earlier session leaves nothing behind either --
+## reported as a gap rather than papered over with the ledger floor.
+var _saved_seq := -1
+var _saved_at_ms := 0
 
 ## -- TOOL_PAINT. `_paint_ctx_layer` mirrors `world_workspace.gd`'s own private
 ## `_paint_layer` -- the caller passes it on every `show_paint()`, the same
@@ -603,6 +625,16 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## already having no owner.
 	app.tool_armed.connect(func(_id: String): _rebuild())
 	bridge.layer_stack_changed.connect(_rebuild)
+	## HISTORY's `COMMITTED` rule -- see `_saved_seq`. The newest ledger seq at
+	## the instant the `.zip` was written IS the boundary: every row at or below
+	## it is in the file on disk, every row above it is not. Read here rather
+	## than stored by the engine because the engine stores nothing about saving.
+	bridge.project_saved.connect(func(_path: String):
+		var rows: Array = bridge.undo_ledger()
+		_saved_seq = int((rows[rows.size() - 1] as Dictionary).get("seq", 0)) if not rows.is_empty() else 0
+		_saved_at_ms = Time.get_ticks_msec()
+		if _context == CTX_HISTORY:
+			_rebuild())
 	_rebuild()
 
 ## §2.2's viewport river hit-testing. Gated four ways, each for its own reason:
@@ -813,6 +845,12 @@ func show_region(result: Dictionary) -> void:
 ## every marker, so the dock falls back to Sample rather than keeping a
 ## stale roster on screen.
 func show_wildlife(rec: Dictionary) -> void:
+	## A different region is a different roster, so the `N more` row closes.
+	## Compared on `id`, not on the whole dict: the record carries floats and a
+	## nested `guilds` array, and a re-click on the same marker must not fold a
+	## roster the user has just opened.
+	if int(rec.get("id", -1)) != int(_wildlife_region.get("id", -2)):
+		_wildlife_show_all = false
 	_wildlife_region = rec
 	_context = CTX_WILDLIFE if not rec.is_empty() else CTX_SAMPLE
 	_rebuild()
@@ -1806,10 +1844,15 @@ func _build_settlement(body: Control) -> void:
 	DccWidgets.action(actions, "Politics", func(): show_faction(int(s.get("faction", 0))))
 	DccWidgets.action(actions, "Logistics", func(): app.open_journey_planner())
 	## `GUI_GAP_REGISTER.md` UM-02's launcher. The reference puts it in the
-	## place-edit popup (`peCityOpen`), which this shell does not have yet
-	## (ED-03) -- this dock's own Settlement context is the same information,
-	## already carrying `_settlement_index`, so the action lands here rather
-	## than waiting on a popup. It stays live regardless of whether the town
+	## place-edit popup (`peCityOpen`). **This shell now has that popup** --
+	## `PlaceEditorWindow`, built for ED-03 and instantiated in `app.gd`'s
+	## `_ready`, whose own Actions section opens `CityViewerWindow` too. (This
+	## comment said "which this shell does not have yet (ED-03)" until
+	## 2026-09-05; a verifier flagged it in batch 33 and it survived that batch.
+	## The launcher is deliberately in **both** places: this dock's Settlement
+	## context is the same information and already carries `_settlement_index`,
+	## so it does not have to wait on the popup being open.)
+	## It stays live regardless of whether the town
 	## can be laid out: the window itself explains a refusal (a settlement in
 	## open water gets no town) rather than a disabled button implying the
 	## feature is missing.
@@ -2408,6 +2451,14 @@ func _build_faction(body: Control) -> void:
 ##
 ## Reads from the *other* side's point of view deliberately: this panel is
 ## already headed by one faction, so each row names who it is a relation *with*.
+##
+## **Re-laid out to `design/proposed-2026-09-05/Relations.dc.html`**, approved
+## by the owner that day: swatch, name, standing score, stance chip, closed by
+## a BALANCE bar. The design's own claim -- *"stance is a band over the
+## standing score, not a stored field"* -- is what this engine already does, in
+## `cartalith_civ::relations::stance_for()`, so the band edges are **not**
+## restated in GDScript; see `STANCE_INK` for the one thing that is decided
+## here and why the rest is not.
 func _build_faction_relations(body: Control) -> void:
 	var pairs: Array = bridge.civ_faction_relations()
 	var mine: Array[Dictionary] = []
@@ -2415,30 +2466,132 @@ func _build_faction_relations(body: Control) -> void:
 		var d: Dictionary = p
 		if int(d.get("a", -1)) == _faction_id or int(d.get("b", -1)) == _faction_id:
 			mine.append(d)
-	var sec := DccWidgets.section(body, "Relations")
+	## `Relations · N`, which is the artboard's own heading (`RELATIONS · 5`).
+	## The count shipped dropped on 2026-09-05 even though `mine.size()` is two
+	## lines above it -- caught by the batch-34 verifier as layout drift. Bare
+	## when empty, because the empty branch below replaces the list entirely and
+	## `Relations · 0` would label a paragraph that already says there are none.
+	var sec := DccWidgets.section(body,
+		"Relations" if mine.is_empty() else "Relations · %d" % mine.size())
 	if mine.is_empty():
 		DccWidgets.note(sec,
 			"No other faction to stand with or against. A relation needs two "
 			+ "parties; add one in the faction roster.")
 		return
 	mine.sort_custom(func(x, y): return float(x.get("value", 0.0)) > float(y.get("value", 0.0)))
+	## The approved row (`design/proposed-2026-09-05/Relations.dc.html`):
+	## swatch, name, standing score, stance chip. The swatch is the other
+	## faction's own `color_r/g/b` off `get_factions()`, through the
+	## `_faction_roster()` lookup `_build_faction` and `_build_territory`
+	## already share.
+	##
+	## `this year` in the artboard's section caption is **dashed**: relations
+	## are derived per call and carry no year. `civ_faction_relations()`'s own
+	## doc says so in as many words -- *"Derived and recomputed, never stored.
+	## There is no relation on `CivData` … change over time [is] out of scope by
+	## design, not by omission."* A year printed there would be a claim the
+	## engine cannot make.
+	var counts := {"allied": 0, "friendly": 0, "neutral": 0, "wary": 0, "hostile": 0}
 	for d in mine:
 		var other := int(d.get("b", -1)) if int(d.get("a", -1)) == _faction_id else int(d.get("a", -1))
 		var other_name := String(d.get("b_name", "?")) if int(d.get("a", -1)) == _faction_id \
 			else String(d.get("a_name", "?"))
-		var marked := other == _faction_pair
-		_field(sec, ("▸ %s" % other_name) if marked else other_name,
-			"%s (%+d)" % [String(d.get("stance", "neutral")),
-				int(round(100.0 * float(d.get("value", 0.0))))],
+		var stance := String(d.get("stance", "neutral"))
+		if counts.has(stance):
+			counts[stance] = int(counts[stance]) + 1
+		_relation_row(sec, other, other_name, stance,
+			int(round(100.0 * float(d.get("value", 0.0)))), other == _faction_pair,
 			"Border %d cells (%d%% of the widest on this map) · culture %+d · "
 			% [int(d.get("border_cells", 0)),
 				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
 				int(round(30.0 * float(d.get("culture_term", 0.0))))]
-			+ "faith %+d · trade %+d · rivalry %d%%."
+			+ "faith %+d · trade %+d · rivalry %d%%. The stance is a band over the "
 			% [int(round(20.0 * float(d.get("religion_term", 0.0)))),
 				int(round(25.0 * float(d.get("trade_term", 0.0)))),
-				int(round(100.0 * float(d.get("rivalry_term", 0.0))))],
-			true)
+				int(round(100.0 * float(d.get("rivalry_term", 0.0))))]
+			+ "score, not a stored field -- cartalith_civ::relations::stance_for().")
+	_build_relation_balance(sec, counts, mine.size())
+
+## One relation. The stance chip's word comes from the engine
+## (`FactionRelation::stance`, which is `stance_for(value)` and therefore
+## cannot disagree with the number beside it); only its **ink** is decided
+## here, by `STANCE_INK`.
+##
+## The `▸ ` prefix marks the pair the reader clicked in CIVIL ▸ Relationships
+## and is load-bearing: `_wiredfix_probe.gd` asserts on `"▸ %s" % rhs` in this
+## dock's text to prove RL-01 stayed fixed.
+func _relation_row(parent: Control, other_id: int, other_name: String, stance: String,
+		score: int, marked: bool, tip: String) -> void:
+	var tablet := DccTheme.is_tablet()
+	var small := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var micro := DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_MICRO
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation",
+		DccTheme.role_px("dock_row_gap") if tablet else 9)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.tooltip_text = tip
+	parent.add_child(row)
+
+	var roster := _faction_roster(other_id)
+	var sw := ColorRect.new()
+	sw.custom_minimum_size = Vector2(11, 11)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## No roster row means no colour -- drawn as the dock's own inset rather
+	## than as a plausible black or a palette guess.
+	sw.color = Color8(int(roster.get("color_r", 0)), int(roster.get("color_g", 0)),
+		int(roster.get("color_b", 0))) if not roster.is_empty() else DccTheme.c("sunken")
+	row.add_child(sw)
+
+	var n := DccTheme.mono_label(("▸ %s" % other_name) if marked else other_name,
+		"accent" if marked else "text_secondary", small)
+	n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(n)
+	var v := DccTheme.mono_label("%+d" % score, "text_ghost", micro)
+	v.custom_minimum_size.x = 26
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(v)
+	_stance_chip(row, stance)
+
+## BALANCE (`Relations.dc.html`) -- how this faction's relations divide across
+## the five stances, hostile on the left. Real counts, not a mood: each segment
+## is `count / total` and the tooltip names both numbers.
+func _build_relation_balance(parent: Control, counts: Dictionary, total: int) -> void:
+	if total <= 0:
+		return
+	_caption_row(parent, "balance", "")
+	var track := HBoxContainer.new()
+	track.add_theme_constant_override("separation", 0)
+	track.custom_minimum_size.y = 6
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(track)
+	for stance in ["hostile", "wary", "neutral", "friendly", "allied"]:
+		var n := int(counts.get(stance, 0))
+		if n <= 0:
+			continue
+		var seg := Panel.new()
+		seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		seg.size_flags_stretch_ratio = float(n)
+		seg.tooltip_text = "%d of %d %s" % [n, total, stance]
+		seg.add_theme_stylebox_override("panel",
+			DccTheme.flat(DccTheme.c(String(STANCE_INK.get(stance, "text_dim"))), 0))
+		track.add_child(seg)
+	var ends := HBoxContainer.new()
+	ends.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var micro := DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO
+	var lo := DccTheme.mono_label("hostile", "text_ghost", micro)
+	lo.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ends.add_child(lo)
+	ends.add_child(DccTheme.mono_label("allied", "text_ghost", micro))
+	parent.add_child(ends)
+	DccWidgets.note(parent,
+		"Stance is a band over the standing score, not a stored field: a score that "
+		+ "crosses a band edge renames the chip and nothing else. The edges live in "
+		+ "cartalith_civ::relations::stance_for() and are not restated here -- this "
+		+ "shell reads the word the engine ships beside the number. Relations carry no "
+		+ "year: they are recomputed from territory, culture, faith and trade on every "
+		+ "call and nothing about them is saved.")
 
 ## `bridge.get_factions()`'s own row for one faction id, or an empty
 ## Dictionary if this world has none (no world yet, or a stale id). Factored
@@ -3178,13 +3331,25 @@ func _build_region(body: Control) -> void:
 
 # -- Wildlife ecoregion (the reference's own #wildInfo popup) ---------------
 
-## `showWildInfo` (reference HTML 8259-8269), field for field: the biome
-## heading, the species/area line, the region summary sentence, the
-## NPP/ruggedness/water triple, the lat + coastal + rugged meta line, and
-## then the fauna list -- one heading per guild with its biomass share, and
-## one row per species with the reference's own `~4.5M` population wording
+## `showWildInfo` (reference HTML 8259-8269) re-laid out to the ECOREGION
+## artboard the owner approved on 2026-09-05
+## (`design/proposed-2026-09-05/Wildlife.dc.html`): a coordinate line, a hero,
+## a biome/area line, key/value rows, an abundance-ranked fauna list with
+## micro-bars and an `N more` collapse row, then flora.
+##
+## Every reference field survives the re-layout -- the biome, the species
+## count, the area, the summary sentence, the NPP/ruggedness/water triple, the
+## lat + coastal + rugged meta, and the per-species `~4.5M` population wording
 ## (formatted engine-side by `wild_fmt_pop`, so this file does not carry a
-## second copy of that formatter).
+## second copy of that formatter). What changed is the *shape*: the fauna list
+## is flattened and ranked by `population_est` instead of grouped by guild,
+## with the guild moved into each species' tooltip.
+##
+## **Four of the artboard's rows and its whole flora section have no source
+## and are drawn as such.** See `_build_wildlife_fauna()` for the flora reason
+## and the dashed `_field()` calls below for the other four -- an ecoregion
+## record aggregates energy, ruggedness, water and latitude and nothing about
+## elevation bands, temperature, precipitation, soil or drainage.
 # -- History ledger (`GUI_GAP_REGISTER.md` ED-02) ----------------------------
 
 ## One glyph per `undo_ledger()` row kind. Shape carries the state and the
@@ -3197,8 +3362,16 @@ const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼"}
 ##
 ## **Open draft** first, because it is what has not happened yet: an
 ## uncommitted Sculpt stack is reversible in place, by its own tool, and is
-## deliberately not a row below. **Committed** after it, newest first, one row
-## per commit whether or not the commit can be walked back.
+## deliberately not a row below. **Steps** after it, one row per commit whether
+## or not the commit can be walked back.
+##
+## **Oldest first since 2026-09-05**, reversing what shipped here before, and
+## the reason is the `COMMITTED` rule the owner approved that day
+## (`design/proposed-2026-09-05/Main.dc.html`): the boundary sits *between* two
+## rows, so a newest-first list would have to draw it before the rows it
+## separates. See `_committed_rule()` for what the boundary can and cannot
+## know, and `_history_undone()` for the one thing the artboard draws that the
+## engine cannot supply.
 ##
 ## Three glyphs, and the text says the same thing the glyph does -- a row is
 ## never distinguished by colour alone:
@@ -3228,16 +3401,49 @@ func _build_history(body: Control) -> void:
 			"A draft's steps are its own, reversible in place from the Sculpt panel, and "
 			+ "not entered below -- nothing has happened to the world yet.")
 
-	var sec := DccWidgets.section(body, "Committed")
+	var sec := DccWidgets.section(body, "Steps")
 	if rows.is_empty():
 		DccWidgets.note(sec,
 			"Nothing committed this session. A generate, a load, a Sculpt or Paint "
 			+ "commit, a carve or a territory commit all enter here.")
 	else:
-		## Newest first, which is how every history panel reads and the
-		## opposite of the engine's own oldest-first order.
-		for i in range(rows.size() - 1, -1, -1):
-			_history_row(sec, rows[i])
+		## The approved header (`Main.dc.html`, and `05-right-dock-and-bars.md`
+		## §1.7's own anatomy for its twin): count, label, spacer, undo/redo
+		## squares. Through `app.undo_last()`/`app.redo_last()` rather than
+		## `bridge.*` directly -- those two repaint the map without resetting
+		## the camera and call `refresh_history()`, which is exactly what a
+		## press here has to do and is written once already.
+		_stack_head(sec, "%d" % rows.size(), "steps",
+			func(): app.undo_last(), func(): app.redo_last(),
+			bridge.can_undo(), bridge.redo_available())
+
+		## Oldest first, which is the order the artboard draws and the order the
+		## `COMMITTED` rule needs: the boundary sits *between* two rows, so a
+		## newest-first list would have to draw it before the rows it separates.
+		## (This reverses what shipped here until 2026-09-05.)
+		var cursor_seq := int((rows[rows.size() - 1] as Dictionary).get("seq", -1))
+		var drawn_rule := false
+		for i in range(rows.size()):
+			var d: Dictionary = rows[i]
+			var seq := int(d.get("seq", 0))
+			## The boundary is drawn once, before the first row that is NOT in
+			## the saved file. `_saved_seq < 0` means no save this session, so
+			## there is no boundary to draw and none is invented.
+			if _saved_seq >= 0 and not drawn_rule and seq > _saved_seq:
+				_committed_rule(sec)
+				drawn_rule = true
+			_history_row(sec, d, i + 1, seq <= _saved_seq and _saved_seq >= 0, seq == cursor_seq)
+		if _saved_seq >= 0 and not drawn_rule:
+			## Every row is in the file -- the boundary is below the last one.
+			_committed_rule(sec)
+		_history_undone(sec, rows.size())
+		if _saved_seq < 0:
+			DccWidgets.note(sec,
+				"No COMMITTED rule: nothing has been saved this session, and the ledger "
+				+ "stores no save marker of its own -- undo_ledger()'s rows carry seq, "
+				+ "at_ms, kind and reversible and nothing about the file on disk. File ▸ "
+				+ "Save draws the rule from that point on; a project saved in an earlier "
+				+ "session leaves nothing for this panel to read.")
 
 	var cost := DccWidgets.section(body, "Cost")
 	var bytes := int(stats.get("bytes", 0))
@@ -3250,36 +3456,177 @@ func _build_history(body: Control) -> void:
 		+ "height snapshot occupies the budget, which is Preferences ▸ Memory ▸ "
 		+ "Undo history.")
 
-func _history_row(parent: Control, entry: Variant) -> void:
+	## The artboard's footnote, corrected against the engine on two counts and
+	## the corrections are the point:
+	##
+	## * *"steps below it are undone, not deleted"* -- they ARE deleted from the
+	##   ledger. See `_history_undone()` for the two call sites that do it.
+	## * *"✕ discard the N undone steps"* -- there is no binding for it.
+	##   `clear_undo()` is the only control over these buffers and it clears
+	##   the undo stack too, which is not what that button offers. The row is
+	##   not drawn rather than wired to something that would do more than it
+	##   says; the tail is dropped by the next committed operation anyway
+	##   (`RedoTail::at_undo_depth`).
+	DccWidgets.note(body,
+		"Click a step to move the cursor there. Undone steps leave this list -- the "
+		+ "engine's ledger drops them and only their height snapshots survive, on the "
+		+ "redo tail, until the next committed operation. Reverting past COMMITTED "
+		+ "asks first.")
+
+## The approved row (`Main.dc.html`): two-digit ordinal, state pip, label,
+## trailing meta. Clicking it moves the cursor -- which for a reversible row is
+## `_revert_history()`, the same call the button here made until 2026-09-05.
+##
+## Three inks, and they are the artboard's three: `text_secondary` for a row
+## inside the saved file, `text_dim` for one committed since, `text_bright` on
+## an `accent_wash` band for the cursor itself. The kind glyph (`HISTORY_GLYPH`)
+## stays in the label rather than being replaced by the pip -- the pip carries
+## *state* (in the file / not) and the glyph carries *kind* (height snapshot /
+## recorded-only / floor), and neither answers the other's question.
+func _history_row(parent: Control, entry: Variant, ordinal: int,
+		committed: bool, is_cursor: bool) -> void:
 	var d: Dictionary = entry
 	var kind := String(d.get("kind", "recorded"))
 	var reversible := bool(d.get("reversible", false))
 	var glyph := String(HISTORY_GLYPH.get(kind, "·"))
 	var seq := int(d.get("seq", 0))
 	var steps := int(d.get("steps", 0))
-	var label := "%s  %s" % [glyph, String(d.get("label", "?"))]
-	if reversible:
-		var b := DccWidgets.action(parent, label, func(): _revert_history(seq, steps))
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.tooltip_text = ("%s · %s. Reverts the height field to the state before this "
-			+ "operation, discarding the %d step%s after it as well -- history here is "
-			+ "linear, so there is no branch to come back to.") % [
-				String(d.get("subsystem", "")), String(d.get("detail", "")),
-				steps - 1, "" if steps == 2 else "s"]
+	var tablet := DccTheme.is_tablet()
+	var small := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var micro := DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_MICRO
+	var ink := "text_bright" if is_cursor else ("text_secondary" if committed else "text_dim")
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation",
+		DccTheme.role_px("dock_row_gap") if tablet else 9)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if is_cursor:
+		var band := PanelContainer.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = DccTheme.c("accent_wash")
+		sb.border_color = DccTheme.c("accent")
+		sb.border_width_left = 2
+		sb.content_margin_left = 6
+		sb.content_margin_right = 4
+		band.add_theme_stylebox_override("panel", sb)
+		band.add_child(row)
+		parent.add_child(band)
 	else:
-		var note := DccWidgets.note(parent, label)
-		note.tooltip_text = "%s · %s" % [String(d.get("subsystem", "")), String(d.get("detail", ""))]
-	var sub := String(d.get("detail", ""))
+		parent.add_child(row)
+
+	var idx := DccTheme.mono_label("%02d" % ordinal, "accent" if is_cursor else "text_ghost", micro)
+	idx.custom_minimum_size.x = 18
+	idx.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(idx)
+	row.add_child(_pip(committed or is_cursor, "accent" if is_cursor else
+		("text_secondary" if committed else "text_dim")))
+
+	var l := DccTheme.mono_label("%s %s" % [glyph, String(d.get("label", "?"))], ink, small)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(l)
+
+	## The trailing slot is the row's own `detail` -- `"seed 771155"`,
+	## `"512 x 512"` -- which is what the artboard draws there. When the row is
+	## not reversible its `reason` is appended, because *why* it cannot be
+	## reverted is the only thing about it a reader can act on.
+	var meta := String(d.get("detail", ""))
 	if not reversible and String(d.get("reason", "")) != "":
-		sub = "%s — %s" % [sub, String(d.get("reason", ""))] if sub != "" else String(d.get("reason", ""))
-	if sub != "":
-		DccWidgets.note(parent, "      %s" % sub)
+		meta = "%s — %s" % [meta, String(d.get("reason", ""))] if meta != "" else String(d.get("reason", ""))
+	if meta != "":
+		var m := DccTheme.mono_label(meta, "accent" if is_cursor else "text_ghost", micro)
+		m.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		m.custom_minimum_size.x = 40
+		row.add_child(m)
+
+	var tip := "%s · %s" % [String(d.get("subsystem", "")), String(d.get("detail", ""))]
+	if reversible:
+		tip += ". Click to move the cursor here: the height field goes back to the "
+		tip += "state before this operation, and the %d step%s after it %s dropped -- " % [
+			steps - 1, "" if steps == 2 else "s", "is" if steps == 2 else "are"]
+		tip += "history here is linear, so there is no branch to come back to."
+		row.mouse_filter = Control.MOUSE_FILTER_STOP
+		row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		row.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT \
+					and (ev as InputEventMouseButton).pressed:
+				_revert_history(seq, steps))
+	row.tooltip_text = tip
+
+## The labelled `COMMITTED` rule, with the last save's age on the right
+## (`Main.dc.html`). Drawn only when `_saved_seq >= 0`; see that variable for
+## what the engine does and does not know about saving.
+func _committed_rule(parent: Control) -> void:
+	var mins := int(floor(float(Time.get_ticks_msec() - _saved_at_ms) / 60000.0))
+	var age := "saved just now" if mins <= 0 else \
+		("saved %d min ago" % mins if mins < 60 else "saved %d h ago" % int(mins / 60))
+	_caption_row(parent, "committed", age)
+
+## Everything the cursor has stepped *off*, which is the one place this panel
+## cannot draw what the artboard draws -- and the reason is the engine's, not
+## the layout's.
+##
+## The artboard says undone rows "are not deleted". **`undo_ledger()` deletes
+## them**: `undo_last()` calls `self.ledger.pop_newest_height()` and
+## `undo_revert_to()` calls `self.ledger.truncate_to(seq)`, so an undone
+## operation leaves the ledger entirely. What survives is `RedoTail`, which
+## holds the height snapshots but only ever names **one** label --
+## `redo_label()` is `RedoTail::label()`, `HeightUndo::next_label()`, the top of
+## the tail. So one undone row can be drawn honestly and the rest can only be
+## counted. They are counted, not named: a generated name here would be the
+## fabricated row this panel exists to avoid.
+func _history_undone(parent: Control, committed_rows: int) -> void:
+	if not bridge.redo_available():
+		return
+	var depth := int(bridge.undo_stats().get("redo_depth", 0))
+	var label := String(bridge.redo_label())
+	var tablet := DccTheme.is_tablet()
+	var small := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var micro := DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_MICRO
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation",
+		DccTheme.role_px("dock_row_gap") if tablet else 9)
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if tablet else 22
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.mouse_filter = Control.MOUSE_FILTER_STOP
+	row.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	row.tooltip_text = ("Undone. Click to move the cursor forward and put it back. "
+		+ "The next committed operation drops the whole tail.")
+	row.gui_input.connect(func(ev: InputEvent):
+		if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT \
+				and (ev as InputEventMouseButton).pressed:
+			app.redo_last())
+	parent.add_child(row)
+	var idx := DccTheme.mono_label("%02d" % (committed_rows + 1), "text_ghost", micro)
+	idx.custom_minimum_size.x = 18
+	idx.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(idx)
+	row.add_child(_pip(false, "text_ghost"))
+	var l := DccTheme.mono_label(label if label != "" else "—", "text_ghost", small)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	row.add_child(l)
+	row.add_child(DccTheme.mono_label("undone", "text_ghost", micro))
+
+	if depth > 1:
+		DccWidgets.note(parent,
+			"%d further undone step%s: the redo tail holds their height snapshots but "
+			% [depth - 1, "" if depth == 2 else "s"]
+			+ "names only the next one (RedoTail::label()), so they are counted here "
+			+ "and not listed. Nothing is invented to fill the rows.")
 
 ## Linear revert, confirmed when it discards more than the row itself --
 ## `DCC_SHELL_SPEC.md` §7.1's own choice of Photoshop's linear history over
 ## the non-linear kind, and the one place in this panel that destroys work.
 func _revert_history(seq: int, steps: int) -> void:
-	if steps > 1:
+	## The artboard's own footnote -- *"reverting above COMMITTED asks first"*.
+	## `seq < _saved_seq` is that condition stated in the ledger's terms:
+	## reverting *to* `seq` drops every row above it, so a target older than
+	## the boundary throws away operations that are already in the file on
+	## disk. A single-step revert of unsaved work still goes straight through.
+	if steps > 1 or (_saved_seq >= 0 and seq < _saved_seq):
 		_confirm_revert(seq, steps)
 		return
 	_do_revert(seq)
@@ -3291,6 +3638,11 @@ func _confirm_revert(seq: int, steps: int) -> void:
 %d committed operation%s after it will be "
 		+ "discarded. History here is linear -- there is no branch to come back to.") % [
 			steps - 1, "" if steps == 2 else "s"]
+	if _saved_seq >= 0 and seq < _saved_seq:
+		dlg.dialog_text += ("
+
+Some of them are in the project as last saved: this "
+			+ "reverts past the COMMITTED rule.")
 	dlg.ok_button_text = "Revert"
 	dlg.confirmed.connect(func():
 		_do_revert(seq)
@@ -3332,40 +3684,183 @@ func _build_wildlife(body: Control) -> void:
 	## panel handed the dock for a value that varies by ecoregion -- the same
 	## width-follows-text fault `_field()` documents, one level up.
 	var sec := DccWidgets.section(body, "Ecoregion")
-	_field(sec, "Biome", String(rec.get("biome_name", "Unknown")), "", true, false, 60)
-	_accent_readout(sec, "Species", "%d" % int(rec.get("richness", 0)),
-		"Species richness: species-area x energy (NPP) x ruggedness x latitude, " +
-		"cut to the biome's Earth-analogue roster.")
-	_field(sec, "Area", "%s km²" % _thousands(float(rec.get("area_km2", 0.0))),
-		"Region area, from its cell count and the map's own km-per-cell.")
-	DccWidgets.note(sec, String(rec.get("summary", "")))
-	sec.add_child(DccTheme.rule())
-	_field(sec, "NPP", "%d g/m²/yr" % int(round(float(rec.get("npp", 0.0)))),
-		"Net primary productivity, Miami model (Lieth 1975) -- the energy the whole food web is built on.")
+
+	## The approved hero block (`design/proposed-2026-09-05/Wildlife.dc.html`):
+	## coordinate line, hero name, biome/area/neighbours line.
+	##
+	## **The hero is the region's id, because ecoregions have no name.**
+	## `cartalith_civ::wildlife::Ecoregion` (`crates/cartalith-civ/src/
+	## wildlife.rs`) carries `id, biome, cells, nppn, tri, water, k, lat_abs,
+	## ridge_frac, valley_frac, coastal, cx, cy, richness, guilds, summary,
+	## area_km2, col` -- no name field, and no name generator anywhere touches
+	## it. The artboard's `Kell Uplands` is illustrative; a name invented here
+	## would be exactly the fabricated data this pass exists to keep out.
+	var cx := int(rec.get("cx", 0))
+	var cy := int(rec.get("cy", 0))
+	## `_coord_texts()` answers `[km position, cell index]` -- this shell has no
+	## lat/lon readout anywhere, so the artboard's `49.2°N 12.8°E` is drawn in
+	## the units the dock's own coordinate row already uses rather than in a
+	## geographic frame the engine does not define.
+	var coords: Array = _coord_texts(float(cx), float(cy), true)
+	sec.add_child(DccTheme.mono_label(
+		"%s · cell %s" % [coords[0], coords[1]], "text_faint",
+		DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
+	var hero := DccTheme.hero("Ecoregion %d" % int(rec.get("id", 0)))
+	hero.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	hero.tooltip_text = ("Ecoregions are connected components of the biome grid and carry "
+		+ "no name -- wildlife_region_at() returns an id and no name field.")
+	sec.add_child(hero)
+	## `12 neighbouring regions` is dashed: `Ecoregions` holds `region_id` (the
+	## per-cell component map) but `wildlife_region_at()` returns one record and
+	## no adjacency, and nothing in `cartalith-civ` computes region-to-region
+	## neighbours. Counting them would need a new `#[func]` over `region_id`.
+	sec.add_child(DccTheme.mono_label(
+		"%s · %s km² · %d cells · neighbours —" % [
+			String(rec.get("biome_name", "Unknown")),
+			_thousands(float(rec.get("area_km2", 0.0))), int(rec.get("cells", 0))],
+		"text_faint",
+		DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
+	sec.add_child(_soft_rule())
+
+	## Six key/value rows, the artboard's anatomy filled from what the record
+	## actually carries. Four of the six labels it draws have no source and are
+	## dashed with their reason instead of being filled from the region's
+	## centroid cell -- a single cell's temperature is not the region's mean,
+	## and printing one under a `MEAN TEMP` label would be the plausible-looking
+	## wrong number this dock is built to refuse.
+	_field(sec, "Biome", String(rec.get("biome_name", "Unknown")), "", true, false, 92)
+	_field(sec, "Species", "%d" % int(rec.get("richness", 0)),
+		"Species richness: species-area x energy (NPP) x ruggedness x latitude, "
+		+ "cut to the biome's Earth-analogue roster.", true, true, 92)
+	_field(sec, "Productivity", "%d g/m²/yr" % int(round(float(rec.get("npp", 0.0)))),
+		"Net primary productivity, Miami model (Lieth 1975) -- the energy the whole "
+		+ "food web is built on.", true, true, 92)
 	_field(sec, "Ruggedness", "%.3f" % float(rec.get("tri", 0.0)),
-		"Terrain Ruggedness Index (Riley 1999), averaged over the region.")
-	_field(sec, "Water", "%.2f" % float(rec.get("water", 0.0)),
-		"Mean water access across the region: 1 at a river or coast, falling away inland.")
+		"Terrain Ruggedness Index (Riley 1999), averaged over the region.", true, true, 92)
+	_field(sec, "Water access", "%.2f" % float(rec.get("water", 0.0)),
+		"Mean water access across the region: 1 at a river or coast, falling away "
+		+ "inland.", true, true, 92)
 	var meta := "lat %d°" % int(round(float(rec.get("lat_abs", 0.0))))
 	if bool(rec.get("coastal", false)):
 		meta += " · coastal"
 	if bool(rec.get("rugged", false)):
 		meta += " · rugged"
-	DccWidgets.note(sec, meta)
+	_field(sec, "Setting", meta, "", true, true, 92)
+	_field(sec, "Elevation band", "—",
+		"No source: the ecoregion record aggregates NPP, ruggedness, water access and "
+		+ "latitude, not elevation. A band would need a min/max height pass over the "
+		+ "region's cells, which no #[func] exposes.", false, true, 92)
+	_field(sec, "Mean temp", "—",
+		"No source: the ecoregion record carries no climate aggregate. sample_cell() "
+		+ "answers for one cell, and this region spans %s." % (
+			"%d cells" % int(rec.get("cells", 0))), false, true, 92)
+	_field(sec, "Precipitation", "—",
+		"No source, for Mean temp's reason: no per-region climate aggregate exists.",
+		false, true, 92)
+	_field(sec, "Soil · drainage", "—",
+		"No source: soil class and drainage are per-cell fields (see SAMPLE_FIELDS), "
+		+ "and the ecoregion record aggregates neither.", false, true, 92)
+	if String(rec.get("summary", "")) != "":
+		DccWidgets.note(sec, String(rec.get("summary", "")))
 
-	var fauna := DccWidgets.group(sec, "Fauna (population estimate)")
+	_build_wildlife_fauna(sec, rec)
+
+	## FLORA. The artboard draws four plant chips; **there is no flora model**.
+	## `cartalith_civ::wildlife` rosters animals only (`GuildRoster`/`Species`,
+	## `WILD_GUILDS`), and the nearest thing to a plant vocabulary in this shell
+	## is the Paint tool's `vegetation` target (dense/open/sparse/barren), which
+	## is a user-painted cover class, not the region's flora.
+	_caption_row(sec, "flora", "")
+	DccWidgets.note(sec,
+		"No flora roster: cartalith-civ's wildlife model assigns animal guilds and "
+		+ "species only. Productivity above is the plant term it does carry, as an "
+		+ "energy figure rather than a species list.")
+
+## FAUNA, abundance-ranked with micro-bars and an `N more` collapse row
+## (`Wildlife.dc.html`). Flattened across guilds and sorted by
+## `population_est`, which is what "by abundance" can mean here: the record's
+## own per-species estimate. The guild each species belongs to rides along as
+## the trailing label, so flattening loses nothing the grouped list carried.
+##
+## The bar is a share of the **largest population in this region**, stated in
+## every bar's tooltip. It is not a rank, a percentile or a scarcity band --
+## `Species` carries `name`, `mass_kg` and `population_est` and no abundance
+## class, so the artboard's `abundant`/`common`/`scarce` words would be a
+## vocabulary invented here.
+func _build_wildlife_fauna(sec: Control, rec: Dictionary) -> void:
 	var guilds: Array = rec.get("guilds", [])
-	if guilds.is_empty():
-		DccWidgets.note(fauna, "No fauna assigned: this biome has no roster entry that clears its terrain gates.")
-		return
+	var all: Array = []
 	for g in guilds:
 		var d: Dictionary = g
-		_field(fauna, String(d.get("label", "")), "%d%%" % int(float(d.get("biomass_rel", 0.0)) * 100.0),
-			"Share of the region's total animal biomass.")
 		for sp in (d.get("species", []) as Array):
 			var s: Dictionary = sp
-			_field(fauna, "    " + String(s.get("name", "")), "~" + String(s.get("population_text", "")),
-				"%s kg body mass. Population from the region's energy budget (Lindeman 10%% cascade) over Kleiber metabolic demand." % String.num(float(s.get("mass_kg", 0.0)), 2))
+			all.append({
+				"name": String(s.get("name", "")),
+				"pop": float(s.get("population_est", 0.0)),
+				"pop_text": String(s.get("population_text", "")),
+				"mass": float(s.get("mass_kg", 0.0)),
+				"guild": String(d.get("label", "")),
+			})
+	_caption_row(sec, "fauna · %d" % all.size(), "by population")
+	if all.is_empty():
+		DccWidgets.note(sec,
+			"No fauna assigned: this biome has no roster entry that clears its terrain "
+			+ "gates. The region is real and its energy figures above are live -- there "
+			+ "is simply no species list behind them.")
+		return
+	all.sort_custom(func(x, y): return float(x["pop"]) > float(y["pop"]))
+	var top := 0.0
+	for e in all:
+		top = maxf(top, float(e["pop"]))
+
+	const _FAUNA_HEAD := 5
+	var shown: int = all.size() if _wildlife_show_all else mini(_FAUNA_HEAD, all.size())
+	for i in range(shown):
+		_wildlife_species_row(sec, all[i], top)
+	if all.size() > shown:
+		var more := HBoxContainer.new()
+		more.add_theme_constant_override("separation", 9)
+		more.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 22
+		more.mouse_filter = Control.MOUSE_FILTER_STOP
+		more.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		more.tooltip_text = "Show every species in this region's roster."
+		more.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT \
+					and (ev as InputEventMouseButton).pressed:
+				_wildlife_show_all = true
+				_rebuild())
+		sec.add_child(more)
+		var l := DccTheme.mono_label("%s  %d more" % [DccIcons.SYMBOLS["caret"], all.size() - shown],
+			"text_faint", DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_TINY)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		more.add_child(l)
+		more.add_child(DccTheme.mono_label("smallest populations", "text_ghost",
+			DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
+
+func _wildlife_species_row(parent: Control, e: Dictionary, top: float) -> void:
+	var tablet := DccTheme.is_tablet()
+	var small := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
+	var micro := DccTheme.role_px("fs_dock_header") if tablet else DccTheme.FS_MICRO
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 3)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(wrap)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	wrap.add_child(head)
+	var n := DccTheme.mono_label(String(e["name"]), "text_secondary", small)
+	n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	head.add_child(n)
+	head.add_child(DccTheme.mono_label("~%s" % String(e["pop_text"]), "text_dim", micro))
+	var pop := float(e["pop"])
+	_micro_bar(wrap, 0.0 if top <= 0.0 else pop / top,
+		"%s · %s kg body mass · %s of this region's largest population (%s). Population "
+		% [String(e["guild"]), String.num(float(e["mass"]), 2), String(e["pop_text"]),
+			"—" if top <= 0.0 else String.num(pop / top * 100.0, 1) + "%"]
+		+ "from the region's energy budget (Lindeman 10% cascade) over Kleiber "
+		+ "metabolic demand. The bar is that share and not an abundance class -- the "
+		+ "species record carries no such class.")
 
 ## `Number.toLocaleString()` (reference line 8265's own km² formatting).
 func _thousands(v: float) -> String:
@@ -4308,6 +4803,197 @@ func _way_max_grade() -> Array:
 # local to the file that actually needs read-only inspection.
 
 const _FIELD_LABEL_W := 116
+
+# -- Artboard primitives (`design/proposed-2026-09-05`) ----------------------
+#
+# The three contexts the owner approved on 2026-09-05 -- HISTORY
+# (`Main.dc.html`), ECOREGION (`Wildlife.dc.html`) and FACTION ▸ RELATIONS
+# (`Relations.dc.html`) -- share five shapes the rest of this dock did not
+# have: a stack header, a `--ctl` square, a state pip, a micro-bar and a
+# caption/rule row. Built here once rather than three times.
+#
+# **Every colour goes through `DccTheme.c()`; not one hex from the artboard is
+# pasted below.** The mapping was derived from `dcc_theme.gd`'s own `DARK`
+# block, whose entries annotate themselves with the prototype property name
+# (`"bg": Color("#0d0e0f")  ## --sur.`), and confirmed against the palette
+# header's own `--prototype → here` table:
+#
+# | artboard | token | | artboard | token |
+# |---|---|---|---|---|
+# | `--sur` #0d0e0f | `bg` | | `--acc` #e0a34a | `accent` |
+# | `--pan` #121314 | `panel` | | `--accInk` #141005 | `accent_ink` |
+# | `--ins` #191c1e | `sunken` | | `--wash` α.09 | `accent_wash` |
+# | `--ink` #e8ebec | `text_bright` | | `--wash2` α.16 | `accent_wash_2` |
+# | `--body` #c8cbcd | `text` | | `--hair` α.10 | `line` |
+# | `--sec` #a9adb0 | `text_secondary` | | `--div` α.07 | `line_soft` |
+# | `--dim` #8d9296 | `text_dim` | | `--bor` α.16 | `border` |
+# | `--faint` #6f7478 | `text_faint` | | `--good` #6fae7d | `good` |
+# | `--dis` #5f6468 | `text_ghost` | | `--block` #c96a5a | `block` |
+#
+# Metrics likewise: `--m2` 9 is `FS_MICRO`/`fs_dock_header`, `--m1` 10 is
+# `FS_TINY`/`fs_readout`, `--fs` is `FS_SMALL`/`fs_prose`, and `--row`'s drawn
+# `calc(var(--row) - 6px)` = 22 is the figure every `_field()` above already
+# uses. **`--ctl` is the one metric with no `DccTheme` role**: `ROLE`'s own
+# header names it among four `densStr` tokens that "have no row at all"
+# (`--ctl` 24 → 36, `--btnH`/`--row` 28 → 44), and `dcc_theme.gd` is not this
+# lane's file, so the canvas's own pair is carried here.
+const _CTL_PX := [24, 36]
+
+## `cartalith_civ::relations::RELATION_STANCES`, the engine's five words, to
+## the ink each chip draws in.
+##
+## **The band edges are deliberately not here.** `stance_for()` in
+## `crates/cartalith-civ/src/relations.rs` is the single place they live, and
+## `civ_faction_relations()` ships the resulting word beside the score in the
+## same dictionary -- so the chip cannot drift out of sync with the number it
+## sits next to, which is the design's own reason for the shape. Copying the
+## thresholds into GDScript would create the second source of truth the design
+## exists to avoid.
+const STANCE_INK := {
+	"allied": "good", "friendly": "accent", "neutral": "text_dim",
+	"wary": "text_dim", "hostile": "block",
+}
+
+func _ctl_px() -> int:
+	return int(_CTL_PX[1] if DccTheme.is_tablet() else _CTL_PX[0])
+
+## The artboard's `.rule` is `1px var(--div)`; `DccTheme.rule()` draws `--hair`
+## (`line`), which is the heavier *region* separator. Both exist in the
+## prototype and this is the lighter one.
+func _soft_rule() -> Control:
+	var r := ColorRect.new()
+	r.color = DccTheme.c("line_soft")
+	r.custom_minimum_size = Vector2(0, 1)
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return r
+
+## `.cap` — uppercase Plex tracked `.2em`, `var(--faint)`.
+func _cap(text: String) -> Label:
+	return DccTheme.mono_label(text.to_upper(), "text_faint",
+		DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO,
+		2, true)
+
+## The caption ▸ rule ▸ trailing-note row all three artboards use to open a
+## sub-section (`FAUNA · 17 —————— by abundance`). `trailing` may be empty.
+func _caption_row(parent: Control, cap_text: String, trailing: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.custom_minimum_size.y = DccTheme.role_px("row_min_h") if DccTheme.is_tablet() else 22
+	row.add_child(_cap(cap_text))
+	row.add_child(_soft_rule())
+	if trailing != "":
+		row.add_child(DccTheme.mono_label(trailing, "text_ghost",
+			DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
+	parent.add_child(row)
+
+## `05-right-dock-and-bars.md` §1.7's header, which the approved HISTORY
+## artboard is deliberately the twin of: count, literal label, spacer, undo and
+## redo `--ctl` squares, closed by a `--div` rule.
+##
+## The count is `DccTheme.hero2()` rather than a literal font size. §1.7 draws
+## it at 20 px and **no `ROLE` row carries 20**; `fs_hero_2` (22 / 26) is the
+## nearest token and its own doc names exactly this case -- "the second,
+## smaller accent readout … inside a dock rather than at the top of one".
+func _stack_head(parent: Control, count_text: String, cap_text: String,
+		on_undo: Callable, on_redo: Callable, can_undo: bool, can_redo: bool) -> void:
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 6)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(head)
+	head.add_child(DccTheme.hero2(count_text))
+	head.add_child(_cap(cap_text))
+	var sp := Control.new()
+	sp.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(sp)
+	head.add_child(_ctl_square(DccIcons.SYMBOLS["undo"], on_undo, can_undo,
+		"Undo the newest step." if can_undo else "Nothing to undo."))
+	head.add_child(_ctl_square(DccIcons.SYMBOLS["redo"], on_redo, can_redo,
+		"Redo the step the cursor last stepped off." if can_redo
+		else "Nothing to redo — the tail is empty, or a new operation dropped it."))
+	parent.add_child(_soft_rule())
+
+## §1.7's `var(--ctl)` square: `background:var(--ins)`, radius 8,
+## `color:var(--sec)`.
+func _ctl_square(glyph: String, on_press: Callable, enabled: bool, tip: String) -> Button:
+	var b := Button.new()
+	b.text = glyph
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.disabled = not enabled
+	b.tooltip_text = tip
+	b.custom_minimum_size = Vector2(_ctl_px(), _ctl_px())
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size",
+		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_SMALL)
+	b.add_theme_color_override("font_color", DccTheme.c("text_secondary"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var rest := DccTheme.flat(DccTheme.c("sunken"), 8)
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("disabled", rest)
+	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash_2"), 8))
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent_wash"), 8))
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	return b
+
+## The 7 px state dot: filled above the boundary, hollow below (`Main.dc.html`).
+func _pip(filled: bool, token: String) -> Control:
+	var p := Panel.new()
+	p.custom_minimum_size = Vector2(7, 7)
+	p.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.set_corner_radius_all(4)
+	if filled:
+		sb.bg_color = DccTheme.c(token)
+	else:
+		sb.bg_color = Color(0, 0, 0, 0)
+		sb.border_color = DccTheme.c(token)
+		sb.set_border_width_all(1)
+	p.add_theme_stylebox_override("panel", sb)
+	return p
+
+## `.bar` — a 4 px `var(--ins)` track with an accent fill. `frac` is clamped,
+## and `tip` must say what the fraction is *of*: a bar with no stated
+## denominator is a shape, not a reading.
+func _micro_bar(parent: Control, frac: float, tip: String) -> void:
+	var track := Panel.new()
+	track.custom_minimum_size.y = 4
+	track.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	track.tooltip_text = tip
+	track.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("sunken"), 2))
+	var fill := Panel.new()
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fill.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("accent"), 2))
+	fill.anchor_right = clampf(frac, 0.0, 1.0)
+	fill.anchor_bottom = 1.0
+	track.add_child(fill)
+	parent.add_child(track)
+
+## The stance pill. Word from the engine, ink from `STANCE_INK`, background a
+## .16 wash of that same ink -- except `text_dim`, whose wash would be
+## invisible and which the artboard draws on `var(--ins)` instead.
+func _stance_chip(parent: Control, stance: String) -> Label:
+	var ink := String(STANCE_INK.get(stance, "text_dim"))
+	var bg := DccTheme.c("sunken")
+	if ink == "accent":
+		bg = DccTheme.c("accent_wash_2")
+	elif ink != "text_dim":
+		bg = Color(DccTheme.c(ink), 0.16)
+	var l := DccTheme.mono_label(stance.to_upper(), ink,
+		DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO, 1)
+	var sb := DccTheme.flat(bg, 999)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	l.add_theme_stylebox_override("normal", sb)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	parent.add_child(l)
+	return l
 
 ## **The pane's width is an input, never an output.** A Godot `Label` with no
 ## trimming reports its own text width as its *minimum* width, and that number
